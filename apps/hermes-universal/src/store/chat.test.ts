@@ -45,7 +45,7 @@ describe('chat reducer (parts model)', () => {
     handleGatewayEvent(ev('reasoning.delta', { text: 'hmm' }))
     handleGatewayEvent(ev('tool.start', { name: 'grep', tool_id: 't1', args: { q: 'x' } }))
     handleGatewayEvent(ev('tool.complete', { tool_id: 't1', result: 'done' }))
-    handleGatewayEvent(ev('message.complete', {}))
+    handleGatewayEvent(ev('message.complete', { text: 'Hello' }))
 
     const msgs = $messages.get()
     expect(msgs).toHaveLength(1)
@@ -78,6 +78,49 @@ describe('chat reducer (parts model)', () => {
     const reasoning = $messages.get()[0].parts.filter(p => p.type === 'reasoning')
     expect(reasoning).toHaveLength(1)
     expect(reasoning[0]).toMatchObject({ text: 'final' })
+  })
+
+  it('lands the completion text when the reply never streamed as message.delta', () => {
+    // Providers that only stream their reasoning channel deliver the answer
+    // whole on message.complete. Without this the transcript showed the reply
+    // inside a "Thinking" block and no prose until the chat was reloaded.
+    handleGatewayEvent(ev('message.start', {}))
+    handleGatewayEvent(ev('reasoning.delta', { text: 'The answer is 42.' }))
+    handleGatewayEvent(ev('message.complete', { text: 'The answer is 42.' }))
+
+    const parts = $messages.get()[0].parts
+    expect(parts.filter(p => p.type === 'reasoning')).toHaveLength(0)
+    expect(parts.filter(p => p.type === 'text')).toMatchObject([{ text: 'The answer is 42.' }])
+  })
+
+  it('keeps genuine reasoning and completes a truncated stream in place', () => {
+    handleGatewayEvent(ev('message.start', {}))
+    handleGatewayEvent(ev('reasoning.delta', { text: 'let me count' }))
+    handleGatewayEvent(ev('message.delta', { text: 'The answer ' }))
+    handleGatewayEvent(ev('message.complete', { text: 'The answer is 42.' }))
+
+    const parts = $messages.get()[0].parts
+    expect(parts.filter(p => p.type === 'reasoning')).toMatchObject([{ text: 'let me count' }])
+    expect(parts.filter(p => p.type === 'text')).toMatchObject([{ text: 'The answer is 42.' }])
+  })
+
+  it('keeps the streamed partial when an interrupted turn completes with no text', () => {
+    handleGatewayEvent(ev('message.start', {}))
+    handleGatewayEvent(ev('message.delta', { text: 'half a th' }))
+    handleGatewayEvent(ev('message.complete', { text: '' }))
+
+    const message = $messages.get()[0]
+    expect(message.pending).toBe(false)
+    expect(message.parts).toMatchObject([{ type: 'text', text: 'half a th' }])
+  })
+
+  it('surfaces a provider failure delivered as completion text as an inline error', () => {
+    handleGatewayEvent(ev('message.start', {}))
+    handleGatewayEvent(ev('message.complete', { text: 'API call failed after 3 retries: overloaded' }))
+
+    const message = $messages.get()[0]
+    expect(message.error).toBe('API call failed after 3 retries: overloaded')
+    expect(message.parts.filter(p => p.type === 'text')).toHaveLength(0)
   })
 
   it('routes approval / clarify / sudo / secret to their atoms with request_id', () => {

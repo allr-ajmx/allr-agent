@@ -345,6 +345,114 @@ export function applySettledReasoning(parts: ChatPart[], text: string): ChatPart
   return [...parts, { type: 'reasoning', text }]
 }
 
+// Gateway/provider failures sometimes arrive as `message.complete` text instead
+// of an `error` event. Treat matches as inline assistant errors (desktop
+// use-message-stream/utils.ts `completionErrorText`).
+const COMPLETION_ERROR_PATTERNS = [
+  /^API call failed after \d+ retries:/i,
+  /^HTTP\s+\d{3}\b/i,
+  /^(Provider|Gateway)\s+error:/i
+]
+
+function completionErrorText(finalText: string): null | string {
+  return finalText && COMPLETION_ERROR_PATTERNS.some(re => re.test(finalText)) ? finalText : null
+}
+
+const normalizeForCompare = (value: string): string => value.replace(/\s+/g, ' ').trim()
+
+/** Concatenated text parts. Local (not lib/chat-messages) to keep this module
+ *  importable from there without a runtime cycle. */
+const messageText = (message: ChatMessage): string =>
+  message.parts.map(part => (part.type === 'text' ? part.text : '')).join('')
+
+/**
+ * Settle a turn's parts against the authoritative `final_response` the gateway
+ * ships on `message.complete` (tui_gateway/server.py).
+ *
+ * The reply does NOT always arrive as `message.delta`: providers that only
+ * stream their reasoning channel deliver the answer whole at the end, so the
+ * live transcript showed the response inside a "Thinking" disclosure and no
+ * prose at all — correct only after a reload, which re-reads the stored
+ * transcript. Desktop settles this in `completeAssistantMessage`; universal
+ * never applied the final text.
+ *
+ * Divergence from desktop, both deliberate: desktop replaces *every* text part
+ * with one final part appended at the end, which reorders tool-interleaved
+ * prose and drops it entirely when the completion carries no text (an
+ * interrupted turn's partial). Here the final text only lands where it can't
+ * lose anything — no text part yet, or exactly one to overwrite in place.
+ */
+function finalizeParts(parts: ChatPart[], finalText: string): ChatPart[] {
+  const reference = normalizeForCompare(finalText)
+
+  // Drop a thinking block that IS the answer (the streamed-as-reasoning case).
+  // Prefix either way: the reasoning channel may carry a capped prefix, or the
+  // full text the gateway then repeats verbatim.
+  const kept = parts.filter(part => {
+    if (part.type !== 'reasoning') {
+      return true
+    }
+
+    const text = normalizeForCompare(part.text)
+
+    return !(text && (reference.startsWith(text) || text.startsWith(reference)))
+  })
+
+  const textIndexes = kept.reduce<number[]>((acc, part, index) => (part.type === 'text' ? [...acc, index] : acc), [])
+
+  if (textIndexes.length === 0) {
+    return [...kept, { type: 'text', text: finalText }]
+  }
+
+  // One text part = one streamed answer: overwrite in place so the final text
+  // completes a truncated stream without moving it past the tool rows.
+  if (textIndexes.length === 1) {
+    const copy = kept.slice()
+    copy[textIndexes[0]] = { type: 'text', text: finalText }
+
+    return copy
+  }
+
+  // Tool-interleaved prose: the completion text maps to one of several parts and
+  // we can't tell which, so leave the streamed transcript alone.
+  return kept
+}
+
+function applyCompletion(messages: ChatMessage[], finalText: string): ChatMessage[] {
+  const error = completionErrorText(finalText)
+
+  const settle = (message: ChatMessage): ChatMessage =>
+    error
+      ? { ...message, error, parts: message.parts.filter(part => part.type !== 'text'), pending: false }
+      : { ...message, parts: finalizeParts(message.parts, finalText), pending: false }
+
+  // An empty completion carries no authority (an interrupted turn reports no
+  // final response) — settle whatever streamed instead of erasing it.
+  if (!finalText) {
+    return messages.map(message => (message.pending ? { ...message, pending: false } : message))
+  }
+
+  let index = -1
+
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === 'assistant') {
+      index = i
+
+      break
+    }
+  }
+
+  const existing = index === -1 ? null : messages[index]
+
+  // A settled assistant that already says exactly this is the same turn arriving
+  // twice (a trailing completion); anything else is a new reply with no bubble.
+  if (existing && (existing.pending || messageText(existing).trim() === finalText)) {
+    return messages.map((message, i) => (i === index ? settle(message) : message))
+  }
+
+  return [...messages, settle(newAssistant())]
+}
+
 // Route a tool event into the transcript. While a turn is live the parts land on
 // the pending assistant; a LATE event (one that arrives after message.complete —
 // a trailing completion, a sub-agent mirror) must merge into the last assistant
@@ -497,7 +605,11 @@ export function handleGatewayEvent(event: GatewayEvent): void {
       $statusLine.set('')
       setPetActivity({ busy: false, reasoning: false, toolRunning: false }) // pet: back to idle/roam
       void refreshCurrentUsage()
-      update(messages => messages.map(m => (m.pending ? { ...m, pending: false } : m)))
+      // `text` is the turn's final_response; `rendered` is its ANSI/markdown
+      // render (desktop reads the same pair).
+      update(messages =>
+        applyCompletion(messages, (coerceText(payload.text) || coerceText(payload.rendered)).trim())
+      )
 
       // Auto-TTS is driven by `useAutoSpeakReplies` (guarded against a running
       // voice conversation + the shared dedupe cursor). Reading it here too would
