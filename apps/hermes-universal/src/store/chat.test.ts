@@ -19,6 +19,7 @@ import {
   $sudo,
   handleGatewayEvent,
   resetChat,
+  respondClarify,
   respondSudo
 } from './chat'
 
@@ -73,12 +74,44 @@ describe('chat reducer (parts model)', () => {
   it('routes approval / clarify / sudo / secret to their atoms with request_id', () => {
     handleGatewayEvent(ev('approval.request', { command: 'rm', description: 'danger' }))
     expect($approval.get()).toMatchObject({ command: 'rm', description: 'danger' })
-    handleGatewayEvent(ev('clarify.request', { request_id: 'c1', prompt: 'which file?' }))
-    expect($clarify.get()).toMatchObject({ requestId: 'c1', prompt: 'which file?' })
+    // The gateway sends `question` + `choices` (tui_gateway/server.py `_agent_cbs`),
+    // NOT `prompt` — reading the wrong key left the inline panel with no question.
+    handleGatewayEvent(ev('clarify.request', { request_id: 'c1', question: 'which file?', choices: ['a.ts', 'b.ts'] }))
+    expect($clarify.get()).toMatchObject({ requestId: 'c1', question: 'which file?', choices: ['a.ts', 'b.ts'] })
     handleGatewayEvent(ev('sudo.request', { request_id: 's1', prompt: 'password?' }))
     expect($sudo.get()).toMatchObject({ requestId: 's1', prompt: 'password?' })
     handleGatewayEvent(ev('secret.request', { request_id: 'x1', env_var: 'API_KEY', prompt: 'key?' }))
     expect($secret.get()).toMatchObject({ requestId: 'x1', envVar: 'API_KEY' })
+  })
+
+  it('keeps an open-ended clarify (no choices) and ignores one with no question', () => {
+    handleGatewayEvent(ev('clarify.request', { request_id: 'c2', question: 'anything else?' }))
+    expect($clarify.get()).toMatchObject({ requestId: 'c2', question: 'anything else?', choices: null })
+    // A malformed request must not clobber the live one — the agent is blocked
+    // on the first, and a questionless panel is unanswerable.
+    handleGatewayEvent(ev('clarify.request', { request_id: 'c3' }))
+    expect($clarify.get()).toMatchObject({ requestId: 'c2' })
+  })
+
+  it('carries the approval choice restrictions through to the atom', () => {
+    handleGatewayEvent(
+      ev('approval.request', { command: 'rm -rf /', choices: ['once', 'deny'], smart_denied: true })
+    )
+    expect($approval.get()).toMatchObject({ choices: ['once', 'deny'], smartDenied: true })
+  })
+
+  it('respondClarify posts clarify.respond with the request_id + answer and clears the atom', async () => {
+    handleGatewayEvent(ev('clarify.request', { request_id: 'c9', question: 'which?', choices: ['x'] }))
+    await respondClarify('x')
+    expect(requestGateway).toHaveBeenCalledWith('clarify.respond', { request_id: 'c9', answer: 'x' })
+    expect($clarify.get()).toBeNull()
+  })
+
+  it('keeps the clarify request pending when the send fails', async () => {
+    handleGatewayEvent(ev('clarify.request', { request_id: 'c10', question: 'which?', choices: ['x'] }))
+    vi.mocked(requestGateway).mockRejectedValueOnce(new Error('offline'))
+    await expect(respondClarify('x')).rejects.toThrow('offline')
+    expect($clarify.get()).toMatchObject({ requestId: 'c10' })
   })
 
   it('respondSudo posts sudo.respond with the request_id + password and clears the atom', async () => {

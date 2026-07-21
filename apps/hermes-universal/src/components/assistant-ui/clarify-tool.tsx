@@ -22,21 +22,19 @@ import { triggerHaptic } from '@/lib/haptics'
 import { CircleLetterA, Loader2, MessageQuestion } from '@/lib/icons'
 import { cn } from '@/lib/utils'
 import { $clarify, respondClarify } from '@/store/chat'
+import { notifyError } from '@/store/notifications'
 
 import { selectMessageRunning } from './tool/fallback-model'
 import { parseMaybeObject } from './tool/fallback-model/format'
 
 // Ported from apps/desktop/src/components/assistant-ui/clarify-tool.tsx.
 //
-// FLAG(chat-port): universal delivers a clarify prompt as a `clarify.request`
-// gateway event → `$clarify` footer bar, NOT as a `clarify` tool-call part. So
-// the LIVE branch of this component is effectively dead code in universal (the
-// footer `ClarifyBar` owns interactive clarify). It's ported anyway — harmless —
-// and the SETTLED branch (rendering a completed Q&A from a `clarify` tool
-// result) still works if the gateway ever surfaces one. The live path is wired
-// to universal's global `$clarify` / `respondClarify` rather than desktop's
-// per-session store, and universal's `$clarify` carries no choice list, so
-// choices come from the tool args alone.
+// This inline panel is the ONLY interactive clarify surface (same as desktop —
+// there is no footer bar). Question and choices come from the `clarify.request`
+// gateway event parked in `$clarify`, because `tool.start` carries no args; the
+// tool args are only a fallback (they land with `tool.complete`). Universal
+// tracks a single active session, so it reads the global atom rather than
+// desktop's per-session clarify store.
 
 interface ClarifyArgs {
   question?: string
@@ -197,8 +195,27 @@ function ClarifyToolPending({ args }: ToolCallMessagePartProps) {
   const request = useStore($clarify)
   const fromArgs = useMemo(() => readClarifyArgs(args), [args])
 
-  const question = fromArgs.question || request?.prompt || ''
-  const choices = useMemo(() => fromArgs.choices ?? [], [fromArgs.choices])
+  const matchingRequest = useMemo(() => {
+    if (!request) {
+      return null
+    }
+
+    if (fromArgs.question && request.question && fromArgs.question !== request.question) {
+      return null
+    }
+
+    return request
+  }, [fromArgs.question, request])
+
+  // The store leads: `tool.start` ships no args, so `clarify.request` is the only
+  // source for the question + choices until the tool completes.
+  const question = matchingRequest?.question || fromArgs.question || ''
+
+  const choices = useMemo(
+    () => matchingRequest?.choices ?? fromArgs.choices ?? [],
+    [fromArgs.choices, matchingRequest?.choices]
+  )
+
   const hasChoices = choices.length > 0
 
   const [draft, setDraft] = useState('')
@@ -207,17 +224,34 @@ function ClarifyToolPending({ args }: ToolCallMessagePartProps) {
   const [otherFocused, setOtherFocused] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
 
-  const respond = useCallback(async (answer: string) => {
-    setSubmitting(true)
+  // Race: tool.start fires a tick before clarify.request, so request_id
+  // arrives slightly after the tool block mounts. Hold the whole panel on a
+  // spinner until the gateway request is wired — showing disabled choices or
+  // a "loading question" stub is worse than a brief wait.
+  const ready = Boolean(matchingRequest?.requestId)
+  const loading = !ready && !submitting
 
-    try {
-      await respondClarify(answer)
-      void triggerHaptic('submit')
-      // tool.complete lands next → ClarifyToolSettled.
-    } finally {
-      setSubmitting(false)
-    }
-  }, [])
+  const respond = useCallback(
+    async (answer: string) => {
+      if (!ready) {
+        notifyError(new Error(copy.notReady), copy.sendFailed)
+
+        return
+      }
+
+      setSubmitting(true)
+
+      try {
+        await respondClarify(answer)
+        void triggerHaptic('submit')
+        // tool.complete lands next → ClarifyToolSettled.
+      } catch (error) {
+        notifyError(error, copy.sendFailed)
+        setSubmitting(false)
+      }
+    },
+    [copy.notReady, copy.sendFailed, ready]
+  )
 
   const trimmedDraft = draft.trim()
   const pendingAnswer = selectedChoice ?? (trimmedDraft || null)
@@ -262,7 +296,7 @@ function ClarifyToolPending({ args }: ToolCallMessagePartProps) {
   )
 
   useEffect(() => {
-    if (!hasChoices || submitting) {
+    if (!ready || !hasChoices || submitting) {
       return
     }
 
@@ -302,9 +336,9 @@ function ClarifyToolPending({ args }: ToolCallMessagePartProps) {
     window.addEventListener('keydown', onKeyDown)
 
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [choices, hasChoices, pendingAnswer, selectChoice, submitAnswer, submitting])
+  }, [choices, hasChoices, pendingAnswer, ready, selectChoice, submitAnswer, submitting])
 
-  if (!question) {
+  if (loading) {
     return (
       <ClarifyShell
         aria-label={copy.loadingQuestion}

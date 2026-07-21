@@ -59,10 +59,19 @@ export interface ApprovalRequest {
   command: string
   description: string
   allowPermanent: boolean
+  // Gateway-restricted choice set (e.g. a tirith warning drops `always`), and the
+  // smart-deny flag that implies `['once', 'deny']`. Both optional — the backend
+  // omits them on a plain approval. Mirrors desktop's ApprovalRequest.
+  choices?: string[]
+  smartDenied?: boolean
 }
 export interface ClarifyRequest {
   requestId: string
-  prompt: string
+  question: string
+  // Up to 4 predefined answers (tools/clarify_tool.py); null for an open-ended
+  // question. The inline ClarifyTool reads BOTH fields from here — `tool.start`
+  // ships no args, so the event payload is the only source for the panel.
+  choices: string[] | null
 }
 // Sudo is a password-entry flow (not an allow/deny choice).
 export interface SudoRequest {
@@ -182,6 +191,15 @@ export function coerceText(value: unknown): string {
   }
 
   return ''
+}
+
+/** A payload's string list (clarify / approval `choices`), or null when absent. */
+function coerceStringList(value: unknown): string[] | null {
+  if (!Array.isArray(value)) {
+    return null
+  }
+
+  return value.filter((item): item is string => typeof item === 'string')
 }
 
 function update(fn: (messages: ChatMessage[]) => ChatMessage[]): void {
@@ -504,7 +522,10 @@ export function handleGatewayEvent(event: GatewayEvent): void {
       $approval.set({
         command: coerceText(payload.command),
         description: coerceText(payload.description) || 'dangerous command',
-        allowPermanent: payload.allow_permanent !== false
+        // false only when a tirith warning forbids it; backend omits the field otherwise.
+        allowPermanent: payload.allow_permanent !== false,
+        choices: coerceStringList(payload.choices) ?? undefined,
+        smartDenied: payload.smart_denied === true
       })
       setPetActivity({ awaitingInput: true }) // pet: waiting pose (blocked on user)
       void triggerHaptic('warning')
@@ -516,15 +537,28 @@ export function handleGatewayEvent(event: GatewayEvent): void {
       })
 
       break
+    case 'clarify.request': {
+      // The Python side is blocked on `clarify.respond` (tools/clarify_tool.py +
+      // tui_gateway/server.py `_block`), so dropping this event hangs the agent
+      // until its timeout. The gateway sends `question` + `choices` — NOT
+      // `prompt`; the other keys are tolerated only as a fallback.
+      const requestId = coerceText(payload.request_id)
+      const question = coerceText(payload.question) || coerceText(payload.prompt) || coerceText(payload.message)
 
-    case 'clarify.request':
-      $clarify.set({
-        requestId: coerceText(payload.request_id),
-        prompt: coerceText(payload.prompt) || coerceText(payload.message)
-      })
-      setPetActivity({ awaitingInput: true }) // pet: waiting pose (blocked on user)
+      if (requestId && question) {
+        $clarify.set({ requestId, question, choices: coerceStringList(payload.choices) })
+        setPetActivity({ awaitingInput: true }) // pet: waiting pose (blocked on user)
+        void triggerHaptic('warning')
+        dispatchNativeNotification({
+          kind: 'input',
+          title: translateNow('notifications.native.inputTitle'),
+          body: question,
+          sessionId: $sessionId.get()
+        })
+      }
 
       break
+    }
 
     case 'sudo.request':
       $sudo.set({
@@ -706,19 +740,24 @@ export async function respondApproval(choice: ApprovalChoice): Promise<void> {
   }
 }
 
+/** Answer the pending clarify. Unlike the other prompt responders this does NOT
+ *  clear optimistically: the inline panel keeps the question on screen and
+ *  surfaces the error if the send fails, so the user can retry instead of losing
+ *  the (still-blocked) prompt. Throws on failure. */
 export async function respondClarify(answer: string): Promise<void> {
   const req = $clarify.get()
-  $clarify.set(null)
-  setPetActivity({ awaitingInput: false })
 
   if (!req) {
     return
   }
 
-  try {
-    await requestGateway('clarify.respond', { request_id: req.requestId, answer })
-  } catch {
-    /* turn may have moved on */
+  await requestGateway('clarify.respond', { request_id: req.requestId, answer })
+
+  // Only drop the request once the gateway has it; `tool.complete` lands next
+  // and swaps the inline panel to its settled Q&A view.
+  if ($clarify.get()?.requestId === req.requestId) {
+    $clarify.set(null)
+    setPetActivity({ awaitingInput: false })
   }
 }
 
