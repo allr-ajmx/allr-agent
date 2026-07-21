@@ -23,6 +23,7 @@ import {
   setPetEnabled,
   setPetScale
 } from '@/store/pet-gallery'
+import { $petGenOpen } from '@/store/pet-generate'
 
 import { PetGenerateSheet } from './pet-generate-sheet'
 import { PetThumb } from './pet-thumb'
@@ -48,7 +49,10 @@ export function PetPanel() {
   const busy = useStore($petBusy)
   const petInfo = useStore($petInfo)
   const roam = useStore($petRoam)
-  const [generateOpen, setGenerateOpen] = useState(false)
+  // Sheet open state lives in the store so `/hatch` can open it from the slash
+  // dispatcher (which routes here first — the sheet only mounts on this page).
+  const generateOpen = useStore($petGenOpen)
+  const setGenerateOpen = (open: boolean) => $petGenOpen.set(open)
   const gatewayState = useStore($gatewayState)
   const [query, setQuery] = useState('')
   const [cap, setCap] = useState(RENDER_CAP)

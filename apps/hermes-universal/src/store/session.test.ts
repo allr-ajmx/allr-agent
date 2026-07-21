@@ -19,6 +19,7 @@ import {
   $activeStoredSessionId,
   $sessions,
   $sessionsTotal,
+  branchCurrentSession,
   deleteSessionLocal,
   openSession,
   renameSessionLocal
@@ -201,5 +202,81 @@ describe('openSession transcript source', () => {
 
     expect($sessionId.get()).toBe('runtime-new')
     expect($activeStoredSessionId.get()).toBe('stored-new')
+  })
+})
+
+describe('branchCurrentSession', () => {
+  const seedThread = () => {
+    $sessionId.set('runtime-1')
+    $activeStoredSessionId.set('stored-1')
+    $messages.set([
+      { id: 'm1', role: 'user', parts: [{ type: 'text', text: 'first' }] },
+      { id: 'm2', role: 'assistant', parts: [{ type: 'text', text: 'answer' }] }
+    ])
+  }
+
+  it('forks the last turn into a new session and opens it', async () => {
+    seedThread()
+    vi.mocked(requestGateway).mockResolvedValue({ session_id: 'runtime-2', stored_session_id: 'stored-2' } as never)
+
+    await expect(branchCurrentSession()).resolves.toBe(true)
+
+    expect(requestGateway).toHaveBeenCalledWith(
+      'session.create',
+      expect.objectContaining({
+        messages: [{ content: 'answer', role: 'assistant' }],
+        parent_session_id: 'stored-1'
+      })
+    )
+    expect($sessionId.get()).toBe('runtime-2')
+    expect($activeStoredSessionId.get()).toBe('stored-2')
+    expect($messages.get().map(m => m.id)).toEqual(['m2'])
+    expect($sessions.get()[0].parent_session_id).toBe('stored-1')
+  })
+
+  it('forks from a specific message when given its id', async () => {
+    seedThread()
+    vi.mocked(requestGateway).mockResolvedValue({ session_id: 'runtime-2' } as never)
+
+    await branchCurrentSession('m1')
+
+    expect(requestGateway).toHaveBeenCalledWith(
+      'session.create',
+      expect.objectContaining({ messages: [{ content: 'first', role: 'user' }] })
+    )
+  })
+
+  it('refuses without a session, while busy, or with nothing to copy', async () => {
+    $sessionId.set(null)
+    await expect(branchCurrentSession()).resolves.toBe(false)
+
+    seedThread()
+    $busy.set(true)
+    await expect(branchCurrentSession()).resolves.toBe(false)
+    $busy.set(false)
+
+    $messages.set([{ id: 's1', role: 'system', parts: [{ type: 'text', text: 'slash:/help' }] }])
+    await expect(branchCurrentSession()).resolves.toBe(false)
+
+    expect(requestGateway).not.toHaveBeenCalled()
+  })
+
+  // REGRESSION: assistant-ui addresses "branch in new chat" by message id. When
+  // the runtime converter dropped our ids, that id never matched and the branch
+  // silently forked the LAST turn instead of the clicked one.
+  it('refuses an explicit target that is not in the transcript', async () => {
+    seedThread()
+
+    await expect(branchCurrentSession('not-a-real-id')).resolves.toBe(false)
+    expect(requestGateway).not.toHaveBeenCalled()
+  })
+
+  it('reports a failed fork without disturbing the current thread', async () => {
+    seedThread()
+    vi.mocked(requestGateway).mockRejectedValue(new Error('nope'))
+
+    await expect(branchCurrentSession()).resolves.toBe(false)
+    expect($sessionId.get()).toBe('runtime-1')
+    expect($messages.get().map(m => m.id)).toEqual(['m1', 'm2'])
   })
 })

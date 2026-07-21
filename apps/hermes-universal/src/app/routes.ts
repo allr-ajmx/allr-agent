@@ -3,6 +3,8 @@ import { atom } from 'nanostores'
 export const SESSION_ROUTE_PREFIX = '/'
 export const NEW_CHAT_ROUTE = '/'
 export const SETTINGS_ROUTE = '/settings'
+/** Settings drill-in for the pet gallery + generator (`/hatch`, `/pet list`). */
+export const PET_SETTINGS_ROUTE = '/settings/pet'
 export const COMMAND_CENTER_ROUTE = '/command-center'
 export const SKILLS_ROUTE = '/skills'
 export const MESSAGING_ROUTE = '/messaging'

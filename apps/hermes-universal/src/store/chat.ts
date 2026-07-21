@@ -692,6 +692,21 @@ export async function ensureSession(): Promise<{ id: string; storedId: string }>
   return { id, storedId: created.stored_session_id ?? id }
 }
 
+/**
+ * Append a client-side system line to the transcript. Slash output rides this
+ * (wrapped by `slashStatusText` into the `slash:<cmd>` envelope the
+ * SystemMessage chip parses); nothing else emits system messages today.
+ */
+export function appendSystemMessage(text: string): void {
+  const body = text.trim()
+
+  if (!body) {
+    return
+  }
+
+  update(messages => [...messages, { id: nextId(), role: 'system', parts: [{ type: 'text', text: body }] }])
+}
+
 export async function sendPrompt(text: string): Promise<void> {
   const trimmed = text.trim()
 
