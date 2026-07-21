@@ -6,6 +6,7 @@ import { AssistantMessage } from './assistant-message'
 import { ThreadMessageList } from './list'
 import { ResponseLoadingIndicator } from './status'
 import { SystemMessage } from './system-message'
+import { ThreadTimeline } from './timeline'
 import { UserMessage } from './user-message'
 
 // New-conversation empty state — desktop's <Intro>: the auto-fit "HERMES AGENT"
@@ -30,10 +31,12 @@ const LOADING_INDICATOR = <ResponseLoadingIndicator />
 // the latest human message to the top of its turn while the reply streams, and
 // groups each user prompt with the assistant turn(s) that follow it.
 //
-// GATED (blocked on universal's stock external-store runtime): desktop's
-// ThreadTimeline minimap, inline UserEditComposer, and restore-checkpoint
-// ConfirmDialog flow all need the branching/checkpoint runtime — omitted here.
-// The floating scroll-to-bottom button renders in chat-screen.tsx.
+// GATED (blocked on universal's stock external-store runtime): desktop's inline
+// UserEditComposer and restore-checkpoint ConfirmDialog flow both need the
+// branching/checkpoint runtime — omitted here. ThreadTimeline is NOT gated: it
+// only reads s.thread.messages and queries data-message-id, both of which the
+// external-store runtime provides. The floating scroll-to-bottom button renders
+// in chat-screen.tsx.
 export function Thread() {
   return (
     <ThreadPrimitive.Root className="relative flex min-h-0 flex-1 flex-col bg-transparent contain-[layout_paint]">
@@ -43,6 +46,7 @@ export function Thread() {
         emptyPlaceholder={EmptyPlaceholder}
         loadingIndicator={LOADING_INDICATOR}
       />
+      <ThreadTimeline />
     </ThreadPrimitive.Root>
   )
 }
