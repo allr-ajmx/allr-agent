@@ -150,6 +150,11 @@ export function setCurrentCwd(cwd: null | string | undefined): void {
 // Mirrors desktop's session-store $turnStartedAt/$sessionStartedAt/$currentUsage,
 // wired here since chat.ts owns the turn lifecycle. The statusbar reads these for
 // its running-timer, session-timer, and context-usage items.
+// Rotates the empty-state tagline (components/chat/intro.tsx): bumped on every
+// new chat so a fresh thread greets differently. Desktop's $introSeed, set from
+// its new-chat action; universal has one reset path, so it lives with it.
+export const $introSeed = atom<number>(0)
+
 const EMPTY_USAGE: UsageStats = { calls: 0, input: 0, output: 0, total: 0 }
 export const $turnStartedAt = atom<number | null>(null)
 export const $sessionStartedAt = atom<number | null>(null)
@@ -1103,5 +1108,6 @@ export function resetChat(): void {
   $secret.set(null)
   $subagentsBySession.set({})
   setPetActivity({}) // pet: clear any stale activity on chat teardown
+  $introSeed.set($introSeed.get() + 1)
   stopSpeaking()
 }

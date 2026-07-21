@@ -1,11 +1,24 @@
 import { type CSSProperties, useLayoutEffect, useRef, useState } from 'react'
 
+import { useHermesConfigRecord } from '@/app/hooks/use-config-record'
+import { normalize } from '@/lib/text'
+import { useStore } from '@/store/atom'
+import { $introSeed } from '@/store/chat'
+
+import { resolveIntroCopy } from './intro-copy'
+
 const WORDMARK = 'HERMES AGENT'
 
-// The opening message is PINNED — it renders identically every time (no random
-// rotation, no personality variation). Fixed to the neutral "Drop a file…" copy.
-const OPENING_BODY =
-  "Drop a file path, a traceback, or a rough idea. I'll investigate, suggest next steps, and keep things reversible."
+/** `display.personality` from the profile config — the copy set to draw from.
+ *  Mirrors desktop's normalizePersonalityValue (lib/chat-runtime): the neutral
+ *  values collapse to '' so resolveIntroCopy takes the `none` set. */
+function usePersonality(): string {
+  const { data } = useHermesConfigRecord()
+  const display = (data?.display ?? {}) as Record<string, unknown>
+  const value = normalize(typeof display.personality === 'string' ? display.personality : '')
+
+  return !value || value === 'default' || value === 'none' ? '' : value
+}
 
 // Desktop fills the wordmark to its column width with a CSS container-query +
 // trig (tan/atan2) fit that the Linux WebKitGTK webview won't render large. We
@@ -23,6 +36,13 @@ export function Intro() {
   const fillRef = useRef<HTMLDivElement>(null)
   const measureRef = useRef<HTMLSpanElement>(null)
   const [fontPx, setFontPx] = useState(0) // 0 = not measured yet (wordmark hidden)
+  // Desktop's pair: a random seed picked once per mount, plus a counter the
+  // store bumps on every new chat — so the line rotates even if this component
+  // is never unmounted between chats.
+  const [mountSeed] = useState(() => Math.floor(Math.random() * 100_000))
+  const introSeed = useStore($introSeed)
+  const personality = usePersonality()
+  const copy = resolveIntroCopy(personality, mountSeed + introSeed)
 
   useLayoutEffect(() => {
     const fill = fillRef.current
@@ -88,7 +108,7 @@ export function Intro() {
         </div>
 
         <p className="m-0 mx-auto max-w-[34rem] text-center text-[0.875rem] leading-[1.45] tracking-tight text-(--ui-text-tertiary)">
-          {OPENING_BODY}
+          {copy.body}
         </p>
       </div>
 
