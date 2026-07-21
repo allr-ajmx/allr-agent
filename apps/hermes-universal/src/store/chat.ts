@@ -11,7 +11,8 @@ import { atom, computed } from '@/store/atom'
 import { cwdForNewSession } from '@/store/default-project-dir'
 import { requestGateway } from '@/store/gateway'
 import { dispatchNativeNotification } from '@/store/native-notifications'
-import { notifyError } from '@/store/notifications'
+import { clearNotifications, notifyError } from '@/store/notifications'
+import { clearPreviewArtifacts } from '@/store/preview-status'
 import { flashPetActivity, setPetActivity } from '@/store/pet'
 import { $subagentsBySession, upsertSubagent } from '@/store/subagents'
 import { recordToolDiff } from '@/store/tool-diffs'
@@ -725,6 +726,170 @@ export async function sendPrompt(text: string): Promise<void> {
     $statusLine.set(err instanceof Error ? err.message : String(err))
     setPetActivity({ busy: false, reasoning: false, toolRunning: false })
     notifyError(err, 'Message failed to send')
+  }
+}
+
+/** How the transcript should be rewound to re-run an edited prompt. */
+export interface EditPlan {
+  editedMessage: ChatMessage
+  /** The original turn errored before reaching the gateway, so there is nothing
+   *  to truncate — resubmit plainly instead (a truncate would 422). */
+  isFailedTurn: boolean
+  sourceIndex: number
+  text: string
+  truncateOrdinal?: number
+}
+
+/**
+ * Resolve an edit of `sourceId` to `rawText` against the current transcript.
+ * Returns null when the edit is a no-op (same text) or the target isn't a user
+ * turn. Ported from desktop's `planEdit` (use-prompt-actions/rewind.ts).
+ */
+export function planEdit(messages: ChatMessage[], sourceId: string, rawText: string): EditPlan | null {
+  const text = rawText.trim()
+  const sourceIndex = messages.findIndex(message => message.id === sourceId)
+  const source = messages[sourceIndex]
+
+  if (!text || !source || source.role !== 'user') {
+    return null
+  }
+
+  const currentText = source.parts
+    .map(part => (part.type === 'text' ? part.text : ''))
+    .join('')
+    .trim()
+
+  if (currentText === text) {
+    return null
+  }
+
+  const nextMessage = messages[sourceIndex + 1]
+  const isFailedTurn = nextMessage?.role === 'assistant' && Boolean(nextMessage.error)
+
+  // The backend truncates by USER-turn ordinal, so count only the user turns
+  // ahead of this one.
+  const truncateOrdinal = messages.slice(0, sourceIndex).filter(message => message.role === 'user').length
+
+  return {
+    editedMessage: { ...source, parts: [{ type: 'text', text }], error: undefined, pending: false },
+    isFailedTurn,
+    sourceIndex,
+    text,
+    truncateOrdinal: isFailedTurn ? undefined : truncateOrdinal
+  }
+}
+
+const isSessionBusyError = (error: unknown): boolean =>
+  /session busy/i.test(error instanceof Error ? error.message : String(error))
+
+const isStaleTargetError = (error: unknown): boolean =>
+  /no longer in session history|not in session history/i.test(
+    error instanceof Error ? error.message : String(error)
+  )
+
+/**
+ * Rewind a turn: `prompt.submit` with an optional `truncate_before_user_ordinal`
+ * (drops that user turn + everything after). Idle rewinds submit directly —
+ * interrupting an idle agent can leave a stale interrupt flag that cancels the
+ * fresh turn; live turns interrupt first, and a raced "session busy" response
+ * interrupts + retries. Ported from desktop's `runRewindSubmit`.
+ */
+async function runRewindSubmit(
+  sessionId: string,
+  text: string,
+  truncateOrdinal: number | undefined,
+  interruptFirst: boolean
+): Promise<void> {
+  const interrupt = async () => {
+    try {
+      await requestGateway('session.interrupt', { session_id: sessionId })
+    } catch {
+      // Best-effort. The submit path still gates on the gateway state.
+    }
+  }
+
+  const submit = () =>
+    requestGateway(
+      'prompt.submit',
+      {
+        session_id: sessionId,
+        text,
+        ...(truncateOrdinal !== undefined && { truncate_before_user_ordinal: truncateOrdinal })
+      },
+      PROMPT_SUBMIT_TIMEOUT_MS
+    )
+
+  if (interruptFirst) {
+    await interrupt()
+  }
+
+  try {
+    await submit()
+  } catch (err) {
+    if (!isSessionBusyError(err)) {
+      throw err
+    }
+
+    await interrupt()
+    await submit()
+  }
+}
+
+/**
+ * Send an edited prompt: rewind the transcript to that turn and re-run it with
+ * the new text. Optimistically truncates everything after the edited message so
+ * the abandoned replies disappear immediately, and rolls the whole transcript
+ * back if the gateway rejects. Ported from desktop's `editMessage`.
+ */
+export async function submitEditedPrompt(sourceId: string, rawText: string): Promise<void> {
+  const sessionId = $sessionId.get()
+  const messages = $messages.get()
+  const plan = sessionId ? planEdit(messages, sourceId, rawText) : null
+
+  if (!sessionId || !plan) {
+    return
+  }
+
+  // The turns being discarded belong to an abandoned timeline: silence any TTS
+  // reading them, drop their toasts, and clear the preview artifacts they
+  // produced before the re-run repopulates. Desktop also clears todos and
+  // background rows here (use-prompt-actions/index.ts); universal needs neither
+  // — todos are derived from the transcript (lib/todos.ts `latestSessionTodos`),
+  // so the truncation below drops them, and store/composer-status.ts is a
+  // presence-only stub with no background rows to reset.
+  stopSpeaking()
+  clearNotifications()
+  clearPreviewArtifacts(sessionId)
+
+  const wasBusy = $busy.get()
+
+  $messages.set([...messages.slice(0, plan.sourceIndex), plan.editedMessage])
+  $busy.set(true)
+  $turnStartedAt.set(Date.now())
+  $statusLine.set('')
+
+  try {
+    await runRewindSubmit(sessionId, plan.text, plan.truncateOrdinal, wasBusy)
+  } catch (err) {
+    // The target turn moved under us (e.g. auto-compression rotated the
+    // history). We already interrupted, so land the text as a plain resend.
+    if (!plan.isFailedTurn && isStaleTargetError(err)) {
+      try {
+        await runRewindSubmit(sessionId, plan.text, undefined, false)
+
+        return
+      } catch {
+        // Fall through to the rollback below with the original error.
+      }
+    }
+
+    // Restore the pre-edit transcript so the UI matches what's persisted
+    // instead of stranding a partial timeline.
+    $messages.set(messages)
+    $busy.set(false)
+    $turnStartedAt.set(null)
+    $statusLine.set(err instanceof Error ? err.message : String(err))
+    notifyError(err, translateNow('desktop.editFailed'))
   }
 }
 

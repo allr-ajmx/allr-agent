@@ -11,22 +11,31 @@ import { requestGateway } from '@/store/gateway'
 
 import {
   $approval,
+  $busy,
   $clarify,
   $currentCwd,
   $messages,
   $secret,
   $sessionId,
   $sudo,
+  type ChatMessage,
   handleGatewayEvent,
   resetChat,
   respondClarify,
-  respondSudo
+  respondSudo,
+  submitEditedPrompt
 } from './chat'
 
 const ev = (type: string, payload: Record<string, unknown>): GatewayEvent =>
   ({ type, payload }) as unknown as GatewayEvent
 
-beforeEach(() => resetChat())
+const messageText = (message: ChatMessage): string =>
+  message.parts.map(part => (part.type === 'text' ? part.text : '')).join('')
+
+beforeEach(() => {
+  resetChat()
+  vi.mocked(requestGateway).mockReset()
+})
 
 describe('chat reducer (parts model)', () => {
   it('builds text + reasoning + tool parts from a stream', () => {
@@ -251,5 +260,104 @@ describe('reasoning blocks across a multi-step turn', () => {
     handleGatewayEvent(ev('reasoning.delta', { text: "I don't see any current thinking to rewrite" }))
 
     expect(reasoningTexts()).toEqual(['weighing the options'])
+  })
+})
+
+describe('submitEditedPrompt (edit + rewind)', () => {
+  const seedTurns = () => {
+    $sessionId.set('runtime-1')
+    $messages.set([
+      { id: 'u1', role: 'user', parts: [{ type: 'text', text: 'first ask' }] },
+      { id: 'a1', role: 'assistant', parts: [{ type: 'text', text: 'first answer' }] },
+      { id: 'u2', role: 'user', parts: [{ type: 'text', text: 'second ask' }] },
+      { id: 'a2', role: 'assistant', parts: [{ type: 'text', text: 'second answer' }] }
+    ])
+  }
+
+  it('truncates at the edited turn and re-runs it with the new text', async () => {
+    seedTurns()
+    vi.mocked(requestGateway).mockResolvedValue({})
+
+    await submitEditedPrompt('u2', 'second ask, revised')
+
+    expect(requestGateway).toHaveBeenCalledWith(
+      'prompt.submit',
+      // ordinal 1 == the second user turn: it and everything after are dropped.
+      expect.objectContaining({ text: 'second ask, revised', truncate_before_user_ordinal: 1 }),
+      expect.anything()
+    )
+    expect($messages.get().map(m => m.id)).toEqual(['u1', 'a1', 'u2'])
+    expect(messageText($messages.get()[2])).toBe('second ask, revised')
+    expect($busy.get()).toBe(true)
+  })
+
+  it('interrupts the live turn before resubmitting', async () => {
+    seedTurns()
+    $busy.set(true)
+    vi.mocked(requestGateway).mockResolvedValue({})
+
+    await submitEditedPrompt('u1', 'first ask, revised')
+
+    expect(vi.mocked(requestGateway).mock.calls[0][0]).toBe('session.interrupt')
+    expect(vi.mocked(requestGateway).mock.calls[1][0]).toBe('prompt.submit')
+  })
+
+  it('resubmits a failed turn plainly, with no truncate ordinal', async () => {
+    $sessionId.set('runtime-1')
+    $messages.set([
+      { id: 'u1', role: 'user', parts: [{ type: 'text', text: 'ask' }] },
+      { id: 'a1', role: 'assistant', parts: [], error: 'provider exploded' }
+    ])
+    vi.mocked(requestGateway).mockResolvedValue({})
+
+    await submitEditedPrompt('u1', 'ask again')
+
+    expect(vi.mocked(requestGateway).mock.calls[0][1]).not.toHaveProperty('truncate_before_user_ordinal')
+  })
+
+  // REGRESSION: assistant-ui addresses the edit by message id. When the runtime
+  // converter dropped our ids (app/chat/runtime.tsx), `sourceId` was a generated
+  // id that never matched, so Enter after an edit silently did nothing.
+  it('does nothing when the source id is not in the transcript', async () => {
+    seedTurns()
+
+    await submitEditedPrompt('not-a-real-id', 'revised')
+
+    expect(requestGateway).not.toHaveBeenCalled()
+    expect($messages.get()).toHaveLength(4)
+  })
+
+  it('ignores a no-op edit and a non-user target', async () => {
+    seedTurns()
+
+    await submitEditedPrompt('u2', '  second ask  ')
+    await submitEditedPrompt('a1', 'not a prompt')
+
+    expect(requestGateway).not.toHaveBeenCalled()
+    expect($messages.get()).toHaveLength(4)
+  })
+
+  it('restores the original transcript when the gateway rejects', async () => {
+    seedTurns()
+    vi.mocked(requestGateway).mockRejectedValue(new Error('nope'))
+
+    await submitEditedPrompt('u2', 'second ask, revised')
+
+    expect($messages.get().map(m => m.id)).toEqual(['u1', 'a1', 'u2', 'a2'])
+    expect(messageText($messages.get()[2])).toBe('second ask')
+    expect($busy.get()).toBe(false)
+  })
+
+  it('falls back to a plain resend when the truncate target is stale', async () => {
+    seedTurns()
+    vi.mocked(requestGateway)
+      .mockRejectedValueOnce(new Error('turn is no longer in session history'))
+      .mockResolvedValueOnce({})
+
+    await submitEditedPrompt('u2', 'second ask, revised')
+
+    expect(vi.mocked(requestGateway).mock.calls[1][1]).not.toHaveProperty('truncate_before_user_ordinal')
+    // The optimistic truncation stands — the resend did land.
+    expect($messages.get().map(m => m.id)).toEqual(['u1', 'a1', 'u2'])
   })
 })
