@@ -204,7 +204,11 @@ export const UserEditComposer: FC = () => {
           <div
             className={cn(
               USER_BUBBLE_BASE_CLASS,
-              'ui-prompt-input__container relative border-(--ui-stroke-secondary) w-full overflow-y-auto pt-2 ps-3 data-[expanded=true]:min-h-20'
+              // The bubble owns the height cap AND the scroll — the editor inside
+              // grows freely. `overflow-x-hidden` is load-bearing: `overflow-y`
+              // alone would compute overflow-x to `auto` and hand us a stray
+              // horizontal scrollbar.
+              'ui-prompt-input__container relative max-h-48 w-full overflow-x-hidden overflow-y-auto border-(--ui-stroke-secondary) data-[expanded=true]:min-h-20'
             )}
             data-expanded={expanded ? 'true' : undefined}
           >
@@ -213,7 +217,11 @@ export const UserEditComposer: FC = () => {
               autoCapitalize="off"
               autoCorrect="off"
               className={cn(
-                'ui-prompt-input-editor__input max-h-48 resize-none overflow-y-hidden ps-3 pt-0 pr-12 pb-3 text-[length:var(--conversation-text-font-size)] text-foreground/95 outline-none',
+                // Padding comes from the bubble (px-3 py-2); only the send-button
+                // clearance (pr-9, same as the read-only bubble) lives here, so the
+                // text sits at the same x in both modes. Wrap rules match the
+                // docked composer input so long URLs/paths can't force x-overflow.
+                'ui-prompt-input-editor__input resize-none whitespace-pre-wrap break-words [overflow-wrap:anywhere] pr-9 text-[length:var(--conversation-text-font-size)] text-foreground/95 outline-none',
                 'empty:before:content-[attr(data-placeholder)] empty:before:text-muted-foreground/60',
                 '**:data-ref-text:cursor-default',
                 expanded ? 'min-h-16' : 'min-h-[1.25rem]'
