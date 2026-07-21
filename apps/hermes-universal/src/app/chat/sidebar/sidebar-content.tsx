@@ -70,7 +70,7 @@ import type { SessionInfo, SessionSearchResult } from '@/types/hermes'
 
 import { countLabel } from './chrome'
 import { SidebarCronJobsSection } from './cron-jobs-section'
-import { SidebarLoadMoreRow } from './load-more-row'
+import { SidebarLoadMoreButton, SidebarLoadMoreRow } from './load-more-row'
 import { ProjectDialog } from './project-dialog'
 import { type SidebarProjectTree, sortProjectsForOverview } from './projects/model'
 import { ProjectBackRow } from './projects/overview-row'
@@ -364,8 +364,8 @@ export function SidebarScrollBody({ onNavigate }: { onNavigate?: () => void }) {
             }
             footer={
               !grouped && hasMore ? (
-                <div className="flex pt-1">
-                  <SidebarLoadMoreRow loading={sessionsLoading} onClick={() => void loadMoreSessions()} step={0} />
+                <div className="pt-1">
+                  <SidebarLoadMoreButton loading={sessionsLoading} onClick={() => void loadMoreSessions()} step={0} />
                 </div>
               ) : null
             }

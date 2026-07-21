@@ -1,6 +1,6 @@
 import { useSortable } from '@dnd-kit/sortable'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { type FC, useCallback, useRef } from 'react'
+import { type FC, type ReactNode, useCallback, useRef } from 'react'
 
 import { cn } from '@/lib/utils'
 import { sessionPinId } from '@/store/session'
@@ -16,6 +16,8 @@ import { SidebarSessionRow } from './session-row'
 interface VirtualSessionListProps {
   activeSessionId: null | string
   className?: string
+  /** Rendered inside the scroller, below the last row (e.g. the load-more row). */
+  footer?: ReactNode
   sessions: SessionInfo[]
   onArchiveSession: (sessionId: string) => void
   onDeleteSession: (sessionId: string) => void
@@ -32,6 +34,7 @@ const OVERSCAN_ROWS = 12
 export const VirtualSessionList: FC<VirtualSessionListProps> = ({
   activeSessionId,
   className,
+  footer,
   sessions,
   onArchiveSession,
   onDeleteSession,
@@ -101,6 +104,7 @@ export const VirtualSessionList: FC<VirtualSessionListProps> = ({
       <div className="grid gap-px" style={{ paddingBottom: `${paddingBottom}px`, paddingTop: `${paddingTop}px` }}>
         {rows}
       </div>
+      {footer}
     </div>
   )
 }

@@ -220,6 +220,7 @@ export function SidebarSessionsSection(props: SidebarSessionsSectionProps) {
       <VirtualSessionList
         activeSessionId={activeSessionId}
         className={contentClassName}
+        footer={footer}
         onArchiveSession={onArchiveSession}
         onDeleteSession={onDeleteSession}
         onResumeSession={onResumeSession}
@@ -267,7 +268,9 @@ export function SidebarSessionsSection(props: SidebarSessionsSectionProps) {
       {sectionOpen && (
         <div className={resolvedContentClassName}>
           {inner}
-          {footer}
+          {/* Virtualized lists own their scroller, so the footer rides inside it
+              (passed to VirtualSessionList) instead of being pinned below. */}
+          {!flatVirtualized && footer}
         </div>
       )}
     </div>
