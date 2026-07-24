@@ -10,6 +10,7 @@ import { useSessionView } from '@/app/chat/session-view'
 import { SudoBar } from '@/app/chat/sudo-bar'
 import { useFileDrop } from '@/app/chat/use-file-drop'
 import { Thread } from '@/components/assistant-ui/thread/thread'
+import { IS_MOBILE } from '@/lib/platform'
 import { useStore } from '@/store/atom'
 import { $approval, $clarify, $secret, $statusLine, $sudo } from '@/store/chat'
 
@@ -40,8 +41,9 @@ export function ChatScreen() {
       {/* The chat title lives INSIDE the chat area (desktop parity — see
           chat-header.tsx / desktop's in-pane ChatHeader), so it tracks the chat
           pane when the left sidebar opens and is absent on non-chat views. On
-          mobile it also carries the sidebar-drawer trigger. */}
-      <ChatHeader />
+          mobile the layout is fixed and the title sits in the top bar instead
+          (MobileTopBar → ChatTitle), so the header row stands down. */}
+      {!IS_MOBILE && <ChatHeader />}
 
       {/* The runtime hosts the streaming thread AND the composer, so the
           composer's ComposerPrimitive.Input / trigger popover have runtime
