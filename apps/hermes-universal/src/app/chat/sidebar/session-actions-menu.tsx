@@ -16,8 +16,11 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Input } from '@/components/ui/input'
 import { useI18n } from '@/i18n'
 import { triggerHaptic } from '@/lib/haptics'
+import { IS_MOBILE } from '@/lib/platform'
+import { useStore } from '@/store/atom'
+import { addBubble } from '@/store/chat-bubbles'
 import { notify, notifyError } from '@/store/notifications'
-import { renameSessionLocal } from '@/store/session'
+import { $activeStoredSessionId, renameSessionLocal } from '@/store/session'
 import { openSessionTile } from '@/store/session-states'
 
 // Row action set (ported/adapted from desktop `session-actions-menu.tsx`).
@@ -69,7 +72,12 @@ function useSessionActions({
 }: SessionActions) {
   const { t } = useI18n()
   const r = t.sidebar.row
+  const activeStoredId = useStore($activeStoredSessionId)
   const [renameOpen, setRenameOpen] = useState(false)
+
+  // "Open in bubble" (mobile) / "Open in tile" (desktop) is meaningless for the
+  // session already loaded in the workspace — hide it there.
+  const isActiveSession = Boolean(sessionId) && sessionId === activeStoredId
 
   const specs: ItemSpec[] = [
     {
@@ -89,17 +97,27 @@ function useSessionActions({
         void navigator.clipboard?.writeText(sessionId).catch(err => notifyError(err, r.copyIdFailed))
       }
     },
-    {
-      disabled: !sessionId,
-      icon: 'split-horizontal',
-      label: r.openInTile,
-      onSelect: () => {
-        void triggerHaptic('selection')
-        // Open this conversation side-by-side with the main thread as a layout
-        // tile. No-ops when it's the session already loaded in the workspace.
-        openSessionTile(sessionId, 'right')
-      }
-    },
+    // Open this conversation ALONGSIDE the main thread — a mobile "bubble" (a
+    // parallel chat in the composer strip) or a desktop layout tile. Omitted for
+    // the active session (it's already on screen).
+    ...(isActiveSession
+      ? []
+      : [
+          {
+            disabled: !sessionId,
+            icon: IS_MOBILE ? 'comment' : 'split-horizontal',
+            label: IS_MOBILE ? r.openInBubble : r.openInTile,
+            onSelect: () => {
+              void triggerHaptic('selection')
+
+              if (IS_MOBILE) {
+                addBubble(sessionId)
+              } else {
+                openSessionTile(sessionId, 'right')
+              }
+            }
+          }
+        ]),
     {
       disabled: !sessionId,
       icon: 'edit',
