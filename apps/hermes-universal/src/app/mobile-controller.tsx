@@ -6,6 +6,7 @@ import { CommandCenterView } from '@/app/command-center'
 import { ConnectScreen } from '@/app/connect-screen'
 import { CronView } from '@/app/cron'
 import { GatewayConnectingScreen } from '@/app/gateway/gateway-connecting-screen'
+import { ModelVisibilityOverlay } from '@/app/model-visibility-overlay'
 import { OnboardingScreen } from '@/app/onboarding/onboarding-screen'
 import { FloatingPet } from '@/app/pet/floating-pet'
 import { ProfilesView } from '@/app/profiles'
@@ -240,6 +241,10 @@ export function MobileController() {
             floats OVER the settings page (z-70) without unmounting it. Opened from
             Providers → Accounts; gated on $connectProvider, not $onboardingActive. */}
         {connected && <ProviderConnectOverlay />}
+        {/* Edit-models ("model visibility") dialog — opened from the composer's
+            model menu ("Edit models"). Self-gates on $modelVisibilityOpen +
+            gateway-open; "Add provider…" routes to Providers → Accounts. */}
+        {connected && <ModelVisibilityOverlay onOpenProviders={() => navigate('/settings/providers')} />}
         {/* Floating pet — a top-level draggable + roaming mascot (fixed z-60) that
             floats over ALL routes. It patrols the Settings overlay's edge when open.
             Hidden on mobile while the touch shell is a blank scaffold. */}
