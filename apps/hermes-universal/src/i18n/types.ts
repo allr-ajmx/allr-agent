@@ -1413,6 +1413,7 @@ export interface Translations {
       unpin: string
       copyId: string
       openInTile: string
+      openInBubble: string
       export: string
       branchFrom: string
       rename: string
@@ -1439,6 +1440,9 @@ export interface Translations {
 
   composer: {
     message: string
+    bubbles: {
+      releaseToClose: string
+    }
     wakingProfile: (profile: string) => string
     placeholderStarting: string
     placeholderReconnecting: string

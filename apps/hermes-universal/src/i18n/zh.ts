@@ -1856,6 +1856,7 @@ export const zh: Translations = {
       unpin: '取消置顶',
       copyId: '复制 ID',
       openInTile: '在平铺中打开',
+      openInBubble: '在气泡中打开',
       export: '导出',
       branchFrom: '分支',
       rename: '重命名',
@@ -1882,6 +1883,9 @@ export const zh: Translations = {
 
   composer: {
     message: '消息',
+    bubbles: {
+      releaseToClose: '松开以关闭'
+    },
     wakingProfile: profile => `正在唤醒 ${profile}…`,
     placeholderStarting: '正在启动 Hermes…',
     placeholderReconnecting: '正在重新连接 Hermes…',
