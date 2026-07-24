@@ -49,8 +49,15 @@ export function ChatSidebar({ variant = 'pane', onNavigate }: ChatSidebarProps) 
   const contentVisible = variant === 'sheet' || sidebarOpen || overlayMounted
 
   if (variant === 'sheet') {
+    // Pad the drawer content into the safe area top + bottom (status bar / home
+    // indicator) using the reliable published vars. The surface background covers
+    // the padding box, so the drawer still fills to the screen edges while the
+    // nav rail and profile-rail footer clear the unsafe zones.
     return (
-      <div className="flex h-full min-h-0 flex-col bg-(--ui-sidebar-surface-background)">
+      <div
+        className="flex h-full min-h-0 flex-col bg-(--ui-sidebar-surface-background)"
+        style={{ paddingTop: 'var(--safe-area-inset-top)', paddingBottom: 'var(--safe-area-inset-bottom)' }}
+      >
         <SidebarBody onNavigate={onNavigate} variant="sheet" />
       </div>
     )

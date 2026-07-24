@@ -658,6 +658,16 @@
     --dt-midground-foreground: #fcfcfc;
     --titlebar-height: 2.125rem;
     --composer-fill: color-mix(in srgb, var(--dt-card) 90%, var(--dt-background));
+
+    /* Safe-area insets. The `env()` fallback keeps these correct on web/desktop
+       and is the value before lib/safe-area.ts publishes; on mobile that module
+       overrides these inline on :root with the resolved px so chrome never
+       flashes at the 0 that env() reports for the first frame(s). Mobile chrome
+       should read `var(--safe-area-inset-*)`, not raw `env(...)`. */
+    --safe-area-inset-top: env(safe-area-inset-top, 0px);
+    --safe-area-inset-right: env(safe-area-inset-right, 0px);
+    --safe-area-inset-bottom: env(safe-area-inset-bottom, 0px);
+    --safe-area-inset-left: env(safe-area-inset-left, 0px);
   }
 
   :root.dark {
@@ -1084,6 +1094,25 @@
 /* Safe-area bottom padding for the docked overlay (mobile home indicator). */
 [data-slot='composer-root'] {
   padding-bottom: calc(var(--composer-shell-pad-block-end) + env(safe-area-inset-bottom));
+}
+
+/* ── Mobile shell (html.is-mobile, set from IS_MOBILE in main.tsx) ───────────
+   Scale the whole rem-based UI up a step for phone readability by bumping the
+   base rem token — a natural reflow through the token system, NOT a CSS zoom
+   (which scales unevenly / like a bitmap). Everything sized in rem (text,
+   Tailwind spacing, the --composer-* geometry) grows with it. */
+html.is-mobile {
+  --dt-base-size: 1.125rem;
+}
+
+/* The docked composer spans the full content width on phones, replacing the
+   desktop's centered max-width + side gap. A small 8px side gap keeps it off the
+   edges, growing to the safe-area inset in landscape. Its own surface keeps the
+   text's inner breathing room. */
+html.is-mobile [data-slot='composer-root'] {
+  width: 100%;
+  padding-left: max(12px, var(--safe-area-inset-left));
+  padding-right: max(12px, var(--safe-area-inset-right));
 }
 
 [data-slot='composer-root'] > .pointer-events-none {

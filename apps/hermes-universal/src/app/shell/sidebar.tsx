@@ -54,6 +54,11 @@ interface SidebarCtx {
   openMobile: boolean
   setOpenMobile: (v: boolean) => void
   toggleMobile: () => void
+  // Right drawer (mobile). Symmetric with the left; its content is a later step,
+  // so the toggle is wired but no drawer is mounted yet.
+  openMobileRight: boolean
+  setOpenMobileRight: (v: boolean) => void
+  toggleMobileRight: () => void
 }
 
 const SidebarContext = createContext<SidebarCtx | null>(null)
@@ -70,10 +75,18 @@ export function useSidebar(): SidebarCtx {
 
 export function SidebarProvider({ children }: { children: ReactNode }) {
   const [openMobile, setOpenMobile] = useState(false)
+  const [openMobileRight, setOpenMobileRight] = useState(false)
 
   const value = useMemo<SidebarCtx>(
-    () => ({ openMobile, setOpenMobile, toggleMobile: () => setOpenMobile(v => !v) }),
-    [openMobile]
+    () => ({
+      openMobile,
+      setOpenMobile,
+      toggleMobile: () => setOpenMobile(v => !v),
+      openMobileRight,
+      setOpenMobileRight,
+      toggleMobileRight: () => setOpenMobileRight(v => !v)
+    }),
+    [openMobile, openMobileRight]
   )
 
   return <SidebarContext.Provider value={value}>{children}</SidebarContext.Provider>

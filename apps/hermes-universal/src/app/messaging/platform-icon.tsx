@@ -93,3 +93,36 @@ export function PlatformAvatar({ className, platformId, platformName }: Platform
     </span>
   )
 }
+
+interface PlatformGlyphProps {
+  platformId: string
+  platformName: string
+  /** Grey the glyph out (e.g. platform not connected). */
+  muted?: boolean
+  className?: string
+}
+
+/** A bare platform glyph (no avatar chip) painted in its brand color, or greyed
+ *  when `muted` — for compact status rows that show several at once. */
+export function PlatformGlyph({ className, muted = false, platformId, platformName }: PlatformGlyphProps) {
+  const spec = PLATFORM_ICONS[platformId]
+  const cls = cn('inline-flex size-4 shrink-0 items-center justify-center', className)
+
+  if (!spec) {
+    return (
+      <span aria-hidden="true" className={cn(cls, 'text-[0.6rem] font-semibold text-(--ui-text-tertiary)')}>
+        {platformName.charAt(0).toUpperCase()}
+      </span>
+    )
+  }
+
+  return (
+    <span aria-hidden="true" className={cls} style={{ color: muted ? 'var(--ui-text-tertiary)' : spec.color }}>
+      {spec.Icon ? (
+        <spec.Icon className="size-3.5" />
+      ) : (
+        <span className="text-[0.6rem] font-semibold">{spec.monogram || platformName.charAt(0).toUpperCase()}</span>
+      )}
+    </span>
+  )
+}

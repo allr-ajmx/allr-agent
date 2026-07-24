@@ -1,6 +1,7 @@
 import { type ComponentProps, type ReactNode, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
+import { NAV_ROW_BASE, NAV_ROW_ICON, NAV_ROW_LAYOUT } from '@/app/shell/nav-row'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Tip, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
@@ -20,6 +21,10 @@ const STATUSBAR_ACTION_CLASS =
 
 const STATUSBAR_TEXT_CLASS =
   'inline-flex h-full items-center gap-1 px-2 text-xs text-(--ui-text-tertiary) md:px-1.5 md:text-[0.6875rem]'
+
+// Row layout (the mobile Status list): each item is a full-width row that matches
+// the left sidebar's nav-rail buttons (NAV_ROW_*) — icon + label on the left, the
+// value/detail pushed to the right — instead of the bar's compact inline segment.
 
 export interface StatusbarMenuItem {
   id: string
@@ -100,10 +105,31 @@ export function StatusbarControls({ className, leftItems = [], items = [], ...pr
   )
 }
 
-function StatusbarItemView({ item, navigate }: { item: StatusbarItem; navigate: ReturnType<typeof useNavigate> }) {
+export function StatusbarItemView({
+  item,
+  navigate,
+  row = false
+}: {
+  item: StatusbarItem
+  navigate: ReturnType<typeof useNavigate>
+  // Full-width row form (the mobile Status list) vs the compact bar segment.
+  row?: boolean
+}) {
   const [menuOpen, setMenuOpen] = useState(false)
 
-  const content = (
+  const actionClass = row ? NAV_ROW_BASE : STATUSBAR_ACTION_CLASS
+  const textClass = row ? NAV_ROW_LAYOUT : STATUSBAR_TEXT_CLASS
+
+  // Rows match the sidebar nav buttons: a fixed icon slot, the label takes the
+  // slack, and the value/detail is pushed to the right. The bar keeps everything
+  // grouped left and inline.
+  const content = row ? (
+    <>
+      <span className={NAV_ROW_ICON}>{item.icon}</span>
+      {item.label && <span className="min-w-0 flex-1 truncate text-left">{item.label}</span>}
+      {item.detail && <span className="truncate text-(--ui-text-tertiary)">{item.detail}</span>}
+    </>
+  ) : (
     <>
       {item.icon}
       {item.label && <span className="truncate">{item.label}</span>}
@@ -118,7 +144,7 @@ function StatusbarItemView({ item, navigate }: { item: StatusbarItem; navigate: 
     // trigger Slots directly onto the same <button> instead (both asChild).
     const trigger = (
       <DropdownMenuTrigger asChild>
-        <button className={cn(STATUSBAR_ACTION_CLASS, item.className)} disabled={item.disabled} type="button">
+        <button className={cn(actionClass, item.className)} disabled={item.disabled} type="button">
           {content}
         </button>
       </DropdownMenuTrigger>
@@ -139,7 +165,7 @@ function StatusbarItemView({ item, navigate }: { item: StatusbarItem; navigate: 
         <DropdownMenuContent
           align={item.menuAlign ?? 'start'}
           className={cn('w-56', item.menuContent && 'p-0', item.menuClassName)}
-          side="top"
+          side={row ? 'bottom' : 'top'}
           sideOffset={8}
         >
           {item.menuContent
@@ -187,7 +213,7 @@ function StatusbarItemView({ item, navigate }: { item: StatusbarItem; navigate: 
   if (item.variant === 'text' && !item.onSelect && !item.to && !item.href) {
     return (
       <Tip label={item.title}>
-        <div className={cn(STATUSBAR_TEXT_CLASS, item.className)}>{content}</div>
+        <div className={cn(textClass, item.className)}>{content}</div>
       </Tip>
     )
   }
@@ -195,7 +221,7 @@ function StatusbarItemView({ item, navigate }: { item: StatusbarItem; navigate: 
   if (item.href || item.variant === 'link') {
     return (
       <Tip label={item.title}>
-        <a className={cn(STATUSBAR_ACTION_CLASS, item.className)} href={item.href} rel="noreferrer" target="_blank">
+        <a className={cn(actionClass, item.className)} href={item.href} rel="noreferrer" target="_blank">
           {content}
         </a>
       </Tip>
@@ -205,7 +231,7 @@ function StatusbarItemView({ item, navigate }: { item: StatusbarItem; navigate: 
   return (
     <Tip label={item.title}>
       <button
-        className={cn(STATUSBAR_ACTION_CLASS, item.className)}
+        className={cn(actionClass, item.className)}
         disabled={item.disabled}
         onClick={event => {
           if (item.to) {

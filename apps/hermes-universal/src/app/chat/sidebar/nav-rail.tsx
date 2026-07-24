@@ -9,6 +9,7 @@ import {
   NEW_CHAT_ROUTE,
   SKILLS_ROUTE
 } from '@/app/routes'
+import { NAV_ROW_ACTIVE, NAV_ROW_BASE } from '@/app/shell/nav-row'
 import { Codicon } from '@/components/ui/codicon'
 import { KbdGroup } from '@/components/ui/kbd'
 import { useI18n } from '@/i18n'
@@ -42,11 +43,9 @@ const NAV: RailItem[] = [
   { id: 'artifacts', icon: 'files', route: ARTIFACTS_ROUTE, view: 'artifacts' }
 ]
 
-const ROW_BASE =
-  'flex h-7 w-full items-center justify-start gap-2 rounded-md border border-transparent px-2 text-left text-[0.8125rem] font-medium text-(--ui-text-secondary) transition-colors duration-100 ease-out hover:bg-(--ui-control-hover-background) hover:text-foreground hover:transition-none'
-
-const ROW_ACTIVE =
-  'border-(--ui-stroke-tertiary) bg-(--ui-control-active-background) text-foreground shadow-none hover:border-(--ui-stroke-tertiary)!'
+// The button look is shared with the mobile Status list — see @/app/shell/nav-row.
+const ROW_BASE = NAV_ROW_BASE
+const ROW_ACTIVE = NAV_ROW_ACTIVE
 
 export function SidebarNavRail({ variant, onNavigate }: { variant: 'pane' | 'sheet'; onNavigate?: () => void }) {
   const { t } = useI18n()
@@ -84,7 +83,9 @@ export function SidebarNavRail({ variant, onNavigate }: { variant: 'pane' | 'she
     <div
       className={cn(
         'shrink-0 px-2.5 pb-2',
-        variant === 'pane' ? 'pt-1.5' : 'pt-[env(safe-area-inset-top)]'
+        // The sheet drawer's safe-area top is handled by the ChatSidebar sheet
+        // container now, so both variants just take a small top padding.
+        variant === 'pane' ? 'pt-1.5' : 'pt-2'
       )}
     >
       <div className="flex flex-col gap-px">
