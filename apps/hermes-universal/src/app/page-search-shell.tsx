@@ -75,10 +75,12 @@ export function PageSearchShell({
       className={cn('flex h-full min-w-0 flex-col overflow-hidden bg-(--ui-chat-surface-background)', className)}
     >
       {/*
-        Header lives in the page body, below the window chrome (the shell floats
-        traffic lights over the top titlebar-height strip, which the `pt` clears
-        and leaves draggable). Search left, tabs centered on the page via the
-        1fr/auto/1fr grid; the trailing 1fr keeps the center honest.
+        Header lives in the page body, directly below the shared in-flow titlebar
+        row (mounted once above all content in mobile-controller.tsx), so it only
+        needs its own small top padding — the titlebar-height offset that used to
+        live here is now redundant and produced a double gap. Search left, tabs
+        centered on the page via the 1fr/auto/1fr grid; the trailing 1fr keeps
+        the center honest.
       */}
       {/*
         IMPORTANT: do NOT put `-webkit-app-region: drag` on this header. It spans
@@ -91,7 +93,7 @@ export function PageSearchShell({
       */}
       <div className="shrink-0">
         {(hasTabs || !searchHidden) && (
-          <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 px-3 pb-2 pt-[calc(var(--titlebar-height)+0.5rem)]">
+          <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 px-3 pb-2 pt-2">
             <div className="flex min-w-0 items-center justify-start">
               {!searchHidden && (
                 <SearchField
