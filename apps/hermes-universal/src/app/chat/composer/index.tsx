@@ -10,6 +10,7 @@ import { chatMessageText } from '@/lib/chat-messages'
 import { sanitizeComposerInput } from '@/lib/composer-input-sanitize'
 import { DATA_IMAGE_URL_RE } from '@/lib/embedded-images'
 import { triggerHaptic } from '@/lib/haptics'
+import { IS_MOBILE } from '@/lib/platform'
 import { cn } from '@/lib/utils'
 import { browseBackward, browseForward, deriveUserHistory, isBrowsingHistory } from '@/store/composer-input-history'
 import { POPOUT_WIDTH_REM } from '@/store/composer-popout'
@@ -21,6 +22,7 @@ import { $autoSpeakReplies } from '@/store/voice-prefs'
 import { useTheme } from '@/themes'
 
 import { AttachmentList } from './attachments'
+import { BubbleRow } from './bubble-row'
 import { COMPOSER_FADE_BACKGROUND, type QueueEditState, slashArgStage } from './composer-utils'
 import { ContextMenu } from './context-menu'
 import { COMPOSER_AREAS, runComposerMiddleware } from './contrib'
@@ -922,6 +924,10 @@ export function ChatBar({
               onDoubleClick={handleComposerToggle}
             />
           )}
+          {/* Mobile parallel-chat carousel — part of the composer package (so it
+              tracks the keyboard lift as one unit) but ABOVE the bordered surface
+              box. Self-hides below 2 chats; never renders on desktop. */}
+          {IS_MOBILE && <BubbleRow />}
           <div className="relative w-full rounded-[inherit]">
             <div
               className={cn(
