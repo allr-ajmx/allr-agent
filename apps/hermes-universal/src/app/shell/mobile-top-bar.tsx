@@ -27,7 +27,7 @@ export function MobileTopBar() {
             Big icon nearly filling the button → tight padding. rem tracks the
             --dt-base-size token. */}
         <TitlebarButton className="size-4" label={t.titlebar.showSidebar} onClick={toggleMobile}>
-          <Codicon name="layout-sidebar-left" size="1.4rem" />
+          <Codicon name="comment-discussion" size="1.4rem" />
         </TitlebarButton>
 
         {/* Active session title — the same clickable pill (session actions menu)
@@ -41,7 +41,7 @@ export function MobileTopBar() {
             content changes a lot on mobile and is a later step, so nothing is
             mounted yet. */}
         <TitlebarButton className="size-4" label={t.titlebar.showRightSidebar} onClick={toggleMobileRight}>
-          <Codicon name="layout-sidebar-right" size="1.4rem" />
+          <Codicon name="gear" size="1.4rem" />
         </TitlebarButton>
       </div>
     </div>
