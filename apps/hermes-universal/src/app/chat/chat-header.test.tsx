@@ -1,4 +1,5 @@
 import { cleanup, render } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type * as PlatformModule from '@/lib/platform'
@@ -18,7 +19,12 @@ import { ChatHeader } from './chat-header'
 const INSET = 'pl-[6.75rem]'
 
 const renderHeader = () => {
-  const { container } = render(<ChatHeader />)
+  // ChatTitle (nested) calls useLocation, so a router context is required.
+  const { container } = render(
+    <MemoryRouter>
+      <ChatHeader />
+    </MemoryRouter>
+  )
 
   return container.firstChild as HTMLElement
 }
