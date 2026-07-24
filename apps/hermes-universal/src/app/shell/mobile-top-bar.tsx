@@ -12,7 +12,7 @@ import { TitlebarButton } from './titlebar-button'
 // more buttons (search / settings / …) are added here later.
 export function MobileTopBar() {
   const { t } = useI18n()
-  const { toggleMobile } = useSidebar()
+  const { toggleMobile, toggleMobileRight } = useSidebar()
 
   return (
     <div
@@ -36,6 +36,13 @@ export function MobileTopBar() {
         <div className="min-w-0 flex-1 overflow-hidden">
           <ChatTitle />
         </div>
+
+        {/* Right-sidebar toggle. Wired to the right drawer state (useSidebar); its
+            content changes a lot on mobile and is a later step, so nothing is
+            mounted yet. */}
+        <TitlebarButton className="size-4" label={t.titlebar.showRightSidebar} onClick={toggleMobileRight}>
+          <Codicon name="layout-sidebar-right" size="1.4rem" />
+        </TitlebarButton>
       </div>
     </div>
   )

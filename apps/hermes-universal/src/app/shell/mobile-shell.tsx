@@ -25,7 +25,7 @@ import { useSidebar } from './sidebar'
 export function MobileShell() {
   // Publishes --keyboard-inset / data-keyboard-open, consumed by the lift below.
   useKeyboardInset()
-  const { openMobile, setOpenMobile } = useSidebar()
+  const { openMobile, setOpenMobile, openMobileRight, setOpenMobileRight } = useSidebar()
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
@@ -46,6 +46,18 @@ export function MobileShell() {
             redundant (tap outside / swipe to dismiss). */}
         <SheetContent className="w-[19rem] gap-0 p-0" showCloseButton={false} side="left">
           <ChatSidebar onNavigate={() => setOpenMobile(false)} variant="sheet" />
+        </SheetContent>
+      </Sheet>
+
+      {/* Right sidebar drawer — opened from the top bar's right button. Empty for
+          now (its content is a later step); a safe-area-padded surface ready to
+          fill. Same tap-outside / swipe dismissal, no close X. */}
+      <Sheet onOpenChange={setOpenMobileRight} open={openMobileRight}>
+        <SheetContent className="w-[19rem] gap-0 p-0" showCloseButton={false} side="right">
+          <div
+            className="flex h-full min-h-0 flex-col bg-(--ui-sidebar-surface-background)"
+            style={{ paddingTop: 'var(--safe-area-inset-top)', paddingBottom: 'var(--safe-area-inset-bottom)' }}
+          />
         </SheetContent>
       </Sheet>
     </div>
