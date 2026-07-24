@@ -2,6 +2,7 @@ import { useStore } from '@nanostores/react'
 import { type RefObject, useCallback, useEffect } from 'react'
 
 import { triggerHaptic } from '@/lib/haptics'
+import { IS_MOBILE } from '@/lib/platform'
 import {
   $composerPopoutPosition,
   $composerPoppedOut,
@@ -30,7 +31,10 @@ export function useComposerPopout({ composerRef }: UseComposerPopoutOptions) {
   // The floating composer is a window-level singleton: only the main scope
   // (not tiles) in a primary window may pop out.
   const scope = useComposerScope()
-  const popoutAllowed = !isSecondaryWindow() && scope.popoutAllowed
+  // Touch has no mouse to peel/drag a floating composer, and the grab-margin
+  // hatch/cursor affordance is meaningless there — disable pop-out on mobile so
+  // the drag region (and its hatching) never renders.
+  const popoutAllowed = !isSecondaryWindow() && !IS_MOBILE && scope.popoutAllowed
   const poppedOut = useStore($composerPoppedOut) && popoutAllowed
   const popoutPosition = useStore($composerPopoutPosition)
 
