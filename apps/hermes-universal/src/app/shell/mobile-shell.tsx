@@ -3,6 +3,7 @@ import { ChatSidebar } from '@/app/chat/sidebar'
 import { Sheet, SheetContent } from '@/components/ui/sheet'
 import { useKeyboardInset } from '@/hooks/use-keyboard-inset'
 
+import { MobileRightPanel } from './mobile-right-panel'
 import { MobileTopBar } from './mobile-top-bar'
 import { useSidebar } from './sidebar'
 
@@ -49,15 +50,11 @@ export function MobileShell() {
         </SheetContent>
       </Sheet>
 
-      {/* Right sidebar drawer — opened from the top bar's right button. Empty for
-          now (its content is a later step); a safe-area-padded surface ready to
-          fill. Same tap-outside / swipe dismissal, no close X. */}
+      {/* Right sidebar drawer — opened from the top bar's right button. Hosts the
+          Status / Files tabs. Same tap-outside / swipe dismissal, no close X. */}
       <Sheet onOpenChange={setOpenMobileRight} open={openMobileRight}>
         <SheetContent className="w-[19rem] gap-0 p-0" showCloseButton={false} side="right">
-          <div
-            className="flex h-full min-h-0 flex-col bg-(--ui-sidebar-surface-background)"
-            style={{ paddingTop: 'var(--safe-area-inset-top)', paddingBottom: 'var(--safe-area-inset-bottom)' }}
-          />
+          <MobileRightPanel />
         </SheetContent>
       </Sheet>
     </div>
