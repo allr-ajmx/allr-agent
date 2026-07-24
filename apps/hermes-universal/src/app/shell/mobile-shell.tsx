@@ -42,7 +42,9 @@ export function MobileShell() {
       {/* Left sidebar as a drawer — opened by the top bar's sidebar button
           (useSidebar().toggleMobile). One shared <ChatSidebar>, sheet variant. */}
       <Sheet onOpenChange={setOpenMobile} open={openMobile}>
-        <SheetContent className="w-[19rem] gap-0 p-0" side="left">
+        {/* No close X — on mobile it lands in the status-bar/notch area and is
+            redundant (tap outside / swipe to dismiss). */}
+        <SheetContent className="w-[19rem] gap-0 p-0" showCloseButton={false} side="left">
           <ChatSidebar onNavigate={() => setOpenMobile(false)} variant="sheet" />
         </SheetContent>
       </Sheet>
