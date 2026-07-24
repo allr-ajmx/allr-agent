@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { PlatformAvatar } from '@/app/messaging/platform-icon'
-import { CRON_ROUTE } from '@/app/routes'
+import { CRON_ROUTE, sessionRoute } from '@/app/routes'
 import { Codicon } from '@/components/ui/codicon'
 import { SearchField } from '@/components/ui/search-field'
 import { useI18n } from '@/i18n'
@@ -297,6 +297,9 @@ export function SidebarScrollBody({ onNavigate }: { onNavigate?: () => void }) {
     onDeleteSession: (id: string) => void deleteSessionLocal(id),
     onResumeSession: (id: string) => {
       void openSession(id)
+      // Route back to the session so a page view (Capabilities/Messaging/
+      // Artifacts) unmounts and the resumed chat is actually shown.
+      navigate(sessionRoute(id))
       onNavigate?.()
     },
     onTogglePin: togglePin,
@@ -476,6 +479,7 @@ export function SidebarScrollBody({ onNavigate }: { onNavigate?: () => void }) {
               onManageJob={() => navigate(CRON_ROUTE)}
               onOpenRun={id => {
                 void openSession(id)
+                navigate(sessionRoute(id))
                 onNavigate?.()
               }}
               onToggle={() => setSidebarCronOpen(!cronOpen)}
