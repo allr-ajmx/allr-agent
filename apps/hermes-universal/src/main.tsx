@@ -11,7 +11,9 @@ import { ErrorBoundary } from './components/error-boundary'
 import { HapticsProvider } from './components/haptics-provider'
 import { I18nProvider } from './i18n'
 import { warmKatexFonts } from './lib/katex-fonts'
+import { IS_MOBILE } from './lib/platform'
 import { queryClient } from './lib/query-client'
+import { initSafeAreaInsets } from './lib/safe-area'
 import { restoreSessionCookies } from './lib/session-persist'
 import { autoRestoreConnection } from './store/gateway-restore'
 import { ThemeProvider } from './themes'
@@ -30,6 +32,13 @@ void restoreSessionCookies().finally(() => {
 // equation of a session otherwise renders INVISIBLE until they land (see
 // lib/katex-fonts).
 warmKatexFonts()
+
+// Publish deterministic `--safe-area-inset-*` CSS vars so mobile chrome sits
+// correctly from the first frame instead of flashing at the 0 that env()
+// reports before the webview resolves it (see lib/safe-area). No-op on web/
+// desktop. Mark the platform so mobile-only CSS can key off `html.is-mobile`.
+initSafeAreaInsets()
+document.documentElement.classList.toggle('is-mobile', IS_MOBILE)
 
 const container = document.getElementById('root')
 
