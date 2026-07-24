@@ -1,14 +1,17 @@
-import { useEffect, useMemo } from 'react'
+import { type ReactNode, useEffect, useMemo } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 
+import { jobState } from '@/app/cron/job-state'
+import { PlatformGlyph } from '@/app/messaging/platform-icon'
 import { AGENTS_ROUTE, appViewForPath, COMMAND_CENTER_ROUTE, CRON_ROUTE } from '@/app/routes'
 import { useApprovalModeStatusbarItem } from '@/app/shell/approval-mode-menu'
 import { ContextUsagePanel } from '@/app/shell/context-usage-panel'
 import { GatewayMenuPanel } from '@/app/shell/gateway-menu-panel'
 import type { StatusbarItem } from '@/app/shell/statusbar-controls'
 import { Codicon } from '@/components/ui/codicon'
+import { StatusDot } from '@/components/ui/status-dot'
 import { useI18n } from '@/i18n'
-import { Activity, AlertCircle, Clock, Command, FolderOpen, Hash, Loader2, Terminal } from '@/lib/icons'
+import { Activity, AlertCircle, Clock, Command, FolderOpen, Hash, Loader2, Terminal, Zap } from '@/lib/icons'
 import { IS_DESKTOP, IS_MOBILE } from '@/lib/platform'
 import { revealPathInFileManager } from '@/lib/reveal-path'
 import { contextBarLabel, LiveDuration, usageContextLabel } from '@/lib/statusbar'
@@ -17,6 +20,7 @@ import { workspaceLabel } from '@/lib/workspace-path'
 import { useStore } from '@/store/atom'
 import { $busy, $currentUsage, $sessionId, $sessionStartedAt, $turnStartedAt } from '@/store/chat'
 import { $connection, $status } from '@/store/connection'
+import { $cronJobs, refreshCronJobs } from '@/store/cron'
 import { $gatewayState, requestGateway } from '@/store/gateway'
 import { $terminalOpen, revealFileInTree, toggleTerminalOpen } from '@/store/layout'
 import { notify } from '@/store/notifications'
@@ -43,10 +47,17 @@ function copyWorkspacePath(cwd: string, copiedMsg: string): void {
 //   • chrome-y items (command-center / cron / versions) hide on phones so the
 //     touch bar stays a compact live-status strip.
 
-export function useStatusbarItems(): {
+export function useStatusbarItems(opts?: { includeAll?: boolean; rich?: boolean }): {
   leftStatusbarItems: readonly StatusbarItem[]
   statusbarItems: readonly StatusbarItem[]
 } {
+  // `includeAll` re-surfaces the chrome-y items normally hidden on phones
+  // (command-center / cron / versions) — the mobile Status list wants the full
+  // set. Desktop calls with no args, so IS_MOBILE is false and nothing changes.
+  const hideOnMobile = IS_MOBILE && !opts?.includeAll
+  // `rich` (the mobile Status list) reformats a few details for at-a-glance
+  // reading — emphasized values, cron active/paused bullets. Off for the bar.
+  const rich = Boolean(opts?.rich)
   const { t } = useI18n()
   const copy = t.shell.statusbar
   const navigate = useNavigate()
@@ -69,6 +80,7 @@ export function useStatusbarItems(): {
   const terminalOpen = useStore($terminalOpen)
   // The active chat's project directory, falling back to the workspace root.
   const currentCwd = useStore($effectiveCwd)
+  const cronJobs = useStore($cronJobs)
 
   const fileMenu = t.fileMenu
   const contextUsage = usageContextLabel(currentUsage)
@@ -99,6 +111,33 @@ export function useStatusbarItems(): {
     }
   }, [gatewayOpen])
 
+  // The rich (mobile) list shows cron active/paused counts, so pull the job list
+  // when it mounts. The bar doesn't use counts, so this only runs for `rich`.
+  useEffect(() => {
+    if (rich && gatewayOpen) {
+      void refreshCronJobs()
+    }
+  }, [rich, gatewayOpen])
+
+  // Cron active/paused split (rich only) — active = scheduled/enabled/running,
+  // paused = paused; the rest (disabled/completed/error) aren't counted here.
+  const { cronActive, cronPaused } = useMemo(() => {
+    let active = 0
+    let paused = 0
+
+    for (const job of cronJobs) {
+      const state = jobState(job)
+
+      if (state === 'paused') {
+        paused += 1
+      } else if (state === 'scheduled' || state === 'enabled' || state === 'running') {
+        active += 1
+      }
+    }
+
+    return { cronActive: active, cronPaused: paused }
+  }, [cronJobs])
+
   const gatewayDetail = gatewayOpen
     ? inferenceStatus?.ready
       ? copy.gatewayReady
@@ -128,10 +167,55 @@ export function useStatusbarItems(): {
   const isRemoteBackend = connection?.mode === 'remote' || connection?.mode === 'cloud'
   const backendVersion = status?.version
 
+  // Emphasized (accent/blue) value for the rich list — the status VALUE stays
+  // highlighted; the row's label uses the plain nav-row typography.
+  const accent = (node: ReactNode) => <span className="font-medium text-(--ui-accent)">{node}</span>
+
+  // Gateway status glyphs for the rich gateway row: a thunder (api-server
+  // running = accent/blue, else orange) + up to 3 messaging platforms, painted
+  // in brand color when connected and greyed otherwise. Connected first.
+  const gatewayRunning = statusSnapshot?.gateway_running === true
+  const messagingPlatforms = Object.entries(statusSnapshot?.gateway_platforms ?? {})
+    .filter(([id]) => id !== 'api_server')
+    .sort(([, a], [, b]) => Number(b.state === 'connected') - Number(a.state === 'connected'))
+    .slice(0, 3)
+
+  const gatewayIcons = (
+    <span className="flex items-center gap-1.5">
+      <Zap className={cn('size-4', gatewayRunning ? 'text-(--ui-accent)' : 'text-(--ui-orange)')} />
+      {messagingPlatforms.map(([id, platform]) => (
+        <PlatformGlyph key={id} muted={platform.state !== 'connected'} platformId={id} platformName={id} />
+      ))}
+    </span>
+  )
+
+  // Inference readiness text ("Ready" / "Needs setup" / …) — accent when ready.
+  const gatewayReadyText = gatewayRestarting ? copy.gatewayRestarting : gatewayDetail
+  const gatewayRichDetail = (
+    <span className="flex items-center gap-2">
+      {inferenceReady ? accent(gatewayReadyText) : gatewayReadyText}
+      {gatewayIcons}
+    </span>
+  )
+
+  // Cron active/paused bullet counts for the rich cron row.
+  const cronDetail = (
+    <span className="flex items-center gap-2">
+      <span className="flex items-center gap-1">
+        <StatusDot tone="good" />
+        {cronActive}
+      </span>
+      <span className="flex items-center gap-1">
+        <StatusDot tone="warn" />
+        {cronPaused}
+      </span>
+    </span>
+  )
+
   const leftStatusbarItems: StatusbarItem[] = [
     {
       className: cn('w-7 justify-center px-0', view === 'command-center' && 'bg-accent/55 text-foreground'),
-      hidden: IS_MOBILE,
+      hidden: hideOnMobile,
       icon: <Command className="size-3.5" />,
       id: 'command-center',
       title: copy.openCommandCenter,
@@ -140,7 +224,9 @@ export function useStatusbarItems(): {
     },
     {
       className: gatewayRestarting ? undefined : gatewayClassName,
-      detail: gatewayRestarting ? copy.gatewayRestarting : gatewayDetail,
+      // Rich: readiness text (is inference ready) + status glyphs (api-server
+      // thunder + messaging platforms). Bar: the plain state text.
+      detail: rich ? gatewayRichDetail : gatewayReadyText,
       icon: gatewayRestarting ? (
         <Codicon className="size-3 animate-spin" name="loading" size="0.75rem" />
       ) : inferenceReady ? (
@@ -156,6 +242,9 @@ export function useStatusbarItems(): {
       variant: 'menu'
     },
     {
+      // The rich list shows the full path as the value; the bar keeps the short
+      // workspace label only.
+      detail: rich && currentCwd ? currentCwd : undefined,
       hidden: !currentCwd,
       icon: <FolderOpen className="size-3" />,
       id: 'workspace-cwd',
@@ -194,11 +283,15 @@ export function useStatusbarItems(): {
         subagentsFailed > 0 && 'text-destructive hover:text-destructive'
       ),
       detail:
-        subagentsRunning > 0
-          ? copy.subagents(subagentsRunning)
-          : subagentsFailed > 0
-            ? copy.failed(subagentsFailed)
-            : undefined,
+        subagentsFailed > 0
+          ? copy.failed(subagentsFailed)
+          : subagentsRunning > 0
+            ? copy.subagents(subagentsRunning)
+            : // The rich list always shows the running count (even 0); the bar
+              // shows nothing when idle.
+              rich
+              ? copy.subagents(subagentsRunning)
+              : undefined,
       icon:
         subagentsFailed > 0 ? (
           <AlertCircle className="size-3" />
@@ -214,7 +307,8 @@ export function useStatusbarItems(): {
       variant: 'action'
     },
     {
-      hidden: IS_MOBILE,
+      detail: rich ? cronDetail : undefined,
+      hidden: hideOnMobile,
       icon: <Clock className="size-3" />,
       id: 'cron',
       label: copy.cron,
@@ -257,6 +351,9 @@ export function useStatusbarItems(): {
     },
     {
       ...approvalModeItem,
+      // Rich: a fixed "Approval" label with the mode name as a muted value; drop
+      // the bar-only background className.
+      ...(rich ? { className: undefined, detail: accent(approvalModeItem.label), label: 'Approval' } : {}),
       hidden: gatewayState !== 'open'
     },
     {
@@ -268,19 +365,23 @@ export function useStatusbarItems(): {
       variant: 'action'
     },
     {
-      hidden: IS_MOBILE || !appVersion,
+      // Rich: "Client" + the version as a muted value on the right; the bar shows
+      // the combined "client vX" label.
+      detail: rich && appVersion ? accent(`v${appVersion}`) : undefined,
+      hidden: hideOnMobile || !appVersion,
       icon: <Hash className="size-3" />,
       id: 'version-client',
-      label: appVersion ? copy.clientLabel(appVersion) : copy.unknown,
+      label: rich ? 'Client' : appVersion ? copy.clientLabel(appVersion) : copy.unknown,
       onSelect: () => navigate(COMMAND_CENTER_ROUTE),
       title: appVersion ? copy.clientLabel(appVersion) : undefined,
       variant: 'action'
     },
     {
-      hidden: IS_MOBILE || !isRemoteBackend || !backendVersion,
+      detail: rich && backendVersion ? accent(`v${backendVersion}`) : undefined,
+      hidden: hideOnMobile || !isRemoteBackend || !backendVersion,
       icon: <Hash className="size-3" />,
       id: 'version-backend',
-      label: backendVersion ? copy.backendLabel(backendVersion) : copy.unknown,
+      label: rich ? 'Backend' : backendVersion ? copy.backendLabel(backendVersion) : copy.unknown,
       onSelect: () => navigate(COMMAND_CENTER_ROUTE),
       title: backendVersion ? copy.backendVersion(backendVersion) : undefined,
       variant: 'action'
