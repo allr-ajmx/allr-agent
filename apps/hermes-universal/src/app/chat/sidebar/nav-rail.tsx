@@ -84,7 +84,9 @@ export function SidebarNavRail({ variant, onNavigate }: { variant: 'pane' | 'she
     <div
       className={cn(
         'shrink-0 px-2.5 pb-2',
-        variant === 'pane' ? 'pt-1.5' : 'pt-[env(safe-area-inset-top)]'
+        // The sheet drawer's safe-area top is handled by the ChatSidebar sheet
+        // container now, so both variants just take a small top padding.
+        variant === 'pane' ? 'pt-1.5' : 'pt-2'
       )}
     >
       <div className="flex flex-col gap-px">
