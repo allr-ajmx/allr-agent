@@ -1096,6 +1096,25 @@
   padding-bottom: calc(var(--composer-shell-pad-block-end) + env(safe-area-inset-bottom));
 }
 
+/* ── Mobile shell (html.is-mobile, set from IS_MOBILE in main.tsx) ───────────
+   Scale the whole rem-based UI up a step for phone readability by bumping the
+   base rem token — a natural reflow through the token system, NOT a CSS zoom
+   (which scales unevenly / like a bitmap). Everything sized in rem (text,
+   Tailwind spacing, the --composer-* geometry) grows with it. */
+html.is-mobile {
+  --dt-base-size: 1.125rem;
+}
+
+/* The docked composer spans the full content width on phones, replacing the
+   desktop's centered max-width + side gap. A small 8px side gap keeps it off the
+   edges, growing to the safe-area inset in landscape. Its own surface keeps the
+   text's inner breathing room. */
+html.is-mobile [data-slot='composer-root'] {
+  width: 100%;
+  padding-left: max(12px, var(--safe-area-inset-left));
+  padding-right: max(12px, var(--safe-area-inset-right));
+}
+
 [data-slot='composer-root'] > .pointer-events-none {
   background: linear-gradient(
     to bottom,
