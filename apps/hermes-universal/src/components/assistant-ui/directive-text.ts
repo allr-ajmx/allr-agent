@@ -50,7 +50,7 @@ const ICON_FALLBACK = ['M8 12a4 4 0 1 0 8 0a4 4 0 1 0 -8 0', 'M16 12v1.5a2.5 2.5
 const SVG_ATTRS =
   'xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"'
 
-const iconPathsFor = (type: string) => ICON_PATHS[type as HermesRefType] ?? ICON_FALLBACK
+export const iconPathsFor = (type: string) => ICON_PATHS[type as HermesRefType] ?? ICON_FALLBACK
 
 /** SVG markup string for embedding directly in HTML (composer contenteditable). */
 export function directiveIconSvg(type: string) {

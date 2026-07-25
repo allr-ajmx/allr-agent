@@ -1,7 +1,8 @@
 import { ActionBarPrimitive, BranchPickerPrimitive, MessagePrimitive, useAuiState } from '@assistant-ui/react'
 import { type FC, type ReactNode, useCallback, useRef, useState } from 'react'
 
-import { messageContentText } from '@/components/assistant-ui/thread/content'
+import { DirectiveContent } from '@/components/assistant-ui/directive-content'
+import { messageAttachmentRefs, messageContentText } from '@/components/assistant-ui/thread/content'
 import { type RestoreMessageTarget } from '@/components/assistant-ui/thread/types'
 import { UserMessageText } from '@/components/assistant-ui/thread/user-message-text'
 import { Codicon } from '@/components/ui/codicon'
@@ -101,6 +102,13 @@ export const UserMessage: FC<{
   const messageId = useAuiState(s => s.message.id)
   const content = useAuiState(s => s.message.content)
   const messageText = messageContentText(content)
+
+  const attachmentRefs = useAuiState(s => {
+    const custom = (s.message.metadata?.custom ?? {}) as { attachmentRefs?: unknown }
+
+    return messageAttachmentRefs(custom.attachmentRefs)
+  })
+
   const threadRunning = useAuiState(s => s.thread.isRunning)
 
   const latestUserId = useAuiState(s => {
@@ -222,10 +230,14 @@ export const UserMessage: FC<{
     <MessagePrimitive.Root asChild>
       <StickyHumanMessageContainer
         attachments={
-          // FIXME(chat-port): attachment thumbnails/chips (DirectiveContent) land
-          // with the attachments/media phase — universal has no directive-text
-          // pipeline yet.
-          null
+          // Attachments live BELOW the sticky bubble in normal flow, so they
+          // scroll away behind the pinned bubble instead of riding along with
+          // it. Image refs render as thumbnails, file refs as chips; no border.
+          attachmentRefs.length > 0 ? (
+            <div className="-mt-3 mb-2 flex flex-wrap gap-1">
+              <DirectiveContent text={attachmentRefs.join(' ')} />
+            </div>
+          ) : null
         }
         messageId={messageId}
       >

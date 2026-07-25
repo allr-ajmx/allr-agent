@@ -1,6 +1,7 @@
 import type { FC } from 'react'
 import { Fragment, useMemo } from 'react'
 
+import { DirectiveContent } from '@/components/assistant-ui/directive-content'
 import { cn } from '@/lib/utils'
 
 // User messages should render the bare-minimum of markdown: backtick `code`
@@ -9,10 +10,9 @@ import { cn } from '@/lib/utils'
 // because user input rarely contains structured docs and the heavy pipeline
 // adds a lot of runtime cost per bubble.
 //
-// FIXME(chat-port): desktop resolves directive chips (`@file:`, `@image:`, …)
-// inside the plain-text segments via DirectiveContent. Universal has no
-// directive-text pipeline yet (attachments/directives phase), so plain-text
-// segments render verbatim for now.
+// Directive chips (`@file:`, `@image:`, …) resolve via DirectiveContent inside
+// the plain-text segments (fenced/inline code is split out first, so directives
+// are never parsed inside code).
 
 interface FenceSegment {
   kind: 'fence'
@@ -141,9 +141,9 @@ const InlineSegmentView: FC<{ text: string }> = ({ text }) => {
             {node.code}
           </code>
         ) : (
-          // FIXME(chat-port): plain text passes through verbatim until the
-          // directives/attachments phase restores @file:/@url: chip resolution.
-          <Fragment key={`text-${nodeIndex}`}>{node.text}</Fragment>
+          // Plain-text bits pass through DirectiveContent so @file:/@image:/@url:
+          // chips render inline. DirectiveContent already preserves whitespace.
+          <DirectiveContent key={`text-${nodeIndex}`} text={node.text} />
         )
       )}
     </span>
