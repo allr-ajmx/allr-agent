@@ -26,9 +26,13 @@ describe('keybind bindings', () => {
     expect(bindingsFor('view.reopenTab')).toEqual(['mod+shift+t'])
   })
 
+  it('binds session.newWindow now that native multi-window ships (MJX-104)', () => {
+    expect(bindingsFor('session.newWindow')).toEqual(['mod+shift+n'])
+  })
+
   it('leaves actions with no universal backing unbound', () => {
-    // session.newWindow needs a secondary window (single-window on universal).
-    expect(bindingsFor('session.newWindow')).toEqual([])
+    // The profile browse-scope toggle has no universal home yet.
+    expect(bindingsFor('profile.toggleAll')).toEqual([])
   })
 
   it('overrides then resets a single binding', () => {
