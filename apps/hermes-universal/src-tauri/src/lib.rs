@@ -18,6 +18,7 @@ mod oauth;
 mod pty;
 mod transport;
 mod voice;
+mod window;
 
 use appearance::set_window_translucency;
 use link_title::fetch_link_title;
@@ -35,6 +36,7 @@ use voice::{
     voice_arm, voice_close, voice_force_turn, voice_open, voice_suspend, voice_update_auth,
     VoiceState,
 };
+use window::{open_instance_window, open_session_window};
 
 /// Open a URL in the system browser. Routed through the opener plugin's Rust API
 /// rather than its JS `openUrl` command: a Rust-internal call isn't gated by the
@@ -165,7 +167,9 @@ pub fn run() {
             portal_status,
             portal_discover_agents,
             portal_agent_sign_in,
-            portal_logout
+            portal_logout,
+            open_session_window,
+            open_instance_window
         ])
         .run(tauri::generate_context!())
         .expect("error while running Hermes Universal");

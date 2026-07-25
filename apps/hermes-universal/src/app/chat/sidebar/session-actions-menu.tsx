@@ -22,11 +22,12 @@ import { addBubble } from '@/store/chat-bubbles'
 import { notify, notifyError } from '@/store/notifications'
 import { $activeStoredSessionId, renameSessionLocal } from '@/store/session'
 import { openSessionTile } from '@/store/session-states'
+import { canOpenSessionWindow, openSessionInNewWindow } from '@/store/windows'
 
 // Row action set (ported/adapted from desktop `session-actions-menu.tsx`).
 // Shared by the kebab DropdownMenu and the right-click ContextMenu.
-// FIXME(sidebar): Export (H4), Branch-from (H5), and Open-in-new-window
-// (single-window on universal) are intentionally omitted — gated to their tracks.
+// FIXME(sidebar): Export (H4) and Branch-from (H5) are intentionally omitted —
+// gated to their tracks. Open-in-new-window (MJX-104) is wired below on desktop.
 
 interface SessionActions {
   sessionId: string
@@ -118,6 +119,21 @@ function useSessionActions({
             }
           }
         ]),
+    // Pop this conversation out into its own native window (desktop only —
+    // gated by canOpenSessionWindow; MJX-104).
+    ...(canOpenSessionWindow()
+      ? [
+          {
+            disabled: !sessionId,
+            icon: 'link-external',
+            label: r.newWindow,
+            onSelect: () => {
+              void triggerHaptic('selection')
+              void openSessionInNewWindow(sessionId)
+            }
+          }
+        ]
+      : []),
     {
       disabled: !sessionId,
       icon: 'edit',

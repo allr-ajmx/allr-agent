@@ -7,15 +7,16 @@ import { triggerHaptic } from '@/lib/haptics'
 import { cn } from '@/lib/utils'
 import { useStore } from '@/store/atom'
 import { $attentionSessionIds } from '@/store/session'
+import { canOpenSessionWindow, openSessionInNewWindow } from '@/store/windows'
 import type { SessionInfo } from '@/types/hermes'
 
-import { SidebarRowBody, SidebarRowGrab, SidebarRowLabel, SidebarRowLead, SidebarRowShell } from './chrome'
 import { startSessionDrag } from '../session-drag'
 
+import { SidebarRowBody, SidebarRowGrab, SidebarRowLabel, SidebarRowLead, SidebarRowShell } from './chrome'
 import { SessionActionsMenu, SessionContextMenu } from './session-actions-menu'
 
-// Ported/adapted from desktop `app/chat/sidebar/session-row.tsx`. Universal is a
-// single-window remote client, so open-in-new-window and drag-to-composer are
+// Ported/adapted from desktop `app/chat/sidebar/session-row.tsx`. ⇧⌘-click pops
+// the conversation into a native window on desktop (MJX-104); drag-to-composer is
 // dropped; the handoff-origin platform badge lands with Phase 7 (PlatformAvatar).
 
 interface SidebarSessionRowProps extends React.ComponentProps<'div'> {
@@ -140,6 +141,17 @@ export function SidebarSessionRow({
         <SidebarRowBody
           className={cn('z-0 group-hover:pr-12', branchStem && 'pl-3.5')}
           onClick={event => {
+            // ⇧⌘/⇧⌃-click pops the conversation into its own native window
+            // (desktop only; MJX-104). ⇧-click alone still pins.
+            if ((event.metaKey || event.ctrlKey) && event.shiftKey && canOpenSessionWindow()) {
+              event.preventDefault()
+              event.stopPropagation()
+              void triggerHaptic('selection')
+              void openSessionInNewWindow(session.id)
+
+              return
+            }
+
             if (event.shiftKey) {
               event.preventDefault()
               event.stopPropagation()

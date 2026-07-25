@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils'
 import { useStore } from '@/store/atom'
 import { $subagentsBySession, type SubagentProgress } from '@/store/subagents'
 import { $threadScrolledUp } from '@/store/thread-scroll'
+import { canOpenSessionWindow, openSessionInNewWindow } from '@/store/windows'
 
 import { StatusItemRow } from './status-row'
 
@@ -46,7 +47,17 @@ export function ComposerStatusStack({ queue, sessionId }: ComposerStatusStackPro
           label={t.statusStack.subagents(subagents.length)}
         >
           {subagents.map(item => (
-            <StatusItemRow item={item} key={item.id} />
+            <StatusItemRow
+              item={item}
+              key={item.id}
+              // Watch a running subagent in its own native window (desktop only,
+              // and not from a pop-out; MJX-104). Child id via `child_session_id`.
+              onOpen={
+                canOpenSessionWindow() && item.sessionId
+                  ? () => void openSessionInNewWindow(item.sessionId!, { watch: true })
+                  : undefined
+              }
+            />
           ))}
         </StatusSection>
       )

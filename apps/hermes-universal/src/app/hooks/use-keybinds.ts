@@ -41,6 +41,7 @@ import {
   switcherJustClosed
 } from '@/store/session-switcher'
 import { closeActiveTerminal, createTerminal, cycleTerminal } from '@/store/terminals'
+import { openNewWindow } from '@/store/windows'
 import { useTheme } from '@/themes/context'
 
 import { requestComposerFocus, requestVoiceToggle } from '../chat/composer/focus'
@@ -152,6 +153,8 @@ export function useKeybinds(deps: KeybindRuntimeDeps): void {
       navigate(NEW_CHAT_ROUTE)
       window.dispatchEvent(new CustomEvent(NEW_SESSION_FLASH_EVENT))
     },
+    // ⌘⇧N opens a full app instance in a new native window (desktop only; MJX-104).
+    'session.newWindow': () => void openNewWindow(),
     // ⌃Tab steps through the recent-session switcher.
     'session.next': () => stepSession(1),
     'session.prev': () => stepSession(-1),

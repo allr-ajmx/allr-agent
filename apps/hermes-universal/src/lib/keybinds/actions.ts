@@ -86,9 +86,9 @@ export const KEYBIND_ACTIONS: readonly KeybindActionMeta[] = [
   // the file stays diffable against desktop and a user can still bind it once
   // the tree lands.
   { id: 'session.newTab', category: 'session', defaults: ['mod+t'] },
-  // Shipped UNBOUND on universal (desktop default ⌘⇧N): `store/windows.ts`'s
-  // openSessionInNewWindow is a no-op stub — multi-window isn't implemented.
-  { id: 'session.newWindow', category: 'session', defaults: [] },
+  // Opens a full app instance in a new native window (desktop only; MJX-104).
+  // canOpenNewWindow() gates the action off on mobile/web at dispatch time.
+  { id: 'session.newWindow', category: 'session', defaults: ['mod+shift+n'] },
   // ⌃Tab / ⌃⇧Tab — the universal tab-cycle chord. Literally Control, not Cmd
   // (macOS reserves Cmd+Tab for app switching); see `ctrl` in combo.ts.
   { id: 'session.next', category: 'session', defaults: ['ctrl+tab'] },
