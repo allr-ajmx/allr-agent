@@ -200,7 +200,7 @@ export function coerceText(value: unknown): string {
 }
 
 /** A payload's string list (clarify / approval `choices`), or null when absent. */
-function coerceStringList(value: unknown): string[] | null {
+export function coerceStringList(value: unknown): string[] | null {
   if (!Array.isArray(value)) {
     return null
   }
