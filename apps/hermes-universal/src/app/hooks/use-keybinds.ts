@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom'
 
 import { contributedKeybindHandler, PROFILE_SLOT_COUNT, SESSION_SLOT_COUNT } from '@/lib/keybinds/actions'
 import { comboAllowedInInput, comboFromEvent, isEditableTarget } from '@/lib/keybinds/combo'
+import { IS_MOBILE } from '@/lib/platform'
+import { newChatBubble } from '@/store/chat-bubbles'
 import { toggleCommandMenu } from '@/store/command-menu'
 import { $capture, $comboIndex, endCapture, setBinding } from '@/store/keybinds'
 import {
@@ -140,7 +142,13 @@ export function useKeybinds(deps: KeybindRuntimeDeps): void {
     // Match the sidebar New Session button — the same three steps
     // `use-sidebar-keybinds` used to run for ⌘N before the registry took over.
     'session.new': () => {
-      newSession()
+      // Mobile: a new bubble alongside the current chat (no-op on a draft).
+      if (IS_MOBILE) {
+        newChatBubble()
+      } else {
+        newSession()
+      }
+
       navigate(NEW_CHAT_ROUTE)
       window.dispatchEvent(new CustomEvent(NEW_SESSION_FLASH_EVENT))
     },

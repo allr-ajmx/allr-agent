@@ -1,6 +1,7 @@
 import { type DragEvent as ReactDragEvent, useRef, useState } from 'react'
 
 import { triggerHaptic } from '@/lib/haptics'
+import { IS_MOBILE } from '@/lib/platform'
 
 import { extractDroppedFiles, HERMES_PATHS_MIME, partitionDroppedFiles } from '../../hooks/use-composer-actions'
 import { dragHasAttachments, droppedFileInlineRefs, type InlineRefInput } from '../inline-refs'
@@ -28,6 +29,26 @@ export function useComposerDrop({
 }: UseComposerDropArgs) {
   const [dragActive, setDragActive] = useState(false)
   const dragDepthRef = useRef(0)
+
+  // Touch has no file drag-and-drop — the composer's HTML5 DnD is a mouse-only
+  // affordance. On mobile the drop overlay (COMPOSER_DROP_ACTIVE_CLASS) must
+  // never light and the enter/leave depth machine must stay inert, so return a
+  // same-shaped set of no-op handlers with dragActive permanently false. Hooks
+  // above stay unconditional (IS_MOBILE is a module constant), so this early
+  // return keeps the hook order stable.
+  if (IS_MOBILE) {
+    const noop = () => {}
+
+    return {
+      dragActive: false,
+      handleDragEnter: noop,
+      handleDragLeave: noop,
+      handleDragOver: noop,
+      handleDrop: noop,
+      handleInputDragOver: noop,
+      handleInputDrop: noop
+    }
+  }
 
   const resetDragState = () => {
     dragDepthRef.current = 0

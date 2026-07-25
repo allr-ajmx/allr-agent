@@ -1680,6 +1680,7 @@ export const en: Translations = {
       unpin: 'Unpin',
       copyId: 'Copy ID',
       openInTile: 'Open in tile',
+      openInBubble: 'Open in bubble',
       export: 'Export',
       branchFrom: 'Branch',
       rename: 'Rename',
@@ -1706,6 +1707,9 @@ export const en: Translations = {
 
   composer: {
     message: 'Message',
+    bubbles: {
+      releaseToClose: 'Release to close'
+    },
     wakingProfile: profile => `Waking up ${profile}…`,
     placeholderStarting: 'Starting Hermes...',
     placeholderReconnecting: 'Reconnecting to Hermes…',

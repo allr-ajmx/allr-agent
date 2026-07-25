@@ -14,7 +14,9 @@ import { Codicon } from '@/components/ui/codicon'
 import { KbdGroup } from '@/components/ui/kbd'
 import { useI18n } from '@/i18n'
 import { comboTokens } from '@/lib/kbd'
+import { IS_MOBILE } from '@/lib/platform'
 import { cn } from '@/lib/utils'
+import { newChatBubble } from '@/store/chat-bubbles'
 import { openCommandMenu } from '@/store/command-menu'
 import { NEW_SESSION_FLASH_EVENT } from '@/store/layout'
 import { newSession } from '@/store/session'
@@ -70,7 +72,14 @@ export function SidebarNavRail({ variant, onNavigate }: { variant: 'pane' | 'she
 
   const handle = (item: RailItem) => {
     if (item.id === 'new-session') {
-      newSession()
+      // Mobile: spawn a new parallel bubble instead of replacing the current
+      // chat (no-op when already on a draft). Desktop: plain new session.
+      if (IS_MOBILE) {
+        newChatBubble()
+      } else {
+        newSession()
+      }
+
       navigate(NEW_CHAT_ROUTE)
     } else if (item.route) {
       navigate(item.route)
