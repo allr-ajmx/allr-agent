@@ -8,7 +8,7 @@ import {
 } from '@assistant-ui/react-streamdown'
 import { code } from '@streamdown/code'
 import type { Element as HastElement } from 'hast'
-import { type ComponentProps, memo, useMemo } from 'react'
+import { type ComponentProps, memo, useEffect, useMemo, useState } from 'react'
 
 import { ExpandableBlock } from '@/components/chat/expandable-block'
 import { chunkByLines, SyntaxHighlighter } from '@/components/chat/shiki-highlighter'
@@ -16,6 +16,13 @@ import { ZoomableImage } from '@/components/chat/zoomable-image'
 import { normalizeExternalUrl, openExternalLink, PrettyLink } from '@/lib/external-link'
 import { createMemoizedMathPlugin, KATEX_HTML_TAG } from '@/lib/katex-memo'
 import { preprocessMarkdown } from '@/lib/markdown-preprocess'
+import {
+  downloadGatewayMediaFile,
+  mediaKind,
+  mediaName,
+  mediaPathFromMarkdownHref,
+  resolveMediaDisplaySrc
+} from '@/lib/media'
 import { cn } from '@/lib/utils'
 
 import { detectEmbed, extractAlert, MarkdownAlert, RichCodeBlock, UrlEmbed } from './embeds'
@@ -153,11 +160,153 @@ function childrenToText(children: unknown): string {
   return ''
 }
 
-// FIXME(chat-port): media attachments (image/audio/video hrefs) and preview
-// links are deferred to the preview/media phase — they need the gateway-media
-// RPCs universal doesn't expose yet. For now non-media links route through
-// PrettyLink / rich URL embeds.
+async function mediaSrc(path: string): Promise<string> {
+  // FIXME(chat-port): audio/video load as data URLs (whole file in memory, no
+  // seeking) until a Tauri media-streaming scheme replaces desktop's
+  // hermes-media:// — fine for images and short clips.
+  return resolveMediaDisplaySrc(path)
+}
+
+// The media file lives on the gateway, so "open" fetches the bytes over the
+// authenticated bridge and hands them to the webview as a download.
+function useOpenMediaFile(path: string) {
+  const [openFailed, setOpenFailed] = useState(false)
+
+  const open = () => {
+    setOpenFailed(false)
+    void downloadGatewayMediaFile(path).catch(() => setOpenFailed(true))
+  }
+
+  return { open, openFailed }
+}
+
+function OpenMediaFailedNote({ name }: { name: string }) {
+  return (
+    <span className="mt-1 block text-xs text-muted-foreground">
+      Couldn&apos;t fetch {name} from the gateway (missing, unreadable, or too large).
+    </span>
+  )
+}
+
+function OpenMediaButton({ kind, path }: { kind: 'audio' | 'video'; path: string }) {
+  const { open, openFailed } = useOpenMediaFile(path)
+
+  return (
+    <span className="block">
+      <button
+        className="mt-2 bg-transparent text-xs font-medium text-muted-foreground underline underline-offset-4 decoration-current/20 hover:text-foreground"
+        onClick={open}
+        type="button"
+      >
+        Open {kind} file
+      </button>
+      {openFailed && <OpenMediaFailedNote name={mediaName(path)} />}
+    </span>
+  )
+}
+
+// Renders a `#media:` attachment: images/audio/video inline, other kinds (and
+// load failures) fall back to a download link. Ported from desktop's
+// MediaAttachment, minus the hermes-media:// streaming branch (deferred).
+function MediaAttachment({ path }: { path: string }) {
+  const [src, setSrc] = useState('')
+  const [failed, setFailed] = useState(false)
+  const { open, openFailed } = useOpenMediaFile(path)
+  const kind = mediaKind(path)
+  const name = mediaName(path)
+
+  useEffect(() => {
+    let cancelled = false
+
+    setFailed(false)
+    setSrc('')
+
+    if (kind === 'file') {
+      setFailed(true)
+
+      return () => {
+        cancelled = true
+      }
+    }
+
+    void mediaSrc(path)
+      .then(value => {
+        if (!cancelled) {
+          setSrc(value)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setFailed(true)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [kind, path])
+
+  if (kind === 'image' && src) {
+    return (
+      <span className="block">
+        <MarkdownImage alt={name} src={src} />
+      </span>
+    )
+  }
+
+  if (kind === 'audio' && src) {
+    return (
+      <span className="my-3 block max-w-md rounded-xl border border-border bg-muted/35 p-3">
+        <span className="mb-2 block truncate text-xs font-medium text-muted-foreground">{name}</span>
+        <audio className="block w-full" controls onError={() => setFailed(true)} preload="metadata" src={src} />
+        {failed && <OpenMediaButton kind="audio" path={path} />}
+      </span>
+    )
+  }
+
+  if (kind === 'video' && src) {
+    return (
+      <span className="my-3 block max-w-2xl rounded-xl border border-border bg-muted/35 p-3">
+        <span className="mb-2 block truncate text-xs font-medium text-muted-foreground">{name}</span>
+        <video
+          className="block max-h-112 w-full rounded-lg bg-black"
+          controls
+          onError={() => setFailed(true)}
+          src={src}
+        />
+        {failed && <OpenMediaButton kind="video" path={path} />}
+      </span>
+    )
+  }
+
+  return (
+    <span className="wrap-anywhere">
+      <a
+        className="font-semibold text-foreground underline underline-offset-4 decoration-current/20 wrap-anywhere"
+        href="#"
+        onClick={event => {
+          event.preventDefault()
+          open()
+        }}
+      >
+        {failed ? `Open ${name}` : `Loading ${name}...`}
+      </a>
+      {openFailed && <OpenMediaFailedNote name={name} />}
+    </span>
+  )
+}
+
+// `#media:` hrefs render as inline attachments; everything else routes through
+// rich URL embeds / PrettyLink. (Link-preview attachments — desktop's
+// PreviewAttachment scan — stay deferred: they depend on the preview store
+// remodel, tracked separately in Tier 4.)
 function MarkdownLink({ children, className, href, ...props }: ComponentProps<'a'>) {
+  const mediaPath = mediaPathFromMarkdownHref(href)
+
+  if (mediaPath) {
+    return <MediaAttachment path={mediaPath} />
+  }
+
   const target = href ? normalizeExternalUrl(href) : href
 
   if (!target || !/^https?:\/\//i.test(target)) {
@@ -205,8 +354,9 @@ function MarkdownLink({ children, className, href, ...props }: ComponentProps<'a
 
 function MarkdownImage({ className, src, alt, ...props }: ComponentProps<'img'>) {
   // Rendered images (data:/http/gateway) open in the shared pan/zoom viewer.
-  // FIXME(chat-port): file://media: attachments still need the gateway-media RPCs
-  // (blocked) — those hrefs are handled by MarkdownLink, not here.
+  // `#media:` hrefs (incl. file:// media) are dispatched by MarkdownLink →
+  // MediaAttachment, which resolves gateway bytes to a data URL and renders
+  // here with a real src.
   if (!src) {
     return null
   }
