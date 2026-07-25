@@ -1,3 +1,4 @@
+import { renderMediaTags } from '@/lib/chat-media'
 import type { ChatMessage, ChatPart, ToolCallPart } from '@/store/chat'
 import type { SessionMessage, SessionResumeResponse } from '@/types/hermes'
 
@@ -314,7 +315,12 @@ export function toChatMessages(messages: SessionMessage[]): ChatMessage[] {
     }
 
     if (displayContent) {
-      parts.push({ type: 'text', text: displayContent })
+      // Assistant text carries the agent's MEDIA: markers — rewrite them to
+      // #media: links so restored transcripts render media inline (not literal
+      // "MEDIA:/path" text). User text keeps its @-directives (chip pipeline).
+      const text = message.role === 'assistant' ? renderMediaTags(displayContent) : displayContent
+
+      parts.push({ type: 'text', text })
     }
 
     if (message.role === 'assistant' && Array.isArray(message.tool_calls)) {
@@ -416,7 +422,7 @@ export function appendLiveSessionProjection(
   if (inflightAssistant || inflightStreaming || (inflightUser && queuedUser)) {
     projected.push({
       id: `assistant-stream-${sessionId}`,
-      parts: inflightAssistant ? [{ text: inflightAssistant, type: 'text' }] : [],
+      parts: inflightAssistant ? [{ text: renderMediaTags(inflightAssistant), type: 'text' }] : [],
       pending: inflightStreaming,
       role: 'assistant'
     })

@@ -1,5 +1,6 @@
 import type { GatewayEvent } from '@/gateway'
 import { translateNow } from '@/i18n'
+import { renderMediaTags } from '@/lib/chat-media'
 import { coerceThinkingText } from '@/lib/chat-runtime'
 import { type GatewayToolPayload, toolIdFromPayload, upsertToolPart } from '@/lib/chat-tool-parts'
 import { playCompletionSound } from '@/lib/completion-sound'
@@ -249,6 +250,40 @@ export function appendStreamPart(parts: ChatPart[], type: 'reasoning' | 'text', 
   return [...parts, { type, text: delta }]
 }
 
+// Append an assistant text delta, then rewrite MEDIA: markers in the active text
+// part to #media: links so media renders inline as it streams (mirrors desktop
+// lib/chat-messages.ts appendAssistantTextPart). Idempotent on already-rendered
+// text — the guard skips parts with no MEDIA: literal.
+export function appendAssistantTextPart(parts: ChatPart[], delta: string): ChatPart[] {
+  const next = appendStreamPart(parts, 'text', delta)
+
+  for (let i = next.length - 1; i >= 0; i--) {
+    const part = next[i]
+
+    if (part.type === 'text') {
+      if (part.text.includes('MEDIA:')) {
+        const rendered = renderMediaTags(part.text)
+
+        if (rendered !== part.text) {
+          const copy = next.slice()
+          copy[i] = { type: 'text', text: rendered }
+
+          return copy
+        }
+      }
+
+      return next
+    }
+
+    // Stay within the current streaming segment (bounded by tool calls etc.).
+    if (part.type !== 'reasoning') {
+      break
+    }
+  }
+
+  return next
+}
+
 // A settled reasoning burst (`reasoning.available` / `moa.reference`): the FULL
 // text of one model step's scratchpad, capped at 500 chars by the gateway
 // (agent/conversation_loop.py). A multi-step turn emits one per step, so this
@@ -359,7 +394,7 @@ export function handleGatewayEvent(event: GatewayEvent): void {
 
     case 'message.delta':
       update(messages =>
-        patchActive(messages, m => ({ ...m, parts: appendStreamPart(m.parts, 'text', coerceText(payload.text)) }))
+        patchActive(messages, m => ({ ...m, parts: appendAssistantTextPart(m.parts, coerceText(payload.text)) }))
       )
 
       break
