@@ -11,6 +11,7 @@
 
 mod appearance;
 mod cloud;
+mod link_title;
 mod local_backend;
 mod marketplace;
 mod oauth;
@@ -19,6 +20,7 @@ mod transport;
 mod voice;
 
 use appearance::set_window_translucency;
+use link_title::fetch_link_title;
 use marketplace::{marketplace_fetch, marketplace_search};
 use cloud::{
     portal_agent_sign_in, portal_discover_agents, portal_login, portal_logout, portal_status,
@@ -150,6 +152,7 @@ pub fn run() {
             set_window_translucency,
             marketplace_search,
             marketplace_fetch,
+            fetch_link_title,
             oauth_login,
             oauth_status,
             oauth_logout,

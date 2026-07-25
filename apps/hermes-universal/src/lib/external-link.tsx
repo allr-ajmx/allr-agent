@@ -138,15 +138,56 @@ export function isTitleFetchable(value: string): boolean {
   return Boolean(url && /^https?:$/.test(url.protocol) && !LOCAL_HOST_RE.test(url.host))
 }
 
-// FIXME(chat-port): universal has no link-title bridge (desktop uses
-// window.hermesDesktop.fetchLinkTitle). Until a gateway RPC lands, always
-// resolve to '' — PrettyLink then falls back to its label / URL slug, which
-// preserves rendering parity (just no fetched page title).
+// Resolve an external link's page title via the native `fetch_link_title`
+// command (reqwest GET + <title>/og:title parse in Rust — the webview can't
+// fetch cross-origin). Results are cached and in-flight requests deduped;
+// subscribers (useLinkTitle) are notified when the title lands. Off Tauri
+// (plain-web dev / vitest) resolves to '' — PrettyLink then falls back to its
+// label / URL slug, preserving rendering parity.
 export function fetchLinkTitle(url: string): Promise<string> {
-  const key = titleCacheKey(normalizeExternalUrl(url))
-  titleCache.set(key, '')
+  const normalizedUrl = normalizeExternalUrl(url)
+  const key = titleCacheKey(normalizedUrl)
 
-  return Promise.resolve('')
+  if (!isTitleFetchable(normalizedUrl)) {
+    return Promise.resolve('')
+  }
+
+  if (titleCache.has(key)) {
+    return Promise.resolve(titleCache.get(key) ?? '')
+  }
+
+  const pending = titleInflight.get(key)
+
+  if (pending) {
+    return pending
+  }
+
+  if (!IS_TAURI) {
+    titleCache.set(key, '')
+
+    return Promise.resolve('')
+  }
+
+  const promise = (async () => {
+    try {
+      const { invoke } = await import('@tauri-apps/api/core')
+      const raw = await invoke<string>('fetch_link_title', { url: normalizedUrl })
+
+      return (raw || '').replace(/\s+/g, ' ').trim()
+    } catch {
+      return ''
+    }
+  })().then(safe => {
+    titleCache.set(key, safe)
+    titleInflight.delete(key)
+    titleSubs.get(key)?.forEach(sub => sub(safe))
+
+    return safe
+  })
+
+  titleInflight.set(key, promise)
+
+  return promise
 }
 
 export function useLinkTitle(url?: null | string): string {
