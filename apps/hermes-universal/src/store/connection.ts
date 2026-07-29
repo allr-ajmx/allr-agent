@@ -20,6 +20,7 @@ import { getInstallationId } from '@/store/installation-id'
 import { spawnLocalBackend, stopLocalBackend } from '@/store/local-backend'
 import {
   $sshStep,
+  cancelSsh,
   connectSshBackend,
   disconnectSsh,
   newAttemptId,
@@ -283,6 +284,11 @@ export async function connectSsh(
 
   const attemptId = options.attemptId ?? newAttemptId()
   const profile = target.profile ?? null
+  // Tracked so `disconnect()` can abort a dial that is still running. A cold SSH
+  // connect can take 90s, and without this the "Use a different gateway" escape
+  // hatch only *looks* like it worked: the UI moves on while Rust keeps
+  // spawning a backend on the remote.
+  activeSshAttempt = attemptId
 
   // Publish progress for surfaces that never see the attempt id — the connecting
   // screen during a boot restore, and the tunnel re-bootstrap. Subscribed before
@@ -343,8 +349,15 @@ export async function connectSsh(
   } finally {
     unlistenProgress?.()
     $sshStep.set(null)
+
+    if (activeSshAttempt === attemptId) {
+      activeSshAttempt = null
+    }
   }
 }
+
+/** The in-flight SSH dial, if any, so a deliberate disconnect can abort it. */
+let activeSshAttempt: null | string = null
 
 /**
  * Cloud mode (E5): connect to a portal-discovered agent's gateway. The agent
@@ -412,6 +425,13 @@ export function disconnect(): void {
   if (conn?.mode === 'ssh') {
     stopWatchingSshTunnel()
     void disconnectSsh(conn.profile ?? null).catch(() => {})
+  }
+
+  // Abort a dial that has not produced a connection yet — at this point there is
+  // no `conn` to branch on, so this sits outside the check above.
+  if (activeSshAttempt) {
+    void cancelSsh(activeSshAttempt).catch(() => {})
+    activeSshAttempt = null
   }
 
   closeGateway()
