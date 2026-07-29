@@ -77,6 +77,7 @@ export function MobileStatusList() {
           <div className="flex flex-col gap-px">
             {section.items.map(item => {
               const rowItem = toRow(item)
+
               const finalItem = LIGHT_LABEL_SECTIONS.has(section.title)
                 ? { ...rowItem, className: cn(rowItem.className, 'font-normal') }
                 : rowItem

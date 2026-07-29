@@ -1,19 +1,17 @@
 import { type ConnectionState, type GatewayEvent, JsonRpcGatewayClient, type WebSocketLike } from '@/gateway'
 import type { HermesGateway } from '@/hermes'
 import { atom } from '@/store/atom'
-import { handleGatewayEvent } from '@/store/chat'
 import { type Connection, resolveWsUrl } from '@/store/gateway-config'
 import { TauriWebSocket } from '@/transport/tauri-websocket'
 
-// Extra whole-stream listeners layered on top of the primary chat reducer. The
-// multi-session TILE reducer registers here (see store/session-reducer.ts,
-// wired from app/contrib/controller.tsx) so gateway.ts never statically imports
-// the session-states/profile graph — a static import reorders module init and
-// trips the `@/hermes` `_apiProfile` TDZ cycle in tests.
+// Whole-stream event listeners. THE session event router registers here (see
+// store/event-router.ts, wired from app/contrib/controller.tsx) rather than
+// being imported directly, so gateway.ts never statically imports the
+// session-states/profile graph — a static import reorders module init and trips
+// the `@/hermes` `_apiProfile` TDZ cycle in tests.
 const extraEventListeners = new Set<(event: GatewayEvent) => void>()
 
-/** Add a whole-stream gateway event listener (called after the chat reducer for
- *  every event). Returns a disposer. */
+/** Add a whole-stream gateway event listener. Returns a disposer. */
 export function addGatewayEventListener(listener: (event: GatewayEvent) => void): () => void {
   extraEventListeners.add(listener)
 
@@ -53,12 +51,9 @@ export async function connectGateway(conn: Connection): Promise<void> {
 
   next.onState(state => $gatewayState.set(state))
   next.onAny(event => {
-    // The primary chat's reducer (unchanged), then any extra listeners (the
-    // multi-session tile reducer registers here via addGatewayEventListener —
-    // kept OUT of a static import so gateway.ts stays free of the heavy
-    // session-states/profile graph that would reorder module init).
-    handleGatewayEvent(event)
-
+    // One stream, one set of listeners. The session event router is registered
+    // via addGatewayEventListener rather than imported, keeping gateway.ts free
+    // of the heavy session-states/profile graph that would reorder module init.
     for (const listener of extraEventListeners) {
       listener(event)
     }

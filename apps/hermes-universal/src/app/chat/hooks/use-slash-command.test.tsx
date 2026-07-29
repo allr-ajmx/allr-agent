@@ -9,11 +9,13 @@ vi.mock('@/store/gateway', async () => {
 })
 
 import type * as ChatStoreModule from '@/store/chat'
-import { $busy, $messages, $sessionId, resetChat, sendPrompt } from '@/store/chat'
+import { $messages, $sessionId, resetChat, sendPrompt } from '@/store/chat'
 import { $composerDraft } from '@/store/composer'
 import { requestGateway } from '@/store/gateway'
 import { $modelPickerOpen } from '@/store/model'
 import { $sessions } from '@/store/session'
+import { updateSession } from '@/store/session-state-types'
+import { seedActiveSession } from '@/test-sessions'
 import { ThemeProvider } from '@/themes/context'
 
 import { useSlashCommand } from './use-slash-command'
@@ -56,7 +58,7 @@ const systemLines = () =>
 
 beforeEach(() => {
   resetChat()
-  $sessionId.set('sess-1')
+  seedActiveSession('sess-1')
   $composerDraft.set('')
   $modelPickerOpen.set(false)
   vi.mocked(requestGateway).mockReset()
@@ -66,7 +68,7 @@ beforeEach(() => {
 
 afterEach(() => {
   $sessions.set([])
-  $busy.set(false)
+  updateSession('sess-1', s => ({ ...s, busy: false }))
 })
 
 describe('useSlashCommand', () => {
@@ -104,7 +106,11 @@ describe('useSlashCommand', () => {
   })
 
   it('submits a send directive as a prompt', async () => {
-    vi.mocked(requestGateway).mockResolvedValue({ type: 'send', message: 'do the thing', notice: '⊙ Goal set' } as never)
+    vi.mocked(requestGateway).mockResolvedValue({
+      type: 'send',
+      message: 'do the thing',
+      notice: '⊙ Goal set'
+    } as never)
 
     await run('/goal ship it')
 
@@ -113,7 +119,7 @@ describe('useSlashCommand', () => {
   })
 
   it('refuses a send directive while the session is busy', async () => {
-    $busy.set(true)
+    updateSession('sess-1', s => ({ ...s, busy: true }))
     vi.mocked(requestGateway).mockResolvedValue({ type: 'send', message: 'do the thing' } as never)
 
     await run('/goal ship it')
@@ -149,7 +155,10 @@ describe('useSlashCommand', () => {
   })
 
   it('forks the thread on /branch instead of asking the backend', async () => {
-    $messages.set([{ id: 'm1', role: 'assistant', parts: [{ type: 'text', text: 'answer' }] }])
+    updateSession('sess-1', s => ({
+      ...s,
+      messages: [{ id: 'm1', role: 'assistant', parts: [{ type: 'text', text: 'answer' }] }]
+    }))
     vi.mocked(requestGateway).mockResolvedValue({ session_id: 'runtime-2', stored_session_id: 'stored-2' } as never)
 
     await run('/branch')

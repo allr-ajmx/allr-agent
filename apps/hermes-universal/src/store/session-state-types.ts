@@ -84,6 +84,8 @@ export const newDraftKey = (): string => `${DRAFT_KEY_PREFIX}${++draftCounter}`
 /** The key a stored session hydrates under until its resume returns a runtime id. */
 export const hydratingKey = (storedSessionId: string): string => `${HYDRATING_KEY_PREFIX}${storedSessionId}`
 
+export const isDraftKey = (key: string): boolean => key.startsWith(DRAFT_KEY_PREFIX)
+
 export const isPlaceholderKey = (key: string): boolean =>
   key.startsWith(DRAFT_KEY_PREFIX) || key.startsWith(HYDRATING_KEY_PREFIX)
 
@@ -132,3 +134,204 @@ export const $sessionStates = atom<Record<string, ClientSessionState>>({})
  * value that always answers.
  */
 export const $activeSessionKey = atom<string>(newDraftKey())
+
+// ---------------------------------------------------------------------------
+// THE MAP WRITE PATH.
+//
+// These live in the leaf, not in `store/session-states.ts`, because
+// `store/chat.ts` needs them and `store/session-states.ts` reaches
+// `store/session.ts` (which imports `store/chat.ts`) — putting the writers here
+// keeps that from closing into a runtime cycle. The richer transition
+// behaviour (stall watchdog, settle grace, unread markers, id rotation) plugs in
+// through `setSessionTransitionHook`, and slice teardown through
+// `setSessionDisposeHook`.
+// ---------------------------------------------------------------------------
+
+type TransitionHook = (previous: ClientSessionState | null, next: ClientSessionState, key: string) => void
+
+let transitionHook: TransitionHook | null = null
+let disposeHook: null | ((key: string, state: ClientSessionState) => void) = null
+
+export function setSessionTransitionHook(hook: TransitionHook): void {
+  transitionHook = hook
+}
+
+export function setSessionDisposeHook(hook: (key: string, state: ClientSessionState) => void): void {
+  disposeHook = hook
+}
+
+// --- Stored id → session key reverse index --------------------------------
+//
+// Callers navigate by STORED id (a sidebar row, a tile, a bubble) but slices are
+// keyed by the live session key, so every "is this session already open?" test
+// needs this map. It also carries LINEAGE ALIASES: when a session auto-compacts
+// its stored id rotates, and bubbles / tiles / layout pane ids / the persisted
+// `hermes.*` blobs all still name the PRE-rotation id. Aliasing the old id onto
+// the live key keeps every one of them resolving without renaming anything or
+// migrating storage (MJX-133).
+
+const keyByStoredId = new Map<string, string>()
+
+function indexStoredId(prev: ClientSessionState | null, next: ClientSessionState, key: string) {
+  if (prev?.storedSessionId && prev.storedSessionId !== next.storedSessionId) {
+    // Keep the old id pointing here — it is the same conversation, and the
+    // callers holding it have no way to learn about the rotation.
+    keyByStoredId.set(prev.storedSessionId, key)
+  }
+
+  if (next.storedSessionId) {
+    keyByStoredId.set(next.storedSessionId, key)
+  }
+}
+
+function dropStoredIdIndexFor(key: string) {
+  for (const [storedId, mapped] of keyByStoredId) {
+    if (mapped === key) {
+      keyByStoredId.delete(storedId)
+    }
+  }
+}
+
+function remapStoredIdIndex(key: string, nextKey: string) {
+  for (const [storedId, mapped] of keyByStoredId) {
+    if (mapped === key) {
+      keyByStoredId.set(storedId, nextKey)
+    }
+  }
+}
+
+/**
+ * The live session key for a stored session, or null when it isn't open.
+ *
+ * Validated like desktop's `getRuntimeIdForStoredSession`: a hit is only
+ * returned when the slice still exists — either under its current stored id, or
+ * under one we deliberately aliased across a compaction rotation.
+ */
+export function runtimeKeyForStoredSession(storedSessionId: null | string): null | string {
+  if (!storedSessionId) {
+    return null
+  }
+
+  const key = keyByStoredId.get(storedSessionId)
+
+  if (!key) {
+    return null
+  }
+
+  if (!(key in $sessionStates.get())) {
+    keyByStoredId.delete(storedSessionId)
+
+    return null
+  }
+
+  return key
+}
+
+/** Register a stored id as an alias of an already-open session — used to seed
+ *  the index from the backend's `_lineage_root_id` on a session-list refresh. */
+export function aliasStoredSessionId(aliasStoredId: string, liveStoredId: string): void {
+  const key = runtimeKeyForStoredSession(liveStoredId)
+
+  if (key && !keyByStoredId.has(aliasStoredId)) {
+    keyByStoredId.set(aliasStoredId, key)
+  }
+}
+
+export function clearStoredIdIndex(): void {
+  keyByStoredId.clear()
+}
+
+// --- Writers ---------------------------------------------------------------
+
+/** Publish one session's state, firing the transition side-effects by diffing
+ *  previous vs next. */
+export function publishSessionState(key: string, state: ClientSessionState): ClientSessionState {
+  const prev = $sessionStates.get()[key] ?? null
+  const next = { ...state, lastTouchedAt: Date.now() }
+  $sessionStates.set({ ...$sessionStates.get(), [key]: next })
+  indexStoredId(prev, next, key)
+  transitionHook?.(prev, next, key)
+
+  return next
+}
+
+/** Create a session's slice if absent, and return it either way. Every write
+ *  path goes through here, so no caller can land on a missing slice. */
+export function ensureSessionSlice(key: string, seed?: Partial<ClientSessionState>): ClientSessionState {
+  const current = $sessionStates.get()[key]
+
+  if (current) {
+    return current
+  }
+
+  return publishSessionState(key, { ...emptySessionState(seed?.storedSessionId ?? null), ...seed })
+}
+
+/** THE per-session write path: apply an updater to one session's slice and
+ *  publish it. Creates the slice when absent — the previous version returned
+ *  `undefined` cast to a state, a latent crash the moment the visible chat
+ *  started reading from the map. Mirrors desktop's `updateSession`. */
+export function updateSession(
+  key: string,
+  updater: (state: ClientSessionState) => ClientSessionState
+): ClientSessionState {
+  const current = $sessionStates.get()[key] ?? ensureSessionSlice(key)
+  const next = updater(current)
+
+  return next === current ? current : publishSessionState(key, next)
+}
+
+/**
+ * Move a slice from one key to another in ONE `$sessionStates.set`, so no
+ * subscriber ever observes a frame where the session exists under neither key.
+ * If the moving slice is the active one, `$activeSessionKey` follows in the same
+ * tick.
+ *
+ * This is the draft→runtime and hydrating→runtime primitive. Callers must invoke
+ * it synchronously once the gateway hands back a runtime id, before awaiting
+ * anything else: the event router drops events for unknown keys, so the slice
+ * has to exist under its real id before the first streamed event for it arrives.
+ */
+export function rekeySession(fromKey: string, toKey: string, patch?: Partial<ClientSessionState>): ClientSessionState {
+  const states = $sessionStates.get()
+  const moving = states[fromKey] ?? emptySessionState()
+
+  if (fromKey === toKey) {
+    return publishSessionState(toKey, { ...moving, ...patch })
+  }
+
+  const prevAtTarget = states[toKey] ?? null
+  const next = { ...moving, ...patch, lastTouchedAt: Date.now() }
+  const { [fromKey]: _moved, ...rest } = states
+  $sessionStates.set({ ...rest, [toKey]: next })
+
+  // Carry every alias across, not just the current stored id — a session that
+  // rotated before being rekeyed still has callers holding its older ids.
+  remapStoredIdIndex(fromKey, toKey)
+  indexStoredId(prevAtTarget, next, toKey)
+
+  if ($activeSessionKey.get() === fromKey) {
+    $activeSessionKey.set(toKey)
+  }
+
+  disposeHook?.(fromKey, moving)
+  transitionHook?.(prevAtTarget, next, toKey)
+
+  return next
+}
+
+/** Evict a session's slice entirely. */
+export function dropSessionState(key: string): void {
+  const current = $sessionStates.get()
+
+  if (!(key in current)) {
+    return
+  }
+
+  const state = current[key]
+  dropStoredIdIndexFor(key)
+
+  const { [key]: _dropped, ...rest } = current
+  $sessionStates.set(rest)
+  disposeHook?.(key, state)
+}

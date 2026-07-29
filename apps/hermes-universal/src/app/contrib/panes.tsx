@@ -27,6 +27,7 @@ import { setCurrentSessionPreviewTarget } from '@/store/preview'
 // Dev-only markdown/KaTeX perf bench — same build-time guard as MobileController
 // so it never reaches a release bundle. Kept reachable from the workspace pane.
 const BENCH_ENABLED = import.meta.env.DEV || import.meta.env.VITE_ENABLE_BENCH === 'true'
+
 const MarkdownBench = BENCH_ENABLED
   ? lazy(() => import('@/dev/markdown-bench').then(module => ({ default: module.MarkdownBench })))
   : null

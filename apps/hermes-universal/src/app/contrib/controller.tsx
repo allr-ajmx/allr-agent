@@ -1,3 +1,5 @@
+import '@/store/session-tile-delegate' // side-effect: registers the SessionTileDelegate
+
 import { computed } from 'nanostores'
 import { type ReactElement, useEffect } from 'react'
 import { useLocation } from 'react-router-dom'
@@ -22,13 +24,12 @@ import {
   setTreePaneHidden,
   watchContributedPanes
 } from '@/components/pane-shell/tree/store'
-import { registry } from '@/contrib/registry'
 import { discoverBundledPlugins } from '@/contrib/plugins'
-import { addGatewayEventListener } from '@/store/gateway'
-import { routeTileEvent } from '@/store/session-reducer'
-import '@/store/session-tile-delegate' // side-effect: registers the SessionTileDelegate
+import { registry } from '@/contrib/registry'
 import { sessionTitle as storedSessionTitle } from '@/lib/chat-runtime'
 import { $currentCwd } from '@/store/chat'
+import { routeGatewayEvent } from '@/store/event-router'
+import { addGatewayEventListener } from '@/store/gateway'
 import {
   $panesFlipped,
   $rightSidebarOpen,
@@ -45,9 +46,9 @@ import {
   SIDEBAR_DEFAULT_WIDTH,
   SIDEBAR_MAX_WIDTH
 } from '@/store/layout'
-import { closeAllPreviewTabs, $previewTabs } from '@/store/preview'
+import { $previewTabs, closeAllPreviewTabs } from '@/store/preview'
 import { $reviewOpen, closeReview, REVIEW_PANE_ID } from '@/store/review'
-import { $sessions, $activeStoredSessionId, sessionMatchesStoredId } from '@/store/session'
+import { $activeStoredSessionId, $sessions, sessionMatchesStoredId } from '@/store/session'
 import { $sessionColorById, sessionColorFor } from '@/store/session-color'
 
 import {
@@ -92,11 +93,7 @@ import { FilesPane, PreviewRailPane, ReviewPaneContent, TerminalPane, WorkspaceR
 // gives `.chat` (flex:1 1 auto, needs a bounded flex-col parent) real room to
 // fill and scroll its own thread internally.
 const renderWorkspacePane = () => (
-  <div
-    className="flex h-full min-h-0 min-w-0 flex-col"
-    data-composer-target="main"
-    data-session-anchor="workspace"
-  >
+  <div className="flex h-full min-h-0 min-w-0 flex-col" data-composer-target="main" data-session-anchor="workspace">
     <WorkspaceRoutes />
   </div>
 )
@@ -268,11 +265,16 @@ discoverBundledPlugins()
 // hint the moment they register.
 watchContributedPanes()
 
-// Multi-session tiles: stream tile sessions off the shared gateway stream (the
-// primary chat reducer is untouched), mirror `$sessionTiles` into layout-tree
-// panes, and collapse tiles into the workspace on a layout reset.
+// THE gateway event router — one consumer for every session (the chat on
+// screen, tiles, mobile bubbles). Registered here rather than imported by
+// store/gateway.ts, which must stay free of the session-states/profile graph:
+// a static import there reorders module init and trips the `@/hermes`
+// `_apiProfile` TDZ cycle in tests.
+//
+// Also mirrors `$sessionTiles` into layout-tree panes and collapses tiles into
+// the workspace on a layout reset.
 // FIXME(MJX-50/route-tiles): page (route) tiles — watchRouteTiles() — are a follow-up.
-addGatewayEventListener(routeTileEvent)
+addGatewayEventListener(routeGatewayEvent)
 watchSessionTiles()
 registerLayoutResetHandler(stackSessionTilesIntoMain)
 

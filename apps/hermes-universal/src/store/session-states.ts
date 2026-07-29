@@ -1,20 +1,20 @@
 /**
- * MULTI-SESSION VIEW STATE — the reactive per-runtime cache that session TILES
- * render from (sessions opened side-by-side with the main thread, each in its
- * own layout-tree pane). `$sessionTiles` holds the stored-session ids (persisted
- * — tiles survive restarts); the wiring layer owns resume/submit and registers
- * itself as the delegate so tile UI stays dependency-light.
+ * MULTI-SESSION VIEW STATE — the write path and derivations over
+ * `$sessionStates`, the single map that holds EVERY session: the one on screen,
+ * the ones in layout-tree tiles, and the ones behind mobile bubbles.
  *
- * UNIVERSAL adaptation of desktop's `store/session-states.ts`:
- *  - `$sessionStates` (in the `session-state-types` leaf) holds TILE sessions
- *    ONLY; the PRIMARY chat stays on the global `store/chat.ts` atoms and is
- *    projected here as `$primarySessionState`. `$focusedSessionState` returns the
- *    primary projection when focus is on the workspace, else the tile's slice.
- *  - `$workingSessionIds`/`$attentionSessionIds` live in `store/session.ts`
- *    (which unions the primary + these tile states) — not re-exported here.
- *  - id mapping: desktop `$activeSessionId` (runtime) → universal `$sessionId`
- *    (`@/store/chat`); desktop `$selectedStoredSessionId` (stored) → universal
- *    `$activeStoredSessionId` (`@/store/session`).
+ * The map is keyed by SESSION KEY (a runtime id once the gateway has issued one,
+ * a `draft:`/`hydrating:` placeholder before that — see
+ * `store/session-state-types.ts`), and `$activeSessionKey` names the slice the
+ * user is looking at. `store/chat.ts`'s `$messages`/`$busy`/… are computed
+ * projections of that slice, so there is no second place a transcript can live
+ * and no "is this event for the chat on screen?" guard to fail open (MJX-132).
+ *
+ * `$sessionTiles` holds the stored-session ids of open tiles (persisted — tiles
+ * survive restarts); the wiring layer owns resume/submit and registers itself as
+ * the delegate so tile UI stays dependency-light.
+ *
+ * `$workingSessionIds`/`$attentionSessionIds` live in `store/session.ts`.
  */
 
 import { atom, computed } from 'nanostores'
@@ -28,26 +28,28 @@ import {
   revealTreePane
 } from '@/components/pane-shell/tree/store'
 import { readJson, writeJson } from '@/lib/storage'
-import {
-  $busy,
-  $clarify,
-  $currentCwd,
-  $currentUsage,
-  $messages,
-  $sessionId,
-  $turnStartedAt
-} from '@/store/chat'
-import { $currentFastMode, $currentModel, $currentProvider, $currentReasoningEffort } from '@/store/model'
 import { $activeGatewayProfile, normalizeProfileKey } from '@/store/profile'
+import { clearAllPrompts } from '@/store/prompts'
+import { $activeStoredSessionId, $unreadFinishedSessionIds, setActiveSessionStoredIdRotation } from '@/store/session'
 import {
-  $activeStoredSessionId,
-  $unreadFinishedSessionIds,
-  setActiveSessionStoredIdRotation
-} from '@/store/session'
-import { type ClientSessionState, $sessionStates } from '@/store/session-state-types'
+  $activeSessionKey,
+  $sessionStates,
+  aliasStoredSessionId,
+  clearStoredIdIndex,
+  type ClientSessionState,
+  dropSessionState,
+  emptySessionState,
+  ensureSessionSlice,
+  publishSessionState,
+  rekeySession,
+  runtimeKeyForStoredSession,
+  setSessionDisposeHook,
+  setSessionTransitionHook,
+  updateSession
+} from '@/store/session-state-types'
 import { isSecondaryWindow } from '@/store/windows'
 
-export { $sessionStates }
+export { $activeSessionKey, $sessionStates }
 export type { ClientSessionState }
 
 // ---------------------------------------------------------------------------
@@ -55,6 +57,10 @@ export type { ClientSessionState }
 // ---------------------------------------------------------------------------
 
 export const $stalledSessionIds = atom<string[]>([])
+
+// A stable identity for "no slice", so `$activeSessionState` and the views built
+// on it don't churn subscribers with a fresh object every read.
+const EMPTY_SESSION_STATE: ClientSessionState = emptySessionState()
 
 export function setSessionStalled(storedSessionId: string | null | undefined, stalled: boolean) {
   if (!storedSessionId) {
@@ -132,15 +138,15 @@ export function getRecentlySettledSessionIds(now: number = Date.now()): string[]
 }
 
 // --- Transition detection (called automatically from publishSessionState) ---
-function handleTransition(previous: ClientSessionState | null, next: ClientSessionState, runtimeId: string) {
+function handleTransition(previous: ClientSessionState | null, next: ClientSessionState, key: string) {
   // Compression id rotation: signal the route-follow effect with enough
   // provenance that the consumer can reject it if the user navigated away.
   if (previous?.storedSessionId && next.storedSessionId && previous.storedSessionId !== next.storedSessionId) {
-    if (runtimeId === $sessionId.get()) {
+    if (key === $activeSessionKey.get()) {
       setActiveSessionStoredIdRotation({
         nextStoredSessionId: next.storedSessionId,
         previousStoredSessionId: previous.storedSessionId,
-        runtimeSessionId: runtimeId
+        runtimeSessionId: next.runtimeSessionId ?? key
       })
     }
 
@@ -150,9 +156,9 @@ function handleTransition(previous: ClientSessionState | null, next: ClientSessi
 
   if (next.busy) {
     setSessionStalled(next.storedSessionId, false)
-    armWatchdog(runtimeId)
+    armWatchdog(key)
   } else {
-    clearWatchdog(runtimeId)
+    clearWatchdog(key)
     setSessionStalled(next.storedSessionId, false)
     setSessionStalled(previous?.storedSessionId, false)
   }
@@ -180,49 +186,27 @@ function handleTransition(previous: ClientSessionState | null, next: ClientSessi
   }
 }
 
-/** Publish one session's state. Automatically fires transition side-effects
- *  (watchdog arm/disarm, settle grace, unread marker, compression id rotation)
- *  by diffing previous vs next. */
-export function publishSessionState(runtimeId: string, state: ClientSessionState) {
-  const prev = $sessionStates.get()[runtimeId] ?? null
-  $sessionStates.set({ ...$sessionStates.get(), [runtimeId]: state })
-  handleTransition(prev, state, runtimeId)
+// Plug the rich transition behaviour into the leaf's write path, and tear down
+// per-session timers/prompts when a slice goes away.
+setSessionTransitionHook(handleTransition)
+setSessionDisposeHook((key, state) => {
+  clearWatchdog(key)
+  setSessionStalled(state.storedSessionId, false)
+  clearAllPrompts(key)
+})
+
+export {
+  aliasStoredSessionId,
+  dropSessionState,
+  ensureSessionSlice,
+  publishSessionState,
+  rekeySession,
+  runtimeKeyForStoredSession,
+  updateSession
 }
 
-/** THE per-session write path: apply an updater to one session's slice and
- *  publish it. Returns the next state (or the current when the runtime is
- *  unknown). Mirrors desktop's `updateSession`. */
-export function updateSession(
-  runtimeId: string,
-  updater: (state: ClientSessionState) => ClientSessionState
-): ClientSessionState {
-  const current = $sessionStates.get()[runtimeId]
-
-  if (!current) {
-    return current as unknown as ClientSessionState
-  }
-
-  const next = updater(current)
-  publishSessionState(runtimeId, next)
-
-  return next
-}
-
-export function dropSessionState(runtimeId: string) {
-  clearWatchdog(runtimeId)
-
-  const current = $sessionStates.get()
-  setSessionStalled(current[runtimeId]?.storedSessionId, false)
-
-  if (!(runtimeId in current)) {
-    return
-  }
-
-  const { [runtimeId]: _dropped, ...rest } = current
-  $sessionStates.set(rest)
-}
-
-/** Drop every cached session state — used on soft gateway-mode apply. */
+/** Drop every cached session state — used on profile switch / soft gateway-mode
+ *  apply, where every runtime id is dead. */
 export function clearAllSessionStates() {
   for (const timer of sessionWatchdogTimers.values()) {
     clearTimeout(timer)
@@ -230,56 +214,18 @@ export function clearAllSessionStates() {
 
   sessionWatchdogTimers.clear()
   settledExpiry.clear()
+  clearStoredIdIndex()
+  clearAllPrompts()
   $stalledSessionIds.set([])
   $sessionStates.set({})
 }
 
-// ---------------------------------------------------------------------------
-// PRIMARY session projection + FOCUSED derivations. `$sessionStates` holds only
-// tiles, so the focused-state readouts (statusbar/titlebar) fall back to the
-// primary projected from the global chat atoms when focus is on the workspace.
-// ---------------------------------------------------------------------------
-
-/** The primary chat's global atoms projected into a `ClientSessionState`, so
- *  the focused-state readouts read one uniform shape whether focus is a tile or
- *  the workspace. Fields universal doesn't track separately default sensibly. */
-export const $primarySessionState = computed(
-  [
-    $activeStoredSessionId,
-    $messages,
-    $busy,
-    $clarify,
-    $currentCwd,
-    $turnStartedAt,
-    $currentUsage,
-    $currentModel,
-    $currentProvider,
-    $currentFastMode,
-    $currentReasoningEffort
-  ],
-  (storedId, messages, busy, clarify, cwd, turnStartedAt, usage, model, provider, fast, effort) => ({
-    storedSessionId: storedId,
-    messages,
-    branch: '',
-    cwd,
-    model,
-    provider,
-    reasoningEffort: effort,
-    serviceTier: '',
-    fast,
-    yolo: false,
-    personality: '',
-    busy,
-    awaitingResponse: busy,
-    streamId: null,
-    sawAssistantPayload: false,
-    pendingBranchGroup: null,
-    interrupted: false,
-    interimBoundaryPending: false,
-    needsInput: Boolean(clarify),
-    turnStartedAt,
-    usage
-  })
+/** The ACTIVE session's slice — the one the user is looking at. Every session
+ *  lives in the same map, so this is a plain lookup rather than the projection
+ *  of a parallel set of global atoms that `$primarySessionState` used to be. */
+export const $activeSessionState = computed(
+  [$activeSessionKey, $sessionStates],
+  (key, states) => states[key] ?? EMPTY_SESSION_STATE
 )
 
 // ---------------------------------------------------------------------------
@@ -590,10 +536,10 @@ export function reopenLastClosedTile(): void {
 // The FOCUSED session — one derivation. The layout's interaction tracker
 // ($activeTreeGroup) resolves to a zone; its active pane names the session: a
 // `session-tile:<storedId>` pane IS that session, anything else falls back to the
-// route-driven primary.
+// route-driven active session.
 // ---------------------------------------------------------------------------
 
-/** Stored id of the focused session (the interacted zone's tile, else the primary). */
+/** Stored id of the focused session (the interacted zone's tile, else the active one). */
 export const $focusedStoredSessionId = computed(
   [$activeTreeGroup, $layoutTree, $activeStoredSessionId],
   (groupId, tree, selected) => {
@@ -603,29 +549,23 @@ export const $focusedStoredSessionId = computed(
   }
 )
 
-/** Live runtime id of the focused session (a tile's bound runtime, else the primary's). */
+/** Session key of the focused session (a tile's bound key, else the active one). */
 export const $focusedRuntimeId = computed(
-  [$focusedStoredSessionId, $activeStoredSessionId, $sessionId, $sessionTiles],
-  (focused, selected, primaryRuntime, tiles) => {
+  [$focusedStoredSessionId, $activeStoredSessionId, $activeSessionKey, $sessionStates],
+  (focused, selected, activeKey, _states) => {
     if (focused && focused !== selected) {
-      return tiles.find(t => t.storedSessionId === focused)?.runtimeId ?? null
+      return runtimeKeyForStoredSession(focused)
     }
 
-    return primaryRuntime
+    return activeKey
   }
 )
 
-/** The focused session's state slice — the primary projection when focus is the
- *  workspace, else the tile's slice from `$sessionStates` (tiles only). */
+/** The focused session's slice. One map, so this is a plain lookup — falling
+ *  back to the active session when a tile has no live key yet. */
 export const $focusedSessionState = computed(
-  [$focusedRuntimeId, $sessionId, $sessionStates, $primarySessionState],
-  (runtimeId, primaryRuntime, states, primary) => {
-    if (!runtimeId || runtimeId === primaryRuntime) {
-      return primary
-    }
-
-    return states[runtimeId]
-  }
+  [$focusedRuntimeId, $activeSessionKey, $sessionStates],
+  (key, activeKey, states) => states[key ?? activeKey] ?? states[activeKey] ?? EMPTY_SESSION_STATE
 )
 
 /** A PRIMARY navigation homes focus to the workspace — UNLESS the selected id is

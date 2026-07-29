@@ -8,8 +8,9 @@ vi.mock('@/store/gateway', async () => {
   return { requestGateway: vi.fn(), $gatewayState: atom('open'), getGatewayClient: () => null }
 })
 
-import { $messages, $sessionId } from '@/store/chat'
+import { $messages } from '@/store/chat'
 import { requestGateway } from '@/store/gateway'
+import { resetSessionStates, seedActiveSession } from '@/test-sessions'
 
 import { handoffSession } from './handoff'
 
@@ -21,8 +22,8 @@ const systemLines = () =>
 
 beforeEach(() => {
   vi.useFakeTimers()
-  $sessionId.set('runtime-1')
-  $messages.set([])
+  resetSessionStates()
+  seedActiveSession('runtime-1')
 })
 
 afterEach(() => {
@@ -80,10 +81,10 @@ describe('handoffSession', () => {
   })
 
   it('refuses without a session and without a platform', async () => {
-    $sessionId.set(null)
+    seedActiveSession('draft', { runtimeSessionId: null, storedSessionId: null })
     expect((await handoffSession('telegram')).ok).toBe(false)
 
-    $sessionId.set('runtime-1')
+    seedActiveSession('runtime-1')
     expect((await handoffSession('   ')).ok).toBe(false)
     expect(requestGateway).not.toHaveBeenCalled()
   })

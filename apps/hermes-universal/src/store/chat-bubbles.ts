@@ -70,9 +70,7 @@ const profileKey = () => normalizeProfileKey($activeGatewayProfile.get())
 const hydrate = (ids: string[]): ChatBubble[] => ids.map(storedSessionId => ({ storedSessionId }))
 
 /** Ordered parallel chats. A secondary window shows none (single live gateway). */
-export const $chatBubbles = atom<ChatBubble[]>(
-  isSecondaryWindow() ? [] : hydrate(bubblesByProfile[profileKey()] ?? [])
-)
+export const $chatBubbles = atom<ChatBubble[]>(isSecondaryWindow() ? [] : hydrate(bubblesByProfile[profileKey()] ?? []))
 
 function persistBubbles() {
   if (isSecondaryWindow()) {
@@ -110,9 +108,8 @@ if (!isSecondaryWindow()) {
 /** Index of the active bubble — the one whose `storedSessionId` matches the
  *  active stored id, or the DRAFT bubble when nothing is loaded. `-1` when the
  *  active session isn't represented in the row. */
-export const $activeBubbleIndex = computed(
-  [$chatBubbles, $activeStoredSessionId],
-  (bubbles, activeId) => bubbles.findIndex(b => b.storedSessionId === activeId)
+export const $activeBubbleIndex = computed([$chatBubbles, $activeStoredSessionId], (bubbles, activeId) =>
+  bubbles.findIndex(b => b.storedSessionId === activeId)
 )
 
 // ---------------------------------------------------------------------------

@@ -1,11 +1,12 @@
-import type { GatewayEvent } from '@/gateway'
 import { translateNow } from '@/i18n'
 import {
   appendAssistantTextPart,
   appendStreamPart,
   applyCompletion,
   applySettledReasoning,
+  type ChatMessage,
   chatMessageText,
+  type ChatPart,
   coerceStringList,
   coerceText,
   completionErrorText,
@@ -13,30 +14,50 @@ import {
   newAssistant,
   nextId,
   patchActive,
-  withActiveAssistant,
-  type ChatMessage,
-  type ChatPart,
   type ReasoningPart,
   type Role,
   type TextPart,
-  type ToolCallPart
+  type ToolCallPart,
+  withActiveAssistant
 } from '@/lib/chat-messages'
-import { coerceThinkingText } from '@/lib/chat-runtime'
-import { type GatewayToolPayload, toolIdFromPayload, upsertToolPart } from '@/lib/chat-tool-parts'
-import { playCompletionSound } from '@/lib/completion-sound'
-import { resolveGatewayEventSessionId } from '@/lib/gateway-events'
-import { triggerHaptic } from '@/lib/haptics'
 import { stopSpeaking } from '@/lib/tts'
 import { atom, computed } from '@/store/atom'
 import { cwdForNewSession } from '@/store/default-project-dir'
 import { requestGateway } from '@/store/gateway'
-import { dispatchNativeNotification } from '@/store/native-notifications'
 import { clearNotifications, notifyError } from '@/store/notifications'
+import { setPetActivity } from '@/store/pet'
 import { clearPreviewArtifacts } from '@/store/preview-status'
-import { flashPetActivity, setPetActivity } from '@/store/pet'
-import { $subagentsBySession, upsertSubagent } from '@/store/subagents'
-import { recordToolDiff } from '@/store/tool-diffs'
-import type { ContextBreakdown, SessionCreateResponse, UsageStats } from '@/types/hermes'
+import {
+  $approval,
+  $clarify,
+  $secret,
+  $sudo,
+  type ApprovalRequest,
+  type ClarifyRequest,
+  clearSessionApproval,
+  clearSessionClarify,
+  clearSessionSecret,
+  clearSessionSudo,
+  type SecretRequest,
+  sessionClarifyRequest,
+  sessionSecretRequest,
+  sessionSudoRequest,
+  type SudoRequest
+} from '@/store/prompts'
+import {
+  $activeSessionKey,
+  $sessionStates,
+  type ClientSessionState,
+  dropSessionState,
+  emptySessionState,
+  ensureSessionSlice,
+  isDraftKey,
+  newDraftKey,
+  rekeySession,
+  updateSession
+} from '@/store/session-state-types'
+import { clearSessionSubagents } from '@/store/subagents'
+import type { SessionCreateResponse, UsageStats } from '@/types/hermes'
 
 // The chat transcript model and its pure reducers now live in the LEAF module
 // @/lib/chat-messages, so the unified session reducer can apply the exact same
@@ -64,45 +85,36 @@ export {
   withActiveAssistant
 }
 
-export interface ApprovalRequest {
-  command: string
-  description: string
-  allowPermanent: boolean
-  // Gateway-restricted choice set (e.g. a tirith warning drops `always`), and the
-  // smart-deny flag that implies `['once', 'deny']`. Both optional — the backend
-  // omits them on a plain approval. Mirrors desktop's ApprovalRequest.
-  choices?: string[]
-  smartDenied?: boolean
-}
-export interface ClarifyRequest {
-  requestId: string
-  question: string
-  // Up to 4 predefined answers (tools/clarify_tool.py); null for an open-ended
-  // question. The inline ClarifyTool reads BOTH fields from here — `tool.start`
-  // ships no args, so the event payload is the only source for the panel.
-  choices: string[] | null
-}
-// Sudo is a password-entry flow (not an allow/deny choice).
-export interface SudoRequest {
-  requestId: string
-  prompt: string
-}
-export interface SecretRequest {
-  requestId: string
-  envVar: string
-  prompt: string
-}
+// The blocking-prompt request shapes live in store/prompts.ts (the owner of
+// prompt state for every session); re-exported here for the existing sites.
+export type { ApprovalRequest, ClarifyRequest, SecretRequest, SudoRequest }
 
 export type ApprovalChoice = 'always' | 'deny' | 'once' | 'session'
 
 const PROMPT_SUBMIT_TIMEOUT_MS = 1_800_000
 
-export const $messages = atom<ChatMessage[]>([])
-export const $busy = atom(false)
+// ---------------------------------------------------------------------------
+// THE ACTIVE SESSION'S VIEW.
+//
+// None of these hold state. Every session — the one on screen, the ones in
+// tiles, the ones behind mobile bubbles — stores its transcript and turn state
+// in `$sessionStates`, and these are computed projections of whichever slice
+// `$activeSessionKey` currently names. That is the whole point: a background
+// session's tokens cannot reach the visible chat, because the visible chat has
+// no storage of its own to reach (MJX-132).
+//
+// Writes go through `updateActive` / `updateSession(key, …)`.
+// ---------------------------------------------------------------------------
 
-// Primary-session view projections (SessionView shape — PRIMARY_SESSION_VIEW in
-// app/chat/session-view.tsx reads these; tiles derive equivalents from their
-// own slice). Cheap computeds off $messages/$busy.
+/** The slice the user is looking at. */
+const $active = computed([$activeSessionKey, $sessionStates], (key, states) => states[key] ?? EMPTY_STATE)
+
+const EMPTY_STATE = emptySessionState()
+const EMPTY_MESSAGES: ChatMessage[] = []
+
+export const $messages = computed($active, state => state.messages ?? EMPTY_MESSAGES)
+export const $busy = computed($active, state => state.busy)
+
 export const $messagesEmpty = computed($messages, messages => messages.length === 0)
 
 /** The last non-system message is the user's — i.e. we're waiting on the agent
@@ -122,36 +134,41 @@ export const $lastVisibleMessageIsUser = computed($messages, messages => {
 })
 
 /** A turn is submitted but the assistant hasn't produced visible output yet. */
-export const $awaitingResponse = computed(
-  [$busy, $lastVisibleMessageIsUser],
-  (busy, lastIsUser) => busy && lastIsUser
-)
+export const $awaitingResponse = computed([$busy, $lastVisibleMessageIsUser], (busy, lastIsUser) => busy && lastIsUser)
 
-export const $statusLine = atom('')
-export const $approval = atom<ApprovalRequest | null>(null)
-export const $clarify = atom<ClarifyRequest | null>(null)
-export const $sudo = atom<SudoRequest | null>(null)
-export const $secret = atom<SecretRequest | null>(null)
-export const $sessionId = atom<string | null>(null)
+export const $statusLine = computed($active, state => state.statusLine)
+
+// The ACTIVE session's blocking prompts. Every session's prompt is stored keyed
+// in store/prompts.ts; these are the active one's entries.
+export { $approval, $clarify, $secret, $sudo }
+
+/**
+ * The gateway's LIVE session id for the active chat, or null for a draft that
+ * has never been created. This is the wire-facing value (`prompt.submit`,
+ * `session.interrupt`, `approval.respond`); the MAP key is `$activeSessionKey`,
+ * which is never null. Keeping the two apart is what lets the event router ask
+ * "is this event mine?" with a value that always answers.
+ */
+export const $sessionId = computed($active, state => state.runtimeSessionId)
 
 // Live auto-title of the CURRENT runtime session, pushed by the backend's
 // `session.title` event (the titler runs async after the first turn). A brand-new
 // session isn't in the $sessions list yet and has no $activeStoredSessionId, so
 // the chat header can't resolve its title from the list — it reads this instead,
 // so the "New session" heading updates on the fly once the title lands.
-export const $liveSessionTitle = atom<string>('')
+export const $liveSessionTitle = computed($active, state => state.liveTitle)
 
 // The ACTIVE chat's working directory — its project directory. Every stored
-// session carries one (`SessionInfo.cwd`), so switching chats switches this:
-// restored on open/resume (store/session.ts), adopted on create (ensureSession),
-// and followed live via `session.info` when the agent relocates itself. Empty
-// for a detached chat (no project dir) — consumers should generally read
-// `$effectiveCwd` (store/workspace-events), which falls back to the workspace
-// root, rather than this raw value.
-export const $currentCwd = atom<string>('')
+// session carries one (`SessionInfo.cwd`), so switching chats switches this for
+// free now that it lives on the slice: restored on open/resume
+// (store/session.ts), adopted on create (ensureSession), and followed live via
+// `session.info` when the agent relocates itself. Empty for a detached chat (no
+// project dir) — consumers should generally read `$effectiveCwd`
+// (store/workspace-events), which falls back to the workspace root.
+export const $currentCwd = computed($active, state => state.cwd)
 
 export function setCurrentCwd(cwd: null | string | undefined): void {
-  $currentCwd.set(cwd?.trim() || '')
+  updateActive(state => ({ ...state, cwd: cwd?.trim() || '' }))
 }
 
 // --- Statusbar runtime signals (turn/session timers + live context usage) ---
@@ -164,358 +181,18 @@ export function setCurrentCwd(cwd: null | string | undefined): void {
 export const $introSeed = atom<number>(0)
 
 const EMPTY_USAGE: UsageStats = { calls: 0, input: 0, output: 0, total: 0 }
-export const $turnStartedAt = atom<number | null>(null)
-export const $sessionStartedAt = atom<number | null>(null)
-export const $currentUsage = atom<UsageStats>(EMPTY_USAGE)
+export const $turnStartedAt = computed($active, state => state.turnStartedAt)
+export const $sessionStartedAt = computed($active, state => state.sessionStartedAt)
+export const $currentUsage = computed($active, state => state.usage ?? EMPTY_USAGE)
 
-// Pull the live context breakdown for the bar label after a settled turn. The
-// ContextUsagePanel fetches its own breakdown on open; this only feeds the label.
-// Best-effort — keep the prior value on failure.
-async function refreshCurrentUsage(): Promise<void> {
-  const sessionId = $sessionId.get()
-
-  if (!sessionId) {
-    return
-  }
-
-  try {
-    const b = await requestGateway<ContextBreakdown>('session.context_breakdown', { session_id: sessionId })
-    $currentUsage.set({
-      ...EMPTY_USAGE,
-      context_max: b.context_max,
-      context_percent: b.context_percent,
-      context_used: b.context_used,
-      total: b.context_used ?? 0
-    })
-  } catch {
-    /* leave the prior usage in place */
-  }
+/** Apply an updater to the ACTIVE session's slice. */
+function updateActive(updater: (state: ClientSessionState) => ClientSessionState): void {
+  updateSession($activeSessionKey.get(), updater)
 }
 
+/** Apply a transcript transform to the ACTIVE session's slice. */
 function update(fn: (messages: ChatMessage[]) => ChatMessage[]): void {
-  $messages.set(fn($messages.get()))
-}
-
-// See the tool.complete case: lazy to avoid a chat ↔ workspace-events cycle.
-async function notifyWorkspaceChangeFromTool(payload: Record<string, unknown>): Promise<void> {
-  const { notifyWorkspaceChanged, toolChangedPath, toolMayMutateFiles } = await import('@/store/workspace-events')
-
-  if (toolMayMutateFiles(payload)) {
-    notifyWorkspaceChanged(toolChangedPath(payload))
-  }
-}
-
-// Route a tool event into the transcript. While a turn is live the parts land on
-// the pending assistant; a LATE event (one that arrives after message.complete —
-// a trailing completion, a sub-agent mirror) must merge into the last assistant
-// instead of opening a fresh `pending: true` bubble that nothing ever settles.
-// Desktop gets this from `pending: m => phase !== 'complete' || (m.pending ?? false)`
-// in use-message-stream; universal has no per-message patcher, so we branch here.
-function applyToolEvent(payload: GatewayToolPayload, phase: 'complete' | 'running'): void {
-  update(messages => {
-    const last = messages[messages.length - 1]
-    const settledAssistant = !$busy.get() && last?.role === 'assistant' && !last.pending
-
-    if (settledAssistant) {
-      const copy = messages.slice()
-      copy[copy.length - 1] = { ...last, parts: upsertToolPart(last.parts, payload, phase) }
-
-      return copy
-    }
-
-    return patchActive(messages, m => ({ ...m, parts: upsertToolPart(m.parts, payload, phase) }))
-  })
-}
-
-// The session that owns the current unscoped stream — pinned on message.start,
-// released on message.complete/error (see lib/gateway-events).
-let unscopedStreamSessionId: null | string = null
-
-export function handleGatewayEvent(event: GatewayEvent): void {
-  const payload = (event.payload ?? {}) as Record<string, unknown>
-
-  // Which chat does this event belong to? Universal keeps ONE transcript, so an
-  // event owned by another session must not be reduced into it (a background
-  // turn's tool rows, or the previous turn's tail after a mid-turn chat switch).
-  const route = resolveGatewayEventSessionId({
-    activeSessionId: $sessionId.get(),
-    eventType: event.type,
-    explicitSessionId: event.session_id || '',
-    unscopedStreamSessionId
-  })
-
-  unscopedStreamSessionId = route.nextUnscopedStreamSessionId
-
-  if (route.drop) {
-    return
-  }
-
-  // Conservative: only reject when BOTH ids are known and disagree, so a gateway
-  // that omits session ids behaves exactly as before. `session.title` carries its
-  // own stored id (it also patches the sidebar list for other sessions), so it is
-  // exempt from the active-session gate.
-  const activeSessionId = $sessionId.get()
-
-  if (event.type !== 'session.title' && route.sessionId && activeSessionId && route.sessionId !== activeSessionId) {
-    return
-  }
-
-  switch (event.type) {
-    case 'message.start':
-      $busy.set(true)
-      $turnStartedAt.set(Date.now())
-      $statusLine.set('')
-      setPetActivity({ busy: true }) // pet: working pose
-      stopSpeaking() // interrupt any TTS from the previous turn
-      update(withActiveAssistant)
-
-      break
-
-    case 'message.delta':
-      update(messages =>
-        patchActive(messages, m => ({ ...m, parts: appendAssistantTextPart(m.parts, coerceText(payload.text)) }))
-      )
-
-      break
-
-    case 'reasoning.delta':
-      setPetActivity({ reasoning: true }) // pet: thinking pose
-      update(messages =>
-        patchActive(messages, m => ({
-          ...m,
-          parts: appendStreamPart(m.parts, 'reasoning', coerceThinkingText(payload.text))
-        }))
-      )
-
-      break
-
-    case 'reasoning.available':
-      setPetActivity({ reasoning: true }) // pet: thinking pose
-      update(messages =>
-        patchActive(messages, m => ({ ...m, parts: applySettledReasoning(m.parts, coerceThinkingText(payload.text)) }))
-      )
-
-      break
-    case 'moa.reference': {
-      setPetActivity({ reasoning: true }) // pet: thinking pose
-      const label = coerceText(payload.label)
-      const idx = coerceText(payload.index)
-      const total = coerceText(payload.total)
-      const header = `◇ Reference ${idx}/${total}${label ? ` — ${label}` : ''}\n`
-      // A reference block is its own labelled thinking block — never merged into
-      // the neighbouring one (desktop appends it as a settled burst too).
-      update(messages =>
-        patchActive(messages, m => ({
-          ...m,
-          parts: [...m.parts, { type: 'reasoning', text: header + coerceThinkingText(payload.text) }]
-        }))
-      )
-
-      break
-    }
-
-    case 'tool.start':
-
-    case 'tool.progress':
-
-    case 'tool.generating':
-      setPetActivity({ reasoning: false, toolRunning: true }) // pet: working pose
-      applyToolEvent(payload, 'running')
-
-      break
-    case 'tool.complete': {
-      setPetActivity({ toolRunning: false })
-      applyToolEvent(payload, 'complete')
-      // Live side-channel diff: the gateway renders the edit diff itself and
-      // ships it on tool.complete (server.py `_on_tool_complete`). The renderer
-      // prefers this over one parsed out of the result, keyed by the SAME id the
-      // part adopted in upsertToolPart.
-      const inlineDiff = coerceText(payload.inline_diff)
-
-      if (inlineDiff.trim()) {
-        recordToolDiff(toolIdFromPayload(payload), inlineDiff)
-      }
-
-      // A file-mutating tool just finished — nudge the git-mirroring surfaces
-      // (coding rail, review pane, file tree) to refresh. Event-driven, not
-      // polled: fires exactly when the agent touches the tree. (Desktop does the
-      // same in use-message-stream/gateway-event.ts.)
-      //
-      // Imported lazily: store/workspace-events reads $currentCwd from THIS
-      // module for $effectiveCwd, so a static import is a cycle that leaves one
-      // side undefined at init (it broke the statusbar's $effectiveCwd read).
-      if (payload) {
-        void notifyWorkspaceChangeFromTool(payload)
-      }
-
-      break
-    }
-
-    case 'message.complete':
-      $busy.set(false)
-      $turnStartedAt.set(null)
-      $statusLine.set('')
-      setPetActivity({ busy: false, reasoning: false, toolRunning: false }) // pet: back to idle/roam
-      void refreshCurrentUsage()
-      // `text` is the turn's final_response; `rendered` is its ANSI/markdown
-      // render (desktop reads the same pair).
-      update(messages =>
-        applyCompletion(messages, (coerceText(payload.text) || coerceText(payload.rendered)).trim())
-      )
-
-      // Auto-TTS is driven by `useAutoSpeakReplies` (guarded against a running
-      // voice conversation + the shared dedupe cursor). Reading it here too would
-      // speak every reply twice during a conversation (MJX-96).
-
-      dispatchNativeNotification({
-        kind: 'turnDone',
-        title: translateNow('notifications.native.turnDoneTitle'),
-        body: translateNow('notifications.native.turnDoneBody'),
-        sessionId: $sessionId.get()
-      })
-      // Turn-end audio cue (gated by $hapticsMuted). Mirrors desktop gateway-event.
-      playCompletionSound()
-
-      break
-
-    case 'status.update':
-      $statusLine.set(coerceText(payload.status) || coerceText(payload.message) || '')
-
-      break
-
-    case 'approval.request':
-      $approval.set({
-        command: coerceText(payload.command),
-        description: coerceText(payload.description) || 'dangerous command',
-        // false only when a tirith warning forbids it; backend omits the field otherwise.
-        allowPermanent: payload.allow_permanent !== false,
-        choices: coerceStringList(payload.choices) ?? undefined,
-        smartDenied: payload.smart_denied === true
-      })
-      setPetActivity({ awaitingInput: true }) // pet: waiting pose (blocked on user)
-      void triggerHaptic('warning')
-      dispatchNativeNotification({
-        kind: 'approval',
-        title: translateNow('notifications.native.approvalTitle'),
-        body: coerceText(payload.command) || coerceText(payload.description),
-        sessionId: $sessionId.get()
-      })
-
-      break
-    case 'clarify.request': {
-      // The Python side is blocked on `clarify.respond` (tools/clarify_tool.py +
-      // tui_gateway/server.py `_block`), so dropping this event hangs the agent
-      // until its timeout. The gateway sends `question` + `choices` — NOT
-      // `prompt`; the other keys are tolerated only as a fallback.
-      const requestId = coerceText(payload.request_id)
-      const question = coerceText(payload.question) || coerceText(payload.prompt) || coerceText(payload.message)
-
-      if (requestId && question) {
-        $clarify.set({ requestId, question, choices: coerceStringList(payload.choices) })
-        setPetActivity({ awaitingInput: true }) // pet: waiting pose (blocked on user)
-        void triggerHaptic('warning')
-        dispatchNativeNotification({
-          kind: 'input',
-          title: translateNow('notifications.native.inputTitle'),
-          body: question,
-          sessionId: $sessionId.get()
-        })
-      }
-
-      break
-    }
-
-    case 'sudo.request':
-      $sudo.set({
-        requestId: coerceText(payload.request_id),
-        prompt: coerceText(payload.prompt) || coerceText(payload.command) || 'Enter your sudo password'
-      })
-      setPetActivity({ awaitingInput: true }) // pet: waiting pose (blocked on user)
-
-      break
-
-    case 'secret.request':
-      $secret.set({
-        requestId: coerceText(payload.request_id),
-        envVar: coerceText(payload.env_var),
-        prompt: coerceText(payload.prompt) || coerceText(payload.message)
-      })
-      setPetActivity({ awaitingInput: true }) // pet: waiting pose (blocked on user)
-
-      break
-
-    case 'error':
-      $busy.set(false)
-      $turnStartedAt.set(null)
-      $statusLine.set(coerceText(payload.message) || 'Something went wrong')
-      // pet: crying pose, auto-decaying back to normal after 5s.
-      setPetActivity({ busy: false, reasoning: false, toolRunning: false })
-      flashPetActivity({ error: true }, 5000)
-      update(messages =>
-        messages.map(m => (m.pending ? { ...m, pending: false, error: coerceText(payload.message) } : m))
-      )
-      dispatchNativeNotification({
-        kind: 'turnError',
-        title: translateNow('notifications.native.turnErrorTitle'),
-        body: coerceText(payload.message),
-        sessionId: $sessionId.get()
-      })
-
-      break
-    case 'session.title': {
-      // Live auto-title push (titler runs async, after the turn). Update the
-      // current session's live title so the chat header reflects it on the fly,
-      // and patch the sidebar list entry if it's already loaded (decoupled via a
-      // dynamic import — store/session imports store/chat, so a static import
-      // here would cycle).
-      const sid = coerceText(payload.session_id)
-      const title = coerceText(payload.title).trim()
-
-      if (title && (!sid || sid === $sessionId.get())) {
-        $liveSessionTitle.set(title)
-      }
-
-      if (sid && title) {
-        void import('@/store/session')
-          .then(m => m.setSessions(prev => prev.map(s => (s.id === sid ? { ...s, title } : s))))
-          .catch(() => {})
-      }
-
-      break
-    }
-
-    case 'session.info': {
-      // Runtime info for a session. The active chat's agent can relocate itself
-      // (entering another repo/worktree via the terminal), so follow its cwd.
-      // Apply a session-scoped event only when it targets the active chat; a
-      // global broadcast (no session id) only when no chat is open — otherwise a
-      // background session would yank the directory out from under the user.
-      const eventSessionId = typeof payload.session_id === 'string' ? payload.session_id : ''
-      const activeSessionId = $sessionId.get()
-      const applies = eventSessionId ? eventSessionId === activeSessionId : !activeSessionId
-
-      // Truthiness-gated (desktop parity): an empty cwd means "unknown", not
-      // "detach the current one".
-      if (applies && typeof payload.cwd === 'string' && payload.cwd) {
-        setCurrentCwd(payload.cwd)
-      }
-
-      break
-    }
-
-    default:
-      // Subagent lifecycle (spawn/start/thinking/tool/progress/complete) feeds
-      // the Agents view's spawn tree, keyed by the active runtime session.
-      if (event.type.startsWith('subagent.')) {
-        const sid = $sessionId.get() ?? 'active'
-        const createIfMissing = event.type === 'subagent.spawn_requested' || event.type === 'subagent.start'
-        upsertSubagent(sid, payload, createIfMissing, event.type)
-      }
-
-      // gateway.ready, session.info, thinking.delta, moa.aggregating handled elsewhere.
-      // FIXME(G): richer status/session handling.
-      break
-  }
+  updateActive(state => ({ ...state, messages: fn(state.messages) }))
 }
 
 /**
@@ -536,6 +213,7 @@ export async function ensureSession(): Promise<{ id: string; storedId: string }>
   // A configured default project directory pre-attaches new LOCAL chats to that
   // folder (desktop parity); the gateway resolves its own default cwd otherwise.
   const cwd = cwdForNewSession()
+  const draftKey = $activeSessionKey.get()
 
   const created = await requestGateway<SessionCreateResponse>('session.create', {
     cols: 96,
@@ -543,17 +221,26 @@ export async function ensureSession(): Promise<{ id: string; storedId: string }>
   })
 
   const id = created.session_id
-  $sessionId.set(id)
-  // Adopt the runtime's resolved working directory — it normalizes (or defaults)
-  // whatever cwd we asked for, so this is the value the agent will actually run
-  // in, and what the new chat's stored row should be seeded with.
-  setCurrentCwd(created.info?.cwd ?? cwd)
-  // Runtime session clock starts when we create the session (statusbar session
-  // timer). Resumed/loaded sessions have no reliable start on this client, so
-  // the timer stays hidden for them.
-  $sessionStartedAt.set(Date.now())
+  const storedId = created.stored_session_id ?? id
 
-  return { id, storedId: created.stored_session_id ?? id }
+  // Move the draft's slice onto its real runtime id SYNCHRONOUSLY, before the
+  // caller submits the prompt. The router drops events for unknown keys, so the
+  // slice must already be reachable under `id` when the first delta lands.
+  //
+  // `setCurrentCwd` here would race the rekey, so the resolved cwd is folded in
+  // as part of the same write: the runtime normalizes (or defaults) whatever we
+  // asked for, and that is the directory the agent will actually run in.
+  //
+  // The session clock starts on create (statusbar session timer); resumed
+  // sessions have no reliable start on this client, so it stays hidden for them.
+  rekeySession(draftKey, id, {
+    runtimeSessionId: id,
+    storedSessionId: storedId,
+    cwd: (created.info?.cwd ?? cwd ?? '').trim(),
+    sessionStartedAt: Date.now()
+  })
+
+  return { id, storedId }
 }
 
 /**
@@ -580,15 +267,29 @@ export async function sendPrompt(text: string): Promise<void> {
 
   stopSpeaking() // silence any TTS when the user sends a new prompt
 
-  update(messages => [...messages, { id: nextId(), role: 'user', parts: [{ type: 'text', text: trimmed }] }])
-  $busy.set(true)
-  $turnStartedAt.set(Date.now())
-  $statusLine.set('')
+  // The SUBMITTING session, not the on-screen one. `ensureSession` rekeys a
+  // draft onto its runtime id mid-flight, and the user can switch chats while
+  // the submit is in the air — so the optimistic turn and the failure rollback
+  // are both addressed to the session that actually sent the prompt.
+  const startKey = $activeSessionKey.get()
+
+  updateSession(startKey, state => ({
+    ...state,
+    busy: true,
+    turnStartedAt: Date.now(),
+    statusLine: '',
+    messages: [...state.messages, { id: nextId(), role: 'user', parts: [{ type: 'text', text: trimmed }] }]
+  }))
   setPetActivity({ busy: true }) // pet: start working the moment the user sends
+
+  // A draft rekeys to its runtime id, so the slice moves; anything else keeps
+  // the key it started with.
+  let submitKey = startKey
 
   try {
     const wasNew = !$sessionId.get()
     const { id: sessionId, storedId } = await ensureSession()
+    submitKey = wasNew ? sessionId : startKey
 
     if (wasNew) {
       // New chat: optimistically add it to the sidebar list + mark active, keyed
@@ -600,10 +301,17 @@ export async function sendPrompt(text: string): Promise<void> {
 
     await requestGateway('prompt.submit', { session_id: sessionId, text: trimmed }, PROMPT_SUBMIT_TIMEOUT_MS)
   } catch (err) {
-    $busy.set(false)
-    $turnStartedAt.set(null)
-    $statusLine.set(err instanceof Error ? err.message : String(err))
-    setPetActivity({ busy: false, reasoning: false, toolRunning: false })
+    updateSession(submitKey, state => ({
+      ...state,
+      busy: false,
+      turnStartedAt: null,
+      statusLine: err instanceof Error ? err.message : String(err)
+    }))
+
+    if (submitKey === $activeSessionKey.get()) {
+      setPetActivity({ busy: false, reasoning: false, toolRunning: false })
+    }
+
     notifyError(err, 'Message failed to send')
   }
 }
@@ -662,9 +370,7 @@ const isSessionBusyError = (error: unknown): boolean =>
   /session busy/i.test(error instanceof Error ? error.message : String(error))
 
 const isStaleTargetError = (error: unknown): boolean =>
-  /no longer in session history|not in session history/i.test(
-    error instanceof Error ? error.message : String(error)
-  )
+  /no longer in session history|not in session history/i.test(error instanceof Error ? error.message : String(error))
 
 /**
  * Rewind a turn: `prompt.submit` with an optional `truncate_before_user_ordinal`
@@ -741,11 +447,18 @@ export async function submitEditedPrompt(sourceId: string, rawText: string): Pro
   clearPreviewArtifacts(sessionId)
 
   const wasBusy = $busy.get()
+  // Captured before the await: a mid-edit chat switch must not apply this
+  // truncation (or its rollback) to whichever session is on screen when the
+  // submit settles.
+  const editKey = $activeSessionKey.get()
 
-  $messages.set([...messages.slice(0, plan.sourceIndex), plan.editedMessage])
-  $busy.set(true)
-  $turnStartedAt.set(Date.now())
-  $statusLine.set('')
+  updateSession(editKey, state => ({
+    ...state,
+    busy: true,
+    turnStartedAt: Date.now(),
+    statusLine: '',
+    messages: [...messages.slice(0, plan.sourceIndex), plan.editedMessage]
+  }))
 
   try {
     await runRewindSubmit(sessionId, plan.text, plan.truncateOrdinal, wasBusy)
@@ -764,18 +477,25 @@ export async function submitEditedPrompt(sourceId: string, rawText: string): Pro
 
     // Restore the pre-edit transcript so the UI matches what's persisted
     // instead of stranding a partial timeline.
-    $messages.set(messages)
-    $busy.set(false)
-    $turnStartedAt.set(null)
-    $statusLine.set(err instanceof Error ? err.message : String(err))
+    updateSession(editKey, state => ({
+      ...state,
+      busy: false,
+      turnStartedAt: null,
+      statusLine: err instanceof Error ? err.message : String(err),
+      messages
+    }))
     notifyError(err, translateNow('desktop.editFailed'))
   }
 }
 
-export async function respondApproval(choice: ApprovalChoice): Promise<void> {
-  const sessionId = $sessionId.get()
-  $approval.set(null)
-  setPetActivity({ awaitingInput: false })
+// The prompt responders answer for ONE session. They default to the active one
+// (that is where the composer bars live), but take an explicit key so a tile's
+// or a background bubble's bars can answer their own session.
+
+export async function respondApproval(choice: ApprovalChoice, key = $activeSessionKey.get()): Promise<void> {
+  const sessionId = $sessionStates.get()[key]?.runtimeSessionId
+  clearSessionApproval(key)
+  clearAwaitingInputPose(key)
 
   try {
     await requestGateway('approval.respond', { choice, session_id: sessionId ?? undefined })
@@ -788,8 +508,8 @@ export async function respondApproval(choice: ApprovalChoice): Promise<void> {
  *  clear optimistically: the inline panel keeps the question on screen and
  *  surfaces the error if the send fails, so the user can retry instead of losing
  *  the (still-blocked) prompt. Throws on failure. */
-export async function respondClarify(answer: string): Promise<void> {
-  const req = $clarify.get()
+export async function respondClarify(answer: string, key = $activeSessionKey.get()): Promise<void> {
+  const req = sessionClarifyRequest(key).get()
 
   if (!req) {
     return
@@ -799,16 +519,16 @@ export async function respondClarify(answer: string): Promise<void> {
 
   // Only drop the request once the gateway has it; `tool.complete` lands next
   // and swaps the inline panel to its settled Q&A view.
-  if ($clarify.get()?.requestId === req.requestId) {
-    $clarify.set(null)
-    setPetActivity({ awaitingInput: false })
+  if (sessionClarifyRequest(key).get()?.requestId === req.requestId) {
+    clearSessionClarify(key)
+    clearAwaitingInputPose(key)
   }
 }
 
-export async function respondSudo(password: string): Promise<void> {
-  const req = $sudo.get()
-  $sudo.set(null)
-  setPetActivity({ awaitingInput: false })
+export async function respondSudo(password: string, key = $activeSessionKey.get()): Promise<void> {
+  const req = sessionSudoRequest(key).get()
+  clearSessionSudo(key)
+  clearAwaitingInputPose(key)
 
   if (!req) {
     return
@@ -821,10 +541,10 @@ export async function respondSudo(password: string): Promise<void> {
   }
 }
 
-export async function respondSecret(value: string): Promise<void> {
-  const req = $secret.get()
-  $secret.set(null)
-  setPetActivity({ awaitingInput: false })
+export async function respondSecret(value: string, key = $activeSessionKey.get()): Promise<void> {
+  const req = sessionSecretRequest(key).get()
+  clearSessionSecret(key)
+  clearAwaitingInputPose(key)
 
   if (!req) {
     return
@@ -837,23 +557,38 @@ export async function respondSecret(value: string): Promise<void> {
   }
 }
 
+/** The pet reflects what the USER is looking at, so answering a background
+ *  session's prompt must not take it out of its waiting pose. */
+function clearAwaitingInputPose(key: string): void {
+  if (key === $activeSessionKey.get()) {
+    setPetActivity({ awaitingInput: false })
+  }
+}
+
+/**
+ * Start a fresh, unsaved chat. The outgoing session KEEPS its slice — it may
+ * still be streaming, and it is reachable from the sidebar, a tile or a bubble.
+ * Only the active pointer moves, onto a brand-new draft.
+ */
 export function resetChat(): void {
-  $messages.set([])
-  $sessionId.set(null)
+  const previousKey = $activeSessionKey.get()
+  const draftKey = newDraftKey()
+
   // A fresh chat starts in the configured default project dir (if any), not in
   // whatever directory the chat we just left happened to use.
-  setCurrentCwd(cwdForNewSession())
-  $liveSessionTitle.set('')
-  $busy.set(false)
-  $turnStartedAt.set(null)
-  $sessionStartedAt.set(null)
-  $currentUsage.set(EMPTY_USAGE)
-  $statusLine.set('')
-  $approval.set(null)
-  $clarify.set(null)
-  $sudo.set(null)
-  $secret.set(null)
-  $subagentsBySession.set({})
+  ensureSessionSlice(draftKey, { cwd: cwdForNewSession()?.trim() || '' })
+  $activeSessionKey.set(draftKey)
+
+  // Drop the OLD draft — an unsaved chat the user walked away from has nothing
+  // to come back to. A real session keeps its slice, and keeps streaming.
+  if (isDraftKey(previousKey)) {
+    // Scoped teardown: `$subagentsBySession.set({})` used to run here, which
+    // wiped every OTHER session's spawn tree too.
+    clearSessionSubagents(previousKey)
+    clearPreviewArtifacts(previousKey)
+    dropSessionState(previousKey)
+  }
+
   setPetActivity({}) // pet: clear any stale activity on chat teardown
   $introSeed.set($introSeed.get() + 1)
   stopSpeaking()

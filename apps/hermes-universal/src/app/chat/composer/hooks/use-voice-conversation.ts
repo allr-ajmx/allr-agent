@@ -2,11 +2,8 @@ import { useStore } from '@nanostores/react'
 import { useCallback, useEffect } from 'react'
 
 import type { ComposerTarget } from '@/app/chat/composer/focus'
-import {
-  type ConversationBinding,
-  voiceConversation
-} from '@/voice/conversation-controller'
 import { $voiceConversation, type ConversationStatus } from '@/store/voice-conversation'
+import { type ConversationBinding, voiceConversation } from '@/voice/conversation-controller'
 
 export type { ConversationStatus }
 
@@ -54,6 +51,7 @@ export function useVoiceConversation({ target, getBinding }: UseVoiceConversatio
       if (event.code !== 'Space' || event.repeat || event.metaKey || event.ctrlKey || event.altKey) {
         return
       }
+
       if ($voiceConversation.get().status !== 'listening') {
         return
       }

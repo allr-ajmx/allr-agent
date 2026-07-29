@@ -14,28 +14,22 @@ import { navigateTo } from '@/lib/route-nav'
 import { appendLiveSessionProjection, toChatMessages } from '@/lib/session-history'
 import { stableArray } from '@/lib/stable-array'
 import { atom, computed } from '@/store/atom'
-import {
-  $busy,
-  $clarify,
-  $currentCwd,
-  $messages,
-  $sessionId,
-  $statusLine,
-  type ChatMessage,
-  resetChat,
-  setCurrentCwd
-} from '@/store/chat'
+import { $busy, $clarify, $currentCwd, $messages, $sessionId, type ChatMessage, resetChat } from '@/store/chat'
+import { resetUnscopedStreamPin } from '@/store/event-router'
 import { requestGateway } from '@/store/gateway'
 import { $pinnedSessionIds, pinSession, unpinSession } from '@/store/layout'
 import { notify, notifyError } from '@/store/notifications'
 import { flashPetActivity } from '@/store/pet'
-import { $sessionStates } from '@/store/session-state-types'
-import type {
-  SessionCreateResponse,
-  SessionInfo,
-  SessionResumeResponse,
-  SessionSearchResult
-} from '@/types/hermes'
+import {
+  $activeSessionKey,
+  $sessionStates,
+  ensureSessionSlice,
+  hydratingKey,
+  rekeySession,
+  runtimeKeyForStoredSession,
+  updateSession
+} from '@/store/session-state-types'
+import type { SessionCreateResponse, SessionInfo, SessionResumeResponse, SessionSearchResult } from '@/types/hermes'
 
 // Session history + switching (Hc2). Lean adaptation of desktop store/session.ts —
 // no windows/projects/pins/profiles/branch/cwd/model. Two ids: the STORED id
@@ -96,28 +90,31 @@ export function setActiveSessionStoredIdRotation(rotation: {
 // re-render the sidebar unless membership actually changed.
 let workingArr: readonly string[] = []
 let workingSet = new Set<string>()
-export const $workingSessionIds = computed([$busy, $activeStoredSessionId, $sessionStates], (busy, activeId, states) => {
-  const next: string[] = []
+export const $workingSessionIds = computed(
+  [$busy, $activeStoredSessionId, $sessionStates],
+  (busy, activeId, states) => {
+    const next: string[] = []
 
-  if (busy && activeId) {
-    next.push(activeId)
-  }
-
-  for (const s of Object.values(states)) {
-    if (s.busy && s.storedSessionId && !next.includes(s.storedSessionId)) {
-      next.push(s.storedSessionId)
+    if (busy && activeId) {
+      next.push(activeId)
     }
+
+    for (const s of Object.values(states)) {
+      if (s.busy && s.storedSessionId && !next.includes(s.storedSessionId)) {
+        next.push(s.storedSessionId)
+      }
+    }
+
+    const stable = stableArray(workingArr, next)
+
+    if (stable !== workingArr) {
+      workingArr = stable
+      workingSet = new Set(stable)
+    }
+
+    return workingSet
   }
-
-  const stable = stableArray(workingArr, next)
-
-  if (stable !== workingArr) {
-    workingArr = stable
-    workingSet = new Set(stable)
-  }
-
-  return workingSet
-})
+)
 
 let attentionArr: readonly string[] = []
 export const $attentionSessionIds = computed(
@@ -258,7 +255,9 @@ export async function refreshSessions(): Promise<void> {
     $sessions.set(res.sessions)
     $sessionsTotal.set(res.total)
   } catch (err) {
-    $statusLine.set(err instanceof Error ? err.message : 'Failed to load sessions')
+    // A list-fetch failure is not any one chat's status: surface it as a
+    // notification instead of pinning it to whichever session is on screen.
+    notifyError(err, 'Failed to load sessions')
   } finally {
     $sessionsLoading.set(false)
   }
@@ -279,7 +278,39 @@ let openGeneration = 0
 const isCurrentOpen = (generation: number): boolean => generation === openGeneration
 
 /**
- * Resume a stored session: hydrate its transcript + bind the runtime id.
+ * Open a stored session.
+ *
+ * WARM sessions promote SYNCHRONOUSLY. A session that already has a slice — a
+ * background bubble, an open tile, or one we simply haven't evicted — is made
+ * active by moving the pointer, with no `session.resume`, no transcript clear,
+ * and no await. That is what makes switching mid-turn lossless: the outgoing
+ * session keeps its slice and keeps streaming into it, and the incoming one is
+ * already whole.
+ *
+ * The old implementation cleared `$messages` and set `$busy` immediately but
+ * bound the runtime id only AFTER awaiting REST + resume. In that window the
+ * outgoing session's deltas still matched the active id, so they appended into
+ * the transcript of the chat you had just switched to — and were then clobbered
+ * by the resume payload, and lost from the session that produced them. That is
+ * MJX-132.
+ */
+export function openSession(storedId: string): Promise<void> | void {
+  const warm = runtimeKeyForStoredSession(storedId)
+
+  if (warm && $sessionStates.get()[warm]) {
+    openGeneration++ // cancel any hydrate still in flight
+    resetUnscopedStreamPin()
+    $activeStoredSessionId.set(storedId)
+    $activeSessionKey.set(warm)
+
+    return
+  }
+
+  return hydrateColdSession(storedId)
+}
+
+/**
+ * Hydrate a session that has no live slice: transcript + runtime binding.
  *
  * AUTHORITY: the transcript comes from the REST endpoint
  * (`GET /api/sessions/{id}/messages` → `db.get_messages`), NOT from the resume
@@ -292,20 +323,31 @@ const isCurrentOpen = (generation: number): boolean => generation === openGenera
  * The resume payload is still what binds the runtime id, the cwd, and the
  * in-flight turn; its messages are only a fallback when REST is unavailable.
  */
-export async function openSession(storedId: string): Promise<void> {
+async function hydrateColdSession(storedId: string): Promise<void> {
   const generation = ++openGeneration
+  resetUnscopedStreamPin()
 
-  $activeStoredSessionId.set(storedId)
-  $messages.set([])
-  $busy.set(true)
-  $statusLine.set('')
-  // Each stored session carries the project directory it runs in. Restore it up
-  // front from the list row so the statusbar / file tree switch with the chat
+  // The session gets its slice up front, under a placeholder key, so the UI has
+  // something of its own to render immediately instead of a blank chat that a
+  // later response overwrites.
+  //
+  // Each stored session carries the project directory it runs in. Restore it
+  // from the list row so the statusbar / file tree switch with the chat
   // immediately; the resume response's runtime info supersedes it below with the
   // authoritative value. (A cwd-less row settles to '' — a detached chat — which
   // is the correct final state, not a flicker; the files-tree white flash is
   // handled where it belongs, in use-project-tree.)
-  setCurrentCwd($sessions.get().find(session => session.id === storedId)?.cwd)
+  let key = hydratingKey(storedId)
+
+  ensureSessionSlice(key, {
+    storedSessionId: storedId,
+    busy: true,
+    cwd: $sessions.get().find(session => session.id === storedId)?.cwd ?? ''
+  })
+
+  $activeStoredSessionId.set(storedId)
+  $activeSessionKey.set(key)
+
   // A session resumed MID-TURN stays busy: the committed transcript ends before
   // the running turn, and `inflight` carries its tail. Settle to idle otherwise.
   let stillRunning = false
@@ -337,26 +379,40 @@ export async function openSession(storedId: string): Promise<void> {
     const restMessages = hydrated.length ? hydrated : null
 
     if (restMessages && isCurrentOpen(generation)) {
-      $messages.set(restMessages)
+      updateSession(key, state => ({ ...state, messages: restMessages }))
     }
 
     const resumed = await resumePromise
 
     if (!isCurrentOpen(generation)) {
+      // A newer open superseded this one. The slice is still this session's, so
+      // leave it alone rather than dropping a resume the user may return to.
       return
     }
+
+    const runtimeId = resumed.session_id ?? storedId
 
     // Project the still-running turn onto the committed transcript, so its
     // pending assistant exists for the live reducer to keep filling — otherwise
     // the turn's remaining tool events land in a fresh bubble that never settles.
     // The REST transcript is the authority when we have it (see AUTHORITY note).
-    $messages.set(appendLiveSessionProjection(restMessages ?? toChatMessages(resumed.messages ?? []), resumed))
-    $sessionId.set(resumed.session_id ?? storedId)
+    const messages = appendLiveSessionProjection(restMessages ?? toChatMessages(resumed.messages ?? []), resumed)
+
     stillRunning = Boolean(resumed.inflight?.streaming ?? resumed.running)
 
-    if (resumed.info?.cwd) {
-      setCurrentCwd(resumed.info.cwd)
-    }
+    // SYNCHRONOUS, before any further await: the router drops events for unknown
+    // keys, so the slice has to exist under its real runtime id before the first
+    // streamed event for it is processed. JS drains microtasks before the next
+    // websocket message task, so this ordering holds.
+    rekeySession(key, runtimeId, {
+      runtimeSessionId: runtimeId,
+      storedSessionId: storedId,
+      messages,
+      busy: stillRunning,
+      ...(resumed.info?.cwd ? { cwd: resumed.info.cwd } : {})
+    })
+
+    key = runtimeId
   } catch (err) {
     if (!isCurrentOpen(generation)) {
       return
@@ -368,14 +424,20 @@ export async function openSession(storedId: string): Promise<void> {
     const transcript = await transcriptPromise
 
     if (transcript) {
-      $messages.set(toChatMessages(transcript.messages ?? []))
-      $sessionId.set(storedId)
+      rekeySession(key, storedId, {
+        runtimeSessionId: storedId,
+        storedSessionId: storedId,
+        messages: toChatMessages(transcript.messages ?? [])
+      })
+      key = storedId
     } else {
-      $statusLine.set(err instanceof Error ? err.message : 'Failed to open session')
+      // Not the session's own status: surface it as a notification rather than
+      // wedging a load error into this chat's status line, where it would stick.
+      notifyError(err, 'Failed to open session')
     }
   } finally {
     if (isCurrentOpen(generation)) {
-      $busy.set(stillRunning)
+      updateSession(key, state => ({ ...state, busy: stillRunning }))
     }
   }
 }
@@ -423,7 +485,9 @@ export function registerNewSession(id: string, firstMessage: string): void {
 
 /** The copyable spine of a branch: user/assistant turns that carry text.
  *  Ported from desktop's use-session-actions/utils.ts `toBranchMessages`. */
-function toBranchMessages(messages: ChatMessage[]): { content: string; role: ChatMessage['role']; source: ChatMessage }[] {
+function toBranchMessages(
+  messages: ChatMessage[]
+): { content: string; role: ChatMessage['role']; source: ChatMessage }[] {
   return messages
     .map(message => ({ content: chatMessageText(message), role: message.role, source: message }))
     .filter(({ content, role }) => content.trim() && (role === 'assistant' || role === 'user'))
@@ -521,12 +585,19 @@ export async function branchCurrentSession(messageId?: string): Promise<boolean>
       ? rows.filter(session => session.parent_session_id?.trim() === parentStoredId).length
       : 0
 
+    // The branch is a NEW session, so it gets its own slice keyed by its runtime
+    // id — it does not overwrite the parent's, which stays open behind it.
     // Paint the copied turns locally rather than re-fetching: the branch has no
     // committed transcript until its first real message lands.
-    $messages.set(branchMessages.map(({ source }) => source))
-    $sessionId.set(branched.session_id)
-    $busy.set(false)
-    setCurrentCwd(branched.info?.cwd ?? cwd)
+    ensureSessionSlice(branched.session_id, {
+      runtimeSessionId: branched.session_id,
+      storedSessionId: storedId,
+      messages: branchMessages.map(({ source }) => source),
+      busy: false,
+      cwd: (branched.info?.cwd ?? cwd ?? '').trim(),
+      sessionStartedAt: Date.now()
+    })
+    $activeSessionKey.set(branched.session_id)
     registerNewSession(storedId, branchMessages.map(({ content }) => content).find(Boolean) ?? '')
     setSessions(prev =>
       prev.map(session =>

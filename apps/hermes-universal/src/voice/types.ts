@@ -5,14 +5,7 @@
 // reproduces the same event contract with getUserMedia for plain-browser/vitest.
 
 /** Rust `VoiceStateKind`, serialized camelCase. */
-export type VoiceStateKind =
-  | 'opening'
-  | 'idle'
-  | 'armed'
-  | 'recording'
-  | 'finalizing'
-  | 'closing'
-  | 'closed'
+export type VoiceStateKind = 'opening' | 'idle' | 'armed' | 'recording' | 'finalizing' | 'closing' | 'closed'
 
 export type VoiceEmptyReason = 'noSpeech' | 'tooShort' | 'noTranscript'
 

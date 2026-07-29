@@ -175,6 +175,7 @@ export function useStatusbarItems(opts?: { includeAll?: boolean; rich?: boolean 
   // running = accent/blue, else orange) + up to 3 messaging platforms, painted
   // in brand color when connected and greyed otherwise. Connected first.
   const gatewayRunning = statusSnapshot?.gateway_running === true
+
   const messagingPlatforms = Object.entries(statusSnapshot?.gateway_platforms ?? {})
     .filter(([id]) => id !== 'api_server')
     .sort(([, a], [, b]) => Number(b.state === 'connected') - Number(a.state === 'connected'))
@@ -191,6 +192,7 @@ export function useStatusbarItems(opts?: { includeAll?: boolean; rich?: boolean 
 
   // Inference readiness text ("Ready" / "Needs setup" / …) — accent when ready.
   const gatewayReadyText = gatewayRestarting ? copy.gatewayRestarting : gatewayDetail
+
   const gatewayRichDetail = (
     <span className="flex items-center gap-2">
       {inferenceReady ? accent(gatewayReadyText) : gatewayReadyText}
