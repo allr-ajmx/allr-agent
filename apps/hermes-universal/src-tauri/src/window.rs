@@ -163,16 +163,7 @@ pub async fn open_instance_window(_app: tauri::AppHandle) -> Result<(), String> 
 // exist only so the command names register uniformly across both builds.
 #[cfg(desktop)]
 #[tauri::command]
-pub async fn open_settings_window(
-    _app: tauri::AppHandle,
-    _route: Option<String>,
-) -> Result<(), String> {
-    Err("unsupported_platform".to_string())
-}
-
-#[cfg(desktop)]
-#[tauri::command]
-pub async fn open_system_window(
+pub async fn open_screen_window(
     _app: tauri::AppHandle,
     _route: Option<String>,
 ) -> Result<(), String> {
@@ -180,11 +171,12 @@ pub async fn open_system_window(
 }
 
 // --------------------------------------------------------------------------
-// Mobile activity screens (MJX-141 Android / MJX-176 iOS): Settings + Command
-// Center each open in their own native container. `WebviewWindowBuilder::build()`
-// on Android launches the registered `TauriActivity` subclass matched by label
-// (`settings` / `command-center`); on iOS it maps onto a UIScene. Built on the main
-// thread (WebView requirement), mirroring the desktop path and `oauth.rs`.
+// Mobile screen activity (MJX-141 Android / MJX-176 iOS): the windowable surfaces
+// (Settings / Command Center / Profiles) share ONE native container, opened at a
+// route. `WebviewWindowBuilder::build()` on Android launches the registered
+// `ScreenActivity` (matched by `activity_name`); on iOS it maps onto a UIScene.
+// Built on the main thread (WebView requirement), mirroring the desktop path and
+// `oauth.rs`.
 // --------------------------------------------------------------------------
 
 // The `route` is placed verbatim after the HashRouter `#`. Accept only an
@@ -235,26 +227,19 @@ async fn open_activity(
     rx.await.map_err(|_| "failed to open window".to_string())?
 }
 
+// One native screen activity / scene hosts every windowable surface (Settings /
+// Command Center / Profiles). The surface is chosen by the frontend from `route`
+// (`?win=activity#<route>`) and can change in place — see
+// `activitySurfaceForPath` — so no per-surface class or command is needed.
 #[cfg(mobile)]
 #[tauri::command]
-pub async fn open_settings_window(
+pub async fn open_screen_window(
     app: tauri::AppHandle,
     route: Option<String>,
 ) -> Result<(), String> {
     let route = activity_route(route.as_deref(), "/settings");
-    let url = format!("index.html?win=activity&screen=settings#{route}");
-    open_activity(app, "settings".to_string(), url, "SettingsActivity").await
-}
-
-#[cfg(mobile)]
-#[tauri::command]
-pub async fn open_system_window(
-    app: tauri::AppHandle,
-    route: Option<String>,
-) -> Result<(), String> {
-    let route = activity_route(route.as_deref(), "/command-center");
-    let url = format!("index.html?win=activity&screen=command-center#{route}");
-    open_activity(app, "command-center".to_string(), url, "SystemActivity").await
+    let url = format!("index.html?win=activity#{route}");
+    open_activity(app, "screen".to_string(), url, "ScreenActivity").await
 }
 
 /// Fill a scene that iOS requested on its own (not by an app-built window) with a

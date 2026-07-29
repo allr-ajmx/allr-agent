@@ -36,7 +36,7 @@ use voice::{
     voice_arm, voice_close, voice_force_turn, voice_open, voice_suspend, voice_update_auth,
     VoiceState,
 };
-use window::{open_instance_window, open_session_window, open_settings_window, open_system_window};
+use window::{open_instance_window, open_screen_window, open_session_window};
 
 /// Open a URL in the system browser. Routed through the opener plugin's Rust API
 /// rather than its JS `openUrl` command: a Rust-internal call isn't gated by the
@@ -170,8 +170,7 @@ pub fn run() {
             portal_logout,
             open_session_window,
             open_instance_window,
-            open_settings_window,
-            open_system_window
+            open_screen_window
         ])
         // `.build(...).run(closure)` (rather than the terminal `.run(context)`) so
         // we can observe `RunEvent`s. On iOS this catches scenes the *system*

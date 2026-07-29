@@ -24,20 +24,16 @@
             </intent-filter>
         </activity>
 
-        <!-- Native activity screens (MJX-141): Settings + Command Center each open
-             as their own Activity in MainActivity's task, so hardware back / Home
-             return to it. Not exported (launched only from within the app via
-             Rust's open_settings_window / open_system_window). Default launchMode
-             so each is a plain back-stack push. Same configChanges as MainActivity
-             so rotation/resize don't recreate the WebView. -->
+        <!-- Native screen activity (MJX-141): ONE Activity hosting every windowable
+             surface (Settings / Command Center / Profiles); the surface is chosen by
+             the route the WebView loads. Lives in MainActivity's task so hardware
+             back / Home return to it. Not exported (launched only from within the app
+             via Rust's open_screen_window). Default launchMode = plain back-stack
+             push. Same configChanges as MainActivity so rotation/resize don't
+             recreate the WebView. -->
         <activity
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode"
-            android:name=".SettingsActivity"
-            android:parentActivityName=".MainActivity"
-            android:exported="false" />
-        <activity
-            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode"
-            android:name=".SystemActivity"
+            android:name=".ScreenActivity"
             android:parentActivityName=".MainActivity"
             android:exported="false" />
 
