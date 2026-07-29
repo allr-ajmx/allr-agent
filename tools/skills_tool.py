@@ -68,6 +68,7 @@ Usage:
 
 import json
 import logging
+import threading
 import time
 
 from hermes_constants import get_hermes_home, display_hermes_home
@@ -173,6 +174,20 @@ _ENV_VAR_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _REMOTE_ENV_BACKENDS = frozenset(
     {"docker", "singularity", "modal", "ssh", "daytona"}
 )
+# Thread-local, not a module global.
+#
+# The gateway wires this per turn with a callback that closes over that turn's
+# session id (tui_gateway/server.py `_wire_callbacks`), and turns for different
+# sessions run on their own threads concurrently. As a module global the LAST
+# turn to wire won, so a secret prompt raised by session A was emitted carrying
+# session B's id — the prompt then rendered in the wrong conversation, or in
+# none at all, while A's agent stayed blocked waiting for an answer.
+#
+# Mirrors the sudo callback in tools/terminal_tool.py, which is thread-local for
+# exactly this reason. The module-level default is kept for non-gateway callers
+# (the CLI wires once, from the same thread that runs the tool) and stays under
+# its original name so existing monkeypatches of it keep working.
+_secret_capture_tls = threading.local()
 _secret_capture_callback = None
 
 
@@ -241,9 +256,22 @@ _INJECTION_PATTERNS: list = [
 ]
 
 
-def set_secret_capture_callback(callback) -> None:
+def set_secret_capture_callback(callback, *, thread_only: bool = False) -> None:
+    """Install the secret-capture callback for the CALLING thread.
+
+    ``thread_only`` keeps it off the process-wide default — what the gateway
+    wants, since its callback is bound to one session and must never be
+    inherited by a thread running a different one.
+    """
     global _secret_capture_callback
-    _secret_capture_callback = callback
+    _secret_capture_tls.callback = callback
+    if not thread_only:
+        _secret_capture_callback = callback
+
+
+def get_secret_capture_callback():
+    """This thread's callback, else the process-wide default."""
+    return getattr(_secret_capture_tls, "callback", None) or _secret_capture_callback
 
 
 def skill_matches_platform(frontmatter: Dict[str, Any]) -> bool:
@@ -427,7 +455,8 @@ def _capture_required_environment_variables(
             "gateway_setup_hint": _gateway_setup_hint(),
         }
 
-    if _secret_capture_callback is None:
+    secret_capture_callback = get_secret_capture_callback()
+    if secret_capture_callback is None:
         return {
             "missing_names": missing_names,
             "setup_skipped": False,
@@ -445,7 +474,7 @@ def _capture_required_environment_variables(
             metadata["required_for"] = entry["required_for"]
 
         try:
-            callback_result = _secret_capture_callback(
+            callback_result = secret_capture_callback(
                 entry["name"],
                 entry["prompt"],
                 metadata,
