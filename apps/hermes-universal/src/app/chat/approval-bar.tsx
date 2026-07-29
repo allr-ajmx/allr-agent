@@ -11,7 +11,7 @@ const CHOICES: { choice: ApprovalChoice; label: string; variant: Variant }[] = [
   { choice: 'deny', label: 'Deny', variant: 'destructive' }
 ]
 
-export function ApprovalBar({ request }: { request: ApprovalRequest }) {
+export function ApprovalBar({ request, sessionKey }: { request: ApprovalRequest; sessionKey: string }) {
   // Which of the four buttons the gateway will actually honor. Desktop applies
   // the same rules in components/assistant-ui/tool/approval.tsx: an explicit
   // `choices` list wins, a smart-denied command collapses to once/deny, and
@@ -40,7 +40,7 @@ export function ApprovalBar({ request }: { request: ApprovalRequest }) {
           <Button
             key={c.choice}
             onClick={() => {
-              void respondApproval(c.choice)
+              void respondApproval(c.choice, sessionKey)
             }}
             size="sm"
             variant={c.variant}

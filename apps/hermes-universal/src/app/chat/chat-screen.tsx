@@ -11,28 +11,28 @@ import { useFileDrop } from '@/app/chat/use-file-drop'
 import { Thread } from '@/components/assistant-ui/thread/thread'
 import { IS_MOBILE } from '@/lib/platform'
 import { useStore } from '@/store/atom'
-import { $approval, $secret, $statusLine, $sudo } from '@/store/chat'
+import { sessionApprovalRequest, sessionSecretRequest, sessionSudoRequest } from '@/store/prompts'
 
 export function ChatScreen() {
-  // The SessionView is the data surface. It defaults to PRIMARY_SESSION_VIEW
-  // (whose atoms ARE the global chat atoms), so the primary chat is unchanged; a
-  // session TILE mounts this same ChatScreen under its own view.
+  // The SessionView is the data surface — the session on screen by default, a
+  // tile's own session when one mounts this under its view. Everything below
+  // reads from it, so N sessions render from one component tree.
   const view = useSessionView()
-  const isPrimary = view.kind === 'primary'
+  const sessionKey = useStore(view.$runtimeId) ?? ''
 
   const busy = useStore(view.$busy)
-  const statusLine = useStore($statusLine)
-  // Blocking-prompt bars are the PRIMARY chat's inline UI; a tile surfaces its
-  // prompts via PromptOverlays (per-session), so these read the global atoms and
-  // only render for the primary.
-  const approval = useStore($approval)
-  const sudo = useStore($sudo)
-  const secret = useStore($secret)
+  const statusLine = useStore(view.$statusLine)
+  // Blocking prompts are per SESSION, so each chat surface renders its own
+  // inline bars. These used to read the global prompt atoms and were therefore
+  // gated to the primary chat, leaving a tile to surface its prompts through a
+  // separate overlay path — two UIs for one thing, and neither could show a
+  // second session's prompt while you were looking at the first.
+  const approval = useStore(sessionApprovalRequest(sessionKey))
+  const sudo = useStore(sessionSudoRequest(sessionKey))
+  const secret = useStore(sessionSecretRequest(sessionKey))
   const { dragActive } = useFileDrop()
 
-  // Inline bars + status line are the PRIMARY chat's UI (they read the global
-  // prompt atoms); a tile surfaces its prompts via PromptOverlays instead.
-  const barsPresent = isPrimary && ((busy && statusLine) || approval || sudo || secret)
+  const barsPresent = (busy && statusLine) || approval || sudo || secret
 
   return (
     <div className="chat">
@@ -52,12 +52,12 @@ export function ChatScreen() {
         {barsPresent && (
           <div className="composer-bars">
             {busy && statusLine && <div className="pl-0.5 text-[0.8125rem] text-muted-foreground">{statusLine}</div>}
-            {approval && <ApprovalBar request={approval} />}
+            {approval && <ApprovalBar request={approval} sessionKey={sessionKey} />}
             {/* Clarify has no bar here: like desktop, the question renders inline in
                 the transcript (components/assistant-ui/clarify-tool.tsx) so the
                 choice buttons sit with the tool row that asked. */}
-            {sudo && <SudoBar request={sudo} />}
-            {secret && <SecretBar request={secret} />}
+            {sudo && <SudoBar request={sudo} sessionKey={sessionKey} />}
+            {secret && <SecretBar request={secret} sessionKey={sessionKey} />}
           </div>
         )}
         <ChatComposer />
