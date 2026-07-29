@@ -22,6 +22,7 @@ import { $restoring } from '@/store/gateway-restore'
 import { $onboardingActive, checkConfigured } from '@/store/onboarding'
 import { syncPetInfo } from '@/store/pet-gallery'
 import { deleteSessionLocal } from '@/store/session'
+import { openAppRoute } from '@/store/windows'
 import { bumpZoom, initZoom, setZoomPercent } from '@/store/zoom'
 
 import { ContribController } from './contrib/controller'
@@ -114,7 +115,7 @@ export function MobileController() {
   // ⌘G/⌘N and ⌘K listeners this app used to carry. Mounted unconditionally so
   // the keys work on the connect / onboarding screens too.
   useKeybinds({
-    toggleCommandCenter: () => (commandCenterOpen ? closeOverlayToPreviousRoute() : navigate(COMMAND_CENTER_ROUTE))
+    toggleCommandCenter: () => (commandCenterOpen ? closeOverlayToPreviousRoute() : openAppRoute(COMMAND_CENTER_ROUTE))
   })
 
   // Only the Gateway settings page is usable while disconnected (it's the
@@ -244,7 +245,7 @@ export function MobileController() {
         {/* Edit-models ("model visibility") dialog — opened from the composer's
             model menu ("Edit models"). Self-gates on $modelVisibilityOpen +
             gateway-open; "Add provider…" routes to Providers → Accounts. */}
-        {connected && <ModelVisibilityOverlay onOpenProviders={() => navigate('/settings/providers')} />}
+        {connected && <ModelVisibilityOverlay onOpenProviders={() => openAppRoute('/settings/providers')} />}
         {/* Floating pet — a top-level draggable + roaming mascot (fixed z-60) that
             floats over ALL routes. It patrols the Settings overlay's edge when open.
             Hidden on mobile while the touch shell is a blank scaffold. */}

@@ -1,5 +1,3 @@
-import { useNavigate } from 'react-router-dom'
-
 import { Codicon } from '@/components/ui/codicon'
 import { useI18n } from '@/i18n'
 import { useStore } from '@/store/atom'
@@ -13,6 +11,7 @@ import {
   togglePanesFlipped,
   toggleRightEdge
 } from '@/store/layout'
+import { openAppRoute } from '@/store/windows'
 
 import { LayoutMenu } from './layout-menu'
 import { TitlebarButton } from './titlebar-button'
@@ -27,7 +26,6 @@ import { WindowControls } from './window-controls'
 // Desktop-Tauri only (mounted behind IS_DESKTOP in MobileController).
 export function Titlebar({ connected }: { connected: boolean }) {
   const { t } = useI18n()
-  const navigate = useNavigate()
   const hapticsMuted = useStore($hapticsMuted)
   const panesFlipped = useStore($panesFlipped)
   // Positional, not pane-identity: each cluster's toggle drives whatever sits on
@@ -82,10 +80,10 @@ export function Titlebar({ connected }: { connected: boolean }) {
           >
             <Codicon name={hapticsMuted ? 'mute' : 'unmute'} />
           </TitlebarButton>
-          <TitlebarButton label={t.titlebar.openKeybinds} onClick={() => navigate('/settings/shortcuts')}>
+          <TitlebarButton label={t.titlebar.openKeybinds} onClick={() => openAppRoute('/settings/shortcuts')}>
             <Codicon name="keyboard" />
           </TitlebarButton>
-          <TitlebarButton label={t.titlebar.openSettings} onClick={() => navigate('/settings')}>
+          <TitlebarButton label={t.titlebar.openSettings} onClick={() => openAppRoute('/settings')}>
             <Codicon name="settings-gear" />
           </TitlebarButton>
           <TitlebarButton
