@@ -5,9 +5,9 @@ import { NAV_ROW_ACTIVE } from '@/app/shell/nav-row'
 import { SidebarPanelLabel } from '@/app/shell/sidebar-label'
 import { type StatusbarItem, StatusbarItemView } from '@/app/shell/statusbar-controls'
 import { useI18n } from '@/i18n'
-import { Settings } from '@/lib/icons'
+import { Settings, Users } from '@/lib/icons'
 import { cn } from '@/lib/utils'
-import { openSettingsScreen } from '@/store/windows'
+import { openProfilesScreen, openSettingsScreen } from '@/store/windows'
 
 // Bar-layout class that only makes sense as a compact icon-only square; stripped
 // when re-rendering those items as full-width rows.
@@ -68,6 +68,17 @@ export function MobileStatusList() {
     variant: 'action'
   }
 
+  // Profiles — the third windowable screen; opens the Profiles surface (native
+  // screen activity on Android, in-app overlay elsewhere).
+  const openProfilesRow: StatusbarItem = {
+    icon: <Users className="size-3.5" />,
+    id: 'open-profiles',
+    label: t.profiles.title,
+    onSelect: () => void openProfilesScreen(),
+    title: t.profiles.title,
+    variant: 'action'
+  }
+
   const byId = new Map<string, StatusbarItem>()
 
   for (const item of [...leftStatusbarItems, ...statusbarItems]) {
@@ -100,9 +111,13 @@ export function MobileStatusList() {
 
               return <StatusbarItemView item={finalItem} key={item.id} navigate={navigate} row />
             })}
-            {/* Open Settings sits at the end of the System section. */}
+            {/* The screen switcher (Open Settings · Profiles) sits at the end of
+                the System section, next to Command Center. */}
             {section.title === 'System' && (
-              <StatusbarItemView item={openSettingsRow} navigate={navigate} row />
+              <>
+                <StatusbarItemView item={openSettingsRow} navigate={navigate} row />
+                <StatusbarItemView item={openProfilesRow} navigate={navigate} row />
+              </>
             )}
           </div>
         </div>
