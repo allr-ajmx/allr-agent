@@ -31,8 +31,8 @@ use local_backend::{local_backend_spawn, local_backend_status, local_backend_sto
 use oauth::{oauth_login, oauth_logout, oauth_status};
 use pty::{pty_kill, pty_resize, pty_spawn, pty_write, PtyState};
 use ssh::{
-    ssh_answer_prompt, ssh_cancel, ssh_disconnect, ssh_list_config_hosts, ssh_resolve_host,
-    ssh_test, ssh_trust_host_key, SshState,
+    ssh_answer_prompt, ssh_cancel, ssh_connect, ssh_disconnect, ssh_list_config_hosts,
+    ssh_resolve_host, ssh_test, ssh_trust_host_key, SshState,
 };
 use transport::{
     cookies_export, cookies_import, http_request, ws_close, ws_open, ws_send, TransportState,
@@ -178,6 +178,7 @@ pub fn run() {
             portal_logout,
             open_session_window,
             open_instance_window,
+            ssh_connect,
             ssh_test,
             ssh_disconnect,
             ssh_cancel,

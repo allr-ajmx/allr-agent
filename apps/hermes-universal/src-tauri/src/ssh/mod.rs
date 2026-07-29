@@ -24,16 +24,16 @@
 //! reason we do not shell out to the system `ssh` binary — see the `russh`
 //! dependency comment in Cargo.toml.
 //!
-//! Steps 1, 2 and 4 above are live; the lifecycle that drives steps 3 and 5
-//! (`posix_lifecycle` / `windows_lifecycle`) is still pure-only and is wired up
-//! next.
+//! The POSIX path (steps 1-5) is live. `windows_lifecycle` — the same lifecycle
+//! against a remote host running Windows — is still pure-only and is wired next.
 
-// The lifecycle halves have no callers until the connect command lands. Without
-// this, every item there is reported as dead code and the real warnings drown.
-// Remove once `ssh_connect` is wired.
+// windows_lifecycle has no caller until its dispatch lands, and a handful of
+// accessors exist for it. Without this they read as dead code and the real
+// warnings drown.
 #![allow(dead_code)]
 
 pub mod auth;
+pub mod clock;
 pub mod config;
 pub mod error;
 pub mod forward;
@@ -87,6 +87,47 @@ pub struct SshConnectConfig {
     /// runs before any UI is mounted.
     #[serde(default)]
     pub interactive: bool,
+    /// This install's stable 32-hex id, held in the OS keyring by the frontend.
+    ///
+    /// Universal has no equivalent of desktop's installation-ID file, so the
+    /// value is supplied rather than derived. It must be stable across launches:
+    /// losing it orphans remote backends, because the next connect will not
+    /// recognize the lockfile and so will neither reuse nor clean up.
+    #[serde(default)]
+    pub installation_id: Option<String>,
+    /// The session token from the last successful connect, if we still hold one.
+    /// Without it a running backend cannot be reattached to, only replaced.
+    #[serde(default)]
+    pub reuse_token: Option<String>,
+}
+
+/// A live SSH-backed gateway connection, as the frontend sees it.
+///
+/// Shaped like `local_backend.rs`'s `LocalBackend` and extended, because from
+/// the app's point of view this *is* a token-authed backend on loopback — the
+/// SSH part is an implementation detail of how it got there.
+#[derive(Serialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct SshConnection {
+    /// Always `http://127.0.0.1:<ephemeral>`. Changes on every re-tunnel, so
+    /// nothing durable may be keyed on it — use `ownership_id` instead.
+    pub base_url: String,
+    pub token: String,
+    pub ws_url: String,
+    pub local_port: u16,
+    pub remote_port: u16,
+    pub pid: i64,
+    /// True when we reattached to a backend that was already running.
+    pub reused: bool,
+    pub remote_platform: String,
+    pub remote_arch: String,
+    pub hermes_path: String,
+    pub hermes_version: String,
+    /// Stable across re-tunnels. The right cache key, and what the statusbar
+    /// pill and the file tree should identify a connection by.
+    pub ownership_id: String,
+    /// `user@host`, for display. The loopback base URL says nothing useful.
+    pub host_label: String,
 }
 
 /// The result of a reachability check.
@@ -139,6 +180,9 @@ struct Attempt {
 #[derive(Default)]
 pub struct SshState {
     sessions: Mutex<HashMap<String, Arc<SshSession>>>,
+    /// Live tunnels, kept alive by being held here: dropping a PortForward
+    /// stops its accept loop.
+    forwards: Mutex<HashMap<String, forward::PortForward>>,
     attempts: Mutex<HashMap<String, Arc<Attempt>>>,
 }
 
@@ -522,12 +566,361 @@ pub async fn ssh_cancel(state: State<'_, SshState>, attempt_id: String) -> Resul
 #[tauri::command]
 pub async fn ssh_disconnect(state: State<'_, SshState>, profile: Option<String>) -> Result<(), SshError> {
     let scope = scope_of(profile.as_deref());
+    state.forwards.lock().await.remove(&scope);
 
     if let Some(session) = state.sessions.lock().await.remove(&scope) {
         let _ = session.close().await;
     }
 
     Ok(())
+}
+
+/// 32 hex characters of randomness — the session token's shape.
+fn mint_token() -> String {
+    let mut buf = [0u8; 32];
+    getrandom::getrandom(&mut buf).ok();
+
+    hex::encode(buf)
+}
+
+/// 16 hex characters — the spawn nonce's shape.
+fn mint_nonce() -> String {
+    let mut buf = [0u8; 8];
+    getrandom::getrandom(&mut buf).ok();
+
+    hex::encode(buf)
+}
+
+/// Establish, or reattach to, a remote backend and tunnel to it.
+///
+/// The order here is load-bearing in two places, both of which cost a stranded
+/// process on someone else's machine if they are rearranged:
+///
+///   1. The ownership record is written with `port: 0` **immediately** after
+///      spawn, before readiness. If the attempt dies in that window and its
+///      cleanup cannot reach the box, the next connect still finds a record it
+///      can prove ownership through and reap. Without it, the orphan is
+///      unreapable — nothing else ties that pid to us.
+///   2. Every failure after the spawn runs `cleanup_stale`, which kills the
+///      process only once it is provably ours.
+#[tauri::command]
+pub async fn ssh_connect(
+    app: AppHandle,
+    state: State<'_, SshState>,
+    attempt_id: String,
+    config: SshConnectConfig,
+) -> Result<SshConnection, SshError> {
+    let reporter = ProgressReporter::new(app.clone(), &attempt_id);
+    let scope = scope_of(config.profile.as_deref());
+
+    let installation_id = config
+        .installation_id
+        .as_deref()
+        .ok_or_else(|| SshError::new(SshErrorKind::Unknown, "This install has no SSH identity yet."))?;
+
+    let ownership_id = ownership::ssh_ownership_id(installation_id, &scope)?;
+
+    let (target, user, mut credentials) = resolve_target(&config.target)?;
+    credentials.private_key_pem = config.private_key_pem.clone();
+    credentials.passphrase = config.passphrase.clone();
+    credentials.password = config.password.clone();
+
+    let (prompter, policy, _attempt) = arm_prompts(&app, &state, &attempt_id, config.interactive).await;
+    let host_label = target.label();
+    let remote_hermes_path = target.remote_hermes_path.clone();
+
+    reporter.step(SshStep::Connecting);
+
+    let options = ConnectOptions {
+        credentials,
+        policy,
+        known_hosts_path: known_hosts_path(&app)?,
+        home: home_dir(),
+        connect_timeout: DEFAULT_CONNECT_TIMEOUT,
+    };
+
+    reporter.step(SshStep::Authenticating);
+    let session = Arc::new(SshSession::open(target, user, options, prompter.as_ref()).await?);
+
+    let result = establish(
+        &session,
+        &ownership_id,
+        &config,
+        remote_hermes_path.as_deref(),
+        &host_label,
+        &reporter,
+    )
+    .await;
+
+    state.attempts.lock().await.remove(&attempt_id);
+
+    match result {
+        Ok((connection, forward)) => {
+            // Replace any previous session for this scope, closing it first so a
+            // reconnect does not leak the old tunnel.
+            if let Some(previous) = state.sessions.lock().await.insert(scope.clone(), Arc::clone(&session)) {
+                let _ = previous.close().await;
+            }
+
+            state.forwards.lock().await.insert(scope, forward);
+
+            Ok(connection)
+        }
+
+        Err(err) => {
+            let _ = session.close().await;
+
+            Err(err)
+        }
+    }
+}
+
+/// The lifecycle proper, once a session is open.
+async fn establish(
+    session: &Arc<SshSession>,
+    ownership_id: &str,
+    config: &SshConnectConfig,
+    remote_hermes_path: Option<&str>,
+    host_label: &str,
+    reporter: &ProgressReporter,
+) -> Result<(SshConnection, forward::PortForward), SshError> {
+    let (platform, hermes_path, hermes_version, hermes_home) =
+        posix_lifecycle::survey_remote(session, remote_hermes_path, reporter).await?;
+
+    let profile = config.profile.clone().unwrap_or_default();
+    let reuse_token = config.reuse_token.clone().unwrap_or_default();
+    let client = reqwest::Client::new();
+
+    reporter.step(SshStep::CheckingExisting);
+
+    if let Some(lock) = posix_lifecycle::read_lockfile(session, ownership_id).await? {
+        let pid_alive = posix_lifecycle::remote_pid_alive(session, lock.pid).await?;
+        let owned = pid_alive
+            && posix_lifecycle::pid_is_our_dashboard(session, lock.pid, &lock.spawn_nonce, &lock.hermes_path)
+                .await?;
+
+        if posix_lifecycle::lock_is_reusable(&lock, pid_alive, owned, &reuse_token, &hermes_path, &hermes_home) {
+            reporter.step(SshStep::Forwarding);
+            let forward = forward::open(Arc::clone(session), lock.port).await?;
+            let base_url = forward.base_url();
+
+            reporter.step(SshStep::Verifying);
+
+            match reuse::probe_reuse_proof(&client, &base_url, &reuse_token, &lock.spawn_nonce).await {
+                Ok(reuse::ReuseClassification::AuthenticatedOk) => {
+                    let token = adopt_token(&client, session, &base_url, &reuse_token, lock.pid).await?;
+
+                    return Ok((
+                        SshConnection {
+                            ws_url: ws_url_for(&base_url, &token),
+                            base_url,
+                            token,
+                            local_port: forward.local_port,
+                            remote_port: lock.port,
+                            pid: lock.pid,
+                            reused: true,
+                            remote_platform: platform.os.clone(),
+                            remote_arch: platform.arch.clone(),
+                            hermes_path,
+                            hermes_version,
+                            ownership_id: ownership_id.to_string(),
+                            host_label: host_label.to_string(),
+                        },
+                        forward,
+                    ));
+                }
+
+                Ok(reuse::ReuseClassification::AuthenticatedStale) => {
+                    // Something is on that port, but it is not the backend our
+                    // record describes. Drop the tunnel and reap before respawning.
+                    drop(forward);
+                    posix_lifecycle::cleanup_stale(session, ownership_id, &lock, pid_alive).await?;
+                }
+
+                Err(err) => {
+                    // A transport blip is not evidence about ownership; leave the
+                    // backend alone and let the caller retry.
+                    drop(forward);
+
+                    return Err(err);
+                }
+            }
+        } else {
+            posix_lifecycle::cleanup_stale(session, ownership_id, &lock, pid_alive).await?;
+        }
+    }
+
+    spawn_and_attach(
+        session,
+        ownership_id,
+        &profile,
+        &hermes_path,
+        &hermes_version,
+        &hermes_home,
+        &platform,
+        host_label,
+        &client,
+        reporter,
+    )
+    .await
+}
+
+/// Spawn a fresh backend and tunnel to it.
+#[allow(clippy::too_many_arguments)]
+async fn spawn_and_attach(
+    session: &Arc<SshSession>,
+    ownership_id: &str,
+    profile: &str,
+    hermes_path: &str,
+    hermes_version: &str,
+    hermes_home: &str,
+    platform: &posix_lifecycle::RemotePlatform,
+    host_label: &str,
+    client: &reqwest::Client,
+    reporter: &ProgressReporter,
+) -> Result<(SshConnection, forward::PortForward), SshError> {
+    let spawn_token = mint_token();
+    let spawn_nonce = mint_nonce();
+
+    reporter.step(SshStep::UploadingToken);
+    reporter.step(SshStep::Spawning);
+
+    let spawned = posix_lifecycle::spawn_remote_dashboard(
+        session,
+        hermes_path,
+        Some(profile).filter(|p| !p.is_empty()),
+        &spawn_token,
+        ownership_id,
+        &spawn_nonce,
+    )
+    .await?;
+
+    let mut context = posix_lifecycle::SpawnContext {
+        ownership_id,
+        spawn_nonce: &spawn_nonce,
+        profile,
+        hermes_path,
+        hermes_home,
+        log_path: &spawned.log_path,
+        token_fingerprint: ownership::fingerprint_token(&spawn_token),
+        pid: spawned.pid,
+        // Deliberately 0 — see the ordering note on `ssh_connect`.
+        port: 0,
+        started_at: clock::now_iso8601(),
+    };
+
+    let attached = attach_spawned(session, ownership_id, &spawned, &mut context, &spawn_token, client, reporter).await;
+
+    match attached {
+        Ok((remote_port, forward, token)) => Ok((
+            SshConnection {
+                ws_url: ws_url_for(&forward.base_url(), &token),
+                base_url: forward.base_url(),
+                token,
+                local_port: forward.local_port,
+                remote_port,
+                pid: spawned.pid,
+                reused: false,
+                remote_platform: platform.os.clone(),
+                remote_arch: platform.arch.clone(),
+                hermes_path: hermes_path.to_string(),
+                hermes_version: hermes_version.to_string(),
+                ownership_id: ownership_id.to_string(),
+                host_label: host_label.to_string(),
+            },
+            forward,
+        )),
+
+        Err(err) => {
+            // Anything that fails after the spawn must reap the process we just
+            // started, or it is stranded on the remote with nothing pointing at it.
+            posix_lifecycle::remove_token_file(session, &spawned.token_file_path).await;
+            let _ = posix_lifecycle::cleanup_stale(session, ownership_id, &context.to_lock(), true).await;
+
+            Err(err)
+        }
+    }
+}
+
+/// Record ownership, wait for readiness, tunnel, and confirm.
+async fn attach_spawned(
+    session: &Arc<SshSession>,
+    ownership_id: &str,
+    spawned: &posix_lifecycle::SpawnedBackend,
+    context: &mut posix_lifecycle::SpawnContext<'_>,
+    spawn_token: &str,
+    client: &reqwest::Client,
+    reporter: &ProgressReporter,
+) -> Result<(u16, forward::PortForward, String), SshError> {
+    // First, before anything can go wrong: see the ordering note on `ssh_connect`.
+    posix_lifecycle::write_lockfile(session, ownership_id, &context.to_lock(), &spawned.spawn_nonce).await?;
+
+    reporter.step(SshStep::WaitingReady);
+    let remote_port = posix_lifecycle::wait_for_ready_port(
+        session,
+        &spawned.log_path,
+        spawned.pid,
+        posix_lifecycle::DEFAULT_READY_TIMEOUT,
+    )
+    .await?;
+
+    reporter.step(SshStep::Forwarding);
+    let forward = forward::open(Arc::clone(session), remote_port).await?;
+    let base_url = forward.base_url();
+
+    reporter.step(SshStep::Verifying);
+    reuse::wait_for_hermes(client, &base_url, spawn_token).await?;
+
+    let token = adopt_token(client, session, &base_url, spawn_token, spawned.pid).await?;
+
+    // Now that the port and the real token are known, complete the record.
+    context.port = remote_port;
+    context.token_fingerprint = ownership::fingerprint_token(&token);
+    posix_lifecycle::write_lockfile(session, ownership_id, &context.to_lock(), &spawned.spawn_nonce).await?;
+
+    Ok((remote_port, forward, token))
+}
+
+/// Reconcile the token we minted against the one the backend actually serves.
+///
+/// The minted token is only the *spawn* credential. Liveness is sampled **after**
+/// the fetch, not before: a served token that differs while our process is dead
+/// means something else answered, and adopting its credential would wire the app
+/// to a stranger's backend.
+async fn adopt_token(
+    client: &reqwest::Client,
+    session: &SshSession,
+    base_url: &str,
+    expected: &str,
+    pid: i64,
+) -> Result<String, SshError> {
+    let served = reuse::resolve_served_token(client, base_url, expected).await;
+    let alive = posix_lifecycle::remote_pid_alive(session, pid).await?;
+
+    if reuse::is_foreign_backend(&served, expected, alive) {
+        return Err(SshError::new(
+            SshErrorKind::AuthenticatedStale,
+            "The remote backend exited and something we did not start is answering on its port; \
+             refusing that session token.",
+        ));
+    }
+
+    if !alive {
+        return Err(SshError::new(
+            SshErrorKind::Unknown,
+            "The remote backend exited while its session token was being resolved.",
+        ));
+    }
+
+    Ok(served)
+}
+
+/// The gateway WebSocket URL for a tunnelled backend.
+///
+/// `ws:`, not `wss:` — confidentiality comes from the SSH channel, and the
+/// remote backend serves no certificate for 127.0.0.1.
+fn ws_url_for(base_url: &str, token: &str) -> String {
+    format!("{}/api/ws?token={token}", base_url.replacen("http", "ws", 1))
 }
 
 #[cfg(test)]
@@ -652,6 +1045,35 @@ mod tests {
 
         assert!(!config.interactive);
         assert!(config.private_key_pem.is_none());
+    }
+
+    #[test]
+    fn a_minted_token_and_nonce_have_the_shapes_the_lockfile_requires() {
+        // The lock validator enforces exactly these, so a mismatch here would
+        // make every write unreadable on the next connect.
+        let token = mint_token();
+        assert_eq!(token.len(), 64);
+        assert!(token.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()), "{token}");
+
+        let nonce = mint_nonce();
+        assert!(remote_paths::validate_spawn_nonce(&nonce).is_ok(), "{nonce}");
+    }
+
+    #[test]
+    fn minted_values_are_not_repeated() {
+        // The nonce is what proves a process is ours; a repeat would let one
+        // backend be mistaken for another.
+        assert_ne!(mint_token(), mint_token());
+        assert_ne!(mint_nonce(), mint_nonce());
+    }
+
+    #[test]
+    fn the_ws_url_rides_the_tunnel_unencrypted() {
+        // ws, not wss: confidentiality comes from the SSH channel, and the remote
+        // backend serves no certificate for 127.0.0.1.
+        let url = ws_url_for("http://127.0.0.1:41337", "abc123");
+        assert_eq!(url, "ws://127.0.0.1:41337/api/ws?token=abc123");
+        assert!(!url.contains("wss://"));
     }
 
     #[test]

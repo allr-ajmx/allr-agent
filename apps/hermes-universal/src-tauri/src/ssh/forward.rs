@@ -22,15 +22,16 @@
 
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
+
 use std::sync::Arc;
 
-use russh::client::{Handle, Msg};
+use russh::client::Msg;
 use russh::Channel;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_util::sync::CancellationToken;
 
 use super::error::{SshError, SshErrorKind};
-use super::session::SshHandler;
+use super::session::SshSession;
 
 /// What a listener reports about the traffic it has carried. Used to tell "the
 /// tunnel is up but idle" from "the tunnel never worked".
@@ -78,7 +79,11 @@ impl Drop for PortForward {
 
 /// Open a forward from an OS-assigned loopback port to `remote_port` on the
 /// remote's own loopback.
-pub async fn open(handle: Handle<SshHandler>, remote_port: u16) -> Result<PortForward, SshError> {
+///
+/// Takes an `Arc<SshSession>` rather than a borrow because the accept loop
+/// outlives this call and russh's `Handle` is not `Clone` — the session must
+/// stay alive for as long as the tunnel does.
+pub async fn open(session: Arc<SshSession>, remote_port: u16) -> Result<PortForward, SshError> {
     // Bind to 127.0.0.1 ONLY — never 0.0.0.0. The remote backend listens on the
     // remote's loopback precisely so that the tunnel is the only way in;
     // binding our end to a routable address would undo that and republish it to
@@ -97,7 +102,7 @@ pub async fn open(handle: Handle<SshHandler>, remote_port: u16) -> Result<PortFo
 
     tokio::spawn(accept_loop(
         listener,
-        handle,
+        session,
         remote_port,
         local_port,
         cancel.clone(),
@@ -110,7 +115,7 @@ pub async fn open(handle: Handle<SshHandler>, remote_port: u16) -> Result<PortFo
 /// Accept local connections until cancelled, pumping each over its own channel.
 async fn accept_loop(
     listener: TcpListener,
-    handle: Handle<SshHandler>,
+    session: Arc<SshSession>,
     remote_port: u16,
     local_port: u16,
     cancel: CancellationToken,
@@ -133,7 +138,10 @@ async fn accept_loop(
         // One SSH channel per TCP connection, so a slow request cannot block
         // the others — the gateway holds a long-lived WebSocket open alongside
         // ordinary short REST calls.
-        let channel = match handle.channel_open_direct_tcpip("127.0.0.1", remote_port as u32, "127.0.0.1", local_port as u32).await
+        let channel = match session
+            .handle()
+            .channel_open_direct_tcpip("127.0.0.1", remote_port as u32, "127.0.0.1", local_port as u32)
+            .await
         {
             Ok(channel) => channel,
             Err(err) => {
