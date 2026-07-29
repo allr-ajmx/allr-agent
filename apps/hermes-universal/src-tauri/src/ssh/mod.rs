@@ -43,6 +43,8 @@ pub mod posix_lifecycle;
 pub mod progress;
 pub mod prompt;
 pub mod remote_paths;
+pub mod remote_scripts;
+pub mod reuse;
 pub mod session;
 pub mod target;
 pub mod windows_lifecycle;
