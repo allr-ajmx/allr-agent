@@ -5,7 +5,11 @@ import type { GatewayEvent } from '@/gateway'
 vi.mock('@/store/gateway', async () => {
   const { atom } = await import('@/store/atom')
 
-  return { requestGateway: vi.fn().mockResolvedValue({}), $gatewayState: atom('idle') }
+  return {
+    addGatewayEventListener: () => () => {},
+    requestGateway: vi.fn().mockResolvedValue({}),
+    $gatewayState: atom('idle')
+  }
 })
 import { flushDeltas } from '@/lib/stream-batch'
 import { routeGatewayEvent as handleGatewayEvent } from '@/store/event-router'

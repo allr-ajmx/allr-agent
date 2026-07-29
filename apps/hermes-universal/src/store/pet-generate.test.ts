@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('@/store/gateway', () => ({ requestGateway: vi.fn(), subscribeGateway: vi.fn(() => () => {}) }))
+vi.mock('@/store/gateway', () => ({
+  addGatewayEventListener: () => () => {},
+  requestGateway: vi.fn(),
+  subscribeGateway: vi.fn(() => () => {})
+}))
 vi.mock('@/store/pet-gallery', () => ({ loadPetGallery: vi.fn() }))
 
 import { requestGateway } from '@/store/gateway'
