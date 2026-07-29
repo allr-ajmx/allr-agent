@@ -2,7 +2,8 @@ import { useEffect } from 'react'
 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useStore } from '@/store/atom'
-import { $connection, connectLocal } from '@/store/connection'
+import { $connection, connectLocal, connectSsh } from '@/store/connection'
+import { loadGatewayTarget } from '@/store/gateway-restore'
 import { $gatewayMode } from '@/store/gateway-switch'
 import { notify } from '@/store/notifications'
 import { $activeProfile, $profiles, refreshProfiles, setActiveProfile } from '@/store/profiles'
@@ -42,11 +43,24 @@ export function ProfileSelector() {
 
     const name = target ? `"${target}"` : 'the default profile'
 
-    if (mode === 'local') {
+    // ssh behaves like local here: the backend is one we started, so a profile
+    // change genuinely needs a respawn rather than a REST re-scope.
+    if (mode === 'local' || mode === 'ssh') {
+      const restart =
+        mode === 'ssh'
+          ? () => {
+              const saved = loadGatewayTarget()
+
+              if (saved?.ssh) {
+                void connectSsh({ ...saved.ssh, profile: target }, { interactive: true })
+              }
+            }
+          : () => void connectLocal(target)
+
       notify({
         kind: 'info',
         message: `Restart the backend as ${name} to apply it to chat?`,
-        action: { label: 'Restart', onClick: () => void connectLocal(target) }
+        action: { label: 'Restart', onClick: restart }
       })
     } else {
       notify({

@@ -36,4 +36,36 @@ describe('gateway-switch', () => {
     switchGatewayMode('local')
     expect(localStorage.getItem('hermes.gateway.mode')).toBe('local')
   })
+
+  it('persists ssh', () => {
+    switchGatewayMode('ssh')
+    expect(localStorage.getItem('hermes.gateway.mode')).toBe('ssh')
+  })
+})
+
+// The codec decodes ONCE, when the atom is created, so reopening the app is the
+// only way this path runs. A mode missing from the whitelist does not fail
+// loudly — it silently reopens in 'remote' — which is exactly what these check.
+describe('persisted-mode whitelist (fresh module, as on app launch)', () => {
+  async function reopenWith(stored: string) {
+    localStorage.setItem('hermes.gateway.mode', stored)
+    vi.resetModules()
+
+    const fresh = await import('./gateway-switch')
+
+    return fresh.$gatewayMode.get()
+  }
+
+  it('reopens into ssh', async () => {
+    await expect(reopenWith('ssh')).resolves.toBe('ssh')
+  })
+
+  it('still reopens into the other known modes', async () => {
+    await expect(reopenWith('local')).resolves.toBe('local')
+    await expect(reopenWith('cloud')).resolves.toBe('cloud')
+  })
+
+  it('degrades an unknown stored mode to remote', async () => {
+    await expect(reopenWith('not-a-mode')).resolves.toBe('remote')
+  })
 })

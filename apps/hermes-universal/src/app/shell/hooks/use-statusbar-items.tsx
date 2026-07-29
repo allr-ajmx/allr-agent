@@ -164,7 +164,8 @@ export function useStatusbarItems(opts?: { includeAll?: boolean; rich?: boolean 
     />
   )
 
-  const isRemoteBackend = connection?.mode === 'remote' || connection?.mode === 'cloud'
+  const isRemoteBackend =
+    connection?.mode === 'remote' || connection?.mode === 'cloud' || connection?.mode === 'ssh'
   const backendVersion = status?.version
 
   // Emphasized (accent/blue) value for the rich list — the status VALUE stays

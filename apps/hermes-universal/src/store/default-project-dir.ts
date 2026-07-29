@@ -31,5 +31,9 @@ export function cwdForNewSession(): string | undefined {
     return undefined
   }
 
+  // Deliberately `local` only. An ssh-backed gateway runs on the REMOTE host, so
+  // a directory picked from this machine's filesystem does not exist there —
+  // sending it would point new sessions at a path that is absent or, worse,
+  // happens to exist and means something else. Same reasoning for remote/cloud.
   return loadString('hermes.gateway.mode') === 'local' ? dir : undefined
 }

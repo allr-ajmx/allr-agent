@@ -3,16 +3,20 @@ import { atom } from '@/store/atom'
 import { disconnect } from '@/store/connection'
 import type { GatewayMode } from '@/store/gateway-config'
 
-// Gateway-mode switching (E1). The app talks to a backend in one of three modes —
-// local (spawned), remote (URL), cloud (portal-discovered). This holds the chosen
-// mode (persisted). Two ways to change it:
+// Gateway-mode switching (E1). The app talks to a backend in one of four modes —
+// local (spawned), remote (URL), cloud (portal-discovered), ssh (tunnelled to a
+// backend on a remote host). This holds the chosen mode (persisted). Two ways to
+// change it:
 //   • setGatewayMode — mode-only, no teardown. Used when *reconfiguring* an
 //     already-connected app inside Settings → Gateway (desktop parity: picking a
 //     mode card is a pending selection; connecting is a separate explicit action).
 //   • switchGatewayMode — mode + tear down the live connection, for a hard reset.
 
+// A whitelist, so a corrupt or future value degrades to the safest mode rather
+// than being trusted. Every new mode MUST be added here: a missing entry does not
+// fail loudly, it silently reopens the app in 'remote'.
 const modeCodec: Codec<GatewayMode> = {
-  decode: raw => (raw === 'local' || raw === 'cloud' ? raw : 'remote'),
+  decode: raw => (raw === 'local' || raw === 'cloud' || raw === 'ssh' ? raw : 'remote'),
   encode: value => value
 }
 

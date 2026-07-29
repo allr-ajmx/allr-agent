@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { GatewayDiagnostics } from '@/app/gateway/gateway-diagnostics'
+import { sshErrorMessage, sshStepLabel } from '@/app/gateway/ssh-copy'
+import { EMPTY_SSH_FORM, SshPanel, type SshFormState, sshTargetFromForm } from '@/app/gateway/ssh-panel'
 import { ListRow, Pill } from '@/app/settings/primitives'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -8,9 +10,9 @@ import { Tip } from '@/components/ui/tooltip'
 import { type Translations, useI18n } from '@/i18n'
 import { type AuthProvider, fetchAuthProviders } from '@/lib/auth'
 import { openExternalLink } from '@/lib/external-link'
-import { AlertCircle, Check, Cloud, Globe, HelpCircle, Loader2, LogIn, Monitor, RefreshCw } from '@/lib/icons'
+import { AlertCircle, Check, Cloud, Globe, HelpCircle, Loader2, LogIn, Monitor, RefreshCw, Terminal } from '@/lib/icons'
 import { LOCAL_MODE_SUPPORTED } from '@/lib/platform'
-import { saveSecrets } from '@/lib/secure-store'
+import { saveSecrets, saveSshSecrets } from '@/lib/secure-store'
 import { selectableCardClass } from '@/lib/selectable-card'
 import { cn } from '@/lib/utils'
 import { useStore } from '@/store/atom'
@@ -35,6 +37,7 @@ import {
   $connectionPhase,
   connect,
   connectLocal,
+  connectSsh,
   lastUrl,
   loadSavedLogin,
   normalizeBaseUrl,
@@ -42,9 +45,20 @@ import {
   signOut
 } from '@/store/connection'
 import { type Connection, type GatewayMode } from '@/store/gateway-config'
-import { saveGatewayTarget } from '@/store/gateway-restore'
+import { loadGatewayTarget, saveGatewayTarget } from '@/store/gateway-restore'
 import { $gatewayMode, setGatewayMode } from '@/store/gateway-switch'
 import { notify, notifyError } from '@/store/notifications'
+import {
+  answerSshPrompt,
+  newAttemptId,
+  onSshHostKey,
+  onSshProgress,
+  onSshPrompt,
+  type SshHostKeyEvent,
+  type SshPromptEvent,
+  testSshBackend,
+  trustSshHostKey
+} from '@/store/ssh-backend'
 
 // Shared gateway configurator — the single mode-grid + per-mode connect surface
 // used by BOTH Settings → Gateway (`variant="settings"`) and the first-run connect
@@ -138,6 +152,28 @@ export function GatewayConfigurator({ variant = 'settings' }: { variant?: 'onboa
   // Remote-mode form state (local — universal has no saved per-scope config).
   const [remoteUrl, setRemoteUrl] = useState(() => lastUrl())
   const [remoteToken, setRemoteToken] = useState('')
+  // SSH form + the live-connect surfaces (progress, prompts, host-key trust).
+  // Seeded from the saved target so reopening Settings shows what you connected
+  // with, not a blank form.
+  const [sshForm, setSshForm] = useState<SshFormState>(() => {
+    const saved = loadGatewayTarget()?.ssh
+
+    return saved
+      ? {
+          ...EMPTY_SSH_FORM,
+          host: saved.host ?? '',
+          user: saved.user ?? '',
+          port: saved.port ? String(saved.port) : '',
+          keyPath: saved.keyPath ?? '',
+          remoteHermesPath: saved.remoteHermesPath ?? ''
+        }
+      : EMPTY_SSH_FORM
+  })
+  const [sshProgress, setSshProgress] = useState<null | string>(null)
+  const [sshPrompt, setSshPrompt] = useState<null | SshPromptEvent>(null)
+  const [sshHostKey, setSshHostKey] = useState<null | SshHostKeyEvent>(null)
+  const sshAttemptRef = useRef<null | string>(null)
+
   const [busy, setBusy] = useState(false)
   const [testing, setTesting] = useState(false)
   const [lastTest, setLastTest] = useState<null | string>(null)
@@ -317,12 +353,105 @@ export function GatewayConfigurator({ variant = 'settings' }: { variant?: 'onboa
 
   const connectAgent = (agent: CloudAgent): Promise<void> => runConnect(() => connectCloudAgent(agent))
 
+  const trimmedSshHost = sshForm.host.trim()
+
+  /**
+   * Run an SSH operation with its event plumbing attached.
+   *
+   * Subscribing BEFORE invoking is the contract the Rust side documents: an
+   * early step — or worse, a passphrase prompt — emitted before the listener
+   * exists is simply lost, and the connect then stalls with nothing on screen.
+   */
+  const runSsh = async <T,>(operation: (attemptId: string) => Promise<T>): Promise<T> => {
+    const attemptId = newAttemptId()
+    sshAttemptRef.current = attemptId
+    setSshProgress(null)
+    setSshPrompt(null)
+    setSshHostKey(null)
+
+    const unlisten = await Promise.all([
+      onSshProgress(attemptId, progress => setSshProgress(sshStepLabel(progress.step, g))),
+      onSshPrompt(attemptId, setSshPrompt),
+      onSshHostKey(attemptId, setSshHostKey)
+    ])
+
+    try {
+      return await operation(attemptId)
+    } finally {
+      unlisten.forEach(off => off())
+      sshAttemptRef.current = null
+      setSshProgress(null)
+      setSshPrompt(null)
+      setSshHostKey(null)
+    }
+  }
+
+  // Persist the credentials the user typed, so the boot restore — which cannot
+  // prompt — has them next launch.
+  const persistSshSecrets = () =>
+    saveSshSecrets({
+      privateKeyPem: sshForm.privateKeyPem.trim() || undefined,
+      passphrase: sshForm.passphrase || undefined
+    })
+
+  const doConnectSsh = async () => {
+    if (!trimmedSshHost) {
+      notify({ kind: 'warning', title: g.incompleteTitle, message: g.sshIncompleteHost })
+
+      return
+    }
+
+    setBusy(true)
+
+    try {
+      await persistSshSecrets()
+      setGatewayMode('ssh')
+      await runSsh(attemptId =>
+        connectSsh(sshTargetFromForm(sshForm), { attemptId, interactive: true })
+      )
+      notify({ kind: 'success', title: g.savedTitle, message: g.savedMessage })
+    } catch (err) {
+      notifyError(sshErrorMessage(err, g), g.saveFailed)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const testSsh = async () => {
+    if (!trimmedSshHost) {
+      notify({ kind: 'warning', title: g.incompleteTitle, message: g.sshIncompleteHost })
+
+      return
+    }
+
+    setTesting(true)
+    setLastTest(null)
+
+    try {
+      await persistSshSecrets()
+      const result = await runSsh(attemptId =>
+        testSshBackend(attemptId, { ...sshTargetFromForm(sshForm), interactive: true })
+      )
+      setLastTest(g.sshReachable(result.hostLabel, result.platform ?? 'unknown'))
+    } catch (err) {
+      setLastTest(sshErrorMessage(err, g))
+    } finally {
+      setTesting(false)
+    }
+  }
+
   // "Save for next restart" (settings, desktop `save(false)`): persist the mode +
   // target WITHOUT connecting, so the next launch auto-connects to it. Secrets (a
   // typed token) go to the keyring; the target itself is non-secret.
   const doSaveForRestart = async () => {
     if (pendingMode === 'remote' && !trimmedUrl) {
       notify({ kind: 'warning', title: g.incompleteTitle, message: g.enterUrlFirst })
+
+      return
+    }
+
+    if (pendingMode === 'ssh' && !trimmedSshHost) {
+      notify({ kind: 'warning', title: g.incompleteTitle, message: g.sshIncompleteHost })
 
       return
     }
@@ -341,6 +470,9 @@ export function GatewayConfigurator({ variant = 'settings' }: { variant?: 'onboa
         if (token) {
           await saveSecrets({ token })
         }
+      } else if (pendingMode === 'ssh') {
+        saveGatewayTarget({ mode: 'ssh', profile: null, ssh: sshTargetFromForm(sshForm) })
+        await persistSshSecrets()
       }
 
       notify({ kind: 'success', title: g.savedTitle, message: g.savedMessage })
@@ -406,7 +538,15 @@ export function GatewayConfigurator({ variant = 'settings' }: { variant?: 'onboa
         <div className="text-[length:var(--conversation-caption-font-size)] font-medium text-(--ui-text-secondary)">
           {g.modeTitle}
         </div>
-        <div className="grid auto-rows-fr grid-cols-1 gap-2 min-[42rem]:grid-cols-3">
+        {/* Tailwind cannot see a computed class name, so the column count is
+            picked from literals: four cards on desktop, three when Local is
+            hidden (mobile cannot spawn a backend, but it CAN dial SSH). */}
+        <div
+          className={cn(
+            'grid auto-rows-fr grid-cols-1 gap-2',
+            LOCAL_MODE_SUPPORTED ? 'min-[42rem]:grid-cols-4' : 'min-[42rem]:grid-cols-3'
+          )}
+        >
           {LOCAL_MODE_SUPPORTED ? (
             <ModeCard
               active={pendingMode === 'local'}
@@ -431,11 +571,47 @@ export function GatewayConfigurator({ variant = 'settings' }: { variant?: 'onboa
             onSelect={() => setPendingMode('remote')}
             title={g.remoteTitle}
           />
+          <ModeCard
+            active={pendingMode === 'ssh'}
+            description={g.sshDesc}
+            hint={g.sshTrustHint}
+            icon={Terminal}
+            onSelect={() => setPendingMode('ssh')}
+            title={g.sshTitle}
+          />
         </div>
       </div>
 
       {/* Hermes Cloud panel */}
       {pendingMode === 'cloud' ? <CloudPanel connectAgent={connectAgent} connection={connection} g={g} /> : null}
+
+      {/* SSH panel */}
+      {pendingMode === 'ssh' ? (
+        <SshPanel
+          form={sshForm}
+          g={g}
+          hostKey={sshHostKey}
+          onAnswerPrompt={answer => {
+            const attemptId = sshAttemptRef.current
+
+            if (attemptId && sshPrompt) {
+              void answerSshPrompt(attemptId, sshPrompt.promptId, answer).catch(() => {})
+              setSshPrompt(null)
+            }
+          }}
+          onTrustHostKey={accept => {
+            const attemptId = sshAttemptRef.current
+
+            if (attemptId) {
+              void trustSshHostKey(attemptId, accept).catch(() => {})
+              setSshHostKey(null)
+            }
+          }}
+          progress={sshProgress}
+          prompt={sshPrompt}
+          setForm={setSshForm}
+        />
+      ) : null}
 
       {/* Remote panel */}
       {pendingMode === 'remote' ? (
@@ -539,11 +715,27 @@ export function GatewayConfigurator({ variant = 'settings' }: { variant?: 'onboa
               {g.testRemote}
             </Button>
           ) : null}
+          {pendingMode === 'ssh' ? (
+            <Button
+              className="mr-auto"
+              disabled={testing || !trimmedSshHost}
+              onClick={() => void testSsh()}
+              size="sm"
+              variant="text"
+            >
+              {testing ? <Loader2 className="animate-spin" /> : null}
+              {g.sshTestConnection}
+            </Button>
+          ) : null}
           {/* "Save for next restart" — settings only (desktop hides it in the
               embedded/onboarding variant). Persists without connecting. */}
           {variant === 'settings' ? (
             <Button
-              disabled={busy || (pendingMode === 'remote' && !trimmedUrl)}
+              disabled={
+                busy ||
+                (pendingMode === 'remote' && !trimmedUrl) ||
+                (pendingMode === 'ssh' && !trimmedSshHost)
+              }
               onClick={() => void doSaveForRestart()}
               size="sm"
               variant="outline"
@@ -552,8 +744,18 @@ export function GatewayConfigurator({ variant = 'settings' }: { variant?: 'onboa
             </Button>
           ) : null}
           <Button
-            disabled={busy || (pendingMode === 'remote' && !trimmedUrl)}
-            onClick={() => void (pendingMode === 'local' ? doConnectLocal() : doConnectRemote())}
+            disabled={
+              busy || (pendingMode === 'remote' && !trimmedUrl) || (pendingMode === 'ssh' && !trimmedSshHost)
+            }
+            onClick={() => {
+              if (pendingMode === 'local') {
+                void doConnectLocal()
+              } else if (pendingMode === 'ssh') {
+                void doConnectSsh()
+              } else {
+                void doConnectRemote()
+              }
+            }}
             size="sm"
           >
             {busy ? <Loader2 className="animate-spin" /> : null}

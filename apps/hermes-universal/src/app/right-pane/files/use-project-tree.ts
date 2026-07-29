@@ -3,6 +3,7 @@ import { atom } from 'nanostores'
 import { useCallback, useEffect, useMemo } from 'react'
 
 import { $connection } from '@/store/connection'
+import { connectionCacheKey } from '@/store/gateway-config'
 import { $workspaceChangeTick, consumeWorkspaceChange } from '@/store/workspace-events'
 
 import { clearProjectDirCache, type ProjectTreeEntry, readProjectDir } from './ipc'
@@ -333,7 +334,9 @@ export function useProjectTree(cwd: string): UseProjectTreeResult {
   const state = useStore($projectTree)
   const connection = useStore($connection)
   const workspaceTick = useStore($workspaceChangeTick)
-  const connectionKey = `${connection?.mode || 'local'}:${connection?.profile || ''}:${connection?.baseUrl || ''}`
+  // Shared with lib/desktop-fs so the two cannot drift; keys ssh connections on
+  // their ownership id, which survives a re-tunnel that changes the baseUrl.
+  const connectionKey = connectionCacheKey(connection)
 
   const refreshRoot = useCallback(() => loadRoot(cwd, { force: true }), [cwd])
 

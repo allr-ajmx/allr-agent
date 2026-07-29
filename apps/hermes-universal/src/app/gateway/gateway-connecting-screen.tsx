@@ -24,6 +24,12 @@ function targetLabel(): string {
     return 'the local backend'
   }
 
+  if (target.mode === 'ssh') {
+    // The saved host, not the baseUrl: an ssh connection's baseUrl is a loopback
+    // port that means nothing to the user.
+    return target.ssh?.host || 'the SSH host'
+  }
+
   if (target.mode === 'cloud') {
     if (target.cloudAgentName) {
       return target.cloudAgentName

@@ -434,7 +434,12 @@ export function useSlashCommand() {
 
           const { render: renderSlashOutput, sessionId } = resolved
 
-          if ($connection.get()?.mode === 'remote') {
+          // /browser drives a Chromium on the GATEWAY host, so it is unavailable
+          // for every mode whose gateway is not this machine. `cloud` was missing
+          // from this check before ssh existed — a pre-existing gap, fixed here.
+          const gatewayMode = $connection.get()?.mode
+
+          if (gatewayMode === 'remote' || gatewayMode === 'cloud' || gatewayMode === 'ssh') {
             renderSlashOutput(
               '/browser manages a Chromium-family browser on the gateway host — only available when connected to a local gateway.'
             )

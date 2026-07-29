@@ -10,9 +10,14 @@ import { type AuthProvider, mintWsTicket } from '@/lib/auth'
 // Pure + I/O-free except `resolveWsUrl`, whose only effect is the injected
 // ws-ticket mint. Everything here is unit-testable against a mocked mint.
 
-/** How the backend is reached. `cloud` is a `remote`-shaped OAuth connection whose
- *  baseUrl was discovered via the portal (see modeIsRemoteLike). */
-export type GatewayMode = 'local' | 'remote' | 'cloud'
+/** How the backend is reached.
+ *  - `cloud` is a `remote`-shaped OAuth connection whose baseUrl was discovered
+ *    via the portal (see modeIsRemoteLike).
+ *  - `ssh` is a token-authed backend on 127.0.0.1 reached through an SSH tunnel.
+ *    Rust spawns (or reattaches to) `hermes serve` on the remote host and
+ *    forwards a loopback port to it, so from here it behaves like `local`, not
+ *    like `remote`. */
+export type GatewayMode = 'local' | 'remote' | 'cloud' | 'ssh'
 
 /** How the WS handshake authenticates.
  *  - `none`   — ungated backend, no auth param.
@@ -33,13 +38,45 @@ export interface Connection {
   /** Multi-profile selector, threaded into the ws-ticket mint. Null/undefined =
    *  the backend's default profile. */
   profile?: null | string
+  /** ssh only: `user@host`, for display. The tunnelled baseUrl is always
+   *  `http://127.0.0.1:<ephemeral>`, which tells the user nothing. */
+  remoteHost?: string
+  /** ssh only: the ownership id — stable across re-tunnels, unlike baseUrl.
+   *  See {@link connectionCacheKey}. */
+  remoteIdentity?: string
 }
 
 /** Cloud reuses the entire remote connect/probe/reconnect path — it differs only
  *  in how `baseUrl` was obtained (portal discovery) and which settings card shows.
- *  Ported from desktop `electron/connection-config.ts` `modeIsRemoteLike`. */
+ *  Ported from desktop `electron/connection-config.ts` `modeIsRemoteLike`.
+ *
+ *  `ssh` is deliberately NOT remote-like, matching desktop: the tunnel terminates
+ *  at a loopback backend that authenticates with a static token, so it takes the
+ *  same path as `local`, not the probe/OAuth path a real remote URL needs. */
 export function modeIsRemoteLike(mode: GatewayMode | undefined): boolean {
   return mode === 'remote' || mode === 'cloud' || mode === undefined
+}
+
+/**
+ * A stable identity for caches keyed on "which backend am I talking to".
+ *
+ * For every mode but `ssh` the baseUrl is that identity. An ssh connection's
+ * baseUrl carries a fresh ephemeral port on every re-tunnel, so keying on it
+ * throws away the file tree and directory listings on each reconnect even though
+ * the backend is literally the same process. Desktop hit this and fixed it the
+ * same way (`src/lib/desktop-fs.ts:24-29`).
+ */
+export function connectionCacheKey(conn: Connection | null): string {
+  if (!conn) {
+    return 'none'
+  }
+
+  const mode = conn.mode ?? 'remote'
+  const profile = conn.profile ?? ''
+  const identity =
+    mode === 'ssh' ? conn.remoteIdentity || conn.remoteHost || conn.baseUrl : conn.baseUrl
+
+  return `${mode}:${profile}:${identity}`
 }
 
 export interface StatusLike {

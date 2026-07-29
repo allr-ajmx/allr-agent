@@ -35,3 +35,15 @@ export const IS_DESKTOP = IS_TAURI && !IS_MOBILE
 // one. Mobile-only UIs (E2 mode picker, terminal, updater, pet-overlay) branch
 // on this to stay hidden on Android/iOS.
 export const LOCAL_MODE_SUPPORTED = !IS_MOBILE
+
+// SSH gateway mode works EVERYWHERE — russh is pure Rust, so a phone can dial an
+// SSH host just as a laptop can. That is the whole point of MJX-55, and why there
+// is no SSH_MODE_SUPPORTED gate to go with this one.
+//
+// What a phone lacks is the local FILES the desktop flow leans on: there is no
+// ~/.ssh to read a config or an IdentityFile from, no ssh-agent socket, and no
+// file picker that hands back a path russh could open a private key through
+// (Android SAF returns a content:// URI). So the key-path field and the
+// ~/.ssh/config host dropdown are desktop-only, and mobile pastes a PEM into the
+// OS keystore instead.
+export const SSH_LOCAL_FILES_SUPPORTED = !IS_MOBILE

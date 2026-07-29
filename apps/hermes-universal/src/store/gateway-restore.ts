@@ -1,7 +1,15 @@
 import { oauthStatus } from '@/lib/auth'
 import { loadString, removeKey, saveString } from '@/lib/persist'
 import { atom } from '@/store/atom'
-import { connect, connectCloud, connectLocal, disconnect, loadSavedLogin } from '@/store/connection'
+import {
+  connect,
+  connectCloud,
+  connectLocal,
+  connectSsh,
+  disconnect,
+  loadSavedLogin,
+  type SshTarget
+} from '@/store/connection'
 import type { GatewayMode } from '@/store/gateway-config'
 import { $gatewayMode } from '@/store/gateway-switch'
 
@@ -31,10 +39,16 @@ export interface GatewayTarget {
   cloudBaseUrl?: string
   cloudAgentId?: string
   cloudAgentName?: string
+  /** ssh: the connection target. Non-secret only — the key/passphrase/password
+   *  live in the keyring (see lib/secure-store). */
+  ssh?: SshTarget
 }
 
+// Another whitelist that must grow with the union: a saved target whose mode is
+// not listed here is rejected as malformed, and the auto-reconnect silently
+// does not happen.
 function isMode(value: unknown): value is GatewayMode {
-  return value === 'local' || value === 'remote' || value === 'cloud'
+  return value === 'local' || value === 'remote' || value === 'cloud' || value === 'ssh'
 }
 
 /** Persist the target of a just-established connection (best-effort). */
@@ -189,6 +203,14 @@ export async function autoRestoreConnection(): Promise<void> {
   try {
     if (target.mode === 'local') {
       await connectLocal(target.profile ?? null)
+    } else if (target.mode === 'ssh') {
+      if (!target.ssh?.host?.trim()) {
+        throw new Error('No saved SSH host to reconnect to')
+      }
+
+      // Non-interactive: this runs before any UI is mounted, so Rust must fail
+      // fast on a passphrase rather than block on a dialog nobody can answer.
+      await connectSsh({ ...target.ssh, profile: target.profile ?? null }, { interactive: false })
     } else if (target.mode === 'cloud') {
       if (!target.cloudBaseUrl) {
         throw new Error('No saved Hermes Cloud agent to reconnect to')

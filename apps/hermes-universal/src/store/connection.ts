@@ -10,13 +10,15 @@ import {
 } from '@/lib/auth'
 import { loadString, saveString } from '@/lib/persist'
 import { IS_ANDROID } from '@/lib/platform'
-import { clearSecrets, loadSecrets, saveSecrets, type Secrets } from '@/lib/secure-store'
+import { clearSecrets, loadSecrets, loadSshSecrets, saveSecrets, type Secrets } from '@/lib/secure-store'
 import { persistSessionCookies } from '@/lib/session-persist'
 import { atom } from '@/store/atom'
 import { $gatewayState, closeGateway, connectGateway } from '@/store/gateway'
 import { chooseGatedAuth, type Connection } from '@/store/gateway-config'
 import { saveGatewayTarget, savePendingOAuth } from '@/store/gateway-restore'
+import { getInstallationId } from '@/store/installation-id'
 import { spawnLocalBackend, stopLocalBackend } from '@/store/local-backend'
+import { connectSshBackend, disconnectSsh, newAttemptId, type SshConnectConfig } from '@/store/ssh-backend'
 import { httpRequest } from '@/transport/http'
 
 // AuthMode / Connection are now defined in store/gateway-config (the reconciled
@@ -245,6 +247,86 @@ export async function connectLocal(profile?: null | string): Promise<void> {
   }
 }
 
+/** The non-secret half of an SSH target, as the settings form collects it. */
+export type SshTarget = Omit<
+  SshConnectConfig,
+  'privateKeyPem' | 'passphrase' | 'password' | 'installationId' | 'reuseToken' | 'interactive'
+>
+
+/**
+ * SSH mode (MJX-55): reach a backend on a remote host through an SSH tunnel.
+ *
+ * Rust does the whole lifecycle and hands back a token-authed backend on
+ * loopback, so from here this looks much more like `connectLocal` than like
+ * `connect` — there is no /api/status probe and no auth negotiation, because the
+ * tunnel already terminates at a backend we started ourselves.
+ *
+ * `onProgress` matters more than it looks: a cold connect spawns a process on
+ * the remote and waits for it to bind, which can take 45–90s. Without it the UI
+ * shows a motionless spinner for long enough to read as a hang.
+ */
+export async function connectSsh(
+  target: SshTarget,
+  options: { interactive?: boolean; attemptId?: string } = {}
+): Promise<void> {
+  armReconnect()
+  $connectionError.set(null)
+  $connectionPhase.set('connecting')
+
+  const attemptId = options.attemptId ?? newAttemptId()
+  const profile = target.profile ?? null
+
+  try {
+    // Secrets come from the keyring, never from the saved target.
+    const [installationId, sshSecrets, saved] = await Promise.all([
+      getInstallationId(),
+      loadSshSecrets(),
+      loadSavedLogin().catch(() => null)
+    ])
+
+    const backend = await connectSshBackend(attemptId, {
+      ...target,
+      profile,
+      installationId,
+      privateKeyPem: sshSecrets.privateKeyPem,
+      passphrase: sshSecrets.passphrase,
+      password: sshSecrets.password,
+      // The previous session token is what lets Rust REATTACH to a backend that
+      // is already running remotely instead of spawning a second one.
+      reuseToken: saved?.token || undefined,
+      interactive: options.interactive ?? false
+    })
+
+    const conn: Connection = {
+      baseUrl: backend.baseUrl,
+      mode: 'ssh',
+      authMode: 'token',
+      token: backend.token,
+      profile,
+      remoteHost: backend.hostLabel,
+      // Stable across re-tunnels, unlike baseUrl — see connectionCacheKey.
+      remoteIdentity: backend.ownershipId
+    }
+
+    $connection.set(conn)
+    await connectGateway(conn)
+    $connectionPhase.set('ready')
+
+    // Persist the token so the NEXT launch can reattach rather than respawn.
+    await saveSecrets({ token: backend.token })
+    saveGatewayTarget({ mode: 'ssh', profile, ssh: target })
+  } catch (err) {
+    // Drop the tunnel so a failed connect does not leave one open. The remote
+    // backend is deliberately left alone — Rust already reaped it if the failure
+    // was its own.
+    void disconnectSsh(profile).catch(() => {})
+    $connectionError.set(err instanceof Error ? err.message : String(err))
+    $connectionPhase.set('error')
+    $connection.set(null)
+    throw err
+  }
+}
+
 /**
  * Cloud mode (E5): connect to a portal-discovered agent's gateway. The agent
  * session cookie is already in the shared jar (portal_agent_sign_in ran first),
@@ -298,9 +380,18 @@ export function disconnect(): void {
   // connect picker (not the reconnecting screen) next.
   $hasConnected.set(false)
 
+  const conn = $connection.get()
+
   // If we were on a local-spawned backend, stop the child too.
-  if ($connection.get()?.mode === 'local') {
+  if (conn?.mode === 'local') {
     void stopLocalBackend().catch(() => {})
+  }
+
+  // For SSH this drops the TUNNEL only. The remote backend stays up on purpose
+  // (it is detached) so the next connect reattaches instead of paying a full
+  // spawn — matching desktop.
+  if (conn?.mode === 'ssh') {
+    void disconnectSsh(conn.profile ?? null).catch(() => {})
   }
 
   closeGateway()
@@ -354,6 +445,10 @@ function armReconnect(): void {
 const reconnectDelay = (attempt: number): number => Math.min(30_000, 2 ** attempt * 1000)
 const wait = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms))
 
+// Unreachable for `ssh`: that mode is always authMode 'token', and the loop only
+// calls this on a GatewayReauthRequiredError, which the ticket/oauth paths raise.
+// A dropped SSH TUNNEL is a different failure and is not handled here — see the
+// FIXME above.
 async function reauthForReconnect(conn: Connection): Promise<void> {
   if (conn.mode === 'cloud') {
     await portalAgentSignIn(conn.baseUrl)

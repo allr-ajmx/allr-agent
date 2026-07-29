@@ -26,7 +26,20 @@ export interface Secrets {
 // The keystore keys one credential per username under the shared service. We keep
 // token and password as two named entries; `cookies` holds the serialized gateway
 // session jar (R2b) so an OAuth/cloud login survives an app restart.
-type SecretKey = 'token' | 'password' | 'cookies'
+// `sshKey`/`sshPassphrase`/`sshPassword` back SSH gateway mode. On mobile the
+// pasted PEM is the ONLY way in — neither Android nor iOS offers a file picker
+// russh can read a private key through — so it is stored here and passed to Rust
+// over IPC, never written to disk. `installationId` is not a secret but lives
+// here for durability: see store/installation-id.ts for why losing it orphans
+// remote backends.
+type SecretKey =
+  | 'token'
+  | 'password'
+  | 'cookies'
+  | 'sshKey'
+  | 'sshPassphrase'
+  | 'sshPassword'
+  | 'installationId'
 
 // The plugin's service name is set once per process (a Rust OnceLock), so init is
 // memoized. On failure the cached promise is cleared so a later call can retry.
@@ -123,15 +136,75 @@ export async function loadSecrets(): Promise<Secrets | null> {
   }, null)
 }
 
-/** Remove all stored secrets (e.g. on disconnect/forget). */
+/** Remove all stored secrets (e.g. on disconnect/forget).
+ *
+ *  Deliberately does NOT clear `installationId`: it is an identity, not a
+ *  credential, and dropping it would orphan any remote backend this install
+ *  owns (see store/installation-id.ts). */
 export async function clearSecrets(): Promise<void> {
   await safe(async () => {
     await writeKey('token', undefined)
     await writeKey('password', undefined)
     await writeKey('cookies', undefined)
+    await writeKey('sshKey', undefined)
+    await writeKey('sshPassphrase', undefined)
+    await writeKey('sshPassword', undefined)
 
     return undefined
   }, undefined)
+}
+
+/** SSH credentials, kept apart from {@link Secrets} because they belong to a
+ *  connection target rather than to the gateway login form. */
+export interface SshSecrets {
+  privateKeyPem?: string
+  passphrase?: string
+  password?: string
+}
+
+/** Persist SSH credentials. Returns false when the keystore is unavailable. */
+export async function saveSshSecrets(secrets: SshSecrets): Promise<boolean> {
+  return safe(async () => {
+    await writeKey('sshKey', secrets.privateKeyPem)
+    await writeKey('sshPassphrase', secrets.passphrase)
+    await writeKey('sshPassword', secrets.password)
+
+    return true
+  }, false)
+}
+
+/** Read SSH credentials; every field is optional. */
+export async function loadSshSecrets(): Promise<SshSecrets> {
+  return safe<SshSecrets>(
+    async () => {
+      const [privateKeyPem, passphrase, password] = await Promise.all([
+        kGet('sshKey'),
+        kGet('sshPassphrase'),
+        kGet('sshPassword')
+      ])
+
+      return {
+        privateKeyPem: privateKeyPem ?? undefined,
+        passphrase: passphrase ?? undefined,
+        password: password ?? undefined
+      }
+    },
+    {}
+  )
+}
+
+/** Read this install's stable id, or null when unset/unavailable. */
+export async function loadInstallationId(): Promise<string | null> {
+  return safe(async () => kGet('installationId'), null)
+}
+
+/** Persist this install's stable id. */
+export async function saveInstallationId(id: string): Promise<boolean> {
+  return safe(async () => {
+    await writeKey('installationId', id)
+
+    return true
+  }, false)
 }
 
 /**
