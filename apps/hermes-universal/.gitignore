@@ -1,7 +1,13 @@
 dist/
 node_modules/
 src-tauri/target/
-src-tauri/gen/
+# Track the generated Android project (gen/android) so our native customizations
+# — activity subclasses, the Home bridge, manifest edits — are versioned and the
+# mobile build is reproducible. Its own gen/android/.gitignore excludes the build
+# output (build/, .gradle, .cxx, local.properties, …). Everything else under gen/
+# (e.g. gen/apple once initialized) stays ignored until we choose to track it.
+src-tauri/gen/*
+!src-tauri/gen/android/
 
 # Working scratch ledger for the left-sidebar port — intentionally not committed
 UI_PORT.md
