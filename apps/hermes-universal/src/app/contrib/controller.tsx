@@ -29,8 +29,7 @@ import { registry } from '@/contrib/registry'
 import { sessionTitle as storedSessionTitle } from '@/lib/chat-runtime'
 import { $currentCwd } from '@/store/chat'
 import { $chatBubbles, bubbleRuntimeKey } from '@/store/chat-bubbles'
-import { routeGatewayEvent } from '@/store/event-router'
-import { $gatewayState, addGatewayEventListener } from '@/store/gateway'
+import { $gatewayState } from '@/store/gateway'
 import {
   $panesFlipped,
   $rightSidebarOpen,
@@ -267,16 +266,10 @@ discoverBundledPlugins()
 // hint the moment they register.
 watchContributedPanes()
 
-// THE gateway event router — one consumer for every session (the chat on
-// screen, tiles, mobile bubbles). Registered here rather than imported by
-// store/gateway.ts, which must stay free of the session-states/profile graph:
-// a static import there reorders module init and trips the `@/hermes`
-// `_apiProfile` TDZ cycle in tests.
-//
-// Also mirrors `$sessionTiles` into layout-tree panes and collapses tiles into
-// the workspace on a layout reset.
+// Mirror `$sessionTiles` into layout-tree panes and collapse tiles into the
+// workspace on a layout reset. (THE gateway event router self-registers on
+// import — see store/event-router.ts.)
 // FIXME(MJX-50/route-tiles): page (route) tiles — watchRouteTiles() — are a follow-up.
-addGatewayEventListener(routeGatewayEvent)
 watchSessionTiles()
 
 // A reconnect issues new runtime ids, so every binding we hold is dead. Drop

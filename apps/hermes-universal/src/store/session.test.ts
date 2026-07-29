@@ -8,7 +8,10 @@ vi.mock('@/hermes', () => ({
   setSessionArchived: vi.fn(),
   searchSessions: vi.fn()
 }))
-vi.mock('@/store/gateway', () => ({ requestGateway: vi.fn() }))
+vi.mock('@/store/gateway', () => ({
+  addGatewayEventListener: () => () => {},
+  requestGateway: vi.fn()
+}))
 
 import { deleteSession, getSessionMessages, renameSession } from '@/hermes'
 import { $busy, $currentCwd, $messages, $sessionId } from '@/store/chat'

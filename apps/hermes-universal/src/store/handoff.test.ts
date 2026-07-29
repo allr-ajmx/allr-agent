@@ -5,7 +5,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 vi.mock('@/store/gateway', async () => {
   const { atom } = await import('@/store/atom')
 
-  return { requestGateway: vi.fn(), $gatewayState: atom('open'), getGatewayClient: () => null }
+  return {
+    addGatewayEventListener: () => () => {},
+    requestGateway: vi.fn(),
+    $gatewayState: atom('open'),
+    getGatewayClient: () => null
+  }
 })
 
 import { $messages } from '@/store/chat'

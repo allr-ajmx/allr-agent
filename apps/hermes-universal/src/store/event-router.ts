@@ -30,7 +30,7 @@ import { resolveGatewayEventSessionId } from '@/lib/gateway-events'
 import { triggerHaptic } from '@/lib/haptics'
 import { type DeltaChannel, flushDeltas, queueDelta, setStreamBatchSink } from '@/lib/stream-batch'
 import { stopSpeaking } from '@/lib/tts'
-import { requestGateway } from '@/store/gateway'
+import { addGatewayEventListener, requestGateway } from '@/store/gateway'
 import { dispatchNativeNotification } from '@/store/native-notifications'
 import { flashPetActivity, setPetActivity } from '@/store/pet'
 import {
@@ -51,6 +51,14 @@ import {
 import { upsertSubagent } from '@/store/subagents'
 import { recordToolDiff } from '@/store/tool-diffs'
 import type { ContextBreakdown, UsageStats } from '@/types/hermes'
+
+// Self-register at import. Nothing else consumes the gateway's event stream, so
+// if this module is loaded but not listening the app silently receives nothing —
+// too important to depend on some UI module happening to be in the import graph.
+// `store/gateway.ts` deliberately does NOT import this file (a static import
+// there reorders module init and trips the `@/hermes` `_apiProfile` TDZ cycle in
+// tests), which is why registration is pushed rather than pulled.
+addGatewayEventListener(event => routeGatewayEvent(event))
 
 // The session that owns the current unscoped stream — pinned on message.start,
 // released on message.complete/error (see lib/gateway-events).
