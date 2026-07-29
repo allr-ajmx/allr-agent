@@ -4,7 +4,9 @@ version = "0.0.1"
 description = "Hermes Universal — Tauri v2 client (desktop + Android + iOS from one codebase)."
 authors = ["Nous Research <info@nousresearch.com>"]
 edition = "2021"
-rust-version = "1.77"
+# 1.85 is russh 0.62's MSRV (see the `russh` dependency below). Everything else
+# in the tree builds on 1.77; this is the floor the SSH gateway mode forces.
+rust-version = "1.85"
 
 # The library target is what the Android/iOS project links against, so the
 # cdylib/staticlib crate-types are mandatory for the mobile targets. The name
@@ -59,9 +61,32 @@ tauri-plugin-notification = "2"
 
 # Transport core (Step 2a): all HTTP + WS traffic runs here, not in the webview,
 # so there is no CORS constraint and we can talk to any backend on the LAN.
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "process", "io-util", "time"] }
+# `net` is for the SSH gateway's local port-forward listener (ssh/forward.rs):
+# we bind 127.0.0.1:0 ourselves and keep the listener, rather than the
+# bind-then-release-then-hope dance the Electron desktop needed.
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "process", "io-util", "time", "net"] }
 # Random session token for the local-spawn backend (E3.a, desktop-only).
+# NOTE: russh pulls getrandom 0.4; the two majors coexist deliberately. Do not
+# "dedupe" them — 0.4 changed its API and 0.2 is what this crate's code targets.
 getrandom = "0.2"
+
+# --- SSH gateway transport (MJX-55) -------------------------------------------
+# A pure-Rust SSH client, NOT a shell-out to the system `ssh` binary the way the
+# Electron desktop app does it. That is deliberate: it makes SSH gateway mode work
+# on Android/iOS, which have no ssh binary. The cost is that ~/.ssh/config parsing,
+# known_hosts TOFU, ssh-agent and ProxyJump are ours to implement (see src/ssh/).
+#
+# default-features would pull `aws-lc-rs`, which needs cmake + a C toolchain and
+# breaks the Android NDK cross-build. russh supports `ring` as an alternative
+# crypto backend — the same choice already made for rustls below.
+russh = { version = "0.62", default-features = false, features = ["ring", "rsa", "flate2"] }
+# Control-socket-free ownership identity: sha256(installationId, scope) — see
+# ssh/ownership.rs, ported from desktop's electron/desktop-installation.ts.
+sha2 = "0.10"
+hex = "0.4"
+# CancellationToken for the bootstrap coordinator's supersede / drain barrier
+# (ssh/coordinator.rs, ported from electron/ssh-bootstrap-coordinator.ts).
+tokio-util = "0.7"
 futures-util = { version = "0.3", default-features = false, features = ["sink"] }
 # rustls so we don't need OpenSSL/NDK-cross OpenSSL on the Android build.
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "cookies"] }

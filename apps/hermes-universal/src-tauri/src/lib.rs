@@ -16,6 +16,7 @@ mod local_backend;
 mod marketplace;
 mod oauth;
 mod pty;
+mod ssh;
 mod transport;
 mod voice;
 mod window;
