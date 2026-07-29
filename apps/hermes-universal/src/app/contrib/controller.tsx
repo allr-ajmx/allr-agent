@@ -28,8 +28,9 @@ import { discoverBundledPlugins } from '@/contrib/plugins'
 import { registry } from '@/contrib/registry'
 import { sessionTitle as storedSessionTitle } from '@/lib/chat-runtime'
 import { $currentCwd } from '@/store/chat'
+import { $chatBubbles, bubbleRuntimeKey } from '@/store/chat-bubbles'
 import { routeGatewayEvent } from '@/store/event-router'
-import { addGatewayEventListener } from '@/store/gateway'
+import { $gatewayState, addGatewayEventListener } from '@/store/gateway'
 import {
   $panesFlipped,
   $rightSidebarOpen,
@@ -50,6 +51,7 @@ import { $previewTabs, closeAllPreviewTabs } from '@/store/preview'
 import { $reviewOpen, closeReview, REVIEW_PANE_ID } from '@/store/review'
 import { $activeStoredSessionId, $sessions, sessionMatchesStoredId } from '@/store/session'
 import { $sessionColorById, sessionColorFor } from '@/store/session-color'
+import { invalidateRuntimeBindings, setVisibleBubbleKeysProvider } from '@/store/session-states'
 
 import {
   SessionTileCloseConfirm,
@@ -276,6 +278,31 @@ watchContributedPanes()
 // FIXME(MJX-50/route-tiles): page (route) tiles — watchRouteTiles() — are a follow-up.
 addGatewayEventListener(routeGatewayEvent)
 watchSessionTiles()
+
+// A reconnect issues new runtime ids, so every binding we hold is dead. Drop
+// the bindings (NOT the sessions — a draft's unsent text is the one thing that
+// cannot be re-fetched) and let each visible surface re-resume its own session.
+let wasGatewayOpen = $gatewayState.get() === 'open'
+
+$gatewayState.subscribe(state => {
+  const isOpen = state === 'open'
+
+  if (isOpen && !wasGatewayOpen) {
+    invalidateRuntimeBindings()
+  }
+
+  wasGatewayOpen = isOpen
+})
+
+// The bubble strip's sessions are on screen on mobile, so the LRU must not
+// evict them. Registered here rather than imported by session-states, which
+// chat-bubbles already depends on.
+setVisibleBubbleKeysProvider(() =>
+  $chatBubbles
+    .get()
+    .map(bubble => bubbleRuntimeKey(bubble.storedSessionId))
+    .filter((key): key is string => Boolean(key))
+)
 registerLayoutResetHandler(stackSessionTilesIntoMain)
 
 // The main tab reads as its SESSION (the loaded title, "New session" on a fresh

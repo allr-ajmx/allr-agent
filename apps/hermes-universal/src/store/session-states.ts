@@ -28,7 +28,8 @@ import {
   revealTreePane
 } from '@/components/pane-shell/tree/store'
 import { readJson, writeJson } from '@/lib/storage'
-import { discardDeltas, disposeStreamBatch } from '@/lib/stream-batch'
+import { discardDeltas, disposeStreamBatch, flushDeltas } from '@/lib/stream-batch'
+import { resetUnscopedStreamPin } from '@/store/event-router'
 import { $activeGatewayProfile, normalizeProfileKey } from '@/store/profile'
 import { clearAllPrompts } from '@/store/prompts'
 import { $activeStoredSessionId, $unreadFinishedSessionIds, setActiveSessionStoredIdRotation } from '@/store/session'
@@ -41,6 +42,8 @@ import {
   dropSessionState,
   emptySessionState,
   ensureSessionSlice,
+  isPlaceholderKey,
+  newDraftKey,
   publishSessionState,
   rekeySession,
   runtimeKeyForStoredSession,
@@ -203,6 +206,8 @@ export {
   aliasStoredSessionId,
   dropSessionState,
   ensureSessionSlice,
+  isPlaceholderKey,
+  newDraftKey,
   publishSessionState,
   rekeySession,
   runtimeKeyForStoredSession,
@@ -223,6 +228,136 @@ export function clearAllSessionStates() {
   disposeStreamBatch()
   $stalledSessionIds.set([])
   $sessionStates.set({})
+}
+
+/** Point the app at a brand-new empty draft. Used after wiping the map, so the
+ *  active key never dangles at a slice that no longer exists. */
+export function startFreshActiveSession(): string {
+  const key = newDraftKey()
+  ensureSessionSlice(key)
+  $activeSessionKey.set(key)
+  resetUnscopedStreamPin()
+
+  return key
+}
+
+// ---------------------------------------------------------------------------
+// Slice lifecycle.
+//
+// Sessions accumulate: every chat opened from the sidebar leaves one behind, and
+// each holds a full transcript. Desktop bounds this implicitly (its cache lives
+// in a hook that unmounts); universal's map is module state, so it needs an
+// explicit cap.
+// ---------------------------------------------------------------------------
+
+/** How many session slices to keep. Generous — the cost of an extra slice is
+ *  memory, while evicting one the user comes back to costs a re-hydrate. */
+export const MAX_CACHED_SESSIONS = 12
+
+/** Keys that must never be evicted, whatever their age. */
+function pinnedSessionKeys(): Set<string> {
+  const pinned = new Set<string>([$activeSessionKey.get()])
+
+  for (const tile of $sessionTiles.get()) {
+    const key = tileRuntimeKey(tile.storedSessionId)
+
+    if (key) {
+      pinned.add(key)
+    }
+  }
+
+  // Read lazily: store/chat-bubbles imports this module.
+  for (const key of bubbleKeysProvider?.() ?? []) {
+    pinned.add(key)
+  }
+
+  return pinned
+}
+
+let bubbleKeysProvider: (() => string[]) | null = null
+
+/** Let the mobile bubble strip declare which sessions it is showing, so they
+ *  are never evicted out from under it. */
+export function setVisibleBubbleKeysProvider(provider: () => string[]): void {
+  bubbleKeysProvider = provider
+}
+
+/**
+ * Evict the least-recently-touched idle sessions once the map exceeds the cap.
+ *
+ * A session is only ever evicted when it is doing nothing the user would miss:
+ * not on screen, not in a tile or bubble, not mid-turn, and not waiting on a
+ * blocking prompt. So an over-cap map full of busy sessions simply stays over
+ * cap — dropping a live turn to respect a cache bound would be the wrong trade.
+ */
+export function pruneSessionStates(): void {
+  const states = $sessionStates.get()
+  const keys = Object.keys(states)
+
+  if (keys.length <= MAX_CACHED_SESSIONS) {
+    return
+  }
+
+  const pinned = pinnedSessionKeys()
+
+  const evictable = keys
+    .filter(key => {
+      const state = states[key]
+
+      return !pinned.has(key) && !state.busy && !state.awaitingResponse && !state.needsInput && !isPlaceholderKey(key)
+    })
+    .sort((a, b) => states[a].lastTouchedAt - states[b].lastTouchedAt)
+
+  for (const key of evictable.slice(0, keys.length - MAX_CACHED_SESSIONS)) {
+    dropSessionState(key)
+  }
+}
+
+// Prune whenever the map grows. A listener rather than a call at each creation
+// site, so a slice created anywhere is covered; `pruning` guards the re-entry
+// caused by pruneSessionStates writing the atom it is listening to.
+let pruning = false
+let lastSliceCount = 0
+
+if (!isSecondaryWindow()) {
+  $sessionStates.subscribe(states => {
+    const count = Object.keys(states).length
+    const grew = count > lastSliceCount
+    lastSliceCount = count
+
+    if (!grew || pruning) {
+      return
+    }
+
+    pruning = true
+
+    try {
+      pruneSessionStates()
+    } finally {
+      pruning = false
+    }
+  })
+}
+
+/**
+ * The gateway reconnected, so every runtime id it issued before is dead.
+ *
+ * Sessions are NOT wiped: their transcripts are still what the user was reading,
+ * and a draft has no runtime binding to lose at all — clearing the map here
+ * would throw away an unsent draft, which is the one thing that cannot be
+ * re-fetched. Instead the live bindings are dropped so the surfaces that show a
+ * session (the active chat, tiles, bubbles) re-resume it on their own.
+ */
+export function invalidateRuntimeBindings(): void {
+  resetUnscopedStreamPin()
+  flushDeltas()
+  resetTileRuntimeBindings()
+
+  for (const [key, state] of Object.entries($sessionStates.get())) {
+    if (state.runtimeSessionId) {
+      updateSession(key, current => ({ ...current, runtimeSessionId: null, busy: false, turnStartedAt: null }))
+    }
+  }
 }
 
 /** The ACTIVE session's slice — the one the user is looking at. Every session
@@ -326,9 +461,23 @@ function saveTiles(tiles: SessionTile[]) {
 }
 
 // Profile switch: surface the new profile's tiles with runtime ids cleared.
+// Runtime ids are issued by the gateway and scoped to one profile, so EVERY
+// slice is dead — keeping them would leave sessions that can never receive
+// another event, and whose ids could collide with the new profile's.
+let lastProfileKey = profileKey()
+
 if (!isSecondaryWindow()) {
   $activeGatewayProfile.subscribe(() => {
-    $sessionTiles.set([...(tilesByProfile[profileKey()] ?? [])])
+    const next = profileKey()
+
+    if (next === lastProfileKey) {
+      return
+    }
+
+    lastProfileKey = next
+    $sessionTiles.set([...(tilesByProfile[next] ?? [])])
+    clearAllSessionStates()
+    startFreshActiveSession()
   })
 }
 
