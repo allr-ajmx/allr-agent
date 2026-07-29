@@ -79,8 +79,12 @@ export function OverlayView({
   }
 
   // Full-bleed: edge-to-edge over the whole window (no backdrop, inset or card
-  // chrome) but keeps the close button + Esc, so it reads as a full-screen surface
-  // on top of the primary window that dismisses back to it.
+  // chrome) but keeps a Home button + Esc, so it reads as a full-screen surface on
+  // top of the primary window that dismisses back to it. Honours the device safe
+  // areas (status-bar / notch / home-indicator) the same way the Android activity
+  // screen does (`app/activity-screen.tsx`): the header clears the top inset, the
+  // content clears top + bottom, and the root clears the horizontal (landscape)
+  // insets. `--safe-area-inset-*` are published to :root by `lib/safe-area.ts`.
   if (fullBleed) {
     return (
       <div
@@ -88,13 +92,21 @@ export function OverlayView({
           'fixed inset-0 z-50 flex h-full min-h-0 flex-col overflow-hidden bg-(--ui-chat-surface-background)',
           rootClassName
         )}
+        style={{
+          paddingLeft: 'var(--safe-area-inset-left)',
+          paddingRight: 'var(--safe-area-inset-right)'
+        }}
       >
         <div
-          className="pointer-events-none absolute inset-x-0 top-0 z-10 h-[calc(var(--titlebar-height)+0.1875rem)]"
+          className="pointer-events-none absolute inset-x-0 top-0 z-10"
           data-tauri-drag-region
+          style={{ height: 'calc(var(--safe-area-inset-top) + var(--titlebar-height) + 0.1875rem)' }}
         >
           {headerContent && (
-            <div className="pointer-events-auto absolute left-1/2 top-[calc(0.5rem+var(--titlebar-height)/2)] -translate-x-1/2 -translate-y-1/2">
+            <div
+              className="pointer-events-auto absolute left-1/2 -translate-x-1/2 -translate-y-1/2"
+              style={{ top: 'calc(var(--safe-area-inset-top) + 0.5rem + var(--titlebar-height) / 2)' }}
+            >
               {headerContent}
             </div>
           )}
@@ -103,9 +115,10 @@ export function OverlayView({
               primary view instead (iOS activity-screen dismissal). */}
           <Button
             aria-label={closeLabel}
-            className="pointer-events-auto absolute left-3 top-[calc(0.1875rem+var(--titlebar-height)/2)] -translate-y-1/2 gap-1.5 text-(--ui-text-tertiary) hover:bg-(--chrome-action-hover) hover:text-foreground"
+            className="pointer-events-auto absolute left-3 -translate-y-1/2 gap-1.5 text-(--ui-text-tertiary) hover:bg-(--chrome-action-hover) hover:text-foreground"
             onClick={closeOverlay}
             size="sm"
+            style={{ top: 'calc(var(--safe-area-inset-top) + 0.1875rem + var(--titlebar-height) / 2)' }}
             variant="ghost"
           >
             <Codicon name="home" size="1rem" />
@@ -113,7 +126,15 @@ export function OverlayView({
           </Button>
         </div>
 
-        <div className={cn('min-h-0 flex flex-1 flex-col', contentClassName)}>{children}</div>
+        <div
+          className={cn('min-h-0 flex flex-1 flex-col', contentClassName)}
+          style={{
+            paddingTop: 'var(--safe-area-inset-top)',
+            paddingBottom: 'var(--safe-area-inset-bottom)'
+          }}
+        >
+          {children}
+        </div>
       </div>
     )
   }
