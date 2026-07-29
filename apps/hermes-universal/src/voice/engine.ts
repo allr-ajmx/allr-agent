@@ -35,6 +35,7 @@ class VoiceEngineImpl implements VoiceEngine {
       if (this._owner === 'conversation' && owner === 'dictation') {
         throw new VoiceBusyError('conversation')
       }
+
       // Same owner re-opening, or a conversation preempting dictation: release first.
       await this.release()
     }
@@ -55,13 +56,13 @@ class VoiceEngineImpl implements VoiceEngine {
     return this.wrap(lease)
   }
 
-  private async createAndInit(
-    opts: VoiceOpenOptions
-  ): Promise<{ lease: EngineLease; native: boolean }> {
+  private async createAndInit(opts: VoiceOpenOptions): Promise<{ lease: EngineLease; native: boolean }> {
     if (IS_TAURI && !this.downgraded) {
       const lease = createNativeLease()
+
       try {
         await lease.init(opts)
+
         return { lease, native: true }
       } catch (error) {
         this.downgraded = true
@@ -71,6 +72,7 @@ class VoiceEngineImpl implements VoiceEngine {
 
     const web = createWebLease()
     await web.init(opts)
+
     return { lease: web, native: false }
   }
 
@@ -84,6 +86,7 @@ class VoiceEngineImpl implements VoiceEngine {
 
   private async release(): Promise<void> {
     const lease = this.lease
+
     if (lease) {
       await lease.close().catch(() => undefined)
       this.clear(lease)
@@ -100,6 +103,7 @@ class VoiceEngineImpl implements VoiceEngine {
 
   private wrap(lease: EngineLease): VoiceLease {
     const engine = this
+
     return {
       arm: mode => lease.arm(mode),
       suspend: () => lease.suspend(),

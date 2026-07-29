@@ -55,7 +55,13 @@ export function useKeyboardInset(): KeyboardState {
       root.style.setProperty('--keyboard-inset', `${inset}px`)
       root.toggleAttribute('data-keyboard-open', open)
 
-      setState({ inset, viewportHeight: Math.round(viewportHeight), innerHeight, offsetTop: Math.round(offsetTop), open })
+      setState({
+        inset,
+        viewportHeight: Math.round(viewportHeight),
+        innerHeight,
+        offsetTop: Math.round(offsetTop),
+        open
+      })
     }
 
     update()

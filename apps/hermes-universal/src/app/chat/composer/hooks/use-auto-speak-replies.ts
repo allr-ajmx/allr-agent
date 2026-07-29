@@ -5,8 +5,8 @@ import type { SessionView } from '@/app/chat/session-view'
 import { playSpeechText } from '@/lib/voice-playback'
 import { notifyError } from '@/store/notifications'
 import { $voicePlayback } from '@/store/voice-playback'
-import { lastReply, markReplySpoken } from '@/store/voice-reply-cursor'
 import { $autoSpeakReplies } from '@/store/voice-prefs'
+import { lastReply, markReplySpoken } from '@/store/voice-reply-cursor'
 
 interface UseAutoSpeakReplies {
   conversationActive: boolean
@@ -25,12 +25,7 @@ interface UseAutoSpeakReplies {
  * landing mid-playback is held and spoken on the playback-idle edge. Always reads
  * the latest reply, so a backlog collapses to the newest.
  */
-export function useAutoSpeakReplies({
-  conversationActive,
-  failureLabel,
-  view,
-  sessionId
-}: UseAutoSpeakReplies) {
+export function useAutoSpeakReplies({ conversationActive, failureLabel, view, sessionId }: UseAutoSpeakReplies) {
   const enabled = useStore($autoSpeakReplies)
   const latest = useRef({ conversationActive, failureLabel, view })
   latest.current = { conversationActive, failureLabel, view }
@@ -65,10 +60,7 @@ export function useAutoSpeakReplies({
 
     // Re-check on a reply completing (this view's messages) and on the prior clip
     // ending ($voicePlayback → idle), which frees us to read the next held reply.
-    const stops = [
-      latest.current.view.$messages.subscribe(speakLatest),
-      $voicePlayback.listen(speakLatest)
-    ]
+    const stops = [latest.current.view.$messages.subscribe(speakLatest), $voicePlayback.listen(speakLatest)]
 
     return () => stops.forEach(f => f())
   }, [enabled, sessionId])

@@ -28,6 +28,7 @@ describe('native voice lease handshake', () => {
       if (cmd === 'voice_open') {
         listensAtOpen = listen.mock.calls.length
       }
+
       return undefined
     })
 
@@ -36,9 +37,11 @@ describe('native voice lease handshake', () => {
 
     const topics = listen.mock.calls.map(call => String(call[0]))
     expect(topics).toHaveLength(7)
+
     for (const suffix of ['state', 'level', 'speechStart', 'transcript', 'turnEmpty', 'idleTimeout', 'error']) {
       expect(topics.some(topic => topic.endsWith(`/${suffix}`))).toBe(true)
     }
+
     // All subscriptions were live before the device was opened.
     expect(listensAtOpen).toBe(7)
     expect(invoke).toHaveBeenCalledWith('voice_open', expect.objectContaining({ id: expect.any(String) }))
@@ -49,6 +52,7 @@ describe('native voice lease handshake', () => {
     listen.mockImplementation(async (topic: string, cb: (event: { payload: unknown }) => void) => {
       const suffix = topic.split('/').pop() as string
       subscribed[suffix] = payload => cb({ payload })
+
       return () => undefined
     })
 

@@ -7,7 +7,13 @@ import { useI18n } from '@/i18n'
 import { useStore } from '@/store/atom'
 import { $liveSessionTitle, $sessionId } from '@/store/chat'
 import { $pinnedSessionIds, pinSession, unpinSession } from '@/store/layout'
-import { $activeStoredSessionId, $sessions, archiveSessionLocal, deleteSessionLocal, sessionPinId } from '@/store/session'
+import {
+  $activeStoredSessionId,
+  $sessions,
+  archiveSessionLocal,
+  deleteSessionLocal,
+  sessionPinId
+} from '@/store/session'
 
 // A plain (non-interactive) title span, shared by the "New session" and page-view
 // (Capabilities/Messaging/Artifacts) cases.
@@ -35,6 +41,7 @@ export function ChatTitle() {
 
   // Page views win regardless of any session loaded in state behind them.
   const view = appViewForPath(pathname)
+
   if (view === 'skills' || view === 'messaging' || view === 'artifacts') {
     return <span className={PLAIN_TITLE_CLASS}>{t.sidebar.nav[view]}</span>
   }

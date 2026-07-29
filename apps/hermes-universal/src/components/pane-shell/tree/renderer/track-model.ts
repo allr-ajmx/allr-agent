@@ -196,6 +196,7 @@ export function fixedTrackSize(node: LayoutNode, axis: 'row' | 'column', ctx: Tr
   }
 
   const visible = node.children.filter(child => !subtreeGone(child, ctx))
+
   const sizes = visible.map(child =>
     // A minimized zone is a 1.75rem strip ONLY along the axis it collapsed on
     // (this split's own orientation — its parent axis). ACROSS that axis the

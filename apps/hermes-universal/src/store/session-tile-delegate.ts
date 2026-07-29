@@ -17,12 +17,7 @@ import { type ChatMessage, nextId } from '@/store/chat'
 import { requestGateway } from '@/store/gateway'
 import { $sessions, archiveSessionLocal, deleteSessionLocal } from '@/store/session'
 import { emptySessionState } from '@/store/session-state-types'
-import {
-  closeSessionTile,
-  publishSessionState,
-  setSessionTileDelegate,
-  updateSession
-} from '@/store/session-states'
+import { closeSessionTile, publishSessionState, setSessionTileDelegate, updateSession } from '@/store/session-states'
 import type { SessionResumeResponse } from '@/types/hermes'
 
 function userMessage(text: string): ChatMessage {
@@ -49,6 +44,9 @@ async function resumeSessionToState(storedId: string): Promise<string> {
 
   publishSessionState(runtimeId, {
     ...emptySessionState(storedId),
+    // Without this the slice has no wire-facing id, so `prompt.submit` /
+    // `session.interrupt` for this tile would go out with `undefined`.
+    runtimeSessionId: runtimeId,
     messages,
     busy: stillRunning,
     cwd: resumed.info?.cwd ?? stored?.cwd ?? '',

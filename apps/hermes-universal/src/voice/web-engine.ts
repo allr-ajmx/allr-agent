@@ -2,13 +2,7 @@ import { transcribeAudio } from '@/hermes'
 import { ensureMicPermission } from '@/lib/mic-permission'
 
 import type { EngineLease } from './native-engine'
-import type {
-  VoiceArmMode,
-  VoiceEvent,
-  VoiceEventHandler,
-  VoiceOpenOptions,
-  VoiceVad
-} from './types'
+import type { VoiceArmMode, VoiceEvent, VoiceEventHandler, VoiceOpenOptions, VoiceVad } from './types'
 
 // The browser fallback engine (getUserMedia + MediaRecorder + an AnalyserNode
 // VAD), reproducing the same `VoiceEvent` contract as the Rust session. Used for
@@ -30,10 +24,9 @@ const DEFAULT_NORMAL: Tuning = { speechLevel: 0.075, silenceMs: 1_250, idleSilen
 
 function tuningFor(mode: VoiceArmMode, vad: VoiceVad | undefined): Tuning {
   const base = DEFAULT_NORMAL
-  const speechLevel =
-    mode === 'bargein'
-      ? vad?.bargeinSpeechLevel ?? 0.16
-      : vad?.speechLevel ?? base.speechLevel
+
+  const speechLevel = mode === 'bargein' ? (vad?.bargeinSpeechLevel ?? 0.16) : (vad?.speechLevel ?? base.speechLevel)
+
   return {
     speechLevel,
     silenceMs: vad?.silenceMs ?? base.silenceMs,
@@ -82,6 +75,7 @@ class WebVoiceLease implements EngineLease {
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
       throw new Error('microphone_unsupported')
     }
+
     if (!(await ensureMicPermission())) {
       throw new Error('microphone_permission_denied')
     }
@@ -99,6 +93,7 @@ class WebVoiceLease implements EngineLease {
 
   on(handler: VoiceEventHandler): () => void {
     this.handlers.add(handler)
+
     return () => this.handlers.delete(handler)
   }
 
@@ -125,11 +120,13 @@ class WebVoiceLease implements EngineLease {
     this.chunks = []
 
     this.recorder = new MediaRecorder(this.stream, this.mimeType ? { mimeType: this.mimeType } : undefined)
+
     this.recorder.ondataavailable = event => {
       if (event.data.size > 0) {
         this.chunks.push(event.data)
       }
     }
+
     this.recorder.start(250)
 
     this.phase = 'armed'
@@ -140,6 +137,7 @@ class WebVoiceLease implements EngineLease {
   async suspend(): Promise<void> {
     this.stopMeter()
     this.discardRecorder()
+
     if (this.phase !== 'idle') {
       this.phase = 'idle'
       this.emit({ type: 'state', state: 'idle' })
@@ -156,6 +154,7 @@ class WebVoiceLease implements EngineLease {
     if (this._closed) {
       return
     }
+
     this._closed = true
     this.stopMeter()
     this.discardRecorder()
@@ -172,6 +171,7 @@ class WebVoiceLease implements EngineLease {
   private startMeter(): void {
     const audioWindow = window as Window & { webkitAudioContext?: BrowserAudioContext }
     const AudioContextCtor = window.AudioContext || audioWindow.webkitAudioContext
+
     if (!AudioContextCtor || !this.stream) {
       return
     }
@@ -184,18 +184,22 @@ class WebVoiceLease implements EngineLease {
     }
 
     const analyser = this.analyser
+
     if (!analyser) {
       return
     }
+
     const data = new Uint8Array(analyser.fftSize)
 
     const tick = () => {
       analyser.getByteTimeDomainData(data)
       let sum = 0
+
       for (const value of data) {
         const centered = value - 128
         sum += centered * centered
       }
+
       const normalized = Math.min(1, Math.sqrt(sum / data.length) / 42)
       const now = Date.now()
       this.emit({ type: 'level', level: normalized })
@@ -208,11 +212,14 @@ class WebVoiceLease implements EngineLease {
           this.emit({ type: 'speechStart' })
           this.emit({ type: 'state', state: 'recording' })
         }
+
         this.silenceStartedAt = null
       } else if (this.heardSpeech) {
         this.silenceStartedAt ??= now
+
         if (now - this.silenceStartedAt >= this.tuning.silenceMs) {
           this.finalize()
+
           return
         }
       } else if (!this.idleEmitted && now - this.armedAt >= this.tuning.idleSilenceMs) {
@@ -237,10 +244,12 @@ class WebVoiceLease implements EngineLease {
     const recorder = this.recorder
     this.recorder = null
     this.chunks = []
+
     if (recorder && recorder.state !== 'inactive') {
       recorder.ondataavailable = null
       recorder.onstop = null
       recorder.onerror = null
+
       try {
         recorder.stop()
       } catch {
@@ -251,9 +260,11 @@ class WebVoiceLease implements EngineLease {
 
   private finalize(): void {
     const recorder = this.recorder
+
     if (!recorder) {
       return
     }
+
     this.stopMeter()
     this.phase = 'finalizing'
     this.emit({ type: 'state', state: 'finalizing' })
@@ -270,11 +281,13 @@ class WebVoiceLease implements EngineLease {
       if (!chunks.length || !heardSpeech) {
         this.emit({ type: 'turnEmpty', reason: 'noSpeech' })
         this.toIdle()
+
         return
       }
 
       void this.transcribe(new Blob(chunks, { type }), durationMs)
     }
+
     recorder.onerror = () => {
       this.recorder = null
       this.emit({ type: 'error', code: 'recording_failed', message: 'MediaRecorder error' })
@@ -284,6 +297,7 @@ class WebVoiceLease implements EngineLease {
     if (recorder.state === 'recording') {
       recorder.requestData()
     }
+
     recorder.stop()
   }
 
@@ -292,6 +306,7 @@ class WebVoiceLease implements EngineLease {
       const dataUrl = await blobToDataUrl(blob)
       const res = await transcribeAudio(dataUrl, blob.type || undefined)
       const text = (res.transcript ?? '').trim()
+
       if (text) {
         this.emit({ type: 'transcript', text, provider: null, durationMs })
       } else {
@@ -312,6 +327,7 @@ class WebVoiceLease implements EngineLease {
     if (this._closed) {
       return
     }
+
     this.phase = 'idle'
     this.emit({ type: 'state', state: 'idle' })
   }

@@ -1,4 +1,12 @@
-import { type PointerEvent as ReactPointerEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import {
+  type PointerEvent as ReactPointerEvent,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState
+} from 'react'
 
 import { useI18n } from '@/i18n'
 import { sessionTitle } from '@/lib/chat-runtime'
@@ -270,7 +278,9 @@ export function BubbleRow() {
         <div
           className={cn(
             'pointer-events-none absolute -top-9 left-1/2 z-10 max-w-[70%] -translate-x-1/2 truncate rounded-md px-2 py-0.5 text-[0.7rem] font-medium shadow-sm',
-            preview?.closeArmed ? 'bg-destructive/15 text-destructive' : 'bg-(--ui-bg-chrome) text-(--ui-text-secondary)'
+            preview?.closeArmed
+              ? 'bg-destructive/15 text-destructive'
+              : 'bg-(--ui-bg-chrome) text-(--ui-text-secondary)'
           )}
         >
           {preview?.closeArmed ? t.composer.bubbles.releaseToClose : titleOf(peekBubble ?? undefined)}
@@ -280,7 +290,10 @@ export function BubbleRow() {
       {/* Clip window — the track slides inside it; bubbles fan past the edges. */}
       <div className="relative w-full touch-none overflow-hidden" ref={containerRef}>
         <div
-          className={cn('flex w-max items-center gap-2.5 will-change-transform', !dragging && 'transition-transform duration-300 ease-out')}
+          className={cn(
+            'flex w-max items-center gap-2.5 will-change-transform',
+            !dragging && 'transition-transform duration-300 ease-out'
+          )}
           ref={trackRef}
           style={{ transform: `translateX(${translate}px)` }}
         >

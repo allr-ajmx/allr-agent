@@ -29,7 +29,10 @@ function mediaLink(value: string): string {
  *  (a text with no `MEDIA:` literal is returned unchanged). */
 export function renderMediaTags(text: string): string {
   return text
-    .replace(MEDIA_LINE_RE, (_match, lead: string, value: string, trailer: string) => `${lead}${mediaLink(value)}${trailer}`)
+    .replace(
+      MEDIA_LINE_RE,
+      (_match, lead: string, value: string, trailer: string) => `${lead}${mediaLink(value)}${trailer}`
+    )
     .replace(MEDIA_TAG_RE, (_match, value: string) => mediaLink(value))
     .replace(/[ \t]+\n/g, '\n')
     .replace(/\n{3,}/g, '\n\n')

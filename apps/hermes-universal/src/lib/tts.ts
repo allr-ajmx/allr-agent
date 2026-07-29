@@ -69,6 +69,7 @@ async function startPlayback(text: string): Promise<{ done: Promise<SpeechEnd> }
         current = null
         $ttsSpeaking.set(false)
       }
+
       settleEnd(result)
     }
 

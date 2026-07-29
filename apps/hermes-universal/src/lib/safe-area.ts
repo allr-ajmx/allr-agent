@@ -109,6 +109,7 @@ export function initSafeAreaInsets(): void {
     publish()
     // Next paint: the single most common moment env() flips from 0 to real.
     requestAnimationFrame(publish)
+
     // Bounded retries for the slow WKWebView tail.
     for (const delay of RETRY_DELAYS_MS) {
       window.setTimeout(publish, delay)

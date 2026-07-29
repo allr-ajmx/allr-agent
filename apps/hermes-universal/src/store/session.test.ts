@@ -13,6 +13,8 @@ vi.mock('@/store/gateway', () => ({ requestGateway: vi.fn() }))
 import { deleteSession, getSessionMessages, renameSession } from '@/hermes'
 import { $busy, $currentCwd, $messages, $sessionId } from '@/store/chat'
 import { requestGateway } from '@/store/gateway'
+import { updateSession } from '@/store/session-state-types'
+import { resetSessionStates, seedActiveSession } from '@/test-sessions'
 import type { SessionInfo } from '@/types/hermes'
 
 import {
@@ -33,8 +35,8 @@ afterEach(() => {
   $sessions.set([])
   $sessionsTotal.set(0)
   $activeStoredSessionId.set(null)
-  $messages.set([])
-  $currentCwd.set('')
+  resetSessionStates()
+  seedActiveSession('runtime-0')
 })
 
 describe('session store', () => {
@@ -98,7 +100,7 @@ describe('session store', () => {
   })
 
   it('openSession detaches the cwd for a chat that has none', async () => {
-    $currentCwd.set('/home/me/previous-chat')
+    seedActiveSession('runtime-prev', { cwd: '/home/me/previous-chat' })
     $sessions.set([rowWithCwd('stored-9', null)])
     vi.mocked(requestGateway).mockResolvedValue({ messages: [], session_id: 'runtime-1' })
     await openSession('stored-9')
@@ -207,12 +209,14 @@ describe('openSession transcript source', () => {
 
 describe('branchCurrentSession', () => {
   const seedThread = () => {
-    $sessionId.set('runtime-1')
     $activeStoredSessionId.set('stored-1')
-    $messages.set([
-      { id: 'm1', role: 'user', parts: [{ type: 'text', text: 'first' }] },
-      { id: 'm2', role: 'assistant', parts: [{ type: 'text', text: 'answer' }] }
-    ])
+    seedActiveSession('runtime-1', {
+      storedSessionId: 'stored-1',
+      messages: [
+        { id: 'm1', role: 'user', parts: [{ type: 'text', text: 'first' }] },
+        { id: 'm2', role: 'assistant', parts: [{ type: 'text', text: 'answer' }] }
+      ]
+    })
   }
 
   it('forks the last turn into a new session and opens it', async () => {
@@ -247,15 +251,18 @@ describe('branchCurrentSession', () => {
   })
 
   it('refuses without a session, while busy, or with nothing to copy', async () => {
-    $sessionId.set(null)
+    seedActiveSession('draft', { runtimeSessionId: null, storedSessionId: null })
     await expect(branchCurrentSession()).resolves.toBe(false)
 
     seedThread()
-    $busy.set(true)
+    updateSession('runtime-1', s => ({ ...s, busy: true }))
     await expect(branchCurrentSession()).resolves.toBe(false)
-    $busy.set(false)
+    updateSession('runtime-1', s => ({ ...s, busy: false }))
 
-    $messages.set([{ id: 's1', role: 'system', parts: [{ type: 'text', text: 'slash:/help' }] }])
+    updateSession('runtime-1', s => ({
+      ...s,
+      messages: [{ id: 's1', role: 'system', parts: [{ type: 'text', text: 'slash:/help' }] }]
+    }))
     await expect(branchCurrentSession()).resolves.toBe(false)
 
     expect(requestGateway).not.toHaveBeenCalled()

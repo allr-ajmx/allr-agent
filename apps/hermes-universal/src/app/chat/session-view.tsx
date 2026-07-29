@@ -1,5 +1,5 @@
-import { createContext, useContext } from 'react'
 import type { ReadableAtom } from 'nanostores'
+import { createContext, useContext } from 'react'
 
 import {
   $awaitingResponse,

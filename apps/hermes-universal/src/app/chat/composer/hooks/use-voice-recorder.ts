@@ -36,13 +36,17 @@ function dictationVad(capSeconds: number): VoiceVad {
 
 function currentTarget(): VoiceTarget | null {
   const conn = $connection.get()
+
   if (!conn) {
     return null
   }
+
   const headers: Record<string, string> = {}
+
   if (conn.token) {
     headers['X-Hermes-Session-Token'] = conn.token
   }
+
   return { baseUrl: conn.baseUrl, headers }
 }
 
@@ -71,6 +75,7 @@ export function useVoiceRecorder({
       window.clearInterval(intervalRef.current)
       intervalRef.current = null
     }
+
     if (timeoutRef.current) {
       window.clearTimeout(timeoutRef.current)
       timeoutRef.current = null
@@ -81,9 +86,11 @@ export function useVoiceRecorder({
     clearTimers()
     const lease = leaseRef.current
     leaseRef.current = null
+
     if (lease) {
       void lease.close()
     }
+
     setLevel(0)
     setVoiceStatus('idle')
   }
@@ -92,32 +99,43 @@ export function useVoiceRecorder({
 
   const onEvent = (event: VoiceEvent) => {
     const { focusInput, onTranscript, voiceCopy } = cbRef.current
+
     switch (event.type) {
       case 'level':
         setLevel(event.level)
+
         break
+
       case 'state':
         if (event.state === 'finalizing') {
           setVoiceStatus('transcribing')
         }
+
         break
       case 'transcript': {
         const transcript = event.text.trim()
+
         if (transcript) {
           onTranscript(transcript)
         }
+
         teardown()
         focusInput()
+
         break
       }
+
       case 'turnEmpty':
         notify({ kind: 'warning', title: voiceCopy.noSpeechDetected, message: voiceCopy.tryRecordingAgain })
         teardown()
         focusInput()
+
         break
+
       case 'error':
         notifyError(new Error(event.message || event.code), voiceErrorMessage(event.code, voiceCopy))
         teardown()
+
         break
     }
   }
@@ -130,6 +148,7 @@ export function useVoiceRecorder({
     }
 
     const target = currentTarget()
+
     if (!target) {
       notifyError(new Error('not connected'), voiceCopy.recordingFailed)
 
@@ -137,6 +156,7 @@ export function useVoiceRecorder({
     }
 
     const cap = Math.max(1, Math.min(Math.trunc(maxRecordingSeconds), 600))
+
     try {
       const lease = await voiceEngine.open('dictation', { target, vad: dictationVad(cap) })
       leaseRef.current = lease
@@ -146,14 +166,12 @@ export function useVoiceRecorder({
       startedAtRef.current = Date.now()
       setElapsedSeconds(0)
       setVoiceStatus('recording')
-      intervalRef.current = window.setInterval(
-        () => setElapsedSeconds((Date.now() - startedAtRef.current) / 1000),
-        250
-      )
+      intervalRef.current = window.setInterval(() => setElapsedSeconds((Date.now() - startedAtRef.current) / 1000), 250)
       timeoutRef.current = window.setTimeout(() => void stop(), cap * 1_000)
     } catch (error) {
       leaseRef.current = null
       setVoiceStatus('idle')
+
       if (error instanceof VoiceBusyError) {
         notify({ kind: 'warning', title: voiceCopy.unavailable, message: voiceCopy.microphoneInUse })
       } else {
@@ -166,11 +184,13 @@ export function useVoiceRecorder({
   const stop = async () => {
     clearTimers()
     const lease = leaseRef.current
+
     if (!lease) {
       setVoiceStatus('idle')
 
       return
     }
+
     await lease.forceTurn().catch(() => undefined)
   }
 
