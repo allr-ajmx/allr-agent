@@ -1,6 +1,7 @@
+import { supportsMultipleWindows } from '@tauri-apps/api/app'
 import { invoke } from '@tauri-apps/api/core'
 
-import { IS_DESKTOP } from '@/lib/platform'
+import { IS_DESKTOP, IS_IOS } from '@/lib/platform'
 import { notifyError } from '@/store/notifications'
 
 // Ported from desktop `store/windows.ts`. Desktop opens native windows through an
@@ -55,16 +56,38 @@ export function isWatchWindow(): boolean {
   return result
 }
 
-// Native multi-window is desktop-only for now. Mobile (Android Activity / iOS
-// UIScene) is gated off until the native scaffolding lands (MJX-141/142). A
-// secondary window is already a pop-out, so it never offers to open another —
+// Native multi-window is supported on desktop and on iOS via UIScene (MJX-142) —
+// a session opens as its own scene (side-by-side on iPad, replacing on iPhone).
+// Android (Activity embedding, MJX-141) is still gated off. iOS is gated on the
+// runtime `supportsMultipleWindows()` (== UIApplication.supportsMultipleScenes):
+// single-scene devices fall back to the in-app view. That value resolves async, so
+// we default to allowed and only flip off if the runtime reports single-scene —
+// the affordance shows immediately on iPad and never flickers there.
+let iosSceneCapable = true
+
+if (IS_IOS) {
+  supportsMultipleWindows()
+    .then((ok) => {
+      iosSceneCapable = ok
+    })
+    .catch(() => {
+      // Leave the default: if the query fails, still offer the affordance; the
+      // Rust build degrades gracefully (attaches to the main scene) if unsupported.
+    })
+}
+
+function multiWindowSupported(): boolean {
+  return IS_DESKTOP || (IS_IOS && iosSceneCapable)
+}
+
+// A secondary window is already a pop-out, so it never offers to open another —
 // this hides the affordance in the pop-out's title menu / composer status stack.
 export function canOpenSessionWindow(): boolean {
-  return IS_DESKTOP && !isSecondaryWindow()
+  return multiWindowSupported() && !isSecondaryWindow()
 }
 
 export function canOpenNewWindow(): boolean {
-  return IS_DESKTOP && !isSecondaryWindow()
+  return multiWindowSupported() && !isSecondaryWindow()
 }
 
 async function runWindowOpen(call: () => Promise<unknown>, failMessage: string): Promise<void> {
