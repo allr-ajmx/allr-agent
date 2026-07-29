@@ -15,7 +15,7 @@ import { SettingsView } from '@/app/settings/settings-view'
 import { StarmapView } from '@/app/starmap'
 import { NotificationStack } from '@/components/notifications'
 import { useMediaQuery } from '@/hooks/use-media-query'
-import { IS_DESKTOP, IS_MOBILE } from '@/lib/platform'
+import { IS_DESKTOP, IS_IOS, IS_MOBILE } from '@/lib/platform'
 import { useStore } from '@/store/atom'
 import { $connectionPhase, $hasConnected } from '@/store/connection'
 import { $restoring } from '@/store/gateway-restore'
@@ -209,7 +209,9 @@ export function MobileController() {
             re-authenticating the gateway never bounces the user out to the connect
             picker — desktop parity. Blocked only during the first-run onboarding
             wizard (phase ready but not connected). */}
-        {settingsOpen && (connected || settingsGatewayOpen) && <SettingsView returnPath={returnPathRef.current} />}
+        {settingsOpen && (connected || settingsGatewayOpen) && (
+          <SettingsView returnPath={returnPathRef.current} variant={IS_IOS ? 'fullbleed' : 'overlay'} />
+        )}
         {/* Agents ("Spawn tree") overlay — desktop's live subagent surface,
             floated over the chat backdrop and opened from the statusbar Agents
             item. Its Panel supplies the fixed-inset card + close-X / Esc. */}
@@ -223,6 +225,7 @@ export function MobileController() {
             onDeleteSession={deleteSessionLocal}
             onNavigateRoute={path => navigate(path)}
             onOpenSession={sessionId => navigate(sessionRoute(sessionId))}
+            variant={IS_IOS ? 'fullbleed' : 'overlay'}
           />
         )}
         {/* Cron ("Routines") overlay — desktop's scheduled-jobs master/detail:

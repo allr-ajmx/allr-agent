@@ -15,7 +15,11 @@ import { cn } from '@/lib/utils'
 // `fullscreen` fills its parent with no backdrop / inset / card chrome / close
 // button — used when the view IS the whole surface (a native activity screen on
 // Android, see `app/activity-screen.tsx`), which supplies its own top bar + Home.
-export type OverlayVariant = 'fullscreen' | 'overlay'
+// `fullbleed` fills the whole window edge-to-edge (no backdrop / inset / card) but
+// KEEPS the close button + Esc — used on iOS, where Settings/Command Center open
+// as a full-screen surface on top of the primary window (iPadOS can't present a
+// native UIScene modally on top, so this in-app surface delivers that UX; MJX-176).
+export type OverlayVariant = 'fullscreen' | 'overlay' | 'fullbleed'
 
 interface OverlayViewProps {
   children: ReactNode
@@ -37,6 +41,7 @@ export function OverlayView({
   variant = 'overlay'
 }: OverlayViewProps) {
   const fullscreen = variant === 'fullscreen'
+  const fullBleed = variant === 'fullbleed'
 
   const closeOverlay = () => {
     void triggerHaptic('selection')
@@ -68,6 +73,46 @@ export function OverlayView({
   if (fullscreen) {
     return (
       <div className={cn('flex h-full min-h-0 flex-col overflow-hidden bg-(--ui-chat-surface-background)', rootClassName)}>
+        <div className={cn('min-h-0 flex flex-1 flex-col', contentClassName)}>{children}</div>
+      </div>
+    )
+  }
+
+  // Full-bleed: edge-to-edge over the whole window (no backdrop, inset or card
+  // chrome) but keeps the close button + Esc, so it reads as a full-screen surface
+  // on top of the primary window that dismisses back to it.
+  if (fullBleed) {
+    return (
+      <div
+        className={cn(
+          'fixed inset-0 z-50 flex h-full min-h-0 flex-col overflow-hidden bg-(--ui-chat-surface-background)',
+          rootClassName
+        )}
+      >
+        <div
+          className="pointer-events-none absolute inset-x-0 top-0 z-10 h-[calc(var(--titlebar-height)+0.1875rem)]"
+          data-tauri-drag-region
+        >
+          {headerContent && (
+            <div className="pointer-events-auto absolute left-1/2 top-[calc(0.5rem+var(--titlebar-height)/2)] -translate-x-1/2 -translate-y-1/2">
+              {headerContent}
+            </div>
+          )}
+
+          {/* Full-bleed has no close ✕ — a labelled Home button returns to the
+              primary view instead (iOS activity-screen dismissal). */}
+          <Button
+            aria-label={closeLabel}
+            className="pointer-events-auto absolute left-3 top-[calc(0.1875rem+var(--titlebar-height)/2)] -translate-y-1/2 gap-1.5 text-(--ui-text-tertiary) hover:bg-(--chrome-action-hover) hover:text-foreground"
+            onClick={closeOverlay}
+            size="sm"
+            variant="ghost"
+          >
+            <Codicon name="home" size="1rem" />
+            Home
+          </Button>
+        </div>
+
         <div className={cn('min-h-0 flex flex-1 flex-col', contentClassName)}>{children}</div>
       </div>
     )
