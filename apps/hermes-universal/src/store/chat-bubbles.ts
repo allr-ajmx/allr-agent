@@ -5,16 +5,17 @@
  * analog of desktop's session TILES, but decoupled from the layout-tree: there is
  * no pane graph on a phone, just an ordered list of sessions.
  *
- * Runtime model (hybrid, least-invasive):
- *  - The ACTIVE bubble is always the PRIMARY chat (`store/chat.ts` globals,
- *    rendered by the existing mobile ChatScreen). This also makes a not-yet-saved
- *    DRAFT bubble work for free — a draft has no id, so it can only live in the
- *    primary globals, never in `$sessionStates` (which is keyed by runtime id).
- *  - BACKGROUND bubbles are kept live as `$sessionStates` slices via the existing
- *    tile delegate (`sessionTileDelegate().resumeTile`) — the exact "keep a stored
- *    session live in its own slice" primitive, with no layout-tree dependency.
- *  - Switching = demote the outgoing primary into a slice + promote the target via
- *    `openSession` (which re-hydrates the primary and sets `$activeStoredSessionId`).
+ * Runtime model: every bubble — foreground or background, saved or draft — is
+ * just a session in `$sessionStates`. Switching moves `$activeSessionKey`; it
+ * does not move state anywhere.
+ *
+ * This used to be a hybrid: the active bubble lived in the global chat atoms and
+ * a background bubble was demoted into a slice on every switch, then DROPPED and
+ * re-resumed on the way back. Two async, unsynchronized steps per switch, with
+ * the live slice discarded in the middle — which is how a background turn's
+ * tokens ended up in the chat on screen (MJX-132). Now the only thing a switch
+ * has to do is point at a different key, and a session that was streaming keeps
+ * streaming into its own slice throughout.
  *
  * The store itself is platform-agnostic (directly unit-testable); only the UI
  * mount and the new-session call sites are gated to `IS_MOBILE`. On desktop the
@@ -25,12 +26,14 @@ import { readJson, writeJson } from '@/lib/storage'
 import { atom, computed } from '@/store/atom'
 import { $activeGatewayProfile, normalizeProfileKey } from '@/store/profile'
 import { $activeStoredSessionId, newSession, openSession } from '@/store/session'
-import { dropSessionState, sessionTileDelegate } from '@/store/session-states'
+import { dropSessionState, runtimeKeyForStoredSession, sessionTileDelegate } from '@/store/session-states'
 import { isSecondaryWindow } from '@/store/windows'
 
-/** One parallel chat. `storedSessionId === null` is the single DRAFT bubble (a
- *  fresh/unsaved chat with no id yet). `runtimeId` is set only while the bubble is
- *  a live BACKGROUND slice; it is process-scoped and never persisted. */
+/** One parallel chat. `storedSessionId === null` is the DRAFT bubble (a
+ *  fresh/unsaved chat with no id yet). `runtimeId` is the live session KEY when
+ *  the bubble has one; it is process-scoped and never persisted. Prefer
+ *  `bubbleRuntimeKey`, which also resolves a session whose stored id rotated
+ *  under a background compaction (MJX-133). */
 export interface ChatBubble {
   storedSessionId: null | string
   runtimeId?: string
@@ -130,11 +133,22 @@ function ensureBubble(storedId: null | string) {
   }
 }
 
-/** Keep a stored session LIVE in a background `$sessionStates` slice. A draft has
- *  no id and nothing to keep live, so it is a no-op. Best-effort: if the resume
- *  fails the bubble simply re-hydrates from scratch when next promoted. */
-function demote(storedId: null | string) {
+/** The live session key behind a bubble, following a compaction id rotation. */
+export function bubbleRuntimeKey(storedId: null | string): null | string {
   if (!storedId) {
+    return null
+  }
+
+  return runtimeKeyForStoredSession(storedId) ?? bubbleFor(storedId)?.runtimeId ?? null
+}
+
+/** Make a COLD stored session live in its own slice, so its bubble shows real
+ *  busy/unread state without being on screen. A session that already has a slice
+ *  is left alone — re-resuming it would rebind the gateway's transport for that
+ *  session and, mid-turn, tear its stream away from us. Best-effort: if the
+ *  resume fails the bubble simply hydrates when it is next opened. */
+function ensureLiveSession(storedId: null | string) {
+  if (!storedId || bubbleRuntimeKey(storedId)) {
     return
   }
 
@@ -142,25 +156,21 @@ function demote(storedId: null | string) {
     ?.resumeTile(storedId)
     .then(runtimeId => patchBubbleRuntime(storedId, runtimeId))
     .catch(() => {
-      /* leave the bubble slice-less; a later promote re-hydrates it */
+      /* leave the bubble slice-less; opening it hydrates from scratch */
     })
 }
 
-/** Make a bubble the PRIMARY chat. A draft resets to a fresh chat; a stored
- *  session hydrates via `openSession` and its background slice (if any) is
- *  dropped, since it now lives on the primary atoms. */
+/** Show a bubble. A draft starts a fresh chat; anything else opens its session —
+ *  synchronously when it already has a slice.
+ *
+ *  Note what is NOT here: the outgoing session is not demoted, and the incoming
+ *  session's slice is not dropped and re-resumed. Both sessions keep the state
+ *  they had, which is the point. */
 function promote(storedId: null | string) {
   if (storedId === null) {
     newSession()
 
     return
-  }
-
-  const bubble = bubbleFor(storedId)
-
-  if (bubble?.runtimeId) {
-    dropSessionState(bubble.runtimeId)
-    patchBubbleRuntime(storedId, undefined)
   }
 
   void openSession(storedId)
@@ -185,19 +195,17 @@ export function addBubble(storedSessionId: string) {
 
   ensureBubble($activeStoredSessionId.get())
   setBubbles([...$chatBubbles.get(), { storedSessionId }])
-  demote(storedSessionId)
+  ensureLiveSession(storedSessionId)
 }
 
-/** Switch the active chat to another bubble (drag-release / tap). Demotes the
- *  outgoing primary into a live slice, promotes the target. */
+/** Switch the active chat to another bubble (drag-release / tap). The outgoing
+ *  session needs nothing done to it — it already owns its slice and, if it is
+ *  mid-turn, keeps streaming into it. */
 export function switchToBubble(target: null | string) {
-  const prev = $activeStoredSessionId.get()
-
-  if (target === prev) {
+  if (target === $activeStoredSessionId.get()) {
     return
   }
 
-  demote(prev)
   promote(target)
 }
 
@@ -214,10 +222,10 @@ export function removeBubble(target: null | string) {
   }
 
   const wasActive = target === $activeStoredSessionId.get()
-  const removed = list[idx]
+  const runtimeKey = bubbleRuntimeKey(list[idx].storedSessionId)
 
-  if (removed.runtimeId) {
-    dropSessionState(removed.runtimeId)
+  if (runtimeKey) {
+    dropSessionState(runtimeKey)
   }
 
   const next = list.filter((_, i) => i !== idx)
@@ -248,7 +256,6 @@ export function newChatBubble() {
   }
 
   ensureBubble(active)
-  demote(active)
 
   if (!$chatBubbles.get().some(b => b.storedSessionId === null)) {
     setBubbles([...$chatBubbles.get(), { storedSessionId: null }])

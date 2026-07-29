@@ -13,6 +13,7 @@ import {
   useState
 } from 'react'
 
+import { useSessionView } from '@/app/chat/session-view'
 import { ToolFallback } from '@/components/assistant-ui/tool/fallback'
 import { Button } from '@/components/ui/button'
 import { Kbd } from '@/components/ui/kbd'
@@ -21,8 +22,9 @@ import { useI18n } from '@/i18n'
 import { triggerHaptic } from '@/lib/haptics'
 import { CircleLetterA, Loader2, MessageQuestion } from '@/lib/icons'
 import { cn } from '@/lib/utils'
-import { $clarify, respondClarify } from '@/store/chat'
+import { respondClarify } from '@/store/chat'
 import { notifyError } from '@/store/notifications'
+import { sessionClarifyRequest } from '@/store/prompts'
 
 import { selectMessageRunning } from './tool/fallback-model'
 import { parseMaybeObject } from './tool/fallback-model/format'
@@ -192,7 +194,11 @@ function ClarifyToolSettled({ args, result }: ToolCallMessagePartProps) {
 function ClarifyToolPending({ args }: ToolCallMessagePartProps) {
   const { t } = useI18n()
   const copy = t.assistant.clarify
-  const request = useStore($clarify)
+  // The clarify panel renders INSIDE a transcript, so it belongs to the session
+  // that transcript is showing — not to whichever chat is on screen. Reading the
+  // view's key means a tile's clarify answers the tile's agent.
+  const sessionKey = useStore(useSessionView().$runtimeId) ?? ''
+  const request = useStore(sessionClarifyRequest(sessionKey))
   const fromArgs = useMemo(() => readClarifyArgs(args), [args])
 
   const matchingRequest = useMemo(() => {
@@ -242,7 +248,7 @@ function ClarifyToolPending({ args }: ToolCallMessagePartProps) {
       setSubmitting(true)
 
       try {
-        await respondClarify(answer)
+        await respondClarify(answer, sessionKey)
         void triggerHaptic('submit')
         // tool.complete lands next → ClarifyToolSettled.
       } catch (error) {
@@ -250,7 +256,7 @@ function ClarifyToolPending({ args }: ToolCallMessagePartProps) {
         setSubmitting(false)
       }
     },
-    [copy.notReady, copy.sendFailed, ready]
+    [copy.notReady, copy.sendFailed, ready, sessionKey]
   )
 
   const trimmedDraft = draft.trim()

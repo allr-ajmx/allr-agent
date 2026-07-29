@@ -327,6 +327,19 @@ if (!isSecondaryWindow()) {
   })
 }
 
+/** The live session key behind a tile, following a compaction id rotation. */
+export function tileRuntimeKey(storedSessionId: null | string): null | string {
+  if (!storedSessionId) {
+    return null
+  }
+
+  return (
+    runtimeKeyForStoredSession(storedSessionId) ??
+    $sessionTiles.get().find(t => t.storedSessionId === storedSessionId)?.runtimeId ??
+    null
+  )
+}
+
 export function patchSessionTile(storedSessionId: string, patch: Partial<SessionTile>) {
   saveTiles($sessionTiles.get().map(t => (t.storedSessionId === storedSessionId ? { ...t, ...patch } : t)))
 }
@@ -489,8 +502,11 @@ export const $confirmCloseTile = atom<null | string>(null)
 
 /** Close a tile — but confirm first if its session is still working / waiting. */
 export function requestCloseSessionTile(storedSessionId: string): void {
-  const tile = $sessionTiles.get().find(t => t.storedSessionId === storedSessionId)
-  const state = tile?.runtimeId ? $sessionStates.get()[tile.runtimeId] : undefined
+  // Resolved through the reverse index rather than the tile's cached runtimeId,
+  // so a session whose stored id rotated under a background compaction is still
+  // recognised as busy instead of closing without a prompt (MJX-133).
+  const key = tileRuntimeKey(storedSessionId)
+  const state = key ? $sessionStates.get()[key] : undefined
 
   if (state?.busy || state?.awaitingResponse || state?.needsInput) {
     $confirmCloseTile.set(storedSessionId)
@@ -504,10 +520,10 @@ export function requestCloseSessionTile(storedSessionId: string): void {
 /** Drop a DEAD tile — a persisted tile whose session no longer exists (resume
  *  404s). Leaves no ⌘⇧T undo and evicts any cached state. */
 export function discardSessionTile(storedSessionId: string) {
-  const runtimeId = $sessionTiles.get().find(t => t.storedSessionId === storedSessionId)?.runtimeId
+  const key = tileRuntimeKey(storedSessionId)
 
-  if (runtimeId) {
-    dropSessionState(runtimeId)
+  if (key) {
+    dropSessionState(key)
   }
 
   saveTiles($sessionTiles.get().filter(t => t.storedSessionId !== storedSessionId))
