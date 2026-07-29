@@ -34,7 +34,7 @@ import { $sessions, sessionPinId } from '@/store/session'
 import { useRefreshHotkey } from '../hooks/use-refresh-hotkey'
 import { useRouteEnumParam } from '../hooks/use-route-enum-param'
 import { OverlayMain, OverlayNav, OverlaySplitLayout } from '../overlays/overlay-split-layout'
-import { OverlayView } from '../overlays/overlay-view'
+import { type OverlayVariant, OverlayView } from '../overlays/overlay-view'
 
 import { MaintenancePanel } from './maintenance'
 
@@ -55,6 +55,12 @@ interface CommandCenterViewProps {
   // Accepted for call-site parity; navigation lives in the global Cmd+K palette.
   onNavigateRoute?: (path: string) => void
   onOpenSession: (sessionId: string) => void
+  // Fullscreen when hosted as a native activity screen (Android); `onClose` then
+  // finishes the activity rather than closing the overlay.
+  variant?: OverlayVariant
+  // Render only the active section body (no OverlayNav rail/dropdown) — the
+  // Android activity shell owns nav in its left drawer instead.
+  hideNav?: boolean
 }
 
 function formatTimestamp(value?: number | null): string {
@@ -126,7 +132,14 @@ function EmptyPanel({ action, description, title }: { action?: ReactNode; descri
   )
 }
 
-export function CommandCenterView({ initialSection, onClose, onDeleteSession, onOpenSession }: CommandCenterViewProps) {
+export function CommandCenterView({
+  initialSection,
+  onClose,
+  onDeleteSession,
+  onOpenSession,
+  variant = 'overlay',
+  hideNav = false
+}: CommandCenterViewProps) {
   const { t } = useI18n()
   const cc = t.commandCenter
   const sessions = useStore($sessions)
@@ -294,27 +307,27 @@ export function CommandCenterView({ initialSection, onClose, onDeleteSession, on
     [cc, refreshSystem]
   )
 
-  return (
-    <OverlayView closeLabel={cc.close} onClose={onClose}>
-      <OverlaySplitLayout>
-        <OverlayNav
-          groups={SECTIONS.map(value => ({
-            active: section === value,
-            icon:
-              value === 'sessions'
-                ? MessageCircle
-                : value === 'system'
-                  ? Activity
-                  : value === 'maintenance'
-                    ? Wrench
-                    : BarChart3,
-            id: value,
-            label: cc.sections[value],
-            onSelect: () => setSection(value)
-          }))}
-        />
+  const nav = (
+    <OverlayNav
+      groups={SECTIONS.map(value => ({
+        active: section === value,
+        icon:
+          value === 'sessions'
+            ? MessageCircle
+            : value === 'system'
+              ? Activity
+              : value === 'maintenance'
+                ? Wrench
+                : BarChart3,
+        id: value,
+        label: cc.sections[value],
+        onSelect: () => setSection(value)
+      }))}
+    />
+  )
 
-        <OverlayMain>
+  const main = (
+    <OverlayMain>
           <header className="mb-4 flex items-center justify-between gap-3 max-[47.5rem]:mb-2">
             {/* Redundant on narrow — the nav dropdown already names the section. */}
             <div className="min-w-0 max-[47.5rem]:hidden">
@@ -495,8 +508,19 @@ export function CommandCenterView({ initialSection, onClose, onDeleteSession, on
               </div>
             </div>
           )}
-        </OverlayMain>
-      </OverlaySplitLayout>
+    </OverlayMain>
+  )
+
+  return (
+    <OverlayView closeLabel={cc.close} onClose={onClose} variant={variant}>
+      {hideNav ? (
+        main
+      ) : (
+        <OverlaySplitLayout>
+          {nav}
+          {main}
+        </OverlaySplitLayout>
+      )}
     </OverlayView>
   )
 }

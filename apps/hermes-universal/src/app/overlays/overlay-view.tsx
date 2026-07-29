@@ -11,6 +11,12 @@ import { cn } from '@/lib/utils'
 // `-webkit-app-region` classes, and haptics/close-label come from the universal
 // seams.
 
+// `overlay` (default) is the floating modal card over the chat backdrop.
+// `fullscreen` fills its parent with no backdrop / inset / card chrome / close
+// button — used when the view IS the whole surface (a native activity screen on
+// Android, see `app/activity-screen.tsx`), which supplies its own top bar + Home.
+export type OverlayVariant = 'fullscreen' | 'overlay'
+
 interface OverlayViewProps {
   children: ReactNode
   onClose: () => void
@@ -18,6 +24,7 @@ interface OverlayViewProps {
   contentClassName?: string
   headerContent?: ReactNode
   rootClassName?: string
+  variant?: OverlayVariant
 }
 
 export function OverlayView({
@@ -26,8 +33,11 @@ export function OverlayView({
   closeLabel = 'Close',
   contentClassName,
   headerContent,
-  rootClassName
+  rootClassName,
+  variant = 'overlay'
 }: OverlayViewProps) {
+  const fullscreen = variant === 'fullscreen'
+
   const closeOverlay = () => {
     void triggerHaptic('selection')
     onClose()
@@ -50,6 +60,18 @@ export function OverlayView({
 
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [onClose])
+
+  // Fullscreen: no backdrop, inset, card chrome, drag strip or close button —
+  // just fill the parent. The hosting activity screen draws its own top bar +
+  // Home button, so the split-layout columns still clear the (mobile) titlebar
+  // height the same way and their backgrounds run flush to the top.
+  if (fullscreen) {
+    return (
+      <div className={cn('flex h-full min-h-0 flex-col overflow-hidden bg-(--ui-chat-surface-background)', rootClassName)}>
+        <div className={cn('min-h-0 flex flex-1 flex-col', contentClassName)}>{children}</div>
+      </div>
+    )
+  }
 
   return (
     <div
