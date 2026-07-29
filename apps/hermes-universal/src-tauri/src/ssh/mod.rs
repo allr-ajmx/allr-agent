@@ -684,12 +684,32 @@ async fn establish(
     host_label: &str,
     reporter: &ProgressReporter,
 ) -> Result<(SshConnection, forward::PortForward), SshError> {
-    let (platform, hermes_path, hermes_version, hermes_home) =
-        posix_lifecycle::survey_remote(session, remote_hermes_path, reporter).await?;
+    reporter.step(SshStep::ProbingPlatform);
+
+    let (platform, windows_runtime) =
+        windows_lifecycle::detect_remote_platform(session, remote_hermes_path.unwrap_or_default()).await?;
 
     let profile = config.profile.clone().unwrap_or_default();
     let reuse_token = config.reuse_token.clone().unwrap_or_default();
     let client = reqwest::Client::new();
+
+    if let Some(runtime) = windows_runtime {
+        return establish_windows(
+            session,
+            runtime,
+            ownership_id,
+            &profile,
+            &reuse_token,
+            &platform,
+            host_label,
+            &client,
+            reporter,
+        )
+        .await;
+    }
+
+    let (hermes_path, hermes_version, hermes_home) =
+        posix_lifecycle::survey_hermes(session, remote_hermes_path, reporter).await?;
 
     reporter.step(SshStep::CheckingExisting);
 
@@ -763,6 +783,186 @@ async fn establish(
         reporter,
     )
     .await
+}
+
+/// The same lifecycle against a remote host running Windows.
+///
+/// Structurally identical to the POSIX path — probe, check the lock, reuse or
+/// respawn, tunnel, verify — but every remote step goes through
+/// `hermes_cli.windows_ssh_runtime` instead of shell commands, and identity is
+/// `pid + creationTimeNs` rather than `pid + /proc/<pid>/cmdline`.
+#[allow(clippy::too_many_arguments)]
+async fn establish_windows(
+    session: &Arc<SshSession>,
+    mut runtime: windows_lifecycle::WindowsRuntime,
+    ownership_id: &str,
+    profile: &str,
+    reuse_token: &str,
+    platform: &posix_lifecycle::RemotePlatform,
+    host_label: &str,
+    client: &reqwest::Client,
+    reporter: &ProgressReporter,
+) -> Result<(SshConnection, forward::PortForward), SshError> {
+    reporter.step(SshStep::LocatingHermes);
+    let hermes_version = windows_lifecycle::inspect_install(session, &mut runtime).await?;
+    reporter.step_with(SshStep::LocatingHermes, format!("found hermes at {}", runtime.hermes_path));
+
+    reporter.step(SshStep::CheckingExisting);
+
+    if let Some(lock) = windows_lifecycle::read_lock(session, &runtime, ownership_id).await? {
+        let state = windows_lifecycle::process_state(session, &runtime, &lock).await?;
+
+        // Safety rule 1 again, at the reuse gate: without a definite answer we
+        // must neither reattach nor tear down. Retry rather than guess.
+        if state.indeterminate {
+            return Err(SshError::new(
+                SshErrorKind::TransientTransportError,
+                "Could not determine the state of the existing remote backend.",
+            ));
+        }
+
+        let reusable = windows_lifecycle::lock_is_reusable(
+            &lock,
+            &state,
+            reuse_token,
+            &runtime.hermes_path,
+            &runtime.hermes_home,
+        );
+
+        if reusable {
+            reporter.step(SshStep::Forwarding);
+            let forward = forward::open(Arc::clone(session), lock.port).await?;
+            let base_url = forward.base_url();
+
+            reporter.step(SshStep::Verifying);
+
+            match reuse::probe_reuse_proof(client, &base_url, reuse_token, &lock.spawn_nonce).await {
+                Ok(reuse::ReuseClassification::AuthenticatedOk) => {
+                    return Ok((
+                        SshConnection {
+                            ws_url: ws_url_for(&base_url, reuse_token),
+                            base_url,
+                            token: reuse_token.to_string(),
+                            local_port: forward.local_port,
+                            remote_port: lock.port,
+                            pid: lock.pid,
+                            reused: true,
+                            remote_platform: platform.os.clone(),
+                            remote_arch: platform.arch.clone(),
+                            hermes_path: runtime.hermes_path.clone(),
+                            hermes_version,
+                            ownership_id: ownership_id.to_string(),
+                            host_label: host_label.to_string(),
+                        },
+                        forward,
+                    ));
+                }
+
+                Ok(reuse::ReuseClassification::AuthenticatedStale) => {
+                    drop(forward);
+                    windows_lifecycle::cleanup_owned(session, &runtime, ownership_id, Some(&lock)).await?;
+                }
+
+                Err(err) => {
+                    drop(forward);
+
+                    return Err(err);
+                }
+            }
+        } else {
+            windows_lifecycle::cleanup_owned(session, &runtime, ownership_id, Some(&lock)).await?;
+        }
+    }
+
+    let token = mint_token();
+    let spawn_nonce = mint_nonce();
+
+    let spawned =
+        windows_lifecycle::spawn_backend(session, &runtime, ownership_id, &spawn_nonce, profile, &token, reporter)
+            .await?;
+
+    let mut lock = windows_lifecycle::WindowsLock {
+        schema_version: remote_paths::LOCKFILE_SCHEMA_VERSION,
+        protocol_version: remote_paths::PROTOCOL_VERSION,
+        ownership_id: ownership_id.to_string(),
+        spawn_nonce: spawn_nonce.clone(),
+        pid: spawned.pid,
+        creation_time_ns: spawned.creation_time_ns.clone(),
+        // Deliberately 0 until readiness — see the ordering note on `ssh_connect`.
+        port: 0,
+        token_fingerprint: ownership::fingerprint_token(&token),
+        profile: profile.to_string(),
+        hermes_path: runtime.hermes_path.clone(),
+        hermes_home: runtime.hermes_home.clone(),
+        started_at: clock::now_iso8601(),
+    };
+
+    let attached =
+        attach_windows(session, &runtime, ownership_id, &mut lock, &token, client, reporter).await;
+
+    match attached {
+        Ok((remote_port, forward)) => Ok((
+            SshConnection {
+                ws_url: ws_url_for(&forward.base_url(), &token),
+                base_url: forward.base_url(),
+                token,
+                local_port: forward.local_port,
+                remote_port,
+                pid: spawned.pid,
+                reused: false,
+                remote_platform: platform.os.clone(),
+                remote_arch: platform.arch.clone(),
+                hermes_path: runtime.hermes_path.clone(),
+                hermes_version,
+                ownership_id: ownership_id.to_string(),
+                host_label: host_label.to_string(),
+            },
+            forward,
+        )),
+
+        Err(err) => {
+            let _ = windows_lifecycle::cleanup_owned(session, &runtime, ownership_id, Some(&lock)).await;
+
+            Err(err)
+        }
+    }
+}
+
+/// Record ownership, wait for readiness, tunnel, and confirm — Windows edition.
+#[allow(clippy::too_many_arguments)]
+async fn attach_windows(
+    session: &Arc<SshSession>,
+    runtime: &windows_lifecycle::WindowsRuntime,
+    ownership_id: &str,
+    lock: &mut windows_lifecycle::WindowsLock,
+    token: &str,
+    client: &reqwest::Client,
+    reporter: &ProgressReporter,
+) -> Result<(u16, forward::PortForward), SshError> {
+    // Written before readiness so a failure in the next few seconds still leaves
+    // a reapable record. See the ordering note on `ssh_connect`.
+    windows_lifecycle::write_lock(session, runtime, ownership_id, lock).await?;
+
+    reporter.step(SshStep::WaitingReady);
+    let remote_port = windows_lifecycle::wait_ready(
+        session,
+        runtime,
+        ownership_id,
+        lock,
+        windows_lifecycle::DEFAULT_READY_TIMEOUT,
+    )
+    .await?;
+
+    reporter.step(SshStep::Forwarding);
+    let forward = forward::open(Arc::clone(session), remote_port).await?;
+
+    reporter.step(SshStep::Verifying);
+    reuse::wait_for_hermes(client, &forward.base_url(), token).await?;
+
+    lock.port = remote_port;
+    windows_lifecycle::write_lock(session, runtime, ownership_id, lock).await?;
+
+    Ok((remote_port, forward))
 }
 
 /// Spawn a fresh backend and tunnel to it.

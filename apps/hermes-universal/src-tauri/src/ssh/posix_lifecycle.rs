@@ -683,15 +683,13 @@ impl SpawnContext<'_> {
     }
 }
 
-/// Report the discovery steps. Kept together so `connect` reads as a sequence.
-pub async fn survey_remote(
+/// Discover the remote install. The platform has already been settled by
+/// `windows_lifecycle::detect_remote_platform`, which is what routes here.
+pub async fn survey_hermes(
     session: &SshSession,
     explicit_hermes_path: Option<&str>,
     reporter: &ProgressReporter,
-) -> Result<(RemotePlatform, String, String, String), SshError> {
-    reporter.step(SshStep::ProbingPlatform);
-    let platform = probe_platform(session).await?;
-
+) -> Result<(String, String, String), SshError> {
     reporter.step(SshStep::LocatingHermes);
     let hermes_path = locate_hermes(session, explicit_hermes_path).await?;
     reporter.step_with(SshStep::LocatingHermes, format!("found hermes at {hermes_path}"));
@@ -699,7 +697,7 @@ pub async fn survey_remote(
     let hermes_version = probe_hermes_version(session, &hermes_path).await;
     let hermes_home = probe_hermes_home(session).await?;
 
-    Ok((platform, hermes_path, hermes_version, hermes_home))
+    Ok((hermes_path, hermes_version, hermes_home))
 }
 
 #[cfg(test)]
