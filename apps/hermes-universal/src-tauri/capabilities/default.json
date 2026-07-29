@@ -2,7 +2,7 @@
   "$schema": "https://schema.tauri.app/config/2/capability",
   "identifier": "default",
   "description": "Default capabilities for Hermes Universal. The webview makes no network calls itself — all HTTP/WS traffic runs in Rust and is surfaced via events + IPC commands.",
-  "windows": ["main", "session-*", "instance-*"],
+  "windows": ["main", "session-*", "instance-*", "settings", "command-center"],
   "permissions": [
     "core:default",
     "core:event:default",
@@ -26,6 +26,7 @@
     "core:window:allow-close",
     "core:window:allow-start-dragging",
     "core:window:allow-is-maximized",
-    "core:webview:allow-set-webview-zoom"
+    "core:webview:allow-set-webview-zoom",
+    "core:webview:allow-create-webview-window"
   ]
 }

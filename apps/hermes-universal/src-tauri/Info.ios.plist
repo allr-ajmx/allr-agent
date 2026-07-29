@@ -4,10 +4,22 @@
   iOS bundle Info.plist extras. Tauri merges this file (picked up by convention
   from src-tauri/) into the generated iOS Info.plist. NSMicrophoneUsageDescription
   is required for mic access — accessing the mic without it crashes the app.
+
+  UIApplicationSceneManifest / UIApplicationSupportsMultipleScenes enables native
+  multi-window via UIScene (MJX-142): a chat session opens as its own scene —
+  side-by-side on iPad, replacing on iPhone. tao/wry supply the UISceneDelegate
+  programmatically, so only the "supports multiple scenes" flag is needed here; no
+  UISceneConfigurations entry. `app.supports_multiple_windows()` and tao's
+  scene-request path both read this key.
 -->
 <plist version="1.0">
 <dict>
   <key>NSMicrophoneUsageDescription</key>
   <string>Hermes uses the microphone for voice conversations.</string>
+  <key>UIApplicationSceneManifest</key>
+  <dict>
+    <key>UIApplicationSupportsMultipleScenes</key>
+    <true/>
+  </dict>
 </dict>
 </plist>
