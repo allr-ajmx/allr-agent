@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
@@ -6,7 +7,6 @@ import { useI18n } from '@/i18n'
 import { cn } from '@/lib/utils'
 import { useStore } from '@/store/atom'
 import { $commandMenuOpen, closeCommandMenu } from '@/store/command-menu'
-import { openAppRoute } from '@/store/windows'
 
 import { useNavItems } from './nav-items'
 
@@ -17,6 +17,7 @@ export function CommandMenu() {
   const open = useStore($commandMenuOpen)
   const { t } = useI18n()
   const navItems = useNavItems()
+  const navigate = useNavigate()
   const [query, setQuery] = useState('')
 
   // ⌘K is no longer bound here: it's the rebindable `nav.commandPalette` action,
@@ -26,9 +27,7 @@ export function CommandMenu() {
   const filtered = needle ? navItems.filter(item => item.label.toLowerCase().includes(needle)) : navItems
 
   const go = (path: string) => {
-    // Promote Settings / Command Center to their native activity on Android;
-    // everything else navigates in-app (openAppRoute decides).
-    openAppRoute(path)
+    navigate(path)
     setQuery('')
     closeCommandMenu()
   }

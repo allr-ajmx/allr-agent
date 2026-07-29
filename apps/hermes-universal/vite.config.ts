@@ -28,18 +28,12 @@ export default defineConfig({
     port: 5176,
     strictPort: true,
     hmr: host ? { protocol: 'ws', host, port: 5177 } : undefined,
-    // Never watch the Rust build tree or the generated mobile projects.
-    // `src-tauri/target` holds hundreds of thousands of build artifacts (every
-    // cross-compile arch — Android i686, aarch64, …), and Vite recursively
-    // watching it exhausts Linux's inotify watcher limit (ENOSPC). `src-tauri/gen`
-    // holds the generated Android/iOS projects: during `tauri android dev`,
-    // Gradle continuously rewrites files under `gen/android/build/` (e.g.
-    // `reports/problems/problems-report.html`), and Vite would see each write as a
-    // frontend change and fire a spurious full-page reload mid-build — resetting
-    // app state to a fresh boot. Both trees are generated and gitignored; Tauri
-    // already restarts the app on native changes, so the dev server has no reason
-    // to look in either.
-    watch: { ignored: ['**/src-tauri/target/**', '**/src-tauri/gen/**'] }
+    // Never watch the Rust build tree. `src-tauri/target` holds hundreds of
+    // thousands of build artifacts (every cross-compile arch — Android i686,
+    // aarch64, …), and Vite recursively watching it exhausts Linux's inotify
+    // watcher limit (ENOSPC). Tauri already restarts the app on Rust changes,
+    // so the frontend dev server has no reason to look in there.
+    watch: { ignored: ['**/src-tauri/target/**'] }
   },
   // Serves the PRODUCTION bundle from dist/. `npm run dev:prodweb` points the
   // Tauri dev shell here instead of at the dev server, so the Rust side stays in
