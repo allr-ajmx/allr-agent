@@ -53,8 +53,10 @@ class TestSkillViewRegistersPassthrough:
         # Set the env var so it's "available"
         monkeypatch.setenv("TENOR_API_KEY", "test-value-123")
 
-        # Patch the secret capture callback to not prompt
-        with patch("tools.skills_tool._secret_capture_callback", None):
+        # Patch the secret capture callback to not prompt. It resolves
+        # thread-local-first now (so concurrent gateway turns can't share one
+        # session's callback), hence patching the getter rather than a global.
+        with patch("tools.skills_tool.get_secret_capture_callback", return_value=None):
             from tools.skills_tool import skill_view
 
             result = json.loads(skill_view(name="test-skill"))
@@ -81,7 +83,7 @@ class TestSkillViewRegistersPassthrough:
         save_env_value("TENOR_API_KEY", "persisted-value-123")
         monkeypatch.delenv("TENOR_API_KEY", raising=False)
 
-        with patch("tools.skills_tool._secret_capture_callback", None):
+        with patch("tools.skills_tool.get_secret_capture_callback", return_value=None):
             from tools.skills_tool import skill_view
 
             result = json.loads(skill_view(name="test-skill"))
@@ -108,7 +110,7 @@ class TestSkillViewRegistersPassthrough:
         )
         monkeypatch.delenv("NONEXISTENT_SKILL_KEY_XYZ", raising=False)
 
-        with patch("tools.skills_tool._secret_capture_callback", None):
+        with patch("tools.skills_tool.get_secret_capture_callback", return_value=None):
             from tools.skills_tool import skill_view
 
             result = json.loads(skill_view(name="test-skill"))
@@ -123,7 +125,7 @@ class TestSkillViewRegistersPassthrough:
             "tools.skills_tool.SKILLS_DIR", tmp_path
         )
 
-        with patch("tools.skills_tool._secret_capture_callback", None):
+        with patch("tools.skills_tool.get_secret_capture_callback", return_value=None):
             from tools.skills_tool import skill_view
 
             result = json.loads(skill_view(name="simple-skill"))
