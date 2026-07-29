@@ -1,6 +1,8 @@
 import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 
+import { atom } from '@/store/atom'
+
 // SSH gateway bindings (MJX-55). The whole lifecycle — dial, host-key check,
 // auth, remote spawn, port forward — lives in Rust (src-tauri/src/ssh/); these
 // are the typed JS calls. Mirrors store/local-backend.ts.
@@ -204,3 +206,28 @@ export function onSshPrompt(attemptId: string, handler: (prompt: SshPromptEvent)
 export function onSshHostKey(attemptId: string, handler: (request: SshHostKeyEvent) => void): Promise<UnlistenFn> {
   return listen<SshHostKeyEvent>(`ssh://${attemptId}/host-key`, event => handler(event.payload))
 }
+
+/**
+ * Fires when a live tunnel dies unexpectedly.
+ *
+ * Keyed on the PROFILE SCOPE, not an attempt id, because it outlives the connect
+ * that created it. An ordinary `disconnectSsh` does NOT fire this — Rust only
+ * emits when the session dropped on its own.
+ *
+ * This matters because the WebSocket-level reconnect cannot recover from it: it
+ * re-dials `http://127.0.0.1:<ephemeral>`, and if the session is gone that port
+ * is dead forever, so the loop just backs off and spins.
+ */
+export function onSshDisconnected(profile: null | string | undefined, handler: () => void): Promise<UnlistenFn> {
+  return listen(`ssh://${profile ?? ''}/disconnected`, () => handler())
+}
+
+/**
+ * The step the current SSH connect is on, or null when none is running.
+ *
+ * An atom rather than a callback because the boot restore and the tunnel
+ * re-bootstrap both run without any UI holding their attempt id — the connecting
+ * screen has nothing to subscribe to otherwise, and a cold connect leaves it
+ * showing a motionless spinner for up to 90 seconds.
+ */
+export const $sshStep = atom<null | SshStep>(null)

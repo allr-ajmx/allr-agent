@@ -1,9 +1,11 @@
+import { sshStepLabel } from '@/app/gateway/ssh-copy'
 import { Button } from '@/components/ui/button'
 import { useI18n } from '@/i18n'
 import { Loader2 } from '@/lib/icons'
 import { useStore } from '@/store/atom'
 import { $connectionError } from '@/store/connection'
 import { cancelRestore, loadGatewayTarget } from '@/store/gateway-restore'
+import { $sshStep } from '@/store/ssh-backend'
 
 // Full-screen "reconnecting to the last gateway" screen (D8). Shown by
 // MobileController while the boot-time auto-connect dials, and while an in-session
@@ -57,6 +59,10 @@ export function GatewayConnectingScreen() {
   const { t } = useI18n()
   const g = t.settings.gateway
   const error = useStore($connectionError)
+  // An SSH connect spawns a process on the remote and waits for it to bind, which
+  // can take 45-90s. Without the step the screen is a motionless spinner for long
+  // enough to read as a hang.
+  const sshStep = useStore($sshStep)
 
   return (
     <main className="connect">
@@ -68,6 +74,10 @@ export function GatewayConnectingScreen() {
           <Loader2 className="size-4 animate-spin" />
           {g.reconnectingTo(targetLabel())}
         </div>
+
+        {sshStep ? (
+          <div className="mt-1 text-[0.8125rem] text-(--ui-text-secondary)">{sshStepLabel(sshStep, g)}</div>
+        ) : null}
 
         {error ? <div className="mt-1 text-[0.8125rem] text-destructive">{error}</div> : null}
 

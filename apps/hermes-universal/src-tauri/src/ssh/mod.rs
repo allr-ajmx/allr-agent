@@ -575,6 +575,43 @@ pub async fn ssh_disconnect(state: State<'_, SshState>, profile: Option<String>)
     Ok(())
 }
 
+/// How often the watchdog checks that a session is still up. Cheap — it reads a
+/// flag, it does not touch the network.
+const SESSION_WATCH_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Notice when a tunnel dies and tell the frontend.
+///
+/// This exists because a dead SSH tunnel is a failure mode the ordinary
+/// reconnect cannot recover from. The supervisor re-dials the WebSocket against
+/// `http://127.0.0.1:<ephemeral>`, but if the session is gone that port is dead
+/// forever — the loop just backs off to 30s and spins. And the tunnel dying is
+/// not exotic: sleep/wake, a NAT timeout, or Android reclaiming a backgrounded
+/// socket all do it.
+///
+/// Holds a `Weak`, not an `Arc`, for two reasons: it must not keep the session
+/// alive, and an ordinary `ssh_disconnect` must not look like a failure. When
+/// the app drops the session deliberately the upgrade fails and this exits
+/// quietly, so only an *unexpected* death emits.
+async fn watch_session(app: AppHandle, scope: String, session: std::sync::Weak<SshSession>) {
+    use tauri::Emitter;
+
+    loop {
+        tokio::time::sleep(SESSION_WATCH_INTERVAL).await;
+
+        let Some(session) = session.upgrade() else {
+            // Dropped on purpose. Nothing to report.
+            return;
+        };
+
+        if !session.is_alive() {
+            log::warn!("ssh: the session for scope {scope:?} died; the tunnel is gone");
+            let _ = app.emit(&format!("ssh://{scope}/disconnected"), ());
+
+            return;
+        }
+    }
+}
+
 /// 32 hex characters of randomness — the session token's shape.
 fn mint_token() -> String {
     let mut buf = [0u8; 32];
@@ -662,7 +699,11 @@ pub async fn ssh_connect(
                 let _ = previous.close().await;
             }
 
-            state.forwards.lock().await.insert(scope, forward);
+            state.forwards.lock().await.insert(scope.clone(), forward);
+
+            // Watch for the tunnel dying, which the WS-level reconnect cannot
+            // recover from on its own.
+            tokio::spawn(watch_session(app.clone(), scope, Arc::downgrade(&session)));
 
             Ok(connection)
         }

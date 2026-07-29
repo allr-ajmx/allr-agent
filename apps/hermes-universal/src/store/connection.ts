@@ -15,10 +15,18 @@ import { persistSessionCookies } from '@/lib/session-persist'
 import { atom } from '@/store/atom'
 import { $gatewayState, closeGateway, connectGateway } from '@/store/gateway'
 import { chooseGatedAuth, type Connection } from '@/store/gateway-config'
-import { saveGatewayTarget, savePendingOAuth } from '@/store/gateway-restore'
+import { loadGatewayTarget, saveGatewayTarget, savePendingOAuth } from '@/store/gateway-restore'
 import { getInstallationId } from '@/store/installation-id'
 import { spawnLocalBackend, stopLocalBackend } from '@/store/local-backend'
-import { connectSshBackend, disconnectSsh, newAttemptId, type SshConnectConfig } from '@/store/ssh-backend'
+import {
+  $sshStep,
+  connectSshBackend,
+  disconnectSsh,
+  newAttemptId,
+  onSshDisconnected,
+  onSshProgress,
+  type SshConnectConfig
+} from '@/store/ssh-backend'
 import { httpRequest } from '@/transport/http'
 
 // AuthMode / Connection are now defined in store/gateway-config (the reconciled
@@ -276,6 +284,13 @@ export async function connectSsh(
   const attemptId = options.attemptId ?? newAttemptId()
   const profile = target.profile ?? null
 
+  // Publish progress for surfaces that never see the attempt id — the connecting
+  // screen during a boot restore, and the tunnel re-bootstrap. Subscribed before
+  // the invoke so no step is missed.
+  const unlistenProgress = await onSshProgress(attemptId, progress => $sshStep.set(progress.step)).catch(
+    () => null
+  )
+
   try {
     // Secrets come from the keyring, never from the saved target.
     const [installationId, sshSecrets, saved] = await Promise.all([
@@ -315,6 +330,7 @@ export async function connectSsh(
     // Persist the token so the NEXT launch can reattach rather than respawn.
     await saveSecrets({ token: backend.token })
     saveGatewayTarget({ mode: 'ssh', profile, ssh: target })
+    await watchSshTunnel(profile)
   } catch (err) {
     // Drop the tunnel so a failed connect does not leave one open. The remote
     // backend is deliberately left alone — Rust already reaped it if the failure
@@ -324,6 +340,9 @@ export async function connectSsh(
     $connectionPhase.set('error')
     $connection.set(null)
     throw err
+  } finally {
+    unlistenProgress?.()
+    $sshStep.set(null)
   }
 }
 
@@ -391,6 +410,7 @@ export function disconnect(): void {
   // (it is detached) so the next connect reattaches instead of paying a full
   // spawn — matching desktop.
   if (conn?.mode === 'ssh') {
+    stopWatchingSshTunnel()
     void disconnectSsh(conn.profile ?? null).catch(() => {})
   }
 
@@ -419,6 +439,75 @@ export async function signOut(): Promise<void> {
 
   await forgetSavedLogin().catch(() => {})
   disconnect()
+}
+
+
+// --------------------------------------------------------------------------
+// SSH tunnel watchdog
+// --------------------------------------------------------------------------
+// The reconnect supervisor below re-opens the WEBSOCKET. That is enough for a
+// dropped socket, but not for a dropped SSH SESSION: the baseUrl points at a
+// local ephemeral port that only exists while the tunnel does, so once the
+// session dies the supervisor re-dials a port nothing is listening on, backs off
+// to 30s, and spins forever.
+//
+// Rust tells us when that happens. The fix is a full re-bootstrap rather than a
+// re-dial — and because the remote backend was left running deliberately, that
+// bootstrap hits the REUSE path (lockfile + /api/ssh/ownership proof) and
+// reattaches in about two seconds instead of respawning.
+
+let sshWatcher: null | (() => void) = null
+
+async function watchSshTunnel(profile: null | string): Promise<void> {
+  sshWatcher?.()
+  sshWatcher = null
+
+  const unlisten = await onSshDisconnected(profile, () => {
+    // A deliberate disconnect does not emit this, but the user may have torn the
+    // connection down between the event firing and it arriving.
+    if (intentionalClose || $connection.get()?.mode !== 'ssh') {
+      return
+    }
+
+    void rebootstrapSsh(profile)
+  }).catch(() => null)
+
+  if (unlisten) {
+    sshWatcher = unlisten
+  }
+}
+
+/** Stop watching (a deliberate disconnect, or a switch to another mode). */
+function stopWatchingSshTunnel(): void {
+  sshWatcher?.()
+  sshWatcher = null
+}
+
+let rebootstrapping = false
+
+async function rebootstrapSsh(profile: null | string): Promise<void> {
+  if (rebootstrapping) {
+    return
+  }
+
+  rebootstrapping = true
+
+  try {
+    const target = loadGatewayTarget()
+
+    if (!target?.ssh?.host) {
+      return
+    }
+
+    // Non-interactive: this fires on its own schedule, with no user waiting on a
+    // dialog. Keyring-held credentials are all it gets.
+    await connectSsh({ ...target.ssh, profile }, { interactive: false })
+  } catch {
+    // connectSsh already set $connectionError + phase; the connecting screen
+    // surfaces it and the ordinary supervisor keeps retrying the socket.
+  } finally {
+    rebootstrapping = false
+  }
 }
 
 // --------------------------------------------------------------------------
@@ -478,6 +567,19 @@ async function runReconnectLoop(): Promise<void> {
     $connectionPhase.set('connecting')
 
     try {
+      // For ssh, re-dialling the socket is pointless if the tunnel is what died —
+      // the port is gone with it. Re-bootstrap instead; it reattaches to the
+      // still-running remote backend through the reuse path.
+      if (conn.mode === 'ssh') {
+        await rebootstrapSsh(conn.profile ?? null)
+
+        if ($connectionPhase.get() === 'ready') {
+          break
+        }
+
+        throw new Error('SSH re-bootstrap did not reach a live connection')
+      }
+
       await connectGateway(conn)
 
       if (intentionalClose || !$connection.get()) {

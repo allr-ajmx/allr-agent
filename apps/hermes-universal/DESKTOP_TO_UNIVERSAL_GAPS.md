@@ -69,7 +69,8 @@ Status after MJX-103 (`FIXME(chat-port)` 14 → 9 remaining; `FIXME(K4)` resolve
 
 - **Self-updater** (K12) — "no client self-updater by design" (version → Command Center system panel).
 - **Uninstall** (J15) and **Computer-use panel** (J12) — no mobile analog.
-- **Remote / SSH terminal backend** (`terminal-backend-panel`, `ssh-host-selection`; K15) — impractical on Android; local PTY already works on desktop.
+- **SSH _terminal_ backend** (`terminal-backend-panel`, `ssh-host-selection`; K15) — impractical on Android; local PTY already works on desktop.
+  Note: the SSH **gateway mode** is a different feature and is now IN — see MJX-55 / `src-tauri/src/ssh/`. Only the terminal backend remains out.
 - **Deep-link** (`hermes://`, R13), **biometric** (`FIXME(D)`) — intentionally deferred/dropped.
 - Android-only cloud/oauth gaps: `FIXME(E4)`, `FIXME(D3)`, `FIXME(D7)`, `FIXME(E3)`.
 

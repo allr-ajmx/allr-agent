@@ -622,12 +622,46 @@ device-unverified (see the D/E handoff above).
   with capped backoff via `connectGateway` (fresh ws-ticket each attempt), re-driving OAuth/silent-SSO on an
   expired session; `connectCloud` gains the same reauth retry as `connect()`. `ae1452f04`
 
+- **SSH gateway mode (MJX-55)** — a fourth gateway mode: dial a remote host over SSH, spawn (or reattach to)
+  `hermes serve` there, and forward a loopback port to it, so the rest of the app just sees a token-authed
+  backend on 127.0.0.1. Ported from desktop's Electron implementation, with three structural differences:
+  - **Pure-Rust `russh`, not the system `ssh` binary.** Desktop shells out, which buys it `~/.ssh/config`,
+    ssh-agent, ProxyJump and hardware keys for free but confines the feature to machines that have an `ssh`.
+    Speaking SSH ourselves makes SSH mode work on **Android and iOS**, which is the point — at the cost of
+    implementing config parsing, `known_hosts` TOFU and the agent protocol by hand (`src-tauri/src/ssh/`).
+  - **No ControlMaster.** A `russh::client::Handle` in memory *is* the multiplexed connection, so the control
+    socket, the 104-byte `sun_path` dance, `-O check/forward/exit`, stale-master eviction, and the Windows
+    no-mux fallback all vanish. Owning the listener also removes desktop's `pickLocalPort` bind race and its
+    retry loop.
+  - **We can prompt.** Desktop ran `ssh` with `BatchMode=yes`, so a passphrase-protected key outside an agent
+    was a hard failure. Passphrase, password and keyboard-interactive auth are now reachable; the boot restore
+    still uses `NoPrompter` so it can never block on a dialog nobody is there to answer.
+
+  Remote **Windows** hosts are supported through the same lifecycle, driven by `hermes_cli.windows_ssh_runtime`.
+  A remote backend is reused across launches via a lockfile plus an authenticated `/api/ssh/ownership` nonce
+  proof — pid liveness alone is explicitly not enough.
+
+  **Manual test matrix** (needs a real host; none of it is covered by unit tests):
+  Linux + agent auth · macOS (no `setsid`, falls back to `nohup`) · a **Windows remote host** · a
+  passphrase-protected key with no agent · a **changed host key** (must fail closed) · **reuse** (connect →
+  kill the app → reconnect ⇒ `reused: true`) · an Android build dialing a real host.
+
 ### Deliberately NOT done (backend-gated / out of app scope)
+- **ProxyJump / ProxyCommand for SSH mode** — `ssh/config.rs` parses and *reports* them rather than honouring
+  them, and `resolve_target` refuses to connect when either is set. Silently connecting direct to a host the
+  user expects to reach through a bastion is a wrong-host bug, not a missing feature. `russh`'s
+  `Channel::into_stream()` + `client::connect_stream()` make the real thing feasible as a follow-up.
+- **`Match` blocks in `~/.ssh/config`** — parsed and surfaced as unsupported in the settings form, for the same
+  reason: a silent divergence from the user's own `ssh` is the bad failure mode.
+- **Soft gateway switch for SSH** — out of scope for MJX-55 by decision. Until it lands, changing gateway mode
+  leaves stale session/cron/messaging/unread lists from the previous gateway on screen.
 - **Per-profile chat on a shared remote/cloud gateway** — the gateway WS (`tui_gateway/ws.py handle_ws`)
   ignores `profile`, so a shared gateway can't run the agent as a different profile. Local mode sidesteps this
   by respawning per profile (desktop's model). Remote/cloud profile switching re-scopes REST only, and the UI
   says so. True shared-gateway chat-profile needs a **backend WS-scoping change**.
 - **`FIXME(D7)`** — reconnect re-opens the socket but does not respawn a local backend whose process actually
-  died, nor replay an interrupted streaming turn.
+  died, nor replay an interrupted streaming turn. **SSH is now exempt from the first half**: a dead tunnel is
+  detected by a Rust watchdog (`ssh://{scope}/disconnected`) and recovered by a full re-bootstrap, which hits
+  the reuse path and reattaches to the still-running remote backend rather than respawning it.
 - **`FIXME(E4)` (Android cloud)**, **`FIXME(D3)` (mobile multi-webview)**, **deep-link / R13** — unchanged from
   the D/E handoff.
