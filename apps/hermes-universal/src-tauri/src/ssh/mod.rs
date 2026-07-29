@@ -24,7 +24,23 @@
 //! reason we do not shell out to the system `ssh` binary — see the `russh`
 //! dependency comment in Cargo.toml.
 //!
-//! Phase 0: dependency de-risk only. The real modules land in later phases.
+//! Phase 1: the pure, I/O-free half — command construction, parsing and
+//! validation, all unit-testable without a host. The modules that actually open
+//! a session (`session`, `auth`, `known_hosts`, `forward`) land next.
+
+// This half has no callers yet — `session`/`auth`/`forward` and the Tauri
+// commands that consume it land in the next phases. Without this, every item
+// below is reported as dead code and the real warnings drown. Remove once the
+// commands are wired.
+#![allow(dead_code)]
+
+pub mod config;
+pub mod error;
+pub mod ownership;
+pub mod posix_lifecycle;
+pub mod remote_paths;
+pub mod target;
+pub mod windows_lifecycle;
 
 #[cfg(test)]
 mod tests {
