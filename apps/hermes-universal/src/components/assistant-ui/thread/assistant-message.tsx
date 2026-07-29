@@ -28,7 +28,7 @@ import { GitBranchIcon, Loader2Icon, Volume2Icon, VolumeXIcon, XIcon } from '@/l
 import { cn } from '@/lib/utils'
 import { playSpeechText, stopVoicePlayback } from '@/lib/voice-playback'
 import { notifyError } from '@/store/notifications'
-import { newSession } from '@/store/session'
+import { branchCurrentSession } from '@/store/session'
 import { $voicePlayback } from '@/store/voice-playback'
 
 interface MessageActionProps {
@@ -117,9 +117,9 @@ const AssistantActionBar: FC<MessageActionProps> = ({ messageId, getMessageText,
   const copy = t.assistant.thread
   const [menuOpen, setMenuOpen] = useState(false)
 
-  // Lean approximation of desktop's "branch in new chat": start a fresh session.
-  // FIXME(chat-port): true branch/fork needs the incremental runtime (blocked).
-  const branchInNewChat = onBranchInNewChat ?? (() => newSession())
+  // Fork this message's turn into its own chat (same path as `/branch`), unless
+  // the host supplied its own handler.
+  const branchInNewChat = onBranchInNewChat ?? ((id: string) => void branchCurrentSession(id))
 
   return (
     <div className="relative flex w-full shrink-0 justify-end">

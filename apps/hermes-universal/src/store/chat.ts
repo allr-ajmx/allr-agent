@@ -11,7 +11,8 @@ import { atom, computed } from '@/store/atom'
 import { cwdForNewSession } from '@/store/default-project-dir'
 import { requestGateway } from '@/store/gateway'
 import { dispatchNativeNotification } from '@/store/native-notifications'
-import { notifyError } from '@/store/notifications'
+import { clearNotifications, notifyError } from '@/store/notifications'
+import { clearPreviewArtifacts } from '@/store/preview-status'
 import { flashPetActivity, setPetActivity } from '@/store/pet'
 import { $subagentsBySession, upsertSubagent } from '@/store/subagents'
 import { recordToolDiff } from '@/store/tool-diffs'
@@ -59,10 +60,19 @@ export interface ApprovalRequest {
   command: string
   description: string
   allowPermanent: boolean
+  // Gateway-restricted choice set (e.g. a tirith warning drops `always`), and the
+  // smart-deny flag that implies `['once', 'deny']`. Both optional — the backend
+  // omits them on a plain approval. Mirrors desktop's ApprovalRequest.
+  choices?: string[]
+  smartDenied?: boolean
 }
 export interface ClarifyRequest {
   requestId: string
-  prompt: string
+  question: string
+  // Up to 4 predefined answers (tools/clarify_tool.py); null for an open-ended
+  // question. The inline ClarifyTool reads BOTH fields from here — `tool.start`
+  // ships no args, so the event payload is the only source for the panel.
+  choices: string[] | null
 }
 // Sudo is a password-entry flow (not an allow/deny choice).
 export interface SudoRequest {
@@ -140,6 +150,11 @@ export function setCurrentCwd(cwd: null | string | undefined): void {
 // Mirrors desktop's session-store $turnStartedAt/$sessionStartedAt/$currentUsage,
 // wired here since chat.ts owns the turn lifecycle. The statusbar reads these for
 // its running-timer, session-timer, and context-usage items.
+// Rotates the empty-state tagline (components/chat/intro.tsx): bumped on every
+// new chat so a fresh thread greets differently. Desktop's $introSeed, set from
+// its new-chat action; universal has one reset path, so it lives with it.
+export const $introSeed = atom<number>(0)
+
 const EMPTY_USAGE: UsageStats = { calls: 0, input: 0, output: 0, total: 0 }
 export const $turnStartedAt = atom<number | null>(null)
 export const $sessionStartedAt = atom<number | null>(null)
@@ -182,6 +197,15 @@ export function coerceText(value: unknown): string {
   }
 
   return ''
+}
+
+/** A payload's string list (clarify / approval `choices`), or null when absent. */
+export function coerceStringList(value: unknown): string[] | null {
+  if (!Array.isArray(value)) {
+    return null
+  }
+
+  return value.filter((item): item is string => typeof item === 'string')
 }
 
 function update(fn: (messages: ChatMessage[]) => ChatMessage[]): void {
@@ -324,6 +348,114 @@ export function applySettledReasoning(parts: ChatPart[], text: string): ChatPart
   }
 
   return [...parts, { type: 'reasoning', text }]
+}
+
+// Gateway/provider failures sometimes arrive as `message.complete` text instead
+// of an `error` event. Treat matches as inline assistant errors (desktop
+// use-message-stream/utils.ts `completionErrorText`).
+const COMPLETION_ERROR_PATTERNS = [
+  /^API call failed after \d+ retries:/i,
+  /^HTTP\s+\d{3}\b/i,
+  /^(Provider|Gateway)\s+error:/i
+]
+
+function completionErrorText(finalText: string): null | string {
+  return finalText && COMPLETION_ERROR_PATTERNS.some(re => re.test(finalText)) ? finalText : null
+}
+
+const normalizeForCompare = (value: string): string => value.replace(/\s+/g, ' ').trim()
+
+/** Concatenated text parts. Local (not lib/chat-messages) to keep this module
+ *  importable from there without a runtime cycle. */
+const messageText = (message: ChatMessage): string =>
+  message.parts.map(part => (part.type === 'text' ? part.text : '')).join('')
+
+/**
+ * Settle a turn's parts against the authoritative `final_response` the gateway
+ * ships on `message.complete` (tui_gateway/server.py).
+ *
+ * The reply does NOT always arrive as `message.delta`: providers that only
+ * stream their reasoning channel deliver the answer whole at the end, so the
+ * live transcript showed the response inside a "Thinking" disclosure and no
+ * prose at all — correct only after a reload, which re-reads the stored
+ * transcript. Desktop settles this in `completeAssistantMessage`; universal
+ * never applied the final text.
+ *
+ * Divergence from desktop, both deliberate: desktop replaces *every* text part
+ * with one final part appended at the end, which reorders tool-interleaved
+ * prose and drops it entirely when the completion carries no text (an
+ * interrupted turn's partial). Here the final text only lands where it can't
+ * lose anything — no text part yet, or exactly one to overwrite in place.
+ */
+function finalizeParts(parts: ChatPart[], finalText: string): ChatPart[] {
+  const reference = normalizeForCompare(finalText)
+
+  // Drop a thinking block that IS the answer (the streamed-as-reasoning case).
+  // Prefix either way: the reasoning channel may carry a capped prefix, or the
+  // full text the gateway then repeats verbatim.
+  const kept = parts.filter(part => {
+    if (part.type !== 'reasoning') {
+      return true
+    }
+
+    const text = normalizeForCompare(part.text)
+
+    return !(text && (reference.startsWith(text) || text.startsWith(reference)))
+  })
+
+  const textIndexes = kept.reduce<number[]>((acc, part, index) => (part.type === 'text' ? [...acc, index] : acc), [])
+
+  if (textIndexes.length === 0) {
+    return [...kept, { type: 'text', text: finalText }]
+  }
+
+  // One text part = one streamed answer: overwrite in place so the final text
+  // completes a truncated stream without moving it past the tool rows.
+  if (textIndexes.length === 1) {
+    const copy = kept.slice()
+    copy[textIndexes[0]] = { type: 'text', text: finalText }
+
+    return copy
+  }
+
+  // Tool-interleaved prose: the completion text maps to one of several parts and
+  // we can't tell which, so leave the streamed transcript alone.
+  return kept
+}
+
+function applyCompletion(messages: ChatMessage[], finalText: string): ChatMessage[] {
+  const error = completionErrorText(finalText)
+
+  const settle = (message: ChatMessage): ChatMessage =>
+    error
+      ? { ...message, error, parts: message.parts.filter(part => part.type !== 'text'), pending: false }
+      : { ...message, parts: finalizeParts(message.parts, finalText), pending: false }
+
+  // An empty completion carries no authority (an interrupted turn reports no
+  // final response) — settle whatever streamed instead of erasing it.
+  if (!finalText) {
+    return messages.map(message => (message.pending ? { ...message, pending: false } : message))
+  }
+
+  let index = -1
+
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === 'assistant') {
+      index = i
+
+      break
+    }
+  }
+
+  const existing = index === -1 ? null : messages[index]
+
+  // A settled assistant that already says exactly this is the same turn arriving
+  // twice (a trailing completion); anything else is a new reply with no bubble.
+  if (existing && (existing.pending || messageText(existing).trim() === finalText)) {
+    return messages.map((message, i) => (i === index ? settle(message) : message))
+  }
+
+  return [...messages, settle(newAssistant())]
 }
 
 // Route a tool event into the transcript. While a turn is live the parts land on
@@ -478,7 +610,11 @@ export function handleGatewayEvent(event: GatewayEvent): void {
       $statusLine.set('')
       setPetActivity({ busy: false, reasoning: false, toolRunning: false }) // pet: back to idle/roam
       void refreshCurrentUsage()
-      update(messages => messages.map(m => (m.pending ? { ...m, pending: false } : m)))
+      // `text` is the turn's final_response; `rendered` is its ANSI/markdown
+      // render (desktop reads the same pair).
+      update(messages =>
+        applyCompletion(messages, (coerceText(payload.text) || coerceText(payload.rendered)).trim())
+      )
 
       // Auto-TTS is driven by `useAutoSpeakReplies` (guarded against a running
       // voice conversation + the shared dedupe cursor). Reading it here too would
@@ -504,7 +640,10 @@ export function handleGatewayEvent(event: GatewayEvent): void {
       $approval.set({
         command: coerceText(payload.command),
         description: coerceText(payload.description) || 'dangerous command',
-        allowPermanent: payload.allow_permanent !== false
+        // false only when a tirith warning forbids it; backend omits the field otherwise.
+        allowPermanent: payload.allow_permanent !== false,
+        choices: coerceStringList(payload.choices) ?? undefined,
+        smartDenied: payload.smart_denied === true
       })
       setPetActivity({ awaitingInput: true }) // pet: waiting pose (blocked on user)
       void triggerHaptic('warning')
@@ -516,15 +655,28 @@ export function handleGatewayEvent(event: GatewayEvent): void {
       })
 
       break
+    case 'clarify.request': {
+      // The Python side is blocked on `clarify.respond` (tools/clarify_tool.py +
+      // tui_gateway/server.py `_block`), so dropping this event hangs the agent
+      // until its timeout. The gateway sends `question` + `choices` — NOT
+      // `prompt`; the other keys are tolerated only as a fallback.
+      const requestId = coerceText(payload.request_id)
+      const question = coerceText(payload.question) || coerceText(payload.prompt) || coerceText(payload.message)
 
-    case 'clarify.request':
-      $clarify.set({
-        requestId: coerceText(payload.request_id),
-        prompt: coerceText(payload.prompt) || coerceText(payload.message)
-      })
-      setPetActivity({ awaitingInput: true }) // pet: waiting pose (blocked on user)
+      if (requestId && question) {
+        $clarify.set({ requestId, question, choices: coerceStringList(payload.choices) })
+        setPetActivity({ awaitingInput: true }) // pet: waiting pose (blocked on user)
+        void triggerHaptic('warning')
+        dispatchNativeNotification({
+          kind: 'input',
+          title: translateNow('notifications.native.inputTitle'),
+          body: question,
+          sessionId: $sessionId.get()
+        })
+      }
 
       break
+    }
 
     case 'sudo.request':
       $sudo.set({
@@ -657,6 +809,21 @@ export async function ensureSession(): Promise<{ id: string; storedId: string }>
   return { id, storedId: created.stored_session_id ?? id }
 }
 
+/**
+ * Append a client-side system line to the transcript. Slash output rides this
+ * (wrapped by `slashStatusText` into the `slash:<cmd>` envelope the
+ * SystemMessage chip parses); nothing else emits system messages today.
+ */
+export function appendSystemMessage(text: string): void {
+  const body = text.trim()
+
+  if (!body) {
+    return
+  }
+
+  update(messages => [...messages, { id: nextId(), role: 'system', parts: [{ type: 'text', text: body }] }])
+}
+
 export async function sendPrompt(text: string): Promise<void> {
   const trimmed = text.trim()
 
@@ -694,6 +861,170 @@ export async function sendPrompt(text: string): Promise<void> {
   }
 }
 
+/** How the transcript should be rewound to re-run an edited prompt. */
+export interface EditPlan {
+  editedMessage: ChatMessage
+  /** The original turn errored before reaching the gateway, so there is nothing
+   *  to truncate — resubmit plainly instead (a truncate would 422). */
+  isFailedTurn: boolean
+  sourceIndex: number
+  text: string
+  truncateOrdinal?: number
+}
+
+/**
+ * Resolve an edit of `sourceId` to `rawText` against the current transcript.
+ * Returns null when the edit is a no-op (same text) or the target isn't a user
+ * turn. Ported from desktop's `planEdit` (use-prompt-actions/rewind.ts).
+ */
+export function planEdit(messages: ChatMessage[], sourceId: string, rawText: string): EditPlan | null {
+  const text = rawText.trim()
+  const sourceIndex = messages.findIndex(message => message.id === sourceId)
+  const source = messages[sourceIndex]
+
+  if (!text || !source || source.role !== 'user') {
+    return null
+  }
+
+  const currentText = source.parts
+    .map(part => (part.type === 'text' ? part.text : ''))
+    .join('')
+    .trim()
+
+  if (currentText === text) {
+    return null
+  }
+
+  const nextMessage = messages[sourceIndex + 1]
+  const isFailedTurn = nextMessage?.role === 'assistant' && Boolean(nextMessage.error)
+
+  // The backend truncates by USER-turn ordinal, so count only the user turns
+  // ahead of this one.
+  const truncateOrdinal = messages.slice(0, sourceIndex).filter(message => message.role === 'user').length
+
+  return {
+    editedMessage: { ...source, parts: [{ type: 'text', text }], error: undefined, pending: false },
+    isFailedTurn,
+    sourceIndex,
+    text,
+    truncateOrdinal: isFailedTurn ? undefined : truncateOrdinal
+  }
+}
+
+const isSessionBusyError = (error: unknown): boolean =>
+  /session busy/i.test(error instanceof Error ? error.message : String(error))
+
+const isStaleTargetError = (error: unknown): boolean =>
+  /no longer in session history|not in session history/i.test(
+    error instanceof Error ? error.message : String(error)
+  )
+
+/**
+ * Rewind a turn: `prompt.submit` with an optional `truncate_before_user_ordinal`
+ * (drops that user turn + everything after). Idle rewinds submit directly —
+ * interrupting an idle agent can leave a stale interrupt flag that cancels the
+ * fresh turn; live turns interrupt first, and a raced "session busy" response
+ * interrupts + retries. Ported from desktop's `runRewindSubmit`.
+ */
+async function runRewindSubmit(
+  sessionId: string,
+  text: string,
+  truncateOrdinal: number | undefined,
+  interruptFirst: boolean
+): Promise<void> {
+  const interrupt = async () => {
+    try {
+      await requestGateway('session.interrupt', { session_id: sessionId })
+    } catch {
+      // Best-effort. The submit path still gates on the gateway state.
+    }
+  }
+
+  const submit = () =>
+    requestGateway(
+      'prompt.submit',
+      {
+        session_id: sessionId,
+        text,
+        ...(truncateOrdinal !== undefined && { truncate_before_user_ordinal: truncateOrdinal })
+      },
+      PROMPT_SUBMIT_TIMEOUT_MS
+    )
+
+  if (interruptFirst) {
+    await interrupt()
+  }
+
+  try {
+    await submit()
+  } catch (err) {
+    if (!isSessionBusyError(err)) {
+      throw err
+    }
+
+    await interrupt()
+    await submit()
+  }
+}
+
+/**
+ * Send an edited prompt: rewind the transcript to that turn and re-run it with
+ * the new text. Optimistically truncates everything after the edited message so
+ * the abandoned replies disappear immediately, and rolls the whole transcript
+ * back if the gateway rejects. Ported from desktop's `editMessage`.
+ */
+export async function submitEditedPrompt(sourceId: string, rawText: string): Promise<void> {
+  const sessionId = $sessionId.get()
+  const messages = $messages.get()
+  const plan = sessionId ? planEdit(messages, sourceId, rawText) : null
+
+  if (!sessionId || !plan) {
+    return
+  }
+
+  // The turns being discarded belong to an abandoned timeline: silence any TTS
+  // reading them, drop their toasts, and clear the preview artifacts they
+  // produced before the re-run repopulates. Desktop also clears todos and
+  // background rows here (use-prompt-actions/index.ts); universal needs neither
+  // — todos are derived from the transcript (lib/todos.ts `latestSessionTodos`),
+  // so the truncation below drops them, and store/composer-status.ts is a
+  // presence-only stub with no background rows to reset.
+  stopSpeaking()
+  clearNotifications()
+  clearPreviewArtifacts(sessionId)
+
+  const wasBusy = $busy.get()
+
+  $messages.set([...messages.slice(0, plan.sourceIndex), plan.editedMessage])
+  $busy.set(true)
+  $turnStartedAt.set(Date.now())
+  $statusLine.set('')
+
+  try {
+    await runRewindSubmit(sessionId, plan.text, plan.truncateOrdinal, wasBusy)
+  } catch (err) {
+    // The target turn moved under us (e.g. auto-compression rotated the
+    // history). We already interrupted, so land the text as a plain resend.
+    if (!plan.isFailedTurn && isStaleTargetError(err)) {
+      try {
+        await runRewindSubmit(sessionId, plan.text, undefined, false)
+
+        return
+      } catch {
+        // Fall through to the rollback below with the original error.
+      }
+    }
+
+    // Restore the pre-edit transcript so the UI matches what's persisted
+    // instead of stranding a partial timeline.
+    $messages.set(messages)
+    $busy.set(false)
+    $turnStartedAt.set(null)
+    $statusLine.set(err instanceof Error ? err.message : String(err))
+    notifyError(err, translateNow('desktop.editFailed'))
+  }
+}
+
 export async function respondApproval(choice: ApprovalChoice): Promise<void> {
   const sessionId = $sessionId.get()
   $approval.set(null)
@@ -706,19 +1037,24 @@ export async function respondApproval(choice: ApprovalChoice): Promise<void> {
   }
 }
 
+/** Answer the pending clarify. Unlike the other prompt responders this does NOT
+ *  clear optimistically: the inline panel keeps the question on screen and
+ *  surfaces the error if the send fails, so the user can retry instead of losing
+ *  the (still-blocked) prompt. Throws on failure. */
 export async function respondClarify(answer: string): Promise<void> {
   const req = $clarify.get()
-  $clarify.set(null)
-  setPetActivity({ awaitingInput: false })
 
   if (!req) {
     return
   }
 
-  try {
-    await requestGateway('clarify.respond', { request_id: req.requestId, answer })
-  } catch {
-    /* turn may have moved on */
+  await requestGateway('clarify.respond', { request_id: req.requestId, answer })
+
+  // Only drop the request once the gateway has it; `tool.complete` lands next
+  // and swaps the inline panel to its settled Q&A view.
+  if ($clarify.get()?.requestId === req.requestId) {
+    $clarify.set(null)
+    setPetActivity({ awaitingInput: false })
   }
 }
 
@@ -772,5 +1108,6 @@ export function resetChat(): void {
   $secret.set(null)
   $subagentsBySession.set({})
   setPetActivity({}) // pet: clear any stale activity on chat teardown
+  $introSeed.set($introSeed.get() + 1)
   stopSpeaking()
 }

@@ -1,3 +1,4 @@
+import { COMMAND_CENTER_ROUTE } from '@/app/routes'
 import {
   deleteSession,
   getSessionMessages,
@@ -7,6 +8,9 @@ import {
   searchSessions,
   setSessionArchived
 } from '@/hermes'
+import { translateNow } from '@/i18n'
+import { chatMessageText } from '@/lib/chat-messages'
+import { navigateTo } from '@/lib/route-nav'
 import { appendLiveSessionProjection, toChatMessages } from '@/lib/session-history'
 import { stableArray } from '@/lib/stable-array'
 import { atom, computed } from '@/store/atom'
@@ -17,15 +21,21 @@ import {
   $messages,
   $sessionId,
   $statusLine,
+  type ChatMessage,
   resetChat,
   setCurrentCwd
 } from '@/store/chat'
 import { requestGateway } from '@/store/gateway'
 import { $pinnedSessionIds, pinSession, unpinSession } from '@/store/layout'
-import { notifyError } from '@/store/notifications'
+import { notify, notifyError } from '@/store/notifications'
 import { flashPetActivity } from '@/store/pet'
 import { $sessionStates } from '@/store/session-state-types'
-import type { SessionInfo, SessionResumeResponse, SessionSearchResult } from '@/types/hermes'
+import type {
+  SessionCreateResponse,
+  SessionInfo,
+  SessionResumeResponse,
+  SessionSearchResult
+} from '@/types/hermes'
 
 // Session history + switching (Hc2). Lean adaptation of desktop store/session.ts —
 // no windows/projects/pins/profiles/branch/cwd/model. Two ids: the STORED id
@@ -411,12 +421,153 @@ export function registerNewSession(id: string, firstMessage: string): void {
   $activeStoredSessionId.set(id)
 }
 
-// STUB — the ported composer's `/resume` slash directive opens desktop's session
-// picker overlay. Universal has no such overlay yet, so this is a no-op kept for
-// import-site parity (composer-utils session-picker action). FLAG(chat-port).
-export function setSessionPickerOpen(_open: boolean): void {
-  /* no-op: session picker overlay not ported */
+/** The copyable spine of a branch: user/assistant turns that carry text.
+ *  Ported from desktop's use-session-actions/utils.ts `toBranchMessages`. */
+function toBranchMessages(messages: ChatMessage[]): { content: string; role: ChatMessage['role']; source: ChatMessage }[] {
+  return messages
+    .map(message => ({ content: chatMessageText(message), role: message.role, source: message }))
+    .filter(({ content, role }) => content.trim() && (role === 'assistant' || role === 'user'))
 }
+
+/**
+ * Fork the open chat off its live transcript — `/branch` (aliases `/fork`) and
+ * the assistant message's "branch in new chat". Ported from desktop's
+ * `branchCurrentSession` + `forkBranch`: the copied turns are handed to
+ * `session.create` (which auto-names the branch from its parent's lineage), so
+ * the new chat opens pre-seeded instead of empty. Without `messageId` it forks
+ * from the last user/assistant turn.
+ */
+export async function branchCurrentSession(messageId?: string): Promise<boolean> {
+  if (!$sessionId.get()) {
+    notify({
+      kind: 'warning',
+      title: translateNow('desktop.nothingToBranch'),
+      message: translateNow('desktop.branchNeedsChat')
+    })
+
+    return false
+  }
+
+  if ($busy.get()) {
+    notify({
+      kind: 'warning',
+      title: translateNow('desktop.sessionBusy'),
+      message: translateNow('desktop.branchStopCurrent')
+    })
+
+    return false
+  }
+
+  const messages = $messages.get()
+
+  // findLastIndex is ES2023; this project's lib target predates it, so scan back.
+  const lastTurnIndex = (): number => {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const role = messages[index].role
+
+      if (role === 'assistant' || role === 'user') {
+        return index
+      }
+    }
+
+    return -1
+  }
+
+  const at = messageId ? messages.findIndex(message => message.id === messageId) : lastTurnIndex()
+
+  // An explicit target that can't be resolved must NOT silently degrade into
+  // "branch the last turn" — that forks the wrong conversation. (This is what
+  // the missing id passthrough in app/chat/runtime.tsx used to cause.)
+  if (messageId && at < 0) {
+    notify({
+      kind: 'warning',
+      title: translateNow('desktop.nothingToBranch'),
+      message: translateNow('desktop.branchNoText')
+    })
+
+    return false
+  }
+
+  const start = at >= 0 ? at : Math.max(messages.length - 1, 0)
+  const end = at >= 0 ? at + 1 : messages.length
+  const branchMessages = toBranchMessages(messages.slice(start, end))
+
+  if (!branchMessages.length) {
+    notify({
+      kind: 'warning',
+      title: translateNow('desktop.nothingToBranch'),
+      message: translateNow('desktop.branchNoText')
+    })
+
+    return false
+  }
+
+  const parentStoredId = $activeStoredSessionId.get()
+  const cwd = $currentCwd.get().trim()
+
+  try {
+    // No title: the backend auto-names the branch from its parent's lineage.
+    const branched = await requestGateway<SessionCreateResponse>('session.create', {
+      cols: 96,
+      ...(cwd && { cwd }),
+      messages: branchMessages.map(({ content, role }) => ({ content, role })),
+      ...(parentStoredId && { parent_session_id: parentStoredId })
+    })
+
+    const storedId = branched.stored_session_id ?? branched.session_id
+    const rows = $sessions.get()
+
+    const siblings = parentStoredId
+      ? rows.filter(session => session.parent_session_id?.trim() === parentStoredId).length
+      : 0
+
+    // Paint the copied turns locally rather than re-fetching: the branch has no
+    // committed transcript until its first real message lands.
+    $messages.set(branchMessages.map(({ source }) => source))
+    $sessionId.set(branched.session_id)
+    $busy.set(false)
+    setCurrentCwd(branched.info?.cwd ?? cwd)
+    registerNewSession(storedId, branchMessages.map(({ content }) => content).find(Boolean) ?? '')
+    setSessions(prev =>
+      prev.map(session =>
+        session.id === storedId
+          ? {
+              ...session,
+              parent_session_id: parentStoredId ?? null,
+              title: translateNow('desktop.branchTitle', siblings + 1).toLowerCase()
+            }
+          : session
+      )
+    )
+
+    return true
+  } catch (err) {
+    notifyError(err, translateNow('desktop.branchFailed'))
+
+    return false
+  }
+}
+
+/**
+ * `/resume` (and the composer completion's "Browse all…" row) opens desktop's
+ * dedicated session-picker overlay. Universal's equivalent surface is the
+ * Command Center's `sessions` section, so route there instead of shipping a
+ * second picker. Closing is the overlay's own job (Esc / backdrop), so `false`
+ * is a no-op here.
+ */
+export function setSessionPickerOpen(open: boolean): void {
+  if (open) {
+    navigateTo(`${COMMAND_CENTER_ROUTE}?section=sessions`)
+  }
+}
+
+/**
+ * Per-session YOLO (approval bypass) state, mirrored from the `config.set`
+ * round-trip in lib/yolo-session.ts so the `/yolo` handler can toggle it.
+ */
+export const $yoloActive = atom(false)
+
+export const setYoloActive = (active: boolean): void => $yoloActive.set(active)
 
 export async function renameSessionLocal(id: string, title: string): Promise<void> {
   const prev = $sessions.get()

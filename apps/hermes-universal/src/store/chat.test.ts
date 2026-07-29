@@ -11,21 +11,31 @@ import { requestGateway } from '@/store/gateway'
 
 import {
   $approval,
+  $busy,
   $clarify,
   $currentCwd,
   $messages,
   $secret,
   $sessionId,
   $sudo,
+  type ChatMessage,
   handleGatewayEvent,
   resetChat,
-  respondSudo
+  respondClarify,
+  respondSudo,
+  submitEditedPrompt
 } from './chat'
 
 const ev = (type: string, payload: Record<string, unknown>): GatewayEvent =>
   ({ type, payload }) as unknown as GatewayEvent
 
-beforeEach(() => resetChat())
+const messageText = (message: ChatMessage): string =>
+  message.parts.map(part => (part.type === 'text' ? part.text : '')).join('')
+
+beforeEach(() => {
+  resetChat()
+  vi.mocked(requestGateway).mockReset()
+})
 
 describe('chat reducer (parts model)', () => {
   it('builds text + reasoning + tool parts from a stream', () => {
@@ -35,7 +45,7 @@ describe('chat reducer (parts model)', () => {
     handleGatewayEvent(ev('reasoning.delta', { text: 'hmm' }))
     handleGatewayEvent(ev('tool.start', { name: 'grep', tool_id: 't1', args: { q: 'x' } }))
     handleGatewayEvent(ev('tool.complete', { tool_id: 't1', result: 'done' }))
-    handleGatewayEvent(ev('message.complete', {}))
+    handleGatewayEvent(ev('message.complete', { text: 'Hello' }))
 
     const msgs = $messages.get()
     expect(msgs).toHaveLength(1)
@@ -70,15 +80,90 @@ describe('chat reducer (parts model)', () => {
     expect(reasoning[0]).toMatchObject({ text: 'final' })
   })
 
+  it('lands the completion text when the reply never streamed as message.delta', () => {
+    // Providers that only stream their reasoning channel deliver the answer
+    // whole on message.complete. Without this the transcript showed the reply
+    // inside a "Thinking" block and no prose until the chat was reloaded.
+    handleGatewayEvent(ev('message.start', {}))
+    handleGatewayEvent(ev('reasoning.delta', { text: 'The answer is 42.' }))
+    handleGatewayEvent(ev('message.complete', { text: 'The answer is 42.' }))
+
+    const parts = $messages.get()[0].parts
+    expect(parts.filter(p => p.type === 'reasoning')).toHaveLength(0)
+    expect(parts.filter(p => p.type === 'text')).toMatchObject([{ text: 'The answer is 42.' }])
+  })
+
+  it('keeps genuine reasoning and completes a truncated stream in place', () => {
+    handleGatewayEvent(ev('message.start', {}))
+    handleGatewayEvent(ev('reasoning.delta', { text: 'let me count' }))
+    handleGatewayEvent(ev('message.delta', { text: 'The answer ' }))
+    handleGatewayEvent(ev('message.complete', { text: 'The answer is 42.' }))
+
+    const parts = $messages.get()[0].parts
+    expect(parts.filter(p => p.type === 'reasoning')).toMatchObject([{ text: 'let me count' }])
+    expect(parts.filter(p => p.type === 'text')).toMatchObject([{ text: 'The answer is 42.' }])
+  })
+
+  it('keeps the streamed partial when an interrupted turn completes with no text', () => {
+    handleGatewayEvent(ev('message.start', {}))
+    handleGatewayEvent(ev('message.delta', { text: 'half a th' }))
+    handleGatewayEvent(ev('message.complete', { text: '' }))
+
+    const message = $messages.get()[0]
+    expect(message.pending).toBe(false)
+    expect(message.parts).toMatchObject([{ type: 'text', text: 'half a th' }])
+  })
+
+  it('surfaces a provider failure delivered as completion text as an inline error', () => {
+    handleGatewayEvent(ev('message.start', {}))
+    handleGatewayEvent(ev('message.complete', { text: 'API call failed after 3 retries: overloaded' }))
+
+    const message = $messages.get()[0]
+    expect(message.error).toBe('API call failed after 3 retries: overloaded')
+    expect(message.parts.filter(p => p.type === 'text')).toHaveLength(0)
+  })
+
   it('routes approval / clarify / sudo / secret to their atoms with request_id', () => {
     handleGatewayEvent(ev('approval.request', { command: 'rm', description: 'danger' }))
     expect($approval.get()).toMatchObject({ command: 'rm', description: 'danger' })
-    handleGatewayEvent(ev('clarify.request', { request_id: 'c1', prompt: 'which file?' }))
-    expect($clarify.get()).toMatchObject({ requestId: 'c1', prompt: 'which file?' })
+    // The gateway sends `question` + `choices` (tui_gateway/server.py `_agent_cbs`),
+    // NOT `prompt` — reading the wrong key left the inline panel with no question.
+    handleGatewayEvent(ev('clarify.request', { request_id: 'c1', question: 'which file?', choices: ['a.ts', 'b.ts'] }))
+    expect($clarify.get()).toMatchObject({ requestId: 'c1', question: 'which file?', choices: ['a.ts', 'b.ts'] })
     handleGatewayEvent(ev('sudo.request', { request_id: 's1', prompt: 'password?' }))
     expect($sudo.get()).toMatchObject({ requestId: 's1', prompt: 'password?' })
     handleGatewayEvent(ev('secret.request', { request_id: 'x1', env_var: 'API_KEY', prompt: 'key?' }))
     expect($secret.get()).toMatchObject({ requestId: 'x1', envVar: 'API_KEY' })
+  })
+
+  it('keeps an open-ended clarify (no choices) and ignores one with no question', () => {
+    handleGatewayEvent(ev('clarify.request', { request_id: 'c2', question: 'anything else?' }))
+    expect($clarify.get()).toMatchObject({ requestId: 'c2', question: 'anything else?', choices: null })
+    // A malformed request must not clobber the live one — the agent is blocked
+    // on the first, and a questionless panel is unanswerable.
+    handleGatewayEvent(ev('clarify.request', { request_id: 'c3' }))
+    expect($clarify.get()).toMatchObject({ requestId: 'c2' })
+  })
+
+  it('carries the approval choice restrictions through to the atom', () => {
+    handleGatewayEvent(
+      ev('approval.request', { command: 'rm -rf /', choices: ['once', 'deny'], smart_denied: true })
+    )
+    expect($approval.get()).toMatchObject({ choices: ['once', 'deny'], smartDenied: true })
+  })
+
+  it('respondClarify posts clarify.respond with the request_id + answer and clears the atom', async () => {
+    handleGatewayEvent(ev('clarify.request', { request_id: 'c9', question: 'which?', choices: ['x'] }))
+    await respondClarify('x')
+    expect(requestGateway).toHaveBeenCalledWith('clarify.respond', { request_id: 'c9', answer: 'x' })
+    expect($clarify.get()).toBeNull()
+  })
+
+  it('keeps the clarify request pending when the send fails', async () => {
+    handleGatewayEvent(ev('clarify.request', { request_id: 'c10', question: 'which?', choices: ['x'] }))
+    vi.mocked(requestGateway).mockRejectedValueOnce(new Error('offline'))
+    await expect(respondClarify('x')).rejects.toThrow('offline')
+    expect($clarify.get()).toMatchObject({ requestId: 'c10' })
   })
 
   it('respondSudo posts sudo.respond with the request_id + password and clears the atom', async () => {
@@ -218,5 +303,104 @@ describe('reasoning blocks across a multi-step turn', () => {
     handleGatewayEvent(ev('reasoning.delta', { text: "I don't see any current thinking to rewrite" }))
 
     expect(reasoningTexts()).toEqual(['weighing the options'])
+  })
+})
+
+describe('submitEditedPrompt (edit + rewind)', () => {
+  const seedTurns = () => {
+    $sessionId.set('runtime-1')
+    $messages.set([
+      { id: 'u1', role: 'user', parts: [{ type: 'text', text: 'first ask' }] },
+      { id: 'a1', role: 'assistant', parts: [{ type: 'text', text: 'first answer' }] },
+      { id: 'u2', role: 'user', parts: [{ type: 'text', text: 'second ask' }] },
+      { id: 'a2', role: 'assistant', parts: [{ type: 'text', text: 'second answer' }] }
+    ])
+  }
+
+  it('truncates at the edited turn and re-runs it with the new text', async () => {
+    seedTurns()
+    vi.mocked(requestGateway).mockResolvedValue({})
+
+    await submitEditedPrompt('u2', 'second ask, revised')
+
+    expect(requestGateway).toHaveBeenCalledWith(
+      'prompt.submit',
+      // ordinal 1 == the second user turn: it and everything after are dropped.
+      expect.objectContaining({ text: 'second ask, revised', truncate_before_user_ordinal: 1 }),
+      expect.anything()
+    )
+    expect($messages.get().map(m => m.id)).toEqual(['u1', 'a1', 'u2'])
+    expect(messageText($messages.get()[2])).toBe('second ask, revised')
+    expect($busy.get()).toBe(true)
+  })
+
+  it('interrupts the live turn before resubmitting', async () => {
+    seedTurns()
+    $busy.set(true)
+    vi.mocked(requestGateway).mockResolvedValue({})
+
+    await submitEditedPrompt('u1', 'first ask, revised')
+
+    expect(vi.mocked(requestGateway).mock.calls[0][0]).toBe('session.interrupt')
+    expect(vi.mocked(requestGateway).mock.calls[1][0]).toBe('prompt.submit')
+  })
+
+  it('resubmits a failed turn plainly, with no truncate ordinal', async () => {
+    $sessionId.set('runtime-1')
+    $messages.set([
+      { id: 'u1', role: 'user', parts: [{ type: 'text', text: 'ask' }] },
+      { id: 'a1', role: 'assistant', parts: [], error: 'provider exploded' }
+    ])
+    vi.mocked(requestGateway).mockResolvedValue({})
+
+    await submitEditedPrompt('u1', 'ask again')
+
+    expect(vi.mocked(requestGateway).mock.calls[0][1]).not.toHaveProperty('truncate_before_user_ordinal')
+  })
+
+  // REGRESSION: assistant-ui addresses the edit by message id. When the runtime
+  // converter dropped our ids (app/chat/runtime.tsx), `sourceId` was a generated
+  // id that never matched, so Enter after an edit silently did nothing.
+  it('does nothing when the source id is not in the transcript', async () => {
+    seedTurns()
+
+    await submitEditedPrompt('not-a-real-id', 'revised')
+
+    expect(requestGateway).not.toHaveBeenCalled()
+    expect($messages.get()).toHaveLength(4)
+  })
+
+  it('ignores a no-op edit and a non-user target', async () => {
+    seedTurns()
+
+    await submitEditedPrompt('u2', '  second ask  ')
+    await submitEditedPrompt('a1', 'not a prompt')
+
+    expect(requestGateway).not.toHaveBeenCalled()
+    expect($messages.get()).toHaveLength(4)
+  })
+
+  it('restores the original transcript when the gateway rejects', async () => {
+    seedTurns()
+    vi.mocked(requestGateway).mockRejectedValue(new Error('nope'))
+
+    await submitEditedPrompt('u2', 'second ask, revised')
+
+    expect($messages.get().map(m => m.id)).toEqual(['u1', 'a1', 'u2', 'a2'])
+    expect(messageText($messages.get()[2])).toBe('second ask')
+    expect($busy.get()).toBe(false)
+  })
+
+  it('falls back to a plain resend when the truncate target is stale', async () => {
+    seedTurns()
+    vi.mocked(requestGateway)
+      .mockRejectedValueOnce(new Error('turn is no longer in session history'))
+      .mockResolvedValueOnce({})
+
+    await submitEditedPrompt('u2', 'second ask, revised')
+
+    expect(vi.mocked(requestGateway).mock.calls[1][1]).not.toHaveProperty('truncate_before_user_ordinal')
+    // The optimistic truncation stands — the resend did land.
+    expect($messages.get().map(m => m.id)).toEqual(['u1', 'a1', 'u2'])
   })
 })

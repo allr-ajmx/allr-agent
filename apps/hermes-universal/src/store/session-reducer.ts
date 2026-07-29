@@ -18,6 +18,7 @@ import { translateNow } from '@/i18n'
 import {
   appendStreamPart,
   applySettledReasoning,
+  coerceStringList,
   coerceText,
   patchActive,
   withActiveAssistant,
@@ -156,9 +157,12 @@ export function routeTileEvent(event: GatewayEvent): void {
       break
 
     case 'clarify.request':
+      // The gateway sends `question` + `choices` (NOT `prompt`); the other keys
+      // are tolerated only as a fallback. Mirrors chat.ts's primary reducer.
       setSessionClarify(sid, {
         requestId: coerceText(payload.request_id),
-        prompt: coerceText(payload.prompt) || coerceText(payload.message)
+        question: coerceText(payload.question) || coerceText(payload.prompt) || coerceText(payload.message),
+        choices: coerceStringList(payload.choices)
       })
       break
 

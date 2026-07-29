@@ -11,6 +11,7 @@ import { useI18n } from '@/i18n'
 import { triggerHaptic } from '@/lib/haptics'
 import { StopFilled } from '@/lib/icons'
 import { cn } from '@/lib/utils'
+import { notifyThreadEditOpen } from '@/store/thread-scroll'
 
 export function StickyHumanMessageContainer({
   attachments,
@@ -244,16 +245,18 @@ export const UserMessage: FC<{
         <ActionBarPrimitive.Root className="relative w-full max-w-full" data-slot="aui_user-bubble-actions">
           <div className="human-message-with-todos-wrapper flex w-full flex-col gap-0">
             <div className="relative w-full">
-              {/* Always editable — clicking opens the edit composer even while a
-                  turn streams; sending the edit reverts (interrupt + rewind).
-                  FLAG(chat-port): watch-window read-only spectator mode
-                  (isWatchWindow) and the thread-scroll edit-open notification are
-                  desktop multi-window concerns, dropped for universal. */}
+              {/* Always editable — clicking opens the inline edit composer even
+                  while a turn streams; sending the edit reverts (interrupt +
+                  rewind, see submitEditedPrompt). The editor shows the full
+                  prompt, which is also how a clamped bubble is read in full.
+                  FLAG(chat-port): desktop's watch-window read-only spectator
+                  mode (isWatchWindow) is a multi-window concern, dropped here. */}
               <ActionBarPrimitive.Edit asChild>
                 <button
                   aria-label={copy.editMessage}
                   className={bubbleClassName}
                   onClick={() => void triggerHaptic('selection')}
+                  onPointerDown={() => notifyThreadEditOpen()}
                   title={copy.editMessage}
                   type="button"
                 >

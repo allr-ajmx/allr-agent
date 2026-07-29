@@ -2,7 +2,6 @@ import { ApprovalBar } from '@/app/chat/approval-bar'
 import { ChatComposer } from '@/app/chat/chat-composer'
 import { ChatDropOverlay } from '@/app/chat/chat-drop-overlay'
 import { ChatHeader } from '@/app/chat/chat-header'
-import { ClarifyBar } from '@/app/chat/clarify-bar'
 import { ChatRuntimeProvider } from '@/app/chat/runtime'
 import { ScrollToBottomButton } from '@/app/chat/scroll-to-bottom-button'
 import { SecretBar } from '@/app/chat/secret-bar'
@@ -12,7 +11,7 @@ import { useFileDrop } from '@/app/chat/use-file-drop'
 import { Thread } from '@/components/assistant-ui/thread/thread'
 import { IS_MOBILE } from '@/lib/platform'
 import { useStore } from '@/store/atom'
-import { $approval, $clarify, $secret, $statusLine, $sudo } from '@/store/chat'
+import { $approval, $secret, $statusLine, $sudo } from '@/store/chat'
 
 export function ChatScreen() {
   // The SessionView is the data surface. It defaults to PRIMARY_SESSION_VIEW
@@ -27,14 +26,13 @@ export function ChatScreen() {
   // prompts via PromptOverlays (per-session), so these read the global atoms and
   // only render for the primary.
   const approval = useStore($approval)
-  const clarify = useStore($clarify)
   const sudo = useStore($sudo)
   const secret = useStore($secret)
   const { dragActive } = useFileDrop()
 
   // Inline bars + status line are the PRIMARY chat's UI (they read the global
   // prompt atoms); a tile surfaces its prompts via PromptOverlays instead.
-  const barsPresent = isPrimary && ((busy && statusLine) || approval || clarify || sudo || secret)
+  const barsPresent = isPrimary && ((busy && statusLine) || approval || sudo || secret)
 
   return (
     <div className="chat">
@@ -55,7 +53,9 @@ export function ChatScreen() {
           <div className="composer-bars">
             {busy && statusLine && <div className="pl-0.5 text-[0.8125rem] text-muted-foreground">{statusLine}</div>}
             {approval && <ApprovalBar request={approval} />}
-            {clarify && <ClarifyBar request={clarify} />}
+            {/* Clarify has no bar here: like desktop, the question renders inline in
+                the transcript (components/assistant-ui/clarify-tool.tsx) so the
+                choice buttons sit with the tool row that asked. */}
             {sudo && <SudoBar request={sudo} />}
             {secret && <SecretBar request={secret} />}
           </div>

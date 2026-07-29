@@ -995,7 +995,8 @@
 [data-slot='dialog-content'],
 [data-slot='dropdown-menu-content'],
 [data-slot='select-content'],
-[data-slot='context-menu-content'] {
+[data-slot='context-menu-content'],
+[data-slot='thread-timeline-popover'] {
   border-color: var(--ui-stroke-secondary);
   background: color-mix(in srgb, var(--ui-bg-elevated) 96%, transparent);
   backdrop-filter: blur(0.75rem) saturate(1.08);

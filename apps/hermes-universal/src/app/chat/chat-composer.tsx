@@ -8,9 +8,11 @@ import {
 } from '@/app/chat/attachments'
 import { ChatBar } from '@/app/chat/composer'
 import { useComposerScope } from '@/app/chat/composer/scope'
+import { useSlashCommand } from '@/app/chat/hooks/use-slash-command'
 import { useSessionView } from '@/app/chat/session-view'
 import { ModelMenuPanel } from '@/app/shell/model-menu-panel'
 import { transcribeAudio } from '@/hermes'
+import { SLASH_COMMAND_RE } from '@/lib/chat-runtime'
 import { triggerHaptic } from '@/lib/haptics'
 import { useStore } from '@/store/atom'
 import { sendPrompt } from '@/store/chat'
@@ -18,7 +20,6 @@ import { type ComposerAttachment } from '@/store/composer'
 import { $gatewayState, getGatewayClient, requestGateway } from '@/store/gateway'
 import { refreshCurrentModel, selectModel } from '@/store/model'
 import { sessionTileDelegate } from '@/store/session-states'
-import { useSkinCommand } from '@/themes'
 
 // Read a recorded audio blob into a base64 data URL for the gateway audio.* RPC.
 function blobToDataUrl(blob: Blob): Promise<string> {
@@ -50,7 +51,7 @@ export function ChatComposer() {
   const currentModel = useStore(view.$model)
   const currentProvider = useStore(view.$provider)
   const gatewayState = useStore($gatewayState)
-  const runSkin = useSkinCommand()
+  const executeSlashCommand = useSlashCommand()
 
   // Seed the composer's model/provider from the profile default once the gateway
   // is up (only fills an empty selection). Primary only — a tile shows its own
@@ -62,16 +63,18 @@ export function ChatComposer() {
   }, [isPrimary, gatewayState])
 
   // Route the fully-composed prompt to universal's gateway path. The ported
-  // ChatBar owns draft/queue/history internally, so the parent only sends: the
-  // client-side `/skin` command is intercepted first; staged attachment refs are
-  // spliced ahead of the text. Returns true once the send is issued.
+  // ChatBar owns draft/queue/history internally, so the parent only sends: slash
+  // commands are dispatched locally (client actions, overlay pickers, or the
+  // gateway's slash.exec — `/skin` included) and never reach the agent as prompt
+  // text; staged attachment refs are spliced ahead of the text. Returns true once
+  // the send is issued.
   const onSubmit = useCallback(
     async (text: string, options?: { attachments?: ComposerAttachment[] }): Promise<boolean> => {
-      const skin = text.match(/^\/skin(?:\s+(.*))?$/i)
-
-      if (skin) {
+      // Attachments mean this is a real prompt that merely starts with a slash —
+      // desktop's composer applies the same guard before routing to the dispatcher.
+      if (!options?.attachments?.length && SLASH_COMMAND_RE.test(text.trim())) {
         void triggerHaptic('success')
-        runSkin(skin[1] ?? '')
+        await executeSlashCommand(text)
 
         return true
       }
@@ -97,7 +100,7 @@ export function ChatComposer() {
 
       return true
     },
-    [runSkin, scope, view]
+    [executeSlashCommand, scope, view]
   )
 
   // Interrupt the running turn (Esc / Stop). Best-effort — a backend without

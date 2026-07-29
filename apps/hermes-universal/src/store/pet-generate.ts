@@ -1,3 +1,5 @@
+import { PET_SETTINGS_ROUTE } from '@/app/routes'
+import { navigateTo } from '@/lib/route-nav'
 import { atom } from '@/store/atom'
 import { requestGateway, subscribeGateway } from '@/store/gateway'
 import { notifyError } from '@/store/notifications'
@@ -78,6 +80,9 @@ export const $petGenError = atom<string | null>(null)
 export const $petGenAvailable = atom<boolean | null>(null)
 export const $petGenToken = atom<string | null>(null)
 export const $petGenPrompt = atom('')
+/** Drives the generate sheet's open state so `/hatch` can open it from the
+ *  dispatcher (the sheet itself lives in app/pet/pet-section.tsx). */
+export const $petGenOpen = atom(false)
 export const $petGenDrafts = atom<PetDraft[]>([])
 export const $petGenSelected = atom<number | null>(null)
 /** The hatched-but-unadopted pet: its renderer payload, played in the preview. */
@@ -96,6 +101,22 @@ export function resetPetGen(): void {
   $petGenDrafts.set([])
   $petGenSelected.set(null)
   $petGenPreview.set(null)
+}
+
+/**
+ * Open the pet generator, optionally seeding the prompt (`/hatch a cyber fox`).
+ * The sheet only mounts on the pet settings page, so route there first — same
+ * end state as desktop's pet-generate overlay.
+ */
+export function openPetGenerate(concept?: string): void {
+  const seed = concept?.trim()
+
+  if (seed) {
+    $petGenPrompt.set(seed)
+  }
+
+  $petGenOpen.set(true)
+  navigateTo(PET_SETTINGS_ROUTE)
 }
 
 /** Probe whether generation is possible (a reference-capable backend exists). */

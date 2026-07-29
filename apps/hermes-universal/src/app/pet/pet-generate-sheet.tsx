@@ -11,6 +11,7 @@ import {
   $petGenDrafts,
   $petGenError,
   $petGenPreview,
+  $petGenPrompt,
   $petGenSelected,
   $petGenStage,
   $petGenStatus,
@@ -53,7 +54,9 @@ export function PetGenerateSheet({ onOpenChange, open }: { onOpenChange: (open: 
       void checkPetGenAvailable()
 
       if ($petGenStatus.get() === 'idle') {
-        setPrompt('')
+        // `/hatch <concept>` seeds $petGenPrompt before opening; a plain open
+        // leaves it empty, so this is still "start clean" in the normal case.
+        setPrompt($petGenPrompt.get())
         setName('')
       }
     } else if ($petGenStatus.get() === 'preview' || $petGenStatus.get() === 'adopting') {
