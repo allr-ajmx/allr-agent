@@ -34,11 +34,15 @@
 // commands are wired.
 #![allow(dead_code)]
 
+pub mod auth;
 pub mod config;
 pub mod error;
+pub mod known_hosts;
 pub mod ownership;
 pub mod posix_lifecycle;
+pub mod prompt;
 pub mod remote_paths;
+pub mod session;
 pub mod target;
 pub mod windows_lifecycle;
 
