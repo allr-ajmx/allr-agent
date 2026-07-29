@@ -23,10 +23,12 @@
 import type { GatewayEvent } from '@/gateway'
 import { translateNow } from '@/i18n'
 import { coerceStringList, coerceText } from '@/lib/chat-messages'
+import { coerceThinkingText } from '@/lib/chat-runtime'
 import { type GatewayToolPayload, toolIdFromPayload } from '@/lib/chat-tool-parts'
 import { playCompletionSound } from '@/lib/completion-sound'
 import { resolveGatewayEventSessionId } from '@/lib/gateway-events'
 import { triggerHaptic } from '@/lib/haptics'
+import { type DeltaChannel, flushDeltas, queueDelta, setStreamBatchSink } from '@/lib/stream-batch'
 import { stopSpeaking } from '@/lib/tts'
 import { requestGateway } from '@/store/gateway'
 import { dispatchNativeNotification } from '@/store/native-notifications'
@@ -67,6 +69,23 @@ const GLOBAL_EVENT_TYPES = new Set(['gateway.ready', 'session.title', 'sessions.
 
 /** Blocking prompts: never dropped, because the agent is parked waiting. */
 const BLOCKING_PROMPT_TYPES = new Set(['approval.request', 'clarify.request', 'secret.request', 'sudo.request'])
+
+/** The batched streaming channels, by event type. */
+const DELTA_CHANNELS: Record<string, DeltaChannel | undefined> = {
+  'message.delta': 'assistant',
+  'reasoning.delta': 'reasoning',
+  'thinking.delta': 'reasoning'
+}
+
+// A flushed batch goes back through the SAME reducer a single delta would have,
+// as one coalesced delta — so batching stays a scheduling concern and never
+// becomes a second copy of the append logic. The text was already coerced per
+// chunk at queue time, hence `reasoning.batch` rather than `reasoning.delta`.
+setStreamBatchSink((key, channel, text) => {
+  const type = channel === 'assistant' ? 'message.delta' : 'reasoning.batch'
+
+  updateSession(key, state => reduceSessionState(state, { type } as GatewayEvent, { text }))
+})
 
 const EMPTY_USAGE: UsageStats = { calls: 0, input: 0, output: 0, total: 0 }
 
@@ -179,6 +198,25 @@ export function routeGatewayEvent(event: GatewayEvent): void {
   }
 
   const isActive = key === $activeSessionKey.get()
+
+  // Streaming text is BATCHED (lib/stream-batch) — one React commit per flush
+  // window instead of one per token, which matters most when several sessions
+  // stream at once. Everything else applies immediately, so any non-delta event
+  // must flush this session's queue first: otherwise a queued token would land
+  // after the tool row that actually came after it.
+  const channel = DELTA_CHANNELS[event.type]
+
+  if (channel) {
+    if (isActive && channel === 'reasoning') {
+      setPetActivity({ reasoning: true }) // pet: thinking pose
+    }
+
+    queueDelta(key, channel, channel === 'reasoning' ? coerceThinkingText(payload.text) : coerceText(payload.text))
+
+    return
+  }
+
+  flushDeltas(key)
 
   // --- Per-session blocking prompts ----------------------------------------
   switch (event.type) {

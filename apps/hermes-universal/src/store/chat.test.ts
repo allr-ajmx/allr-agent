@@ -7,6 +7,7 @@ vi.mock('@/store/gateway', async () => {
 
   return { requestGateway: vi.fn().mockResolvedValue({}), $gatewayState: atom('idle') }
 })
+import { flushDeltas } from '@/lib/stream-batch'
 import { routeGatewayEvent as handleGatewayEvent } from '@/store/event-router'
 import { requestGateway } from '@/store/gateway'
 import { sessionClarifyRequest } from '@/store/prompts'
@@ -76,6 +77,10 @@ describe('chat reducer (parts model)', () => {
   it('coalesces consecutive same-channel deltas into one part', () => {
     handleGatewayEvent(ev('message.delta', { text: 'a' }))
     handleGatewayEvent(ev('message.delta', { text: 'b' }))
+    // Deltas are batched (lib/stream-batch), so they reach the transcript on a
+    // flush rather than per token. Every non-delta event flushes first, which is
+    // why the other reducer tests don't need this.
+    flushDeltas()
     const texts = $messages.get()[0].parts.filter(p => p.type === 'text')
     expect(texts).toHaveLength(1)
     expect(texts[0]).toMatchObject({ text: 'ab' })

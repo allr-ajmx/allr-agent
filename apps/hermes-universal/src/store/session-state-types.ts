@@ -19,6 +19,7 @@
 import { atom } from 'nanostores'
 
 import type { ChatMessage } from '@/lib/chat-messages'
+import { flushDeltas } from '@/lib/stream-batch'
 import type { UsageStats } from '@/types/hermes'
 
 /** The full client-side state of ONE session — the unit a chat surface renders
@@ -293,6 +294,10 @@ export function updateSession(
  * has to exist under its real id before the first streamed event for it arrives.
  */
 export function rekeySession(fromKey: string, toKey: string, patch?: Partial<ClientSessionState>): ClientSessionState {
+  // Anything queued under the old key is this session's own output, so apply it
+  // before the move rather than letting the teardown below discard it.
+  flushDeltas(fromKey)
+
   const states = $sessionStates.get()
   const moving = states[fromKey] ?? emptySessionState()
 
