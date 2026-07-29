@@ -28,6 +28,7 @@ import {
   revealTreePane
 } from '@/components/pane-shell/tree/store'
 import { readJson, writeJson } from '@/lib/storage'
+import { discardDeltas, disposeStreamBatch } from '@/lib/stream-batch'
 import { $activeGatewayProfile, normalizeProfileKey } from '@/store/profile'
 import { clearAllPrompts } from '@/store/prompts'
 import { $activeStoredSessionId, $unreadFinishedSessionIds, setActiveSessionStoredIdRotation } from '@/store/session'
@@ -193,6 +194,9 @@ setSessionDisposeHook((key, state) => {
   clearWatchdog(key)
   setSessionStalled(state.storedSessionId, false)
   clearAllPrompts(key)
+  // Queued tokens for a slice that no longer exists would otherwise flush into
+  // a freshly recreated one (`updateSession` creates on demand).
+  discardDeltas(key)
 })
 
 export {
@@ -216,6 +220,7 @@ export function clearAllSessionStates() {
   settledExpiry.clear()
   clearStoredIdIndex()
   clearAllPrompts()
+  disposeStreamBatch()
   $stalledSessionIds.set([])
   $sessionStates.set({})
 }

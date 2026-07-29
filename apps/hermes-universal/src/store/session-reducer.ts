@@ -106,6 +106,17 @@ export function reduceSessionState(
         parts: appendStreamPart(m.parts, 'reasoning', coerceThinkingText(payload.text))
       }))
 
+    // A COALESCED reasoning batch from lib/stream-batch. `coerceThinkingText`
+    // has per-chunk semantics — it strips a leading spinner prefix and drops
+    // placeholder-only chunks — so it runs when each delta is queued, not here:
+    // re-running it on the joined batch would only ever look at the batch's
+    // leading edge and would miss an interior placeholder entirely.
+    case 'reasoning.batch':
+      return patchLastAssistant(state, m => ({
+        ...m,
+        parts: appendStreamPart(m.parts, 'reasoning', coerceText(payload.text))
+      }))
+
     case 'reasoning.available':
       return patchLastAssistant(state, m => ({
         ...m,
