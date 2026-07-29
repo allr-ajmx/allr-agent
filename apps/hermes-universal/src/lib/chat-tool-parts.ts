@@ -1,6 +1,6 @@
 import { normalize } from '@/lib/text'
 import { parseTodos } from '@/lib/todos'
-import type { ChatPart, ToolCallPart } from '@/store/chat'
+import type { ChatPart, ToolCallPart } from '@/lib/chat-messages'
 
 // The live tool-call reducer, ported from apps/desktop/src/lib/chat-messages.ts
 // (toolId … upsertToolPart). Universal previously carried a lean matcher that
