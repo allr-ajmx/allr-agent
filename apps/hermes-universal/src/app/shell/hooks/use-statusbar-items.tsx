@@ -1,9 +1,9 @@
 import { type ReactNode, useEffect, useMemo } from 'react'
-import { useLocation } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 
 import { jobState } from '@/app/cron/job-state'
 import { PlatformGlyph } from '@/app/messaging/platform-icon'
-import { AGENTS_ROUTE, appViewForPath, CRON_ROUTE } from '@/app/routes'
+import { AGENTS_ROUTE, appViewForPath, COMMAND_CENTER_ROUTE, CRON_ROUTE } from '@/app/routes'
 import { useApprovalModeStatusbarItem } from '@/app/shell/approval-mode-menu'
 import { ContextUsagePanel } from '@/app/shell/context-usage-panel'
 import { GatewayMenuPanel } from '@/app/shell/gateway-menu-panel'
@@ -27,7 +27,6 @@ import { notify } from '@/store/notifications'
 import { $activeProfile } from '@/store/profiles'
 import { $subagentsBySession, activeSubagentCount, failedSubagentCount } from '@/store/subagents'
 import { $appVersion, $gatewayRestarting, $inferenceStatus, $statusSnapshot } from '@/store/system-status'
-import { openSystemScreen } from '@/store/windows'
 import { $effectiveCwd, ensureWorkspaceCwd } from '@/store/workspace-events'
 
 // Copy the absolute cwd to the clipboard, toasting on success (mirrors the
@@ -61,6 +60,7 @@ export function useStatusbarItems(opts?: { includeAll?: boolean; rich?: boolean 
   const rich = Boolean(opts?.rich)
   const { t } = useI18n()
   const copy = t.shell.statusbar
+  const navigate = useNavigate()
   const view = appViewForPath(useLocation().pathname)
 
   const gatewayState = useStore($gatewayState)
@@ -159,7 +159,7 @@ export function useStatusbarItems(opts?: { includeAll?: boolean; rich?: boolean 
       gatewayState={gatewayState}
       inferenceStatus={inferenceStatus}
       onClose={close}
-      onOpenSystem={() => void openSystemScreen()}
+      onOpenSystem={() => navigate(COMMAND_CENTER_ROUTE)}
       statusSnapshot={statusSnapshot}
     />
   )
@@ -175,7 +175,6 @@ export function useStatusbarItems(opts?: { includeAll?: boolean; rich?: boolean 
   // running = accent/blue, else orange) + up to 3 messaging platforms, painted
   // in brand color when connected and greyed otherwise. Connected first.
   const gatewayRunning = statusSnapshot?.gateway_running === true
-
   const messagingPlatforms = Object.entries(statusSnapshot?.gateway_platforms ?? {})
     .filter(([id]) => id !== 'api_server')
     .sort(([, a], [, b]) => Number(b.state === 'connected') - Number(a.state === 'connected'))
@@ -192,7 +191,6 @@ export function useStatusbarItems(opts?: { includeAll?: boolean; rich?: boolean 
 
   // Inference readiness text ("Ready" / "Needs setup" / …) — accent when ready.
   const gatewayReadyText = gatewayRestarting ? copy.gatewayRestarting : gatewayDetail
-
   const gatewayRichDetail = (
     <span className="flex items-center gap-2">
       {inferenceReady ? accent(gatewayReadyText) : gatewayReadyText}
@@ -220,8 +218,8 @@ export function useStatusbarItems(opts?: { includeAll?: boolean; rich?: boolean 
       hidden: hideOnMobile,
       icon: <Command className="size-3.5" />,
       id: 'command-center',
-      onSelect: () => void openSystemScreen(),
       title: copy.openCommandCenter,
+      to: COMMAND_CENTER_ROUTE,
       variant: 'action'
     },
     {
@@ -374,7 +372,7 @@ export function useStatusbarItems(opts?: { includeAll?: boolean; rich?: boolean 
       icon: <Hash className="size-3" />,
       id: 'version-client',
       label: rich ? 'Client' : appVersion ? copy.clientLabel(appVersion) : copy.unknown,
-      onSelect: () => void openSystemScreen(),
+      onSelect: () => navigate(COMMAND_CENTER_ROUTE),
       title: appVersion ? copy.clientLabel(appVersion) : undefined,
       variant: 'action'
     },
@@ -384,7 +382,7 @@ export function useStatusbarItems(opts?: { includeAll?: boolean; rich?: boolean 
       icon: <Hash className="size-3" />,
       id: 'version-backend',
       label: rich ? 'Backend' : backendVersion ? copy.backendLabel(backendVersion) : copy.unknown,
-      onSelect: () => void openSystemScreen(),
+      onSelect: () => navigate(COMMAND_CENTER_ROUTE),
       title: backendVersion ? copy.backendVersion(backendVersion) : undefined,
       variant: 'action'
     }

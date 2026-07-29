@@ -11,16 +11,6 @@ import { cn } from '@/lib/utils'
 // `-webkit-app-region` classes, and haptics/close-label come from the universal
 // seams.
 
-// `overlay` (default) is the floating modal card over the chat backdrop.
-// `fullscreen` fills its parent with no backdrop / inset / card chrome / close
-// button — used when the view IS the whole surface (a native activity screen on
-// Android, see `app/activity-screen.tsx`), which supplies its own top bar + Home.
-// `fullbleed` fills the whole window edge-to-edge (no backdrop / inset / card) but
-// KEEPS the close button + Esc — used on iOS, where Settings/Command Center open
-// as a full-screen surface on top of the primary window (iPadOS can't present a
-// native UIScene modally on top, so this in-app surface delivers that UX; MJX-176).
-export type OverlayVariant = 'fullscreen' | 'overlay' | 'fullbleed'
-
 interface OverlayViewProps {
   children: ReactNode
   onClose: () => void
@@ -28,7 +18,6 @@ interface OverlayViewProps {
   contentClassName?: string
   headerContent?: ReactNode
   rootClassName?: string
-  variant?: OverlayVariant
 }
 
 export function OverlayView({
@@ -37,12 +26,8 @@ export function OverlayView({
   closeLabel = 'Close',
   contentClassName,
   headerContent,
-  rootClassName,
-  variant = 'overlay'
+  rootClassName
 }: OverlayViewProps) {
-  const fullscreen = variant === 'fullscreen'
-  const fullBleed = variant === 'fullbleed'
-
   const closeOverlay = () => {
     void triggerHaptic('selection')
     onClose()
@@ -65,79 +50,6 @@ export function OverlayView({
 
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [onClose])
-
-  // Fullscreen: no backdrop, inset, card chrome, drag strip or close button —
-  // just fill the parent. The hosting activity screen draws its own top bar +
-  // Home button, so the split-layout columns still clear the (mobile) titlebar
-  // height the same way and their backgrounds run flush to the top.
-  if (fullscreen) {
-    return (
-      <div className={cn('flex h-full min-h-0 flex-col overflow-hidden bg-(--ui-chat-surface-background)', rootClassName)}>
-        <div className={cn('min-h-0 flex flex-1 flex-col', contentClassName)}>{children}</div>
-      </div>
-    )
-  }
-
-  // Full-bleed: edge-to-edge over the whole window (no backdrop, inset or card
-  // chrome) but keeps a Home button + Esc, so it reads as a full-screen surface on
-  // top of the primary window that dismisses back to it. Honours the device safe
-  // areas (status-bar / notch / home-indicator) the same way the Android activity
-  // screen does (`app/activity-screen.tsx`): the header clears the top inset, the
-  // content clears top + bottom, and the root clears the horizontal (landscape)
-  // insets. `--safe-area-inset-*` are published to :root by `lib/safe-area.ts`.
-  if (fullBleed) {
-    return (
-      <div
-        className={cn(
-          'fixed inset-0 z-50 flex h-full min-h-0 flex-col overflow-hidden bg-(--ui-chat-surface-background)',
-          rootClassName
-        )}
-        style={{
-          paddingLeft: 'var(--safe-area-inset-left)',
-          paddingRight: 'var(--safe-area-inset-right)'
-        }}
-      >
-        <div
-          className="pointer-events-none absolute inset-x-0 top-0 z-10"
-          data-tauri-drag-region
-          style={{ height: 'calc(var(--safe-area-inset-top) + var(--titlebar-height) + 0.1875rem)' }}
-        >
-          {headerContent && (
-            <div
-              className="pointer-events-auto absolute left-1/2 -translate-x-1/2 -translate-y-1/2"
-              style={{ top: 'calc(var(--safe-area-inset-top) + 0.5rem + var(--titlebar-height) / 2)' }}
-            >
-              {headerContent}
-            </div>
-          )}
-
-          {/* Full-bleed has no close ✕ — a labelled Home button returns to the
-              primary view instead (iOS activity-screen dismissal). */}
-          <Button
-            aria-label={closeLabel}
-            className="pointer-events-auto absolute left-3 -translate-y-1/2 gap-1.5 text-(--ui-text-tertiary) hover:bg-(--chrome-action-hover) hover:text-foreground"
-            onClick={closeOverlay}
-            size="sm"
-            style={{ top: 'calc(var(--safe-area-inset-top) + 0.1875rem + var(--titlebar-height) / 2)' }}
-            variant="ghost"
-          >
-            <Codicon name="home" size="1rem" />
-            Home
-          </Button>
-        </div>
-
-        <div
-          className={cn('min-h-0 flex flex-1 flex-col', contentClassName)}
-          style={{
-            paddingTop: 'var(--safe-area-inset-top)',
-            paddingBottom: 'var(--safe-area-inset-bottom)'
-          }}
-        >
-          {children}
-        </div>
-      </div>
-    )
-  }
 
   return (
     <div

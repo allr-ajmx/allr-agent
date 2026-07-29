@@ -41,7 +41,7 @@ import {
   switcherJustClosed
 } from '@/store/session-switcher'
 import { closeActiveTerminal, createTerminal, cycleTerminal } from '@/store/terminals'
-import { openAppRoute, openNewWindow } from '@/store/windows'
+import { openNewWindow } from '@/store/windows'
 import { useTheme } from '@/themes/context'
 
 import { requestComposerFocus, requestVoiceToggle } from '../chat/composer/focus'
@@ -124,7 +124,7 @@ export function useKeybinds(deps: KeybindRuntimeDeps): void {
   handlersRef.current = {
     // Universal's settings overlay routes per-section (`/settings/:id`) rather
     // than desktop's `?tab=` query; the keybind panel lives at `shortcuts`.
-    'keybinds.openPanel': () => openAppRoute(`${SETTINGS_ROUTE}/shortcuts`),
+    'keybinds.openPanel': () => navigate(`${SETTINGS_ROUTE}/shortcuts`),
 
     'composer.focus': () => requestComposerFocus('main'),
     'composer.modelPicker': () => setModelPickerOpen(true),
@@ -132,7 +132,7 @@ export function useKeybinds(deps: KeybindRuntimeDeps): void {
 
     'nav.commandPalette': toggleCommandMenu,
     'nav.commandCenter': deps.toggleCommandCenter,
-    'nav.settings': () => openAppRoute(SETTINGS_ROUTE),
+    'nav.settings': () => navigate(SETTINGS_ROUTE),
     'nav.profiles': () => navigate(PROFILES_ROUTE),
     'nav.skills': () => navigate(SKILLS_ROUTE),
     'nav.messaging': () => navigate(MESSAGING_ROUTE),

@@ -37,7 +37,6 @@ import {
   setSessionPickerOpen,
   setSessions
 } from '@/store/session'
-import { openAppRoute } from '@/store/windows'
 import { useSkinCommand } from '@/themes'
 
 /** Everything a slash handler needs about the invocation it's serving. */
@@ -397,7 +396,7 @@ export function useSlashCommand() {
           const lower = sub.toLowerCase()
 
           if (lower === 'list' || lower === 'gallery' || lower === 'browse' || lower === 'all') {
-            openAppRoute(PET_SETTINGS_ROUTE)
+            navigateTo(PET_SETTINGS_ROUTE)
 
             return
           }
