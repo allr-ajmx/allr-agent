@@ -173,6 +173,20 @@ pub fn run() {
             open_settings_window,
             open_system_window
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running Hermes Universal");
+        // `.build(...).run(closure)` (rather than the terminal `.run(context)`) so
+        // we can observe `RunEvent`s. On iOS this catches scenes the *system*
+        // requests unprompted (state restoration, iPad app-switcher "+", Handoff)
+        // and fills them with a fresh instance (MJX-142); app-initiated session
+        // windows go through `open_session_window` and never emit this event.
+        // Non-iOS targets run the loop with an empty handler — behaviour unchanged.
+        .build(tauri::generate_context!())
+        .expect("error while building Hermes Universal")
+        .run(|app_handle, event| {
+            let _ = app_handle;
+            #[cfg(target_os = "ios")]
+            if let tauri::RunEvent::SceneRequested { .. } = &event {
+                window::fill_requested_scene(app_handle);
+            }
+            let _ = event;
+        });
 }
