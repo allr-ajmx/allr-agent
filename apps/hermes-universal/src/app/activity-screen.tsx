@@ -1,7 +1,9 @@
 import { useCallback } from 'react'
+import { useLocation } from 'react-router-dom'
 
 import { CommandCenterView } from '@/app/command-center'
 import { GatewayConnectingScreen } from '@/app/gateway/gateway-connecting-screen'
+import { ProfilesView } from '@/app/profiles'
 import { SettingsFooter, SettingsView } from '@/app/settings/settings-view'
 import { MobileRightPanel } from '@/app/shell/mobile-right-panel'
 import { SidebarProvider, useSidebar } from '@/app/shell/sidebar'
@@ -13,40 +15,40 @@ import { useI18n } from '@/i18n'
 import { useStore } from '@/store/atom'
 import { $connectionPhase, $hasConnected } from '@/store/connection'
 import { deleteSessionLocal } from '@/store/session'
-import { type ActivityScreen, returnHome } from '@/store/windows'
+import { activitySurfaceForPath, returnHome } from '@/store/windows'
 
 import { ActivityNavSidebar } from './activity-screen-nav'
 import { TitlebarButton } from './shell/titlebar-button'
 
-// Native activity-screen root (MJX-141). On Android, Settings and the Command
-// Center open in their OWN Activity (a fresh WebView carrying
-// `?win=activity&screen=…`, launched from `src-tauri/src/window.rs`). `app.tsx`
-// mounts this instead of the full chat shell (MobileController).
+// Native activity-screen root (MJX-141). On Android/iOS, the windowable surfaces
+// (Settings / Command Center / Profiles) open in ONE native screen activity / scene
+// (a fresh WebView carrying `?win=activity`, launched from `src-tauri/src/window.rs`).
+// `app.tsx` mounts this instead of the full chat shell (MobileController).
 //
 // The shell mirrors the home MobileShell: a top bar (left nav toggle · title ·
-// right drawer toggle) over two `Sheet` drawers — the left hosts this surface's
-// view navigation in the home nav-row format plus a Home entry (ActivityNavSidebar);
-// the right reuses the home Status/Files panel (MobileRightPanel). The view fills
-// the content area with its own nav suppressed (`hideNav`), driven by the drawer.
+// right drawer toggle) over two `Sheet` drawers. Which surface is shown is derived
+// LIVE from the current route (`activitySurfaceForPath`), so switching surfaces from
+// the right-drawer switcher is an instant in-WebView route change — no relaunch.
 //
 // The WebView shares the single Rust core, but its JS/connection is fresh:
 // `main.tsx` auto-reconnects on boot, so — like SecondaryWindowRoot — we wait for
-// `$connectionPhase` before rendering the live surface. Settings may stay up
-// across a save-and-reconnect (mirrors mobile-controller's gate) via `$hasConnected`.
-export function ActivityScreenRoot({ screen }: { screen: ActivityScreen }) {
+// `$connectionPhase` before rendering. Settings may stay up across a save-and-
+// reconnect (mirrors mobile-controller's gate) via `$hasConnected`.
+export function ActivityScreenRoot() {
   return (
     <SidebarProvider>
-      <ActivityShell screen={screen} />
+      <ActivityShell />
       <NotificationStack />
     </SidebarProvider>
   )
 }
 
-function ActivityShell({ screen }: { screen: ActivityScreen }) {
+function ActivityShell() {
   // Publishes --keyboard-inset so the content lifts above the soft keyboard when
   // an input (API keys, search) is focused.
   useKeyboardInset()
   const { t } = useI18n()
+  const { pathname } = useLocation()
 
   const { openMobile, setOpenMobile, toggleMobile, openMobileRight, setOpenMobileRight, toggleMobileRight } =
     useSidebar()
@@ -60,16 +62,19 @@ function ActivityShell({ screen }: { screen: ActivityScreen }) {
     void returnHome()
   }, [])
 
-  const title = screen === 'settings' ? t.commandCenter.settings : t.commandCenter.commandCenter
+  const surface = activitySurfaceForPath(pathname)
 
-  // Command Center needs a live connection for its status/usage data; Settings
-  // can render once we've ever connected so it survives a reconnect.
-  const showSurface = screen === 'settings' ? ready || hasConnected : ready
+  const title =
+    surface === 'command-center' ? t.commandCenter.commandCenter : surface === 'profiles' ? t.profiles.title : t.commandCenter.settings
+
+  // Command Center + Profiles need a live connection for their data; Settings can
+  // render once we've ever connected so it survives a reconnect.
+  const showSurface = surface === 'settings' ? ready || hasConnected : ready
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
       {/* Top bar — owns the safe-area top inset (status-bar / notch). Left toggles
-          the section-nav drawer; right toggles the Status/Files drawer. */}
+          the section-nav drawer; right toggles the Status/Files + switcher drawer. */}
       <div
         className="shrink-0 border-b border-(--ui-stroke-tertiary) bg-(--ui-bg-chrome) select-none"
         style={{ paddingTop: 'var(--safe-area-inset-top)' }}
@@ -92,36 +97,38 @@ function ActivityShell({ screen }: { screen: ActivityScreen }) {
       {/* Routed surface. Lifts above the soft keyboard like the home shell. */}
       <div className="flex min-h-0 flex-1 flex-col" style={{ marginBottom: 'var(--keyboard-inset, 0px)' }}>
         {showSurface ? (
-          screen === 'settings' ? (
+          surface === 'settings' ? (
             <SettingsView hideNav onClose={goHome} variant="fullscreen" />
-          ) : (
+          ) : surface === 'command-center' ? (
             <CommandCenterView
               hideNav
               onClose={goHome}
               onDeleteSession={deleteSessionLocal}
               // Opening a session belongs in the main chat activity; return there.
-              // (Cross-activity session hand-off is future work.)
               onOpenSession={goHome}
               variant="fullscreen"
             />
+          ) : (
+            <ProfilesView onClose={goHome} variant="fullscreen" />
           )
         ) : (
           <GatewayConnectingScreen />
         )}
       </div>
 
-      {/* Left drawer — the surface's view navigation + Home entry. */}
+      {/* Left drawer — the current surface's sub-nav + Home entry. */}
       <Sheet onOpenChange={setOpenMobile} open={openMobile}>
         <SheetContent className="w-[19rem] gap-0 p-0" showCloseButton={false} side="left">
           <ActivityNavSidebar
-            footer={screen === 'settings' ? <SettingsFooter /> : undefined}
+            footer={surface === 'settings' ? <SettingsFooter /> : undefined}
             onNavigate={() => setOpenMobile(false)}
-            screen={screen}
+            surface={surface}
           />
         </SheetContent>
       </Sheet>
 
-      {/* Right drawer — the home Status / Files panel (+ Open Settings), verbatim. */}
+      {/* Right drawer — Status / Files + the screen switcher (Command Center /
+          Settings / Profiles), reused from the home shell. */}
       <Sheet onOpenChange={setOpenMobileRight} open={openMobileRight}>
         <SheetContent className="w-[19rem] gap-0 p-0" showCloseButton={false} side="right">
           <MobileRightPanel />

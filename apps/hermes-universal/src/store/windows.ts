@@ -1,7 +1,7 @@
 import { supportsMultipleWindows } from '@tauri-apps/api/app'
 import { invoke } from '@tauri-apps/api/core'
 
-import { COMMAND_CENTER_ROUTE, SETTINGS_ROUTE } from '@/app/routes'
+import { COMMAND_CENTER_ROUTE, PROFILES_ROUTE, SETTINGS_ROUTE } from '@/app/routes'
 import { IS_ANDROID, IS_DESKTOP, IS_IOS } from '@/lib/platform'
 import { navigateTo } from '@/lib/route-nav'
 import { notifyError } from '@/store/notifications'
@@ -39,55 +39,53 @@ export function isSecondaryWindow(): boolean {
 }
 
 // --------------------------------------------------------------------------
-// Activity screens (MJX-141 / MJX-176). On Android, Settings and the Command
-// Center open as their OWN native Activity (a separate WebView hosted by a
-// registered `TauriActivity` subclass), not the in-app `fixed inset-0` overlay.
-// Such a WebView carries `?win=activity&screen=<settings|command-center>` before
-// the HashRouter `#`; `activityScreen()` reads it so `app.tsx` mounts the
-// full-screen `ActivityScreenRoot` (Home button + that surface's nav) instead of
-// the whole chat shell. Below the native path (non-Android, or a build without
-// the activity registered) the openers fall back to the in-app overlay — no
-// behaviour change off Android.
+// Activity screens (MJX-141 Android / MJX-176 iOS). Windowable surfaces (Settings,
+// Command Center, Profiles) open in ONE native screen activity / scene — a separate
+// WebView carrying `?win=activity` before the HashRouter `#`. The surface it shows
+// is derived LIVE from the current route (`activitySurfaceForPath`), NOT a fixed
+// launch marker, so switching between surfaces inside the activity is just an
+// in-WebView route change. Off the native path the openers fall back to the in-app
+// overlay — no behaviour change there.
 // --------------------------------------------------------------------------
 
 const ACTIVITY_WINDOW_FLAG = 'activity'
 
-export type ActivityScreen = 'command-center' | 'settings'
+export type ActivitySurface = 'command-center' | 'profiles' | 'settings'
 
-let activityScreenCache: ActivityScreen | null | undefined
+let activityWindowCache: boolean | null = null
 
-export function activityScreen(): ActivityScreen | null {
-  if (activityScreenCache !== undefined) {
-    return activityScreenCache
+// True when this WebView is the native screen activity (`?win=activity`). `app.tsx`
+// mounts `ActivityScreenRoot` for it instead of the chat shell.
+export function isActivityWindow(): boolean {
+  if (activityWindowCache !== null) {
+    return activityWindowCache
   }
 
-  let result: ActivityScreen | null = null
+  let result = false
 
   try {
-    const params = new URLSearchParams(window.location.search)
-
-    if (params.get('win') === ACTIVITY_WINDOW_FLAG) {
-      const screen = params.get('screen')
-
-      if (screen === 'settings' || screen === 'command-center') {
-        result = screen
-      }
-    }
+    result = new URLSearchParams(window.location.search).get('win') === ACTIVITY_WINDOW_FLAG
   } catch {
-    result = null
+    result = false
   }
 
-  activityScreenCache = result
+  activityWindowCache = result
 
   return result
 }
 
-// Native activities are Android-only for now (iOS UIScene tracked by MJX-176),
-// and never nest — an activity WebView opens its sub-routes in place rather than
-// spawning yet another activity (which would also break `ActivityScreenRoot`'s
-// fixed `screen`, and recurse on every settings-internal navigation).
-export function canOpenActivityScreen(): boolean {
-  return IS_ANDROID && activityScreen() === null
+// Which surface the screen activity renders, from the current route (default
+// Settings). Drives both `ActivityScreenRoot` and its nav drawer.
+export function activitySurfaceForPath(pathname: string): ActivitySurface {
+  if (pathname === COMMAND_CENTER_ROUTE || pathname.startsWith(`${COMMAND_CENTER_ROUTE}/`)) {
+    return 'command-center'
+  }
+
+  if (pathname === PROFILES_ROUTE || pathname.startsWith(`${PROFILES_ROUTE}/`)) {
+    return 'profiles'
+  }
+
+  return 'settings'
 }
 
 // The activity's native bridge (added by SettingsActivity/SystemActivity's
@@ -119,42 +117,41 @@ export async function returnHome(): Promise<void> {
   }
 }
 
-// Open Settings — as a native activity on Android, else the in-app overlay.
-// `route` is the full in-app path (e.g. `/settings/providers`) so deep-links
-// survive both paths. Optimistic: a failed invoke (activity not registered on an
-// older build) silently degrades to the overlay rather than dead-ending.
+// Open a windowable surface at `route`. On Android from the home shell it launches
+// the native screen activity there; INSIDE the activity it just navigates (instant
+// surface switch — the activity renders by route); everywhere else it navigates to
+// the in-app overlay. Optimistic: a failed invoke degrades to the overlay.
+async function openActivityScreen(route: string): Promise<void> {
+  if (IS_ANDROID && !isActivityWindow()) {
+    try {
+      await invoke('open_screen_window', { route })
+
+      return
+    } catch (err) {
+      console.warn('open_screen_window failed; falling back to in-app overlay', err)
+    }
+  }
+
+  navigateTo(route)
+}
+
+// Thin per-surface wrappers (kept for call-site clarity + existing imports). `route`
+// is the full in-app path, so deep-links (`/settings/providers`, `/command-center?
+// section=system`) survive both the native and the overlay paths.
 export async function openSettingsScreen(route: string = SETTINGS_ROUTE): Promise<void> {
-  if (canOpenActivityScreen()) {
-    try {
-      await invoke('open_settings_window', { route })
-
-      return
-    } catch (err) {
-      console.warn('open_settings_window failed; falling back to in-app overlay', err)
-    }
-  }
-
-  navigateTo(route)
+  await openActivityScreen(route)
 }
 
-// Open the Command Center ("System panel") — native activity on Android, else
-// the in-app overlay. `route` may carry the section query (`?section=system`).
 export async function openSystemScreen(route: string = COMMAND_CENTER_ROUTE): Promise<void> {
-  if (canOpenActivityScreen()) {
-    try {
-      await invoke('open_system_window', { route })
-
-      return
-    } catch (err) {
-      console.warn('open_system_window failed; falling back to in-app overlay', err)
-    }
-  }
-
-  navigateTo(route)
+  await openActivityScreen(route)
 }
 
-// Single funnel for the openers: promote the two windowable surfaces to their
-// native activity on Android, navigate everything else (and all non-Android) in
+export async function openProfilesScreen(route: string = PROFILES_ROUTE): Promise<void> {
+  await openActivityScreen(route)
+}
+
+// Single funnel for the openers: promote the windowable surfaces to the native
+// screen activity on Android, navigate everything else (and all non-Android) in
 // app. Callers replace their `navigate(path)` / `navigateTo(path)` with this.
 export function openAppRoute(route: string): void {
   if (route === SETTINGS_ROUTE || route.startsWith(`${SETTINGS_ROUTE}/`)) {
@@ -169,6 +166,12 @@ export function openAppRoute(route: string): void {
     route.startsWith(`${COMMAND_CENTER_ROUTE}?`)
   ) {
     void openSystemScreen(route)
+
+    return
+  }
+
+  if (route === PROFILES_ROUTE || route.startsWith(`${PROFILES_ROUTE}/`)) {
+    void openProfilesScreen(route)
 
     return
   }

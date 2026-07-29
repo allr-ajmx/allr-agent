@@ -8,7 +8,7 @@ import { Codicon } from '@/components/ui/codicon'
 import { useI18n } from '@/i18n'
 import { Activity, BarChart3, MessageCircle, Wrench } from '@/lib/icons'
 import { cn } from '@/lib/utils'
-import { type ActivityScreen, returnHome } from '@/store/windows'
+import { type ActivitySurface, returnHome } from '@/store/windows'
 
 // The left drawer for a native activity screen (MJX-141): the surface's view
 // navigation rendered in the SAME row format as the home page's nav rail (shared
@@ -52,11 +52,11 @@ const CC_SECTIONS = [
 ] as const
 
 export function ActivityNavSidebar({
-  screen,
+  surface,
   onNavigate,
   footer
 }: {
-  screen: ActivityScreen
+  surface: ActivitySurface
   /** Close the drawer after a selection (sheet variant). */
   onNavigate?: () => void
   /** Optional footer row (Settings uses it for Export / Import / Reset). */
@@ -75,7 +75,7 @@ export function ActivityNavSidebar({
 
   let rows: NavRowModel[]
 
-  if (screen === 'command-center') {
+  if (surface === 'command-center') {
     const active = new URLSearchParams(location.search).get('section') ?? 'sessions'
 
     rows = CC_SECTIONS.map(({ id, Icon }) => ({
@@ -85,7 +85,7 @@ export function ActivityNavSidebar({
       active: active === id,
       onSelect: () => go(`${COMMAND_CENTER_ROUTE}?section=${id}`)
     }))
-  } else {
+  } else if (surface === 'settings') {
     const topId = location.pathname.startsWith('/settings/')
       ? location.pathname.slice('/settings/'.length).split('/')[0]
       : settingsEntries[0]?.id
@@ -97,6 +97,10 @@ export function ActivityNavSidebar({
       active: entry.id === topId,
       onSelect: () => go(`/settings/${entry.id}`)
     }))
+  } else {
+    // Profiles is a master/detail list with no fixed sub-sections — the drawer is
+    // just the Home entry (the switcher lives in the right drawer).
+    rows = []
   }
 
   return (

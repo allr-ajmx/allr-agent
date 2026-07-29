@@ -1,16 +1,15 @@
 import { ActivityScreenRoot } from '@/app/activity-screen'
 import { MobileController } from '@/app/mobile-controller'
 import { SecondaryWindowRoot } from '@/app/secondary-window'
-import { activityScreen, isSecondaryWindow } from '@/store/windows'
+import { isActivityWindow, isSecondaryWindow } from '@/store/windows'
 
 export function App() {
-  // A native activity screen (`?win=activity&screen=…`, Android) renders a single
-  // full-screen surface — Settings or the Command Center — with its own top bar
-  // and Home button, bypassing the chat shell (MJX-141).
-  const screen = activityScreen()
-
-  if (screen) {
-    return <ActivityScreenRoot screen={screen} />
+  // A native screen activity (`?win=activity`, Android/iOS) renders a single
+  // full-screen windowable surface — Settings / Command Center / Profiles, chosen
+  // live by the current route — with its own top bar + Home, bypassing the chat
+  // shell (MJX-141).
+  if (isActivityWindow()) {
+    return <ActivityScreenRoot />
   }
 
   // A native pop-out window (`?win=secondary`) renders a single chat via
