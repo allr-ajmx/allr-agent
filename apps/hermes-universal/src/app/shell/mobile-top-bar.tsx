@@ -37,11 +37,10 @@ export function MobileTopBar() {
           <ChatTitle />
         </div>
 
-        {/* Right-sidebar toggle. Wired to the right drawer state (useSidebar); its
-            content changes a lot on mobile and is a later step, so nothing is
-            mounted yet. */}
+        {/* Right-sidebar toggle → the Status / Files drawer. Uses the drawer /
+            right-panel glyph (not a gear — this opens a panel, not settings). */}
         <TitlebarButton className="size-4" label={t.titlebar.showRightSidebar} onClick={toggleMobileRight}>
-          <Codicon name="gear" size="1.4rem" />
+          <Codicon name="layout-sidebar-right" size="1.4rem" />
         </TitlebarButton>
       </div>
     </div>
