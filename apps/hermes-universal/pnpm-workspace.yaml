@@ -7,4 +7,5 @@ packages: []
 # Dependencies allowed to run install/build (lifecycle) scripts. pnpm blocks
 # these by default; `true` approves the build so pnpm stops prompting.
 allowBuilds:
+  esbuild: true
   unicode-animations: true
