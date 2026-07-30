@@ -17,6 +17,7 @@ import {
   mirrorLayoutTree,
   paneRootSide,
   registerLayoutResetHandler,
+  registerNewTabHandler,
   registerPaneCloser,
   registerPaneOpener,
   revealTreePane,
@@ -50,7 +51,7 @@ import { $previewTabs, closeAllPreviewTabs } from '@/store/preview'
 import { $reviewOpen, closeReview, REVIEW_PANE_ID } from '@/store/review'
 import { $activeStoredSessionId, $sessions, sessionMatchesStoredId } from '@/store/session'
 import { $sessionColorById, sessionColorFor } from '@/store/session-color'
-import { invalidateRuntimeBindings, setVisibleBubbleKeysProvider } from '@/store/session-states'
+import { invalidateRuntimeBindings, newSessionTab, setVisibleBubbleKeysProvider } from '@/store/session-states'
 
 import {
   SessionTileCloseConfirm,
@@ -271,6 +272,10 @@ watchContributedPanes()
 // import — see store/event-router.ts.)
 // FIXME(MJX-50/route-tiles): page (route) tiles — watchRouteTiles() — are a follow-up.
 watchSessionTiles()
+
+// The `+` at the end of a chat tab strip. Registered rather than imported by
+// the renderer, which knows only pane ids (see registerNewTabHandler).
+registerNewTabHandler(newSessionTab)
 
 // A reconnect issues new runtime ids, so every binding we hold is dead. Drop
 // the bindings (NOT the sessions — a draft's unsent text is the one thing that

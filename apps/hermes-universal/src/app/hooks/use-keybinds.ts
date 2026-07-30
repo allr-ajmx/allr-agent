@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 
+import { activateTreeTabSlot, closeWorkspaceTab, cycleTreeTabInFocusedZone } from '@/components/pane-shell/tree/store'
 import { contributedKeybindHandler, PROFILE_SLOT_COUNT, SESSION_SLOT_COUNT } from '@/lib/keybinds/actions'
 import { comboAllowedInInput, comboFromEvent, isEditableTarget } from '@/lib/keybinds/combo'
 import { IS_MOBILE } from '@/lib/platform'
@@ -25,7 +26,8 @@ import { newSession, toggleSelectedPin } from '@/store/session'
 import {
   $focusedStoredSessionId,
   $sessionTiles,
-  openSessionTile,
+  focusOpenSession,
+  newSessionTab,
   reopenLastClosedTile,
   requestCloseSessionTile
 } from '@/store/session-states'
@@ -91,10 +93,16 @@ export function useKeybinds(deps: KeybindRuntimeDeps): void {
     profileSwitchHandlers[`profile.switch.${slot}`] = () => switchProfileToSlot(slot)
   }
 
+  // A session that is ALREADY on screen — an open tab or the main thread — is
+  // fronted rather than re-opened. Without this, picking it from the switcher
+  // or the sidebar loaded a second copy into main while its tab sat there
+  // holding the same conversation.
   const goToSession = (sessionId: null | string) => {
-    if (sessionId) {
-      navigate(sessionRoute(sessionId))
+    if (!sessionId || focusOpenSession(sessionId)) {
+      return
     }
+
+    navigate(sessionRoute(sessionId))
   }
 
   // ^N jumps straight to the Nth recent session and dismisses the switcher.
@@ -102,6 +110,19 @@ export function useKeybinds(deps: KeybindRuntimeDeps): void {
 
   for (let slot = 1; slot <= SESSION_SLOT_COUNT; slot += 1) {
     sessionSlotHandlers[`session.slot.${slot}`] = () => {
+      // The focused chat strip's Nth TAB first; the Nth recent session only
+      // when no multi-tab chat zone has focus.
+      //
+      // (Desktop overloads ⌘1-9 for this and falls through to profiles.
+      // Universal already spends ⌘1-9 on profiles and has ⌃1-9 free for
+      // sessions, so there is nothing to overload — the tab meaning simply
+      // takes precedence within the key that already means "session N".)
+      if (activateTreeTabSlot(slot)) {
+        closeSwitcher()
+
+        return
+      }
+
       closeSwitcher()
       goToSession(slotSessionId(slot))
     }
@@ -109,7 +130,15 @@ export function useKeybinds(deps: KeybindRuntimeDeps): void {
 
   commitSwitcherRef.current = () => goToSession(commitOnCtrlUp())
 
+  // ⌃Tab belongs to the FOCUSED TAB STRIP when one is in play — that is what
+  // the key means everywhere else in the app — and only falls through to the
+  // recent-session HUD when the focus isn't a chat strip with something to
+  // cycle. Desktop scopes it the same way.
   const stepSession = (direction: 1 | -1) => {
+    if (cycleTreeTabInFocusedZone(direction)) {
+      return
+    }
+
     onSwitcherTabDown()
     goToSession(openOrAdvanceSwitcher(direction))
   }
@@ -185,22 +214,27 @@ export function useKeybinds(deps: KeybindRuntimeDeps): void {
     'view.closeTerminal': () => $terminalOpen.get() && closeActiveTerminal(),
     'view.flipPanes': togglePanesFlipped,
 
-    // Multi-session tiles: ⌘T opens the focused/selected conversation beside the
-    // main thread; ⌘W closes the focused tile (confirming a running one); ⌘⇧T
-    // reopens the last-closed tile.
-    'session.newTab': () => {
-      const id = $focusedStoredSessionId.get()
-
-      if (id) {
-        openSessionTile(id, 'right')
-      }
-    },
+    // ⌘T new tab, ⌘W close tab, ⌘⇧T reopen the last closed one.
+    //
+    // The main thread is a pane like any other, so "new tab" means: park the
+    // conversation currently in it as its own tab, then start a fresh chat in
+    // the main pane. Both end up in the same strip, which is what the user
+    // sees as two tabs. (An unsaved draft has nothing to park.)
+    'session.newTab': newSessionTab,
+    // Fall-through chain, and it deliberately bottoms out in a no-op: ⌘W must
+    // never close the window.
     'view.closeTab': () => {
       const id = $focusedStoredSessionId.get()
 
+      // A tile goes through requestCloseSessionTile so a running or
+      // input-blocked session still gets its confirmation.
       if (id && $sessionTiles.get().some(t => t.storedSessionId === id)) {
         requestCloseSessionTile(id)
+
+        return
       }
+
+      closeWorkspaceTab()
     },
     'view.reopenTab': reopenLastClosedTile,
 

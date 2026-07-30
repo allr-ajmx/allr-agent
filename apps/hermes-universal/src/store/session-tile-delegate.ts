@@ -16,7 +16,7 @@ import { appendLiveSessionProjection, toChatMessages } from '@/lib/session-histo
 import { type ChatMessage, nextId } from '@/store/chat'
 import { requestGateway } from '@/store/gateway'
 import { $sessions, archiveSessionLocal, deleteSessionLocal } from '@/store/session'
-import { emptySessionState } from '@/store/session-state-types'
+import { $sessionStates, emptySessionState, runtimeKeyForStoredSession } from '@/store/session-state-types'
 import { closeSessionTile, publishSessionState, setSessionTileDelegate, updateSession } from '@/store/session-states'
 import type { SessionResumeResponse } from '@/types/hermes'
 
@@ -24,9 +24,29 @@ function userMessage(text: string): ChatMessage {
   return { id: nextId(), role: 'user', parts: [{ type: 'text', text }] }
 }
 
-/** Resume a stored session into `$sessionStates[runtimeId]` WITHOUT touching the
- *  primary chat globals — the tile analog of `store/session.ts#openSession`. */
+/**
+ * Bind a stored session to a tile.
+ *
+ * A session that already has a live slice is adopted as-is — no `session.resume`
+ * and no transcript re-fetch. That matters twice over: re-resuming would rebind
+ * the session's transport on the gateway and, mid-turn, tear its own stream
+ * away (MJX-199); and ⌘T parks the session that was just in the main pane, which
+ * is by definition warm.
+ *
+ * The tile analog of `store/session.ts#openSession`, which short-circuits the
+ * same way for the same reasons.
+ */
 async function resumeSessionToState(storedId: string): Promise<string> {
+  const warm = runtimeKeyForStoredSession(storedId)
+
+  if (warm && $sessionStates.get()[warm]) {
+    return warm
+  }
+
+  return hydrateSessionToState(storedId)
+}
+
+async function hydrateSessionToState(storedId: string): Promise<string> {
   const transcript = await Promise.resolve()
     .then(() => getSessionMessages(storedId))
     .catch(() => null)

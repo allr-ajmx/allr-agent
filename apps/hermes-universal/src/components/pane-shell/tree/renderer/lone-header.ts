@@ -1,3 +1,4 @@
+import { TILE_PANE_PREFIX } from '@/lib/pane-ids'
 /**
  * When a lone pane must keep its tab strip (name card + close).
  *
@@ -20,7 +21,7 @@ export function forceLoneHeaderForPanes(
   chromeOf: (id: string) => LoneHeaderChrome,
   isCollapsePane: (id: string) => boolean
 ): boolean {
-  if (shown.some(id => id.startsWith('session-tile:'))) {
+  if (shown.some(id => id.startsWith(TILE_PANE_PREFIX))) {
     return true
   }
 

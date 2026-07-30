@@ -2212,6 +2212,7 @@ export interface Translations {
     closeOthers: string
     closeToRight: string
     closeAll: string
+    newTab: string
     split: (dir: string) => string
     move: (dir: string) => string
     dirUp: string
