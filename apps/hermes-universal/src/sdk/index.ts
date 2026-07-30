@@ -196,6 +196,13 @@ export type { GatewayEventListener } from '@/contrib/events'
 
 // -- contracts ----------------------------------------------------------------
 
+export type {
+  HermesPlugin,
+  PluginContext,
+  PluginContribution,
+  PluginRestOptions,
+  PluginStorage
+} from '@/contrib/plugin'
 /** Mount-scoped contribution: while the rendering component is mounted, its
  *  children render in the target area's slot; unmount disposes it. Use for
  *  page-owned chrome (a page's titlebar control leaves with the page) —
