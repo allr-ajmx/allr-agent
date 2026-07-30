@@ -56,8 +56,12 @@ export function useApiKeyCatalog(): ApiKeyOption[] {
   return [...API_KEY_OPTIONS, ...derived]
 }
 
-// OAuth-capable providers for the picker. `external` (CLI) providers are
-// excluded — they need a terminal, which mobile doesn't have (FIXME(K11)).
+// OAuth-capable providers for the picker. `external` (CLI) providers are excluded
+// here because they need a terminal, which mobile doesn't have. Note the flow
+// itself IS fully ported — Settings → Providers reaches it via
+// `provider-connect-overlay.tsx` (copyable cli_command + recheck) — and desktop
+// does ship a terminal pane, so this filter is arguably too broad there.
+// FIXME(MJX-108): revisit in a later onboarding pass.
 export function useOAuthProviders(): OAuthProvider[] {
   const { data } = useQuery({ queryKey: ['oauth-providers'], queryFn: listOAuthProviders, staleTime: 60_000 })
 

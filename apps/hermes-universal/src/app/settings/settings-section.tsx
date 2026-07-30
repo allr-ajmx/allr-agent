@@ -54,8 +54,9 @@ export function SectionBody({ section }: { section: string }) {
     case 'memory':
       return <MemorySection />
 
-    // Model (Jc7): default-model picker + the model schema fields. MoA/auxiliary/
-    // local-endpoint onboarding deferred FIXME(J7).
+    // Model (Jc7): default-model picker, the model schema fields, MoA and
+    // auxiliary. FIXME(MJX-105): local-endpoint onboarding is still missing —
+    // desktop's `startManualLocalEndpoint` has no universal counterpart.
     case 'model':
       return <ModelSection />
 
@@ -96,7 +97,9 @@ export function SectionBody({ section }: { section: string }) {
       return <AboutSection />
 
     default:
-      // FIXME(J): placeholder until this section's renderer lands.
+      // Unknown / deep-linked-only ids land here. Reachable today for `billing`
+      // and `plugins` (unported — MJX-105 / MJX-53) and for desktop's `keybinds`
+      // nav id, which this switch spells `shortcuts` — FIXME(MJX-105).
       return (
         <SettingsContent>
           <EmptyState description={t.settings.config.emptyDesc} title={t.settings.config.emptyTitle} />

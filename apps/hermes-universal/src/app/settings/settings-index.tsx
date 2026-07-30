@@ -22,9 +22,10 @@ import { SettingsContent } from './primitives'
 import { useSettingsNav } from './settings-nav'
 import { invalidateHermesConfig, setHermesConfigCache } from './use-config-record'
 
-// FIXME(J): export/import config deferred — needs a Tauri fs-write dialog for
-// the download and fs-read for the upload; only "reset to defaults" (pure API)
-// ships now.
+// The mobile drill-in index ships reset-only. Config export/import lives on the
+// desktop-shell overlay footer instead (`settings-view.tsx`), where the Tauri
+// dialog + fs plugins are available — this list is the touch surface and has no
+// file-picker affordance to hang them off.
 function ResetToDefaults() {
   const { t } = useI18n()
   const [busy, setBusy] = useState(false)
