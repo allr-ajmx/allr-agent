@@ -26,8 +26,9 @@ import { canOpenSessionWindow, openSessionInNewWindow } from '@/store/windows'
 
 // Row action set (ported/adapted from desktop `session-actions-menu.tsx`).
 // Shared by the kebab DropdownMenu and the right-click ContextMenu.
-// FIXME(sidebar): Export (H4) and Branch-from (H5) are intentionally omitted —
-// gated to their tracks. Open-in-new-window (MJX-104) is wired below on desktop.
+// Branch-from and open-in-new-window are wired below (the latter on desktop
+// only). Export is reachable from the Command Center rather than this row menu
+// (`lib/session-export.ts`) — see MJX-205 if it should be offered here too.
 
 interface SessionActions {
   sessionId: string

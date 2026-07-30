@@ -265,7 +265,7 @@ export async function refreshSessions(): Promise<void> {
 }
 
 // The ported listSessions slices at `limit` with offset=0, so "load more" =
-// re-fetch with a bigger limit. FIXME(H): true offset pagination.
+// re-fetch with a bigger limit. FIXME(MJX-205): true offset pagination.
 export async function loadMoreSessions(): Promise<void> {
   $sessionsLimit.set($sessionsLimit.get() + PAGE)
   await refreshSessions()

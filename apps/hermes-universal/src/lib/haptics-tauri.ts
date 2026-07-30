@@ -23,7 +23,7 @@ import { IS_IOS } from '@/lib/platform'
 // the fix is one additive line in lib/haptics.ts:
 //   registeredTrigger(config.pattern, config.options, intent)
 // plus `intent` on the HapticTrigger type. Desktop's web-haptics trigger ignores
-// extra arguments, so desktop is unaffected. See UI_PORT.md §19.
+// extra arguments, so desktop is unaffected.
 //
 // Input normalization and intensity semantics deliberately mirror web-haptics'
 // own (`C()` and `M()` in its bundle) so a given pattern reads the same on both

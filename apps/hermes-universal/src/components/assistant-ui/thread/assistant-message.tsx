@@ -59,15 +59,16 @@ export const AssistantMessage: FC<{
   const isPlaceholder = useAuiState(s => s.message.status?.type === 'running' && s.message.content.length === 0)
   const hasVisibleText = useAuiState(s => contentHasVisibleText(s.message.content))
 
-  // FIXME(chat-port): link preview attachments (preview/media phase). Desktop
-  // scans completed text for previewable URLs and renders <PreviewAttachment>;
-  // universal has no gateway-media RPCs yet, so previews are omitted.
+  // FIXME(MJX-205): link preview attachments. Desktop scans completed text for
+  // previewable URLs and renders <PreviewAttachment>. The original reason given
+  // here — no gateway-media RPCs — is likely stale now that MJX-103 landed the
+  // authenticated media transport; re-verify before scoping.
 
   const getMessageText = useCallback(() => messageContentText(messageRuntime.getState().content), [messageRuntime])
 
-  // FIXME(chat-port): the desktop one-shot enter animation is intentionally
-  // omitted here to avoid pulling the whole message subtree into a render key;
-  // the reasoning disclosures still animate via useEnterAnimation.
+  // NOTE: the desktop one-shot enter animation is deliberately omitted here to
+  // avoid pulling the whole message subtree into a render key; the reasoning
+  // disclosures still animate via useEnterAnimation. Not a gap — see MJX-205.
 
   if (isPlaceholder) {
     return null
@@ -138,8 +139,8 @@ const AssistantActionBar: FC<MessageActionProps> = ({ messageId, getMessageText,
         data-slot="aui_msg-actions"
       >
         <CopyButton appearance="icon" buttonSize="icon" label={copy.copy} text={getMessageText} />
-        {/* FIXME(chat-port): reload/regenerate needs runtime branching (blocked) —
-            the stock useExternalStoreRuntime has no reload, so the desktop
+        {/* BLOCKED(MJX-205): reload/regenerate needs runtime branching — the stock
+            useExternalStoreRuntime has no reload, so the desktop
             ActionBarPrimitive.Reload button is omitted here. */}
         <DropdownMenu onOpenChange={setMenuOpen} open={menuOpen}>
           <DropdownMenuTrigger asChild>
@@ -216,7 +217,7 @@ const MessageTimestamp: FC = () => {
 
 const AssistantFooter: FC<MessageActionProps> = props => (
   <div className="flex min-h-6 flex-col items-end gap-1 pr-(--message-text-indent) pl-(--message-text-indent)">
-    {/* FIXME(chat-port): branch picker needs incremental runtime (blocked). Under
+    {/* BLOCKED(MJX-205): branch picker needs an incremental runtime. Under
         the stock external-store runtime hideWhenSingleBranch renders nothing —
         the markup is kept so it lights up once branching lands. */}
     <BranchPickerPrimitive.Root

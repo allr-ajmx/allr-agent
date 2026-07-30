@@ -3,9 +3,6 @@ node_modules/
 src-tauri/target/
 src-tauri/gen/
 
-# Working scratch ledger for the left-sidebar port — intentionally not committed
-UI_PORT.md
-
 # Vendored plugin build artifacts — the app's src-tauri/Cargo.lock is authoritative
 src-tauri/plugins/*/target/
 src-tauri/plugins/*/Cargo.lock

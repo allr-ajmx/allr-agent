@@ -8,8 +8,8 @@ import type { SessionMessage, SessionResumeResponse } from '@/types/hermes'
 // preceding assistant's tool-call by tool_call_id/name; buffer tool-only
 // assistants onto the surrounding turn) — dropping media/todos/generated-image/
 // branch/timestamp/argsText concerns.
-// FIXME(H): displayContentForMessage strips the "Attached Context" marker only;
-// no ref reinjection.
+// FIXME(MJX-205): displayContentForMessage strips the "Attached Context" marker
+// only; no ref reinjection.
 
 function textFromUnknown(value: unknown, depth = 0): string {
   if (typeof value === 'string') {

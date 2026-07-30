@@ -11,7 +11,8 @@
       all, so what it reports is purely what the webview does with the DOM.
 
       Run it in the SAME engine Tauri embeds, not in Chrome — the whole point is
-      WebKitGTK behaviour (see UI_PORT.md):
+      WebKitGTK behaviour, which diverges from Chromium on exactly the things
+      this measures (innerHTML parse cost, `contain` support, relayout):
 
         /usr/lib/x86_64-linux-gnu/webkit2gtk-4.1/MiniBrowser \
           apps/hermes-universal/bench/index.html
