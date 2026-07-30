@@ -30,7 +30,6 @@ import { cn } from '@/lib/utils'
 import { $sessionId as $activeSessionId } from '@/store/chat'
 import { $currentFastMode, $currentModel, $currentProvider, $currentReasoningEffort } from '@/store/model'
 import { $modelPresets, applyModelPreset, modelPresetKey } from '@/store/model-presets'
-import { $collapsedProviders, toggleCollapsedProvider } from '@/store/provider-collapse'
 import {
   $visibleModels,
   collapseModelFamilies,
@@ -40,6 +39,7 @@ import {
   modelVisibilityKey,
   setModelVisibilityOpen
 } from '@/store/model-visibility'
+import { $collapsedProviders, toggleCollapsedProvider } from '@/store/provider-collapse'
 import type { ModelOptionProvider, ModelOptionsResponse } from '@/types/hermes'
 
 import { ModelEditSubmenu, resolveFastControl } from './model-edit-submenu'
