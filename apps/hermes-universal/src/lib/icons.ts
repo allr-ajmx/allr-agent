@@ -94,6 +94,9 @@ export {
   IconPencil as Pencil,
   // Notifications completion-sound preview
   IconPlayerPlay as Play,
+  // Plugins — the Settings ▸ Plugins page + the fallback icon for a contributed
+  // command / nav row that ships none (MJX-53).
+  IconPlug as Plug,
   IconPlus as Plus,
   IconRefresh as Refresh,
   IconRefresh as RefreshCw,

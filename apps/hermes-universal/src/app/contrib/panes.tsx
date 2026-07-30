@@ -11,7 +11,7 @@
  * chat backdrop here.
  */
 
-import { lazy, type ReactNode, Suspense } from 'react'
+import { lazy, type ReactNode, Suspense, useMemo } from 'react'
 import { Route, Routes } from 'react-router-dom'
 
 import { ChatScreen } from '@/app/chat/chat-screen'
@@ -19,6 +19,9 @@ import { RightSidebarPane } from '@/app/right-pane'
 import { PreviewRail } from '@/app/right-pane/preview/preview-rail'
 import { ReviewPane } from '@/app/right-pane/review'
 import { TerminalArea } from '@/app/right-pane/terminal/terminal-area'
+import { contributedRoutes, ROUTES_AREA } from '@/app/routes'
+import { ContribBoundary, ContribRender } from '@/contrib/react/boundary'
+import { useContributions } from '@/contrib/react/use-contributions'
 import { normalizeOrLocalPreviewTarget } from '@/lib/local-preview'
 import { useStore } from '@/store/atom'
 import { $currentCwd } from '@/store/chat'
@@ -27,6 +30,7 @@ import { setCurrentSessionPreviewTarget } from '@/store/preview'
 // Dev-only markdown/KaTeX perf bench — same build-time guard as MobileController
 // so it never reaches a release bundle. Kept reachable from the workspace pane.
 const BENCH_ENABLED = import.meta.env.DEV || import.meta.env.VITE_ENABLE_BENCH === 'true'
+
 const MarkdownBench = BENCH_ENABLED
   ? lazy(() => import('@/dev/markdown-bench').then(module => ({ default: module.MarkdownBench })))
   : null
@@ -88,12 +92,37 @@ function WorkspacePage({ view }: { view: ReactNode }) {
  *  down while a page shows (mirrors `headerVeto`). Overlay routes fall through
  *  to the chat backdrop (rendered as MobileController portals over the shell). */
 export function WorkspaceRoutes() {
+  // Subscribed, not read once: a plugin that loads after first paint (disk door,
+  // hot reload) gets its page without remounting the core route table. The
+  // validated list comes from `contributedRoutes()` — the same helper
+  // `isContributedPath` uses — so a path can never be a route here and a session
+  // id there.
+  const contributions = useContributions(ROUTES_AREA)
+  const pluginRoutes = useMemo(() => contributedRoutes(contributions), [contributions])
+
   return (
     <Routes>
       <Route element={<ChatScreen />} path="/" />
       <Route element={<WorkspacePage view={<SkillsPage />} />} path="/skills" />
       <Route element={<WorkspacePage view={<MessagingPage />} />} path="/messaging" />
       <Route element={<WorkspacePage view={<ArtifactsPage />} />} path="/artifacts" />
+      {/* Contributed pages render as full pages inside the workspace pane, each
+          behind its own blast wall, BEFORE the catch-all below. */}
+      {pluginRoutes.map(route => (
+        <Route
+          element={
+            <WorkspacePage
+              view={
+                <ContribBoundary id={route.key}>
+                  <ContribRender render={route.render} />
+                </ContribBoundary>
+              }
+            />
+          }
+          key={route.key}
+          path={route.path}
+        />
+      ))}
       {MarkdownBench && (
         <Route
           element={

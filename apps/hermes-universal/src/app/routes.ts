@@ -1,4 +1,8 @@
 import { atom } from 'nanostores'
+import type { ReactNode } from 'react'
+
+import { registry } from '@/contrib/registry'
+import type { Contribution } from '@/contrib/types'
 
 export const SESSION_ROUTE_PREFIX = '/'
 export const NEW_CHAT_ROUTE = '/'
@@ -20,6 +24,8 @@ export type AppView =
   | 'chat'
   | 'command-center'
   | 'cron'
+  /** A contributed (plugin) page — see ROUTES_AREA below. */
+  | 'extension'
   | 'messaging'
   | 'profiles'
   | 'settings'
@@ -60,6 +66,65 @@ export const APP_ROUTES = [
 const APP_VIEW_BY_PATH = new Map<string, AppView>(APP_ROUTES.map(route => [route.path, route.view]))
 const RESERVED_PATHS: ReadonlySet<string> = new Set(APP_ROUTES.map(route => route.path))
 
+// ── Contributed routes — the `routes` registry area ──────────────────────────
+// A plugin pairs a `render` with an absolute one-segment path and gets a real
+// page inside the workspace pane (see app/contrib/panes.tsx). Contributed paths
+// are reserved exactly like APP_ROUTES so the session-id parser below never
+// mistakes `/kanban` for a session route. Navigate with `host.navigate(path)`.
+
+export const ROUTES_AREA = 'routes'
+
+/** Payload of a `routes` contribution's `data`. */
+export interface RouteContribution {
+  /** Absolute path, e.g. `/kanban`. One segment; no params. */
+  path: string
+}
+
+/** Validated contributed pages. Pass the area's contributions when you already
+ *  have them from a `useContributions(ROUTES_AREA)` subscription, so the React
+ *  path derives from the same snapshot it re-rendered for. */
+export function contributedRoutes(
+  items: readonly Contribution[] = registry.getArea(ROUTES_AREA)
+): Array<{ key: string; path: string; render: () => ReactNode; title?: string }> {
+  return items
+    .map(c => ({
+      key: `${c.source ?? 'core'}:${c.id}`,
+      path: (c.data as RouteContribution | undefined)?.path ?? '',
+      render: c.render!,
+      title: c.title
+    }))
+    .filter(
+      route =>
+        Boolean(route.render) &&
+        route.path.startsWith('/') &&
+        // One segment only. A `*`/`:param` path would shadow the workspace
+        // route table's own catch-all and swallow every unmatched route.
+        !route.path.slice(1).includes('/') &&
+        !/[*:]/.test(route.path) &&
+        !RESERVED_PATHS.has(route.path)
+    )
+}
+
+function isContributedPath(pathname: string): boolean {
+  return contributedRoutes().some(route => route.path === pathname)
+}
+
+// ── Contributed sidebar nav — the `sidebar.nav` registry area ────────────────
+// A DATA contribution adds a row to the sidebar nav rail (below the built-ins).
+// Pair with a ROUTES_AREA page: the row navigates to `path` and lights up while
+// the app is there.
+
+export const SIDEBAR_NAV_AREA = 'sidebar.nav'
+
+/** Payload of a `sidebar.nav` data contribution. */
+export interface SidebarNavContribution {
+  /** Codicon name, e.g. `'project'`. Defaults to `plug`. */
+  codicon?: string
+  label: string
+  /** Route to navigate to (usually a contributed page's path). */
+  path: string
+}
+
 // Views that render as a full-screen modal card (OverlayView) over the shell.
 // While one is open the app's titlebar control clusters must hide so they don't
 // bleed over the overlay (they sit at a higher z-index than the overlay card).
@@ -81,7 +146,7 @@ export function isNewChatRoute(pathname: string): boolean {
 }
 
 export function routeSessionId(pathname: string): string | null {
-  if (!pathname.startsWith(SESSION_ROUTE_PREFIX) || RESERVED_PATHS.has(pathname)) {
+  if (!pathname.startsWith(SESSION_ROUTE_PREFIX) || RESERVED_PATHS.has(pathname) || isContributedPath(pathname)) {
     return null
   }
 
@@ -97,6 +162,10 @@ export function sessionRoute(sessionId: string): string {
 export function appViewForPath(pathname: string): AppView {
   if (isNewChatRoute(pathname) || routeSessionId(pathname)) {
     return 'chat'
+  }
+
+  if (isContributedPath(pathname)) {
+    return 'extension'
   }
 
   return APP_VIEW_BY_PATH.get(pathname) ?? 'chat'

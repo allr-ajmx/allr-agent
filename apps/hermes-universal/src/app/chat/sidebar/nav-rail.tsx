@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 
 import {
@@ -7,11 +7,14 @@ import {
   ARTIFACTS_ROUTE,
   MESSAGING_ROUTE,
   NEW_CHAT_ROUTE,
+  SIDEBAR_NAV_AREA,
+  type SidebarNavContribution,
   SKILLS_ROUTE
 } from '@/app/routes'
 import { NAV_ROW_ACTIVE, NAV_ROW_BASE } from '@/app/shell/nav-row'
 import { Codicon } from '@/components/ui/codicon'
 import { KbdGroup } from '@/components/ui/kbd'
+import { useContributions } from '@/contrib/react/use-contributions'
 import { useI18n } from '@/i18n'
 import { comboTokens } from '@/lib/kbd'
 import { IS_MOBILE } from '@/lib/platform'
@@ -32,8 +35,11 @@ const NEW_SESSION_KBD = comboTokens('mod+n')
 type NavId = 'new-session' | 'skills' | 'messaging' | 'artifacts'
 
 interface RailItem {
-  id: NavId
   icon: string
+  /** Built-in rail ids resolve their label through i18n; contributed rows carry
+   *  a literal `label` instead. */
+  id: NavId | string
+  label?: string
   route?: string
   view?: AppView
 }
@@ -55,6 +61,26 @@ export function SidebarNavRail({ variant, onNavigate }: { variant: 'pane' | 'she
   const navigate = useNavigate()
   const currentView = appViewForPath(pathname)
   const [kbdFlash, setKbdFlash] = useState(false)
+
+  // Contributed nav rows (a plugin pairing a page with a rail entry) render below
+  // the built-ins with the same chrome. An entry with no `codicon` gets `plug`.
+  const navContributions = useContributions(SIDEBAR_NAV_AREA)
+
+  const items = useMemo<RailItem[]>(
+    () => [
+      ...NAV,
+      ...navContributions.flatMap(c => {
+        const data = c.data as Partial<SidebarNavContribution> | undefined
+
+        if (!data?.path?.startsWith('/') || !data.label) {
+          return []
+        }
+
+        return [{ icon: data.codicon || 'plug', id: c.id, label: data.label, route: data.path }]
+      })
+    ],
+    [navContributions]
+  )
 
   // Flash the ⌘N hint when the shortcut fires from anywhere.
   useEffect(() => {
@@ -98,9 +124,14 @@ export function SidebarNavRail({ variant, onNavigate }: { variant: 'pane' | 'she
       )}
     >
       <div className="flex flex-col gap-px">
-        {NAV.map(item => {
-          const active = Boolean(item.view) && currentView === item.view
-          const label = t.sidebar.nav[item.id]
+        {items.map(item => {
+          // Built-ins light up by view; a contributed row has no AppView of its
+          // own (they all resolve to 'extension'), so match its exact path.
+          const active = item.label
+            ? pathname === item.route
+            : Boolean(item.view) && currentView === item.view
+
+          const label = item.label ?? t.sidebar.nav[item.id as NavId]
           const isNewSession = item.id === 'new-session'
 
           return (
