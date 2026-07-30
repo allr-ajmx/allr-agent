@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { createContext, useContext, useMemo, useState } from 'react'
 
 import { Codicon } from '@/components/ui/codicon'
+import { DisclosureCaret } from '@/components/ui/disclosure-caret'
 import {
   DropdownMenuGroup,
   DropdownMenuItem,
@@ -29,6 +30,7 @@ import { cn } from '@/lib/utils'
 import { $sessionId as $activeSessionId } from '@/store/chat'
 import { $currentFastMode, $currentModel, $currentProvider, $currentReasoningEffort } from '@/store/model'
 import { $modelPresets, applyModelPreset, modelPresetKey } from '@/store/model-presets'
+import { $collapsedProviders, toggleCollapsedProvider } from '@/store/provider-collapse'
 import {
   $visibleModels,
   collapseModelFamilies,
@@ -69,6 +71,7 @@ export function ModelMenuPanel({ gateway, onSelectModel, requestGateway }: Model
   // toggling effort/fast/model re-renders this panel in place without forcing
   // the parent to rebuild the menu content (which would close the dropdown).
   const activeSessionId = useStore($activeSessionId)
+  const collapsedProviders = useStore($collapsedProviders)
   const currentFastMode = useStore($currentFastMode)
   const currentModel = useStore($currentModel)
   const currentProvider = useStore($currentProvider)
@@ -225,95 +228,120 @@ export function ModelMenuPanel({ gateway, onSelectModel, requestGateway }: Model
         </DropdownMenuItem>
       ) : (
         <div className="max-h-[max(150px,30dvh)] overflow-y-auto py-0.5">
-          {groups.map(group => (
-            <DropdownMenuGroup className="py-0.5" key={group.provider.slug}>
-              <DropdownMenuLabel className={dropdownMenuSectionLabel}>{group.provider.name}</DropdownMenuLabel>
-              {group.families.map(family => {
-                // The active id may be the base or its -fast sibling; either
-                // way this one family row represents both.
-                const activeId =
-                  group.provider.slug === optionsProvider &&
-                  (optionsModel === family.id || optionsModel === family.fastId)
-                    ? optionsModel
-                    : null
+          {groups.map(group => {
+            const slug = group.provider.slug
 
-                const isCurrent = activeId !== null
-                const name = modelDisplayParts(family.id).name
-                // Capabilities are looked up against the active/base id; the
-                // -fast variant carries the same param support as its base.
-                const caps = group.provider.capabilities?.[family.id]
+            // Collapsed when the user stored it (and not while searching, which
+            // spans every model regardless of collapse state).
+            const collapsed = collapsedProviders.includes(slug) && !search
 
-                // Effective settings for this row: live session state when it's
-                // the active model, otherwise its remembered preset (Hermes
-                // defaults when unset). Row label AND submenu read from these so
-                // they never disagree.
-                const preset = modelPresets[modelPresetKey(group.provider.slug, family.id)] ?? {}
-                const effEffort = isCurrent ? currentReasoningEffort : (preset.effort ?? '')
-                const effFast = isCurrent ? currentFastMode : (preset.fast ?? false)
+            return (
+              <DropdownMenuGroup className="py-0.5" key={slug}>
+                <DropdownMenuItem
+                  className="group/label flex w-full cursor-pointer items-center gap-1 !bg-transparent px-2 pb-0.5 pt-0.5 text-[0.625rem] font-semibold uppercase tracking-wider text-(--ui-text-tertiary) focus:!bg-transparent"
+                  onSelect={event => {
+                    event.preventDefault()
+                    toggleCollapsedProvider(slug)
+                  }}
+                  textValue=""
+                >
+                  <span className="truncate">{group.provider.name}</span>
+                  <DisclosureCaret
+                    className="shrink-0 text-(--ui-text-tertiary) opacity-0 transition group-hover/label:opacity-100"
+                    open={!collapsed}
+                    size="0.625rem"
+                  />
+                </DropdownMenuItem>
+                {!collapsed &&
+                  group.families.map(family => {
+                    // The active id may be the base or its -fast sibling; either
+                    // way this one family row represents both.
+                    const activeId =
+                      group.provider.slug === optionsProvider &&
+                      (optionsModel === family.id || optionsModel === family.fastId)
+                        ? optionsModel
+                        : null
 
-                const fastControl = resolveFastControl(
-                  activeId ?? family.id,
-                  group.provider.models ?? [],
-                  caps?.fast ?? false,
-                  effFast
-                )
+                    const isCurrent = activeId !== null
+                    const name = modelDisplayParts(family.id).name
+                    // Capabilities are looked up against the active/base id; the
+                    // -fast variant carries the same param support as its base.
+                    const caps = group.provider.capabilities?.[family.id]
 
-                const meta = [
-                  fastControl.kind !== 'none' && fastControl.on ? copy.fast : null,
-                  (caps?.reasoning ?? true) ? reasoningEffortLabel(effEffort) || copy.medium : null
-                ]
-                  .filter(Boolean)
-                  .join(' ')
+                    // Effective settings for this row: live session state when it's
+                    // the active model, otherwise its remembered preset (Hermes
+                    // defaults when unset). Row label AND submenu read from these so
+                    // they never disagree.
+                    const preset = modelPresets[modelPresetKey(group.provider.slug, family.id)] ?? {}
+                    const effEffort = isCurrent ? currentReasoningEffort : (preset.effort ?? '')
+                    const effFast = isCurrent ? currentFastMode : (preset.fast ?? false)
 
-                // Every row is a hover-Edit submenu trigger. Activating it
-                // (pointer or keyboard) switches to the family's base model and
-                // restores its preset; the Fast toggle inside swaps to the -fast
-                // sibling (or flips the speed param). The sub-trigger has no
-                // `onSelect`, so wire both click and Enter/Space for keyboard parity.
-                // Clicking the row commits the model and closes the picker; the
-                // edit submenu (reasoning/fast) is reached by HOVER, so you can
-                // still tweak those without the click dismissing everything.
-                const activate = () => {
-                  if (!isCurrent) {
-                    void selectFamily(family, group.provider)
-                  }
+                    const fastControl = resolveFastControl(
+                      activeId ?? family.id,
+                      group.provider.models ?? [],
+                      caps?.fast ?? false,
+                      effFast
+                    )
 
-                  closeMenu()
-                }
+                    const meta = [
+                      fastControl.kind !== 'none' && fastControl.on ? copy.fast : null,
+                      (caps?.reasoning ?? true) ? reasoningEffortLabel(effEffort) || copy.medium : null
+                    ]
+                      .filter(Boolean)
+                      .join(' ')
 
-                return (
-                  <DropdownMenuSub key={`${group.provider.slug}:${family.id}`}>
-                    <DropdownMenuSubTrigger
-                      className={dropdownMenuRow}
-                      hideChevron
-                      onClick={activate}
-                      onKeyDown={event => {
-                        if (event.key === 'Enter' || event.key === ' ') {
-                          activate()
-                        }
-                      }}
-                    >
-                      <span className="min-w-0 flex-1 truncate">
-                        {name}
-                        {meta ? <span className="text-(--ui-text-tertiary)"> {meta}</span> : null}
-                      </span>
-                      {isCurrent ? <Codicon className="ml-auto text-foreground" name="check" size="0.75rem" /> : null}
-                    </DropdownMenuSubTrigger>
-                    <ModelEditSubmenu
-                      effort={effEffort}
-                      fastControl={fastControl}
-                      isActive={isCurrent}
-                      model={family.id}
-                      onSelectModel={nextModel => switchTo(nextModel, group.provider.slug)}
-                      provider={group.provider.slug}
-                      reasoning={caps?.reasoning ?? true}
-                      requestGateway={requestGateway}
-                    />
-                  </DropdownMenuSub>
-                )
-              })}
-            </DropdownMenuGroup>
-          ))}
+                    // Every row is a hover-Edit submenu trigger. Activating it
+                    // (pointer or keyboard) switches to the family's base model and
+                    // restores its preset; the Fast toggle inside swaps to the -fast
+                    // sibling (or flips the speed param). The sub-trigger has no
+                    // `onSelect`, so wire both click and Enter/Space for keyboard parity.
+                    // Clicking the row commits the model and closes the picker; the
+                    // edit submenu (reasoning/fast) is reached by HOVER, so you can
+                    // still tweak those without the click dismissing everything.
+                    const activate = () => {
+                      if (!isCurrent) {
+                        void selectFamily(family, group.provider)
+                      }
+
+                      closeMenu()
+                    }
+
+                    return (
+                      <DropdownMenuSub key={`${group.provider.slug}:${family.id}`}>
+                        <DropdownMenuSubTrigger
+                          className={dropdownMenuRow}
+                          hideChevron
+                          onClick={activate}
+                          onKeyDown={event => {
+                            if (event.key === 'Enter' || event.key === ' ') {
+                              activate()
+                            }
+                          }}
+                        >
+                          <span className="min-w-0 flex-1 truncate">
+                            {name}
+                            {meta ? <span className="text-(--ui-text-tertiary)"> {meta}</span> : null}
+                          </span>
+                          {isCurrent ? (
+                            <Codicon className="ml-auto text-foreground" name="check" size="0.75rem" />
+                          ) : null}
+                        </DropdownMenuSubTrigger>
+                        <ModelEditSubmenu
+                          effort={effEffort}
+                          fastControl={fastControl}
+                          isActive={isCurrent}
+                          model={family.id}
+                          onSelectModel={nextModel => switchTo(nextModel, group.provider.slug)}
+                          provider={group.provider.slug}
+                          reasoning={caps?.reasoning ?? true}
+                          requestGateway={requestGateway}
+                        />
+                      </DropdownMenuSub>
+                    )
+                  })}
+              </DropdownMenuGroup>
+            )
+          })}
         </div>
       )}
 
