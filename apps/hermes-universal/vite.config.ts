@@ -19,8 +19,23 @@ export default defineConfig({
   css: { postcss: { plugins: [] } },
   resolve: {
     alias: {
-      '@': fileURLToPath(new URL('./src', import.meta.url))
-    }
+      '@': fileURLToPath(new URL('./src', import.meta.url)),
+      // The plugin SDK's public specifier. A bundled plugin writes
+      // `import { host } from '@hermes/plugin-sdk'` and resolves here; a
+      // runtime-loaded one gets the same object through sdk/runtime.ts's blob
+      // shims. Same alias desktop's vite.config.ts declares.
+      '@hermes/plugin-sdk': fileURLToPath(new URL('./src/sdk/index.ts', import.meta.url)),
+      // React MUST be a singleton: sdk/runtime.ts hands plugins the app's own
+      // React namespace, and a second copy reaching the bundle would break every
+      // plugin hook with an unhelpful "invalid hook call". Only one copy exists
+      // in the hoisted workspace today; pinning keeps a future install layout
+      // from quietly introducing another.
+      react: fileURLToPath(new URL('../../node_modules/react', import.meta.url)),
+      'react-dom': fileURLToPath(new URL('../../node_modules/react-dom', import.meta.url)),
+      'react/jsx-dev-runtime': fileURLToPath(new URL('../../node_modules/react/jsx-dev-runtime.js', import.meta.url)),
+      'react/jsx-runtime': fileURLToPath(new URL('../../node_modules/react/jsx-runtime.js', import.meta.url))
+    },
+    dedupe: ['react', 'react-dom']
   },
   clearScreen: false,
   server: {
