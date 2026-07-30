@@ -15,6 +15,7 @@ mod link_title;
 mod local_backend;
 mod marketplace;
 mod oauth;
+mod plugins;
 mod pty;
 mod transport;
 mod voice;
@@ -28,6 +29,7 @@ use cloud::{
 };
 use local_backend::{local_backend_spawn, local_backend_status, local_backend_stop, LocalBackendState};
 use oauth::{oauth_login, oauth_logout, oauth_status};
+use plugins::{plugins_list, plugins_read, plugins_root};
 use pty::{pty_kill, pty_resize, pty_spawn, pty_write, PtyState};
 use transport::{
     cookies_export, cookies_import, http_request, ws_close, ws_open, ws_send, TransportState,
@@ -168,6 +170,9 @@ pub fn run() {
             portal_discover_agents,
             portal_agent_sign_in,
             portal_logout,
+            plugins_root,
+            plugins_list,
+            plugins_read,
             open_session_window,
             open_instance_window,
             open_screen_window

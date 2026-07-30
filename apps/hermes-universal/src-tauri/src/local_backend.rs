@@ -54,14 +54,14 @@ mod imp {
     }
 
     /// Pin HERMES_HOME the way desktop does so the spawned backend shares state
-    /// with the rest of the install: %LOCALAPPDATA%\hermes on Windows, ~/.hermes
-    /// elsewhere. Falls back to the child's inherited env when unresolvable.
+    /// with the rest of the install. Delegates to the shared resolver in
+    /// `plugins.rs`, which honours an explicit HERMES_HOME before falling back to
+    /// the platform default — previously this computed the default unconditionally,
+    /// so a user running with a custom HERMES_HOME had the spawned backend and the
+    /// plugin root disagree. Falls back to the child's inherited env when
+    /// unresolvable.
     fn hermes_home() -> Option<String> {
-        if cfg!(target_os = "windows") {
-            std::env::var("LOCALAPPDATA").ok().map(|p| format!("{p}\\hermes"))
-        } else {
-            std::env::var("HOME").ok().map(|p| format!("{p}/.hermes"))
-        }
+        crate::plugins::hermes_home().map(|p| p.to_string_lossy().to_string())
     }
 
     /// Parse `HERMES_(BACKEND|DASHBOARD)_READY port=<N>` → the announced port.
