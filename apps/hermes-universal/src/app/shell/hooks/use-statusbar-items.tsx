@@ -3,15 +3,16 @@ import { useLocation } from 'react-router-dom'
 
 import { jobState } from '@/app/cron/job-state'
 import { PlatformGlyph } from '@/app/messaging/platform-icon'
-import { AGENTS_ROUTE, appViewForPath, CRON_ROUTE } from '@/app/routes'
+import { AGENTS_ROUTE, appViewForPath, CRON_ROUTE, PLUGINS_SETTINGS_ROUTE } from '@/app/routes'
 import { useApprovalModeStatusbarItem } from '@/app/shell/approval-mode-menu'
 import { ContextUsagePanel } from '@/app/shell/context-usage-panel'
 import { GatewayMenuPanel } from '@/app/shell/gateway-menu-panel'
 import type { StatusbarItem } from '@/app/shell/statusbar-controls'
 import { Codicon } from '@/components/ui/codicon'
 import { StatusDot } from '@/components/ui/status-dot'
+import { $pluginRecords } from '@/contrib/plugins-store'
 import { useI18n } from '@/i18n'
-import { Activity, AlertCircle, Clock, Command, FolderOpen, Hash, Loader2, Terminal, Zap } from '@/lib/icons'
+import { Activity, AlertCircle, Clock, Command, FolderOpen, Hash, Loader2, Plug, Terminal, Zap } from '@/lib/icons'
 import { IS_DESKTOP, IS_MOBILE } from '@/lib/platform'
 import { revealPathInFileManager } from '@/lib/reveal-path'
 import { contextBarLabel, LiveDuration, usageContextLabel } from '@/lib/statusbar'
@@ -27,7 +28,7 @@ import { notify } from '@/store/notifications'
 import { $activeProfile } from '@/store/profiles'
 import { $subagentsBySession, activeSubagentCount, failedSubagentCount } from '@/store/subagents'
 import { $appVersion, $gatewayRestarting, $inferenceStatus, $statusSnapshot } from '@/store/system-status'
-import { openSystemScreen } from '@/store/windows'
+import { openSettingsScreen, openSystemScreen } from '@/store/windows'
 import { $effectiveCwd, ensureWorkspaceCwd } from '@/store/workspace-events'
 
 // Copy the absolute cwd to the clipboard, toasting on success (mirrors the
@@ -89,6 +90,7 @@ export function useStatusbarItems(opts?: {
   // The active chat's project directory, falling back to the workspace root.
   const currentCwd = useStore($effectiveCwd)
   const cronJobs = useStore($cronJobs)
+  const pluginRecords = useStore($pluginRecords)
 
   const fileMenu = t.fileMenu
   const contextUsage = usageContextLabel(currentUsage)
@@ -145,6 +147,17 @@ export function useStatusbarItems(opts?: {
 
     return { cronActive: active, cronPaused: paused }
   }, [cronJobs])
+
+  // Plugin inventory counts for the mobile Plugins row. A failed plugin is worth
+  // surfacing here: it's the only place a phone user would notice one.
+  const { pluginFailedCount, pluginLoadedCount } = useMemo(() => {
+    const records = Object.values(pluginRecords)
+
+    return {
+      pluginFailedCount: records.filter(record => record.status === 'error').length,
+      pluginLoadedCount: records.filter(record => record.status === 'loaded').length
+    }
+  }, [pluginRecords])
 
   const gatewayDetail = gatewayOpen
     ? inferenceStatus?.ready
@@ -394,6 +407,20 @@ export function useStatusbarItems(opts?: {
       label: rich ? 'Backend' : backendVersion ? copy.backendLabel(backendVersion) : copy.unknown,
       onSelect: () => void openSystemScreen(),
       title: backendVersion ? copy.backendVersion(backendVersion) : undefined,
+      variant: 'action'
+    },
+    {
+      // Plugin inventory at a glance, routing to the page that manages it. The
+      // phone never mounts the Statusbar, so this only ever appears in the mobile
+      // Status list — `includeAll` is exactly that caller. Desktop has no such
+      // row: its titlebar reaches Settings directly.
+      detail: rich ? (pluginFailedCount > 0 ? accent(`${pluginLoadedCount} · ${pluginFailedCount} failed`) : accent(String(pluginLoadedCount))) : undefined,
+      hidden: !opts?.includeAll,
+      icon: <Plug className="size-3.5" />,
+      id: 'plugins',
+      label: t.settings.plugins.title,
+      onSelect: () => void openSettingsScreen(PLUGINS_SETTINGS_ROUTE),
+      title: t.settings.plugins.title,
       variant: 'action'
     }
   ]

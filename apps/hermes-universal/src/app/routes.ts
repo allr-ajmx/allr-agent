@@ -9,6 +9,8 @@ export const NEW_CHAT_ROUTE = '/'
 export const SETTINGS_ROUTE = '/settings'
 /** Settings drill-in for the pet gallery + generator (`/hatch`, `/pet list`). */
 export const PET_SETTINGS_ROUTE = '/settings/pet'
+/** Settings drill-in for the plugin inventory (MJX-53). */
+export const PLUGINS_SETTINGS_ROUTE = '/settings/plugins'
 export const COMMAND_CENTER_ROUTE = '/command-center'
 export const SKILLS_ROUTE = '/skills'
 export const MESSAGING_ROUTE = '/messaging'

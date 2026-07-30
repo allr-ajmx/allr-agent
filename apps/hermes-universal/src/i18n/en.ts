@@ -351,7 +351,28 @@ export const en: Translations = {
       mcp: 'MCP',
       archivedChats: 'Archived Chats',
       about: 'About',
-      notifications: 'Notifications'
+      notifications: 'Notifications',
+      plugins: 'Plugins'
+    },
+    plugins: {
+      title: 'Plugins',
+      blurb: 'Bundled, or dropped into the desktop-plugins folder. Disable to unload live.',
+      count: (n: number) => `${n} installed`,
+      openFolder: 'Open plugins folder',
+      rescan: 'Rescan',
+      reveal: 'Reveal in file manager',
+      enable: 'Enable',
+      disable: 'Disable',
+      failed: 'failed',
+      empty: 'No plugins installed yet.',
+      kinds: { bundled: 'bundled', disk: 'on disk', runtime: 'runtime' },
+      // The dual door (MJX-53): which filesystem plugins are being read from.
+      sourceLocal: 'Reading from this device',
+      sourceGateway: 'Reading from the connected backend',
+      sourceNone: 'No plugin folder available',
+      gatewayDoor: 'Load plugins from the connected backend',
+      gatewayDoorHint: 'Plugin code from the backend runs with the same access as the app itself.',
+      gatewayDoorUnavailable: 'This backend did not report a plugins folder.'
     },
     notifications: {
       title: 'Notifications',

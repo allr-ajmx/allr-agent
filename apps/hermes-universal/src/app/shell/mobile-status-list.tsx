@@ -23,8 +23,13 @@ const LIGHT_LABEL_SECTIONS = new Set(['Status', 'Updates'])
 
 // The Status tab, ordered into sidebar-style sections (see the left sidebar's
 // session sections). Each entry lists the item ids in display order.
-// Trailing section for `statusBar.*` contributions — ids no SECTION claims. Kept
-// out of SECTIONS because its membership is discovered, not listed.
+// Trailing section: the core `plugins` row (inventory counts → Settings ▸ Plugins)
+// followed by every `statusBar.*` contribution — ids no SECTION claims. Kept out
+// of SECTIONS because its membership is discovered, not listed.
+//
+// The core row leads this section rather than sitting under System so the word
+// "Plugins" appears once: as the heading over the manage row and the plugin-
+// contributed rows it governs.
 const PLUGINS_SECTION = 'Plugins'
 
 const SECTIONS: { title: string; ids: readonly string[] }[] = [
@@ -112,9 +117,16 @@ export function MobileStatusList() {
   const claimed = new Set(SECTIONS.flatMap(section => section.ids))
 
   // Anything not claimed by a SECTION used to be dropped silently. SECTIONS covers
-  // every core id useStatusbarItems emits, so this bucket surfaces exactly the
-  // `statusBar.*` contributions — insertion order (left group, then right).
-  const contributed = [...byId.values()].filter(item => !claimed.has(item.id))
+  // every other core id useStatusbarItems emits, so this bucket is the core
+  // `plugins` row — pinned first, whichever group it came from — followed by the
+  // `statusBar.*` contributions in insertion order (left group, then right).
+  const unclaimed = [...byId.values()].filter(item => !claimed.has(item.id))
+  const manageRow = unclaimed.find(item => item.id === 'plugins')
+
+  const contributed = [
+    ...(manageRow ? [manageRow] : []),
+    ...unclaimed.filter(item => item.id !== 'plugins')
+  ]
 
   const sections = [
     ...SECTIONS.map(section => ({

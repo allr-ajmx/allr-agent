@@ -1,7 +1,7 @@
 import type { ComponentType } from 'react'
 
 import { useI18n } from '@/i18n'
-import { Archive, Bell, Globe, Info, Key, Keyboard, Paw, Settings, Wrench, Zap } from '@/lib/icons'
+import { Archive, Bell, Globe, Info, Key, Keyboard, Paw, Plug, Settings, Wrench, Zap } from '@/lib/icons'
 
 import { SECTIONS } from './constants'
 
@@ -31,6 +31,7 @@ export function useSettingsNav(): SettingsNavEntry[] {
     { id: 'keys', icon: Key, label: t.settings.nav.apiKeys },
     { id: 'shortcuts', icon: Keyboard, label: t.keybinds.title },
     { id: 'pet', icon: Paw, label: t.commandCenter.pets.title },
+    { id: 'plugins', icon: Plug, label: t.settings.nav.plugins },
     { id: 'archived', icon: Archive, label: t.settings.nav.archivedChats },
     { id: 'about', icon: Info, label: t.settings.nav.about }
   ]
@@ -91,6 +92,7 @@ export function useSettingsNavGroups(): SettingsNavGroupModel[] {
       ]
     },
     { id: 'sessions', icon: Archive, label: t.settings.nav.archivedChats },
+    { id: 'plugins', icon: Plug, label: t.settings.nav.plugins },
     { id: 'about', icon: Info, label: t.settings.nav.about, gapBefore: true }
   ]
 

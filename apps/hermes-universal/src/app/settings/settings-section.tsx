@@ -14,6 +14,7 @@ import { KeysSection } from './keys-section'
 import { MemorySection } from './memory-section'
 import { ModelSection } from './model-section'
 import { NotificationsSection } from './notifications-section'
+import { PluginsSettings } from './plugins-settings'
 import { EmptyState, SettingsContent } from './primitives'
 import { ProvidersSection } from './providers-section'
 import { useSettingsNav } from './settings-nav'
@@ -85,6 +86,10 @@ export function SectionBody({ section }: { section: string }) {
     case 'pet':
       return <PetSection />
 
+    // Plugins (MJX-53): the runtime plugin inventory + the disk-door switch.
+    case 'plugins':
+      return <PluginsSettings />
+
     // Archived chats (Jc11). `sessions` is the desktop nav id; until the full
     // Sessions page lands it renders the archived list (its current subset).
     case 'archived':
@@ -98,8 +103,8 @@ export function SectionBody({ section }: { section: string }) {
 
     default:
       // Unknown / deep-linked-only ids land here. Reachable today for `billing`
-      // and `plugins` (unported — MJX-105 / MJX-53) and for desktop's `keybinds`
-      // nav id, which this switch spells `shortcuts` — FIXME(MJX-105).
+      // (unported — MJX-105) and for desktop's `keybinds` nav id, which this
+      // switch spells `shortcuts` — FIXME(MJX-105).
       return (
         <SettingsContent>
           <EmptyState description={t.settings.config.emptyDesc} title={t.settings.config.emptyTitle} />

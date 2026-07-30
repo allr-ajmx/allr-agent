@@ -262,7 +262,27 @@ export const ja = defineLocale({
       mcp: 'MCP',
       archivedChats: 'アーカイブ済みチャット',
       about: '情報',
-      notifications: '通知'
+      notifications: '通知',
+      plugins: 'プラグイン'
+    },
+    plugins: {
+      title: 'プラグイン',
+      blurb: 'ビルドに同梱されたもの、または desktop-plugins フォルダーに置いたもの。無効にすると即座にアンロードされます。',
+      count: (n: number) => `${n} 個インストール済み`,
+      openFolder: 'プラグインフォルダーを開く',
+      rescan: '再スキャン',
+      reveal: 'ファイルマネージャーで表示',
+      enable: '有効にする',
+      disable: '無効にする',
+      failed: '失敗',
+      empty: 'プラグインはまだインストールされていません。',
+      kinds: { bundled: '同梱', disk: 'ディスク', runtime: 'ランタイム' },
+      sourceLocal: 'この端末から読み込み中',
+      sourceGateway: '接続中のバックエンドから読み込み中',
+      sourceNone: '利用できるプラグインフォルダーがありません',
+      gatewayDoor: '接続中のバックエンドからプラグインを読み込む',
+      gatewayDoorHint: 'バックエンド由来のプラグインコードは、アプリ本体と同じ権限で実行されます。',
+      gatewayDoorUnavailable: 'このバックエンドはプラグインフォルダーを報告しませんでした。'
     },
     notifications: {
       title: '通知',

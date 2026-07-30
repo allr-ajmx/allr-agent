@@ -4,6 +4,7 @@ import { computed } from 'nanostores'
 import { type ReactElement, useEffect } from 'react'
 import { useLocation } from 'react-router-dom'
 
+import { PALETTE_AREA } from '@/app/command-palette/contrib'
 import { IdleMount } from '@/components/idle-mount'
 import { allPaneIds, group, split } from '@/components/pane-shell/tree/model'
 import { LayoutTreeRoot } from '@/components/pane-shell/tree/renderer'
@@ -26,7 +27,10 @@ import {
 } from '@/components/pane-shell/tree/store'
 import { discoverBundledPlugins } from '@/contrib/plugins'
 import { registry } from '@/contrib/registry'
+import { discoverRuntimePlugins } from '@/contrib/runtime-loader'
+import { translateNow } from '@/i18n'
 import { sessionTitle as storedSessionTitle } from '@/lib/chat-runtime'
+import { Plug } from '@/lib/icons'
 import { $currentCwd } from '@/store/chat'
 import { addGatewayEventListener } from '@/store/gateway'
 import {
@@ -75,9 +79,10 @@ import { FilesPane, PreviewRailPane, ReviewPaneContent, TerminalPane, WorkspaceR
  *    focused-session-aware). This file owns only the workspace grid.
  *  - Surfaces are self-wired, so panes render their components directly (no
  *    `WiredPane`/`WiringActions` indirection).
- *  - FIXME(MJX-50/palette-bridge): desktop registers `layout.editMode` /
- *    `layout.reset` / `plugins.reload` command-PALETTE rows; universal has a
- *    command-MENU, not a palette, so those rows are omitted here.
+ *  - `plugins.reload` is registered below as a `palette` contribution (MJX-53
+ *    added that area). FIXME(MJX-50/palette-bridge): desktop's `layout.editMode`
+ *    / `layout.reset` rows are still omitted — they need the edit-mode UI that
+ *    MJX-202 defers.
  *  - FIXME(MJX-202): the FancyZones structural-authoring UI is deferred; the
  *    four presets below are read-only.
  */
@@ -261,6 +266,20 @@ registry.registerMany([
 ])
 
 declareDefaultTree(DEFAULT_TREE)
+
+// The manual rescan door, for when the poll's cadence isn't enough (or the
+// gateway door skipped content-diffing because the tree is large).
+registry.register({
+  area: PALETTE_AREA,
+  data: {
+    icon: Plug,
+    id: 'plugins.reload',
+    keywords: ['plugin', 'rescan', 'reload'],
+    label: translateNow('settings.plugins.rescan'),
+    run: discoverRuntimePlugins
+  },
+  id: 'plugins.reload'
+})
 
 // Bundled plugins load AFTER core, so a plugin can override a same-id core
 // contribution. This also starts the disk door's watcher (contrib/plugins.ts →

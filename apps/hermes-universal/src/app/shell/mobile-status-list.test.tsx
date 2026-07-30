@@ -16,6 +16,7 @@ vi.mock('@/store/system-status', async () => {
   }
 })
 
+import { $pluginRecords } from '@/contrib/plugins-store'
 import { registry } from '@/contrib/registry'
 import { resetChat } from '@/store/chat'
 
@@ -30,6 +31,7 @@ const renderList = () =>
 
 afterEach(() => {
   resetChat()
+  $pluginRecords.set({})
 })
 
 describe('MobileStatusList', () => {
@@ -38,13 +40,14 @@ describe('MobileStatusList', () => {
 
     expect(screen.getByText('Status')).toBeInTheDocument()
     expect(screen.getByText('System')).toBeInTheDocument()
-    // No contributions registered → no Plugins heading.
-    expect(screen.queryByText('Plugins')).not.toBeInTheDocument()
+    // The Plugins section always exists: it leads with the manage row (the phone's
+    // only route to Settings ▸ Plugins), heading + row label both reading "Plugins".
+    expect(screen.getAllByText('Plugins')).toHaveLength(2)
   })
 
   // Before this, an id claimed by no SECTION was dropped on the floor — which is
   // every plugin contribution, since SECTIONS lists only core ids.
-  it('surfaces an unclaimed contribution in a trailing Plugins section', () => {
+  it('surfaces an unclaimed contribution in the Plugins section, after the manage row', () => {
     const dispose = registry.register({
       area: 'statusBar.left',
       data: { detail: '3', id: 'demo:queue', label: 'Queue', variant: 'text' },
@@ -54,10 +57,28 @@ describe('MobileStatusList', () => {
 
     renderList()
 
-    expect(screen.getByText('Plugins')).toBeInTheDocument()
     expect(screen.getByText('Queue')).toBeInTheDocument()
 
+    // The manage row leads the section, whichever bar group the contribution
+    // arrived in.
+    const labels = screen.getAllByText(/^(Plugins|Queue)$/).map(el => el.textContent)
+    expect(labels.at(-2)).toBe('Plugins')
+    expect(labels.at(-1)).toBe('Queue')
+
     dispose()
+  })
+
+  it('shows the plugin inventory counts, flagging failures', () => {
+    $pluginRecords.set({
+      broken: { id: 'broken', kind: 'disk', name: 'broken', status: 'error' },
+      kanban: { id: 'kanban', kind: 'disk', name: 'kanban', status: 'loaded' },
+      off: { id: 'off', kind: 'disk', name: 'off', status: 'disabled' }
+    })
+
+    renderList()
+
+    // Loaded count, plus the failure — a disabled plugin is neither.
+    expect(screen.getByText('1 · 1 failed')).toBeInTheDocument()
   })
 
   it('passes a render contribution through untouched — no row rewriting', () => {

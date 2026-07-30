@@ -319,6 +319,26 @@ export interface Translations {
       archivedChats: string
       about: string
       notifications: string
+      plugins: string
+    }
+    plugins: {
+      title: string
+      blurb: string
+      count: (n: number) => string
+      openFolder: string
+      rescan: string
+      reveal: string
+      enable: string
+      disable: string
+      failed: string
+      empty: string
+      kinds: { bundled: string; disk: string; runtime: string }
+      sourceLocal: string
+      sourceGateway: string
+      sourceNone: string
+      gatewayDoor: string
+      gatewayDoorHint: string
+      gatewayDoorUnavailable: string
     }
     notifications: {
       title: string

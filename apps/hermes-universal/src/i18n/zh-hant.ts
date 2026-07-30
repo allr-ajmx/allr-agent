@@ -256,7 +256,27 @@ export const zhHant = defineLocale({
       mcp: 'MCP',
       archivedChats: '已封存聊天',
       about: '關於',
-      notifications: '通知'
+      notifications: '通知',
+      plugins: '外掛'
+    },
+    plugins: {
+      title: '外掛',
+      blurb: '隨建置捆綁，或放入 desktop-plugins 資料夾。停用會即時卸載。',
+      count: (n: number) => `已安裝 ${n} 個`,
+      openFolder: '開啟外掛資料夾',
+      rescan: '重新掃描',
+      reveal: '在檔案管理員中顯示',
+      enable: '啟用',
+      disable: '停用',
+      failed: '失敗',
+      empty: '尚未安裝外掛。',
+      kinds: { bundled: '內建', disk: '磁碟', runtime: '執行時' },
+      sourceLocal: '正在從本裝置讀取',
+      sourceGateway: '正在從已連線的後端讀取',
+      sourceNone: '沒有可用的外掛資料夾',
+      gatewayDoor: '從已連線的後端載入外掛',
+      gatewayDoorHint: '來自後端的外掛程式碼擁有與應用程式本身相同的權限。',
+      gatewayDoorUnavailable: '此後端未報告外掛資料夾。'
     },
     notifications: {
       title: '通知',
