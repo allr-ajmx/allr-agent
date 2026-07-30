@@ -1,4 +1,6 @@
+import { TITLEBAR_AREAS } from '@/app/contrib/surfaces'
 import { Codicon } from '@/components/ui/codicon'
+import { Slot } from '@/contrib/react/slot'
 import { useI18n } from '@/i18n'
 import { useStore } from '@/store/atom'
 import { openCommandMenu } from '@/store/command-menu'
@@ -57,6 +59,7 @@ export function Titlebar({ connected }: { connected: boolean }) {
           <TitlebarButton label={t.titlebar.searchTitle} onClick={openCommandMenu}>
             <Codicon name="search" />
           </TitlebarButton>
+          <Slot area={TITLEBAR_AREAS.left} />
         </div>
       )}
 
@@ -66,10 +69,20 @@ export function Titlebar({ connected }: { connected: boolean }) {
           portion stays a draggable window region for moving the frameless
           window. Title is left-aligned so it never falls under the drag strip. */}
       <div className="pointer-events-auto h-full flex-[4]" data-tauri-drag-region />
+
+      {/* Contributed center content sits BETWEEN the two drag bands in its own
+          non-drag container, so clicks reach it instead of moving the window.
+          `shrink-0` with no basis means an empty area costs zero width and the
+          drag strip is exactly what it was before. */}
+      <div className="pointer-events-auto flex h-full shrink-0 items-center gap-0.5">
+        <Slot area={TITLEBAR_AREAS.center} />
+      </div>
+
       <div className="pointer-events-auto h-full flex-1" data-tauri-drag-region />
 
       {connected && (
         <div className="pointer-events-auto flex items-center gap-0.5">
+          <Slot area={TITLEBAR_AREAS.right} />
           {/* Layout / tile-preview button — pick a workspace preset (Default /
               Focus / Terminal deck / Quad) or reset the layout. */}
           <LayoutMenu />

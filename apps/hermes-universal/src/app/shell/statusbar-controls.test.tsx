@@ -56,4 +56,32 @@ describe('StatusbarControls renderer', () => {
 
     expect(screen.getByRole('button', { name: /Menu/ })).toBeInTheDocument()
   })
+
+  // The `render` escape hatch is how a plugin drops a stateful component into the
+  // bar (statusBar.left / statusBar.right contributions with a render fn).
+  it('lets a render item own its slot, with no bar chrome around it', () => {
+    renderBar(
+      [],
+      [
+        {
+          // Everything below `render` must be ignored once it is set.
+          id: 'plugin-chip',
+          label: 'ignored label',
+          onSelect: vi.fn(),
+          render: () => <output data-testid="chip">live</output>,
+          variant: 'action'
+        }
+      ]
+    )
+
+    expect(screen.getByTestId('chip').textContent).toBe('live')
+    expect(screen.queryByText('ignored label')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button')).not.toBeInTheDocument()
+  })
+
+  it('still honours `hidden` on a render item', () => {
+    renderBar([{ hidden: true, id: 'plugin-chip', render: () => <output data-testid="chip">live</output> }])
+
+    expect(screen.queryByTestId('chip')).not.toBeInTheDocument()
+  })
 })

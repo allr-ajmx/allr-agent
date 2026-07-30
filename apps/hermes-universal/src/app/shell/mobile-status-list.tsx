@@ -1,5 +1,6 @@
 import { useNavigate } from 'react-router-dom'
 
+import { useStatusbarContributions } from '@/app/contrib/surfaces'
 import { useStatusbarItems } from '@/app/shell/hooks/use-statusbar-items'
 import { NAV_ROW_ACTIVE } from '@/app/shell/nav-row'
 import { SidebarPanelLabel } from '@/app/shell/sidebar-label'
@@ -22,6 +23,10 @@ const LIGHT_LABEL_SECTIONS = new Set(['Status', 'Updates'])
 
 // The Status tab, ordered into sidebar-style sections (see the left sidebar's
 // session sections). Each entry lists the item ids in display order.
+// Trailing section for `statusBar.*` contributions — ids no SECTION claims. Kept
+// out of SECTIONS because its membership is discovered, not listed.
+const PLUGINS_SECTION = 'Plugins'
+
 const SECTIONS: { title: string; ids: readonly string[] }[] = [
   { title: 'Session', ids: ['running-timer', 'session-timer', 'context-usage'] },
   { title: 'Status', ids: ['gateway-health', 'workspace-cwd', 'agents', 'cron', 'approval-mode'] },
@@ -35,6 +40,12 @@ const SECTIONS: { title: string; ids: readonly string[] }[] = [
 //   • swap the bar's active highlight for the nav-rail active style so an active
 //     row matches the left sidebar's selected button.
 function toRow(item: StatusbarItem): StatusbarItem {
+  // A render-item owns its own node (a plugin's stateful component). The label /
+  // class rewriting below would be meaningless at best and corrupting at worst.
+  if (item.render) {
+    return item
+  }
+
   let className = item.className
   let label = item.label
 
@@ -54,7 +65,18 @@ function toRow(item: StatusbarItem): StatusbarItem {
 export function MobileStatusList() {
   const { t } = useI18n()
   const navigate = useNavigate()
-  const { leftStatusbarItems, statusbarItems } = useStatusbarItems({ includeAll: true, rich: true })
+  // The phone never mounts the Statusbar (MobileController gates it on
+  // !IS_MOBILE), so this list is the ONLY place `statusBar.*` contributions can
+  // surface on mobile — pull them here too, not just in the bar.
+  const extraLeftItems = useStatusbarContributions('left')
+  const extraRightItems = useStatusbarContributions('right')
+
+  const { leftStatusbarItems, statusbarItems } = useStatusbarItems({
+    extraLeftItems,
+    extraRightItems,
+    includeAll: true,
+    rich: true
+  })
 
   // Open Settings — appended to the System section (opens the Settings activity on
   // Android, the in-app overlay elsewhere). A synthetic action item so it renders
@@ -87,10 +109,20 @@ export function MobileStatusList() {
     }
   }
 
-  const sections = SECTIONS.map(section => ({
-    title: section.title,
-    items: section.ids.map(id => byId.get(id)).filter((item): item is StatusbarItem => Boolean(item))
-  })).filter(section => section.items.length > 0)
+  const claimed = new Set(SECTIONS.flatMap(section => section.ids))
+
+  // Anything not claimed by a SECTION used to be dropped silently. SECTIONS covers
+  // every core id useStatusbarItems emits, so this bucket surfaces exactly the
+  // `statusBar.*` contributions — insertion order (left group, then right).
+  const contributed = [...byId.values()].filter(item => !claimed.has(item.id))
+
+  const sections = [
+    ...SECTIONS.map(section => ({
+      title: section.title,
+      items: section.ids.map(id => byId.get(id)).filter((item): item is StatusbarItem => Boolean(item))
+    })),
+    { title: PLUGINS_SECTION, items: contributed }
+  ].filter(section => section.items.length > 0)
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-2.5 py-2">

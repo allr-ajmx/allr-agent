@@ -6,6 +6,20 @@ import { Codicon } from '@/components/ui/codicon'
 import { ErrorState } from '@/components/ui/error-state'
 import { Tip } from '@/components/ui/tooltip'
 
+/**
+ * Calls a contribution's `render()` DURING its own render — i.e. as a DESCENDANT
+ * of the boundary, which is the only place the boundary can catch it.
+ *
+ * Writing `<ContribBoundary>{c.render()}</ContribBoundary>` instead evaluates the
+ * call while the PARENT builds that element, before the boundary exists in the
+ * tree. React error boundaries only catch throws from descendants' renders, so a
+ * throwing plugin would take the parent surface down and the blast wall would
+ * never see it. Always pair the boundary with this.
+ */
+export function ContribRender({ render }: { render?: () => ReactNode }) {
+  return <>{render?.()}</>
+}
+
 interface ContribBoundaryProps {
   children: ReactNode
   /** Contribution key, shown in the fallback + console tag. */

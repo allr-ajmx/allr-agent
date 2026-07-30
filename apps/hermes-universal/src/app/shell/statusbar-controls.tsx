@@ -41,6 +41,10 @@ export interface StatusbarMenuItem {
 
 export interface StatusbarItem {
   id: string
+  /** Escape hatch: render an arbitrary node into the bar (own state, tooltip,
+   *  events). When set, it OWNS the slot — label/variant/onSelect are ignored.
+   *  This is how a plugin drops a full stateful React component into the bar. */
+  render?: () => ReactNode
   label?: ReactNode
   detail?: ReactNode
   icon?: ReactNode
@@ -116,6 +120,13 @@ export function StatusbarItemView({
   row?: boolean
 }) {
   const [menuOpen, setMenuOpen] = useState(false)
+
+  // Render escape hatch: the contribution owns its own chrome/state/tooltip.
+  // Must come before the `row` reshaping below — a contributed node is never
+  // wrapped in bar chrome or rewritten into a nav row.
+  if (item.render) {
+    return <>{item.render()}</>
+  }
 
   const actionClass = row ? NAV_ROW_BASE : STATUSBAR_ACTION_CLASS
   const textClass = row ? NAV_ROW_LAYOUT : STATUSBAR_TEXT_CLASS

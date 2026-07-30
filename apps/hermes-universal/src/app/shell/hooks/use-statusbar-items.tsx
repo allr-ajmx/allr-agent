@@ -48,7 +48,15 @@ function copyWorkspacePath(cwd: string, copiedMsg: string): void {
 //   • chrome-y items (command-center / cron / versions) hide on phones so the
 //     touch bar stays a compact live-status strip.
 
-export function useStatusbarItems(opts?: { includeAll?: boolean; rich?: boolean }): {
+export function useStatusbarItems(opts?: {
+  /** `statusBar.left` contributions, appended AFTER the core left group. */
+  extraLeftItems?: readonly StatusbarItem[]
+  /** `statusBar.right` contributions, prepended BEFORE the core right group so
+   *  they sit inboard of the version/terminal cluster (desktop's ordering). */
+  extraRightItems?: readonly StatusbarItem[]
+  includeAll?: boolean
+  rich?: boolean
+}): {
   leftStatusbarItems: readonly StatusbarItem[]
   statusbarItems: readonly StatusbarItem[]
 } {
@@ -390,5 +398,13 @@ export function useStatusbarItems(opts?: { includeAll?: boolean; rich?: boolean 
     }
   ]
 
-  return { leftStatusbarItems, statusbarItems }
+  // Contribution ordering matches desktop (use-statusbar-items.tsx:542-548):
+  // left = core then contributed; right = contributed then core, so plugin chips
+  // sit inboard of the app's own right-hand cluster (terminal, versions).
+  // No useMemo: the core arrays above are fresh literals every render, so a memo
+  // keyed on them could never hit — and nothing downstream depends on identity.
+  return {
+    leftStatusbarItems: [...leftStatusbarItems, ...(opts?.extraLeftItems ?? [])],
+    statusbarItems: [...(opts?.extraRightItems ?? []), ...statusbarItems]
+  }
 }
