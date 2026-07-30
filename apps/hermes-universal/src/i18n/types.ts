@@ -311,6 +311,7 @@ export interface Translations {
       providers: string
       providerAccounts: string
       providerApiKeys: string
+      providerCustomEndpoints: string
       gateway: string
       apiKeys: string
       keysTools: string
@@ -682,6 +683,47 @@ export interface Translations {
       searchKeys: string
       noKeysMatch: string
       loading: string
+    }
+    customEndpoints: {
+      title: string
+      loading: string
+      addTitle: string
+      editTitle: string
+      emptyTitle: string
+      emptyDescription: string
+      active: string
+      configSource: string
+      apiKeySet: string
+      use: string
+      deleteTitle: string
+      nameLabel: string
+      namePlaceholder: string
+      providerIdLabel: string
+      providerIdPlaceholder: string
+      urlLabel: string
+      urlPlaceholder: string
+      modelLabel: string
+      modelPlaceholder: string
+      contextLabel: string
+      contextPlaceholder: string
+      apiKeyLabel: string
+      apiKeyPlaceholderNew: string
+      apiKeyPlaceholderEdit: string
+      useForNewChats: string
+      discoverModels: string
+      test: string
+      save: string
+      newEndpoint: string
+      deleteConfirm: (name: string) => string
+      loadFailed: string
+      saved: string
+      saveFailed: string
+      reachableWithModels: (count: number) => string
+      reachable: string
+      validationFailed: string
+      validationError: string
+      activationFailed: string
+      deleteFailed: string
     }
     sessions: {
       loading: string

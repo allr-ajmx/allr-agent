@@ -77,7 +77,8 @@ export function useSettingsNavGroups(): SettingsNavGroupModel[] {
       gapBefore: true,
       children: [
         { id: 'providers', icon: Key, label: t.settings.nav.providerAccounts },
-        { id: 'providers/keys', icon: Key, label: t.settings.nav.providerApiKeys }
+        { id: 'providers/keys', icon: Key, label: t.settings.nav.providerApiKeys },
+        { id: 'providers/custom-endpoints', icon: Globe, label: t.settings.nav.providerCustomEndpoints }
       ]
     },
     { id: 'gateway', icon: Globe, label: t.settings.nav.gateway },

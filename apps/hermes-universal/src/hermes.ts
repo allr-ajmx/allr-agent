@@ -14,6 +14,9 @@ import type {
   CronJobCreatePayload,
   CronJobUpdates,
   CuratorStatusResponse,
+  CustomEndpointsResponse,
+  CustomEndpointUpdate,
+  CustomEndpointValidationResponse,
   DebugShareResponse,
   DefaultCwdResult,
   ElevenLabsVoicesResponse,
@@ -460,6 +463,50 @@ export function validateProviderCredential(
     path: '/api/providers/validate',
     method: 'POST',
     body: { key, value, api_key: apiKey ?? '' }
+  })
+}
+
+// Custom OpenAI-compatible endpoints. Persisted server-side (shared with
+// desktop) under /api/providers/custom-endpoints; profile-scoped like the other
+// provider config so each profile owns its own endpoint list.
+export function getCustomEndpoints(): Promise<CustomEndpointsResponse> {
+  return api<CustomEndpointsResponse>({
+    ...profileScoped(),
+    path: '/api/providers/custom-endpoints'
+  })
+}
+
+export function saveCustomEndpoint(endpoint: CustomEndpointUpdate): Promise<CustomEndpointsResponse> {
+  return api<CustomEndpointsResponse>({
+    ...profileScoped(),
+    path: '/api/providers/custom-endpoints',
+    method: 'POST',
+    body: endpoint
+  })
+}
+
+export function validateCustomEndpoint(endpoint: CustomEndpointUpdate): Promise<CustomEndpointValidationResponse> {
+  return api<CustomEndpointValidationResponse>({
+    ...profileScoped(),
+    path: '/api/providers/custom-endpoints/validate',
+    method: 'POST',
+    body: endpoint
+  })
+}
+
+export function activateCustomEndpoint(id: string): Promise<{ ok: boolean; provider: string; model: string }> {
+  return api<{ ok: boolean; provider: string; model: string }>({
+    ...profileScoped(),
+    path: `/api/providers/custom-endpoints/${encodeURIComponent(id)}/activate`,
+    method: 'POST'
+  })
+}
+
+export function deleteCustomEndpoint(id: string): Promise<CustomEndpointsResponse> {
+  return api<CustomEndpointsResponse>({
+    ...profileScoped(),
+    path: `/api/providers/custom-endpoints/${encodeURIComponent(id)}`,
+    method: 'DELETE'
   })
 }
 
