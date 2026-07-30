@@ -1,3 +1,4 @@
+import { emitGatewayEvent } from '@/contrib/events'
 import { type ConnectionState, type GatewayEvent, JsonRpcGatewayClient, type WebSocketLike } from '@/gateway'
 import type { HermesGateway } from '@/hermes'
 import { atom } from '@/store/atom'
@@ -53,6 +54,13 @@ export async function connectGateway(conn: Connection): Promise<void> {
 
   next.onState(state => $gatewayState.set(state))
   next.onAny(event => {
+    // Plugins first (contrib/events.ts) — the tap is documented as "before the
+    // app's own dispatch", so a plugin observes the raw stream in order and can
+    // never be starved by a reducer throwing. Listeners there are try/catch
+    // isolated and emit is zero-cost when nobody subscribes. `GatewayEvent` is
+    // structurally an `RpcEvent` (its `type` union widens to string).
+    emitGatewayEvent(event)
+
     // The primary chat's reducer (unchanged), then any extra listeners (the
     // multi-session tile reducer registers here via addGatewayEventListener —
     // kept OUT of a static import so gateway.ts stays free of the heavy

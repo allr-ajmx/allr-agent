@@ -8,5 +8,13 @@ export {
   localeConfigValue,
   normalizeLocale
 } from './languages'
-export { setRuntimeI18nLocale, translateNow } from './runtime'
+export { createPluginI18n, registerPluginLocales, translatePlugin, usePluginI18n } from './plugin-i18n'
+export type {
+  PluginI18n,
+  PluginLocaleBundles,
+  PluginMessages,
+  PluginMessageValue,
+  PluginTranslate
+} from './plugin-i18n'
+export { getRuntimeI18nLocale, setRuntimeI18nLocale, translateFrom, translateNow } from './runtime'
 export type { Locale, ToolTitleKey, Translations } from './types'
