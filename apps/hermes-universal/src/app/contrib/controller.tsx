@@ -1,3 +1,5 @@
+import '@/store/session-tile-delegate' // side-effect: registers the SessionTileDelegate
+
 import { computed } from 'nanostores'
 import { type ReactElement, useEffect } from 'react'
 import { useLocation } from 'react-router-dom'
@@ -22,13 +24,11 @@ import {
   setTreePaneHidden,
   watchContributedPanes
 } from '@/components/pane-shell/tree/store'
-import { registry } from '@/contrib/registry'
 import { discoverBundledPlugins } from '@/contrib/plugins'
-import { addGatewayEventListener } from '@/store/gateway'
-import { routeTileEvent } from '@/store/session-reducer'
-import '@/store/session-tile-delegate' // side-effect: registers the SessionTileDelegate
+import { registry } from '@/contrib/registry'
 import { sessionTitle as storedSessionTitle } from '@/lib/chat-runtime'
 import { $currentCwd } from '@/store/chat'
+import { addGatewayEventListener } from '@/store/gateway'
 import {
   $panesFlipped,
   $rightSidebarOpen,
@@ -45,10 +45,11 @@ import {
   SIDEBAR_DEFAULT_WIDTH,
   SIDEBAR_MAX_WIDTH
 } from '@/store/layout'
-import { closeAllPreviewTabs, $previewTabs } from '@/store/preview'
+import { $previewTabs, closeAllPreviewTabs } from '@/store/preview'
 import { $reviewOpen, closeReview, REVIEW_PANE_ID } from '@/store/review'
-import { $sessions, $activeStoredSessionId, sessionMatchesStoredId } from '@/store/session'
+import { $activeStoredSessionId, $sessions, sessionMatchesStoredId } from '@/store/session'
 import { $sessionColorById, sessionColorFor } from '@/store/session-color'
+import { routeTileEvent } from '@/store/session-reducer'
 
 import {
   SessionTileCloseConfirm,
@@ -261,7 +262,9 @@ registry.registerMany([
 
 declareDefaultTree(DEFAULT_TREE)
 
-// Bundled plugins load AFTER core (no-op stub on universal — FIXME(MJX-50/plugins)).
+// Bundled plugins load AFTER core, so a plugin can override a same-id core
+// contribution. This also starts the disk door's watcher (contrib/plugins.ts →
+// watchRuntimePlugins), which is what makes an agent's write→see loop work.
 discoverBundledPlugins()
 
 // Plugin panes (and any contributed pane) join the tree by their `placement`
