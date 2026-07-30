@@ -74,9 +74,7 @@ export const KEYBIND_ACTIONS: readonly KeybindActionMeta[] = [
   ...PROFILE_SWITCH_ACTIONS,
   { id: 'profile.next', category: 'profiles', defaults: ['mod+shift+]'] },
   { id: 'profile.prev', category: 'profiles', defaults: ['mod+shift+['] },
-  // Shipped UNBOUND on universal (desktop default ⌘⇧0): there is no
-  // `$showAllProfiles` browse scope here — see the note in `store/profile.ts`.
-  { id: 'profile.toggleAll', category: 'profiles', defaults: [] },
+  { id: 'profile.toggleAll', category: 'profiles', defaults: ['mod+shift+0'] },
   { id: 'profile.create', category: 'profiles', defaults: [] },
 
   // ── Session ──────────────────────────────────────────────────────────────

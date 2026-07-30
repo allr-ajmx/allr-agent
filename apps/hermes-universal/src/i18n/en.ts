@@ -1688,6 +1688,7 @@ export const en: Translations = {
       newWindow: 'New window',
       copyIdFailed: 'Could not copy session ID',
       actionsFor: title => `Actions for ${title}`,
+      ownedByProfile: profile => `Owned by ${profile}`,
       sessionActions: 'Session actions',
       sessionRunning: 'Session running',
       needsInput: 'Needs your input',

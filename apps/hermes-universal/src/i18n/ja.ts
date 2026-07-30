@@ -1631,6 +1631,7 @@ export const ja = defineLocale({
       newWindow: '新しいウィンドウ',
       copyIdFailed: 'セッション ID をコピーできませんでした',
       actionsFor: title => `${title} のアクション`,
+      ownedByProfile: profile => `${profile} が所有`,
       sessionActions: 'セッションアクション',
       sessionRunning: 'セッション実行中',
       needsInput: '入力が必要です',

@@ -1864,6 +1864,7 @@ export const zh: Translations = {
       newWindow: '新窗口',
       copyIdFailed: '无法复制会话 ID',
       actionsFor: title => `${title} 的操作`,
+      ownedByProfile: profile => `归属于 ${profile}`,
       sessionActions: '会话操作',
       sessionRunning: '会话运行中',
       needsInput: '需要你输入',

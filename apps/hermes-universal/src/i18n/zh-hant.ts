@@ -1581,6 +1581,7 @@ export const zhHant = defineLocale({
       newWindow: '新視窗',
       copyIdFailed: '無法複製工作階段 ID',
       actionsFor: title => `${title} 的動作`,
+      ownedByProfile: profile => `隸屬於 ${profile}`,
       sessionActions: '工作階段動作',
       sessionRunning: '工作階段執行中',
       needsInput: '需要您的輸入',

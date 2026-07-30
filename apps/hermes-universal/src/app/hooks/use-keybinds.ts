@@ -19,7 +19,13 @@ import {
 } from '@/store/layout'
 import { setModelPickerOpen } from '@/store/model'
 import { setPaneOpen } from '@/store/panes'
-import { cycleProfile, switchProfileToSlot, switchToDefaultProfile } from '@/store/profiles'
+import {
+  cycleProfile,
+  requestProfileCreate,
+  switchProfileToSlot,
+  switchToDefaultProfile,
+  toggleShowAllProfiles
+} from '@/store/profile'
 import { toggleReview } from '@/store/review'
 import { newSession, toggleSelectedPin } from '@/store/session'
 import {
@@ -60,8 +66,8 @@ import {
 // Ported from desktop `app/hooks/use-keybinds.ts`. Structure, dispatch and the
 // switcher plumbing are unchanged; the handler bodies point at universal's
 // stores. Actions whose subsystem universal lacks (tab tree, multi-window,
-// worktrees, all-profiles) ship unbound in `lib/keybinds/actions.ts` and simply
-// get no handler here — the dispatcher already no-ops on a missing one.
+// worktrees) ship unbound in `lib/keybinds/actions.ts` and simply get no handler
+// here — the dispatcher already no-ops on a missing one.
 //
 // Desktop scopes ⌘1…⌘9 and ⌃Tab to the FOCUSED pane-shell tab strip first, and
 // only falls through to profiles / the session switcher when the focus isn't a
@@ -210,8 +216,9 @@ export function useKeybinds(deps: KeybindRuntimeDeps): void {
     ...profileSwitchHandlers,
     'profile.next': () => cycleProfile(1),
     'profile.prev': () => cycleProfile(-1),
-    // Universal's rail has no inline create dialog — the Profiles overlay owns it.
-    'profile.create': () => navigate(PROFILES_ROUTE)
+    'profile.toggleAll': toggleShowAllProfiles,
+    // The rail owns the create dialog; this just asks it to open (MJX-108).
+    'profile.create': requestProfileCreate
   }
 
   useEffect(() => {

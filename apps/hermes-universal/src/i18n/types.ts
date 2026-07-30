@@ -1421,6 +1421,7 @@ export interface Translations {
       newWindow: string
       copyIdFailed: string
       actionsFor: (title: string) => string
+      ownedByProfile: (profile: string) => string
       sessionActions: string
       sessionRunning: string
       needsInput: string

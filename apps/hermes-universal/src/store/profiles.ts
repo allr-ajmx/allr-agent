@@ -35,49 +35,9 @@ export function setActiveProfile(name: null | string): void {
   void queryClient.invalidateQueries()
 }
 
-// ── Hotkey-driven profile switching ────────────────────────────────────────
-// Positional + relative navigation for the rail, used by the keybind runtime.
-// Adapted from desktop `store/profile.ts` (switchToDefaultProfile /
-// switchProfileToSlot / cycleProfile), minus the `$profileOrder` and
-// `$showAllProfiles` state universal doesn't have: the rail order here is just
-// the API's order, matching what `app/chat/sidebar/profile-switcher.tsx` renders.
-// Universal spells the default profile `null`, not the name 'default'.
-
-/** The named (non-default) profiles, in rail order. */
-function namedProfiles(): ProfileInfo[] {
-  return $profiles.get().filter(profile => !profile.is_default)
-}
-
-/** Switch to the default (root ~/.hermes) profile — bound to ⌘D. */
-export function switchToDefaultProfile(): void {
-  setActiveProfile(null)
-}
-
-/** Switch to the Nth named (non-default) profile in rail order (1-based). A
- *  no-op when the slot is empty, so unused ⌘N keys stay harmless. */
-export function switchProfileToSlot(slot: number): void {
-  const target = namedProfiles()[slot - 1]
-
-  if (target) {
-    setActiveProfile(target.name)
-  }
-}
-
-/** Step to the next/previous profile in the rail, wrapping around. The ordered
- *  list is [default, ...named], with `null` standing in for the default. */
-export function cycleProfile(direction: 1 | -1): void {
-  const keys: (null | string)[] = [null, ...namedProfiles().map(profile => profile.name)]
-
-  if (keys.length < 2) {
-    return
-  }
-
-  const current = keys.indexOf($activeProfile.get())
-  const start = current < 0 ? (direction === 1 ? -1 : 0) : current
-  const next = (start + direction + keys.length) % keys.length
-
-  setActiveProfile(keys[next])
-}
+// Rail order, rail colors, the all-profiles browse scope, and the hotkey-driven
+// rail navigation live in `@/store/profile` (singular), which imports this file.
+// Keep the dependency one-way: nothing here may import `@/store/profile`.
 
 export async function refreshProfiles(): Promise<void> {
   $profilesLoading.set(true)

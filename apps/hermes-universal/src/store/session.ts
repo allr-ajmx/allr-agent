@@ -3,7 +3,6 @@ import {
   deleteSession,
   getSessionMessages,
   listAllProfileSessions,
-  listSessions,
   renameSession,
   searchSessions,
   setSessionArchived
@@ -29,13 +28,10 @@ import { requestGateway } from '@/store/gateway'
 import { $pinnedSessionIds, pinSession, unpinSession } from '@/store/layout'
 import { notify, notifyError } from '@/store/notifications'
 import { flashPetActivity } from '@/store/pet'
+// Import direction is `session.ts → profile.ts → profiles.ts`; never the reverse.
+import { $profileScope, ALL_PROFILES } from '@/store/profile'
 import { $sessionStates } from '@/store/session-state-types'
-import type {
-  SessionCreateResponse,
-  SessionInfo,
-  SessionResumeResponse,
-  SessionSearchResult
-} from '@/types/hermes'
+import type { SessionCreateResponse, SessionInfo, SessionResumeResponse, SessionSearchResult } from '@/types/hermes'
 
 // Session history + switching (Hc2). Lean adaptation of desktop store/session.ts —
 // no windows/projects/pins/profiles/branch/cwd/model. Two ids: the STORED id
@@ -96,28 +92,31 @@ export function setActiveSessionStoredIdRotation(rotation: {
 // re-render the sidebar unless membership actually changed.
 let workingArr: readonly string[] = []
 let workingSet = new Set<string>()
-export const $workingSessionIds = computed([$busy, $activeStoredSessionId, $sessionStates], (busy, activeId, states) => {
-  const next: string[] = []
+export const $workingSessionIds = computed(
+  [$busy, $activeStoredSessionId, $sessionStates],
+  (busy, activeId, states) => {
+    const next: string[] = []
 
-  if (busy && activeId) {
-    next.push(activeId)
-  }
-
-  for (const s of Object.values(states)) {
-    if (s.busy && s.storedSessionId && !next.includes(s.storedSessionId)) {
-      next.push(s.storedSessionId)
+    if (busy && activeId) {
+      next.push(activeId)
     }
+
+    for (const s of Object.values(states)) {
+      if (s.busy && s.storedSessionId && !next.includes(s.storedSessionId)) {
+        next.push(s.storedSessionId)
+      }
+    }
+
+    const stable = stableArray(workingArr, next)
+
+    if (stable !== workingArr) {
+      workingArr = stable
+      workingSet = new Set(stable)
+    }
+
+    return workingSet
   }
-
-  const stable = stableArray(workingArr, next)
-
-  if (stable !== workingArr) {
-    workingArr = stable
-    workingSet = new Set(stable)
-  }
-
-  return workingSet
-})
+)
 
 let attentionArr: readonly string[] = []
 export const $attentionSessionIds = computed(
@@ -250,13 +249,29 @@ export async function refreshMessagingSessions(): Promise<void> {
   }
 }
 
+// Recents come from the cross-profile aggregator in BOTH scope modes, mirroring
+// desktop's `recentsProfile`: 'all' for the browse view, else the concrete profile
+// key. Going through the aggregator (rather than listSessions, which is NOT
+// profile-scoped) is what actually scopes the sidebar to the active profile, and
+// it tags every row with its owning `profile` — which the lanes and ProfileTag
+// need. `$sessionsLimit` stays global, so in browse mode a limit of N is split
+// across profiles by recency; `resetSessionsPaging()` keeps a big browse-mode
+// limit from leaking into a small single profile.
 export async function refreshSessions(): Promise<void> {
   $sessionsLoading.set(true)
 
+  const scope = $profileScope.get()
+
   try {
-    const res = await listSessions($sessionsLimit.get(), 1, 'exclude', 'recent')
+    const res = await listAllProfileSessions(
+      $sessionsLimit.get(),
+      1,
+      'exclude',
+      'recent',
+      scope === ALL_PROFILES ? 'all' : scope
+    )
     $sessions.set(res.sessions)
-    $sessionsTotal.set(res.total)
+    $sessionsTotal.set(scope === ALL_PROFILES ? res.total : (res.profile_totals?.[scope] ?? res.total))
   } catch (err) {
     $statusLine.set(err instanceof Error ? err.message : 'Failed to load sessions')
   } finally {
@@ -264,8 +279,13 @@ export async function refreshSessions(): Promise<void> {
   }
 }
 
-// The ported listSessions slices at `limit` with offset=0, so "load more" =
-// re-fetch with a bigger limit. FIXME(MJX-205): true offset pagination.
+/** Drop back to the first page — called when the profile scope changes. */
+export function resetSessionsPaging(): void {
+  $sessionsLimit.set(PAGE)
+}
+
+// The aggregator slices at `limit` with offset=0, so "load more" = re-fetch with
+// a bigger limit. FIXME(MJX-205): true offset pagination.
 export async function loadMoreSessions(): Promise<void> {
   $sessionsLimit.set($sessionsLimit.get() + PAGE)
   await refreshSessions()
@@ -423,7 +443,9 @@ export function registerNewSession(id: string, firstMessage: string): void {
 
 /** The copyable spine of a branch: user/assistant turns that carry text.
  *  Ported from desktop's use-session-actions/utils.ts `toBranchMessages`. */
-function toBranchMessages(messages: ChatMessage[]): { content: string; role: ChatMessage['role']; source: ChatMessage }[] {
+function toBranchMessages(
+  messages: ChatMessage[]
+): { content: string; role: ChatMessage['role']; source: ChatMessage }[] {
   return messages
     .map(message => ({ content: chatMessageText(message), role: message.role, source: message }))
     .filter(({ content, role }) => content.trim() && (role === 'assistant' || role === 'user'))
