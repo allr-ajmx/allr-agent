@@ -10,7 +10,6 @@ import {
 } from '@/hermes'
 import { translateNow } from '@/i18n'
 import { chatMessageText } from '@/lib/chat-messages'
-import { navigateTo } from '@/lib/route-nav'
 import { appendLiveSessionProjection, toChatMessages } from '@/lib/session-history'
 import { stableArray } from '@/lib/stable-array'
 import { atom, computed } from '@/store/atom'
@@ -30,6 +29,7 @@ import { $pinnedSessionIds, pinSession, unpinSession } from '@/store/layout'
 import { notify, notifyError } from '@/store/notifications'
 import { flashPetActivity } from '@/store/pet'
 import { $sessionStates } from '@/store/session-state-types'
+import { openAppRoute } from '@/store/windows'
 import type {
   SessionCreateResponse,
   SessionInfo,
@@ -557,7 +557,7 @@ export async function branchCurrentSession(messageId?: string): Promise<boolean>
  */
 export function setSessionPickerOpen(open: boolean): void {
   if (open) {
-    navigateTo(`${COMMAND_CENTER_ROUTE}?section=sessions`)
+    openAppRoute(`${COMMAND_CENTER_ROUTE}?section=sessions`)
   }
 }
 

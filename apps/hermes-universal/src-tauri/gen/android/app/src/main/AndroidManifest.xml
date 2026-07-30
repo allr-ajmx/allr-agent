@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- AndroidTV support -->
+    <uses-feature android:name="android.software.leanback" android:required="false" />
+
+    <application
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:theme="@style/Theme.hermes_universal"
+        android:usesCleartextTraffic="${usesCleartextTraffic}">
+        <activity
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode"
+            android:launchMode="singleTask"
+            android:label="@string/main_activity_title"
+            android:name=".MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <!-- AndroidTV support -->
+                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- Native screen activity (MJX-141): ONE Activity hosting every windowable
+             surface (Settings / Command Center / Profiles); the surface is chosen by
+             the route the WebView loads. Lives in MainActivity's task so hardware
+             back / Home return to it. Not exported (launched only from within the app
+             via Rust's open_screen_window). Default launchMode = plain back-stack
+             push. Same configChanges as MainActivity so rotation/resize don't
+             recreate the WebView. -->
+        <activity
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode"
+            android:name=".ScreenActivity"
+            android:parentActivityName=".MainActivity"
+            android:exported="false" />
+
+        <provider
+          android:name="androidx.core.content.FileProvider"
+          android:authorities="${applicationId}.fileprovider"
+          android:exported="false"
+          android:grantUriPermissions="true">
+          <meta-data
+            android:name="android.support.FILE_PROVIDER_PATHS"
+            android:resource="@xml/file_paths" />
+        </provider>
+    </application>
+</manifest>

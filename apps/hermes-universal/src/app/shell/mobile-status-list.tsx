@@ -4,7 +4,10 @@ import { useStatusbarItems } from '@/app/shell/hooks/use-statusbar-items'
 import { NAV_ROW_ACTIVE } from '@/app/shell/nav-row'
 import { SidebarPanelLabel } from '@/app/shell/sidebar-label'
 import { type StatusbarItem, StatusbarItemView } from '@/app/shell/statusbar-controls'
+import { useI18n } from '@/i18n'
+import { Settings, Users } from '@/lib/icons'
 import { cn } from '@/lib/utils'
+import { openProfilesScreen, openSettingsScreen } from '@/store/windows'
 
 // Bar-layout class that only makes sense as a compact icon-only square; stripped
 // when re-rendering those items as full-width rows.
@@ -49,8 +52,32 @@ function toRow(item: StatusbarItem): StatusbarItem {
 // `rich`) as vertical nav-styled rows, grouped into Session / Status / System
 // sections with sidebar-style headers.
 export function MobileStatusList() {
+  const { t } = useI18n()
   const navigate = useNavigate()
   const { leftStatusbarItems, statusbarItems } = useStatusbarItems({ includeAll: true, rich: true })
+
+  // Open Settings — appended to the System section (opens the Settings activity on
+  // Android, the in-app overlay elsewhere). A synthetic action item so it renders
+  // identically to the other System rows (terminal / command-center).
+  const openSettingsRow: StatusbarItem = {
+    icon: <Settings className="size-3.5" />,
+    id: 'open-settings',
+    label: t.titlebar.openSettings,
+    onSelect: () => void openSettingsScreen(),
+    title: t.titlebar.openSettings,
+    variant: 'action'
+  }
+
+  // Profiles — the third windowable screen; opens the Profiles surface (native
+  // screen activity on Android, in-app overlay elsewhere).
+  const openProfilesRow: StatusbarItem = {
+    icon: <Users className="size-3.5" />,
+    id: 'open-profiles',
+    label: t.profiles.title,
+    onSelect: () => void openProfilesScreen(),
+    title: t.profiles.title,
+    variant: 'action'
+  }
 
   const byId = new Map<string, StatusbarItem>()
 
@@ -77,12 +104,21 @@ export function MobileStatusList() {
           <div className="flex flex-col gap-px">
             {section.items.map(item => {
               const rowItem = toRow(item)
+
               const finalItem = LIGHT_LABEL_SECTIONS.has(section.title)
                 ? { ...rowItem, className: cn(rowItem.className, 'font-normal') }
                 : rowItem
 
               return <StatusbarItemView item={finalItem} key={item.id} navigate={navigate} row />
             })}
+            {/* The screen switcher (Open Settings · Profiles) sits at the end of
+                the System section, next to Command Center. */}
+            {section.title === 'System' && (
+              <>
+                <StatusbarItemView item={openSettingsRow} navigate={navigate} row />
+                <StatusbarItemView item={openProfilesRow} navigate={navigate} row />
+              </>
+            )}
           </div>
         </div>
       ))}

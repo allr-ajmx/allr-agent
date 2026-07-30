@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 
 import { OverlayMain, OverlayNav, type OverlayNavGroup, OverlaySplitLayout } from '@/app/overlays/overlay-split-layout'
-import { OverlayView } from '@/app/overlays/overlay-view'
+import { type OverlayVariant, OverlayView } from '@/app/overlays/overlay-view'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -30,8 +30,9 @@ const DEFAULT_SECTION = SECTIONS[0]?.id ?? 'model'
 
 // The nav footer: Export / Import / Reset (matches desktop). Export & import round-
 // trip the whole config record through a native Tauri file dialog; reset restores
-// defaults behind a confirm dialog.
-function SettingsFooter() {
+// defaults behind a confirm dialog. Exported so the Android activity's left drawer
+// (which replaces the OverlayNav) can host it too.
+export function SettingsFooter() {
   const { t } = useI18n()
   const [busy, setBusy] = useState(false)
 
@@ -146,7 +147,21 @@ function SettingsFooter() {
 // nav rail (→ tab-dropdown on narrow) and the active section on the right. The
 // active section id is the `/settings/:section` route param (default `model`);
 // nav selection navigates the route, so existing deep-links keep working.
-export function SettingsView({ returnPath = '/' }: { returnPath?: string }) {
+export function SettingsView({
+  returnPath = '/',
+  variant = 'overlay',
+  onClose,
+  hideNav = false
+}: {
+  returnPath?: string
+  // Fullscreen when hosted as a native activity screen; the activity's Home
+  // button supplies `onClose` (close the window) instead of routing back.
+  variant?: OverlayVariant
+  onClose?: () => void
+  // Render only the active section body (no OverlayNav rail/dropdown) — the
+  // Android activity shell owns nav in its left drawer instead.
+  hideNav?: boolean
+}) {
   const { t } = useI18n()
   const navigate = useNavigate()
   // Rendered as a top-level overlay (not a routed element), so the active section
@@ -175,17 +190,26 @@ export function SettingsView({ returnPath = '/' }: { returnPath?: string }) {
   }))
 
   // Close returns to the route the user was on before opening settings, not the
-  // previously-viewed settings section.
-  const close = () => navigate(returnPath)
+  // previously-viewed settings section. In a native activity the host passes
+  // `onClose` (finish the activity) instead.
+  const close = onClose ?? (() => navigate(returnPath))
+
+  const main = (
+    <OverlayMain className="px-0 pb-0">
+      <SectionBody section={section} />
+    </OverlayMain>
+  )
 
   return (
-    <OverlayView closeLabel={t.settings.closeSettings} onClose={close}>
-      <OverlaySplitLayout>
-        <OverlayNav footer={<SettingsFooter />} groups={groups} />
-        <OverlayMain className="px-0 pb-0">
-          <SectionBody section={section} />
-        </OverlayMain>
-      </OverlaySplitLayout>
+    <OverlayView closeLabel={t.settings.closeSettings} onClose={close} variant={variant}>
+      {hideNav ? (
+        main
+      ) : (
+        <OverlaySplitLayout>
+          <OverlayNav footer={<SettingsFooter />} groups={groups} />
+          {main}
+        </OverlaySplitLayout>
+      )}
     </OverlayView>
   )
 }
