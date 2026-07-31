@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
+import { PetHeartField, useHeartPreviewHotkey } from '@/components/chat/vibe-hearts'
 import { useStore } from '@/store/atom'
 import { $busy } from '@/store/chat'
 import { $petInfo, $petRoam, $petRoamDir, flashPetActivity } from '@/store/pet'
@@ -200,6 +201,11 @@ export function FloatingPet({ overlayOpen = false }: { overlayOpen?: boolean }) 
     petW
   })
 
+  // DEV Shift+H heart preview lives here — FloatingPet is mounted app-shell-wide,
+  // so one listener covers every route. Called above the early return so the hook
+  // order stays stable when no pet is installed.
+  useHeartPreviewHotkey()
+
   // While roaming, drive the directional run row + mirror from travel direction;
   // at rest, fall back to the inward-facing static mascot. The pose itself comes
   // from `$petState` (activity + roam motion), read inside PetSprite.
@@ -252,6 +258,9 @@ export function FloatingPet({ overlayOpen = false }: { overlayOpen?: boolean }) 
       >
         <PetSprite info={info} rowOverride={walk.row} />
       </div>
+      {/* Hearts puff off the pet; its celebrate ("yay"/jump) pose is driven by
+          burstVibeHearts's router. */}
+      <PetHeartField petH={petH} petW={petW} />
     </div>
   )
 }

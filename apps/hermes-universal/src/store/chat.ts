@@ -1,3 +1,4 @@
+import { burstVibeHearts } from '@/components/chat/vibe-hearts'
 import type { GatewayEvent } from '@/gateway'
 import { translateNow } from '@/i18n'
 import { renderMediaTags } from '@/lib/chat-media'
@@ -547,6 +548,16 @@ export function handleGatewayEvent(event: GatewayEvent): void {
       update(messages =>
         patchActive(messages, m => ({ ...m, parts: applySettledReasoning(m.parts, coerceThinkingText(payload.text)) }))
       )
+
+      break
+
+    // Core-detected affection (ily / <3 / good bot) on the user's message. Only
+    // the visible session gets here — the active-session gate above is this
+    // reducer's `isActiveEvent` — so background turns stay quiet.
+    case 'reaction':
+      if ((coerceText(payload.kind) || 'vibe') === 'vibe') {
+        burstVibeHearts()
+      }
 
       break
     case 'moa.reference': {

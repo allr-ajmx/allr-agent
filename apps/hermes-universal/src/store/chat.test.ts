@@ -9,6 +9,9 @@ vi.mock('@/store/gateway', async () => {
 })
 import { requestGateway } from '@/store/gateway'
 
+vi.mock('@/components/chat/vibe-hearts', () => ({ burstVibeHearts: vi.fn() }))
+import { burstVibeHearts } from '@/components/chat/vibe-hearts'
+
 import {
   $approval,
   $busy,
@@ -35,6 +38,35 @@ const messageText = (message: ChatMessage): string =>
 beforeEach(() => {
   resetChat()
   vi.mocked(requestGateway).mockReset()
+  vi.mocked(burstVibeHearts).mockReset()
+})
+
+describe('reaction events', () => {
+  it('bursts hearts for a vibe reaction on the visible session', () => {
+    handleGatewayEvent(ev('reaction', { kind: 'vibe' }))
+
+    expect(burstVibeHearts).toHaveBeenCalledTimes(1)
+  })
+
+  it('defaults a reaction with no kind to vibe', () => {
+    handleGatewayEvent(ev('reaction', {}))
+
+    expect(burstVibeHearts).toHaveBeenCalledTimes(1)
+  })
+
+  it('ignores reaction kinds it has no renderer for', () => {
+    handleGatewayEvent(ev('reaction', { kind: 'confetti' }))
+
+    expect(burstVibeHearts).not.toHaveBeenCalled()
+  })
+
+  it('stays quiet for a background session, so only the visible chat reacts', () => {
+    $sessionId.set('session-a')
+
+    handleGatewayEvent({ type: 'reaction', session_id: 'session-b', payload: { kind: 'vibe' } } as GatewayEvent)
+
+    expect(burstVibeHearts).not.toHaveBeenCalled()
+  })
 })
 
 describe('chat reducer (parts model)', () => {
