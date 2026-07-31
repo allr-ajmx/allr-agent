@@ -43,6 +43,8 @@ export {
   // Chat rendering pipeline (chat-session UI port)
   IconCopy as Copy,
   IconCpu as Cpu,
+  // Billing settings port (MJX-56)
+  IconCreditCard as CreditCard,
   IconDownload as Download,
   // Memory provider panels (config sections port)
   IconExternalLink as ExternalLink,
@@ -89,6 +91,8 @@ export {
   IconDeviceDesktop as Monitor,
   IconMoon as Moon,
   IconDotsVertical as MoreVertical,
+  // Billing settings port (MJX-56) — the "Plan" section heading
+  IconPackage as Package,
   IconPalette as Palette,
   IconPaw as Paw,
   IconPencil as Pencil,

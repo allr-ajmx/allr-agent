@@ -1019,8 +1019,11 @@
 }
 
 /* `[data-state='open']` keeps a select trigger looking focused while its list is
-   open (Radix moves focus into the list). */
+   open (Radix moves focus into the list). `:focus-within` covers the adorned
+   Input group, where the chrome sits on a wrapper div that never focuses
+   itself — the real focus lands on the transparent inner input. */
 .desktop-input-chrome:focus,
+.desktop-input-chrome:focus-within,
 .desktop-input-chrome[data-state='open'] {
   border-color: var(--dt-composer-ring);
   box-shadow: none;
@@ -2195,6 +2198,33 @@ html {
 
 @media (prefers-reduced-motion: reduce) {
   .pet-progress__indeterminate {
+    animation: none;
+    left: 0;
+    width: 100%;
+    opacity: 0.4;
+  }
+}
+
+/* Sliding indeterminate block for the shared `Progress` primitive's
+   `indeterminate animated` mode. Color/positioning come from the primitive;
+   this owns the animation. Ported from desktop styles.css alongside
+   components/ui/progress.tsx — without it that mode renders an invisible bar. */
+.progress-slide {
+  width: 40%;
+  animation: progress-slide 1.15s ease-in-out infinite;
+}
+
+@keyframes progress-slide {
+  0% {
+    left: -42%;
+  }
+  100% {
+    left: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .progress-slide {
     animation: none;
     left: 0;
     width: 100%;
