@@ -13,6 +13,7 @@ vi.mock('@/hermes', () => ({
   getMemoryProviderConfig: vi.fn(async () => ({
     name: 'mem0',
     label: 'Mem0',
+    docs_url: '',
     fields: [
       {
         key: 'api_key',
@@ -22,11 +23,15 @@ vi.mock('@/hermes', () => ({
         value: '',
         placeholder: 'sk-...',
         description: '',
+        group: 'Connection',
+        inline: true,
         options: []
       }
     ]
   })),
-  saveMemoryProviderConfig: vi.fn(async () => ({ ok: true }))
+  saveMemoryProviderConfig: vi.fn(async () => ({ ok: true })),
+  // Pulled in by the full-config modal's `@/store/profile` import chain.
+  setApiRequestProfile: vi.fn()
 }))
 
 import { I18nProvider } from '@/i18n'

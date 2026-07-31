@@ -3,7 +3,7 @@ import type { HermesConfigRecord } from '@/types/hermes'
 import { ConfigSection } from './config-section'
 import { getNested } from './helpers'
 import { MemoryConnect } from './memory/connect'
-import { ProviderConfigPanel } from './provider-config-panel'
+import { ProviderConfigPanel } from './memory/provider-config-panel'
 
 // Memory & Context config section: the generic schema fields plus, on the
 // `memory.provider` row, an inline OAuth Connect affordance (in the description)
