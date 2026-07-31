@@ -4,6 +4,7 @@ import type { HermesGitWorktree, HermesRepoStatus } from '@/global'
 import { desktopGit } from '@/lib/desktop-git'
 
 import { $busy, $currentCwd } from './chat'
+import { $worktreeRefreshToken } from './projects'
 import { $workspaceChangeTick } from './workspace-events'
 
 // Live working-tree status for the active session's cwd — the data backbone of
@@ -171,10 +172,10 @@ function scheduleRepoStatusRefresh(cwd?: null | string): void {
 // The active session's cwd changed (session switch / new chat) → re-probe.
 $currentCwd.subscribe(cwd => scheduleRepoStatusRefresh(cwd))
 
-// Desktop also re-probes on its `$worktreeRefreshToken` (store/projects.ts, the
-// worktree add/remove op). Universal has no worktree management yet, so that
-// trigger has no source here — the workspace tick and turn-settle edges below
-// still cover agent-driven changes.
+// A worktree was added/removed or a branch switched through store/projects.ts →
+// re-probe, so the coding row's branch label and counts repaint immediately
+// instead of waiting for the next workspace tick.
+$worktreeRefreshToken.subscribe(() => scheduleRepoStatusRefresh())
 
 // A file-mutating tool finished (event-driven, not polled) → re-probe so the
 // rail's branch/+/- move exactly when the agent touches the tree.

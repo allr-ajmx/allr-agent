@@ -1,7 +1,9 @@
 import { open as openDialog } from '@tauri-apps/plugin-dialog'
 
 import type { SidebarProjectTree } from '@/app/chat/sidebar/projects/model'
+import type { HermesGitBaseBranch, HermesGitBranch } from '@/global'
 import { translateNow } from '@/i18n'
+import { desktopGit } from '@/lib/desktop-git'
 import { persistentAtom } from '@/lib/persisted'
 import { IS_DESKTOP } from '@/lib/platform'
 import { atom } from '@/store/atom'
@@ -14,12 +16,11 @@ import type { ProjectInfo, ProjectsPayload } from '@/types/hermes'
 
 // First-class per-profile Projects, served by the gateway `projects.*` JSON-RPC
 // methods (backed by projects.db). Ported/adapted from desktop `store/projects.ts`.
-// Git-worktree operations (start-work, base-branch, worktree add/remove, disk
-// repo scan) are not implemented here yet — FIXME(MJX-107). This needs no local
-// git: `lib/desktop-git.ts` already exposes the whole bridge over the gateway's
-// `/api/git/*` REST surface, and `worktreeAdd`/`worktreeRemove`/`baseBranchList`/
-// `scanRepos` are exported and uncalled. Only the store + UI layer is missing.
-// Meanwhile the server-computed `projects.tree` supplies session-derived projects.
+// The git-worktree half (start-work, base branches, worktree add/remove) lives
+// at the bottom of this file and runs entirely through `lib/desktop-git.ts`,
+// which bridges the gateway's `/api/git/*` REST surface — no local git needed.
+// The disk repo scan stays a backend concern: the server-computed `projects.tree`
+// already supplies session-derived projects.
 
 export const $projects = atom<ProjectInfo[]>([])
 export const $activeProjectId = atom<null | string>(null)
@@ -387,4 +388,133 @@ export async function pickProjectFolder(): Promise<null | string> {
   } catch {
     return null
   }
+}
+
+// ── Git-driven worktrees ("Start work") ─────────────────────────────────────
+// Ported from desktop `store/projects.ts`. Every op is a thin wrapper over the
+// `desktopGit()` bridge; the interesting part is the refresh token + the two
+// request atoms that let the composer hand work off to the chat controller.
+
+// Bumped after a `git worktree add`/`remove` so worktree-list probes refetch and
+// the new/removed lane shows at once, instead of waiting for the next scope
+// change. `store/coding-status.ts` subscribes to it.
+export const $worktreeRefreshToken = atom(0)
+const bumpWorktrees = () => $worktreeRefreshToken.set($worktreeRefreshToken.get() + 1)
+
+// Re-run the `git worktree list` probe without the heavy projects.tree scan.
+// Add/remove initiated here already bumps the token inline; this is for
+// OUT-OF-BAND changes the UI can't see — the agent running `git worktree
+// add/remove` in the terminal during a turn, or an external shell mutating the
+// repo while the window was away. The probe is per-repo and bounded, so a
+// settled turn / window refocus can re-sync the lanes cheaply.
+export function refreshWorktrees(): void {
+  bumpWorktrees()
+}
+
+// Spin up a fresh worktree the lightest way (`git worktree add -b`) under the
+// repo, returning where Hermes should start working. Git is the source of
+// truth; the caller starts a session in the returned path.
+export async function startWorkInRepo(
+  repoPath: string,
+  options?: { name?: string; branch?: string; base?: string; existingBranch?: string }
+): Promise<null | { path: string; branch: string }> {
+  const git = desktopGit()
+
+  if (!git || !repoPath) {
+    return null
+  }
+
+  const result = await git.worktreeAdd(repoPath, options)
+  bumpWorktrees()
+
+  return { branch: result.branch, path: result.path }
+}
+
+// Local branches for the composer's "convert a branch into a worktree" picker.
+// Empty when the backend can't probe (no bridge / not a repo).
+export async function listRepoBranches(repoPath: string): Promise<HermesGitBranch[]> {
+  const git = desktopGit()
+
+  if (!git?.branchList || !repoPath) {
+    return []
+  }
+
+  return git.branchList(repoPath)
+}
+
+// Local + remote-tracking branches for the base-branch picker in the
+// new-worktree dialog. The remote default (origin/HEAD) is flagged so the UI can
+// preselect it.
+export async function listBaseBranches(repoPath: string): Promise<HermesGitBaseBranch[]> {
+  const git = desktopGit()
+
+  if (!git?.baseBranchList || !repoPath) {
+    return []
+  }
+
+  return git.baseBranchList(repoPath)
+}
+
+export async function switchBranchInRepo(repoPath: string, branch: string): Promise<void> {
+  const git = desktopGit()
+
+  if (!git || !repoPath || !branch.trim()) {
+    return
+  }
+
+  await git.branchSwitch(repoPath, branch)
+  bumpWorktrees()
+}
+
+export async function removeWorktreePath(
+  repoPath: string,
+  worktreePath: string,
+  options?: { force?: boolean }
+): Promise<void> {
+  const git = desktopGit()
+
+  if (!git) {
+    return
+  }
+
+  await git.worktreeRemove(repoPath, worktreePath, options)
+  bumpWorktrees()
+}
+
+// A composer-driven "branch off into a new worktree" hand-off. The composer owns
+// the typed draft; the chat controller owns session lifecycle. The composer
+// creates the worktree (startWorkInRepo), then fires this so the controller opens
+// a fresh session in that worktree and prefills the draft that kicked off the
+// task. A monotonic token lets a rapid second request re-fire the controller's
+// effect even if the path repeats.
+export interface StartWorkSessionRequest {
+  draft?: string
+  path: string
+  token: number
+}
+
+export const $startWorkSessionRequest = atom<StartWorkSessionRequest | null>(null)
+
+// Keyboard-driven "spin up a new worktree" intent. The composer's coding row
+// owns the name dialog (it has the active repo + branch context), so a global
+// hotkey just bumps this token; the row opens its branch-off dialog in response.
+// A monotonic token re-fires even on repeat presses. No-ops off a repo (the row
+// isn't mounted), which is the right "nothing to branch" outcome.
+export const $newWorktreeRequest = atom(0)
+
+export function requestNewWorktree(): void {
+  $newWorktreeRequest.set($newWorktreeRequest.get() + 1)
+}
+
+let startWorkToken = 0
+
+export function requestStartWorkSession(path: string, draft?: string): void {
+  const target = path.trim()
+
+  if (!target) {
+    return
+  }
+
+  startWorkToken += 1
+  $startWorkSessionRequest.set({ draft: draft?.trim() || undefined, path: target, token: startWorkToken })
 }
