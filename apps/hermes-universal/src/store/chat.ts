@@ -6,6 +6,7 @@ import { type GatewayToolPayload, toolIdFromPayload, upsertToolPart } from '@/li
 import { playCompletionSound } from '@/lib/completion-sound'
 import { resolveGatewayEventSessionId } from '@/lib/gateway-events'
 import { triggerHaptic } from '@/lib/haptics'
+import { invalidateSlashCompletions } from '@/lib/slash-completion-cache'
 import { stopSpeaking } from '@/lib/tts'
 import { atom, computed } from '@/store/atom'
 import { cwdForNewSession } from '@/store/default-project-dir'
@@ -604,6 +605,13 @@ export function handleGatewayEvent(event: GatewayEvent): void {
 
       if (inlineDiff.trim()) {
         recordToolDiff(toolIdFromPayload(payload), inlineDiff)
+      }
+
+      // The agent just created/deleted/renamed a skill, which adds or removes
+      // its `/name` command. Drop the composer's cached `/` list so the new
+      // skill is offerable now rather than after the hour-long TTL.
+      if (payload?.name === 'skill_manage') {
+        invalidateSlashCompletions()
       }
 
       // A file-mutating tool just finished — nudge the git-mirroring surfaces
