@@ -4,8 +4,10 @@ import type { SidebarProjectTree } from '@/app/chat/sidebar/projects/model'
 import type { HermesGitBaseBranch, HermesGitBranch } from '@/global'
 import { getHermesConfig } from '@/hermes'
 import { translateNow } from '@/i18n'
+import { copyTextToClipboard } from '@/lib/desktop-fs'
 import { desktopGit } from '@/lib/desktop-git'
 import { persistentAtom } from '@/lib/persisted'
+import { revealPathInFileManager } from '@/lib/reveal-path'
 import { IS_DESKTOP } from '@/lib/platform'
 import { atom } from '@/store/atom'
 import { $sessionId } from '@/store/chat'
@@ -390,6 +392,25 @@ export async function pickProjectFolder(): Promise<null | string> {
     return typeof dir === 'string' ? dir : null
   } catch {
     return null
+  }
+}
+
+// Reveal a project/worktree path in the OS file manager (git-GUI standard).
+// Desktop routes this through its Electron bridge; universal uses the Tauri
+// `reveal_in_file_manager` command, which no-ops off Tauri. Note the path only
+// resolves on THIS machine — a remote gateway's worktree lives on its host, so
+// this quietly does nothing there rather than pretending to succeed.
+export async function revealPath(path: null | string): Promise<void> {
+  if (path) {
+    await revealPathInFileManager(path)
+  }
+}
+
+// Copy a path to the clipboard (git-GUI standard). Always meaningful, remote or
+// not — the string is what the user wants to paste into a terminal.
+export async function copyPath(path: null | string): Promise<void> {
+  if (path) {
+    await copyTextToClipboard(path)
   }
 }
 
