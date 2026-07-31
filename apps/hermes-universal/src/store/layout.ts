@@ -1,3 +1,4 @@
+import { readKey } from '@/lib/persist'
 import { Codecs, persistentAtom } from '@/lib/persisted'
 import { arraysEqual, insertUniqueId } from '@/lib/storage'
 import { atom, computed, type ReadableAtom } from '@/store/atom'
@@ -140,11 +141,47 @@ export const $sidebarWorkspaceParentOrderIds = persistentAtom(
 // Manual drag-order of projects in the overview. Empty = the deterministic
 // default sort; once the user drags a project their order wins.
 export const $sidebarProjectOrderIds = persistentAtom('hermes.projectOrder', [] as string[], Codecs.stringArray)
-// Repo/worktree nodes the user explicitly COLLAPSED. Absent = open.
-export const $sidebarWorkspaceCollapsedIds = persistentAtom(
-  'hermes.workspaceCollapsed',
-  [] as string[],
-  Codecs.stringArray
+// Persisted open/collapse for repo/worktree (and review file-tree) nodes, as the
+// RESOLVED boolean per node rather than a set of collapsed ids. That distinction
+// is load-bearing for worktree lanes: an empty lane defaults COLLAPSED and the
+// same lane defaults OPEN once it holds a session, so a "collapsed ids" set
+// silently reinterprets the user's explicit choice the moment the default flips.
+// An absent id follows the caller's `defaultOpen`. Desktop parity.
+const WORKSPACE_NODE_OPEN_KEY = 'hermes.workspaceNodeOpen'
+const LEGACY_WORKSPACE_COLLAPSED_KEY = 'hermes.workspaceCollapsed'
+
+// One-time migration off the old XOR `workspaceCollapsed` string[]: every id in
+// it was explicitly collapsed, which is exactly `false` in the new model.
+function migrateWorkspaceCollapsedIds(): Record<string, boolean> {
+  const raw = readKey(LEGACY_WORKSPACE_COLLAPSED_KEY)
+
+  if (!raw) {
+    return {}
+  }
+
+  try {
+    const legacy: unknown = JSON.parse(raw)
+
+    return Array.isArray(legacy)
+      ? Object.fromEntries(legacy.filter((id): id is string => typeof id === 'string').map(id => [id, false]))
+      : {}
+  } catch {
+    return {}
+  }
+}
+
+export const $sidebarWorkspaceNodeOpen = persistentAtom<Record<string, boolean>>(
+  WORKSPACE_NODE_OPEN_KEY,
+  migrateWorkspaceCollapsedIds(),
+  Codecs.json<Record<string, boolean>>(raw => {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+      return {}
+    }
+
+    return Object.fromEntries(
+      Object.entries(raw).filter((entry): entry is [string, boolean] => typeof entry[1] === 'boolean')
+    )
+  })
 )
 // Auto-derived (git-repo) projects dismissed from the overview (keyed by repo root).
 export const $dismissedAutoProjectIds = persistentAtom(
@@ -191,10 +228,25 @@ export function toggleSidebarOpen() {
 }
 
 // ── Workspace node collapse / project dismissal ─────────────────────────────
-export function toggleWorkspaceNodeCollapsed(id: string): void {
-  const current = $sidebarWorkspaceCollapsedIds.get()
+export function workspaceNodeOpen(id: string, defaultOpen = true): boolean {
+  return $sidebarWorkspaceNodeOpen.get()[id] ?? defaultOpen
+}
 
-  $sidebarWorkspaceCollapsedIds.set(current.includes(id) ? current.filter(nodeId => nodeId !== id) : [...current, id])
+// Force a node open/collapsed. Stable across a default flip — used by "+ new
+// session" to reveal the lane it targets and keep it open once it's populated.
+export function setWorkspaceNodeOpen(id: string, open: boolean): void {
+  const current = $sidebarWorkspaceNodeOpen.get()
+
+  if (current[id] === open) {
+    return
+  }
+
+  $sidebarWorkspaceNodeOpen.set({ ...current, [id]: open })
+}
+
+// Toggle a repo/worktree/file-tree node relative to its current resolved state.
+export function toggleWorkspaceNodeCollapsed(id: string, defaultOpen = true): void {
+  setWorkspaceNodeOpen(id, !workspaceNodeOpen(id, defaultOpen))
 }
 
 export function dismissAutoProject(id: string): void {
