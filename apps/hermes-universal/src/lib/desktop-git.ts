@@ -8,6 +8,7 @@ import type {
   HermesReviewShipInfo
 } from '@/global'
 import { api } from '@/lib/api'
+import { localRepoScanSupported, scanLocalGitRepos } from '@/store/repo-scan'
 
 // Ported from apps/desktop/src/lib/desktop-git.ts — specifically its `remoteGit`
 // branch. Desktop runs git through Electron when it owns the filesystem, and
@@ -56,7 +57,10 @@ export interface GitBridge {
     shipInfo: (repoPath: string) => Promise<HermesReviewShipInfo>
     createPr: (repoPath: string) => Promise<{ url: string }>
   }
-  scanRepos: (roots: string[], options?: { maxDepth?: number }) => Promise<{ root: string; label: string }[]>
+  scanRepos: (
+    roots: string[],
+    options?: { maxDepth?: number; enabled?: boolean; excludePaths?: string[] }
+  ) => Promise<{ root: string; label: string }[]>
 }
 
 function gitGet<T>(route: string, params: Record<string, boolean | null | string | undefined>): Promise<T> {
@@ -125,9 +129,16 @@ const remoteGit: GitBridge = {
     createPr: repoPath => gitPost('review/create-pr', { path: repoPath })
   },
 
-  // Repo discovery is a local-disk crawl; the backend already merges
-  // session-derived repos, so this is a no-op.
-  scanRepos: async () => []
+  // Repo discovery is a local-disk crawl, not a git command, so it has no
+  // `/api/git/*` counterpart: it runs in Rust against THIS machine's filesystem
+  // (store/repo-scan.ts → src-tauri/src/repo_scan.rs). That is only the gateway's
+  // filesystem when the backend was spawned locally; on a remote/cloud gateway
+  // (and on mobile, which has no crawlable disk) we return nothing rather than
+  // recording repos that don't exist over there. The backend still merges
+  // session-derived repos, so discovery degrades instead of breaking.
+  // FIXME(MJX-207): a gateway-side `/api/git/scan-repos` would cover those cases.
+  scanRepos: async (roots, options) =>
+    localRepoScanSupported() ? await scanLocalGitRepos(roots, options ?? {}) : []
 }
 
 export function desktopGit(): GitBridge | undefined {

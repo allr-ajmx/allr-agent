@@ -16,6 +16,7 @@ mod local_backend;
 mod marketplace;
 mod oauth;
 mod pty;
+mod repo_scan;
 mod transport;
 mod voice;
 mod window;
@@ -29,6 +30,7 @@ use cloud::{
 use local_backend::{local_backend_spawn, local_backend_status, local_backend_stop, LocalBackendState};
 use oauth::{oauth_login, oauth_logout, oauth_status};
 use pty::{pty_kill, pty_resize, pty_spawn, pty_write, PtyState};
+use repo_scan::repo_scan_git_repos;
 use transport::{
     cookies_export, cookies_import, http_request, ws_close, ws_open, ws_send, TransportState,
 };
@@ -143,6 +145,7 @@ pub fn run() {
             pty_write,
             pty_resize,
             pty_kill,
+            repo_scan_git_repos,
             voice_open,
             voice_arm,
             voice_suspend,

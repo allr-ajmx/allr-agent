@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { PlatformAvatar } from '@/app/messaging/platform-icon'
 import { CRON_ROUTE, sessionRoute } from '@/app/routes'
 import { Codicon } from '@/components/ui/codicon'
+import { GlyphSpinner } from '@/components/ui/glyph-spinner'
 import { SearchField } from '@/components/ui/search-field'
 import { useI18n } from '@/i18n'
 import { sessionMatchesSearch } from '@/lib/session-search'
@@ -38,13 +39,15 @@ import {
   $projectScope,
   $projectTree,
   $projectTreeLoading,
+  $reposScanning,
   ALL_PROJECTS,
   enterProject,
   exitProjectScope,
   fetchProjectSessions,
   openProjectCreate,
   refreshProjects,
-  refreshProjectTree
+  refreshProjectTree,
+  scanAndRecordRepos
 } from '@/store/projects'
 import {
   $activeStoredSessionId,
@@ -141,6 +144,7 @@ export function SidebarScrollBody({ onNavigate }: { onNavigate?: () => void }) {
   const scope = useStore($projectScope)
   const projectTree = useStore($projectTree)
   const projectsLoading = useStore($projectTreeLoading)
+  const reposScanning = useStore($reposScanning)
   const activeProjectId = useStore($activeProjectId)
   const dismissedProjects = useStore($dismissedAutoProjectIds)
   const projectOrder = useStore($sidebarProjectOrderIds)
@@ -173,11 +177,52 @@ export function SidebarScrollBody({ onNavigate }: { onNavigate?: () => void }) {
     return () => clearInterval(timer)
   }, [])
 
-  // Pull projects + tree when the Projects (grouped) view is active.
+  // Pull projects + tree when the Projects (grouped) view is active. Paint from
+  // the fast tree fetch (explicit projects + repos from existing sessions and the
+  // backend's cache) FIRST, then kick off the disk crawl so newly-discovered
+  // repos fold in afterwards instead of the crawl blocking the first render.
   useEffect(() => {
     if (grouped) {
       void refreshProjects()
+      void refreshProjectTree().finally(() => void scanAndRecordRepos())
+    }
+  }, [grouped])
+
+  // Out-of-band repo changes (a `git init` or `rm -rf` in another terminal) emit
+  // no gateway event, so — like every git GUI — re-pull on window focus / tab
+  // visibility rather than stranding the tree until a reload. The tree fetch is
+  // cheap and runs every focus; the disk crawl that surfaces brand-new repos is
+  // throttled.
+  useEffect(() => {
+    if (!grouped) {
+      return
+    }
+
+    let lastScanAt = 0
+    const SCAN_THROTTLE_MS = 30_000
+
+    const onActive = () => {
+      if (document.visibilityState === 'hidden') {
+        return
+      }
+
+      void refreshProjects()
       void refreshProjectTree()
+
+      const now = Date.now()
+
+      if (now - lastScanAt >= SCAN_THROTTLE_MS) {
+        lastScanAt = now
+        void scanAndRecordRepos(true)
+      }
+    }
+
+    window.addEventListener('focus', onActive)
+    document.addEventListener('visibilitychange', onActive)
+
+    return () => {
+      window.removeEventListener('focus', onActive)
+      document.removeEventListener('visibilitychange', onActive)
     }
   }, [grouped])
 
@@ -406,7 +451,18 @@ export function SidebarScrollBody({ onNavigate }: { onNavigate?: () => void }) {
                   ? s.projects.sectionLabel
                   : s.sessions
             }
-            labelMeta={grouped ? undefined : countLabel(recents.length, total)}
+            labelMeta={
+              grouped ? (
+                // A rescan is a background refresh, not a load: show it next to
+                // the section label, and only when the skeleton isn't already
+                // saying "loading" (same rule as desktop).
+                reposScanning && !projectsLoading ? (
+                  <GlyphSpinner ariaLabel={s.loading} className="text-[0.6875rem] text-(--ui-text-quaternary)" />
+                ) : undefined
+              ) : (
+                countLabel(recents.length, total)
+              )
+            }
             onEnterProject={enterProject}
             onReorderProjects={ids => setSidebarProjectOrderIds(ids)}
             onReorderSessions={
