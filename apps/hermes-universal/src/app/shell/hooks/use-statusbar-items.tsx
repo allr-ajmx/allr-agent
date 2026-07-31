@@ -241,8 +241,12 @@ export function useStatusbarItems(opts?: {
       hidden: hideOnMobile,
       icon: <Command className="size-3.5" />,
       id: 'command-center',
+      // Locked: hiding the door to the Command Center from the bar it lives in
+      // would strand the user.
+      lockedVisible: true,
       onSelect: () => void openSystemScreen(),
       title: copy.openCommandCenter,
+      toggleLabel: copy.toggleCommandCenter,
       variant: 'action'
     },
     {
@@ -258,6 +262,7 @@ export function useStatusbarItems(opts?: {
         <AlertCircle className="size-3" />
       ),
       id: 'gateway-health',
+      toggleLabel: copy.gateway,
       label: copy.gateway,
       menuClassName: 'w-72',
       menuContent: gatewayMenuContent,
@@ -271,6 +276,7 @@ export function useStatusbarItems(opts?: {
       hidden: !currentCwd,
       icon: <FolderOpen className="size-3" />,
       id: 'workspace-cwd',
+      toggleLabel: copy.toggleWorkspace,
       label: currentCwd ? workspaceLabel(currentCwd) : undefined,
       menuItems: currentCwd
         ? [
@@ -327,6 +333,7 @@ export function useStatusbarItems(opts?: {
       label: copy.agents,
       title: copy.openAgents,
       to: AGENTS_ROUTE,
+      toggleLabel: copy.agents,
       variant: 'action'
     },
     {
@@ -337,6 +344,7 @@ export function useStatusbarItems(opts?: {
       label: copy.cron,
       title: copy.openCron,
       to: CRON_ROUTE,
+      toggleLabel: copy.cron,
       variant: 'action'
     }
   ]
@@ -349,6 +357,7 @@ export function useStatusbarItems(opts?: {
       id: 'running-timer',
       label: copy.turnRunning,
       title: copy.currentTurnElapsed,
+      toggleLabel: copy.toggleRunningTimer,
       variant: 'text'
     },
     {
@@ -362,6 +371,7 @@ export function useStatusbarItems(opts?: {
         <ContextUsagePanel currentUsage={currentUsage} requestGateway={requestGateway} sessionId={sessionId} />
       ),
       title: copy.openContextUsage,
+      toggleLabel: copy.toggleContextUsage,
       variant: 'menu'
     },
     {
@@ -370,6 +380,7 @@ export function useStatusbarItems(opts?: {
       id: 'session-timer',
       label: copy.session,
       title: copy.runtimeSessionElapsed,
+      toggleLabel: copy.toggleSessionTimer,
       variant: 'text'
     },
     {
@@ -377,14 +388,17 @@ export function useStatusbarItems(opts?: {
       // Rich: a fixed "Approval" label with the mode name as a muted value; drop
       // the bar-only background className.
       ...(rich ? { className: undefined, detail: accent(approvalModeItem.label), label: 'Approval' } : {}),
-      hidden: gatewayState !== 'open'
+      hidden: gatewayState !== 'open',
+      toggleLabel: copy.toggleApprovalMode
     },
     {
+      actionId: 'view.showTerminal',
       className: cn('w-7 justify-center px-0', terminalOpen && 'bg-accent/55 text-foreground'),
       icon: <Terminal className="size-3.5" />,
       id: 'terminal',
       onSelect: () => toggleTerminalOpen(),
       title: terminalOpen ? copy.hideTerminal : copy.showTerminal,
+      toggleLabel: copy.toggleTerminal,
       variant: 'action'
     },
     {
@@ -395,8 +409,11 @@ export function useStatusbarItems(opts?: {
       icon: <Hash className="size-3" />,
       id: 'version-client',
       label: rich ? 'Client' : appVersion ? copy.clientLabel(appVersion) : copy.unknown,
+      // Locked: the version pill is also the update door.
+      lockedVisible: true,
       onSelect: () => void openSystemScreen(),
       title: appVersion ? copy.clientLabel(appVersion) : undefined,
+      toggleLabel: copy.toggleVersion,
       variant: 'action'
     },
     {
@@ -405,8 +422,10 @@ export function useStatusbarItems(opts?: {
       icon: <Hash className="size-3" />,
       id: 'version-backend',
       label: rich ? 'Backend' : backendVersion ? copy.backendLabel(backendVersion) : copy.unknown,
+      lockedVisible: true,
       onSelect: () => void openSystemScreen(),
       title: backendVersion ? copy.backendVersion(backendVersion) : undefined,
+      toggleLabel: copy.toggleBackendVersion,
       variant: 'action'
     },
     {

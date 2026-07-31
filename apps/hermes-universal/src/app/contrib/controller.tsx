@@ -32,7 +32,7 @@ import { discoverBundledPlugins } from '@/contrib/plugins'
 import { registry } from '@/contrib/registry'
 import { discoverRuntimePlugins } from '@/contrib/runtime-loader'
 import { sessionTitle as storedSessionTitle } from '@/lib/chat-runtime'
-import { LayoutDashboard, Plug } from '@/lib/icons'
+import { LayoutDashboard, PanelBottom, Plug } from '@/lib/icons'
 import { type KeybindContribution, KEYBINDS_AREA } from '@/lib/keybinds/actions'
 import { $currentCwd } from '@/store/chat'
 import { addGatewayEventListener } from '@/store/gateway'
@@ -57,6 +57,7 @@ import { $reviewOpen, closeReview, REVIEW_PANE_ID } from '@/store/review'
 import { $activeStoredSessionId, $sessions, sessionMatchesStoredId } from '@/store/session'
 import { $sessionColorById, sessionColorFor } from '@/store/session-color'
 import { routeTileEvent } from '@/store/session-reducer'
+import { toggleStatusbarVisible } from '@/store/statusbar-prefs'
 
 import { watchRouteTiles } from '../chat/route-tile'
 import {
@@ -307,6 +308,20 @@ registry.registerMany([
       run: resetLayoutTree
     } satisfies PaletteContribution,
     id: 'layout.reset'
+  },
+  // Hiding the bar removes the surface that would otherwise offer it back, so
+  // the command menu is the guaranteed door in (alongside the rebindable ⌘⇧S).
+  {
+    area: PALETTE_AREA,
+    data: {
+      action: 'view.toggleStatusbar',
+      icon: PanelBottom,
+      id: 'view.toggleStatusbar',
+      keywords: ['status bar', 'statusbar', 'bottom bar', 'hide', 'show', 'chrome'],
+      label: 'Toggle status bar',
+      run: toggleStatusbarVisible
+    } satisfies PaletteContribution,
+    id: 'view.toggleStatusbar'
   },
   // The manual rescan door, for when the poll's cadence isn't enough (or the
   // gateway door skipped content-diffing because the tree is large).

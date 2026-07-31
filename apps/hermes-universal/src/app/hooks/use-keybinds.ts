@@ -40,6 +40,7 @@ import {
   switcherActive,
   switcherJustClosed
 } from '@/store/session-switcher'
+import { toggleStatusbarVisible } from '@/store/statusbar-prefs'
 import { closeActiveTerminal, createTerminal, cycleTerminal } from '@/store/terminals'
 import { openAppRoute, openNewWindow } from '@/store/windows'
 import { useTheme } from '@/themes/context'
@@ -170,6 +171,7 @@ export function useKeybinds(deps: KeybindRuntimeDeps): void {
     // ⌘J toggles the file browser — the "secondary panel" toggle.
     'view.toggleRightSidebar': toggleRightEdge,
     'view.toggleReview': toggleReview,
+    'view.toggleStatusbar': toggleStatusbarVisible,
     'view.showFiles': showFiles,
     'view.showTerminal': () => setTerminalOpen(!$terminalOpen.get()),
     // Create first so the area's open-effect ensure sees a non-empty set and

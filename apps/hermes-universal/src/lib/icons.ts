@@ -95,6 +95,7 @@ export {
   // that ships none.
   IconPackage as Package,
   IconPalette as Palette,
+  IconLayoutBottombar as PanelBottom,
   IconPaw as Paw,
   IconPencil as Pencil,
   IconPlayerPlay as Play,
