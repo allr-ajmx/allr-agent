@@ -28,7 +28,6 @@ import {
 import { discoverBundledPlugins } from '@/contrib/plugins'
 import { registry } from '@/contrib/registry'
 import { discoverRuntimePlugins } from '@/contrib/runtime-loader'
-import { translateNow } from '@/i18n'
 import { sessionTitle as storedSessionTitle } from '@/lib/chat-runtime'
 import { Plug } from '@/lib/icons'
 import { $currentCwd } from '@/store/chat'
@@ -55,6 +54,7 @@ import { $activeStoredSessionId, $sessions, sessionMatchesStoredId } from '@/sto
 import { $sessionColorById, sessionColorFor } from '@/store/session-color'
 import { routeTileEvent } from '@/store/session-reducer'
 
+import { watchRouteTiles } from '../chat/route-tile'
 import {
   SessionTileCloseConfirm,
   stackSessionTilesIntoMain,
@@ -275,7 +275,9 @@ registry.register({
     icon: Plug,
     id: 'plugins.reload',
     keywords: ['plugin', 'rescan', 'reload'],
-    label: translateNow('settings.plugins.rescan'),
+    // A key, not a string: the row is registered once at boot, and a literal
+    // would keep the boot locale's wording after a language switch.
+    labelKey: 'settings.plugins.rescan',
     run: discoverRuntimePlugins
   },
   id: 'plugins.reload'
@@ -292,10 +294,11 @@ watchContributedPanes()
 
 // Multi-session tiles: stream tile sessions off the shared gateway stream (the
 // primary chat reducer is untouched), mirror `$sessionTiles` into layout-tree
-// panes, and collapse tiles into the workspace on a layout reset.
-// FIXME(MJX-50/route-tiles): page (route) tiles — watchRouteTiles() — are a follow-up.
+// panes, and collapse tiles into the workspace on a layout reset. Page (route)
+// tiles ride the same mirror, keyed by path instead of session id.
 addGatewayEventListener(routeTileEvent)
 watchSessionTiles()
+watchRouteTiles()
 registerLayoutResetHandler(stackSessionTilesIntoMain)
 
 // The main tab reads as its SESSION (the loaded title, "New session" on a fresh

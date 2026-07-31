@@ -1,19 +1,23 @@
 import '@/app/shell/nav-contrib' // side-effect: registers the app's own rail rows
 
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 
 import { type AppView, appViewForPath, SIDEBAR_NAV_AREA, type SidebarNavContribution } from '@/app/routes'
 import { NAV_ROW_ACTIVE, NAV_ROW_BASE } from '@/app/shell/nav-row'
 import { Codicon } from '@/components/ui/codicon'
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from '@/components/ui/context-menu'
 import { KbdCombo } from '@/components/ui/kbd'
 import { useContributions } from '@/contrib/react/use-contributions'
 import { useI18n } from '@/i18n'
+import { triggerHaptic } from '@/lib/haptics'
+import { IS_MOBILE } from '@/lib/platform'
 import { cn } from '@/lib/utils'
 import { useStore } from '@/store/atom'
 import { openCommandMenu } from '@/store/command-menu'
 import { $bindings, bindingsFor } from '@/store/keybinds'
 import { NEW_SESSION_FLASH_EVENT } from '@/store/layout'
+import { openRouteTile } from '@/store/route-tiles'
 
 // The transparent top nav rail — the SAME four items desktop shows: New session
 // (an action, with a live ⌘N hint), Capabilities (skills), Messaging, Artifacts.
@@ -125,11 +129,10 @@ export function SidebarNavRail({ variant, onNavigate }: { variant: 'pane' | 'she
           const label = item.label ?? t.sidebar.nav[(item.labelKey ?? item.id) as NavId] ?? item.id
           const isNewSession = item.id === 'new-session'
 
-          return (
+          const row = (
             <button
               aria-current={active ? 'page' : undefined}
               className={cn(ROW_BASE, active && ROW_ACTIVE)}
-              key={item.id}
               onClick={() => handle(item)}
               title={label}
               type="button"
@@ -147,6 +150,30 @@ export function SidebarNavRail({ variant, onNavigate }: { variant: 'pane' | 'she
                 />
               )}
             </button>
+          )
+
+          // A page row can also open BESIDE the chat as a layout tile (the page
+          // analog of a session tile) — same right-click verb sessions use.
+          // Tiles are a layout-tree affordance, so phones don't offer it.
+          if (IS_MOBILE || !item.route) {
+            return <Fragment key={item.id}>{row}</Fragment>
+          }
+
+          return (
+            <ContextMenu key={item.id}>
+              <ContextMenuTrigger asChild>{row}</ContextMenuTrigger>
+              <ContextMenuContent aria-label={label}>
+                <ContextMenuItem
+                  onSelect={() => {
+                    void triggerHaptic('selection')
+                    openRouteTile(item.route!, 'right')
+                  }}
+                >
+                  <Codicon name="split-horizontal" size="0.875rem" />
+                  <span>{t.sidebar.row.openInTile}</span>
+                </ContextMenuItem>
+              </ContextMenuContent>
+            </ContextMenu>
           )
         })}
 
