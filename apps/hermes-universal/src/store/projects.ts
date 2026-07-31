@@ -1,14 +1,11 @@
-import { open as openDialog } from '@tauri-apps/plugin-dialog'
-
 import type { SidebarProjectTree } from '@/app/chat/sidebar/projects/model'
 import type { HermesGitBaseBranch, HermesGitBranch } from '@/global'
 import { getHermesConfig } from '@/hermes'
 import { translateNow } from '@/i18n'
-import { copyTextToClipboard } from '@/lib/desktop-fs'
+import { copyTextToClipboard, desktopDefaultCwd, selectDesktopPaths } from '@/lib/desktop-fs'
 import { desktopGit } from '@/lib/desktop-git'
 import { persistentAtom } from '@/lib/persisted'
 import { revealPathInFileManager } from '@/lib/reveal-path'
-import { IS_DESKTOP } from '@/lib/platform'
 import { atom } from '@/store/atom'
 import { $sessionId } from '@/store/chat'
 import { $connection } from '@/store/connection'
@@ -377,22 +374,19 @@ export function closeProjectDialog(): void {
   $projectDialog.set(null)
 }
 
-// Native folder picker (desktop Tauri only), so this returns null on mobile.
-// FIXME(MJX-107): should route through `selectDesktopPaths` (`lib/desktop-fs.ts`)
-// like desktop's does, which falls back to the browsable backend-FS picker
-// (`app/right-pane/files/remote-picker.tsx`) where there is no native dialog.
+// Pick a project folder via the remote-aware picker: a Tauri desktop opens the
+// native dialog, everything else browses the BACKEND filesystem (seeded at its
+// default cwd) where sessions actually run. Returns the absolute path, or null
+// if cancelled. Desktop parity — mobile/web used to get a flat `null` here, with
+// only the manual path input as a way in.
 export async function pickProjectFolder(): Promise<null | string> {
-  if (!IS_DESKTOP) {
-    return null
-  }
+  const [dir] = await selectDesktopPaths({
+    defaultPath: (await desktopDefaultCwd().catch(() => null))?.cwd,
+    directories: true,
+    multiple: false
+  })
 
-  try {
-    const dir = await openDialog({ directory: true, multiple: false })
-
-    return typeof dir === 'string' ? dir : null
-  } catch {
-    return null
-  }
+  return dir || null
 }
 
 // Reveal a project/worktree path in the OS file manager (git-GUI standard).

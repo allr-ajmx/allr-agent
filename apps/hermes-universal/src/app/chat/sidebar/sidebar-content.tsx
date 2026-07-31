@@ -79,6 +79,7 @@ import { SidebarLoadMoreButton, SidebarLoadMoreRow } from './load-more-row'
 import { ProjectDialog } from './project-dialog'
 import { type SidebarProjectTree, sortProjectsForOverview, useRepoWorktreeMap } from './projects/model'
 import { ProjectBackRow } from './projects/overview-row'
+import { StartWorkButton } from './projects/workspace-header'
 import { SidebarPinnedEmptyState } from './section-states'
 import { SidebarSessionsSection } from './sessions-section'
 
@@ -461,6 +462,11 @@ export function SidebarScrollBody({ onNavigate }: { onNavigate?: () => void }) {
             }
             headerAction={
               <div className="flex shrink-0 items-center gap-0.5">
+                {/* Inside a project: spin up a worktree off its repo root. The
+                    same dialog the composer's ⌘⇧B opens. */}
+                {inProject && enteredProject?.path && (
+                  <StartWorkButton onStarted={newSessionInWorkspace} repoPath={enteredProject.path} />
+                )}
                 {grouped && !inProject && (
                   <button
                     aria-label={s.projects.newButton}

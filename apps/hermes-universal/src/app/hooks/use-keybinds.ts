@@ -17,9 +17,11 @@ import {
   togglePanesFlipped,
   toggleRightEdge
 } from '@/store/layout'
+import { $repoStatus } from '@/store/coding-status'
 import { setModelPickerOpen } from '@/store/model'
 import { setPaneOpen } from '@/store/panes'
 import { cycleProfile, switchProfileToSlot, switchToDefaultProfile } from '@/store/profiles'
+import { requestNewWorktree } from '@/store/projects'
 import { toggleReview } from '@/store/review'
 import { newSession, toggleSelectedPin } from '@/store/session'
 import {
@@ -161,6 +163,11 @@ export function useKeybinds(deps: KeybindRuntimeDeps): void {
     ...sessionSlotHandlers,
     'session.focusSearch': requestSessionSearchFocus,
     'session.togglePin': toggleSelectedPin,
+    // ⌘⇧B spins up a new git worktree from the active repo. Only meaningful
+    // inside one — a no-op otherwise, so the key falls through. The composer's
+    // coding row owns the dialog (it has the repo + branch context) and opens it
+    // in response to the token.
+    'workspace.newWorktree': () => void ($repoStatus.get() && requestNewWorktree()),
 
     // Narrow-viewport reveal is handled inside the store toggles now.
     // Both are POSITIONAL (see `store/layout.ts`): ⌘B drives whatever sits on the
