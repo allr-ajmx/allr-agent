@@ -1382,6 +1382,11 @@ export interface Translations {
       newWorktreeTitle: string
       newWorktreeDesc: string
       branchPlaceholder: string
+      // Split so the branch name can be wrapped in its own styled span, for any
+      // word order ("branch off <main>" / "<main> から分岐").
+      branchOff: () => { after: string; before: string }
+      baseBranchPlaceholder: string
+      baseBranchNone: string
       startWorkFailed: string
       convertBranch: string
       convertBranchTitle: string
