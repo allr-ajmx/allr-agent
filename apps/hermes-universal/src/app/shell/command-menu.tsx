@@ -1,60 +1,31 @@
+import './nav-contrib' // side-effect: registers the app's own destinations
+
 import { useState } from 'react'
 
-import { usePaletteContributions } from '@/app/command-palette/contrib'
+import { type PaletteRow, usePaletteContributions } from '@/app/command-palette/contrib'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { useI18n } from '@/i18n'
-import { type IconComponent, Plug } from '@/lib/icons'
+import { Plug } from '@/lib/icons'
+import { useKeybindHint } from '@/lib/keybinds/use-keybind-hint'
 import { cn } from '@/lib/utils'
 import { useStore } from '@/store/atom'
 import { $commandMenuOpen, closeCommandMenu } from '@/store/command-menu'
-import { openAppRoute } from '@/store/windows'
-
-import { useNavItems } from './nav-items'
-
-/** One menu row — a core nav destination or a contributed command. */
-interface CommandRow {
-  key: string
-  label: string
-  run: () => void
-  icon?: IconComponent
-  keywords?: string[]
-}
 
 // Reaches every view not on the 4-item sidebar rail. Global (mounted once in the
 // controller): ⌘K / Ctrl+K toggles it, the titlebar + in-drawer buttons open it.
-// A deliberately lean cmdk substitute — a filtered nav list, no extra dependency.
+// A deliberately lean cmdk substitute — a filtered list, no extra dependency.
+//
+// Every row is a `palette` contribution: the app's own destinations register in
+// app/shell/nav-contrib.ts (negative order, so they lead), plugins append.
 export function CommandMenu() {
   const open = useStore($commandMenuOpen)
   const { t } = useI18n()
-  const navItems = useNavItems()
-  const commandContributions = usePaletteContributions()
+  const rows = usePaletteContributions()
   const [query, setQuery] = useState('')
 
   // ⌘K is no longer bound here: it's the rebindable `nav.commandPalette` action,
   // dispatched by the global listener in `app/hooks/use-keybinds.ts`.
-
-  // Core nav rows, then contributed `palette` commands. A nav row navigates; a
-  // contributed row runs its own `run()` — both close the menu.
-  const rows: CommandRow[] = [
-    ...navItems.map(item => ({
-      icon: item.icon,
-      key: `nav:${item.view}`,
-      label: item.label,
-      run: () => {
-        // Promote Settings / Command Center to their native activity on Android;
-        // everything else navigates in-app (openAppRoute decides).
-        openAppRoute(item.path)
-      }
-    })),
-    ...commandContributions.map(item => ({
-      icon: item.icon,
-      key: item.key,
-      keywords: item.keywords,
-      label: item.label,
-      run: item.run
-    }))
-  ]
 
   const needle = query.trim().toLowerCase()
 
@@ -64,7 +35,7 @@ export function CommandMenu() {
       )
     : rows
 
-  const go = (row: CommandRow) => {
+  const go = (row: PaletteRow) => {
     setQuery('')
     closeCommandMenu()
 
@@ -107,26 +78,33 @@ export function CommandMenu() {
         />
 
         <div className="flex max-h-72 flex-col gap-px overflow-y-auto">
-          {filtered.map(row => {
-            const Icon = row.icon ?? Plug
-
-            return (
-              <button
-                className={cn(
-                  'flex h-9 w-full items-center gap-3 rounded-md px-2.5 text-left text-sm text-muted-foreground',
-                  'transition-colors hover:bg-accent hover:text-foreground'
-                )}
-                key={row.key}
-                onClick={() => go(row)}
-                type="button"
-              >
-                <Icon className="size-4 shrink-0" />
-                <span className="truncate">{row.label}</span>
-              </button>
-            )
-          })}
+          {filtered.map(row => (
+            <CommandMenuRow key={row.key} onSelect={go} row={row} />
+          ))}
         </div>
       </DialogContent>
     </Dialog>
+  )
+}
+
+/** One row. Its own component so the keybind hint can subscribe to `$bindings`
+ *  per row — a rebind repaints the hint without the menu tracking action ids. */
+function CommandMenuRow({ onSelect, row }: { onSelect: (row: PaletteRow) => void; row: PaletteRow }) {
+  const hint = useKeybindHint(row.action ?? '')
+  const Icon = row.icon ?? Plug
+
+  return (
+    <button
+      className={cn(
+        'flex h-9 w-full items-center gap-3 rounded-md px-2.5 text-left text-sm text-muted-foreground',
+        'transition-colors hover:bg-accent hover:text-foreground'
+      )}
+      onClick={() => onSelect(row)}
+      type="button"
+    >
+      <Icon className="size-4 shrink-0" />
+      <span className="min-w-0 flex-1 truncate">{row.label}</span>
+      {hint && <span className="shrink-0 pl-2 text-xs text-(--ui-text-quaternary)">{hint}</span>}
+    </button>
   )
 }
