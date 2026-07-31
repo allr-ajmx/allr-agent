@@ -1,6 +1,6 @@
 import { createProfile, deleteProfile, getProfiles, renameProfile, setApiRequestProfile } from '@/hermes'
 import { Codecs, persistentAtom } from '@/lib/persisted'
-import { queryClient } from '@/lib/query-client'
+import { invalidateProfileScopedQueries } from '@/lib/query-client'
 import { atom } from '@/store/atom'
 import { notifyError } from '@/store/notifications'
 import type { ProfileCreatePayload, ProfileInfo } from '@/types/hermes'
@@ -32,7 +32,7 @@ export function setActiveProfile(name: null | string): void {
 
   setApiRequestProfile(next)
   $activeProfile.set(next)
-  void queryClient.invalidateQueries()
+  invalidateProfileScopedQueries()
 }
 
 // ── Hotkey-driven profile switching ────────────────────────────────────────

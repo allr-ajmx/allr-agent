@@ -12,6 +12,26 @@ export const queryClient = new QueryClient({
   }
 })
 
+// Query roots that are account/global rather than per-profile, so a profile
+// switch must NOT refetch them. Billing is the motivating case: balance, plan
+// and card live on the account, and blowing that cache away on every switch
+// cost two gateway RPCs and a visible flicker. Ported from desktop, minus the
+// roots universal has no equivalent for.
+const PROFILE_INDEPENDENT_QUERY_ROOTS = new Set<string>(['billing', 'marketplace-themes-settings'])
+
+// Invalidate profile-scoped query caches on a profile / gateway switch, leaving
+// account/global caches intact. Replaces a keyless invalidateQueries() that
+// refetched everything on every switch.
+export function invalidateProfileScopedQueries(): void {
+  void queryClient.invalidateQueries({
+    predicate: query => {
+      const root = query.queryKey[0]
+
+      return typeof root !== 'string' || !PROFILE_INDEPENDENT_QUERY_ROOTS.has(root)
+    }
+  })
+}
+
 // Curried, setState-shaped cache writer for optimistic write-through: keeps
 // mutation sites terse (`setX(next)` or `setX(prev => …)`) over one query key.
 export const writeCache =
