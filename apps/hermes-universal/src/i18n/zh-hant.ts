@@ -601,7 +601,7 @@ export const zhHant = defineLocale({
       }
     }),
     about: {
-      heading: 'Hermes Desktop',
+      heading: 'Hermes',
       version: value => `版本 ${value}`,
       versionUnavailable: '版本不可用',
       updates: '更新',
@@ -614,6 +614,11 @@ export const zhHant = defineLocale({
       installing: '正在安裝更新。',
       cantUpdate: '此版本無法從應用程式內自行更新。',
       cantReach: '無法連線到更新伺服器。',
+      cantRead: '無法讀取應用程式商店資訊。',
+      newVersion: version => `版本 ${version} 已發布。`,
+      downloadUpdate: '下載',
+      openInPlayStore: '在 Play 商店開啟',
+      openInAppStore: '在 App Store 開啟',
       tapCheck: '點選「立即檢查」以尋找更新。',
       updateReady: count => `新更新已就緒（包含 ${count} 項變更）。`,
       lastChecked: age => `上次檢查：${age}`,

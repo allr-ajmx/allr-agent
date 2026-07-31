@@ -1877,6 +1877,7 @@ dependencies = [
  "hound",
  "log",
  "portable-pty",
+ "regex",
  "reqwest 0.12.28",
  "reqwest_cookie_store",
  "rubato",

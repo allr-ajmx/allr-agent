@@ -613,7 +613,7 @@ export const ja = defineLocale({
       }
     }),
     about: {
-      heading: 'Hermes Desktop',
+      heading: 'Hermes',
       version: value => `バージョン ${value}`,
       versionUnavailable: 'バージョンを取得できません',
       updates: '更新',
@@ -626,6 +626,11 @@ export const ja = defineLocale({
       installing: '更新をインストール中です。',
       cantUpdate: 'このビルドはアプリ内から更新できません。',
       cantReach: '更新サーバーに接続できませんでした。',
+      cantRead: 'ストアの情報を読み取れませんでした。',
+      newVersion: version => `バージョン ${version} が利用可能です。`,
+      downloadUpdate: 'ダウンロード',
+      openInPlayStore: 'Play ストアで開く',
+      openInAppStore: 'App Store で開く',
       tapCheck: '更新を探すには「今すぐ確認」を押してください。',
       updateReady: count => `新しい更新の準備ができました (${count} 件の変更を含みます)。`,
       lastChecked: age => `前回確認: ${age}`,

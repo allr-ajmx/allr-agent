@@ -32,6 +32,7 @@ export const IS_DESKTOP = IS_TAURI && !IS_MOBILE
 
 // Local-spawn gateway mode is a desktop-only capability: Tauri also builds
 // desktop targets, where a bundled backend could run, but a phone can't spawn
-// one. Mobile-only UIs (E2 mode picker, terminal, updater, pet-overlay) branch
-// on this to stay hidden on Android/iOS.
+// one. Mobile-only UIs (E2 mode picker, terminal, pet-overlay) branch on this to
+// stay hidden on Android/iOS. (Updates are NOT one of them: About checks the
+// Play/App Store there instead — see lib/updates.ts.)
 export const LOCAL_MODE_SUPPORTED = !IS_MOBILE

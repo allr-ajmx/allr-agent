@@ -17,6 +17,7 @@ mod marketplace;
 mod oauth;
 mod pty;
 mod transport;
+mod updates;
 mod voice;
 mod window;
 
@@ -32,6 +33,7 @@ use pty::{pty_kill, pty_resize, pty_spawn, pty_write, PtyState};
 use transport::{
     cookies_export, cookies_import, http_request, ws_close, ws_open, ws_send, TransportState,
 };
+use updates::{update_check, update_open_download, UpdateState};
 use voice::{
     voice_arm, voice_close, voice_force_turn, voice_open, voice_suspend, voice_update_auth,
     VoiceState,
@@ -94,6 +96,7 @@ pub fn run() {
         .manage(LocalBackendState::default())
         .manage(PtyState::default())
         .manage(VoiceState::default())
+        .manage(UpdateState::default())
         .setup(|app| {
             // WebKitGTK (Linux desktop) auto-denies `getUserMedia` unless the
             // embedder answers the WebView's `permission-request` signal — wry
@@ -170,7 +173,9 @@ pub fn run() {
             portal_logout,
             open_session_window,
             open_instance_window,
-            open_screen_window
+            open_screen_window,
+            update_check,
+            update_open_download
         ])
         // `.build(...).run(closure)` (rather than the terminal `.run(context)`) so
         // we can observe `RunEvent`s. On iOS this catches scenes the *system*
