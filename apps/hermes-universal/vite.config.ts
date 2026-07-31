@@ -1,3 +1,5 @@
+import { createRequire } from 'node:module'
+import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import react from '@vitejs/plugin-react'
@@ -9,6 +11,9 @@ import { defineConfig } from 'vitest/config'
 // Tauri expects a fixed dev port and a non-clearing console. For Android
 // device dev the host must be reachable from the phone, so bind 0.0.0.0.
 const host = process.env.TAURI_DEV_HOST
+
+const require = createRequire(import.meta.url)
+const reactDir = dirname(require.resolve('react/package.json'))
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
@@ -27,13 +32,18 @@ export default defineConfig({
       '@hermes/plugin-sdk': fileURLToPath(new URL('./src/sdk/index.ts', import.meta.url)),
       // React MUST be a singleton: sdk/runtime.ts hands plugins the app's own
       // React namespace, and a second copy reaching the bundle would break every
-      // plugin hook with an unhelpful "invalid hook call". Only one copy exists
-      // in the hoisted workspace today; pinning keeps a future install layout
-      // from quietly introducing another.
-      react: fileURLToPath(new URL('../../node_modules/react', import.meta.url)),
-      'react-dom': fileURLToPath(new URL('../../node_modules/react-dom', import.meta.url)),
-      'react/jsx-dev-runtime': fileURLToPath(new URL('../../node_modules/react/jsx-dev-runtime.js', import.meta.url)),
-      'react/jsx-runtime': fileURLToPath(new URL('../../node_modules/react/jsx-runtime.js', import.meta.url))
+      // plugin hook with an unhelpful "invalid hook call".
+      //
+      // Resolved through Node from THIS package, not hardcoded to the workspace
+      // root: pnpm gives the app its own `node_modules/.pnpm/react@…` copy, and a
+      // root-pinned alias hands app code that copy while react-dom keeps its peer
+      // one — two dispatchers, and every hook in the test suite throws
+      // "Cannot read properties of null (reading 'useCallback')". `require.resolve`
+      // lands on exactly the copy react-dom resolves to, in every install layout.
+      react: reactDir,
+      'react-dom': dirname(require.resolve('react-dom/package.json')),
+      'react/jsx-dev-runtime': join(reactDir, 'jsx-dev-runtime.js'),
+      'react/jsx-runtime': join(reactDir, 'jsx-runtime.js')
     },
     dedupe: ['react', 'react-dom']
   },
