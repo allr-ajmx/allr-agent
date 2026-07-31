@@ -146,6 +146,23 @@ export function setCurrentCwd(cwd: null | string | undefined): void {
   $currentCwd.set(cwd?.trim() || '')
 }
 
+// An explicit workspace the NEXT `session.create` must run in, overriding the
+// configured default project dir. Set by `startSessionInWorkspace` (store/session)
+// when the composer branches off into a fresh worktree: the tree exists on disk
+// before any session does, so the anchor has to survive until the first prompt
+// actually creates the session. Unlike the default project dir this is NOT
+// local-mode-gated — the path comes from the backend's own repo (lib/desktop-git
+// runs git where the gateway lives), so it is meaningful remotely too. Cleared by
+// `resetChat` and once consumed by `ensureSession`.
+export const $newChatWorkspaceCwd = atom<null | string>(null)
+
+export function setNewChatWorkspaceCwd(cwd: null | string): void {
+  const target = cwd?.trim() || null
+
+  $newChatWorkspaceCwd.set(target)
+  setCurrentCwd(target)
+}
+
 // --- Statusbar runtime signals (turn/session timers + live context usage) ---
 // Mirrors desktop's session-store $turnStartedAt/$sessionStartedAt/$currentUsage,
 // wired here since chat.ts owns the turn lifecycle. The statusbar reads these for
@@ -786,14 +803,18 @@ export async function ensureSession(): Promise<{ id: string; storedId: string }>
     return { id: existing, storedId: existing }
   }
 
-  // A configured default project directory pre-attaches new LOCAL chats to that
-  // folder (desktop parity); the gateway resolves its own default cwd otherwise.
-  const cwd = cwdForNewSession()
+  // An explicit workspace (a just-created worktree) wins; otherwise a configured
+  // default project directory pre-attaches new LOCAL chats to that folder
+  // (desktop parity), and the gateway resolves its own default cwd if neither.
+  const cwd = $newChatWorkspaceCwd.get() ?? cwdForNewSession()
 
   const created = await requestGateway<SessionCreateResponse>('session.create', {
     cols: 96,
     ...(cwd && { cwd })
   })
+
+  // Consumed: the anchor applies to exactly the one session it was set for.
+  $newChatWorkspaceCwd.set(null)
 
   const id = created.session_id
   $sessionId.set(id)
@@ -1094,7 +1115,9 @@ export function resetChat(): void {
   $messages.set([])
   $sessionId.set(null)
   // A fresh chat starts in the configured default project dir (if any), not in
-  // whatever directory the chat we just left happened to use.
+  // whatever directory the chat we just left happened to use — and not in a
+  // workspace anchor left over from a branch-off that never got a prompt.
+  $newChatWorkspaceCwd.set(null)
   setCurrentCwd(cwdForNewSession())
   $liveSessionTitle.set('')
   $busy.set(false)

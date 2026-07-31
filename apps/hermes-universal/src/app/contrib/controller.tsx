@@ -27,6 +27,7 @@ import { discoverBundledPlugins } from '@/contrib/plugins'
 import { addGatewayEventListener } from '@/store/gateway'
 import { routeTileEvent } from '@/store/session-reducer'
 import '@/store/session-tile-delegate' // side-effect: registers the SessionTileDelegate
+import '@/store/start-work-session' // side-effect: composer branch-off → new session in the worktree
 import { sessionTitle as storedSessionTitle } from '@/lib/chat-runtime'
 import { $currentCwd } from '@/store/chat'
 import {

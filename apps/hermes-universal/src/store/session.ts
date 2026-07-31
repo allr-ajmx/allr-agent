@@ -22,7 +22,8 @@ import {
   $statusLine,
   type ChatMessage,
   resetChat,
-  setCurrentCwd
+  setCurrentCwd,
+  setNewChatWorkspaceCwd
 } from '@/store/chat'
 import { requestGateway } from '@/store/gateway'
 import { $pinnedSessionIds, pinSession, unpinSession } from '@/store/layout'
@@ -384,6 +385,24 @@ export function newSession(): void {
   resetChat()
   $activeStoredSessionId.set(null)
   flashPetActivity({ greeting: true }) // pet: wave hello on a fresh chat
+}
+
+/**
+ * Open a fresh chat anchored to a specific directory — desktop's
+ * `startWorkspaceSession`, reduced to what universal needs. Used by the
+ * composer's "start work" / branch-off hand-off, where a worktree was just
+ * created and the next session must run inside it rather than in the configured
+ * default project dir. The anchor is set AFTER `newSession`, because `resetChat`
+ * deliberately clears it; `ensureSession` consumes it on the first prompt.
+ */
+export function startSessionInWorkspace(path: string): void {
+  const target = path.trim()
+
+  newSession()
+
+  if (target) {
+    setNewChatWorkspaceCwd(target)
+  }
 }
 
 /**
