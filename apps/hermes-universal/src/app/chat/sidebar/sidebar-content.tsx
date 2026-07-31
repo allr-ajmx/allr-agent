@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { PlatformAvatar } from '@/app/messaging/platform-icon'
@@ -47,6 +47,7 @@ import {
   openProjectCreate,
   refreshProjects,
   refreshProjectTree,
+  refreshWorktrees,
   scanAndRecordRepos
 } from '@/store/projects'
 import {
@@ -67,7 +68,8 @@ import {
   refreshMessagingSessions,
   refreshSessions,
   searchSessionsQuery,
-  sessionPinId
+  sessionPinId,
+  startSessionInWorkspace
 } from '@/store/session'
 import type { SessionInfo, SessionSearchResult } from '@/types/hermes'
 
@@ -75,7 +77,7 @@ import { countLabel } from './chrome'
 import { SidebarCronJobsSection } from './cron-jobs-section'
 import { SidebarLoadMoreButton, SidebarLoadMoreRow } from './load-more-row'
 import { ProjectDialog } from './project-dialog'
-import { type SidebarProjectTree, sortProjectsForOverview } from './projects/model'
+import { type SidebarProjectTree, sortProjectsForOverview, useRepoWorktreeMap } from './projects/model'
 import { ProjectBackRow } from './projects/overview-row'
 import { SidebarPinnedEmptyState } from './section-states'
 import { SidebarSessionsSection } from './sessions-section'
@@ -326,6 +328,49 @@ export function SidebarScrollBody({ onNavigate }: { onNavigate?: () => void }) {
 
   const inProject = grouped && scope !== ALL_PROJECTS
 
+  // Worktree lanes are git-driven, not session-derived: probe `git worktree
+  // list` per repo of the entered project so linked worktrees appear even
+  // before they hold any Hermes session. Only while drilled in — the overview
+  // shows no lanes, so probing there would be pure cost.
+  const scopedRepoPaths = useMemo(
+    () =>
+      (enteredProject?.repos ?? []).map(repo => repo.path).filter((path): path is string => Boolean(path?.trim())),
+    [enteredProject]
+  )
+
+  const [scopedRepoWorktrees] = useRepoWorktreeMap(scopedRepoPaths, inProject)
+
+  // Out-of-band worktree changes the UI can't see — the agent running `git
+  // worktree add/remove` in the terminal during a turn, or an external shell
+  // while the window was away. Re-probe on turn-settle and on refocus (the
+  // git-GUI standard), gated on being inside a project so it stays free at rest.
+  useEffect(() => {
+    if (inProject && !busy) {
+      refreshWorktrees()
+    }
+  }, [busy, inProject])
+
+  useEffect(() => {
+    if (!inProject) {
+      return
+    }
+
+    const onFocus = () => refreshWorktrees()
+    window.addEventListener('focus', onFocus)
+
+    return () => window.removeEventListener('focus', onFocus)
+  }, [inProject])
+
+  // "+" on a repo or worktree lane: open a fresh chat anchored to that path,
+  // carrying no draft (unlike the composer's branch-off hand-off).
+  const newSessionInWorkspace = useCallback(
+    (path: null | string) => {
+      startSessionInWorkspace(path ?? '')
+      navigate('/')
+    },
+    [navigate]
+  )
+
   // Project overview rows: drop dismissed auto-projects, sort, then apply the
   // manual drag order when the user has set one.
   const overview = useMemo(() => {
@@ -479,7 +524,9 @@ export function SidebarScrollBody({ onNavigate }: { onNavigate?: () => void }) {
             projectBackRow={
               inProject ? <ProjectBackRow label={s.projects.back} onExit={exitProjectScope} /> : undefined
             }
+            onNewSessionInWorkspace={newSessionInWorkspace}
             projectContent={inProject ? enteredProject : undefined}
+            projectRepoWorktrees={scopedRepoWorktrees}
             projectOverview={grouped && !inProject ? overview : undefined}
             projectsLoading={grouped ? projectsLoading : false}
             rootClassName={SESSIONS_ROOT_CLASS}
