@@ -342,7 +342,8 @@ export const zh: Translations = {
       mcp: 'MCP',
       archivedChats: '已归档对话',
       about: '关于',
-      notifications: '通知'
+      notifications: '通知',
+      billing: '账单'
     },
     notifications: {
       title: '通知',

@@ -351,7 +351,8 @@ export const en: Translations = {
       mcp: 'MCP',
       archivedChats: 'Archived Chats',
       about: 'About',
-      notifications: 'Notifications'
+      notifications: 'Notifications',
+      billing: 'Billing'
     },
     notifications: {
       title: 'Notifications',

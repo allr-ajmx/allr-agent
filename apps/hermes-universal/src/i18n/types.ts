@@ -319,6 +319,7 @@ export interface Translations {
       archivedChats: string
       about: string
       notifications: string
+      billing: string
     }
     notifications: {
       title: string

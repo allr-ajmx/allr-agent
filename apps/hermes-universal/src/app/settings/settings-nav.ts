@@ -1,7 +1,7 @@
 import type { ComponentType } from 'react'
 
 import { useI18n } from '@/i18n'
-import { Archive, Bell, Globe, Info, Key, Keyboard, Paw, Settings, Wrench, Zap } from '@/lib/icons'
+import { Archive, BarChart3, Bell, Globe, Info, Key, Keyboard, Paw, Settings, Wrench, Zap } from '@/lib/icons'
 
 import { SECTIONS } from './constants'
 
@@ -28,6 +28,7 @@ export function useSettingsNav(): SettingsNavEntry[] {
   const customEntries: SettingsNavEntry[] = [
     { id: 'gateway', icon: Globe, label: t.settings.nav.gateway },
     { id: 'notifications', icon: Bell, label: t.settings.nav.notifications },
+    { id: 'billing', icon: BarChart3, label: t.settings.nav.billing },
     { id: 'keys', icon: Key, label: t.settings.nav.apiKeys },
     { id: 'shortcuts', icon: Keyboard, label: t.keybinds.title },
     { id: 'pet', icon: Paw, label: t.commandCenter.pets.title },
@@ -70,6 +71,7 @@ export function useSettingsNavGroups(): SettingsNavGroupModel[] {
 
   const extra: SettingsNavGroupModel[] = [
     { id: 'notifications', icon: Bell, label: t.settings.nav.notifications },
+    { id: 'billing', icon: BarChart3, label: t.settings.nav.billing },
     {
       id: 'providers',
       icon: Zap,

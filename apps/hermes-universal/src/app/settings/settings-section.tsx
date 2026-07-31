@@ -7,6 +7,7 @@ import { ChevronLeft } from '@/lib/icons'
 import { AboutSection } from './about-section'
 import { AppearanceSection } from './appearance-section'
 import { ArchivedSection } from './archived-section'
+import { BillingSettings } from './billing'
 import { ConfigSection } from './config-section'
 import { GatewaySection } from './gateway-section'
 import { KeybindSettings } from './keybind-settings'
@@ -73,6 +74,12 @@ export function SectionBody({ section }: { section: string }) {
     case 'keys':
       return <KeysSection view={sub === 'settings' ? 'settings' : 'tools'} />
 
+    // Billing (MJX-56): balance / plan / usage overview, the in-app plans
+    // catalog (`?bview=plans`), top-up, auto-refill and the downgrade → undo
+    // flow. Ported from apps/desktop/src/app/settings/billing.
+    case 'billing':
+      return <BillingSettings />
+
     // Gateway (J10): mode picker + current connection + disconnect/sign-out.
     case 'gateway':
       return <GatewaySection />
@@ -97,9 +104,9 @@ export function SectionBody({ section }: { section: string }) {
       return <AboutSection />
 
     default:
-      // Unknown / deep-linked-only ids land here. Reachable today for `billing`
-      // and `plugins` (unported — MJX-105 / MJX-53) and for desktop's `keybinds`
-      // nav id, which this switch spells `shortcuts` — FIXME(MJX-105).
+      // Unknown / deep-linked-only ids land here. Reachable today for `plugins`
+      // (unported — MJX-53) and for desktop's `keybinds` nav id, which this
+      // switch spells `shortcuts` — FIXME(MJX-105).
       return (
         <SettingsContent>
           <EmptyState description={t.settings.config.emptyDesc} title={t.settings.config.emptyTitle} />
