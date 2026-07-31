@@ -7,17 +7,28 @@ import { Codicon } from '@/components/ui/codicon'
 import { useI18n } from '@/i18n'
 import { cn } from '@/lib/utils'
 import { useStore } from '@/store/atom'
+import { $previewStatusBySession, dismissPreviewArtifact, type PreviewArtifact } from '@/store/preview-status'
 import { $subagentsBySession, type SubagentProgress } from '@/store/subagents'
 import { $threadScrolledUp } from '@/store/thread-scroll'
 import { canOpenSessionWindow, openSessionInNewWindow } from '@/store/windows'
 
+import { PreviewStatusRow } from './preview-row'
 import { StatusItemRow } from './status-row'
 
 // Adapted from apps/desktop/src/app/chat/composer/status-stack/index.tsx. The
 // desktop stack fuses todos + subagents + background processes + preview
-// artifacts + queue; universal wires the two feeds it has — subagents
-// ($subagentsBySession) and the queue — and renders only what carries data.
-// Todos / background / preview rows are deferred (FLAG(chat-port)).
+// artifacts + queue; universal wires the three feeds it has — subagents
+// ($subagentsBySession), preview artifacts ($previewStatusBySession) and the
+// queue — and renders only what carries data. Todos / background rows are
+// deferred (FLAG(chat-port)).
+//
+// Section order follows desktop: groups → preview → queue.
+//
+// One deliberate omission: desktop drops localhost preview rows once no
+// background process is running (its `isLocalhostPreview` filter), so a dead dev
+// server stops being offered. Universal has no background-process feed to gate
+// on, so every recorded artifact stays until dismissed — better than hiding rows
+// on a signal that never arrives. Revisit when the background feed lands.
 
 interface ComposerStatusStackProps {
   /** The queue chrome, built by the composer (it owns the queue callbacks). */
@@ -28,11 +39,17 @@ interface ComposerStatusStackProps {
 export function ComposerStatusStack({ queue, sessionId }: ComposerStatusStackProps) {
   const { t } = useI18n()
   const bySession = useStore($subagentsBySession)
+  const previewBySession = useStore($previewStatusBySession)
   const scrolledUp = useStore($threadScrolledUp)
 
   const subagents = useMemo<SubagentProgress[]>(
     () => (sessionId ? (bySession[sessionId] ?? bySession.active ?? []) : (bySession.active ?? [])),
     [bySession, sessionId]
+  )
+
+  const previews = useMemo<PreviewArtifact[]>(
+    () => (sessionId ? (previewBySession[sessionId] ?? []) : []),
+    [previewBySession, sessionId]
   )
 
   const sections: { key: string; node: ReactNode }[] = []
@@ -60,6 +77,21 @@ export function ComposerStatusStack({ queue, sessionId }: ComposerStatusStackPro
             />
           ))}
         </StatusSection>
+      )
+    })
+  }
+
+  // Preview artifacts sit below the collapsible group sections and above the
+  // queue, so they stay visible even when a section collapses (desktop parity).
+  if (sessionId && previews.length > 0) {
+    sections.push({
+      key: 'preview',
+      node: (
+        <div className="px-1 py-0.5">
+          {previews.map(item => (
+            <PreviewStatusRow item={item} key={item.id} onDismiss={id => dismissPreviewArtifact(sessionId, id)} />
+          ))}
+        </div>
       )
     })
   }
