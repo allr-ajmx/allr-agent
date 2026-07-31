@@ -515,6 +515,7 @@ export function SidebarScrollBody({ onNavigate }: { onNavigate?: () => void }) {
               )
             }
             onEnterProject={enterProject}
+            onNewSessionInWorkspace={newSessionInWorkspace}
             onReorderProjects={ids => setSidebarProjectOrderIds(ids)}
             onReorderSessions={
               grouped
@@ -530,10 +531,9 @@ export function SidebarScrollBody({ onNavigate }: { onNavigate?: () => void }) {
             projectBackRow={
               inProject ? <ProjectBackRow label={s.projects.back} onExit={exitProjectScope} /> : undefined
             }
-            onNewSessionInWorkspace={newSessionInWorkspace}
             projectContent={inProject ? enteredProject : undefined}
-            projectRepoWorktrees={scopedRepoWorktrees}
             projectOverview={grouped && !inProject ? overview : undefined}
+            projectRepoWorktrees={scopedRepoWorktrees}
             projectsLoading={grouped ? projectsLoading : false}
             rootClassName={SESSIONS_ROOT_CLASS}
             sessions={grouped ? [] : recents}

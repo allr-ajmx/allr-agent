@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { desktopGit } from '@/lib/desktop-git'
 import { selectDesktopPaths } from '@/lib/desktop-fs'
+import { desktopGit } from '@/lib/desktop-git'
 
 const bridge = {
   baseBranchList: vi.fn(async () => [{ isDefault: true, isRemote: true, name: 'origin/main' }]),
@@ -25,9 +25,9 @@ import {
   $worktreeRefreshToken,
   listBaseBranches,
   listRepoBranches,
+  pickProjectFolder,
   removeWorktreePath,
   requestNewWorktree,
-  pickProjectFolder,
   requestStartWorkSession,
   startWorkInRepo,
   switchBranchInRepo

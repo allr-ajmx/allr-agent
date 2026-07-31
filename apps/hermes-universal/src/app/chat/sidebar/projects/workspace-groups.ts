@@ -2,7 +2,7 @@ import type { HermesGitWorktree } from '@/global'
 import { normalize } from '@/lib/text'
 import type { SessionInfo } from '@/types/hermes'
 
-import { type SidebarSessionGroup, sessionRecency, type SidebarWorkspaceTree } from './model'
+import { sessionRecency, type SidebarSessionGroup, type SidebarWorkspaceTree } from './model'
 
 // Ported from desktop `projects/workspace-groups.ts` — the VISUAL-ONLY worktree
 // enhancer that injects empty lanes from `git worktree list`.
@@ -129,6 +129,7 @@ export function mergeRepoWorktreeGroups(
   // branch, defaulting to `main`. Known only when the worktree probe ran; without
   // it the backend's recorded-branch main lanes are kept untouched.
   const mainWorktree = (discoveredWorktrees ?? []).find(worktree => worktree.isMain)
+
   const homeBranch =
     mainWorktree && !mainWorktree.detached ? mainWorktree.branch?.trim() || DEFAULT_BRANCH_LABEL : ''
 

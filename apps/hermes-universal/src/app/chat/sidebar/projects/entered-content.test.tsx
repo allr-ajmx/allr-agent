@@ -3,11 +3,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { HermesGitWorktree } from '@/global'
 import { $dismissedWorktreeIds, $sidebarWorkspaceNodeOpen } from '@/store/layout'
+import type * as ProjectsModule from '@/store/projects'
 import { removeWorktreePath } from '@/store/projects'
 import type { SessionInfo } from '@/types/hermes'
 
 vi.mock('@/store/projects', async importOriginal => ({
-  ...(await importOriginal<typeof import('@/store/projects')>()),
+  ...(await importOriginal<typeof ProjectsModule>()),
   removeWorktreePath: vi.fn(async () => {})
 }))
 

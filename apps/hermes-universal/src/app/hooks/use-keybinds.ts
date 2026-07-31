@@ -5,6 +5,7 @@ import { contributedKeybindHandler, PROFILE_SLOT_COUNT, SESSION_SLOT_COUNT } fro
 import { comboAllowedInInput, comboFromEvent, isEditableTarget } from '@/lib/keybinds/combo'
 import { IS_MOBILE } from '@/lib/platform'
 import { newChatBubble } from '@/store/chat-bubbles'
+import { $repoStatus } from '@/store/coding-status'
 import { toggleCommandMenu } from '@/store/command-menu'
 import { $capture, $comboIndex, endCapture, setBinding } from '@/store/keybinds'
 import {
@@ -17,7 +18,6 @@ import {
   togglePanesFlipped,
   toggleRightEdge
 } from '@/store/layout'
-import { $repoStatus } from '@/store/coding-status'
 import { setModelPickerOpen } from '@/store/model'
 import { setPaneOpen } from '@/store/panes'
 import { cycleProfile, switchProfileToSlot, switchToDefaultProfile } from '@/store/profiles'
