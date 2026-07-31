@@ -3,7 +3,14 @@ import { useNavigate } from 'react-router-dom'
 
 import { NAV_ROW_BASE, NAV_ROW_ICON, NAV_ROW_LAYOUT } from '@/app/shell/nav-row'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import { Tip, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import {
+  Tip,
+  TipKeybindLabel,
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger
+} from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 
 // Ported from apps/desktop/src/app/shell/statusbar-controls.tsx. The dumb,
@@ -41,6 +48,8 @@ export interface StatusbarMenuItem {
 
 export interface StatusbarItem {
   id: string
+  /** Keybind action id — when set, the tooltip shows `title` + the live combo. */
+  actionId?: string
   label?: ReactNode
   detail?: ReactNode
   icon?: ReactNode
@@ -120,6 +129,11 @@ export function StatusbarItemView({
   const actionClass = row ? NAV_ROW_BASE : STATUSBAR_ACTION_CLASS
   const textClass = row ? NAV_ROW_LAYOUT : STATUSBAR_TEXT_CLASS
 
+  // With `actionId` the tip carries the action's live keybind alongside the
+  // title; without one it's the plain title (and `Tip` renders nothing at all
+  // when that is undefined).
+  const tooltipLabel = item.actionId ? <TipKeybindLabel actionId={item.actionId} text={item.title} /> : item.title
+
   // Rows match the sidebar nav buttons: a fixed icon slot, the label takes the
   // slack, and the value/detail is pushed to the right. The bar keeps everything
   // grouped left and inline.
@@ -156,7 +170,7 @@ export function StatusbarItemView({
           <TooltipProvider delayDuration={0}>
             <Tooltip>
               <TooltipTrigger asChild>{trigger}</TooltipTrigger>
-              <TooltipContent>{item.title}</TooltipContent>
+              <TooltipContent>{tooltipLabel}</TooltipContent>
             </Tooltip>
           </TooltipProvider>
         ) : (
@@ -212,7 +226,7 @@ export function StatusbarItemView({
 
   if (item.variant === 'text' && !item.onSelect && !item.to && !item.href) {
     return (
-      <Tip label={item.title}>
+      <Tip label={tooltipLabel}>
         <div className={cn(textClass, item.className)}>{content}</div>
       </Tip>
     )
@@ -220,7 +234,7 @@ export function StatusbarItemView({
 
   if (item.href || item.variant === 'link') {
     return (
-      <Tip label={item.title}>
+      <Tip label={tooltipLabel}>
         <a className={cn(actionClass, item.className)} href={item.href} rel="noreferrer" target="_blank">
           {content}
         </a>
@@ -229,7 +243,7 @@ export function StatusbarItemView({
   }
 
   return (
-    <Tip label={item.title}>
+    <Tip label={tooltipLabel}>
       <button
         className={cn(actionClass, item.className)}
         disabled={item.disabled}

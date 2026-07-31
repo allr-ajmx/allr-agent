@@ -45,16 +45,22 @@ export function Titlebar({ connected }: { connected: boolean }) {
       {connected && (
         <div className="pointer-events-auto flex items-center gap-0.5">
           <TitlebarButton
+            actionId="view.toggleSidebar"
             active={leftEdgeOpen}
             label={leftEdgeOpen ? t.titlebar.hideSidebar : t.titlebar.showSidebar}
             onClick={toggleLeftEdge}
           >
             <Codicon name="layout-sidebar-left" />
           </TitlebarButton>
-          <TitlebarButton active={panesFlipped} label={t.titlebar.swapSidebarSides} onClick={togglePanesFlipped}>
+          <TitlebarButton
+            actionId="view.flipPanes"
+            active={panesFlipped}
+            label={t.titlebar.swapSidebarSides}
+            onClick={togglePanesFlipped}
+          >
             <Codicon name="arrow-swap" />
           </TitlebarButton>
-          <TitlebarButton label={t.titlebar.searchTitle} onClick={openCommandMenu}>
+          <TitlebarButton actionId="nav.commandPalette" label={t.titlebar.searchTitle} onClick={openCommandMenu}>
             <Codicon name="search" />
           </TitlebarButton>
         </div>
@@ -80,13 +86,22 @@ export function Titlebar({ connected }: { connected: boolean }) {
           >
             <Codicon name={hapticsMuted ? 'mute' : 'unmute'} />
           </TitlebarButton>
-          <TitlebarButton label={t.titlebar.openKeybinds} onClick={() => openAppRoute('/settings/shortcuts')}>
+          <TitlebarButton
+            actionId="keybinds.openPanel"
+            label={t.titlebar.openKeybinds}
+            onClick={() => openAppRoute('/settings/shortcuts')}
+          >
             <Codicon name="keyboard" />
           </TitlebarButton>
-          <TitlebarButton label={t.titlebar.openSettings} onClick={() => openAppRoute('/settings')}>
+          <TitlebarButton
+            actionId="nav.settings"
+            label={t.titlebar.openSettings}
+            onClick={() => openAppRoute('/settings')}
+          >
             <Codicon name="settings-gear" />
           </TitlebarButton>
           <TitlebarButton
+            actionId="view.toggleRightSidebar"
             active={rightEdgeOpen}
             label={rightEdgeOpen ? t.titlebar.hideRightSidebar : t.titlebar.showRightSidebar}
             onClick={toggleRightEdge}

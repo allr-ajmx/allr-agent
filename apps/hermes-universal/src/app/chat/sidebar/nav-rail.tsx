@@ -1,3 +1,4 @@
+import { useStore } from '@nanostores/react'
 import { useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 
@@ -12,12 +13,14 @@ import {
 import { NAV_ROW_ACTIVE, NAV_ROW_BASE } from '@/app/shell/nav-row'
 import { Codicon } from '@/components/ui/codicon'
 import { KbdGroup } from '@/components/ui/kbd'
+import { Tip, TipKeybindLabel } from '@/components/ui/tooltip'
 import { useI18n } from '@/i18n'
-import { comboTokens } from '@/lib/kbd'
+import { comboTokens } from '@/lib/keybinds/combo'
 import { IS_MOBILE } from '@/lib/platform'
 import { cn } from '@/lib/utils'
 import { newChatBubble } from '@/store/chat-bubbles'
 import { openCommandMenu } from '@/store/command-menu'
+import { $bindings, bindingsFor } from '@/store/keybinds'
 import { NEW_SESSION_FLASH_EVENT } from '@/store/layout'
 import { newSession } from '@/store/session'
 
@@ -27,22 +30,24 @@ import { newSession } from '@/store/session'
 // reached through the command menu (opened from the titlebar on desktop, or the
 // in-drawer button on phones).
 
-const NEW_SESSION_KBD = comboTokens('mod+n')
-
 type NavId = 'new-session' | 'skills' | 'messaging' | 'artifacts'
 
 interface RailItem {
   id: NavId
   icon: string
+  /** Keybind action id — drives the row's tooltip hint (and, for new-session,
+   *  the inline caps). Reading it from the registry keeps the hint honest after
+   *  a rebind; this row used to hardcode `comboTokens('mod+n')`. */
+  keybindActionId: string
   route?: string
   view?: AppView
 }
 
 const NAV: RailItem[] = [
-  { id: 'new-session', icon: 'robot' },
-  { id: 'skills', icon: 'symbol-misc', route: SKILLS_ROUTE, view: 'skills' },
-  { id: 'messaging', icon: 'comment', route: MESSAGING_ROUTE, view: 'messaging' },
-  { id: 'artifacts', icon: 'files', route: ARTIFACTS_ROUTE, view: 'artifacts' }
+  { id: 'new-session', icon: 'robot', keybindActionId: 'session.new' },
+  { id: 'skills', icon: 'symbol-misc', keybindActionId: 'nav.skills', route: SKILLS_ROUTE, view: 'skills' },
+  { id: 'messaging', icon: 'comment', keybindActionId: 'nav.messaging', route: MESSAGING_ROUTE, view: 'messaging' },
+  { id: 'artifacts', icon: 'files', keybindActionId: 'nav.artifacts', route: ARTIFACTS_ROUTE, view: 'artifacts' }
 ]
 
 // The button look is shared with the mobile Status list — see @/app/shell/nav-row.
@@ -55,6 +60,11 @@ export function SidebarNavRail({ variant, onNavigate }: { variant: 'pane' | 'she
   const navigate = useNavigate()
   const currentView = appViewForPath(pathname)
   const [kbdFlash, setKbdFlash] = useState(false)
+  // Live, not frozen: subscribing to $bindings re-renders the caps on a rebind.
+  // bindingsFor falls through stored overrides to the shipped default, so a
+  // contributed action resolves too.
+  const bindings = useStore($bindings)
+  const newSessionCombo = bindingsFor('session.new', bindings)[0]
 
   // Flash the ⌘N hint when the shortcut fires from anywhere.
   useEffect(() => {
@@ -104,45 +114,54 @@ export function SidebarNavRail({ variant, onNavigate }: { variant: 'pane' | 'she
           const isNewSession = item.id === 'new-session'
 
           return (
-            <button
-              aria-current={active ? 'page' : undefined}
-              className={cn(ROW_BASE, active && ROW_ACTIVE)}
+            // New session already paints its combo inline, so its tip stays the
+            // plain label — the other rows carry the hint in the tooltip.
+            <Tip
               key={item.id}
-              onClick={() => handle(item)}
-              title={label}
-              type="button"
+              label={isNewSession ? label : <TipKeybindLabel actionId={item.keybindActionId} text={label} />}
             >
-              <Codicon
-                className="size-4 shrink-0 text-[color-mix(in_srgb,currentColor_72%,transparent)]"
-                name={item.icon}
-              />
-              <span className="min-w-0 flex-1 truncate">{label}</span>
-              {isNewSession && (
-                <KbdGroup
-                  className={cn('ml-auto opacity-55', kbdFlash && 'opacity-100!')}
-                  keys={NEW_SESSION_KBD}
-                  size="sm"
+              <button
+                aria-current={active ? 'page' : undefined}
+                className={cn(ROW_BASE, active && ROW_ACTIVE)}
+                onClick={() => handle(item)}
+                type="button"
+              >
+                <Codicon
+                  className="size-4 shrink-0 text-[color-mix(in_srgb,currentColor_72%,transparent)]"
+                  name={item.icon}
                 />
-              )}
-            </button>
+                <span className="min-w-0 flex-1 truncate">{label}</span>
+                {isNewSession && newSessionCombo && (
+                  <KbdGroup
+                    className={cn('ml-auto opacity-55', kbdFlash && 'opacity-100!')}
+                    keys={comboTokens(newSessionCombo)}
+                    size="sm"
+                  />
+                )}
+              </button>
+            </Tip>
           )
         })}
 
         {/* Phones have no titlebar, so the command menu (other views) needs an
             in-drawer entry point. Desktop reaches it from the titlebar. */}
         {variant === 'sheet' && (
-          <button
-            className={cn(ROW_BASE, 'mt-1')}
-            onClick={() => {
-              openCommandMenu()
-              onNavigate?.()
-            }}
-            title={t.titlebar.search}
-            type="button"
-          >
-            <Codicon className="size-4 shrink-0 text-[color-mix(in_srgb,currentColor_72%,transparent)]" name="search" />
-            <span className="min-w-0 flex-1 truncate">{t.titlebar.search}</span>
-          </button>
+          <Tip label={<TipKeybindLabel actionId="nav.commandPalette" text={t.titlebar.search} />}>
+            <button
+              className={cn(ROW_BASE, 'mt-1')}
+              onClick={() => {
+                openCommandMenu()
+                onNavigate?.()
+              }}
+              type="button"
+            >
+              <Codicon
+                className="size-4 shrink-0 text-[color-mix(in_srgb,currentColor_72%,transparent)]"
+                name="search"
+              />
+              <span className="min-w-0 flex-1 truncate">{t.titlebar.search}</span>
+            </button>
+          </Tip>
         )}
       </div>
     </div>

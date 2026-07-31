@@ -302,6 +302,7 @@ export function useStatusbarItems(opts?: { includeAll?: boolean; rich?: boolean 
         ) : (
           <Codicon name="hubot" size="0.75rem" />
         ),
+      actionId: 'nav.agents',
       id: 'agents',
       label: copy.agents,
       title: copy.openAgents,
@@ -359,6 +360,7 @@ export function useStatusbarItems(opts?: { includeAll?: boolean; rich?: boolean 
       hidden: gatewayState !== 'open'
     },
     {
+      actionId: 'view.showTerminal',
       className: cn('w-7 justify-center px-0', terminalOpen && 'bg-accent/55 text-foreground'),
       icon: <Terminal className="size-3.5" />,
       id: 'terminal',

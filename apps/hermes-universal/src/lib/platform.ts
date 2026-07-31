@@ -22,7 +22,8 @@ export const IS_MOBILE = IS_ANDROID || IS_IOS
 // vitest), so this cleanly distinguishes "native app" from "web/test".
 export const IS_TAURI = PLATFORM !== 'unknown'
 
-// macOS host — drives ⌘/⌥/⇧/⌃ vs Ctrl/Alt/Shift key-cap rendering (see lib/kbd).
+// macOS host — drives ⌘/⌥/⇧/⌃ vs Ctrl/Alt/Shift key-cap rendering (see
+// lib/keybinds/combo).
 export const IS_MAC = PLATFORM === 'macos'
 
 // A real Tauri runtime on a desktop OS (macOS/Windows/Linux) — i.e. not a phone

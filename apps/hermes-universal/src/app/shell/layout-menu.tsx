@@ -30,8 +30,9 @@ export function LayoutMenu() {
         <Button
           aria-label={t.zones.editTitle}
           className="size-5 rounded-[4px] bg-transparent text-muted-foreground/85 [&_.codicon]:text-[0.875rem] hover:bg-[var(--ui-control-hover-background)] hover:text-foreground"
+          // No tip: DropdownMenu triggers don't take one (a tooltip fights the
+          // open menu) — aria-label names it for assistive tech.
           size="icon"
-          title={t.zones.editTitle}
           type="button"
           variant="ghost"
         >
