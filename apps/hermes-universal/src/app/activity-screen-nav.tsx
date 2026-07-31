@@ -5,6 +5,7 @@ import { COMMAND_CENTER_ROUTE } from '@/app/routes'
 import { useSettingsNav } from '@/app/settings/settings-nav'
 import { NAV_ROW_ACTIVE, NAV_ROW_BASE } from '@/app/shell/nav-row'
 import { Codicon } from '@/components/ui/codicon'
+import { Tip } from '@/components/ui/tooltip'
 import { useI18n } from '@/i18n'
 import { Activity, BarChart3, MessageCircle, Wrench } from '@/lib/icons'
 import { cn } from '@/lib/utils'
@@ -31,16 +32,17 @@ interface NavRowModel {
 
 function NavRow({ active, icon, label, onSelect }: Omit<NavRowModel, 'id'>) {
   return (
-    <button
-      aria-current={active ? 'page' : undefined}
-      className={cn(NAV_ROW_BASE, active && NAV_ROW_ACTIVE)}
-      onClick={onSelect}
-      title={label}
-      type="button"
-    >
-      {icon}
-      <span className="min-w-0 flex-1 truncate">{label}</span>
-    </button>
+    <Tip label={label}>
+      <button
+        aria-current={active ? 'page' : undefined}
+        className={cn(NAV_ROW_BASE, active && NAV_ROW_ACTIVE)}
+        onClick={onSelect}
+        type="button"
+      >
+        {icon}
+        <span className="min-w-0 flex-1 truncate">{label}</span>
+      </button>
+    </Tip>
   )
 }
 

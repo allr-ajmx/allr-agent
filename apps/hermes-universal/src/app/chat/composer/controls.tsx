@@ -195,36 +195,38 @@ function ConversationPill({
         </Button>
       </Tip>
       {listening && (
+        <Tip label={c.stopListening}>
+          <Button
+            aria-label={c.stopListening}
+            className="h-(--composer-control-size) shrink-0 gap-1.5 rounded-full px-2.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+            disabled={disabled}
+            onClick={() => {
+              triggerHaptic('submit')
+              onStopTurn()
+            }}
+            type="button"
+            variant="ghost"
+          >
+            <Square className={cn('fill-current', iconSize.xs)} />
+            <span>{c.stopShort}</span>
+          </Button>
+        </Tip>
+      )}
+      <Tip label={c.endConversation}>
         <Button
-          aria-label={c.stopListening}
-          className="h-(--composer-control-size) shrink-0 gap-1.5 rounded-full px-2.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+          aria-label={c.endConversation}
+          className="h-(--composer-control-size) gap-1.5 rounded-full bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90"
           disabled={disabled}
           onClick={() => {
-            triggerHaptic('submit')
-            onStopTurn()
+            triggerHaptic('close')
+            onEnd()
           }}
-          title={c.stopListening}
           type="button"
-          variant="ghost"
         >
-          <Square className={cn('fill-current', iconSize.xs)} />
-          <span>{c.stopShort}</span>
+          <ConversationIndicator level={level} listening={listening} speaking={speaking} />
+          <span>{c.endShort}</span>
         </Button>
-      )}
-      <Button
-        aria-label={c.endConversation}
-        className="h-(--composer-control-size) gap-1.5 rounded-full bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90"
-        disabled={disabled}
-        onClick={() => {
-          triggerHaptic('close')
-          onEnd()
-        }}
-        title={c.endConversation}
-        type="button"
-      >
-        <ConversationIndicator level={level} listening={listening} speaking={speaking} />
-        <span>{c.endShort}</span>
-      </Button>
+      </Tip>
       <span className="sr-only" role="status">
         {label}
       </span>

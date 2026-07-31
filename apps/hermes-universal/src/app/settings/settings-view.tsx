@@ -16,6 +16,7 @@ import {
   DialogTitle,
   DialogTrigger
 } from '@/components/ui/dialog'
+import { Tip } from '@/components/ui/tooltip'
 import { getHermesConfigDefaults, getHermesConfigRecord, saveHermesConfig } from '@/hermes'
 import { useI18n } from '@/i18n'
 import { Download, Refresh, Upload } from '@/lib/icons'
@@ -90,33 +91,36 @@ export function SettingsFooter() {
 
   return (
     <>
-      <Button
-        aria-label={t.settings.exportConfig}
-        className={iconBtn}
-        onClick={() => void exportConfig()}
-        size="icon-sm"
-        title={t.settings.exportConfig}
-        variant="ghost"
-      >
-        <Download className="size-4" />
-      </Button>
-      <Button
-        aria-label={t.settings.importConfig}
-        className={iconBtn}
-        onClick={() => void importConfig()}
-        size="icon-sm"
-        title={t.settings.importConfig}
-        variant="ghost"
-      >
-        <Upload className="size-4" />
-      </Button>
+      <Tip label={t.settings.exportConfig}>
+        <Button
+          aria-label={t.settings.exportConfig}
+          className={iconBtn}
+          onClick={() => void exportConfig()}
+          size="icon-sm"
+          variant="ghost"
+        >
+          <Download className="size-4" />
+        </Button>
+      </Tip>
+      <Tip label={t.settings.importConfig}>
+        <Button
+          aria-label={t.settings.importConfig}
+          className={iconBtn}
+          onClick={() => void importConfig()}
+          size="icon-sm"
+          variant="ghost"
+        >
+          <Upload className="size-4" />
+        </Button>
+      </Tip>
       <Dialog>
         <DialogTrigger asChild>
           <Button
             aria-label={t.settings.resetToDefaults}
             className="text-muted-foreground hover:text-destructive"
+            // No tip: this is a DialogTrigger, and Tip's own trigger can't
+            // compose onto the same child. aria-label names it instead.
             size="icon-sm"
-            title={t.settings.resetToDefaults}
             variant="ghost"
           >
             <Refresh className="size-4" />

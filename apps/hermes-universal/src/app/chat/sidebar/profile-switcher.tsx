@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 
 import { PROFILES_ROUTE } from '@/app/routes'
 import { Codicon } from '@/components/ui/codicon'
+import { Tip } from '@/components/ui/tooltip'
 import { useI18n } from '@/i18n'
 import { cn } from '@/lib/utils'
 import { useStore } from '@/store/atom'
@@ -47,27 +48,29 @@ export function ProfileRail() {
   return (
     <div aria-label={p.title} className="flex items-center gap-0.5" role="tablist">
       {/* The default profile — always shown as a home icon, leftmost. */}
-      <button
-        aria-selected={active === null}
-        className={cn(ICON_BTN, active === null && 'bg-(--ui-control-active-background) text-foreground')}
-        onClick={() => setActiveProfile(null)}
-        role="tab"
-        title={p.default}
-        type="button"
-      >
-        <Codicon name="home" size="0.875rem" />
-      </button>
+      <Tip label={p.default}>
+        <button
+          aria-selected={active === null}
+          className={cn(ICON_BTN, active === null && 'bg-(--ui-control-active-background) text-foreground')}
+          onClick={() => setActiveProfile(null)}
+          role="tab"
+          type="button"
+        >
+          <Codicon name="home" size="0.875rem" />
+        </button>
+      </Tip>
 
       {/* Add — to the right of the default. */}
-      <button
-        aria-label={p.newProfile}
-        className={ICON_BTN}
-        onClick={() => navigate(PROFILES_ROUTE)}
-        title={p.newProfile}
-        type="button"
-      >
-        <Codicon name="add" size="0.875rem" />
-      </button>
+      <Tip label={p.newProfile}>
+        <button
+          aria-label={p.newProfile}
+          className={ICON_BTN}
+          onClick={() => navigate(PROFILES_ROUTE)}
+          type="button"
+        >
+          <Codicon name="add" size="0.875rem" />
+        </button>
+      </Tip>
 
       {/* Named profiles. */}
       <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto">
@@ -75,37 +78,38 @@ export function ProfileRail() {
           const isActive = active === profile.name
 
           return (
-            <button
-              aria-selected={isActive}
-              className={cn(
-                'grid size-6 shrink-0 place-items-center rounded-md text-[0.625rem] font-semibold text-white transition',
-                isActive
-                  ? 'ring-2 ring-(--ui-accent) ring-offset-1 ring-offset-(--ui-sidebar-surface-background)'
-                  : 'opacity-80 hover:opacity-100'
-              )}
-              key={profile.name}
-              onClick={() => setActiveProfile(profile.name)}
-              role="tab"
-              style={{ backgroundColor: colorForName(profile.name) }}
-              title={p.switchToProfile(profile.name)}
-              type="button"
-            >
-              {profile.name.charAt(0).toUpperCase()}
-            </button>
+            <Tip key={profile.name} label={p.switchToProfile(profile.name)}>
+              <button
+                aria-selected={isActive}
+                className={cn(
+                  'grid size-6 shrink-0 place-items-center rounded-md text-[0.625rem] font-semibold text-white transition',
+                  isActive
+                    ? 'ring-2 ring-(--ui-accent) ring-offset-1 ring-offset-(--ui-sidebar-surface-background)'
+                    : 'opacity-80 hover:opacity-100'
+                )}
+                onClick={() => setActiveProfile(profile.name)}
+                role="tab"
+                style={{ backgroundColor: colorForName(profile.name) }}
+                type="button"
+              >
+                {profile.name.charAt(0).toUpperCase()}
+              </button>
+            </Tip>
           )
         })}
       </div>
 
       {/* Manage — right. */}
-      <button
-        aria-label={p.manageProfiles}
-        className={ICON_BTN}
-        onClick={() => navigate(PROFILES_ROUTE)}
-        title={p.manageProfiles}
-        type="button"
-      >
-        <Codicon name="ellipsis" size="0.875rem" />
-      </button>
+      <Tip label={p.manageProfiles}>
+        <button
+          aria-label={p.manageProfiles}
+          className={ICON_BTN}
+          onClick={() => navigate(PROFILES_ROUTE)}
+          type="button"
+        >
+          <Codicon name="ellipsis" size="0.875rem" />
+        </button>
+      </Tip>
     </div>
   )
 }

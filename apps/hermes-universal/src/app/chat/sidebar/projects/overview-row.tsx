@@ -3,6 +3,7 @@ import { useState } from 'react'
 
 import { Codicon } from '@/components/ui/codicon'
 import { DisclosureCaret } from '@/components/ui/disclosure-caret'
+import { Tip } from '@/components/ui/tooltip'
 import { useI18n } from '@/i18n'
 import { cn } from '@/lib/utils'
 import type { SessionInfo } from '@/types/hermes'
@@ -79,14 +80,15 @@ export function ProjectBackRow({ label, onExit }: { label: string; onExit: () =>
   const { t } = useI18n()
 
   return (
-    <button
-      className="flex min-h-[1.625rem] w-full items-center gap-1.5 rounded-md pl-2 text-left text-[0.8125rem] text-(--ui-text-tertiary) opacity-70 transition hover:bg-(--ui-control-hover-background) hover:text-foreground hover:opacity-100"
-      onClick={onExit}
-      title={t.sidebar.projects.back}
-      type="button"
-    >
-      <Codicon name="arrow-left" size="0.875rem" />
-      <span className="min-w-0 truncate">{label}</span>
-    </button>
+    <Tip label={t.sidebar.projects.back}>
+      <button
+        className="flex min-h-[1.625rem] w-full items-center gap-1.5 rounded-md pl-2 text-left text-[0.8125rem] text-(--ui-text-tertiary) opacity-70 transition hover:bg-(--ui-control-hover-background) hover:text-foreground hover:opacity-100"
+        onClick={onExit}
+        type="button"
+      >
+        <Codicon name="arrow-left" size="0.875rem" />
+        <span className="min-w-0 truncate">{label}</span>
+      </button>
+    </Tip>
   )
 }
