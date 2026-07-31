@@ -1,6 +1,10 @@
+import { useEffect, useState } from 'react'
+
+import { GatewayConfigurator } from '@/app/gateway/gateway-configurator'
 import { Button } from '@/components/ui/button'
 import { useI18n } from '@/i18n'
 import { Loader2 } from '@/lib/icons'
+import { cn } from '@/lib/utils'
 import { useStore } from '@/store/atom'
 import { $connectionError } from '@/store/connection'
 import { cancelRestore, loadGatewayTarget } from '@/store/gateway-restore'
@@ -52,9 +56,21 @@ export function GatewayConnectingScreen() {
   const g = t.settings.gateway
   const error = useStore($connectionError)
 
+  // Recovery in place (desktop's boot-failure card): rather than only offering the
+  // hard "give up → connect picker" exit, re-home from right here with the embedded
+  // configurator. Revealed automatically once the dial has actually failed; the
+  // button covers a reconnect that is stuck but not yet errored.
+  const [configuratorOpen, setConfiguratorOpen] = useState(false)
+
+  useEffect(() => {
+    if (error) {
+      setConfiguratorOpen(true)
+    }
+  }, [error])
+
   return (
     <main className="connect">
-      <div className="connect-card items-center text-center">
+      <div className={cn('connect-card items-center text-center', configuratorOpen && 'max-w-lg')}>
         <div className="brand">Hermes</div>
         <h1 className="connect-title">{g.connectingTitle}</h1>
 
@@ -65,9 +81,23 @@ export function GatewayConnectingScreen() {
 
         {error ? <div className="mt-1 text-[0.8125rem] text-destructive">{error}</div> : null}
 
-        <Button className="mt-4" onClick={() => cancelRestore()} size="sm" type="button" variant="text">
-          {g.useDifferentGateway}
-        </Button>
+        {configuratorOpen ? (
+          <>
+            {/* The card is centred; the configurator's rows are not. A successful
+                connect flips $connectionPhase to ready and the root gate swaps this
+                whole screen out, so it needs no onConnected. */}
+            <div className="mt-4 w-full text-left">
+              <GatewayConfigurator variant="embedded" />
+            </div>
+            <Button className="mt-2" onClick={() => cancelRestore()} size="sm" type="button" variant="text">
+              {g.startOver}
+            </Button>
+          </>
+        ) : (
+          <Button className="mt-4" onClick={() => setConfiguratorOpen(true)} size="sm" type="button" variant="text">
+            {g.useDifferentGateway}
+          </Button>
+        )}
       </div>
     </main>
   )

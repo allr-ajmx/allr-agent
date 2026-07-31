@@ -1,15 +1,17 @@
 import { type Codec, persistentAtom } from '@/lib/persisted'
 import { atom } from '@/store/atom'
-import { disconnect } from '@/store/connection'
 import type { GatewayMode } from '@/store/gateway-config'
 
 // Gateway-mode switching (E1). The app talks to a backend in one of three modes —
 // local (spawned), remote (URL), cloud (portal-discovered). This holds the chosen
 // mode (persisted). Two ways to change it:
-//   • setGatewayMode — mode-only, no teardown. Used when *reconfiguring* an
-//     already-connected app inside Settings → Gateway (desktop parity: picking a
-//     mode card is a pending selection; connecting is a separate explicit action).
-//   • switchGatewayMode — mode + tear down the live connection, for a hard reset.
+//   • setGatewayMode — mode-only, no teardown. Used by "Save for next restart":
+//     persist the choice without dialling anything.
+//   • softSwitchGateway (store/gateway-soft-switch.ts) — the real switch: re-home
+//     the live app onto another gateway IN PLACE (desktop's soft switch), without
+//     disconnect(). It lives in its own module because it reaches into the session /
+//     chat stores, while this one is imported from the connection-restore path —
+//     keeping it a leaf keeps that graph free of import cycles.
 
 const modeCodec: Codec<GatewayMode> = {
   decode: raw => (raw === 'local' || raw === 'cloud' ? raw : 'remote'),
@@ -19,31 +21,14 @@ const modeCodec: Codec<GatewayMode> = {
 /** The last-selected gateway mode; persisted so the app reopens into it. */
 export const $gatewayMode = persistentAtom<GatewayMode>('hermes.gateway.mode', 'remote', modeCodec)
 
-/** True while a switch is tearing down the old connection — lets the UI show a
- *  switching state and suppress the ordinary disconnect feedback. */
+/** True while a soft switch is mid-flight (wipe → re-dial). The root gates read it
+ *  so the shell stays mounted instead of bouncing to the connect / connecting
+ *  screen for the second the socket is down. */
 export const $gatewaySwitching = atom(false)
 
 /** Set the gateway mode WITHOUT touching the live connection (pending selection).
- *  Reconfiguring an already-connected app inside Settings uses this — the root gate
- *  keeps Settings mounted across the subsequent reconnect (it reads $hasConnected),
- *  so no full-screen bounce. Connecting is a separate, explicit action. */
+ *  Picking a mode card in Settings is a pending choice; connecting is a separate,
+ *  explicit action. */
 export function setGatewayMode(mode: GatewayMode): void {
   $gatewayMode.set(mode)
-}
-
-/** Switch gateway mode: drop the live connection so the target mode's connect flow
- *  can start fresh. No-op when already in `mode`. */
-export function switchGatewayMode(mode: GatewayMode): void {
-  if ($gatewayMode.get() === mode) {
-    return
-  }
-
-  $gatewaySwitching.set(true)
-
-  try {
-    disconnect()
-    $gatewayMode.set(mode)
-  } finally {
-    $gatewaySwitching.set(false)
-  }
 }

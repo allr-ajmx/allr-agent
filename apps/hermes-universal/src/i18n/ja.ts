@@ -746,7 +746,8 @@ export const ja = defineLocale({
       saveFailed: 'ゲートウェイ設定を保存できませんでした',
       connectingTitle: 'Hermes に接続しています',
       reconnectingTo: target => `${target} に再接続しています…`,
-      useDifferentGateway: '別のゲートウェイを使用'
+      useDifferentGateway: '別のゲートウェイを使用',
+      startOver: 'やり直す'
     },
     keys: {
       loading: 'API キーと認証情報を読み込み中...',
@@ -2074,7 +2075,9 @@ export const ja = defineLocale({
       connection: label => `接続: ${label}`,
       recentActivity: '最近のアクティビティ',
       viewAllLogs: 'すべてのログを見る →',
-      messagingPlatforms: 'メッセージングプラットフォーム'
+      messagingPlatforms: 'メッセージングプラットフォーム',
+      changeGateway: 'ゲートウェイを変更',
+      hideGatewaySettings: 'ゲートウェイ設定を隠す'
     },
     statusbar: {
       unknown: '不明',

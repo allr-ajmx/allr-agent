@@ -1,5 +1,6 @@
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 
+import { GatewayConfigurator } from '@/app/gateway/gateway-configurator'
 import { Button } from '@/components/ui/button'
 import { LogView } from '@/components/ui/log-view'
 import { StatusDot, type StatusTone } from '@/components/ui/status-dot'
@@ -23,6 +24,9 @@ interface GatewayMenuPanelProps {
   inferenceStatus: RuntimeReadinessResult | null
   onClose: () => void
   onOpenSystem: () => void
+  /** Offer the embedded gateway configurator (re-home without opening Settings).
+   *  Off where the popover is too cramped for a form — Settings → Gateway covers it. */
+  showConfigurator?: boolean
   statusSnapshot: StatusResponse | null
 }
 
@@ -82,10 +86,12 @@ export function GatewayMenuPanel({
   inferenceStatus,
   onClose,
   onOpenSystem,
+  showConfigurator = false,
   statusSnapshot
 }: GatewayMenuPanelProps) {
   const { t } = useI18n()
   const copy = t.shell.gatewayMenu
+  const [configuratorOpen, setConfiguratorOpen] = useState(false)
 
   // Both jumps open the system panel, which owns the full view — so dismiss the
   // little status popover on the way out.
@@ -212,6 +218,32 @@ export function GatewayMenuPanel({
               </li>
             ))}
           </ul>
+        </Section>
+      )}
+
+      {/* Re-home the app onto another gateway without leaving for Settings. The
+          connect surface is the shared configurator in its `embedded` variant, and
+          connecting is a SOFT switch — the shell (and this popover, until it
+          dismisses itself) stays mounted across the swap. */}
+      {showConfigurator && (
+        <Section>
+          <Button
+            className="-ml-1 h-auto py-0 font-medium leading-none text-muted-foreground"
+            onClick={() => setConfiguratorOpen(open => !open)}
+            size="xs"
+            type="button"
+            variant="text"
+          >
+            {configuratorOpen ? copy.hideGatewaySettings : copy.changeGateway}
+          </Button>
+          {configuratorOpen && (
+            // Radix DropdownMenu typeahead swallows character keys, which would make
+            // the URL / token inputs untypable (the same reason DropdownMenuSearch
+            // stops propagation).
+            <div className="mt-2" onKeyDown={event => event.stopPropagation()}>
+              <GatewayConfigurator onConnected={onClose} variant="embedded" />
+            </div>
+          )}
         </Section>
       )}
     </div>

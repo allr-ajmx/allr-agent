@@ -19,6 +19,7 @@ import { IS_DESKTOP, IS_IOS, IS_MOBILE } from '@/lib/platform'
 import { useStore } from '@/store/atom'
 import { $connectionPhase, $hasConnected } from '@/store/connection'
 import { $restoring } from '@/store/gateway-restore'
+import { $gatewaySwitching } from '@/store/gateway-switch'
 import { $onboardingActive, checkConfigured } from '@/store/onboarding'
 import { syncPetInfo } from '@/store/pet-gallery'
 import { deleteSessionLocal } from '@/store/session'
@@ -46,6 +47,7 @@ export function MobileController() {
   const onboarding = useStore($onboardingActive)
   const restoring = useStore($restoring)
   const hasConnected = useStore($hasConnected)
+  const switching = useStore($gatewaySwitching)
 
   // UI scale: apply the persisted zoom once, and wire Cmd/Ctrl +/-/0 shortcuts.
   // Zoom stays outside the rebindable registry — desktop keeps it out too.
@@ -83,7 +85,13 @@ export function MobileController() {
     }
   }, [phase])
 
-  const connected = phase === 'ready' && !onboarding
+  // A soft gateway switch (store/gateway-switch.ts) drops the socket for a moment
+  // while it re-dials. Treat that window as live so the shell — and the surface
+  // driving the switch (Settings, the statusbar gateway popover) — stays mounted
+  // instead of bouncing to the connecting screen. Only once we've been connected:
+  // on a first run the connect screen owns the dial and must keep it.
+  const live = phase === 'ready' || (switching && hasConnected)
+  const connected = live && !onboarding
 
   // Desktop always uses the docked (wide) shell regardless of window width;
   // mobile/web fall to the phone drawer below 768px. The wide path renders the
@@ -126,7 +134,7 @@ export function MobileController() {
 
   let content: ReactNode
 
-  if (phase !== 'ready') {
+  if (!live) {
     // Not connected. Priority: a boot restore shows the connecting screen; if the
     // user is in Settings (e.g. they just signed out on the gateway page) keep a
     // neutral backdrop so the Settings overlay stays and shows the Sign in button

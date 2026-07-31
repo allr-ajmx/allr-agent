@@ -264,6 +264,11 @@ export async function refreshSessions(): Promise<void> {
   }
 }
 
+/** Drop back to the first page — a soft gateway switch starts the list over. */
+export function resetSessionsPage(): void {
+  $sessionsLimit.set(PAGE)
+}
+
 // The ported listSessions slices at `limit` with offset=0, so "load more" =
 // re-fetch with a bigger limit. FIXME(MJX-205): true offset pagination.
 export async function loadMoreSessions(): Promise<void> {

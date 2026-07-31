@@ -345,10 +345,31 @@ export async function signOut(): Promise<void> {
 
 let intentionalClose = false
 let reconnecting = false
+let switching = false
 
 /** Allow auto-reconnect after a fresh (re)connect attempt. */
 function armReconnect(): void {
   intentionalClose = false
+}
+
+/**
+ * A soft gateway switch is starting (store/gateway-switch.ts): stand the reconnect
+ * supervisor down so it doesn't race the deliberate re-dial. Lives here rather than
+ * reading `$gatewaySwitching` because connection.ts must not import gateway-switch.ts
+ * (that store already imports this one — the seam keeps the store graph acyclic).
+ *
+ * Two flags are needed: `intentionalClose` covers the teardown, but every connect*()
+ * calls armReconnect() at the top of the dial, so only `switching` keeps the ladder
+ * down through the NEW gateway's handshake.
+ */
+export function beginGatewaySwitch(): void {
+  switching = true
+  intentionalClose = true
+}
+
+/** The switch finished (or failed): re-arm the supervisor against the new connection. */
+export function endGatewaySwitch(): void {
+  switching = false
 }
 
 const reconnectDelay = (attempt: number): number => Math.min(30_000, 2 ** attempt * 1000)
@@ -367,7 +388,7 @@ async function runReconnectLoop(): Promise<void> {
   reconnecting = true
   let attempt = 0
 
-  while (!intentionalClose) {
+  while (!intentionalClose && !switching) {
     const conn = $connection.get()
 
     if (!conn) {
@@ -376,7 +397,7 @@ async function runReconnectLoop(): Promise<void> {
 
     await wait(reconnectDelay(attempt))
 
-    if (intentionalClose || !$connection.get()) {
+    if (intentionalClose || switching || !$connection.get()) {
       break
     }
 
@@ -385,7 +406,7 @@ async function runReconnectLoop(): Promise<void> {
     try {
       await connectGateway(conn)
 
-      if (intentionalClose || !$connection.get()) {
+      if (intentionalClose || switching || !$connection.get()) {
         closeGateway()
 
         break
@@ -415,7 +436,7 @@ async function runReconnectLoop(): Promise<void> {
 }
 
 $gatewayState.subscribe(state => {
-  if (state === 'closed' && !intentionalClose && !reconnecting && $connection.get()) {
+  if (state === 'closed' && !intentionalClose && !switching && !reconnecting && $connection.get()) {
     void runReconnectLoop()
   }
 })

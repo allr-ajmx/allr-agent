@@ -160,6 +160,9 @@ export function useStatusbarItems(opts?: { includeAll?: boolean; rich?: boolean 
       inferenceStatus={inferenceStatus}
       onClose={close}
       onOpenSystem={() => void openSystemScreen()}
+      // The rich (mobile Status) list renders this panel in a cramped drawer where
+      // a connect form doesn't fit; there Settings → Gateway is the surface.
+      showConfigurator={!rich}
       statusSnapshot={statusSnapshot}
     />
   )
@@ -238,7 +241,9 @@ export function useStatusbarItems(opts?: { includeAll?: boolean; rich?: boolean 
       ),
       id: 'gateway-health',
       label: copy.gateway,
-      menuClassName: 'w-72',
+      // Wider than the other menus: it hosts the embedded gateway configurator
+      // (mode cards + URL/token inputs), which is unusable at w-72.
+      menuClassName: 'w-[22rem]',
       menuContent: gatewayMenuContent,
       title: inferenceStatus?.reason || copy.gatewayTitle,
       variant: 'menu'

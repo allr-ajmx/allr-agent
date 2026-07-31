@@ -843,7 +843,8 @@ export const zh: Translations = {
       saveFailed: '无法保存网关设置',
       connectingTitle: '正在连接 Hermes',
       reconnectingTo: target => `正在重新连接到 ${target}…`,
-      useDifferentGateway: '使用其他网关'
+      useDifferentGateway: '使用其他网关',
+      startOver: '重新开始'
     },
     keys: {
       loading: '正在加载 API 密钥和凭据...',
@@ -2299,7 +2300,9 @@ export const zh: Translations = {
       connection: label => `连接：${label}`,
       recentActivity: '最近活动',
       viewAllLogs: '查看全部日志 →',
-      messagingPlatforms: '消息平台'
+      messagingPlatforms: '消息平台',
+      changeGateway: '更换网关',
+      hideGatewaySettings: '隐藏网关设置'
     },
     approvalMode: {
       title: '审批模式',
