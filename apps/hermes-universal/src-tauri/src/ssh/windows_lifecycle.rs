@@ -298,28 +298,45 @@ pub async fn detect_remote_platform(
     session: &SshSession,
     explicit_hermes_path: &str,
 ) -> Result<(RemotePlatform, Option<WindowsRuntime>), SshError> {
+    println!("[ssh probe] detect_remote_platform: running fenced `uname -s; uname -m`");
     match session.exec_fenced("uname -s; uname -m", None).await {
         Ok(out) if out.succeeded() => {
+            println!("[ssh probe] detect_remote_platform: uname stdout {:?}", out.stdout);
             let mut lines = out.stdout.lines().map(str::trim).filter(|l| !l.is_empty());
             let os = lines.next().unwrap_or_default().to_string();
 
             if os == "Linux" || os == "Darwin" {
                 let arch = lines.next().unwrap_or_default().to_string();
+                println!("[ssh probe] detect_remote_platform: matched POSIX os={os:?} arch={arch:?}");
 
                 return Ok((RemotePlatform { os, arch }, None));
             }
+
+            println!("[ssh probe] detect_remote_platform: os {os:?} is not Linux/Darwin, falling through to Windows probe");
         }
 
         // A command that ran and failed is the normal "no uname here" answer.
-        Ok(_) => {}
+        Ok(out) => {
+            println!(
+                "[ssh probe] detect_remote_platform: uname failed (exit {:?}), assuming non-POSIX remote",
+                out.exit_status
+            );
+        }
 
-        Err(err) if is_transport_kind(err.kind) => return Err(err),
-        Err(_) => {}
+        Err(err) if is_transport_kind(err.kind) => {
+            println!("[ssh probe] detect_remote_platform: transport error running uname: {err}");
+            return Err(err);
+        }
+        Err(err) => {
+            println!("[ssh probe] detect_remote_platform: non-transport error running uname: {err}");
+        }
     }
 
+    println!("[ssh probe] detect_remote_platform: probing as a Windows remote");
     match probe_windows_remote(session, explicit_hermes_path).await {
         Ok(runtime) => {
             let platform = RemotePlatform { os: "Windows".to_string(), arch: runtime.arch.clone() };
+            println!("[ssh probe] detect_remote_platform: Windows probe succeeded, arch={:?}", runtime.arch);
 
             Ok((platform, Some(runtime)))
         }
@@ -327,6 +344,7 @@ pub async fn detect_remote_platform(
         Err(err) if is_transport_kind(err.kind) => Err(err),
 
         Err(err) => {
+            println!("[ssh probe] detect_remote_platform: Windows probe failed too: {err}");
             // The probe's message is remote-controlled output on its way to the
             // UI: redact it, strip control characters, and cap the length.
             let detail: String =

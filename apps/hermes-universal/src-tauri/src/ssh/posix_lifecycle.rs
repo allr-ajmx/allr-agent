@@ -254,28 +254,38 @@ fn transient(message: impl Into<String>) -> SshError {
 /// auto-switch line printed to stdout before the command even runs — can
 /// never be mistaken for the OS name.
 pub async fn probe_platform(session: &SshSession) -> Result<RemotePlatform, SshError> {
+    println!("[ssh probe] running fenced `uname -s; uname -m`");
     let out = session.exec_fenced("uname -s; uname -m", None).await?.require_success("uname")?;
+    println!("[ssh probe] fenced uname output: {out:?}");
 
     let mut lines = out.lines().map(str::trim).filter(|l| !l.is_empty());
     let os = lines.next().unwrap_or_default().to_string();
     let arch = lines.next().unwrap_or_default().to_string();
+    println!("[ssh probe] parsed os={os:?} arch={arch:?}");
 
     check_supported_os(&os)?;
 
     Ok(RemotePlatform { os, arch })
 }
 
-/// Is this path an executable file on the remote?
+/// Is this path an executable file on the remote? Fenced (`exec_fenced`) so a
+/// noisy shell profile can't turn a real `OK` into `"<banner>\nOK"`, which
+/// would fail the exact-match check below and misreport an install that is
+/// actually there as missing.
 async fn is_executable(session: &SshSession, candidate: &str) -> bool {
     let Ok(path) = expand_remote_path(candidate) else {
+        println!("[ssh probe] is_executable: {candidate:?} is not a valid remote path");
         return false;
     };
 
-    session
-        .exec(&format!("[ -x {path} ] && echo OK || true"), None)
+    let result = session
+        .exec_fenced(&format!("[ -x {path} ] && echo OK || true"), None)
         .await
         .map(|out| out.stdout.trim() == "OK")
-        .unwrap_or(false)
+        .unwrap_or(false);
+
+    println!("[ssh probe] is_executable: {path:?} -> {result}");
+    result
 }
 
 /// Locate the remote `hermes`.
@@ -289,9 +299,13 @@ async fn is_executable(session: &SshSession, candidate: &str) -> bool {
 /// where `hermes` usually lives.
 pub async fn locate_hermes(session: &SshSession, explicit: Option<&str>) -> Result<String, SshError> {
     if let Some(explicit) = explicit.filter(|p| !p.trim().is_empty()) {
+        println!("[ssh probe] locate_hermes: checking explicit path {explicit:?}");
+
         if is_executable(session, explicit).await {
             return resolve_launcher(session, explicit).await;
         }
+
+        println!("[ssh probe] locate_hermes: explicit path {explicit:?} is not executable");
 
         return Err(SshError::new(
             SshErrorKind::HermesNotFound,
@@ -305,20 +319,26 @@ pub async fn locate_hermes(session: &SshSession, explicit: Option<&str>) -> Resu
 
     let mut candidates: Vec<String> = Vec::new();
 
+    println!("[ssh probe] locate_hermes: probing login shell for `command -v hermes`");
     if let Ok(found) = session.exec(&format!("bash -lc {}", shq("command -v hermes")), None).await {
         // A login shell may print a banner first, so take the last line.
         if let Some(path) = found.stdout.lines().map(str::trim).filter(|l| !l.is_empty()).next_back() {
+            println!("[ssh probe] locate_hermes: login shell found {path:?}");
             candidates.push(path.to_string());
         }
     }
 
     candidates.extend(FALLBACK_HERMES_PATHS.iter().map(|p| (*p).to_string()));
+    println!("[ssh probe] locate_hermes: candidates to try {candidates:?}");
 
     for candidate in candidates {
         if is_executable(session, &candidate).await {
+            println!("[ssh probe] locate_hermes: using {candidate:?}");
             return resolve_launcher(session, &candidate).await;
         }
     }
+
+    println!("[ssh probe] locate_hermes: no candidate was executable");
 
     Err(SshError::new(
         SshErrorKind::HermesNotFound,
@@ -329,12 +349,15 @@ pub async fn locate_hermes(session: &SshSession, explicit: Option<&str>) -> Resu
 }
 
 /// Follow an `exec` shim to the real binary. Falls back to the candidate.
+/// Fenced so shell startup noise can't get mistaken for the resolved path.
 async fn resolve_launcher(session: &SshSession, candidate: &str) -> Result<String, SshError> {
-    let out = session.exec(&remote_scripts::resolve_launcher(candidate), None).await;
+    let out = session.exec_fenced(&remote_scripts::resolve_launcher(candidate), None).await;
 
     let resolved = out.map(|o| o.stdout.trim().to_string()).unwrap_or_default();
+    let resolved = if resolved.is_empty() { candidate.to_string() } else { resolved };
 
-    Ok(if resolved.is_empty() { candidate.to_string() } else { resolved })
+    println!("[ssh probe] resolve_launcher: {candidate:?} -> {resolved:?}");
+    Ok(resolved)
 }
 
 /// The remote `hermes --version`, best-effort. Surfaces *which* install a
@@ -344,12 +367,15 @@ pub async fn probe_hermes_version(session: &SshSession, hermes_path: &str) -> St
         return String::new();
     };
 
-    session
-        .exec(&format!("{path} --version 2>&1"), None)
+    let version = session
+        .exec_fenced(&format!("{path} --version 2>&1"), None)
         .await
         .ok()
         .and_then(|o| o.stdout.lines().next().map(|l| l.trim().to_string()))
-        .unwrap_or_default()
+        .unwrap_or_default();
+
+    println!("[ssh probe] probe_hermes_version: {path:?} -> {version:?}");
+    version
 }
 
 /// The `HERMES_HOME` the remote backend will use. Recorded in the lockfile so a
