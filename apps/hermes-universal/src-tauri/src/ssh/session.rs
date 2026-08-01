@@ -27,6 +27,7 @@ use super::auth::{authenticate, AuthMethodUsed, Credentials};
 use super::error::{SshError, SshErrorKind};
 use super::known_hosts::{self, HostKeyPolicy};
 use super::prompt::Prompter;
+use super::remote_paths::shq;
 use super::target::SshTarget;
 
 pub const DEFAULT_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
@@ -59,10 +60,73 @@ impl ExecOutput {
             return Ok(self.stdout);
         }
 
-        let detail = if self.stderr.trim().is_empty() { self.stdout.clone() } else { self.stderr.clone() };
+        let detail = if self.stderr.trim().is_empty() {
+            self.stdout.clone()
+        } else {
+            self.stderr.clone()
+        };
         let kind = super::error::classify_stderr(&detail);
 
-        Err(SshError::new(kind, format!("{what} failed on the remote host: {}", detail.trim())))
+        Err(SshError::new(
+            kind,
+            format!("{what} failed on the remote host: {}", detail.trim()),
+        ))
+    }
+}
+
+/// Distinctive enough that no real command output is expected to collide
+/// with them, but otherwise arbitrary — they never reach the UI.
+const FENCE_BEGIN: &str = "__hermes_fence_begin__";
+const FENCE_END: &str = "__hermes_fence_end__";
+
+/// Wrap `command` so its output is bracketed by `FENCE_BEGIN`/`FENCE_END`. The
+/// end marker carries the command's real exit status (`$?`, captured before
+/// the marker's own `printf` can clobber it), since the compound line's own
+/// status would otherwise just be that final `printf`'s.
+///
+/// Run under an explicit `sh -c`, not whatever the remote user's login shell
+/// happens to be — a POSIX target could just as easily default to `fish`,
+/// `csh`, or `zsh` with `emulate`d quirks, and `;`-chaining and `$?` are not
+/// guaranteed to mean the same thing there. `sh` is the one shell every
+/// supported remote (Linux, macOS) is guaranteed to have. `printf`, not
+/// `echo`, fences the markers themselves: `echo`'s handling of backslash
+/// escapes and trailing newlines is famously inconsistent across
+/// implementations (`dash` vs `bash` vs a shell with `xpg_echo` set), whereas
+/// `printf`'s behavior is the same POSIX-mandated one everywhere.
+fn fence(command: &str) -> String {
+    let script =
+        format!("printf '%s\\n' {FENCE_BEGIN}; {command}; printf '%s:%s\\n' {FENCE_END} \"$?\"");
+
+    format!("sh -c {}", shq(&script))
+}
+
+/// Undo `fence`: keep only what ran between the markers, and recover the
+/// command's real exit status from the end marker. If the markers never
+/// showed up at all (the command was killed before it could print them), the
+/// output is left exactly as received rather than guessed at.
+fn unfence(out: &mut ExecOutput) {
+    let Some(begin_at) = out.stdout.find(FENCE_BEGIN) else {
+        return;
+    };
+    let after_begin = &out.stdout[begin_at + FENCE_BEGIN.len()..];
+    let after_begin = after_begin.strip_prefix('\n').unwrap_or(after_begin);
+
+    let Some(end_at) = after_begin.find(FENCE_END) else {
+        return;
+    };
+    let body = after_begin[..end_at]
+        .strip_suffix('\n')
+        .unwrap_or(&after_begin[..end_at])
+        .to_string();
+    let status = after_begin[end_at + FENCE_END.len()..]
+        .trim_start_matches(':')
+        .trim()
+        .parse::<u32>()
+        .ok();
+
+    out.stdout = body;
+    if let Some(status) = status {
+        out.exit_status = Some(status);
     }
 }
 
@@ -83,9 +147,18 @@ pub struct SshHandler {
 impl client::Handler for SshHandler {
     type Error = russh::Error;
 
-    async fn check_server_key(&mut self, server_public_key: &PublicKey) -> Result<bool, Self::Error> {
-        match known_hosts::decide(&self.host, self.port, server_public_key, &self.known_hosts_path, &self.policy)
-            .await
+    async fn check_server_key(
+        &mut self,
+        server_public_key: &PublicKey,
+    ) -> Result<bool, Self::Error> {
+        match known_hosts::decide(
+            &self.host,
+            self.port,
+            server_public_key,
+            &self.known_hosts_path,
+            &self.policy,
+        )
+        .await
         {
             Ok(()) => Ok(true),
             Err(err) => {
@@ -167,10 +240,21 @@ impl SshSession {
             }
         };
 
-        let auth_method =
-            authenticate(&mut handle, &user, &options.credentials, options.home.as_deref(), prompter).await?;
+        let auth_method = authenticate(
+            &mut handle,
+            &user,
+            &options.credentials,
+            options.home.as_deref(),
+            prompter,
+        )
+        .await?;
 
-        Ok(Self { handle, target, user, auth_method })
+        Ok(Self {
+            handle,
+            target,
+            user,
+            auth_method,
+        })
     }
 
     /// Run a command, optionally feeding it stdin.
@@ -179,7 +263,26 @@ impl SshSession {
     /// appears in argv, so it is invisible to `ps` and to the shell history of
     /// anyone else on that host.
     pub async fn exec(&self, command: &str, stdin: Option<&[u8]>) -> Result<ExecOutput, SshError> {
-        self.exec_with_timeout(command, stdin, DEFAULT_EXEC_TIMEOUT).await
+        self.exec_with_timeout(command, stdin, DEFAULT_EXEC_TIMEOUT)
+            .await
+    }
+
+    /// Like `exec`, but fences the command's real output between sentinel
+    /// markers first. A remote shell can print anything it likes before our
+    /// command ever runs — a login banner, an `nvm`/`fnm` auto-switch line
+    /// written to stdout on every non-interactive shell start — and that text
+    /// lands on stdout ahead of the command's own output with no way to tell
+    /// them apart. Use this instead of `exec` for anything that parses stdout
+    /// structurally (a `uname` platform probe, a version check) rather than
+    /// treating it as opaque text for a human to read.
+    pub async fn exec_fenced(
+        &self,
+        command: &str,
+        stdin: Option<&[u8]>,
+    ) -> Result<ExecOutput, SshError> {
+        let mut out = self.exec(&fence(command), stdin).await?;
+        unfence(&mut out);
+        Ok(out)
     }
 
     pub async fn exec_with_timeout(
@@ -201,31 +304,43 @@ impl SshSession {
         }
     }
 
-    async fn exec_inner(&self, command: &str, stdin: Option<&[u8]>) -> Result<ExecOutput, SshError> {
-        let mut channel = self
-            .handle
-            .channel_open_session()
-            .await
-            .map_err(|e| SshError::new(SshErrorKind::TransientTransportError, format!("Could not open a channel: {e}")))?;
+    async fn exec_inner(
+        &self,
+        command: &str,
+        stdin: Option<&[u8]>,
+    ) -> Result<ExecOutput, SshError> {
+        let mut channel = self.handle.channel_open_session().await.map_err(|e| {
+            SshError::new(
+                SshErrorKind::TransientTransportError,
+                format!("Could not open a channel: {e}"),
+            )
+        })?;
 
-        channel
-            .exec(true, command)
-            .await
-            .map_err(|e| SshError::new(SshErrorKind::TransientTransportError, format!("Could not start the command: {e}")))?;
+        channel.exec(true, command).await.map_err(|e| {
+            SshError::new(
+                SshErrorKind::TransientTransportError,
+                format!("Could not start the command: {e}"),
+            )
+        })?;
 
         if let Some(data) = stdin {
             channel.data(data).await.map_err(|e| {
-                SshError::new(SshErrorKind::TransientTransportError, format!("Could not write stdin: {e}"))
+                SshError::new(
+                    SshErrorKind::TransientTransportError,
+                    format!("Could not write stdin: {e}"),
+                )
             })?;
         }
 
         // Always signal EOF, even with no stdin: a command that reads until EOF
         // would otherwise block forever waiting on a stream we never intend to
         // write to.
-        channel
-            .eof()
-            .await
-            .map_err(|e| SshError::new(SshErrorKind::TransientTransportError, format!("Could not close stdin: {e}")))?;
+        channel.eof().await.map_err(|e| {
+            SshError::new(
+                SshErrorKind::TransientTransportError,
+                format!("Could not close stdin: {e}"),
+            )
+        })?;
 
         let mut out = ExecOutput::default();
         let mut stdout: Vec<u8> = Vec::new();
@@ -268,7 +383,12 @@ impl SshSession {
         self.handle
             .disconnect(russh::Disconnect::ByApplication, "", "en")
             .await
-            .map_err(|e| SshError::new(SshErrorKind::Unknown, format!("Could not close the SSH session: {e}")))
+            .map_err(|e| {
+                SshError::new(
+                    SshErrorKind::Unknown,
+                    format!("Could not close the SSH session: {e}"),
+                )
+            })
     }
 }
 
@@ -280,13 +400,25 @@ mod tests {
     fn exit_status_zero_or_absent_is_success() {
         // A server that never sends exit-status is not reporting a failure.
         assert!(ExecOutput::default().succeeded());
-        assert!(ExecOutput { exit_status: Some(0), ..Default::default() }.succeeded());
-        assert!(!ExecOutput { exit_status: Some(1), ..Default::default() }.succeeded());
+        assert!(ExecOutput {
+            exit_status: Some(0),
+            ..Default::default()
+        }
+        .succeeded());
+        assert!(!ExecOutput {
+            exit_status: Some(1),
+            ..Default::default()
+        }
+        .succeeded());
     }
 
     #[test]
     fn require_success_returns_stdout() {
-        let out = ExecOutput { stdout: "Linux\n".into(), exit_status: Some(0), ..Default::default() };
+        let out = ExecOutput {
+            stdout: "Linux\n".into(),
+            exit_status: Some(0),
+            ..Default::default()
+        };
         assert_eq!(out.require_success("uname").unwrap(), "Linux\n");
     }
 
@@ -331,12 +463,84 @@ mod tests {
     }
 
     #[test]
+    fn unfence_strips_shell_startup_noise() {
+        // The exact bug this exists for: an nvm/fnm auto-switch hook prints to
+        // stdout before the shell even reaches our command.
+        let mut out = ExecOutput {
+            stdout: format!(
+                "Now using node v18.19.0\n{FENCE_BEGIN}\nLinux\nx86_64\n{FENCE_END}:0\n"
+            ),
+            exit_status: Some(0),
+            ..Default::default()
+        };
+
+        unfence(&mut out);
+
+        assert_eq!(out.stdout, "Linux\nx86_64");
+        assert_eq!(out.exit_status, Some(0));
+    }
+
+    #[test]
+    fn unfence_recovers_the_real_exit_status() {
+        // `echo FENCE_END:$?` always exits 0 itself — the real status has to
+        // come from the captured `$?`, not the channel's own exit-status.
+        let mut out = ExecOutput {
+            stdout: format!("{FENCE_BEGIN}\n{FENCE_END}:127\n"),
+            exit_status: Some(0),
+            ..Default::default()
+        };
+
+        unfence(&mut out);
+
+        assert_eq!(out.stdout, "");
+        assert_eq!(out.exit_status, Some(127));
+    }
+
+    #[test]
+    fn unfence_leaves_output_untouched_when_markers_are_missing() {
+        // A command killed mid-flight (timeout, disconnect) never gets to
+        // print the end marker — surface whatever came back rather than
+        // silently discarding it.
+        let mut out = ExecOutput {
+            stdout: "partial output, no markers".into(),
+            exit_status: None,
+            ..Default::default()
+        };
+
+        unfence(&mut out);
+
+        assert_eq!(out.stdout, "partial output, no markers");
+        assert_eq!(out.exit_status, None);
+    }
+
+    #[test]
+    fn fence_wraps_the_command_with_both_markers() {
+        let wrapped = fence("uname -s; uname -m");
+        assert!(wrapped.contains(FENCE_BEGIN));
+        assert!(wrapped.contains(FENCE_END));
+        assert!(wrapped.contains("uname -s; uname -m"));
+    }
+
+    #[test]
+    fn fence_runs_under_an_explicit_sh_and_uses_printf() {
+        // Not the remote user's login shell (fish/csh/zsh quirks), and not
+        // `echo` (inconsistent escape/newline handling across shells).
+        let wrapped = fence("uname -s; uname -m");
+        assert!(wrapped.starts_with("sh -c "), "{wrapped}");
+        assert!(wrapped.contains("printf"), "{wrapped}");
+        assert!(!wrapped.contains("echo"), "{wrapped}");
+    }
+
+    #[test]
     fn keepalives_are_configured() {
         // russh sends none by default. Without them a half-open socket after
         // sleep/wake hangs on a read instead of erroring, and the Timeout kind
         // never fires.
         assert!(KEEPALIVE_INTERVAL.as_secs() > 0);
         assert!(KEEPALIVE_MAX > 0);
-        assert!(client::Config::default().keepalive_interval.is_none(), "the default we override");
+        assert!(
+            client::Config::default().keepalive_interval.is_none(),
+            "the default we override"
+        );
     }
 }
