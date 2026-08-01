@@ -298,7 +298,7 @@ pub async fn detect_remote_platform(
     session: &SshSession,
     explicit_hermes_path: &str,
 ) -> Result<(RemotePlatform, Option<WindowsRuntime>), SshError> {
-    match session.exec("uname -s; uname -m", None).await {
+    match session.exec_fenced("uname -s; uname -m", None).await {
         Ok(out) if out.succeeded() => {
             let mut lines = out.stdout.lines().map(str::trim).filter(|l| !l.is_empty());
             let os = lines.next().unwrap_or_default().to_string();

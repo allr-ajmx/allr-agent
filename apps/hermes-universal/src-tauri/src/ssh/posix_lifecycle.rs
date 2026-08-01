@@ -249,9 +249,12 @@ fn transient(message: impl Into<String>) -> SshError {
     SshError::new(SshErrorKind::TransientTransportError, message)
 }
 
-/// `uname -s; uname -m`, gated to the platforms this lifecycle drives.
+/// `uname -s; uname -m`, gated to the platforms this lifecycle drives. Fenced
+/// (`exec_fenced`) so a noisy shell profile — a login banner, an `nvm`/`fnm`
+/// auto-switch line printed to stdout before the command even runs — can
+/// never be mistaken for the OS name.
 pub async fn probe_platform(session: &SshSession) -> Result<RemotePlatform, SshError> {
-    let out = session.exec("uname -s; uname -m", None).await?.require_success("uname")?;
+    let out = session.exec_fenced("uname -s; uname -m", None).await?.require_success("uname")?;
 
     let mut lines = out.lines().map(str::trim).filter(|l| !l.is_empty());
     let os = lines.next().unwrap_or_default().to_string();

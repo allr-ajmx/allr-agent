@@ -422,7 +422,7 @@ pub async fn ssh_test(
         let session = SshSession::open(target, user, options, prompter.as_ref()).await?;
 
         reporter.step(SshStep::ProbingPlatform);
-        let uname = session.exec("uname -s; uname -m", None).await?.require_success("uname")?;
+        let uname = session.exec_fenced("uname -s; uname -m", None).await?.require_success("uname")?;
 
         let mut lines = uname.lines().map(str::trim).filter(|l| !l.is_empty());
         let platform = lines.next().map(str::to_string);
