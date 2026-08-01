@@ -320,7 +320,7 @@ pub async fn locate_hermes(session: &SshSession, explicit: Option<&str>) -> Resu
     let mut candidates: Vec<String> = Vec::new();
 
     println!("[ssh probe] locate_hermes: probing login shell for `command -v hermes`");
-    if let Ok(found) = session.exec(&format!("bash -lc {}", shq("command -v hermes")), None).await {
+    if let Ok(found) = session.exec_fenced(&format!("sh -lc {}", shq("command -v hermes")), None).await {
         // A login shell may print a banner first, so take the last line.
         if let Some(path) = found.stdout.lines().map(str::trim).filter(|l| !l.is_empty()).next_back() {
             println!("[ssh probe] locate_hermes: login shell found {path:?}");
