@@ -437,8 +437,12 @@ pub async fn write_lockfile(
         .map_err(|e| SshError::new(SshErrorKind::Unknown, format!("Could not encode the lock record: {e}")))?;
 
     println!("[ssh probe] write_lockfile: writing to {final_path:?} (pid={}, port={})", lock.pid, lock.port);
+    // Fenced like everything else, even though `&&` and `>` are syntax every
+    // shell agrees on: the record is `shq`-quoted JSON, and fish drops one
+    // backslash of every pair inside a single-quoted word, so a field carrying
+    // one would be written back corrupted.
     session
-        .exec(
+        .exec_fenced(
             &format!(
                 "umask 077 && mkdir -p {directory} && printf '%s' {} > {temp} && mv -f {temp} {final_path}",
                 shq(&json)
