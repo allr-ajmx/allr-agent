@@ -156,15 +156,21 @@ fn fence(command: &str) -> String {
 /// command's real exit status from the end marker. If the markers never
 /// showed up at all (the command was killed before it could print them), the
 /// output is left exactly as received rather than guessed at.
-fn unfence(out: &mut ExecOutput) {
+///
+/// Returns whether the *begin* marker was seen, which is a stronger signal
+/// than it looks: `fence` prints it before the command runs, so its absence
+/// means the fenced script never started at all — see `exec_fenced`. A missing
+/// *end* marker is an ordinary outcome by comparison (the command exited early
+/// or was killed) and stays tolerated.
+fn unfence(out: &mut ExecOutput) -> bool {
     let Some(begin_at) = out.stdout.find(FENCE_BEGIN) else {
-        return;
+        return false;
     };
     let after_begin = &out.stdout[begin_at + FENCE_BEGIN.len()..];
     let after_begin = after_begin.strip_prefix('\n').unwrap_or(after_begin);
 
     let Some(end_at) = after_begin.find(FENCE_END) else {
-        return;
+        return true;
     };
     let body = after_begin[..end_at]
         .strip_suffix('\n')
@@ -180,6 +186,8 @@ fn unfence(out: &mut ExecOutput) {
     if let Some(status) = status {
         out.exit_status = Some(status);
     }
+
+    true
 }
 
 /// Verifies the server's key, and records *why* it said no.
@@ -327,13 +335,35 @@ impl SshSession {
     /// them apart. Use this instead of `exec` for anything that parses stdout
     /// structurally (a `uname` platform probe, a version check) rather than
     /// treating it as opaque text for a human to read.
+    ///
+    /// A missing *begin* marker on an otherwise-successful command is treated
+    /// as a hard failure rather than as empty output. `fence` prints that
+    /// marker before the command runs, so its absence means the bootstrap
+    /// never got as far as the command — in practice a remote without a
+    /// `base64` decoder, where the substitution yields nothing and `sh -c ""`
+    /// exits 0. Left unchecked that reads as "succeeded, produced nothing",
+    /// which every caller then misreports downstream as its own kind of
+    /// missing thing: no platform, no hermes, no lockfile.
     pub async fn exec_fenced(
         &self,
         command: &str,
         stdin: Option<&[u8]>,
     ) -> Result<ExecOutput, SshError> {
         let mut out = self.exec(&fence(command), stdin).await?;
-        unfence(&mut out);
+
+        if !unfence(&mut out) && out.succeeded() {
+            return Err(SshError::new(
+                SshErrorKind::Unknown,
+                format!(
+                    "The remote host did not run a command Hermes sent it. Its shell may be \
+                     missing a `base64` decoder, which Hermes needs to send commands safely. \
+                     ({} on {})",
+                    if out.stderr.trim().is_empty() { "no error output" } else { out.stderr.trim() },
+                    self.target.label()
+                ),
+            ));
+        }
+
         Ok(out)
     }
 
@@ -526,7 +556,7 @@ mod tests {
             ..Default::default()
         };
 
-        unfence(&mut out);
+        assert!(unfence(&mut out));
 
         assert_eq!(out.stdout, "Linux\nx86_64");
         assert_eq!(out.exit_status, Some(0));
@@ -542,7 +572,7 @@ mod tests {
             ..Default::default()
         };
 
-        unfence(&mut out);
+        assert!(unfence(&mut out));
 
         assert_eq!(out.stdout, "");
         assert_eq!(out.exit_status, Some(127));
@@ -559,10 +589,28 @@ mod tests {
             ..Default::default()
         };
 
-        unfence(&mut out);
+        assert!(!unfence(&mut out), "no begin marker was present");
 
         assert_eq!(out.stdout, "partial output, no markers");
         assert_eq!(out.exit_status, None);
+    }
+
+    #[test]
+    fn unfence_distinguishes_a_missing_begin_from_a_missing_end() {
+        // The asymmetry `exec_fenced`'s guard rests on. A missing END marker is
+        // ordinary — the command exited early or was killed — and must stay
+        // tolerated. A missing BEGIN marker means the fenced script never ran
+        // at all, which is never ordinary.
+        let mut started = ExecOutput {
+            stdout: format!("{FENCE_BEGIN}\nhalf a line"),
+            exit_status: Some(0),
+            ..Default::default()
+        };
+        assert!(unfence(&mut started), "the begin marker was printed");
+        assert_eq!(started.stdout, format!("{FENCE_BEGIN}\nhalf a line"), "left as received");
+
+        let mut never_ran = ExecOutput { exit_status: Some(0), ..Default::default() };
+        assert!(!unfence(&mut never_ran), "nothing was printed at all");
     }
 
     /// Recover the fenced script from `fence`'s output — the base64 blob is the
