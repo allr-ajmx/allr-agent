@@ -703,6 +703,118 @@ mod tests {
         assert!(!wrapped.contains("'\\''"), "{wrapped}");
     }
 
+    // --- Executed against real shells -------------------------------------
+    //
+    // Everything above reasons about the *text* `fence` produces. That is what
+    // let the fish bug ship green: the wrapper was a correct POSIX string, and
+    // the tests all agreed it was, but no test ever asked a shell to parse it.
+    // These do. They are the reason this file is where MJX-259's "run it for
+    // real" tier starts.
+
+    /// Shells to try, in the order a remote is likely to have them. `dash` is
+    /// what `/bin/sh` usually *is* on Linux; `fish` is the one that actually
+    /// broke.
+    const REAL_SHELLS: [&str; 4] = ["sh", "bash", "dash", "fish"];
+
+    fn shell_available(shell: &str) -> bool {
+        std::process::Command::new(shell)
+            .arg("-c")
+            .arg("exit 0")
+            .output()
+            .is_ok_and(|out| out.status.success())
+    }
+
+    /// Whether a non-shell binary can be run at all. Deliberately *not*
+    /// `shell_available`: `python3 -c "exit 0"` is a Python SyntaxError, so
+    /// reusing that check here would have quietly skipped the one test that
+    /// reproduces the bug — the same "green because it never ran" trap the
+    /// tests below exist to close.
+    fn binary_available(name: &str) -> bool {
+        std::process::Command::new(name).arg("--version").output().is_ok_and(|out| out.status.success())
+    }
+
+    /// Run `wrapped` the way sshd does: hand the whole raw string to a login
+    /// shell, with `stdin_data` on the real stdin — the fd `fence`'s command
+    /// substitution must never disturb.
+    fn run_via(shell: &str, wrapped: &str, stdin_data: &[u8]) -> ExecOutput {
+        use std::io::Write as _;
+        use std::process::Stdio;
+
+        let mut child = std::process::Command::new(shell)
+            .arg("-c")
+            .arg(wrapped)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap_or_else(|e| panic!("could not spawn {shell}: {e}"));
+
+        child.stdin.take().expect("piped stdin").write_all(stdin_data).expect("write stdin");
+        let finished = child.wait_with_output().expect("wait for child");
+
+        ExecOutput {
+            stdout: String::from_utf8_lossy(&finished.stdout).into_owned(),
+            stderr: String::from_utf8_lossy(&finished.stderr).into_owned(),
+            exit_status: finished.status.code().map(|code| code as u32),
+        }
+    }
+
+    #[test]
+    fn fence_round_trips_stdin_and_status_through_real_shells() {
+        // `cat` proves the decode step leaves the real stdin alone, which is
+        // what upload_token's secret-over-stdin contract depends on; `exit 3`
+        // proves the status recovered from the marker is the command's own and
+        // not the trailing printf's.
+        for shell in REAL_SHELLS.iter().filter(|s| shell_available(s)) {
+            let mut out = run_via(shell, &fence("cat"), b"hello-stdin");
+            assert!(unfence(&mut out), "begin marker missing under {shell}");
+            assert_eq!(out.stdout, "hello-stdin", "under {shell}");
+            assert_eq!(out.exit_status, Some(0), "under {shell}");
+
+            let mut failed = run_via(shell, &fence("exit 3"), b"");
+            assert!(unfence(&mut failed), "begin marker missing under {shell}");
+            assert_eq!(failed.exit_status, Some(3), "under {shell}");
+        }
+    }
+
+    #[test]
+    fn fence_carries_the_upload_token_payload_through_real_shells() {
+        // The exact production failure: upload_token is a `python3 -c` script
+        // that itself embeds a quoted path, so fencing it used to add the
+        // quoting layer fish misparses — it dropped the path's quotes and
+        // Python died on a bare word. Skip rather than fail where python3 is
+        // absent; the shells are filtered the same way.
+        if !binary_available("python3") {
+            eprintln!("skipping: python3 is not available");
+            return;
+        }
+
+        let dir = std::env::temp_dir().join("hermes-fence-upload-token");
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+
+        for shell in REAL_SHELLS.iter().filter(|s| shell_available(s)) {
+            let token_path = dir.join(format!("{shell}.token"));
+            let _ = std::fs::remove_file(&token_path);
+
+            let command =
+                super::super::remote_scripts::upload_token(token_path.to_str().expect("utf8 path"));
+            let token = format!("secret-under-{shell}");
+
+            let mut out = run_via(shell, &fence(&command), token.as_bytes());
+            assert!(unfence(&mut out), "begin marker missing under {shell}: {:?}", out.stderr);
+            assert_eq!(out.exit_status, Some(0), "under {shell}: {:?}", out.stderr);
+            assert_eq!(
+                std::fs::read_to_string(&token_path).expect("token file written"),
+                token,
+                "under {shell}"
+            );
+
+            let _ = std::fs::remove_file(&token_path);
+        }
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn keepalives_are_configured() {
         // russh sends none by default. Without them a half-open socket after
