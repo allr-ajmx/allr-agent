@@ -162,12 +162,29 @@ export interface SshSecrets {
   password?: string
 }
 
-/** Persist SSH credentials. Returns false when the keystore is unavailable. */
-export async function saveSshSecrets(secrets: SshSecrets): Promise<boolean> {
+/** Persist SSH credentials, leaving out whatever `patch` does not mention.
+ *
+ *  Deliberately the only writer, and deliberately a merge. A write-all-three
+ *  variant used to exist and was the natural thing to call, which made it easy
+ *  to wipe the password by saving the two fields the connection form owns — and
+ *  the password is not one of them. It only ever arrives as the answer to a
+ *  prompt Rust raised mid-connect, so a clobbering save destroyed the one
+ *  credential an unattended restore had to work with.
+ *
+ *  An undefined field means "leave as-is"; pass an empty string to clear one. */
+export async function mergeSshSecrets(patch: SshSecrets): Promise<boolean> {
   return safe(async () => {
-    await writeKey('sshKey', secrets.privateKeyPem)
-    await writeKey('sshPassphrase', secrets.passphrase)
-    await writeKey('sshPassword', secrets.password)
+    if (patch.privateKeyPem !== undefined) {
+      await writeKey('sshKey', patch.privateKeyPem)
+    }
+
+    if (patch.passphrase !== undefined) {
+      await writeKey('sshPassphrase', patch.passphrase)
+    }
+
+    if (patch.password !== undefined) {
+      await writeKey('sshPassword', patch.password)
+    }
 
     return true
   }, false)

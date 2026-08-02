@@ -12,7 +12,7 @@ import { type AuthProvider, fetchAuthProviders } from '@/lib/auth'
 import { openExternalLink } from '@/lib/external-link'
 import { AlertCircle, Check, Cloud, Globe, HelpCircle, Loader2, LogIn, Monitor, RefreshCw, Terminal } from '@/lib/icons'
 import { LOCAL_MODE_SUPPORTED } from '@/lib/platform'
-import { saveSecrets, saveSshSecrets } from '@/lib/secure-store'
+import { mergeSshSecrets, saveSecrets } from '@/lib/secure-store'
 import { selectableCardClass } from '@/lib/selectable-card'
 import { cn } from '@/lib/utils'
 import { useStore } from '@/store/atom'
@@ -388,11 +388,43 @@ export function GatewayConfigurator({ variant = 'settings' }: { variant?: 'onboa
 
   // Persist the credentials the user typed, so the boot restore — which cannot
   // prompt — has them next launch.
+  //
+  // Merged rather than written wholesale: this saves the two credentials the
+  // form owns, and the password is not one of them — it only ever arrives as a
+  // prompt answer (see `rememberSshPromptAnswer`). Writing all three would
+  // delete it, and both "Save for next restart" and Test call through here, so
+  // saving would have destroyed the very credential the next launch needs.
+  // Empty is still meaningful: clearing a field clears what was stored.
   const persistSshSecrets = () =>
-    saveSshSecrets({
-      privateKeyPem: sshForm.privateKeyPem.trim() || undefined,
-      passphrase: sshForm.passphrase || undefined
+    mergeSshSecrets({
+      privateKeyPem: sshForm.privateKeyPem.trim(),
+      passphrase: sshForm.passphrase
     })
+
+  /**
+   * Keep the answer to a mid-connect prompt, so the *next* launch can
+   * authenticate on its own.
+   *
+   * Without this, a host that authenticates by password could only ever be
+   * reached interactively: the password has no field in the form, so answering
+   * the prompt was the only way to supply it and the answer was thrown away the
+   * moment Rust accepted it. The boot restore then runs non-interactively —
+   * deliberately, since nothing is mounted to answer a dialog — finds no
+   * credential, and fails. Which is exactly what "save and reconnect" did.
+   *
+   * `keyboard-interactive` answers are NOT kept. That exchange is where a
+   * one-time code lives, and a stored OTP is both useless next time and a
+   * credential we were never meant to hold.
+   */
+  const rememberSshPromptAnswer = (kind: SshPromptEvent['kind'], answer: string) => {
+    if (!answer || kind === 'keyboard-interactive') {
+      return
+    }
+
+    void mergeSshSecrets(kind === 'password' ? { password: answer } : { passphrase: answer }).catch(
+      () => {}
+    )
+  }
 
   const doConnectSsh = async () => {
     if (!trimmedSshHost) {
@@ -596,6 +628,7 @@ export function GatewayConfigurator({ variant = 'settings' }: { variant?: 'onboa
 
             if (attemptId && sshPrompt) {
               void answerSshPrompt(attemptId, sshPrompt.promptId, answer).catch(() => {})
+              rememberSshPromptAnswer(sshPrompt.kind, answer)
               setSshPrompt(null)
             }
           }}
