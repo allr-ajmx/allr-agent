@@ -382,7 +382,7 @@ pub async fn probe_hermes_version(session: &SshSession, hermes_path: &str) -> St
 /// later reuse can confirm it is the same state store.
 pub async fn probe_hermes_home(session: &SshSession) -> Result<String, SshError> {
     let out = session
-        .exec("echo \"${HERMES_HOME:-$HOME/.hermes}\"", None)
+        .exec_fenced("echo \"${HERMES_HOME:-$HOME/.hermes}\"", None)
         .await
         .map_err(|e| transient(format!("Could not resolve the remote Hermes home: {e}")))?;
 
@@ -391,7 +391,7 @@ pub async fn probe_hermes_home(session: &SshSession) -> Result<String, SshError>
 
 /// Whether the remote `hermes` understands the ownership contract.
 pub async fn supports_ssh_ownership(session: &SshSession, hermes_path: &str) -> Result<bool, SshError> {
-    let out = session.exec(&build_capability_probe(hermes_path)?, None).await?;
+    let out = session.exec_fenced(&build_capability_probe(hermes_path)?, None).await?;
 
     Ok(capability_probe_passed(&out.stdout))
 }
@@ -462,7 +462,7 @@ pub async fn remote_pid_alive(session: &SshSession, pid: i64) -> Result<bool, Ss
     }
 
     let out = session
-        .exec(&format!("kill -0 {pid} 2>/dev/null && echo ALIVE || echo DEAD"), None)
+        .exec_fenced(&format!("kill -0 {pid} 2>/dev/null && echo ALIVE || echo DEAD"), None)
         .await
         .map_err(|e| transient(format!("Could not verify the SSH backend process: {e}")))?;
 
@@ -575,7 +575,7 @@ pub async fn spawn_remote_dashboard(
     let spawn_command =
         build_spawn_command(hermes_path, profile, &log_path, Some(&token_file_path), Some(spawn_nonce))?;
 
-    let out = match session.exec(&spawn_command, None).await.and_then(|o| o.require_success("starting the backend")) {
+    let out = match session.exec_fenced(&spawn_command, None).await.and_then(|o| o.require_success("starting the backend")) {
         Ok(out) => out,
         Err(err) => {
             remove_token_file(session, &token_file_path).await;
@@ -640,7 +640,7 @@ pub async fn wait_for_ready_port(
         }
 
         let tail = session
-            .exec(&format!("cat {remote_log} 2>/dev/null || true"), None)
+            .exec_fenced(&format!("cat {remote_log} 2>/dev/null || true"), None)
             .await
             .map(|o| o.stdout)
             .unwrap_or_default();
