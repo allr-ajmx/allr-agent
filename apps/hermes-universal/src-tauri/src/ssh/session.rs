@@ -79,6 +79,26 @@ impl ExecOutput {
 const FENCE_BEGIN: &str = "__hermes_fence_begin__";
 const FENCE_END: &str = "__hermes_fence_end__";
 
+/// The bootstrap the remote's login shell is asked to run. Every character
+/// here is load-bearing:
+///
+/// - **No backslash and no single quote.** This is the only text the *login*
+///   shell ever parses, and shells disagree about those two characters inside
+///   a quoted word (see `fence`). Keeping both out means `shq` has nothing to
+///   escape, so every shell sees byte-identical text.
+/// - **`$( )`, `eval` and `||` live *inside* the quoted word**, so POSIX `sh`
+///   interprets them rather than the login shell. Putting a `$( )` in front of
+///   the login shell instead would drop csh/tcsh (no `$( )`) — and backticks,
+///   the csh-compatible spelling, would drop fish. Nesting it keeps both.
+/// - **`base64 -d` then `-D`.** GNU/busybox decode with `-d`, BSD/macOS with
+///   `-D`, and neither accepts the other's flag. Each branch re-runs `printf`
+///   rather than resharing a consumed stream, so the retry is free.
+/// - **`eval`, not a pipe into `sh`.** `... | sh` would make the script itself
+///   the new stdin, and `upload_token` sends its secret over the real stdin.
+///   `eval` runs in place, leaving that fd untouched.
+const FENCE_BOOTSTRAP: &str =
+    r#"eval "$(printf %s "$0" | base64 -d 2>/dev/null || printf %s "$0" | base64 -D 2>/dev/null)""#;
+
 /// Wrap `command` so its output is bracketed by `FENCE_BEGIN`/`FENCE_END`. The
 /// end marker carries the command's real exit status (`$?`, captured before
 /// the marker's own `printf` can clobber it), since the compound line's own
@@ -93,11 +113,43 @@ const FENCE_END: &str = "__hermes_fence_end__";
 /// escapes and trailing newlines is famously inconsistent across
 /// implementations (`dash` vs `bash` vs a shell with `xpg_echo` set), whereas
 /// `printf`'s behavior is the same POSIX-mandated one everywhere.
+///
+/// Asking for `sh` is not enough on its own, though, because *this string is
+/// not read by `sh`*. sshd hands it to the user's login shell
+/// (`<login-shell> -c "<this>"`), which only then runs the `sh -c` inside it —
+/// so the login shell parses our quoting first, and fish does not parse it the
+/// way POSIX does:
+///
+/// | input    | POSIX   | fish                    |
+/// |----------|---------|-------------------------|
+/// | `'a\\b'` | `a\\b`  | `a\b`                   |
+/// | `'a\'`   | `a\`    | unterminated string     |
+///
+/// Fish honours `\\` and `\'` as escapes *inside* single quotes; POSIX single
+/// quotes are wholly literal. `shq` escapes an embedded quote as `'\''`, so
+/// the moment its output is quoted a second time that backslash sits inside a
+/// single-quoted region, fish reads the `\'` as an escaped quote rather than a
+/// closing one, and its idea of "am I inside quotes" desynchronises from
+/// POSIX's for the rest of the string. Wrapping an already-quoted command —
+/// every `remote_scripts` payload is a `python3 -c '<script>'` — was enough to
+/// trigger it: fish dropped the quotes around an interpolated path and handed
+/// Python a bare word (`SyntaxError: invalid syntax`).
+///
+/// So the command is base64'd and passed as `$0` to `FENCE_BOOTSTRAP` instead
+/// of being quoted into the command line. The base64 alphabet has no shell
+/// metacharacter in it, so no matter what the inner command quotes, nests, or
+/// escapes, the text the login shell sees is inert.
 fn fence(command: &str) -> String {
+    use base64::Engine as _;
+
     let script =
         format!("printf '%s\\n' {FENCE_BEGIN}; {command}; printf '%s:%s\\n' {FENCE_END} \"$?\"");
+    let encoded = base64::engine::general_purpose::STANDARD.encode(script.as_bytes());
 
-    format!("sh -c {}", shq(&script))
+    // `shq` here is a no-op by construction — FENCE_BOOTSTRAP holds no quote to
+    // escape — but going through it keeps that an invariant a test can assert
+    // rather than something the literal quietly depends on.
+    format!("sh -c {} {encoded}", shq(FENCE_BOOTSTRAP))
 }
 
 /// Undo `fence`: keep only what ran between the markers, and recover the
@@ -513,29 +565,33 @@ mod tests {
         assert_eq!(out.exit_status, None);
     }
 
+    /// Recover the fenced script from `fence`'s output — the base64 blob is the
+    /// last word — so tests can assert on what the remote's `sh` will actually
+    /// run rather than on the transport wrapper around it.
+    fn decode_fenced(wrapped: &str) -> String {
+        use base64::Engine as _;
+
+        let b64 = wrapped.rsplit(' ').next().expect("a base64 blob");
+        let bytes = base64::engine::general_purpose::STANDARD.decode(b64).expect("valid base64");
+
+        String::from_utf8(bytes).expect("utf8 script")
+    }
+
     #[test]
     fn fence_wraps_the_command_with_both_markers() {
-        let wrapped = fence("uname -s; uname -m");
-        assert!(wrapped.contains(FENCE_BEGIN));
-        assert!(wrapped.contains(FENCE_END));
-        assert!(wrapped.contains("uname -s; uname -m"));
-    }
-
-    fn unshq(quoted: &str) -> String {
-        let inner = quoted.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')).expect("one shell word");
-
-        inner.replace("'\\''", "'")
+        let decoded = decode_fenced(&fence("uname -s; uname -m"));
+        assert!(decoded.contains(FENCE_BEGIN), "{decoded}");
+        assert!(decoded.contains(FENCE_END), "{decoded}");
+        assert!(decoded.contains("uname -s; uname -m"), "{decoded}");
     }
 
     #[test]
-    fn fence_nests_safely_around_an_already_quoted_command() {
-        // build_spawn_command already applies two layers of shq-quoting itself
-        // (the --profile argument, then the whole `sh -c '...'` string).
-        // fence() adds a third layer around the whole thing. Proving the
-        // unwrapped fence layer reproduces build_spawn_command's output
-        // byte-for-byte confirms all of *its* inner quoting (including a
-        // hostile profile value) survives untouched, no matter how many
-        // shells end up parsing it in sequence.
+    fn fence_carries_an_already_quoted_command_through_untouched() {
+        // build_spawn_command applies two layers of shq-quoting of its own (the
+        // --profile argument, then the whole `sh -c '...'` string). Proving the
+        // decoded payload reproduces its output byte-for-byte confirms fence
+        // adds no quoting of its own for a shell to misread — which is exactly
+        // what the old shq-based wrapper got wrong.
         let hostile = "a'; rm -rf /; #";
         let spawn_command = super::super::posix_lifecycle::build_spawn_command(
             "/usr/local/bin/hermes",
@@ -546,25 +602,57 @@ mod tests {
         )
         .unwrap();
 
-        let wrapped = fence(&spawn_command);
-
-        let (_, outer_arg) = wrapped.split_once("sh -c ").expect("outer sh -c");
-        let fenced_script = unshq(outer_arg);
+        let decoded = decode_fenced(&fence(&spawn_command));
 
         let expected = format!(
             "printf '%s\\n' {FENCE_BEGIN}; {spawn_command}; printf '%s:%s\\n' {FENCE_END} \"$?\""
         );
-        assert_eq!(fenced_script, expected);
+        assert_eq!(decoded, expected);
     }
 
     #[test]
     fn fence_runs_under_an_explicit_sh_and_uses_printf() {
         // Not the remote user's login shell (fish/csh/zsh quirks), and not
-        // `echo` (inconsistent escape/newline handling across shells).
+        // `echo` (inconsistent escape/newline handling across shells). The
+        // markers now live inside the blob, so the second half has to be
+        // asserted on the decoded script — the wrapper's own `printf` would
+        // otherwise satisfy it for the wrong reason.
         let wrapped = fence("uname -s; uname -m");
         assert!(wrapped.starts_with("sh -c "), "{wrapped}");
-        assert!(wrapped.contains("printf"), "{wrapped}");
-        assert!(!wrapped.contains("echo"), "{wrapped}");
+
+        let decoded = decode_fenced(&wrapped);
+        assert!(decoded.contains("printf"), "{decoded}");
+        assert!(!decoded.contains("echo"), "{decoded}");
+    }
+
+    #[test]
+    fn fence_bootstrap_needs_no_escaping() {
+        // The invariant the whole fix rests on: shells disagree about `\` and
+        // `'` inside a quoted word, so the one string the login shell parses
+        // must contain neither. That also makes `shq` over it a no-op.
+        assert!(!FENCE_BOOTSTRAP.contains('\''), "{FENCE_BOOTSTRAP}");
+        assert!(!FENCE_BOOTSTRAP.contains('\\'), "{FENCE_BOOTSTRAP}");
+        assert_eq!(shq(FENCE_BOOTSTRAP), format!("'{FENCE_BOOTSTRAP}'"));
+    }
+
+    #[test]
+    fn fence_never_hands_the_login_shell_a_backslash_or_nested_quote() {
+        // Same invariant, stated over a real worst case: a command that is
+        // itself twice-quoted and carries a hostile apostrophe. Under the old
+        // wrapper this produced `'\''` sequences, which fish misparses.
+        let spawn_command = super::super::posix_lifecycle::build_spawn_command(
+            "/usr/local/bin/hermes",
+            Some("a'; rm -rf /; #"),
+            "~/x.log",
+            None,
+            None,
+        )
+        .unwrap();
+
+        let wrapped = fence(&spawn_command);
+
+        assert!(!wrapped.contains('\\'), "{wrapped}");
+        assert!(!wrapped.contains("'\\''"), "{wrapped}");
     }
 
     #[test]
