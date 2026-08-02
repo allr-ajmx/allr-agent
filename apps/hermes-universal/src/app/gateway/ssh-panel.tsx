@@ -59,6 +59,87 @@ export function parsePortField(value: string): number | null {
   return port > 0 && port <= 65535 ? port : null
 }
 
+/** Whether a string is a port Rust's target parser would accept off the host.
+ *  Deliberately wider than {@link parsePortField}: 0 is split off here and
+ *  dropped there, which is what `normalize_ssh_target` does too. */
+function isEmbeddedPort(value: string): boolean {
+  return /^\d+$/.test(value) && Number(value) <= 65535
+}
+
+/** Split `[inner]` / `[inner]:port`. Null when not bracketed, or when what
+ *  follows the bracket is not a port — the caller then treats the whole thing
+ *  as a bare IPv6 literal, which has no port to take off it. */
+function splitBracketed(value: string): null | { host: string; port?: string } {
+  if (!value.startsWith('[')) {
+    return null
+  }
+
+  const close = value.indexOf(']', 1)
+  const inner = close < 0 ? '' : value.slice(1, close)
+
+  if (!inner) {
+    return null
+  }
+
+  const after = value.slice(close + 1)
+
+  if (!after) {
+    return { host: inner }
+  }
+
+  const rawPort = after.startsWith(':') ? after.slice(1) : ''
+
+  return isEmbeddedPort(rawPort) ? { host: inner, port: rawPort } : null
+}
+
+/**
+ * Pull an embedded user and port out of whatever was typed into the host field.
+ *
+ * Rust's `normalize_ssh_target` already absorbs `user@box:2222` — that is why
+ * pasting one connects — but it does so invisibly, leaving the User and Port
+ * rows looking empty while the connection plainly had both. This mirrors that
+ * parser exactly so the form can show the same reading it will be given, rather
+ * than the UI and the backend quietly disagreeing about what was entered.
+ *
+ * Kept in step with `src-tauri/src/ssh/target.rs`: first `@` only and only past
+ * index 0 (a leading `@` is not an empty user — it stays put and fails host
+ * validation, as there), brackets before colons, and a lone colon required
+ * before splitting a port, since two or more mean a bare IPv6 literal.
+ */
+export function splitSshHostInput(raw: string): { host: string; port?: string; user?: string } {
+  let host = raw.trim()
+
+  if (!host) {
+    return { host: '' }
+  }
+
+  let user: string | undefined
+  let port: string | undefined
+
+  const at = host.indexOf('@')
+
+  if (at > 0) {
+    user = host.slice(0, at)
+    host = host.slice(at + 1)
+  }
+
+  const bracketed = splitBracketed(host)
+
+  if (bracketed) {
+    host = bracketed.host
+    port = bracketed.port
+  } else if (host.split(':').length === 2) {
+    const [name, rawPort] = host.split(':')
+
+    if (isEmbeddedPort(rawPort)) {
+      host = name
+      port = rawPort
+    }
+  }
+
+  return { host, port, user }
+}
+
 /** The non-secret half of the form, as the connect call wants it. */
 export function sshTargetFromForm(form: SshFormState): {
   host: string
@@ -101,6 +182,28 @@ export function SshPanel({
 
   const set = <K extends keyof SshFormState>(key: K, value: SshFormState[K]) => setForm({ ...form, [key]: value })
 
+  /**
+   * Move an embedded user and port out of the host field and into their own.
+   *
+   * Run on commit (blur or Enter), not on every keystroke: splitting mid-typing
+   * would move the caret out from under someone the moment they typed `@`.
+   *
+   * A field the user has already filled in wins and is left alone, matching the
+   * precedence Rust applies — so this only ever fills blanks and never quietly
+   * overwrites something that was typed deliberately.
+   */
+  const absorbHostParts = () => {
+    const parts = splitSshHostInput(form.host)
+    const user = form.user.trim() ? form.user : (parts.user ?? form.user)
+    const port = form.port.trim() ? form.port : (parts.port ?? form.port)
+
+    if (parts.host === form.host && user === form.user && port === form.port) {
+      return
+    }
+
+    setForm({ ...form, host: parts.host, port, user })
+  }
+
   // The ~/.ssh/config host list. Empty on mobile (no ~/.ssh), which is why this
   // is a datalist of suggestions rather than a required picker.
   useEffect(() => {
@@ -134,6 +237,7 @@ export function SshPanel({
     }
 
     let live = true
+
     const timer = setTimeout(() => {
       void resolveSshHost(host)
         .then(resolved => {
@@ -158,7 +262,13 @@ export function SshPanel({
             <Input
               className="font-normal"
               list={configHosts.length ? 'hermes-ssh-config-hosts' : undefined}
+              onBlur={absorbHostParts}
               onChange={event => set('host', event.target.value)}
+              onKeyDown={event => {
+                if (event.key === 'Enter') {
+                  absorbHostParts()
+                }
+              }}
               placeholder={g.sshHostPlaceholder}
               value={form.host}
             />
