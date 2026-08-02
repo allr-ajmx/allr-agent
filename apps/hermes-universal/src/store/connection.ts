@@ -8,6 +8,7 @@ import {
   portalAgentSignIn,
   portalLogout
 } from '@/lib/auth'
+import { errorText } from '@/lib/error-text'
 import { loadString, saveString } from '@/lib/persist'
 import { IS_ANDROID } from '@/lib/platform'
 import { clearSecrets, loadSecrets, loadSshSecrets, saveSecrets, type Secrets } from '@/lib/secure-store'
@@ -214,7 +215,7 @@ export async function connect(input: ConnectInput): Promise<void> {
     // Remember this target so the next launch auto-reconnects (D8).
     saveGatewayTarget({ mode: 'remote', url: input.url.trim(), username: input.username || undefined })
   } catch (err) {
-    $connectionError.set(err instanceof Error ? err.message : String(err))
+    $connectionError.set(errorText(err))
     $connectionPhase.set('error')
     $connection.set(null)
     throw err
@@ -249,7 +250,7 @@ export async function connectLocal(profile?: null | string): Promise<void> {
   } catch (err) {
     // Tear the child down so a failed connect doesn't leave an orphan process.
     void stopLocalBackend().catch(() => {})
-    $connectionError.set(err instanceof Error ? err.message : String(err))
+    $connectionError.set(errorText(err))
     $connectionPhase.set('error')
     $connection.set(null)
     throw err
@@ -342,7 +343,7 @@ export async function connectSsh(
     // backend is deliberately left alone — Rust already reaped it if the failure
     // was its own.
     void disconnectSsh(profile).catch(() => {})
-    $connectionError.set(err instanceof Error ? err.message : String(err))
+    $connectionError.set(errorText(err))
     $connectionPhase.set('error')
     $connection.set(null)
     throw err
@@ -398,7 +399,7 @@ export async function connectCloud(baseUrl: string, profile?: null | string): Pr
     // enriches it with the agent id/name afterwards (for the restore label).
     saveGatewayTarget({ mode: 'cloud', cloudBaseUrl: conn.baseUrl, profile: profile ?? null })
   } catch (err) {
-    $connectionError.set(err instanceof Error ? err.message : String(err))
+    $connectionError.set(errorText(err))
     $connectionPhase.set('error')
     $connection.set(null)
     throw err
