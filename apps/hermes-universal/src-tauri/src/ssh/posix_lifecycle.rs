@@ -451,7 +451,7 @@ pub async fn write_lockfile(
 /// Drop the ownership record. Best-effort.
 pub async fn remove_lockfile(session: &SshSession, ownership_id: &str) {
     if let Ok(path) = lockfile_path(ownership_id).and_then(|p| expand_remote_path(&p)) {
-        let _ = session.exec(&format!("rm -f {path}"), None).await;
+        let _ = session.exec_fenced(&format!("rm -f {path}"), None).await;
     }
 }
 
@@ -487,7 +487,7 @@ pub async fn pid_is_our_dashboard(
     let command = remote_scripts::pid_is_our_dashboard(pid, spawn_nonce, hermes_path)?;
 
     let out = session
-        .exec(&command, None)
+        .exec_fenced(&command, None)
         .await
         .map_err(|e| transient(format!("Could not verify SSH backend process ownership: {e}")))?;
 
@@ -529,7 +529,7 @@ pub async fn cleanup_stale(
     if let Ok(expected) = spawn_log_path(ownership_id, &lock.spawn_nonce) {
         if lock.log_path == expected {
             if let Ok(path) = expand_remote_path(&lock.log_path) {
-                let _ = session.exec(&format!("rm -f {path}"), None).await;
+                let _ = session.exec_fenced(&format!("rm -f {path}"), None).await;
             }
         }
     }
@@ -563,7 +563,7 @@ pub async fn spawn_remote_dashboard(
 
     // The secret goes over stdin, never argv.
     if let Err(err) = session
-        .exec(&remote_scripts::upload_token(&token_file_path), Some(token.as_bytes()))
+        .exec_fenced(&remote_scripts::upload_token(&token_file_path), Some(token.as_bytes()))
         .await
         .and_then(|o| o.require_success("uploading the session token"))
     {
@@ -613,7 +613,7 @@ pub async fn spawn_remote_dashboard(
 /// script's own hour-old sweep.
 pub async fn remove_token_file(session: &SshSession, token_file_path: &str) {
     if let Ok(path) = expand_remote_path(token_file_path) {
-        let _ = session.exec(&format!("rm -f {path}"), None).await;
+        let _ = session.exec_fenced(&format!("rm -f {path}"), None).await;
     }
 }
 
