@@ -400,8 +400,11 @@ pub async fn supports_ssh_ownership(session: &SshSession, hermes_path: &str) -> 
 pub async fn read_lockfile(session: &SshSession, ownership_id: &str) -> Result<Option<BackendLock>, SshError> {
     let path = expand_remote_path(&lockfile_path(ownership_id)?)?;
 
+    // No `exit` here (unlike the equivalent bash idiom): a script wrapped by
+    // `exec_fenced` must run to its own end, or the fence's trailing marker —
+    // which recovers the real exit status — never gets a chance to print.
     let out = session
-        .exec(&format!("if [ ! -e {path} ]; then exit 0; fi; cat {path}"), None)
+        .exec_fenced(&format!("if [ -e {path} ]; then cat {path}; fi"), None)
         .await
         .map_err(|e| transient(format!("Could not read the SSH backend ownership record: {e}")))?;
 
@@ -503,11 +506,16 @@ pub async fn cleanup_stale(
         // Wait for it to actually go away (5s), rather than assuming the signal
         // took: respawning while the old process still holds its port would give
         // us a backend we cannot reach.
+        // No `exit` here — same reason as read_lockfile: the loop must run to
+        // its own end under exec_fenced. `break` out of the timeout instead,
+        // then make the final statement the thing whose exit status the
+        // fence's trailing marker captures: 0 if the process died in time, 1
+        // if the wait timed out.
         session
-            .exec(
+            .exec_fenced(
                 &format!(
                     "kill {pid} && i=0; while kill -0 {pid} 2>/dev/null; do \
-                     i=$((i+1)); [ \"$i\" -ge 50 ] && exit 1; sleep 0.1; done",
+                     i=$((i+1)); [ \"$i\" -ge 50 ] && break; sleep 0.1; done; [ \"$i\" -lt 50 ]",
                     pid = lock.pid
                 ),
                 None,

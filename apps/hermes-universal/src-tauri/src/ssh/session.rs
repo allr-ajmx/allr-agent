@@ -521,6 +521,42 @@ mod tests {
         assert!(wrapped.contains("uname -s; uname -m"));
     }
 
+    fn unshq(quoted: &str) -> String {
+        let inner = quoted.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')).expect("one shell word");
+
+        inner.replace("'\\''", "'")
+    }
+
+    #[test]
+    fn fence_nests_safely_around_an_already_quoted_command() {
+        // build_spawn_command already applies two layers of shq-quoting itself
+        // (the --profile argument, then the whole `sh -c '...'` string).
+        // fence() adds a third layer around the whole thing. Proving the
+        // unwrapped fence layer reproduces build_spawn_command's output
+        // byte-for-byte confirms all of *its* inner quoting (including a
+        // hostile profile value) survives untouched, no matter how many
+        // shells end up parsing it in sequence.
+        let hostile = "a'; rm -rf /; #";
+        let spawn_command = super::super::posix_lifecycle::build_spawn_command(
+            "/usr/local/bin/hermes",
+            Some(hostile),
+            "~/x.log",
+            None,
+            None,
+        )
+        .unwrap();
+
+        let wrapped = fence(&spawn_command);
+
+        let (_, outer_arg) = wrapped.split_once("sh -c ").expect("outer sh -c");
+        let fenced_script = unshq(outer_arg);
+
+        let expected = format!(
+            "printf '%s\\n' {FENCE_BEGIN}; {spawn_command}; printf '%s:%s\\n' {FENCE_END} \"$?\""
+        );
+        assert_eq!(fenced_script, expected);
+    }
+
     #[test]
     fn fence_runs_under_an_explicit_sh_and_uses_printf() {
         // Not the remote user's login shell (fish/csh/zsh quirks), and not
