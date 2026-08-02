@@ -408,7 +408,9 @@ pub async fn read_lockfile(session: &SshSession, ownership_id: &str) -> Result<O
         .await
         .map_err(|e| transient(format!("Could not read the SSH backend ownership record: {e}")))?;
 
-    Ok(parse_lock(&out.stdout, ownership_id))
+    let lock = parse_lock(&out.stdout, ownership_id);
+    println!("[ssh probe] read_lockfile: {path:?} -> {lock:?}");
+    Ok(lock)
 }
 
 /// Write the ownership record atomically.
@@ -434,6 +436,7 @@ pub async fn write_lockfile(
     let json = serde_json::to_string(lock)
         .map_err(|e| SshError::new(SshErrorKind::Unknown, format!("Could not encode the lock record: {e}")))?;
 
+    println!("[ssh probe] write_lockfile: writing to {final_path:?} (pid={}, port={})", lock.pid, lock.port);
     session
         .exec(
             &format!(
@@ -444,6 +447,7 @@ pub async fn write_lockfile(
         )
         .await?
         .require_success("writing the ownership record")?;
+    println!("[ssh probe] write_lockfile: wrote {final_path:?}");
 
     Ok(())
 }
@@ -466,7 +470,9 @@ pub async fn remote_pid_alive(session: &SshSession, pid: i64) -> Result<bool, Ss
         .await
         .map_err(|e| transient(format!("Could not verify the SSH backend process: {e}")))?;
 
-    Ok(out.stdout.trim() == "ALIVE")
+    let alive = out.stdout.trim() == "ALIVE";
+    println!("[ssh probe] remote_pid_alive: pid={pid} -> {alive} (raw={:?})", out.stdout);
+    Ok(alive)
 }
 
 /// Is this pid *provably* our backend?
@@ -491,7 +497,9 @@ pub async fn pid_is_our_dashboard(
         .await
         .map_err(|e| transient(format!("Could not verify SSH backend process ownership: {e}")))?;
 
-    Ok(out.stdout.trim() == "OWNED")
+    let owned = out.stdout.trim() == "OWNED";
+    println!("[ssh probe] pid_is_our_dashboard: pid={pid} nonce={spawn_nonce:?} -> {owned} (raw={:?})", out.stdout);
+    Ok(owned)
 }
 
 /// Terminate a stale backend, but **only** once it is provably ours, then drop
@@ -502,6 +510,8 @@ pub async fn cleanup_stale(
     lock: &BackendLock,
     pid_alive: bool,
 ) -> Result<(), SshError> {
+    println!("[ssh probe] cleanup_stale: pid={} pid_alive={pid_alive}", lock.pid);
+
     if pid_alive && pid_is_our_dashboard(session, lock.pid, &lock.spawn_nonce, &lock.hermes_path).await? {
         // Wait for it to actually go away (5s), rather than assuming the signal
         // took: respawning while the old process still holds its port would give
@@ -511,6 +521,7 @@ pub async fn cleanup_stale(
         // then make the final statement the thing whose exit status the
         // fence's trailing marker captures: 0 if the process died in time, 1
         // if the wait timed out.
+        println!("[ssh probe] cleanup_stale: killing pid={} and waiting up to 5s", lock.pid);
         session
             .exec_fenced(
                 &format!(
@@ -548,7 +559,9 @@ pub async fn spawn_remote_dashboard(
     ownership_id: &str,
     spawn_nonce: &str,
 ) -> Result<SpawnedBackend, SshError> {
+    println!("[ssh probe] spawn_remote_dashboard: checking ownership-contract support for {hermes_path:?}");
     if !supports_ssh_ownership(session, hermes_path).await? {
+        println!("[ssh probe] spawn_remote_dashboard: {hermes_path:?} does not support the ownership contract");
         return Err(SshError::new(
             SshErrorKind::UpdateRequired,
             "The remote Hermes install does not support --ssh-session-token-file and --ssh-owner-nonce. \
@@ -561,12 +574,14 @@ pub async fn spawn_remote_dashboard(
     let token_file_path = format!("{}/{spawn_nonce}.token", ownership_directory(ownership_id)?);
     let log_path = spawn_log_path(ownership_id, spawn_nonce)?;
 
+    println!("[ssh probe] spawn_remote_dashboard: uploading session token to {token_file_path:?}");
     // The secret goes over stdin, never argv.
     if let Err(err) = session
         .exec_fenced(&remote_scripts::upload_token(&token_file_path), Some(token.as_bytes()))
         .await
         .and_then(|o| o.require_success("uploading the session token"))
     {
+        println!("[ssh probe] spawn_remote_dashboard: token upload failed: {err}");
         remove_token_file(session, &token_file_path).await;
 
         return Err(err);
@@ -575,14 +590,17 @@ pub async fn spawn_remote_dashboard(
     let spawn_command =
         build_spawn_command(hermes_path, profile, &log_path, Some(&token_file_path), Some(spawn_nonce))?;
 
+    println!("[ssh probe] spawn_remote_dashboard: spawning backend, log={log_path:?}");
     let out = match session.exec_fenced(&spawn_command, None).await.and_then(|o| o.require_success("starting the backend")) {
         Ok(out) => out,
         Err(err) => {
+            println!("[ssh probe] spawn_remote_dashboard: spawn command failed: {err}");
             remove_token_file(session, &token_file_path).await;
 
             return Err(err);
         }
     };
+    println!("[ssh probe] spawn_remote_dashboard: spawn command stdout: {out:?}");
 
     let pid = out
         .lines()
@@ -593,6 +611,7 @@ pub async fn spawn_remote_dashboard(
         .filter(|pid| *pid > 0);
 
     let Some(pid) = pid else {
+        println!("[ssh probe] spawn_remote_dashboard: no pid found in spawn output");
         remove_token_file(session, &token_file_path).await;
 
         return Err(SshError::new(
@@ -600,6 +619,8 @@ pub async fn spawn_remote_dashboard(
             "Failed to launch the remote backend (it returned no process id).",
         ));
     };
+
+    println!("[ssh probe] spawn_remote_dashboard: spawned pid={pid}");
 
     Ok(SpawnedBackend {
         pid,
@@ -631,8 +652,11 @@ pub async fn wait_for_ready_port(
     let remote_log = expand_remote_path(log_path)?;
     let deadline = tokio::time::Instant::now() + timeout;
 
+    println!("[ssh probe] wait_for_ready_port: polling {remote_log:?} for pid={pid}, timeout={}s", timeout.as_secs());
+
     while tokio::time::Instant::now() < deadline {
         if !remote_pid_alive(session, pid).await? {
+            println!("[ssh probe] wait_for_ready_port: pid={pid} died before announcing a port");
             return Err(SshError::new(
                 SshErrorKind::Unknown,
                 "The remote backend exited before announcing its port.",
@@ -646,11 +670,14 @@ pub async fn wait_for_ready_port(
             .unwrap_or_default();
 
         if let Some(port) = scrape_ready_port(&tail) {
+            println!("[ssh probe] wait_for_ready_port: pid={pid} announced port={port}");
             return Ok(port);
         }
 
         tokio::time::sleep(READY_POLL_INTERVAL).await;
     }
+
+    println!("[ssh probe] wait_for_ready_port: timed out after {}s for pid={pid}", timeout.as_secs());
 
     Err(SshError::new(
         SshErrorKind::Timeout,

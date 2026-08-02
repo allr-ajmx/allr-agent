@@ -693,6 +693,11 @@ pub async fn ssh_connect(
 
     match result {
         Ok((connection, forward)) => {
+            println!(
+                "[ssh probe] ssh_connect: succeeded, pid={} reused={} base_url={}",
+                connection.pid, connection.reused, connection.base_url
+            );
+
             // Replace any previous session for this scope, closing it first so a
             // reconnect does not leak the old tunnel.
             if let Some(previous) = state.sessions.lock().await.insert(scope.clone(), Arc::clone(&session)) {
@@ -709,6 +714,7 @@ pub async fn ssh_connect(
         }
 
         Err(err) => {
+            println!("[ssh probe] ssh_connect: failed: {err} (kind={:?})", err.kind);
             let _ = session.close().await;
 
             Err(err)
@@ -729,6 +735,12 @@ async fn establish(
 
     let (platform, windows_runtime) =
         windows_lifecycle::detect_remote_platform(session, remote_hermes_path.unwrap_or_default()).await?;
+    println!(
+        "[ssh probe] establish: platform={:?} arch={:?} windows={}",
+        platform.os,
+        platform.arch,
+        windows_runtime.is_some()
+    );
 
     let profile = config.profile.clone().unwrap_or_default();
     let reuse_token = config.reuse_token.clone().unwrap_or_default();
@@ -751,6 +763,7 @@ async fn establish(
 
     let (hermes_path, hermes_version, hermes_home) =
         posix_lifecycle::survey_hermes(session, remote_hermes_path, reporter).await?;
+    println!("[ssh probe] establish: hermes_path={hermes_path:?} version={hermes_version:?} home={hermes_home:?}");
 
     reporter.step(SshStep::CheckingExisting);
 
@@ -759,15 +772,25 @@ async fn establish(
         let owned = pid_alive
             && posix_lifecycle::pid_is_our_dashboard(session, lock.pid, &lock.spawn_nonce, &lock.hermes_path)
                 .await?;
+        let reusable =
+            posix_lifecycle::lock_is_reusable(&lock, pid_alive, owned, &reuse_token, &hermes_path, &hermes_home);
+        println!(
+            "[ssh probe] establish: existing lock pid={} pid_alive={pid_alive} owned={owned} reusable={reusable}",
+            lock.pid
+        );
 
-        if posix_lifecycle::lock_is_reusable(&lock, pid_alive, owned, &reuse_token, &hermes_path, &hermes_home) {
+        if reusable {
             reporter.step(SshStep::Forwarding);
             let forward = forward::open(Arc::clone(session), lock.port).await?;
             let base_url = forward.base_url();
+            println!("[ssh probe] establish: opened tunnel to remote port={} -> {base_url}", lock.port);
 
             reporter.step(SshStep::Verifying);
 
-            match reuse::probe_reuse_proof(&client, &base_url, &reuse_token, &lock.spawn_nonce).await {
+            let reuse_result = reuse::probe_reuse_proof(&client, &base_url, &reuse_token, &lock.spawn_nonce).await;
+            println!("[ssh probe] establish: reuse probe -> {reuse_result:?}");
+
+            match reuse_result {
                 Ok(reuse::ReuseClassification::AuthenticatedOk) => {
                     let token = adopt_token(&client, session, &base_url, &reuse_token, lock.pid).await?;
 
@@ -801,6 +824,7 @@ async fn establish(
                 Err(err) => {
                     // A transport blip is not evidence about ownership; leave the
                     // backend alone and let the caller retry.
+                    println!("[ssh probe] establish: reuse probe failed, giving up on this attempt: {err}");
                     drop(forward);
 
                     return Err(err);
@@ -811,6 +835,7 @@ async fn establish(
         }
     }
 
+    println!("[ssh probe] establish: no reusable backend, spawning a new one");
     spawn_and_attach(
         session,
         ownership_id,
@@ -1075,6 +1100,7 @@ async fn spawn_and_attach(
         Err(err) => {
             // Anything that fails after the spawn must reap the process we just
             // started, or it is stranded on the remote with nothing pointing at it.
+            println!("[ssh probe] spawn_and_attach: attach failed after spawning pid={}, reaping it: {err}", spawned.pid);
             posix_lifecycle::remove_token_file(session, &spawned.token_file_path).await;
             let _ = posix_lifecycle::cleanup_stale(session, ownership_id, &context.to_lock(), true).await;
 
@@ -1108,9 +1134,11 @@ async fn attach_spawned(
     reporter.step(SshStep::Forwarding);
     let forward = forward::open(Arc::clone(session), remote_port).await?;
     let base_url = forward.base_url();
+    println!("[ssh probe] attach_spawned: tunnel open, remote_port={remote_port} -> {base_url}");
 
     reporter.step(SshStep::Verifying);
     reuse::wait_for_hermes(client, &base_url, spawn_token).await?;
+    println!("[ssh probe] attach_spawned: {base_url} answered, adopting token");
 
     let token = adopt_token(client, session, &base_url, spawn_token, spawned.pid).await?;
 
@@ -1119,6 +1147,7 @@ async fn attach_spawned(
     context.token_fingerprint = ownership::fingerprint_token(&token);
     posix_lifecycle::write_lockfile(session, ownership_id, &context.to_lock(), &spawned.spawn_nonce).await?;
 
+    println!("[ssh probe] attach_spawned: done, pid={}", spawned.pid);
     Ok((remote_port, forward, token))
 }
 
@@ -1137,8 +1166,14 @@ async fn adopt_token(
 ) -> Result<String, SshError> {
     let served = reuse::resolve_served_token(client, base_url, expected).await;
     let alive = posix_lifecycle::remote_pid_alive(session, pid).await?;
+    // Never log `served`/`expected` themselves — they're session tokens.
+    println!(
+        "[ssh probe] adopt_token: pid={pid} alive={alive} served_matches_expected={}",
+        served == expected
+    );
 
     if reuse::is_foreign_backend(&served, expected, alive) {
+        println!("[ssh probe] adopt_token: refusing — a foreign backend is answering on this port");
         return Err(SshError::new(
             SshErrorKind::AuthenticatedStale,
             "The remote backend exited and something we did not start is answering on its port; \
@@ -1147,6 +1182,7 @@ async fn adopt_token(
     }
 
     if !alive {
+        println!("[ssh probe] adopt_token: pid={pid} is gone");
         return Err(SshError::new(
             SshErrorKind::Unknown,
             "The remote backend exited while its session token was being resolved.",
