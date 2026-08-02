@@ -206,7 +206,11 @@ pub async fn authenticate(
     }
 
     // 4. Password. Prompt only when the server actually offers it.
+    let mut had_password = false;
+
     if let Some(password) = resolve_password(creds, prompter).await? {
+        had_password = true;
+
         let ok = handle
             .authenticate_password(user, password)
             .await
@@ -220,14 +224,32 @@ pub async fn authenticate(
         attempted.push("password");
     }
 
-    Err(SshError::new(
-        SshErrorKind::AuthFailed,
-        format!(
-            "SSH authentication as {user} failed. Tried: {}. Add the key to your ssh-agent, \
-             set an IdentityFile in ~/.ssh/config, or supply a key in Settings.",
-            if attempted.is_empty() { "nothing available".to_string() } else { attempted.join(", ") }
-        ),
-    ))
+    Err(SshError::new(SshErrorKind::AuthFailed, auth_failure_message(user, &attempted, had_password)))
+}
+
+/// Explain a failed ladder in terms of what it actually did.
+///
+/// The password rung is skipped in silence when there is no stored password and
+/// nothing to prompt with — which is every boot restore. Saying only "Tried: key
+/// file" then sends the user hunting through their keys, when what happened is
+/// that the one credential the host wanted was never offered. So the absence is
+/// stated outright rather than left to be inferred from a list it is missing
+/// from.
+fn auth_failure_message(user: &str, attempted: &[&str], had_password: bool) -> String {
+    let tried =
+        if attempted.is_empty() { "nothing available".to_string() } else { attempted.join(", ") };
+
+    let missing_password = if had_password {
+        ""
+    } else {
+        " No password was available to try, so that method was skipped."
+    };
+
+    format!(
+        "SSH authentication as {user} failed. Tried: {tried}.{missing_password} Add the key to \
+         your ssh-agent, set an IdentityFile in ~/.ssh/config, or set a private key or password \
+         in Settings."
+    )
 }
 
 /// The password to try, from the caller or from a prompt.
@@ -350,6 +372,33 @@ mod tests {
         for name in DEFAULT_KEY_NAMES {
             assert!(out.iter().any(|c| c.ends_with(name)), "{name} missing from {out:?}");
         }
+    }
+
+    #[test]
+    fn failure_message_says_when_no_password_was_even_available() {
+        // The boot-restore case. Reporting only "Tried: key file" sent the user
+        // looking at their keys, when the real story is that the credential the
+        // host wanted was never offered.
+        let message = auth_failure_message("xm", &["key file"], false);
+
+        assert!(message.contains("Tried: key file."), "{message}");
+        assert!(message.contains("No password was available"), "{message}");
+        assert!(message.contains("password in Settings"), "{message}");
+    }
+
+    #[test]
+    fn failure_message_omits_the_note_when_a_password_was_tried() {
+        let message = auth_failure_message("xm", &["key file", "password"], true);
+
+        assert!(message.contains("Tried: key file, password."), "{message}");
+        assert!(!message.contains("No password was available"), "{message}");
+    }
+
+    #[test]
+    fn failure_message_handles_an_empty_ladder() {
+        // Nothing to try at all — mobile with no stored key and no agent.
+        let message = auth_failure_message("xm", &[], false);
+        assert!(message.contains("Tried: nothing available."), "{message}");
     }
 
     #[test]

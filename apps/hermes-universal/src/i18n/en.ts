@@ -593,6 +593,8 @@ export const en: Translations = {
       sshKeyPemTitle: 'Private key',
       sshKeyPemDesc: 'Paste an OpenSSH private key. It is held in this device\u2019s secure keystore and never written to disk.',
       sshPassphraseTitle: 'Key passphrase',
+      sshPasswordTitle: 'Password',
+      sshPasswordDesc: 'The login password for this host, if it accepts one. Held in this device\u2019s secure keystore. Leave blank to be asked while connecting.',
       sshHermesPathTitle: 'Hermes path on the remote',
       sshHermesPathDesc: 'Leave blank to detect it. Set it only when `hermes` is not on the remote PATH.',
       sshHermesPathPlaceholder: '~/hermes-agent/.venv/bin/hermes',

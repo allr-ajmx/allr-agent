@@ -31,7 +31,10 @@ export interface SshFormState {
   port: string
   keyPath: string
   privateKeyPem: string
+  /** Unlocks an encrypted private key. NOT the login password — see `password`. */
   passphrase: string
+  /** The login password, for hosts that accept one. */
+  password: string
   remoteHermesPath: string
 }
 
@@ -42,8 +45,12 @@ export const EMPTY_SSH_FORM: SshFormState = {
   keyPath: '',
   privateKeyPem: '',
   passphrase: '',
+  password: '',
   remoteHermesPath: ''
 }
+
+/** The form fields held in the OS keystore rather than in the saved target. */
+export const SSH_SECRET_FIELDS = ['privateKeyPem', 'passphrase', 'password'] as const
 
 /** Parse the port field. Blank or nonsense means "unset", which lets
  *  ~/.ssh/config (or the default 22) decide — never silently 0. */
@@ -349,6 +356,10 @@ export function SshPanel({
         />
       )}
 
+      {/* The key passphrase and the login password are different credentials
+          and are easy to confuse — the passphrase only ever decrypts a private
+          key, so a login password typed there silently does nothing. Hence two
+          rows, and a description on the password saying what it is for. */}
       <ListRow
         action={
           <Input
@@ -360,6 +371,20 @@ export function SshPanel({
           />
         }
         title={g.sshPassphraseTitle}
+      />
+
+      <ListRow
+        action={
+          <Input
+            autoComplete="off"
+            className="font-normal"
+            onChange={event => set('password', event.target.value)}
+            type="password"
+            value={form.password}
+          />
+        }
+        description={g.sshPasswordDesc}
+        title={g.sshPasswordTitle}
       />
 
       <ListRow

@@ -511,6 +511,8 @@ export interface Translations {
       sshKeyPemTitle: string
       sshKeyPemDesc: string
       sshPassphraseTitle: string
+      sshPasswordTitle: string
+      sshPasswordDesc: string
       sshHermesPathTitle: string
       sshHermesPathDesc: string
       sshHermesPathPlaceholder: string

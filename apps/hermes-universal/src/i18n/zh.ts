@@ -783,6 +783,8 @@ export const zh: Translations = {
       sshKeyPemTitle: '私钥',
       sshKeyPemDesc: '粘贴一个 OpenSSH 私钥。它保存在本设备的安全密钥库中，绝不会写入磁盘。',
       sshPassphraseTitle: '密钥口令',
+      sshPasswordTitle: '密码',
+      sshPasswordDesc: '此主机的登录密码（如果支持）。保存在本设备的安全密钥库中。留空则在连接时询问。',
       sshHermesPathTitle: '远程 Hermes 路径',
       sshHermesPathDesc: '留空则自动探测。仅当 `hermes` 不在远程 PATH 中时才需要设置。',
       sshHermesPathPlaceholder: '~/hermes-agent/.venv/bin/hermes',

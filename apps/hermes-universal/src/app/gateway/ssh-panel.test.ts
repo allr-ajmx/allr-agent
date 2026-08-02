@@ -4,6 +4,7 @@ import {
   EMPTY_SSH_FORM,
   parsePortField,
   splitSshHostInput,
+  SSH_SECRET_FIELDS,
   type SshFormState,
   sshTargetFromForm
 } from './ssh-panel'
@@ -145,5 +146,41 @@ describe('splitSshHostInput', () => {
       port: undefined,
       user: 'xm'
     })
+  })
+})
+
+describe('secrets stay out of the saved target', () => {
+  it('never puts a secret in what sshTargetFromForm returns', () => {
+    // saveGatewayTarget persists this to localStorage in plaintext, so a
+    // credential leaking into it would be written to disk unencrypted. The
+    // keystore is the only place these may go.
+    const target = sshTargetFromForm(
+      form({
+        host: 'box',
+        passphrase: 'key-passphrase',
+        password: 'login-password',
+        privateKeyPem: '-----BEGIN OPENSSH PRIVATE KEY-----'
+      })
+    )
+
+    const serialised = JSON.stringify(target)
+
+    for (const secret of ['login-password', 'key-passphrase', 'BEGIN OPENSSH PRIVATE KEY']) {
+      expect(serialised, secret).not.toContain(secret)
+    }
+
+    for (const field of SSH_SECRET_FIELDS) {
+      expect(target, field).not.toHaveProperty(field)
+    }
+  })
+
+  it('keeps the passphrase and the password apart', () => {
+    // They are different credentials: the passphrase only ever decrypts a
+    // private key, so a login password typed into it authenticates nothing.
+    // Conflating the two fields is what made that failure look like a bug.
+    expect(EMPTY_SSH_FORM).toHaveProperty('passphrase')
+    expect(EMPTY_SSH_FORM).toHaveProperty('password')
+    expect(EMPTY_SSH_FORM.passphrase).toBe('')
+    expect(EMPTY_SSH_FORM.password).toBe('')
   })
 })
