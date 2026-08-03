@@ -27,8 +27,7 @@ import { Codicon } from '@/components/ui/codicon'
 import { ColorSwatches } from '@/components/ui/color-swatches'
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from '@/components/ui/context-menu'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Tip, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { getProfileSoul, updateProfileSoul } from '@/hermes'
 import { useI18n } from '@/i18n'
@@ -68,10 +67,16 @@ import { PROFILES_ROUTE } from '../../routes'
 
 const RAIL_GAP = 4 // px — matches gap-1 between squares.
 
-// Past this many profiles the strip of colored squares stops scaling (tiny
-// drag targets, endless horizontal scroll), so the rail collapses to a compact
-// select. Drag-reorder and long-press-recolor live only on the squares path.
-const PROFILE_DROPDOWN_THRESHOLD = 13
+// Past this many named profiles the squares stop scaling (tiny drag targets,
+// endless horizontal scroll), so the tail spills into the "⌄" overflow popover
+// instead. Drag-reorder, long-press-recolor and the context menu stay on the
+// inline squares — the rail never degrades into a text control.
+const RAIL_VISIBLE_LIMIT = 4
+
+// The letter that stands in for a profile inside its colored square.
+function profileInitial(name: string): string {
+  return name.replace(/[^a-z0-9]/gi, '').charAt(0) || '?'
+}
 
 // Neighbors reflow on RAIL_TRANSITION; the dragged square glides between
 // snapped cells on the snappier DRAG_TRANSITION. Both come from the SHARED
@@ -139,10 +144,6 @@ export function ProfileRail() {
   const [pendingSoul, setPendingSoul] = useState<null | string>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
 
-  // Too many profiles for the square strip → collapse to the select. Declared
-  // ahead of the wheel effect, which re-binds when the strip mounts/unmounts.
-  const condensed = profiles.length > PROFILE_DROPDOWN_THRESHOLD
-
   // A plain mouse wheel only emits deltaY; map it to horizontal scroll so the
   // rail is navigable without a trackpad. Trackpad x-scroll (deltaX) passes
   // through. Native + non-passive so we can preventDefault and not bleed the
@@ -166,8 +167,7 @@ export function ProfileRail() {
     el.addEventListener('wheel', onWheel, { passive: false })
 
     return () => el.removeEventListener('wheel', onWheel)
-    // `condensed` swaps the strip out for the dropdown (ref goes null/back).
-  }, [condensed])
+  }, [])
 
   const isAll = scope === ALL_PROFILES
   const activeKey = normalizeProfileKey(gatewayProfile)
@@ -180,6 +180,16 @@ export function ProfileRail() {
   )
 
   const multiProfile = profiles.length > 1
+
+  // Rail order decides who stays inline; the tail spills into the overflow
+  // popover. The active profile is the one exception — it is pulled back out of
+  // the spill onto the rail (and out of the menu) so "where am I" is always
+  // visible, landing in its own slot just left of the "⌄".
+  const overflowing = named.length > RAIL_VISIBLE_LIMIT
+  const inline = overflowing ? named.slice(0, RAIL_VISIBLE_LIMIT) : named
+  const spilled = overflowing ? named.slice(RAIL_VISIBLE_LIMIT) : []
+  const hoisted = spilled.find(entry => !isAll && normalizeProfileKey(entry.name) === activeKey) ?? null
+  const hidden = hoisted ? spilled.filter(entry => entry !== hoisted) : spilled
 
   // distance constraint: a small drag reorders, a tap still selects the profile.
   // The rail owns these rather than sharing the sidebar's `dndSensors`: the
@@ -276,58 +286,64 @@ export function ProfileRail() {
         />
       )}
 
-      {condensed ? (
-        // Condensed path: one compact dropdown instead of N squares. No drag
-        // reorder, no long-press recolor, no per-square context menu — Manage
-        // covers rename/delete at this scale.
-        <div className="flex min-w-0 flex-1 items-center gap-1">
-          <ProfileDropdown
-            activeKey={isAll ? null : activeKey}
-            colors={colors}
-            onSelect={selectProfile}
-            profiles={named}
-          />
-          <AddProfileButton label={p.newProfile} onClick={() => setCreateOpen(true)} />
-        </div>
-      ) : (
-        <div
-          className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-          ref={scrollRef}
+      {multiProfile ? (
+        <DndContext
+          collisionDetection={closestCenter}
+          modifiers={[stepThroughCells]}
+          onDragEnd={handleDragEnd}
+          onDragOver={handleDragOver}
+          onDragStart={handleDragStart}
+          sensors={sensors}
         >
-          {multiProfile && (
-            <DndContext
-              collisionDetection={closestCenter}
-              modifiers={[stepThroughCells]}
-              onDragEnd={handleDragEnd}
-              onDragOver={handleDragOver}
-              onDragStart={handleDragStart}
-              sensors={sensors}
+          {/* Only the inline squares are reorder cells — the hoisted one is a
+              stand-in for a profile that lives in the overflow menu. */}
+          <SortableContext items={inline.map(profile => profile.name)} strategy={horizontalListSortingStrategy}>
+            <div
+              className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+              ref={scrollRef}
             >
-              <SortableContext items={named.map(profile => profile.name)} strategy={horizontalListSortingStrategy}>
-                {/* relative → the strip is the dragged square's offsetParent, so the
-                    clamp modifier bounds drags to the occupied cells (not the +). */}
-                <div className="relative flex items-center gap-1">
-                  {named.map(profile => (
-                    <ProfileSquare
-                      active={!isAll && normalizeProfileKey(profile.name) === activeKey}
-                      color={resolveProfileColor(profile.name, colors)}
-                      key={profile.name}
-                      label={profile.name}
-                      onDelete={() => setPendingDelete(profile)}
-                      onEditSoul={() => setPendingSoul(profile.name)}
-                      onRecolor={color => setProfileColor(profile.name, color)}
-                      onRename={() => setPendingRename(profile)}
-                      onSelect={() => selectProfile(profile.name)}
-                    />
-                  ))}
-                </div>
-              </SortableContext>
-            </DndContext>
-          )}
+              {/* relative → the strip is the dragged square's offsetParent, so the
+                  clamp modifier bounds drags to the occupied cells. */}
+              <div className="relative flex items-center gap-1">
+                {inline.map(profile => (
+                  <ProfileSquare
+                    active={!isAll && normalizeProfileKey(profile.name) === activeKey}
+                    color={resolveProfileColor(profile.name, colors)}
+                    key={profile.name}
+                    label={profile.name}
+                    onDelete={() => setPendingDelete(profile)}
+                    onEditSoul={() => setPendingSoul(profile.name)}
+                    onRecolor={color => setProfileColor(profile.name, color)}
+                    onRename={() => setPendingRename(profile)}
+                    onSelect={() => selectProfile(profile.name)}
+                  />
+                ))}
+              </div>
+            </div>
 
-          <AddProfileButton label={p.newProfile} onClick={() => setCreateOpen(true)} />
-        </div>
+            {hoisted && (
+              <ProfileSquare
+                active
+                color={resolveProfileColor(hoisted.name, colors)}
+                label={hoisted.name}
+                onDelete={() => setPendingDelete(hoisted)}
+                onEditSoul={() => setPendingSoul(hoisted.name)}
+                onRecolor={color => setProfileColor(hoisted.name, color)}
+                onRename={() => setPendingRename(hoisted)}
+                onSelect={() => selectProfile(hoisted.name)}
+                sortDisabled
+              />
+            )}
+          </SortableContext>
+        </DndContext>
+      ) : (
+        // No strip to grow: an empty spacer keeps + and Manage pinned right.
+        <div className="min-w-0 flex-1" />
       )}
+
+      {overflowing && <ProfileOverflowMenu colors={colors} onSelect={selectProfile} profiles={hidden} />}
+
+      <AddProfileButton label={p.newProfile} onClick={() => setCreateOpen(true)} />
 
       {/* Always reachable, even with only the default profile: the manage
           overlay is the only place to edit a profile's SOUL.md, and a
@@ -458,61 +474,94 @@ function AddProfileButton({ label, onClick }: { label: string; onClick: () => vo
   )
 }
 
-// The condensed rail: every named profile in one compact select. The trigger
-// shows the active profile (tinted initial + name); on default/all scope it
-// falls back to the placeholder since the left toggle pill carries that state.
-function ProfileDropdown({
-  activeKey,
+// The rail's tail, once it no longer fits: a chevron that opens the profiles
+// that spilled off the strip as the same colored squares, laid out like the
+// long-press color picker's swatch grid — so the rail keeps reading as colors
+// rather than degrading into a list of names.
+function ProfileOverflowMenu({
   colors,
   onSelect,
   profiles
 }: {
-  activeKey: null | string
   colors: Record<string, string>
   onSelect: (name: string) => void
   profiles: ProfileInfo[]
 }) {
   const { t } = useI18n()
   const p = t.profiles
+  const [open, setOpen] = useState(false)
 
-  const value = activeKey ? (profiles.find(profile => normalizeProfileKey(profile.name) === activeKey)?.name ?? '') : ''
+  const pick = (name: string) => {
+    onSelect(name)
+    setOpen(false)
+    triggerHaptic('selection')
+  }
 
   return (
-    <Select onValueChange={name => name && onSelect(name)} value={value}>
-      <SelectTrigger aria-label={p.title} className="min-w-0 flex-1" size="xs">
-        <SelectValue placeholder={p.title} />
-      </SelectTrigger>
-      <SelectContent collisionPadding={{ bottom: 44, left: 8, right: 8, top: 8 }} side="top">
-        {profiles.map(profile => (
-          <ProfileDropdownItem
-            color={resolveProfileColor(profile.name, colors)}
-            key={profile.name}
-            name={profile.name}
-          />
-        ))}
-      </SelectContent>
-    </Select>
+    <Popover onOpenChange={setOpen} open={open}>
+      {/* Tip renders a provider tree, not a ref-forwarding element, so it wraps
+          the trigger rather than being wrapped by it. */}
+      <Tip label={p.moreProfiles}>
+        <PopoverTrigger asChild>
+          <button
+            aria-label={p.moreProfiles}
+            className="grid size-5 shrink-0 place-items-center rounded-[3px] text-(--ui-text-tertiary) opacity-55 transition hover:bg-(--ui-control-hover-background) hover:text-foreground hover:opacity-100 data-[state=open]:bg-(--ui-control-active-background) data-[state=open]:text-foreground data-[state=open]:opacity-100"
+            type="button"
+          >
+            <Codicon name="chevron-down" size="0.75rem" />
+          </button>
+        </PopoverTrigger>
+      </Tip>
+
+      {/* The rail sits at the very bottom, so pad off the chrome (esp. the
+          statusbar) — Radix then flips the grid up instead of squishing it. */}
+      <PopoverContent
+        align="end"
+        aria-label={p.moreProfiles}
+        className="w-auto p-2"
+        collisionPadding={{ bottom: 44, left: 8, right: 8, top: 8 }}
+        side="top"
+      >
+        <div className="grid grid-cols-6 gap-1.5">
+          {profiles.map(profile => (
+            <ProfileOverflowSquare
+              color={resolveProfileColor(profile.name, colors)}
+              key={profile.name}
+              name={profile.name}
+              onSelect={() => pick(profile.name)}
+            />
+          ))}
+        </div>
+      </PopoverContent>
+    </Popover>
   )
 }
 
-// One dropdown row per profile. Desktop wraps this in a hover-intent prewarm
-// timer; universal has no per-profile backend to warm, so it's a plain row.
-function ProfileDropdownItem({ color, name }: { color: null | string; name: string }) {
+// One square in the overflow grid: the rail square minus drag, long-press and
+// the context menu (Manage covers rename/delete for profiles this far down).
+function ProfileOverflowSquare({
+  color,
+  name,
+  onSelect
+}: {
+  color: null | string
+  name: string
+  onSelect: () => void
+}) {
   const hue = color ?? 'var(--ui-text-quaternary)'
 
   return (
-    <SelectItem value={name}>
-      <span className="flex min-w-0 items-center gap-1.5">
-        <span
-          aria-hidden="true"
-          className="grid size-4 shrink-0 place-items-center rounded-[3px] text-[0.5rem] font-semibold uppercase leading-none"
-          style={{ backgroundColor: profileColorSoft(hue, 22), color: color ?? undefined }}
-        >
-          {name.replace(/[^a-z0-9]/gi, '').charAt(0) || '?'}
-        </span>
-        <span className="truncate">{name}</span>
-      </span>
-    </SelectItem>
+    <Tip label={name}>
+      <button
+        aria-label={name}
+        className="grid size-5 place-items-center rounded-[3px] text-[0.5625rem] font-semibold uppercase leading-none opacity-80 transition-transform hover:scale-110 hover:opacity-100"
+        onClick={onSelect}
+        style={{ backgroundColor: profileColorSoft(hue, 22), color: color ?? undefined }}
+        type="button"
+      >
+        {profileInitial(name)}
+      </button>
+    </Tip>
   )
 }
 
@@ -554,6 +603,9 @@ interface ProfileSquareProps {
   onRename: () => void
   onEditSoul: () => void
   onDelete: () => void
+  // The hoisted active square stands in for a profile that lives in the
+  // overflow menu, so it is not one of the strip's reorder cells.
+  sortDisabled?: boolean
 }
 
 // Hold this long without moving (a drag would have started first) to open the
@@ -575,7 +627,8 @@ function ProfileSquare({
   onEditSoul,
   onRecolor,
   onRename,
-  onSelect
+  onSelect,
+  sortDisabled
 }: ProfileSquareProps) {
   const { t } = useI18n()
   const p = t.profiles
@@ -585,6 +638,7 @@ function ProfileSquare({
   const suppressClick = useRef(false)
 
   const { attributes, isDragging, listeners, setNodeRef, transform, transition } = useSortable({
+    disabled: sortDisabled,
     id: label,
     transition: RAIL_TRANSITION
   })
@@ -627,6 +681,7 @@ function ProfileSquare({
                     className={cn(
                       'grid size-5 shrink-0 cursor-grab touch-none select-none place-items-center rounded-[3px] text-[0.5625rem] font-semibold uppercase leading-none transition-opacity hover:opacity-100',
                       active ? 'opacity-100' : 'opacity-55',
+                      sortDisabled && 'cursor-pointer',
                       isDragging && 'z-10 cursor-grabbing opacity-100'
                     )}
                     ref={setNodeRef}
@@ -675,7 +730,7 @@ function ProfileSquare({
                     onPointerLeave={clearPress}
                     onPointerUp={clearPress}
                   >
-                    {label.replace(/[^a-z0-9]/gi, '').charAt(0) || '?'}
+                    {profileInitial(label)}
                   </button>
                 </TooltipTrigger>
               </ContextMenuTrigger>

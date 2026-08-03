@@ -95,13 +95,58 @@ describe('ProfileRail — named squares', () => {
     fireEvent.click(square('work'))
     expect($activeProfile.get()).toBe('work')
   })
+})
 
-  it('collapses to a select past the dropdown threshold', () => {
-    $profiles.set([profile('default', true), ...Array.from({ length: 13 }, (_, i) => profile(`p${i}`))])
+describe('ProfileRail — overflow menu', () => {
+  // RAIL_VISIBLE_LIMIT named squares stay inline; the rest spill into the "⌄".
+  const seed = (count: number) =>
+    $profiles.set([profile('default', true), ...Array.from({ length: count }, (_, i) => profile(`p${i}`))])
+
+  const overflow = () => screen.getByRole('button', { name: 'More profiles' })
+  // The popover content, not the trigger — both carry the same accessible name.
+  const grid = () => within(screen.getByRole('dialog', { name: 'More profiles' }))
+
+  it('keeps every square inline at the visible limit', () => {
+    seed(4)
     renderRail()
 
-    expect(screen.getByRole('combobox', { name: 'Profiles' })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'p0' })).not.toBeInTheDocument()
+    expect(square('p3')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'More profiles' })).not.toBeInTheDocument()
+  })
+
+  it('spills the tail into the overflow menu past the limit', () => {
+    seed(6)
+    renderRail()
+
+    expect(square('p3')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'p4' })).not.toBeInTheDocument()
+    expect(overflow()).toBeInTheDocument()
+  })
+
+  it('shows only the hidden profiles in the grid and switches on click', () => {
+    seed(6)
+    renderRail()
+
+    fireEvent.click(overflow())
+
+    expect(grid().getByRole('button', { name: 'p4' })).toBeInTheDocument()
+    expect(grid().getByRole('button', { name: 'p5' })).toBeInTheDocument()
+    expect(grid().queryByRole('button', { name: 'p0' })).not.toBeInTheDocument()
+
+    fireEvent.click(grid().getByRole('button', { name: 'p5' }))
+    expect($activeProfile.get()).toBe('p5')
+  })
+
+  it('hoists a hidden active profile back onto the rail and out of the grid', () => {
+    seed(6)
+    $activeProfile.set('p4')
+    renderRail()
+
+    expect(square('p4')).toHaveAttribute('aria-pressed', 'true')
+
+    fireEvent.click(overflow())
+    expect(grid().getByRole('button', { name: 'p5' })).toBeInTheDocument()
+    expect(grid().queryByRole('button', { name: 'p4' })).not.toBeInTheDocument()
   })
 })
 
