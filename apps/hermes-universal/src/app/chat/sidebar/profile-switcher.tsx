@@ -13,12 +13,13 @@ import {
 import {
   arrayMove,
   horizontalListSortingStrategy,
+  rectSortingStrategy,
   SortableContext,
   sortableKeyboardCoordinates,
   useSortable
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { useEffect, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { CodeEditor } from '@/components/chat/code-editor'
@@ -142,6 +143,11 @@ export function ProfileRail() {
   const [pendingRename, setPendingRename] = useState<null | ProfileInfo>(null)
   const [pendingDelete, setPendingDelete] = useState<null | ProfileInfo>(null)
   const [pendingSoul, setPendingSoul] = useState<null | string>(null)
+  const [overflowOpen, setOverflowOpen] = useState(false)
+  const [dragging, setDragging] = useState(false)
+  // A drag that starts in the overflow grid has to travel down out of the
+  // popover, so it can't wear the rail's axis lock.
+  const [dragFromOverflow, setDragFromOverflow] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
 
   // A plain mouse wheel only emits deltaY; map it to horizontal scroll so the
@@ -206,6 +212,14 @@ export function ProfileRail() {
 
   const handleDragStart = ({ active }: DragStartEvent) => {
     lastOverRef.current = String(active.id)
+    setDragging(true)
+    setDragFromOverflow(hidden.some(entry => entry.name === String(active.id)))
+  }
+
+  const handleDragCancel = () => {
+    lastOverRef.current = null
+    setDragging(false)
+    setDragFromOverflow(false)
   }
 
   const handleDragOver = ({ over }: DragOverEvent) => {
@@ -219,6 +233,8 @@ export function ProfileRail() {
 
   const handleDragEnd = ({ active, over }: DragEndEvent) => {
     lastOverRef.current = null
+    setDragging(false)
+    setDragFromOverflow(false)
 
     if (!over || active.id === over.id) {
       return
@@ -257,6 +273,33 @@ export function ProfileRail() {
 
   const reloadProfiles = async () => void (await refreshProfiles().catch(() => undefined))
 
+  // One square, three homes: the inline strip, the hoisted active slot, and the
+  // overflow grid. Sharing the wiring keeps the picker's squares gesture-for-
+  // gesture identical to the rail's, and keeps every dialog owned by the rail.
+  const renderSquare = (entry: ProfileInfo, opts?: { hoisted?: boolean; overflow?: boolean }) => (
+    <ProfileSquare
+      active={opts?.hoisted === true || (!isAll && normalizeProfileKey(entry.name) === activeKey)}
+      color={resolveProfileColor(entry.name, colors)}
+      freeDrag={opts?.overflow}
+      key={entry.name}
+      label={entry.name}
+      onDelete={() => setPendingDelete(entry)}
+      onEditSoul={() => setPendingSoul(entry.name)}
+      onRecolor={color => setProfileColor(entry.name, color)}
+      onRename={() => setPendingRename(entry)}
+      onSelect={() => {
+        selectProfile(entry.name)
+
+        // Picking from the grid dismisses it; the rail has nothing to dismiss.
+        if (opts?.overflow) {
+          setOverflowOpen(false)
+          triggerHaptic('selection')
+        }
+      }}
+      sortDisabled={opts?.hoisted}
+    />
+  )
+
   return (
     <div aria-label={p.title} className="flex items-center gap-0.5" data-slot="profile-rail" role="tablist">
       {/* One button toggles default ↔ all: home face when scoped to a profile,
@@ -287,9 +330,15 @@ export function ProfileRail() {
       )}
 
       {multiProfile ? (
+        // Renders no DOM, so it can also span the overflow picker without
+        // disturbing the flex row — and React context reaches the popover
+        // through Radix's portal, putting both grids in one drag space.
         <DndContext
           collisionDetection={closestCenter}
-          modifiers={[stepThroughCells]}
+          // The axis lock belongs to rail reorders only: a drag out of the
+          // picker has to travel down onto the strip.
+          modifiers={dragFromOverflow ? [] : [stepThroughCells]}
+          onDragCancel={handleDragCancel}
           onDragEnd={handleDragEnd}
           onDragOver={handleDragOver}
           onDragStart={handleDragStart}
@@ -304,44 +353,27 @@ export function ProfileRail() {
             >
               {/* relative → the strip is the dragged square's offsetParent, so the
                   clamp modifier bounds drags to the occupied cells. */}
-              <div className="relative flex items-center gap-1">
-                {inline.map(profile => (
-                  <ProfileSquare
-                    active={!isAll && normalizeProfileKey(profile.name) === activeKey}
-                    color={resolveProfileColor(profile.name, colors)}
-                    key={profile.name}
-                    label={profile.name}
-                    onDelete={() => setPendingDelete(profile)}
-                    onEditSoul={() => setPendingSoul(profile.name)}
-                    onRecolor={color => setProfileColor(profile.name, color)}
-                    onRename={() => setPendingRename(profile)}
-                    onSelect={() => selectProfile(profile.name)}
-                  />
-                ))}
-              </div>
+              <div className="relative flex items-center gap-1">{inline.map(profile => renderSquare(profile))}</div>
             </div>
 
-            {hoisted && (
-              <ProfileSquare
-                active
-                color={resolveProfileColor(hoisted.name, colors)}
-                label={hoisted.name}
-                onDelete={() => setPendingDelete(hoisted)}
-                onEditSoul={() => setPendingSoul(hoisted.name)}
-                onRecolor={color => setProfileColor(hoisted.name, color)}
-                onRename={() => setPendingRename(hoisted)}
-                onSelect={() => selectProfile(hoisted.name)}
-                sortDisabled
-              />
-            )}
+            {hoisted && renderSquare(hoisted, { hoisted: true })}
           </SortableContext>
+
+          {overflowing && (
+            <ProfileOverflowMenu
+              dragging={dragging}
+              names={hidden.map(entry => entry.name)}
+              onOpenChange={setOverflowOpen}
+              open={overflowOpen}
+            >
+              {hidden.map(entry => renderSquare(entry, { overflow: true }))}
+            </ProfileOverflowMenu>
+          )}
         </DndContext>
       ) : (
         // No strip to grow: an empty spacer keeps + and Manage pinned right.
         <div className="min-w-0 flex-1" />
       )}
-
-      {overflowing && <ProfileOverflowMenu colors={colors} onSelect={selectProfile} profiles={hidden} />}
 
       <AddProfileButton label={p.newProfile} onClick={() => setCreateOpen(true)} />
 
@@ -477,28 +509,28 @@ function AddProfileButton({ label, onClick }: { label: string; onClick: () => vo
 // The rail's tail, once it no longer fits: a chevron that opens the profiles
 // that spilled off the strip as the same colored squares, laid out like the
 // long-press color picker's swatch grid — so the rail keeps reading as colors
-// rather than degrading into a list of names.
+// rather than degrading into a list of names. The squares are the rail's own
+// `ProfileSquare`, so every gesture (select, recolor, context menu, drag)
+// survives the spill; the grid is a second sortable container in the rail's
+// DndContext, which is what lets a square be dragged back onto the strip.
 function ProfileOverflowMenu({
-  colors,
-  onSelect,
-  profiles
+  children,
+  dragging,
+  names,
+  onOpenChange,
+  open
 }: {
-  colors: Record<string, string>
-  onSelect: (name: string) => void
-  profiles: ProfileInfo[]
+  children: ReactNode
+  dragging: boolean
+  names: string[]
+  onOpenChange: (open: boolean) => void
+  open: boolean
 }) {
   const { t } = useI18n()
   const p = t.profiles
-  const [open, setOpen] = useState(false)
-
-  const pick = (name: string) => {
-    onSelect(name)
-    setOpen(false)
-    triggerHaptic('selection')
-  }
 
   return (
-    <Popover onOpenChange={setOpen} open={open}>
+    <Popover onOpenChange={onOpenChange} open={open}>
       {/* Tip renders a provider tree, not a ref-forwarding element, so it wraps
           the trigger rather than being wrapped by it. */}
       <Tip label={p.moreProfiles}>
@@ -520,48 +552,16 @@ function ProfileOverflowMenu({
         aria-label={p.moreProfiles}
         className="w-auto p-2"
         collisionPadding={{ bottom: 44, left: 8, right: 8, top: 8 }}
+        // A square dragged onto the rail is released well outside the popover;
+        // without this the drop would dismiss the grid mid-gesture.
+        onInteractOutside={event => dragging && event.preventDefault()}
         side="top"
       >
-        <div className="grid grid-cols-6 gap-1.5">
-          {profiles.map(profile => (
-            <ProfileOverflowSquare
-              color={resolveProfileColor(profile.name, colors)}
-              key={profile.name}
-              name={profile.name}
-              onSelect={() => pick(profile.name)}
-            />
-          ))}
-        </div>
+        <SortableContext items={names} strategy={rectSortingStrategy}>
+          <div className="grid grid-cols-6 gap-1.5">{children}</div>
+        </SortableContext>
       </PopoverContent>
     </Popover>
-  )
-}
-
-// One square in the overflow grid: the rail square minus drag, long-press and
-// the context menu (Manage covers rename/delete for profiles this far down).
-function ProfileOverflowSquare({
-  color,
-  name,
-  onSelect
-}: {
-  color: null | string
-  name: string
-  onSelect: () => void
-}) {
-  const hue = color ?? 'var(--ui-text-quaternary)'
-
-  return (
-    <Tip label={name}>
-      <button
-        aria-label={name}
-        className="grid size-5 place-items-center rounded-[3px] text-[0.5625rem] font-semibold uppercase leading-none opacity-80 transition-transform hover:scale-110 hover:opacity-100"
-        onClick={onSelect}
-        style={{ backgroundColor: profileColorSoft(hue, 22), color: color ?? undefined }}
-        type="button"
-      >
-        {profileInitial(name)}
-      </button>
-    </Tip>
   )
 }
 
@@ -603,6 +603,9 @@ interface ProfileSquareProps {
   onRename: () => void
   onEditSoul: () => void
   onDelete: () => void
+  // Overflow-grid squares drag free-form (down onto the rail) rather than
+  // snapping cell to cell, so they must track the pointer with no easing.
+  freeDrag?: boolean
   // The hoisted active square stands in for a profile that lives in the
   // overflow menu, so it is not one of the strip's reorder cells.
   sortDisabled?: boolean
@@ -622,6 +625,7 @@ const LONG_PRESS_MS = 450
 function ProfileSquare({
   active,
   color,
+  freeDrag,
   label,
   onDelete,
   onEditSoul,
@@ -637,7 +641,7 @@ function ProfileSquare({
   const pressTimer = useRef<null | number>(null)
   const suppressClick = useRef(false)
 
-  const { attributes, isDragging, listeners, setNodeRef, transform, transition } = useSortable({
+  const { attributes, isDragging, isOver, listeners, setNodeRef, transform, transition } = useSortable({
     disabled: sortDisabled,
     id: label,
     transition: RAIL_TRANSITION
@@ -662,6 +666,9 @@ function ProfileSquare({
   const base = CSS.Transform.toString(transform)
   const ring = active ? `inset 0 0 0 1.5px ${hue}` : ''
   const lift = isDragging ? '0 6px 16px -4px rgb(0 0 0 / 0.4)' : ''
+  // Cross-container drags (out of the overflow grid) don't open a gap on the
+  // strip, so the cell under the pointer says "drop here" itself.
+  const dropTarget = isOver && !isDragging ? 'inset 0 0 0 1.5px var(--ui-text-secondary)' : ''
 
   const pickColor = (next: null | string) => {
     onRecolor(next)
@@ -682,17 +689,20 @@ function ProfileSquare({
                       'grid size-5 shrink-0 cursor-grab touch-none select-none place-items-center rounded-[3px] text-[0.5625rem] font-semibold uppercase leading-none transition-opacity hover:opacity-100',
                       active ? 'opacity-100' : 'opacity-55',
                       sortDisabled && 'cursor-pointer',
+                      isOver && !isDragging && 'opacity-100',
                       isDragging && 'z-10 cursor-grabbing opacity-100'
                     )}
                     ref={setNodeRef}
                     style={{
                       backgroundColor: profileColorSoft(hue, active ? 30 : 22),
-                      boxShadow: [ring, lift].filter(Boolean).join(', ') || undefined,
+                      boxShadow: [ring, dropTarget, lift].filter(Boolean).join(', ') || undefined,
                       color: color ?? undefined,
                       // Glide the dragged square between snapped cells with a little
                       // overshoot (no scale — the overflow-x strip would clip it).
+                      // A free drag has no cells to glide between, so it tracks the
+                      // pointer directly instead of trailing it.
                       transform: base,
-                      transition: isDragging ? DRAG_TRANSITION : transition
+                      transition: isDragging ? (freeDrag ? 'none' : DRAG_TRANSITION) : transition
                     }}
                     type="button"
                     {...attributes}

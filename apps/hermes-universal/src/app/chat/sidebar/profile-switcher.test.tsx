@@ -135,6 +135,7 @@ describe('ProfileRail — overflow menu', () => {
 
     fireEvent.click(grid().getByRole('button', { name: 'p5' }))
     expect($activeProfile.get()).toBe('p5')
+    expect(screen.queryByRole('dialog', { name: 'More profiles' })).not.toBeInTheDocument()
   })
 
   it('hoists a hidden active profile back onto the rail and out of the grid', () => {
@@ -147,6 +148,42 @@ describe('ProfileRail — overflow menu', () => {
     fireEvent.click(overflow())
     expect(grid().getByRole('button', { name: 'p5' })).toBeInTheDocument()
     expect(grid().queryByRole('button', { name: 'p4' })).not.toBeInTheDocument()
+  })
+
+  // The grid renders the rail's own ProfileSquare, so a spilled profile keeps
+  // every gesture. (Drag back onto the rail needs layout jsdom doesn't have.)
+  describe('square gestures', () => {
+    beforeEach(() => vi.useFakeTimers({ shouldAdvanceTime: true }))
+
+    it('opens the color picker on long-press and writes the override', () => {
+      seed(6)
+      renderRail()
+      fireEvent.click(overflow())
+
+      const target = grid().getByRole('button', { name: 'p4' })
+      fireEvent.pointerDown(target, { button: 0 })
+      act(() => vi.advanceTimersByTime(450))
+
+      const swatch = PROFILE_SWATCHES[2]
+      fireEvent.click(
+        within(screen.getByLabelText('Color for p4')).getByRole('button', { name: `Set color ${swatch}` })
+      )
+      expect($profileColors.get()).toEqual({ p4: swatch })
+    })
+
+    it('opens the per-square context menu', () => {
+      seed(6)
+      renderRail()
+      fireEvent.click(overflow())
+
+      fireEvent.contextMenu(grid().getByRole('button', { name: 'p4' }))
+
+      const menu = within(screen.getByLabelText('Actions for p4'))
+      expect(menu.getByText('Color…')).toBeInTheDocument()
+      expect(menu.getByText('Rename…')).toBeInTheDocument()
+      expect(menu.getByText('Edit SOUL.md…')).toBeInTheDocument()
+      expect(menu.getByText('Delete')).toBeInTheDocument()
+    })
   })
 })
 
