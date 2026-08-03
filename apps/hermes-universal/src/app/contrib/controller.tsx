@@ -77,7 +77,7 @@ import { FilesPane, PreviewRailPane, ReviewPaneContent, TerminalPane, WorkspaceR
  *  - FIXME(MJX-50/palette-bridge): desktop registers `layout.editMode` /
  *    `layout.reset` / `plugins.reload` command-PALETTE rows; universal has a
  *    command-MENU, not a palette, so those rows are omitted here.
- *  - FIXME(MJX-51): the FancyZones structural-authoring UI is deferred; the
+ *  - FIXME(MJX-202): the FancyZones structural-authoring UI is deferred; the
  *    four presets below are read-only.
  */
 
@@ -195,7 +195,7 @@ registry.registerMany([
 ])
 
 // ---------------------------------------------------------------------------
-// Layout presets — CHAT (main) always dominates. Read-only (FIXME(MJX-51) for
+// Layout presets — CHAT (main) always dominates. Read-only (FIXME(MJX-202) for
 // custom save/delete). Same shape as desktop minus the optional `logs` pane
 // (not ported to universal).
 // ---------------------------------------------------------------------------

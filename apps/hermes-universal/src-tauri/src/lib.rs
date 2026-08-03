@@ -41,7 +41,7 @@ use voice::{
     voice_arm, voice_close, voice_force_turn, voice_open, voice_suspend, voice_update_auth,
     VoiceState,
 };
-use window::{open_instance_window, open_session_window};
+use window::{open_instance_window, open_screen_window, open_session_window};
 
 /// Open a URL in the system browser. Routed through the opener plugin's Rust API
 /// rather than its JS `openUrl` command: a Rust-internal call isn't gated by the
@@ -178,6 +178,7 @@ pub fn run() {
             portal_logout,
             open_session_window,
             open_instance_window,
+            open_screen_window,
             ssh_connect,
             ssh_test,
             ssh_disconnect,
@@ -187,6 +188,20 @@ pub fn run() {
             ssh_answer_prompt,
             ssh_trust_host_key
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running Hermes Universal");
+        // `.build(...).run(closure)` (rather than the terminal `.run(context)`) so
+        // we can observe `RunEvent`s. On iOS this catches scenes the *system*
+        // requests unprompted (state restoration, iPad app-switcher "+", Handoff)
+        // and fills them with a fresh instance (MJX-142); app-initiated session
+        // windows go through `open_session_window` and never emit this event.
+        // Non-iOS targets run the loop with an empty handler — behaviour unchanged.
+        .build(tauri::generate_context!())
+        .expect("error while building Hermes Universal")
+        .run(|app_handle, event| {
+            let _ = app_handle;
+            #[cfg(target_os = "ios")]
+            if let tauri::RunEvent::SceneRequested { .. } = &event {
+                window::fill_requested_scene(app_handle);
+            }
+            let _ = event;
+        });
 }

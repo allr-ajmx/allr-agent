@@ -9,7 +9,7 @@ import { Tip } from '@/components/ui/tooltip'
 import { translateNow } from '@/i18n'
 import { cn } from '@/lib/utils'
 
-import { OverlayView } from './overlay-view'
+import { type OverlayVariant, OverlayView } from './overlay-view'
 
 // Overlay "panel" primitive — the centered, capped card + framed chrome lifted
 // straight from the trace / agents overlay so every non-settings overlay (cron,
@@ -35,6 +35,9 @@ interface PanelProps {
   closeLabel?: string
   contentClassName?: string
   onClose: () => void
+  // Fullscreen when hosted as a native activity screen (no card chrome) — passed
+  // straight through to OverlayView.
+  variant?: OverlayVariant
 }
 
 export function Panel({
@@ -42,7 +45,8 @@ export function Panel({
   className,
   closeLabel = translateNow('common.close'),
   contentClassName,
-  onClose
+  onClose,
+  variant
 }: PanelProps) {
   return (
     <OverlayView
@@ -56,6 +60,7 @@ export function Panel({
       )}
       onClose={onClose}
       rootClassName={cn('flex h-full w-full flex-col', className)}
+      variant={variant}
     >
       {children}
     </OverlayView>

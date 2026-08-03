@@ -1,7 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 
-import { COMMAND_CENTER_ROUTE } from '@/app/routes'
 import { ListRow } from '@/app/settings/primitives'
 import { Button } from '@/components/ui/button'
 import { LogView } from '@/components/ui/log-view'
@@ -9,6 +7,7 @@ import { getLogs, getStatus } from '@/hermes'
 import { useI18n } from '@/i18n'
 import { Loader2, RefreshCw } from '@/lib/icons'
 import { LOG_NOISE_RE, trimLogLine } from '@/lib/log-format'
+import { openSystemScreen } from '@/store/windows'
 import type { StatusResponse } from '@/types/hermes'
 
 // Settings → Gateway diagnostics. Desktop reveals a local desktop.log in the file
@@ -24,7 +23,6 @@ export function GatewayDiagnostics() {
   const { t } = useI18n()
   const g = t.settings.gateway
   const cc = t.commandCenter
-  const navigate = useNavigate()
 
   const [status, setStatus] = useState<StatusResponse | null>(null)
   const [logs, setLogs] = useState<string[]>([])
@@ -86,7 +84,7 @@ export function GatewayDiagnostics() {
           <div className="text-[length:var(--conversation-caption-font-size)] font-medium text-(--ui-text-secondary)">
             {cc.recentLogs}
           </div>
-          <Button className="-mr-2" onClick={() => navigate(COMMAND_CENTER_ROUTE)} size="xs" variant="text">
+          <Button className="-mr-2" onClick={() => void openSystemScreen()} size="xs" variant="text">
             {t.shell.gatewayMenu.viewAllLogs}
           </Button>
         </div>

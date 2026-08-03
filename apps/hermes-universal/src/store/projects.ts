@@ -15,9 +15,11 @@ import type { ProjectInfo, ProjectsPayload } from '@/types/hermes'
 // First-class per-profile Projects, served by the gateway `projects.*` JSON-RPC
 // methods (backed by projects.db). Ported/adapted from desktop `store/projects.ts`.
 // Git-worktree operations (start-work, base-branch, worktree add/remove, disk
-// repo scan) are desktop-native and OMITTED here — FIXME(projects): they need a
-// local git binary the universal client (remote/mobile) doesn't have; the
-// server-computed `projects.tree` still supplies session-derived projects.
+// repo scan) are not implemented here yet — FIXME(MJX-107). This needs no local
+// git: `lib/desktop-git.ts` already exposes the whole bridge over the gateway's
+// `/api/git/*` REST surface, and `worktreeAdd`/`worktreeRemove`/`baseBranchList`/
+// `scanRepos` are exported and uncalled. Only the store + UI layer is missing.
+// Meanwhile the server-computed `projects.tree` supplies session-derived projects.
 
 export const $projects = atom<ProjectInfo[]>([])
 export const $activeProjectId = atom<null | string>(null)
@@ -369,8 +371,10 @@ export function closeProjectDialog(): void {
   $projectDialog.set(null)
 }
 
-// Native folder picker (desktop Tauri only). FIXME(projects): no browsable local
-// FS on mobile — a remote workspace picker would replace this there.
+// Native folder picker (desktop Tauri only), so this returns null on mobile.
+// FIXME(MJX-107): should route through `selectDesktopPaths` (`lib/desktop-fs.ts`)
+// like desktop's does, which falls back to the browsable backend-FS picker
+// (`app/right-pane/files/remote-picker.tsx`) where there is no native dialog.
 export async function pickProjectFolder(): Promise<null | string> {
   if (!IS_DESKTOP) {
     return null

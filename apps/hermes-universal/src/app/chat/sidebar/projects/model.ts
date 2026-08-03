@@ -4,8 +4,9 @@ import type { SessionInfo } from '@/types/hermes'
 // backend (`projects.tree` / `projects.project_sessions`) computes membership
 // authoritatively, so these are pure display types — ported (lean) from desktop
 // `projects/workspace-groups.ts` + `projects/model.ts`. The git-worktree lane
-// overlays are desktop-only and omitted (FIXME(projects): no local git on the
-// universal client — the backend tree's lanes are rendered as-is).
+// overlays are not ported yet (FIXME(MJX-107)) — the backend tree's lanes are
+// rendered as-is. Desktop's overlay is a purely visual enhancer fed by a worktree
+// listing, which `lib/desktop-git.ts` already provides over `/api/git/*`.
 
 export const PROJECT_PREVIEW_COUNT = 3
 

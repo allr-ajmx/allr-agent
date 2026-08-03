@@ -34,6 +34,7 @@ import { notify, notifyError } from '@/store/notifications'
 import { $profileColors, refreshProfiles } from '@/store/profile'
 
 import { useRefreshHotkey } from '../hooks/use-refresh-hotkey'
+import type { OverlayVariant } from '../overlays/overlay-view'
 import {
   Panel,
   PanelAddButton,
@@ -57,9 +58,11 @@ function isValidProfileName(name: string): boolean {
 
 interface ProfilesViewProps {
   onClose: () => void
+  // Fullscreen when hosted as a native activity screen (Android/iOS).
+  variant?: OverlayVariant
 }
 
-export function ProfilesView({ onClose }: ProfilesViewProps) {
+export function ProfilesView({ onClose, variant }: ProfilesViewProps) {
   const { t } = useI18n()
   const p = t.profiles
   const [profiles, setProfiles] = useState<null | ProfileInfo[]>(null)
@@ -169,7 +172,7 @@ export function ProfilesView({ onClose }: ProfilesViewProps) {
   }, [p, pendingDelete, refresh])
 
   return (
-    <Panel closeLabel={p.close} onClose={onClose}>
+    <Panel closeLabel={p.close} onClose={onClose} variant={variant}>
       {!profiles ? (
         <PageLoader label={p.loading} />
       ) : profiles.length === 0 ? (

@@ -7,10 +7,10 @@ import { atom } from '@/store/atom'
 // a tool produced. Fed from the tool row (tool/fallback.tsx) using the same
 // detected target the desktop inline card used.
 //
-// FIXME(chat-port): nothing consumes $previewStatusBySession in universal yet —
-// desktop surfaces these as compact links in the composer status stack, which
-// is a LATER phase. recordPreviewArtifact is a harmless sink for now; wire a
-// reader (status stack / preview rail) when that phase lands.
+// FIXME(MJX-106): `use-status-presence.ts` already reads this for the presence
+// boolean, but the compact links desktop shows in the composer status stack are
+// still missing — `PreviewStatusRow` is a null stub and isn't mounted. Wiring it
+// up also needs an `openPreviewInBrowser` equivalent for the click target.
 export interface PreviewArtifact {
   /** cwd captured at detection so a relative path still resolves on click. */
   cwd: string
