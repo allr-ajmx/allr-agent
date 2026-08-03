@@ -16,8 +16,9 @@ vi.mock('@/store/system-status', async () => {
   }
 })
 
-import { $busy, $turnStartedAt, resetChat } from '@/store/chat'
+import { resetChat } from '@/store/chat'
 import { $gatewayState } from '@/store/gateway'
+import { seedActiveSession } from '@/test-sessions'
 
 import { Statusbar } from './statusbar'
 
@@ -61,8 +62,7 @@ describe('useStatusbarItems (rendered via <Statusbar/>)', () => {
   })
 
   it('reveals the running timer while a turn is in flight', () => {
-    $busy.set(true)
-    $turnStartedAt.set(Date.now())
+    seedActiveSession('sess-1', { busy: true, turnStartedAt: Date.now() })
     renderStatusbar()
 
     expect(screen.getByText('Running')).toBeInTheDocument()

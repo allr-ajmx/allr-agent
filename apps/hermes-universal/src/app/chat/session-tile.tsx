@@ -2,8 +2,8 @@ import { atom, computed } from 'nanostores'
 import { type ReactNode, useEffect, useMemo, useRef } from 'react'
 
 import { ChatScreen } from '@/app/chat/chat-screen'
-import { type ComposerScope, ComposerScopeProvider } from '@/app/chat/composer/scope'
 import type { SessionDragPayload } from '@/app/chat/composer/inline-refs'
+import { type ComposerScope, ComposerScopeProvider } from '@/app/chat/composer/scope'
 import { paneMirror } from '@/app/chat/pane-mirror'
 import { startSessionDrag } from '@/app/chat/session-drag'
 import { type SessionView, SessionViewProvider } from '@/app/chat/session-view'
@@ -25,8 +25,6 @@ import { $gatewayState } from '@/store/gateway'
 import { $pinnedSessionIds, pinSession, unpinSession } from '@/store/layout'
 import { sessionAwaitingInput } from '@/store/prompts'
 import { $activeStoredSessionId, $sessions, sessionMatchesStoredId, sessionPinId } from '@/store/session'
-
-import { SessionContextMenu } from './sidebar/session-actions-menu'
 import { $sessionColorById, sessionColorFor } from '@/store/session-color'
 import { $sessionStates } from '@/store/session-state-types'
 import {
@@ -37,8 +35,11 @@ import {
   patchSessionTile,
   requestCloseSessionTile,
   type SessionTile,
-  sessionTileDelegate
+  sessionTileDelegate,
+  tileRuntimeKey
 } from '@/store/session-states'
+
+import { SessionContextMenu } from './sidebar/session-actions-menu'
 
 const NO_MESSAGES: ChatMessage[] = []
 
@@ -58,10 +59,11 @@ function lastVisibleIsUser(messages: ChatMessage[]): boolean {
  *  shape the primary chat's PRIMARY_SESSION_VIEW provides, so one ChatScreen
  *  serves both. */
 function buildTileView(storedSessionId: string): SessionView {
-  const $runtimeId = computed(
-    $sessionTiles,
-    tiles => tiles.find(t => t.storedSessionId === storedSessionId)?.runtimeId ?? null
-  )
+  // Resolved through the reverse index (which carries lineage aliases) rather
+  // than the tile's cached runtimeId, so the tile follows its session across a
+  // background auto-compaction instead of pointing at a dead slice (MJX-133).
+  const $runtimeId = computed([$sessionTiles, $sessionStates], () => tileRuntimeKey(storedSessionId))
+
   const $state = computed([$runtimeId, $sessionStates], (rt, states) => (rt ? states[rt] : undefined))
   const $messages = computed($state, s => s?.messages ?? NO_MESSAGES)
 
@@ -74,6 +76,7 @@ function buildTileView(storedSessionId: string): SessionView {
     $awaitingResponse: computed($state, s => Boolean(s?.awaitingResponse)),
     $messagesEmpty: computed($messages, m => m.length === 0),
     $lastVisibleIsUser: computed($messages, lastVisibleIsUser),
+    $statusLine: computed($state, s => s?.statusLine ?? ''),
     $cwd: computed($state, s => s?.cwd ?? ''),
     $model: computed($state, s => s?.model ?? ''),
     $provider: computed($state, s => s?.provider ?? ''),

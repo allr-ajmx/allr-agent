@@ -75,6 +75,7 @@ export function useComposerVoice({
         if (view.$busy.get()) {
           return
         }
+
         triggerHaptic('submit')
         resetBrowseState(sessionId)
         clearDraft()
@@ -92,6 +93,7 @@ export function useComposerVoice({
     if (disabled) {
       return
     }
+
     if (voiceConversationActive) {
       conversation.end()
     } else {
