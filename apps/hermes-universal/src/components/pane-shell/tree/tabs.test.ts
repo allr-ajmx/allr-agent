@@ -2,7 +2,7 @@
  * The chat TAB behaviours (MJX-51).
  *
  * These primitives all existed but were dead code — nothing called them, so
- * ⌘T/⌘W/⌃Tab/⌃1-9 never reached the tab strip. They are wired now, and each
+ * ⌘T/⌘W/⌃Tab/⌥1-9 never reached the tab strip. They are wired now, and each
  * returns a boolean so its caller can fall through to the non-tab meaning; the
  * fall-through cases matter as much as the hits.
  */
@@ -123,7 +123,7 @@ describe('cycleTreeTabInFocusedZone (⌃Tab)', () => {
   })
 })
 
-describe('activateTreeTabSlot (⌃1-9)', () => {
+describe('activateTreeTabSlot (⌥1-9)', () => {
   it('activates the Nth tab of the focused chat zone', () => {
     seedTree([WORKSPACE_PANE_ID, tile('a'), tile('b')])
     noteActiveTreeGroup(CHAT_GROUP)

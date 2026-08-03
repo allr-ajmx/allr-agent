@@ -105,7 +105,7 @@ export function useKeybinds(deps: KeybindRuntimeDeps): void {
     navigate(sessionRoute(sessionId))
   }
 
-  // ^N jumps straight to the Nth recent session and dismisses the switcher.
+  // ⌥N jumps straight to the Nth recent session and dismisses the switcher.
   const sessionSlotHandlers: HandlerMap = {}
 
   for (let slot = 1; slot <= SESSION_SLOT_COUNT; slot += 1) {
@@ -114,9 +114,9 @@ export function useKeybinds(deps: KeybindRuntimeDeps): void {
       // when no multi-tab chat zone has focus.
       //
       // (Desktop overloads ⌘1-9 for this and falls through to profiles.
-      // Universal already spends ⌘1-9 on profiles and has ⌃1-9 free for
-      // sessions, so there is nothing to overload — the tab meaning simply
-      // takes precedence within the key that already means "session N".)
+      // Universal already spends ⌘1-9 on profiles and puts sessions on ⌥1-9,
+      // so there is nothing to overload — the tab meaning simply takes
+      // precedence within the key that already means "session N".)
       if (activateTreeTabSlot(slot)) {
         closeSwitcher()
 
