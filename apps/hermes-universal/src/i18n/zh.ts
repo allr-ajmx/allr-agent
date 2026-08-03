@@ -911,6 +911,7 @@ export const zh: Translations = {
       signOutFailed: '退出登录失败',
       testFailed: '远程网关测试失败',
       applyFailed: '无法应用网关设置',
+      switchFailed: '切换网关失败',
       saveFailed: '无法保存网关设置',
       connectingTitle: '正在连接 Hermes',
       reconnectingTo: target => `正在重新连接到 ${target}…`,

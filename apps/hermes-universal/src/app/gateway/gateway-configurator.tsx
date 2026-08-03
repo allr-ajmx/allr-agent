@@ -48,6 +48,7 @@ import { type Connection, type GatewayMode } from '@/store/gateway-config'
 import { loadGatewayTarget, saveGatewayTarget } from '@/store/gateway-restore'
 import { softSwitchGateway } from '@/store/gateway-soft-switch'
 import { $gatewayMode, setGatewayMode } from '@/store/gateway-switch'
+import { broadcastGatewaySwitch } from '@/store/gateway-switch-sync'
 import { notify, notifyError } from '@/store/notifications'
 import {
   answerSshPrompt,
@@ -352,6 +353,18 @@ export function GatewayConfigurator({
   // mounted throughout. Re-throws for the caller's failure toast.
   const runConnect = async (fn: () => Promise<void>): Promise<void> => {
     await softSwitchGateway(pendingMode, fn)
+
+    // This is the ONLY surface that initiates a switch, so it is also the only one
+    // that broadcasts it — every other WebView (an Android activity screen, a desktop
+    // pop-out) holds its own socket and would otherwise keep serving the gateway we
+    // just left. Read the target back rather than rebuilding it: the connect helper
+    // persisted it on success, so this is exactly what was dialled.
+    const target = loadGatewayTarget()
+
+    if (target) {
+      broadcastGatewaySwitch(pendingMode, target)
+    }
+
     onConnected?.()
   }
 

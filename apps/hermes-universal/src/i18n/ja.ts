@@ -764,6 +764,7 @@ export const ja = defineLocale({
       signOutFailed: 'サインアウトに失敗しました',
       testFailed: 'リモートゲートウェイのテストに失敗しました',
       applyFailed: 'ゲートウェイ設定を適用できませんでした',
+      switchFailed: 'ゲートウェイを切り替えられませんでした',
       saveFailed: 'ゲートウェイ設定を保存できませんでした',
       connectingTitle: 'Hermes に接続しています',
       reconnectingTo: target => `${target} に再接続しています…`,

@@ -12,6 +12,11 @@ vi.mock('@/store/connection', async () => {
   }
 })
 vi.mock('@/store/gateway', () => ({ closeGateway: vi.fn() }))
+vi.mock('@/store/gateway-restore', () => ({
+  dialSavedTarget: vi.fn().mockResolvedValue(undefined),
+  loadGatewayTarget: vi.fn().mockReturnValue(null)
+}))
+vi.mock('@/store/notifications', () => ({ notifyError: vi.fn() }))
 vi.mock('@/store/local-backend', () => ({ stopLocalBackend: vi.fn().mockResolvedValue(undefined) }))
 vi.mock('@/store/chat', () => ({ resetChat: vi.fn() }))
 vi.mock('@/store/cron', () => ({ setCronJobs: vi.fn() }))
@@ -38,7 +43,9 @@ vi.mock('@/store/session', async () => {
 import { $connection, beginGatewaySwitch, disconnect, endGatewaySwitch } from '@/store/connection'
 import { closeGateway } from '@/store/gateway'
 import type { Connection } from '@/store/gateway-config'
+import { dialSavedTarget, type GatewayTarget, loadGatewayTarget } from '@/store/gateway-restore'
 import { stopLocalBackend } from '@/store/local-backend'
+import { notifyError } from '@/store/notifications'
 import {
   $activeStoredSessionId,
   $messagingSessions,
@@ -72,6 +79,10 @@ beforeEach(() => {
   $unreadFinishedSessionIds.set(['s1'])
   $activeStoredSessionId.set('s1')
   $sessionsLoading.set(false)
+  // clearAllMocks only clears calls, not implementations — re-arm the rollback seam
+  // so one test's override can't leak into the next.
+  vi.mocked(loadGatewayTarget).mockReturnValue(null)
+  vi.mocked(dialSavedTarget).mockResolvedValue(undefined)
 })
 afterEach(() => vi.clearAllMocks())
 
@@ -161,5 +172,89 @@ describe('gateway soft switch', () => {
     expect($sessionsLoading.get()).toBe(false)
     expect(endGatewaySwitch).toHaveBeenCalledOnce()
     expect(refreshSessions).not.toHaveBeenCalled()
+  })
+})
+
+// The wipe and closeGateway() both run BEFORE the dial, so a failure with no recovery
+// leaves an emptied list and a dead socket. These pin the recovery down.
+describe('gateway soft switch — failed dial', () => {
+  const previousTarget = { mode: 'remote', url: 'old.gateway.test' } as GatewayTarget
+  const failing = () => Promise.reject(new Error('unreachable'))
+
+  // Connected to something, with a target to go back to.
+  function withPrevious(): void {
+    $connection.set(connectionOn('remote'))
+    vi.mocked(loadGatewayTarget).mockReturnValue(previousTarget)
+  }
+
+  it('rolls back onto the gateway it came from, and still re-throws', async () => {
+    withPrevious()
+
+    await expect(softSwitchGateway('cloud', failing)).rejects.toThrow('unreachable')
+
+    expect(dialSavedTarget).toHaveBeenCalledWith(previousTarget)
+    expect(disconnect).not.toHaveBeenCalled()
+  })
+
+  it('reports the switch failure with the reason the dial gave', async () => {
+    withPrevious()
+
+    await expect(softSwitchGateway('cloud', failing)).rejects.toThrow('unreachable')
+
+    expect(notifyError).toHaveBeenCalledOnce()
+    const [cause, title] = vi.mocked(notifyError).mock.calls[0]
+    expect((cause as Error).message).toBe('unreachable')
+    expect(title).toBe('Failed to switch gateway')
+  })
+
+  it('refills the lists it wiped for a switch that never happened', async () => {
+    withPrevious()
+
+    await expect(softSwitchGateway('cloud', failing)).rejects.toThrow('unreachable')
+
+    expect(refreshSessions).toHaveBeenCalledOnce()
+    expect(refreshMessagingSessions).toHaveBeenCalledOnce()
+  })
+
+  // Nothing left to stand on — the root gate reads $hasConnected, which disconnect()
+  // clears, so this is the "drop to the connect screen" path.
+  it('goes home when the rollback dial fails too', async () => {
+    withPrevious()
+    vi.mocked(dialSavedTarget).mockRejectedValueOnce(new Error('old one is gone too'))
+
+    await expect(softSwitchGateway('cloud', failing)).rejects.toThrow('unreachable')
+
+    expect(disconnect).toHaveBeenCalledOnce()
+    expect(notifyError).not.toHaveBeenCalled()
+  })
+
+  it('goes home when there was no previous connection at all', async () => {
+    // $connection is null from beforeEach — a first-ever connect.
+    vi.mocked(loadGatewayTarget).mockReturnValue(previousTarget)
+
+    await expect(softSwitchGateway('cloud', failing)).rejects.toThrow('unreachable')
+
+    expect(dialSavedTarget).not.toHaveBeenCalled()
+    expect(disconnect).toHaveBeenCalledOnce()
+  })
+
+  it('goes home when there is no saved target to roll back to', async () => {
+    $connection.set(connectionOn('remote'))
+    vi.mocked(loadGatewayTarget).mockReturnValue(null)
+
+    await expect(softSwitchGateway('cloud', failing)).rejects.toThrow('unreachable')
+
+    expect(dialSavedTarget).not.toHaveBeenCalled()
+    expect(disconnect).toHaveBeenCalledOnce()
+  })
+
+  it('does not roll back a switch that succeeded', async () => {
+    withPrevious()
+
+    await softSwitchGateway('cloud', vi.fn().mockResolvedValue(undefined))
+
+    expect(dialSavedTarget).not.toHaveBeenCalled()
+    expect(disconnect).not.toHaveBeenCalled()
+    expect(notifyError).not.toHaveBeenCalled()
   })
 })

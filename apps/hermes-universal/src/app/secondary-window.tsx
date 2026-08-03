@@ -8,6 +8,7 @@ import { WindowControls } from '@/app/shell/window-controls'
 import { NotificationStack } from '@/components/notifications'
 import { useStore } from '@/store/atom'
 import { $connectionPhase } from '@/store/connection'
+import { $gatewaySwitching } from '@/store/gateway-switch'
 import { openSession, refreshSessions } from '@/store/session'
 
 import { routeSessionId } from './routes'
@@ -24,8 +25,22 @@ import { routeSessionId } from './routes'
 export function SecondaryWindowRoot() {
   const { pathname } = useLocation()
   const phase = useStore($connectionPhase)
+  // This window re-homes when another WebView switches gateway (store/gateway-switch-sync).
+  // Hold the chat across that window rather than blanking to an empty pane for the
+  // second the socket is down — the same tolerance the other two roots carry.
+  const switching = useStore($gatewaySwitching)
   const targetId = routeSessionId(pathname)
   const resumedRef = useRef<null | string>(null)
+
+  // A re-home means the resume we already did was against the OLD gateway, so drop
+  // the latch and let the effect below resume this session against the new one. (It
+  // may not exist there — an empty chat with the surfaced error is the expected
+  // outcome, not a crash.)
+  useEffect(() => {
+    if (switching) {
+      resumedRef.current = null
+    }
+  }, [switching])
 
   useEffect(() => {
     // Resume needs a live connection; wait for `ready` so the transcript loads
@@ -53,7 +68,7 @@ export function SecondaryWindowRoot() {
         </div>
         {/* ChatScreen (`.chat`) is `flex:1 1 auto`, so it must be a DIRECT child of
             this flex-col — no wrapper, or its height collapses to content. */}
-        {phase === 'ready' ? <ChatScreen /> : <div className="flex-1" />}
+        {phase === 'ready' || switching ? <ChatScreen /> : <div className="flex-1" />}
       </div>
       <NotificationStack />
     </SidebarProvider>

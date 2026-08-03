@@ -633,6 +633,7 @@ export interface Translations {
       signOutFailed: string
       testFailed: string
       applyFailed: string
+      switchFailed: string
       saveFailed: string
       connectingTitle: string
       reconnectingTo: (target: string) => string

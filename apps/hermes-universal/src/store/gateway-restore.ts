@@ -156,6 +156,56 @@ export function cancelRestore(): void {
 }
 
 /**
+ * Dial a saved `GatewayTarget`, pulling any secret it needs from the keyring.
+ *
+ * The one place that knows how to turn a persisted target back into a live
+ * connection, for all four modes. Three callers share it: the boot restore below,
+ * the rollback of a failed gateway switch, and a follower WebView re-homing onto
+ * the gateway another WebView just switched to (store/gateway-switch-sync.ts).
+ *
+ * Sets `$gatewayMode` from the target, so a failed dial lands on the right connect
+ * surface and a rollback puts the mode selection back where it was.
+ *
+ * Non-interactive by default: at boot no UI is mounted yet, so Rust must fail fast
+ * on an SSH passphrase rather than block on a dialog nobody can answer — and a
+ * follower must never raise a second prompt for a dial the user drove elsewhere.
+ *
+ * Throws whatever the underlying connect threw; those helpers have already set
+ * `$connectionError` and the phase.
+ */
+export async function dialSavedTarget(target: GatewayTarget, interactive = false): Promise<void> {
+  $gatewayMode.set(target.mode)
+
+  if (target.mode === 'local') {
+    await connectLocal(target.profile ?? null)
+  } else if (target.mode === 'ssh') {
+    if (!target.ssh?.host?.trim()) {
+      throw new Error('No saved SSH host to reconnect to')
+    }
+
+    await connectSsh({ ...target.ssh, profile: target.profile ?? null }, { interactive })
+  } else if (target.mode === 'cloud') {
+    if (!target.cloudBaseUrl) {
+      throw new Error('No saved Hermes Cloud agent to reconnect to')
+    }
+
+    await connectCloud(target.cloudBaseUrl, target.profile ?? null)
+  } else {
+    if (!target.url?.trim()) {
+      throw new Error('No saved gateway URL to reconnect to')
+    }
+
+    const saved = await loadSavedLogin().catch(() => null)
+    await connect({
+      url: target.url,
+      username: target.username || undefined,
+      token: saved?.token || undefined,
+      password: saved?.password || undefined
+    })
+  }
+}
+
+/**
  * Re-dial the last successful connection on app launch. Reads the saved target,
  * pulls secrets from the keyring (the cookie jar is already rehydrated by
  * `restoreSessionCookies()`), and drives the matching connect. On failure it
@@ -197,39 +247,10 @@ export async function autoRestoreConnection(): Promise<void> {
     return
   }
 
-  // Reopen into the saved mode so a failed restore lands on the right connect surface.
-  $gatewayMode.set(target.mode)
-
+  // Reopen into the saved mode so a failed restore lands on the right connect
+  // surface — dialSavedTarget commits it.
   try {
-    if (target.mode === 'local') {
-      await connectLocal(target.profile ?? null)
-    } else if (target.mode === 'ssh') {
-      if (!target.ssh?.host?.trim()) {
-        throw new Error('No saved SSH host to reconnect to')
-      }
-
-      // Non-interactive: this runs before any UI is mounted, so Rust must fail
-      // fast on a passphrase rather than block on a dialog nobody can answer.
-      await connectSsh({ ...target.ssh, profile: target.profile ?? null }, { interactive: false })
-    } else if (target.mode === 'cloud') {
-      if (!target.cloudBaseUrl) {
-        throw new Error('No saved Hermes Cloud agent to reconnect to')
-      }
-
-      await connectCloud(target.cloudBaseUrl, target.profile ?? null)
-    } else {
-      if (!target.url?.trim()) {
-        throw new Error('No saved gateway URL to reconnect to')
-      }
-
-      const saved = await loadSavedLogin().catch(() => null)
-      await connect({
-        url: target.url,
-        username: target.username || undefined,
-        token: saved?.token || undefined,
-        password: saved?.password || undefined
-      })
-    }
+    await dialSavedTarget(target)
   } catch {
     // connect*/connectLocal/connectCloud already set $connectionError + phase; the
     // connect screen takes over once $restoring clears below.

@@ -1,11 +1,14 @@
+import { translateNow } from '@/i18n'
 import { queryClient } from '@/lib/query-client'
 import { resetChat } from '@/store/chat'
-import { $connection, beginGatewaySwitch, endGatewaySwitch } from '@/store/connection'
+import { $connection, beginGatewaySwitch, disconnect, endGatewaySwitch } from '@/store/connection'
 import { setCronJobs } from '@/store/cron'
 import { closeGateway } from '@/store/gateway'
-import type { GatewayMode } from '@/store/gateway-config'
+import type { Connection, GatewayMode } from '@/store/gateway-config'
+import { dialSavedTarget, type GatewayTarget, loadGatewayTarget } from '@/store/gateway-restore'
 import { $gatewayMode, $gatewaySwitching } from '@/store/gateway-switch'
 import { stopLocalBackend } from '@/store/local-backend'
+import { notifyError } from '@/store/notifications'
 import {
   $activeStoredSessionId,
   $messagingSessions,
@@ -65,6 +68,42 @@ export function wipeSessionListsForGatewaySwitch(): void {
 }
 
 /**
+ * Recover from a switch whose dial failed.
+ *
+ * Rolls back onto the gateway we came from when there is one, leaving the user where
+ * they started with an error rather than nowhere. Otherwise — a first-ever connect,
+ * or a rollback that fails in turn — `disconnect()` clears `$hasConnected`, which is
+ * what drops the root gate to the connect screen (see mobile-controller).
+ *
+ * Runs INSIDE the switch, before `$gatewaySwitching` is released, so the shell holds
+ * its mounted state across the recovery instead of flashing the connecting screen.
+ */
+async function rollbackFailedSwitch(
+  cause: unknown,
+  previous: Connection | null,
+  previousTarget: GatewayTarget | null
+): Promise<void> {
+  if (!previous || !previousTarget) {
+    disconnect()
+
+    return
+  }
+
+  try {
+    // Non-interactive: the user is already looking at one failure; a rollback must
+    // not raise a fresh SSH passphrase / host-key prompt on top of it.
+    await dialSavedTarget(previousTarget)
+    // The lists were wiped for a switch that never happened — refill them.
+    await Promise.all([refreshSessions().catch(() => {}), refreshMessagingSessions().catch(() => {})])
+    // Titled for what the user attempted; the body carries why it failed.
+    notifyError(cause, translateNow('settings.gateway.switchFailed'))
+  } catch {
+    // Nothing left to stand on: the old gateway is gone too.
+    disconnect()
+  }
+}
+
+/**
  * Soft gateway switch: wipe → drop the socket → re-dial IN PLACE.
  *
  * Never calls `disconnect()`: that clears `$hasConnected` and drops the root gate to
@@ -73,10 +112,24 @@ export function wipeSessionListsForGatewaySwitch(): void {
  * down — so the shell, Settings and the gateway popover all stay mounted across the
  * swap.
  *
- * Re-throws whatever `dial` throws so the caller still surfaces its failure toast;
- * `$connectionError` is set by the connect* helpers.
+ * A FAILED dial does not leave the app stranded. The wipe and `closeGateway()` both
+ * happen before the dial, so without recovery a failure means an emptied list and a
+ * dead socket — easy to hit, since an SSH dial runs 45-90s and can fail on host key,
+ * passphrase or timeout. So on failure we roll back onto the gateway we came from
+ * (`dialSavedTarget`, which also restores `$gatewayMode`), and fall back to
+ * `disconnect()` — the home / connect-picker path — when there is nothing to roll
+ * back to, or when the rollback dial fails too.
+ *
+ * Re-throws whatever `dial` threw either way, so the caller still surfaces its
+ * failure toast; `$connectionError` is set by the connect* helpers.
  */
 export async function softSwitchGateway(mode: GatewayMode, dial: () => Promise<void>): Promise<void> {
+  // Snapshot the gateway we are leaving BEFORE anything tears it down: `dial` writes
+  // $connection itself, and a connect* only persists its target once it has succeeded,
+  // so after this point neither is still the old one.
+  const previous = $connection.get()
+  const previousTarget = loadGatewayTarget()
+
   $gatewaySwitching.set(true)
   beginGatewaySwitch()
   wipeSessionListsForGatewaySwitch()
@@ -92,6 +145,10 @@ export async function softSwitchGateway(mode: GatewayMode, dial: () => Promise<v
     await dial()
     // Universal doesn't refresh session lists on gateway open, so the switch does it.
     await Promise.all([refreshSessions().catch(() => {}), refreshMessagingSessions().catch(() => {})])
+  } catch (err) {
+    await rollbackFailedSwitch(err, previous, previousTarget)
+
+    throw err
   } finally {
     $sessionsLoading.set(false)
     // Imperative guard down before the reactive one, so the root gates never un-gate
