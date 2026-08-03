@@ -40,9 +40,13 @@ export function SectionBody({ section }: { section: string }) {
     case 'advanced':
       return <ConfigSection sectionId={group} />
 
-    // Providers: Accounts (OAuth sign-in) + API keys sub-tabs.
+    // Providers: Accounts (OAuth sign-in) + API keys + custom-endpoints sub-tabs.
     case 'providers':
-      return <ProvidersSection view={sub === 'keys' ? 'keys' : 'accounts'} />
+      return (
+        <ProvidersSection
+          view={sub === 'keys' ? 'keys' : sub === 'custom-endpoints' ? 'custom-endpoints' : 'accounts'}
+        />
+      )
 
     // Voice (Jc5): schema fields filtered to the active TTS/STT provider, plus a
     // live ElevenLabs voice dropdown (tts.elevenlabs.voice_id).
