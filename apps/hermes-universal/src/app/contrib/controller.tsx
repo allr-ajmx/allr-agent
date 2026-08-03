@@ -1,3 +1,5 @@
+import '@/store/session-tile-delegate' // side-effect: registers the SessionTileDelegate
+
 import { computed } from 'nanostores'
 import { type ReactElement, useEffect } from 'react'
 import { useLocation } from 'react-router-dom'
@@ -15,6 +17,7 @@ import {
   mirrorLayoutTree,
   paneRootSide,
   registerLayoutResetHandler,
+  registerNewTabHandler,
   registerPaneCloser,
   registerPaneOpener,
   revealTreePane,
@@ -22,13 +25,12 @@ import {
   setTreePaneHidden,
   watchContributedPanes
 } from '@/components/pane-shell/tree/store'
-import { registry } from '@/contrib/registry'
 import { discoverBundledPlugins } from '@/contrib/plugins'
-import { addGatewayEventListener } from '@/store/gateway'
-import { routeTileEvent } from '@/store/session-reducer'
-import '@/store/session-tile-delegate' // side-effect: registers the SessionTileDelegate
+import { registry } from '@/contrib/registry'
 import { sessionTitle as storedSessionTitle } from '@/lib/chat-runtime'
 import { $currentCwd } from '@/store/chat'
+import { $chatBubbles, bubbleRuntimeKey } from '@/store/chat-bubbles'
+import { $gatewayState } from '@/store/gateway'
 import {
   $panesFlipped,
   $rightSidebarOpen,
@@ -45,10 +47,11 @@ import {
   SIDEBAR_DEFAULT_WIDTH,
   SIDEBAR_MAX_WIDTH
 } from '@/store/layout'
-import { closeAllPreviewTabs, $previewTabs } from '@/store/preview'
+import { $previewTabs, closeAllPreviewTabs } from '@/store/preview'
 import { $reviewOpen, closeReview, REVIEW_PANE_ID } from '@/store/review'
-import { $sessions, $activeStoredSessionId, sessionMatchesStoredId } from '@/store/session'
+import { $activeStoredSessionId, $sessions, sessionMatchesStoredId } from '@/store/session'
 import { $sessionColorById, sessionColorFor } from '@/store/session-color'
+import { invalidateRuntimeBindings, newSessionTab, setVisibleBubbleKeysProvider } from '@/store/session-states'
 
 import {
   SessionTileCloseConfirm,
@@ -92,11 +95,7 @@ import { FilesPane, PreviewRailPane, ReviewPaneContent, TerminalPane, WorkspaceR
 // gives `.chat` (flex:1 1 auto, needs a bounded flex-col parent) real room to
 // fill and scroll its own thread internally.
 const renderWorkspacePane = () => (
-  <div
-    className="flex h-full min-h-0 min-w-0 flex-col"
-    data-composer-target="main"
-    data-session-anchor="workspace"
-  >
+  <div className="flex h-full min-h-0 min-w-0 flex-col" data-composer-target="main" data-session-anchor="workspace">
     <WorkspaceRoutes />
   </div>
 )
@@ -268,12 +267,40 @@ discoverBundledPlugins()
 // hint the moment they register.
 watchContributedPanes()
 
-// Multi-session tiles: stream tile sessions off the shared gateway stream (the
-// primary chat reducer is untouched), mirror `$sessionTiles` into layout-tree
-// panes, and collapse tiles into the workspace on a layout reset.
+// Mirror `$sessionTiles` into layout-tree panes and collapse tiles into the
+// workspace on a layout reset. (THE gateway event router self-registers on
+// import — see store/event-router.ts.)
 // FIXME(MJX-50/route-tiles): page (route) tiles — watchRouteTiles() — are a follow-up.
-addGatewayEventListener(routeTileEvent)
 watchSessionTiles()
+
+// The `+` at the end of a chat tab strip. Registered rather than imported by
+// the renderer, which knows only pane ids (see registerNewTabHandler).
+registerNewTabHandler(newSessionTab)
+
+// A reconnect issues new runtime ids, so every binding we hold is dead. Drop
+// the bindings (NOT the sessions — a draft's unsent text is the one thing that
+// cannot be re-fetched) and let each visible surface re-resume its own session.
+let wasGatewayOpen = $gatewayState.get() === 'open'
+
+$gatewayState.subscribe(state => {
+  const isOpen = state === 'open'
+
+  if (isOpen && !wasGatewayOpen) {
+    invalidateRuntimeBindings()
+  }
+
+  wasGatewayOpen = isOpen
+})
+
+// The bubble strip's sessions are on screen on mobile, so the LRU must not
+// evict them. Registered here rather than imported by session-states, which
+// chat-bubbles already depends on.
+setVisibleBubbleKeysProvider(() =>
+  $chatBubbles
+    .get()
+    .map(bubble => bubbleRuntimeKey(bubble.storedSessionId))
+    .filter((key): key is string => Boolean(key))
+)
 registerLayoutResetHandler(stackSessionTilesIntoMain)
 
 // The main tab reads as its SESSION (the loaded title, "New session" on a fresh

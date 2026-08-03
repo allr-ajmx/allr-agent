@@ -22,6 +22,7 @@ import { $restoring } from '@/store/gateway-restore'
 import { $onboardingActive, checkConfigured } from '@/store/onboarding'
 import { syncPetInfo } from '@/store/pet-gallery'
 import { deleteSessionLocal } from '@/store/session'
+import { openAppRoute } from '@/store/windows'
 import { bumpZoom, initZoom, setZoomPercent } from '@/store/zoom'
 
 import { ContribController } from './contrib/controller'
@@ -32,6 +33,7 @@ import { SessionSwitcher } from './session-switcher'
 import { CommandMenu } from './shell/command-menu'
 import { useOverlayRouting } from './shell/hooks/use-overlay-routing'
 import { MobileShell } from './shell/mobile-shell'
+import { MobileSurfaceShell } from './shell/mobile-surface-shell'
 import { AppShell, SidebarProvider } from './shell/sidebar'
 import { Statusbar } from './shell/statusbar'
 import { Titlebar } from './shell/titlebar'
@@ -114,7 +116,7 @@ export function MobileController() {
   // ⌘G/⌘N and ⌘K listeners this app used to carry. Mounted unconditionally so
   // the keys work on the connect / onboarding screens too.
   useKeybinds({
-    toggleCommandCenter: () => (commandCenterOpen ? closeOverlayToPreviousRoute() : navigate(COMMAND_CENTER_ROUTE))
+    toggleCommandCenter: () => (commandCenterOpen ? closeOverlayToPreviousRoute() : openAppRoute(COMMAND_CENTER_ROUTE))
   })
 
   // Only the Gateway settings page is usable while disconnected (it's the
@@ -122,6 +124,13 @@ export function MobileController() {
   // data, so keeping the overlay mounted there while disconnected would just render
   // empty sections — so a disconnect only holds the overlay open on Gateway.
   const settingsGatewayOpen = pathname === '/settings/gateway'
+
+  // Whether any of the three windowable surfaces (Settings / Command Center /
+  // Profiles) is open — the trigger for the mobile in-app surface shell. Mirrors the
+  // per-surface gates of the desktop overlays (Settings survives a disconnect on the
+  // Gateway page; the other two need a live connection).
+  const mobileSurfaceOpen =
+    (settingsOpen && (connected || settingsGatewayOpen)) || (connected && (commandCenterOpen || profilesOpen))
 
   let content: ReactNode
 
@@ -208,7 +217,28 @@ export function MobileController() {
             re-authenticating the gateway never bounces the user out to the connect
             picker — desktop parity. Blocked only during the first-run onboarding
             wizard (phase ready but not connected). */}
-        {settingsOpen && (connected || settingsGatewayOpen) && <SettingsView returnPath={returnPathRef.current} />}
+        {/* Mobile: Settings / Command Center / Profiles present as ONE full-screen
+            in-app surface with the shared mobile chrome (top bar + two drawers),
+            derived live from the route — parity with the Android native activity
+            screen (MJX-203). Its OWN SidebarProvider isolates these drawers from the
+            home MobileShell's drawers (both mount Sheets keyed to the same useSidebar
+            booleans). Home/back navigates to the stashed route (NOT returnHome, whose
+            iOS fallback would try to close the primary window). The desktop floating-
+            overlay path below is used off-mobile (and stays untouched). */}
+        {IS_MOBILE && mobileSurfaceOpen && (
+          <div className="fixed inset-0 z-50">
+            <SidebarProvider>
+              <MobileSurfaceShell
+                onHome={closeOverlayToPreviousRoute}
+                onNavigateRoute={path => navigate(path)}
+                onOpenSession={sessionId => navigate(sessionRoute(sessionId))}
+              />
+            </SidebarProvider>
+          </div>
+        )}
+        {!IS_MOBILE && settingsOpen && (connected || settingsGatewayOpen) && (
+          <SettingsView returnPath={returnPathRef.current} variant="overlay" />
+        )}
         {/* Agents ("Spawn tree") overlay — desktop's live subagent surface,
             floated over the chat backdrop and opened from the statusbar Agents
             item. Its Panel supplies the fixed-inset card + close-X / Esc. */}
@@ -216,12 +246,13 @@ export function MobileController() {
         {/* Command Center overlay — desktop's Sessions / System / Usage /
             Maintenance ops surface, opened from the statusbar (icon + version
             chips) and the sidebar rail. */}
-        {connected && commandCenterOpen && (
+        {!IS_MOBILE && connected && commandCenterOpen && (
           <CommandCenterView
             onClose={closeOverlayToPreviousRoute}
             onDeleteSession={deleteSessionLocal}
             onNavigateRoute={path => navigate(path)}
             onOpenSession={sessionId => navigate(sessionRoute(sessionId))}
+            variant="overlay"
           />
         )}
         {/* Cron ("Routines") overlay — desktop's scheduled-jobs master/detail:
@@ -234,7 +265,7 @@ export function MobileController() {
           />
         )}
         {/* Profiles overlay — desktop's profile CRUD + soul editor master/detail. */}
-        {connected && profilesOpen && <ProfilesView onClose={closeOverlayToPreviousRoute} />}
+        {!IS_MOBILE && connected && profilesOpen && <ProfilesView onClose={closeOverlayToPreviousRoute} />}
         {/* Star map overlay — the radial "what Hermes has learned" map. */}
         {connected && starmapOpen && <StarmapView onClose={closeOverlayToPreviousRoute} />}
         {/* Provider-connect overlay — a focused per-provider sign-in card that
@@ -244,7 +275,7 @@ export function MobileController() {
         {/* Edit-models ("model visibility") dialog — opened from the composer's
             model menu ("Edit models"). Self-gates on $modelVisibilityOpen +
             gateway-open; "Add provider…" routes to Providers → Accounts. */}
-        {connected && <ModelVisibilityOverlay onOpenProviders={() => navigate('/settings/providers')} />}
+        {connected && <ModelVisibilityOverlay onOpenProviders={() => openAppRoute('/settings/providers')} />}
         {/* Floating pet — a top-level draggable + roaming mascot (fixed z-60) that
             floats over ALL routes. It patrols the Settings overlay's edge when open.
             Hidden on mobile while the touch shell is a blank scaffold. */}

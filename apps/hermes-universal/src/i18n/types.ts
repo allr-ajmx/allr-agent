@@ -496,6 +496,54 @@ export interface Translations {
       remoteAuthHint: string
       cloudTitle: string
       cloudDesc: string
+      sshTitle: string
+      sshDesc: string
+      sshTrustHint: string
+      sshHostTitle: string
+      sshHostDesc: string
+      sshHostPlaceholder: string
+      sshUserTitle: string
+      sshUserDesc: string
+      sshPortTitle: string
+      sshPortDesc: string
+      sshKeyTitle: string
+      sshKeyDesc: string
+      sshKeyPemTitle: string
+      sshKeyPemDesc: string
+      sshPassphraseTitle: string
+      sshPasswordTitle: string
+      sshPasswordDesc: string
+      sshHermesPathTitle: string
+      sshHermesPathDesc: string
+      sshHermesPathPlaceholder: string
+      sshTestConnection: string
+      sshConnect: string
+      sshReachable: (host: string, platform: string) => string
+      sshIncompleteHost: string
+      sshUnsupportedDirectives: (names: string) => string
+      sshHostKeyTitle: string
+      sshHostKeyDesc: (host: string, fingerprint: string) => string
+      sshHostKeyTrust: string
+      sshHostKeyReject: string
+      sshPromptTitle: string
+      sshErrUnreachable: string
+      sshErrAuth: string
+      sshErrHostKey: string
+      sshErrNotInstalled: string
+      sshErrPlatform: string
+      sshErrTimeout: string
+      sshErrUpdateRequired: string
+      sshErrUnknown: string
+      sshStepConnecting: string
+      sshStepAuthenticating: string
+      sshStepProbingPlatform: string
+      sshStepLocatingHermes: string
+      sshStepCheckingExisting: string
+      sshStepUploadingToken: string
+      sshStepSpawning: string
+      sshStepWaitingReady: string
+      sshStepForwarding: string
+      sshStepVerifying: string
       cloudSignInTitle: string
       cloudSignIn: string
       cloudSignedIn: string
@@ -2213,6 +2261,7 @@ export interface Translations {
     closeOthers: string
     closeToRight: string
     closeAll: string
+    newTab: string
     split: (dir: string) => string
     move: (dir: string) => string
     dirUp: string

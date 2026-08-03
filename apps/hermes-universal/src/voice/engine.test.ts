@@ -19,6 +19,7 @@ const h = vi.hoisted(() => {
 
   const make = (onInit?: () => void): FakeLease => {
     const handlers = new Set<(event: unknown) => void>()
+
     return {
       init: vi.fn(async () => {
         onInit?.()
@@ -29,6 +30,7 @@ const h = vi.hoisted(() => {
       close: vi.fn(async () => undefined),
       on: fn => {
         handlers.add(fn)
+
         return () => handlers.delete(fn)
       },
       closed: false
@@ -45,12 +47,15 @@ const h = vi.hoisted(() => {
           throw new Error('native boom')
         }
       })
+
       nativeCreated.push(lease)
+
       return lease
     },
     makeWeb: () => {
       const lease = make()
       webCreated.push(lease)
+
       return lease
     }
   }

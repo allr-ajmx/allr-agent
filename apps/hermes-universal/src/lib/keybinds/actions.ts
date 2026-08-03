@@ -13,8 +13,6 @@
 
 import { registry } from '@/contrib/registry'
 
-import { IS_MAC } from './combo'
-
 export type KeybindCategory = 'composer' | 'profiles' | 'session' | 'navigation' | 'view'
 
 // The self-referential opener — bound + dispatched like any action, but shown in
@@ -49,25 +47,26 @@ const PROFILE_SWITCH_ACTIONS: KeybindActionMeta[] = Array.from({ length: PROFILE
   defaults: [comboForSlot(i + 1)]
 }))
 
-// Positional jumps — ^1…^9, mirroring profiles' ⌘1…⌘9.
+// Positional jumps — ⌥1…⌥9, mirroring profiles' ⌘1…⌘9. Alt (not Control) is
+// what browsers and terminals use for "switch to tab N", and it leaves ⌃1-9
+// free; `mod+N` is already spent on profiles.
 export const SESSION_SLOT_COUNT = 9
 
 const SESSION_SLOT_ACTIONS: KeybindActionMeta[] = Array.from({ length: SESSION_SLOT_COUNT }, (_, i) => ({
   id: `session.slot.${i + 1}`,
   category: 'session' as const,
-  defaults: [`ctrl+${i + 1}`]
+  defaults: [`alt+${i + 1}`]
 }))
 
 export const KEYBIND_ACTIONS: readonly KeybindActionMeta[] = [
   // ── Composer ─────────────────────────────────────────────────────────────
   { id: 'composer.focus', category: 'composer', defaults: [] },
   { id: 'composer.modelPicker', category: 'composer', defaults: [] },
-  // Voice conversation toggle. Matches the documented `voice.record_key`
-  // (Ctrl+B). On macOS that's literally ⌃B — distinct from the ⌘B sidebar
-  // toggle. Off macOS `ctrl` folds to `mod`, which IS the ⌘B/Ctrl+B sidebar
-  // chord, so ship it unbound there (rebindable in the panel) rather than
-  // stealing the long-standing sidebar binding.
-  { id: 'composer.voice', category: 'composer', defaults: IS_MAC ? ['ctrl+b'] : [] },
+  // Voice conversation toggle — ⌥B, keeping the "b" of the documented
+  // `voice.record_key` but on Alt rather than Control. `ctrl+b` folds to `mod`
+  // off macOS, where it IS the ⌘B/Ctrl+B sidebar chord, so it could only ever
+  // ship bound on Mac; `alt` collides with nothing and binds on every platform.
+  { id: 'composer.voice', category: 'composer', defaults: ['alt+b'] },
 
   // ── Profiles ─────────────────────────────────────────────────────────────
   { id: 'profile.default', category: 'profiles', defaults: ['mod+d'] },

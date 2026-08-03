@@ -1,10 +1,10 @@
 import { PET_SETTINGS_ROUTE } from '@/app/routes'
-import { navigateTo } from '@/lib/route-nav'
 import { atom } from '@/store/atom'
 import { requestGateway, subscribeGateway } from '@/store/gateway'
 import { notifyError } from '@/store/notifications'
 import { type PetInfo, setPetInfo } from '@/store/pet'
 import { loadPetGallery } from '@/store/pet-gallery'
+import { openAppRoute } from '@/store/windows'
 
 // AI pet generation (K10.c). Three backend steps, mirrored as state here:
 //   - `pet.generate` produces N cheap base-look *drafts* keyed by a `token`
@@ -116,7 +116,7 @@ export function openPetGenerate(concept?: string): void {
   }
 
   $petGenOpen.set(true)
-  navigateTo(PET_SETTINGS_ROUTE)
+  openAppRoute(PET_SETTINGS_ROUTE)
 }
 
 /** Probe whether generation is possible (a reference-capable backend exists). */

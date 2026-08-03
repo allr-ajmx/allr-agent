@@ -12,7 +12,12 @@ import {
 } from 'react'
 
 import { focusComposerInput, markActiveComposer } from '@/app/chat/composer/focus'
-import { composerPlainText, placeCaretEnd, renderComposerContents, RICH_INPUT_SLOT } from '@/app/chat/composer/rich-editor'
+import {
+  composerPlainText,
+  placeCaretEnd,
+  renderComposerContents,
+  RICH_INPUT_SLOT
+} from '@/app/chat/composer/rich-editor'
 import {
   StickyHumanMessageContainer,
   StopGlyph,
