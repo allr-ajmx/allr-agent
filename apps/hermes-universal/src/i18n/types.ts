@@ -634,6 +634,8 @@ export interface Translations {
       testFailed: string
       applyFailed: string
       switchFailed: string
+      sessionMissingTitle: string
+      sessionMissingMessage: string
       saveFailed: string
       connectingTitle: string
       reconnectingTo: (target: string) => string

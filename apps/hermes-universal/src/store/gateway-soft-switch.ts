@@ -8,7 +8,7 @@ import type { Connection, GatewayMode } from '@/store/gateway-config'
 import { dialSavedTarget, type GatewayTarget, loadGatewayTarget } from '@/store/gateway-restore'
 import { $gatewayMode, $gatewaySwitching } from '@/store/gateway-switch'
 import { stopLocalBackend } from '@/store/local-backend'
-import { notifyError } from '@/store/notifications'
+import { notify, notifyError } from '@/store/notifications'
 import {
   $activeStoredSessionId,
   $messagingSessions,
@@ -19,7 +19,8 @@ import {
   $unreadFinishedSessionIds,
   refreshMessagingSessions,
   refreshSessions,
-  resetSessionsPaging
+  resetSessionsPaging,
+  sessionMatchesStoredId
 } from '@/store/session'
 import { clearAllSessionStates, resetTileRuntimeBindings } from '@/store/session-states'
 import { resetWorkspaceCwd } from '@/store/workspace-events'
@@ -65,6 +66,36 @@ export function wipeSessionListsForGatewaySwitch(): void {
   // Blunt, matching the profile-swap precedent in store/profiles.ts: universal has
   // no gateway-scoped key partition, so everything cached is re-fetched.
   void queryClient.invalidateQueries()
+}
+
+/**
+ * True when `storedSessionId` is absent from the session list currently loaded.
+ *
+ * Call only once the new gateway's list has landed — an empty list mid-refresh
+ * would read as "everything is missing".
+ */
+export function sessionMissingFromCurrentGateway(storedSessionId: string): boolean {
+  return !$sessions.get().some(session => sessionMatchesStoredId(session, storedSessionId))
+}
+
+/**
+ * Tell the user their chat did not come across, once the new gateway's list is in.
+ *
+ * The wipe has already reset the chat and cleared the active id, so every surface
+ * is sitting on a fresh session by this point — what is missing is the reason why,
+ * which otherwise reads as the app having silently dropped their conversation.
+ * Sessions are per-backend, so a chat existing on both gateways is the exception.
+ */
+function warnIfSessionMissingAfterSwitch(previousSessionId: null | string): void {
+  if (!previousSessionId || !sessionMissingFromCurrentGateway(previousSessionId)) {
+    return
+  }
+
+  notify({
+    kind: 'warning',
+    title: translateNow('settings.gateway.sessionMissingTitle'),
+    message: translateNow('settings.gateway.sessionMissingMessage')
+  })
 }
 
 /**
@@ -129,6 +160,9 @@ export async function softSwitchGateway(mode: GatewayMode, dial: () => Promise<v
   // so after this point neither is still the old one.
   const previous = $connection.get()
   const previousTarget = loadGatewayTarget()
+  // The wipe nulls this, so grab it first: it is what tells us, once the new
+  // gateway's list has landed, whether the chat the user was on came across.
+  const previousSessionId = $activeStoredSessionId.get()
 
   $gatewaySwitching.set(true)
   beginGatewaySwitch()
@@ -144,7 +178,20 @@ export async function softSwitchGateway(mode: GatewayMode, dial: () => Promise<v
     $gatewayMode.set(mode)
     await dial()
     // Universal doesn't refresh session lists on gateway open, so the switch does it.
-    await Promise.all([refreshSessions().catch(() => {}), refreshMessagingSessions().catch(() => {})])
+    let listed = true
+    await Promise.all([
+      refreshSessions().catch(() => {
+        listed = false
+      }),
+      refreshMessagingSessions().catch(() => {})
+    ])
+
+    // Only when the list actually landed: a failed refresh leaves it empty, which
+    // is indistinguishable from "the new gateway has none" and would make us claim
+    // the user's session is gone on nothing more than a dropped request.
+    if (listed) {
+      warnIfSessionMissingAfterSwitch(previousSessionId)
+    }
   } catch (err) {
     await rollbackFailedSwitch(err, previous, previousTarget)
 

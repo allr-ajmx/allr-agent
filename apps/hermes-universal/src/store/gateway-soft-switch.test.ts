@@ -16,7 +16,7 @@ vi.mock('@/store/gateway-restore', () => ({
   dialSavedTarget: vi.fn().mockResolvedValue(undefined),
   loadGatewayTarget: vi.fn().mockReturnValue(null)
 }))
-vi.mock('@/store/notifications', () => ({ notifyError: vi.fn() }))
+vi.mock('@/store/notifications', () => ({ notify: vi.fn(), notifyError: vi.fn() }))
 vi.mock('@/store/local-backend', () => ({ stopLocalBackend: vi.fn().mockResolvedValue(undefined) }))
 vi.mock('@/store/chat', () => ({ resetChat: vi.fn() }))
 vi.mock('@/store/cron', () => ({ setCronJobs: vi.fn() }))
@@ -36,7 +36,13 @@ vi.mock('@/store/session', async () => {
     $unreadFinishedSessionIds: atom<string[]>([]),
     refreshMessagingSessions: vi.fn().mockResolvedValue(undefined),
     refreshSessions: vi.fn().mockResolvedValue(undefined),
-    resetSessionsPaging: vi.fn()
+    resetSessionsPaging: vi.fn(),
+    // The real predicate — the missing-session check is only meaningful if lineage
+    // matching behaves as it does in production.
+    sessionMatchesStoredId: (
+      session: { _lineage_root_id?: string; id: string },
+      storedSessionId: string
+    ): boolean => session.id === storedSessionId || session._lineage_root_id === storedSessionId
   }
 })
 
@@ -45,7 +51,7 @@ import { closeGateway } from '@/store/gateway'
 import type { Connection } from '@/store/gateway-config'
 import { dialSavedTarget, type GatewayTarget, loadGatewayTarget } from '@/store/gateway-restore'
 import { stopLocalBackend } from '@/store/local-backend'
-import { notifyError } from '@/store/notifications'
+import { notify, notifyError } from '@/store/notifications'
 import {
   $activeStoredSessionId,
   $messagingSessions,
@@ -59,7 +65,7 @@ import {
 import { clearAllSessionStates } from '@/store/session-states'
 import type { SessionInfo } from '@/types/hermes'
 
-import { softSwitchGateway } from './gateway-soft-switch'
+import { sessionMissingFromCurrentGateway, softSwitchGateway } from './gateway-soft-switch'
 import { $gatewayMode, $gatewaySwitching } from './gateway-switch'
 
 // Only the fields the wipe / switch actually read.
@@ -83,6 +89,7 @@ beforeEach(() => {
   // so one test's override can't leak into the next.
   vi.mocked(loadGatewayTarget).mockReturnValue(null)
   vi.mocked(dialSavedTarget).mockResolvedValue(undefined)
+  vi.mocked(refreshSessions).mockResolvedValue(undefined)
 })
 afterEach(() => vi.clearAllMocks())
 
@@ -256,5 +263,81 @@ describe('gateway soft switch — failed dial', () => {
     expect(dialSavedTarget).not.toHaveBeenCalled()
     expect(disconnect).not.toHaveBeenCalled()
     expect(notifyError).not.toHaveBeenCalled()
+  })
+})
+
+// Sessions are per-backend, so the chat the user was on usually does NOT come across
+// a switch. The wipe already drops them onto a fresh session; these cover the part
+// that explains why, so it doesn't read as the app losing their conversation.
+describe('gateway soft switch — session that did not come across', () => {
+  const listed = (id: string) => ({ id }) as unknown as SessionInfo
+
+  it('warns when the session the user was on is absent from the new gateway', async () => {
+    $activeStoredSessionId.set('s-old')
+    vi.mocked(refreshSessions).mockImplementation(async () => {
+      $sessions.set([listed('s-other')])
+    })
+
+    await softSwitchGateway('cloud', vi.fn().mockResolvedValue(undefined))
+
+    expect(notify).toHaveBeenCalledOnce()
+    expect(vi.mocked(notify).mock.calls[0][0]).toMatchObject({
+      kind: 'warning',
+      title: 'Gateway changed',
+      message: "This session doesn't exist on the new gateway."
+    })
+  })
+
+  it('stays quiet when the session does exist on the new gateway', async () => {
+    $activeStoredSessionId.set('s-old')
+    vi.mocked(refreshSessions).mockImplementation(async () => {
+      $sessions.set([listed('s-old')])
+    })
+
+    await softSwitchGateway('cloud', vi.fn().mockResolvedValue(undefined))
+
+    expect(notify).not.toHaveBeenCalled()
+  })
+
+  it('stays quiet when no session was open to begin with', async () => {
+    $activeStoredSessionId.set(null)
+    vi.mocked(refreshSessions).mockImplementation(async () => {
+      $sessions.set([listed('s-other')])
+    })
+
+    await softSwitchGateway('cloud', vi.fn().mockResolvedValue(undefined))
+
+    expect(notify).not.toHaveBeenCalled()
+  })
+
+  // The rollback path puts the user back where they were, so nothing went missing.
+  it('does not warn when the switch failed and rolled back', async () => {
+    $activeStoredSessionId.set('s-old')
+    $connection.set(connectionOn('remote'))
+    vi.mocked(loadGatewayTarget).mockReturnValue({ mode: 'remote', url: 'old' } as GatewayTarget)
+
+    await expect(softSwitchGateway('cloud', () => Promise.reject(new Error('nope')))).rejects.toThrow('nope')
+
+    expect(notify).not.toHaveBeenCalled()
+  })
+
+  it('matches a session by its lineage root, not just its live id', () => {
+    $sessions.set([{ id: 's-new', _lineage_root_id: 's-old' } as unknown as SessionInfo])
+
+    expect(sessionMissingFromCurrentGateway('s-old')).toBe(false)
+    expect(sessionMissingFromCurrentGateway('s-gone')).toBe(true)
+  })
+})
+
+// A dropped list request leaves $sessions empty, which looks exactly like "the new
+// gateway has none" — claiming the user's chat is gone on that basis would be a lie.
+describe('gateway soft switch — session check needs a real list', () => {
+  it('stays quiet when the session list failed to load', async () => {
+    $activeStoredSessionId.set('s-old')
+    vi.mocked(refreshSessions).mockRejectedValue(new Error('list request dropped'))
+
+    await softSwitchGateway('cloud', vi.fn().mockResolvedValue(undefined))
+
+    expect(notify).not.toHaveBeenCalled()
   })
 })

@@ -725,6 +725,8 @@ export const en: Translations = {
       testFailed: 'Remote gateway test failed',
       applyFailed: 'Could not apply gateway settings',
       switchFailed: 'Failed to switch gateway',
+      sessionMissingTitle: 'Gateway changed',
+      sessionMissingMessage: "This session doesn't exist on the new gateway.",
       saveFailed: 'Could not save gateway settings',
       connectingTitle: 'Connecting to Hermes',
       reconnectingTo: target => `Reconnecting to ${target}…`,

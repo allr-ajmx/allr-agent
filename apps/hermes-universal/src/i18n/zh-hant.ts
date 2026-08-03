@@ -744,6 +744,8 @@ export const zhHant = defineLocale({
       testFailed: '遠端閘道測試失敗',
       applyFailed: '無法套用閘道設定',
       switchFailed: '切換閘道失敗',
+      sessionMissingTitle: '閘道已變更',
+      sessionMissingMessage: '此工作階段在新閘道上不存在。',
       saveFailed: '無法儲存閘道設定',
       connectingTitle: '正在連線 Hermes',
       reconnectingTo: target => `正在重新連線至 ${target}…`,
