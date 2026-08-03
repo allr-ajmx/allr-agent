@@ -207,9 +207,7 @@ export function PetSprite({
       // the live activity/roam state.
       const forcedRow = rowOverrideRef.current
 
-      const { row: index, count } = forcedRow
-        ? resolveRow(forcedRow)
-        : resolve(overrideRef.current ?? liveState)
+      const { row: index, count } = forcedRow ? resolveRow(forcedRow) : resolve(overrideRef.current ?? liveState)
 
       if (index !== activeRow || count !== activeCount) {
         activeRow = index

@@ -350,3 +350,135 @@ def test_ws_write_async_keeps_drained_tokens_with_current_frame():
         ]
 
     asyncio.run(scenario())
+
+
+# ---------------------------------------------------------------------------
+# Concurrent sessions on ONE websocket.
+#
+# The client demuxes purely on params.session_id, so these guard the two
+# properties that makes possible: every frame is attributed, and a session
+# already streaming to one viewer is not handed to another (MJX-132).
+# ---------------------------------------------------------------------------
+
+
+def test_event_frames_always_carry_their_session_id():
+    """`_event_frame` is the single builder for every event the gateway emits."""
+    for event in (
+        "message.start",
+        "message.delta",
+        "reasoning.delta",
+        "tool.start",
+        "tool.complete",
+        "message.complete",
+    ):
+        for sid in ("session-a", "session-b"):
+            frame = server._event_frame(event, sid, {"text": "x"})
+
+            assert frame["method"] == "event"
+            assert frame["params"]["session_id"] == sid
+            assert frame["params"]["type"] == event
+
+    # A payload-less frame still carries its id (payload is the optional half).
+    assert server._event_frame("message.start", "session-a")["params"] == {
+        "type": "message.start",
+        "session_id": "session-a",
+    }
+
+
+def test_two_sessions_on_one_transport_keep_their_own_ids():
+    """Interleaved emits from two sessions never borrow each other's id."""
+    written = []
+
+    class RecordingTransport:
+        def write(self, obj):
+            written.append(obj)
+            return True
+
+    transport = RecordingTransport()
+
+    for sid, text in (("a", "A1"), ("b", "B1"), ("a", "A2"), ("b", "B2")):
+        transport.write(server._event_frame("message.delta", sid, {"text": text}))
+
+    by_session = {}
+    for frame in written:
+        params = frame["params"]
+        by_session.setdefault(params["session_id"], []).append(params["payload"]["text"])
+
+    assert by_session == {"a": ["A1", "A2"], "b": ["B1", "B2"]}
+
+
+def _rebind_session(running, current_transport):
+    return {"running": running, "transport": current_transport}
+
+
+def test_resume_does_not_steal_a_running_sessions_transport():
+    """A second viewer resuming a session must not take over its live stream.
+
+    Resume is also how another window / tile / bubble PEEKS at a session. When
+    it rebound unconditionally, a turn already streaming to viewer A suddenly
+    emitted to viewer B, and A watched its own answer stop mid-sentence.
+    """
+    viewer_a = object()
+    viewer_b = object()
+
+    assert not server._resume_may_rebind_transport(_rebind_session(True, viewer_a), viewer_b)
+
+
+def test_resume_rebinds_an_idle_session():
+    """With no turn in flight there is nothing to interrupt."""
+    viewer_a = object()
+    viewer_b = object()
+
+    assert server._resume_may_rebind_transport(_rebind_session(False, viewer_a), viewer_b)
+
+
+def test_resume_rebinds_a_running_session_whose_viewer_disconnected():
+    """A detached session has no live reader, so the resuming client wins."""
+    viewer_b = object()
+
+    detached = _rebind_session(True, server._detached_ws_transport)
+    assert server._resume_may_rebind_transport(detached, viewer_b)
+
+    on_stdio = _rebind_session(True, server._stdio_transport)
+    assert server._resume_may_rebind_transport(on_stdio, viewer_b)
+
+
+def test_resume_is_idempotent_for_the_same_viewer():
+    """The viewer that already owns the stream may always re-assert it."""
+    viewer_a = object()
+
+    assert server._resume_may_rebind_transport(_rebind_session(True, viewer_a), viewer_a)
+    assert server._resume_may_rebind_transport(_rebind_session(True, None), viewer_a)
+
+
+def test_secret_capture_callback_is_thread_local():
+    """Concurrent turns must not share one session's secret-capture callback.
+
+    The gateway wires this per turn with a callback closed over that turn's
+    session id; as a module global the last writer won, so a secret prompt
+    raised by session A could be emitted carrying session B's id.
+    """
+    from tools import skills_tool
+
+    previous_default = skills_tool._secret_capture_callback
+    seen = {}
+    barrier = threading.Barrier(2)
+
+    def worker(sid):
+        skills_tool.set_secret_capture_callback(lambda: sid, thread_only=True)
+        barrier.wait(timeout=5)  # let the other thread install its callback too
+        seen[sid] = skills_tool.get_secret_capture_callback()()
+
+    try:
+        threads = [threading.Thread(target=worker, args=(sid,)) for sid in ("a", "b")]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=5)
+
+        assert seen == {"a": "a", "b": "b"}
+        # thread_only must leave the process-wide default untouched.
+        assert skills_tool._secret_capture_callback is previous_default
+    finally:
+        skills_tool._secret_capture_callback = previous_default
+        skills_tool._secret_capture_tls.callback = None

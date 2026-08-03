@@ -34,12 +34,14 @@ export const updateCronJobs = (fn: (jobs: CronJob[]) => CronJob[]) => $cronJobs.
 export const $cronFocusJobId = atom<null | string>(null)
 export const setCronFocusJobId = (id: null | string) => $cronFocusJobId.set(id)
 
-export async function refreshCronJobs(): Promise<void> {
+/** `profile` scopes the listing: a concrete profile key, or 'all' for the
+ *  all-profiles browse view. Omit for the active profile (the REST default). */
+export async function refreshCronJobs(profile?: string): Promise<void> {
   $cronLoading.set(true)
   $cronLoadError.set(null)
 
   try {
-    $cronJobs.set(await getCronJobs())
+    $cronJobs.set(await getCronJobs(profile))
   } catch (err) {
     $cronLoadError.set(err instanceof Error ? err.message : 'Failed to load cron jobs')
   } finally {

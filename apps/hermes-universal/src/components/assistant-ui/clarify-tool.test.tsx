@@ -5,7 +5,6 @@ import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { I18nProvider } from '@/i18n'
-import { $clarify } from '@/store/chat'
 
 // The live panel asks assistant-ui whether its message is still streaming. There
 // is no runtime in a unit test, so pin it to "running" and leave the rest of the
@@ -16,11 +15,15 @@ vi.mock('@assistant-ui/react', async importActual => {
   return { ...actual, useAuiState: () => true }
 })
 
+import { setSessionClarify } from '@/store/prompts'
+import { seedActiveSession } from '@/test-sessions'
+
 import { ClarifyTool, readClarifyResult } from './clarify-tool'
 
 afterEach(() => {
   cleanup()
-  $clarify.set(null)
+  seedActiveSession('sess-1')
+  setSessionClarify('sess-1', null)
 })
 
 function renderClarify(ui: ReactNode) {
@@ -91,7 +94,7 @@ describe('ClarifyTool live view', () => {
   // only read args showed a spinner (and the user fell back to free text)
   // instead of the question + choice buttons the gateway actually sent.
   it('renders the question and choices from the clarify.request store', () => {
-    $clarify.set({ requestId: 'c1', question: 'Which deployment target?', choices: ['staging', 'prod'] })
+    setSessionClarify('sess-1', { requestId: 'c1', question: 'Which deployment target?', choices: ['staging', 'prod'] })
 
     renderClarify(<ClarifyTool {...clarifyProps({}, undefined, 'clarify-live-1')} />)
 
@@ -103,7 +106,7 @@ describe('ClarifyTool live view', () => {
   })
 
   it('offers a free-form answer when the question has no choices', () => {
-    $clarify.set({ requestId: 'c2', question: 'Anything else?', choices: null })
+    setSessionClarify('sess-1', { requestId: 'c2', question: 'Anything else?', choices: null })
 
     renderClarify(<ClarifyTool {...clarifyProps({}, undefined, 'clarify-live-2')} />)
 
@@ -145,7 +148,11 @@ describe('ClarifyTool settled view', () => {
   it('labels an empty response as Skipped', () => {
     renderClarify(
       <ClarifyTool
-        {...clarifyProps({ question: 'Anything else?' }, { question: 'Anything else?', user_response: '' }, 'clarify-2')}
+        {...clarifyProps(
+          { question: 'Anything else?' },
+          { question: 'Anything else?', user_response: '' },
+          'clarify-2'
+        )}
       />
     )
 

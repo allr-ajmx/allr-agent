@@ -14,6 +14,7 @@ vi.mock('@/store/gateway', async () => {
   const { atom } = await import('@/store/atom')
 
   return {
+    addGatewayEventListener: () => () => {},
     connectGateway: vi.fn().mockResolvedValue(undefined),
     closeGateway: vi.fn(),
     $gatewayState: atom('idle')

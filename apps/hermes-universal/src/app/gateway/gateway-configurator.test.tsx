@@ -37,6 +37,9 @@ describe('GatewayConfigurator variants', () => {
   it('embedded keeps the mode cards single-column at every window width', () => {
     const { container } = renderVariant('embedded')
     const grid = container.querySelector('.auto-rows-fr')
+    // Both literals matter: the non-embedded grid is 4-col where Local is offered
+    // and 3-col where it is not, so only rejecting one would prove nothing.
     expect(grid?.className).not.toContain('min-[42rem]:grid-cols-3')
+    expect(grid?.className).not.toContain('min-[42rem]:grid-cols-4')
   })
 })

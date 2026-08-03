@@ -16,7 +16,7 @@ import {
   $unreadFinishedSessionIds,
   refreshMessagingSessions,
   refreshSessions,
-  resetSessionsPage
+  resetSessionsPaging
 } from '@/store/session'
 import { clearAllSessionStates, resetTileRuntimeBindings } from '@/store/session-states'
 import { resetWorkspaceCwd } from '@/store/workspace-events'
@@ -50,7 +50,7 @@ export function wipeSessionListsForGatewaySwitch(): void {
   clearAllSessionStates()
   // Runtime ids belong to the old backend — tiles must re-bind against the new one.
   resetTileRuntimeBindings()
-  resetSessionsPage()
+  resetSessionsPaging()
 
   $activeStoredSessionId.set(null)
   resetChat()

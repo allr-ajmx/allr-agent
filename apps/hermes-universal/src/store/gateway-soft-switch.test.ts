@@ -31,7 +31,7 @@ vi.mock('@/store/session', async () => {
     $unreadFinishedSessionIds: atom<string[]>([]),
     refreshMessagingSessions: vi.fn().mockResolvedValue(undefined),
     refreshSessions: vi.fn().mockResolvedValue(undefined),
-    resetSessionsPage: vi.fn()
+    resetSessionsPaging: vi.fn()
   }
 })
 

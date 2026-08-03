@@ -1,3 +1,5 @@
+import { createRequire } from 'node:module'
+import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import react from '@vitejs/plugin-react'
@@ -10,6 +12,9 @@ import { defineConfig } from 'vitest/config'
 // device dev the host must be reachable from the phone, so bind 0.0.0.0.
 const host = process.env.TAURI_DEV_HOST
 
+const require = createRequire(import.meta.url)
+const reactDir = dirname(require.resolve('react/package.json'))
+
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   // Tailwind v4 is handled entirely by `@tailwindcss/vite`; pin an explicit
@@ -19,8 +24,28 @@ export default defineConfig({
   css: { postcss: { plugins: [] } },
   resolve: {
     alias: {
-      '@': fileURLToPath(new URL('./src', import.meta.url))
-    }
+      '@': fileURLToPath(new URL('./src', import.meta.url)),
+      // The plugin SDK's public specifier. A bundled plugin writes
+      // `import { host } from '@hermes/plugin-sdk'` and resolves here; a
+      // runtime-loaded one gets the same object through sdk/runtime.ts's blob
+      // shims. Same alias desktop's vite.config.ts declares.
+      '@hermes/plugin-sdk': fileURLToPath(new URL('./src/sdk/index.ts', import.meta.url)),
+      // React MUST be a singleton: sdk/runtime.ts hands plugins the app's own
+      // React namespace, and a second copy reaching the bundle would break every
+      // plugin hook with an unhelpful "invalid hook call".
+      //
+      // Resolved through Node from THIS package, not hardcoded to the workspace
+      // root: pnpm gives the app its own `node_modules/.pnpm/react@…` copy, and a
+      // root-pinned alias hands app code that copy while react-dom keeps its peer
+      // one — two dispatchers, and every hook in the test suite throws
+      // "Cannot read properties of null (reading 'useCallback')". `require.resolve`
+      // lands on exactly the copy react-dom resolves to, in every install layout.
+      react: reactDir,
+      'react-dom': dirname(require.resolve('react-dom/package.json')),
+      'react/jsx-dev-runtime': join(reactDir, 'jsx-dev-runtime.js'),
+      'react/jsx-runtime': join(reactDir, 'jsx-runtime.js')
+    },
+    dedupe: ['react', 'react-dom']
   },
   clearScreen: false,
   server: {
