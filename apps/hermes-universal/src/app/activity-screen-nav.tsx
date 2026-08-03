@@ -54,11 +54,16 @@ const CC_SECTIONS = [
 export function ActivityNavSidebar({
   surface,
   onNavigate,
+  onHome = returnHome,
   footer
 }: {
   surface: ActivitySurface
   /** Close the drawer after a selection (sheet variant). */
   onNavigate?: () => void
+  /** Home-row action. Defaults to `returnHome` (native activity: finish the scene);
+   *  the in-app mobile overlay passes `closeOverlayToPreviousRoute` instead so it
+   *  navigates back rather than trying to close the primary window. */
+  onHome?: () => void
   /** Optional footer row (Settings uses it for Export / Import / Reset). */
   footer?: ReactNode
 }) {
@@ -116,7 +121,7 @@ export function ActivityNavSidebar({
             icon={<Codicon className={ICON_CLASS} name="home" />}
             label="Home"
             onSelect={() => {
-              void returnHome()
+              onHome()
               onNavigate?.()
             }}
           />
