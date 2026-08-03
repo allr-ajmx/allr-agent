@@ -1,33 +1,39 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/hermes', () => ({
-  listSessions: vi.fn(),
+  listAllProfileSessions: vi.fn(),
   getSessionMessages: vi.fn(),
   deleteSession: vi.fn(),
   renameSession: vi.fn(),
   setSessionArchived: vi.fn(),
-  searchSessions: vi.fn()
+  searchSessions: vi.fn(),
+  setApiRequestProfile: vi.fn()
 }))
 vi.mock('@/store/gateway', () => ({
   addGatewayEventListener: () => () => {},
   requestGateway: vi.fn()
 }))
 
-import { deleteSession, getSessionMessages, renameSession } from '@/hermes'
+import { deleteSession, getSessionMessages, listAllProfileSessions, renameSession } from '@/hermes'
 import { $busy, $currentCwd, $messages, $sessionId } from '@/store/chat'
 import { requestGateway } from '@/store/gateway'
+import { $showAllProfiles } from '@/store/profile'
+import { $activeProfile } from '@/store/profiles'
 import { updateSession } from '@/store/session-state-types'
 import { resetSessionStates, seedActiveSession } from '@/test-sessions'
-import type { SessionInfo } from '@/types/hermes'
+import type { PaginatedSessions, SessionInfo } from '@/types/hermes'
 
 import {
   $activeStoredSessionId,
   $sessions,
+  $sessionsLimit,
   $sessionsTotal,
   branchCurrentSession,
   deleteSessionLocal,
   openSession,
-  renameSessionLocal
+  refreshSessions,
+  renameSessionLocal,
+  resetSessionsPaging
 } from './session'
 
 const row = (id: string, title: string): SessionInfo => ({ id, title }) as unknown as SessionInfo
@@ -38,6 +44,9 @@ afterEach(() => {
   $sessions.set([])
   $sessionsTotal.set(0)
   $activeStoredSessionId.set(null)
+  $showAllProfiles.set(false)
+  $activeProfile.set(null)
+  resetSessionsPaging()
   resetSessionStates()
   seedActiveSession('runtime-0')
 })
@@ -288,5 +297,40 @@ describe('branchCurrentSession', () => {
     await expect(branchCurrentSession()).resolves.toBe(false)
     expect($sessionId.get()).toBe('runtime-1')
     expect($messages.get().map(m => m.id)).toEqual(['m1', 'm2'])
+  })
+})
+
+describe('refreshSessions — profile scope', () => {
+  const page = (over: Partial<PaginatedSessions> = {}): PaginatedSessions =>
+    ({ limit: 30, offset: 0, sessions: [row('a', 'A')], total: 7, ...over }) as PaginatedSessions
+
+  it('asks the aggregator for the active profile in concrete scope', async () => {
+    $activeProfile.set('research')
+    vi.mocked(listAllProfileSessions).mockResolvedValue(page({ profile_totals: { research: 3, default: 40 } }))
+
+    await refreshSessions()
+
+    expect(listAllProfileSessions).toHaveBeenCalledWith($sessionsLimit.get(), 1, 'exclude', 'recent', 'research')
+    // The scoped total wins over the aggregate one.
+    expect($sessionsTotal.get()).toBe(3)
+  })
+
+  it("asks for 'all' in the browse scope and keeps the aggregate total", async () => {
+    $showAllProfiles.set(true)
+    vi.mocked(listAllProfileSessions).mockResolvedValue(page({ profile_totals: { default: 4 } }))
+
+    await refreshSessions()
+
+    expect(listAllProfileSessions).toHaveBeenCalledWith($sessionsLimit.get(), 1, 'exclude', 'recent', 'all')
+    expect($sessionsTotal.get()).toBe(7)
+  })
+
+  it('falls back to the aggregate total when the scope has no per-profile entry', async () => {
+    vi.mocked(listAllProfileSessions).mockResolvedValue(page())
+
+    await refreshSessions()
+
+    expect(listAllProfileSessions).toHaveBeenCalledWith($sessionsLimit.get(), 1, 'exclude', 'recent', 'default')
+    expect($sessionsTotal.get()).toBe(7)
   })
 })

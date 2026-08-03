@@ -45,9 +45,8 @@ describe('keybind bindings', () => {
     expect(index.get('alt+b')).toBe('composer.voice')
   })
 
-  it('leaves actions with no universal backing unbound', () => {
-    // The profile browse-scope toggle has no universal home yet.
-    expect(bindingsFor('profile.toggleAll')).toEqual([])
+  it('binds profile.toggleAll now that the browse scope ships (MJX-108)', () => {
+    expect(bindingsFor('profile.toggleAll')).toEqual(['mod+shift+0'])
   })
 
   it('overrides then resets a single binding', () => {

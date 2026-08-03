@@ -3,7 +3,6 @@ import {
   deleteSession,
   getSessionMessages,
   listAllProfileSessions,
-  listSessions,
   renameSession,
   searchSessions,
   setSessionArchived
@@ -19,6 +18,8 @@ import { requestGateway } from '@/store/gateway'
 import { $pinnedSessionIds, pinSession, unpinSession } from '@/store/layout'
 import { notify, notifyError } from '@/store/notifications'
 import { flashPetActivity } from '@/store/pet'
+// Import direction is `session.ts → profile.ts → profiles.ts`; never the reverse.
+import { $profileScope, ALL_PROFILES } from '@/store/profile'
 import {
   $activeSessionKey,
   $sessionStates,
@@ -247,13 +248,29 @@ export async function refreshMessagingSessions(): Promise<void> {
   }
 }
 
+// Recents come from the cross-profile aggregator in BOTH scope modes, mirroring
+// desktop's `recentsProfile`: 'all' for the browse view, else the concrete profile
+// key. Going through the aggregator (rather than listSessions, which is NOT
+// profile-scoped) is what actually scopes the sidebar to the active profile, and
+// it tags every row with its owning `profile` — which the lanes and ProfileTag
+// need. `$sessionsLimit` stays global, so in browse mode a limit of N is split
+// across profiles by recency; `resetSessionsPaging()` keeps a big browse-mode
+// limit from leaking into a small single profile.
 export async function refreshSessions(): Promise<void> {
   $sessionsLoading.set(true)
 
+  const scope = $profileScope.get()
+
   try {
-    const res = await listSessions($sessionsLimit.get(), 1, 'exclude', 'recent')
+    const res = await listAllProfileSessions(
+      $sessionsLimit.get(),
+      1,
+      'exclude',
+      'recent',
+      scope === ALL_PROFILES ? 'all' : scope
+    )
     $sessions.set(res.sessions)
-    $sessionsTotal.set(res.total)
+    $sessionsTotal.set(scope === ALL_PROFILES ? res.total : (res.profile_totals?.[scope] ?? res.total))
   } catch (err) {
     // A list-fetch failure is not any one chat's status: surface it as a
     // notification instead of pinning it to whichever session is on screen.
@@ -263,8 +280,13 @@ export async function refreshSessions(): Promise<void> {
   }
 }
 
-// The ported listSessions slices at `limit` with offset=0, so "load more" =
-// re-fetch with a bigger limit. FIXME(MJX-205): true offset pagination.
+/** Drop back to the first page — called when the profile scope changes. */
+export function resetSessionsPaging(): void {
+  $sessionsLimit.set(PAGE)
+}
+
+// The aggregator slices at `limit` with offset=0, so "load more" = re-fetch with
+// a bigger limit. FIXME(MJX-205): true offset pagination.
 export async function loadMoreSessions(): Promise<void> {
   $sessionsLimit.set($sessionsLimit.get() + PAGE)
   await refreshSessions()

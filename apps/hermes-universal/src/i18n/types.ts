@@ -1192,6 +1192,7 @@ export interface Translations {
     showAllProfiles: string
     switchToProfile: (name: string) => string
     manageProfiles: string
+    moreProfiles: string
     actionsFor: (name: string) => string
     color: string
     colorFor: (name: string) => string
@@ -1469,6 +1470,7 @@ export interface Translations {
       newWindow: string
       copyIdFailed: string
       actionsFor: (title: string) => string
+      ownedByProfile: (profile: string) => string
       sessionActions: string
       sessionRunning: string
       needsInput: string

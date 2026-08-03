@@ -8,8 +8,9 @@ import { sessionPinId } from '@/store/session'
 import type { SessionInfo } from '@/types/hermes'
 
 import { SidebarCount } from './chrome'
+import { SidebarProfileGroup } from './profile-group'
 import { EnteredProjectContent } from './projects/entered-content'
-import type { SidebarProjectTree } from './projects/model'
+import type { SidebarProjectTree, SidebarSessionGroup } from './projects/model'
 import { ProjectOverviewRow } from './projects/overview-row'
 import { ReorderableList, useSortableBindings } from './reorderable-list'
 import { SidebarSessionSkeletons } from './section-states'
@@ -93,6 +94,11 @@ export interface SidebarSessionsSectionProps {
   labelIcon?: React.ReactNode
   collapsible?: boolean
   sortable?: boolean
+  /** Owning-profile chips on every row (all-profiles browse scope). */
+  showProfileTags?: boolean
+  /** Per-profile lanes, rendered instead of the flat list when present. */
+  groups?: SidebarSessionGroup[]
+  onNewSessionInProfile?: (profileKey: string) => void
   onReorderSessions?: (ids: string[]) => void
   dndSensors?: ReturnType<typeof useSensors>
   // Project overview / entered-project rendering (takes precedence over the flat
@@ -129,6 +135,9 @@ export function SidebarSessionsSection(props: SidebarSessionsSectionProps) {
     labelIcon,
     collapsible = true,
     sortable = false,
+    showProfileTags = false,
+    groups,
+    onNewSessionInProfile,
     onReorderSessions,
     dndSensors,
     projectOverview,
@@ -143,14 +152,20 @@ export function SidebarSessionsSection(props: SidebarSessionsSectionProps) {
   const sectionOpen = collapsible ? open : true
   const hasProjectOverview = Boolean(projectOverview?.length)
   const hasProjectContent = Boolean(projectContent && projectContent.sessionCount > 0)
+  const hasGroups = Boolean(groups?.length)
 
   const showEmptyState =
-    forceEmptyState || (!hasProjectOverview && !hasProjectContent && !projectContent && sessions.length === 0)
+    forceEmptyState ||
+    (!hasProjectOverview && !hasProjectContent && !projectContent && !hasGroups && sessions.length === 0)
 
   const sessionsDraggable = sortable && !!onReorderSessions
 
   const flatVirtualized =
-    !showEmptyState && !projectOverview?.length && !projectContent && sessions.length >= VIRTUALIZE_THRESHOLD
+    !showEmptyState &&
+    !projectOverview?.length &&
+    !projectContent &&
+    !hasGroups &&
+    sessions.length >= VIRTUALIZE_THRESHOLD
 
   const renderRow = (session: SessionInfo, draggable: boolean) => {
     const rowProps = {
@@ -161,7 +176,8 @@ export function SidebarSessionsSection(props: SidebarSessionsSectionProps) {
       onDelete: () => onDeleteSession(session.id),
       onPin: () => onTogglePin(sessionPinId(session)),
       onResume: () => onResumeSession(session.id),
-      session
+      session,
+      showProfile: showProfileTags
     }
 
     return draggable ? (
@@ -174,7 +190,8 @@ export function SidebarSessionsSection(props: SidebarSessionsSectionProps) {
   // Static (non-draggable) rows for project previews + entered-project sessions.
   const renderProjectRows = (items: SessionInfo[]) => items.map(session => renderRow(session, false))
 
-  const showProjectsSkeleton = projectsLoading && !hasProjectOverview && !hasProjectContent && !projectContent
+  const showProjectsSkeleton =
+    projectsLoading && !hasProjectOverview && !hasProjectContent && !projectContent && !hasGroups
 
   let inner: React.ReactNode
 
@@ -213,6 +230,16 @@ export function SidebarSessionsSection(props: SidebarSessionsSectionProps) {
       ) : (
         rows
       )
+  } else if (groups?.length) {
+    // Profile lanes never reorder; render them flat with static rows.
+    inner = groups.map(group => (
+      <SidebarProfileGroup
+        group={group}
+        key={group.id}
+        onNewSession={onNewSessionInProfile}
+        renderRows={renderProjectRows}
+      />
+    ))
   } else if (showEmptyState) {
     inner = emptyState
   } else if (flatVirtualized) {
@@ -227,6 +254,7 @@ export function SidebarSessionsSection(props: SidebarSessionsSectionProps) {
         onTogglePin={onTogglePin}
         pinned={pinned}
         sessions={sessions}
+        showProfileTags={showProfileTags}
         sortable={sessionsDraggable}
         workingSessionIdSet={workingSessionIdSet}
       />
@@ -279,6 +307,7 @@ export function SidebarSessionsSection(props: SidebarSessionsSectionProps) {
 
 type SortableRowProps = {
   session: SessionInfo
+  showProfile: boolean
   isPinned: boolean
   isSelected: boolean
   isWorking: boolean
