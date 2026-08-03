@@ -1592,6 +1592,7 @@ export const zh: Translations = {
     showAllProfiles: '显示全部配置档案',
     switchToProfile: name => `切换到 ${name}`,
     manageProfiles: '管理配置档案…',
+    moreProfiles: '更多配置档案',
     actionsFor: name => `${name} 的操作`,
     color: '颜色…',
     colorFor: name => `${name} 的颜色`,

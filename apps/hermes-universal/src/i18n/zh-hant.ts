@@ -1266,6 +1266,7 @@ export const zhHant = defineLocale({
     showAllProfiles: '顯示全部設定檔',
     switchToProfile: name => `切換至 ${name}`,
     manageProfiles: '管理設定檔…',
+    moreProfiles: '更多設定檔',
     actionsFor: name => `${name} 的動作`,
     color: '顏色…',
     colorFor: name => `${name} 的顏色`,

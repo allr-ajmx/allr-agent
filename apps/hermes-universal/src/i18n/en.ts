@@ -1413,6 +1413,7 @@ export const en: Translations = {
     showAllProfiles: 'Show all profiles',
     switchToProfile: name => `Switch to ${name}`,
     manageProfiles: 'Manage profiles…',
+    moreProfiles: 'More profiles',
     actionsFor: name => `Actions for ${name}`,
     color: 'Color…',
     colorFor: name => `Color for ${name}`,

@@ -1310,6 +1310,7 @@ export const ja = defineLocale({
     showAllProfiles: 'すべてのプロファイルを表示',
     switchToProfile: name => `${name} に切り替え`,
     manageProfiles: 'プロファイルを管理…',
+    moreProfiles: '他のプロファイル',
     actionsFor: name => `${name} のアクション`,
     color: 'カラー…',
     colorFor: name => `${name} のカラー`,

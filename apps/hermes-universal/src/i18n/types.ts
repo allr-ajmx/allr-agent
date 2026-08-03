@@ -1192,6 +1192,7 @@ export interface Translations {
     showAllProfiles: string
     switchToProfile: (name: string) => string
     manageProfiles: string
+    moreProfiles: string
     actionsFor: (name: string) => string
     color: string
     colorFor: (name: string) => string
