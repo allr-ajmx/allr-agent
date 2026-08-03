@@ -26,6 +26,7 @@ import {
 import { ContribBoundary } from '@/contrib/react/boundary'
 import { useContributions } from '@/contrib/react/use-contributions'
 import { useI18n } from '@/i18n'
+import { isChatPaneId } from '@/lib/pane-ids'
 import { cn } from '@/lib/utils'
 
 import { $layoutEditMode } from '../../edit-mode'
@@ -48,7 +49,8 @@ import {
   SESSION_TILE_DRAG,
   setTreeGroupHeaderHidden,
   splitTreeZone,
-  toggleTreeGroupMinimized
+  toggleTreeGroupMinimized,
+  treeNewTabHandler
 } from '../store'
 
 import { type DoubleTapContext, startPaneDrag } from './drag-session'
@@ -191,6 +193,11 @@ export function TreeGroup({
   // Session-tile ids force the header even before chrome registers — cycling
   // onto a freshly-split tile used to land headerless ("name card missing").
   const forceLoneHeader = forceLoneHeaderForPanes(shown, id => paneChrome(paneFor(id)), isCollapsePane)
+
+  // A chat strip gets the `+` new-tab affordance; other strips (terminal,
+  // preview) have their own create verb elsewhere.
+  const chatZone = shown.some(isChatPaneId)
+  const onNewTab = treeNewTabHandler()
 
   // A full-page view (headerVeto) suppresses the strip while it's the active
   // pane — a page is not a tab-able surface; the bar returns with the chat.
@@ -405,6 +412,16 @@ export function TreeGroup({
                     aria-selected={isActive}
                     data-tree-tab={paneId}
                     key={paneId}
+                    onAuxClick={e => {
+                      // Middle-click closes, the way it does in every tabbed
+                      // app. Guarded on `closeable` so the workspace tab — the
+                      // one pane that must survive — ignores it.
+                      if (e.button === 1 && closeable) {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        closeTab(paneId)
+                      }
+                    }}
                     onClose={closeable ? () => closeTab(paneId) : undefined}
                     onPointerDown={e => {
                       // Tabs ACTIVATE (restoring a collapsed group). Minimize
@@ -461,6 +478,22 @@ export function TreeGroup({
                 // tile tab); the wrapper needs the key since it's the root.
                 return <Fragment key={paneId}>{chrome.tabWrap ? chrome.tabWrap(tab) : tab}</Fragment>
               })}
+
+              {/* New-tab affordance, chat strips only — the same thing ⌘T does.
+                  A terminal or preview strip has its own create verb, so a `+`
+                  there would be ambiguous. */}
+              {chatZone && onNewTab && (
+                <button
+                  aria-label={t.zones.newTab}
+                  className="mx-1 grid size-5 shrink-0 place-items-center self-center rounded-md text-(--ui-text-tertiary) opacity-0 transition-opacity hover:bg-(--ui-control-hover-background) hover:text-foreground focus-visible:opacity-100 group-hover/pane-header:opacity-100"
+                  onClick={onNewTab}
+                  onPointerDown={e => e.stopPropagation()}
+                  title={t.zones.newTab}
+                  type="button"
+                >
+                  <Codicon name="add" size="0.75rem" />
+                </button>
+              )}
             </div>
             {minimizable && (
               <button
@@ -621,7 +654,7 @@ function ZoneDropOverlay({ node }: { node: GroupNode }) {
   // now (stack into its tabs / split its edges); only a CHAT zone's center is
   // a link-to-chat (the composer overlay owns that visual).
   const sessionDrag = dragging === SESSION_TILE_DRAG
-  const chatZone = node.panes.some(p => p === 'workspace' || p.startsWith('session-tile:'))
+  const chatZone = node.panes.some(isChatPaneId)
 
   const isDragSource = node.panes.includes(dragging)
 

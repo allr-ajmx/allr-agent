@@ -2,6 +2,7 @@ import { writeClipboardText } from '@/components/ui/copy-button'
 import { getDefaultCwd, getFileDiff, getGitRoot, readDir, readFileDataUrl, readFileText, writeFileText } from '@/hermes'
 import { translateNow } from '@/i18n'
 import { $connection } from '@/store/connection'
+import { connectionCacheKey } from '@/store/gateway-config'
 import type { ReadDirResult, ReadFileTextResult } from '@/types/hermes'
 
 // Ported from apps/desktop/src/lib/desktop-fs.ts — its REMOTE branch only.
@@ -35,15 +36,14 @@ export function setDesktopFsRemotePicker(next: DesktopFsRemotePicker | null) {
   remotePicker = next
 }
 
-/** Cache key so per-connection FS caches don't leak across gateways. */
+/** Cache key so per-connection FS caches don't leak across gateways.
+ *
+ *  Delegates to {@link connectionCacheKey}, which keys ssh connections on their
+ *  ownership id rather than the baseUrl — an ssh baseUrl carries a fresh
+ *  ephemeral port on every re-tunnel, so keying on it would discard the whole
+ *  file tree on each reconnect to the very same backend. */
 export function desktopFsCacheKey() {
-  const connection = $connection.get()
-
-  if (!connection) {
-    return 'local:'
-  }
-
-  return `${connection.mode || 'remote'}:${connection.profile || ''}:${connection.baseUrl || ''}`
+  return connectionCacheKey($connection.get())
 }
 
 export function isDesktopFsRemoteMode() {

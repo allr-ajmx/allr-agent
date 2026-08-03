@@ -14,9 +14,9 @@ vi.mock('@/lib/model-options', () => ({
   requestModelOptions: (...args: unknown[]) => requestModelOptions(...(args as []))
 }))
 
-import { $sessionId } from '@/store/chat'
 import { $currentModel, $currentProvider } from '@/store/model'
 import { $collapsedProviders, toggleCollapsedProvider } from '@/store/provider-collapse'
+import { seedActiveSession } from '@/test-sessions'
 
 import { ModelMenuPanel } from './model-menu-panel'
 
@@ -42,7 +42,9 @@ const GOOGLE_PROVIDER = {
 const MOCK_PROVIDERS = [DEEPSEEK_PROVIDER, GOOGLE_PROVIDER]
 
 beforeEach(() => {
-  $sessionId.set('runtime-1')
+  // $sessionId is a computed off the active session slice since MJX-132 — seed
+  // the slice rather than setting it (the key doubles as the runtime id).
+  seedActiveSession('runtime-1')
   $currentModel.set('')
   $currentProvider.set('')
   $collapsedProviders.set([])

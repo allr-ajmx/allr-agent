@@ -48,11 +48,7 @@ export function LayoutMenu() {
               }
             }}
           >
-            <Codicon
-              className={preset.id === activeId ? 'opacity-100' : 'opacity-0'}
-              name="check"
-              size="0.875rem"
-            />
+            <Codicon className={preset.id === activeId ? 'opacity-100' : 'opacity-0'} name="check" size="0.875rem" />
             <span>{preset.title ?? preset.id}</span>
           </DropdownMenuItem>
         ))}

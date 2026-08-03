@@ -6,6 +6,7 @@ import type { SessionView } from '@/app/chat/session-view'
 // --- mocks -----------------------------------------------------------------
 const h = vi.hoisted(() => {
   type Handler = (event: unknown) => void
+
   const lease = {
     handlers: new Set<Handler>(),
     arm: vi.fn<(mode?: string) => Promise<void>>(async () => undefined),
@@ -14,6 +15,7 @@ const h = vi.hoisted(() => {
     close: vi.fn<() => Promise<void>>(async () => undefined),
     on(handler: Handler) {
       lease.handlers.add(handler)
+
       return () => lease.handlers.delete(handler)
     },
     closed: false,
@@ -25,6 +27,7 @@ const h = vi.hoisted(() => {
   }
 
   let resolvePlayback: ((r: string) => void) | null = null
+
   const playback = vi.fn(
     () =>
       new Promise<string>(resolve => {
@@ -68,7 +71,7 @@ const copy = new Proxy({}, { get: () => 'x' }) as ConversationBinding['copy']
 
 // Recreated per test so the reply-cursor WeakMap (keyed by `view`) starts clean —
 // otherwise a reply id spoken in one test would be deduped away in the next.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+
 let $messages: WritableAtom<any[]>
 let $busy: WritableAtom<boolean>
 let view: SessionView
@@ -87,7 +90,6 @@ function binding(overrides: Partial<ConversationBinding> = {}): ConversationBind
 }
 
 beforeEach(() => {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   $messages = atom<any[]>([])
   $busy = atom(false)
   view = { $messages, $busy } as unknown as SessionView

@@ -35,20 +35,26 @@ export function voiceErrorMessage(code: string, copy: VoiceErrorCopy): string {
   if (code.includes('no_input_device') || code.includes('no_input_config')) {
     return copy.noMicrophone
   }
+
   if (code.includes('unsupported_platform') || code.includes('unsupported_sample_format')) {
     return copy.microphoneUnsupported
   }
+
   if (code.includes('already_open') || code.includes('already_recording')) {
     return copy.microphoneInUse
   }
+
   if (code.includes('stream_build') || code.includes('stream_play')) {
     return copy.microphoneStartFailed
   }
+
   if (code.includes('device_lost') || code.includes('no_audio_frames')) {
     return copy.microphoneDisconnected
   }
+
   if (code.startsWith('transcribe_') || code.includes('encode_')) {
     return copy.transcriptionFailed
   }
+
   return copy.microphoneStartFailed
 }

@@ -46,6 +46,7 @@ import {
   SESSION_TILE_DRAG
 } from '@/components/pane-shell/tree/store'
 import type { EngineZone, ZoneRect } from '@/components/pane-shell/tree/zones-engine'
+import { isChatPaneId } from '@/lib/pane-ids'
 import { openSessionTile, type TileDock } from '@/store/session-states'
 
 import { requestComposerInsertRefs } from './composer/focus'
@@ -80,7 +81,7 @@ function chatZonePane(groupId: string): null | string {
   const tree = $layoutTree.get()
   const panes = tree ? (findGroup(tree, groupId)?.panes ?? []) : []
 
-  return panes.find(p => p === 'workspace' || p.startsWith('session-tile:')) ?? null
+  return panes.find(isChatPaneId) ?? null
 }
 
 /**
