@@ -59,7 +59,10 @@ function PopoverContent({
             body's exact bg + backdrop-blur (so it matches even through glass), with
             the border on its two outer edges only. Radix authors the child pointing
             "down" and rotates the wrapper per side, so the V always faces outward.
-            The square's inner half tucks under the body, opening the border seam. */}
+            The square's inner half tucks under the body, opening the border seam.
+            WebKitGTK note: a rotated backdrop-filter element can seam against the
+            body on WebKit's compositor — if it ever looks wrong, drop the blur on
+            the inner span and keep the solid --popover-surface. */}
         <PopoverPrimitive.Arrow asChild height={7} width={16}>
           <span className="relative block h-[7px] w-4 overflow-visible">
             <span className="absolute top-0 left-1/2 size-[11px] -translate-x-1/2 -translate-y-1/2 rotate-45 border-r border-b border-(--ui-stroke-secondary) bg-[var(--popover-surface)] backdrop-blur-md" />

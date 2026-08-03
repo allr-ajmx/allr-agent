@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core'
 
 import { portalAgentSignIn, portalLogout } from '@/lib/auth'
+import { errorText } from '@/lib/error-text'
 import { atom } from '@/store/atom'
 import { connectCloud } from '@/store/connection'
 import { saveGatewayTarget } from '@/store/gateway-restore'
@@ -88,7 +89,7 @@ export async function discoverCloud(org?: string | null): Promise<void> {
   try {
     applyDiscover(await portalDiscover(org))
   } catch (err) {
-    $cloudError.set(err instanceof Error ? err.message : String(err))
+    $cloudError.set(errorText(err))
     $cloudDiscover.set('error')
   }
 }
@@ -105,7 +106,7 @@ export async function refreshCloud(): Promise<void> {
       await discoverCloud()
     }
   } catch (err) {
-    $cloudError.set(err instanceof Error ? err.message : String(err))
+    $cloudError.set(errorText(err))
   }
 }
 
@@ -121,7 +122,7 @@ export async function cloudSignIn(): Promise<void> {
       await discoverCloud()
     }
   } catch (err) {
-    $cloudError.set(err instanceof Error ? err.message : String(err))
+    $cloudError.set(errorText(err))
   }
 }
 
@@ -150,7 +151,7 @@ export async function cloudSignOut(): Promise<void> {
   try {
     await portalLogout()
   } catch (err) {
-    $cloudError.set(err instanceof Error ? err.message : String(err))
+    $cloudError.set(errorText(err))
   } finally {
     $portalSignedIn.set(false)
     $cloudAgents.set([])
@@ -188,7 +189,7 @@ export async function connectCloudAgent(agent: CloudAgent): Promise<void> {
       cloudAgentName: agent.name
     })
   } catch (err) {
-    $cloudError.set(err instanceof Error ? err.message : String(err))
+    $cloudError.set(errorText(err))
   } finally {
     $cloudConnectingId.set(null)
   }

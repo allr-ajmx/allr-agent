@@ -20,6 +20,7 @@ import {
   mirrorLayoutTree,
   paneRootSide,
   registerLayoutResetHandler,
+  registerNewTabHandler,
   registerPaneCloser,
   registerPaneOpener,
   resetLayoutTree,
@@ -35,7 +36,8 @@ import { sessionTitle as storedSessionTitle } from '@/lib/chat-runtime'
 import { LayoutDashboard, PanelBottom, Plug } from '@/lib/icons'
 import { type KeybindContribution, KEYBINDS_AREA } from '@/lib/keybinds/actions'
 import { $currentCwd } from '@/store/chat'
-import { addGatewayEventListener } from '@/store/gateway'
+import { $chatBubbles, bubbleRuntimeKey } from '@/store/chat-bubbles'
+import { $gatewayState } from '@/store/gateway'
 import {
   $panesFlipped,
   $rightSidebarOpen,
@@ -56,7 +58,7 @@ import { $previewTabs, closeAllPreviewTabs } from '@/store/preview'
 import { $reviewOpen, closeReview, REVIEW_PANE_ID } from '@/store/review'
 import { $activeStoredSessionId, $sessions, sessionMatchesStoredId } from '@/store/session'
 import { $sessionColorById, sessionColorFor } from '@/store/session-color'
-import { routeTileEvent } from '@/store/session-reducer'
+import { invalidateRuntimeBindings, newSessionTab, setVisibleBubbleKeysProvider } from '@/store/session-states'
 import { toggleStatusbarVisible } from '@/store/statusbar-prefs'
 
 import { watchRouteTiles } from '../chat/route-tile'
@@ -100,11 +102,7 @@ import { FilesPane, PreviewRailPane, ReviewPaneContent, TerminalPane, WorkspaceR
 // gives `.chat` (flex:1 1 auto, needs a bounded flex-col parent) real room to
 // fill and scroll its own thread internally.
 const renderWorkspacePane = () => (
-  <div
-    className="flex h-full min-h-0 min-w-0 flex-col"
-    data-composer-target="main"
-    data-session-anchor="workspace"
-  >
+  <div className="flex h-full min-h-0 min-w-0 flex-col" data-composer-target="main" data-session-anchor="workspace">
     <WorkspaceRoutes />
   </div>
 )
@@ -349,13 +347,42 @@ discoverBundledPlugins()
 // hint the moment they register.
 watchContributedPanes()
 
-// Multi-session tiles: stream tile sessions off the shared gateway stream (the
-// primary chat reducer is untouched), mirror `$sessionTiles` into layout-tree
-// panes, and collapse tiles into the workspace on a layout reset. Page (route)
-// tiles ride the same mirror, keyed by path instead of session id.
-addGatewayEventListener(routeTileEvent)
+// Mirror `$sessionTiles` into layout-tree panes and collapse tiles into the
+// workspace on a layout reset. Page (route) tiles ride the same mirror, keyed by
+// path instead of session id. (Tile sessions stream off the shared gateway
+// stream: THE event router self-registers on import — see store/event-router.ts.)
 watchSessionTiles()
 watchRouteTiles()
+
+// The `+` at the end of a chat tab strip. Registered rather than imported by
+// the renderer, which knows only pane ids (see registerNewTabHandler).
+registerNewTabHandler(newSessionTab)
+
+// A reconnect issues new runtime ids, so every binding we hold is dead. Drop
+// the bindings (NOT the sessions — a draft's unsent text is the one thing that
+// cannot be re-fetched) and let each visible surface re-resume its own session.
+let wasGatewayOpen = $gatewayState.get() === 'open'
+
+$gatewayState.subscribe(state => {
+  const isOpen = state === 'open'
+
+  if (isOpen && !wasGatewayOpen) {
+    invalidateRuntimeBindings()
+  }
+
+  wasGatewayOpen = isOpen
+})
+
+// The bubble strip's sessions are on screen on mobile, so the LRU must not
+// evict them. Registered here rather than imported by session-states, which
+// chat-bubbles already depends on.
+setVisibleBubbleKeysProvider(() =>
+  $chatBubbles
+    .get()
+    .map(bubble => bubbleRuntimeKey(bubble.storedSessionId))
+    .filter((key): key is string => Boolean(key))
+)
+
 registerLayoutResetHandler(stackSessionTilesIntoMain)
 
 // The main tab reads as its SESSION (the loaded title, "New session" on a fresh

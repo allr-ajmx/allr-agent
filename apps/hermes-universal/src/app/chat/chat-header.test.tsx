@@ -3,7 +3,6 @@ import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type * as PlatformModule from '@/lib/platform'
-import { $sessionId } from '@/store/chat'
 import { $panesFlipped, $rightSidebarOpen, $terminalOpen, setSidebarOpen } from '@/store/layout'
 import { $reviewOpen } from '@/store/review'
 
@@ -13,6 +12,8 @@ vi.mock('@/lib/platform', async importOriginal => ({
   ...(await importOriginal<typeof PlatformModule>()),
   IS_DESKTOP: true
 }))
+
+import { seedActiveSession } from '@/test-sessions'
 
 import { ChatHeader } from './chat-header'
 
@@ -31,7 +32,7 @@ const renderHeader = () => {
 
 afterEach(() => {
   cleanup()
-  $sessionId.set(null)
+  seedActiveSession('draft', { runtimeSessionId: null, storedSessionId: null })
   $panesFlipped.set(false)
   $rightSidebarOpen.set(false)
   $reviewOpen.set(false)
@@ -43,14 +44,14 @@ afterEach(() => {
 // the sidebar/swap/search cluster exactly when NO pane occupies the left edge.
 describe('ChatHeader — titlebar cluster inset', () => {
   it('hugs the pane edge while the chat sidebar holds the left side', () => {
-    $sessionId.set('live-1')
+    seedActiveSession('live-1')
     setSidebarOpen(true)
 
     expect(renderHeader().className).toContain('pl-3')
   })
 
   it('clears the cluster once the left side is empty', () => {
-    $sessionId.set('live-1')
+    seedActiveSession('live-1')
     setSidebarOpen(false)
 
     expect(renderHeader().className).toContain(INSET)
@@ -59,7 +60,7 @@ describe('ChatHeader — titlebar cluster inset', () => {
   // The bug: flipped, the chat sidebar sits on the RIGHT, so an open sidebar no
   // longer keeps the chat off the window's left edge.
   it('clears the cluster when flipped with the left rails closed', () => {
-    $sessionId.set('live-1')
+    seedActiveSession('live-1')
     $panesFlipped.set(true)
     setSidebarOpen(true)
     $rightSidebarOpen.set(false)
@@ -68,7 +69,7 @@ describe('ChatHeader — titlebar cluster inset', () => {
   })
 
   it('hugs the pane edge when flipped with the rails on the left', () => {
-    $sessionId.set('live-1')
+    seedActiveSession('live-1')
     $panesFlipped.set(true)
     $rightSidebarOpen.set(true)
 
@@ -76,7 +77,7 @@ describe('ChatHeader — titlebar cluster inset', () => {
   })
 
   it('hugs the pane edge when flipped with only the review pane on the left', () => {
-    $sessionId.set('live-1')
+    seedActiveSession('live-1')
     $panesFlipped.set(true)
     $rightSidebarOpen.set(false)
     $reviewOpen.set(true)

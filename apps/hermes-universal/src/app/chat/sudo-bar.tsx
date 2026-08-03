@@ -5,12 +5,12 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { respondSudo, type SudoRequest } from '@/store/chat'
 
-export function SudoBar({ request }: { request: SudoRequest }) {
+export function SudoBar({ request, sessionKey }: { request: SudoRequest; sessionKey: string }) {
   const [password, setPassword] = useState('')
 
   const submit = () => {
     if (password) {
-      void respondSudo(password)
+      void respondSudo(password, sessionKey)
     }
   }
 
@@ -29,7 +29,7 @@ export function SudoBar({ request }: { request: SudoRequest }) {
         <Button disabled={!password} onClick={submit} size="sm">
           Submit
         </Button>
-        <Button onClick={() => void respondSudo('')} size="sm" variant="outline">
+        <Button onClick={() => void respondSudo('', sessionKey)} size="sm" variant="outline">
           Cancel
         </Button>
       </RequestBarActions>

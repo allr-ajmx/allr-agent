@@ -26,7 +26,6 @@ export function createNativeLease(): EngineLease {
   return new NativeVoiceLease()
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyRecord = Record<string, any>
 
 class NativeVoiceLease implements EngineLease {
@@ -46,6 +45,7 @@ class NativeVoiceLease implements EngineLease {
       sub('speechStart', () => ({ type: 'speechStart' })),
       sub('transcript', payload => {
         const o = (payload ?? {}) as AnyRecord
+
         return {
           type: 'transcript',
           text: String(o.text ?? ''),
@@ -60,6 +60,7 @@ class NativeVoiceLease implements EngineLease {
       sub('idleTimeout', () => ({ type: 'idleTimeout' })),
       sub('error', payload => {
         const o = (payload ?? {}) as AnyRecord
+
         return { type: 'error', code: String(o.code ?? 'unknown'), message: String(o.message ?? '') }
       })
     ])

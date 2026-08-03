@@ -1,7 +1,9 @@
 /**
  * The plugin tap must actually be wired into the live stream — `onGatewayEvent`
  * has no value if nothing calls `emitGatewayEvent`. This pins the wiring AND its
- * documented ordering (plugins observe the raw event before the chat reducer).
+ * documented ordering (plugins observe the raw event before the app's own
+ * listeners, THE session event router included — it registers through
+ * `addGatewayEventListener` like everything else, see store/event-router.ts).
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -20,15 +22,13 @@ vi.mock('@/gateway', () => ({
     onState() {}
   }
 }))
-vi.mock('@/store/chat', () => ({ handleGatewayEvent: vi.fn() }))
 vi.mock('@/store/gateway-config', () => ({ resolveWsUrl: vi.fn(async () => 'ws://localhost:1/ws') }))
 vi.mock('@/transport/tauri-websocket', () => ({ TauriWebSocket: class {} }))
 
 import { onGatewayEvent } from '@/contrib/events'
 import type { Connection } from '@/store/gateway-config'
 
-import { handleGatewayEvent } from './chat'
-import { closeGateway, connectGateway } from './gateway'
+import { addGatewayEventListener, closeGateway, connectGateway } from './gateway'
 
 afterEach(() => {
   closeGateway()
@@ -37,10 +37,9 @@ afterEach(() => {
 })
 
 describe('gateway → plugin tap', () => {
-  it('fans every event to the tap, before the chat reducer', async () => {
+  it("fans every event to the tap, before the app's own listeners", async () => {
     const order: string[] = []
-    vi.mocked(handleGatewayEvent).mockImplementation(() => void order.push('reducer'))
-
+    const disposeListener = addGatewayEventListener(() => void order.push('listener'))
     const dispose = onGatewayEvent('*', () => void order.push('plugin'))
 
     await connectGateway({ baseUrl: 'http://localhost:1' } as Connection)
@@ -48,13 +47,16 @@ describe('gateway → plugin tap', () => {
 
     captured?.({ type: 'message.delta' })
 
-    expect(order).toEqual(['plugin', 'reducer'])
+    expect(order).toEqual(['plugin', 'listener'])
 
     dispose()
+    disposeListener()
   })
 
-  it('a throwing plugin listener never stops the reducer', async () => {
+  it("a throwing plugin listener never stops the app's own", async () => {
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const listener = vi.fn()
+    const disposeListener = addGatewayEventListener(listener)
 
     const dispose = onGatewayEvent('*', () => {
       throw new Error('plugin exploded')
@@ -63,9 +65,10 @@ describe('gateway → plugin tap', () => {
     await connectGateway({ baseUrl: 'http://localhost:1' } as Connection)
     captured?.({ type: 'message.delta' })
 
-    expect(handleGatewayEvent).toHaveBeenCalledOnce()
+    expect(listener).toHaveBeenCalledOnce()
 
     dispose()
+    disposeListener()
     spy.mockRestore()
   })
 })

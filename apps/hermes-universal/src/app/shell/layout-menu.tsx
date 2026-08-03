@@ -55,11 +55,7 @@ export function LayoutMenu() {
               }
             }}
           >
-            <Codicon
-              className={preset.id === activeId ? 'opacity-100' : 'opacity-0'}
-              name="check"
-              size="0.875rem"
-            />
+            <Codicon className={preset.id === activeId ? 'opacity-100' : 'opacity-0'} name="check" size="0.875rem" />
             <span className="min-w-0 flex-1 truncate">{preset.title ?? preset.id}</span>
             {isUserPreset(preset.id) && (
               <button

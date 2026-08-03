@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 
+import { sortProviders } from '@/app/settings/oauth-provider-display'
 import { getGlobalModelOptions, listOAuthProviders } from '@/hermes'
 import { prettyName } from '@/lib/text'
 import type { OAuthProvider } from '@/types/hermes'
@@ -56,14 +57,14 @@ export function useApiKeyCatalog(): ApiKeyOption[] {
   return [...API_KEY_OPTIONS, ...derived]
 }
 
-// OAuth-capable providers for the picker. `external` (CLI) providers are excluded
-// here because they need a terminal, which mobile doesn't have. Note the flow
-// itself IS fully ported — Settings → Providers reaches it via
-// `provider-connect-overlay.tsx` (copyable cli_command + recheck) — and desktop
-// does ship a terminal pane, so this filter is arguably too broad there.
-// FIXME(MJX-108): revisit in a later onboarding pass.
+// OAuth-capable providers for the picker, in the same order Settings → Providers
+// uses. `external` (CLI-managed) providers are included: picking one lands on the
+// in-picker CLI panel (copyable `cli_command` + recheck), the same flow the
+// Settings connect overlay drives. Already-connected providers stay filtered out
+// — Settings tags them "Connected", but offering them in a first-run picker is
+// just noise (a deliberate narrowing vs. desktop's provider list).
 export function useOAuthProviders(): OAuthProvider[] {
   const { data } = useQuery({ queryKey: ['oauth-providers'], queryFn: listOAuthProviders, staleTime: 60_000 })
 
-  return (data?.providers ?? []).filter(p => p.flow !== 'external' && !p.status.logged_in)
+  return sortProviders((data?.providers ?? []).filter(p => !p.status.logged_in))
 }

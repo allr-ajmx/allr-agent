@@ -1,6 +1,9 @@
 import 'katex/dist/katex.min.css'
 import '@vscode/codicons/dist/codicon.css'
 import './styles.css'
+// Side-effect import: the gateway event router must be listening before any
+// connection is opened below. It self-registers, so this import IS the wiring.
+import './store/event-router'
 
 import { QueryClientProvider } from '@tanstack/react-query'
 import { createRoot } from 'react-dom/client'
