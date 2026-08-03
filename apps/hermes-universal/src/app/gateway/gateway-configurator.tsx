@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { GatewayDiagnostics } from '@/app/gateway/gateway-diagnostics'
 import { sshErrorMessage, sshStepLabel } from '@/app/gateway/ssh-copy'
-import { EMPTY_SSH_FORM, SshPanel, type SshFormState, sshTargetFromForm } from '@/app/gateway/ssh-panel'
+import { EMPTY_SSH_FORM, type SshFormState, SshPanel, sshTargetFromForm } from '@/app/gateway/ssh-panel'
 import { ListRow, Pill } from '@/app/settings/primitives'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -152,6 +152,7 @@ export function GatewayConfigurator({ variant = 'settings' }: { variant?: 'onboa
   // Remote-mode form state (local — universal has no saved per-scope config).
   const [remoteUrl, setRemoteUrl] = useState(() => lastUrl())
   const [remoteToken, setRemoteToken] = useState('')
+
   // SSH form + the live-connect surfaces (progress, prompts, host-key trust).
   // Seeded from the saved target so reopening Settings shows what you connected
   // with, not a blank form.
@@ -169,6 +170,7 @@ export function GatewayConfigurator({ variant = 'settings' }: { variant?: 'onboa
         }
       : EMPTY_SSH_FORM
   })
+
   // The saved target holds no secrets, so seed those from the keystore too.
   // Without this the secret rows open blank while credentials are in fact
   // stored, and `persistSshSecrets` — which writes what the form holds — would
@@ -497,9 +499,11 @@ export function GatewayConfigurator({ variant = 'settings' }: { variant?: 'onboa
 
     try {
       await persistSshSecrets()
+
       const result = await runSsh(attemptId =>
         testSshBackend(attemptId, { ...sshTargetFromForm(sshForm), interactive: true })
       )
+
       setLastTest(g.sshReachable(result.hostLabel, result.platform ?? 'unknown'))
     } catch (err) {
       setLastTest(sshErrorMessage(err, g))
