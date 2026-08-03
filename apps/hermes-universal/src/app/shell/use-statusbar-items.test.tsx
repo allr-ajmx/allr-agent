@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // Mock the system-status store so rendering the bar never starts the health
 // poller / getVersion / getStatus (network) — we drive $appVersion directly.
@@ -16,8 +16,10 @@ vi.mock('@/store/system-status', async () => {
   }
 })
 
+import { registry } from '@/contrib/registry'
 import { resetChat } from '@/store/chat'
 import { $gatewayState } from '@/store/gateway'
+import { $statusbarHiddenIds, STATUSBAR_HIDDEN_BY_DEFAULT } from '@/store/statusbar-prefs'
 import { seedActiveSession } from '@/test-sessions'
 
 import { Statusbar } from './statusbar'
@@ -29,8 +31,16 @@ const renderStatusbar = () =>
     </MemoryRouter>
   )
 
+// These assert what the bar ASSEMBLES; the show/hide policy (several items ship
+// switched off — see statusbar-visibility.test.tsx) is a separate concern, so
+// turn everything on here.
+beforeEach(() => {
+  $statusbarHiddenIds.set([])
+})
+
 afterEach(() => {
   $gatewayState.set('idle')
+  $statusbarHiddenIds.set([...STATUSBAR_HIDDEN_BY_DEFAULT])
   resetChat()
 })
 
@@ -66,5 +76,71 @@ describe('useStatusbarItems (rendered via <Statusbar/>)', () => {
     renderStatusbar()
 
     expect(screen.getByText('Running')).toBeInTheDocument()
+  })
+})
+
+// Group order is the contract plugins rely on: contributions sit at the OUTER end
+// of the left group and the INNER end of the right group, so they never separate
+// the app's own right-hand cluster (terminal / versions) from the window edge.
+describe('statusBar.* contributions', () => {
+  // The footer paints exactly two group divs: left, then right.
+  const groupText = (container: HTMLElement, side: 'left' | 'right'): string => {
+    const groups = container.querySelectorAll('[data-slot="statusbar"] > div')
+
+    return groups[side === 'left' ? 0 : 1]?.textContent ?? ''
+  }
+
+  it('appends a left contribution after the core left items', () => {
+    const dispose = registry.register({
+      area: 'statusBar.left',
+      data: { id: 'demo:left', label: 'LeftChip', variant: 'text' },
+      id: 'demo:left',
+      source: 'plugin:demo'
+    })
+
+    const { container } = renderStatusbar()
+    const left = groupText(container, 'left')
+
+    expect(left).toContain('LeftChip')
+    expect(left.indexOf('Gateway')).toBeLessThan(left.indexOf('LeftChip'))
+
+    dispose()
+  })
+
+  it('prepends a right contribution before the core right items', () => {
+    const dispose = registry.register({
+      area: 'statusBar.right',
+      data: { id: 'demo:right', label: 'RightChip', variant: 'text' },
+      id: 'demo:right',
+      source: 'plugin:demo'
+    })
+
+    const { container } = renderStatusbar()
+    const right = groupText(container, 'right')
+
+    expect(right).toContain('RightChip')
+    expect(right.indexOf('RightChip')).toBeLessThan(right.indexOf('client v1.2.3'))
+
+    dispose()
+  })
+
+  it('wraps a render contribution in a blast wall instead of trusting it', () => {
+    const dispose = registry.register({
+      area: 'statusBar.left',
+      id: 'demo:boom',
+      render: () => {
+        throw new Error('plugin exploded')
+      },
+      source: 'plugin:demo'
+    })
+
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    // The core items still paint — a throwing contribution can't take the bar down.
+    renderStatusbar()
+    expect(screen.getByText('Gateway')).toBeInTheDocument()
+
+    spy.mockRestore()
+    dispose()
   })
 })

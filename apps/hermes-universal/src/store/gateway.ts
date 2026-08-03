@@ -1,3 +1,4 @@
+import { emitGatewayEvent } from '@/contrib/events'
 import { type ConnectionState, type GatewayEvent, JsonRpcGatewayClient, type WebSocketLike } from '@/gateway'
 import type { HermesGateway } from '@/hermes'
 import { atom } from '@/store/atom'
@@ -51,9 +52,17 @@ export async function connectGateway(conn: Connection): Promise<void> {
 
   next.onState(state => $gatewayState.set(state))
   next.onAny(event => {
-    // One stream, one set of listeners. The session event router is registered
-    // via addGatewayEventListener rather than imported, keeping gateway.ts free
-    // of the heavy session-states/profile graph that would reorder module init.
+    // Plugins first (contrib/events.ts) — the tap is documented as "before the
+    // app's own dispatch", so a plugin observes the raw stream in order and can
+    // never be starved by a listener throwing. Listeners there are try/catch
+    // isolated and emit is zero-cost when nobody subscribes. `GatewayEvent` is
+    // structurally an `RpcEvent` (its `type` union widens to string).
+    emitGatewayEvent(event)
+
+    // Then the app's own: one stream, one set of listeners. THE session event
+    // router is registered via addGatewayEventListener rather than imported,
+    // keeping gateway.ts free of the heavy session-states/profile graph that
+    // would reorder module init.
     for (const listener of extraEventListeners) {
       listener(event)
     }

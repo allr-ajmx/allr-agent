@@ -13,7 +13,6 @@ import {
   SKILLS_ROUTE,
   STARMAP_ROUTE
 } from '@/app/routes'
-import { useI18n } from '@/i18n'
 import type { Translations } from '@/i18n'
 import { Box, Clock, Cpu, LayoutGrid, MessageCircle, Send, Settings, Sparkles, Stars, Users } from '@/lib/icons'
 
@@ -26,9 +25,11 @@ export interface NavItem {
   icon: ComponentType<{ className?: string }>
 }
 
-// The shared primary-nav item list (rail on md+, drawer on phones). `label` holds
-// the English string (fallback + test surface); live labels come from the
-// `useNavItems()` hook, which resolves `labelKey` through the active locale.
+// The app's primary destinations. This is the SOURCE the command menu's rows are
+// registered from (app/shell/nav-contrib.ts registers one `palette` contribution
+// per entry); nothing renders this list directly. `label` holds the English
+// string as a fallback + test surface — live labels resolve from `labelKey`
+// against the active locale at render time.
 export const NAV_ITEMS: NavItem[] = [
   { view: 'chat', path: NEW_CHAT_ROUTE, labelKey: 'chat', label: 'Chat', icon: MessageCircle },
   { view: 'agents', path: AGENTS_ROUTE, labelKey: 'agents', label: 'Agents', icon: Cpu },
@@ -47,10 +48,3 @@ export const NAV_ITEMS: NavItem[] = [
   { view: 'profiles', path: PROFILES_ROUTE, labelKey: 'profiles', label: 'Profiles', icon: Users },
   { view: 'settings', path: SETTINGS_ROUTE, labelKey: 'settings', label: 'Settings', icon: Settings }
 ]
-
-// Nav items with labels resolved against the active locale.
-export function useNavItems(): NavItem[] {
-  const { t } = useI18n()
-
-  return NAV_ITEMS.map(item => ({ ...item, label: t.nav[item.labelKey] }))
-}

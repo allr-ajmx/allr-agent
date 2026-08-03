@@ -22,6 +22,7 @@ import { $restoring } from '@/store/gateway-restore'
 import { $onboardingActive, checkConfigured } from '@/store/onboarding'
 import { syncPetInfo } from '@/store/pet-gallery'
 import { deleteSessionLocal } from '@/store/session'
+import { $statusbarVisible } from '@/store/statusbar-prefs'
 import { openAppRoute } from '@/store/windows'
 import { bumpZoom, initZoom, setZoomPercent } from '@/store/zoom'
 
@@ -47,6 +48,7 @@ export function MobileController() {
   const onboarding = useStore($onboardingActive)
   const restoring = useStore($restoring)
   const hasConnected = useStore($hasConnected)
+  const statusbarVisible = useStore($statusbarVisible)
 
   // UI scale: apply the persisted zoom once, and wire Cmd/Ctrl +/-/0 shortcuts.
   // Zoom stays outside the rebindable registry — desktop keeps it out too.
@@ -209,8 +211,10 @@ export function MobileController() {
         {/* Bottom statusbar (ported from desktop): a real shrink-0 row below the
             content. Connected-only — it reads live gateway/session state. Hidden
             on mobile: the touch shell is a blank canvas for now and the statusbar
-            is a desktop surface it will grow its own equivalent of. */}
-        {connected && !IS_MOBILE && <Statusbar />}
+            is a desktop surface it will grow its own equivalent of.
+            UNMOUNTED — not just hidden — while toggled off, so its status poll
+            and the per-turn readouts stop with it. */}
+        {connected && !IS_MOBILE && statusbarVisible && <Statusbar />}
         {/* Settings portal — a full-window overlay (fixed z-50) over the titlebar
             (z-40) and chat backdrop. Stays mounted while disconnected too (a
             settings-initiated "Save & reconnect", or a sign-out) so reconfiguring or

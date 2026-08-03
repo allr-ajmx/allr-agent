@@ -279,6 +279,7 @@ export const en: Translations = {
       'view.toggleReview': 'Toggle review pane',
       'view.showFiles': 'Show file browser',
       'view.showTerminal': 'Toggle terminal',
+      'view.toggleStatusbar': 'Toggle status bar',
       'view.newTerminal': 'New terminal',
       'view.nextTerminal': 'Next terminal',
       'view.prevTerminal': 'Previous terminal',
@@ -352,7 +353,28 @@ export const en: Translations = {
       mcp: 'MCP',
       archivedChats: 'Archived Chats',
       about: 'About',
-      notifications: 'Notifications'
+      notifications: 'Notifications',
+      plugins: 'Plugins'
+    },
+    plugins: {
+      title: 'Plugins',
+      blurb: 'Bundled, or dropped into the desktop-plugins folder. Disable to unload live.',
+      count: (n: number) => `${n} installed`,
+      openFolder: 'Open plugins folder',
+      rescan: 'Rescan',
+      reveal: 'Reveal in file manager',
+      enable: 'Enable',
+      disable: 'Disable',
+      failed: 'failed',
+      empty: 'No plugins installed yet.',
+      kinds: { bundled: 'bundled', disk: 'on disk', runtime: 'runtime' },
+      // The dual door (MJX-53): which filesystem plugins are being read from.
+      sourceLocal: 'Reading from this device',
+      sourceGateway: 'Reading from the connected backend',
+      sourceNone: 'No plugin folder available',
+      gatewayDoor: 'Load plugins from the connected backend',
+      gatewayDoorHint: 'Plugin code from the backend runs with the same access as the app itself.',
+      gatewayDoorUnavailable: 'This backend did not report a plugins folder.'
     },
     notifications: {
       title: 'Notifications',
@@ -2264,6 +2286,19 @@ export const en: Translations = {
       gatewayOffline: 'offline',
       gatewayRestarting: 'restarting…',
       gatewayTitle: 'Hermes inference gateway status',
+      // The bar's right-click menu: its title, the hide verb, and the plain-text
+      // name of every item that can be switched off.
+      customizeTitle: 'Show in status bar',
+      hideStatusbar: 'Hide status bar',
+      toggleApprovalMode: 'Approvals',
+      toggleBackendVersion: 'Backend version',
+      toggleCommandCenter: 'Command Center',
+      toggleContextUsage: 'Context meter',
+      toggleRunningTimer: 'Turn timer',
+      toggleSessionTimer: 'Session timer',
+      toggleTerminal: 'Terminal',
+      toggleVersion: 'Version & updates',
+      toggleWorkspace: 'Workspace',
       agents: 'Agents',
       closeAgents: 'Close agents',
       openAgents: 'Open agents',

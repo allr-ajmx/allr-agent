@@ -343,7 +343,27 @@ export const zh: Translations = {
       mcp: 'MCP',
       archivedChats: '已归档对话',
       about: '关于',
-      notifications: '通知'
+      notifications: '通知',
+      plugins: '插件'
+    },
+    plugins: {
+      title: '插件',
+      blurb: '随构建捆绑，或放入 desktop-plugins 文件夹。禁用会即时卸载。',
+      count: (n: number) => `已安装 ${n} 个`,
+      openFolder: '打开插件文件夹',
+      rescan: '重新扫描',
+      reveal: '在文件管理器中显示',
+      enable: '启用',
+      disable: '禁用',
+      failed: '失败',
+      empty: '尚未安装插件。',
+      kinds: { bundled: '内置', disk: '磁盘', runtime: '运行时' },
+      sourceLocal: '正在从本设备读取',
+      sourceGateway: '正在从已连接的后端读取',
+      sourceNone: '没有可用的插件文件夹',
+      gatewayDoor: '从已连接的后端加载插件',
+      gatewayDoorHint: '来自后端的插件代码拥有与应用本身相同的权限。',
+      gatewayDoorUnavailable: '此后端未报告插件文件夹。'
     },
     notifications: {
       title: '通知',
@@ -2406,6 +2426,17 @@ export const zh: Translations = {
       offDescription: '无需审批提示直接运行'
     },
     statusbar: {
+      customizeTitle: '在状态栏中显示',
+      hideStatusbar: '隐藏状态栏',
+      toggleApprovalMode: '审批',
+      toggleBackendVersion: '后端版本',
+      toggleCommandCenter: '控制中心',
+      toggleContextUsage: '上下文用量',
+      toggleRunningTimer: '回合计时',
+      toggleSessionTimer: '会话计时',
+      toggleTerminal: '终端',
+      toggleVersion: '版本与更新',
+      toggleWorkspace: '工作区',
       unknown: '未知',
       restart: '重启',
       update: '更新',

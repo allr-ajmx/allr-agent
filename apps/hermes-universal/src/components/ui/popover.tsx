@@ -3,9 +3,17 @@ import * as React from 'react'
 
 import { cn } from '@/lib/utils'
 
-// Ported from desktop `components/ui/popover.tsx`, minus its dialog-portal
-// context (universal has no `usePopoverPortalContainer`), so the content always
-// portals to document.body.
+// Ported from apps/desktop/src/components/ui/popover.tsx for the plugin SDK —
+// anchored non-menu content, the one primitive universal's kit was missing (core
+// screens reach for DropdownMenu / Sheet instead).
+//
+// One drop vs desktop: desktop portals into the enclosing dialog when nested in
+// one (via `usePopoverPortalContainer`) so dismissing the popover doesn't count
+// as an interaction outside the dialog. Universal has no dialog-portal context,
+// and its DropdownMenu portals to body, so this matches that convention — a
+// popover opened INSIDE a Dialog may therefore dismiss the dialog too. Prefer
+// DropdownMenu with `menuContent` inside dialogs.
+
 function Popover({ ...props }: React.ComponentProps<typeof PopoverPrimitive.Root>) {
   return <PopoverPrimitive.Root data-slot="popover" {...props} />
 }
