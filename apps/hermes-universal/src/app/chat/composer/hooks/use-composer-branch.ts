@@ -2,11 +2,12 @@ import { type MutableRefObject, useCallback } from 'react'
 
 import { useComposerScope } from '../scope'
 
-// STUB — desktop's branch/worktree hand-offs need projects-store worktree RPCs
-// (listRepoBranches / requestStartWorkSession / startWorkInRepo /
-// switchBranchInRepo) the universal gateway doesn't expose yet. The consuming
-// CodingStatusRow is a no-op stub, so these are local no-ops keeping this hook's
-// shape identical to desktop's. FLAG(chat-port).
+// STUB — FIXME(MJX-106): desktop's branch/worktree hand-offs read from the
+// projects store (listRepoBranches / requestStartWorkSession / startWorkInRepo /
+// switchBranchInRepo), which universal's `store/projects.ts` hasn't grown yet —
+// that half is MJX-107. Not a backend gap: `lib/desktop-git.ts` already bridges
+// `/api/git/*`. The consuming CodingStatusRow is also a no-op stub, so these are
+// local no-ops keeping this hook's shape identical to desktop's.
 const requestStartWorkSession = (_path: string, _text: string): void => {}
 
 const startWorkInRepo = async (

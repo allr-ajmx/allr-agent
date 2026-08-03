@@ -4,11 +4,15 @@
  * up wherever a built-in does (the theme picker + `/skin`) with no per-surface
  * wiring.
  *
- * Reduced from apps/desktop/src/themes/user-themes.ts: the VS Code / Marketplace
- * import surface (`marketplaceIdOf`, `$marketplaceInstalls`, the `computed` map)
- * is dropped — mobile has no file/marketplace surface (FIXME(I3)) — but the
- * localStorage-backed registry stays so a future install path and the built-in
- * lookups both keep working. `atom` routes through the `@/store/atom` seam.
+ * Ported from apps/desktop/src/themes/user-themes.ts, including the Marketplace
+ * import surface (`marketplaceIdOf`, `$marketplaceInstalls`) — search + install
+ * run through `store/marketplace.ts` and `app/settings/appearance-section.tsx`.
+ * The registry is localStorage-backed. `atom` routes through the `@/store/atom`
+ * seam.
+ *
+ * The one unexposed path is `installVscodeThemeFromText` (`themes/install.ts`),
+ * which has no UI call site — there is no paste-JSON or file-picker surface.
+ * Desktop has none either, so this is parity-neutral, not a gap.
  */
 
 import { atom, computed } from '@/store/atom'

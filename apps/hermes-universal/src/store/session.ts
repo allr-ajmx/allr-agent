@@ -10,7 +10,6 @@ import {
 } from '@/hermes'
 import { translateNow } from '@/i18n'
 import { chatMessageText } from '@/lib/chat-messages'
-import { navigateTo } from '@/lib/route-nav'
 import { appendLiveSessionProjection, toChatMessages } from '@/lib/session-history'
 import { stableArray } from '@/lib/stable-array'
 import { atom, computed } from '@/store/atom'
@@ -29,6 +28,7 @@ import {
   runtimeKeyForStoredSession,
   updateSession
 } from '@/store/session-state-types'
+import { openAppRoute } from '@/store/windows'
 import type { SessionCreateResponse, SessionInfo, SessionResumeResponse, SessionSearchResult } from '@/types/hermes'
 
 // Session history + switching (Hc2). Lean adaptation of desktop store/session.ts —
@@ -264,7 +264,7 @@ export async function refreshSessions(): Promise<void> {
 }
 
 // The ported listSessions slices at `limit` with offset=0, so "load more" =
-// re-fetch with a bigger limit. FIXME(H): true offset pagination.
+// re-fetch with a bigger limit. FIXME(MJX-205): true offset pagination.
 export async function loadMoreSessions(): Promise<void> {
   $sessionsLimit.set($sessionsLimit.get() + PAGE)
   await refreshSessions()
@@ -628,7 +628,7 @@ export async function branchCurrentSession(messageId?: string): Promise<boolean>
  */
 export function setSessionPickerOpen(open: boolean): void {
   if (open) {
-    navigateTo(`${COMMAND_CENTER_ROUTE}?section=sessions`)
+    openAppRoute(`${COMMAND_CENTER_ROUTE}?section=sessions`)
   }
 }
 

@@ -12,8 +12,9 @@ import { $activeProfile, $profiles, refreshProfiles, setActiveProfile } from '@/
 // `profile-switcher.tsx`. Universal is single-profile-centric (E7), so this is a
 // lean version: a default (home) toggle, the named-profile squares that switch
 // the active profile, and add / manage entries into the Profiles screen.
-// FIXME(profile-rail): drag-reorder, long-press recolor, and the "all profiles"
-// scope are desktop-only features not ported here.
+// FIXME(MJX-108): drag-reorder, long-press recolor, and the "all profiles" scope
+// are not ported. Recolor needs a color store first — see `colorForName` below,
+// which derives the hue from the name and so has nothing to recolor into.
 
 // Stable per-name hue so each profile square is visually distinct without a
 // dedicated color store.

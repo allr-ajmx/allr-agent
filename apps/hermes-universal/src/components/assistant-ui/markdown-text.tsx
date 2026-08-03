@@ -161,7 +161,7 @@ function childrenToText(children: unknown): string {
 }
 
 async function mediaSrc(path: string): Promise<string> {
-  // FIXME(chat-port): audio/video load as data URLs (whole file in memory, no
+  // FIXME(MJX-205): audio/video load as data URLs (whole file in memory, no
   // seeking) until a Tauri media-streaming scheme replaces desktop's
   // hermes-media:// — fine for images and short clips.
   return resolveMediaDisplaySrc(path)

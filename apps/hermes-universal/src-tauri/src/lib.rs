@@ -16,6 +16,7 @@ mod local_backend;
 mod marketplace;
 mod oauth;
 mod pty;
+mod ssh;
 mod transport;
 mod voice;
 mod window;
@@ -29,6 +30,10 @@ use cloud::{
 use local_backend::{local_backend_spawn, local_backend_status, local_backend_stop, LocalBackendState};
 use oauth::{oauth_login, oauth_logout, oauth_status};
 use pty::{pty_kill, pty_resize, pty_spawn, pty_write, PtyState};
+use ssh::{
+    ssh_answer_prompt, ssh_cancel, ssh_connect, ssh_disconnect, ssh_list_config_hosts,
+    ssh_resolve_host, ssh_test, ssh_trust_host_key, SshState,
+};
 use transport::{
     cookies_export, cookies_import, http_request, ws_close, ws_open, ws_send, TransportState,
 };
@@ -36,7 +41,7 @@ use voice::{
     voice_arm, voice_close, voice_force_turn, voice_open, voice_suspend, voice_update_auth,
     VoiceState,
 };
-use window::{open_instance_window, open_session_window};
+use window::{open_instance_window, open_screen_window, open_session_window};
 
 /// Open a URL in the system browser. Routed through the opener plugin's Rust API
 /// rather than its JS `openUrl` command: a Rust-internal call isn't gated by the
@@ -94,6 +99,9 @@ pub fn run() {
         .manage(LocalBackendState::default())
         .manage(PtyState::default())
         .manage(VoiceState::default())
+        // Live SSH sessions. Unlike desktop's on-disk control socket, nothing
+        // here outlives the process, so there is no stale master to evict.
+        .manage(SshState::default())
         .setup(|app| {
             // WebKitGTK (Linux desktop) auto-denies `getUserMedia` unless the
             // embedder answers the WebView's `permission-request` signal — wry
@@ -169,8 +177,31 @@ pub fn run() {
             portal_agent_sign_in,
             portal_logout,
             open_session_window,
-            open_instance_window
+            open_instance_window,
+            open_screen_window,
+            ssh_connect,
+            ssh_test,
+            ssh_disconnect,
+            ssh_cancel,
+            ssh_list_config_hosts,
+            ssh_resolve_host,
+            ssh_answer_prompt,
+            ssh_trust_host_key
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running Hermes Universal");
+        // `.build(...).run(closure)` (rather than the terminal `.run(context)`) so
+        // we can observe `RunEvent`s. On iOS this catches scenes the *system*
+        // requests unprompted (state restoration, iPad app-switcher "+", Handoff)
+        // and fills them with a fresh instance (MJX-142); app-initiated session
+        // windows go through `open_session_window` and never emit this event.
+        // Non-iOS targets run the loop with an empty handler — behaviour unchanged.
+        .build(tauri::generate_context!())
+        .expect("error while building Hermes Universal")
+        .run(|app_handle, event| {
+            let _ = app_handle;
+            #[cfg(target_os = "ios")]
+            if let tauri::RunEvent::SceneRequested { .. } = &event {
+                window::fill_requested_scene(app_handle);
+            }
+            let _ = event;
+        });
 }
