@@ -15,10 +15,10 @@ val tauriProperties = Properties().apply {
 
 android {
     compileSdk = 36
-    namespace = "com.nousresearch.hermes.universal"
+    namespace = "com.jaxmatrix.mjx_unofficial_hermes"
     defaultConfig {
         manifestPlaceholders["usesCleartextTraffic"] = "false"
-        applicationId = "com.nousresearch.hermes.universal"
+        applicationId = "com.jaxmatrix.mjx_unofficial_hermes"
         minSdk = 24
         targetSdk = 36
         versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
