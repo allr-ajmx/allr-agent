@@ -8,15 +8,27 @@ import {
   portalAgentSignIn,
   portalLogout
 } from '@/lib/auth'
+import { errorText } from '@/lib/error-text'
 import { loadString, saveString } from '@/lib/persist'
 import { IS_ANDROID } from '@/lib/platform'
-import { clearSecrets, loadSecrets, saveSecrets, type Secrets } from '@/lib/secure-store'
+import { clearSecrets, loadSecrets, loadSshSecrets, saveSecrets, type Secrets } from '@/lib/secure-store'
 import { persistSessionCookies } from '@/lib/session-persist'
 import { atom } from '@/store/atom'
 import { $gatewayState, closeGateway, connectGateway } from '@/store/gateway'
 import { chooseGatedAuth, type Connection } from '@/store/gateway-config'
-import { saveGatewayTarget, savePendingOAuth } from '@/store/gateway-restore'
+import { loadGatewayTarget, saveGatewayTarget, savePendingOAuth } from '@/store/gateway-restore'
+import { getInstallationId } from '@/store/installation-id'
 import { spawnLocalBackend, stopLocalBackend } from '@/store/local-backend'
+import {
+  $sshStep,
+  cancelSsh,
+  connectSshBackend,
+  disconnectSsh,
+  newAttemptId,
+  onSshDisconnected,
+  onSshProgress,
+  type SshConnectConfig
+} from '@/store/ssh-backend'
 import { httpRequest } from '@/transport/http'
 
 // AuthMode / Connection are now defined in store/gateway-config (the reconciled
@@ -203,7 +215,7 @@ export async function connect(input: ConnectInput): Promise<void> {
     // Remember this target so the next launch auto-reconnects (D8).
     saveGatewayTarget({ mode: 'remote', url: input.url.trim(), username: input.username || undefined })
   } catch (err) {
-    $connectionError.set(err instanceof Error ? err.message : String(err))
+    $connectionError.set(errorText(err))
     $connectionPhase.set('error')
     $connection.set(null)
     throw err
@@ -238,12 +250,115 @@ export async function connectLocal(profile?: null | string): Promise<void> {
   } catch (err) {
     // Tear the child down so a failed connect doesn't leave an orphan process.
     void stopLocalBackend().catch(() => {})
-    $connectionError.set(err instanceof Error ? err.message : String(err))
+    $connectionError.set(errorText(err))
     $connectionPhase.set('error')
     $connection.set(null)
     throw err
   }
 }
+
+/** The non-secret half of an SSH target, as the settings form collects it. */
+export type SshTarget = Omit<
+  SshConnectConfig,
+  'privateKeyPem' | 'passphrase' | 'password' | 'installationId' | 'reuseToken' | 'interactive'
+>
+
+/**
+ * SSH mode (MJX-55): reach a backend on a remote host through an SSH tunnel.
+ *
+ * Rust does the whole lifecycle and hands back a token-authed backend on
+ * loopback, so from here this looks much more like `connectLocal` than like
+ * `connect` — there is no /api/status probe and no auth negotiation, because the
+ * tunnel already terminates at a backend we started ourselves.
+ *
+ * `onProgress` matters more than it looks: a cold connect spawns a process on
+ * the remote and waits for it to bind, which can take 45–90s. Without it the UI
+ * shows a motionless spinner for long enough to read as a hang.
+ */
+export async function connectSsh(
+  target: SshTarget,
+  options: { interactive?: boolean; attemptId?: string } = {}
+): Promise<void> {
+  armReconnect()
+  $connectionError.set(null)
+  $connectionPhase.set('connecting')
+
+  const attemptId = options.attemptId ?? newAttemptId()
+  const profile = target.profile ?? null
+  // Tracked so `disconnect()` can abort a dial that is still running. A cold SSH
+  // connect can take 90s, and without this the "Use a different gateway" escape
+  // hatch only *looks* like it worked: the UI moves on while Rust keeps
+  // spawning a backend on the remote.
+  activeSshAttempt = attemptId
+
+  // Publish progress for surfaces that never see the attempt id — the connecting
+  // screen during a boot restore, and the tunnel re-bootstrap. Subscribed before
+  // the invoke so no step is missed.
+  const unlistenProgress = await onSshProgress(attemptId, progress => $sshStep.set(progress.step)).catch(
+    () => null
+  )
+
+  try {
+    // Secrets come from the keyring, never from the saved target.
+    const [installationId, sshSecrets, saved] = await Promise.all([
+      getInstallationId(),
+      loadSshSecrets(),
+      loadSavedLogin().catch(() => null)
+    ])
+
+    const backend = await connectSshBackend(attemptId, {
+      ...target,
+      profile,
+      installationId,
+      privateKeyPem: sshSecrets.privateKeyPem,
+      passphrase: sshSecrets.passphrase,
+      password: sshSecrets.password,
+      // The previous session token is what lets Rust REATTACH to a backend that
+      // is already running remotely instead of spawning a second one.
+      reuseToken: saved?.token || undefined,
+      interactive: options.interactive ?? false
+    })
+
+    const conn: Connection = {
+      baseUrl: backend.baseUrl,
+      mode: 'ssh',
+      authMode: 'token',
+      token: backend.token,
+      profile,
+      remoteHost: backend.hostLabel,
+      // Stable across re-tunnels, unlike baseUrl — see connectionCacheKey.
+      remoteIdentity: backend.ownershipId
+    }
+
+    $connection.set(conn)
+    await connectGateway(conn)
+    $connectionPhase.set('ready')
+
+    // Persist the token so the NEXT launch can reattach rather than respawn.
+    await saveSecrets({ token: backend.token })
+    saveGatewayTarget({ mode: 'ssh', profile, ssh: target })
+    await watchSshTunnel(profile)
+  } catch (err) {
+    // Drop the tunnel so a failed connect does not leave one open. The remote
+    // backend is deliberately left alone — Rust already reaped it if the failure
+    // was its own.
+    void disconnectSsh(profile).catch(() => {})
+    $connectionError.set(errorText(err))
+    $connectionPhase.set('error')
+    $connection.set(null)
+    throw err
+  } finally {
+    unlistenProgress?.()
+    $sshStep.set(null)
+
+    if (activeSshAttempt === attemptId) {
+      activeSshAttempt = null
+    }
+  }
+}
+
+/** The in-flight SSH dial, if any, so a deliberate disconnect can abort it. */
+let activeSshAttempt: null | string = null
 
 /**
  * Cloud mode (E5): connect to a portal-discovered agent's gateway. The agent
@@ -284,7 +399,7 @@ export async function connectCloud(baseUrl: string, profile?: null | string): Pr
     // enriches it with the agent id/name afterwards (for the restore label).
     saveGatewayTarget({ mode: 'cloud', cloudBaseUrl: conn.baseUrl, profile: profile ?? null })
   } catch (err) {
-    $connectionError.set(err instanceof Error ? err.message : String(err))
+    $connectionError.set(errorText(err))
     $connectionPhase.set('error')
     $connection.set(null)
     throw err
@@ -298,9 +413,26 @@ export function disconnect(): void {
   // connect picker (not the reconnecting screen) next.
   $hasConnected.set(false)
 
+  const conn = $connection.get()
+
   // If we were on a local-spawned backend, stop the child too.
-  if ($connection.get()?.mode === 'local') {
+  if (conn?.mode === 'local') {
     void stopLocalBackend().catch(() => {})
+  }
+
+  // For SSH this drops the TUNNEL only. The remote backend stays up on purpose
+  // (it is detached) so the next connect reattaches instead of paying a full
+  // spawn — matching desktop.
+  if (conn?.mode === 'ssh') {
+    stopWatchingSshTunnel()
+    void disconnectSsh(conn.profile ?? null).catch(() => {})
+  }
+
+  // Abort a dial that has not produced a connection yet — at this point there is
+  // no `conn` to branch on, so this sits outside the check above.
+  if (activeSshAttempt) {
+    void cancelSsh(activeSshAttempt).catch(() => {})
+    activeSshAttempt = null
   }
 
   closeGateway()
@@ -330,6 +462,75 @@ export async function signOut(): Promise<void> {
   disconnect()
 }
 
+
+// --------------------------------------------------------------------------
+// SSH tunnel watchdog
+// --------------------------------------------------------------------------
+// The reconnect supervisor below re-opens the WEBSOCKET. That is enough for a
+// dropped socket, but not for a dropped SSH SESSION: the baseUrl points at a
+// local ephemeral port that only exists while the tunnel does, so once the
+// session dies the supervisor re-dials a port nothing is listening on, backs off
+// to 30s, and spins forever.
+//
+// Rust tells us when that happens. The fix is a full re-bootstrap rather than a
+// re-dial — and because the remote backend was left running deliberately, that
+// bootstrap hits the REUSE path (lockfile + /api/ssh/ownership proof) and
+// reattaches in about two seconds instead of respawning.
+
+let sshWatcher: null | (() => void) = null
+
+async function watchSshTunnel(profile: null | string): Promise<void> {
+  sshWatcher?.()
+  sshWatcher = null
+
+  const unlisten = await onSshDisconnected(profile, () => {
+    // A deliberate disconnect does not emit this, but the user may have torn the
+    // connection down between the event firing and it arriving.
+    if (intentionalClose || $connection.get()?.mode !== 'ssh') {
+      return
+    }
+
+    void rebootstrapSsh(profile)
+  }).catch(() => null)
+
+  if (unlisten) {
+    sshWatcher = unlisten
+  }
+}
+
+/** Stop watching (a deliberate disconnect, or a switch to another mode). */
+function stopWatchingSshTunnel(): void {
+  sshWatcher?.()
+  sshWatcher = null
+}
+
+let rebootstrapping = false
+
+async function rebootstrapSsh(profile: null | string): Promise<void> {
+  if (rebootstrapping) {
+    return
+  }
+
+  rebootstrapping = true
+
+  try {
+    const target = loadGatewayTarget()
+
+    if (!target?.ssh?.host) {
+      return
+    }
+
+    // Non-interactive: this fires on its own schedule, with no user waiting on a
+    // dialog. Keyring-held credentials are all it gets.
+    await connectSsh({ ...target.ssh, profile }, { interactive: false })
+  } catch {
+    // connectSsh already set $connectionError + phase; the connecting screen
+    // surfaces it and the ordinary supervisor keeps retrying the socket.
+  } finally {
+    rebootstrapping = false
+  }
+}
+
 // --------------------------------------------------------------------------
 // Auto-reconnect supervisor (D7)
 // --------------------------------------------------------------------------
@@ -354,6 +555,10 @@ function armReconnect(): void {
 const reconnectDelay = (attempt: number): number => Math.min(30_000, 2 ** attempt * 1000)
 const wait = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms))
 
+// Unreachable for `ssh`: that mode is always authMode 'token', and the loop only
+// calls this on a GatewayReauthRequiredError, which the ticket/oauth paths raise.
+// A dropped SSH TUNNEL is a different failure and is not handled here — see the
+// FIXME above.
 async function reauthForReconnect(conn: Connection): Promise<void> {
   if (conn.mode === 'cloud') {
     await portalAgentSignIn(conn.baseUrl)
@@ -383,6 +588,19 @@ async function runReconnectLoop(): Promise<void> {
     $connectionPhase.set('connecting')
 
     try {
+      // For ssh, re-dialling the socket is pointless if the tunnel is what died —
+      // the port is gone with it. Re-bootstrap instead; it reattaches to the
+      // still-running remote backend through the reuse path.
+      if (conn.mode === 'ssh') {
+        await rebootstrapSsh(conn.profile ?? null)
+
+        if ($connectionPhase.get() === 'ready') {
+          break
+        }
+
+        throw new Error('SSH re-bootstrap did not reach a live connection')
+      }
+
       await connectGateway(conn)
 
       if (intentionalClose || !$connection.get()) {

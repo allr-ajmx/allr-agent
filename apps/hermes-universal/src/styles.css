@@ -1047,15 +1047,27 @@
 }
 
 .connect {
+  /* Bounded, so this is the scroll container. html/body/#root are all
+     overflow:hidden — the shell is an app, not a document — so a screen that
+     outgrows the viewport has to own its own scrolling or it is simply clipped.
+     The SSH panel is long enough to hit that. */
   min-height: 100%;
+  max-height: 100%;
+  overflow-y: auto;
   display: flex;
-  align-items: center;
   justify-content: center;
   padding: 24px 18px;
 }
 .connect-card {
   width: 100%;
   max-width: 420px;
+  /* Centred with auto margins rather than `align-items: center` on the parent.
+     Both centre a card that fits; only this one stays reachable when it does
+     not. Centre-alignment distributes negative free space evenly, pushing the
+     top of an over-tall card above the scroll origin where nothing can bring
+     it back — auto margins resolve to zero instead and the card starts at the
+     top edge. */
+  margin: auto;
   display: flex;
   flex-direction: column;
   gap: 10px;

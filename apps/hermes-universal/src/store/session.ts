@@ -29,12 +29,7 @@ import {
   updateSession
 } from '@/store/session-state-types'
 import { openAppRoute } from '@/store/windows'
-import type {
-  SessionCreateResponse,
-  SessionInfo,
-  SessionResumeResponse,
-  SessionSearchResult
-} from '@/types/hermes'
+import type { SessionCreateResponse, SessionInfo, SessionResumeResponse, SessionSearchResult } from '@/types/hermes'
 
 // Session history + switching (Hc2). Lean adaptation of desktop store/session.ts —
 // no windows/projects/pins/profiles/branch/cwd/model. Two ids: the STORED id
