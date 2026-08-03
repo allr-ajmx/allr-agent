@@ -13,11 +13,13 @@ import {
   closeAllTreeTabs,
   closeOtherTreeTabs,
   closeTreeTabsToRight,
-  moveTreePane
+  moveTreePane,
+  treeTabCloseTargets
 } from '@/components/pane-shell/tree/store'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { useI18n } from '@/i18n'
 import { sessionTitle } from '@/lib/chat-runtime'
+import { WORKSPACE_PANE_ID } from '@/lib/pane-ids'
 import { useStore } from '@/store/atom'
 import { type ChatMessage } from '@/store/chat'
 import { createComposerAttachmentScope } from '@/store/composer'
@@ -296,14 +298,20 @@ export function SessionTabMenu({
   const pinId = stored ? sessionPinId(stored) : storedSessionId
   const isPinned = pinned.includes(pinId)
 
+  // Offer only the close verbs that would actually close something. Subscribing
+  // to the tree keeps the counts live, so the menu never shows "Close to the
+  // right" on the rightmost tab or "Close others" on a lone one.
+  useStore($layoutTree)
+  const closeTargets = treeTabCloseTargets(paneId)
+
   return (
     <SessionContextMenu
       onArchive={() => void sessionTileDelegate()?.archiveSession(storedSessionId)}
       onBranch={() => void sessionTileDelegate()?.branchSession(storedSessionId)}
       onClose={canClose ? () => requestCloseSessionTile(storedSessionId) : undefined}
-      onCloseAll={() => closeAllTreeTabs(paneId)}
-      onCloseOthers={() => closeOtherTreeTabs(paneId)}
-      onCloseToRight={() => closeTreeTabsToRight(paneId)}
+      onCloseAll={closeTargets.all > 0 ? () => closeAllTreeTabs(paneId) : undefined}
+      onCloseOthers={closeTargets.others > 0 ? () => closeOtherTreeTabs(paneId) : undefined}
+      onCloseToRight={closeTargets.right > 0 ? () => closeTreeTabsToRight(paneId) : undefined}
       onDelete={() => void sessionTileDelegate()?.deleteSession(storedSessionId)}
       onPin={() => (isPinned ? unpinSession(pinId) : pinSession(pinId))}
       pinned={isPinned}
@@ -326,7 +334,7 @@ export function WorkspaceTabMenu({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <SessionTabMenu canClose={false} paneId="workspace" storedSessionId={selected}>
+    <SessionTabMenu canClose={false} paneId={WORKSPACE_PANE_ID} storedSessionId={selected}>
       {children}
     </SessionTabMenu>
   )

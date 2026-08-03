@@ -27,12 +27,18 @@ import {
   noteActiveTreeGroup,
   revealTreePane
 } from '@/components/pane-shell/tree/store'
+import { TILE_PANE_PREFIX, WORKSPACE_PANE_ID } from '@/lib/pane-ids'
 import { readJson, writeJson } from '@/lib/storage'
 import { discardDeltas, disposeStreamBatch, flushDeltas } from '@/lib/stream-batch'
 import { resetUnscopedStreamPin } from '@/store/event-router'
 import { $activeGatewayProfile, normalizeProfileKey } from '@/store/profile'
 import { clearAllPrompts } from '@/store/prompts'
-import { $activeStoredSessionId, $unreadFinishedSessionIds, setActiveSessionStoredIdRotation } from '@/store/session'
+import {
+  $activeStoredSessionId,
+  $unreadFinishedSessionIds,
+  newSession,
+  setActiveSessionStoredIdRotation
+} from '@/store/session'
 import {
   $activeSessionKey,
   $sessionStates,
@@ -387,7 +393,6 @@ export interface SessionTile {
 // Tiles are persisted PER PROFILE (the live gateway is scoped to one profile at
 // a time). Switching profiles swaps the visible set and drops runtime bindings.
 const TILES_KEY = 'hermes.sessionTiles.v2'
-const TILE_PANE_PREFIX = 'session-tile:'
 
 type StoredTile = Pick<SessionTile, 'anchor' | 'before' | 'dir' | 'storedSessionId'>
 
@@ -604,6 +609,27 @@ export function openSessionTile(
     moveTreePane(`${TILE_PANE_PREFIX}${storedSessionId}`, { before: before ?? null, groupId: target, pos: dir })
     patchSessionTile(storedSessionId, { anchor, before: before ?? undefined, dir })
     syncTileStripOrder()
+  }
+}
+
+/**
+ * "New chat tab" — ⌘T, and the `+` at the end of a chat tab strip.
+ *
+ * The main pane is a pane like any other, so a new tab means: park the
+ * conversation currently in it as its own tab, then start a fresh chat in the
+ * main pane. Both end up in the same strip, which is what reads as two tabs.
+ *
+ * Order matters — `openSessionTile` refuses the session loaded in main (it
+ * would then be on screen twice), so the main pane has to let go of it first.
+ * An unsaved draft has nothing to park.
+ */
+export function newSessionTab(): void {
+  const current = $activeStoredSessionId.get()
+
+  newSession()
+
+  if (current) {
+    openSessionTile(current, 'center', WORKSPACE_PANE_ID)
   }
 }
 
