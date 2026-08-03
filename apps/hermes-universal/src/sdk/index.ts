@@ -24,8 +24,6 @@
  *    `render()` contribution. Same mechanism reaches the mobile top bar.
  *  - No `FloatingAnchor`. Universal's layout tree has no floating-pane renderer,
  *    so `placement: 'floating'` has nothing to render it.
- *  - `PaletteContribution` has no `action` field: universal's command surface is
- *    a menu with no hotkey column. Contribute to `keybinds` for a shortcut.
  *  - `ctx.rest` cannot upload (see `pluginRest`), and `ctx.socket` needs a
  *    token-mode connection (see `pluginSocket`).
  */
