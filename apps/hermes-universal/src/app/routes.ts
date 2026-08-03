@@ -68,11 +68,13 @@ export const APP_ROUTES = [
 const APP_VIEW_BY_PATH = new Map<string, AppView>(APP_ROUTES.map(route => [route.path, route.view]))
 const RESERVED_PATHS: ReadonlySet<string> = new Set(APP_ROUTES.map(route => route.path))
 
-// ── Contributed routes — the `routes` registry area ──────────────────────────
-// A plugin pairs a `render` with an absolute one-segment path and gets a real
-// page inside the workspace pane (see app/contrib/panes.tsx). Contributed paths
-// are reserved exactly like APP_ROUTES so the session-id parser below never
-// mistakes `/kanban` for a session route. Navigate with `host.navigate(path)`.
+// ── Routes — the `routes` registry area ──────────────────────────────────────
+// EVERY workspace page is a contribution: the app's own pages (Capabilities /
+// Messaging / Artifacts, registered as `source: 'core'` in app/contrib/panes.tsx)
+// and plugin pages alike, so the route table has exactly one shape. A plugin
+// pairs a `render` with an absolute one-segment path. Contributed paths are
+// reserved exactly like APP_ROUTES so the session-id parser below never mistakes
+// `/kanban` for a session route. Navigate with `host.navigate(path)`.
 
 export const ROUTES_AREA = 'routes'
 
@@ -82,17 +84,24 @@ export interface RouteContribution {
   path: string
 }
 
-/** Validated contributed pages. Pass the area's contributions when you already
- *  have them from a `useContributions(ROUTES_AREA)` subscription, so the React
- *  path derives from the same snapshot it re-rendered for. */
-export function contributedRoutes(
-  items: readonly Contribution[] = registry.getArea(ROUTES_AREA)
-): Array<{ key: string; path: string; render: () => ReactNode; title?: string }> {
+export interface ResolvedRoute {
+  key: string
+  path: string
+  render: () => ReactNode
+  source: string
+  title?: string
+}
+
+/** Validated pages, core + contributed. Pass the area's contributions when you
+ *  already have them from a `useContributions(ROUTES_AREA)` subscription, so the
+ *  React path derives from the same snapshot it re-rendered for. */
+export function contributedRoutes(items: readonly Contribution[] = registry.getArea(ROUTES_AREA)): ResolvedRoute[] {
   return items
     .map(c => ({
       key: `${c.source ?? 'core'}:${c.id}`,
       path: (c.data as RouteContribution | undefined)?.path ?? '',
       render: c.render!,
+      source: c.source ?? 'core',
       title: c.title
     }))
     .filter(
@@ -103,18 +112,24 @@ export function contributedRoutes(
         // route table's own catch-all and swallow every unmatched route.
         !route.path.slice(1).includes('/') &&
         !/[*:]/.test(route.path) &&
-        !RESERVED_PATHS.has(route.path)
+        // Core registers the built-in pages AT their reserved paths (that's what
+        // makes them routes); a plugin may not squat on one.
+        (route.source === 'core' || !RESERVED_PATHS.has(route.path))
     )
 }
 
+/** A page that is NOT one of the app's own — i.e. a plugin page, which has no
+ *  AppView of its own and classifies as `'extension'`. A core page keeps its
+ *  APP_ROUTES view (`/skills` is `skills`, never `extension`). */
 function isContributedPath(pathname: string): boolean {
-  return contributedRoutes().some(route => route.path === pathname)
+  return !RESERVED_PATHS.has(pathname) && contributedRoutes().some(route => route.path === pathname)
 }
 
-// ── Contributed sidebar nav — the `sidebar.nav` registry area ────────────────
-// A DATA contribution adds a row to the sidebar nav rail (below the built-ins).
-// Pair with a ROUTES_AREA page: the row navigates to `path` and lights up while
-// the app is there.
+// ── Sidebar nav — the `sidebar.nav` registry area ────────────────────────────
+// The rail renders this area and nothing else: the built-in rows register as
+// `source: 'core'` with negative `order` (app/shell/nav-contrib.ts), contributed
+// rows land after them. Pair a plugin row with a ROUTES_AREA page — it navigates
+// to `path` and lights up while the app is there.
 
 export const SIDEBAR_NAV_AREA = 'sidebar.nav'
 
@@ -122,9 +137,17 @@ export const SIDEBAR_NAV_AREA = 'sidebar.nav'
 export interface SidebarNavContribution {
   /** Codicon name, e.g. `'project'`. Defaults to `plug`. */
   codicon?: string
-  label: string
+  /** Literal row label. Plugins set this; core rows use `labelKey` instead. */
+  label?: string
+  /** CORE ONLY: key into `t.sidebar.nav`, so the row follows the active locale. */
+  labelKey?: string
   /** Route to navigate to (usually a contributed page's path). */
-  path: string
+  path?: string
+  /** CORE ONLY: an action row (e.g. New session) instead of / before navigating. */
+  run?: () => void
+  /** CORE ONLY: light the row up for this view rather than an exact path match —
+   *  a session route still reads as `chat`, so New session stays lit. */
+  view?: AppView
 }
 
 // Views that render as a full-screen modal card (OverlayView) over the shell.

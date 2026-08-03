@@ -1,55 +1,46 @@
-import { useEffect, useMemo, useState } from 'react'
+import '@/app/shell/nav-contrib' // side-effect: registers the app's own rail rows
+
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 
-import {
-  type AppView,
-  appViewForPath,
-  ARTIFACTS_ROUTE,
-  MESSAGING_ROUTE,
-  NEW_CHAT_ROUTE,
-  SIDEBAR_NAV_AREA,
-  type SidebarNavContribution,
-  SKILLS_ROUTE
-} from '@/app/routes'
+import { type AppView, appViewForPath, SIDEBAR_NAV_AREA, type SidebarNavContribution } from '@/app/routes'
 import { NAV_ROW_ACTIVE, NAV_ROW_BASE } from '@/app/shell/nav-row'
 import { Codicon } from '@/components/ui/codicon'
-import { KbdGroup } from '@/components/ui/kbd'
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from '@/components/ui/context-menu'
+import { KbdCombo } from '@/components/ui/kbd'
 import { useContributions } from '@/contrib/react/use-contributions'
 import { useI18n } from '@/i18n'
-import { comboTokens } from '@/lib/kbd'
+import { triggerHaptic } from '@/lib/haptics'
 import { IS_MOBILE } from '@/lib/platform'
 import { cn } from '@/lib/utils'
-import { newChatBubble } from '@/store/chat-bubbles'
+import { useStore } from '@/store/atom'
 import { openCommandMenu } from '@/store/command-menu'
+import { $bindings, bindingsFor } from '@/store/keybinds'
 import { NEW_SESSION_FLASH_EVENT } from '@/store/layout'
-import { newSession } from '@/store/session'
+import { openRouteTile } from '@/store/route-tiles'
 
 // The transparent top nav rail — the SAME four items desktop shows: New session
-// (an action, with a ⌘N hint), Capabilities (skills), Messaging, Artifacts. Sits
-// under the frameless titlebar (its top padding clears it). Every other view is
-// reached through the command menu (opened from the titlebar on desktop, or the
-// in-drawer button on phones).
-
-const NEW_SESSION_KBD = comboTokens('mod+n')
+// (an action, with a live ⌘N hint), Capabilities (skills), Messaging, Artifacts.
+// Sits under the frameless titlebar (its top padding clears it). Every other view
+// is reached through the command menu (opened from the titlebar on desktop, or
+// the in-drawer button on phones).
+//
+// MJX-52: the rows come from the `sidebar.nav` area — the built-ins register in
+// app/shell/nav-contrib.ts, plugin rows follow them. This file only renders.
 
 type NavId = 'new-session' | 'skills' | 'messaging' | 'artifacts'
 
 interface RailItem {
   icon: string
-  /** Built-in rail ids resolve their label through i18n; contributed rows carry
-   *  a literal `label` instead. */
+  /** Core rail ids resolve their label through i18n (`labelKey`); contributed
+   *  rows carry a literal `label` instead. */
   id: NavId | string
   label?: string
+  labelKey?: string
   route?: string
+  run?: () => void
   view?: AppView
 }
-
-const NAV: RailItem[] = [
-  { id: 'new-session', icon: 'robot' },
-  { id: 'skills', icon: 'symbol-misc', route: SKILLS_ROUTE, view: 'skills' },
-  { id: 'messaging', icon: 'comment', route: MESSAGING_ROUTE, view: 'messaging' },
-  { id: 'artifacts', icon: 'files', route: ARTIFACTS_ROUTE, view: 'artifacts' }
-]
 
 // The button look is shared with the mobile Status list — see @/app/shell/nav-row.
 const ROW_BASE = NAV_ROW_BASE
@@ -61,24 +52,36 @@ export function SidebarNavRail({ variant, onNavigate }: { variant: 'pane' | 'she
   const navigate = useNavigate()
   const currentView = appViewForPath(pathname)
   const [kbdFlash, setKbdFlash] = useState(false)
+  // The live ⌘N combo — a rebind repaints the hint (it used to be a frozen
+  // module constant, so it lied after any rebind).
+  const newSessionCombo = bindingsFor('session.new', useStore($bindings))[0]
 
-  // Contributed nav rows (a plugin pairing a page with a rail entry) render below
-  // the built-ins with the same chrome. An entry with no `codicon` gets `plug`.
+  // Core rows first (negative `order`), then contributed ones — a plugin pairing
+  // a page with a rail entry. An entry with no `codicon` gets `plug`.
   const navContributions = useContributions(SIDEBAR_NAV_AREA)
 
   const items = useMemo<RailItem[]>(
-    () => [
-      ...NAV,
-      ...navContributions.flatMap(c => {
+    () =>
+      navContributions.flatMap(c => {
         const data = c.data as Partial<SidebarNavContribution> | undefined
 
-        if (!data?.path?.startsWith('/') || !data.label) {
+        // A row must be able to say something and do something.
+        if (!data || !(data.label || data.labelKey) || !(data.run || data.path?.startsWith('/'))) {
           return []
         }
 
-        return [{ icon: data.codicon || 'plug', id: c.id, label: data.label, route: data.path }]
-      })
-    ],
+        return [
+          {
+            icon: data.codicon || 'plug',
+            id: c.id,
+            label: data.label,
+            labelKey: data.labelKey,
+            route: data.path,
+            run: data.run,
+            view: data.view
+          }
+        ]
+      }),
     [navContributions]
   )
 
@@ -97,16 +100,10 @@ export function SidebarNavRail({ variant, onNavigate }: { variant: 'pane' | 'she
   }, [])
 
   const handle = (item: RailItem) => {
-    if (item.id === 'new-session') {
-      // Mobile: spawn a new parallel bubble instead of replacing the current
-      // chat (no-op when already on a draft). Desktop: plain new session.
-      if (IS_MOBILE) {
-        newChatBubble()
-      } else {
-        newSession()
-      }
-
-      navigate(NEW_CHAT_ROUTE)
+    // An action row owns its own behaviour (New session spawns the session AND
+    // lands on the draft route); a plain row just navigates.
+    if (item.run) {
+      item.run()
     } else if (item.route) {
       navigate(item.route)
     }
@@ -125,20 +122,17 @@ export function SidebarNavRail({ variant, onNavigate }: { variant: 'pane' | 'she
     >
       <div className="flex flex-col gap-px">
         {items.map(item => {
-          // Built-ins light up by view; a contributed row has no AppView of its
+          // Core rows light up by view; a contributed row has no AppView of its
           // own (they all resolve to 'extension'), so match its exact path.
-          const active = item.label
-            ? pathname === item.route
-            : Boolean(item.view) && currentView === item.view
+          const active = item.view ? currentView === item.view : pathname === item.route
 
-          const label = item.label ?? t.sidebar.nav[item.id as NavId]
+          const label = item.label ?? t.sidebar.nav[(item.labelKey ?? item.id) as NavId] ?? item.id
           const isNewSession = item.id === 'new-session'
 
-          return (
+          const row = (
             <button
               aria-current={active ? 'page' : undefined}
               className={cn(ROW_BASE, active && ROW_ACTIVE)}
-              key={item.id}
               onClick={() => handle(item)}
               title={label}
               type="button"
@@ -148,14 +142,38 @@ export function SidebarNavRail({ variant, onNavigate }: { variant: 'pane' | 'she
                 name={item.icon}
               />
               <span className="min-w-0 flex-1 truncate">{label}</span>
-              {isNewSession && (
-                <KbdGroup
+              {isNewSession && newSessionCombo && (
+                <KbdCombo
                   className={cn('ml-auto opacity-55', kbdFlash && 'opacity-100!')}
-                  keys={NEW_SESSION_KBD}
+                  combo={newSessionCombo}
                   size="sm"
                 />
               )}
             </button>
+          )
+
+          // A page row can also open BESIDE the chat as a layout tile (the page
+          // analog of a session tile) — same right-click verb sessions use.
+          // Tiles are a layout-tree affordance, so phones don't offer it.
+          if (IS_MOBILE || !item.route) {
+            return <Fragment key={item.id}>{row}</Fragment>
+          }
+
+          return (
+            <ContextMenu key={item.id}>
+              <ContextMenuTrigger asChild>{row}</ContextMenuTrigger>
+              <ContextMenuContent aria-label={label}>
+                <ContextMenuItem
+                  onSelect={() => {
+                    void triggerHaptic('selection')
+                    openRouteTile(item.route!, 'right')
+                  }}
+                >
+                  <Codicon name="split-horizontal" size="0.875rem" />
+                  <span>{t.sidebar.row.openInTile}</span>
+                </ContextMenuItem>
+              </ContextMenuContent>
+            </ContextMenu>
           )
         })}
 

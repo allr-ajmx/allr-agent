@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // Mock the system-status store so rendering the bar never starts the health
 // poller / getVersion / getStatus (network) — we drive $appVersion directly.
@@ -19,6 +19,7 @@ vi.mock('@/store/system-status', async () => {
 import { registry } from '@/contrib/registry'
 import { $busy, $turnStartedAt, resetChat } from '@/store/chat'
 import { $gatewayState } from '@/store/gateway'
+import { $statusbarHiddenIds, STATUSBAR_HIDDEN_BY_DEFAULT } from '@/store/statusbar-prefs'
 
 import { Statusbar } from './statusbar'
 
@@ -29,8 +30,16 @@ const renderStatusbar = () =>
     </MemoryRouter>
   )
 
+// These assert what the bar ASSEMBLES; the show/hide policy (several items ship
+// switched off — see statusbar-visibility.test.tsx) is a separate concern, so
+// turn everything on here.
+beforeEach(() => {
+  $statusbarHiddenIds.set([])
+})
+
 afterEach(() => {
   $gatewayState.set('idle')
+  $statusbarHiddenIds.set([...STATUSBAR_HIDDEN_BY_DEFAULT])
   resetChat()
 })
 

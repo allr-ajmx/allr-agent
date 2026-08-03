@@ -4,9 +4,11 @@ import { computed } from 'nanostores'
 import { type ReactElement, useEffect } from 'react'
 import { useLocation } from 'react-router-dom'
 
-import { PALETTE_AREA } from '@/app/command-palette/contrib'
+import { PALETTE_AREA, type PaletteContribution } from '@/app/command-palette/contrib'
 import { IdleMount } from '@/components/idle-mount'
+import { toggleLayoutEditMode } from '@/components/pane-shell/edit-mode'
 import { allPaneIds, group, split } from '@/components/pane-shell/tree/model'
+import { LAYOUTS_AREA } from '@/components/pane-shell/tree/presets'
 import { LayoutTreeRoot } from '@/components/pane-shell/tree/renderer'
 import {
   $layoutTree,
@@ -20,6 +22,7 @@ import {
   registerLayoutResetHandler,
   registerPaneCloser,
   registerPaneOpener,
+  resetLayoutTree,
   revealTreePane,
   setPaneCollapsed,
   setTreePaneHidden,
@@ -28,9 +31,9 @@ import {
 import { discoverBundledPlugins } from '@/contrib/plugins'
 import { registry } from '@/contrib/registry'
 import { discoverRuntimePlugins } from '@/contrib/runtime-loader'
-import { translateNow } from '@/i18n'
 import { sessionTitle as storedSessionTitle } from '@/lib/chat-runtime'
-import { Plug } from '@/lib/icons'
+import { LayoutDashboard, PanelBottom, Plug } from '@/lib/icons'
+import { type KeybindContribution, KEYBINDS_AREA } from '@/lib/keybinds/actions'
 import { $currentCwd } from '@/store/chat'
 import { addGatewayEventListener } from '@/store/gateway'
 import {
@@ -54,7 +57,9 @@ import { $reviewOpen, closeReview, REVIEW_PANE_ID } from '@/store/review'
 import { $activeStoredSessionId, $sessions, sessionMatchesStoredId } from '@/store/session'
 import { $sessionColorById, sessionColorFor } from '@/store/session-color'
 import { routeTileEvent } from '@/store/session-reducer'
+import { toggleStatusbarVisible } from '@/store/statusbar-prefs'
 
+import { watchRouteTiles } from '../chat/route-tile'
 import {
   SessionTileCloseConfirm,
   stackSessionTilesIntoMain,
@@ -79,12 +84,9 @@ import { FilesPane, PreviewRailPane, ReviewPaneContent, TerminalPane, WorkspaceR
  *    focused-session-aware). This file owns only the workspace grid.
  *  - Surfaces are self-wired, so panes render their components directly (no
  *    `WiredPane`/`WiringActions` indirection).
- *  - `plugins.reload` is registered below as a `palette` contribution (MJX-53
- *    added that area). FIXME(MJX-50/palette-bridge): desktop's `layout.editMode`
- *    / `layout.reset` rows are still omitted — they need the edit-mode UI that
- *    MJX-202 defers.
- *  - FIXME(MJX-202): the FancyZones structural-authoring UI is deferred; the
- *    four presets below are read-only.
+ *  - The command rows (`layout.editMode`, `layout.reset`, `plugins.reload`) are
+ *    `palette` contributions, and `layout.editMode` is also a rebindable
+ *    `keybinds` contribution — the same declarative surfaces a plugin uses.
  */
 
 // ONE render identity for the workspace pane — syncWorkspaceTitle re-registers
@@ -258,28 +260,85 @@ const QUAD_TREE = split(
   [3, 1]
 )
 
+// The bundled templates. User-saved presets join the same area from presets.ts
+// (source: 'user'), which is also where save/delete/persist live.
 registry.registerMany([
-  { id: 'default', area: 'layouts', title: 'Default', order: 0, data: DEFAULT_TREE },
-  { id: 'focus', area: 'layouts', title: 'Focus', order: 10, data: FOCUS_TREE },
-  { id: 'terminal-deck', area: 'layouts', title: 'Terminal deck', order: 20, data: TERMINAL_TREE },
-  { id: 'quad', area: 'layouts', title: 'Quad', order: 30, data: QUAD_TREE }
+  { id: 'default', area: LAYOUTS_AREA, title: 'Default', order: 0, data: DEFAULT_TREE },
+  { id: 'focus', area: LAYOUTS_AREA, title: 'Focus', order: 10, data: FOCUS_TREE },
+  { id: 'terminal-deck', area: LAYOUTS_AREA, title: 'Terminal deck', order: 20, data: TERMINAL_TREE },
+  { id: 'quad', area: LAYOUTS_AREA, title: 'Quad', order: 30, data: QUAD_TREE }
 ])
 
 declareDefaultTree(DEFAULT_TREE)
 
-// The manual rescan door, for when the poll's cadence isn't enough (or the
-// gateway door skipped content-diffing because the tree is large).
-registry.register({
-  area: PALETTE_AREA,
-  data: {
-    icon: Plug,
-    id: 'plugins.reload',
-    keywords: ['plugin', 'rescan', 'reload'],
-    label: translateNow('settings.plugins.rescan'),
-    run: discoverRuntimePlugins
+registry.registerMany([
+  // Layout edit mode registers through the SAME declarative surfaces plugins
+  // use: a rebindable keybind (collision-checked in the settings panel) and a
+  // command row whose hint tracks the live binding. Without them the mode has
+  // no door — the palette it opens is the only way to author a layout.
+  {
+    area: KEYBINDS_AREA,
+    data: {
+      defaults: ['mod+shift+\\'],
+      id: 'layout.editMode',
+      label: 'Toggle layout edit mode',
+      run: toggleLayoutEditMode
+    } satisfies KeybindContribution,
+    id: 'layout.editMode'
   },
-  id: 'plugins.reload'
-})
+  {
+    area: PALETTE_AREA,
+    data: {
+      action: 'layout.editMode',
+      icon: LayoutDashboard,
+      id: 'layout.editMode',
+      keywords: ['layout', 'zones', 'panes', 'edit', 'rearrange'],
+      label: 'Toggle layout edit mode',
+      run: toggleLayoutEditMode
+    } satisfies PaletteContribution,
+    id: 'layout.editMode'
+  },
+  {
+    area: PALETTE_AREA,
+    data: {
+      icon: LayoutDashboard,
+      id: 'layout.reset',
+      keywords: ['layout', 'reset', 'default', 'panes'],
+      label: 'Reset layout',
+      run: resetLayoutTree
+    } satisfies PaletteContribution,
+    id: 'layout.reset'
+  },
+  // Hiding the bar removes the surface that would otherwise offer it back, so
+  // the command menu is the guaranteed door in (alongside the rebindable ⌘⇧S).
+  {
+    area: PALETTE_AREA,
+    data: {
+      action: 'view.toggleStatusbar',
+      icon: PanelBottom,
+      id: 'view.toggleStatusbar',
+      keywords: ['status bar', 'statusbar', 'bottom bar', 'hide', 'show', 'chrome'],
+      label: 'Toggle status bar',
+      run: toggleStatusbarVisible
+    } satisfies PaletteContribution,
+    id: 'view.toggleStatusbar'
+  },
+  // The manual rescan door, for when the poll's cadence isn't enough (or the
+  // gateway door skipped content-diffing because the tree is large).
+  {
+    area: PALETTE_AREA,
+    data: {
+      icon: Plug,
+      id: 'plugins.reload',
+      keywords: ['plugin', 'rescan', 'reload'],
+      // A key, not a string: the row is registered once at boot, and a literal
+      // would keep the boot locale's wording after a language switch.
+      labelKey: 'settings.plugins.rescan',
+      run: discoverRuntimePlugins
+    } satisfies PaletteContribution,
+    id: 'plugins.reload'
+  }
+])
 
 // Bundled plugins load AFTER core, so a plugin can override a same-id core
 // contribution. This also starts the disk door's watcher (contrib/plugins.ts →
@@ -292,10 +351,11 @@ watchContributedPanes()
 
 // Multi-session tiles: stream tile sessions off the shared gateway stream (the
 // primary chat reducer is untouched), mirror `$sessionTiles` into layout-tree
-// panes, and collapse tiles into the workspace on a layout reset.
-// FIXME(MJX-50/route-tiles): page (route) tiles — watchRouteTiles() — are a follow-up.
+// panes, and collapse tiles into the workspace on a layout reset. Page (route)
+// tiles ride the same mirror, keyed by path instead of session id.
 addGatewayEventListener(routeTileEvent)
 watchSessionTiles()
+watchRouteTiles()
 registerLayoutResetHandler(stackSessionTilesIntoMain)
 
 // The main tab reads as its SESSION (the loaded title, "New session" on a fresh

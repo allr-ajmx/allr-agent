@@ -2332,6 +2332,17 @@ export const zh: Translations = {
       offDescription: '无需审批提示直接运行'
     },
     statusbar: {
+      customizeTitle: '在状态栏中显示',
+      hideStatusbar: '隐藏状态栏',
+      toggleApprovalMode: '审批',
+      toggleBackendVersion: '后端版本',
+      toggleCommandCenter: '控制中心',
+      toggleContextUsage: '上下文用量',
+      toggleRunningTimer: '回合计时',
+      toggleSessionTimer: '会话计时',
+      toggleTerminal: '终端',
+      toggleVersion: '版本与更新',
+      toggleWorkspace: '工作区',
       unknown: '未知',
       restart: '重启',
       update: '更新',

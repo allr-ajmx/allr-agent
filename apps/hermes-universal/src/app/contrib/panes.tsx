@@ -19,9 +19,16 @@ import { RightSidebarPane } from '@/app/right-pane'
 import { PreviewRail } from '@/app/right-pane/preview/preview-rail'
 import { ReviewPane } from '@/app/right-pane/review'
 import { TerminalArea } from '@/app/right-pane/terminal/terminal-area'
-import { contributedRoutes, ROUTES_AREA } from '@/app/routes'
+import {
+  ARTIFACTS_ROUTE,
+  contributedRoutes,
+  MESSAGING_ROUTE,
+  ROUTES_AREA,
+  SKILLS_ROUTE
+} from '@/app/routes'
 import { ContribBoundary, ContribRender } from '@/contrib/react/boundary'
 import { useContributions } from '@/contrib/react/use-contributions'
+import { registry } from '@/contrib/registry'
 import { normalizeOrLocalPreviewTarget } from '@/lib/local-preview'
 import { useStore } from '@/store/atom'
 import { $currentCwd } from '@/store/chat'
@@ -87,6 +94,39 @@ function WorkspacePage({ view }: { view: ReactNode }) {
   )
 }
 
+// ── The app's own pages, as `routes` contributions (MJX-52) ─────────────────
+// Registering them here means the route table, the page tiles (app/chat/
+// route-tile.tsx) and any future page host all read ONE list, and a plugin page
+// is structurally identical to Capabilities. `title` is what a page tile's tab
+// shows; it stays in English like the other core contribution titles (the pane
+// titles above), since tab titles aren't localized yet.
+registry.registerMany([
+  {
+    area: ROUTES_AREA,
+    data: { path: SKILLS_ROUTE },
+    id: 'skills',
+    order: 0,
+    render: () => <SkillsPage />,
+    title: 'Capabilities'
+  },
+  {
+    area: ROUTES_AREA,
+    data: { path: MESSAGING_ROUTE },
+    id: 'messaging',
+    order: 10,
+    render: () => <MessagingPage />,
+    title: 'Messaging'
+  },
+  {
+    area: ROUTES_AREA,
+    data: { path: ARTIFACTS_ROUTE },
+    id: 'artifacts',
+    order: 20,
+    render: () => <ArtifactsPage />,
+    title: 'Artifacts'
+  }
+])
+
 /** The `workspace` pane — the app route table (chat + full-page views). Full
  *  pages mark the zone body `data-zone-no-header` so the zone's tab bar stands
  *  down while a page shows (mirrors `headerVeto`). Overlay routes fall through
@@ -98,17 +138,15 @@ export function WorkspaceRoutes() {
   // `isContributedPath` uses — so a path can never be a route here and a session
   // id there.
   const contributions = useContributions(ROUTES_AREA)
-  const pluginRoutes = useMemo(() => contributedRoutes(contributions), [contributions])
+  const pageRoutes = useMemo(() => contributedRoutes(contributions), [contributions])
 
   return (
     <Routes>
       <Route element={<ChatScreen />} path="/" />
-      <Route element={<WorkspacePage view={<SkillsPage />} />} path="/skills" />
-      <Route element={<WorkspacePage view={<MessagingPage />} />} path="/messaging" />
-      <Route element={<WorkspacePage view={<ArtifactsPage />} />} path="/artifacts" />
-      {/* Contributed pages render as full pages inside the workspace pane, each
-          behind its own blast wall, BEFORE the catch-all below. */}
-      {pluginRoutes.map(route => (
+      {/* Every page — the app's own and contributed alike — renders as a full
+          page inside the workspace pane, each behind its own blast wall, BEFORE
+          the catch-all below. */}
+      {pageRoutes.map(route => (
         <Route
           element={
             <WorkspacePage
