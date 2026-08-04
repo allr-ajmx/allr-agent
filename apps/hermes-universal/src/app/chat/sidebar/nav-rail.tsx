@@ -134,8 +134,7 @@ export function SidebarNavRail({ variant, onNavigate }: { variant: 'pane' | 'she
           // plain label; the other core rows carry the hint in the tooltip. A
           // contributed row has no keybind of its own, so it gets the label too.
           const actionId = item.view ? NAV_ACTION_BY_VIEW[item.view] : undefined
-          const tipLabel =
-            !isNewSession && actionId ? <TipKeybindLabel actionId={actionId} text={label} /> : label
+          const tipLabel = !isNewSession && actionId ? <TipKeybindLabel actionId={actionId} text={label} /> : label
 
           const row = (
             <button

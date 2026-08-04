@@ -57,6 +57,7 @@ function openingTagAttrs(content: string, start: number): string {
       }
 
       i = lineEnd
+
       continue
     }
 
@@ -68,6 +69,7 @@ function openingTagAttrs(content: string, start: number): string {
       }
 
       i = blockEnd + 1
+
       continue
     }
 
