@@ -2,12 +2,14 @@ import { open as openDialog } from '@tauri-apps/plugin-dialog'
 
 import type { SidebarProjectTree } from '@/app/chat/sidebar/projects/model'
 import type { HermesGitBaseBranch, HermesGitBranch } from '@/global'
+import { getHermesConfig } from '@/hermes'
 import { translateNow } from '@/i18n'
 import { desktopGit } from '@/lib/desktop-git'
 import { persistentAtom } from '@/lib/persisted'
 import { IS_DESKTOP } from '@/lib/platform'
 import { atom } from '@/store/atom'
 import { $sessionId } from '@/store/chat'
+import { $connection } from '@/store/connection'
 import { requestGateway } from '@/store/gateway'
 import { setSidebarAgentsGrouped } from '@/store/layout'
 import { notify, notifyError } from '@/store/notifications'
@@ -19,8 +21,9 @@ import type { ProjectInfo, ProjectsPayload } from '@/types/hermes'
 // The git-worktree half (start-work, base branches, worktree add/remove) lives
 // at the bottom of this file and runs entirely through `lib/desktop-git.ts`,
 // which bridges the gateway's `/api/git/*` REST surface — no local git needed.
-// The disk repo scan stays a backend concern: the server-computed `projects.tree`
-// already supplies session-derived projects.
+// Repository discovery (the disk crawl behind repo-first projects) sits just
+// above it and runs in Rust against the local filesystem; the server-computed
+// `projects.tree` supplies session-derived projects either way.
 
 export const $projects = atom<ProjectInfo[]>([])
 export const $activeProjectId = atom<null | string>(null)
@@ -387,6 +390,129 @@ export async function pickProjectFolder(): Promise<null | string> {
     return typeof dir === 'string' ? dir : null
   } catch {
     return null
+  }
+}
+
+// ── Repository discovery (the disk crawl) ───────────────────────────────────
+// Ported from desktop `store/projects.ts`. "Repo-first" projects: crawl the
+// configured roots for git repositories and hand them to the backend, which
+// caches them (`projects.record_repos`) and merges them with session-derived
+// repos, so a repo shows up in Projects before it has ever hosted a session.
+//
+// The crawl runs against the Tauri host's disk (`lib/desktop-git.ts` →
+// `store/repo-scan.ts` → Rust), so it only speaks for the gateway when the
+// backend was spawned locally; elsewhere `scanRepos` returns `[]` and the
+// backend keeps serving session-derived repos alone (FIXME(MJX-207)).
+//
+// Desktop keys the throttle state per gateway (it can hold several); universal
+// has exactly one connection at a time, so module-level state plus a reset on
+// connection change is the same guarantee.
+
+export interface RepoDiscoveryPolicy {
+  enabled: boolean
+  roots: string[]
+  exclude_paths: string[]
+}
+
+/** True while a crawl is in flight — the sidebar shows a spinner on it. */
+export const $reposScanning = atom(false)
+
+export function repoDiscoveryPolicyFromConfig(config: unknown): RepoDiscoveryPolicy {
+  const desktopValue = config && typeof config === 'object' ? (config as { desktop?: unknown }).desktop : undefined
+
+  const desktop =
+    desktopValue && typeof desktopValue === 'object'
+      ? (desktopValue as {
+          repo_scan_enabled?: unknown
+          repo_scan_exclude_paths?: unknown
+          repo_scan_roots?: unknown
+        })
+      : {}
+
+  return {
+    // Absent config means discovery is ON — only an explicit `false` disables it.
+    enabled: desktop.repo_scan_enabled !== false,
+    exclude_paths: Array.isArray(desktop.repo_scan_exclude_paths)
+      ? desktop.repo_scan_exclude_paths.filter((value): value is string => typeof value === 'string')
+      : [],
+    roots: Array.isArray(desktop.repo_scan_roots)
+      ? desktop.repo_scan_roots.filter((value): value is string => typeof value === 'string')
+      : []
+  }
+}
+
+export function repoDiscoveryPolicySignature(policy: RepoDiscoveryPolicy): string {
+  return JSON.stringify(policy)
+}
+
+let scanGeneration = 0
+let completedSignature: string | undefined
+let runningSignature: string | undefined
+
+// A different gateway/profile has a different disk and a different cache, so the
+// "already scanned this policy" memo must not carry across a reconnect.
+$connection.subscribe(() => {
+  scanGeneration += 1
+  completedSignature = undefined
+  runningSignature = undefined
+  $reposScanning.set(false)
+})
+
+/**
+ * Crawl the configured roots and record what we find, unless the same policy
+ * already ran (pass `force` after the user edits the policy, or on refocus).
+ *
+ * A disabled policy still posts an empty list: that is what makes the backend
+ * drop its cached repos, so turning discovery off actually removes them.
+ */
+export async function scanAndRecordRepos(force = false): Promise<void> {
+  const scan = desktopGit()?.scanRepos
+
+  if (!scan) {
+    return
+  }
+
+  const generation = ++scanGeneration
+  const stale = () => scanGeneration !== generation
+
+  try {
+    const policy = repoDiscoveryPolicyFromConfig(await getHermesConfig())
+    const signature = repoDiscoveryPolicySignature(policy)
+
+    if (!force && (completedSignature === signature || runningSignature === signature)) {
+      return
+    }
+
+    runningSignature = signature
+
+    let repos: { root: string; label: string }[] = []
+
+    if (policy.enabled) {
+      $reposScanning.set(true)
+      repos = await scan(policy.roots, { enabled: true, excludePaths: policy.exclude_paths })
+
+      if (stale()) {
+        return
+      }
+    }
+
+    await requestGateway('projects.record_repos', { discovery_policy: policy, repos })
+
+    if (stale()) {
+      return
+    }
+
+    completedSignature = signature
+    await refreshProjectTree()
+  } catch {
+    // Let the next attempt retry from scratch rather than memoizing a failure.
+    completedSignature = undefined
+  } finally {
+    runningSignature = undefined
+
+    if (!stale()) {
+      $reposScanning.set(false)
+    }
   }
 }
 
