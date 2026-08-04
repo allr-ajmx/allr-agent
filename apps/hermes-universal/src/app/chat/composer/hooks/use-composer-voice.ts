@@ -75,6 +75,7 @@ export function useComposerVoice({
         if (view.$busy.get()) {
           return
         }
+
         triggerHaptic('submit')
         resetBrowseState(sessionId)
         clearDraft()
@@ -85,13 +86,14 @@ export function useComposerVoice({
 
   const conversation = useVoiceConversation({ target, getBinding })
 
-  // The `composer.voice` hotkey (Ctrl+B) toggles the conversation. Starting with
+  // The `composer.voice` hotkey (⌥B) toggles the conversation. Starting with
   // STT unconfigured lets the conversation surface its own "configure speech-to-
   // text" notice rather than silently no-opping.
   const toggleVoiceConversation = useCallback(() => {
     if (disabled) {
       return
     }
+
     if (voiceConversationActive) {
       conversation.end()
     } else {

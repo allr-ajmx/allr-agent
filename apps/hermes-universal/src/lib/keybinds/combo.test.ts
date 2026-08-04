@@ -83,4 +83,14 @@ describe('comboAllowedInInput', () => {
     expect(comboAllowedInInput('mod+k')).toBe(true)
     expect(comboAllowedInInput('shift+x')).toBe(false)
   })
+
+  // ⌥B (voice) and ⌥1-9 (tab switch) are both pressed from the composer, so
+  // alt has to survive the typing guard the same way ctrl/mod do.
+  it('lets alt combos fire while typing', async () => {
+    const { comboAllowedInInput } = await loadCombo('MacIntel')
+
+    expect(comboAllowedInInput('alt+b')).toBe(true)
+    expect(comboAllowedInInput('alt+1')).toBe(true)
+    expect(comboAllowedInInput('alt+shift+i')).toBe(true)
+  })
 })

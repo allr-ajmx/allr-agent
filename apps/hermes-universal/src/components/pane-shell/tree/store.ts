@@ -10,6 +10,7 @@ import { SIDEBAR_COLLAPSE_MEDIA_QUERY } from '@/app/layout-constants'
 import { setPluginEnabled } from '@/contrib/plugins-store'
 import { registry } from '@/contrib/registry'
 import { translateNow } from '@/i18n'
+import { isChatPaneId, WORKSPACE_PANE_ID } from '@/lib/pane-ids'
 import { readJson, readKey, writeJson, writeKey } from '@/lib/storage'
 import { notify } from '@/store/notifications'
 import { clearAllPaneSizeOverrides } from '@/store/panes'
@@ -242,6 +243,23 @@ export function registerLayoutResetHandler(fn: () => void): () => void {
   }
 }
 
+// "New chat" for a chat tab strip's `+`. Registered rather than imported: the
+// layout tree stores pane ids and knows nothing about sessions, and pulling the
+// session store in here would invert that. Same seam as `registerPaneOpener`.
+let newTabHandler: (() => void) | null = null
+
+export function registerNewTabHandler(fn: () => void): () => void {
+  newTabHandler = fn
+
+  return () => {
+    if (newTabHandler === fn) {
+      newTabHandler = null
+    }
+  }
+}
+
+export const treeNewTabHandler = (): (() => void) | null => newTabHandler
+
 /** The zone the user last interacted with (clicked / focused into) — the ⌘W
  *  target when nothing is DOM-focused (activeElement is often `body` after a
  *  click lands on a non-focusable surface). Tracked by trackActiveTreeGroup. */
@@ -286,7 +304,7 @@ const isUncloseablePane = (paneId: string): boolean =>
  *  close, so ⌘W stays a no-op — it never closes the window. */
 export function closeWorkspaceTab(): boolean {
   const tree = $layoutTree.get()
-  const active = tree ? findGroupOfPane(tree, 'workspace')?.active : null
+  const active = tree ? findGroupOfPane(tree, WORKSPACE_PANE_ID)?.active : null
 
   if (!active || isUncloseablePane(active)) {
     return false
@@ -352,7 +370,10 @@ export function activateTreeTabSlot(slot: number): boolean {
   const tree = $layoutTree.get()
   const panes = (groupId && tree ? findGroup(tree, groupId)?.panes : null) ?? []
 
-  if (panes.length < 2 || slot < 1 || slot > panes.length) {
+  // Same scoping as cycleTreeTabInFocusedZone: a CHAT strip with something to
+  // switch between. The caller's fallback (the Nth recent session) is the right
+  // answer anywhere else, so returning false is not a failure.
+  if (panes.length < 2 || slot < 1 || slot > panes.length || !panes.some(isChatPaneId)) {
     return false
   }
 
@@ -370,7 +391,7 @@ export function cycleTreeTabInFocusedZone(direction: 1 | -1): boolean {
   const group = groupId && tree ? findGroup(tree, groupId) : null
   const panes = group?.panes ?? []
 
-  if (panes.length < 2 || !panes.some(id => id === 'workspace' || id.startsWith('session-tile:'))) {
+  if (panes.length < 2 || !panes.some(isChatPaneId)) {
     return false
   }
 
@@ -381,7 +402,7 @@ export function cycleTreeTabInFocusedZone(direction: 1 | -1): boolean {
   // Cycling onto a session/main tab must surface the name card — a zone that
   // was double-tap-hidden stays headerless otherwise ("the one that cycles
   // never gets it").
-  if (nextId === 'workspace' || nextId.startsWith('session-tile:')) {
+  if (isChatPaneId(nextId)) {
     setTreeGroupHeaderHidden(group!.id, false)
   }
 

@@ -14,6 +14,9 @@ import type {
   CronJobCreatePayload,
   CronJobUpdates,
   CuratorStatusResponse,
+  CustomEndpointsResponse,
+  CustomEndpointUpdate,
+  CustomEndpointValidationResponse,
   DebugShareResponse,
   DefaultCwdResult,
   ElevenLabsVoicesResponse,
@@ -201,6 +204,69 @@ export function setApiRequestProfile(profile: null | string): void {
 function profileScoped(): { profile?: string } {
   return _apiProfile ? { profile: _apiProfile } : {}
 }
+
+// ── Plugin doors ─────────────────────────────────────────────────────────────
+// A plugin that ships a `plugin_api.py` gets its own backend namespace at
+// `/api/plugins/<id>`. These two functions are the ONLY way a plugin reaches it,
+// and both scope the path by construction. Ported from desktop hermes.ts:259-360.
+
+/** Options for a plugin REST call — mirrors the app's own `api` shape, minus the
+ *  path (which is namespace-derived). */
+export interface PluginRestOptions {
+  method?: string
+  body?: unknown
+  /** Single-file multipart upload. NOT supported on universal — see `pluginRest`.
+   *  Kept in the type so a plugin's types are identical across both apps. */
+  upload?: { filename: string; contentType?: string; bytes: ArrayBuffer }
+  timeoutMs?: number
+}
+
+// Normalize `path` to a leading-slash suffix relative to `/api/plugins/<id>`.
+// The namespace is the boundary — reject `..` so a relative segment can't
+// normalize out into another plugin's API or a core route. Check the path
+// portion only (before any query/hash).
+function pluginPathSuffix(caller: string, path: string): string {
+  const suffix = path.startsWith('/') ? path : `/${path}`
+
+  if (suffix.split(/[?#]/, 1)[0].split('/').includes('..')) {
+    throw new Error(`${caller}: illegal path traversal in "${path}"`)
+  }
+
+  return suffix
+}
+
+/** The plugin REST door. Every call is scoped BY CONSTRUCTION to the plugin's
+ *  own backend namespace — `path` is relative to `/api/plugins/<pluginId>`
+ *  ('/board' → `/api/plugins/kanban/board`), so a plugin can't address another
+ *  plugin's API or a core route through it. Profile-aware like every other REST
+ *  call. Broader reach (core endpoints, another namespace) is the future
+ *  declared-capability seam; today the namespace IS the boundary.
+ *
+ *  `opts.upload` THROWS here: universal's REST runs through the Rust
+ *  `http_request` command, which sends a JSON body and has no multipart path.
+ *  Dropping the file silently would corrupt the plugin's POST, and removing the
+ *  field from the type wouldn't protect a runtime-loaded plugin compiled
+ *  elsewhere — so the failure is explicit. FIXME(MJX-53/upload): add a multipart
+ *  `http_request` variant. */
+export async function pluginRest<T>(pluginId: string, path: string, opts: PluginRestOptions = {}): Promise<T> {
+  const suffix = pluginPathSuffix('pluginRest', path)
+
+  if (opts.upload) {
+    throw new Error('pluginRest: file upload is not supported on this client')
+  }
+
+  return api<T>({
+    path: `/api/plugins/${pluginId}${suffix}`,
+    method: opts.method,
+    body: opts.body,
+    timeoutMs: opts.timeoutMs,
+    ...profileScoped()
+  })
+}
+
+/** Shared by `pluginSocket` (lib/plugin-transport.ts), which lives outside this
+ *  module because it needs a store import this file deliberately avoids. */
+export { pluginPathSuffix }
 
 export async function listSessions(
   limit = 40,
@@ -460,6 +526,50 @@ export function validateProviderCredential(
     path: '/api/providers/validate',
     method: 'POST',
     body: { key, value, api_key: apiKey ?? '' }
+  })
+}
+
+// Custom OpenAI-compatible endpoints. Persisted server-side (shared with
+// desktop) under /api/providers/custom-endpoints; profile-scoped like the other
+// provider config so each profile owns its own endpoint list.
+export function getCustomEndpoints(): Promise<CustomEndpointsResponse> {
+  return api<CustomEndpointsResponse>({
+    ...profileScoped(),
+    path: '/api/providers/custom-endpoints'
+  })
+}
+
+export function saveCustomEndpoint(endpoint: CustomEndpointUpdate): Promise<CustomEndpointsResponse> {
+  return api<CustomEndpointsResponse>({
+    ...profileScoped(),
+    path: '/api/providers/custom-endpoints',
+    method: 'POST',
+    body: endpoint
+  })
+}
+
+export function validateCustomEndpoint(endpoint: CustomEndpointUpdate): Promise<CustomEndpointValidationResponse> {
+  return api<CustomEndpointValidationResponse>({
+    ...profileScoped(),
+    path: '/api/providers/custom-endpoints/validate',
+    method: 'POST',
+    body: endpoint
+  })
+}
+
+export function activateCustomEndpoint(id: string): Promise<{ ok: boolean; provider: string; model: string }> {
+  return api<{ ok: boolean; provider: string; model: string }>({
+    ...profileScoped(),
+    path: `/api/providers/custom-endpoints/${encodeURIComponent(id)}/activate`,
+    method: 'POST'
+  })
+}
+
+export function deleteCustomEndpoint(id: string): Promise<CustomEndpointsResponse> {
+  return api<CustomEndpointsResponse>({
+    ...profileScoped(),
+    path: `/api/providers/custom-endpoints/${encodeURIComponent(id)}`,
+    method: 'DELETE'
   })
 }
 

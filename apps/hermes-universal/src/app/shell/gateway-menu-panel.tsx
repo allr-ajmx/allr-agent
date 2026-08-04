@@ -1,16 +1,19 @@
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 
+import { GatewayConfigurator } from '@/app/gateway/gateway-configurator'
+import { GATEWAY_SETTINGS_ROUTE } from '@/app/routes'
 import { Button } from '@/components/ui/button'
 import { LogView } from '@/components/ui/log-view'
 import { StatusDot, type StatusTone } from '@/components/ui/status-dot'
 import { Tip } from '@/components/ui/tooltip'
 import { getLogs } from '@/hermes'
 import { useI18n } from '@/i18n'
-import { LayoutDashboard, RefreshCw } from '@/lib/icons'
+import { ChevronRight, LayoutDashboard, RefreshCw } from '@/lib/icons'
 import { LOG_NOISE_RE, trimLogLine } from '@/lib/log-format'
 import type { RuntimeReadinessResult } from '@/lib/runtime-readiness'
 import { cn } from '@/lib/utils'
 import { runGatewayRestart } from '@/store/system-status'
+import { openAppRoute } from '@/store/windows'
 import type { StatusResponse } from '@/types/hermes'
 
 // Ported from apps/desktop/src/app/shell/gateway-menu-panel.tsx. The gateway
@@ -18,8 +21,17 @@ import type { StatusResponse } from '@/types/hermes'
 // live-tailing gateway log, and the messaging-platform states. Universal swaps
 // desktop's `store/system-actions` restart for the system-status one.
 
+/** How the popover offers a gateway change:
+ *  • 'embedded' — the inline configurator, re-homing without ever leaving the
+ *    popover (the roomy desktop statusbar menu);
+ *  • 'link'     — a row that leaves for Settings ▸ Gateway, where the connect form
+ *    gets a full screen (the phone's 19rem Status drawer, too cramped for one);
+ *  • 'none'     — no affordance at all. */
+export type GatewaySwitchAffordance = 'embedded' | 'link' | 'none'
+
 interface GatewayMenuPanelProps {
   gatewayState: string
+  gatewaySwitch?: GatewaySwitchAffordance
   inferenceStatus: RuntimeReadinessResult | null
   onClose: () => void
   onOpenSystem: () => void
@@ -79,6 +91,7 @@ const prettyState = (state: string) => state.replace(/_/g, ' ').replace(/^./, c 
 
 export function GatewayMenuPanel({
   gatewayState,
+  gatewaySwitch = 'none',
   inferenceStatus,
   onClose,
   onOpenSystem,
@@ -86,12 +99,22 @@ export function GatewayMenuPanel({
 }: GatewayMenuPanelProps) {
   const { t } = useI18n()
   const copy = t.shell.gatewayMenu
+  const [configuratorOpen, setConfiguratorOpen] = useState(false)
 
   // Both jumps open the system panel, which owns the full view — so dismiss the
   // little status popover on the way out.
   const openSystem = () => {
     onClose()
     onOpenSystem()
+  }
+
+  // `link` mode: hand the switch to Settings ▸ Gateway, which owns a full-screen
+  // configurator. `openAppRoute` picks the surface per platform — the native screen
+  // Activity on Android (an in-WebView route change when we're already inside it),
+  // the in-app full-screen surface on iOS. Dismiss the popover on the way out.
+  const changeGateway = () => {
+    onClose()
+    openAppRoute(GATEWAY_SETTINGS_ROUTE)
   }
 
   // Shared restart helper: never rejects and surfaces progress in the statusbar
@@ -212,6 +235,50 @@ export function GatewayMenuPanel({
               </li>
             ))}
           </ul>
+        </Section>
+      )}
+
+      {/* Re-home the app onto another gateway without leaving for Settings. The
+          connect surface is the shared configurator in its `embedded` variant, and
+          connecting is a SOFT switch — the shell (and this popover, until it
+          dismisses itself) stays mounted across the swap. */}
+      {gatewaySwitch === 'embedded' && (
+        <Section>
+          <Button
+            className="-ml-1 h-auto py-0 font-medium leading-none text-muted-foreground"
+            onClick={() => setConfiguratorOpen(open => !open)}
+            size="xs"
+            type="button"
+            variant="text"
+          >
+            {configuratorOpen ? copy.hideGatewaySettings : copy.changeGateway}
+          </Button>
+          {configuratorOpen && (
+            // Radix DropdownMenu typeahead swallows character keys, which would make
+            // the URL / token inputs untypable (the same reason DropdownMenuSearch
+            // stops propagation).
+            <div className="mt-2" onKeyDown={event => event.stopPropagation()}>
+              <GatewayConfigurator onConnected={onClose} variant="embedded" />
+            </div>
+          )}
+        </Section>
+      )}
+
+      {/* Same affordance where the popover can't host a form (the phone's Status
+          drawer): the chevron says it leaves for Settings ▸ Gateway rather than
+          expanding in place. Same wording, so it reads as the one "Change gateway". */}
+      {gatewaySwitch === 'link' && (
+        <Section>
+          <Button
+            className="-ml-1 h-auto gap-0.5 py-0 font-medium leading-none text-muted-foreground"
+            onClick={changeGateway}
+            size="xs"
+            type="button"
+            variant="text"
+          >
+            {copy.changeGateway}
+            <ChevronRight className="size-3" />
+          </Button>
         </Section>
       )}
     </div>

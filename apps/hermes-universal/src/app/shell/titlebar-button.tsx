@@ -9,21 +9,20 @@ import { cn } from '@/lib/utils'
 // foreground on hover. Compact (desktop titlebar density). `active` reflects a
 // toggle (aria-pressed + a persistent control-active fill).
 //
-// The tip is the themed `<Tip>`, never native `title=` — native tooltips are
-// unstyled and ~500ms delayed (see no-native-title.test.ts). With `actionId`
-// set it also shows the action's live keybind; `text` is always passed through
-// because titlebar labels are context-dependent ("Show"/"Hide sidebar").
+// Tooltip, not the native `title`: the app's own Tip renders instantly, matches
+// the rest of the chrome, and — with `actionId` — carries the button's live
+// keybind, which a native tooltip can't show.
 export function TitlebarButton({
-  label,
   actionId,
+  label,
   onClick,
   active = false,
   className,
   children
 }: {
-  label: string
-  /** Keybind action id — when set, the tip shows the label + current combo. */
+  /** Keybind action id — appends its live combo to the tooltip. */
   actionId?: string
+  label: string
   onClick: () => void
   active?: boolean
   className?: string

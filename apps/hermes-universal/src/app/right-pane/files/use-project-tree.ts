@@ -3,6 +3,7 @@ import { atom } from 'nanostores'
 import { useCallback, useEffect, useMemo } from 'react'
 
 import { $connection } from '@/store/connection'
+import { connectionCacheKey } from '@/store/gateway-config'
 import { $workspaceChangeTick, consumeWorkspaceChange } from '@/store/workspace-events'
 
 import { clearProjectDirCache, type ProjectTreeEntry, readProjectDir } from './ipc'
@@ -190,6 +191,14 @@ async function loadRoot(cwd: string, { force = false }: { force?: boolean } = {}
   // the header/cwdName update immediately, and the final setProjectTree replaces
   // the data wholesale. (Same-cwd is already short-circuited above, so this only
   // runs on a real cwd change or a forced refresh.)
+  //
+  // `resolvedCwd` has to move WITH the request on a real cwd change: the hook
+  // reports `resolvedCwd || cwd` as `effectiveCwd`, so carrying the old value
+  // over would keep the header naming the previous directory for the whole read
+  // (not the one frame the comment above promises), and would trip
+  // `usingFallback` — a re-probe meant only for a genuine fallback root. A
+  // forced same-cwd refresh keeps its fallback, which is the only case where
+  // `resolvedCwd` legitimately differs from `cwd`.
   $projectTree.set({
     collapseNonce: current.collapseNonce,
     cwd,
@@ -197,7 +206,7 @@ async function loadRoot(cwd: string, { force = false }: { force?: boolean } = {}
     loaded: false,
     openState: current.openState,
     requestId,
-    resolvedCwd: current.resolvedCwd,
+    resolvedCwd: current.cwd === cwd ? current.resolvedCwd : cwd,
     rootError: null,
     rootLoading: true
   })
@@ -333,7 +342,9 @@ export function useProjectTree(cwd: string): UseProjectTreeResult {
   const state = useStore($projectTree)
   const connection = useStore($connection)
   const workspaceTick = useStore($workspaceChangeTick)
-  const connectionKey = `${connection?.mode || 'local'}:${connection?.profile || ''}:${connection?.baseUrl || ''}`
+  // Shared with lib/desktop-fs so the two cannot drift; keys ssh connections on
+  // their ownership id, which survives a re-tunnel that changes the baseUrl.
+  const connectionKey = connectionCacheKey(connection)
 
   const refreshRoot = useCallback(() => loadRoot(cwd, { force: true }), [cwd])
 

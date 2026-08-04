@@ -1,5 +1,5 @@
-import type { SessionView } from '@/app/chat/session-view'
 import type { ComposerTarget } from '@/app/chat/composer/focus'
+import type { SessionView } from '@/app/chat/session-view'
 import { takeSpeechChunk } from '@/lib/speech-chunker'
 import { playSpeechTextUntilDone, stopVoicePlayback } from '@/lib/voice-playback'
 import { $connection } from '@/store/connection'
@@ -58,6 +58,7 @@ function currentTarget(): VoiceTarget | null {
   }
 
   const headers: Record<string, string> = {}
+
   if (conn.token) {
     headers['X-Hermes-Session-Token'] = conn.token
   }
@@ -92,6 +93,7 @@ class ConversationController {
     }
 
     const target = currentTarget()
+
     if (!target) {
       notifyError(new Error('not connected'), binding.copy.couldNotStartSession)
       resetVoiceConversation()
@@ -100,6 +102,7 @@ class ConversationController {
     }
 
     this.binding = binding
+
     try {
       this.lease = await voiceEngine.open('conversation', { target })
     } catch (error) {
@@ -116,6 +119,7 @@ class ConversationController {
     // Keep the transcribe auth fresh across a token refresh / gateway switch.
     this.offConnection = $connection.subscribe(() => {
       const next = currentTarget()
+
       if (next) {
         void voiceEngine.updateAuth(next)
       }
@@ -139,6 +143,7 @@ class ConversationController {
     const lease = this.lease
     this.lease = null
     this.binding = null
+
     if (lease) {
       await lease.close().catch(() => undefined)
     }
@@ -170,58 +175,78 @@ class ConversationController {
     switch (event.type) {
       case 'level':
         setConversationLevel(event.level)
+
         break
+
       case 'state':
         // Rust drives one status we don't derive ourselves: transcribing.
         if (event.state === 'finalizing') {
           setConversationStatus('transcribing')
         }
+
         break
+
       case 'speechStart':
         this.idleTimeouts = 0
+
         if (this.speaking) {
           // Barge-in: stop the assistant; the in-flight playback settles 'stopped'
           // and the barge turn's transcript will supersede the current one.
           stopVoicePlayback()
         }
+
         break
+
       case 'transcript':
         this.idleTimeouts = 0
         void this.runTurn(event.text)
+
         break
+
       case 'turnEmpty':
         void this.arm(this.armMode())
+
         break
+
       case 'idleTimeout':
         this.onIdleTimeout()
+
         break
+
       case 'error':
         this.onError(event.code, event.message)
+
         break
     }
   }
 
   private onIdleTimeout(): void {
     this.idleTimeouts += 1
+
     if (this.idleTimeouts >= MAX_IDLE_TIMEOUTS) {
       const copy = this.binding?.copy
+
       if (copy) {
         notify({ kind: 'info', title: copy.unavailable, message: copy.noSpeechDetected })
       }
+
       void this.end()
     }
   }
 
   private onError(code: string, message: string): void {
     const copy = this.binding?.copy
+
     if (copy) {
       notifyError(new Error(message || code), voiceErrorMessage(code, copy))
     }
+
     void this.end()
   }
 
   private async runTurn(text: string): Promise<void> {
     const binding = this.binding
+
     if (!binding) {
       return
     }
@@ -230,11 +255,13 @@ class ConversationController {
     setConversationStatus('thinking')
 
     await binding.submit(text)
+
     if (myTurn !== this.turnSeq) {
       return
     }
 
     let armedForBargeIn = false
+
     for await (const chunk of this.replyChunks(binding.view, myTurn)) {
       if (myTurn !== this.turnSeq) {
         return
@@ -255,6 +282,7 @@ class ConversationController {
       if (myTurn !== this.turnSeq) {
         return
       }
+
       if (outcome === 'stopped') {
         // Interrupted (barge-in / end): the interrupting turn drives what's next.
         return
@@ -284,6 +312,7 @@ class ConversationController {
           sourceLength = 0
           responseId = reply.id
         }
+
         if (reply.text.length > sourceLength) {
           buffer += reply.text.slice(sourceLength)
           sourceLength = reply.text.length
@@ -295,10 +324,13 @@ class ConversationController {
 
         if (chunk) {
           yield chunk
+
           continue
         }
+
         if (complete) {
           markReplySpoken(view)
+
           return
         }
       } else if (!busy) {
@@ -315,16 +347,19 @@ class ConversationController {
   private waitForReplyUpdate(view: SessionView): Promise<void> {
     return new Promise(resolve => {
       let settled = false
+
       const done = () => {
         if (settled) {
           return
         }
+
         settled = true
         offMessages()
         offBusy()
         window.clearTimeout(timer)
         resolve()
       }
+
       const offMessages = view.$messages.listen(done)
       const offBusy = view.$busy.listen(done)
       const timer = window.setTimeout(done, 300)
@@ -341,9 +376,11 @@ class ConversationController {
     if (!this.lease || this.mutedState) {
       return
     }
+
     if (mode === 'normal') {
       setConversationStatus('listening')
     }
+
     try {
       await this.lease.arm(mode)
     } catch {

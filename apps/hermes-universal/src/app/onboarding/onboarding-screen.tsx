@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useI18n } from '@/i18n'
 import { openExternalLink } from '@/lib/external-link'
-import { ChevronLeft, ChevronRight } from '@/lib/icons'
+import { ChevronLeft, ChevronRight, Terminal } from '@/lib/icons'
 import { useStore } from '@/store/atom'
 import {
   $onboarding,
@@ -16,6 +16,9 @@ import {
   startProviderOAuth,
   submitOnboardingCode
 } from '@/store/onboarding'
+
+import { ExternalCliCommand, ExternalDocsButton, ExternalRecheckButton } from '../settings/external-signin-panel'
+import { providerTitle } from '../settings/oauth-provider-display'
 
 import { type ApiKeyOption, LOCAL_ENV_KEY, useApiKeyCatalog, useOAuthProviders } from './api-key-options'
 
@@ -61,13 +64,18 @@ function Picker() {
           >
             <span className="min-w-0 flex-1">
               <span className="truncate text-sm font-medium text-foreground">
-                {t.onboarding.signInWith(provider.name)}
+                {t.onboarding.signInWith(providerTitle(provider))}
               </span>
               <span className="mt-0.5 block text-xs text-muted-foreground">
                 {t.onboarding.flowSubtitles[provider.flow]}
               </span>
             </span>
-            <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+            {/* CLI-managed providers open a terminal command, not a browser. */}
+            {provider.flow === 'external' ? (
+              <Terminal className="size-4 shrink-0 text-muted-foreground" />
+            ) : (
+              <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+            )}
           </button>
         ))}
         {options.map(option => (
@@ -175,19 +183,47 @@ function OAuthPanel() {
     return null
   }
 
-  const providerName = oauth.provider.name
+  const providerName = providerTitle(oauth.provider)
   const copyCode = () => void navigator.clipboard?.writeText(oauth.userCode ?? '').catch(() => {})
+
+  const backRow = (
+    <button
+      className="-ml-1 mb-3 inline-flex items-center gap-1 text-sm text-muted-foreground"
+      onClick={() => backToPicker()}
+      type="button"
+    >
+      <ChevronLeft className="size-4" />
+      {t.onboarding.pickDifferentProvider}
+    </button>
+  )
+
+  // CLI-managed provider (Qwen / Copilot / Claude Code…): there is no auth URL to
+  // reopen and no code to paste — show the command to run in a terminal, then
+  // recheck. Same flow Settings → Providers drives via the connect overlay.
+  if (oauth.flow === 'external') {
+    return (
+      <div className="flex flex-1 flex-col">
+        {backRow}
+
+        <div className="text-base font-medium text-foreground">{t.onboarding.signInWith(providerName)}</div>
+        <p className="mt-3 text-sm text-muted-foreground">{t.onboarding.externalPending(providerName)}</p>
+
+        <div className="mt-3">
+          <ExternalCliCommand command={oauth.provider.cli_command} />
+        </div>
+
+        {state.error && <p className="mt-2 text-xs text-destructive">{state.error}</p>}
+
+        <ExternalDocsButton className="mt-3 w-fit" provider={oauth.provider} />
+
+        <ExternalRecheckButton className="mt-auto w-full" rechecking={oauth.status === 'rechecking'} />
+      </div>
+    )
+  }
 
   return (
     <div className="flex flex-1 flex-col">
-      <button
-        className="-ml-1 mb-3 inline-flex items-center gap-1 text-sm text-muted-foreground"
-        onClick={() => backToPicker()}
-        type="button"
-      >
-        <ChevronLeft className="size-4" />
-        {t.onboarding.pickDifferentProvider}
-      </button>
+      {backRow}
 
       <div className="text-base font-medium text-foreground">{t.onboarding.signInWith(providerName)}</div>
 
