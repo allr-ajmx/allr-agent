@@ -5,9 +5,19 @@ import type { GatewayEvent } from '@/gateway'
 vi.mock('@/store/gateway', async () => {
   const { atom } = await import('@/store/atom')
 
-  return { requestGateway: vi.fn().mockResolvedValue({}), $gatewayState: atom('idle') }
+  return {
+    addGatewayEventListener: () => () => {},
+    requestGateway: vi.fn().mockResolvedValue({}),
+    $gatewayState: atom('idle')
+  }
 })
+import { flushDeltas } from '@/lib/stream-batch'
+import { routeGatewayEvent as handleGatewayEvent } from '@/store/event-router'
 import { requestGateway } from '@/store/gateway'
+import { sessionClarifyRequest } from '@/store/prompts'
+import { newDraftKey, updateSession } from '@/store/session-state-types'
+import { $subagentsBySession } from '@/store/subagents'
+import { resetSessionStates, seedActiveSession, seedSession, sessionMessages } from '@/test-sessions'
 
 import {
   $approval,
@@ -19,7 +29,7 @@ import {
   $sessionId,
   $sudo,
   type ChatMessage,
-  handleGatewayEvent,
+  ensureSession,
   resetChat,
   respondClarify,
   respondSudo,
@@ -33,7 +43,12 @@ const messageText = (message: ChatMessage): string =>
   message.parts.map(part => (part.type === 'text' ? part.text : '')).join('')
 
 beforeEach(() => {
+  resetSessionStates()
   resetChat()
+  // Most of these tests drive the reducer directly, so give the active session a
+  // real key: the router FAILS CLOSED on unknown sessions, and unscoped events
+  // resolve to whatever `$activeSessionKey` names.
+  seedActiveSession('runtime-1')
   vi.mocked(requestGateway).mockReset()
 })
 
@@ -67,6 +82,10 @@ describe('chat reducer (parts model)', () => {
   it('coalesces consecutive same-channel deltas into one part', () => {
     handleGatewayEvent(ev('message.delta', { text: 'a' }))
     handleGatewayEvent(ev('message.delta', { text: 'b' }))
+    // Deltas are batched (lib/stream-batch), so they reach the transcript on a
+    // flush rather than per token. Every non-delta event flushes first, which is
+    // why the other reducer tests don't need this.
+    flushDeltas()
     const texts = $messages.get()[0].parts.filter(p => p.type === 'text')
     expect(texts).toHaveLength(1)
     expect(texts[0]).toMatchObject({ text: 'ab' })
@@ -146,9 +165,7 @@ describe('chat reducer (parts model)', () => {
   })
 
   it('carries the approval choice restrictions through to the atom', () => {
-    handleGatewayEvent(
-      ev('approval.request', { command: 'rm -rf /', choices: ['once', 'deny'], smart_denied: true })
-    )
+    handleGatewayEvent(ev('approval.request', { command: 'rm -rf /', choices: ['once', 'deny'], smart_denied: true }))
     expect($approval.get()).toMatchObject({ choices: ['once', 'deny'], smartDenied: true })
   })
 
@@ -194,8 +211,15 @@ describe('gateway event session routing', () => {
   const sessionEv = (type: string, sessionId: string, payload: Record<string, unknown> = {}): GatewayEvent =>
     ({ type, payload, session_id: sessionId }) as unknown as GatewayEvent
 
+  const toolCalls = (key: string) => sessionMessages(key).flatMap(m => m.parts.filter(p => p.type === 'tool-call'))
+
+  const textOf = (key: string) =>
+    sessionMessages(key)
+      .flatMap(m => m.parts)
+      .map(p => (p.type === 'text' ? p.text : ''))
+      .join('')
+
   it('ignores tool events belonging to another session', () => {
-    $sessionId.set('runtime-1')
     handleGatewayEvent(sessionEv('message.start', 'runtime-1'))
     handleGatewayEvent(sessionEv('tool.start', 'other-runtime', { name: 'grep', tool_id: 'x1' }))
 
@@ -203,7 +227,6 @@ describe('gateway event session routing', () => {
   })
 
   it('still reduces events for the active session', () => {
-    $sessionId.set('runtime-1')
     handleGatewayEvent(sessionEv('message.start', 'runtime-1'))
     handleGatewayEvent(sessionEv('tool.start', 'runtime-1', { name: 'grep', tool_id: 'x1' }))
 
@@ -212,48 +235,166 @@ describe('gateway event session routing', () => {
 
   // When the gateway does NOT stamp ids, the whole stream pins to whichever
   // session was active at message.start, so a mid-turn chat switch can't drag
-  // the old turn's tool events into the newly opened transcript.
+  // the old turn's tail into the newly opened transcript.
   it('pins unscoped stream events to the session that started the turn', () => {
-    $sessionId.set('runtime-1')
     handleGatewayEvent(ev('message.start', {}))
     // The user switches chats mid-turn; the old turn's tail keeps arriving.
-    $sessionId.set('runtime-2')
-    $messages.set([])
+    seedActiveSession('runtime-2')
     handleGatewayEvent(ev('tool.start', { name: 'grep', tool_id: 'x1' }))
 
-    expect($messages.get().some(m => m.parts.some(p => p.type === 'tool-call'))).toBe(false)
+    expect(sessionMessages('runtime-2').some(m => m.parts.some(p => p.type === 'tool-call'))).toBe(false)
+    expect(toolCalls('runtime-1')).toHaveLength(1)
+  })
+
+  // MJX-132. Two turns in flight at once: each token must accrue to the session
+  // that produced it, whichever one happens to be on screen.
+  it('keeps two simultaneous streams in their own transcripts', () => {
+    seedSession('runtime-2')
+
+    handleGatewayEvent(sessionEv('message.start', 'runtime-1'))
+    handleGatewayEvent(sessionEv('message.start', 'runtime-2'))
+
+    for (const [a, b] of [
+      ['A1 ', 'B1 '],
+      ['A2 ', 'B2 '],
+      ['A3', 'B3']
+    ]) {
+      handleGatewayEvent(sessionEv('message.delta', 'runtime-1', { text: a }))
+      handleGatewayEvent(sessionEv('message.delta', 'runtime-2', { text: b }))
+    }
+
+    handleGatewayEvent(sessionEv('tool.start', 'runtime-2', { name: 'grep', tool_id: 'b-tool' }))
+    handleGatewayEvent(sessionEv('message.complete', 'runtime-1', {}))
+    handleGatewayEvent(sessionEv('message.complete', 'runtime-2', {}))
+
+    expect(textOf('runtime-1')).toBe('A1 A2 A3')
+    expect(textOf('runtime-2')).toBe('B1 B2 B3')
+    expect(toolCalls('runtime-1')).toHaveLength(0)
+    expect(toolCalls('runtime-2')).toHaveLength(1)
+  })
+
+  // The old guard compared against `$sessionId`, which is null on a draft — so
+  // it passed for EVERY foreign session and a background turn painted itself
+  // into the empty chat the user was looking at.
+  it('leaves a draft chat untouched while another session streams', () => {
+    const draft = newDraftKey()
+    seedActiveSession(draft, { runtimeSessionId: null, storedSessionId: null })
+    seedSession('runtime-2')
+
+    handleGatewayEvent(sessionEv('message.start', 'runtime-2'))
+    handleGatewayEvent(sessionEv('message.delta', 'runtime-2', { text: 'not yours' }))
+    handleGatewayEvent(sessionEv('message.complete', 'runtime-2', {}))
+
+    expect($sessionId.get()).toBeNull()
+    expect($messages.get()).toEqual([])
+    expect($busy.get()).toBe(false)
+    expect(textOf('runtime-2')).toBe('not yours')
+  })
+
+  it('drops events for an unknown session', () => {
+    handleGatewayEvent(sessionEv('message.start', 'never-seen'))
+    handleGatewayEvent(sessionEv('message.delta', 'never-seen', { text: 'ghost' }))
+
+    expect(sessionMessages('never-seen')).toEqual([])
+    expect($messages.get()).toEqual([])
+  })
+
+  // ...but a blocking prompt is never dropped: the Python side is parked in
+  // `_block` and would hang until its timeout.
+  it('still accepts a blocking prompt from an unknown session', () => {
+    handleGatewayEvent(sessionEv('clarify.request', 'never-seen', { request_id: 'r1', question: 'which one?' }))
+
+    expect(sessionClarifyRequest('never-seen').get()).toMatchObject({ requestId: 'r1', question: 'which one?' })
+  })
+
+  // A late tool event must merge into the owning session's last assistant, and
+  // the "is that turn settled?" question must be asked of THAT session — not of
+  // a global busy flag another session happens to be driving.
+  it('merges a late tool event into the owning settled turn', () => {
+    seedSession('runtime-2')
+
+    handleGatewayEvent(sessionEv('message.start', 'runtime-2'))
+    handleGatewayEvent(sessionEv('message.delta', 'runtime-2', { text: 'done' }))
+    handleGatewayEvent(sessionEv('message.complete', 'runtime-2', {}))
+
+    // runtime-1 is mid-turn, so a global busy flag would say "still streaming".
+    handleGatewayEvent(sessionEv('message.start', 'runtime-1'))
+    handleGatewayEvent(sessionEv('tool.complete', 'runtime-2', { name: 'grep', tool_id: 'late' }))
+
+    expect(sessionMessages('runtime-2')).toHaveLength(1)
+    expect(toolCalls('runtime-2')).toHaveLength(1)
+  })
+
+  it('attributes subagent events to the session that spawned them', () => {
+    seedSession('runtime-2')
+    handleGatewayEvent(sessionEv('subagent.start', 'runtime-2', { agent_id: 'sub-1', name: 'researcher' }))
+
+    expect($subagentsBySession.get()['runtime-1']).toBeUndefined()
+    expect($subagentsBySession.get().active).toBeUndefined()
+    expect($subagentsBySession.get()['runtime-2']?.length).toBeGreaterThan(0)
   })
 })
 
 describe('session.info cwd tracking', () => {
+  const sessionEv = (type: string, sessionId: string, payload: Record<string, unknown> = {}): GatewayEvent =>
+    ({ type, payload, session_id: sessionId }) as unknown as GatewayEvent
+
   it('follows the active session relocating itself', () => {
-    $sessionId.set('runtime-1')
-    handleGatewayEvent(ev('session.info', { session_id: 'runtime-1', cwd: '/home/me/worktree-b' }))
+    handleGatewayEvent(sessionEv('session.info', 'runtime-1', { cwd: '/home/me/worktree-b' }))
     expect($currentCwd.get()).toBe('/home/me/worktree-b')
   })
 
-  it('ignores info for a background session', () => {
-    $sessionId.set('runtime-1')
-    $currentCwd.set('/home/me/project-a')
-    handleGatewayEvent(ev('session.info', { session_id: 'other-runtime', cwd: '/home/me/somewhere-else' }))
+  // The cwd now lives on the slice, so a background session's relocation lands
+  // on ITS slice and simply isn't what the active projection reads.
+  it('does not move the visible cwd for a background session', () => {
+    seedSession('other-runtime')
+    updateSession('runtime-1', state => ({ ...state, cwd: '/home/me/project-a' }))
+
+    handleGatewayEvent(sessionEv('session.info', 'other-runtime', { cwd: '/home/me/somewhere-else' }))
+
     expect($currentCwd.get()).toBe('/home/me/project-a')
   })
 
-  it('applies a global broadcast only when no chat is open', () => {
-    $sessionId.set(null)
+  it('applies an unscoped broadcast to the active session', () => {
     handleGatewayEvent(ev('session.info', { cwd: '/home/me/default' }))
-    expect($currentCwd.get()).toBe('/home/me/default')
-
-    $sessionId.set('runtime-1')
-    handleGatewayEvent(ev('session.info', { cwd: '/home/me/other-default' }))
     expect($currentCwd.get()).toBe('/home/me/default')
   })
 
   it('treats an empty cwd as unknown rather than a detach', () => {
-    $sessionId.set('runtime-1')
-    $currentCwd.set('/home/me/project-a')
-    handleGatewayEvent(ev('session.info', { session_id: 'runtime-1', cwd: '' }))
+    updateSession('runtime-1', state => ({ ...state, cwd: '/home/me/project-a' }))
+    handleGatewayEvent(sessionEv('session.info', 'runtime-1', { cwd: '' }))
     expect($currentCwd.get()).toBe('/home/me/project-a')
+  })
+})
+
+// The last hop of the "start work" hand-off: `startSessionInWorkspace` anchors
+// the draft to a just-created worktree, and the session has to be CREATED there.
+// Everything upstream of this was covered; the create call itself was not.
+describe('ensureSession cwd', () => {
+  const seedDraft = (cwd: string) =>
+    seedActiveSession(newDraftKey(), { cwd, runtimeSessionId: null, storedSessionId: null })
+
+  it('creates the session in the draft’s anchored directory', async () => {
+    seedDraft('/repo/.worktrees/feature-a')
+    vi.mocked(requestGateway).mockResolvedValue({ session_id: 'runtime-2' } as never)
+
+    await ensureSession()
+
+    expect(requestGateway).toHaveBeenCalledWith(
+      'session.create',
+      expect.objectContaining({ cwd: '/repo/.worktrees/feature-a' })
+    )
+  })
+
+  // No anchor and no configured default: the gateway resolves its own cwd, so
+  // the field is omitted rather than sent empty.
+  it('omits cwd entirely for an unanchored draft', async () => {
+    seedDraft('')
+    vi.mocked(requestGateway).mockResolvedValue({ session_id: 'runtime-3' } as never)
+
+    await ensureSession()
+
+    expect(vi.mocked(requestGateway).mock.calls[0][1]).not.toHaveProperty('cwd')
   })
 })
 
@@ -308,13 +449,14 @@ describe('reasoning blocks across a multi-step turn', () => {
 
 describe('submitEditedPrompt (edit + rewind)', () => {
   const seedTurns = () => {
-    $sessionId.set('runtime-1')
-    $messages.set([
-      { id: 'u1', role: 'user', parts: [{ type: 'text', text: 'first ask' }] },
-      { id: 'a1', role: 'assistant', parts: [{ type: 'text', text: 'first answer' }] },
-      { id: 'u2', role: 'user', parts: [{ type: 'text', text: 'second ask' }] },
-      { id: 'a2', role: 'assistant', parts: [{ type: 'text', text: 'second answer' }] }
-    ])
+    seedActiveSession('runtime-1', {
+      messages: [
+        { id: 'u1', role: 'user', parts: [{ type: 'text', text: 'first ask' }] },
+        { id: 'a1', role: 'assistant', parts: [{ type: 'text', text: 'first answer' }] },
+        { id: 'u2', role: 'user', parts: [{ type: 'text', text: 'second ask' }] },
+        { id: 'a2', role: 'assistant', parts: [{ type: 'text', text: 'second answer' }] }
+      ]
+    })
   }
 
   it('truncates at the edited turn and re-runs it with the new text', async () => {
@@ -336,7 +478,7 @@ describe('submitEditedPrompt (edit + rewind)', () => {
 
   it('interrupts the live turn before resubmitting', async () => {
     seedTurns()
-    $busy.set(true)
+    updateSession('runtime-1', state => ({ ...state, busy: true }))
     vi.mocked(requestGateway).mockResolvedValue({})
 
     await submitEditedPrompt('u1', 'first ask, revised')
@@ -346,11 +488,12 @@ describe('submitEditedPrompt (edit + rewind)', () => {
   })
 
   it('resubmits a failed turn plainly, with no truncate ordinal', async () => {
-    $sessionId.set('runtime-1')
-    $messages.set([
-      { id: 'u1', role: 'user', parts: [{ type: 'text', text: 'ask' }] },
-      { id: 'a1', role: 'assistant', parts: [], error: 'provider exploded' }
-    ])
+    seedActiveSession('runtime-1', {
+      messages: [
+        { id: 'u1', role: 'user', parts: [{ type: 'text', text: 'ask' }] },
+        { id: 'a1', role: 'assistant', parts: [], error: 'provider exploded' }
+      ]
+    })
     vi.mocked(requestGateway).mockResolvedValue({})
 
     await submitEditedPrompt('u1', 'ask again')

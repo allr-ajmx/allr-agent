@@ -1,18 +1,20 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { $approval } from '@/store/chat'
+import { setSessionApproval } from '@/store/prompts'
 import { onScrollToBottomRequest, resetThreadScroll, setThreadAtBottom } from '@/store/thread-scroll'
+import { seedActiveSession } from '@/test-sessions'
 
 import { ScrollToBottomButton } from './scroll-to-bottom-button'
 
 function pendingApproval() {
-  $approval.set({ command: 'rm -rf /tmp/x', description: 'dangerous command', allowPermanent: true })
+  seedActiveSession('sess-1')
+  setSessionApproval('sess-1', { command: 'rm -rf /tmp/x', description: 'dangerous command', allowPermanent: true })
 }
 
 afterEach(() => {
   cleanup()
-  $approval.set(null)
+  setSessionApproval('sess-1', null)
   resetThreadScroll()
 })
 

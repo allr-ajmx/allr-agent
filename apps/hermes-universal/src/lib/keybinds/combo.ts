@@ -195,8 +195,15 @@ export function isEditableTarget(target: EventTarget | null): boolean {
   )
 }
 
-// A primary modifier (Cmd/Ctrl/Control) fires even while typing (e.g. ⌘K or
+// A primary modifier (Cmd/Ctrl/Control/Alt) fires even while typing (e.g. ⌘K or
 // ⌃Tab from the composer); bare/Shift-only combos are suppressed in inputs.
+//
+// `alt` is in the set because the two chords that need it most are composer-side:
+// ⌥B toggles voice and ⌥1-9 switch chat tabs, both of which are pressed with the
+// caret sitting in the composer. The cost is macOS-specific — ⌥+letter there
+// composes a special character (⌥B = "∫"), so a bound ⌥ combo shadows that
+// character in text fields. Only the two shipped defaults are affected; the
+// panel can rebind either.
 export function comboAllowedInInput(combo: string): boolean {
-  return /^(?:mod|ctrl)(?:\+|$)/.test(combo)
+  return /^(?:mod|ctrl|alt)(?:\+|$)/.test(combo)
 }

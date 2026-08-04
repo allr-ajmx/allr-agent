@@ -7,10 +7,10 @@ import { atom } from '@/store/atom'
 // a tool produced. Fed from the tool row (tool/fallback.tsx) using the same
 // detected target the desktop inline card used.
 //
-// FIXME(MJX-106): `use-status-presence.ts` already reads this for the presence
-// boolean, but the compact links desktop shows in the composer status stack are
-// still missing — `PreviewStatusRow` is a null stub and isn't mounted. Wiring it
-// up also needs an `openPreviewInBrowser` equivalent for the click target.
+// Read by `use-status-presence.ts` (presence boolean) and rendered as compact
+// links by `composer/status-stack/preview-row.tsx`, which routes each artifact by
+// target type: a URL opens in the system browser, a path opens in the right-pane
+// file viewer.
 export interface PreviewArtifact {
   /** cwd captured at detection so a relative path still resolves on click. */
   cwd: string

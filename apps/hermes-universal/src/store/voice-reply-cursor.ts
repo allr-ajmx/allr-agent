@@ -18,6 +18,7 @@ const spokenByView = new WeakMap<SessionView, string>()
 
 function latestAssistant(view: SessionView) {
   const messages = view.$messages.get()
+
   // reverse-find (not Array.findLast — universal's tsconfig targets es2021);
   // universal ChatMessage has no `hidden`, guarded via a widening cast.
   return [...messages].reverse().find(m => m.role === 'assistant' && !(m as { hidden?: boolean }).hidden)

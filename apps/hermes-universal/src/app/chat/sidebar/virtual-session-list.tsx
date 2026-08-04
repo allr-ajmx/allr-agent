@@ -24,6 +24,8 @@ interface VirtualSessionListProps {
   onResumeSession: (sessionId: string) => void
   onTogglePin: (pinId: string) => void
   pinned: boolean
+  /** Owning-profile chips on every row (all-profiles browse scope). */
+  showProfileTags?: boolean
   sortable: boolean
   workingSessionIdSet: Set<string>
 }
@@ -41,6 +43,7 @@ export const VirtualSessionList: FC<VirtualSessionListProps> = ({
   onResumeSession,
   onTogglePin,
   pinned,
+  showProfileTags = false,
   sortable,
   workingSessionIdSet
 }) => {
@@ -74,7 +77,8 @@ export const VirtualSessionList: FC<VirtualSessionListProps> = ({
       onArchive: () => onArchiveSession(session.id),
       onDelete: () => onDeleteSession(session.id),
       onPin: () => onTogglePin(sessionPinId(session)),
-      onResume: () => onResumeSession(session.id)
+      onResume: () => onResumeSession(session.id),
+      showProfile: showProfileTags
     }
 
     return sortable ? (
@@ -120,6 +124,7 @@ interface VirtualSortableRowProps {
     onDelete: () => void
     onPin: () => void
     onResume: () => void
+    showProfile: boolean
   }
   session: SessionInfo
 }

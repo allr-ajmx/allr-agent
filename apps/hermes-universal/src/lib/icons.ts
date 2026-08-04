@@ -89,11 +89,17 @@ export {
   IconDeviceDesktop as Monitor,
   IconMoon as Moon,
   IconDotsVertical as MoreVertical,
+  // Notifications completion-sound preview
+  // Plugins (MJX-53): Package heads the Settings ▸ Plugins page (desktop parity);
+  // Plug is the nav-rail icon + the fallback for a contributed command / nav row
+  // that ships none.
+  IconPackage as Package,
   IconPalette as Palette,
+  IconLayoutBottombar as PanelBottom,
   IconPaw as Paw,
   IconPencil as Pencil,
-  // Notifications completion-sound preview
   IconPlayerPlay as Play,
+  IconPlug as Plug,
   IconPlus as Plus,
   IconRefresh as Refresh,
   IconRefresh as RefreshCw,

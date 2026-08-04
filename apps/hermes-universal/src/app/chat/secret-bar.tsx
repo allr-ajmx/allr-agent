@@ -5,12 +5,12 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { respondSecret, type SecretRequest } from '@/store/chat'
 
-export function SecretBar({ request }: { request: SecretRequest }) {
+export function SecretBar({ request, sessionKey }: { request: SecretRequest; sessionKey: string }) {
   const [value, setValue] = useState('')
 
   const submit = () => {
     if (value) {
-      void respondSecret(value)
+      void respondSecret(value, sessionKey)
     }
   }
 

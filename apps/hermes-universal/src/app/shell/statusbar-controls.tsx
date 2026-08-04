@@ -1,10 +1,23 @@
-import { type ComponentProps, type ReactNode, useState } from 'react'
+import { type ComponentProps, type ReactNode, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { NAV_ROW_BASE, NAV_ROW_ICON, NAV_ROW_LAYOUT } from '@/app/shell/nav-row'
+import {
+  ContextMenu,
+  ContextMenuCheckboxItem,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuLabel,
+  ContextMenuSeparator,
+  ContextMenuTrigger
+} from '@/components/ui/context-menu'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import { Tip, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { Tip, TipKeybindLabel, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { useI18n } from '@/i18n'
+import { useKeybindHint } from '@/lib/keybinds/use-keybind-hint'
 import { cn } from '@/lib/utils'
+import { useStore } from '@/store/atom'
+import { $statusbarHiddenIds, setStatusbarItemVisible, toggleStatusbarVisible } from '@/store/statusbar-prefs'
 
 // Ported from apps/desktop/src/app/shell/statusbar-controls.tsx. The dumb,
 // data-driven renderer: paints an array of StatusbarItem descriptors (assembled
@@ -41,6 +54,20 @@ export interface StatusbarMenuItem {
 
 export interface StatusbarItem {
   id: string
+  /** Escape hatch: render an arbitrary node into the bar (own state, tooltip,
+   *  events). When set, it OWNS the slot — label/variant/onSelect are ignored.
+   *  This is how a plugin drops a full stateful React component into the bar. */
+  render?: () => ReactNode
+  /** Keybind action id — when set, the tooltip shows the label + keybind hint. */
+  actionId?: string
+  /** Plain-text name for the bar's right-click show/hide menu. An item without
+   *  one is never listed there and always shows — the safe default for plugin
+   *  contributions that don't opt in. */
+  toggleLabel?: string
+  /** Listed in the menu but not switchable: the bar's own affordances (command
+   *  center, version pills) would strand the user if they could be hidden from
+   *  the surface that hides them. */
+  lockedVisible?: boolean
   label?: ReactNode
   detail?: ReactNode
   icon?: ReactNode
@@ -73,36 +100,102 @@ interface StatusbarControlsProps extends ComponentProps<'footer'> {
 
 export function StatusbarControls({ className, leftItems = [], items = [], ...props }: StatusbarControlsProps) {
   const navigate = useNavigate()
+  const hiddenIds = useStore($statusbarHiddenIds)
+
+  // An item is in the show/hide menu only if it named itself (`toggleLabel`);
+  // anything else — including a plugin's contribution — always shows.
+  const visible = (item: StatusbarItem) =>
+    !item.hidden && (item.lockedVisible || !item.toggleLabel || !hiddenIds.includes(item.id))
 
   return (
-    <footer
-      className={cn(
-        'flex h-8 shrink-0 items-stretch justify-between gap-2 border-t border-(--ui-stroke-tertiary) bg-(--ui-sidebar-surface-background) px-1 pb-[env(safe-area-inset-bottom)] text-(--ui-text-tertiary) md:h-5 md:pb-0',
-        className
-      )}
-      data-slot="statusbar"
-      {...props}
-    >
-      {/* `overflow-x-clip` (not `overflow-x-auto`) so a wide status item — for
-          example "Connecting…" on a fresh/untitled session — can't paint a
-          horizontal scrollbar across the bottom of the window. Items already
-          `truncate` their labels, so clipping is the right behavior. */}
-      <div className="flex min-w-0 items-stretch gap-0.5 overflow-x-clip">
-        {leftItems
-          .filter(item => !item.hidden)
-          .map(item => (
-            <StatusbarItemView item={item} key={`left:${item.id}`} navigate={navigate} />
-          ))}
-      </div>
-      <div className="flex min-w-0 items-stretch gap-0.5 overflow-x-clip">
-        {items
-          .filter(item => !item.hidden)
-          .map(item => (
-            <StatusbarItemView item={item} key={`right:${item.id}`} navigate={navigate} />
-          ))}
-      </div>
-    </footer>
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+        <footer
+          className={cn(
+            'flex h-8 shrink-0 items-stretch justify-between gap-2 border-t border-(--ui-stroke-tertiary) bg-(--ui-sidebar-surface-background) px-1 pb-[env(safe-area-inset-bottom)] text-(--ui-text-tertiary) md:h-5 md:pb-0',
+            className
+          )}
+          data-slot="statusbar"
+          {...props}
+        >
+          {/* `overflow-x-clip` (not `overflow-x-auto`) so a wide status item — for
+              example "Connecting…" on a fresh/untitled session — can't paint a
+              horizontal scrollbar across the bottom of the window. Items already
+              `truncate` their labels, so clipping is the right behavior. */}
+          <div className="flex min-w-0 items-stretch gap-0.5 overflow-x-clip">
+            {leftItems.filter(visible).map(item => (
+              <StatusbarItemView item={item} key={`left:${item.id}`} navigate={navigate} />
+            ))}
+          </div>
+          <div className="flex min-w-0 items-stretch gap-0.5 overflow-x-clip">
+            {items.filter(visible).map(item => (
+              <StatusbarItemView item={item} key={`right:${item.id}`} navigate={navigate} />
+            ))}
+          </div>
+        </footer>
+      </ContextMenuTrigger>
+      <StatusbarVisibilityMenu hiddenIds={hiddenIds} items={items} leftItems={leftItems} />
+    </ContextMenu>
   )
+}
+
+/** Right-click the bar: pick what it shows, or hide the bar outright. */
+function StatusbarVisibilityMenu({
+  hiddenIds,
+  items,
+  leftItems
+}: {
+  hiddenIds: readonly string[]
+  items: readonly StatusbarItem[]
+  leftItems: readonly StatusbarItem[]
+}) {
+  const { t } = useI18n()
+  const copy = t.shell.statusbar
+
+  const toggles = useMemo(() => {
+    const seen = new Set<string>()
+
+    return [...leftItems, ...items].filter(item => {
+      if (!item.toggleLabel || seen.has(item.id)) {
+        return false
+      }
+
+      seen.add(item.id)
+
+      return true
+    })
+  }, [items, leftItems])
+
+  return (
+    <ContextMenuContent className="w-52">
+      <ContextMenuLabel>{copy.customizeTitle}</ContextMenuLabel>
+      <ContextMenuSeparator />
+      {toggles.map(item => (
+        <ContextMenuCheckboxItem
+          checked={item.lockedVisible || !hiddenIds.includes(item.id)}
+          disabled={item.lockedVisible}
+          key={item.id}
+          onCheckedChange={checked => setStatusbarItemVisible(item.id, checked)}
+          // Keep the menu open so several items can be toggled in one pass.
+          onSelect={event => event.preventDefault()}
+        >
+          {item.toggleLabel}
+        </ContextMenuCheckboxItem>
+      ))}
+      <ContextMenuSeparator />
+      <ContextMenuItem onSelect={toggleStatusbarVisible}>
+        {copy.hideStatusbar}
+        <StatusbarHideHint />
+      </ContextMenuItem>
+    </ContextMenuContent>
+  )
+}
+
+/** The way BACK, shown where the bar is hidden — the bar can't offer itself. */
+function StatusbarHideHint() {
+  const hint = useKeybindHint('view.toggleStatusbar')
+
+  return <span className="ml-auto pl-2 text-(--ui-text-quaternary)">{hint}</span>
 }
 
 export function StatusbarItemView({
@@ -117,8 +210,19 @@ export function StatusbarItemView({
 }) {
   const [menuOpen, setMenuOpen] = useState(false)
 
+  // Render escape hatch: the contribution owns its own chrome/state/tooltip.
+  // Must come before the `row` reshaping below — a contributed node is never
+  // wrapped in bar chrome or rewritten into a nav row.
+  if (item.render) {
+    return <>{item.render()}</>
+  }
+
   const actionClass = row ? NAV_ROW_BASE : STATUSBAR_ACTION_CLASS
   const textClass = row ? NAV_ROW_LAYOUT : STATUSBAR_TEXT_CLASS
+
+  // An item bound to a keybind advertises it in the tooltip, live from the
+  // store — `title` stays the wording (it's context-dependent: Show/Hide).
+  const tooltipLabel = item.actionId ? <TipKeybindLabel actionId={item.actionId} text={item.title} /> : item.title
 
   // Rows match the sidebar nav buttons: a fixed icon slot, the label takes the
   // slack, and the value/detail is pushed to the right. The bar keeps everything
@@ -156,7 +260,7 @@ export function StatusbarItemView({
           <TooltipProvider delayDuration={0}>
             <Tooltip>
               <TooltipTrigger asChild>{trigger}</TooltipTrigger>
-              <TooltipContent>{item.title}</TooltipContent>
+              <TooltipContent>{tooltipLabel}</TooltipContent>
             </Tooltip>
           </TooltipProvider>
         ) : (
@@ -212,7 +316,7 @@ export function StatusbarItemView({
 
   if (item.variant === 'text' && !item.onSelect && !item.to && !item.href) {
     return (
-      <Tip label={item.title}>
+      <Tip label={tooltipLabel}>
         <div className={cn(textClass, item.className)}>{content}</div>
       </Tip>
     )
@@ -220,7 +324,7 @@ export function StatusbarItemView({
 
   if (item.href || item.variant === 'link') {
     return (
-      <Tip label={item.title}>
+      <Tip label={tooltipLabel}>
         <a className={cn(actionClass, item.className)} href={item.href} rel="noreferrer" target="_blank">
           {content}
         </a>
@@ -229,7 +333,7 @@ export function StatusbarItemView({
   }
 
   return (
-    <Tip label={item.title}>
+    <Tip label={tooltipLabel}>
       <button
         className={cn(actionClass, item.className)}
         disabled={item.disabled}
