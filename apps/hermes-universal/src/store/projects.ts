@@ -1,11 +1,14 @@
-import { open as openDialog } from '@tauri-apps/plugin-dialog'
-
 import type { SidebarProjectTree } from '@/app/chat/sidebar/projects/model'
+import type { HermesGitBaseBranch, HermesGitBranch } from '@/global'
+import { getHermesConfig } from '@/hermes'
 import { translateNow } from '@/i18n'
+import { copyTextToClipboard, desktopDefaultCwd, selectDesktopPaths } from '@/lib/desktop-fs'
+import { desktopGit } from '@/lib/desktop-git'
 import { persistentAtom } from '@/lib/persisted'
-import { IS_DESKTOP } from '@/lib/platform'
+import { revealPathInFileManager } from '@/lib/reveal-path'
 import { atom } from '@/store/atom'
 import { $sessionId } from '@/store/chat'
+import { $connection } from '@/store/connection'
 import { requestGateway } from '@/store/gateway'
 import { setSidebarAgentsGrouped } from '@/store/layout'
 import { notify, notifyError } from '@/store/notifications'
@@ -14,12 +17,12 @@ import type { ProjectInfo, ProjectsPayload } from '@/types/hermes'
 
 // First-class per-profile Projects, served by the gateway `projects.*` JSON-RPC
 // methods (backed by projects.db). Ported/adapted from desktop `store/projects.ts`.
-// Git-worktree operations (start-work, base-branch, worktree add/remove, disk
-// repo scan) are not implemented here yet — FIXME(MJX-107). This needs no local
-// git: `lib/desktop-git.ts` already exposes the whole bridge over the gateway's
-// `/api/git/*` REST surface, and `worktreeAdd`/`worktreeRemove`/`baseBranchList`/
-// `scanRepos` are exported and uncalled. Only the store + UI layer is missing.
-// Meanwhile the server-computed `projects.tree` supplies session-derived projects.
+// The git-worktree half (start-work, base branches, worktree add/remove) lives
+// at the bottom of this file and runs entirely through `lib/desktop-git.ts`,
+// which bridges the gateway's `/api/git/*` REST surface — no local git needed.
+// Repository discovery (the disk crawl behind repo-first projects) sits just
+// above it and runs in Rust against the local filesystem; the server-computed
+// `projects.tree` supplies session-derived projects either way.
 
 export const $projects = atom<ProjectInfo[]>([])
 export const $activeProjectId = atom<null | string>(null)
@@ -371,20 +374,288 @@ export function closeProjectDialog(): void {
   $projectDialog.set(null)
 }
 
-// Native folder picker (desktop Tauri only), so this returns null on mobile.
-// FIXME(MJX-107): should route through `selectDesktopPaths` (`lib/desktop-fs.ts`)
-// like desktop's does, which falls back to the browsable backend-FS picker
-// (`app/right-pane/files/remote-picker.tsx`) where there is no native dialog.
+// Pick a project folder via the remote-aware picker: a Tauri desktop opens the
+// native dialog, everything else browses the BACKEND filesystem (seeded at its
+// default cwd) where sessions actually run. Returns the absolute path, or null
+// if cancelled. Desktop parity — mobile/web used to get a flat `null` here, with
+// only the manual path input as a way in.
 export async function pickProjectFolder(): Promise<null | string> {
-  if (!IS_DESKTOP) {
-    return null
+  const [dir] = await selectDesktopPaths({
+    defaultPath: (await desktopDefaultCwd().catch(() => null))?.cwd,
+    directories: true,
+    multiple: false
+  })
+
+  return dir || null
+}
+
+// Reveal a project/worktree path in the OS file manager (git-GUI standard).
+// Desktop routes this through its Electron bridge; universal uses the Tauri
+// `reveal_in_file_manager` command, which no-ops off Tauri. Note the path only
+// resolves on THIS machine — a remote gateway's worktree lives on its host, so
+// this quietly does nothing there rather than pretending to succeed.
+export async function revealPath(path: null | string): Promise<void> {
+  if (path) {
+    await revealPathInFileManager(path)
   }
+}
+
+// Copy a path to the clipboard (git-GUI standard). Always meaningful, remote or
+// not — the string is what the user wants to paste into a terminal.
+export async function copyPath(path: null | string): Promise<void> {
+  if (path) {
+    await copyTextToClipboard(path)
+  }
+}
+
+// ── Repository discovery (the disk crawl) ───────────────────────────────────
+// Ported from desktop `store/projects.ts`. "Repo-first" projects: crawl the
+// configured roots for git repositories and hand them to the backend, which
+// caches them (`projects.record_repos`) and merges them with session-derived
+// repos, so a repo shows up in Projects before it has ever hosted a session.
+//
+// The crawl runs against the Tauri host's disk (`lib/desktop-git.ts` →
+// `store/repo-scan.ts` → Rust), so it only speaks for the gateway when the
+// backend was spawned locally; elsewhere `scanRepos` returns `[]` and the
+// backend keeps serving session-derived repos alone (FIXME(MJX-207)).
+//
+// Desktop keys the throttle state per gateway (it can hold several); universal
+// has exactly one connection at a time, so module-level state plus a reset on
+// connection change is the same guarantee.
+
+export interface RepoDiscoveryPolicy {
+  enabled: boolean
+  roots: string[]
+  exclude_paths: string[]
+}
+
+/** True while a crawl is in flight — the sidebar shows a spinner on it. */
+export const $reposScanning = atom(false)
+
+export function repoDiscoveryPolicyFromConfig(config: unknown): RepoDiscoveryPolicy {
+  const desktopValue = config && typeof config === 'object' ? (config as { desktop?: unknown }).desktop : undefined
+
+  const desktop =
+    desktopValue && typeof desktopValue === 'object'
+      ? (desktopValue as {
+          repo_scan_enabled?: unknown
+          repo_scan_exclude_paths?: unknown
+          repo_scan_roots?: unknown
+        })
+      : {}
+
+  return {
+    // Absent config means discovery is ON — only an explicit `false` disables it.
+    enabled: desktop.repo_scan_enabled !== false,
+    exclude_paths: Array.isArray(desktop.repo_scan_exclude_paths)
+      ? desktop.repo_scan_exclude_paths.filter((value): value is string => typeof value === 'string')
+      : [],
+    roots: Array.isArray(desktop.repo_scan_roots)
+      ? desktop.repo_scan_roots.filter((value): value is string => typeof value === 'string')
+      : []
+  }
+}
+
+export function repoDiscoveryPolicySignature(policy: RepoDiscoveryPolicy): string {
+  return JSON.stringify(policy)
+}
+
+let scanGeneration = 0
+let completedSignature: string | undefined
+let runningSignature: string | undefined
+
+// A different gateway/profile has a different disk and a different cache, so the
+// "already scanned this policy" memo must not carry across a reconnect.
+$connection.subscribe(() => {
+  scanGeneration += 1
+  completedSignature = undefined
+  runningSignature = undefined
+  $reposScanning.set(false)
+})
+
+/**
+ * Crawl the configured roots and record what we find, unless the same policy
+ * already ran (pass `force` after the user edits the policy, or on refocus).
+ *
+ * A disabled policy still posts an empty list: that is what makes the backend
+ * drop its cached repos, so turning discovery off actually removes them.
+ */
+export async function scanAndRecordRepos(force = false): Promise<void> {
+  const scan = desktopGit()?.scanRepos
+
+  if (!scan) {
+    return
+  }
+
+  const generation = ++scanGeneration
+  const stale = () => scanGeneration !== generation
 
   try {
-    const dir = await openDialog({ directory: true, multiple: false })
+    const policy = repoDiscoveryPolicyFromConfig(await getHermesConfig())
+    const signature = repoDiscoveryPolicySignature(policy)
 
-    return typeof dir === 'string' ? dir : null
+    if (!force && (completedSignature === signature || runningSignature === signature)) {
+      return
+    }
+
+    runningSignature = signature
+
+    let repos: { root: string; label: string }[] = []
+
+    if (policy.enabled) {
+      $reposScanning.set(true)
+      repos = await scan(policy.roots, { enabled: true, excludePaths: policy.exclude_paths })
+
+      if (stale()) {
+        return
+      }
+    }
+
+    await requestGateway('projects.record_repos', { discovery_policy: policy, repos })
+
+    if (stale()) {
+      return
+    }
+
+    completedSignature = signature
+    await refreshProjectTree()
   } catch {
+    // Let the next attempt retry from scratch rather than memoizing a failure.
+    completedSignature = undefined
+  } finally {
+    runningSignature = undefined
+
+    if (!stale()) {
+      $reposScanning.set(false)
+    }
+  }
+}
+
+// ── Git-driven worktrees ("Start work") ─────────────────────────────────────
+// Ported from desktop `store/projects.ts`. Every op is a thin wrapper over the
+// `desktopGit()` bridge; the interesting part is the refresh token + the two
+// request atoms that let the composer hand work off to the chat controller.
+
+// Bumped after a `git worktree add`/`remove` so worktree-list probes refetch and
+// the new/removed lane shows at once, instead of waiting for the next scope
+// change. `store/coding-status.ts` subscribes to it.
+export const $worktreeRefreshToken = atom(0)
+const bumpWorktrees = () => $worktreeRefreshToken.set($worktreeRefreshToken.get() + 1)
+
+// Re-run the `git worktree list` probe without the heavy projects.tree scan.
+// Add/remove initiated here already bumps the token inline; this is for
+// OUT-OF-BAND changes the UI can't see — the agent running `git worktree
+// add/remove` in the terminal during a turn, or an external shell mutating the
+// repo while the window was away. The probe is per-repo and bounded, so a
+// settled turn / window refocus can re-sync the lanes cheaply.
+export function refreshWorktrees(): void {
+  bumpWorktrees()
+}
+
+// Spin up a fresh worktree the lightest way (`git worktree add -b`) under the
+// repo, returning where Hermes should start working. Git is the source of
+// truth; the caller starts a session in the returned path.
+export async function startWorkInRepo(
+  repoPath: string,
+  options?: { name?: string; branch?: string; base?: string; existingBranch?: string }
+): Promise<null | { path: string; branch: string }> {
+  const git = desktopGit()
+
+  if (!git || !repoPath) {
     return null
   }
+
+  const result = await git.worktreeAdd(repoPath, options)
+  bumpWorktrees()
+
+  return { branch: result.branch, path: result.path }
+}
+
+// Local branches for the composer's "convert a branch into a worktree" picker.
+// Empty when the backend can't probe (no bridge / not a repo).
+export async function listRepoBranches(repoPath: string): Promise<HermesGitBranch[]> {
+  const git = desktopGit()
+
+  if (!git?.branchList || !repoPath) {
+    return []
+  }
+
+  return git.branchList(repoPath)
+}
+
+// Local + remote-tracking branches for the base-branch picker in the
+// new-worktree dialog. The remote default (origin/HEAD) is flagged so the UI can
+// preselect it.
+export async function listBaseBranches(repoPath: string): Promise<HermesGitBaseBranch[]> {
+  const git = desktopGit()
+
+  if (!git?.baseBranchList || !repoPath) {
+    return []
+  }
+
+  return git.baseBranchList(repoPath)
+}
+
+export async function switchBranchInRepo(repoPath: string, branch: string): Promise<void> {
+  const git = desktopGit()
+
+  if (!git || !repoPath || !branch.trim()) {
+    return
+  }
+
+  await git.branchSwitch(repoPath, branch)
+  bumpWorktrees()
+}
+
+export async function removeWorktreePath(
+  repoPath: string,
+  worktreePath: string,
+  options?: { force?: boolean }
+): Promise<void> {
+  const git = desktopGit()
+
+  if (!git) {
+    return
+  }
+
+  await git.worktreeRemove(repoPath, worktreePath, options)
+  bumpWorktrees()
+}
+
+// A composer-driven "branch off into a new worktree" hand-off. The composer owns
+// the typed draft; the chat controller owns session lifecycle. The composer
+// creates the worktree (startWorkInRepo), then fires this so the controller opens
+// a fresh session in that worktree and prefills the draft that kicked off the
+// task. A monotonic token lets a rapid second request re-fire the controller's
+// effect even if the path repeats.
+export interface StartWorkSessionRequest {
+  draft?: string
+  path: string
+  token: number
+}
+
+export const $startWorkSessionRequest = atom<StartWorkSessionRequest | null>(null)
+
+// Keyboard-driven "spin up a new worktree" intent. The composer's coding row
+// owns the name dialog (it has the active repo + branch context), so a global
+// hotkey just bumps this token; the row opens its branch-off dialog in response.
+// A monotonic token re-fires even on repeat presses. No-ops off a repo (the row
+// isn't mounted), which is the right "nothing to branch" outcome.
+export const $newWorktreeRequest = atom(0)
+
+export function requestNewWorktree(): void {
+  $newWorktreeRequest.set($newWorktreeRequest.get() + 1)
+}
+
+let startWorkToken = 0
+
+export function requestStartWorkSession(path: string, draft?: string): void {
+  const target = path.trim()
+
+  if (!target) {
+    return
+  }
+
+  startWorkToken += 1
+  $startWorkSessionRequest.set({ draft: draft?.trim() || undefined, path: target, token: startWorkToken })
 }

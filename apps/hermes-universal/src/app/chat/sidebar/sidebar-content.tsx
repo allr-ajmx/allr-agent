@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { PlatformAvatar } from '@/app/messaging/platform-icon'
 import { CRON_ROUTE, sessionRoute } from '@/app/routes'
 import { Codicon } from '@/components/ui/codicon'
+import { GlyphSpinner } from '@/components/ui/glyph-spinner'
 import { SearchField } from '@/components/ui/search-field'
 import { useI18n } from '@/i18n'
 import { profileColor } from '@/lib/profile-color'
@@ -41,13 +42,16 @@ import {
   $projectScope,
   $projectTree,
   $projectTreeLoading,
+  $reposScanning,
   ALL_PROJECTS,
   enterProject,
   exitProjectScope,
   fetchProjectSessions,
   openProjectCreate,
   refreshProjects,
-  refreshProjectTree
+  refreshProjectTree,
+  refreshWorktrees,
+  scanAndRecordRepos
 } from '@/store/projects'
 import {
   $activeStoredSessionId,
@@ -69,7 +73,8 @@ import {
   refreshSessions,
   resetSessionsPaging,
   searchSessionsQuery,
-  sessionPinId
+  sessionPinId,
+  startSessionInWorkspace
 } from '@/store/session'
 import type { SessionInfo, SessionSearchResult } from '@/types/hermes'
 
@@ -77,8 +82,14 @@ import { countLabel } from './chrome'
 import { SidebarCronJobsSection } from './cron-jobs-section'
 import { SidebarLoadMoreButton, SidebarLoadMoreRow } from './load-more-row'
 import { ProjectDialog } from './project-dialog'
-import { type SidebarProjectTree, type SidebarSessionGroup, sortProjectsForOverview } from './projects/model'
+import {
+  type SidebarProjectTree,
+  type SidebarSessionGroup,
+  sortProjectsForOverview,
+  useRepoWorktreeMap
+} from './projects/model'
 import { ProjectBackRow } from './projects/overview-row'
+import { StartWorkButton } from './projects/workspace-header'
 import { SidebarPinnedEmptyState } from './section-states'
 import { SidebarSessionsSection } from './sessions-section'
 
@@ -150,6 +161,7 @@ export function SidebarScrollBody({ onNavigate }: { onNavigate?: () => void }) {
   const scope = useStore($projectScope)
   const projectTree = useStore($projectTree)
   const projectsLoading = useStore($projectTreeLoading)
+  const reposScanning = useStore($reposScanning)
   const activeProjectId = useStore($activeProjectId)
   const dismissedProjects = useStore($dismissedAutoProjectIds)
   const projectOrder = useStore($sidebarProjectOrderIds)
@@ -191,11 +203,52 @@ export function SidebarScrollBody({ onNavigate }: { onNavigate?: () => void }) {
     resetSessionsPaging()
   }, [profileScope])
 
-  // Pull projects + tree when the Projects (grouped) view is active.
+  // Pull projects + tree when the Projects (grouped) view is active. Paint from
+  // the fast tree fetch (explicit projects + repos from existing sessions and the
+  // backend's cache) FIRST, then kick off the disk crawl so newly-discovered
+  // repos fold in afterwards instead of the crawl blocking the first render.
   useEffect(() => {
     if (grouped) {
       void refreshProjects()
+      void refreshProjectTree().finally(() => void scanAndRecordRepos())
+    }
+  }, [grouped])
+
+  // Out-of-band repo changes (a `git init` or `rm -rf` in another terminal) emit
+  // no gateway event, so — like every git GUI — re-pull on window focus / tab
+  // visibility rather than stranding the tree until a reload. The tree fetch is
+  // cheap and runs every focus; the disk crawl that surfaces brand-new repos is
+  // throttled.
+  useEffect(() => {
+    if (!grouped) {
+      return
+    }
+
+    let lastScanAt = 0
+    const SCAN_THROTTLE_MS = 30_000
+
+    const onActive = () => {
+      if (document.visibilityState === 'hidden') {
+        return
+      }
+
+      void refreshProjects()
       void refreshProjectTree()
+
+      const now = Date.now()
+
+      if (now - lastScanAt >= SCAN_THROTTLE_MS) {
+        lastScanAt = now
+        void scanAndRecordRepos(true)
+      }
+    }
+
+    window.addEventListener('focus', onActive)
+    document.addEventListener('visibilitychange', onActive)
+
+    return () => {
+      window.removeEventListener('focus', onActive)
+      document.removeEventListener('visibilitychange', onActive)
     }
   }, [grouped])
 
@@ -325,6 +378,49 @@ export function SidebarScrollBody({ onNavigate }: { onNavigate?: () => void }) {
     )
   }, [showAllProfiles, recents])
 
+  // Worktree lanes are git-driven, not session-derived: probe `git worktree
+  // list` per repo of the entered project so linked worktrees appear even
+  // before they hold any Hermes session. Only while drilled in — the overview
+  // shows no lanes, so probing there would be pure cost.
+  const scopedRepoPaths = useMemo(
+    () =>
+      (enteredProject?.repos ?? []).map(repo => repo.path).filter((path): path is string => Boolean(path?.trim())),
+    [enteredProject]
+  )
+
+  const [scopedRepoWorktrees] = useRepoWorktreeMap(scopedRepoPaths, inProject)
+
+  // Out-of-band worktree changes the UI can't see — the agent running `git
+  // worktree add/remove` in the terminal during a turn, or an external shell
+  // while the window was away. Re-probe on turn-settle and on refocus (the
+  // git-GUI standard), gated on being inside a project so it stays free at rest.
+  useEffect(() => {
+    if (inProject && !busy) {
+      refreshWorktrees()
+    }
+  }, [busy, inProject])
+
+  useEffect(() => {
+    if (!inProject) {
+      return
+    }
+
+    const onFocus = () => refreshWorktrees()
+    window.addEventListener('focus', onFocus)
+
+    return () => window.removeEventListener('focus', onFocus)
+  }, [inProject])
+
+  // "+" on a repo or worktree lane: open a fresh chat anchored to that path,
+  // carrying no draft (unlike the composer's branch-off hand-off).
+  const newSessionInWorkspace = useCallback(
+    (path: null | string) => {
+      startSessionInWorkspace(path ?? '')
+      navigate('/')
+    },
+    [navigate]
+  )
+
   // Project overview rows: drop dismissed auto-projects, sort, then apply the
   // manual drag order when the user has set one.
   const overview = useMemo(() => {
@@ -430,6 +526,11 @@ export function SidebarScrollBody({ onNavigate }: { onNavigate?: () => void }) {
             groups={profileGroups}
             headerAction={
               <div className="flex shrink-0 items-center gap-0.5">
+                {/* Inside a project: spin up a worktree off its repo root. The
+                    same dialog the composer's ⌘⇧B opens. */}
+                {inProject && enteredProject?.path && (
+                  <StartWorkButton onStarted={newSessionInWorkspace} repoPath={enteredProject.path} />
+                )}
                 {grouped && !inProject && (
                   <button
                     aria-label={s.projects.newButton}
@@ -465,9 +566,21 @@ export function SidebarScrollBody({ onNavigate }: { onNavigate?: () => void }) {
                   ? s.projects.sectionLabel
                   : s.sessions
             }
-            labelMeta={grouped ? undefined : countLabel(recents.length, total)}
+            labelMeta={
+              grouped ? (
+                // A rescan is a background refresh, not a load: show it next to
+                // the section label, and only when the skeleton isn't already
+                // saying "loading" (same rule as desktop).
+                reposScanning && !projectsLoading ? (
+                  <GlyphSpinner ariaLabel={s.loading} className="text-[0.6875rem] text-(--ui-text-quaternary)" />
+                ) : undefined
+              ) : (
+                countLabel(recents.length, total)
+              )
+            }
             onEnterProject={enterProject}
             onNewSessionInProfile={startSessionInProfile}
+            onNewSessionInWorkspace={newSessionInWorkspace}
             onReorderProjects={showAllProfiles ? undefined : ids => setSidebarProjectOrderIds(ids)}
             onReorderSessions={
               grouped || showAllProfiles
@@ -485,6 +598,7 @@ export function SidebarScrollBody({ onNavigate }: { onNavigate?: () => void }) {
             }
             projectContent={inProject ? enteredProject : undefined}
             projectOverview={grouped && !inProject ? overview : undefined}
+            projectRepoWorktrees={scopedRepoWorktrees}
             projectsLoading={grouped ? projectsLoading : false}
             rootClassName={SESSIONS_ROOT_CLASS}
             sessions={grouped || showAllProfiles ? [] : recents}

@@ -210,9 +210,15 @@ export async function ensureSession(): Promise<{ id: string; storedId: string }>
     return { id: existing, storedId: existing }
   }
 
-  // A configured default project directory pre-attaches new LOCAL chats to that
-  // folder (desktop parity); the gateway resolves its own default cwd otherwise.
-  const cwd = cwdForNewSession()
+  // The draft's OWN directory wins: `startSessionInWorkspace` (store/session)
+  // writes a just-created worktree there on the composer's branch-off hand-off,
+  // and the session has to be created inside it rather than in the configured
+  // default. Unlike that default this is NOT local-mode-gated — the path comes
+  // from the backend's own repo (lib/desktop-git runs git where the gateway
+  // lives), so it is meaningful remotely too. Otherwise a configured default
+  // project directory pre-attaches new LOCAL chats to that folder (desktop
+  // parity), and the gateway resolves its own default cwd if neither.
+  const cwd = $currentCwd.get().trim() || cwdForNewSession()
   const draftKey = $activeSessionKey.get()
 
   const created = await requestGateway<SessionCreateResponse>('session.create', {

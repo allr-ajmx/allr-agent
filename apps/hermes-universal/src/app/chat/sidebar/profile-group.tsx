@@ -4,8 +4,7 @@ import { useState } from 'react'
 import { Codicon } from '@/components/ui/codicon'
 import { DisclosureCaret } from '@/components/ui/disclosure-caret'
 import { useI18n } from '@/i18n'
-import { useStore } from '@/store/atom'
-import { $sidebarWorkspaceCollapsedIds, toggleWorkspaceNodeCollapsed } from '@/store/layout'
+import { setWorkspaceNodeOpen } from '@/store/layout'
 import type { SessionInfo } from '@/types/hermes'
 
 import {
@@ -17,7 +16,7 @@ import {
   SidebarRowStack
 } from './chrome'
 import { SidebarLoadMoreRow } from './load-more-row'
-import type { SidebarSessionGroup } from './projects/model'
+import { type SidebarSessionGroup, useWorkspaceNodeOpen } from './projects/model'
 
 // One per-profile lane in the "All profiles" browse view: a color-dot header with
 // the profile name, its session count, a "+" that starts a chat in that profile,
@@ -43,9 +42,8 @@ interface SidebarProfileGroupProps {
 export function SidebarProfileGroup({ group, onNewSession, renderRows }: SidebarProfileGroupProps) {
   const { t } = useI18n()
   const s = t.sidebar
-  // Profile lanes default open; only ids the user explicitly collapsed persist.
-  const collapsed = useStore($sidebarWorkspaceCollapsedIds).includes(group.id)
-  const open = !collapsed
+  // Profile lanes default open; the node store keeps whatever the user chose.
+  const [open, toggleOpen] = useWorkspaceNodeOpen(group.id)
   const [visibleCount, setVisibleCount] = useState(SIDEBAR_GROUP_PAGE)
 
   const visibleSessions = group.sessions.slice(0, visibleCount)
@@ -61,11 +59,9 @@ export function SidebarProfileGroup({ group, onNewSession, renderRows }: Sidebar
               aria-label={s.newSessionIn(group.label)}
               className="grid size-5 shrink-0 place-items-center rounded-sm text-(--ui-text-tertiary) opacity-0 transition hover:bg-(--ui-control-hover-background) hover:text-foreground group-hover:opacity-100"
               onClick={() => {
-                // Reveal the lane the new session lands in.
-                if (collapsed) {
-                  toggleWorkspaceNodeCollapsed(group.id)
-                }
-
+                // Reveal the lane the new session lands in (same as the worktree
+                // lanes' "+", which force it open rather than toggling).
+                setWorkspaceNodeOpen(group.id, true)
                 onNewSession(group.id)
               }}
               title={s.newSessionIn(group.label)}
@@ -85,10 +81,7 @@ export function SidebarProfileGroup({ group, onNewSession, renderRows }: Sidebar
               style={{ backgroundColor: group.color ?? 'var(--ui-text-quaternary)' }}
             />
           </SidebarRowLead>
-          <SidebarRowLink
-            labelClassName="group-hover:text-foreground"
-            onClick={() => toggleWorkspaceNodeCollapsed(group.id)}
-          >
+          <SidebarRowLink labelClassName="group-hover:text-foreground" onClick={toggleOpen}>
             {group.label}
           </SidebarRowLink>
           {group.sessions.length > 0 && <SidebarCount>{group.sessions.length}</SidebarCount>}

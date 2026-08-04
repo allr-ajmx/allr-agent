@@ -1,22 +1,8 @@
 import { type MutableRefObject, useCallback } from 'react'
 
+import { listRepoBranches, requestStartWorkSession, startWorkInRepo, switchBranchInRepo } from '@/store/projects'
+
 import { useComposerScope } from '../scope'
-
-// STUB — FIXME(MJX-106): desktop's branch/worktree hand-offs read from the
-// projects store (listRepoBranches / requestStartWorkSession / startWorkInRepo /
-// switchBranchInRepo), which universal's `store/projects.ts` hasn't grown yet —
-// that half is MJX-107. Not a backend gap: `lib/desktop-git.ts` already bridges
-// `/api/git/*`. The consuming CodingStatusRow is also a no-op stub, so these are
-// local no-ops keeping this hook's shape identical to desktop's.
-const requestStartWorkSession = (_path: string, _text: string): void => {}
-
-const startWorkInRepo = async (
-  _repoPath: string,
-  _opts: { base?: string; branch?: string; name?: string; existingBranch?: string }
-): Promise<{ path: string } | null> => null
-
-const switchBranchInRepo = async (_repoPath: string, _branch: string): Promise<void> => {}
-const listRepoBranches = async (_repoPath: string): Promise<string[]> => []
 
 interface UseComposerBranchOptions {
   clearDraft: () => void

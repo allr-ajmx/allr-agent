@@ -1,4 +1,5 @@
 import '@/store/session-tile-delegate' // side-effect: registers the SessionTileDelegate
+import '@/store/start-work-session' // side-effect: composer branch-off → new session in the worktree
 
 import { computed } from 'nanostores'
 import { type ReactElement, useEffect } from 'react'
@@ -69,6 +70,7 @@ import {
   WorkspaceTabMenu
 } from '../chat/session-tile'
 import { ChatSidebar } from '../chat/sidebar'
+import { RemoteFolderPicker } from '../right-pane/files/remote-picker'
 import { $workspaceIsPage, syncWorkspaceIsPage } from '../routes'
 
 import { FilesPane, PreviewRailPane, ReviewPaneContent, TerminalPane, WorkspaceRoutes } from './panes'
@@ -563,6 +565,11 @@ export function ContribController() {
       <LayoutTreeRoot />
       {/* "Close running tab?" — the busy/input-blocked tile close gate. */}
       <SessionTileCloseConfirm />
+      {/* Registers the browsable backend-FS directory picker that
+          `selectDesktopPaths` routes to when there's no native dialog. Mounted
+          at shell level because the folder picker is reachable from the sidebar
+          AND from Settings, neither of which owns the other. */}
+      <RemoteFolderPicker />
     </div>
   )
 }

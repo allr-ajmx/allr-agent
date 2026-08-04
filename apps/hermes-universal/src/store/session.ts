@@ -12,7 +12,16 @@ import { chatMessageText } from '@/lib/chat-messages'
 import { appendLiveSessionProjection, toChatMessages } from '@/lib/session-history'
 import { stableArray } from '@/lib/stable-array'
 import { atom, computed } from '@/store/atom'
-import { $busy, $clarify, $currentCwd, $messages, $sessionId, type ChatMessage, resetChat } from '@/store/chat'
+import {
+  $busy,
+  $clarify,
+  $currentCwd,
+  $messages,
+  $sessionId,
+  type ChatMessage,
+  resetChat,
+  setCurrentCwd
+} from '@/store/chat'
 import { resetUnscopedStreamPin } from '@/store/event-router'
 import { requestGateway } from '@/store/gateway'
 import { $pinnedSessionIds, pinSession, unpinSession } from '@/store/layout'
@@ -469,6 +478,29 @@ export function newSession(): void {
   resetChat()
   $activeStoredSessionId.set(null)
   flashPetActivity({ greeting: true }) // pet: wave hello on a fresh chat
+}
+
+/**
+ * Open a fresh chat anchored to a specific directory — desktop's
+ * `startWorkspaceSession`, reduced to what universal needs. Used by the
+ * composer's "start work" / branch-off hand-off, where a worktree was just
+ * created and the next session must run inside it rather than in the configured
+ * default project dir.
+ *
+ * The anchor is the new DRAFT'S OWN slice cwd, written after `newSession()` (the
+ * reset seeds the fresh draft from the default project dir, so the order
+ * matters). `ensureSession` reads it back on the first prompt. Per-session by
+ * construction: a second draft — a mobile bubble, another tab — carries its own
+ * directory and can't inherit this one.
+ */
+export function startSessionInWorkspace(path: string): void {
+  const target = path.trim()
+
+  newSession()
+
+  if (target) {
+    setCurrentCwd(target)
+  }
 }
 
 /**

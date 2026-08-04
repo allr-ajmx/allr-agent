@@ -26,6 +26,10 @@ describe('keybind bindings', () => {
     expect(bindingsFor('view.reopenTab')).toEqual(['mod+shift+t'])
   })
 
+  it('binds workspace.newWorktree now that the worktree-create request exists (MJX-107)', () => {
+    expect(bindingsFor('workspace.newWorktree')).toEqual(['mod+shift+b'])
+  })
+
   it('binds session.newWindow now that native multi-window ships (MJX-104)', () => {
     expect(bindingsFor('session.newWindow')).toEqual(['mod+shift+n'])
   })

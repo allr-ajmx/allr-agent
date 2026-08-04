@@ -17,6 +17,7 @@ mod marketplace;
 mod oauth;
 mod plugins;
 mod pty;
+mod repo_scan;
 mod ssh;
 mod transport;
 mod voice;
@@ -32,6 +33,7 @@ use local_backend::{local_backend_spawn, local_backend_status, local_backend_sto
 use oauth::{oauth_login, oauth_logout, oauth_status};
 use plugins::{plugins_list, plugins_read, plugins_root};
 use pty::{pty_kill, pty_resize, pty_spawn, pty_write, PtyState};
+use repo_scan::repo_scan_git_repos;
 use ssh::{
     ssh_answer_prompt, ssh_cancel, ssh_connect, ssh_disconnect, ssh_list_config_hosts,
     ssh_resolve_host, ssh_test, ssh_trust_host_key, SshState,
@@ -153,6 +155,7 @@ pub fn run() {
             pty_write,
             pty_resize,
             pty_kill,
+            repo_scan_git_repos,
             voice_open,
             voice_arm,
             voice_suspend,

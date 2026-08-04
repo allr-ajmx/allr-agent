@@ -3,6 +3,7 @@ import type * as React from 'react'
 
 import { SidebarPanelLabel } from '@/app/shell/sidebar-label'
 import { DisclosureCaret } from '@/components/ui/disclosure-caret'
+import type { HermesGitWorktree } from '@/global'
 import { cn } from '@/lib/utils'
 import { sessionPinId } from '@/store/session'
 import type { SessionInfo } from '@/types/hermes'
@@ -110,6 +111,11 @@ export interface SidebarSessionsSectionProps {
   onEnterProject?: (id: string) => void
   onReorderProjects?: (ids: string[]) => void
   projectBackRow?: React.ReactNode
+  /** `git worktree list` per repo path — nests linked worktrees into their own
+   *  lanes inside the entered project. Absent = flat, backend-shaped lanes. */
+  projectRepoWorktrees?: Record<string, HermesGitWorktree[]>
+  /** Start a chat anchored to a repo/worktree path (the lane "+" affordance). */
+  onNewSessionInWorkspace?: (path: null | string) => void
 }
 
 export function SidebarSessionsSection(props: SidebarSessionsSectionProps) {
@@ -146,7 +152,9 @@ export function SidebarSessionsSection(props: SidebarSessionsSectionProps) {
     activeProjectId,
     onEnterProject,
     onReorderProjects,
-    projectBackRow
+    projectBackRow,
+    projectRepoWorktrees,
+    onNewSessionInWorkspace
   } = props
 
   const sectionOpen = collapsible ? open : true
@@ -202,7 +210,12 @@ export function SidebarSessionsSection(props: SidebarSessionsSectionProps) {
       <>
         {projectBackRow}
         {hasProjectContent ? (
-          <EnteredProjectContent project={projectContent} renderRows={renderProjectRows} />
+          <EnteredProjectContent
+            onNewSession={onNewSessionInWorkspace}
+            project={projectContent}
+            renderRows={renderProjectRows}
+            repoWorktrees={projectRepoWorktrees}
+          />
         ) : (
           emptyState
         )}

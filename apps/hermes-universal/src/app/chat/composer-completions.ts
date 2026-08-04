@@ -4,9 +4,14 @@ import { requestGateway } from '@/store/gateway'
 // Lean composer completions (Gc7). Slash (`/…`) and @-mention (`@…`) drawers
 // backed by the gateway RPCs. This drops the desktop assistant-ui trigger-adapter
 // chip machinery in favour of plain token insertion.
-// FIXME(MJX-106): slash.exec for exec-type commands + arg-completion edge cases;
-// grouped section headers; skins/session completions. Desktop drives slash.exec
-// from `store/goals.ts` through `app/session/hooks/use-prompt-actions`.
+//
+// NOT the live path, and currently referenced by nothing but its own test. The
+// composer renders through the assistant-ui trigger adapter
+// (`composer/hooks/use-slash-completions.ts` + `trigger-popover.tsx`), which has
+// the grouped section headers, skin/session completions, catalog caching and
+// skill ranking; slash EXECUTION lives in `app/chat/hooks/use-slash-command.ts`
+// (`slash.exec`). Kept as the plain-token path for a future surface without the
+// rich editor — delete it if none materializes.
 
 export interface CompletionEntry {
   text: string
