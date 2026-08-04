@@ -1,5 +1,5 @@
-import { WorkspaceRoutes } from '@/app/contrib/panes'
 import { ChatSidebar } from '@/app/chat/sidebar'
+import { WorkspaceRoutes } from '@/app/contrib/panes'
 import { Sheet, SheetContent } from '@/components/ui/sheet'
 import { useKeyboardInset } from '@/hooks/use-keyboard-inset'
 

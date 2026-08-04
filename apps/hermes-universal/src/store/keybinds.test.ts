@@ -34,9 +34,23 @@ describe('keybind bindings', () => {
     expect(bindingsFor('session.newWindow')).toEqual(['mod+shift+n'])
   })
 
-  it('leaves actions with no universal backing unbound', () => {
-    // The profile browse-scope toggle has no universal home yet.
-    expect(bindingsFor('profile.toggleAll')).toEqual([])
+  it('switches chat tabs on ⌥1-9 and toggles voice on ⌥B', () => {
+    expect(bindingsFor('session.slot.1')).toEqual(['alt+1'])
+    expect(bindingsFor('session.slot.9')).toEqual(['alt+9'])
+    expect(bindingsFor('composer.voice')).toEqual(['alt+b'])
+  })
+
+  // ⌥ combos are plain bindings, so nothing folds them into `mod` the way
+  // `ctrl` folds off macOS — the index key is the combo verbatim on both.
+  it('indexes the ⌥ defaults unchanged on every platform', () => {
+    const index = $comboIndex.get()
+
+    expect(index.get('alt+1')).toBe('session.slot.1')
+    expect(index.get('alt+b')).toBe('composer.voice')
+  })
+
+  it('binds profile.toggleAll now that the browse scope ships (MJX-108)', () => {
+    expect(bindingsFor('profile.toggleAll')).toEqual(['mod+shift+0'])
   })
 
   it('overrides then resets a single binding', () => {

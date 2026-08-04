@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { registry } from '@/contrib/registry'
 import { I18nProvider } from '@/i18n'
 import { $panesFlipped, $rightSidebarOpen, $sidebarOpen, setSidebarOpen } from '@/store/layout'
 
@@ -63,5 +64,65 @@ describe('Titlebar sidebar toggles', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Hide right sidebar' }))
     expect($sidebarOpen.get()).toBe(false)
     expect($rightSidebarOpen.get()).toBe(true)
+  })
+})
+
+describe('titleBar.* contribution areas', () => {
+  it('paints contributions into all three areas', () => {
+    const disposers = (['left', 'center', 'right'] as const).map(side =>
+      registry.register({
+        area: `titleBar.${side}`,
+        id: `demo:${side}`,
+        render: () => <output data-testid={`tool-${side}`}>{side}</output>,
+        source: 'plugin:demo'
+      })
+    )
+
+    renderTitlebar()
+
+    for (const side of ['left', 'center', 'right'] as const) {
+      expect(screen.getByTestId(`tool-${side}`).textContent).toBe(side)
+    }
+
+    for (const dispose of disposers) {
+      dispose()
+    }
+  })
+
+  it('keeps the center contribution out of the window drag region', () => {
+    const dispose = registry.register({
+      area: 'titleBar.center',
+      id: 'demo:center',
+      render: () => <output data-testid="tool-center">center</output>,
+      source: 'plugin:demo'
+    })
+
+    renderTitlebar()
+
+    // A contributed node inside `data-tauri-drag-region` would move the window on
+    // press instead of taking the click.
+    expect(screen.getByTestId('tool-center').closest('[data-tauri-drag-region]')).toBeNull()
+
+    dispose()
+  })
+
+  it('survives a throwing contribution — the chrome keeps working', () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    const dispose = registry.register({
+      area: 'titleBar.right',
+      id: 'demo:boom',
+      render: () => {
+        throw new Error('plugin exploded')
+      },
+      source: 'plugin:demo'
+    })
+
+    renderTitlebar()
+
+    expect(screen.getByRole('button', { name: 'Open settings' })).toBeInTheDocument()
+
+    spy.mockRestore()
+    dispose()
   })
 })

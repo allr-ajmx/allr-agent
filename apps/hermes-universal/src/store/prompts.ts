@@ -1,30 +1,48 @@
 import { atom, computed, type ReadableAtom } from 'nanostores'
 
-import {
-  $approval,
-  $clarify,
-  $secret,
-  $sudo,
-  type ApprovalRequest,
-  type ClarifyRequest,
-  type SecretRequest,
-  type SudoRequest
-} from '@/store/chat'
+import { $activeSessionKey } from '@/store/session-state-types'
 
-// The active PRIMARY turn is parked waiting on the user (a clarify / approval /
-// sudo / secret prompt is open). The main composer's Esc handling reads this to
-// avoid interrupting a turn that's actually waiting for input.
-export const $activeSessionAwaitingInput = computed(
-  [$clarify, $approval, $sudo, $secret],
-  (clarify, approval, sudo, secret) => Boolean(clarify || approval || sudo || secret)
-)
+// The blocking-prompt request shapes. They live HERE, not in store/chat.ts,
+// because this module is the single owner of prompt state for every session and
+// must not depend on the chat store at runtime (store/chat.ts re-exports these
+// types for the existing import sites).
+
+export interface ApprovalRequest {
+  command: string
+  description: string
+  allowPermanent: boolean
+  // Gateway-restricted choice set (e.g. a tirith warning drops `always`), and the
+  // smart-deny flag that implies `['once', 'deny']`. Both optional — the backend
+  // omits them on a plain approval. Mirrors desktop's ApprovalRequest.
+  choices?: string[]
+  smartDenied?: boolean
+}
+export interface ClarifyRequest {
+  requestId: string
+  question: string
+  // Up to 4 predefined answers (tools/clarify_tool.py); null for an open-ended
+  // question. The inline ClarifyTool reads BOTH fields from here — `tool.start`
+  // ships no args, so the event payload is the only source for the panel.
+  choices: string[] | null
+}
+// Sudo is a password-entry flow (not an allow/deny choice).
+export interface SudoRequest {
+  requestId: string
+  prompt: string
+}
+export interface SecretRequest {
+  requestId: string
+  envVar: string
+  prompt: string
+}
 
 // ---------------------------------------------------------------------------
-// Per-session (TILE) blocking prompts. The PRIMARY chat keeps the global
-// `$approval`/`$clarify`/`$sudo`/`$secret` atoms above; a tiled/background
-// session's blocking prompt lands here keyed by its RUNTIME id so its own
-// `PromptOverlays({sessionId})` can render it instead of stalling. Mirrors
-// desktop's `keyedPromptStore`.
+// Per-session blocking prompts, keyed by SESSION KEY (see
+// store/session-state-types.ts). Every session — the one on screen, a tile, a
+// background bubble — stores its prompt here; the chat store's `$approval` /
+// `$clarify` / `$sudo` / `$secret` are computed views of the ACTIVE session's
+// entry. There is no primary/tile duality: `setSessionApproval(key, …)` is the
+// only writer. Mirrors desktop's `keyedPromptStore`.
 // ---------------------------------------------------------------------------
 
 interface KeyedPromptStore<T> {
@@ -82,6 +100,24 @@ const approvalStore = keyedPromptStore<ApprovalRequest>()
 const clarifyStore = keyedPromptStore<ClarifyRequest>()
 const sudoStore = keyedPromptStore<SudoRequest>()
 const secretStore = keyedPromptStore<SecretRequest>()
+
+// --- The ACTIVE session's prompts (what store/chat.ts re-exports) -----------
+
+const activePrompt = <T>(store: KeyedPromptStore<T>): ReadableAtom<T | null> =>
+  computed([$activeSessionKey, store.$all], (key, all) => all[key] ?? null)
+
+export const $approval = activePrompt(approvalStore)
+export const $clarify = activePrompt(clarifyStore)
+export const $sudo = activePrompt(sudoStore)
+export const $secret = activePrompt(secretStore)
+
+// The active turn is parked waiting on the user (a clarify / approval / sudo /
+// secret prompt is open). The main composer's Esc handling reads this to avoid
+// interrupting a turn that's actually waiting for input.
+export const $activeSessionAwaitingInput = computed(
+  [$clarify, $approval, $sudo, $secret],
+  (clarify, approval, sudo, secret) => Boolean(clarify || approval || sudo || secret)
+)
 
 export const sessionApprovalRequest = (id: string) => approvalStore.forId(id)
 export const sessionClarifyRequest = (id: string) => clarifyStore.forId(id)

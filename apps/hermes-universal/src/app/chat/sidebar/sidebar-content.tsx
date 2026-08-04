@@ -7,6 +7,7 @@ import { Codicon } from '@/components/ui/codicon'
 import { GlyphSpinner } from '@/components/ui/glyph-spinner'
 import { SearchField } from '@/components/ui/search-field'
 import { useI18n } from '@/i18n'
+import { profileColor } from '@/lib/profile-color'
 import { sessionMatchesSearch } from '@/lib/session-search'
 import { useStore } from '@/store/atom'
 import { $busy, $sessionId } from '@/store/chat'
@@ -34,6 +35,8 @@ import {
   unpinSession
 } from '@/store/layout'
 import { $sidebarCronOpen, setSidebarCronOpen } from '@/store/layout'
+import { $profileScope, ALL_PROFILES, normalizeProfileKey } from '@/store/profile'
+import { $profiles, setActiveProfile } from '@/store/profiles'
 import {
   $activeProjectId,
   $projectScope,
@@ -64,9 +67,11 @@ import {
   isMessagingSource,
   loadMoreSessions,
   messagingSourceLabel,
+  newSession,
   openSession,
   refreshMessagingSessions,
   refreshSessions,
+  resetSessionsPaging,
   searchSessionsQuery,
   sessionPinId,
   startSessionInWorkspace
@@ -77,7 +82,12 @@ import { countLabel } from './chrome'
 import { SidebarCronJobsSection } from './cron-jobs-section'
 import { SidebarLoadMoreButton, SidebarLoadMoreRow } from './load-more-row'
 import { ProjectDialog } from './project-dialog'
-import { type SidebarProjectTree, sortProjectsForOverview, useRepoWorktreeMap } from './projects/model'
+import {
+  type SidebarProjectTree,
+  type SidebarSessionGroup,
+  sortProjectsForOverview,
+  useRepoWorktreeMap
+} from './projects/model'
 import { ProjectBackRow } from './projects/overview-row'
 import { StartWorkButton } from './projects/workspace-header'
 import { SidebarPinnedEmptyState } from './section-states'
@@ -124,6 +134,10 @@ function applyManualOrder<T extends { id: string }>(items: T[], ids: string[]): 
 const SESSIONS_CONTENT_CLASS =
   'flex min-h-0 flex-1 flex-col gap-px overflow-y-auto overflow-x-hidden overscroll-contain pb-1 pr-1.5'
 
+// All-profiles lanes need breathing room between group headers; the flat list
+// packs rows at gap-px.
+const SESSIONS_CONTENT_GROUPED_CLASS = SESSIONS_CONTENT_CLASS.replace('gap-px', 'gap-3')
+
 const SESSIONS_ROOT_CLASS = 'flex min-h-0 flex-1 flex-col p-0'
 
 // The scroll body: search + (query) merged Results, else the Sessions/recents
@@ -157,6 +171,8 @@ export function SidebarScrollBody({ onNavigate }: { onNavigate?: () => void }) {
   const cronOpen = useStore($sidebarCronOpen)
   const busy = useStore($busy)
   const runtimeSessionId = useStore($sessionId)
+  const profileScope = useStore($profileScope)
+  const profiles = useStore($profiles)
   const [messagingReveal, setMessagingReveal] = useState<Record<string, number>>({})
   const [enteredProject, setEnteredProject] = useState<SidebarProjectTree | null>(null)
   const [query, setQuery] = useState('')
@@ -172,13 +188,20 @@ export function SidebarScrollBody({ onNavigate }: { onNavigate?: () => void }) {
     return () => clearInterval(timer)
   }, [])
 
-  // Cron jobs poll every 30s (list is small; countdowns tick client-side).
+  // Cron jobs poll every 30s (list is small; countdowns tick client-side), scoped
+  // to the browse scope like the cron overlay is.
   useEffect(() => {
-    void refreshCronJobs()
-    const timer = setInterval(() => void refreshCronJobs(), 30_000)
+    const cronScope = profileScope === ALL_PROFILES ? 'all' : profileScope
+    void refreshCronJobs(cronScope)
+    const timer = setInterval(() => void refreshCronJobs(cronScope), 30_000)
 
     return () => clearInterval(timer)
-  }, [])
+  }, [profileScope])
+
+  // A big all-profiles page must not carry over into one small profile.
+  useEffect(() => {
+    resetSessionsPaging()
+  }, [profileScope])
 
   // Pull projects + tree when the Projects (grouped) view is active. Paint from
   // the fast tree fetch (explicit projects + repos from existing sessions and the
@@ -253,7 +276,7 @@ export function SidebarScrollBody({ onNavigate }: { onNavigate?: () => void }) {
     if (grouped && scope !== ALL_PROJECTS) {
       void fetchProjectSessions(scope).then(setEnteredProject)
     }
-  }, [busy, runtimeSessionId, grouped, scope])
+  }, [busy, runtimeSessionId, grouped, scope, profileScope])
 
   useEffect(() => {
     const timer = setTimeout(() => void searchSessionsQuery(query), 200)
@@ -327,7 +350,33 @@ export function SidebarScrollBody({ onNavigate }: { onNavigate?: () => void }) {
       .sort((a, b) => b.sessions.length - a.sessions.length)
   }, [messagingSessions])
 
-  const inProject = grouped && scope !== ALL_PROJECTS
+  // Desktop's `multiProfile` gate: with a single profile the rail hides its
+  // toggle, so a persisted browse flag would trap the user in the grouped view.
+  const showAllProfiles = profiles.length > 1 && profileScope === ALL_PROFILES
+
+  const inProject = grouped && scope !== ALL_PROJECTS && !showAllProfiles
+
+  // ALL-profiles view: one collapsible lane per profile, color on the header (not
+  // on every row). Default profile floats to the top, the rest alphabetical.
+  const profileGroups = useMemo<SidebarSessionGroup[] | undefined>(() => {
+    if (!showAllProfiles) {
+      return undefined
+    }
+
+    const groups = new Map<string, SidebarSessionGroup>()
+
+    for (const session of recents) {
+      const key = normalizeProfileKey(session.profile)
+
+      const group = groups.get(key) ?? { color: profileColor(key), id: key, label: key, path: null, sessions: [] }
+      group.sessions.push(session)
+      groups.set(key, group)
+    }
+
+    return [...groups.values()].sort((a, b) =>
+      a.id === 'default' ? -1 : b.id === 'default' ? 1 : a.label.localeCompare(b.label)
+    )
+  }, [showAllProfiles, recents])
 
   // Worktree lanes are git-driven, not session-derived: probe `git worktree
   // list` per repo of the entered project so linked worktrees appear even
@@ -375,12 +424,24 @@ export function SidebarScrollBody({ onNavigate }: { onNavigate?: () => void }) {
   // Project overview rows: drop dismissed auto-projects, sort, then apply the
   // manual drag order when the user has set one.
   const overview = useMemo(() => {
+    if (showAllProfiles) {
+      return []
+    }
+
     const dismissedSet = new Set(dismissedProjects)
     const filtered = projectTree.filter(project => !(project.isAuto && dismissedSet.has(project.id)))
     const sorted = sortProjectsForOverview(filtered, activeProjectId)
 
     return projectOrder.length ? applyManualOrder(sorted, projectOrder) : sorted
-  }, [projectTree, dismissedProjects, activeProjectId, projectOrder])
+  }, [showAllProfiles, projectTree, dismissedProjects, activeProjectId, projectOrder])
+
+  // The per-lane "+" in the browse view: point the app at that profile and start
+  // a fresh chat, WITHOUT calling selectProfile — that clears $showAllProfiles and
+  // would collapse the browse view the user is standing in.
+  const startSessionInProfile = (profileKey: string) => {
+    setActiveProfile(profileKey === 'default' ? null : profileKey)
+    newSession()
+  }
 
   const rowHandlers = {
     activeSessionId: activeId,
@@ -424,6 +485,7 @@ export function SidebarScrollBody({ onNavigate }: { onNavigate?: () => void }) {
           pinned={false}
           rootClassName={SESSIONS_ROOT_CLASS}
           sessions={results}
+          showProfileTags={showAllProfiles}
         />
       ) : (
         <>
@@ -441,13 +503,14 @@ export function SidebarScrollBody({ onNavigate }: { onNavigate?: () => void }) {
             pinned
             rootClassName="shrink-0 p-0 pb-1"
             sessions={pinnedSessions}
+            showProfileTags={showAllProfiles}
             sortable={pinnedSessions.length > 1}
           />
           <SidebarSessionsSection
             {...rowHandlers}
             activeProjectId={activeProjectId}
             collapsible={!inProject}
-            contentClassName={SESSIONS_CONTENT_CLASS}
+            contentClassName={showAllProfiles ? SESSIONS_CONTENT_GROUPED_CLASS : SESSIONS_CONTENT_CLASS}
             emptyState={
               <div className="px-2 py-3 text-xs text-(--ui-text-tertiary)">
                 {grouped ? s.projectEmpty : s.noSessions}
@@ -460,6 +523,7 @@ export function SidebarScrollBody({ onNavigate }: { onNavigate?: () => void }) {
                 </div>
               ) : null
             }
+            groups={profileGroups}
             headerAction={
               <div className="flex shrink-0 items-center gap-0.5">
                 {/* Inside a project: spin up a worktree off its repo root. The
@@ -515,10 +579,11 @@ export function SidebarScrollBody({ onNavigate }: { onNavigate?: () => void }) {
               )
             }
             onEnterProject={enterProject}
+            onNewSessionInProfile={startSessionInProfile}
             onNewSessionInWorkspace={newSessionInWorkspace}
-            onReorderProjects={ids => setSidebarProjectOrderIds(ids)}
+            onReorderProjects={showAllProfiles ? undefined : ids => setSidebarProjectOrderIds(ids)}
             onReorderSessions={
-              grouped
+              grouped || showAllProfiles
                 ? undefined
                 : ids => {
                     setSidebarSessionOrderManual(true)
@@ -536,8 +601,9 @@ export function SidebarScrollBody({ onNavigate }: { onNavigate?: () => void }) {
             projectRepoWorktrees={scopedRepoWorktrees}
             projectsLoading={grouped ? projectsLoading : false}
             rootClassName={SESSIONS_ROOT_CLASS}
-            sessions={grouped ? [] : recents}
-            sortable={!grouped}
+            sessions={grouped || showAllProfiles ? [] : recents}
+            showProfileTags={showAllProfiles}
+            sortable={!grouped && !showAllProfiles}
           />
 
           {/* Messaging platform groups (Discord etc.) — flat view only, below

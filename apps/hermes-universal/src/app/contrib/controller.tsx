@@ -1,9 +1,15 @@
+import '@/store/session-tile-delegate' // side-effect: registers the SessionTileDelegate
+import '@/store/start-work-session' // side-effect: composer branch-off → new session in the worktree
+
 import { computed } from 'nanostores'
 import { type ReactElement, useEffect } from 'react'
 import { useLocation } from 'react-router-dom'
 
+import { PALETTE_AREA, type PaletteContribution } from '@/app/command-palette/contrib'
 import { IdleMount } from '@/components/idle-mount'
+import { toggleLayoutEditMode } from '@/components/pane-shell/edit-mode'
 import { allPaneIds, group, split } from '@/components/pane-shell/tree/model'
+import { LAYOUTS_AREA } from '@/components/pane-shell/tree/presets'
 import { LayoutTreeRoot } from '@/components/pane-shell/tree/renderer'
 import {
   $layoutTree,
@@ -15,21 +21,24 @@ import {
   mirrorLayoutTree,
   paneRootSide,
   registerLayoutResetHandler,
+  registerNewTabHandler,
   registerPaneCloser,
   registerPaneOpener,
+  resetLayoutTree,
   revealTreePane,
   setPaneCollapsed,
   setTreePaneHidden,
   watchContributedPanes
 } from '@/components/pane-shell/tree/store'
-import { registry } from '@/contrib/registry'
 import { discoverBundledPlugins } from '@/contrib/plugins'
-import { addGatewayEventListener } from '@/store/gateway'
-import { routeTileEvent } from '@/store/session-reducer'
-import '@/store/session-tile-delegate' // side-effect: registers the SessionTileDelegate
-import '@/store/start-work-session' // side-effect: composer branch-off → new session in the worktree
+import { registry } from '@/contrib/registry'
+import { discoverRuntimePlugins } from '@/contrib/runtime-loader'
 import { sessionTitle as storedSessionTitle } from '@/lib/chat-runtime'
+import { LayoutDashboard, PanelBottom, Plug } from '@/lib/icons'
+import { type KeybindContribution, KEYBINDS_AREA } from '@/lib/keybinds/actions'
 import { $currentCwd } from '@/store/chat'
+import { $chatBubbles, bubbleRuntimeKey } from '@/store/chat-bubbles'
+import { $gatewayState } from '@/store/gateway'
 import {
   $panesFlipped,
   $rightSidebarOpen,
@@ -46,11 +55,14 @@ import {
   SIDEBAR_DEFAULT_WIDTH,
   SIDEBAR_MAX_WIDTH
 } from '@/store/layout'
-import { closeAllPreviewTabs, $previewTabs } from '@/store/preview'
+import { $previewTabs, closeAllPreviewTabs } from '@/store/preview'
 import { $reviewOpen, closeReview, REVIEW_PANE_ID } from '@/store/review'
-import { $sessions, $activeStoredSessionId, sessionMatchesStoredId } from '@/store/session'
+import { $activeStoredSessionId, $sessions, sessionMatchesStoredId } from '@/store/session'
 import { $sessionColorById, sessionColorFor } from '@/store/session-color'
+import { invalidateRuntimeBindings, newSessionTab, setVisibleBubbleKeysProvider } from '@/store/session-states'
+import { toggleStatusbarVisible } from '@/store/statusbar-prefs'
 
+import { watchRouteTiles } from '../chat/route-tile'
 import {
   SessionTileCloseConfirm,
   stackSessionTilesIntoMain,
@@ -76,11 +88,9 @@ import { FilesPane, PreviewRailPane, ReviewPaneContent, TerminalPane, WorkspaceR
  *    focused-session-aware). This file owns only the workspace grid.
  *  - Surfaces are self-wired, so panes render their components directly (no
  *    `WiredPane`/`WiringActions` indirection).
- *  - FIXME(MJX-50/palette-bridge): desktop registers `layout.editMode` /
- *    `layout.reset` / `plugins.reload` command-PALETTE rows; universal has a
- *    command-MENU, not a palette, so those rows are omitted here.
- *  - FIXME(MJX-202): the FancyZones structural-authoring UI is deferred; the
- *    four presets below are read-only.
+ *  - The command rows (`layout.editMode`, `layout.reset`, `plugins.reload`) are
+ *    `palette` contributions, and `layout.editMode` is also a rebindable
+ *    `keybinds` contribution — the same declarative surfaces a plugin uses.
  */
 
 // ONE render identity for the workspace pane — syncWorkspaceTitle re-registers
@@ -94,11 +104,7 @@ import { FilesPane, PreviewRailPane, ReviewPaneContent, TerminalPane, WorkspaceR
 // gives `.chat` (flex:1 1 auto, needs a bounded flex-col parent) real room to
 // fill and scroll its own thread internally.
 const renderWorkspacePane = () => (
-  <div
-    className="flex h-full min-h-0 min-w-0 flex-col"
-    data-composer-target="main"
-    data-session-anchor="workspace"
-  >
+  <div className="flex h-full min-h-0 min-w-0 flex-col" data-composer-target="main" data-session-anchor="workspace">
     <WorkspaceRoutes />
   </div>
 )
@@ -254,28 +260,131 @@ const QUAD_TREE = split(
   [3, 1]
 )
 
+// The bundled templates. User-saved presets join the same area from presets.ts
+// (source: 'user'), which is also where save/delete/persist live.
 registry.registerMany([
-  { id: 'default', area: 'layouts', title: 'Default', order: 0, data: DEFAULT_TREE },
-  { id: 'focus', area: 'layouts', title: 'Focus', order: 10, data: FOCUS_TREE },
-  { id: 'terminal-deck', area: 'layouts', title: 'Terminal deck', order: 20, data: TERMINAL_TREE },
-  { id: 'quad', area: 'layouts', title: 'Quad', order: 30, data: QUAD_TREE }
+  { id: 'default', area: LAYOUTS_AREA, title: 'Default', order: 0, data: DEFAULT_TREE },
+  { id: 'focus', area: LAYOUTS_AREA, title: 'Focus', order: 10, data: FOCUS_TREE },
+  { id: 'terminal-deck', area: LAYOUTS_AREA, title: 'Terminal deck', order: 20, data: TERMINAL_TREE },
+  { id: 'quad', area: LAYOUTS_AREA, title: 'Quad', order: 30, data: QUAD_TREE }
 ])
 
 declareDefaultTree(DEFAULT_TREE)
 
-// Bundled plugins load AFTER core (no-op stub on universal — FIXME(MJX-50/plugins)).
+registry.registerMany([
+  // Layout edit mode registers through the SAME declarative surfaces plugins
+  // use: a rebindable keybind (collision-checked in the settings panel) and a
+  // command row whose hint tracks the live binding. Without them the mode has
+  // no door — the palette it opens is the only way to author a layout.
+  {
+    area: KEYBINDS_AREA,
+    data: {
+      defaults: ['mod+shift+\\'],
+      id: 'layout.editMode',
+      label: 'Toggle layout edit mode',
+      run: toggleLayoutEditMode
+    } satisfies KeybindContribution,
+    id: 'layout.editMode'
+  },
+  {
+    area: PALETTE_AREA,
+    data: {
+      action: 'layout.editMode',
+      icon: LayoutDashboard,
+      id: 'layout.editMode',
+      keywords: ['layout', 'zones', 'panes', 'edit', 'rearrange'],
+      label: 'Toggle layout edit mode',
+      run: toggleLayoutEditMode
+    } satisfies PaletteContribution,
+    id: 'layout.editMode'
+  },
+  {
+    area: PALETTE_AREA,
+    data: {
+      icon: LayoutDashboard,
+      id: 'layout.reset',
+      keywords: ['layout', 'reset', 'default', 'panes'],
+      label: 'Reset layout',
+      run: resetLayoutTree
+    } satisfies PaletteContribution,
+    id: 'layout.reset'
+  },
+  // Hiding the bar removes the surface that would otherwise offer it back, so
+  // the command menu is the guaranteed door in (alongside the rebindable ⌘⇧S).
+  {
+    area: PALETTE_AREA,
+    data: {
+      action: 'view.toggleStatusbar',
+      icon: PanelBottom,
+      id: 'view.toggleStatusbar',
+      keywords: ['status bar', 'statusbar', 'bottom bar', 'hide', 'show', 'chrome'],
+      label: 'Toggle status bar',
+      run: toggleStatusbarVisible
+    } satisfies PaletteContribution,
+    id: 'view.toggleStatusbar'
+  },
+  // The manual rescan door, for when the poll's cadence isn't enough (or the
+  // gateway door skipped content-diffing because the tree is large).
+  {
+    area: PALETTE_AREA,
+    data: {
+      icon: Plug,
+      id: 'plugins.reload',
+      keywords: ['plugin', 'rescan', 'reload'],
+      // A key, not a string: the row is registered once at boot, and a literal
+      // would keep the boot locale's wording after a language switch.
+      labelKey: 'settings.plugins.rescan',
+      run: discoverRuntimePlugins
+    } satisfies PaletteContribution,
+    id: 'plugins.reload'
+  }
+])
+
+// Bundled plugins load AFTER core, so a plugin can override a same-id core
+// contribution. This also starts the disk door's watcher (contrib/plugins.ts →
+// watchRuntimePlugins), which is what makes an agent's write→see loop work.
 discoverBundledPlugins()
 
 // Plugin panes (and any contributed pane) join the tree by their `placement`
 // hint the moment they register.
 watchContributedPanes()
 
-// Multi-session tiles: stream tile sessions off the shared gateway stream (the
-// primary chat reducer is untouched), mirror `$sessionTiles` into layout-tree
-// panes, and collapse tiles into the workspace on a layout reset.
-// FIXME(MJX-50/route-tiles): page (route) tiles — watchRouteTiles() — are a follow-up.
-addGatewayEventListener(routeTileEvent)
+// Mirror `$sessionTiles` into layout-tree panes and collapse tiles into the
+// workspace on a layout reset. Page (route) tiles ride the same mirror, keyed by
+// path instead of session id. (Tile sessions stream off the shared gateway
+// stream: THE event router self-registers on import — see store/event-router.ts.)
 watchSessionTiles()
+watchRouteTiles()
+
+// The `+` at the end of a chat tab strip. Registered rather than imported by
+// the renderer, which knows only pane ids (see registerNewTabHandler).
+registerNewTabHandler(newSessionTab)
+
+// A reconnect issues new runtime ids, so every binding we hold is dead. Drop
+// the bindings (NOT the sessions — a draft's unsent text is the one thing that
+// cannot be re-fetched) and let each visible surface re-resume its own session.
+let wasGatewayOpen = $gatewayState.get() === 'open'
+
+$gatewayState.subscribe(state => {
+  const isOpen = state === 'open'
+
+  if (isOpen && !wasGatewayOpen) {
+    invalidateRuntimeBindings()
+  }
+
+  wasGatewayOpen = isOpen
+})
+
+// The bubble strip's sessions are on screen on mobile, so the LRU must not
+// evict them. Registered here rather than imported by session-states, which
+// chat-bubbles already depends on.
+setVisibleBubbleKeysProvider(() =>
+  $chatBubbles
+    .get()
+    .map(bubble => bubbleRuntimeKey(bubble.storedSessionId))
+    .filter((key): key is string => Boolean(key))
+)
+
 registerLayoutResetHandler(stackSessionTilesIntoMain)
 
 // The main tab reads as its SESSION (the loaded title, "New session" on a fresh

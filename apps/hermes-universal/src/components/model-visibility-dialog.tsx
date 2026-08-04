@@ -29,7 +29,13 @@ interface ModelVisibilityDialogProps {
   sessionId?: string | null
 }
 
-export function ModelVisibilityDialog({ gw, onOpenChange, onOpenProviders, open, sessionId }: ModelVisibilityDialogProps) {
+export function ModelVisibilityDialog({
+  gw,
+  onOpenChange,
+  onOpenProviders,
+  open,
+  sessionId
+}: ModelVisibilityDialogProps) {
   const { t } = useI18n()
   const copy = t.modelVisibility
   const [search, setSearch] = useState('')

@@ -25,9 +25,7 @@ export function PreviewRail() {
   const dirty = useStore($dirtyPreviewPaths)
 
   return (
-    <div
-      className="flex h-full min-h-0 flex-col bg-(--ui-editor-surface-background)"
-    >
+    <div className="flex h-full min-h-0 flex-col bg-(--ui-editor-surface-background)">
       {tabs.length > 0 && (
         <div className="flex h-8 shrink-0 items-stretch overflow-x-auto border-t border-b border-(--ui-stroke-tertiary) bg-(--ui-sidebar-surface-background)">
           {tabs.map(tab => (

@@ -3,6 +3,9 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/hermes', () => ({
+  // ConfigSection reaches `store/projects` (repository discovery), which pulls in
+  // `store/profile` → `store/profiles`, and that syncs the REST scope at import.
+  setApiRequestProfile: vi.fn(),
   getHermesConfigRecord: vi.fn(async () => ({ display: { show_reasoning: false }, timezone: 'UTC' })),
   getHermesConfigSchema: vi.fn(async () => ({
     fields: {

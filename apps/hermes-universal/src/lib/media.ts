@@ -1,10 +1,5 @@
 import { readDesktopFileDataUrl } from '@/lib/desktop-fs'
-import {
-  filePathFromMediaPath,
-  isFileMediaPath,
-  isInlineMediaSrc,
-  mediaName
-} from '@/lib/media-format'
+import { filePathFromMediaPath, isFileMediaPath, isInlineMediaSrc, mediaName } from '@/lib/media-format'
 import { $connection } from '@/store/connection'
 
 // Media resolver for the universal (Tauri) client. Ported from

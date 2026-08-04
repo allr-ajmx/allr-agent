@@ -1,12 +1,13 @@
 import { Button } from '@/components/ui/button'
 import { Codicon } from '@/components/ui/codicon'
 import { KbdCombo } from '@/components/ui/kbd'
-import { Tip } from '@/components/ui/tooltip'
+import { Tip, TipKeybindLabel } from '@/components/ui/tooltip'
 import { useI18n } from '@/i18n'
 import { triggerHaptic } from '@/lib/haptics'
 import { AudioLines, iconSize, Layers3, Loader2, Square, SteeringWheel, Volume2, VolumeX } from '@/lib/icons'
 import { formatCombo } from '@/lib/keybinds/combo'
 import { cn } from '@/lib/utils'
+import { bindingsFor } from '@/store/keybinds'
 
 import type { ConversationStatus } from './hooks/use-voice-conversation'
 import { ModelPill } from './model-pill'
@@ -71,13 +72,15 @@ export function ComposerControls({
 }) {
   const { t } = useI18n()
   const c = t.composer
-  const steerCombo = formatCombo('mod+enter')
-  const steerLabel = `${c.steer} (${steerCombo})`
+  // Read from the keybind registry rather than hardcoding the chord — steer is a
+  // readonly binding today, but the registry stays the single source of truth.
+  const steerCombo = bindingsFor('composer.steer')[0] ?? 'mod+enter'
+  const steerLabel = `${c.steer} (${formatCombo(steerCombo)})`
 
   const steerTip = (
     <span className="inline-flex items-center gap-1.5">
       {c.steer}
-      <KbdCombo combo="mod+enter" size="sm" variant="inverted" />
+      <KbdCombo combo={steerCombo} size="sm" variant="inverted" />
     </span>
   )
 
@@ -127,7 +130,19 @@ export function ComposerControls({
           </Button>
         </Tip>
       ) : (
-        <Tip label={busy ? (busyAction === 'queue' ? c.queueMessage : c.stop) : c.send}>
+        <Tip
+          label={
+            busy ? (
+              busyAction === 'queue' ? (
+                <TipKeybindLabel actionId="composer.sendQueued" text={c.queueMessage} />
+              ) : (
+                c.stop
+              )
+            ) : (
+              <TipKeybindLabel actionId="composer.send" text={c.send} />
+            )
+          }
+        >
           <Button
             aria-label={busy ? (busyAction === 'queue' ? c.queueMessage : c.stop) : c.send}
             className={PRIMARY_ICON_BTN}
@@ -195,36 +210,38 @@ function ConversationPill({
         </Button>
       </Tip>
       {listening && (
+        <Tip label={c.stopListening}>
+          <Button
+            aria-label={c.stopListening}
+            className="h-(--composer-control-size) shrink-0 gap-1.5 rounded-full px-2.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+            disabled={disabled}
+            onClick={() => {
+              triggerHaptic('submit')
+              onStopTurn()
+            }}
+            type="button"
+            variant="ghost"
+          >
+            <Square className={cn('fill-current', iconSize.xs)} />
+            <span>{c.stopShort}</span>
+          </Button>
+        </Tip>
+      )}
+      <Tip label={c.endConversation}>
         <Button
-          aria-label={c.stopListening}
-          className="h-(--composer-control-size) shrink-0 gap-1.5 rounded-full px-2.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+          aria-label={c.endConversation}
+          className="h-(--composer-control-size) gap-1.5 rounded-full bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90"
           disabled={disabled}
           onClick={() => {
-            triggerHaptic('submit')
-            onStopTurn()
+            triggerHaptic('close')
+            onEnd()
           }}
-          title={c.stopListening}
           type="button"
-          variant="ghost"
         >
-          <Square className={cn('fill-current', iconSize.xs)} />
-          <span>{c.stopShort}</span>
+          <ConversationIndicator level={level} listening={listening} speaking={speaking} />
+          <span>{c.endShort}</span>
         </Button>
-      )}
-      <Button
-        aria-label={c.endConversation}
-        className="h-(--composer-control-size) gap-1.5 rounded-full bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90"
-        disabled={disabled}
-        onClick={() => {
-          triggerHaptic('close')
-          onEnd()
-        }}
-        title={c.endConversation}
-        type="button"
-      >
-        <ConversationIndicator level={level} listening={listening} speaking={speaking} />
-        <span>{c.endShort}</span>
-      </Button>
+      </Tip>
       <span className="sr-only" role="status">
         {label}
       </span>

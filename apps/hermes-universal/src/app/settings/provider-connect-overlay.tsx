@@ -11,10 +11,10 @@ import {
   $onboarding,
   cancelProviderConnect,
   confirmModel,
-  recheckExternalSignin,
   submitOnboardingCode
 } from '@/store/onboarding'
 
+import { ExternalCliCommand, ExternalDocsButton, ExternalRecheckButton } from './external-signin-panel'
 import { providerTitle } from './oauth-provider-display'
 
 // Focused per-provider connect overlay (Settings → Providers → Accounts). Floats
@@ -26,7 +26,6 @@ export function ProviderConnectOverlay() {
   const state = useStore($onboarding)
   const { t } = useI18n()
   const [code, setCode] = useState('')
-  const [copiedCmd, setCopiedCmd] = useState(false)
 
   if (!provider) {
     return null
@@ -36,15 +35,6 @@ export function ProviderConnectOverlay() {
   const oauth = state.oauth
 
   const copyCode = () => void navigator.clipboard?.writeText(oauth?.userCode ?? '').catch(() => {})
-
-  const copyCommand = () =>
-    void navigator.clipboard
-      ?.writeText(provider.cli_command ?? '')
-      .then(() => {
-        setCopiedCmd(true)
-        setTimeout(() => setCopiedCmd(false), 1500)
-      })
-      .catch(() => {})
 
   let body: React.ReactNode
 
@@ -78,39 +68,19 @@ export function ProviderConnectOverlay() {
     body = (
       <div className="flex flex-col">
         <p className="text-sm text-muted-foreground">{t.onboarding.externalPending(title)}</p>
-        <div className="mt-3 flex items-center gap-2">
-          <code className="min-w-0 flex-1 overflow-x-auto rounded-lg bg-muted px-3 py-2 font-mono text-sm whitespace-nowrap text-foreground">
-            <span className="text-muted-foreground">$ </span>
-            {provider.cli_command}
-          </code>
-          <Button onClick={copyCommand} size="sm" type="button" variant="outline">
-            {copiedCmd ? t.common.copied : t.onboarding.copy}
-          </Button>
+        <div className="mt-3">
+          <ExternalCliCommand command={provider.cli_command} />
         </div>
 
         {state.error && <p className="mt-2 text-xs text-destructive">{state.error}</p>}
 
         <div className="mt-3 flex items-center justify-between gap-2">
-          {provider.docs_url ? (
-            <Button onClick={() => void openExternalLink(provider.docs_url)} size="sm" type="button" variant="ghost">
-              {t.onboarding.docs(title)}
-            </Button>
-          ) : (
-            <span />
-          )}
+          {provider.docs_url ? <ExternalDocsButton provider={provider} /> : <span />}
           <div className="flex items-center gap-2">
             <Button onClick={() => cancelProviderConnect()} size="sm" type="button" variant="ghost">
               {t.common.cancel}
             </Button>
-            <Button
-              disabled={oauth.status === 'rechecking'}
-              onClick={() => void recheckExternalSignin()}
-              size="sm"
-              type="button"
-            >
-              {oauth.status === 'rechecking' && <Loader2 className="size-3.5 animate-spin" />}
-              {t.onboarding.signedIn}
-            </Button>
+            <ExternalRecheckButton rechecking={oauth.status === 'rechecking'} />
           </div>
         </div>
       </div>

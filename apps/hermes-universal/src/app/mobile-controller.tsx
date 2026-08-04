@@ -15,24 +15,27 @@ import { SettingsView } from '@/app/settings/settings-view'
 import { StarmapView } from '@/app/starmap'
 import { NotificationStack } from '@/components/notifications'
 import { useMediaQuery } from '@/hooks/use-media-query'
-import { IS_DESKTOP, IS_IOS, IS_MOBILE } from '@/lib/platform'
+import { IS_DESKTOP, IS_MOBILE } from '@/lib/platform'
 import { useStore } from '@/store/atom'
 import { $connectionPhase, $hasConnected } from '@/store/connection'
 import { $restoring } from '@/store/gateway-restore'
+import { $gatewaySwitching } from '@/store/gateway-switch'
 import { $onboardingActive, checkConfigured } from '@/store/onboarding'
 import { syncPetInfo } from '@/store/pet-gallery'
 import { deleteSessionLocal } from '@/store/session'
+import { $statusbarVisible } from '@/store/statusbar-prefs'
 import { openAppRoute } from '@/store/windows'
 import { bumpZoom, initZoom, setZoomPercent } from '@/store/zoom'
 
 import { ContribController } from './contrib/controller'
 import { WorkspaceRoutes } from './contrib/panes'
 import { useKeybinds } from './hooks/use-keybinds'
-import { COMMAND_CENTER_ROUTE, sessionRoute } from './routes'
+import { COMMAND_CENTER_ROUTE, GATEWAY_SETTINGS_ROUTE, sessionRoute } from './routes'
 import { SessionSwitcher } from './session-switcher'
 import { CommandMenu } from './shell/command-menu'
 import { useOverlayRouting } from './shell/hooks/use-overlay-routing'
 import { MobileShell } from './shell/mobile-shell'
+import { MobileSurfaceShell } from './shell/mobile-surface-shell'
 import { AppShell, SidebarProvider } from './shell/sidebar'
 import { Statusbar } from './shell/statusbar'
 import { Titlebar } from './shell/titlebar'
@@ -46,6 +49,8 @@ export function MobileController() {
   const onboarding = useStore($onboardingActive)
   const restoring = useStore($restoring)
   const hasConnected = useStore($hasConnected)
+  const switching = useStore($gatewaySwitching)
+  const statusbarVisible = useStore($statusbarVisible)
 
   // UI scale: apply the persisted zoom once, and wire Cmd/Ctrl +/-/0 shortcuts.
   // Zoom stays outside the rebindable registry — desktop keeps it out too.
@@ -83,7 +88,13 @@ export function MobileController() {
     }
   }, [phase])
 
-  const connected = phase === 'ready' && !onboarding
+  // A soft gateway switch (store/gateway-switch.ts) drops the socket for a moment
+  // while it re-dials. Treat that window as live so the shell — and the surface
+  // driving the switch (Settings, the statusbar gateway popover) — stays mounted
+  // instead of bouncing to the connecting screen. Only once we've been connected:
+  // on a first run the connect screen owns the dial and must keep it.
+  const live = phase === 'ready' || (switching && hasConnected)
+  const connected = live && !onboarding
 
   // Desktop always uses the docked (wide) shell regardless of window width;
   // mobile/web fall to the phone drawer below 768px. The wide path renders the
@@ -122,11 +133,18 @@ export function MobileController() {
   // reconnect / sign-in surface). Every other settings section needs live gateway
   // data, so keeping the overlay mounted there while disconnected would just render
   // empty sections — so a disconnect only holds the overlay open on Gateway.
-  const settingsGatewayOpen = pathname === '/settings/gateway'
+  const settingsGatewayOpen = pathname === GATEWAY_SETTINGS_ROUTE
+
+  // Whether any of the three windowable surfaces (Settings / Command Center /
+  // Profiles) is open — the trigger for the mobile in-app surface shell. Mirrors the
+  // per-surface gates of the desktop overlays (Settings survives a disconnect on the
+  // Gateway page; the other two need a live connection).
+  const mobileSurfaceOpen =
+    (settingsOpen && (connected || settingsGatewayOpen)) || (connected && (commandCenterOpen || profilesOpen))
 
   let content: ReactNode
 
-  if (phase !== 'ready') {
+  if (!live) {
     // Not connected. Priority: a boot restore shows the connecting screen; if the
     // user is in Settings (e.g. they just signed out on the gateway page) keep a
     // neutral backdrop so the Settings overlay stays and shows the Sign in button
@@ -201,16 +219,37 @@ export function MobileController() {
         {/* Bottom statusbar (ported from desktop): a real shrink-0 row below the
             content. Connected-only — it reads live gateway/session state. Hidden
             on mobile: the touch shell is a blank canvas for now and the statusbar
-            is a desktop surface it will grow its own equivalent of. */}
-        {connected && !IS_MOBILE && <Statusbar />}
+            is a desktop surface it will grow its own equivalent of.
+            UNMOUNTED — not just hidden — while toggled off, so its status poll
+            and the per-turn readouts stop with it. */}
+        {connected && !IS_MOBILE && statusbarVisible && <Statusbar />}
         {/* Settings portal — a full-window overlay (fixed z-50) over the titlebar
             (z-40) and chat backdrop. Stays mounted while disconnected too (a
             settings-initiated "Save & reconnect", or a sign-out) so reconfiguring or
             re-authenticating the gateway never bounces the user out to the connect
             picker — desktop parity. Blocked only during the first-run onboarding
             wizard (phase ready but not connected). */}
-        {settingsOpen && (connected || settingsGatewayOpen) && (
-          <SettingsView returnPath={returnPathRef.current} variant={IS_IOS ? 'fullbleed' : 'overlay'} />
+        {/* Mobile: Settings / Command Center / Profiles present as ONE full-screen
+            in-app surface with the shared mobile chrome (top bar + two drawers),
+            derived live from the route — parity with the Android native activity
+            screen (MJX-203). Its OWN SidebarProvider isolates these drawers from the
+            home MobileShell's drawers (both mount Sheets keyed to the same useSidebar
+            booleans). Home/back navigates to the stashed route (NOT returnHome, whose
+            iOS fallback would try to close the primary window). The desktop floating-
+            overlay path below is used off-mobile (and stays untouched). */}
+        {IS_MOBILE && mobileSurfaceOpen && (
+          <div className="fixed inset-0 z-50">
+            <SidebarProvider>
+              <MobileSurfaceShell
+                onHome={closeOverlayToPreviousRoute}
+                onNavigateRoute={path => navigate(path)}
+                onOpenSession={sessionId => navigate(sessionRoute(sessionId))}
+              />
+            </SidebarProvider>
+          </div>
+        )}
+        {!IS_MOBILE && settingsOpen && (connected || settingsGatewayOpen) && (
+          <SettingsView returnPath={returnPathRef.current} variant="overlay" />
         )}
         {/* Agents ("Spawn tree") overlay — desktop's live subagent surface,
             floated over the chat backdrop and opened from the statusbar Agents
@@ -219,13 +258,13 @@ export function MobileController() {
         {/* Command Center overlay — desktop's Sessions / System / Usage /
             Maintenance ops surface, opened from the statusbar (icon + version
             chips) and the sidebar rail. */}
-        {connected && commandCenterOpen && (
+        {!IS_MOBILE && connected && commandCenterOpen && (
           <CommandCenterView
             onClose={closeOverlayToPreviousRoute}
             onDeleteSession={deleteSessionLocal}
             onNavigateRoute={path => navigate(path)}
             onOpenSession={sessionId => navigate(sessionRoute(sessionId))}
-            variant={IS_IOS ? 'fullbleed' : 'overlay'}
+            variant="overlay"
           />
         )}
         {/* Cron ("Routines") overlay — desktop's scheduled-jobs master/detail:
@@ -238,7 +277,7 @@ export function MobileController() {
           />
         )}
         {/* Profiles overlay — desktop's profile CRUD + soul editor master/detail. */}
-        {connected && profilesOpen && <ProfilesView onClose={closeOverlayToPreviousRoute} />}
+        {!IS_MOBILE && connected && profilesOpen && <ProfilesView onClose={closeOverlayToPreviousRoute} />}
         {/* Star map overlay — the radial "what Hermes has learned" map. */}
         {connected && starmapOpen && <StarmapView onClose={closeOverlayToPreviousRoute} />}
         {/* Provider-connect overlay — a focused per-provider sign-in card that
