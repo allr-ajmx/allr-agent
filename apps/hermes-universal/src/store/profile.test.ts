@@ -19,7 +19,13 @@ vi.mock('@/hermes', () => ({
   })),
   setApiRequestProfile: vi.fn()
 }))
-vi.mock('@/lib/query-client', () => ({ queryClient: { invalidateQueries: vi.fn() } }))
+// selectProfile() funnels through @/store/profiles' setActiveProfile, which
+// invalidates the profile-scoped caches and then bumps the slash-completion
+// epoch — so this mock has to carry both exports.
+vi.mock('@/lib/query-client', () => ({
+  invalidateProfileScopedQueries: vi.fn(),
+  queryClient: { invalidateQueries: vi.fn() }
+}))
 
 import {
   $profileColors,

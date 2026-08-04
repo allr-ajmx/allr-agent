@@ -354,6 +354,7 @@ export const en: Translations = {
       archivedChats: 'Archived Chats',
       about: 'About',
       notifications: 'Notifications',
+      billing: 'Billing',
       plugins: 'Plugins'
     },
     plugins: {

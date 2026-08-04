@@ -258,6 +258,7 @@ export const zhHant = defineLocale({
       archivedChats: '已封存聊天',
       about: '關於',
       notifications: '通知',
+      billing: '帳單',
       plugins: '外掛'
     },
     plugins: {

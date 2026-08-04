@@ -1,6 +1,6 @@
 import { createProfile, deleteProfile, getProfiles, renameProfile, setApiRequestProfile } from '@/hermes'
 import { Codecs, persistentAtom } from '@/lib/persisted'
-import { queryClient } from '@/lib/query-client'
+import { invalidateProfileScopedQueries } from '@/lib/query-client'
 import { invalidateSlashCompletions } from '@/lib/slash-completion-cache'
 import { atom } from '@/store/atom'
 import { notifyError } from '@/store/notifications'
@@ -33,10 +33,10 @@ export function setActiveProfile(name: null | string): void {
 
   setApiRequestProfile(next)
   $activeProfile.set(next)
-  void queryClient.invalidateQueries()
+  invalidateProfileScopedQueries()
   // Each profile has its own skills directory, so the composer's cached `/`
   // catalog is only valid for the profile that produced it. Bumped explicitly
-  // (rather than relying on the blanket invalidate above) because the completion
+  // (rather than relying on the invalidate above) because the completion
   // adapter de-dupes on the query and needs the epoch to know it went stale.
   invalidateSlashCompletions()
 }
