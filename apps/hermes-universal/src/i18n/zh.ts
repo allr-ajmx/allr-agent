@@ -708,7 +708,7 @@ export const zh: Translations = {
       }
     }),
     about: {
-      heading: 'Hermes Desktop',
+      heading: 'Hermes',
       version: value => `版本 ${value}`,
       versionUnavailable: '版本不可用',
       updates: '更新',
@@ -721,6 +721,11 @@ export const zh: Translations = {
       installing: '正在安装更新。',
       cantUpdate: '此版本无法在应用内自我更新。',
       cantReach: '无法连接更新服务器。',
+      cantRead: '无法读取应用商店信息。',
+      newVersion: version => `版本 ${version} 已发布。`,
+      downloadUpdate: '下载',
+      openInPlayStore: '在 Play 商店中打开',
+      openInAppStore: '在 App Store 中打开',
       tapCheck: '点击"立即检查"以查找更新。',
       updateReady: count => `已准备好新更新 (包含 ${count} 项更改)。`,
       lastChecked: age => `上次检查:${age}`,

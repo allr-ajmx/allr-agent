@@ -20,6 +20,7 @@ mod pty;
 mod repo_scan;
 mod ssh;
 mod transport;
+mod updates;
 mod voice;
 mod window;
 
@@ -41,6 +42,7 @@ use ssh::{
 use transport::{
     cookies_export, cookies_import, http_request, ws_close, ws_open, ws_send, TransportState,
 };
+use updates::{update_check, update_open_download, UpdateState};
 use voice::{
     voice_arm, voice_close, voice_force_turn, voice_open, voice_suspend, voice_update_auth,
     VoiceState,
@@ -103,6 +105,7 @@ pub fn run() {
         .manage(LocalBackendState::default())
         .manage(PtyState::default())
         .manage(VoiceState::default())
+        .manage(UpdateState::default())
         // Live SSH sessions. Unlike desktop's on-disk control socket, nothing
         // here outlives the process, so there is no stale master to evict.
         .manage(SshState::default())
@@ -187,6 +190,8 @@ pub fn run() {
             open_session_window,
             open_instance_window,
             open_screen_window,
+            update_check,
+            update_open_download,
             ssh_connect,
             ssh_test,
             ssh_disconnect,

@@ -15,6 +15,14 @@ rust-version = "1.85"
 name = "hermes_universal_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+# Update checks (MJX-6, updates.rs): the real GitHub-Releases / Play-listing /
+# iTunes-Lookup queries are OFF by default — a stock build compiles the stub,
+# which reports "no update available" and never touches the network. Turn them on
+# for a release build with `--features update-checks`.
+[features]
+default = []
+update-checks = ["dep:regex"]
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
@@ -105,6 +113,11 @@ rustls = { version = "0.23", default-features = false, features = ["ring"] }
 # flate2/miniz_oxide backend) — no native codec deps, so it stays cross-platform
 # incl. the Android/iOS NDK build.
 zip = { version = "2", default-features = false, features = ["deflate"] }
+
+# Play Store listing scrape (updates.rs) — only pulled in by `update-checks`.
+# Google publishes no version API, so the listing HTML is the only source; the
+# patterns it matches are inherently unstable, hence the soft "unparsed" result.
+regex = { version = "1", optional = true }
 
 # Explicit, serializable cookie jar (D3.a/D4): replaces reqwest's private default
 # jar so the OAuth flow (oauth.rs) can share one store across a redirect-following

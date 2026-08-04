@@ -450,6 +450,11 @@ export interface Translations {
       installing: string
       cantUpdate: string
       cantReach: string
+      cantRead: string
+      newVersion: (version: string) => string
+      downloadUpdate: string
+      openInPlayStore: string
+      openInAppStore: string
       tapCheck: string
       updateReady: (count: number) => string
       lastChecked: (age: string) => string
