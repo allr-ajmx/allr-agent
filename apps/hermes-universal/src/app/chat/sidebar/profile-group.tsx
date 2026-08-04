@@ -3,6 +3,7 @@ import { useState } from 'react'
 
 import { Codicon } from '@/components/ui/codicon'
 import { DisclosureCaret } from '@/components/ui/disclosure-caret'
+import { Tip } from '@/components/ui/tooltip'
 import { useI18n } from '@/i18n'
 import { setWorkspaceNodeOpen } from '@/store/layout'
 import type { SessionInfo } from '@/types/hermes'
@@ -55,20 +56,21 @@ export function SidebarProfileGroup({ group, onNewSession, renderRows }: Sidebar
       <SidebarRowShell
         actions={
           onNewSession && (
-            <button
-              aria-label={s.newSessionIn(group.label)}
-              className="grid size-5 shrink-0 place-items-center rounded-sm text-(--ui-text-tertiary) opacity-0 transition hover:bg-(--ui-control-hover-background) hover:text-foreground group-hover:opacity-100"
-              onClick={() => {
-                // Reveal the lane the new session lands in (same as the worktree
-                // lanes' "+", which force it open rather than toggling).
-                setWorkspaceNodeOpen(group.id, true)
-                onNewSession(group.id)
-              }}
-              title={s.newSessionIn(group.label)}
-              type="button"
-            >
-              <Codicon name="add" size="0.75rem" />
-            </button>
+            <Tip label={s.newSessionIn(group.label)}>
+              <button
+                aria-label={s.newSessionIn(group.label)}
+                className="grid size-5 shrink-0 place-items-center rounded-sm text-(--ui-text-tertiary) opacity-0 transition hover:bg-(--ui-control-hover-background) hover:text-foreground group-hover:opacity-100"
+                onClick={() => {
+                  // Reveal the lane the new session lands in (same as the worktree
+                  // lanes' "+", which force it open rather than toggling).
+                  setWorkspaceNodeOpen(group.id, true)
+                  onNewSession(group.id)
+                }}
+                type="button"
+              >
+                <Codicon name="add" size="0.75rem" />
+              </button>
+            </Tip>
           )
         }
         className="group row-hover"

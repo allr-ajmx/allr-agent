@@ -23,6 +23,7 @@ import {
   PaneTab,
   PaneTabLabel
 } from '@/components/ui/pane-tab'
+import { Tip, TipKeybindLabel } from '@/components/ui/tooltip'
 import { ContribBoundary } from '@/contrib/react/boundary'
 import { useContributions } from '@/contrib/react/use-contributions'
 import { useI18n } from '@/i18n'
@@ -483,16 +484,17 @@ export function TreeGroup({
                   A terminal or preview strip has its own create verb, so a `+`
                   there would be ambiguous. */}
               {chatZone && onNewTab && (
-                <button
-                  aria-label={t.zones.newTab}
-                  className="mx-1 grid size-5 shrink-0 place-items-center self-center rounded-md text-(--ui-text-tertiary) opacity-0 transition-opacity hover:bg-(--ui-control-hover-background) hover:text-foreground focus-visible:opacity-100 group-hover/pane-header:opacity-100"
-                  onClick={onNewTab}
-                  onPointerDown={e => e.stopPropagation()}
-                  title={t.zones.newTab}
-                  type="button"
-                >
-                  <Codicon name="add" size="0.75rem" />
-                </button>
+                <Tip label={<TipKeybindLabel actionId="session.newTab" text={t.zones.newTab} />}>
+                  <button
+                    aria-label={t.zones.newTab}
+                    className="mx-1 grid size-5 shrink-0 place-items-center self-center rounded-md text-(--ui-text-tertiary) opacity-0 transition-opacity hover:bg-(--ui-control-hover-background) hover:text-foreground focus-visible:opacity-100 group-hover/pane-header:opacity-100"
+                    onClick={onNewTab}
+                    onPointerDown={e => e.stopPropagation()}
+                    type="button"
+                  >
+                    <Codicon name="add" size="0.75rem" />
+                  </button>
+                </Tip>
               )}
             </div>
             {minimizable && (
