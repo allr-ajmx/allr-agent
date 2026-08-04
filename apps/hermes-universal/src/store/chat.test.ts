@@ -19,6 +19,9 @@ import { newDraftKey, updateSession } from '@/store/session-state-types'
 import { $subagentsBySession } from '@/store/subagents'
 import { resetSessionStates, seedActiveSession, seedSession, sessionMessages } from '@/test-sessions'
 
+vi.mock('@/components/chat/vibe-hearts', () => ({ burstVibeHearts: vi.fn() }))
+import { burstVibeHearts } from '@/components/chat/vibe-hearts'
+
 import {
   $approval,
   $busy,
@@ -50,6 +53,37 @@ beforeEach(() => {
   // resolve to whatever `$activeSessionKey` names.
   seedActiveSession('runtime-1')
   vi.mocked(requestGateway).mockReset()
+  vi.mocked(burstVibeHearts).mockReset()
+})
+
+describe('reaction events', () => {
+  it('bursts hearts for a vibe reaction on the visible session', () => {
+    handleGatewayEvent(ev('reaction', { kind: 'vibe' }))
+
+    expect(burstVibeHearts).toHaveBeenCalledTimes(1)
+  })
+
+  it('defaults a reaction with no kind to vibe', () => {
+    handleGatewayEvent(ev('reaction', {}))
+
+    expect(burstVibeHearts).toHaveBeenCalledTimes(1)
+  })
+
+  it('ignores reaction kinds it has no renderer for', () => {
+    handleGatewayEvent(ev('reaction', { kind: 'confetti' }))
+
+    expect(burstVibeHearts).not.toHaveBeenCalled()
+  })
+
+  it('stays quiet for a background session, so only the visible chat reacts', () => {
+    // A KNOWN session that simply isn't the one on screen — the router folds its
+    // events in, but hearts sit behind the active-session gate.
+    seedSession('runtime-2')
+
+    handleGatewayEvent({ type: 'reaction', session_id: 'runtime-2', payload: { kind: 'vibe' } } as GatewayEvent)
+
+    expect(burstVibeHearts).not.toHaveBeenCalled()
+  })
 })
 
 describe('chat reducer (parts model)', () => {

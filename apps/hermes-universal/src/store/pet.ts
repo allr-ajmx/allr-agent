@@ -27,6 +27,9 @@ export const $petInfo = atom<PetInfo>({ enabled: false })
 
 export const setPetInfo = (info: PetInfo) => $petInfo.set(info)
 
+/** Pet installed + enabled with a loaded spritesheet (ready to show/react). */
+export const $petActive = computed($petInfo, info => info.enabled && Boolean(info.spritesheetBase64))
+
 // The animated pose the sprite draws. Ported from desktop's PetState taxonomy
 // (mirrors agent.pet.state) so every Codex row can come alive.
 export type PetState = 'idle' | 'wave' | 'run' | 'failed' | 'review' | 'jump' | 'waiting'
@@ -40,8 +43,9 @@ export type PetState = 'idle' | 'wave' | 'run' | 'failed' | 'review' | 'jump' | 
  * - `busy` / `reasoning` / `toolRunning`: steady in-turn flags set + cleared by
  *   the stream.
  * - `awaitingInput`: a clarify/approval question is blocking on the user.
- * - `error` / `greeting`: transient reaction beats fired via `flashPetActivity`
- *   (crying on failure; waving on app-open / new-chat), auto-decaying back.
+ * - `error` / `greeting` / `celebrate`: transient reaction beats fired via
+ *   `flashPetActivity` (crying on failure; waving on app-open / new-chat;
+ *   hopping when the user sends affection), auto-decaying back.
  */
 export interface PetActivity {
   busy?: boolean
@@ -50,6 +54,7 @@ export interface PetActivity {
   reasoning?: boolean
   error?: boolean
   greeting?: boolean
+  celebrate?: boolean
 }
 
 export const $petActivity = atom<PetActivity>({})
@@ -60,26 +65,35 @@ export const setPetActivity = (next: Partial<PetActivity>) => $petActivity.set({
 let flashTimer: ReturnType<typeof setTimeout> | undefined
 
 /**
- * Fire a transient reaction beat (`error` / `greeting`) that decays back to the
- * steady state after `ms`. Each beat first clears its siblings so a stale one
- * can't win the priority race in `derivePetState` (e.g. a lingering `error`
- * outranking a fresh `greeting`).
+ * Fire a transient reaction beat (`error` / `greeting` / `celebrate`) that
+ * decays back to the steady state after `ms`. Each beat first clears its
+ * siblings so a stale one can't win the priority race in `derivePetState` (e.g.
+ * a lingering `error` outranking a fresh `greeting`).
  */
 export const flashPetActivity = (next: Partial<PetActivity>, ms = 1600) => {
-  setPetActivity({ error: false, greeting: false, ...next })
+  setPetActivity({ celebrate: false, error: false, greeting: false, ...next })
   clearTimeout(flashTimer)
-  flashTimer = setTimeout(() => setPetActivity({ error: false, greeting: false }), ms)
+  flashTimer = setTimeout(() => setPetActivity({ celebrate: false, error: false, greeting: false }), ms)
 }
 
 /**
  * Resolve the animation state from coarse activity signals. Priority (highest
- * first) mirrors desktop `derivePetState` (adapted: `celebrate`/`justCompleted`
- * collapse into `greeting`, since universal only waves on app-open/new-chat):
- * error → greeting → awaitingInput → toolRunning → reasoning → busy → idle.
- * `awaitingInput` outranks the in-flight signals because the turn is paused on
- * the user, not working.
+ * first) mirrors desktop `derivePetState` (adapted: `justCompleted` collapses
+ * into `greeting`, since universal only waves on app-open/new-chat):
+ * celebrate → error → greeting → awaitingInput → toolRunning → reasoning →
+ * busy → idle. `celebrate` outranks everything because it's the reply to a
+ * direct bit of affection — it should land even mid-turn. `awaitingInput`
+ * outranks the in-flight signals because the turn is paused on the user, not
+ * working.
+ *
+ * `celebrate` maps to `jump`: universal's PetState taxonomy has no dedicated
+ * celebrate row, and hopping is the existing "yay" pose.
  */
 export function derivePetState(activity: PetActivity): PetState {
+  if (activity.celebrate) {
+    return 'jump'
+  }
+
   if (activity.error) {
     return 'failed'
   }

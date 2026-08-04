@@ -1,13 +1,15 @@
 import '@/app/shell/nav-contrib' // side-effect: registers the app's own rail rows
 
-import { Fragment, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 
 import { type AppView, appViewForPath, SIDEBAR_NAV_AREA, type SidebarNavContribution } from '@/app/routes'
+import { NAV_ACTION_BY_VIEW } from '@/app/shell/nav-items'
 import { NAV_ROW_ACTIVE, NAV_ROW_BASE } from '@/app/shell/nav-row'
 import { Codicon } from '@/components/ui/codicon'
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from '@/components/ui/context-menu'
 import { KbdCombo } from '@/components/ui/kbd'
+import { Tip, TipKeybindLabel } from '@/components/ui/tooltip'
 import { useContributions } from '@/contrib/react/use-contributions'
 import { useI18n } from '@/i18n'
 import { triggerHaptic } from '@/lib/haptics'
@@ -128,13 +130,17 @@ export function SidebarNavRail({ variant, onNavigate }: { variant: 'pane' | 'she
 
           const label = item.label ?? t.sidebar.nav[(item.labelKey ?? item.id) as NavId] ?? item.id
           const isNewSession = item.id === 'new-session'
+          // New session already paints its combo inline, so its tip stays the
+          // plain label; the other core rows carry the hint in the tooltip. A
+          // contributed row has no keybind of its own, so it gets the label too.
+          const actionId = item.view ? NAV_ACTION_BY_VIEW[item.view] : undefined
+          const tipLabel = !isNewSession && actionId ? <TipKeybindLabel actionId={actionId} text={label} /> : label
 
           const row = (
             <button
               aria-current={active ? 'page' : undefined}
               className={cn(ROW_BASE, active && ROW_ACTIVE)}
               onClick={() => handle(item)}
-              title={label}
               type="button"
             >
               <Codicon
@@ -156,12 +162,21 @@ export function SidebarNavRail({ variant, onNavigate }: { variant: 'pane' | 'she
           // analog of a session tile) — same right-click verb sessions use.
           // Tiles are a layout-tree affordance, so phones don't offer it.
           if (IS_MOBILE || !item.route) {
-            return <Fragment key={item.id}>{row}</Fragment>
+            return (
+              <Tip key={item.id} label={tipLabel}>
+                {row}
+              </Tip>
+            )
           }
 
+          // Tip wraps the TRIGGER, not the other way round: both compose via
+          // `asChild`, and only this order leaves the button as the single real
+          // child both of them clone onto.
           return (
             <ContextMenu key={item.id}>
-              <ContextMenuTrigger asChild>{row}</ContextMenuTrigger>
+              <Tip label={tipLabel}>
+                <ContextMenuTrigger asChild>{row}</ContextMenuTrigger>
+              </Tip>
               <ContextMenuContent aria-label={label}>
                 <ContextMenuItem
                   onSelect={() => {
@@ -180,18 +195,22 @@ export function SidebarNavRail({ variant, onNavigate }: { variant: 'pane' | 'she
         {/* Phones have no titlebar, so the command menu (other views) needs an
             in-drawer entry point. Desktop reaches it from the titlebar. */}
         {variant === 'sheet' && (
-          <button
-            className={cn(ROW_BASE, 'mt-1')}
-            onClick={() => {
-              openCommandMenu()
-              onNavigate?.()
-            }}
-            title={t.titlebar.search}
-            type="button"
-          >
-            <Codicon className="size-4 shrink-0 text-[color-mix(in_srgb,currentColor_72%,transparent)]" name="search" />
-            <span className="min-w-0 flex-1 truncate">{t.titlebar.search}</span>
-          </button>
+          <Tip label={<TipKeybindLabel actionId="nav.commandPalette" text={t.titlebar.search} />}>
+            <button
+              className={cn(ROW_BASE, 'mt-1')}
+              onClick={() => {
+                openCommandMenu()
+                onNavigate?.()
+              }}
+              type="button"
+            >
+              <Codicon
+                className="size-4 shrink-0 text-[color-mix(in_srgb,currentColor_72%,transparent)]"
+                name="search"
+              />
+              <span className="min-w-0 flex-1 truncate">{t.titlebar.search}</span>
+            </button>
+          </Tip>
         )}
       </div>
     </div>

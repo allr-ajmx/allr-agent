@@ -336,6 +336,7 @@ export function useStatusbarItems(opts?: {
         ) : (
           <Codicon name="hubot" size="0.75rem" />
         ),
+      actionId: 'nav.agents',
       id: 'agents',
       label: copy.agents,
       title: copy.openAgents,

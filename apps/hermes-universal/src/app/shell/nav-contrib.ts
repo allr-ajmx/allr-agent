@@ -34,20 +34,7 @@ import { newChatBubble } from '@/store/chat-bubbles'
 import { newSession } from '@/store/session'
 import { openAppRoute } from '@/store/windows'
 
-import { NAV_ITEMS } from './nav-items'
-
-/** Keybind action whose combo a destination's menu row advertises. */
-const NAV_ACTION_BY_VIEW: Record<string, string> = {
-  agents: 'nav.agents',
-  artifacts: 'nav.artifacts',
-  chat: 'session.new',
-  'command-center': 'nav.commandCenter',
-  cron: 'nav.cron',
-  messaging: 'nav.messaging',
-  profiles: 'nav.profiles',
-  settings: 'nav.settings',
-  skills: 'nav.skills'
-}
+import { NAV_ACTION_BY_VIEW, NAV_ITEMS } from './nav-items'
 
 // Core rows sort ahead of contributed ones: a plugin command registers with no
 // `order` (0), so the app's destinations claim the negative range.
