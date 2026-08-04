@@ -22,7 +22,12 @@ vi.mock('@/hermes', () => ({
   deleteProfile: vi.fn(async () => ({ ok: true, path: '/p/x' })),
   setApiRequestProfile: vi.fn()
 }))
-vi.mock('@/lib/query-client', () => ({ invalidateProfileScopedQueries: vi.fn() }))
+// `queryClient` is reached indirectly: setActiveProfile also calls
+// invalidateSlashCompletions(), which pulls it out of this same module.
+vi.mock('@/lib/query-client', () => ({
+  invalidateProfileScopedQueries: vi.fn(),
+  queryClient: { invalidateQueries: vi.fn() }
+}))
 
 import { deleteProfile, setApiRequestProfile } from '@/hermes'
 import { invalidateProfileScopedQueries } from '@/lib/query-client'
