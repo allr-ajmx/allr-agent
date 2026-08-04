@@ -32,9 +32,7 @@ vi.mock('@/hermes', () => ({
       }
     ]
   })),
-  saveMemoryProviderConfig: vi.fn(async () => ({ ok: true })),
-  // Pulled in by the full-config modal's `@/store/profile` import chain.
-  setApiRequestProfile: vi.fn()
+  saveMemoryProviderConfig: vi.fn(async () => ({ ok: true }))
 }))
 
 import { I18nProvider } from '@/i18n'
