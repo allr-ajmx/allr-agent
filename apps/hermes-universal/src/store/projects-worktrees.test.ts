@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { selectDesktopPaths } from '@/lib/desktop-fs'
 import { desktopGit } from '@/lib/desktop-git'
 
 const bridge = {
@@ -12,12 +13,19 @@ const bridge = {
 
 vi.mock('@/lib/desktop-git', () => ({ desktopGit: vi.fn(() => bridge) }))
 
+vi.mock('@/lib/desktop-fs', () => ({
+  copyTextToClipboard: vi.fn(async () => {}),
+  desktopDefaultCwd: vi.fn(async () => ({ branch: 'main', cwd: '/work' })),
+  selectDesktopPaths: vi.fn(async () => ['/work/picked'])
+}))
+
 import {
   $newWorktreeRequest,
   $startWorkSessionRequest,
   $worktreeRefreshToken,
   listBaseBranches,
   listRepoBranches,
+  pickProjectFolder,
   removeWorktreePath,
   requestNewWorktree,
   requestStartWorkSession,
@@ -92,6 +100,17 @@ describe('projects store — worktree ops', () => {
     requestStartWorkSession('  ')
 
     expect($startWorkSessionRequest.get()).toBeNull()
+  })
+
+  it('picks a project folder through the remote-aware picker, seeded at the backend cwd', async () => {
+    expect(await pickProjectFolder()).toBe('/work/picked')
+    expect(selectDesktopPaths).toHaveBeenCalledWith({ defaultPath: '/work', directories: true, multiple: false })
+  })
+
+  it('treats an empty pick as cancelled', async () => {
+    vi.mocked(selectDesktopPaths).mockResolvedValueOnce([])
+
+    expect(await pickProjectFolder()).toBeNull()
   })
 
   it('bumps the new-worktree hotkey token', () => {
