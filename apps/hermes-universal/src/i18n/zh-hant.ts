@@ -743,10 +743,14 @@ export const zhHant = defineLocale({
       signOutFailed: '登出失敗',
       testFailed: '遠端閘道測試失敗',
       applyFailed: '無法套用閘道設定',
+      switchFailed: '切換閘道失敗',
+      sessionMissingTitle: '閘道已變更',
+      sessionMissingMessage: '此工作階段在新閘道上不存在。',
       saveFailed: '無法儲存閘道設定',
       connectingTitle: '正在連線 Hermes',
       reconnectingTo: target => `正在重新連線至 ${target}…`,
-      useDifferentGateway: '使用其他閘道'
+      useDifferentGateway: '使用其他閘道',
+      startOver: '重新開始'
     },
     keys: {
       loading: '正在載入 API 金鑰和憑證...',
@@ -2073,7 +2077,9 @@ export const zhHant = defineLocale({
       connection: label => `連線：${label}`,
       recentActivity: '最近活動',
       viewAllLogs: '查看全部記錄 →',
-      messagingPlatforms: '訊息平台'
+      messagingPlatforms: '訊息平台',
+      changeGateway: '更換閘道',
+      hideGatewaySettings: '隱藏閘道設定'
     },
     statusbar: {
       unknown: '未知',

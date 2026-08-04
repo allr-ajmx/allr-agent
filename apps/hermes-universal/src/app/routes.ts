@@ -7,6 +7,9 @@ import type { Contribution } from '@/contrib/types'
 export const SESSION_ROUTE_PREFIX = '/'
 export const NEW_CHAT_ROUTE = '/'
 export const SETTINGS_ROUTE = '/settings'
+/** Settings drill-in for the gateway configurator — the phone's "Change gateway"
+ *  target (the drawer popover is too cramped for the connect form). */
+export const GATEWAY_SETTINGS_ROUTE = '/settings/gateway'
 /** Settings drill-in for the pet gallery + generator (`/hatch`, `/pet list`). */
 export const PET_SETTINGS_ROUTE = '/settings/pet'
 /** Settings drill-in for the plugin inventory (MJX-53). */

@@ -280,7 +280,8 @@ export async function refreshSessions(): Promise<void> {
   }
 }
 
-/** Drop back to the first page — called when the profile scope changes. */
+/** Drop back to the first page — called when the profile scope changes, and when a
+ *  soft gateway switch starts the list over. */
 export function resetSessionsPaging(): void {
   $sessionsLimit.set(PAGE)
 }

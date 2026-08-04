@@ -633,10 +633,14 @@ export interface Translations {
       signOutFailed: string
       testFailed: string
       applyFailed: string
+      switchFailed: string
+      sessionMissingTitle: string
+      sessionMissingMessage: string
       saveFailed: string
       connectingTitle: string
       reconnectingTo: (target: string) => string
       useDifferentGateway: string
+      startOver: string
     }
     keys: {
       loading: string
@@ -1886,6 +1890,8 @@ export interface Translations {
       recentActivity: string
       viewAllLogs: string
       messagingPlatforms: string
+      changeGateway: string
+      hideGatewaySettings: string
     }
     approvalMode: {
       title: string

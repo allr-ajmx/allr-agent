@@ -19,6 +19,7 @@ import { IS_DESKTOP, IS_MOBILE } from '@/lib/platform'
 import { useStore } from '@/store/atom'
 import { $connectionPhase, $hasConnected } from '@/store/connection'
 import { $restoring } from '@/store/gateway-restore'
+import { $gatewaySwitching } from '@/store/gateway-switch'
 import { $onboardingActive, checkConfigured } from '@/store/onboarding'
 import { syncPetInfo } from '@/store/pet-gallery'
 import { deleteSessionLocal } from '@/store/session'
@@ -29,7 +30,7 @@ import { bumpZoom, initZoom, setZoomPercent } from '@/store/zoom'
 import { ContribController } from './contrib/controller'
 import { WorkspaceRoutes } from './contrib/panes'
 import { useKeybinds } from './hooks/use-keybinds'
-import { COMMAND_CENTER_ROUTE, sessionRoute } from './routes'
+import { COMMAND_CENTER_ROUTE, GATEWAY_SETTINGS_ROUTE, sessionRoute } from './routes'
 import { SessionSwitcher } from './session-switcher'
 import { CommandMenu } from './shell/command-menu'
 import { useOverlayRouting } from './shell/hooks/use-overlay-routing'
@@ -48,6 +49,7 @@ export function MobileController() {
   const onboarding = useStore($onboardingActive)
   const restoring = useStore($restoring)
   const hasConnected = useStore($hasConnected)
+  const switching = useStore($gatewaySwitching)
   const statusbarVisible = useStore($statusbarVisible)
 
   // UI scale: apply the persisted zoom once, and wire Cmd/Ctrl +/-/0 shortcuts.
@@ -86,7 +88,13 @@ export function MobileController() {
     }
   }, [phase])
 
-  const connected = phase === 'ready' && !onboarding
+  // A soft gateway switch (store/gateway-switch.ts) drops the socket for a moment
+  // while it re-dials. Treat that window as live so the shell — and the surface
+  // driving the switch (Settings, the statusbar gateway popover) — stays mounted
+  // instead of bouncing to the connecting screen. Only once we've been connected:
+  // on a first run the connect screen owns the dial and must keep it.
+  const live = phase === 'ready' || (switching && hasConnected)
+  const connected = live && !onboarding
 
   // Desktop always uses the docked (wide) shell regardless of window width;
   // mobile/web fall to the phone drawer below 768px. The wide path renders the
@@ -125,7 +133,7 @@ export function MobileController() {
   // reconnect / sign-in surface). Every other settings section needs live gateway
   // data, so keeping the overlay mounted there while disconnected would just render
   // empty sections — so a disconnect only holds the overlay open on Gateway.
-  const settingsGatewayOpen = pathname === '/settings/gateway'
+  const settingsGatewayOpen = pathname === GATEWAY_SETTINGS_ROUTE
 
   // Whether any of the three windowable surfaces (Settings / Command Center /
   // Profiles) is open — the trigger for the mobile in-app surface shell. Mirrors the
@@ -136,7 +144,7 @@ export function MobileController() {
 
   let content: ReactNode
 
-  if (phase !== 'ready') {
+  if (!live) {
     // Not connected. Priority: a boot restore shows the connecting screen; if the
     // user is in Settings (e.g. they just signed out on the gateway page) keep a
     // neutral backdrop so the Settings overlay stays and shows the Sign in button

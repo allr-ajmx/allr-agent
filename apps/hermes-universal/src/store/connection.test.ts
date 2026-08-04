@@ -45,7 +45,17 @@ import { $gatewayState, connectGateway } from '@/store/gateway'
 import { spawnLocalBackend, stopLocalBackend } from '@/store/local-backend'
 import { httpRequest } from '@/transport/http'
 
-import { $connection, connect, connectCloud, connectLocal, disconnect, loadSavedLogin, signOut } from './connection'
+import {
+  $connection,
+  beginGatewaySwitch,
+  connect,
+  connectCloud,
+  connectLocal,
+  disconnect,
+  endGatewaySwitch,
+  loadSavedLogin,
+  signOut
+} from './connection'
 
 const mockHttp = vi.mocked(httpRequest)
 const mockProviders = vi.mocked(fetchAuthProviders)
@@ -187,6 +197,30 @@ describe('auto-reconnect', () => {
     $gatewayState.set('closed')
     await vi.advanceTimersByTimeAsync(2000)
     expect(connectGateway).not.toHaveBeenCalled()
+  })
+
+  // A soft gateway switch closes the socket on purpose and dials the NEW gateway
+  // itself; the supervisor must not race it with a re-dial of the old one.
+  it('stands down while a soft gateway switch is in flight', async () => {
+    await connectCloud('https://gw')
+    beginGatewaySwitch()
+    vi.mocked(connectGateway).mockClear()
+    $gatewayState.set('closed')
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(connectGateway).not.toHaveBeenCalled()
+    endGatewaySwitch()
+  })
+
+  it('re-arms once the switch finishes', async () => {
+    await connectCloud('https://gw')
+    beginGatewaySwitch()
+    endGatewaySwitch()
+    // The switch's own dial re-arms the supervisor against the new connection.
+    await connectCloud('https://gw2')
+    vi.mocked(connectGateway).mockClear()
+    $gatewayState.set('closed')
+    await vi.advanceTimersByTimeAsync(1500)
+    expect(connectGateway).toHaveBeenCalled()
   })
 })
 

@@ -1,44 +1,26 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('@/store/connection', () => ({ disconnect: vi.fn() }))
-
-import { disconnect } from '@/store/connection'
-
-import { $gatewayMode, $gatewaySwitching, switchGatewayMode } from './gateway-switch'
-
-const mockDisconnect = vi.mocked(disconnect)
+import { $gatewayMode, setGatewayMode } from './gateway-switch'
 
 beforeEach(() => {
   localStorage.clear()
   $gatewayMode.set('remote')
 })
-afterEach(() => vi.clearAllMocks())
 
 describe('gateway-switch', () => {
   it('defaults to remote', () => {
     expect($gatewayMode.get()).toBe('remote')
   })
 
-  it('switching drops the live connection and updates the mode', () => {
-    switchGatewayMode('cloud')
-    expect(mockDisconnect).toHaveBeenCalledOnce()
-    expect($gatewayMode.get()).toBe('cloud')
-    expect($gatewaySwitching.get()).toBe(false)
-  })
-
-  it('is a no-op when already in the target mode', () => {
-    switchGatewayMode('remote')
-    expect(mockDisconnect).not.toHaveBeenCalled()
-    expect($gatewayMode.get()).toBe('remote')
-  })
-
-  it('persists the selected mode to localStorage', () => {
-    switchGatewayMode('local')
+  it('persists the selected mode to localStorage without touching the connection', () => {
+    setGatewayMode('local')
+    expect($gatewayMode.get()).toBe('local')
     expect(localStorage.getItem('hermes.gateway.mode')).toBe('local')
   })
 
   it('persists ssh', () => {
-    switchGatewayMode('ssh')
+    setGatewayMode('ssh')
+    expect($gatewayMode.get()).toBe('ssh')
     expect(localStorage.getItem('hermes.gateway.mode')).toBe('ssh')
   })
 })

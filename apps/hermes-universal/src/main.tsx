@@ -4,6 +4,9 @@ import './styles.css'
 // Side-effect import: the gateway event router must be listening before any
 // connection is opened below. It self-registers, so this import IS the wiring.
 import './store/event-router'
+// Likewise: every WebView must be listening for another WebView's gateway switch
+// before it dials, or it keeps serving the gateway the user just moved off.
+import './store/gateway-switch-sync'
 
 import { QueryClientProvider } from '@tanstack/react-query'
 import { createRoot } from 'react-dom/client'

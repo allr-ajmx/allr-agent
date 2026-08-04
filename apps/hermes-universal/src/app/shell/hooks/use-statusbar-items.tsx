@@ -178,6 +178,10 @@ export function useStatusbarItems(opts?: {
   const gatewayMenuContent = (close: () => void) => (
     <GatewayMenuPanel
       gatewayState={gatewayState}
+      // The rich (mobile Status) list renders this panel in a cramped drawer where a
+      // connect form doesn't fit — so there "Change gateway" hands off to Settings ▸
+      // Gateway (the phone's only route to it) instead of expanding in place.
+      gatewaySwitch={rich ? 'link' : 'embedded'}
       inferenceStatus={inferenceStatus}
       onClose={close}
       onOpenSystem={() => void openSystemScreen()}
@@ -265,7 +269,9 @@ export function useStatusbarItems(opts?: {
       id: 'gateway-health',
       toggleLabel: copy.gateway,
       label: copy.gateway,
-      menuClassName: 'w-72',
+      // Wider than the other menus: it hosts the embedded gateway configurator
+      // (mode cards + URL/token inputs), which is unusable at w-72.
+      menuClassName: 'w-[22rem]',
       menuContent: gatewayMenuContent,
       title: inferenceStatus?.reason || copy.gatewayTitle,
       variant: 'menu'

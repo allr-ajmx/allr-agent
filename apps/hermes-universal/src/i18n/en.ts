@@ -724,10 +724,14 @@ export const en: Translations = {
       signOutFailed: 'Sign-out failed',
       testFailed: 'Remote gateway test failed',
       applyFailed: 'Could not apply gateway settings',
+      switchFailed: 'Failed to switch gateway',
+      sessionMissingTitle: 'Gateway changed',
+      sessionMissingMessage: "This session doesn't exist on the new gateway.",
       saveFailed: 'Could not save gateway settings',
       connectingTitle: 'Connecting to Hermes',
       reconnectingTo: target => `Reconnecting to ${target}…`,
-      useDifferentGateway: 'Use a different gateway'
+      useDifferentGateway: 'Use a different gateway',
+      startOver: 'Start over'
     },
     keys: {
       loading: 'Loading API keys and credentials...',
@@ -2250,7 +2254,9 @@ export const en: Translations = {
       connection: label => `Connection: ${label}`,
       recentActivity: 'Recent activity',
       viewAllLogs: 'View all logs →',
-      messagingPlatforms: 'Messaging platforms'
+      messagingPlatforms: 'Messaging platforms',
+      changeGateway: 'Change gateway',
+      hideGatewaySettings: 'Hide gateway settings'
     },
     approvalMode: {
       title: 'Approval mode',

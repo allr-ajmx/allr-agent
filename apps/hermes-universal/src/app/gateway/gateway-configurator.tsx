@@ -46,7 +46,9 @@ import {
 } from '@/store/connection'
 import { type Connection, type GatewayMode } from '@/store/gateway-config'
 import { loadGatewayTarget, saveGatewayTarget } from '@/store/gateway-restore'
+import { softSwitchGateway } from '@/store/gateway-soft-switch'
 import { $gatewayMode, setGatewayMode } from '@/store/gateway-switch'
+import { broadcastGatewaySwitch } from '@/store/gateway-switch-sync'
 import { notify, notifyError } from '@/store/notifications'
 import {
   answerSshPrompt,
@@ -135,7 +137,14 @@ const CLOUD_STATUS_DOT: Record<string, string> = {
 
 const normalizeCloudUrl = (url: string) => url.trim().replace(/\/+$/, '').toLowerCase()
 
-export function GatewayConfigurator({ variant = 'settings' }: { variant?: 'onboarding' | 'settings' }) {
+export function GatewayConfigurator({
+  onConnected,
+  variant = 'settings'
+}: {
+  /** Fired after a successful connect — lets a host popover dismiss itself. */
+  onConnected?: () => void
+  variant?: 'embedded' | 'onboarding' | 'settings'
+}) {
   const { t } = useI18n()
   const g = t.settings.gateway
 
@@ -147,7 +156,13 @@ export function GatewayConfigurator({ variant = 'settings' }: { variant?: 'onboa
   // persisted $gatewayMode only commits when the user actually connects/saves.
   const [pendingMode, setPendingMode] = useState<GatewayMode>(() => $gatewayMode.get())
 
+  // `embedded` is desktop's chrome-trimmed variant (its boot-recovery card; here the
+  // statusbar gateway popover + the reconnect screen): same connect surface, but the
+  // header/intro, "Save for next restart" and Diagnostics belong to the host. Those
+  // are already settings-gated below, so `embedded` shares the onboarding trimming
+  // and only needs the tighter layout it gets here.
   const isSettings = variant === 'settings'
+  const isEmbedded = variant === 'embedded'
 
   // Remote-mode form state (local — universal has no saved per-scope config).
   const [remoteUrl, setRemoteUrl] = useState(() => lastUrl())
@@ -332,13 +347,25 @@ export function GatewayConfigurator({ variant = 'settings' }: { variant?: 'onboa
         ? 'token'
         : null
 
-  // Commit the pending mode, then dial. Reconnecting in place never bounces to the
-  // connect picker — the root gate keeps Settings mounted across the reconnect
-  // because $hasConnected stays latched. Re-throws for the caller's failure toast.
-  const runConnect = (fn: () => Promise<void>): Promise<void> => {
-    setGatewayMode(pendingMode)
+  // Every connect from here is a SOFT switch: commit the pending mode, wipe the old
+  // gateway's session state, drop the socket and re-dial in place — no disconnect(),
+  // so $hasConnected stays latched and the shell / Settings / the host popover stay
+  // mounted throughout. Re-throws for the caller's failure toast.
+  const runConnect = async (fn: () => Promise<void>): Promise<void> => {
+    await softSwitchGateway(pendingMode, fn)
 
-    return fn()
+    // This is the ONLY surface that initiates a switch, so it is also the only one
+    // that broadcasts it — every other WebView (an Android activity screen, a desktop
+    // pop-out) holds its own socket and would otherwise keep serving the gateway we
+    // just left. Read the target back rather than rebuilding it: the connect helper
+    // persisted it on success, so this is exactly what was dialled.
+    const target = loadGatewayTarget()
+
+    if (target) {
+      broadcastGatewaySwitch(pendingMode, target)
+    }
+
+    onConnected?.()
   }
 
   const doConnectRemote = async () => {
@@ -475,9 +502,11 @@ export function GatewayConfigurator({ variant = 'settings' }: { variant?: 'onboa
 
     try {
       await persistSshSecrets()
-      setGatewayMode('ssh')
-      await runSsh(attemptId =>
-        connectSsh(sshTargetFromForm(sshForm), { attemptId, interactive: true })
+      // Through runConnect like every other mode: an SSH dial is a soft switch too,
+      // so the previous gateway's session rows are wiped rather than left on screen
+      // while the tunnel comes up. runConnect commits pendingMode ('ssh' here).
+      await runConnect(() =>
+        runSsh(attemptId => connectSsh(sshTargetFromForm(sshForm), { attemptId, interactive: true }))
       )
       notify({ kind: 'success', title: g.savedTitle, message: g.savedMessage })
     } catch (err) {
@@ -606,17 +635,20 @@ export function GatewayConfigurator({ variant = 'settings' }: { variant?: 'onboa
       ) : null}
 
       {/* Connection mode */}
-      <div className="mb-5 grid gap-2">
+      <div className={cn('grid gap-2', isEmbedded ? 'mb-3' : 'mb-5')}>
         <div className="text-[length:var(--conversation-caption-font-size)] font-medium text-(--ui-text-secondary)">
           {g.modeTitle}
         </div>
         {/* Tailwind cannot see a computed class name, so the column count is
             picked from literals: four cards on desktop, three when Local is
-            hidden (mobile cannot spawn a backend, but it CAN dial SSH). */}
+            hidden (mobile cannot spawn a backend, but it CAN dial SSH). The
+            breakpoint is a VIEWPORT media query, so in a narrow host (a ~350px
+            popover, the 420px connect card) it would crush the cards into the
+            width — embedded stays single-column at every window size. */}
         <div
           className={cn(
             'grid auto-rows-fr grid-cols-1 gap-2',
-            LOCAL_MODE_SUPPORTED ? 'min-[42rem]:grid-cols-4' : 'min-[42rem]:grid-cols-3'
+            !isEmbedded && (LOCAL_MODE_SUPPORTED ? 'min-[42rem]:grid-cols-4' : 'min-[42rem]:grid-cols-3')
           )}
         >
           {LOCAL_MODE_SUPPORTED ? (
@@ -688,7 +720,7 @@ export function GatewayConfigurator({ variant = 'settings' }: { variant?: 'onboa
 
       {/* Remote panel */}
       {pendingMode === 'remote' ? (
-        <div className="mt-5 grid gap-1">
+        <div className={cn('grid gap-1', isEmbedded ? 'mt-3' : 'mt-5')}>
           <ListRow
             action={
               <Input
@@ -775,7 +807,7 @@ export function GatewayConfigurator({ variant = 'settings' }: { variant?: 'onboa
 
       {/* Action bar (local + remote). Cloud connects via the agent picker above. */}
       {pendingMode !== 'cloud' ? (
-        <div className="mt-6 flex flex-wrap items-center justify-end gap-4">
+        <div className={cn('flex flex-wrap items-center justify-end gap-4', isEmbedded ? 'mt-4' : 'mt-6')}>
           {pendingMode === 'remote' ? (
             <Button
               className="mr-auto"

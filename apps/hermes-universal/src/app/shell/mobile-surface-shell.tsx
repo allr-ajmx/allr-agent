@@ -14,6 +14,7 @@ import { useKeyboardInset } from '@/hooks/use-keyboard-inset'
 import { useI18n } from '@/i18n'
 import { useStore } from '@/store/atom'
 import { $connectionPhase, $hasConnected } from '@/store/connection'
+import { $gatewaySwitching } from '@/store/gateway-switch'
 import { deleteSessionLocal } from '@/store/session'
 import { activitySurfaceForPath } from '@/store/windows'
 
@@ -58,6 +59,7 @@ export function MobileSurfaceShell({
 
   const phase = useStore($connectionPhase)
   const hasConnected = useStore($hasConnected)
+  const switching = useStore($gatewaySwitching)
   const ready = phase === 'ready'
 
   const surface = activitySurfaceForPath(pathname)
@@ -70,8 +72,10 @@ export function MobileSurfaceShell({
         : t.commandCenter.settings
 
   // Command Center + Profiles need a live connection for their data; Settings can
-  // render once we've ever connected so it survives a reconnect.
-  const showSurface = surface === 'settings' ? ready || hasConnected : ready
+  // render once we've ever connected so it survives a reconnect. A soft gateway
+  // switch briefly drops the socket while it re-dials — keep the surface mounted
+  // across it rather than flashing the connecting screen.
+  const showSurface = surface === 'settings' ? ready || hasConnected : ready || (switching && hasConnected)
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
