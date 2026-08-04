@@ -29,6 +29,7 @@ import {
   $sessionId,
   $sudo,
   type ChatMessage,
+  ensureSession,
   resetChat,
   respondClarify,
   respondSudo,
@@ -363,6 +364,37 @@ describe('session.info cwd tracking', () => {
     updateSession('runtime-1', state => ({ ...state, cwd: '/home/me/project-a' }))
     handleGatewayEvent(sessionEv('session.info', 'runtime-1', { cwd: '' }))
     expect($currentCwd.get()).toBe('/home/me/project-a')
+  })
+})
+
+// The last hop of the "start work" hand-off: `startSessionInWorkspace` anchors
+// the draft to a just-created worktree, and the session has to be CREATED there.
+// Everything upstream of this was covered; the create call itself was not.
+describe('ensureSession cwd', () => {
+  const seedDraft = (cwd: string) =>
+    seedActiveSession(newDraftKey(), { cwd, runtimeSessionId: null, storedSessionId: null })
+
+  it('creates the session in the draft’s anchored directory', async () => {
+    seedDraft('/repo/.worktrees/feature-a')
+    vi.mocked(requestGateway).mockResolvedValue({ session_id: 'runtime-2' } as never)
+
+    await ensureSession()
+
+    expect(requestGateway).toHaveBeenCalledWith(
+      'session.create',
+      expect.objectContaining({ cwd: '/repo/.worktrees/feature-a' })
+    )
+  })
+
+  // No anchor and no configured default: the gateway resolves its own cwd, so
+  // the field is omitted rather than sent empty.
+  it('omits cwd entirely for an unanchored draft', async () => {
+    seedDraft('')
+    vi.mocked(requestGateway).mockResolvedValue({ session_id: 'runtime-3' } as never)
+
+    await ensureSession()
+
+    expect(vi.mocked(requestGateway).mock.calls[0][1]).not.toHaveProperty('cwd')
   })
 })
 

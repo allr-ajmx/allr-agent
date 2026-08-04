@@ -575,14 +575,24 @@ function clearAwaitingInputPose(key: string): void {
  * Start a fresh, unsaved chat. The outgoing session KEEPS its slice — it may
  * still be streaming, and it is reachable from the sidebar, a tile or a bubble.
  * Only the active pointer moves, onto a brand-new draft.
+ *
+ * `cwd` anchors the new draft to a specific directory (the "start work" /
+ * branch-off hand-off — see `startSessionInWorkspace` in store/session). It is
+ * part of the draft's SEED rather than a correction applied afterwards, so
+ * `$currentCwd` moves straight from the outgoing chat's directory to the target.
+ * Seeding the default and correcting it after publishes the directory in
+ * between, which `$currentCwd` subscribers — the file tree, the review pane, the
+ * statusbar — then act on. Only callers reached from inside another store's
+ * listener escape that, and then only because nanostores coalesces nested
+ * writes; see `startSessionInWorkspace` for the path where it bit.
  */
-export function resetChat(): void {
+export function resetChat(cwd?: string): void {
   const previousKey = $activeSessionKey.get()
   const draftKey = newDraftKey()
 
-  // A fresh chat starts in the configured default project dir (if any), not in
-  // whatever directory the chat we just left happened to use.
-  ensureSessionSlice(draftKey, { cwd: cwdForNewSession()?.trim() || '' })
+  // Absent an explicit anchor, a fresh chat starts in the configured default
+  // project dir (if any), not in whatever directory the chat we just left used.
+  ensureSessionSlice(draftKey, { cwd: cwd?.trim() || cwdForNewSession()?.trim() || '' })
   $activeSessionKey.set(draftKey)
 
   // Drop the OLD draft — an unsaved chat the user walked away from has nothing
