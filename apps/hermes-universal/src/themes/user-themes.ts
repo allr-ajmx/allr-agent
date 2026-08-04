@@ -18,6 +18,7 @@
 import { registry } from '@/contrib/registry'
 import { atom, computed } from '@/store/atom'
 
+import { $backendThemes } from './backend-sync'
 import { BUILTIN_THEMES } from './presets'
 import type { DesktopTheme, DesktopThemeColors } from './types'
 
@@ -174,22 +175,29 @@ export function contributedThemes(): DesktopTheme[] {
   return out
 }
 
-/** Resolve a theme by name across the merged registry (built-in + user + contributed). */
+/** Resolve a theme by name across the merged registry (built-in + user + backend + contributed). */
 export function resolveTheme(name: string): DesktopTheme | undefined {
   return (
     BUILTIN_THEMES[name] ??
     $userThemes.get()[name] ??
+    $backendThemes.get()[name] ??
     contributedThemes().find(theme => theme.name === name)
   )
 }
 
-/** Built-ins first (stable order), then contributed, then user themes by install order. */
+/** Built-ins first (stable order), then contributed, then backend skins, then user
+ *  themes by install order. The filters make the listed winner per name agree with
+ *  `resolveTheme`: an explicit user install beats a skin the backend pushed, which
+ *  beats a plugin contribution. */
 export function listAllThemes(): DesktopTheme[] {
   const user = $userThemes.get()
+  const backend = $backendThemes.get()
+  const shadows = (theme: DesktopTheme) => user[theme.name] || backend[theme.name]
 
   return [
     ...Object.values(BUILTIN_THEMES),
-    ...contributedThemes().filter(theme => !user[theme.name]),
+    ...contributedThemes().filter(theme => !shadows(theme)),
+    ...Object.values(backend).filter(theme => !user[theme.name]),
     ...Object.values(user)
   ]
 }
