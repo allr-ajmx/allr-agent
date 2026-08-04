@@ -6,6 +6,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 // tts.provider='elevenlabs' so voiceFieldVisible keeps it). With voices listed it
 // becomes a Select (combobox); without, the generic free-text Input (textbox).
 vi.mock('@/hermes', () => ({
+  // Via ConfigSection → store/projects → store/profile → store/profiles, which
+  // syncs the REST scope at import time.
+  setApiRequestProfile: vi.fn(),
   getHermesConfigRecord: vi.fn(async () => ({ tts: { provider: 'elevenlabs', elevenlabs: { voice_id: 'v1' } } })),
   getHermesConfigSchema: vi.fn(async () => ({ fields: { 'tts.elevenlabs.voice_id': { type: 'string' } } })),
   saveHermesConfig: vi.fn(async () => ({ ok: true })),

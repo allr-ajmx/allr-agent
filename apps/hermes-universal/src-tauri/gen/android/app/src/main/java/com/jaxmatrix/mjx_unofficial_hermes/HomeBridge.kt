@@ -1,4 +1,4 @@
-package com.nousresearch.hermes.universal
+package com.jaxmatrix.mjx_unofficial_hermes
 
 import android.app.Activity
 import android.webkit.JavascriptInterface

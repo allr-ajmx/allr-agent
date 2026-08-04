@@ -3,15 +3,16 @@ import { useLocation } from 'react-router-dom'
 
 import { jobState } from '@/app/cron/job-state'
 import { PlatformGlyph } from '@/app/messaging/platform-icon'
-import { AGENTS_ROUTE, appViewForPath, CRON_ROUTE } from '@/app/routes'
+import { AGENTS_ROUTE, appViewForPath, CRON_ROUTE, PLUGINS_SETTINGS_ROUTE } from '@/app/routes'
 import { useApprovalModeStatusbarItem } from '@/app/shell/approval-mode-menu'
 import { ContextUsagePanel } from '@/app/shell/context-usage-panel'
 import { GatewayMenuPanel } from '@/app/shell/gateway-menu-panel'
 import type { StatusbarItem } from '@/app/shell/statusbar-controls'
 import { Codicon } from '@/components/ui/codicon'
 import { StatusDot } from '@/components/ui/status-dot'
+import { $pluginRecords } from '@/contrib/plugins-store'
 import { useI18n } from '@/i18n'
-import { Activity, AlertCircle, Clock, Command, FolderOpen, Hash, Loader2, Terminal, Zap } from '@/lib/icons'
+import { Activity, AlertCircle, Clock, Command, FolderOpen, Hash, Loader2, Plug, Terminal, Zap } from '@/lib/icons'
 import { IS_DESKTOP, IS_MOBILE } from '@/lib/platform'
 import { revealPathInFileManager } from '@/lib/reveal-path'
 import { contextBarLabel, LiveDuration, usageContextLabel } from '@/lib/statusbar'
@@ -27,7 +28,7 @@ import { notify } from '@/store/notifications'
 import { $activeProfile } from '@/store/profiles'
 import { $subagentsBySession, activeSubagentCount, failedSubagentCount } from '@/store/subagents'
 import { $appVersion, $gatewayRestarting, $inferenceStatus, $statusSnapshot } from '@/store/system-status'
-import { openSystemScreen } from '@/store/windows'
+import { openSettingsScreen, openSystemScreen } from '@/store/windows'
 import { $effectiveCwd, ensureWorkspaceCwd } from '@/store/workspace-events'
 
 // Copy the absolute cwd to the clipboard, toasting on success (mirrors the
@@ -48,7 +49,15 @@ function copyWorkspacePath(cwd: string, copiedMsg: string): void {
 //   • chrome-y items (command-center / cron / versions) hide on phones so the
 //     touch bar stays a compact live-status strip.
 
-export function useStatusbarItems(opts?: { includeAll?: boolean; rich?: boolean }): {
+export function useStatusbarItems(opts?: {
+  /** `statusBar.left` contributions, appended AFTER the core left group. */
+  extraLeftItems?: readonly StatusbarItem[]
+  /** `statusBar.right` contributions, prepended BEFORE the core right group so
+   *  they sit inboard of the version/terminal cluster (desktop's ordering). */
+  extraRightItems?: readonly StatusbarItem[]
+  includeAll?: boolean
+  rich?: boolean
+}): {
   leftStatusbarItems: readonly StatusbarItem[]
   statusbarItems: readonly StatusbarItem[]
 } {
@@ -81,6 +90,7 @@ export function useStatusbarItems(opts?: { includeAll?: boolean; rich?: boolean 
   // The active chat's project directory, falling back to the workspace root.
   const currentCwd = useStore($effectiveCwd)
   const cronJobs = useStore($cronJobs)
+  const pluginRecords = useStore($pluginRecords)
 
   const fileMenu = t.fileMenu
   const contextUsage = usageContextLabel(currentUsage)
@@ -138,6 +148,17 @@ export function useStatusbarItems(opts?: { includeAll?: boolean; rich?: boolean 
     return { cronActive: active, cronPaused: paused }
   }, [cronJobs])
 
+  // Plugin inventory counts for the mobile Plugins row. A failed plugin is worth
+  // surfacing here: it's the only place a phone user would notice one.
+  const { pluginFailedCount, pluginLoadedCount } = useMemo(() => {
+    const records = Object.values(pluginRecords)
+
+    return {
+      pluginFailedCount: records.filter(record => record.status === 'error').length,
+      pluginLoadedCount: records.filter(record => record.status === 'loaded').length
+    }
+  }, [pluginRecords])
+
   const gatewayDetail = gatewayOpen
     ? inferenceStatus?.ready
       ? copy.gatewayReady
@@ -157,6 +178,10 @@ export function useStatusbarItems(opts?: { includeAll?: boolean; rich?: boolean 
   const gatewayMenuContent = (close: () => void) => (
     <GatewayMenuPanel
       gatewayState={gatewayState}
+      // The rich (mobile Status) list renders this panel in a cramped drawer where a
+      // connect form doesn't fit — so there "Change gateway" hands off to Settings ▸
+      // Gateway (the phone's only route to it) instead of expanding in place.
+      gatewaySwitch={rich ? 'link' : 'embedded'}
       inferenceStatus={inferenceStatus}
       onClose={close}
       onOpenSystem={() => void openSystemScreen()}
@@ -164,7 +189,8 @@ export function useStatusbarItems(opts?: { includeAll?: boolean; rich?: boolean 
     />
   )
 
-  const isRemoteBackend = connection?.mode === 'remote' || connection?.mode === 'cloud'
+  const isRemoteBackend =
+    connection?.mode === 'remote' || connection?.mode === 'cloud' || connection?.mode === 'ssh'
   const backendVersion = status?.version
 
   // Emphasized (accent/blue) value for the rich list — the status VALUE stays
@@ -220,8 +246,12 @@ export function useStatusbarItems(opts?: { includeAll?: boolean; rich?: boolean 
       hidden: hideOnMobile,
       icon: <Command className="size-3.5" />,
       id: 'command-center',
+      // Locked: hiding the door to the Command Center from the bar it lives in
+      // would strand the user.
+      lockedVisible: true,
       onSelect: () => void openSystemScreen(),
       title: copy.openCommandCenter,
+      toggleLabel: copy.toggleCommandCenter,
       variant: 'action'
     },
     {
@@ -237,8 +267,11 @@ export function useStatusbarItems(opts?: { includeAll?: boolean; rich?: boolean 
         <AlertCircle className="size-3" />
       ),
       id: 'gateway-health',
+      toggleLabel: copy.gateway,
       label: copy.gateway,
-      menuClassName: 'w-72',
+      // Wider than the other menus: it hosts the embedded gateway configurator
+      // (mode cards + URL/token inputs), which is unusable at w-72.
+      menuClassName: 'w-[22rem]',
       menuContent: gatewayMenuContent,
       title: inferenceStatus?.reason || copy.gatewayTitle,
       variant: 'menu'
@@ -250,6 +283,7 @@ export function useStatusbarItems(opts?: { includeAll?: boolean; rich?: boolean 
       hidden: !currentCwd,
       icon: <FolderOpen className="size-3" />,
       id: 'workspace-cwd',
+      toggleLabel: copy.toggleWorkspace,
       label: currentCwd ? workspaceLabel(currentCwd) : undefined,
       menuItems: currentCwd
         ? [
@@ -302,10 +336,12 @@ export function useStatusbarItems(opts?: { includeAll?: boolean; rich?: boolean 
         ) : (
           <Codicon name="hubot" size="0.75rem" />
         ),
+      actionId: 'nav.agents',
       id: 'agents',
       label: copy.agents,
       title: copy.openAgents,
       to: AGENTS_ROUTE,
+      toggleLabel: copy.agents,
       variant: 'action'
     },
     {
@@ -316,6 +352,7 @@ export function useStatusbarItems(opts?: { includeAll?: boolean; rich?: boolean 
       label: copy.cron,
       title: copy.openCron,
       to: CRON_ROUTE,
+      toggleLabel: copy.cron,
       variant: 'action'
     }
   ]
@@ -328,6 +365,7 @@ export function useStatusbarItems(opts?: { includeAll?: boolean; rich?: boolean 
       id: 'running-timer',
       label: copy.turnRunning,
       title: copy.currentTurnElapsed,
+      toggleLabel: copy.toggleRunningTimer,
       variant: 'text'
     },
     {
@@ -341,6 +379,7 @@ export function useStatusbarItems(opts?: { includeAll?: boolean; rich?: boolean 
         <ContextUsagePanel currentUsage={currentUsage} requestGateway={requestGateway} sessionId={sessionId} />
       ),
       title: copy.openContextUsage,
+      toggleLabel: copy.toggleContextUsage,
       variant: 'menu'
     },
     {
@@ -349,6 +388,7 @@ export function useStatusbarItems(opts?: { includeAll?: boolean; rich?: boolean 
       id: 'session-timer',
       label: copy.session,
       title: copy.runtimeSessionElapsed,
+      toggleLabel: copy.toggleSessionTimer,
       variant: 'text'
     },
     {
@@ -356,14 +396,17 @@ export function useStatusbarItems(opts?: { includeAll?: boolean; rich?: boolean 
       // Rich: a fixed "Approval" label with the mode name as a muted value; drop
       // the bar-only background className.
       ...(rich ? { className: undefined, detail: accent(approvalModeItem.label), label: 'Approval' } : {}),
-      hidden: gatewayState !== 'open'
+      hidden: gatewayState !== 'open',
+      toggleLabel: copy.toggleApprovalMode
     },
     {
+      actionId: 'view.showTerminal',
       className: cn('w-7 justify-center px-0', terminalOpen && 'bg-accent/55 text-foreground'),
       icon: <Terminal className="size-3.5" />,
       id: 'terminal',
       onSelect: () => toggleTerminalOpen(),
       title: terminalOpen ? copy.hideTerminal : copy.showTerminal,
+      toggleLabel: copy.toggleTerminal,
       variant: 'action'
     },
     {
@@ -374,8 +417,11 @@ export function useStatusbarItems(opts?: { includeAll?: boolean; rich?: boolean 
       icon: <Hash className="size-3" />,
       id: 'version-client',
       label: rich ? 'Client' : appVersion ? copy.clientLabel(appVersion) : copy.unknown,
+      // Locked: the version pill is also the update door.
+      lockedVisible: true,
       onSelect: () => void openSystemScreen(),
       title: appVersion ? copy.clientLabel(appVersion) : undefined,
+      toggleLabel: copy.toggleVersion,
       variant: 'action'
     },
     {
@@ -384,11 +430,35 @@ export function useStatusbarItems(opts?: { includeAll?: boolean; rich?: boolean 
       icon: <Hash className="size-3" />,
       id: 'version-backend',
       label: rich ? 'Backend' : backendVersion ? copy.backendLabel(backendVersion) : copy.unknown,
+      lockedVisible: true,
       onSelect: () => void openSystemScreen(),
       title: backendVersion ? copy.backendVersion(backendVersion) : undefined,
+      toggleLabel: copy.toggleBackendVersion,
+      variant: 'action'
+    },
+    {
+      // Plugin inventory at a glance, routing to the page that manages it. The
+      // phone never mounts the Statusbar, so this only ever appears in the mobile
+      // Status list — `includeAll` is exactly that caller. Desktop has no such
+      // row: its titlebar reaches Settings directly.
+      detail: rich ? (pluginFailedCount > 0 ? accent(`${pluginLoadedCount} · ${pluginFailedCount} failed`) : accent(String(pluginLoadedCount))) : undefined,
+      hidden: !opts?.includeAll,
+      icon: <Plug className="size-3.5" />,
+      id: 'plugins',
+      label: t.settings.plugins.title,
+      onSelect: () => void openSettingsScreen(PLUGINS_SETTINGS_ROUTE),
+      title: t.settings.plugins.title,
       variant: 'action'
     }
   ]
 
-  return { leftStatusbarItems, statusbarItems }
+  // Contribution ordering matches desktop (use-statusbar-items.tsx:542-548):
+  // left = core then contributed; right = contributed then core, so plugin chips
+  // sit inboard of the app's own right-hand cluster (terminal, versions).
+  // No useMemo: the core arrays above are fresh literals every render, so a memo
+  // keyed on them could never hit — and nothing downstream depends on identity.
+  return {
+    leftStatusbarItems: [...leftStatusbarItems, ...(opts?.extraLeftItems ?? [])],
+    statusbarItems: [...(opts?.extraRightItems ?? []), ...statusbarItems]
+  }
 }

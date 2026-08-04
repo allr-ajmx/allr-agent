@@ -1,10 +1,20 @@
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { $petActivity, $petMotion, $petState, derivePetState, flashPetActivity, setPetActivity } from './pet'
+import {
+  $petActive,
+  $petActivity,
+  $petInfo,
+  $petMotion,
+  $petState,
+  derivePetState,
+  flashPetActivity,
+  setPetActivity
+} from './pet'
 
 afterEach(() => {
   $petActivity.set({})
   $petMotion.set(null)
+  $petInfo.set({ enabled: false })
 })
 
 describe('derivePetState', () => {
@@ -33,6 +43,25 @@ describe('derivePetState', () => {
   it('honors the full priority chain: error > greeting > awaitingInput', () => {
     expect(derivePetState({ error: true, greeting: true, busy: true })).toBe('failed')
     expect(derivePetState({ greeting: true, awaitingInput: true, toolRunning: true })).toBe('wave')
+  })
+
+  it('celebrates (jump) above everything — affection lands even mid-turn', () => {
+    expect(derivePetState({ celebrate: true })).toBe('jump')
+    expect(derivePetState({ celebrate: true, error: true, busy: true })).toBe('jump')
+  })
+})
+
+describe('$petActive', () => {
+  it('is true only once the pet is enabled AND its spritesheet has loaded', () => {
+    $petInfo.set({ enabled: false })
+    expect($petActive.get()).toBe(false)
+
+    // Enabled but still fetching the sheet — nothing to draw, so no reactions.
+    $petInfo.set({ enabled: true })
+    expect($petActive.get()).toBe(false)
+
+    $petInfo.set({ enabled: true, spritesheetBase64: 'AAAA' })
+    expect($petActive.get()).toBe(true)
   })
 })
 
@@ -68,5 +97,17 @@ describe('flashPetActivity', () => {
 
     expect($petActivity.get().error).toBe(false)
     expect($petState.get()).toBe('wave')
+  })
+
+  it('clears a stale celebrate so hearts do not pin the pet mid-jump', () => {
+    flashPetActivity({ celebrate: true })
+    expect($petState.get()).toBe('jump')
+
+    // A later beat of a different kind must reset it — celebrate outranks
+    // everything, so a merge-only flash would leave the pet stuck hopping.
+    flashPetActivity({ error: true })
+
+    expect($petActivity.get().celebrate).toBe(false)
+    expect($petState.get()).toBe('failed')
   })
 })

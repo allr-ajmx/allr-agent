@@ -17,14 +17,7 @@
  * This file owns only the composition: the recursive tree, the narrow-viewport
  * overlays, the edit palette, and the zone editor. The pieces live in sibling
  * modules — track-model (sizing), drag-session (drag), tree-split / tree-group
- * (nodes), narrow-overlays.
- *
- * FIXME(MJX-202): the FancyZones structural-authoring UI — the `TreeEditBar`
- * (edit palette / layout picker) and `ZoneEditor` (grid authoring) — is
- * deferred, and neither file exists here yet. `useLayoutEditHotkey` +
- * `$layoutEditMode` are ported so the edit affordances in the nodes stay wired,
- * but the toggle has no default binding and the authoring surfaces are not
- * mounted here, so edit mode is currently unreachable.
+ * (nodes), narrow-overlays, edit-bar / layout-picker / zone-editor (authoring).
  */
 
 import { useStore } from '@nanostores/react'
@@ -33,7 +26,9 @@ import { type ReactNode, useEffect } from 'react'
 import { useLayoutEditHotkey } from '../../edit-mode'
 import { publishWorkspaceGeometry } from '../../geometry'
 import { $layoutTree, trackActiveTreeGroup } from '../store'
+import { ZoneEditor } from '../zone-editor'
 
+import { TreeEditBar } from './edit-bar'
 import { NarrowOverlays } from './narrow-overlays'
 import { TreeNode } from './tree-node'
 
@@ -78,7 +73,10 @@ export function LayoutTreeRoot({ children }: { children?: ReactNode }) {
       `}</style>
       <TreeNode node={tree} root rootRow={tree.type === 'split' && tree.orientation === 'row'} />
       <NarrowOverlays />
-      {/* FIXME(MJX-202): <TreeEditBar /> and <ZoneEditor /> (structural authoring) deferred. */}
+      {/* Structural authoring: the floating palette (edit mode) and the grid
+          editor it opens. Both render nothing until their store says so. */}
+      <TreeEditBar />
+      <ZoneEditor />
       {children}
     </div>
   )

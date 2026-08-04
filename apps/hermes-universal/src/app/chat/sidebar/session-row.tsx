@@ -10,6 +10,7 @@ import { $attentionSessionIds } from '@/store/session'
 import { canOpenSessionWindow, openSessionInNewWindow } from '@/store/windows'
 import type { SessionInfo } from '@/types/hermes'
 
+import { ProfileTag } from '../profile-tag'
 import { startSessionDrag } from '../session-drag'
 
 import { SidebarRowBody, SidebarRowGrab, SidebarRowLabel, SidebarRowLead, SidebarRowShell } from './chrome'
@@ -30,6 +31,8 @@ interface SidebarSessionRowProps extends React.ComponentProps<'div'> {
   onDelete: () => void
   onPin: () => void
   onResume: () => void
+  /** Owning-profile chip, shown only in the all-profiles browse scope. */
+  showProfile?: boolean
   reorderable?: boolean
   dragging?: boolean
   dragHandleProps?: React.HTMLAttributes<HTMLElement>
@@ -74,6 +77,7 @@ export function SidebarSessionRow({
   onDelete,
   onPin,
   onResume,
+  showProfile = false,
   reorderable = false,
   dragging = false,
   dragHandleProps,
@@ -116,8 +120,10 @@ export function SidebarSessionRow({
               <Button
                 aria-label={r.actionsFor(title)}
                 className="size-5 rounded-[4px] bg-transparent text-transparent transition-colors duration-100 hover:bg-(--ui-control-active-background) hover:text-foreground focus-visible:bg-(--ui-control-active-background) focus-visible:text-foreground focus-visible:ring-0 data-[state=open]:bg-(--ui-control-active-background) data-[state=open]:text-foreground group-hover:text-(--ui-text-tertiary) [&_svg]:size-3.5!"
+                // No tip: this is a DropdownMenu trigger, and a tooltip on a
+                // menu trigger fights the open menu (see DESIGN rule). The
+                // aria-label above already names it for assistive tech.
                 size="icon"
-                title={r.sessionActions}
                 variant="ghost"
               >
                 <Codicon name="kebab-vertical" size="0.875rem" />
@@ -194,6 +200,7 @@ export function SidebarSessionRow({
               <SessionRowLeadDot branchStem={branchStem} isWorking={isWorking} needsInput={needsInput} />
             </SidebarRowLead>
           )}
+          {showProfile && <ProfileTag profile={session.profile} />}
           <SidebarRowLabel className="flex-1 font-normal group-hover:text-foreground group-data-[working=true]:text-foreground/90">
             {title}
           </SidebarRowLabel>

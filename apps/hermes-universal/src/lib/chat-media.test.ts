@@ -24,7 +24,9 @@ describe('renderMediaTags', () => {
   it('handles a real screenshot path (the resume bug)', () => {
     const path = '/opt/data/cache/screenshots/browser_screenshot_eea48a21.png'
 
-    expect(renderMediaTags(`MEDIA:${path}`)).toBe(`[Image: browser_screenshot_eea48a21.png](#media:${encodeURIComponent(path)})`)
+    expect(renderMediaTags(`MEDIA:${path}`)).toBe(
+      `[Image: browser_screenshot_eea48a21.png](#media:${encodeURIComponent(path)})`
+    )
   })
 
   it('is a no-op on text with no MEDIA marker', () => {

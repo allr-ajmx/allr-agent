@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { jobState, jobTitle, STATE_DOT } from '@/app/cron/job-state'
 import { Codicon } from '@/components/ui/codicon'
 import { DisclosureCaret } from '@/components/ui/disclosure-caret'
+import { Tip } from '@/components/ui/tooltip'
 import { getCronJobRuns } from '@/hermes'
 import { useI18n } from '@/i18n'
 import { cn } from '@/lib/utils'
@@ -191,58 +192,61 @@ function CronJobSidebarRow({
   return (
     <div>
       <div className="group/cron relative grid min-h-[1.625rem] grid-cols-[minmax(0,1fr)_auto] items-center rounded-md hover:bg-(--chrome-action-hover)">
-        <button
-          aria-expanded={expanded}
-          aria-label={expanded ? c.hideRuns : c.showRuns}
-          className="flex min-w-0 items-center gap-1.5 bg-transparent py-0.5 pl-2 pr-1 text-left"
-          onClick={onTogglePeek}
-          title={label}
-          type="button"
-        >
-          <span className="grid w-3.5 shrink-0 place-items-center">
-            <span
-              aria-hidden="true"
+        <Tip label={label}>
+          <button
+            aria-expanded={expanded}
+            aria-label={expanded ? c.hideRuns : c.showRuns}
+            className="flex min-w-0 items-center gap-1.5 bg-transparent py-0.5 pl-2 pr-1 text-left"
+            onClick={onTogglePeek}
+            type="button"
+          >
+            <span className="grid w-3.5 shrink-0 place-items-center">
+              <span
+                aria-hidden="true"
+                className={cn(
+                  'size-1 rounded-full',
+                  STATE_DOT[state] ?? 'bg-(--ui-text-quaternary)',
+                  state === 'running' && 'size-1.5 animate-pulse'
+                )}
+              />
+            </span>
+            <span className="min-w-0 truncate text-[0.8125rem] text-(--ui-text-secondary) group-hover/cron:text-foreground">
+              {label}
+            </span>
+            <DisclosureCaret
               className={cn(
-                'size-1 rounded-full',
-                STATE_DOT[state] ?? 'bg-(--ui-text-quaternary)',
-                state === 'running' && 'size-1.5 animate-pulse'
+                'shrink-0 text-(--ui-text-tertiary) transition',
+                expanded ? 'opacity-100' : 'opacity-0 group-hover/cron:opacity-100'
               )}
+              open={expanded}
             />
-          </span>
-          <span className="min-w-0 truncate text-[0.8125rem] text-(--ui-text-secondary) group-hover/cron:text-foreground">
-            {label}
-          </span>
-          <DisclosureCaret
-            className={cn(
-              'shrink-0 text-(--ui-text-tertiary) transition',
-              expanded ? 'opacity-100' : 'opacity-0 group-hover/cron:opacity-100'
-            )}
-            open={expanded}
-          />
-        </button>
+          </button>
+        </Tip>
         <div className="flex items-center gap-0.5 justify-self-end pr-1">
           <span className="text-[0.6875rem] text-(--ui-text-tertiary) tabular-nums group-hover/cron:hidden">
             {meta}
           </span>
           <div className="hidden items-center gap-0.5 group-hover/cron:flex">
-            <button
-              aria-label={c.triggerNow}
-              className="grid size-5 place-items-center rounded-sm text-(--ui-text-tertiary) hover:bg-(--ui-control-hover-background) hover:text-foreground"
-              onClick={onTrigger}
-              title={c.triggerNow}
-              type="button"
-            >
-              <Codicon name="zap" size="0.75rem" />
-            </button>
-            <button
-              aria-label={c.manage}
-              className="grid size-5 place-items-center rounded-sm text-(--ui-text-tertiary) hover:bg-(--ui-control-hover-background) hover:text-foreground"
-              onClick={onManage}
-              title={c.manage}
-              type="button"
-            >
-              <Codicon name="watch" size="0.75rem" />
-            </button>
+            <Tip label={c.triggerNow}>
+              <button
+                aria-label={c.triggerNow}
+                className="grid size-5 place-items-center rounded-sm text-(--ui-text-tertiary) hover:bg-(--ui-control-hover-background) hover:text-foreground"
+                onClick={onTrigger}
+                type="button"
+              >
+                <Codicon name="zap" size="0.75rem" />
+              </button>
+            </Tip>
+            <Tip label={c.manage}>
+              <button
+                aria-label={c.manage}
+                className="grid size-5 place-items-center rounded-sm text-(--ui-text-tertiary) hover:bg-(--ui-control-hover-background) hover:text-foreground"
+                onClick={onManage}
+                type="button"
+              >
+                <Codicon name="watch" size="0.75rem" />
+              </button>
+            </Tip>
           </div>
         </div>
       </div>

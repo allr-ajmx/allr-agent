@@ -2,7 +2,7 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Hermes",
   "version": "0.0.1",
-  "identifier": "com.nousresearch.hermes.universal",
+  "identifier": "com.jaxmatrix.mjx-unofficial-hermes",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:5176",
@@ -21,13 +21,16 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self' data: tauri: asset: http://tauri.localhost https://tauri.localhost http://asset.localhost; connect-src 'self' ipc: http://ipc.localhost"
+      "csp": "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' blob:; font-src 'self' data: tauri: asset: http://tauri.localhost https://tauri.localhost http://asset.localhost; connect-src 'self' ipc: http://ipc.localhost"
     },
     "withGlobalTauri": false
   },
   "bundle": {
     "active": true,
     "targets": "all",
+    "iOS": {
+      "developmentTeam": "6M43WS4436"
+    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

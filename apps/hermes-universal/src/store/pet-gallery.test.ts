@@ -42,7 +42,10 @@ describe('pet-gallery store', () => {
       }
 
       if (method === 'pet.info') {
-        return { enabled: false } as never
+        return {
+          addGatewayEventListener: () => () => {},
+          enabled: false
+        } as never
       }
 
       return {} as never

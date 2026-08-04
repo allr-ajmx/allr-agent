@@ -91,13 +91,17 @@ export {
   IconDeviceDesktop as Monitor,
   IconMoon as Moon,
   IconDotsVertical as MoreVertical,
-  // Billing settings port (MJX-56) — the "Plan" section heading
+  // Notifications completion-sound preview
+  // Package heads the Settings ▸ Plugins page (MJX-53, desktop parity) and the
+  // "Plan" section heading in Billing (MJX-56); Plug is the plugins nav-rail
+  // icon + the fallback for a contributed command / nav row that ships none.
   IconPackage as Package,
   IconPalette as Palette,
+  IconLayoutBottombar as PanelBottom,
   IconPaw as Paw,
   IconPencil as Pencil,
-  // Notifications completion-sound preview
   IconPlayerPlay as Play,
+  IconPlug as Plug,
   IconPlus as Plus,
   IconRefresh as Refresh,
   IconRefresh as RefreshCw,

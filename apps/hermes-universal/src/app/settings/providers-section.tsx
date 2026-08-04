@@ -4,17 +4,20 @@ import { useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { RowButton } from '@/components/ui/row-button'
 import { SearchField } from '@/components/ui/search-field'
+import { Tip } from '@/components/ui/tooltip'
 import { disconnectOAuthProvider, listOAuthProviders } from '@/hermes'
 import { useI18n } from '@/i18n'
 import { Check, ChevronDown, ChevronRight, Key, Loader2, Terminal, Trash } from '@/lib/icons'
 import { normalize } from '@/lib/text'
 import { cn } from '@/lib/utils'
 import { useStore } from '@/store/atom'
+import { $currentModel, $currentProvider } from '@/store/model'
 import { notify, notifyError } from '@/store/notifications'
 import { $connectProvider, beginProviderConnect } from '@/store/onboarding'
 import type { EnvVarInfo, OAuthProvider } from '@/types/hermes'
 
 import { isKeyVar, type ProviderKeyRowGroup, ProviderKeyRows } from './credential-key-ui'
+import { CustomEndpointsSettings } from './custom-endpoints-settings'
 import { SettingsCategoryHeading, useEnvCredentials } from './env-credentials'
 import { providerGroup, providerMeta, providerPriority } from './helpers'
 import { FEATURED_ID, providerTitle, sortProviders } from './oauth-provider-display'
@@ -177,17 +180,18 @@ function ConnectedProviderRow({
       <div className="flex items-center gap-1 pr-2">
         <Trail className="size-4 text-muted-foreground transition group-hover:text-foreground" />
         {canDisconnect && (
-          <Button
-            aria-label={`${t.common.remove} ${title}`}
-            disabled={disconnecting}
-            onClick={() => onDisconnect(provider)}
-            size="icon-xs"
-            title={`${t.common.remove} ${title}`}
-            type="button"
-            variant="ghost"
-          >
-            {disconnecting ? <Loader2 className="size-3 animate-spin" /> : <Trash className="size-3" />}
-          </Button>
+          <Tip label={`${t.common.remove} ${title}`}>
+            <Button
+              aria-label={`${t.common.remove} ${title}`}
+              disabled={disconnecting}
+              onClick={() => onDisconnect(provider)}
+              size="icon-xs"
+              type="button"
+              variant="ghost"
+            >
+              {disconnecting ? <Loader2 className="size-3 animate-spin" /> : <Trash className="size-3" />}
+            </Button>
+          </Tip>
         )}
       </div>
     </div>
@@ -289,9 +293,10 @@ function NoProviderKeys() {
   )
 }
 
-// The Providers page: two sub-views (Accounts OAuth sign-in / provider API keys),
-// selected by the sidebar sub-tabs. Ported from desktop ProvidersSettings.
-export function ProvidersSection({ view }: { view: 'accounts' | 'keys' }) {
+// The Providers page: sub-views (Accounts OAuth sign-in / provider API keys /
+// custom OpenAI-compatible endpoints), selected by the sidebar sub-tabs. Ported
+// from desktop ProvidersSettings.
+export function ProvidersSection({ view }: { view: 'accounts' | 'custom-endpoints' | 'keys' }) {
   const { t } = useI18n()
   const navigate = useNavigate()
   const { rowProps, vars } = useEnvCredentials()
@@ -354,6 +359,19 @@ export function ProvidersSection({ view }: { view: 'accounts' | 'keys' }) {
     } finally {
       setDisconnecting(null)
     }
+  }
+
+  if (view === 'custom-endpoints') {
+    return (
+      <CustomEndpointsSettings
+        onMainModelChanged={(provider, model) => {
+          // Activating an endpoint persists it server-side as the main model;
+          // reflect it in the composer pill immediately.
+          $currentProvider.set(provider)
+          $currentModel.set(model)
+        }}
+      />
+    )
   }
 
   if (!vars) {
