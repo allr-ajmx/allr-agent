@@ -1,5 +1,9 @@
+import { useEffect, useRef } from 'react'
+import { useLocation } from 'react-router-dom'
+
 import { FilesPane } from '@/app/contrib/panes'
 import { MobileStatusList } from '@/app/shell/mobile-status-list'
+import { useSidebar } from '@/app/shell/sidebar'
 import { SegmentedControl } from '@/components/ui/segmented-control'
 import { persistentAtom } from '@/lib/persisted'
 import { cn } from '@/lib/utils'
@@ -30,6 +34,21 @@ const $rightDrawerTab = persistentAtom<TabId>('hermes.rightDrawerTab', 'status',
 // home indicator; the surface bg fills to the edges.
 export function MobileRightPanel() {
   const tab = useStore($rightDrawerTab)
+  const { setOpenMobileRight } = useSidebar()
+  const { pathname } = useLocation()
+  // The route this panel opened on. The Sheet only mounts its content while open, so
+  // the effect below would fire on mount and slam the drawer shut without this.
+  const openedAt = useRef(pathname)
+
+  // Every row in here that navigates (Change gateway, Open Settings, Profiles, the
+  // surface switcher) leaves this drawer behind: the Sheet portals to <body> at
+  // z-50, the same layer as the mobile surface shell, so it would sit parked on top
+  // of wherever we just landed. Close once the route actually moves.
+  useEffect(() => {
+    if (pathname !== openedAt.current) {
+      setOpenMobileRight(false)
+    }
+  }, [pathname, setOpenMobileRight])
 
   return (
     <div
