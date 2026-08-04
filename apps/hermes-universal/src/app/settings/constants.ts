@@ -277,6 +277,11 @@ export const FIELD_LABELS: Record<string, string> = defineFieldCopy({
     modalImage: 'Modal Image',
     daytonaImage: 'Daytona Image'
   },
+  desktop: {
+    repoScanEnabled: 'Automatic Repository Discovery',
+    repoScanRoots: 'Repository Discovery Roots',
+    repoScanExcludePaths: 'Excluded Repository Paths'
+  },
   fileReadMaxChars: 'File Read Limit',
   toolOutput: {
     maxBytes: 'Terminal Output Limit',
@@ -425,6 +430,11 @@ export const FIELD_DESCRIPTIONS: Record<string, string> = defineFieldCopy({
     modalImage: 'Image used when the execution backend is Modal.',
     daytonaImage: 'Image used when the execution backend is Daytona.'
   },
+  desktop: {
+    repoScanEnabled: 'Scan local folders for Git repositories to show in Projects.',
+    repoScanRoots: 'Folders to scan. Leave empty to scan your home directory.',
+    repoScanExcludePaths: 'Folders and their descendants to skip during repository discovery.'
+  },
   codeExecution: {
     mode: 'How strictly code execution is scoped to the current project.'
   },
@@ -492,6 +502,9 @@ export const SECTIONS: DesktopConfigSection[] = [
     icon: Monitor,
     keys: [
       'terminal.cwd',
+      'desktop.repo_scan_enabled',
+      'desktop.repo_scan_roots',
+      'desktop.repo_scan_exclude_paths',
       'code_execution.mode',
       'terminal.persistent_shell',
       'terminal.env_passthrough',

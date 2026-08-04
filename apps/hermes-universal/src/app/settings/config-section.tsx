@@ -10,6 +10,7 @@ import { getHermesConfigSchema, saveHermesConfig } from '@/hermes'
 import { useI18n } from '@/i18n'
 import { cn } from '@/lib/utils'
 import { notifyError } from '@/store/notifications'
+import { repoDiscoveryPolicyFromConfig, repoDiscoveryPolicySignature, scanAndRecordRepos } from '@/store/projects'
 import type { ConfigFieldSchema, HermesConfigRecord } from '@/types/hermes'
 
 import { EMPTY_SELECT_VALUE, FIELD_DESCRIPTIONS, FIELD_LABELS, SECTIONS } from './constants'
@@ -228,6 +229,9 @@ export function ConfigSection({
 
   const schema = schemaResponse?.fields ?? null
   const saveVersionRef = useRef(0)
+  // Last-saved repository-discovery policy, so an edit to the scan roots can
+  // re-crawl while unrelated config edits don't.
+  const savedDiscoverySignatureRef = useRef<string | undefined>(undefined)
   const [saveVersion, setSaveVersion] = useState(0)
   const configSeeded = useRef(false)
 
@@ -235,6 +239,7 @@ export function ConfigSection({
   useEffect(() => {
     if (loadedConfig && !configSeeded.current) {
       configSeeded.current = true
+      savedDiscoverySignatureRef.current = repoDiscoveryPolicySignature(repoDiscoveryPolicyFromConfig(loadedConfig))
       setConfig(loadedConfig)
     }
   }, [loadedConfig])
@@ -253,6 +258,15 @@ export function ConfigSection({
         try {
           await saveHermesConfig(config)
           setHermesConfigCache(config)
+
+          if (saveVersionRef.current === v) {
+            const discoverySignature = repoDiscoveryPolicySignature(repoDiscoveryPolicyFromConfig(config))
+
+            if (savedDiscoverySignatureRef.current !== discoverySignature) {
+              savedDiscoverySignatureRef.current = discoverySignature
+              await scanAndRecordRepos(true)
+            }
+          }
         } catch (err) {
           if (saveVersionRef.current === v) {
             notifyError(err, c.autosaveFailed)

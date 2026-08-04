@@ -15,7 +15,10 @@ mod link_title;
 mod local_backend;
 mod marketplace;
 mod oauth;
+mod plugins;
 mod pty;
+mod repo_scan;
+mod ssh;
 mod transport;
 mod updates;
 mod voice;
@@ -29,7 +32,13 @@ use cloud::{
 };
 use local_backend::{local_backend_spawn, local_backend_status, local_backend_stop, LocalBackendState};
 use oauth::{oauth_login, oauth_logout, oauth_status};
+use plugins::{plugins_list, plugins_read, plugins_root};
 use pty::{pty_kill, pty_resize, pty_spawn, pty_write, PtyState};
+use repo_scan::repo_scan_git_repos;
+use ssh::{
+    ssh_answer_prompt, ssh_cancel, ssh_connect, ssh_disconnect, ssh_list_config_hosts,
+    ssh_resolve_host, ssh_test, ssh_trust_host_key, SshState,
+};
 use transport::{
     cookies_export, cookies_import, http_request, ws_close, ws_open, ws_send, TransportState,
 };
@@ -97,6 +106,9 @@ pub fn run() {
         .manage(PtyState::default())
         .manage(VoiceState::default())
         .manage(UpdateState::default())
+        // Live SSH sessions. Unlike desktop's on-disk control socket, nothing
+        // here outlives the process, so there is no stale master to evict.
+        .manage(SshState::default())
         .setup(|app| {
             // WebKitGTK (Linux desktop) auto-denies `getUserMedia` unless the
             // embedder answers the WebView's `permission-request` signal — wry
@@ -146,6 +158,7 @@ pub fn run() {
             pty_write,
             pty_resize,
             pty_kill,
+            repo_scan_git_repos,
             voice_open,
             voice_arm,
             voice_suspend,
@@ -171,11 +184,22 @@ pub fn run() {
             portal_discover_agents,
             portal_agent_sign_in,
             portal_logout,
+            plugins_root,
+            plugins_list,
+            plugins_read,
             open_session_window,
             open_instance_window,
             open_screen_window,
             update_check,
-            update_open_download
+            update_open_download,
+            ssh_connect,
+            ssh_test,
+            ssh_disconnect,
+            ssh_cancel,
+            ssh_list_config_hosts,
+            ssh_resolve_host,
+            ssh_answer_prompt,
+            ssh_trust_host_key
         ])
         // `.build(...).run(closure)` (rather than the terminal `.run(context)`) so
         // we can observe `RunEvent`s. On iOS this catches scenes the *system*

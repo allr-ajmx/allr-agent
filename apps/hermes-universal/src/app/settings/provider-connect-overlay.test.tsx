@@ -8,7 +8,10 @@ vi.mock('@/hermes', () => ({
   listOAuthProviders: vi.fn(async () => ({ providers: [] })),
   getRecommendedDefaultModel: vi.fn(async () => ({ provider: 'qwen-oauth', model: 'qwen', free_tier: null }))
 }))
-vi.mock('@/store/gateway', () => ({ requestGateway: vi.fn(async () => ({})) }))
+vi.mock('@/store/gateway', () => ({
+  addGatewayEventListener: () => () => {},
+  requestGateway: vi.fn(async () => ({}))
+}))
 
 import { I18nProvider } from '@/i18n'
 import { $connectProvider, $onboarding } from '@/store/onboarding'

@@ -311,6 +311,7 @@ export interface Translations {
       providers: string
       providerAccounts: string
       providerApiKeys: string
+      providerCustomEndpoints: string
       gateway: string
       apiKeys: string
       keysTools: string
@@ -319,6 +320,26 @@ export interface Translations {
       archivedChats: string
       about: string
       notifications: string
+      plugins: string
+    }
+    plugins: {
+      title: string
+      blurb: string
+      count: (n: number) => string
+      openFolder: string
+      rescan: string
+      reveal: string
+      enable: string
+      disable: string
+      failed: string
+      empty: string
+      kinds: { bundled: string; disk: string; runtime: string }
+      sourceLocal: string
+      sourceGateway: string
+      sourceNone: string
+      gatewayDoor: string
+      gatewayDoorHint: string
+      gatewayDoorUnavailable: string
     }
     notifications: {
       title: string
@@ -501,6 +522,54 @@ export interface Translations {
       remoteAuthHint: string
       cloudTitle: string
       cloudDesc: string
+      sshTitle: string
+      sshDesc: string
+      sshTrustHint: string
+      sshHostTitle: string
+      sshHostDesc: string
+      sshHostPlaceholder: string
+      sshUserTitle: string
+      sshUserDesc: string
+      sshPortTitle: string
+      sshPortDesc: string
+      sshKeyTitle: string
+      sshKeyDesc: string
+      sshKeyPemTitle: string
+      sshKeyPemDesc: string
+      sshPassphraseTitle: string
+      sshPasswordTitle: string
+      sshPasswordDesc: string
+      sshHermesPathTitle: string
+      sshHermesPathDesc: string
+      sshHermesPathPlaceholder: string
+      sshTestConnection: string
+      sshConnect: string
+      sshReachable: (host: string, platform: string) => string
+      sshIncompleteHost: string
+      sshUnsupportedDirectives: (names: string) => string
+      sshHostKeyTitle: string
+      sshHostKeyDesc: (host: string, fingerprint: string) => string
+      sshHostKeyTrust: string
+      sshHostKeyReject: string
+      sshPromptTitle: string
+      sshErrUnreachable: string
+      sshErrAuth: string
+      sshErrHostKey: string
+      sshErrNotInstalled: string
+      sshErrPlatform: string
+      sshErrTimeout: string
+      sshErrUpdateRequired: string
+      sshErrUnknown: string
+      sshStepConnecting: string
+      sshStepAuthenticating: string
+      sshStepProbingPlatform: string
+      sshStepLocatingHermes: string
+      sshStepCheckingExisting: string
+      sshStepUploadingToken: string
+      sshStepSpawning: string
+      sshStepWaitingReady: string
+      sshStepForwarding: string
+      sshStepVerifying: string
       cloudSignInTitle: string
       cloudSignIn: string
       cloudSignedIn: string
@@ -569,10 +638,14 @@ export interface Translations {
       signOutFailed: string
       testFailed: string
       applyFailed: string
+      switchFailed: string
+      sessionMissingTitle: string
+      sessionMissingMessage: string
       saveFailed: string
       connectingTitle: string
       reconnectingTo: (target: string) => string
       useDifferentGateway: string
+      startOver: string
     }
     keys: {
       loading: string
@@ -687,6 +760,47 @@ export interface Translations {
       searchKeys: string
       noKeysMatch: string
       loading: string
+    }
+    customEndpoints: {
+      title: string
+      loading: string
+      addTitle: string
+      editTitle: string
+      emptyTitle: string
+      emptyDescription: string
+      active: string
+      configSource: string
+      apiKeySet: string
+      use: string
+      deleteTitle: string
+      nameLabel: string
+      namePlaceholder: string
+      providerIdLabel: string
+      providerIdPlaceholder: string
+      urlLabel: string
+      urlPlaceholder: string
+      modelLabel: string
+      modelPlaceholder: string
+      contextLabel: string
+      contextPlaceholder: string
+      apiKeyLabel: string
+      apiKeyPlaceholderNew: string
+      apiKeyPlaceholderEdit: string
+      useForNewChats: string
+      discoverModels: string
+      test: string
+      save: string
+      newEndpoint: string
+      deleteConfirm: (name: string) => string
+      loadFailed: string
+      saved: string
+      saveFailed: string
+      reachableWithModels: (count: number) => string
+      reachable: string
+      validationFailed: string
+      validationError: string
+      activationFailed: string
+      deleteFailed: string
     }
     sessions: {
       loading: string
@@ -1149,6 +1263,7 @@ export interface Translations {
     showAllProfiles: string
     switchToProfile: (name: string) => string
     manageProfiles: string
+    moreProfiles: string
     actionsFor: (name: string) => string
     color: string
     colorFor: (name: string) => string
@@ -1387,6 +1502,11 @@ export interface Translations {
       newWorktreeTitle: string
       newWorktreeDesc: string
       branchPlaceholder: string
+      // Split so the branch name can be wrapped in its own styled span, for any
+      // word order ("branch off <main>" / "<main> から分岐").
+      branchOff: () => { after: string; before: string }
+      baseBranchPlaceholder: string
+      baseBranchNone: string
       startWorkFailed: string
       convertBranch: string
       convertBranchTitle: string
@@ -1426,6 +1546,7 @@ export interface Translations {
       newWindow: string
       copyIdFailed: string
       actionsFor: (title: string) => string
+      ownedByProfile: (profile: string) => string
       sessionActions: string
       sessionRunning: string
       needsInput: string
@@ -1779,6 +1900,8 @@ export interface Translations {
       recentActivity: string
       viewAllLogs: string
       messagingPlatforms: string
+      changeGateway: string
+      hideGatewaySettings: string
     }
     approvalMode: {
       title: string
@@ -1814,6 +1937,17 @@ export interface Translations {
       gatewayOffline: string
       gatewayRestarting: string
       gatewayTitle: string
+      customizeTitle: string
+      hideStatusbar: string
+      toggleApprovalMode: string
+      toggleBackendVersion: string
+      toggleCommandCenter: string
+      toggleContextUsage: string
+      toggleRunningTimer: string
+      toggleSessionTimer: string
+      toggleTerminal: string
+      toggleVersion: string
+      toggleWorkspace: string
       agents: string
       closeAgents: string
       openAgents: string
@@ -2217,6 +2351,7 @@ export interface Translations {
     closeOthers: string
     closeToRight: string
     closeAll: string
+    newTab: string
     split: (dir: string) => string
     move: (dir: string) => string
     dirUp: string

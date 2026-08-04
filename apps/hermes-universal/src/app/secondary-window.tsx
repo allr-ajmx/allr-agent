@@ -1,16 +1,20 @@
 import { useEffect, useRef } from 'react'
-import { useLocation } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 
 import { ChatScreen } from '@/app/chat/chat-screen'
 import { ChatTitle } from '@/app/chat/chat-title'
 import { SidebarProvider } from '@/app/shell/sidebar'
 import { WindowControls } from '@/app/shell/window-controls'
 import { NotificationStack } from '@/components/notifications'
+import { useI18n } from '@/i18n'
 import { useStore } from '@/store/atom'
 import { $connectionPhase } from '@/store/connection'
-import { openSession, refreshSessions } from '@/store/session'
+import { sessionMissingFromCurrentGateway } from '@/store/gateway-soft-switch'
+import { $gatewaySwitching } from '@/store/gateway-switch'
+import { notify } from '@/store/notifications'
+import { newSession, openSession, refreshSessions } from '@/store/session'
 
-import { routeSessionId } from './routes'
+import { NEW_CHAT_ROUTE, routeSessionId } from './routes'
 
 // Secondary-window root (MJX-104). A native pop-out (`?win=secondary`, opened by
 // `src-tauri/src/window.rs`) renders a SINGLE chat with its own frameless titlebar
@@ -23,21 +27,73 @@ import { routeSessionId } from './routes'
 // window (see chat-header.tsx), so the title lives in this titlebar instead.
 export function SecondaryWindowRoot() {
   const { pathname } = useLocation()
+  const navigate = useNavigate()
+  const { t } = useI18n()
   const phase = useStore($connectionPhase)
+  // This window re-homes when another WebView switches gateway (store/gateway-switch-sync).
+  // Hold the chat across that window rather than blanking to an empty pane for the
+  // second the socket is down — the same tolerance the other two roots carry.
+  const switching = useStore($gatewaySwitching)
   const targetId = routeSessionId(pathname)
   const resumedRef = useRef<null | string>(null)
+  // Set for the resume that follows a re-home, so the "it isn't here" path can say
+  // WHY (the gateway moved) instead of reporting a generic open failure.
+  const reHomedRef = useRef(false)
+
+  // A re-home means the resume we already did was against the OLD gateway, so drop
+  // the latch and let the effect below resume this session against the new one.
+  useEffect(() => {
+    if (switching) {
+      resumedRef.current = null
+      reHomedRef.current = true
+    }
+  }, [switching])
 
   useEffect(() => {
+    // `switching` is a dependency, not just a guard: clearing resumedRef above is a
+    // ref write, which re-triggers nothing on its own. Without it here, the re-resume
+    // would depend on `phase` happening to move — true today, but only incidentally.
+    //
     // Resume needs a live connection; wait for `ready` so the transcript loads
-    // instead of latching on a dead poll (desktop's stuck-loading failure mode).
-    if (phase !== 'ready' || !targetId || resumedRef.current === targetId) {
+    // instead of latching on a dead poll (desktop's stuck-loading failure mode), and
+    // sit out the switch itself rather than resuming against a socket being replaced.
+    if (switching || phase !== 'ready' || !targetId || resumedRef.current === targetId) {
       return
     }
 
     resumedRef.current = targetId
-    void refreshSessions()
-    void openSession(targetId)
-  }, [phase, targetId])
+    const afterReHome = reHomedRef.current
+    reHomedRef.current = false
+
+    void (async () => {
+      // Await the list: the existence check below is only meaningful once the NEW
+      // gateway's sessions have landed.
+      await refreshSessions().catch(() => {})
+
+      // A newer target superseded this resume while the list was in flight.
+      if (resumedRef.current !== targetId) {
+        return
+      }
+
+      // Sessions are per-backend, so the chat this window was pinned to usually does
+      // NOT exist on the gateway we just moved to. Drop to a fresh session and say so,
+      // rather than resuming into a dead id and surfacing "failed to open session".
+      if (afterReHome && sessionMissingFromCurrentGateway(targetId)) {
+        newSession()
+        notify({
+          kind: 'warning',
+          title: t.settings.gateway.sessionMissingTitle,
+          message: t.settings.gateway.sessionMissingMessage
+        })
+        // Leave the dead id behind, or the next render resumes it all over again.
+        navigate(NEW_CHAT_ROUTE, { replace: true })
+
+        return
+      }
+
+      await openSession(targetId)
+    })()
+  }, [navigate, phase, switching, t, targetId])
 
   return (
     <SidebarProvider>
@@ -53,7 +109,7 @@ export function SecondaryWindowRoot() {
         </div>
         {/* ChatScreen (`.chat`) is `flex:1 1 auto`, so it must be a DIRECT child of
             this flex-col — no wrapper, or its height collapses to content. */}
-        {phase === 'ready' ? <ChatScreen /> : <div className="flex-1" />}
+        {phase === 'ready' || switching ? <ChatScreen /> : <div className="flex-1" />}
       </div>
       <NotificationStack />
     </SidebarProvider>

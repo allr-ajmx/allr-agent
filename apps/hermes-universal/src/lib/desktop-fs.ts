@@ -1,7 +1,11 @@
+import { open as openDialog } from '@tauri-apps/plugin-dialog'
+
 import { writeClipboardText } from '@/components/ui/copy-button'
 import { getDefaultCwd, getFileDiff, getGitRoot, readDir, readFileDataUrl, readFileText, writeFileText } from '@/hermes'
 import { translateNow } from '@/i18n'
+import { IS_DESKTOP } from '@/lib/platform'
 import { $connection } from '@/store/connection'
+import { connectionCacheKey } from '@/store/gateway-config'
 import type { ReadDirResult, ReadFileTextResult } from '@/types/hermes'
 
 // Ported from apps/desktop/src/lib/desktop-fs.ts — its REMOTE branch only.
@@ -35,15 +39,14 @@ export function setDesktopFsRemotePicker(next: DesktopFsRemotePicker | null) {
   remotePicker = next
 }
 
-/** Cache key so per-connection FS caches don't leak across gateways. */
+/** Cache key so per-connection FS caches don't leak across gateways.
+ *
+ *  Delegates to {@link connectionCacheKey}, which keys ssh connections on their
+ *  ownership id rather than the baseUrl — an ssh baseUrl carries a fresh
+ *  ephemeral port on every re-tunnel, so keying on it would discard the whole
+ *  file tree on each reconnect to the very same backend. */
 export function desktopFsCacheKey() {
-  const connection = $connection.get()
-
-  if (!connection) {
-    return 'local:'
-  }
-
-  return `${connection.mode || 'remote'}:${connection.profile || ''}:${connection.baseUrl || ''}`
+  return connectionCacheKey($connection.get())
 }
 
 export function isDesktopFsRemoteMode() {
@@ -112,6 +115,25 @@ export async function desktopFileDiff(repoRoot: string, filePath: string): Promi
   return (await getFileDiff(repoRoot, filePath)).diff || ''
 }
 
+/**
+ * Pick paths, remote-aware. A directory pick on a Tauri desktop uses the native
+ * dialog; everything else browses the BACKEND filesystem through the registered
+ * remote picker, since that's where sessions actually run — a locally-picked
+ * path would be meaningless to a remote gateway.
+ *
+ * Empty when nothing is registered and there is no native dialog (plain web,
+ * vitest), which callers treat the same as "cancelled".
+ */
 export async function selectDesktopPaths(options?: SelectPathsOptions): Promise<string[]> {
+  if (options?.directories && IS_DESKTOP) {
+    try {
+      const dir = await openDialog({ defaultPath: options.defaultPath, directory: true, multiple: false })
+
+      return typeof dir === 'string' ? [dir] : []
+    } catch {
+      return []
+    }
+  }
+
   return remotePicker ? remotePicker.selectPaths({ ...options, multiple: false }) : []
 }

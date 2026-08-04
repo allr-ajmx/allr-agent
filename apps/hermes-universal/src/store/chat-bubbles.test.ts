@@ -21,12 +21,25 @@ vi.mock('@/store/session', async () => {
   }
 })
 
+// The reverse index stands in for the real session map: `live` holds the stored
+// ids that currently have a slice, so the store's "is this session already
+// live?" questions are answerable without booting the whole session graph.
+const live = new Map<string, string>()
+
 vi.mock('@/store/session-states', () => ({
   dropSessionState: vi.fn(),
-  sessionTileDelegate: () => ({ resumeTile: (id: string) => Promise.resolve(`rt-${id}`) })
+  runtimeKeyForStoredSession: (id: null | string) => (id ? (live.get(id) ?? null) : null),
+  sessionTileDelegate: () => ({
+    resumeTile: (id: string) => {
+      live.set(id, `rt-${id}`)
+
+      return Promise.resolve(`rt-${id}`)
+    }
+  })
 }))
 
 import { $activeStoredSessionId } from '@/store/session'
+import { dropSessionState, sessionTileDelegate } from '@/store/session-states'
 
 import { $chatBubbles, addBubble, newChatBubble, removeBubble, switchToBubble } from './chat-bubbles'
 
@@ -35,6 +48,7 @@ const ids = () => $chatBubbles.get().map(b => b.storedSessionId)
 afterEach(() => {
   $chatBubbles.set([])
   $activeStoredSessionId.set(null)
+  live.clear()
   vi.clearAllMocks()
 })
 
@@ -125,5 +139,47 @@ describe('chat-bubbles store', () => {
 
     expect(ids()).toEqual(['a', 'b', null])
     expect($activeStoredSessionId.get()).toBe('b')
+  })
+  // MJX-132. Switching used to demote the outgoing session into a slice and
+  // DROP + re-resume the incoming one — two async steps that discarded live
+  // state mid-switch, which is how a background turn's tokens reached the chat
+  // on screen. A switch must now touch neither session's slice.
+  it('switching preserves both sessions live slices', () => {
+    $activeStoredSessionId.set('a')
+    addBubble('b')
+    expect(live.get('b')).toBe('rt-b') // the background bubble was made live
+
+    switchToBubble('b')
+
+    expect($activeStoredSessionId.get()).toBe('b')
+    expect(dropSessionState).not.toHaveBeenCalled()
+    expect(live.get('b')).toBe('rt-b') // never discarded and re-resumed
+  })
+
+  // Re-resuming a session that already has a slice would rebind its transport
+  // on the gateway and, mid-turn, tear its stream away from us.
+  it('does not re-resume a session that is already live', () => {
+    const resumeTile = vi.spyOn(sessionTileDelegate()!, 'resumeTile')
+    live.set('b', 'rt-b')
+
+    $activeStoredSessionId.set('a')
+    addBubble('b')
+
+    expect(resumeTile).not.toHaveBeenCalled()
+  })
+
+  // MJX-133: a background auto-compaction rotates the stored id, and the bubble
+  // still names the pre-rotation one. The reverse index aliases it, so the
+  // bubble keeps resolving to the live slice instead of going stale.
+  it('follows a session whose stored id rotated under compaction', () => {
+    $activeStoredSessionId.set('a')
+    addBubble('b')
+
+    // The slice rotated: 'b' is now an alias for the same live session.
+    live.set('b', 'rt-b-compacted')
+
+    removeBubble('b')
+
+    expect(dropSessionState).toHaveBeenCalledWith('rt-b-compacted')
   })
 })

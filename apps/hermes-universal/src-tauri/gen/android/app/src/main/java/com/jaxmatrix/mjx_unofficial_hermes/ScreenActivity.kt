@@ -1,4 +1,4 @@
-package com.nousresearch.hermes.universal
+package com.jaxmatrix.mjx_unofficial_hermes
 
 import android.os.Bundle
 import android.webkit.WebView
