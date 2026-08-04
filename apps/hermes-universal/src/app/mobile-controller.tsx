@@ -30,7 +30,7 @@ import { bumpZoom, initZoom, setZoomPercent } from '@/store/zoom'
 import { ContribController } from './contrib/controller'
 import { WorkspaceRoutes } from './contrib/panes'
 import { useKeybinds } from './hooks/use-keybinds'
-import { COMMAND_CENTER_ROUTE, sessionRoute } from './routes'
+import { COMMAND_CENTER_ROUTE, GATEWAY_SETTINGS_ROUTE, sessionRoute } from './routes'
 import { SessionSwitcher } from './session-switcher'
 import { CommandMenu } from './shell/command-menu'
 import { useOverlayRouting } from './shell/hooks/use-overlay-routing'
@@ -133,7 +133,7 @@ export function MobileController() {
   // reconnect / sign-in surface). Every other settings section needs live gateway
   // data, so keeping the overlay mounted there while disconnected would just render
   // empty sections — so a disconnect only holds the overlay open on Gateway.
-  const settingsGatewayOpen = pathname === '/settings/gateway'
+  const settingsGatewayOpen = pathname === GATEWAY_SETTINGS_ROUTE
 
   // Whether any of the three windowable surfaces (Settings / Command Center /
   // Profiles) is open — the trigger for the mobile in-app surface shell. Mirrors the

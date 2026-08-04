@@ -178,12 +178,13 @@ export function useStatusbarItems(opts?: {
   const gatewayMenuContent = (close: () => void) => (
     <GatewayMenuPanel
       gatewayState={gatewayState}
+      // The rich (mobile Status) list renders this panel in a cramped drawer where a
+      // connect form doesn't fit — so there "Change gateway" hands off to Settings ▸
+      // Gateway (the phone's only route to it) instead of expanding in place.
+      gatewaySwitch={rich ? 'link' : 'embedded'}
       inferenceStatus={inferenceStatus}
       onClose={close}
       onOpenSystem={() => void openSystemScreen()}
-      // The rich (mobile Status) list renders this panel in a cramped drawer where
-      // a connect form doesn't fit; there Settings → Gateway is the surface.
-      showConfigurator={!rich}
       statusSnapshot={statusSnapshot}
     />
   )
