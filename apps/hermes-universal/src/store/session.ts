@@ -19,8 +19,7 @@ import {
   $messages,
   $sessionId,
   type ChatMessage,
-  resetChat,
-  setCurrentCwd
+  resetChat
 } from '@/store/chat'
 import { resetUnscopedStreamPin } from '@/store/event-router'
 import { requestGateway } from '@/store/gateway'
@@ -474,8 +473,8 @@ async function hydrateColdSession(storedId: string): Promise<void> {
   }
 }
 
-export function newSession(): void {
-  resetChat()
+export function newSession(cwd?: string): void {
+  resetChat(cwd)
   $activeStoredSessionId.set(null)
   flashPetActivity({ greeting: true }) // pet: wave hello on a fresh chat
 }
@@ -487,20 +486,22 @@ export function newSession(): void {
  * created and the next session must run inside it rather than in the configured
  * default project dir.
  *
- * The anchor is the new DRAFT'S OWN slice cwd, written after `newSession()` (the
- * reset seeds the fresh draft from the default project dir, so the order
- * matters). `ensureSession` reads it back on the first prompt. Per-session by
+ * The anchor is the new DRAFT'S OWN slice cwd, seeded as part of the reset
+ * rather than written over it afterwards. Resetting first and correcting second
+ * publishes the directory in between — the configured default, or '' when there
+ * is none, which sends `$effectiveCwd` to the backend workspace root. The
+ * composer hand-off hides that: it runs inside a `$startWorkSessionRequest`
+ * listener, where nanostores coalesces nested writes. The SIDEBAR's "start work"
+ * calls straight from a click handler (sidebar-content `newSessionInWorkspace`),
+ * so there the intermediate reached every subscriber and the statusbar path and
+ * file tree flipped to it until the first prompt re-notified them.
+ *
+ * `ensureSession` reads the anchor back on that first prompt. Per-session by
  * construction: a second draft — a mobile bubble, another tab — carries its own
  * directory and can't inherit this one.
  */
 export function startSessionInWorkspace(path: string): void {
-  const target = path.trim()
-
-  newSession()
-
-  if (target) {
-    setCurrentCwd(target)
-  }
+  newSession(path.trim() || undefined)
 }
 
 /**

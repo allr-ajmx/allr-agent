@@ -191,6 +191,14 @@ async function loadRoot(cwd: string, { force = false }: { force?: boolean } = {}
   // the header/cwdName update immediately, and the final setProjectTree replaces
   // the data wholesale. (Same-cwd is already short-circuited above, so this only
   // runs on a real cwd change or a forced refresh.)
+  //
+  // `resolvedCwd` has to move WITH the request on a real cwd change: the hook
+  // reports `resolvedCwd || cwd` as `effectiveCwd`, so carrying the old value
+  // over would keep the header naming the previous directory for the whole read
+  // (not the one frame the comment above promises), and would trip
+  // `usingFallback` — a re-probe meant only for a genuine fallback root. A
+  // forced same-cwd refresh keeps its fallback, which is the only case where
+  // `resolvedCwd` legitimately differs from `cwd`.
   $projectTree.set({
     collapseNonce: current.collapseNonce,
     cwd,
@@ -198,7 +206,7 @@ async function loadRoot(cwd: string, { force = false }: { force?: boolean } = {}
     loaded: false,
     openState: current.openState,
     requestId,
-    resolvedCwd: current.resolvedCwd,
+    resolvedCwd: current.cwd === cwd ? current.resolvedCwd : cwd,
     rootError: null,
     rootLoading: true
   })

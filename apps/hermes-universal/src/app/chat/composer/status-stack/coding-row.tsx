@@ -146,7 +146,9 @@ export const CodingStatusRow = memo(function CodingStatusRow({
   // Other worktrees to jump into — everything except the one we're already in
   // (matched by its checked-out branch) and the bare/main placeholder entry.
   const otherWorktrees = onOpenWorktree
-    ? worktrees.filter(worktree => worktree.path && !worktree.detached && worktree.branch && worktree.branch !== current)
+    ? worktrees.filter(
+        worktree => worktree.path && !worktree.detached && worktree.branch && worktree.branch !== current
+      )
     : []
 
   const hasLineDelta = status.added > 0 || status.removed > 0
@@ -219,7 +221,7 @@ export const CodingStatusRow = memo(function CodingStatusRow({
         >
           <div className="flex min-w-0 flex-1 items-center gap-1">
             <span
-              className="min-w-0 truncate text-xs font-normal text-muted-foreground/92 transition-colors group-hover/status-row:text-foreground/90"
+              className="min-w-0 w-full truncate text-xs font-normal text-muted-foreground/92 transition-colors group-hover/status-row:text-foreground/90"
               title={branchLabel}
             >
               {branchLabel}
