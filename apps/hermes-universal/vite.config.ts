@@ -9,7 +9,11 @@ import react from '@vitejs/plugin-react'
 // harness share this file's `@` alias, React plugin, and Tailwind wiring.
 import { defineConfig } from 'vitest/config'
 
-import { addStoreNames } from './src/observability/auto/store-names'
+// Extension-ful on purpose: Vite's `configLoader: 'native'` (the future
+// default) resolves config imports through Node, which does not do extension
+// inference. Without it the config loads today and warns, and stops loading
+// the day that flag flips.
+import { addStoreNames } from './src/observability/auto/store-names.ts'
 
 // Tauri expects a fixed dev port and a non-clearing console. For Android
 // device dev the host must be reachable from the phone, so bind 0.0.0.0.
