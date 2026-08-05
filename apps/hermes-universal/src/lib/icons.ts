@@ -43,6 +43,8 @@ export {
   // Chat rendering pipeline (chat-session UI port)
   IconCopy as Copy,
   IconCpu as Cpu,
+  // Billing settings port (MJX-56)
+  IconCreditCard as CreditCard,
   IconDownload as Download,
   // Memory provider panels (config sections port)
   IconExternalLink as ExternalLink,
@@ -90,9 +92,9 @@ export {
   IconMoon as Moon,
   IconDotsVertical as MoreVertical,
   // Notifications completion-sound preview
-  // Plugins (MJX-53): Package heads the Settings ▸ Plugins page (desktop parity);
-  // Plug is the nav-rail icon + the fallback for a contributed command / nav row
-  // that ships none.
+  // Package heads the Settings ▸ Plugins page (MJX-53, desktop parity) and the
+  // "Plan" section heading in Billing (MJX-56); Plug is the plugins nav-rail
+  // icon + the fallback for a contributed command / nav row that ships none.
   IconPackage as Package,
   IconPalette as Palette,
   IconLayoutBottombar as PanelBottom,
@@ -107,6 +109,7 @@ export {
   IconSearch as Search,
   IconSend as Send,
   IconSettings as Settings,
+  IconAdjustmentsHorizontal as SlidersHorizontal,
   IconSparkles as Sparkles,
   IconSquare as Square,
   IconSquareFilled as SquareFilled,

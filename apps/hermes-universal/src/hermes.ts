@@ -486,15 +486,18 @@ export function saveHermesConfig(config: HermesConfigRecord): Promise<{ ok: bool
   })
 }
 
+// surface=declared serves the curated desktop schema; the dashboard consumes the raw plugin schema.
 export function getMemoryProviderConfig(provider: string): Promise<MemoryProviderConfig> {
   return api<MemoryProviderConfig>({
-    path: `/api/memory/providers/${encodeURIComponent(provider)}/config`
+    ...profileScoped(),
+    path: `/api/memory/providers/${encodeURIComponent(provider)}/config?surface=declared`
   })
 }
 
 export function saveMemoryProviderConfig(provider: string, values: Record<string, string>): Promise<{ ok: boolean }> {
   return api<{ ok: boolean }>({
-    path: `/api/memory/providers/${encodeURIComponent(provider)}/config`,
+    ...profileScoped(),
+    path: `/api/memory/providers/${encodeURIComponent(provider)}/config?surface=declared`,
     method: 'PUT',
     body: { values }
   })

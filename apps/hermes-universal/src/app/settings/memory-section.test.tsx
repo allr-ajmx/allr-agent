@@ -16,6 +16,7 @@ vi.mock('@/hermes', () => ({
   getMemoryProviderConfig: vi.fn(async () => ({
     name: 'mem0',
     label: 'Mem0',
+    docs_url: '',
     fields: [
       {
         key: 'api_key',
@@ -25,6 +26,8 @@ vi.mock('@/hermes', () => ({
         value: '',
         placeholder: 'sk-...',
         description: '',
+        group: 'Connection',
+        inline: true,
         options: []
       }
     ]
