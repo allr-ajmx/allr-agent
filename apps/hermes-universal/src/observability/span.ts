@@ -297,6 +297,28 @@ function currentParent(): number {
   return stack.length > 0 ? spanSerial[stack[stack.length - 1]] : captureRootSerial
 }
 
+/** A trace context, for handing to something that runs off this thread. */
+export interface SpanContext {
+  serial: number
+  trace: number
+}
+
+/**
+ * The trace and span this call is running inside, or null when not recording.
+ *
+ * Used to propagate context across the IPC boundary: the invoke wrapper turns
+ * this into a `traceparent` header and the Rust backend picks it up as a remote
+ * parent, so a command's spans land inside the frontend span that caused them
+ * instead of in a trace of their own.
+ */
+export function currentContext(): SpanContext | null {
+  if (!recording) {
+    return null
+  }
+
+  return { serial: currentParent(), trace: captureTrace }
+}
+
 function intern(name: string): number {
   const existing = nameIds.get(name)
 

@@ -17,6 +17,11 @@ const host = process.env.TAURI_DEV_HOST
 
 const require = createRequire(import.meta.url)
 const reactDir = dirname(require.resolve('react/package.json'))
+// `core.js` explicitly, not `require.resolve('@tauri-apps/api/core')`. The
+// package publishes no exports map, so resolution falls back to extension
+// probing — and `require` probes `.cjs` first, which would alias the browser
+// bundle at the CommonJS build of a module that is otherwise pure ESM.
+const tauriCoreEsm = join(dirname(require.resolve('@tauri-apps/api/package.json')), 'core.js')
 
 /**
  * Default label for traces, so an unlabelled capture still says where it came
@@ -71,6 +76,19 @@ function gitBranch(): string {
  */
 const STORE_TRACING = process.env.NODE_ENV !== 'production' || process.env.VITE_ENABLE_BENCH === 'true'
 
+/**
+ * IPC trace propagation, dev/bench only — same gate, separate concern.
+ *
+ * Aliases `@tauri-apps/api/core` to a wrapper that puts a W3C `traceparent` on
+ * every `invoke`, so the Rust backend's spans join the frontend's trace instead
+ * of forming their own. Aliased rather than hand-called because `invoke` is
+ * reached from dozens of places and the point is that no call site has to know.
+ *
+ * `@tauri-apps/api-real/core` is the escape hatch, exactly as `nanostores-real`
+ * is above: the wrapper IS the aliased specifier, so it cannot import it.
+ */
+const IPC_TRACING = STORE_TRACING
+
 const storeNamePlugin = {
   enforce: 'pre' as const,
   name: 'hermes-store-names',
@@ -111,6 +129,16 @@ export default defineConfig({
         ? {
             nanostores: fileURLToPath(new URL('./src/observability/auto/stores.ts', import.meta.url)),
             'nanostores-real': require.resolve('nanostores')
+          }
+        : {}),
+      // IPC trace propagation — see IPC_TRACING above. Declared BEFORE the `@`
+      // alias for the same reason the nanostores pair is: these keys are exact
+      // matches, and reading them together keeps the two escape hatches in one
+      // place.
+      ...(IPC_TRACING
+        ? {
+            '@tauri-apps/api-real/core': tauriCoreEsm,
+            '@tauri-apps/api/core': fileURLToPath(new URL('./src/observability/auto/tauri-core.ts', import.meta.url))
           }
         : {}),
       '@': fileURLToPath(new URL('./src', import.meta.url)),

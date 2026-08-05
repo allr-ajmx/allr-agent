@@ -20,18 +20,25 @@
 //! The dual-`imp` shape is copied from `updates.rs`, deliberately: same
 //! signatures on both sides so nothing above this line changes with the feature.
 //!
-//! # Why there is no invoke middleware here
+//! # The invoke wrapper carries context, and does NOT measure
 //!
 //! The obvious way to trace all ~50 commands is to wrap `generate_handler!` via
-//! `Builder::invoke_handler`, which does accept a closure. It does not work:
+//! `Builder::invoke_handler`. As a TIMER it does not work:
 //! `InvokeResolver::respond_async` spawns the future and returns immediately, so
 //! a wrapper measures dispatch — microseconds — for the 41 async commands.
-//!
 //! Tauri's own `tracing` feature does it correctly (it `.instrument()`s the
 //! spawned future), so command timing is enabled in Cargo.toml rather than
-//! written here. What this module adds is the pieces Tauri cannot know about:
-//! the subscriber, the exporter, and the trace context arriving from the
-//! webview.
+//! written here.
+//!
+//! `ipc_scope` uses the same wrapper for the one thing it IS good for: entering
+//! a span with the webview's trace context before dispatch. Tauri creates
+//! `ipc::request::handler` and `ipc::request::run` inside the generated command
+//! wrapper — that is, inside this scope — so both inherit the remote parent and
+//! the backend work lands in the frontend's trace. Its own duration is
+//! meaningless by construction; do not "fix" it.
+//!
+//! What this module adds is the pieces Tauri cannot know about: the subscriber,
+//! the exporter, and the trace context arriving from the webview.
 
 /// Human-readable state, for the startup log line.
 #[allow(dead_code)]
@@ -52,6 +59,35 @@ pub fn init() {
     imp::init();
 }
 
+pub use imp::IpcScope;
+
+/// Enter a span carrying the trace context the webview put on this invoke.
+///
+/// Hold the returned guard across dispatch — everything Tauri creates while it
+/// is alive becomes a child of the frontend span that made the call. Dropping
+/// it early silently reverts to the old behaviour: correct backend spans,
+/// filed in a trace with no connection to the interaction that caused them.
+#[must_use]
+pub fn ipc_scope<R: tauri::Runtime>(invoke: &tauri::ipc::Invoke<R>) -> IpcScope {
+    imp::ipc_scope(invoke)
+}
+
+/// Wrap `generate_handler!` so every command runs inside `ipc_scope`.
+///
+/// A free function rather than an inline closure in `lib.rs` because the macro
+/// expands to a closure with NO parameter annotation, so a `let` binding leaves
+/// its type unresolvable — and inference does not reach into it from a call site
+/// one closure deeper. Taking it as an argument pins the runtime here instead.
+pub fn traced_invoke_handler(
+    handler: impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sync + 'static,
+) -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sync + 'static {
+    move |invoke| {
+        let _scope = ipc_scope(&invoke);
+
+        handler(invoke)
+    }
+}
+
 /// Flush pending spans. Called on `RunEvent::Exit`.
 ///
 /// Not optional: the batch exporter holds spans in memory and the last batch is
@@ -65,10 +101,83 @@ pub fn shutdown() {
 mod imp {
     use std::sync::OnceLock;
 
-    use opentelemetry::{trace::TracerProvider as _, KeyValue};
+    use opentelemetry::{
+        trace::{SpanContext, SpanId, TraceContextExt, TraceFlags, TraceId, TraceState, TracerProvider as _},
+        Context, KeyValue,
+    };
     use opentelemetry_otlp::WithExportConfig;
     use opentelemetry_sdk::{trace::SdkTracerProvider, Resource};
+    use tracing_opentelemetry::OpenTelemetrySpanExt;
     use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+
+    /// Keeps the context span entered for as long as the caller holds it.
+    pub struct IpcScope(#[allow(dead_code)] Option<tracing::span::EnteredSpan>);
+
+    /// Parse a W3C `traceparent` into a remote parent context.
+    ///
+    /// Hand-parsed rather than run through `TraceContextPropagator` because the
+    /// header has exactly one producer — `traceparentFor` in the frontend's
+    /// otlp.ts — and four fixed fields. Every failure path returns `None` and
+    /// the invoke is simply traced unparented: a malformed header from a
+    /// webview must never be able to take a command down.
+    fn remote_parent(value: &str) -> Option<Context> {
+        let mut parts = value.split('-');
+        let version = parts.next()?;
+        let trace = parts.next()?;
+        let span = parts.next()?;
+        let flags = parts.next()?;
+
+        // Version 00 is the only one defined. A future version is required to
+        // stay parseable this way, but guessing at one is how you end up
+        // silently attaching spans to a misread id.
+        if version != "00" {
+            return None;
+        }
+
+        let context = SpanContext::new(
+            TraceId::from_hex(trace).ok()?,
+            SpanId::from_hex(span).ok()?,
+            if flags == "00" {
+                TraceFlags::default()
+            } else {
+                TraceFlags::SAMPLED
+            },
+            true,
+            TraceState::default(),
+        );
+
+        if !context.is_valid() {
+            return None;
+        }
+
+        Some(Context::new().with_remote_span_context(context))
+    }
+
+    pub fn ipc_scope<R: tauri::Runtime>(invoke: &tauri::ipc::Invoke<R>) -> IpcScope {
+        if !enabled() {
+            return IpcScope(None);
+        }
+
+        let Some(parent) = invoke
+            .message
+            .headers()
+            .get("traceparent")
+            .and_then(|value| value.to_str().ok())
+            .and_then(remote_parent)
+        else {
+            // No header means the webview is not recording. Do NOT invent a
+            // parent here — an unparented backend span is honest, and a
+            // synthesised root would put every untraced command in its own
+            // trace, which is the exact noise this whole change removes.
+            return IpcScope(None);
+        };
+
+        let span = tracing::debug_span!("ipc.invoke", cmd = invoke.message.command());
+
+        span.set_parent(parent);
+
+        IpcScope(Some(span.entered()))
+    }
 
     /// Where the collector lives.
     ///
@@ -246,11 +355,17 @@ mod imp {
     /// Same signatures as the real implementation, so everything above this
     /// point is identical in both configurations — the invariant `updates.rs`
     /// documents for `generate_handler!` and that applies just as much here.
+    pub struct IpcScope;
+
     pub fn enabled() -> bool {
         false
     }
 
     pub fn init() {}
+
+    pub fn ipc_scope<R: tauri::Runtime>(_invoke: &tauri::ipc::Invoke<R>) -> IpcScope {
+        IpcScope
+    }
 
     pub fn shutdown() {}
 }

@@ -156,7 +156,12 @@ pub fn run() {
             let _ = app;
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![
+        // Wrapped so the webview's trace context is entered before dispatch:
+        // Tauri builds `ipc::request::handler` and `ipc::request::run` inside
+        // the generated command wrapper, so both inherit the remote parent and
+        // the backend's spans join the frontend's trace instead of forming
+        // their own. The wrapper does NOT time anything — see telemetry.rs.
+        .invoke_handler(telemetry::traced_invoke_handler(tauri::generate_handler![
             http_request,
             ws_open,
             ws_send,
@@ -207,7 +212,7 @@ pub fn run() {
             ssh_resolve_host,
             ssh_answer_prompt,
             ssh_trust_host_key
-        ])
+        ]))
         // `.build(...).run(closure)` (rather than the terminal `.run(context)`) so
         // we can observe `RunEvent`s. On iOS this catches scenes the *system*
         // requests unprompted (state restoration, iPad app-switcher "+", Handoff)
