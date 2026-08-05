@@ -19,9 +19,35 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 # iTunes-Lookup queries are OFF by default — a stock build compiles the stub,
 # which reports "no update available" and never touches the network. Turn them on
 # for a release build with `--features update-checks`.
+#
+# Tracing (MJXHRM-176 follow-on): OpenTelemetry spans for the backend, exported
+# to a local collector. OFF by default — a stock build compiles none of it and
+# links no exporter.
+#
+# TWO switches, deliberately. The feature only makes tracing POSSIBLE; nothing
+# is recorded until `HERMES_TRACE=1` is set at launch. So an ordinary
+# `tauri dev --features tracing` still costs nothing, and a release binary
+# contains nothing at all.
+#
+# `tauri/tracing` is the load-bearing entry. Tauri's own command macro wraps
+# every #[tauri::command] in a span and — critically — `.instrument()`s the
+# SPAWNED future for async ones (tauri-macros `command/wrapper.rs`). That is the
+# part a hand-rolled `invoke_handler` wrapper cannot do: `respond_async` spawns
+# and returns, so a wrapper would time dispatch (microseconds) rather than the
+# work. "Trace every command" therefore costs one word here, not 50 edits.
 [features]
 default = []
 update-checks = ["dep:regex"]
+tracing = [
+  "dep:tracing",
+  "dep:tracing-subscriber",
+  "dep:tracing-log",
+  "dep:tracing-opentelemetry",
+  "dep:opentelemetry",
+  "dep:opentelemetry_sdk",
+  "dep:opentelemetry-otlp",
+  "tauri/tracing"
+]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -118,6 +144,31 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 # Google publishes no version API, so the listing HTML is the only source; the
 # patterns it matches are inherently unstable, hence the soft "unparsed" result.
 regex = { version = "1", optional = true }
+
+# OpenTelemetry span export (`tracing` feature). All optional — a default build
+# links none of them.
+#
+# EVERY ONE IS `default-features = false`, and that is not tidiness. This crate
+# installs exactly ONE rustls crypto provider process-wide (see the
+# `install_default` call in lib.rs) and panics if the features ever expose more
+# than one; russh is pinned to `ring` for the same reason, because `aws-lc-rs`
+# also breaks the Android NDK cross-build. `opentelemetry-otlp` with default
+# features pulls tonic's TLS stack, which can drag in a SECOND provider — and the
+# symptom would be a panic at the first wss:// handshake, on every platform, far
+# from anything that looks telemetry-related.
+#
+# The collector is plaintext on loopback, so the exporter needs no TLS at all.
+# `cargo tree -d` must show one rustls provider before this is changed.
+tracing = { version = "0.1", optional = true }
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "env-filter", "registry"], optional = true }
+# Bridges the existing `log::` calls into the same pipeline. Desktop currently
+# installs no logger at all, so those calls go nowhere today — this is the first
+# time they become visible outside Android's logcat.
+tracing-log = { version = "0.2", default-features = false, features = ["log-tracer", "std"], optional = true }
+tracing-opentelemetry = { version = "0.31", default-features = false, optional = true }
+opentelemetry = { version = "0.30", default-features = false, features = ["trace"], optional = true }
+opentelemetry_sdk = { version = "0.30", default-features = false, features = ["trace"], optional = true }
+opentelemetry-otlp = { version = "0.30", default-features = false, features = ["trace", "grpc-tonic"], optional = true }
 
 # Explicit, serializable cookie jar (D3.a/D4): replaces reqwest's private default
 # jar so the OAuth flow (oauth.rs) can share one store across a redirect-following

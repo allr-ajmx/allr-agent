@@ -19,6 +19,7 @@ mod plugins;
 mod pty;
 mod repo_scan;
 mod ssh;
+mod telemetry;
 mod transport;
 mod updates;
 mod voice;
@@ -83,6 +84,12 @@ pub fn run() {
             .with_max_level(log::LevelFilter::Info)
             .with_tag("hermes"),
     );
+
+    // Span tracing. FIRST, so boot itself lands inside the trace rather than
+    // before it. Compiled out entirely without `--features tracing`, and inert
+    // even then unless HERMES_TRACE=1 — see telemetry.rs for why it is two
+    // switches rather than one.
+    telemetry::init();
 
     // Install a rustls CryptoProvider process-wide before any TLS handshake.
     // reqwest builds its own config, but tokio-tungstenite's wss:// path calls
@@ -215,6 +222,15 @@ pub fn run() {
             if let tauri::RunEvent::SceneRequested { .. } = &event {
                 window::fill_requested_scene(app_handle);
             }
+
+            // Flush pending spans before the process goes away. The batch
+            // exporter holds them in memory, and the last batch is usually the
+            // interesting one — whatever happened right before the user quit.
+            // No-op without the tracing feature.
+            if let tauri::RunEvent::Exit = &event {
+                telemetry::shutdown();
+            }
+
             let _ = event;
         });
 }
