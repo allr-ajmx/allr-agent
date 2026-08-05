@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect } from 'react'
+import { lazy, type ReactNode, Suspense, useEffect } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 
 import { AgentsView } from '@/app/agents'
@@ -39,6 +39,15 @@ import { MobileSurfaceShell } from './shell/mobile-surface-shell'
 import { AppShell, SidebarProvider } from './shell/sidebar'
 import { Statusbar } from './shell/statusbar'
 import { Titlebar } from './shell/titlebar'
+
+// The span-tracer HUD. Same build gate as the markdown bench (contrib/panes.tsx)
+// and the exporter it drives (observability/install.ts), behind a lazy import so
+// a release bundle carries neither the component nor the collector URL.
+const TRACE_HUD_ENABLED = import.meta.env.DEV || import.meta.env.VITE_ENABLE_BENCH === 'true'
+
+const TraceHud = TRACE_HUD_ENABLED
+  ? lazy(() => import('@/dev/trace-hud').then(module => ({ default: module.TraceHud })))
+  : null
 
 // Connected-guard + routing. Until a gateway connection is ready we show the
 // full-screen ConnectScreen (no nav). Once ready, the first-run onboarding
@@ -295,6 +304,14 @@ export function MobileController() {
           <FloatingPet
             overlayOpen={settingsOpen || agentsOpen || commandCenterOpen || cronOpen || profilesOpen || starmapOpen}
           />
+        )}
+        {/* Deliberately NOT gated on `connected`: the tracer has to work while
+            the gateway is down or still dialling, which is exactly when someone
+            wants to know where the time is going. */}
+        {TraceHud && (
+          <Suspense fallback={null}>
+            <TraceHud />
+          </Suspense>
         )}
       </div>
     </SidebarProvider>

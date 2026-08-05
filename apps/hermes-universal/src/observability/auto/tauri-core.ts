@@ -33,8 +33,8 @@
  * look nothing like a tracing bug.
  */
 
-import type { InvokeArgs, InvokeOptions } from '@tauri-apps/api/core'
 import { invoke as realInvoke } from '@tauri-apps/api-real/core'
+import type { InvokeArgs, InvokeOptions } from '@tauri-apps/api/core'
 
 import { traceparentFor } from '../otlp'
 import { currentContext } from '../span'
