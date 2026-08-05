@@ -289,9 +289,16 @@ export function installTraceConsole(): void {
     }
   })
 
+  // MERGE, don't replace. The HUD hangs `hud()` — the only way back from its × —
+  // off this same object, and whichever of the two installs second must not wipe
+  // the other's keys. install.ts runs the console first today, but a control the
+  // user cannot get back to should not depend on that staying true.
+  const existing = (window as unknown as { __hermesTrace?: Record<string, unknown> }).__hermesTrace ?? {}
+
   Object.defineProperty(window, '__hermesTrace', {
     configurable: true,
     value: {
+      ...existing,
       autoflush: (on = true) => {
         tracer.autoflush(on)
 

@@ -42,4 +42,10 @@ export function installObservability(): void {
 
     hud.installTraceHud()
   })
+
+  // The FPS HUD is its OWN import chain, not appended to the one above: it does
+  // not depend on the tracer, and an exporter that fails to load (no collector,
+  // a bad build) must not take the frame-rate readout down with it. They only
+  // share the gate and the panel chrome.
+  void import('@/dev/fps-hud').then(hud => hud.installFpsHud())
 }
