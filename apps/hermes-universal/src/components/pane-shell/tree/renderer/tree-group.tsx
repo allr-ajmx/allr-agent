@@ -56,6 +56,7 @@ import {
 
 import { type DoubleTapContext, startPaneDrag } from './drag-session'
 import { forceLoneHeaderForPanes } from './lone-header'
+import { notifyZoneRender } from './telemetry'
 
 /** A directional action in the zone menu (computed per group state). */
 interface ZoneMenuDirection {
@@ -332,6 +333,12 @@ export function TreeGroup({
     minimized: node.minimized,
     nodeId: node.id
   }
+
+  // Which zone re-rendered, by the kind of tile it is fronting. The root
+  // Profiler can time the layout tree but cannot say which pane's content
+  // caused a commit, and that is the difference between "a sidebar resize
+  // costs a second of React" and something you can act on. Null in release.
+  notifyZoneRender(node.id, active?.kind ?? 'empty')
 
   // NO body double-click toggle: virtualized content (the thread) recreates
   // its nodes between clicks, so the gesture was hopelessly unreliable. The

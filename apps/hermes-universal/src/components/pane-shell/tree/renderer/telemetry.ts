@@ -19,6 +19,7 @@ import type { ProfilerOnRenderCallback } from 'react'
 let commitHook: (() => void) | null = null
 let reactCommitHook: ProfilerOnRenderCallback | null = null
 let splitRenderHook: ((splitId: string, children: number, panes: number) => void) | null = null
+let zoneRenderHook: ((zoneId: string, kind: string) => void) | null = null
 
 /** Called from a dependency-less layout effect at the END of every layout-tree
  *  commit — while the DOM is still dirty, which is what makes a forced-layout
@@ -30,6 +31,20 @@ export const notifyLayoutCommit = (): void => commitHook?.()
  *  module for why the attribute is named `splitRenders`. */
 export const notifySplitRender = (splitId: string, children: number, panes: number): void =>
   splitRenderHook?.(splitId, children, panes)
+
+/**
+ * Called once per `TreeGroup` render, with the KIND of the tile it is fronting.
+ *
+ * This is the attribution the root Profiler cannot give. `react.commit` says
+ * the layout tree re-rendered and how long it took; `splitRenders` says whether
+ * the tree STRUCTURE was involved. Neither says which pane's content did it,
+ * and "a sidebar resize costs a second of React" is not actionable until you
+ * know whether that second is the file tree, the transcript or the terminal.
+ *
+ * The kind, not the id: `files` / `chat` / `terminal` is what you act on, and
+ * generated zone ids churn per session so they would be unsearchable as tags.
+ */
+export const notifyZoneRender = (zoneId: string, kind: string): void => zoneRenderHook?.(zoneId, kind)
 
 /** Wired straight to `<Profiler onRender>` — same signature on purpose, so the
  *  renderer hands React's own numbers across without reshaping them. */
@@ -48,4 +63,8 @@ export function setReactCommitHook(fn: typeof reactCommitHook): void {
 
 export function setSplitRenderHook(fn: typeof splitRenderHook): void {
   splitRenderHook = fn
+}
+
+export function setZoneRenderHook(fn: typeof zoneRenderHook): void {
+  zoneRenderHook = fn
 }

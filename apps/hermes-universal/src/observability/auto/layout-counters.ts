@@ -25,7 +25,11 @@
  * DEV/BENCH ONLY.
  */
 
-import { setReactCommitHook, setSplitRenderHook } from '@/components/pane-shell/tree/renderer/telemetry'
+import {
+  setReactCommitHook,
+  setSplitRenderHook,
+  setZoneRenderHook
+} from '@/components/pane-shell/tree/renderer/telemetry'
 
 import { isRecording, recordSpan } from '../span'
 
@@ -43,18 +47,31 @@ let totals = empty()
 /** Distinct splits that rendered this frame — a split rendering twice in one
  *  frame is a different problem from two splits rendering once. */
 let splitIds = new Set<string>()
+/** Zone renders this frame, counted per tile KIND. This is the attribution the
+ *  root Profiler cannot provide: `react.commit` says the tree cost 18ms,
+ *  `zones` says it was `files` and not `chat`. */
+let zoneKinds = new Map<string, number>()
+let zoneRenders = 0
 let reactCommits = 0
 
 function flush(): void {
   const { children, paneVisits, splitRenders } = totals
   const commits = reactCommits
   const distinct = splitIds.size
+  const zones = zoneRenders
+  // Sorted by count so the loudest pane reads first in Jaeger's tag list.
+  const kinds = [...zoneKinds.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([kind, n]) => `${kind}:${n}`)
+    .join(' ')
 
   totals = empty()
   splitIds = new Set()
+  zoneKinds = new Map()
+  zoneRenders = 0
   reactCommits = 0
 
-  if (splitRenders === 0 && commits === 0) {
+  if (splitRenders === 0 && commits === 0 && zones === 0) {
     return
   }
 
@@ -67,7 +84,15 @@ function flush(): void {
     'layout.tracks',
     at,
     at,
-    { children, distinctSplits: distinct, paneVisits, reactCommits: commits, splitRenders },
+    {
+      children,
+      distinctSplits: distinct,
+      paneVisits,
+      reactCommits: commits,
+      splitRenders,
+      zoneKinds: kinds,
+      zoneRenders: zones
+    },
     currentFrame() || undefined
   )
 }
@@ -82,6 +107,15 @@ export function installLayoutCounters(): () => void {
     totals.children += children
     totals.paneVisits += panes
     splitIds.add(splitId)
+  })
+
+  setZoneRenderHook((_zoneId, kind) => {
+    if (!isRecording()) {
+      return
+    }
+
+    zoneRenders += 1
+    zoneKinds.set(kind, (zoneKinds.get(kind) ?? 0) + 1)
   })
 
   setReactCommitHook((_id, phase, actualDuration, baseDuration, startTime, commitTime) => {
@@ -113,6 +147,7 @@ export function installLayoutCounters(): () => void {
   return () => {
     off()
     setSplitRenderHook(null)
+    setZoneRenderHook(null)
     setReactCommitHook(null)
   }
 }
