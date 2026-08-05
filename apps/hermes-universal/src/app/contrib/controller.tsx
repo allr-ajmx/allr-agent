@@ -214,9 +214,10 @@ registerTiles([
 ])
 
 // ---------------------------------------------------------------------------
-// Layout presets — CHAT (main) always dominates. Read-only (FIXME(MJX-202) for
-// custom save/delete). Same shape as desktop minus the optional `logs` pane
-// (not ported to universal).
+// Layout presets — CHAT (main) always dominates. These BUILT-IN presets are
+// read-only; custom save/delete shipped and lives in `tree/presets.ts`
+// (`saveCurrentLayoutAs` / `deleteUserPreset`). Same shape as desktop minus the
+// optional `logs` pane (not ported to universal).
 // ---------------------------------------------------------------------------
 
 const DEFAULT_TREE = split(
