@@ -23,6 +23,7 @@ import type { ContributionSource } from '@/contrib/types'
 import type { PanePlacementHint } from '../tree/grid-to-tree'
 import type { DropPosition } from '../tree/model'
 import type { DoubleTapContext } from '../tree/renderer/drag-session'
+import type { FloatingAnchor } from '../tree/renderer/floating-rect'
 
 /** A tile's id. Also its pane id in the tree and its contribution id. */
 export type TileId = string
@@ -30,10 +31,13 @@ export type TileId = string
 /**
  * Where a tile wants to live.
  *
- * `'floating'` and `'detached'` are RESERVED and not implemented — they are
- * what MJXHRM-172 (floating tiles) and MJXHRM-173 (detach to a native window)
- * become. Declaring them now keeps every placement check total, so neither
- * feature has to introduce a second leaf type later.
+ * `'floating'` (MJXHRM-172) is the one NON-TILING placement: the tile opts out
+ * of the tree entirely and renders as a fixed card above it — see
+ * `tree/renderer/floating-panes.tsx`. `'detached'` (MJXHRM-173) is hosted by
+ * another window; the tree keeps its slot so reattach is well-defined.
+ *
+ * Reserving both in the union from the start is what let each land as a
+ * placement rather than as a second leaf type.
  */
 export type TilePlacement = PanePlacementHint | 'detached' | 'floating'
 
@@ -95,6 +99,11 @@ export interface TileChrome {
   accent?: string
   /** Where a re-adopted tile docks. */
   dock?: TileDockHint
+  /** Spawn corner for `placement: 'floating'` (default `'top-right'`). A
+   *  right/bottom anchor also makes the card TRACK that edge on resize, so it
+   *  stays in its corner instead of being dragged inward only when it would
+   *  fall off. Ignored for every tiling placement. */
+  anchor?: FloatingAnchor
   /** Wrap this tile's TAB (e.g. in a domain context menu — a session tile's
    *  pin/branch/rename/archive/delete). The wrapper must render `tab` as its
    *  interactive child; the zone's own strip menu still owns non-tab space. */

@@ -31,6 +31,7 @@ import { $layoutTree, trackActiveTreeGroup } from '../store'
 import { ZoneEditor } from '../zone-editor'
 
 import { TreeEditBar } from './edit-bar'
+import { FloatingTiles } from './floating-panes'
 import { NarrowOverlays } from './narrow-overlays'
 import { notifyReactCommit } from './telemetry'
 import { TreeNode } from './tree-node'
@@ -88,6 +89,10 @@ export function LayoutTreeRoot({ children }: { children?: ReactNode }) {
         <TreeNode node={tree} root rootRow={tree.type === 'split' && tree.orientation === 'row'} />
       )}
       <NarrowOverlays />
+      {/* The non-tiling placement: `placement: 'floating'` tiles render as fixed
+          cards ABOVE the tree instead of taking width from a zone. Renders
+          nothing until a tile declares it. */}
+      <FloatingTiles />
       {/* Structural authoring: the floating palette (edit mode) and the grid
           editor it opens. Both render nothing until their store says so. */}
       <TreeEditBar />

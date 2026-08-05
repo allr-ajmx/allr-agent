@@ -45,6 +45,7 @@ import {
   splitGroupZone as splitGroupZoneOp,
   type SplitNode
 } from './model'
+import { FLOATING_PLACEMENT } from './renderer/floating-rect'
 import { rootChildSide } from './renderer/track-model'
 
 /**
@@ -970,7 +971,8 @@ function adoptContributedPanes(): void {
 
   considered = panes.length
 
-  const tileOf = (paneId: string) => panes.find(c => c.id === paneId)
+  const byId = tileMap()
+  const tileOf = (paneId: string) => byId.get(paneId)
 
   const placementOf = (paneId: string) => tileOf(paneId)?.placement
   const mainId = panes.find(c => placementOf(c.id) === 'main')?.id
@@ -986,7 +988,14 @@ function adoptContributedPanes(): void {
   }
 
   const dismissed = $dismissedPanes.get()
-  const missing = panes.filter(c => !inTree.has(c.id) && !dismissed.has(c.id))
+
+  // `placement: 'floating'` opts OUT of the tree entirely — those tiles render
+  // as fixed cards above it (renderer/floating-panes.tsx). Adopting one would
+  // turn it into a track that steals width from a zone, which is the whole
+  // thing floating exists to avoid.
+  const missing = panes.filter(
+    c => !inTree.has(c.id) && !dismissed.has(c.id) && c.placement !== FLOATING_PLACEMENT
+  )
 
   adopted = missing.length
 
