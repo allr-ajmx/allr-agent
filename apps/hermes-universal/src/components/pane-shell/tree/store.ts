@@ -96,7 +96,32 @@ export const $treeDragging = atom<string | null>(null)
 export const SESSION_TILE_DRAG = '__session-tile-drag__'
 
 /**
- * Panes hidden by app chrome toggles (titlebar sidebar / right-sidebar
+ * ═══ THE THREE VISIBILITY AXES ═══
+ *
+ * "Is this on screen?" used to be answered by five sets AND-ed together by
+ * hand. They were never five answers to one question — they are three
+ * orthogonal axes, plus two things that were never visibility at all:
+ *
+ *  1. PRESENCE  — is it in the tree at all?          `$dismissedPanes`
+ *  2. REVEAL    — does its owning store say show it?  `$hiddenTreePanes`
+ *  3. ENCLOSURE — can its CONTAINER show it?          `$collapsedTreeSides`
+ *                                                     + `GroupNode.minimized`
+ *                                                     + the narrow breakpoint
+ *
+ * Axes 1–2 are properties of the tile and resolve from an id — `tileVisibility`
+ * in `tile/visibility.ts`. Axis 3 is a property of the container and needs the
+ * tree — `zoneEnclosure` in `tile/enclosure.ts`. They are separate functions
+ * for that reason, not by accident; both files say so at the top.
+ *
+ * The two that were never visibility:
+ *  - `collapsePanes`, a module-level `Set` naming the tool panels. A TRAIT of
+ *    the surface, written once at import — now `TileChrome.toolPanel`.
+ *  - `$userPlacedPanes` (below), which answers "should auto-dock leave this
+ *    alone?". Placement, not visibility; it is read in exactly one place.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ *
+ * REVEAL. Panes hidden by app chrome toggles (titlebar sidebar / right-sidebar
  * buttons). The tree KEEPS the zone and its mounted content; a zone whose
  * every pane is hidden collapses to nothing until a toggle brings it back.
  * Not persisted here — each binding's store owns persistence.
@@ -218,18 +243,19 @@ export function registerPaneOpener(paneId: string, open: () => void) {
   paneOpeners[paneId] = open
 }
 
-// TOOL PANELS (terminal, logs, …): their toggle COLLAPSES the zone to a rail
-// (tab stays) instead of hiding it, and the tab's ✕ REMOVES it (vs a session
-// tile, whose ✕ closes the session). Membership tells the renderer which
-// semantics a tab gets. See bindPaneCollapse in the controller.
-const collapsePanes = new Set<string>()
-
-export function markCollapsePane(paneId: string) {
-  collapsePanes.add(paneId)
-}
-
+/**
+ * TOOL PANELS (terminal, logs, …): their toggle COLLAPSES the zone to a rail
+ * (tab stays) instead of hiding it, and the tab's ✕ REMOVES it (vs a session
+ * tile, whose ✕ closes the session). This tells the renderer which semantics a
+ * tab gets.
+ *
+ * It used to be a module-level `Set` written once by `bindPaneCollapse` at
+ * controller import and read during render — a trait masquerading as state, and
+ * non-reactive, so a later write would have rendered nothing. It is now
+ * `TileChrome.toolPanel`, declared by the tile itself.
+ */
 export function isCollapsePane(paneId: string): boolean {
-  return collapsePanes.has(paneId)
+  return Boolean(tileChrome(findTile(paneId)).toolPanel)
 }
 
 const resetHandlers = new Set<() => void>()
@@ -899,6 +925,10 @@ function commit(next: LayoutNode | null) {
 // dragged (zone move / span / zone-menu split) keeps that placement; auto-
 // docking (dockPaneBeside) only steers panes the user hasn't touched.
 // Presets and resets hand placement back to the app.
+//
+// NOT a visibility axis, despite sitting alongside the other id-keyed sets:
+// it never hides anything, and it is read in exactly one place
+// (`dockPaneBeside`). See the three-axis note above `$hiddenTreePanes`.
 // ---------------------------------------------------------------------------
 
 const USER_PLACED_KEY = 'hermes.desktop.userPlacedPanes.v1'

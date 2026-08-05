@@ -14,6 +14,7 @@ import { cn } from '@/lib/utils'
 import { $paneStates, type PaneStateSnapshot, setPaneHeightOverride, setPaneWidthOverride } from '@/store/panes'
 
 import { $layoutEditMode } from '../../edit-mode'
+import { type EnclosureContext, zoneEnclosure } from '../../tile/enclosure'
 import { useTiles } from '../../tile/registry'
 import { tileSizing, type TileSizing } from '../../tile/types'
 import { type TileContext, tileGone } from '../../tile/visibility'
@@ -35,9 +36,7 @@ import {
   fixedTrackSize,
   MIN_PANE_PX,
   resolveCssPx,
-  rootChildSide,
   shownPaneIds,
-  subtreeGone,
   type TrackContext
 } from './track-model'
 import { TreeNode } from './tree-node'
@@ -111,14 +110,18 @@ export function TreeSplit({ node, root, rootRow }: { node: SplitNode; root?: boo
 
   const trackCtx: TrackContext = { paneFor, paneGone, overrides }
 
-  // Chrome-toggle collapse: a subtree whose every pane is gone renders
-  // display:none (content stays MOUNTED — toggling back is instant), and its
-  // siblings absorb the space. Narrow-collapse UNMOUNTS instead, so the edge
-  // overlay owns the single live instance of the pane's content.
-  // EMPTY zones only exist in editor-authored trees (normalize prunes them on
-  // every structural op) — they take space in edit mode as drop targets.
-  const isEmptyZone = (child: LayoutNode) => child.type === 'group' && child.panes.length === 0
-  const isCollapsed = (child: LayoutNode) => subtreeGone(child, trackCtx) || (isEmptyZone(child) && !editMode)
+  // Chrome-toggle collapse, side collapse, minimize and narrow-collapse are one
+  // question about the CONTAINER — see tile/enclosure.ts for why it is a
+  // separate resolver from the tile-level one rather than folded into it.
+  const enclosureCtx: EnclosureContext = {
+    ...trackCtx,
+    collapsedSides,
+    editMode,
+    hidden: hiddenPanes,
+    narrow,
+    rootRow: Boolean(rootRow),
+    tileFor: paneFor
+  }
 
   // Min/max clamps come from a direct GROUP child's panes (the same clamps
   // the app's Pane props express) — but ONLY when they can speak for the
@@ -365,41 +368,13 @@ export function TreeSplit({ node, root, rootRow }: { node: SplitNode; root?: boo
     [axis, editMode, horizontal, node.children, node.id, node.weights, hiddenPanes, narrow, overrides, panes]
   )
 
-  // A run of ONLY fixed tracks can't fill the container (grow-0 all around
-  // leaves dead space — e.g. terminal + logs split into two 38vh zones with
-  // the rail above them collapsed). The LAST visible track absorbs the
-  // leftover, VS Code style.
-  const isMinimized = (child: LayoutNode) => child.type === 'group' && Boolean(child.minimized)
-
-  // SEMANTIC side collapse (titlebar toggles / ⌘B / ⌘J): at the ROOT row,
-  // ⌘B owns the sessions column and ⌘J the other side columns — by pane
-  // placement, NOT position, so a ⌘\ flip moves the columns without
-  // rewiring the toggles (main parity). In edit mode sides stay visible.
-  // `rootRow` covers both a row root (Default, Focus) and a row nested inside
-  // a column root (Terminal deck, Quad) — wherever the side columns live.
-  const semanticSides = rootRow && horizontal && collapsedSides.size > 0 && !editMode
-
-  const sideGone = (i: number) => {
-    if (!semanticSides) {
-      return false
-    }
-
-    const side = rootChildSide(node.children[i], paneFor)
-
-    return side !== null && collapsedSides.has(side)
-  }
-
-  // One pass per child: collapse/minimize state, resolved fixed track, clamps,
-  // and narrow-unmount flag. fixedTrackSize + subtreeGone each re-walk the
-  // subtree, so resolve them ONCE here instead of per read below.
-  const tracks = node.children.map((child, i) => {
-    const minimized = isMinimized(child)
-    const collapsed = isCollapsed(child) || sideGone(i)
+  // One pass per child: enclosure, resolved fixed track and clamps.
+  // fixedTrackSize + subtreeGone each re-walk the subtree, so resolve them ONCE
+  // here instead of per read below.
+  const tracks = node.children.map(child => {
+    const { collapsed, minimized, narrowCollapsed } = zoneEnclosure(child, enclosureCtx, horizontal)
     const track = minimized || collapsed ? null : fixedTrackSize(child, axis, trackCtx)
     const sizing = minimized || collapsed ? null : sizingFor(child, track)
-    // Narrow-collapse UNMOUNTS (the edge overlay owns the live instance) — but
-    // only for panes the breakpoint collapsed, not ones a chrome toggle hid.
-    const narrowCollapsed = narrow && collapsed && allPaneIds(child).some(id => !hiddenPanes.has(id))
 
     return { child, collapsed, minimized, narrowCollapsed, sizing, track }
   })

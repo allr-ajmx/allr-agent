@@ -18,7 +18,6 @@ import {
   declareDefaultTree,
   dismissTreePane,
   dockPaneBeside,
-  markCollapsePane,
   mirrorLayoutTree,
   paneRootSide,
   registerLayoutResetHandler,
@@ -153,9 +152,11 @@ registerTiles([
     kind: 'terminal',
     title: 'terminal',
     placement: 'bottom',
+    // toolPanel: its toggle collapses the zone to a rail instead of hiding it,
+    // and its ✕ removes it from the layout (⌃` brings it back).
     // revealOnPreset: a layout that places the terminal turns it on so the zone
     // shows instead of staying collapsed behind ⌃`.
-    chrome: { revealOnPreset: true },
+    chrome: { revealOnPreset: true, toolPanel: true },
     // A single-tile zone declaring a height is a FIXED track (a short deck, not
     // a third of the window).
     sizing: { height: '20vh', minHeight: '7.5rem', maxHeight: '80vh' },
@@ -460,7 +461,6 @@ function bindPaneCollapse(
   close: () => void,
   open: () => void
 ) {
-  markCollapsePane(paneId)
   setPaneCollapsed(paneId, !$open.get())
   $open.listen(isOpen => setPaneCollapsed(paneId, !isOpen))
   registerPaneCloser(paneId, close)

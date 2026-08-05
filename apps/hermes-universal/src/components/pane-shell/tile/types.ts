@@ -109,6 +109,19 @@ export interface TileChrome {
    *  in it. Default is contextual — a lone tile isn't a "tab", so its header
    *  auto-hides — but a tile that can be CLOSED needs somewhere to put the ✕. */
   loneHeader?: boolean
+  /**
+   * A TOOL PANEL (terminal, logs) — the IntelliJ/VS-Code tool-window model.
+   * Its toggle COLLAPSES the zone to a persistent rail (the tab stays) rather
+   * than hiding it, and its ✕ REMOVES it from the layout (it comes back via the
+   * toggle) rather than routing through a Close that ends something, the way a
+   * session tile's ✕ ends the session.
+   *
+   * This was a module-level `Set` in the tree store, written once at controller
+   * import and read during render. It is a TRAIT of the surface, not state: a
+   * terminal is a tool panel in every layout, forever. Declaring it here is what
+   * makes that structural instead of accidental.
+   */
+  toolPanel?: boolean
 }
 
 /**
