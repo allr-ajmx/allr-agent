@@ -234,8 +234,43 @@ export function TreeSplit({ node, root, rootRow }: { node: SplitNode; root?: boo
       // ResizeObserver fires every frame of a drag). They republish on release.
       beginSashDrag()
 
-      // pointermove outpaces 60fps and each write relayouts the whole pane tree,
-      // so coalesce to one apply per frame (rafCoalesce commits on cleanup).
+      // Exactly what React last rendered onto the two wrappers, captured BEFORE
+      // the first preview write. Only needed for the zero-movement click: no
+      // store write means no re-render, so nothing would otherwise overwrite
+      // the preview and the seam would stay where the pointer grazed it.
+      const styleA = kidA.getAttribute('style')
+      const styleB = kidB.getAttribute('style')
+
+      /**
+       * Move one side of the seam by writing inline style — no store, no
+       * re-render. The asymmetry between the branches is the subtle part:
+       *
+       *  - a FIXED side renders `flex: 0 1 <track>`, so `flexBasis` alone
+       *    carries the whole delta and grow/shrink stay React's. Its flex
+       *    partner is deliberately left untouched, so it keeps absorbing the
+       *    remainder exactly as the track model would have rendered it —
+       *    writing both sides here produced a phantom gap where a hidden
+       *    sidebar lived.
+       *  - a FLEX-vs-FLEX seam pins both sides to `0 1 <px>`. Their combined
+       *    px is constant, so other flex tracks in the same run see an
+       *    unchanged leftover.
+       */
+      const previewSide = (el: HTMLElement, fixed: boolean, px: number) => {
+        if (fixed) {
+          el.style.flexBasis = `${px}px`
+        } else if (!a.fixed && !b.fixed) {
+          el.style.flex = `0 1 ${px}px`
+        }
+      }
+
+      const previewShift = (shiftPx: number) => {
+        previewSide(kidA, a.fixed, a0px + shiftPx)
+        previewSide(kidB, b.fixed, b0px - shiftPx)
+      }
+
+      // The COMMIT, run once on release. Writing this per frame is what made a
+      // drag re-render the whole pane tree 60 times a second — the store write
+      // is cheap, but everything downstream of it is not.
       const applyShift = (shiftPx: number) => {
         if (a.fixed) {
           a.paneIds.forEach(id => setOverride(id, Math.round(a0px + shiftPx)))
@@ -254,17 +289,44 @@ export function TreeSplit({ node, root, rootRow }: { node: SplitNode; root?: boo
         }
       }
 
-      const resize = rafCoalesce(applyShift)
+      // pointermove outpaces 60fps, so coalesce to one PREVIEW per frame.
+      const resize = rafCoalesce(previewShift)
+      let lastShift: null | number = null
 
       const onMove = (ev: PointerEvent) => {
-        resize.push(Math.max(lo, Math.min(hi, (horizontal ? ev.clientX : ev.clientY) - start)))
+        lastShift = Math.max(lo, Math.min(hi, (horizontal ? ev.clientX : ev.clientY) - start))
+        resize.push(lastShift)
       }
 
       const cleanup = () => {
         resize.finish()
-        // AFTER resize.finish(), which commits the drag's final store write —
-        // re-enabling first would publish the pre-commit geometry and then get
-        // a second RO-driven publish immediately after. Ordering is load-bearing.
+
+        if (lastShift !== null) {
+          // One store commit for the whole gesture. The re-render it triggers
+          // rewrites each wrapper's `flex` SHORTHAND, and setting a shorthand
+          // resets its longhands — so the `flexBasis` the preview wrote is
+          // cleared by the very commit that installs the real value. No flash,
+          // and no manual teardown to forget.
+          applyShift(lastShift)
+        } else {
+          // A click with no movement: nothing will re-render, so put the
+          // wrappers back exactly as React last wrote them.
+          if (styleA === null) {
+            kidA.removeAttribute('style')
+          } else {
+            kidA.setAttribute('style', styleA)
+          }
+
+          if (styleB === null) {
+            kidB.removeAttribute('style')
+          } else {
+            kidB.setAttribute('style', styleB)
+          }
+        }
+
+        // AFTER the final store write above — re-enabling first would publish
+        // the pre-commit geometry and then take a second RO-driven publish
+        // immediately after. Ordering is load-bearing.
         endSashDrag()
         document.body.style.cursor = restoreCursor
         document.body.style.userSelect = restoreSelect
