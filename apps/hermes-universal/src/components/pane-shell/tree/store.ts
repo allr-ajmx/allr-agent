@@ -18,7 +18,7 @@ import { clearAllPaneSizeOverrides } from '@/store/panes'
 import { isSecondaryWindow } from '@/store/windows'
 
 import { $layoutEditMode } from '../edit-mode'
-import { findTile, getTiles } from '../tile/registry'
+import { findTile, getTiles, tileMap } from '../tile/registry'
 import { tileChrome } from '../tile/types'
 import { type TileContext, tileShown } from '../tile/visibility'
 
@@ -554,11 +554,11 @@ function rootRow(): SplitNode | null {
 
   // Column root: find the row child that contains the main pane — that's the
   // row the side-collapse system operates on (sessions left, files right).
-  const tiles = getTiles()
+  const byId = tileMap()
 
   const hasMain = (node: LayoutNode): boolean => {
     if (node.type === 'group') {
-      return node.panes.some(id => tiles.find(t => t.id === id)?.placement === 'main')
+      return node.panes.some(id => byId.get(id)?.placement === 'main')
     }
 
     return node.children.some(hasMain)
@@ -581,10 +581,10 @@ export function paneRootSide(paneId: string): null | TreeSide {
     return null
   }
 
-  const tiles = getTiles()
+  const byId = tileMap()
   const child = row.children.find(c => allPaneIds(c).includes(paneId))
 
-  return child ? rootChildSide(child, id => tiles.find(t => t.id === id)) : null
+  return child ? rootChildSide(child, id => byId.get(id)) : null
 }
 
 /** The closer-less Close: dismiss the pane (removed + remembered; reveal
@@ -673,9 +673,9 @@ export function layoutHasRootSide(side: TreeSide): boolean {
     return false
   }
 
-  const tiles = getTiles()
+  const byId = tileMap()
 
-  return row.children.some(child => rootChildSide(child, id => tiles.find(t => t.id === id)) === side)
+  return row.children.some(child => rootChildSide(child, id => byId.get(id)) === side)
 }
 
 /**

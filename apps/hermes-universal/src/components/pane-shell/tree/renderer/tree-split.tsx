@@ -16,7 +16,7 @@ import { $paneStates, type PaneStateSnapshot, setPaneHeightOverride, setPaneWidt
 import { $layoutEditMode } from '../../edit-mode'
 import { beginSashDrag, endSashDrag } from '../../geometry'
 import { type EnclosureContext, zoneEnclosure } from '../../tile/enclosure'
-import { useTiles } from '../../tile/registry'
+import { useTileMap } from '../../tile/registry'
 import { tileAxisLength, tileClamps } from '../../tile/sizing'
 import type { TileSizing } from '../../tile/types'
 import { type TileContext, tileGone } from '../../tile/visibility'
@@ -70,7 +70,7 @@ function useSubtreeOverrides(paneIds: readonly string[]): TrackContext['override
 
 export function TreeSplit({ node, root, rootRow }: { node: SplitNode; root?: boolean; rootRow?: boolean }) {
   const containerRef = useRef<HTMLDivElement>(null)
-  const panes = useTiles()
+  const byId = useTileMap()
   const hiddenPanes = useStore($hiddenTreePanes)
   const narrow = useStore($narrowViewport)
   const subtreePanes = useMemo(() => allPaneIds(node), [node])
@@ -102,7 +102,7 @@ export function TreeSplit({ node, root, rootRow }: { node: SplitNode; root?: boo
   // runtime plugin's pane collapses until the plugin loads, then appears; no
   // placeholder flash — when a chrome toggle hides it, or when the viewport
   // is narrow and the pane is collapsible (edge overlay instead).
-  const paneFor = (id: string) => panes.find(p => p.id === id)
+  const paneFor = (id: string) => byId.get(id)
 
   // Layout-edit mode forces toggle-hidden panes (terminal off, review/preview
   // closed) visible so they're rearrangeable — only truly-absent (unregistered)
@@ -349,7 +349,7 @@ export function TreeSplit({ node, root, rootRow }: { node: SplitNode; root?: boo
     },
     // trackCtx is derived state rebuilt per render; the drag captures it once.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [axis, editMode, horizontal, node.children, node.id, node.weights, hiddenPanes, narrow, overrides, panes]
+    [axis, editMode, horizontal, node.children, node.id, node.weights, hiddenPanes, narrow, overrides, byId]
   )
 
   // Double-click a sash: every neighbor returns to its DEFAULT size.
@@ -427,7 +427,7 @@ export function TreeSplit({ node, root, rootRow }: { node: SplitNode; root?: boo
       setTreeSplitWeights(node.id, !preset && !pinned ? weights.map(() => 1) : weights)
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [axis, editMode, horizontal, node.children, node.id, node.weights, hiddenPanes, narrow, overrides, panes]
+    [axis, editMode, horizontal, node.children, node.id, node.weights, hiddenPanes, narrow, overrides, byId]
   )
 
   // One pass per child: enclosure, resolved fixed track and clamps.

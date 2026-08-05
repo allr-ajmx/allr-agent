@@ -40,7 +40,7 @@ import { DEV_TOOLS_ENABLED } from '@/observability/enabled'
 
 import { $layoutEditMode } from '../../edit-mode'
 import { hiddenPaneProps, PaneGroupContext, PaneVisibleContext } from '../../pane-visibility'
-import { useTiles } from '../../tile/registry'
+import { useTileMap } from '../../tile/registry'
 import { tileChrome } from '../../tile/types'
 import { type TileContext, tileShown } from '../../tile/visibility'
 import type { DropPosition, GroupNode, RootEdge } from '../model'
@@ -201,7 +201,7 @@ export function TreeGroup({
   // missing on an inactive tile tab whose zone-active was the uncloseable
   // workspace).
   const [menuPane, setMenuPane] = useState<string | undefined>(undefined)
-  const panes = useTiles()
+  const byId = useTileMap()
   // Coarse drag flag only (set once at drag start/end). The per-frame drop
   // HINT lives in ZoneDropOverlay so a moving pointer re-renders the tiny
   // overlay, not every zone's header/body (and not the menuDirections walk).
@@ -211,7 +211,7 @@ export function TreeGroup({
   const hiddenPanes = useStore($hiddenTreePanes)
   const narrow = useStore($narrowViewport)
 
-  const paneFor = (id: string) => panes.find(p => p.id === id)
+  const paneFor = (id: string) => byId.get(id)
 
   // Unregistered (plugin not loaded), chrome-toggled-off, and narrow-collapsed
   // tiles drop out of the header; the active tile falls back to the first shown
@@ -770,7 +770,7 @@ const REGION: Record<DropPosition, CSSProperties> = {
 function ZoneDropOverlay({ node }: { node: GroupNode }) {
   const dragging = useStore($treeDragging)
   const hint = useStore($dropHint)
-  const tiles = useTiles()
+  const byId = useTileMap()
 
   if (dragging === null) {
     return null
@@ -784,7 +784,7 @@ function ZoneDropOverlay({ node }: { node: GroupNode }) {
   // may be LINKED into its zone (`chrome.linkTarget`). This used to be
   // `node.panes.some(isChatPaneId)` — the layout engine reading a chat id
   // prefix to decide a drop affordance.
-  const linkZone = node.panes.some(id => tileChrome(tiles.find(t => t.id === id)).linkTarget)
+  const linkZone = node.panes.some(id => tileChrome(byId.get(id)).linkTarget)
 
   const isDragSource = node.panes.includes(dragging)
 
