@@ -29,6 +29,12 @@ jobs:
             console.error("::error::Workspace discovery produced an empty package list — refusing to emit a zero-length matrix (would skip all JS/TS checks silently).");
             process.exit(1);
           }
+          // A package that defines any `check:<name>` gets one matrix job per
+          // sub-script and its plain `check` is NOT run — so `check` must be a
+          // pure umbrella over those sub-scripts, never extra work of its own.
+          // Break that and the extra work silently stops being tested: this is
+          // exactly how hermes-universal shipped for months with only
+          // `check:rust` running and typecheck/lint/test/build never executing.
           const checks = [];
           for (const pkg of pkgs) {
             const scripts = pkg.scripts || {};
@@ -45,6 +51,9 @@ jobs:
             console.error("::error::No check scripts found in any workspace package.");
             process.exit(1);
           }
+          // Print the selection so a shadowed script is visible in the log
+          // rather than only as a job that quietly never appears.
+          console.error("::notice::Selected checks — " + checks.map(c => c.package + ":" + c.script).join(", "));
           process.stdout.write("checks=" + JSON.stringify(checks) + "\n");
           ' >> "$GITHUB_OUTPUT"
 

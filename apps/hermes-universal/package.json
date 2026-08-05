@@ -25,8 +25,9 @@
     "lint:fix": "eslint src/ --fix",
     "fmt": "prettier --write 'src/**/*.{ts,tsx}' 'bench/*.mjs' 'vite.config.ts'",
     "fix": "npm run lint:fix && npm run fmt",
-    "check": "npm run typecheck && npm run lint && npm run test && npm run build",
-    "check:rust": "cargo check --manifest-path src-tauri/Cargo.toml"
+    "check:js": "npm run typecheck && npm run lint && npm run test && npm run build",
+    "check:rust": "cargo check --manifest-path src-tauri/Cargo.toml",
+    "check": "npm run check:js && npm run check:rust"
   },
   "dependencies": {
     "@assistant-ui/core": "^0.2.20",
