@@ -26,6 +26,7 @@
  */
 
 import {
+  setPaneCommitHook,
   setReactCommitHook,
   setSplitRenderHook,
   setZoneRenderHook
@@ -33,6 +34,7 @@ import {
 
 import { isRecording, recordSpan } from '../span'
 
+import { probeCommit } from './engine-probe'
 import { currentFrame, noteFrameWork, onFrameEnd } from './frames'
 
 interface Totals {
@@ -118,6 +120,26 @@ export function installLayoutCounters(): () => void {
     zoneKinds.set(kind, (zoneKinds.get(kind) ?? 0) + 1)
   })
 
+  // The breakdown the root Profiler cannot give. `id` is the tile kind, and
+  // this fires only for panes that actually committed — so a right-sidebar
+  // resize that costs a second of React finally says WHOSE second it was.
+  //
+  // Never sum these with `react.commit`: a nested Profiler's actualDuration is
+  // already inside its ancestor's. The root is the total, this is the split.
+  setPaneCommitHook((id, phase, actualDuration, _baseDuration, startTime, commitTime) => {
+    if (!isRecording()) {
+      return
+    }
+
+    recordSpan(
+      'react.pane',
+      startTime,
+      commitTime,
+      { actualMs: Math.round(actualDuration), kind: String(id), phase },
+      currentFrame() || undefined
+    )
+  })
+
   setReactCommitHook((_id, phase, actualDuration, baseDuration, startTime, commitTime) => {
     if (!isRecording()) {
       return
@@ -140,6 +162,10 @@ export function installLayoutCounters(): () => void {
       { actualMs: Math.round(actualDuration), baseMs: Math.round(baseDuration), phase },
       currentFrame() || undefined
     )
+
+    // How much style and layout THIS commit dirtied. Deliberately last, so the
+    // forced flush is not inside the span that measures React's own work.
+    probeCommit()
   })
 
   const off = onFrameEnd(flush)
@@ -148,6 +174,7 @@ export function installLayoutCounters(): () => void {
     off()
     setSplitRenderHook(null)
     setZoneRenderHook(null)
+    setPaneCommitHook(null)
     setReactCommitHook(null)
   }
 }

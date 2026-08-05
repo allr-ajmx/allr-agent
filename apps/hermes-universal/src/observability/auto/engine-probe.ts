@@ -28,8 +28,15 @@
  *
  * TWO PROBE SITES, AND WHY THE SECOND ONE EXISTS
  *
- *  - `commit`    — at the end of every layout-tree commit, while the DOM is
- *                  still dirty from it.
+ *  - `commit`    — from the layout tree's Profiler `onRender`, i.e. after
+ *                  React has mutated the DOM and before the browser's
+ *                  rendering step, which is the one moment the DOM is dirty
+ *                  from this commit and JS still has the thread. It used to
+ *                  hang off a layout effect in `LayoutTreeRoot` and recorded
+ *                  NOTHING across three captures: a dependency-less layout
+ *                  effect only re-runs when its own component re-renders, and
+ *                  the commits worth measuring originate deep in a pane's
+ *                  content and never touch the root.
  *  - `pre-frame` — at the top of each rAF. `pane-shell/geometry.ts` writes
  *                  `--workspace-left/right` on `:root` from a post-layout
  *                  ResizeObserver callback, which re-dirties style for
@@ -53,8 +60,6 @@
  *
  * DEV/BENCH ONLY.
  */
-
-import { setLayoutCommitHook } from '@/components/pane-shell/tree/renderer/telemetry'
 
 import { isRecording, recordSpan } from '../span'
 
@@ -106,12 +111,13 @@ export function probeEngine(reason: 'commit' | 'pre-frame'): void {
 }
 
 export function installEngineProbe(): () => void {
-  setLayoutCommitHook(() => probeEngine('commit'))
-
-  const off = onFrame(() => probeEngine('pre-frame'))
-
-  return () => {
-    off()
-    setLayoutCommitHook(null)
-  }
+  return onFrame(() => probeEngine('pre-frame'))
 }
+
+/**
+ * Probe from inside a React commit. Called by the layout counters, which
+ * already own the root Profiler's callback — one probe per commit, from the
+ * ROOT only, never from the per-pane profilers (they fire for the same commit
+ * and would probe it several times over).
+ */
+export const probeCommit = (): void => probeEngine('commit')

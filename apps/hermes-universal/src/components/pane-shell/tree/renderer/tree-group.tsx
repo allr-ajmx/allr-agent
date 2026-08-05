@@ -10,7 +10,16 @@
  */
 
 import { useStore } from '@nanostores/react'
-import { type CSSProperties, Fragment, type ReactNode, type RefObject, useEffect, useRef, useState } from 'react'
+import {
+  type CSSProperties,
+  Fragment,
+  Profiler,
+  type ReactNode,
+  type RefObject,
+  useEffect,
+  useRef,
+  useState
+} from 'react'
 
 import { Codicon } from '@/components/ui/codicon'
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from '@/components/ui/context-menu'
@@ -27,6 +36,7 @@ import { Tip, TipKeybindLabel } from '@/components/ui/tooltip'
 import { ContribBoundary } from '@/contrib/react/boundary'
 import { useI18n } from '@/i18n'
 import { cn } from '@/lib/utils'
+import { DEV_TOOLS_ENABLED } from '@/observability/enabled'
 
 import { $layoutEditMode } from '../../edit-mode'
 import { hiddenPaneProps, PaneGroupContext, PaneVisibleContext } from '../../pane-visibility'
@@ -56,7 +66,35 @@ import {
 
 import { type DoubleTapContext, startPaneDrag } from './drag-session'
 import { forceLoneHeaderForPanes } from './lone-header'
-import { notifyZoneRender } from './telemetry'
+import { notifyPaneCommit, notifyZoneRender } from './telemetry'
+
+/**
+ * Times a pane's CONTENT, separately from the layout tree around it.
+ *
+ * The root Profiler could say "the layout tree committed for 20ms" and the
+ * zone/split counters could say the tree itself did not re-render — which
+ * together locate the work below `TreeGroup`, in a pane's content, and go no
+ * further. A resize that costs a second of React is not actionable until you
+ * know whether that second is the file tree, the transcript or the terminal.
+ *
+ * Only the panes that actually committed fire, so the span volume tracks the
+ * work rather than the pane count. Nested inside the root Profiler on purpose:
+ * its `actualDuration` is ALSO counted in the root's, so the two must never be
+ * summed — the root is the total and this is the breakdown.
+ *
+ * Dev/bench only: `<Profiler>` adds per-commit timing to its whole subtree.
+ */
+function PaneProfiler({ children, kind }: { children: ReactNode; kind: string }) {
+  if (!DEV_TOOLS_ENABLED) {
+    return children
+  }
+
+  return (
+    <Profiler id={kind} onRender={notifyPaneCommit}>
+      {children}
+    </Profiler>
+  )
+}
 
 /** A directional action in the zone menu (computed per group state). */
 interface ZoneMenuDirection {
@@ -579,7 +617,9 @@ export function TreeGroup({
                     // that is per-zone rather than per-tab.
                     <PaneGroupContext.Provider value={node.id}>
                       <PaneVisibleContext.Provider value={isActive}>
-                        <ContribBoundary id={tile.id}>{tile.render()}</ContribBoundary>
+                        <PaneProfiler kind={tile.kind}>
+                          <ContribBoundary id={tile.id}>{tile.render()}</ContribBoundary>
+                        </PaneProfiler>
                       </PaneVisibleContext.Provider>
                     </PaneGroupContext.Provider>
                   ) : (

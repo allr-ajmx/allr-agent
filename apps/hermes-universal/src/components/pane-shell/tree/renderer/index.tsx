@@ -21,7 +21,7 @@
  */
 
 import { useStore } from '@nanostores/react'
-import { Profiler, type ReactNode, useEffect, useLayoutEffect } from 'react'
+import { Profiler, type ReactNode, useEffect } from 'react'
 
 import { DEV_TOOLS_ENABLED } from '@/observability/enabled'
 
@@ -32,28 +32,9 @@ import { ZoneEditor } from '../zone-editor'
 
 import { TreeEditBar } from './edit-bar'
 import { NarrowOverlays } from './narrow-overlays'
-import { notifyLayoutCommit, notifyReactCommit } from './telemetry'
+import { notifyReactCommit } from './telemetry'
 import { TreeNode } from './tree-node'
 
-/**
- * Renders nothing; fires the layout-commit telemetry hook (null unless a dev
- * build installed the engine probe — see `renderer/telemetry.ts`).
- *
- * Three details are load-bearing:
- *  - a LAYOUT effect, not a passive one, so it runs while the DOM is still
- *    dirty from this commit — a forced-layout probe scheduled after paint would
- *    measure the next idle moment instead of this one;
- *  - NO dependency array, so it fires on every commit rather than on tree
- *    identity changes only;
- *  - rendered LAST among the root's children, because React runs layout effects
- *    child-first and siblings in order, so the final depth-1 sibling is the
- *    one that fires after every preceding subtree has finished.
- */
-function LayoutCommitProbe() {
-  useLayoutEffect(notifyLayoutCommit)
-
-  return null
-}
 
 export function LayoutTreeRoot({ children }: { children?: ReactNode }) {
   const tree = useStore($layoutTree)
@@ -112,8 +93,6 @@ export function LayoutTreeRoot({ children }: { children?: ReactNode }) {
       <TreeEditBar />
       <ZoneEditor />
       {children}
-      {/* LAST, deliberately — see LayoutCommitProbe. */}
-      <LayoutCommitProbe />
     </div>
   )
 }

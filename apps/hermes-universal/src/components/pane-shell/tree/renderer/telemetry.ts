@@ -16,15 +16,10 @@
 
 import type { ProfilerOnRenderCallback } from 'react'
 
-let commitHook: (() => void) | null = null
+let paneCommitHook: ProfilerOnRenderCallback | null = null
 let reactCommitHook: ProfilerOnRenderCallback | null = null
 let splitRenderHook: ((splitId: string, children: number, panes: number) => void) | null = null
 let zoneRenderHook: ((zoneId: string, kind: string) => void) | null = null
-
-/** Called from a dependency-less layout effect at the END of every layout-tree
- *  commit — while the DOM is still dirty, which is what makes a forced-layout
- *  probe measure this commit rather than the next idle moment. */
-export const notifyLayoutCommit = (): void => commitHook?.()
 
 /** Called once per `TreeSplit` render, with the shape of the work that render
  *  just did. Counts cost PAID, which React 19 may discard — see the counter
@@ -50,11 +45,15 @@ export const notifyZoneRender = (zoneId: string, kind: string): void => zoneRend
  *  renderer hands React's own numbers across without reshaping them. */
 export const notifyReactCommit: ProfilerOnRenderCallback = (...args) => reactCommitHook?.(...args)
 
+/** Same, for the per-pane Profiler. Its `id` is the tile KIND, and its
+ *  `actualDuration` is a SUBSET of the root's — a breakdown, never a total. */
+export const notifyPaneCommit: ProfilerOnRenderCallback = (...args) => paneCommitHook?.(...args)
+
 // A setter each rather than one options object: these are separate installers
 // with separate lifetimes, and a single merge-free setter would let whichever
 // installed last silently clear the others' hooks.
-export function setLayoutCommitHook(fn: typeof commitHook): void {
-  commitHook = fn
+export function setPaneCommitHook(fn: typeof paneCommitHook): void {
+  paneCommitHook = fn
 }
 
 export function setReactCommitHook(fn: typeof reactCommitHook): void {
