@@ -378,6 +378,36 @@ export function beginSpan(name: string, attrs?: SpanAttrs): number {
 }
 
 /**
+ * Open a span off the synchronous stack, with an EXPLICIT start time and
+ * parent. The returned serial must be passed to `endSpan`.
+ *
+ * For work whose window is known before its children are: a frame is the case
+ * that forced this. A frame's children — the React commit, the forced-layout
+ * probe, the counter flush — are recorded from LATER tasks, so they cannot
+ * find the frame on the stack and cannot be swept under it by an ambient
+ * default either (that would also swallow every websocket frame and streaming
+ * store write that happened to land in the same window, and `gapMs` is exactly
+ * the number such a mis-parenting destroys). They reference its serial
+ * directly instead, which keeps parenting opt-in per call site.
+ *
+ * `startMs` is explicit for the other half of the same problem: a frame span
+ * that started when its first child asked would render children beginning
+ * before their own parent, and a waterfall that cannot be true is worse than
+ * no waterfall.
+ */
+export function openSpan(name: string, startMs: number, parent: number, attrs?: SpanAttrs): number {
+  if (!recording || count >= CAPACITY) {
+    return NO_SPAN
+  }
+
+  const index = alloc(name, parent, startMs, NaN, attrs)
+
+  openIndex.set(spanSerial[index], index)
+
+  return spanSerial[index]
+}
+
+/**
  * Open a span that does NOT join the synchronous stack.
  *
  * For work that spans an `await`. A synchronous LIFO and an async operation are
@@ -388,15 +418,7 @@ export function beginSpan(name: string, attrs?: SpanAttrs): number {
  * stack gets the parentage right without corrupting anyone else's.
  */
 export function beginDetached(name: string, attrs?: SpanAttrs): number {
-  if (!recording || count >= CAPACITY) {
-    return NO_SPAN
-  }
-
-  const index = alloc(name, currentParent(), now(), NaN, attrs)
-
-  openIndex.set(spanSerial[index], index)
-
-  return spanSerial[index]
+  return openSpan(name, now(), currentParent(), attrs)
 }
 
 export function endSpan(serial: number, attrs?: SpanAttrs): void {

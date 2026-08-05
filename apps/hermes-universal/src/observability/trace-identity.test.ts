@@ -6,6 +6,7 @@ import {
   captureRoot,
   clearSpans,
   endSpan,
+  openSpan,
   openSpanCount,
   recordSpan,
   setRecording,
@@ -19,6 +20,7 @@ interface OtlpSpan {
   name: string
   parentSpanId: string
   spanId: string
+  startTimeUnixNano: string
   traceId: string
 }
 
@@ -192,6 +194,62 @@ describe('trace identity', () => {
 
     expect(takeCaptureRoot()?.serial).toBe(captureRoot().serial)
     expect(takeCaptureRoot()).toBeNull()
+  })
+
+  it('keeps an explicitly-opened span open across a drain, and adopts later children', () => {
+    // The FRAME shape. A frame span is opened from the rAF callback and closed
+    // from a post-paint task, and everything it contains — the React commit,
+    // the forced-layout probe — is recorded from tasks in between. Those
+    // children cannot find it on the stack, so they name its serial; the point
+    // of this test is that the naming still resolves after a flush window has
+    // recycled the buffer underneath it.
+    const frame = openSpan('frame', 100, captureRoot().serial)
+
+    // Open, so not shipped — and off the stack, so it does not read as depth.
+    expect(drained()).toHaveLength(0)
+    expect(openSpanCount()).toBe(0)
+
+    recordSpan('react.commit', 101, 108, undefined, frame)
+
+    const child = byName(drained(), 'react.commit')
+
+    endSpan(frame)
+
+    const closed = byName(drained(), 'frame')
+
+    expect(child.parentSpanId).toBe(closed.spanId)
+    expect(child.traceId).toBe(closed.traceId)
+  })
+
+  it('honours the start time it was handed, so children cannot precede their parent', () => {
+    // A frame span that started when its first child asked would render
+    // children beginning before their own parent. A waterfall that cannot be
+    // true is worse than no waterfall.
+    const frame = openSpan('frame', 10, captureRoot().serial)
+
+    recordSpan('child', 20, 30, undefined, frame)
+    endSpan(frame)
+
+    const all = exported()
+    const parentStart = Number(byName(all, 'frame').startTimeUnixNano)
+
+    expect(parentStart).toBeLessThanOrEqual(Number(byName(all, 'child').startTimeUnixNano))
+  })
+
+  it('does not put an explicitly-opened span on the synchronous stack', () => {
+    // Same contract as beginDetached, which is now implemented in terms of it:
+    // a span whose lifetime crosses tasks must not sweep up whatever else
+    // happens to open while it is alive.
+    const frame = openSpan('frame', 0, captureRoot().serial)
+
+    span('unrelated', () => {})
+
+    const all = exported()
+    const root = all.find(s => s.parentSpanId === '')!
+
+    expect(byName(all, 'unrelated').parentSpanId).toBe(root.spanId)
+
+    endSpan(frame)
   })
 
   it('emits a 32-hex trace id and a 16-hex span id', () => {
