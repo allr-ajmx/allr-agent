@@ -44,15 +44,25 @@ Hence the rule the code follows:
 2. Run the app as normal (`npm run tauri dev`). The frontend tracing layer is
    already present — it ships, and is off by default.
 
-3. In the webview console:
+3. Hit **record** on the floating HUD in the top-right corner, reproduce the
+   slow thing, hit **stop**.
 
-   ```js
-   __hermesTrace.on()          // start recording, persisted across reloads
-   // ...reproduce the slow thing...
-   __hermesTrace.timeline()    // console waterfall, gaps marked
-   ```
+That is the whole loop. Everything between record and stop is **one trace**,
+and stopping is what completes it — see "One capture, one trace" below.
 
-   Spans auto-drain to the collector every 2 s, so they are in Jaeger already.
+The HUD is dev/bench only and draggable; the `–` button collapses it to a pill.
+Its live span count is the thing to watch: a capture that is running and finding
+nothing looks different from one that never started, which is not true of any
+other readout here.
+
+The console API still exists and drives the same controls, if you prefer it:
+
+```js
+__hermesTrace.on()          // start recording, persisted across reloads
+// ...reproduce the slow thing...
+__hermesTrace.timeline()    // console waterfall, gaps marked
+__hermesTrace.off()         // stop — this is what completes the trace
+```
 
 To include the Rust backend, add the cargo feature and the env switch:
 
@@ -67,12 +77,46 @@ build contains as little of it as possible.
 
 | Half | Compiled? | Running? |
 | --- | --- | --- |
-| **Frontend** | Always. The core (`span.ts`, `otlp.ts`) ships, because a user's bug report is worth an OTLP dump. The exporter, store autocapture and console API are dev/bench only. | `__hermesTrace.on()` — persisted in localStorage, survives reloads. |
+| **Frontend** | Always. The core (`span.ts`, `otlp.ts`) ships, because a user's bug report is worth an OTLP dump. The exporter, the HUD, store autocapture, IPC propagation and the console API are dev/bench only. | The HUD's record button, or `__hermesTrace.on()` — persisted in localStorage, survives reloads. |
 | **Rust backend** | `--features tracing`. A default build links **no** OTel crates at all; `cargo tree` shows zero. | `HERMES_TRACE=1`. Compiled-but-unasked-for costs nothing, and enabling never needs a rebuild. |
 
 Splitting compile-time from runtime is the point: build once with
 `--features tracing` and you can trace any later session with an env var, while
 a release binary can never be talked into exporting anything.
+
+## One capture, one trace
+
+Everything recorded between record and stop belongs to a single trace, hung off
+a single `capture` root span. Two consequences worth knowing before you read a
+capture:
+
+- **The trace has no root until you stop.** A root span can only be sent with
+  its real end time, so mid-capture Jaeger shows the trace rootless — browsable,
+  just missing its top bar. Stopping completes it. A reload also completes it
+  (`pagehide`), which matters because editing any traced module triggers one.
+- **Captures roll after ten minutes.** Recording and forgetting would otherwise
+  build a trace with a quarter million spans that Jaeger will not open. The seam
+  is visible as a second `capture` span.
+
+Use **mark** in the HUD (or `__hermesTrace.mark('drag-sidebar')`) to bracket a
+named region inside the capture. One trace per capture is what makes the
+waterfall causally complete; marks are what make it navigable. Without them a
+ten-minute capture is a flat list of four thousand spans with no answer to
+"which of these was the drag".
+
+### Why not one trace per interaction
+
+That was the first design and it failed in a way worth recording, because it
+looks obviously correct. A span whose synchronous stack was empty was treated as
+a ROOT, and every root minted a trace id. But every seam in this app is entered
+from a scheduled callback — a `PerformanceObserver`, a Tauri event listener, a
+React render, an `await` continuation — so in practice *every* span was a root.
+One session produced 573 traces, essentially all of them a single span. Nothing
+nested inside anything, so `gapMs` had nothing to subtract from and Jaeger had
+nothing to draw.
+
+An empty stack is not evidence that a new trace started. It is evidence that the
+work was scheduled, which in a browser is the normal case.
 
 ## Naming a run — read this before you capture
 
@@ -115,9 +159,10 @@ Nothing in this list requires touching a call site. That is the whole design.
 | Interactions | Every click/keypress via `PerformanceObserver('event')`, decomposed into input delay / processing / presentation | `auto/events.ts` |
 | Store writes | Every nanostores write, named. A vite alias points `nanostores` at a wrapper so all ~34 direct importers are covered without edits; a build transform recovers the variable name so spans read `$paneStates` rather than `atom#7`. | `auto/stores.ts` |
 | HTTP | Every request through the Rust transport | `auto/http.ts` |
-| WebSocket | Frame-level, outbound | `auto/websocket.ts` |
+| WebSocket | Frame-level, both directions | `auto/websocket.ts` |
 | Markdown / Shiki / KaTeX / stream flush | The chat rendering pipeline, stage by stage | hand-placed, semantic |
 | All ~50 Tauri commands | Correct timing, including the 41 async ones | `tauri/tracing` feature |
+| IPC trace context | A `traceparent` on every `invoke`, so the command spans above join the frontend's trace | `auto/tauri-core.ts` |
 
 ### Why command timing is Tauri's job, not ours
 
@@ -129,20 +174,34 @@ own `tracing` feature calls `.instrument()` on the spawned future, which is
 exactly the thing a hand-rolled wrapper cannot do. So it is one line in
 `Cargo.toml` rather than code we maintain.
 
-## Console API
+There *is* a wrapper in `lib.rs` now — `telemetry::traced_invoke_handler` — and
+it is not a timer. It exists to enter a span carrying the webview's trace context
+before dispatch, which is the one thing that position is good for: Tauri builds
+its command spans inside the generated wrapper, so they inherit the remote parent
+from there. Its own duration is meaningless by construction. Do not "fix" it.
 
-```js
-__hermesTrace.on()                 // start recording (persisted across reloads)
-__hermesTrace.off()                // stop
-__hermesTrace.run('before-fix')    // label this capture
-__hermesTrace.timeline()           // console waterfall, gaps marked
-__hermesTrace.flush()              // send to the collector now
-__hermesTrace.autoflush(false)     // keep spans local so timeline() can see them
-```
+## The HUD, and the console API
+
+Both drive the same controller (`tracer` in `observability/exporter.ts`), so they
+cannot disagree — changing the run label in the console updates the HUD field.
+
+| HUD | Console | |
+| --- | --- | --- |
+| ● record / ■ stop | `__hermesTrace.on()` / `.off()` | Recording is persisted across reloads. Stopping completes the trace. |
+| flush | `__hermesTrace.flush()` | Send now. |
+| clear | `__hermesTrace.clear()` | Drop what has not been sent. |
+| auto-drain | `__hermesTrace.autoflush(false)` | Keep spans local so `timeline()` can see them. |
+| run label | `__hermesTrace.run('before-fix')` | No rebuild. |
+| mark… | `__hermesTrace.mark('drag')` | Open a named region; the next mark or stop closes it. |
+| timeline | `__hermesTrace.timeline()` | Console waterfall, gaps marked. |
+| copy | `__hermesTrace.otlp()` | Self-contained OTLP JSON for Jaeger's upload tab. |
+| jaeger ↗ | — | Opens the UI prefiltered to this run label. |
+| — | `__hermesTrace.status()` | What the HUD is showing, as an object. |
 
 `autoflush(false)` is the one that catches people out: with auto-drain on (the
 default, every 2 s) `timeline()` will often show nothing, because the spans are
-already in Jaeger. The empty-state message says so.
+already in Jaeger. The empty-state message says so, and the HUD spells out the
+state next to the checkbox.
 
 Everything is available in the WebKit inspector console — no devtools-only APIs
 are used, deliberately, because the shipping runtime is WebKitGTK rather than
@@ -210,14 +269,19 @@ otel-collector` — `up -d` will not pick up the change.
 
 Honest state as of this writing, so nobody hunts for a feature that is not there.
 
-- **The two halves are separate traces.** Frontend and Rust spans land in the
-  same Jaeger under the same `hermes.run`, but they are **not stitched into one
-  waterfall**. You correlate them by label and timestamp today. This is exactly
-  why the shared run label matters so much right now.
-- **IPC context propagation is pending.** The design is settled: a vite alias on
-  `@tauri-apps/api/core` puts a `traceparent` in `InvokeOptions.headers` — out of
-  band, so no command signature changes — and a Rust `TraceCtx` extractor reads
-  it back. Not yet built.
+- **Command spans stitch; the surrounding IPC plumbing does not.** A vite alias
+  on `@tauri-apps/api/core` puts a `traceparent` in `InvokeOptions.headers`, and
+  `telemetry::traced_invoke_handler` enters a span with that remote parent before
+  dispatch — so `ipc::request::handler` and `ipc::request::run`, which Tauri
+  creates inside the generated command wrapper, land in the frontend's trace.
+  Their ancestors do not: `wry::custom_protocol::handle`, `ipc::request` and
+  `ipc::request::handle` are created in Tauri's protocol layer, before any code
+  of ours runs, and still form their own small traces. Nothing in them is
+  interesting, but they will show up in a service search.
+- **The reverse direction is not propagated.** Rust → webview events (`app::emit`)
+  carry no context, so an emit and the webview work it triggers are separate
+  traces. Closing that needs the context inside event payloads, which changes the
+  event schema.
 - **Not yet spanned:** the window main-thread hop, the ten SSH connect phases,
   and the voice session/turn.
 
@@ -236,12 +300,22 @@ Each of these cost real time. Read them before trusting a number.
 - **Scope your DOM counts.** A node count scoped to the transcript container
   reported "7 nodes" and misled the investigation for several rounds.
   Whole-document counts exist alongside for that reason.
-- **Trace ids used to repeat.** They were derived from the span buffer index,
-  which `clearSpans()` resets every 2 s — so unrelated interactions silently
-  merged in Jaeger. Fixed with a counter that survives the drain;
-  `trace-identity.test.ts` is the regression net. It matters because a long
-  operation (SSH connect runs 45–90 s, roughly 45 drains) is exactly the case
-  that broke.
+- **Buffer indices are not identity.** Two bugs came out of treating them as if
+  they were, and they are worth reading together because the second hid behind
+  the first. Trace ids derived from the span buffer index repeated, because
+  `clearSpans()` resets that index every 2 s, so unrelated interactions merged.
+  Parent pointers had the same flaw and it was worse: a drain could not preserve
+  them at all, so the exporter had to wait for an idle stack and then wipe
+  everything — which made a trace longer than one stack unwind structurally
+  impossible. An SSH connect (45–90 s, roughly 45 drains) is exactly that case.
+  Both are now monotonic serials that no drain resets, and `trace-identity.test.ts`
+  is the regression net.
+- **A synchronous stack cannot describe an `await`.** `http.request` held a
+  stack-pushed span across its round trip, so every unrelated span opened while
+  it was in flight became its child, and closing it truncated the stack out from
+  under spans that were legitimately open. Async work uses `spanAsync`, which
+  captures the parent at call time and stays off the stack. If you add a span
+  around anything that awaits, use it.
 - **Rust needed a tokio runtime, twice.** Building the exporter outside one
   panics at startup inside hyper-util with "no reactor running", an error
   pointing nowhere near telemetry. Worse, *shutdown* failed silently: it returned
