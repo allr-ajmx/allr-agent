@@ -15,14 +15,16 @@
 
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo } from 'react'
 
+import { $registryVersion } from '@/contrib/registry'
 import { matchesQuery, useMediaQuery } from '@/hooks/use-media-query'
 import { Codecs, persistentAtom } from '@/lib/persisted'
 import { useStore } from '@/store/atom'
 
+import { $backendThemes, $pendingSkinApply } from './backend-sync'
 import { hexToRgb, mix, readableOn } from './color'
-import { BUILTIN_THEME_LIST, BUILTIN_THEMES, DEFAULT_SKIN_NAME, DEFAULT_TYPOGRAPHY, nousTheme } from './presets'
+import { BUILTIN_THEME_LIST, DEFAULT_SKIN_NAME, DEFAULT_TYPOGRAPHY, nousTheme } from './presets'
 import type { DesktopTheme, DesktopThemeColors } from './types'
-import { $userThemes, resolveTheme } from './user-themes'
+import { $userThemes, listAllThemes, resolveTheme } from './user-themes'
 
 const RETIRED_SKINS = new Set(['nous-light', 'default', 'gold'])
 
@@ -228,25 +230,38 @@ const ThemeContext = createContext<ThemeContextValue>({
 })
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  // Built-ins + user-installed themes. Reactive so an install shows up live in
-  // the picker and `/skin` without a reload.
+  // Built-ins + user-installed + backend skins + registry-contributed themes.
+  // Reactive so an install, a plugin registration, or a skin Hermes just authored
+  // shows up live in the picker and `/skin` without a reload.
   const userThemes = useStore($userThemes)
+  const backendThemes = useStore($backendThemes)
+  const registryVersion = useStore($registryVersion)
   const themeName = normalizeSkin(useStore($skin))
   const mode = normalizeMode(useStore($mode))
 
   const availableThemes = useMemo(
     () =>
-      [...Object.values(BUILTIN_THEMES), ...Object.values(userThemes)].map(({ name, label, description }) => ({
+      listAllThemes().map(({ name, label, description }) => ({
         name,
         label,
         description
       })),
-    [userThemes]
+    // userThemes + backendThemes + registryVersion ARE listAllThemes' reactivity.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [userThemes, backendThemes, registryVersion]
   )
 
   const systemDark = useMediaQuery('(prefers-color-scheme: dark)')
   const resolvedMode = resolveMode(mode, systemDark)
-  const activeTheme = useMemo(() => deriveTheme(themeName, resolvedMode), [themeName, resolvedMode])
+
+  const activeTheme = useMemo(
+    () => deriveTheme(themeName, resolvedMode),
+    // deriveTheme resolves its seed through the merged registry, so the theme
+    // stores are its reactivity too — an in-place palette edit of the ACTIVE
+    // skin (live theme authoring) must repaint, not just a name switch.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [themeName, resolvedMode, userThemes, backendThemes, registryVersion]
+  )
 
   // What actually gets painted (matches the `.dark` class applyTheme toggles).
   const renderedMode = useMemo(() => renderedModeFor(activeTheme.colors, resolvedMode), [activeTheme, resolvedMode])
@@ -255,6 +270,18 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   const setTheme = useCallback((name: string) => $skin.set(normalizeSkin(name)), [])
   const setMode = useCallback((next: ThemeMode) => $mode.set(next), [])
+
+  // Drain a backend-driven skin switch (Hermes authoring/activating a skin from a
+  // prompt, or `/skin` on another surface). setTheme persists it, so the choice
+  // sticks like any manual pick.
+  const pendingSkin = useStore($pendingSkinApply)
+
+  useEffect(() => {
+    if (pendingSkin) {
+      setTheme(pendingSkin)
+      $pendingSkinApply.set(null)
+    }
+  }, [pendingSkin, setTheme])
 
   const value = useMemo<ThemeContextValue>(
     () => ({ theme: activeTheme, themeName, mode, resolvedMode, renderedMode, availableThemes, setTheme, setMode }),
@@ -265,12 +292,3 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 }
 
 export const useTheme = (): ThemeContextValue => useContext(ThemeContext)
-
-/** Sync the mobile skin with the active Hermes backend theme on connect. */
-export function useSyncThemeFromBackend(backendThemeName: string | undefined, setTheme: (name: string) => void) {
-  useEffect(() => {
-    if (backendThemeName && BUILTIN_THEMES[backendThemeName]) {
-      setTheme(backendThemeName)
-    }
-  }, [backendThemeName, setTheme])
-}
