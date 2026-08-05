@@ -53,7 +53,6 @@ import {
   setTreeGroupHeaderHidden,
   splitTreeZone,
   toggleTreeGroupMinimized,
-  treeNewTabHandler
 } from '../store'
 
 import { type DoubleTapContext, startPaneDrag } from './drag-session'
@@ -194,10 +193,12 @@ export function TreeGroup({
   // onto a freshly-split tile used to land headerless ("name card missing").
   const forceLoneHeader = forceLoneHeaderForPanes(shown, paneFor, isCollapsePane)
 
-  // A chat strip gets the `+` new-tab affordance; other strips (terminal,
-  // preview) have their own create verb elsewhere.
-  const chatZone = shown.some(isChatPaneId)
-  const onNewTab = treeNewTabHandler()
+  // The `+` is contributed BY a tile (`Tile.onNewTab`), so any strip whose
+  // tenants know how to make another one gets it. It used to be a module-global
+  // singleton the session store registered, gated on the strip containing a
+  // chat pane — which meant exactly one strip in the app could ever have a `+`,
+  // and a plugin's stackable surface could not offer one at all.
+  const onNewTab = shown.map(paneFor).find(tile => tile?.onNewTab)?.onNewTab
 
   // A full-page view (headerVeto) suppresses the strip while it's the active
   // pane — a page is not a tab-able surface; the bar returns with the chat.
@@ -482,7 +483,7 @@ export function TreeGroup({
               {/* New-tab affordance, chat strips only — the same thing ⌘T does.
                   A terminal or preview strip has its own create verb, so a `+`
                   there would be ambiguous. */}
-              {chatZone && onNewTab && (
+              {onNewTab && (
                 <Tip label={<TipKeybindLabel actionId="session.newTab" text={t.zones.newTab} />}>
                   <button
                     aria-label={t.zones.newTab}

@@ -10,14 +10,15 @@ import { SIDEBAR_COLLAPSE_MEDIA_QUERY } from '@/app/layout-constants'
 import { setPluginEnabled } from '@/contrib/plugins-store'
 import { registry } from '@/contrib/registry'
 import { translateNow } from '@/i18n'
-import { isChatPaneId, WORKSPACE_PANE_ID } from '@/lib/pane-ids'
 import { readJson, readKey, writeJson, writeKey } from '@/lib/storage'
 import { notify } from '@/store/notifications'
 import { clearAllPaneSizeOverrides } from '@/store/panes'
 import { isSecondaryWindow } from '@/store/windows'
 
+import { $layoutEditMode } from '../edit-mode'
 import { findTile, getTiles } from '../tile/registry'
 import { tileChrome } from '../tile/types'
+import { type TileContext, tileShown } from '../tile/visibility'
 
 import {
   allPaneIds,
@@ -272,23 +273,6 @@ export function registerLayoutResetHandler(fn: () => void): () => void {
   }
 }
 
-// "New chat" for a chat tab strip's `+`. Registered rather than imported: the
-// layout tree stores pane ids and knows nothing about sessions, and pulling the
-// session store in here would invert that. Same seam as `registerPaneOpener`.
-let newTabHandler: (() => void) | null = null
-
-export function registerNewTabHandler(fn: () => void): () => void {
-  newTabHandler = fn
-
-  return () => {
-    if (newTabHandler === fn) {
-      newTabHandler = null
-    }
-  }
-}
-
-export const treeNewTabHandler = (): (() => void) | null => newTabHandler
-
 /** The zone the user last interacted with (clicked / focused into) — the ⌘W
  *  target when nothing is DOM-focused (activeElement is often `body` after a
  *  click lands on a non-focusable surface). Tracked by trackActiveTreeGroup. */
@@ -325,12 +309,63 @@ export function trackActiveTreeGroup(): () => void {
 
 const isUncloseablePane = (paneId: string): boolean => Boolean(tileChrome(findTile(paneId)).uncloseable)
 
-/** ⌘W "main tabs always": close the MAIN (workspace) zone's active tab, unless
- *  it's the uncloseable workspace itself. Returns false when there's nothing to
- *  close, so ⌘W stays a no-op — it never closes the window. */
-export function closeWorkspaceTab(): boolean {
+/** The renderer's on-screen rule, resolved OUTSIDE React so the tab verbs index
+ *  exactly what the user can see. Reads live atoms — call it per verb, not once
+ *  at module scope. */
+const treeTileContext = (): TileContext => ({
+  editMode: $layoutEditMode.get(),
+  hidden: $hiddenTreePanes.get(),
+  narrow: $narrowViewport.get(),
+  tileFor: findTile
+})
+
+/** A zone's tiles in strip order, filtered to the ones actually on screen —
+ *  the list every tab verb operates on. */
+function shownTabsOf(groupId: null | string): { active?: string; groupId: string; shown: string[] } | null {
   const tree = $layoutTree.get()
-  const active = tree ? findGroupOfPane(tree, WORKSPACE_PANE_ID)?.active : null
+  const group = groupId && tree ? findGroup(tree, groupId) : null
+
+  if (!group) {
+    return null
+  }
+
+  const ctx = treeTileContext()
+
+  return { active: group.active, groupId: group.id, shown: group.panes.filter(id => tileShown(id, ctx)) }
+}
+
+/** The zone a tab verb acts on: the one the user last interacted with, falling
+ *  back to the zone holding the MAIN tile (the app's primary surface) when
+ *  nothing has been focused yet — e.g. a hotkey pressed straight after boot. */
+function verbTargetGroupId(): null | string {
+  const focused = $activeTreeGroup.get()
+
+  if (focused) {
+    return focused
+  }
+
+  const tree = $layoutTree.get()
+  const mainId = getTiles().find(tile => tile.placement === 'main' && tileChrome(tile).uncloseable)?.id
+
+  return (mainId && tree ? findGroupOfPane(tree, mainId)?.id : null) ?? null
+}
+
+/**
+ * ⌘W: close the FOCUSED zone's active tab, unless it's uncloseable. Returns
+ * false when there's nothing to close, so ⌘W stays a no-op — it never closes
+ * the window.
+ *
+ * This used to be `closeWorkspaceTab`, hardcoded to the zone holding the
+ * workspace pane: ⌘W with a split-out chat zone or a terminal strip focused
+ * closed a tab in a zone the user wasn't looking at.
+ *
+ * The target is the SHOWN active tab, not `group.active` raw — a zone whose
+ * active tile is hidden renders its first shown tile instead, and ⌘W has to
+ * close what the user actually sees.
+ */
+export function closeFocusedTabInZone(): boolean {
+  const zone = shownTabsOf(verbTargetGroupId())
+  const active = zone && (zone.active && zone.shown.includes(zone.active) ? zone.active : zone.shown[0])
 
   if (!active || isUncloseablePane(active)) {
     return false
@@ -387,50 +422,55 @@ export function treePanesWithPrefix(prefix: string): string[] {
   return tree ? allPaneIds(tree).filter(id => id.startsWith(prefix)) : []
 }
 
-/** ⌘1…⌘9: activate the Nth tab of the FOCUSED zone (the interaction tracker's
- *  group), but only when it's a real tab strip (≥2 panes). Returns false so the
- *  caller falls back to its default (profile switch) — the number keys mean
- *  "switch tab" only while a multi-tab zone holds focus. */
+/**
+ * ⌥1…⌥9: activate the Nth tab of the FOCUSED zone. Returns false so the caller
+ * falls back to its default (the Nth recent session) — the number keys mean
+ * "switch tab" only while a multi-tab zone holds focus.
+ *
+ * Indexes the SHOWN tiles, not `group.panes`. The strip renders shown tiles, so
+ * indexing the raw list made ⌥2 land on the wrong tab — or on nothing —
+ * whenever a hidden tile sat earlier in the zone.
+ *
+ * No longer scoped to chat strips: a zone with two terminals stacked in it is a
+ * tab strip, and the keyboard now agrees with what the strip draws.
+ */
 export function activateTreeTabSlot(slot: number): boolean {
-  const groupId = $activeTreeGroup.get()
-  const tree = $layoutTree.get()
-  const panes = (groupId && tree ? findGroup(tree, groupId)?.panes : null) ?? []
+  const zone = shownTabsOf($activeTreeGroup.get())
 
-  // Same scoping as cycleTreeTabInFocusedZone: a CHAT strip with something to
-  // switch between. The caller's fallback (the Nth recent session) is the right
-  // answer anywhere else, so returning false is not a failure.
-  if (panes.length < 2 || slot < 1 || slot > panes.length || !panes.some(isChatPaneId)) {
+  if (!zone || zone.shown.length < 2 || slot < 1 || slot > zone.shown.length) {
     return false
   }
 
-  activateTreePane(groupId!, panes[slot - 1])
+  activateTreePane(zone.groupId, zone.shown[slot - 1])
 
   return true
 }
 
-/** ⌃Tab / ⌃⇧Tab: cycle the FOCUSED zone's tabs (wrapping) — but only a
- *  session/main strip with ≥2 tabs. Returns false so the caller falls back to
- *  the recent-session switcher when the focus isn't a chat tab strip. */
+/**
+ * ⌃Tab / ⌃⇧Tab: cycle the FOCUSED zone's SHOWN tabs (wrapping). Returns false so
+ * the caller falls back to the recent-session switcher when the focused zone
+ * isn't a strip with something to cycle.
+ *
+ * Like ⌥1-9, no longer scoped to chat strips, and cycling over shown tiles
+ * rather than raw ones so a hidden tile can't take a turn.
+ */
 export function cycleTreeTabInFocusedZone(direction: 1 | -1): boolean {
-  const groupId = $activeTreeGroup.get()
-  const tree = $layoutTree.get()
-  const group = groupId && tree ? findGroup(tree, groupId) : null
-  const panes = group?.panes ?? []
+  const zone = shownTabsOf($activeTreeGroup.get())
 
-  if (panes.length < 2 || !panes.some(isChatPaneId)) {
+  if (!zone || zone.shown.length < 2) {
     return false
   }
 
-  const idx = Math.max(0, panes.indexOf(group!.active ?? ''))
-  const nextId = panes[(idx + direction + panes.length) % panes.length]
-  activateTreePane(group!.id, nextId)
+  const idx = Math.max(0, zone.shown.indexOf(zone.active ?? ''))
+  const nextId = zone.shown[(idx + direction + zone.shown.length) % zone.shown.length]
+  activateTreePane(zone.groupId, nextId)
 
-  // Cycling onto a session/main tab must surface the name card — a zone that
-  // was double-tap-hidden stays headerless otherwise ("the one that cycles
-  // never gets it").
-  if (isChatPaneId(nextId)) {
-    setTreeGroupHeaderHidden(group!.id, false)
-  }
+  // Cycling must surface the strip: a zone that was double-tap-hidden stays
+  // headerless otherwise ("the one that cycles never gets it"), which leaves the
+  // user switching between tabs they cannot see. Unconditional now — it was
+  // gated on the target being a chat tab, so cycling a terminal strip whose
+  // header you had hidden left you flying blind.
+  setTreeGroupHeaderHidden(zone.groupId, false)
 
   return true
 }

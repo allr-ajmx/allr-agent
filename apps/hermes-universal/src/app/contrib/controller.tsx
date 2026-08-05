@@ -21,7 +21,6 @@ import {
   mirrorLayoutTree,
   paneRootSide,
   registerLayoutResetHandler,
-  registerNewTabHandler,
   registerPaneCloser,
   registerPaneOpener,
   resetLayoutTree,
@@ -145,6 +144,8 @@ registerTiles([
     placement: 'main',
     chrome: { tabWrap: wrapWorkspaceTab, uncloseable: true },
     sizing: { minWidth: '22vw' },
+    // The `+` on the strip this tile sits in: another chat.
+    onNewTab: newSessionTab,
     render: renderWorkspacePane
   },
   {
@@ -366,10 +367,6 @@ watchContributedPanes()
 watchSessionTiles()
 watchRouteTiles()
 
-// The `+` at the end of a chat tab strip. Registered rather than imported by
-// the renderer, which knows only pane ids (see registerNewTabHandler).
-registerNewTabHandler(newSessionTab)
-
 // A reconnect issues new runtime ids, so every binding we hold is dead. Drop
 // the bindings (NOT the sessions — a draft's unsent text is the one thing that
 // cannot be re-fetched) and let each visible surface re-resume its own session.
@@ -419,6 +416,7 @@ const syncWorkspaceTitle = () => {
       uncloseable: true
     },
     sizing: { minWidth: '22vw' },
+    onNewTab: newSessionTab,
     render: renderWorkspacePane
   })
 }

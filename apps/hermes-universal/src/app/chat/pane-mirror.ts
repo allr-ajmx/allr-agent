@@ -25,6 +25,10 @@ export interface PaneMirror<T> {
   prefix: string
   /** The `kind` every tile this mirror registers reports (`'chat'`, `'page'`). */
   kind: string
+  /** What the strip's `+` does for these tiles. Session tiles contribute "new
+   *  chat" so a zone holding only tiles — the workspace dragged elsewhere —
+   *  still offers one. */
+  onNewTab?: () => void
   /** Dock on adoption (default right; `center` = stack into anchor's zone). */
   dir?: (tile: T) => TileDock | undefined
   /** Pane to dock against (default `workspace`) — a drop's target zone. */
@@ -95,6 +99,7 @@ export function paneMirror<T>(cfg: PaneMirror<T>): () => void {
           tabWrap: cfg.tabWrap ? (tab: ReactElement) => cfg.tabWrap!(key, tab) : undefined
         },
         sizing: { minWidth: cfg.minWidth },
+        onNewTab: cfg.onNewTab,
         render: () => cfg.render(key)
       })
 
