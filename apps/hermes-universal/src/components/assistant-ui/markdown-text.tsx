@@ -24,6 +24,7 @@ import {
   resolveMediaDisplaySrc
 } from '@/lib/media'
 import { cn } from '@/lib/utils'
+import { span } from '@/observability'
 
 import { detectEmbed, extractAlert, MarkdownAlert, RichCodeBlock, UrlEmbed } from './embeds'
 
@@ -103,7 +104,13 @@ const KatexHtml = memo(
 // streaming burst can't evict everything a later session switch wants.
 const TEXT_CACHE_LIMIT = 256
 
-function memoizeByText<T>(compute: (text: string) => T, limit: number) {
+// `label` is for tracing only. Spanning the MISS and counting the hit rate
+// together is what makes these caches legible: a high miss rate on settled text
+// means the cache is being defeated, while a slow miss means the transform
+// itself is expensive, and the two want completely different fixes. Streaming
+// text misses by construction — each token makes a new key — so a high miss
+// rate is only interesting once a message has stopped growing.
+function memoizeByText<T>(label: string, compute: (text: string) => T, limit: number) {
   const cache = new Map<string, T>()
 
   return (text: string): T => {
@@ -116,7 +123,7 @@ function memoizeByText<T>(compute: (text: string) => T, limit: number) {
       return hit
     }
 
-    const value = compute(text)
+    const value = span(label, () => compute(text), { chars: text.length })
 
     cache.set(text, value)
 
@@ -136,17 +143,21 @@ function memoizeByText<T>(compute: (text: string) => T, limit: number) {
 // messagePart OBJECT, not on the text — so without a cache this re-runs on
 // every flush and every remount (session switch, message-list churn), and
 // preprocessMarkdown is a dozen full-text regex passes.
-const preprocessWithTailRepair = memoizeByText(function preprocessWithTailRepair(text: string): string {
-  try {
-    return tailBoundedRemend(preprocessMarkdown(text))
-  } catch {
-    return text
-  }
-}, TEXT_CACHE_LIMIT)
+const preprocessWithTailRepair = memoizeByText(
+  'markdown.preprocess',
+  function preprocessWithTailRepair(text: string): string {
+    try {
+      return tailBoundedRemend(preprocessMarkdown(text))
+    } catch {
+      return text
+    }
+  },
+  TEXT_CACHE_LIMIT
+)
 
 // Memoized block splitter. Streamdown lexes the whole message on every REMOUNT
 // (virtualizer scroll, session switch); the LRU removes those repeat parses.
-const parseMarkdownIntoBlocksCached = memoizeByText(parseMarkdownIntoBlocks, TEXT_CACHE_LIMIT)
+const parseMarkdownIntoBlocksCached = memoizeByText('markdown.block-lex', parseMarkdownIntoBlocks, TEXT_CACHE_LIMIT)
 
 function childrenToText(children: unknown): string {
   if (typeof children === 'string' || typeof children === 'number') {

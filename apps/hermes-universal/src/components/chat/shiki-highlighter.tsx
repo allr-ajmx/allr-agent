@@ -1,5 +1,5 @@
 import type { SyntaxHighlighterProps } from '@assistant-ui/react-streamdown'
-import { type FC, useMemo } from 'react'
+import { type FC, type ReactNode, useEffect, useMemo, useRef } from 'react'
 import ShikiHighlighter from 'react-shiki'
 
 import {
@@ -14,6 +14,7 @@ import { ExpandableBlock } from '@/components/chat/expandable-block'
 import { CopyButton } from '@/components/ui/copy-button'
 import { useI18n } from '@/i18n'
 import { codiconForLanguage, isLikelyProseCodeBlock, sanitizeLanguageTag } from '@/lib/markdown-code'
+import { isRecording, recordSpan } from '@/observability'
 
 /**
  * Streamdown's code adapter renders header + body as inline siblings, so we
@@ -84,6 +85,46 @@ export function chunkByLines(code: string, perChunk: number): CodeChunk[] {
   return chunks
 }
 
+/**
+ * Time-to-highlighted, per code block.
+ *
+ * `react-shiki` highlights in an async effect and keeps the result in
+ * component-local `useState`, so there is no call to wrap — the work has no
+ * synchronous boundary to bracket. What CAN be observed is the moment
+ * highlighted markup appears: Shiki emits inline-styled token spans, so their
+ * first appearance under this ref is the answer to "how long did the reader
+ * look at unstyled code".
+ *
+ * That indirectness is itself the finding worth recording. Because the result
+ * lives in component state rather than a shared cache, every unmount throws it
+ * away — and this transcript recycles code blocks via `content-visibility`, so
+ * the same block is re-highlighted from scratch each time it comes back. The
+ * span count on a single session says how often that happens.
+ */
+const HighlightTimer: FC<{ children: ReactNode; language: string }> = ({ children, language }) => {
+  const host = useRef<HTMLSpanElement>(null)
+  const startedAt = useRef(performance.now())
+  const settled = useRef(false)
+
+  // No dependency array: this must run after EVERY render, because the render
+  // that finally brings highlighted markup in is triggered by react-shiki's own
+  // state update, not by anything this component can depend on.
+  useEffect(() => {
+    if (settled.current || !isRecording() || !host.current?.querySelector('span[style]')) {
+      return
+    }
+
+    settled.current = true
+    recordSpan('shiki.time-to-highlighted', startedAt.current, performance.now(), { language })
+  })
+
+  return (
+    <span className="contents" ref={host}>
+      {children}
+    </span>
+  )
+}
+
 const PlainCode: FC<{ code: string }> = ({ code }) => {
   const chunks = useMemo(() => chunkByLines(code, CHUNK_LINES), [code])
 
@@ -152,18 +193,20 @@ export const SyntaxHighlighter: FC<HermesSyntaxHighlighterProps> = ({
             {plain ? (
               <PlainCode code={trimmed} />
             ) : (
-              <ShikiHighlighter
-                addDefaultStyles={false}
-                as="div"
-                colorReplacements={SHIKI_COLOR_REPLACEMENTS}
-                defaultColor="light-dark()"
-                delay={120}
-                language={language || 'text'}
-                showLanguage={false}
-                theme={SHIKI_THEME}
-              >
-                {trimmed}
-              </ShikiHighlighter>
+              <HighlightTimer language={cleanLanguage || 'text'}>
+                <ShikiHighlighter
+                  addDefaultStyles={false}
+                  as="div"
+                  colorReplacements={SHIKI_COLOR_REPLACEMENTS}
+                  defaultColor="light-dark()"
+                  delay={120}
+                  language={language || 'text'}
+                  showLanguage={false}
+                  theme={SHIKI_THEME}
+                >
+                  {trimmed}
+                </ShikiHighlighter>
+              </HighlightTimer>
             )}
           </Pre>
         </ExpandableBlock>

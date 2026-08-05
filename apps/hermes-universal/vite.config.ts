@@ -1,12 +1,15 @@
+import { execFileSync } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
+import react from '@vitejs/plugin-react'
 // `vitest/config` is a superset of Vite's defineConfig — using it lets the test
 // harness share this file's `@` alias, React plugin, and Tailwind wiring.
 import { defineConfig } from 'vitest/config'
+
+import { addStoreNames } from './src/observability/auto/store-names'
 
 // Tauri expects a fixed dev port and a non-clearing console. For Android
 // device dev the host must be reachable from the phone, so bind 0.0.0.0.
@@ -14,9 +17,105 @@ const host = process.env.TAURI_DEV_HOST
 
 const require = createRequire(import.meta.url)
 const reactDir = dirname(require.resolve('react/package.json'))
+// `core.js` explicitly, not `require.resolve('@tauri-apps/api/core')`. The
+// package publishes no exports map, so resolution falls back to extension
+// probing — and `require` probes `.cjs` first, which would alias the browser
+// bundle at the CommonJS build of a module that is otherwise pure ESM.
+const tauriCoreEsm = join(dirname(require.resolve('@tauri-apps/api/package.json')), 'core.js')
+
+/**
+ * Default label for traces, so an unlabelled capture still says where it came
+ * from. `__hermesTrace.run(...)` overrides it at runtime — see
+ * src/observability/run.ts.
+ *
+ * `HERMES_TRACE_RUN` names BOTH halves of a full-stack trace from one variable.
+ * The Rust backend reads it from the real environment at startup; a webview has
+ * no environment, so the same name has to be baked in at build time here.
+ * Without this the two halves would need separate labels for the same run, and
+ * the exact pair worth correlating — a frontend span and the Rust work it
+ * caused — would be filed under different names in the one UI built to
+ * correlate them.
+ */
+function traceRunDefault(): string {
+  return process.env.HERMES_TRACE_RUN || gitBranch()
+}
+
+/**
+ * Resolved here rather than in the app because the app cannot read git. Failure
+ * is expected and silent: a tarball, a CI checkout in detached HEAD, or no git
+ * at all should not break the build over a label.
+ */
+function gitBranch(): string {
+  try {
+    return execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
+      cwd: fileURLToPath(new URL('.', import.meta.url)),
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore']
+    }).trim()
+  } catch {
+    return 'local'
+  }
+}
+
+/**
+ * Store autocapture, dev/bench only. Two pieces, both here because both are
+ * build concerns rather than app code.
+ *
+ * The ALIAS points `nanostores` at our wrapper so every store write is timed,
+ * covering the ~34 files that import the package directly as well as the ones
+ * going through `@/store/atom`. A second alias, `nanostores-real`, resolves to
+ * the actual package: the wrapper is `nanostores` as far as resolution is
+ * concerned, so it cannot import itself, and the package's exports map offers no
+ * deep subpath to escape through.
+ *
+ * The TRANSFORM gives each store a name. Every atom in the app is a module-level
+ * `export const $Name = atom(...)`, so rewriting the call to pass `'$Name'` is
+ * enough — and since real nanostores ignores extra arguments, the rewrite is
+ * inert whenever the alias is off. Without it every span would say "anonymous",
+ * which is the one thing that would make store autocapture useless.
+ */
+const STORE_TRACING = process.env.NODE_ENV !== 'production' || process.env.VITE_ENABLE_BENCH === 'true'
+
+/**
+ * IPC trace propagation, dev/bench only — same gate, separate concern.
+ *
+ * Aliases `@tauri-apps/api/core` to a wrapper that puts a W3C `traceparent` on
+ * every `invoke`, so the Rust backend's spans join the frontend's trace instead
+ * of forming their own. Aliased rather than hand-called because `invoke` is
+ * reached from dozens of places and the point is that no call site has to know.
+ *
+ * `@tauri-apps/api-real/core` is the escape hatch, exactly as `nanostores-real`
+ * is above: the wrapper IS the aliased specifier, so it cannot import it.
+ */
+const IPC_TRACING = STORE_TRACING
+
+const storeNamePlugin = {
+  enforce: 'pre' as const,
+  name: 'hermes-store-names',
+  transform(code: string, id: string) {
+    // Test files are excluded because the transform matches raw TEXT, not
+    // syntax: a spec containing `export const $x = atom(` inside a fixture
+    // string is indistinguishable from the real thing. Its own tests are
+    // exactly that shape. (addStoreNames is idempotent too, so this is the
+    // second lock rather than the only one.)
+    if (!id.includes('/src/') || !/\.tsx?$/.test(id) || /\.(test|spec)\.tsx?$/.test(id)) {
+      return null
+    }
+
+    const next = addStoreNames(code)
+
+    // `map: null` — the rewrite only ever APPENDS an argument inside an
+    // existing call, so line numbers are unchanged and stack traces stay
+    // truthful without a real sourcemap.
+    return next === null ? null : { code: next, map: null }
+  }
+}
 
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  define: {
+    __TRACE_RUN_DEFAULT__: JSON.stringify(traceRunDefault())
+  },
+  plugins: [react(), tailwindcss(), ...(STORE_TRACING ? [storeNamePlugin] : [])],
   // Tailwind v4 is handled entirely by `@tailwindcss/vite`; pin an explicit
   // empty PostCSS config so Vite doesn't walk UP the filesystem and pick up a
   // stray postcss/tailwind config from the install location (see desktop
@@ -24,6 +123,24 @@ export default defineConfig({
   css: { postcss: { plugins: [] } },
   resolve: {
     alias: {
+      // Store autocapture — see storeNamePlugin above for why this is two
+      // entries. Order matters only for readability; the keys are exact.
+      ...(STORE_TRACING
+        ? {
+            nanostores: fileURLToPath(new URL('./src/observability/auto/stores.ts', import.meta.url)),
+            'nanostores-real': require.resolve('nanostores')
+          }
+        : {}),
+      // IPC trace propagation — see IPC_TRACING above. Declared BEFORE the `@`
+      // alias for the same reason the nanostores pair is: these keys are exact
+      // matches, and reading them together keeps the two escape hatches in one
+      // place.
+      ...(IPC_TRACING
+        ? {
+            '@tauri-apps/api-real/core': tauriCoreEsm,
+            '@tauri-apps/api/core': fileURLToPath(new URL('./src/observability/auto/tauri-core.ts', import.meta.url))
+          }
+        : {}),
       '@': fileURLToPath(new URL('./src', import.meta.url)),
       // The plugin SDK's public specifier. A bundled plugin writes
       // `import { host } from '@hermes/plugin-sdk'` and resolves here; a

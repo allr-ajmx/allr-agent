@@ -1,3 +1,5 @@
+import { span } from '@/observability'
+
 /**
  * PER-SESSION streaming delta batching.
  *
@@ -113,7 +115,14 @@ function scheduleFlush(): void {
       flushHandle = null
       const startedAt = now()
       lastFlushAt = startedAt
-      flushDeltas()
+
+      // The flush is where a batch of deltas becomes a React commit and a
+      // markdown re-parse, so this span contains the streaming render cost —
+      // and `sessions` is why it can vary so much between flushes: one flush
+      // carries every concurrently streaming session, which is the load the
+      // adaptive floor below exists to back off from.
+      span('stream.flush', flushDeltas, { sessions: queued.size })
+
       lastFlushCost = now() - startedAt
     },
     Math.max(0, adaptiveFloor - sinceLast)
