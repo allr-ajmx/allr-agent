@@ -89,7 +89,11 @@ function ZoneMenu({
   /** False for the zone hosting the uncloseable workspace — collapsing the
    *  MAIN pane strands the app behind a strip. */
   minimizable?: boolean
-  directions: ZoneMenuDirection[]
+  /** Called when the MENU renders, not on every zone re-render: resolving the
+   *  neighbour zones has to read the layout tree, and subscribing every zone to
+   *  it made a tree write re-render every mounted pane. Same lazy shape as
+   *  `closable`. */
+  directions: () => ZoneMenuDirection[]
   headerHidden?: boolean
   minimized?: boolean
   nodeId: string
@@ -100,7 +104,7 @@ function ZoneMenu({
     <ContextMenu>
       <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
       <ContextMenuContent>
-        {directions.map(direction => (
+        {directions().map(direction => (
           <ContextMenuItem key={direction.side} onSelect={direction.run}>
             {direction.label}
           </ContextMenuItem>
@@ -264,30 +268,39 @@ export function TreeGroup({
   //  - a single pane -> "Move <dir>": join the zone visually adjacent on that
   //    side (splitting here would only make an invisible empty zone). Sides
   //    with no visible neighbor are omitted entirely.
-  const tree = useStore($layoutTree)
+  // A THUNK, and read with `.get()` rather than `useStore`. Every zone used to
+  // subscribe to the whole layout tree just to resolve this list — so any tree
+  // write (every tab activate, every drop commit, every sash release)
+  // re-rendered every mounted zone, dragging each one's entire transcript with
+  // it. Nothing needs the answer until the context menu actually opens, and by
+  // then a fresh read is both cheaper and more correct than a subscription.
+  const menuDirections = (): ZoneMenuDirection[] => {
+    if (shown.length > 1) {
+      return DIRECTION_ORDER.map(side => ({
+        side,
+        label: `${t.zones.split(dirWord[side])} ${DIRECTION_ARROW[side]}`,
+        run: () => splitTreeZone(node.id, side, menuPane ?? activeId)
+      }))
+    }
 
-  const menuDirections: ZoneMenuDirection[] =
-    shown.length > 1
-      ? DIRECTION_ORDER.map(side => ({
+    const tree = $layoutTree.get()
+
+    return DIRECTION_ORDER.flatMap(side => {
+      const neighbor = tree ? adjacentGroup(tree, node.id, side, g => g.panes.some(id => tileShown(id, tileCtx))) : null
+
+      if (!neighbor || neighbor.id === node.id) {
+        return []
+      }
+
+      return [
+        {
           side,
-          label: `${t.zones.split(dirWord[side])} ${DIRECTION_ARROW[side]}`,
-          run: () => splitTreeZone(node.id, side, menuPane ?? activeId)
-        }))
-      : DIRECTION_ORDER.flatMap(side => {
-          const neighbor = tree ? adjacentGroup(tree, node.id, side, g => g.panes.some(id => tileShown(id, tileCtx))) : null
-
-          if (!neighbor || neighbor.id === node.id) {
-            return []
-          }
-
-          return [
-            {
-              side,
-              label: `${t.zones.move(dirWord[side])} ${DIRECTION_ARROW[side]}`,
-              run: () => moveTreePane(activeId, { groupId: neighbor.id, pos: 'center' })
-            }
-          ]
-        })
+          label: `${t.zones.move(dirWord[side])} ${DIRECTION_ARROW[side]}`,
+          run: () => moveTreePane(activeId, { groupId: neighbor.id, pos: 'center' })
+        }
+      ]
+    })
+  }
 
   // Close targets the right-clicked chip (falling back to the active pane);
   // only panes that declare `uncloseable` (the main workspace) are exempt.

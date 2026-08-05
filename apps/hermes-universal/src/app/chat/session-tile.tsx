@@ -308,10 +308,15 @@ export function SessionTabMenu({
   const pinId = stored ? sessionPinId(stored) : storedSessionId
   const isPinned = pinned.includes(pinId)
 
-  // Offer only the close verbs that would actually close something. Subscribing
-  // to the tree keeps the counts live, so the menu never shows "Close to the
-  // right" on the rightmost tab or "Close others" on a lone one.
-  useStore($layoutTree)
+  // Offer only the close verbs that would actually close something, so the menu
+  // never shows "Close to the right" on the rightmost tab or "Close others" on
+  // a lone one.
+  //
+  // Read, not subscribed. This only ever renders as a tab strip's `tabWrap`,
+  // i.e. inside a TreeGroup under LayoutTreeRoot — which already subscribes, so
+  // a tree write re-renders this component anyway and the counts stay live. Its
+  // own `useStore($layoutTree)` bought nothing and cost a second independent
+  // subscriber wakeup, per open tab, on every tree write.
   const closeTargets = treeTabCloseTargets(paneId)
 
   return (
