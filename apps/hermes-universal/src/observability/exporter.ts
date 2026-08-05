@@ -27,6 +27,7 @@ import {
   isRecording,
   NO_SPAN,
   openSpanCount,
+  recordSpan,
   rollCaptureIfStale,
   setRecording,
   spanCount,
@@ -116,7 +117,19 @@ async function drain(root: CaptureRoot | null = null): Promise<void> {
   lastFlushAt = Date.now()
 
   try {
-    await post(toOtlpBatch(batch, roots))
+    // Recorded because THE INSTRUMENT IS IN THE MEASUREMENT. This runs on the
+    // main thread every EXPORT_INTERVAL_MS, inside the very frames under study,
+    // and a busy capture hands it thousands of spans to serialise. Without a
+    // span of its own it shows up as a mysterious periodic spike that looks
+    // like the app's problem — and the serialisation is deliberately timed
+    // separately from the fetch, because only the first half blocks anything.
+    const startedAt = performance.now()
+    const payload = toOtlpBatch(batch, roots)
+    const serialisedAt = performance.now()
+
+    recordSpan('exporter.drain', startedAt, serialisedAt, { serialiseMs: Math.round(serialisedAt - startedAt), spans: batch.length })
+
+    await post(payload)
   } finally {
     exporting = false
     notify()
@@ -289,9 +302,16 @@ export function installTraceConsole(): void {
     }
   })
 
+  // MERGE, don't replace. The HUD hangs `hud()` — the only way back from its × —
+  // off this same object, and whichever of the two installs second must not wipe
+  // the other's keys. install.ts runs the console first today, but a control the
+  // user cannot get back to should not depend on that staying true.
+  const existing = (window as unknown as { __hermesTrace?: Record<string, unknown> }).__hermesTrace ?? {}
+
   Object.defineProperty(window, '__hermesTrace', {
     configurable: true,
     value: {
+      ...existing,
       autoflush: (on = true) => {
         tracer.autoflush(on)
 

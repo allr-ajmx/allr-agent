@@ -10,7 +10,16 @@
  */
 
 import { useStore } from '@nanostores/react'
-import { type CSSProperties, Fragment, type ReactNode, type RefObject, useRef, useState } from 'react'
+import {
+  type CSSProperties,
+  Fragment,
+  Profiler,
+  type ReactNode,
+  type RefObject,
+  useEffect,
+  useRef,
+  useState
+} from 'react'
 
 import { Codicon } from '@/components/ui/codicon'
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from '@/components/ui/context-menu'
@@ -25,13 +34,15 @@ import {
 } from '@/components/ui/pane-tab'
 import { Tip, TipKeybindLabel } from '@/components/ui/tooltip'
 import { ContribBoundary } from '@/contrib/react/boundary'
-import { useContributions } from '@/contrib/react/use-contributions'
 import { useI18n } from '@/i18n'
-import { isChatPaneId } from '@/lib/pane-ids'
 import { cn } from '@/lib/utils'
+import { DEV_TOOLS_ENABLED } from '@/observability/enabled'
 
 import { $layoutEditMode } from '../../edit-mode'
-import { useWindowControlsOverlap } from '../../geometry'
+import { hiddenPaneProps, PaneGroupContext, PaneVisibleContext } from '../../pane-visibility'
+import { useTiles } from '../../tile/registry'
+import { tileChrome } from '../../tile/types'
+import { type TileContext, tileShown } from '../../tile/visibility'
 import type { DropPosition, GroupNode, RootEdge } from '../model'
 import { adjacentGroup } from '../model'
 import {
@@ -51,12 +62,39 @@ import {
   setTreeGroupHeaderHidden,
   splitTreeZone,
   toggleTreeGroupMinimized,
-  treeNewTabHandler
 } from '../store'
 
 import { type DoubleTapContext, startPaneDrag } from './drag-session'
 import { forceLoneHeaderForPanes } from './lone-header'
-import { paneChrome } from './track-model'
+import { notifyPaneCommit, notifyZoneRender } from './telemetry'
+
+/**
+ * Times a pane's CONTENT, separately from the layout tree around it.
+ *
+ * The root Profiler could say "the layout tree committed for 20ms" and the
+ * zone/split counters could say the tree itself did not re-render — which
+ * together locate the work below `TreeGroup`, in a pane's content, and go no
+ * further. A resize that costs a second of React is not actionable until you
+ * know whether that second is the file tree, the transcript or the terminal.
+ *
+ * Only the panes that actually committed fire, so the span volume tracks the
+ * work rather than the pane count. Nested inside the root Profiler on purpose:
+ * its `actualDuration` is ALSO counted in the root's, so the two must never be
+ * summed — the root is the total and this is the breakdown.
+ *
+ * Dev/bench only: `<Profiler>` adds per-commit timing to its whole subtree.
+ */
+function PaneProfiler({ children, kind }: { children: ReactNode; kind: string }) {
+  if (!DEV_TOOLS_ENABLED) {
+    return children
+  }
+
+  return (
+    <Profiler id={kind} onRender={notifyPaneCommit}>
+      {children}
+    </Profiler>
+  )
+}
 
 /** A directional action in the zone menu (computed per group state). */
 interface ZoneMenuDirection {
@@ -90,7 +128,11 @@ function ZoneMenu({
   /** False for the zone hosting the uncloseable workspace — collapsing the
    *  MAIN pane strands the app behind a strip. */
   minimizable?: boolean
-  directions: ZoneMenuDirection[]
+  /** Called when the MENU renders, not on every zone re-render: resolving the
+   *  neighbour zones has to read the layout tree, and subscribing every zone to
+   *  it made a tree write re-render every mounted pane. Same lazy shape as
+   *  `closable`. */
+  directions: () => ZoneMenuDirection[]
   headerHidden?: boolean
   minimized?: boolean
   nodeId: string
@@ -101,7 +143,7 @@ function ZoneMenu({
     <ContextMenu>
       <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
       <ContextMenuContent>
-        {directions.map(direction => (
+        {directions().map(direction => (
           <ContextMenuItem key={direction.side} onSelect={direction.run}>
             {direction.label}
           </ContextMenuItem>
@@ -155,13 +197,12 @@ export function TreeGroup({
   // missing on an inactive tile tab whose zone-active was the uncloseable
   // workspace).
   const [menuPane, setMenuPane] = useState<string | undefined>(undefined)
-  const panes = useContributions('panes')
+  const panes = useTiles()
   // Coarse drag flag only (set once at drag start/end). The per-frame drop
   // HINT lives in ZoneDropOverlay so a moving pointer re-renders the tiny
   // overlay, not every zone's header/body (and not the menuDirections walk).
   const dragging = useStore($treeDragging)
   const editMode = useStore($layoutEditMode)
-  const wcOverlap = useWindowControlsOverlap(ref, true)
 
   const hiddenPanes = useStore($hiddenTreePanes)
   const narrow = useStore($narrowViewport)
@@ -169,17 +210,45 @@ export function TreeGroup({
   const paneFor = (id: string) => panes.find(p => p.id === id)
 
   // Unregistered (plugin not loaded), chrome-toggled-off, and narrow-collapsed
-  // panes drop out of the header; the active pane falls back to the first
-  // shown one (render-side — the tree keeps `active`).
-  // Edit mode forces toggle-hidden panes visible so they can be rearranged
-  // (mirrors tree-split's paneGone) — restores itself on exit.
-  const paneShown = (id: string) =>
-    Boolean(paneFor(id)) && (editMode || !hiddenPanes.has(id)) && !(narrow && paneChrome(paneFor(id)).collapsible)
+  // tiles drop out of the header; the active tile falls back to the first shown
+  // one (render-side — the tree keeps `active`). The rule itself lives in
+  // tile/visibility.ts, shared with the split renderer.
+  const tileCtx: TileContext = { editMode, hidden: hiddenPanes, narrow, tileFor: paneFor }
 
-  const shown = node.panes.filter(paneShown)
+  const shown = node.panes.filter(id => tileShown(id, tileCtx))
   const activeId = shown.includes(node.active) ? node.active : (shown[0] ?? node.active)
   const active = paneFor(activeId)
   const isEmpty = node.panes.length === 0
+
+  // KEEP-ALIVE. The zone used to render only the active tile, so every tab
+  // switch unmounted a whole surface and mounted another — the thread lost its
+  // scroll position and the layout shifted while it re-measured.
+  //
+  // Lazy on purpose: a tile first mounts when it is first ACTIVATED, so a
+  // boot-restored stack of five sessions doesn't resume all five up front.
+  const everActiveRef = useRef<Set<string>>(new Set())
+
+  useEffect(() => {
+    if (!node.minimized && !isEmpty) {
+      everActiveRef.current.add(activeId)
+    }
+
+    // Prune tiles that left the zone (closed / moved to another group), so a
+    // long-lived zone doesn't pin stale ids forever.
+    for (const id of everActiveRef.current) {
+      if (!node.panes.includes(id)) {
+        everActiveRef.current.delete(id)
+      }
+    }
+  })
+
+  // A tile may opt OUT with `lifecycle: 'unmount'` — for a surface heavy enough
+  // that holding it costs more than rebuilding it. Nothing declares that today;
+  // the default is keep-alive because the surfaces that stack are chats, and a
+  // chat is exactly what must not be rebuilt.
+  const keptPanes = shown.filter(
+    id => id === activeId || (everActiveRef.current.has(id) && paneFor(id)?.lifecycle !== 'unmount')
+  )
 
   // ONE header style: the app's compact pane-header. DEFAULT is contextual —
   // a single pane isn't a "tab", so its header auto-hides; a stack shows its
@@ -193,16 +262,18 @@ export function TreeGroup({
   // always shows its header (it IS the header).
   // Session-tile ids force the header even before chrome registers — cycling
   // onto a freshly-split tile used to land headerless ("name card missing").
-  const forceLoneHeader = forceLoneHeaderForPanes(shown, id => paneChrome(paneFor(id)), isCollapsePane)
+  const forceLoneHeader = forceLoneHeaderForPanes(shown, paneFor, isCollapsePane)
 
-  // A chat strip gets the `+` new-tab affordance; other strips (terminal,
-  // preview) have their own create verb elsewhere.
-  const chatZone = shown.some(isChatPaneId)
-  const onNewTab = treeNewTabHandler()
+  // The `+` is contributed BY a tile (`Tile.onNewTab`), so any strip whose
+  // tenants know how to make another one gets it. It used to be a module-global
+  // singleton the session store registered, gated on the strip containing a
+  // chat pane — which meant exactly one strip in the app could ever have a `+`,
+  // and a plugin's stackable surface could not offer one at all.
+  const onNewTab = shown.map(paneFor).find(tile => tile?.onNewTab)?.onNewTab
 
   // A full-page view (headerVeto) suppresses the strip while it's the active
   // pane — a page is not a tab-able surface; the bar returns with the chat.
-  const headerHidden = paneChrome(active).headerVeto || (node.headerHidden ?? (shown.length <= 1 && !forceLoneHeader))
+  const headerHidden = tileChrome(active).headerVeto || (node.headerHidden ?? (shown.length <= 1 && !forceLoneHeader))
 
   // A group collapses ALONG its parent split's axis. In a row that means the
   // WIDTH collapses — a full-width horizontal header would strand a tall
@@ -236,42 +307,51 @@ export function TreeGroup({
   //  - a single pane -> "Move <dir>": join the zone visually adjacent on that
   //    side (splitting here would only make an invisible empty zone). Sides
   //    with no visible neighbor are omitted entirely.
-  const tree = useStore($layoutTree)
+  // A THUNK, and read with `.get()` rather than `useStore`. Every zone used to
+  // subscribe to the whole layout tree just to resolve this list — so any tree
+  // write (every tab activate, every drop commit, every sash release)
+  // re-rendered every mounted zone, dragging each one's entire transcript with
+  // it. Nothing needs the answer until the context menu actually opens, and by
+  // then a fresh read is both cheaper and more correct than a subscription.
+  const menuDirections = (): ZoneMenuDirection[] => {
+    if (shown.length > 1) {
+      return DIRECTION_ORDER.map(side => ({
+        side,
+        label: `${t.zones.split(dirWord[side])} ${DIRECTION_ARROW[side]}`,
+        run: () => splitTreeZone(node.id, side, menuPane ?? activeId)
+      }))
+    }
 
-  const menuDirections: ZoneMenuDirection[] =
-    shown.length > 1
-      ? DIRECTION_ORDER.map(side => ({
+    const tree = $layoutTree.get()
+
+    return DIRECTION_ORDER.flatMap(side => {
+      const neighbor = tree ? adjacentGroup(tree, node.id, side, g => g.panes.some(id => tileShown(id, tileCtx))) : null
+
+      if (!neighbor || neighbor.id === node.id) {
+        return []
+      }
+
+      return [
+        {
           side,
-          label: `${t.zones.split(dirWord[side])} ${DIRECTION_ARROW[side]}`,
-          run: () => splitTreeZone(node.id, side, menuPane ?? activeId)
-        }))
-      : DIRECTION_ORDER.flatMap(side => {
-          const neighbor = tree ? adjacentGroup(tree, node.id, side, g => g.panes.some(paneShown)) : null
-
-          if (!neighbor || neighbor.id === node.id) {
-            return []
-          }
-
-          return [
-            {
-              side,
-              label: `${t.zones.move(dirWord[side])} ${DIRECTION_ARROW[side]}`,
-              run: () => moveTreePane(activeId, { groupId: neighbor.id, pos: 'center' })
-            }
-          ]
-        })
+          label: `${t.zones.move(dirWord[side])} ${DIRECTION_ARROW[side]}`,
+          run: () => moveTreePane(activeId, { groupId: neighbor.id, pos: 'center' })
+        }
+      ]
+    })
+  }
 
   // Close targets the right-clicked chip (falling back to the active pane);
   // only panes that declare `uncloseable` (the main workspace) are exempt.
   const closable = () => {
     const paneId = menuPane ?? activeId
 
-    return paneChrome(paneFor(paneId)).uncloseable ? undefined : paneId
+    return tileChrome(paneFor(paneId)).uncloseable ? undefined : paneId
   }
 
   // The zone hosting the uncloseable workspace never minimizes — collapsing
   // MAIN strands the whole app behind a strip.
-  const minimizable = !shown.some(id => paneChrome(paneFor(id)).uncloseable)
+  const minimizable = !shown.some(id => tileChrome(paneFor(id)).uncloseable)
 
   // Tab ✕: a tool panel (terminal/logs) is REMOVED from the layout (comes back
   // via its toggle); everything else routes through its Close (a session tile
@@ -292,6 +372,12 @@ export function TreeGroup({
     nodeId: node.id
   }
 
+  // Which zone re-rendered, by the kind of tile it is fronting. The root
+  // Profiler can time the layout tree but cannot say which pane's content
+  // caused a commit, and that is the difference between "a sidebar resize
+  // costs a second of React" and something you can act on. Null in release.
+  notifyZoneRender(node.id, active?.kind ?? 'empty')
+
   // NO body double-click toggle: virtualized content (the thread) recreates
   // its nodes between clicks, so the gesture was hopelessly unreliable. The
   // bar's lifecycle is explicit instead — gaining a tab sticky-shows it
@@ -306,16 +392,7 @@ export function TreeGroup({
       // self-naming labels (see [data-pane-self-label] in styles.css).
       data-zone-header={headerVisible || undefined}
       ref={ref}
-      style={wcOverlap ? { paddingTop: wcOverlap.y + wcOverlap.height } : undefined}
     >
-      {wcOverlap && (
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute z-10 [-webkit-app-region:drag]"
-          style={{ height: wcOverlap.height, left: wcOverlap.x, top: wcOverlap.y, width: wcOverlap.width }}
-        />
-      )}
-
       {/* Minimized in a ROW: a narrow vertical rail — same PaneTab shell as
           the horizontal strip, just `vertical`. Click a tab to restore +
           activate; click anywhere else on the rail to restore. */}
@@ -335,7 +412,7 @@ export function TreeGroup({
               role="tablist"
             >
               {shown.map(paneId => {
-                const closeable = !paneChrome(paneFor(paneId)).uncloseable
+                const closeable = !tileChrome(paneFor(paneId)).uncloseable
                 const title = paneFor(paneId)?.title ?? paneId
 
                 return (
@@ -403,7 +480,7 @@ export function TreeGroup({
             >
               {shown.map(paneId => {
                 const isActive = paneId === activeId && !node.minimized
-                const chrome = paneChrome(paneFor(paneId))
+                const chrome = tileChrome(paneFor(paneId))
                 const closeable = !chrome.uncloseable
                 const title = paneFor(paneId)?.title ?? paneId
 
@@ -483,7 +560,7 @@ export function TreeGroup({
               {/* New-tab affordance, chat strips only — the same thing ⌘T does.
                   A terminal or preview strip has its own create verb, so a `+`
                   there would be ambiguous. */}
-              {chatZone && onNewTab && (
+              {onNewTab && (
                 <Tip label={<TipKeybindLabel actionId="session.newTab" text={t.zones.newTab} />}>
                   <button
                     aria-label={t.zones.newTab}
@@ -521,10 +598,40 @@ export function TreeGroup({
               {/* Same decode primitive as the CONNECTING boot overlay. */}
               <DecodeText className="text-(--ui-text-quaternary)" cursor prefix={1} text="HERMES" />
             </div>
-          ) : active?.render ? (
-            <ContribBoundary id={active.id}>{active.render()}</ContribBoundary>
           ) : (
-            <div className="p-3 font-mono text-[11px] text-(--ui-text-quaternary)">{t.zones.missingPane(activeId)}</div>
+            keptPanes.map(paneId => {
+              const tile = paneFor(paneId)
+              const isActive = paneId === activeId
+
+              return (
+                <div
+                  aria-hidden={!isActive || undefined}
+                  className={cn('absolute inset-0 overflow-auto', !isActive && 'pointer-events-none invisible')}
+                  key={paneId}
+                  {...hiddenPaneProps(!isActive)}
+                >
+                  {tile?.render ? (
+                    // Visibility flows to the tile so a kept-alive chat surface
+                    // can gate its hot (per-token) subscriptions while hidden;
+                    // the group id identifies the ZONE it lives in, for state
+                    // that is per-zone rather than per-tab.
+                    <PaneGroupContext.Provider value={node.id}>
+                      <PaneVisibleContext.Provider value={isActive}>
+                        <PaneProfiler kind={tile.kind}>
+                          <ContribBoundary id={tile.id}>{tile.render()}</ContribBoundary>
+                        </PaneProfiler>
+                      </PaneVisibleContext.Provider>
+                    </PaneGroupContext.Provider>
+                  ) : (
+                    isActive && (
+                      <div className="p-3 font-mono text-[11px] text-(--ui-text-quaternary)">
+                        {t.zones.missingPane(paneId)}
+                      </div>
+                    )
+                  )}
+                </div>
+              )
+            })
           )}
         </div>
       )}
@@ -647,6 +754,7 @@ const REGION: Record<DropPosition, CSSProperties> = {
 function ZoneDropOverlay({ node }: { node: GroupNode }) {
   const dragging = useStore($treeDragging)
   const hint = useStore($dropHint)
+  const tiles = useTiles()
 
   if (dragging === null) {
     return null
@@ -656,7 +764,11 @@ function ZoneDropOverlay({ node }: { node: GroupNode }) {
   // now (stack into its tabs / split its edges); only a CHAT zone's center is
   // a link-to-chat (the composer overlay owns that visual).
   const sessionDrag = dragging === SESSION_TILE_DRAG
-  const chatZone = node.panes.some(isChatPaneId)
+  // Declared, not inferred from the id: a tile says whether a dragged session
+  // may be LINKED into its zone (`chrome.linkTarget`). This used to be
+  // `node.panes.some(isChatPaneId)` — the layout engine reading a chat id
+  // prefix to decide a drop affordance.
+  const linkZone = node.panes.some(id => tileChrome(tiles.find(t => t.id === id)).linkTarget)
 
   const isDragSource = node.panes.includes(dragging)
 
@@ -681,7 +793,7 @@ function ZoneDropOverlay({ node }: { node: GroupNode }) {
   // the surface (ChatDropOverlay — the same sheet) owns that region; this sheet
   // fades out so the two never stack. A non-chat zone's center has no chat to
   // link, so it shows the normal stack sheet. Edges act like a tab.
-  const centerLink = sessionDrag && primary && pos === 'center' && chatZone
+  const centerLink = sessionDrag && primary && pos === 'center' && linkZone
 
   return (
     <div

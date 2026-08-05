@@ -1,30 +1,57 @@
 /**
- * The chat TAB behaviours (MJX-51).
+ * The TAB verbs (MJX-51, made generic in MJXHRM-168).
  *
- * These primitives all existed but were dead code — nothing called them, so
- * ⌘T/⌘W/⌃Tab/⌥1-9 never reached the tab strip. They are wired now, and each
- * returns a boolean so its caller can fall through to the non-tab meaning; the
- * fall-through cases matter as much as the hits.
+ * Each returns a boolean so its caller can fall through to the non-tab meaning;
+ * the fall-through cases matter as much as the hits.
+ *
+ * Two things changed in MJXHRM-168, and they are the user-visible point of that
+ * step, so they are pinned here:
+ *  - the verbs are no longer scoped to CHAT strips, so a zone with two
+ *    terminals stacked in it responds to ⌥2 and ⌃Tab like any other strip;
+ *  - they index the SHOWN tiles, so a hidden tile earlier in the zone no longer
+ *    shifts every slot by one.
  */
 
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { group, split } from '@/components/pane-shell/tree/model'
 import {
   $layoutTree,
   activateTreeTabSlot,
+  closeFocusedTabInZone,
   cycleTreeTabInFocusedZone,
   noteActiveTreeGroup,
-  registerNewTabHandler,
-  treeNewTabHandler,
+  setTreePaneHidden,
   treeTabCloseTargets
 } from '@/components/pane-shell/tree/store'
 import { isChatPaneId, sessionTilePaneId, storedIdFromTilePane, WORKSPACE_PANE_ID } from '@/lib/pane-ids'
+
+import { registerTiles } from '../tile/registry'
+import type { Tile } from '../tile/types'
 
 const CHAT_GROUP = 'chat-zone'
 const TOOL_GROUP = 'tool-zone'
 
 const tile = (id: string) => sessionTilePaneId(id)
+
+let disposeTiles: (() => void) | null = null
+
+/** Register a tile per pane id. The verbs resolve visibility through the
+ *  registry now, so an unregistered pane id is `absent` and never a tab. */
+function registerFor(ids: string[]) {
+  disposeTiles?.()
+
+  const tiles: Tile[] = ids.map(id => ({
+    id,
+    kind: isChatPaneId(id) ? 'chat' : 'tool',
+    title: id,
+    render: () => null,
+    placement: isChatPaneId(id) ? 'main' : 'bottom',
+    chrome: id === WORKSPACE_PANE_ID ? { uncloseable: true } : undefined
+  }))
+
+  disposeTiles = registerTiles(tiles)
+}
 
 /** A chat zone with `workspace` + N session tiles, beside a terminal zone. */
 function seedTree(panes: string[], active = panes[0]) {
@@ -34,18 +61,19 @@ function seedTree(panes: string[], active = panes[0]) {
       group(['terminal', 'logs'], { active: 'terminal', id: TOOL_GROUP })
     ])
   )
+  registerFor([...panes, 'terminal', 'logs'])
 }
 
-const activePaneOf = (groupId: string): string | undefined => {
+const groupIn = (groupId: string) => {
   const tree = $layoutTree.get()
 
-  const find = (node: typeof tree): string | undefined => {
+  const find = (node: typeof tree): null | { active?: string; panes: string[] } => {
     if (!node) {
-      return undefined
+      return null
     }
 
     if (node.type === 'group') {
-      return node.id === groupId ? node.active : undefined
+      return node.id === groupId ? { active: node.active, panes: node.panes } : null
     }
 
     for (const child of node.children) {
@@ -56,15 +84,25 @@ const activePaneOf = (groupId: string): string | undefined => {
       }
     }
 
-    return undefined
+    return null
   }
 
   return find(tree)
 }
 
+const activePaneOf = (groupId: string): string | undefined => groupIn(groupId)?.active
+const panesOf = (groupId: string): string[] => groupIn(groupId)?.panes ?? []
+
 beforeEach(() => {
   $layoutTree.set(null)
   noteActiveTreeGroup(null)
+})
+
+afterEach(() => {
+  disposeTiles?.()
+  disposeTiles = null
+  setTreePaneHidden(tile('a'), false)
+  setTreePaneHidden('logs', false)
 })
 
 describe('pane id vocabulary', () => {
@@ -83,7 +121,7 @@ describe('pane id vocabulary', () => {
 })
 
 describe('cycleTreeTabInFocusedZone (⌃Tab)', () => {
-  it('advances and wraps within the focused chat zone', () => {
+  it('advances and wraps within the focused zone', () => {
     seedTree([WORKSPACE_PANE_ID, tile('a'), tile('b')])
     noteActiveTreeGroup(CHAT_GROUP)
 
@@ -106,25 +144,38 @@ describe('cycleTreeTabInFocusedZone (⌃Tab)', () => {
     expect(activePaneOf(CHAT_GROUP)).toBe(tile('b'))
   })
 
+  // THE FIX. A tool strip is a tab strip; it used to render tabs the keyboard
+  // could not reach.
+  it('cycles a NON-chat strip — two tool panels stacked in a zone', () => {
+    seedTree([WORKSPACE_PANE_ID])
+    noteActiveTreeGroup(TOOL_GROUP)
+
+    expect(cycleTreeTabInFocusedZone(1)).toBe(true)
+    expect(activePaneOf(TOOL_GROUP)).toBe('logs')
+  })
+
   // Returning false is how the caller knows to show the recent-session HUD
   // instead — the fall-through is the feature, not a failure.
-  it('declines a lone tab, a non-chat zone, and an unfocused tree', () => {
+  it('declines a lone tab and an unfocused tree', () => {
     seedTree([WORKSPACE_PANE_ID])
     noteActiveTreeGroup(CHAT_GROUP)
     expect(cycleTreeTabInFocusedZone(1)).toBe(false)
 
-    seedTree([WORKSPACE_PANE_ID, tile('a')])
-    noteActiveTreeGroup(TOOL_GROUP)
-    expect(cycleTreeTabInFocusedZone(1)).toBe(false)
-    expect(activePaneOf(TOOL_GROUP)).toBe('terminal')
-
     noteActiveTreeGroup(null)
+    expect(cycleTreeTabInFocusedZone(1)).toBe(false)
+  })
+
+  it('declines a zone whose second tile is hidden — one visible tab is not a strip', () => {
+    seedTree([WORKSPACE_PANE_ID, tile('a')])
+    noteActiveTreeGroup(CHAT_GROUP)
+    setTreePaneHidden(tile('a'), true)
+
     expect(cycleTreeTabInFocusedZone(1)).toBe(false)
   })
 })
 
 describe('activateTreeTabSlot (⌥1-9)', () => {
-  it('activates the Nth tab of the focused chat zone', () => {
+  it('activates the Nth tab of the focused zone', () => {
     seedTree([WORKSPACE_PANE_ID, tile('a'), tile('b')])
     noteActiveTreeGroup(CHAT_GROUP)
 
@@ -135,7 +186,31 @@ describe('activateTreeTabSlot (⌥1-9)', () => {
     expect(activePaneOf(CHAT_GROUP)).toBe(tile('b'))
   })
 
-  it('declines an out-of-range slot, a lone tab, and a non-chat zone', () => {
+  // THE OTHER FIX. Slots used to index `group.panes` raw, so a hidden tile
+  // earlier in the zone shifted every slot by one and ⌥2 landed on the wrong
+  // tab — or, at the end of the strip, on nothing.
+  it('counts VISIBLE tabs, not raw panes', () => {
+    seedTree([WORKSPACE_PANE_ID, tile('a'), tile('b')])
+    noteActiveTreeGroup(CHAT_GROUP)
+    setTreePaneHidden(tile('a'), true)
+
+    // Slot 2 is now `b` — the 2nd tab the strip actually draws.
+    expect(activateTreeTabSlot(2)).toBe(true)
+    expect(activePaneOf(CHAT_GROUP)).toBe(tile('b'))
+
+    // And slot 3 is past the end, rather than selecting an invisible tile.
+    expect(activateTreeTabSlot(3)).toBe(false)
+  })
+
+  it('activates a NON-chat strip — the tool stack responds to ⌥2', () => {
+    seedTree([WORKSPACE_PANE_ID])
+    noteActiveTreeGroup(TOOL_GROUP)
+
+    expect(activateTreeTabSlot(2)).toBe(true)
+    expect(activePaneOf(TOOL_GROUP)).toBe('logs')
+  })
+
+  it('declines an out-of-range slot and a lone tab', () => {
     seedTree([WORKSPACE_PANE_ID, tile('a')])
     noteActiveTreeGroup(CHAT_GROUP)
 
@@ -145,12 +220,44 @@ describe('activateTreeTabSlot (⌥1-9)', () => {
     seedTree([WORKSPACE_PANE_ID])
     noteActiveTreeGroup(CHAT_GROUP)
     expect(activateTreeTabSlot(1)).toBe(false)
+  })
 
-    // A terminal strip is not what ⌃N means, so it falls through to the Nth
-    // recent SESSION rather than switching terminals.
+  it('declines an unregistered pane id — a plugin that has not loaded is not a tab', () => {
+    $layoutTree.set(
+      split('row', [group([WORKSPACE_PANE_ID, 'plugin:absent'], { active: WORKSPACE_PANE_ID, id: CHAT_GROUP })])
+    )
+    registerFor([WORKSPACE_PANE_ID])
+    noteActiveTreeGroup(CHAT_GROUP)
+
+    expect(activateTreeTabSlot(2)).toBe(false)
+  })
+})
+
+describe('closeFocusedTabInZone (⌘W)', () => {
+  it('closes the FOCUSED zone tab, leaving the chat zone alone', () => {
     seedTree([WORKSPACE_PANE_ID, tile('a')])
     noteActiveTreeGroup(TOOL_GROUP)
-    expect(activateTreeTabSlot(1)).toBe(false)
+
+    expect(closeFocusedTabInZone()).toBe(true)
+    expect(panesOf(TOOL_GROUP)).not.toContain('terminal')
+    // The chat zone, which ⌘W used to target no matter what had focus.
+    expect(panesOf(CHAT_GROUP)).toEqual([WORKSPACE_PANE_ID, tile('a')])
+  })
+
+  it('closes the focused chat zone tab when that is what has focus', () => {
+    seedTree([WORKSPACE_PANE_ID, tile('a')], tile('a'))
+    noteActiveTreeGroup(CHAT_GROUP)
+
+    expect(closeFocusedTabInZone()).toBe(true)
+    expect(panesOf(CHAT_GROUP)).toEqual([WORKSPACE_PANE_ID])
+  })
+
+  it('is a no-op on an uncloseable tab — ⌘W never closes the window', () => {
+    seedTree([WORKSPACE_PANE_ID])
+    noteActiveTreeGroup(CHAT_GROUP)
+
+    expect(closeFocusedTabInZone()).toBe(false)
+    expect(panesOf(CHAT_GROUP)).toEqual([WORKSPACE_PANE_ID])
   })
 })
 
@@ -160,37 +267,17 @@ describe('treeTabCloseTargets', () => {
     seedTree([WORKSPACE_PANE_ID, tile('a'), tile('b')])
 
     const middle = treeTabCloseTargets(tile('a'))
-    expect(middle.others).toBe(2) // workspace + b (nothing registered as uncloseable here)
+    expect(middle.others).toBe(1) // b — the workspace declares `uncloseable`
     expect(middle.right).toBe(1) // b
 
     // The rightmost tab has nothing to its right.
     expect(treeTabCloseTargets(tile('b')).right).toBe(0)
   })
 
-  it('reports nothing for a lone tab', () => {
+  it('reports nothing for a lone uncloseable tab', () => {
     seedTree([WORKSPACE_PANE_ID])
 
     expect(treeTabCloseTargets(WORKSPACE_PANE_ID).others).toBe(0)
     expect(treeTabCloseTargets(WORKSPACE_PANE_ID).right).toBe(0)
-  })
-})
-
-describe('new-tab handler seam', () => {
-  // The renderer knows pane ids, not sessions, so the `+` reaches the session
-  // store through a registration rather than an import.
-  it('registers and unregisters', () => {
-    expect(treeNewTabHandler()).toBeNull()
-
-    let calls = 0
-
-    const dispose = registerNewTabHandler(() => {
-      calls++
-    })
-
-    treeNewTabHandler()?.()
-    expect(calls).toBe(1)
-
-    dispose()
-    expect(treeNewTabHandler()).toBeNull()
   })
 })

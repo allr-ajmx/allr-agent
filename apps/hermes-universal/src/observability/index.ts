@@ -46,6 +46,7 @@ export {
   endSpan,
   isRecording,
   NO_SPAN,
+  openSpan,
   openSpanCount,
   peekAll,
   recordSpan,

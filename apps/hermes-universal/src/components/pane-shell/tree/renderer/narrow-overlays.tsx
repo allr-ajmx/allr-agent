@@ -10,21 +10,21 @@ import { useStore } from '@nanostores/react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { ContribBoundary } from '@/contrib/react/boundary'
-import { useContributions } from '@/contrib/react/use-contributions'
-import type { Contribution } from '@/contrib/types'
 import { ESCAPE_PRIORITY, isTopEscapeLayer, pushEscapeLayer } from '@/lib/escape-layers'
 import { cn } from '@/lib/utils'
 
 import { PANE_TOGGLE_REVEAL_EVENT } from '../..'
+import { useTiles } from '../../tile/registry'
+import { type Tile, tileChrome, tileSizing } from '../../tile/types'
 import { allPaneIds } from '../model'
 import { $hiddenTreePanes, $layoutTree, $narrowViewport } from '../store'
 
-import { paneChrome } from './track-model'
+
 
 export function NarrowOverlays() {
   const narrow = useStore($narrowViewport)
   const tree = useStore($layoutTree)
-  const panes = useContributions('panes')
+  const panes = useTiles()
   const hiddenPanes = useStore($hiddenTreePanes)
   const [reveal, setReveal] = useState<{ id: string; pinned: boolean } | null>(null)
 
@@ -36,7 +36,7 @@ export function NarrowOverlays() {
   const inTree = useMemo(() => new Set(tree ? allPaneIds(tree) : []), [tree])
 
   const collapsibles = useMemo(
-    () => panes.filter(p => paneChrome(p).collapsible && inTree.has(p.id) && !hiddenPanes.has(p.id)),
+    () => panes.filter(p => tileChrome(p).collapsible && inTree.has(p.id) && !hiddenPanes.has(p.id)),
     [panes, inTree, hiddenPanes]
   )
 
@@ -60,7 +60,7 @@ export function NarrowOverlays() {
         return
       }
 
-      const match = collapsiblesRef.current.find(p => p.id === id || paneChrome(p).revealAliases?.includes(id))
+      const match = collapsiblesRef.current.find(p => p.id === id || tileChrome(p).revealAliases?.includes(id))
 
       if (!match) {
         return
@@ -104,7 +104,7 @@ export function NarrowOverlays() {
     return null
   }
 
-  const sideOf = (c: Contribution) => (paneChrome(c).placement === 'left' ? 'left' : 'right')
+  const sideOf = (tile: Tile) => (tile.placement === 'left' ? 'left' : 'right')
   const revealed = reveal ? collapsibles.find(p => p.id === reveal.id) : undefined
   const sides = [...new Set(collapsibles.map(sideOf))]
 
@@ -136,7 +136,7 @@ export function NarrowOverlays() {
           onMouseLeave={() => setReveal(current => (current?.pinned ? current : null))}
           // Match the pane's docked width (sessions ~237px, files its rail
           // width) instead of a fat fixed 20rem — capped for tiny screens.
-          style={{ width: `min(${(revealed.data as { width?: string } | undefined)?.width ?? '18rem'}, 85vw)` }}
+          style={{ width: `min(${tileSizing(revealed).width ?? '18rem'}, 85vw)` }}
         >
           <ContribBoundary id={revealed.id}>{revealed.render?.()}</ContribBoundary>
         </div>

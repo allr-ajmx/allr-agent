@@ -164,13 +164,88 @@ Nothing in this list requires touching a call site. That is the whole design.
 
 | Source | What you get | Where |
 | --- | --- | --- |
-| Interactions | Every click/keypress via `PerformanceObserver('event')`, decomposed into input delay / processing / presentation | `auto/events.ts` |
+| Interactions | Every click/keypress via `PerformanceObserver('event')`, decomposed into input delay / processing / presentation, plus `frames` — how many frames the interaction spanned — and a `target` named by structure (`span[sash]`, `div[tab:session-tile]`, `div[zone]`) rather than by tag alone | `auto/events.ts` |
+| Frames | A `frame` span per frame that did instrumented work, and `frame.stall` for a long frame that did none | `auto/frames.ts` |
+| Style vs layout | `layout.forced` — the presentation phase pulled apart into `styleMs` and `layoutMs`, at commit time and again pre-frame | `auto/engine-probe.ts` |
+| React commits | `react.commit` for the layout tree, with both the span extent and React's own `actualMs` | `auto/layout-counters.ts` |
+| Layout work | `layout.tracks` — per frame: `splitRenders`, `distinctSplits`, `paneVisits` | `auto/layout-counters.ts` |
+| Layout mutations | `layout.commit` (with `reason` + tree shape), `layout.adopt`, `layout.persist` (with `bytes`), `layout.tiles.sync` | `tree/store.ts`, `chat/pane-mirror.ts` |
+| Opening a chat | `chat.open` — the gesture to the first paint that shows the tile | `store/session-states.ts` |
+| The exporter itself | `exporter.drain` — the tracer's own main-thread cost, inside the frames it is measuring | `exporter.ts` |
 | Store writes | Every nanostores write, named. A vite alias points `nanostores` at a wrapper so all ~34 direct importers are covered without edits; a build transform recovers the variable name so spans read `$paneStates` rather than `atom#7`. | `auto/stores.ts` |
 | HTTP | Every request through the Rust transport | `auto/http.ts` |
 | WebSocket | Frame-level, both directions | `auto/websocket.ts` |
 | Markdown / Shiki / KaTeX / stream flush | The chat rendering pipeline, stage by stage | hand-placed, semantic |
 | All ~50 Tauri commands | Correct timing, including the 41 async ones | `tauri/tracing` feature |
 | IPC trace context | A `traceparent` on every `invoke`, so the command spans above join the frontend's trace | `auto/tauri-core.ts` |
+
+### Frames, and the four numbers on a `frame` span
+
+`auto/frames.ts` owns the app's only `requestAnimationFrame` loop — the FPS HUD
+subscribes to it rather than running its own, so the HUD's frame times and the
+tracer's `frame` spans cannot disagree. It runs only while recording or while
+the FPS HUD is visible: a running rAF loop keeps the compositor awake, and an
+instrument that changes the app under test in every dev session is worse than
+one you have to switch on.
+
+| attribute | what it is |
+| --- | --- |
+| `sinceLastMs` | rAF → rAF. **Pacing.** Includes idle. What the FPS HUD plots. |
+| `rafMs` | our callback's own duration — JS inside the rendering step |
+| `activeMs` | rAF start → post-paint task. **The work window.** |
+| `paintEstimateMs` | `activeMs − rafMs −` work children reported. The residual: paint and compositing. A subtraction, not a measurement. |
+
+The distinction is the whole point. Bracketing rAF→rAF and calling it "the
+frame" reports an idle app as ~16 ms of uninstrumented engine work per frame,
+which would turn `gapMs` — the number `span.ts` exists to produce — into noise
+everywhere.
+
+The frame span is allocated **lazily**, on the first child that asks for it, so
+a frame in which nothing happened produces no span. Idle costs nothing and reads
+as nothing.
+
+### Two things to verify by hand before trusting the numbers
+
+Neither is verified on WebKitGTK yet. Until they are, trust `layout.forced` over
+`activeMs`.
+
+1. **Is the style/layout split real?** `auto/engine-probe.ts` flushes style with
+   `getComputedStyle` and layout with `offsetHeight`, and times them separately.
+   If WebKit folds style recalculation into the layout flush, `styleMs` reads 0
+   forever and `layoutMs` silently carries both. Check: toggle a class on
+   `<html>` and confirm `styleMs` moves while `layoutMs` does not, then change a
+   width and confirm the reverse.
+2. **Is the post-paint task really post-paint?** `activeMs` ends on a
+   `MessageChannel` message posted from inside the rAF callback. Check: dirty a
+   large layout inside that callback and confirm `activeMs` grows while `rafMs`
+   stays flat. If both grow together, the message is landing before the
+   rendering update and `activeMs` is meaningless.
+
+### How to read `layout.tracks` — and how not to
+
+The counters answer **how much work**. `react.commit`'s `actualMs` answers **how
+long**. Only together are they a finding.
+
+`performance.now()` is clamped to 1 ms here, so a `layout.tracks` span with
+`paneVisits: 340` and a duration of 0 ms does **not** mean the tracks pass is
+free — it means the clock could not see it. Read it against the React commit
+time in the same frame.
+
+`splitRenders`, not `splitCommits`: React 19 can render a tree and discard it,
+so this counts cost *paid*, which may exceed the number of commits. A large
+divergence between `splitRenders` and `reactCommits` is itself the finding.
+
+Two more traps worth stating:
+
+- `react.commit` carries **both** its span extent and `actualMs` because they
+  measure different things. `actualDuration` is React's summed render work — it
+  excludes browser layout and paint, and includes any nested Profiler. The span
+  extent covers the whole render + commit including whatever React yielded for.
+  A 40 ms `react.commit` with `actualMs: 6` is React *yielding*, not React
+  working.
+- The engine probe **moves** cost rather than only revealing it: forced layout
+  is real work pulled earlier in the frame. Frame durations measured with the
+  probe installed are not comparable to frame durations measured without it.
 
 ### Why command timing is Tauri's job, not ours
 
@@ -274,6 +349,32 @@ preflight with a `405` and nothing useful in the console. That lives in
 `otel-collector.yaml`. After editing it use `docker compose restart
 otel-collector` — `up -d` will not pick up the change.
 
+## Capture recipes — the two layout reproductions
+
+Both start from the quick-start loop, with a run label so the pair stays
+separable in Jaeger (`__hermesTrace.run('…')`, or the run field on the HUD).
+
+**`layout-baseline-open`** — open four chats into one stack, then switch between
+them a few times. Read: `chat.open` duration, `layout.tiles.sync`'s `registered`
+(one registration per tile means one adoption pass and one `localStorage` write
+per tile), `layout.adopt`, and `layout.persist`'s `bytes` and frequency.
+
+**`layout-baseline-sash`** — drag the main↔sidebar seam for about ten seconds,
+then a flex↔flex seam. Read: `react.commit` count and total for the drag,
+`layout.tracks` counters per frame, and `frame` spans over budget.
+
+Then read `layout.forced` and let it pick what to fix:
+
+| what dominates | what it means |
+| --- | --- |
+| `layoutMs`, with high `react.commit` counts and large `paneVisits` | the layout-engine hypothesis holds — narrow the subscriptions and stop the per-frame store writes |
+| `styleMs`, with `layoutMs ≈ 0` | the tracks pass is a red herring; the cost is selector matching. Suspects: the `group-hover` transition on `Sash`, and the two global `<style>` blocks in `tree/renderer/index.tsx` whose `[data-tree-group] :is(…)` and `[class*="…"]` selectors re-match broadly |
+| `paintEstimateMs` | neither; the cost is compositing. Look at the kept-alive layer count — they are hidden with `visibility`, so they stay in style and layout |
+
+The instrument is built to be able to return the second and third answers. An
+instrument that could only confirm the first would eventually "confirm" it
+whether or not it was true, because it would be the only thing measured.
+
 ## Current status — what does *not* work yet
 
 Honest state as of this writing, so nobody hunts for a feature that is not there.
@@ -293,6 +394,16 @@ Honest state as of this writing, so nobody hunts for a feature that is not there
   event schema.
 - **Not yet spanned:** the window main-thread hop, the ten SSH connect phases,
   and the voice session/turn.
+- **`activeMs` and `styleMs` are unverified on WebKitGTK.** Both checks are
+  written up under "Two things to verify by hand" above; neither has been run
+  against the real engine yet. `layout.forced`'s total (`styleMs + layoutMs`) is
+  sound either way — it is the *split* between the two, and the post-paint
+  boundary, that are on trust.
+- **`layoutMs` is a lower bound** until the `pre-frame` probe says otherwise.
+  `pane-shell/geometry.ts` writes `--workspace-left/right` on `:root` from a
+  post-layout ResizeObserver callback, which re-dirties style for every reader —
+  a second style+layout pass in the same frame that the commit-time probe cannot
+  see. That is what the `reason: 'pre-frame'` probe exists to catch.
 
 ## Hard-won gotchas
 

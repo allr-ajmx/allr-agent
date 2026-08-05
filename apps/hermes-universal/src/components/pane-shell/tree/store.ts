@@ -10,11 +10,17 @@ import { SIDEBAR_COLLAPSE_MEDIA_QUERY } from '@/app/layout-constants'
 import { setPluginEnabled } from '@/contrib/plugins-store'
 import { registry } from '@/contrib/registry'
 import { translateNow } from '@/i18n'
-import { isChatPaneId, WORKSPACE_PANE_ID } from '@/lib/pane-ids'
 import { readJson, readKey, writeJson, writeKey } from '@/lib/storage'
+import { beginSpan, endSpan, isRecording, recordSpan, span } from '@/observability'
+import { shapeAttrs } from '@/observability/auto/layout-shape'
 import { notify } from '@/store/notifications'
 import { clearAllPaneSizeOverrides } from '@/store/panes'
 import { isSecondaryWindow } from '@/store/windows'
+
+import { $layoutEditMode } from '../edit-mode'
+import { findTile, getTiles } from '../tile/registry'
+import { tileChrome } from '../tile/types'
+import { type TileContext, tileShown } from '../tile/visibility'
 
 import {
   allPaneIds,
@@ -41,11 +47,46 @@ import {
 } from './model'
 import { rootChildSide } from './renderer/track-model'
 
+/**
+ * ═══ STORAGE KEYS ═══
+ *
+ * These were `hermes.desktop.*` — this app is not desktop. Renamed to
+ * `hermes.layout.*`, with a one-shot migration per key: read the new name, fall
+ * back to the legacy one, write it forward, drop the old. An existing install
+ * keeps its layout; a fresh one never writes a `desktop` key again.
+ *
+ * `migrate()` runs at module import, before any atom initialiser reads a key.
+ */
+const LEGACY_KEYS: ReadonlyArray<readonly [current: string, legacy: string]> = [
+  ['hermes.layout.tree.v2', 'hermes.desktop.layoutTree.v2'],
+  ['hermes.layout.preset.active', 'hermes.desktop.layoutPreset.active'],
+  ['hermes.layout.dismissedTiles.v1', 'hermes.desktop.dismissedPanes.v1'],
+  ['hermes.layout.userPlacedTiles.v1', 'hermes.desktop.userPlacedPanes.v1']
+]
+
+for (const [current, legacy] of LEGACY_KEYS) {
+  const carried = readKey(legacy)
+
+  // Only carry a legacy value when the new key has none — a second run, or a
+  // write that already happened under the new name, must win.
+  if (carried !== null && readKey(current) === null) {
+    writeKey(current, carried)
+  }
+
+  if (carried !== null) {
+    writeKey(legacy, null)
+  }
+}
+
 // v2: v1 trees were saved against placeholder panes with index-order zone
 // assignment (chat could land in a corner cell). Retire them wholesale.
-const STORAGE_KEY = 'hermes.desktop.layoutTree.v2'
+const STORAGE_KEY = 'hermes.layout.tree.v2'
 
 writeKey('hermes.desktop.layoutTree.v1', null)
+
+/** WebKitGTK clamps `performance.now()` to 1ms, so anything under this is
+ *  indistinguishable from zero. Same floor, same reason, as auto/stores.ts. */
+const ADOPT_NOISE_FLOOR_MS = 1
 
 let defaultTree: LayoutNode | null = null
 
@@ -64,7 +105,21 @@ function persist(tree: LayoutNode | null) {
     return
   }
 
-  writeJson(STORAGE_KEY, tree)
+  // Spanned because this is a SYNCHRONOUS `JSON.stringify` + `localStorage`
+  // write on every commit — every tab activate, every drop, every reveal —
+  // while `$paneStates` debounces the same kind of write by 250ms. Whether that
+  // asymmetry costs anything is a measurement, not a guess; `bytes` prices it.
+  //
+  // Inlined rather than wrapped around `writeJson` so the size is read off the
+  // string the write already had to produce. Measuring it separately would
+  // stringify the tree TWICE whenever recording is on — an instrument that
+  // doubles the cost of the thing it is measuring reports a number that is only
+  // true while it is watching.
+  const id = beginSpan('layout.persist')
+  const json = tree === null ? null : JSON.stringify(tree)
+
+  writeKey(STORAGE_KEY, json)
+  endSpan(id, { bytes: json?.length ?? 0 })
 }
 
 /** The live tree (null until a default is declared). A secondary window ignores
@@ -76,11 +131,11 @@ export const $layoutTree = atom<LayoutNode | null>(isSecondaryWindow() ? null : 
  * Which layout preset the current tree came from; `'custom'` after the user
  * rearranges anything. Drives the picker's active highlight.
  */
-export const $activePresetId = atom<string>(readKey('hermes.desktop.layoutPreset.active') ?? 'default')
+export const $activePresetId = atom<string>(readKey('hermes.layout.preset.active') ?? 'default')
 
 export function markActivePreset(id: string) {
   $activePresetId.set(id)
-  writeKey('hermes.desktop.layoutPreset.active', id)
+  writeKey('hermes.layout.preset.active', id)
 }
 
 /** Pane id being dragged (tree drag session), null when idle. Also set to the
@@ -93,7 +148,32 @@ export const $treeDragging = atom<string | null>(null)
 export const SESSION_TILE_DRAG = '__session-tile-drag__'
 
 /**
- * Panes hidden by app chrome toggles (titlebar sidebar / right-sidebar
+ * ═══ THE THREE VISIBILITY AXES ═══
+ *
+ * "Is this on screen?" used to be answered by five sets AND-ed together by
+ * hand. They were never five answers to one question — they are three
+ * orthogonal axes, plus two things that were never visibility at all:
+ *
+ *  1. PRESENCE  — is it in the tree at all?          `$dismissedPanes`
+ *  2. REVEAL    — does its owning store say show it?  `$hiddenTreePanes`
+ *  3. ENCLOSURE — can its CONTAINER show it?          `$collapsedTreeSides`
+ *                                                     + `GroupNode.minimized`
+ *                                                     + the narrow breakpoint
+ *
+ * Axes 1–2 are properties of the tile and resolve from an id — `tileVisibility`
+ * in `tile/visibility.ts`. Axis 3 is a property of the container and needs the
+ * tree — `zoneEnclosure` in `tile/enclosure.ts`. They are separate functions
+ * for that reason, not by accident; both files say so at the top.
+ *
+ * The two that were never visibility:
+ *  - `collapsePanes`, a module-level `Set` naming the tool panels. A TRAIT of
+ *    the surface, written once at import — now `TileChrome.toolPanel`.
+ *  - `$userPlacedPanes` (below), which answers "should auto-dock leave this
+ *    alone?". Placement, not visibility; it is read in exactly one place.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ *
+ * REVEAL. Panes hidden by app chrome toggles (titlebar sidebar / right-sidebar
  * buttons). The tree KEEPS the zone and its mounted content; a zone whose
  * every pane is hidden collapses to nothing until a toggle brings it back.
  * Not persisted here — each binding's store owns persistence.
@@ -162,7 +242,7 @@ function frontPaneInGroup(paneId: string) {
   const next = setActivePaneOp(tree, group.id, paneId)
 
   if (next !== tree) {
-    commit(next)
+    commit(next, 'front')
   }
 }
 
@@ -175,7 +255,7 @@ function frontPaneInGroup(paneId: string) {
  *    from the tree and remembered so adoption doesn't re-add it. Reveal
  *    intent (a preview target, ⌘G) or a layout reset un-dismisses.
  */
-const DISMISSED_KEY = 'hermes.desktop.dismissedPanes.v1'
+const DISMISSED_KEY = 'hermes.layout.dismissedTiles.v1'
 
 function loadDismissed(): ReadonlySet<string> {
   return new Set(readJson<string[]>(DISMISSED_KEY) ?? [])
@@ -215,18 +295,19 @@ export function registerPaneOpener(paneId: string, open: () => void) {
   paneOpeners[paneId] = open
 }
 
-// TOOL PANELS (terminal, logs, …): their toggle COLLAPSES the zone to a rail
-// (tab stays) instead of hiding it, and the tab's ✕ REMOVES it (vs a session
-// tile, whose ✕ closes the session). Membership tells the renderer which
-// semantics a tab gets. See bindPaneCollapse in the controller.
-const collapsePanes = new Set<string>()
-
-export function markCollapsePane(paneId: string) {
-  collapsePanes.add(paneId)
-}
-
+/**
+ * TOOL PANELS (terminal, logs, …): their toggle COLLAPSES the zone to a rail
+ * (tab stays) instead of hiding it, and the tab's ✕ REMOVES it (vs a session
+ * tile, whose ✕ closes the session). This tells the renderer which semantics a
+ * tab gets.
+ *
+ * It used to be a module-level `Set` written once by `bindPaneCollapse` at
+ * controller import and read during render — a trait masquerading as state, and
+ * non-reactive, so a later write would have rendered nothing. It is now
+ * `TileChrome.toolPanel`, declared by the tile itself.
+ */
 export function isCollapsePane(paneId: string): boolean {
-  return collapsePanes.has(paneId)
+  return Boolean(tileChrome(findTile(paneId)).toolPanel)
 }
 
 const resetHandlers = new Set<() => void>()
@@ -242,23 +323,6 @@ export function registerLayoutResetHandler(fn: () => void): () => void {
     resetHandlers.delete(fn)
   }
 }
-
-// "New chat" for a chat tab strip's `+`. Registered rather than imported: the
-// layout tree stores pane ids and knows nothing about sessions, and pulling the
-// session store in here would invert that. Same seam as `registerPaneOpener`.
-let newTabHandler: (() => void) | null = null
-
-export function registerNewTabHandler(fn: () => void): () => void {
-  newTabHandler = fn
-
-  return () => {
-    if (newTabHandler === fn) {
-      newTabHandler = null
-    }
-  }
-}
-
-export const treeNewTabHandler = (): (() => void) | null => newTabHandler
 
 /** The zone the user last interacted with (clicked / focused into) — the ⌘W
  *  target when nothing is DOM-focused (activeElement is often `body` after a
@@ -294,17 +358,65 @@ export function trackActiveTreeGroup(): () => void {
   }
 }
 
-const isUncloseablePane = (paneId: string): boolean =>
-  Boolean(
-    (registry.getArea('panes').find(c => c.id === paneId)?.data as { uncloseable?: boolean } | undefined)?.uncloseable
-  )
+const isUncloseablePane = (paneId: string): boolean => Boolean(tileChrome(findTile(paneId)).uncloseable)
 
-/** ⌘W "main tabs always": close the MAIN (workspace) zone's active tab, unless
- *  it's the uncloseable workspace itself. Returns false when there's nothing to
- *  close, so ⌘W stays a no-op — it never closes the window. */
-export function closeWorkspaceTab(): boolean {
+/** The renderer's on-screen rule, resolved OUTSIDE React so the tab verbs index
+ *  exactly what the user can see. Reads live atoms — call it per verb, not once
+ *  at module scope. */
+const treeTileContext = (): TileContext => ({
+  editMode: $layoutEditMode.get(),
+  hidden: $hiddenTreePanes.get(),
+  narrow: $narrowViewport.get(),
+  tileFor: findTile
+})
+
+/** A zone's tiles in strip order, filtered to the ones actually on screen —
+ *  the list every tab verb operates on. */
+function shownTabsOf(groupId: null | string): { active?: string; groupId: string; shown: string[] } | null {
   const tree = $layoutTree.get()
-  const active = tree ? findGroupOfPane(tree, WORKSPACE_PANE_ID)?.active : null
+  const group = groupId && tree ? findGroup(tree, groupId) : null
+
+  if (!group) {
+    return null
+  }
+
+  const ctx = treeTileContext()
+
+  return { active: group.active, groupId: group.id, shown: group.panes.filter(id => tileShown(id, ctx)) }
+}
+
+/** The zone a tab verb acts on: the one the user last interacted with, falling
+ *  back to the zone holding the MAIN tile (the app's primary surface) when
+ *  nothing has been focused yet — e.g. a hotkey pressed straight after boot. */
+function verbTargetGroupId(): null | string {
+  const focused = $activeTreeGroup.get()
+
+  if (focused) {
+    return focused
+  }
+
+  const tree = $layoutTree.get()
+  const mainId = getTiles().find(tile => tile.placement === 'main' && tileChrome(tile).uncloseable)?.id
+
+  return (mainId && tree ? findGroupOfPane(tree, mainId)?.id : null) ?? null
+}
+
+/**
+ * ⌘W: close the FOCUSED zone's active tab, unless it's uncloseable. Returns
+ * false when there's nothing to close, so ⌘W stays a no-op — it never closes
+ * the window.
+ *
+ * This used to be `closeWorkspaceTab`, hardcoded to the zone holding the
+ * workspace pane: ⌘W with a split-out chat zone or a terminal strip focused
+ * closed a tab in a zone the user wasn't looking at.
+ *
+ * The target is the SHOWN active tab, not `group.active` raw — a zone whose
+ * active tile is hidden renders its first shown tile instead, and ⌘W has to
+ * close what the user actually sees.
+ */
+export function closeFocusedTabInZone(): boolean {
+  const zone = shownTabsOf(verbTargetGroupId())
+  const active = zone && (zone.active && zone.shown.includes(zone.active) ? zone.active : zone.shown[0])
 
   if (!active || isUncloseablePane(active)) {
     return false
@@ -361,50 +473,55 @@ export function treePanesWithPrefix(prefix: string): string[] {
   return tree ? allPaneIds(tree).filter(id => id.startsWith(prefix)) : []
 }
 
-/** ⌘1…⌘9: activate the Nth tab of the FOCUSED zone (the interaction tracker's
- *  group), but only when it's a real tab strip (≥2 panes). Returns false so the
- *  caller falls back to its default (profile switch) — the number keys mean
- *  "switch tab" only while a multi-tab zone holds focus. */
+/**
+ * ⌥1…⌥9: activate the Nth tab of the FOCUSED zone. Returns false so the caller
+ * falls back to its default (the Nth recent session) — the number keys mean
+ * "switch tab" only while a multi-tab zone holds focus.
+ *
+ * Indexes the SHOWN tiles, not `group.panes`. The strip renders shown tiles, so
+ * indexing the raw list made ⌥2 land on the wrong tab — or on nothing —
+ * whenever a hidden tile sat earlier in the zone.
+ *
+ * No longer scoped to chat strips: a zone with two terminals stacked in it is a
+ * tab strip, and the keyboard now agrees with what the strip draws.
+ */
 export function activateTreeTabSlot(slot: number): boolean {
-  const groupId = $activeTreeGroup.get()
-  const tree = $layoutTree.get()
-  const panes = (groupId && tree ? findGroup(tree, groupId)?.panes : null) ?? []
+  const zone = shownTabsOf($activeTreeGroup.get())
 
-  // Same scoping as cycleTreeTabInFocusedZone: a CHAT strip with something to
-  // switch between. The caller's fallback (the Nth recent session) is the right
-  // answer anywhere else, so returning false is not a failure.
-  if (panes.length < 2 || slot < 1 || slot > panes.length || !panes.some(isChatPaneId)) {
+  if (!zone || zone.shown.length < 2 || slot < 1 || slot > zone.shown.length) {
     return false
   }
 
-  activateTreePane(groupId!, panes[slot - 1])
+  activateTreePane(zone.groupId, zone.shown[slot - 1])
 
   return true
 }
 
-/** ⌃Tab / ⌃⇧Tab: cycle the FOCUSED zone's tabs (wrapping) — but only a
- *  session/main strip with ≥2 tabs. Returns false so the caller falls back to
- *  the recent-session switcher when the focus isn't a chat tab strip. */
+/**
+ * ⌃Tab / ⌃⇧Tab: cycle the FOCUSED zone's SHOWN tabs (wrapping). Returns false so
+ * the caller falls back to the recent-session switcher when the focused zone
+ * isn't a strip with something to cycle.
+ *
+ * Like ⌥1-9, no longer scoped to chat strips, and cycling over shown tiles
+ * rather than raw ones so a hidden tile can't take a turn.
+ */
 export function cycleTreeTabInFocusedZone(direction: 1 | -1): boolean {
-  const groupId = $activeTreeGroup.get()
-  const tree = $layoutTree.get()
-  const group = groupId && tree ? findGroup(tree, groupId) : null
-  const panes = group?.panes ?? []
+  const zone = shownTabsOf($activeTreeGroup.get())
 
-  if (panes.length < 2 || !panes.some(isChatPaneId)) {
+  if (!zone || zone.shown.length < 2) {
     return false
   }
 
-  const idx = Math.max(0, panes.indexOf(group!.active ?? ''))
-  const nextId = panes[(idx + direction + panes.length) % panes.length]
-  activateTreePane(group!.id, nextId)
+  const idx = Math.max(0, zone.shown.indexOf(zone.active ?? ''))
+  const nextId = zone.shown[(idx + direction + zone.shown.length) % zone.shown.length]
+  activateTreePane(zone.groupId, nextId)
 
-  // Cycling onto a session/main tab must surface the name card — a zone that
-  // was double-tap-hidden stays headerless otherwise ("the one that cycles
-  // never gets it").
-  if (isChatPaneId(nextId)) {
-    setTreeGroupHeaderHidden(group!.id, false)
-  }
+  // Cycling must surface the strip: a zone that was double-tap-hidden stays
+  // headerless otherwise ("the one that cycles never gets it"), which leaves the
+  // user switching between tabs they cannot see. Unconditional now — it was
+  // gated on the target being a chat tab, so cycling a terminal strip whose
+  // header you had hidden left you flying blind.
+  setTreeGroupHeaderHidden(zone.groupId, false)
 
   return true
 }
@@ -416,7 +533,7 @@ export function removeTreePane(paneId: string) {
   const tree = $layoutTree.get()
 
   if (tree) {
-    commit(removePane(tree, paneId))
+    commit(removePane(tree, paneId), 'remove')
   }
 }
 
@@ -437,13 +554,11 @@ function rootRow(): SplitNode | null {
 
   // Column root: find the row child that contains the main pane — that's the
   // row the side-collapse system operates on (sessions left, files right).
-  const panes = registry.getArea('panes')
+  const tiles = getTiles()
 
   const hasMain = (node: LayoutNode): boolean => {
     if (node.type === 'group') {
-      return node.panes.some(
-        id => (panes.find(p => p.id === id)?.data as { placement?: string } | undefined)?.placement === 'main'
-      )
+      return node.panes.some(id => tiles.find(t => t.id === id)?.placement === 'main')
     }
 
     return node.children.some(hasMain)
@@ -466,10 +581,10 @@ export function paneRootSide(paneId: string): null | TreeSide {
     return null
   }
 
-  const panes = registry.getArea('panes')
+  const tiles = getTiles()
   const child = row.children.find(c => allPaneIds(c).includes(paneId))
 
-  return child ? rootChildSide(child, id => panes.find(p => p.id === id)) : null
+  return child ? rootChildSide(child, id => tiles.find(t => t.id === id)) : null
 }
 
 /** The closer-less Close: dismiss the pane (removed + remembered; reveal
@@ -479,7 +594,7 @@ export function dismissTreePane(paneId: string) {
 
   if (tree) {
     setDismissed(paneId, true)
-    commit(removePane(tree, paneId))
+    commit(removePane(tree, paneId), 'dismiss')
   }
 }
 
@@ -497,7 +612,7 @@ export function closeTreePane(paneId: string) {
   // contribution unregisters but the pane id STAYS in the tree, so
   // re-enabling restores it exactly where it was. (Dismissal + removal
   // would strand the pane with no way back short of a layout reset.)
-  const source = registry.getArea('panes').find(c => c.id === paneId)?.source
+  const source = findTile(paneId)?.source
 
   if (source?.startsWith('plugin:')) {
     const pluginId = source.slice('plugin:'.length)
@@ -558,9 +673,9 @@ export function layoutHasRootSide(side: TreeSide): boolean {
     return false
   }
 
-  const panes = registry.getArea('panes')
+  const tiles = getTiles()
 
-  return row.children.some(child => rootChildSide(child, id => panes.find(p => p.id === id)) === side)
+  return row.children.some(child => rootChildSide(child, id => tiles.find(t => t.id === id)) === side)
 }
 
 /**
@@ -579,16 +694,16 @@ function restoreDismissedSidePanes(side: TreeSide) {
 
   let changed = false
 
-  for (const pane of registry.getArea('panes')) {
-    if (!dismissed.has(pane.id)) {
+  for (const tile of getTiles()) {
+    if (!dismissed.has(tile.id)) {
       continue
     }
 
-    const placement = (pane.data as { placement?: string } | undefined)?.placement
+    const placement = tile.placement
     const paneSide = placement === 'left' ? 'left' : placement === 'main' ? null : 'right'
 
     if (paneSide === side) {
-      setDismissed(pane.id, false)
+      setDismissed(tile.id, false)
       changed = true
     }
   }
@@ -626,8 +741,7 @@ export function treeSideOfPane(paneId: string): TreeSide | null {
     return null
   }
 
-  const placementOf = (id: string) =>
-    (registry.getArea('panes').find(c => c.id === id)?.data as { placement?: string } | undefined)?.placement
+  const placementOf = (id: string) => findTile(id)?.placement
 
   const placements = allPaneIds(child).map(placementOf)
 
@@ -691,7 +805,7 @@ export function revealTreePane(paneId: string) {
     }
 
     if (next !== tree) {
-      commit(next)
+      commit(next, 'reveal')
     }
   }
 }
@@ -715,7 +829,7 @@ export function mirrorLayoutTree() {
   const tree = $layoutTree.get()
 
   if (tree) {
-    commit(mirrorTreeHorizontal(tree))
+    commit(mirrorTreeHorizontal(tree), 'mirror')
   }
 }
 
@@ -798,7 +912,7 @@ export function declareDefaultTree(tree: LayoutNode) {
   const next = adoptMissingPanes(current, tree)
 
   if (next !== current) {
-    commit(next)
+    commit(next, 'default')
   }
 }
 
@@ -806,7 +920,7 @@ export function declareDefaultTree(tree: LayoutNode) {
  * LIVE pane adoption — a `panes` contribution that isn't in the tree yet
  * (a plugin registered after boot, incl. runtime-loaded ones) joins the
  * tree via the SAME primitive a human drag/drop commits with
- * (`insertAtGroup`: anchor group + side). The pane's data supplies the
+ * (`insertAtGroup`: anchor group + side). The tile's chrome supplies the
  * gesture:
  *
  *  - `dock: { pane, pos }` — "drop me on that edge of that pane". Any pane,
@@ -818,26 +932,47 @@ export function declareDefaultTree(tree: LayoutNode) {
  * boots), so user rearrangement wins from then on and plugin reloads keep
  * the pane where the user left it.
  */
-interface PaneDockHint {
-  pane: string
-  pos: DropPosition
-  /** Center docks: stack BEFORE this pane id (the strip divider's slot). */
-  before?: null | string
-}
-
+/**
+ * Spanned with a NOISE FLOOR, not unconditionally. This runs on every registry
+ * mutation — a live title refresh, an accent change, any plugin load — and
+ * early-returns when nothing is missing. But `getTiles()`, the `allPaneIds`
+ * walk and the dismissed-pane loop all run BEFORE that return, so the common
+ * case is real work with no result. Recording all of it would bury the trace in
+ * 0ms spans; recording none of it would hide a hot path. So: record when it
+ * cost something, or when it actually adopted.
+ */
 function adoptContributedPanes(): void {
+  const startedAt = isRecording() ? performance.now() : 0
+  let adopted = 0
+  let considered = 0
+
+  const finish = () => {
+    if (startedAt === 0) {
+      return
+    }
+
+    const elapsed = performance.now() - startedAt
+
+    if (elapsed >= ADOPT_NOISE_FLOOR_MS || adopted > 0) {
+      recordSpan('layout.adopt', startedAt, startedAt + elapsed, { missing: adopted, panes: considered })
+    }
+  }
+
   const tree = $layoutTree.get()
 
   if (!tree) {
+    finish()
+
     return
   }
 
-  const panes = registry.getArea('panes')
+  const panes = getTiles()
 
-  const dataOf = (paneId: string) =>
-    panes.find(c => c.id === paneId)?.data as { placement?: string; dock?: PaneDockHint } | undefined
+  considered = panes.length
 
-  const placementOf = (paneId: string) => dataOf(paneId)?.placement
+  const tileOf = (paneId: string) => panes.find(c => c.id === paneId)
+
+  const placementOf = (paneId: string) => tileOf(paneId)?.placement
   const mainId = panes.find(c => placementOf(c.id) === 'main')?.id
   const inTree = new Set(allPaneIds(tree))
 
@@ -853,14 +988,18 @@ function adoptContributedPanes(): void {
   const dismissed = $dismissedPanes.get()
   const missing = panes.filter(c => !inTree.has(c.id) && !dismissed.has(c.id))
 
+  adopted = missing.length
+
   if (missing.length === 0) {
+    finish()
+
     return
   }
 
   let next = tree
 
   for (const pane of missing) {
-    const dock = dataOf(pane.id)?.dock
+    const dock = tileChrome(tileOf(pane.id)).dock
     const placement = placementOf(pane.id) ?? 'right'
 
     const anchor =
@@ -886,8 +1025,10 @@ function adoptContributedPanes(): void {
   }
 
   if (next !== tree) {
-    commit(next)
+    commit(next, 'adopt')
   }
+
+  finish()
 }
 
 /** Adopt now + on every registry change (call once from the app root). */
@@ -896,13 +1037,29 @@ export function watchContributedPanes(): void {
   registry.subscribe(adoptContributedPanes)
 }
 
-function commit(next: LayoutNode | null) {
+/**
+ * `reason` exists for the trace, and it is the difference between a capture
+ * that says "the tree was written 47 times" and one that says which gesture did
+ * it. The store write alone cannot tell an activate from an adopt, and those
+ * have completely different fixes.
+ *
+ * The tree shape rides along because a commit's real cost is downstream of it —
+ * every split re-walks its subtree on the render this triggers — and that cost
+ * is invisible on a clock clamped to 1ms. See auto/layout-shape.ts.
+ */
+function commit(next: LayoutNode | null, reason: string) {
   if (!next) {
     return
   }
 
-  $layoutTree.set(next)
-  persist(next)
+  span(
+    'layout.commit',
+    () => {
+      $layoutTree.set(next)
+      persist(next)
+    },
+    isRecording() ? { reason, ...shapeAttrs(next) } : undefined
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -910,9 +1067,13 @@ function commit(next: LayoutNode | null) {
 // dragged (zone move / span / zone-menu split) keeps that placement; auto-
 // docking (dockPaneBeside) only steers panes the user hasn't touched.
 // Presets and resets hand placement back to the app.
+//
+// NOT a visibility axis, despite sitting alongside the other id-keyed sets:
+// it never hides anything, and it is read in exactly one place
+// (`dockPaneBeside`). See the three-axis note above `$hiddenTreePanes`.
 // ---------------------------------------------------------------------------
 
-const USER_PLACED_KEY = 'hermes.desktop.userPlacedPanes.v1'
+const USER_PLACED_KEY = 'hermes.layout.userPlacedTiles.v1'
 
 export const $userPlacedPanes = atom<ReadonlySet<string>>(new Set(readJson<string[]>(USER_PLACED_KEY) ?? []))
 
@@ -947,7 +1108,7 @@ export function dockPaneBeside(paneId: string, anchorPaneId: string) {
     return
   }
 
-  const panes = registry.getArea('panes')
+  const panes = getTiles()
   const anchor = findGroupOfPane(tree, anchorPaneId)
 
   // Anchor must be a live, shown pane — never dock beside a hidden file tree.
@@ -957,11 +1118,7 @@ export function dockPaneBeside(paneId: string, anchorPaneId: string) {
 
   // The uncloseable main workspace (session tiles are placement:'main' too,
   // but closeable, so the uncloseable flag disambiguates).
-  const mainId = panes.find(c => {
-    const data = c.data as { placement?: string; uncloseable?: boolean } | undefined
-
-    return data?.placement === 'main' && data.uncloseable
-  })?.id
+  const mainId = panes.find(c => c.placement === 'main' && tileChrome(c).uncloseable)?.id
 
   const order = allPaneIds(tree)
 
@@ -981,7 +1138,7 @@ export function dockPaneBeside(paneId: string, anchorPaneId: string) {
     : insertAtGroup(tree, anchor.id, paneId, pos)
 
   if (next && next !== tree) {
-    commit(next)
+    commit(next, 'dock')
   }
 }
 
@@ -997,7 +1154,7 @@ export function moveTreePane(paneId: string, target: { groupId: string; pos: Dro
   // movePane returns the SAME root for no-op drops ("stays here") — only a
   // real move customizes the preset or pins the pane as user-placed.
   if (next !== tree) {
-    commit(next)
+    commit(next, 'move')
     markActivePreset('custom')
     markPaneUserPlaced(paneId)
   }
@@ -1017,7 +1174,7 @@ export function applyTree(tree: LayoutNode, presetId: string) {
   // a layout hands pane placement back to the app (auto-docking resumes).
   clearAllPaneSizeOverrides()
   saveUserPlaced(new Set())
-  commit(previous ? adoptMissingPanes(tree, previous) : tree)
+  commit(previous ? adoptMissingPanes(tree, previous) : tree, 'preset')
   markActivePreset(presetId)
 
   // Picking a named layout is an intent to SEE its panes. Toggle-gated panes
@@ -1027,12 +1184,10 @@ export function applyTree(tree: LayoutNode, presetId: string) {
   // preset's DECLARED panes (not the adopted result): logs is auto-adopted
   // hidden into every tree, so only a preset that explicitly places it (Quad)
   // should turn it on.
-  const panes = registry.getArea('panes')
+  const panes = getTiles()
 
   for (const paneId of allPaneIds(tree)) {
-    const data = panes.find(c => c.id === paneId)?.data as { revealOnPreset?: boolean } | undefined
-
-    if (data?.revealOnPreset) {
+    if (tileChrome(panes.find(c => c.id === paneId)).revealOnPreset) {
       paneOpeners[paneId]?.()
     }
   }
@@ -1053,7 +1208,7 @@ export function mergeTreeZones(groupIds: string[], paneId: string, fallbackGroup
   const merged = mergeZonesWithPaneOp(tree, groupIds, paneId)
 
   if (merged) {
-    commit(merged)
+    commit(merged, 'merge')
     markActivePreset('custom')
     markPaneUserPlaced(paneId)
   } else if (fallbackGroupId) {
@@ -1065,7 +1220,7 @@ export function activateTreePane(groupId: string, paneId: string) {
   const tree = $layoutTree.get()
 
   if (tree) {
-    commit(setActivePaneOp(tree, groupId, paneId))
+    commit(setActivePaneOp(tree, groupId, paneId), 'activate')
   }
 }
 
@@ -1073,7 +1228,7 @@ export function reorderTreePane(groupId: string, paneId: string, toIndex: number
   const tree = $layoutTree.get()
 
   if (tree) {
-    commit(reorderPaneInGroupOp(tree, groupId, paneId, toIndex))
+    commit(reorderPaneInGroupOp(tree, groupId, paneId, toIndex), 'reorder')
     markActivePreset('custom')
   }
 }
@@ -1084,7 +1239,7 @@ export function splitTreeZone(groupId: string, side: RootEdge, movePaneId: strin
   const tree = $layoutTree.get()
 
   if (tree) {
-    commit(splitGroupZoneOp(tree, groupId, side, movePaneId))
+    commit(splitGroupZoneOp(tree, groupId, side, movePaneId), 'split')
     markActivePreset('custom')
     markPaneUserPlaced(movePaneId)
   }
@@ -1094,7 +1249,7 @@ export function toggleTreeGroupMinimized(groupId: string, minimized: boolean) {
   const tree = $layoutTree.get()
 
   if (tree) {
-    commit(setGroupMinimized(tree, groupId, minimized))
+    commit(setGroupMinimized(tree, groupId, minimized), 'minimize')
   }
 }
 
@@ -1203,7 +1358,7 @@ export function setTreeGroupHeaderHidden(groupId: string, headerHidden: boolean)
   const tree = $layoutTree.get()
 
   if (tree) {
-    commit(setGroupHeaderHiddenOp(tree, groupId, headerHidden))
+    commit(setGroupHeaderHiddenOp(tree, groupId, headerHidden), 'header')
   }
 }
 
