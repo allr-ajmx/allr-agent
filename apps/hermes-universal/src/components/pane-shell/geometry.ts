@@ -24,6 +24,8 @@ import { type RefObject, useLayoutEffect, useState, useSyncExternalStore } from 
 
 import { $layoutTree } from '@/components/pane-shell/tree/store'
 
+import { queryVisible } from './pane-visibility'
+
 // ---------------------------------------------------------------------------
 // Rects
 // ---------------------------------------------------------------------------
@@ -186,7 +188,7 @@ export function publishWorkspaceGeometry(): () => void {
   const ro = new ResizeObserver(() => measure())
 
   const measure = () => {
-    const next = document.querySelector<HTMLElement>('[data-session-anchor="workspace"]')
+    const next = queryVisible<HTMLElement>('[data-session-anchor="workspace"]')
 
     if (next !== el) {
       if (el) {

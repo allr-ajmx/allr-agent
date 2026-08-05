@@ -10,7 +10,7 @@
  */
 
 import { useStore } from '@nanostores/react'
-import { type CSSProperties, Fragment, type ReactNode, type RefObject, useRef, useState } from 'react'
+import { type CSSProperties, Fragment, type ReactNode, type RefObject, useEffect, useRef, useState } from 'react'
 
 import { Codicon } from '@/components/ui/codicon'
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from '@/components/ui/context-menu'
@@ -31,6 +31,7 @@ import { cn } from '@/lib/utils'
 
 import { $layoutEditMode } from '../../edit-mode'
 import { useWindowControlsOverlap } from '../../geometry'
+import { hiddenPaneProps, PaneGroupContext, PaneVisibleContext } from '../../pane-visibility'
 import { useTiles } from '../../tile/registry'
 import { tileChrome } from '../../tile/types'
 import { type TileContext, tileShown } from '../../tile/visibility'
@@ -178,6 +179,36 @@ export function TreeGroup({
   const activeId = shown.includes(node.active) ? node.active : (shown[0] ?? node.active)
   const active = paneFor(activeId)
   const isEmpty = node.panes.length === 0
+
+  // KEEP-ALIVE. The zone used to render only the active tile, so every tab
+  // switch unmounted a whole surface and mounted another — the thread lost its
+  // scroll position and the layout shifted while it re-measured.
+  //
+  // Lazy on purpose: a tile first mounts when it is first ACTIVATED, so a
+  // boot-restored stack of five sessions doesn't resume all five up front.
+  const everActiveRef = useRef<Set<string>>(new Set())
+
+  useEffect(() => {
+    if (!node.minimized && !isEmpty) {
+      everActiveRef.current.add(activeId)
+    }
+
+    // Prune tiles that left the zone (closed / moved to another group), so a
+    // long-lived zone doesn't pin stale ids forever.
+    for (const id of everActiveRef.current) {
+      if (!node.panes.includes(id)) {
+        everActiveRef.current.delete(id)
+      }
+    }
+  })
+
+  // A tile may opt OUT with `lifecycle: 'unmount'` — for a surface heavy enough
+  // that holding it costs more than rebuilding it. Nothing declares that today;
+  // the default is keep-alive because the surfaces that stack are chats, and a
+  // chat is exactly what must not be rebuilt.
+  const keptPanes = shown.filter(
+    id => id === activeId || (everActiveRef.current.has(id) && paneFor(id)?.lifecycle !== 'unmount')
+  )
 
   // ONE header style: the app's compact pane-header. DEFAULT is contextual —
   // a single pane isn't a "tab", so its header auto-hides; a stack shows its
@@ -521,10 +552,38 @@ export function TreeGroup({
               {/* Same decode primitive as the CONNECTING boot overlay. */}
               <DecodeText className="text-(--ui-text-quaternary)" cursor prefix={1} text="HERMES" />
             </div>
-          ) : active?.render ? (
-            <ContribBoundary id={active.id}>{active.render()}</ContribBoundary>
           ) : (
-            <div className="p-3 font-mono text-[11px] text-(--ui-text-quaternary)">{t.zones.missingPane(activeId)}</div>
+            keptPanes.map(paneId => {
+              const tile = paneFor(paneId)
+              const isActive = paneId === activeId
+
+              return (
+                <div
+                  aria-hidden={!isActive || undefined}
+                  className={cn('absolute inset-0 overflow-auto', !isActive && 'pointer-events-none invisible')}
+                  key={paneId}
+                  {...hiddenPaneProps(!isActive)}
+                >
+                  {tile?.render ? (
+                    // Visibility flows to the tile so a kept-alive chat surface
+                    // can gate its hot (per-token) subscriptions while hidden;
+                    // the group id identifies the ZONE it lives in, for state
+                    // that is per-zone rather than per-tab.
+                    <PaneGroupContext.Provider value={node.id}>
+                      <PaneVisibleContext.Provider value={isActive}>
+                        <ContribBoundary id={tile.id}>{tile.render()}</ContribBoundary>
+                      </PaneVisibleContext.Provider>
+                    </PaneGroupContext.Provider>
+                  ) : (
+                    isActive && (
+                      <div className="p-3 font-mono text-[11px] text-(--ui-text-quaternary)">
+                        {t.zones.missingPane(paneId)}
+                      </div>
+                    )
+                  )}
+                </div>
+              )
+            })
           )}
         </div>
       )}

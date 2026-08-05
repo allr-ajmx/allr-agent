@@ -10,6 +10,8 @@
  * steal focus from the composer effect.
  */
 
+import { queryVisible } from '@/components/pane-shell/pane-visibility'
+
 import type { InlineRefInput } from './inline-refs'
 import { RICH_INPUT_SLOT } from './rich-editor'
 
@@ -166,7 +168,7 @@ export const focusComposerInput = (el: HTMLElement | null) => {
 
 /** Drop focus from the main composer input (status-stack chrome, sidebar, etc.). */
 export const blurComposerInput = () => {
-  const el = document.querySelector(`[data-slot="${RICH_INPUT_SLOT}"]`) as HTMLElement | null
+  const el = queryVisible(`[data-slot="${RICH_INPUT_SLOT}"]`)
 
   if (el && document.activeElement === el) {
     el.blur()
