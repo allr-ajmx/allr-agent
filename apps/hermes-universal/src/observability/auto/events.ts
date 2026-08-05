@@ -65,21 +65,100 @@ interface EventTimingObserverInit extends PerformanceObserverInit {
 }
 
 /**
+ * The markers worth naming, MOST SPECIFIC FIRST — the order is the whole point.
+ *
+ * `data-slot` is a shadcn convention scattered across generic wrappers, so the
+ * NEAREST identifying ancestor is usually the least informative one. Asking for
+ * each marker in turn, over the whole chain, is what makes a sash read as a
+ * sash instead of as whatever generic wrapper happens to sit closest to it.
+ */
+const MARKERS = ['[role="separator"]', '[data-tree-tab]', '[data-tree-group]', '[data-tree-split]', '[data-slot]']
+
+/**
  * A short, stable description of what was interacted with.
  *
- * Deliberately structural — tag, `data-slot`, or a pane/test id — and never text
- * content or a value. Span attributes can end up in a bug report or a shared
- * trace, and user content must not ride along in them.
+ * The event target is almost never the interesting element. The 384ms
+ * `pointerdown` that started this was reported against a bare `span` — the 1px
+ * hairline inside a sash — and against bare `div`s for every zone in the tree,
+ * because the old version only asked the target ITSELF for `data-slot` or
+ * `data-tree-split`. A trace naming thirteen different anonymous `div`s cannot
+ * tell you which one to look at.
+ *
+ * Deliberately structural — a marker, a tag, a pane-id PREFIX — and never text
+ * content, a value, or an id. Two rules follow from that, and both are load
+ * bearing:
+ *
+ *  - `data-tree-tab` carries the pane id, which for a chat is
+ *    `session-tile:<sessionId>` — a user identifier. Only the prefix ships.
+ *    Static pane ids (`workspace`, `files`, `terminal`) have no colon and are
+ *    registered names, so they ride along whole.
+ *  - Generated node ids (`data-tree-group`, `data-tree-split`) are recorded as
+ *    the MARKER only. They churn per session, so as tag values they would be
+ *    unsearchable in Jaeger while telling you nothing the marker does not.
+ *
+ * Two empty answers, kept distinct: `unknown` means there was no element to
+ * describe (the observer runs after the fact; the node may be detached by
+ * then), while `div?` means an element was found and nothing on its chain
+ * identified it. Collapsing those into one string is precisely the
+ * convincingly-empty result this whole layer exists to avoid — the first is an
+ * instrument with nothing to measure, the second is a gap in the markers.
+ *
+ * SHIPS, and the cost is five native `closest()` calls — walked in C++, not JS,
+ * and only for entries that already passed the 16ms threshold. An explicit
+ * ancestor loop with a hop limit would be slower than the thing it bounds.
+ *
+ * Exported for the test: the observer itself cannot be exercised (see the
+ * synthetic-click note above), so this is the only piece of the module a unit
+ * test can reach.
  */
-function describeTarget(target: Node | null | undefined): string {
+export function describeTarget(target: Node | null | undefined): string {
   if (!target || !(target instanceof Element)) {
     return 'unknown'
   }
 
-  const slot = target.getAttribute('data-slot') ?? target.getAttribute('data-tree-split')
   const tag = target.tagName.toLowerCase()
 
-  return slot ? `${tag}[${slot}]` : tag
+  for (const marker of MARKERS) {
+    const found = target.closest(marker)
+
+    if (!found) {
+      continue
+    }
+
+    if (marker === '[role="separator"]') {
+      return `${tag}[sash]`
+    }
+
+    if (marker === '[data-tree-tab]') {
+      const pane = found.getAttribute('data-tree-tab') ?? ''
+
+      return `${tag}[tab:${pane.split(':')[0]}]`
+    }
+
+    if (marker === '[data-slot]') {
+      return `${tag}[${found.getAttribute('data-slot')}]`
+    }
+
+    return `${tag}[${marker === '[data-tree-group]' ? 'zone' : 'split'}]`
+  }
+
+  return `${tag}?`
+}
+
+/**
+ * How many frames an interaction's window covered, when the frame clock is
+ * running. Injected rather than imported: this module SHIPS and `frames.ts` is
+ * dev/bench only, so a static import would drag the frame clock into the
+ * release bundle to answer a question nobody there can ask.
+ *
+ * It resolves the fork an `interaction` span cannot: 384ms of presentation is a
+ * completely different bug depending on whether it was one enormous frame or
+ * twenty-three dropped ones, and nothing in the Event Timing entry says which.
+ */
+let frameCounter: ((startMs: number, endMs: number) => number) | null = null
+
+export function setFrameCounter(fn: typeof frameCounter): void {
+  frameCounter = fn
 }
 
 export function installEventTiming(): () => void {
@@ -100,14 +179,18 @@ export function installEventTiming(): () => void {
     for (const raw of list.getEntries()) {
       const entry = raw as EventTimingEntry
 
-      recordSpan('interaction', entry.startTime, entry.startTime + entry.duration, {
+      const end = entry.startTime + entry.duration
+      const frames = frameCounter?.(entry.startTime, end)
+
+      recordSpan('interaction', entry.startTime, end, {
         // Named so the three phases read as durations in Jaeger's tag list
         // without anyone having to subtract timestamps by hand.
         inputDelayMs: Math.round(entry.processingStart - entry.startTime),
-        presentationMs: Math.round(entry.startTime + entry.duration - entry.processingEnd),
+        presentationMs: Math.round(end - entry.processingEnd),
         processingMs: Math.round(entry.processingEnd - entry.processingStart),
         target: describeTarget(entry.target),
-        type: entry.name
+        type: entry.name,
+        ...(frames === undefined ? {} : { frames })
       })
     }
   })
