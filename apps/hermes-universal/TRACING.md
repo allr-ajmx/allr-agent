@@ -50,10 +50,18 @@ Hence the rule the code follows:
 That is the whole loop. Everything between record and stop is **one trace**,
 and stopping is what completes it — see "One capture, one trace" below.
 
-The HUD is dev/bench only and draggable; the `–` button collapses it to a pill.
-Its live span count is the thing to watch: a capture that is running and finding
-nothing looks different from one that never started, which is not true of any
-other readout here.
+The HUD is dev/bench only and draggable; `–` collapses it to a pill, `×` hides it
+(`__hermesTrace.hud()` brings it back). Its live span count is the thing to
+watch: a capture that is running and finding nothing looks different from one
+that never started, which is not true of any other readout here.
+
+It is **not** a React component and is not mounted by the app. `installTraceHud()`
+appends raw DOM to `<body>` at boot, so it never joins the app's render commits,
+never re-renders because the app did, and is up before the first render — it
+works during a gateway outage, a routing failure, or a blank screen, which is
+when you actually want a tracer. That is a correctness requirement, not tidiness:
+the first version was a React component polling at 4Hz inside the app shell, and
+it put its own cost into the frames it was measuring.
 
 The console API still exists and drives the same controls, if you prefer it:
 
@@ -196,6 +204,7 @@ cannot disagree — changing the run label in the console updates the HUD field.
 | timeline | `__hermesTrace.timeline()` | Console waterfall, gaps marked. |
 | copy | `__hermesTrace.otlp()` | Self-contained OTLP JSON for Jaeger's upload tab. |
 | jaeger ↗ | — | Opens the UI prefiltered to this run label. |
+| × | `__hermesTrace.hud(false)` | Hide the panel. `hud()` brings it back. |
 | — | `__hermesTrace.status()` | What the HUD is showing, as an object. |
 
 `autoflush(false)` is the one that catches people out: with auto-drain on (the
@@ -310,6 +319,15 @@ Each of these cost real time. Read them before trusting a number.
   impossible. An SSH connect (45–90 s, roughly 45 drains) is exactly that case.
   Both are now monotonic serials that no drain resets, and `trace-identity.test.ts`
   is the regression net.
+- **The instrument must not appear in its own measurements.** The HUD started as
+  a React component inside the app shell polling at 4Hz. Three ways that is
+  wrong, all of them invisible in the output: its renders joined the app's React
+  commits, so its cost landed in the frames under investigation; every parent
+  re-render re-rendered it, constantly, during exactly the streaming it is used
+  to debug; and a `position: fixed` element with no `contain` invalidates style
+  and layout past its own box on every text change. It is now raw DOM outside
+  React, writing only values that changed. Anything added to it must keep that
+  property — no app stores, no React, no unconditional per-tick writes.
 - **A synchronous stack cannot describe an `await`.** `http.request` held a
   stack-pushed span across its round trip, so every unrelated span opened while
   it was in flight became its child, and closing it truncated the stack out from

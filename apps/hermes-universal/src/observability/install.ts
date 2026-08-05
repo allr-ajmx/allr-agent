@@ -25,8 +25,21 @@ export function installObservability(): void {
     return
   }
 
-  // Dev/bench only below: the console surface and the collector exporter. A
-  // release build must not carry a hardcoded collector URL, and a dynamic
-  // import keeps it out of the main chunk as well as out of the release.
-  void import('./exporter').then(m => m.installTraceConsole())
+  // Dev/bench only below: the console surface, the collector exporter, and the
+  // HUD. A release build must not carry a hardcoded collector URL, and a dynamic
+  // import keeps it all out of the main chunk as well as out of the release.
+  //
+  // The HUD is installed HERE rather than mounted by the app, and that is not an
+  // implementation detail. It owns raw DOM outside React, so it neither joins the
+  // app's render commits nor waits on them — it is up before the first render,
+  // stays up through a gateway outage or a routing failure, and survives a blank
+  // screen, which is exactly the state someone reaches for a tracer in. Ordered
+  // after the console so it can hang `hud()` off the same object.
+  void import('./exporter').then(async exporter => {
+    exporter.installTraceConsole()
+
+    const hud = await import('@/dev/trace-hud')
+
+    hud.installTraceHud()
+  })
 }
