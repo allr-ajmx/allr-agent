@@ -14,6 +14,7 @@ import { cn } from '@/lib/utils'
 import { $paneStates, type PaneStateSnapshot, setPaneHeightOverride, setPaneWidthOverride } from '@/store/panes'
 
 import { $layoutEditMode } from '../../edit-mode'
+import { beginSashDrag, endSashDrag } from '../../geometry'
 import { type EnclosureContext, zoneEnclosure } from '../../tile/enclosure'
 import { useTiles } from '../../tile/registry'
 import { tileAxisLength, tileClamps } from '../../tile/sizing'
@@ -228,6 +229,10 @@ export function TreeSplit({ node, root, rootRow }: { node: SplitNode; root?: boo
 
       document.body.style.cursor = horizontal ? 'col-resize' : 'row-resize'
       document.body.style.userSelect = 'none'
+      // Suppress the :root geometry-var writes for the gesture (see
+      // geometry.ts — each one restyles the whole document, and the workspace
+      // ResizeObserver fires every frame of a drag). They republish on release.
+      beginSashDrag()
 
       // pointermove outpaces 60fps and each write relayouts the whole pane tree,
       // so coalesce to one apply per frame (rafCoalesce commits on cleanup).
@@ -257,6 +262,10 @@ export function TreeSplit({ node, root, rootRow }: { node: SplitNode; root?: boo
 
       const cleanup = () => {
         resize.finish()
+        // AFTER resize.finish(), which commits the drag's final store write —
+        // re-enabling first would publish the pre-commit geometry and then get
+        // a second RO-driven publish immediately after. Ordering is load-bearing.
+        endSashDrag()
         document.body.style.cursor = restoreCursor
         document.body.style.userSelect = restoreSelect
 
