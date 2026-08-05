@@ -163,7 +163,14 @@ export default defineConfig({
       'react/jsx-dev-runtime': join(reactDir, 'jsx-dev-runtime.js'),
       'react/jsx-runtime': join(reactDir, 'jsx-runtime.js')
     },
-    dedupe: ['react', 'react-dom']
+    // Shiki MUST be a singleton too, for size rather than correctness. Its bundle
+    // entry statically pulls ~300 TextMate grammars and every bundled theme, so a
+    // second copy anywhere in the graph emits the whole set twice — measured at
+    // ~19.8 MB of byte-identical chunks, a third of the release bundle. That is
+    // exactly what `@streamdown/code` (`shiki: ^3.19.0`) did until the root
+    // package.json pinned it forward with an override; this line is the guard that
+    // keeps a future nested copy from silently doing it again.
+    dedupe: ['react', 'react-dom', 'shiki']
   },
   clearScreen: false,
   server: {

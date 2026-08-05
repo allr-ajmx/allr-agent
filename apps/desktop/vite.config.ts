@@ -114,7 +114,12 @@ export default defineConfig(({ command }) => ({
       'react/jsx-dev-runtime': path.resolve(__dirname, '../../node_modules/react/jsx-dev-runtime.js'),
       'react/jsx-runtime': path.resolve(__dirname, '../../node_modules/react/jsx-runtime.js')
     },
-    dedupe: ['react', 'react-dom']
+    // Shiki MUST be a singleton too, for size rather than correctness: its bundle
+    // entry statically pulls ~300 TextMate grammars and every bundled theme, so a
+    // second copy in the graph emits the whole set twice. `@streamdown/code`
+    // (`shiki: ^3.19.0`) did exactly that until the root package.json pinned it
+    // forward with an override; this is the guard against a future nested copy.
+    dedupe: ['react', 'react-dom', 'shiki']
   },
   server: {
     host: '127.0.0.1',
