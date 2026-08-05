@@ -1,5 +1,3 @@
-import { TILE_PANE_PREFIX } from '@/lib/pane-ids'
-
 import type { Tile } from '../../tile/types'
 
 /**
@@ -7,25 +5,25 @@ import type { Tile } from '../../tile/types'
  *
  * Default: a single tile isn't a "tab", so the header auto-hides. Exceptions
  * force it on:
- *  - session tiles (`session-tile:*`) — even before their tile registers
+ *  - a tile that DECLARES `chrome.loneHeader` — a closeable tile in the main
+ *    stack needs somewhere to put its ✕, else a tile alone in its own zone is
+ *    unclosable (the "3rd tile has no tab" trap);
  *  - ANY `placement: 'main'` tile — incl. the uncloseable workspace, so the
- *    primary session ALWAYS shows its title tab like the tiles beside it
- *    (a lone workspace with no tab reads inconsistently next to titled tiles)
- *  - a collapse tool panel dragged into its own zone
+ *    primary session ALWAYS shows its title tab like the tiles beside it (a
+ *    lone workspace with no tab reads inconsistently next to titled tiles);
+ *  - a tool panel dragged into its own zone.
  *
- * FIXME(MJXHRM-171): the `TILE_PANE_PREFIX` test is the last chat literal in
- * here. `TileChrome.loneHeader` already carries the same intent declaratively
- * (the pane mirror sets it on every tile it registers), so the de-literal step
- * deletes this branch. It stays for now only because step 1 must not change
- * behaviour — the prefix test fires for a session tile whose tile has not
- * registered yet, which `loneHeader` cannot do.
+ * The first rule used to be `id.startsWith('session-tile:')` — the layout
+ * engine reading a chat id prefix to decide chrome. The pane mirror now sets
+ * `loneHeader` on every tile it registers, which says the same thing without
+ * the engine knowing what a session is.
  */
 export function forceLoneHeaderForPanes(
   shown: readonly string[],
   tileOf: (id: string) => Tile | undefined,
   isCollapsePane: (id: string) => boolean
 ): boolean {
-  if (shown.some(id => id.startsWith(TILE_PANE_PREFIX))) {
+  if (shown.some(id => tileOf(id)?.chrome?.loneHeader)) {
     return true
   }
 

@@ -45,9 +45,40 @@ import {
 } from './model'
 import { rootChildSide } from './renderer/track-model'
 
+/**
+ * ═══ STORAGE KEYS ═══
+ *
+ * These were `hermes.desktop.*` — this app is not desktop. Renamed to
+ * `hermes.layout.*`, with a one-shot migration per key: read the new name, fall
+ * back to the legacy one, write it forward, drop the old. An existing install
+ * keeps its layout; a fresh one never writes a `desktop` key again.
+ *
+ * `migrate()` runs at module import, before any atom initialiser reads a key.
+ */
+const LEGACY_KEYS: ReadonlyArray<readonly [current: string, legacy: string]> = [
+  ['hermes.layout.tree.v2', 'hermes.desktop.layoutTree.v2'],
+  ['hermes.layout.preset.active', 'hermes.desktop.layoutPreset.active'],
+  ['hermes.layout.dismissedTiles.v1', 'hermes.desktop.dismissedPanes.v1'],
+  ['hermes.layout.userPlacedTiles.v1', 'hermes.desktop.userPlacedPanes.v1']
+]
+
+for (const [current, legacy] of LEGACY_KEYS) {
+  const carried = readKey(legacy)
+
+  // Only carry a legacy value when the new key has none — a second run, or a
+  // write that already happened under the new name, must win.
+  if (carried !== null && readKey(current) === null) {
+    writeKey(current, carried)
+  }
+
+  if (carried !== null) {
+    writeKey(legacy, null)
+  }
+}
+
 // v2: v1 trees were saved against placeholder panes with index-order zone
 // assignment (chat could land in a corner cell). Retire them wholesale.
-const STORAGE_KEY = 'hermes.desktop.layoutTree.v2'
+const STORAGE_KEY = 'hermes.layout.tree.v2'
 
 writeKey('hermes.desktop.layoutTree.v1', null)
 
@@ -80,11 +111,11 @@ export const $layoutTree = atom<LayoutNode | null>(isSecondaryWindow() ? null : 
  * Which layout preset the current tree came from; `'custom'` after the user
  * rearranges anything. Drives the picker's active highlight.
  */
-export const $activePresetId = atom<string>(readKey('hermes.desktop.layoutPreset.active') ?? 'default')
+export const $activePresetId = atom<string>(readKey('hermes.layout.preset.active') ?? 'default')
 
 export function markActivePreset(id: string) {
   $activePresetId.set(id)
-  writeKey('hermes.desktop.layoutPreset.active', id)
+  writeKey('hermes.layout.preset.active', id)
 }
 
 /** Pane id being dragged (tree drag session), null when idle. Also set to the
@@ -204,7 +235,7 @@ function frontPaneInGroup(paneId: string) {
  *    from the tree and remembered so adoption doesn't re-add it. Reveal
  *    intent (a preview target, ⌘G) or a layout reset un-dismisses.
  */
-const DISMISSED_KEY = 'hermes.desktop.dismissedPanes.v1'
+const DISMISSED_KEY = 'hermes.layout.dismissedTiles.v1'
 
 function loadDismissed(): ReadonlySet<string> {
   return new Set(readJson<string[]>(DISMISSED_KEY) ?? [])
@@ -971,7 +1002,7 @@ function commit(next: LayoutNode | null) {
 // (`dockPaneBeside`). See the three-axis note above `$hiddenTreePanes`.
 // ---------------------------------------------------------------------------
 
-const USER_PLACED_KEY = 'hermes.desktop.userPlacedPanes.v1'
+const USER_PLACED_KEY = 'hermes.layout.userPlacedTiles.v1'
 
 export const $userPlacedPanes = atom<ReadonlySet<string>>(new Set(readJson<string[]>(USER_PLACED_KEY) ?? []))
 

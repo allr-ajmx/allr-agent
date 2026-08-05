@@ -142,7 +142,7 @@ registerTiles([
     // Live-retitled to the loaded session by syncWorkspaceTitle below.
     title: 'New session',
     placement: 'main',
-    chrome: { tabWrap: wrapWorkspaceTab, uncloseable: true },
+    chrome: { linkTarget: true, tabWrap: wrapWorkspaceTab, uncloseable: true },
     sizing: { minWidth: '22vw' },
     // The `+` on the strip this tile sits in: another chat.
     onNewTab: newSessionTab,
@@ -412,6 +412,7 @@ const syncWorkspaceTitle = () => {
       accent: sessionColorFor(stored),
       // Pages aren't tab-able: the main zone's bar stands down while one shows.
       headerVeto: $workspaceIsPage.get(),
+      linkTarget: true,
       tabWrap: wrapWorkspaceTab,
       uncloseable: true
     },

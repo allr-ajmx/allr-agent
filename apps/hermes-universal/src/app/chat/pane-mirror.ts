@@ -25,6 +25,9 @@ export interface PaneMirror<T> {
   prefix: string
   /** The `kind` every tile this mirror registers reports (`'chat'`, `'page'`). */
   kind: string
+  /** Whether a dragged session may be LINKED into these tiles' zone (chat
+   *  surfaces accept it; a page tile has nothing to link into). */
+  linkTarget?: boolean
   /** What the strip's `+` does for these tiles. Session tiles contribute "new
    *  chat" so a zone holding only tiles — the workspace dragged elsewhere —
    *  still offers one. */
@@ -91,6 +94,7 @@ export function paneMirror<T>(cfg: PaneMirror<T>): () => void {
           // A mirrored tile is closeable and lives in the main stack, so it must
           // keep its strip even alone — otherwise the "3rd tile has no tab" trap
           // leaves it with nowhere to put the ✕.
+          linkTarget: cfg.linkTarget,
           loneHeader: true,
           tabDrag: cfg.tabDrag
             ? (event: ReactPointerEvent<HTMLElement>, onTap: () => void, double?: DoubleTapContext) =>

@@ -248,6 +248,7 @@ export const watchSessionTiles = paneMirror<SessionTile>({
   also: [$sessions, $sessionColorById],
   key: tile => tile.storedSessionId,
   kind: 'chat',
+  linkTarget: true,
   onNewTab: newSessionTab,
   prefix: 'session-tile',
   dir: tile => tile.dir,

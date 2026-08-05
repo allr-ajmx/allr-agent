@@ -26,11 +26,9 @@ import {
 import { Tip, TipKeybindLabel } from '@/components/ui/tooltip'
 import { ContribBoundary } from '@/contrib/react/boundary'
 import { useI18n } from '@/i18n'
-import { isChatPaneId } from '@/lib/pane-ids'
 import { cn } from '@/lib/utils'
 
 import { $layoutEditMode } from '../../edit-mode'
-import { useWindowControlsOverlap } from '../../geometry'
 import { hiddenPaneProps, PaneGroupContext, PaneVisibleContext } from '../../pane-visibility'
 import { useTiles } from '../../tile/registry'
 import { tileChrome } from '../../tile/types'
@@ -162,7 +160,6 @@ export function TreeGroup({
   // overlay, not every zone's header/body (and not the menuDirections walk).
   const dragging = useStore($treeDragging)
   const editMode = useStore($layoutEditMode)
-  const wcOverlap = useWindowControlsOverlap(ref, true)
 
   const hiddenPanes = useStore($hiddenTreePanes)
   const narrow = useStore($narrowViewport)
@@ -337,16 +334,7 @@ export function TreeGroup({
       // self-naming labels (see [data-pane-self-label] in styles.css).
       data-zone-header={headerVisible || undefined}
       ref={ref}
-      style={wcOverlap ? { paddingTop: wcOverlap.y + wcOverlap.height } : undefined}
     >
-      {wcOverlap && (
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute z-10 [-webkit-app-region:drag]"
-          style={{ height: wcOverlap.height, left: wcOverlap.x, top: wcOverlap.y, width: wcOverlap.width }}
-        />
-      )}
-
       {/* Minimized in a ROW: a narrow vertical rail — same PaneTab shell as
           the horizontal strip, just `vertical`. Click a tab to restore +
           activate; click anywhere else on the rail to restore. */}
@@ -706,6 +694,7 @@ const REGION: Record<DropPosition, CSSProperties> = {
 function ZoneDropOverlay({ node }: { node: GroupNode }) {
   const dragging = useStore($treeDragging)
   const hint = useStore($dropHint)
+  const tiles = useTiles()
 
   if (dragging === null) {
     return null
@@ -715,7 +704,11 @@ function ZoneDropOverlay({ node }: { node: GroupNode }) {
   // now (stack into its tabs / split its edges); only a CHAT zone's center is
   // a link-to-chat (the composer overlay owns that visual).
   const sessionDrag = dragging === SESSION_TILE_DRAG
-  const chatZone = node.panes.some(isChatPaneId)
+  // Declared, not inferred from the id: a tile says whether a dragged session
+  // may be LINKED into its zone (`chrome.linkTarget`). This used to be
+  // `node.panes.some(isChatPaneId)` — the layout engine reading a chat id
+  // prefix to decide a drop affordance.
+  const linkZone = node.panes.some(id => tileChrome(tiles.find(t => t.id === id)).linkTarget)
 
   const isDragSource = node.panes.includes(dragging)
 
@@ -740,7 +733,7 @@ function ZoneDropOverlay({ node }: { node: GroupNode }) {
   // the surface (ChatDropOverlay — the same sheet) owns that region; this sheet
   // fades out so the two never stack. A non-chat zone's center has no chat to
   // link, so it shows the normal stack sheet. Edges act like a tab.
-  const centerLink = sessionDrag && primary && pos === 'center' && chatZone
+  const centerLink = sessionDrag && primary && pos === 'center' && linkZone
 
   return (
     <div

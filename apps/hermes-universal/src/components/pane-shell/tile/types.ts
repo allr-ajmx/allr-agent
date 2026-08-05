@@ -110,6 +110,16 @@ export interface TileChrome {
    *  auto-hides — but a tile that can be CLOSED needs somewhere to put the ✕. */
   loneHeader?: boolean
   /**
+   * This tile's zone accepts a LINK drop — dragging a session onto the middle
+   * of the zone links it into this surface rather than stacking it as a tab.
+   *
+   * Declared rather than inferred: the zone renderer used to decide this with
+   * `node.panes.some(isChatPaneId)`, i.e. by reading a chat id prefix. What
+   * makes a zone linkable is what its tenants can accept, which is theirs to
+   * say.
+   */
+  linkTarget?: boolean
+  /**
    * A TOOL PANEL (terminal, logs) — the IntelliJ/VS-Code tool-window model.
    * Its toggle COLLAPSES the zone to a persistent rail (the tab stays) rather
    * than hiding it, and its ✕ REMOVES it from the layout (it comes back via the
@@ -127,10 +137,10 @@ export interface TileChrome {
 /**
  * What happens to a tile's content when its tab is switched away from.
  *
- * DECLARED HERE, HONOURED IN MJXHRM-170. Today the zone renderer mounts only
- * the active tile, so every tab switch remounts — this is the vocabulary that
- * step's kept-set render needs, and putting it on the tile now means the
- * registration sites don't get touched twice.
+ * `keep-alive` (the default) leaves it mounted and hidden, so a chat keeps its
+ * scroll position across a tab round-trip. `unmount` is the opt-out for a
+ * surface heavy enough that holding it costs more than rebuilding it — nothing
+ * declares it today. Honoured by the zone renderer's kept-set (MJXHRM-170).
  */
 export type TileLifecycle = 'keep-alive' | 'unmount'
 

@@ -1,169 +1,28 @@
 /**
- * Pane geometry — AABB INTERSECTION → WINDOW-CONTROL AWARENESS. The native
- * window controls (macOS traffic lights top-left / Windows-WSLg overlay
- * top-right) are a rectangle in viewport pixels. Any region whose rect
- * intersects it must reserve that space and expose a drag strip. One
- * `intersect()` call replaces per-layout inset special cases.
+ * Pane geometry — publishes the MAIN zone's viewport edges as CSS vars, so
+ * chrome that aligns to it (the titlebar title et al) reads
+ * `var(--workspace-left/right)` in plain CSS instead of threading rects through
+ * React.
  *
- * Also publishes the WORKSPACE zone's edges as CSS vars (see
- * publishWorkspaceGeometry) — chrome that aligns to the main pane (titlebar
- * title et al) consumes `var(--workspace-left/right)` in plain CSS instead of
- * threading rects through React.
+ * This file used to also carry a window-controls-overlap system: an AABB
+ * `intersect()` against the native window controls (macOS traffic lights /
+ * Windows-WSLg overlay), a `useWindowControlsRect` store and a
+ * `useWindowControlsOverlap` hook every zone called. All of it was gated on
+ * `'hermesDesktop' in window` — an ELECTRON global. Universal is Tauri and
+ * draws its own titlebar controls, so the gate was never true, the rect was
+ * always null, the overlap was always null, and the JSX it guarded never
+ * rendered. It cost a `useSyncExternalStore` (with a window resize listener), a
+ * `useState` and a `useLayoutEffect` per zone, per render, to compute nothing.
  *
- * UNIVERSAL PORT NOTE: desktop derived the native-controls rect from the
- * Electron `$connection` (macOS window-button position / WSLg overlay width).
- * The universal (Tauri) client renders its OWN titlebar controls, so there are
- * no native-overlay rects to dodge — `windowControlsRect` returns null off
- * Electron and `useWindowControlsOverlap` resolves to null. The workspace-edge
- * CSS-var publishing (the part the titlebar slots actually consume) is fully
- * live. FIXME(MJX-50/wco): if universal ever adopts native window decorations,
- * feed a Tauri window-controls rect into `windowControlsRect` here.
+ * Deleted rather than left for later: if universal ever adopts native window
+ * decorations, the honest version reads a Tauri window-controls rect, and none
+ * of the Electron-shaped code above would have been reusable anyway.
  */
 
-import { type RefObject, useLayoutEffect, useState, useSyncExternalStore } from 'react'
 
 import { $layoutTree } from '@/components/pane-shell/tree/store'
 
 import { queryVisible } from './pane-visibility'
-
-// ---------------------------------------------------------------------------
-// Rects
-// ---------------------------------------------------------------------------
-
-export interface Rect {
-  x: number
-  y: number
-  width: number
-  height: number
-}
-
-/** AABB intersection. Returns null when the rects don't overlap. */
-export function intersect(a: Rect, b: Rect): Rect | null {
-  const x = Math.max(a.x, b.x)
-  const y = Math.max(a.y, b.y)
-  const right = Math.min(a.x + a.width, b.x + b.width)
-  const bottom = Math.min(a.y + a.height, b.y + b.height)
-
-  if (right <= x || bottom <= y) {
-    return null
-  }
-
-  return { x, y, width: right - x, height: bottom - y }
-}
-
-// ---------------------------------------------------------------------------
-// Native window controls rect
-// ---------------------------------------------------------------------------
-
-/** Height of the band the native controls live in. */
-const CONTROLS_BAND_HEIGHT = 34
-/** Width of the macOS traffic-light cluster measured from the buttons' x. */
-const MACOS_LIGHTS_WIDTH = 58
-const MACOS_FALLBACK_BUTTON_X = 24
-
-interface ConnectionLike {
-  windowButtonPosition?: { x: number; y: number } | null
-  nativeOverlayWidth?: number | null
-  isFullscreen?: boolean | null
-}
-
-/**
- * The native window-control rectangle in viewport pixels, or null when there
- * is nothing to dodge (fullscreen, plain browser, secondary windows with
- * hidden controls). On the universal (Tauri) client this is always null — the
- * app draws its own titlebar controls (see the port note above).
- */
-export function windowControlsRect(connection: ConnectionLike | null, viewportWidth: number): Rect | null {
-  const inElectron = typeof window !== 'undefined' && 'hermesDesktop' in window
-
-  if (!inElectron) {
-    return null
-  }
-
-  if (connection?.isFullscreen) {
-    return null
-  }
-
-  // Windows / WSLg: native overlay on the top-right.
-  const overlayWidth = connection?.nativeOverlayWidth ?? 0
-
-  if (overlayWidth > 0) {
-    return { x: viewportWidth - overlayWidth, y: 0, width: overlayWidth, height: CONTROLS_BAND_HEIGHT }
-  }
-
-  // macOS: traffic lights on the top-left. windowButtonPosition === null means
-  // the platform has no left-side controls at all (Windows/Linux w/o overlay).
-  const pos = connection?.windowButtonPosition
-
-  if (pos === null) {
-    return null
-  }
-
-  const isMac = typeof navigator !== 'undefined' && /mac/i.test(navigator.platform)
-
-  if (!pos && !isMac) {
-    return null
-  }
-
-  const x = pos?.x ?? MACOS_FALLBACK_BUTTON_X
-
-  return { x: 0, y: 0, width: x + MACOS_LIGHTS_WIDTH, height: CONTROLS_BAND_HEIGHT }
-}
-
-// ---------------------------------------------------------------------------
-// Live hook
-// ---------------------------------------------------------------------------
-
-let cachedRect: Rect | null = null
-let cachedKey = ''
-
-function rectKey(r: Rect | null) {
-  return r ? `${r.x},${r.y},${r.width},${r.height}` : ''
-}
-
-function readControlsRect(): Rect | null {
-  // Universal has no `$connection` platform source — pass null (Tauri draws its
-  // own controls, so `windowControlsRect` resolves to null anyway).
-  const next = windowControlsRect(null, typeof window === 'undefined' ? 0 : window.innerWidth)
-  const key = rectKey(next)
-
-  // Referentially stable snapshot for useSyncExternalStore.
-  if (key !== cachedKey) {
-    cachedKey = key
-    cachedRect = next
-  }
-
-  return cachedRect
-}
-
-function subscribeControlsRect(cb: () => void) {
-  window.addEventListener('resize', cb)
-
-  return () => {
-    window.removeEventListener('resize', cb)
-  }
-}
-
-/** Reactive native window-controls rect (viewport aware; null on Tauri). */
-export function useWindowControlsRect(): Rect | null {
-  return useSyncExternalStore(subscribeControlsRect, readControlsRect, () => null)
-}
-
-// ---------------------------------------------------------------------------
-// Per-element overlap
-// ---------------------------------------------------------------------------
-
-function sameRect(a: Rect | null, b: Rect | null) {
-  if (a === b) {
-    return true
-  }
-
-  if (!a || !b) {
-    return false
-  }
-
-  return a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height
-}
 
 // ---------------------------------------------------------------------------
 // Workspace-edge CSS vars
@@ -237,50 +96,4 @@ export function publishWorkspaceGeometry(): () => void {
     root.style.removeProperty('--workspace-left')
     root.style.removeProperty('--workspace-right')
   }
-}
-
-/**
- * Intersects an element's live viewport rect with the native window-controls
- * rect. Returns the overlap in ELEMENT-LOCAL coordinates (null when clear), so
- * the consumer can reserve the space and paint a drag strip without knowing
- * anything about platform, fullscreen state, or layout position. Always null on
- * the universal (Tauri) client — there are no native-overlay controls to dodge.
- */
-export function useWindowControlsOverlap(ref: RefObject<HTMLElement | null>, enabled = true): Rect | null {
-  const controls = useWindowControlsRect()
-  const [overlap, setOverlap] = useState<Rect | null>(null)
-
-  useLayoutEffect(() => {
-    const el = ref.current
-
-    if (!enabled || !controls || !el) {
-      setOverlap(null)
-
-      return
-    }
-
-    const update = () => {
-      const r = el.getBoundingClientRect()
-      const hit = intersect(controls, { x: r.x, y: r.y, width: r.width, height: r.height })
-      const local = hit ? { x: hit.x - r.x, y: hit.y - r.y, width: hit.width, height: hit.height } : null
-
-      setOverlap(prev => (sameRect(prev, local) ? prev : local))
-    }
-
-    update()
-
-    // Size changes fire the observer; cross-window moves fire `resize`. A pane
-    // shifted only by a sibling's resize re-measures on its own grid reflow
-    // (its track width changes), so this covers the shell's real cases.
-    const ro = new ResizeObserver(update)
-    ro.observe(el)
-    window.addEventListener('resize', update)
-
-    return () => {
-      ro.disconnect()
-      window.removeEventListener('resize', update)
-    }
-  }, [controls, enabled, ref])
-
-  return overlap
 }
