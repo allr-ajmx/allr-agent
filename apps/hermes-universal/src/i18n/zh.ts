@@ -2548,6 +2548,8 @@ export const zh: Translations = {
     tryAgain: '重试',
     loadingTree: '正在加载文件树',
     loadingFiles: '正在加载文件',
+    filterFiles: '筛选已展开的文件夹',
+    filterNoMatches: '已展开的文件夹中没有匹配项',
     terminalHide: '隐藏终端',
     terminalConnecting: '连接中…',
     terminalReconnecting: '重新连接中…',

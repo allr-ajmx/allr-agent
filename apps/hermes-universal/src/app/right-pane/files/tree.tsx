@@ -5,6 +5,7 @@ import { type NodeApi, type NodeRendererProps, type RowRendererProps, Tree, type
 import { TreeSkeleton } from '@/components/chat/skeletons'
 import { Codicon } from '@/components/ui/codicon'
 import { useResizeObserver } from '@/hooks/use-resize-observer'
+import { IS_MOBILE } from '@/lib/platform'
 import { cn } from '@/lib/utils'
 import { $repoChangeByPath, type RepoChangeKind } from '@/store/coding-status'
 import { $renamingPath, beginInlineRename } from '@/store/file-actions'
@@ -15,8 +16,11 @@ import { FileEntryContextMenu, InlineRenameInput, isRenameShortcut } from '../fi
 import { getFileTreeDndManager } from './dnd-manager'
 import type { TreeNode } from './use-project-tree'
 
-const ROW_HEIGHT = 22
-const INDENT = 10
+// 22px rows are a mouse target. On touch the row IS the hit area (there are no
+// hover affordances to aim at), so it gets the platform minimum, and the indent
+// grows with it so nesting still reads at that scale.
+const ROW_HEIGHT = IS_MOBILE ? 44 : 22
+const INDENT = IS_MOBILE ? 14 : 10
 /** Fixed base inset (`px-6.5`) layered on top of arborist's depth indent. */
 const TREE_ROW_INSET = '17px'
 
@@ -275,7 +279,8 @@ function ProjectTreeRow({
       aria-expanded={isFolder ? node.isOpen : undefined}
       aria-selected={node.isSelected}
       className={cn(
-        'group/row row-hover flex h-full select-none items-center gap-1 border border-transparent px-3 text-xs font-normal leading-(--file-tree-row-height) text-(--ui-text-secondary) hover:text-foreground',
+        'group/row row-hover flex h-full select-none items-center gap-1 border border-transparent px-3 font-normal leading-(--file-tree-row-height) text-(--ui-text-secondary) hover:text-foreground',
+        IS_MOBILE ? 'gap-2 text-sm leading-normal' : 'text-xs',
         node.isSelected && 'bg-(--ui-row-active-background) text-foreground',
         isPlaceholder && 'pointer-events-none italic text-muted-foreground/70'
       )}

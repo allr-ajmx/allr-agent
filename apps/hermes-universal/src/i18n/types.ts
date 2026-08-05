@@ -2022,6 +2022,8 @@ export interface Translations {
     tryAgain: string
     loadingTree: string
     loadingFiles: string
+    filterFiles: string
+    filterNoMatches: string
     terminalHide: string
     terminalConnecting: string
     terminalReconnecting: string

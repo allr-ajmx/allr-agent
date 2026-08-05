@@ -2387,6 +2387,8 @@ export const en: Translations = {
     tryAgain: 'Try again',
     loadingTree: 'Loading file tree',
     loadingFiles: 'Loading files',
+    filterFiles: 'Filter open folders',
+    filterNoMatches: 'No matches in the folders you have open',
     terminalHide: 'Hide terminal',
     terminalConnecting: 'Connecting…',
     terminalReconnecting: 'Reconnecting…',
