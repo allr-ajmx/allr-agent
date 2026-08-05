@@ -2051,6 +2051,28 @@ export interface Translations {
     addToChat: string
   }
 
+  mobileReview: {
+    summary: (count: number) => string
+    loading: string
+    loadingDiff: string
+    filterAll: string
+    filterUnstaged: string
+    noneInFilter: string
+    ship: string
+    shipTitle: (count: number) => string
+    shipNothing: string
+    backToFiles: string
+    previous: string
+    previousFile: string
+    next: string
+    nextFile: string
+    fileOf: (index: number, total: number) => string
+    markViewed: string
+    markUnviewed: string
+    askHermes: string
+    askHermesPrompt: (path: string) => string
+  }
+
   mobileWorkspace: {
     backToChat: string
     noProject: string

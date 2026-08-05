@@ -2416,6 +2416,28 @@ export const en: Translations = {
     addToChat: 'Add to chat'
   },
 
+  mobileReview: {
+    summary: count => `${count} ${count === 1 ? 'file' : 'files'} changed`,
+    loading: 'Loading changes…',
+    loadingDiff: 'Loading diff…',
+    filterAll: 'All',
+    filterUnstaged: 'Unstaged',
+    noneInFilter: 'Nothing here',
+    ship: 'Commit…',
+    shipTitle: count => `Ship ${count} ${count === 1 ? 'file' : 'files'}`,
+    shipNothing: 'Nothing to commit',
+    backToFiles: 'Back to changed files',
+    previous: 'Prev',
+    previousFile: 'Previous file',
+    next: 'Next',
+    nextFile: 'Next file',
+    fileOf: (index, total) => `${index} of ${total}`,
+    markViewed: 'Mark as viewed',
+    markUnviewed: 'Mark as not viewed',
+    askHermes: 'Ask Hermes',
+    askHermesPrompt: path => `About \`${path}\` — `
+  },
+
   mobileWorkspace: {
     backToChat: 'Chat',
     noProject: 'No project',

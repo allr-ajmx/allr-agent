@@ -3,7 +3,8 @@ import { useEffect, useRef, useState } from 'react'
 import { previewFile } from '@/app/contrib/panes'
 import { RightSidebarPane } from '@/app/right-pane'
 import { PreviewRail } from '@/app/right-pane/preview/preview-rail'
-import { ReviewPane } from '@/app/right-pane/review'
+import { absolutePath } from '@/app/right-pane/review/file-tree'
+import { MobileReview } from '@/app/right-pane/review/mobile-review'
 import { TerminalArea } from '@/app/right-pane/terminal/terminal-area'
 import { MobileStatusList } from '@/app/shell/mobile-status-list'
 import { Button } from '@/components/ui/button'
@@ -231,7 +232,14 @@ export function MobileWorkspace({ onClose }: { onClose: () => void }) {
       <main className="relative min-h-0 flex-1">
         {visited.has('review') && (
           <div className={cn('absolute inset-0 flex min-h-0 flex-col', tab !== 'review' && 'hidden')}>
-            <ReviewPane key={cwd || 'no-cwd'} />
+            <MobileReview
+              key={cwd || 'no-cwd'}
+              onLeaveToChat={onClose}
+              onOpenInEditor={file => {
+                previewFile(absolutePath(file.path))
+                show('editor')
+              }}
+            />
           </div>
         )}
         {visited.has('files') && (

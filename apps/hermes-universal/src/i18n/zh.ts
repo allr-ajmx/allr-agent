@@ -2577,6 +2577,28 @@ export const zh: Translations = {
     addToChat: '添加到对话'
   },
 
+  mobileReview: {
+    summary: count => `${count} 个文件有改动`,
+    loading: '正在加载改动…',
+    loadingDiff: '正在加载差异…',
+    filterAll: '全部',
+    filterUnstaged: '未暂存',
+    noneInFilter: '这里没有内容',
+    ship: '提交…',
+    shipTitle: count => `提交 ${count} 个文件`,
+    shipNothing: '没有可提交的内容',
+    backToFiles: '返回改动文件',
+    previous: '上一个',
+    previousFile: '上一个文件',
+    next: '下一个',
+    nextFile: '下一个文件',
+    fileOf: (index, total) => `第 ${index} / ${total} 个`,
+    markViewed: '标记为已查看',
+    markUnviewed: '标记为未查看',
+    askHermes: '询问 Hermes',
+    askHermesPrompt: path => `关于 \`${path}\` — `
+  },
+
   mobileWorkspace: {
     backToChat: '对话',
     noProject: '未打开项目',
