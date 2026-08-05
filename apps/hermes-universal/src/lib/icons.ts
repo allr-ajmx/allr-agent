@@ -109,6 +109,7 @@ export {
   IconSearch as Search,
   IconSend as Send,
   IconSettings as Settings,
+  IconAdjustmentsHorizontal as SlidersHorizontal,
   IconSparkles as Sparkles,
   IconSquare as Square,
   IconSquareFilled as SquareFilled,
