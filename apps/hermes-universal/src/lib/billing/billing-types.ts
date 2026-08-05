@@ -1,6 +1,7 @@
-// VENDORED from apps/shared/src/billing-types.ts (the app is not a pnpm workspace, so a
-// `@hermes/shared` dependency can't be resolved by the Android build's package
-// manager). Keep in sync with apps/shared if the billing contracts change.
+// VENDORED from apps/shared/src/billing-types.ts. Historical: the app used to sit outside the npm
+// workspace, so a `@hermes/shared` dependency could not be resolved. It is a
+// workspace member now, so this copy can be replaced with a real import.
+// Until then, keep in sync with apps/shared if the billing contracts change.
 /**
  * Shared Remote Spending wire contracts.
  *

@@ -1,6 +1,7 @@
-// VENDORED from apps/shared/src/charge-settlement.ts (the app is not a pnpm workspace, so a
-// `@hermes/shared` dependency can't be resolved by the Android build's package
-// manager). Keep in sync with apps/shared if the billing contracts change.
+// VENDORED from apps/shared/src/charge-settlement.ts. Historical: the app used to sit outside the npm
+// workspace, so a `@hermes/shared` dependency could not be resolved. It is a
+// workspace member now, so this copy can be replaced with a real import.
+// Until then, keep in sync with apps/shared if the billing contracts change.
 import { refusalPolicy } from './billing-policy'
 import type { BillingChargeStatusResponse } from './billing-types'
 
