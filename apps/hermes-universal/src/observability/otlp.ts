@@ -9,22 +9,31 @@
  */
 
 import { getRun, SERVICE_NAME, SESSION_NONCE } from './run'
-import { rootOf, spans } from './span'
+import { spans, traceOf } from './span'
 
 /**
- * ONE TRACE PER ROOT SPAN, not one per process.
+ * ONE TRACE PER INTERACTION, not one per process and not one per buffer index.
  *
  * Jaeger keys on traceId, so a single constant id would collapse every drag,
- * every stream and every theme change of a session into one trace that grows
- * without bound and eventually cannot be opened at all. Keying on the root span
- * makes one interaction one trace, which is the unit anyone actually wants to
- * look at.
+ * every stream and every theme change of a session into one unopenable trace.
+ *
+ * The first version keyed on the root span's index, which has the same problem
+ * in slow motion: `clearSpans` recycles indices every drain, so index 0 in one
+ * flush window and index 0 in the next produced the same id. `traceOf` is a
+ * counter that survives the drain instead — see span.ts.
  */
 function traceIdFor(spanId: number): string {
-  return `${SESSION_NONCE}${(rootOf(spanId) + 1).toString(16).padStart(24, '0')}`
+  return `${SESSION_NONCE}${traceOf(spanId).toString(16).padStart(24, '0')}`
 }
 
-/** OTLP wants 16 hex chars, and 0 is not a valid span id — hence the +1. */
+/**
+ * OTLP wants 16 hex chars, and 0 is not a valid span id — hence the +1.
+ *
+ * Span indices ARE recycled by `clearSpans`, so two spans in different flush
+ * windows can share this value. That is fine: span ids only have to be unique
+ * within a trace, and `traceIdFor` now guarantees those two land in different
+ * traces. It was NOT fine while trace ids recycled too.
+ */
 function spanIdHex(id: number): string {
   return (id + 1).toString(16).padStart(16, '0')
 }

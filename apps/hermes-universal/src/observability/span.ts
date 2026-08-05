@@ -81,14 +81,43 @@ const spanName = new Int32Array(CAPACITY)
 const spanParent = new Int32Array(CAPACITY)
 const spanStart = new Float64Array(CAPACITY)
 const spanEnd = new Float64Array(CAPACITY)
+/**
+ * Which trace each span belongs to. A root span takes the next trace number; a
+ * child copies its parent's. See `nextTrace` for why this is not derived from
+ * the span's index.
+ */
+const spanTrace = new Float64Array(CAPACITY)
 /** Sparse — only spans actually given attributes appear here. */
 const spanAttrs = new Map<number, SpanAttrs>()
 
 let count = 0
+/**
+ * Monotonic across the whole page — and deliberately NOT reset by `clearSpans`.
+ *
+ * Trace ids used to be derived from the root span's INDEX, which broke as soon
+ * as the exporter started draining: `clearSpans` sets `count = 0`, so root index
+ * 0 in one flush window and root index 0 in the next produced the same trace id
+ * (and the same span ids). Jaeger keys on trace id, so unrelated interactions
+ * silently merged into one trace, and a long operation spanning many drains
+ * could attach its children to whatever trace later occupied the same index.
+ *
+ * A counter that survives the drain fixes it: identity comes from when a trace
+ * STARTED, not from where its span happens to sit in the current buffer.
+ */
+let traceCounter = 0
 /** Open spans, innermost last. Gives each new span its parent. */
 const stack: number[] = []
 
 export type SpanAttrs = Record<string, number | string>
+
+/**
+ * The trace number for a span with the given parent: a new one for a root,
+ * otherwise the parent's. Called once per span, on the hot path, so it stays a
+ * single array read rather than a walk to the root.
+ */
+function traceFor(parent: number): number {
+  return parent === -1 ? (traceCounter += 1) : spanTrace[parent]
+}
 
 function intern(name: string): number {
   const existing = nameIds.get(name)
@@ -121,9 +150,11 @@ export function beginSpan(name: string, attrs?: SpanAttrs): number {
   }
 
   const id = count++
+  const parent = stack.length > 0 ? stack[stack.length - 1] : -1
 
   spanName[id] = intern(name)
-  spanParent[id] = stack.length > 0 ? stack[stack.length - 1] : -1
+  spanParent[id] = parent
+  spanTrace[id] = traceFor(parent)
   spanStart[id] = now()
   spanEnd[id] = NaN
 
@@ -171,9 +202,11 @@ export function recordSpan(name: string, startMs: number, endMs: number, attrs?:
   }
 
   const id = count++
+  const parent = stack.length > 0 ? stack[stack.length - 1] : -1
 
   spanName[id] = intern(name)
-  spanParent[id] = stack.length > 0 ? stack[stack.length - 1] : -1
+  spanParent[id] = parent
+  spanTrace[id] = traceFor(parent)
   spanStart[id] = startMs
   spanEnd[id] = endMs
 
@@ -279,17 +312,15 @@ function depthOf(id: number): number {
   return depth
 }
 
-/** Walk to the root of `id`'s tree. Used to key one trace per interaction. */
-export function rootOf(id: number): number {
-  let cursor = id
-  let guard = 0
-
-  while (spanParent[cursor] !== -1 && guard < 64) {
-    cursor = spanParent[cursor]
-    guard += 1
-  }
-
-  return cursor
+/**
+ * Which trace this span belongs to. One trace per interaction.
+ *
+ * Replaces an earlier `rootOf(id)` walk: keying on the root's INDEX looked
+ * equivalent and was not, because indices are recycled by `clearSpans` while
+ * traces are not. See `traceCounter`.
+ */
+export function traceOf(id: number): number {
+  return spanTrace[id]
 }
 
 export function spans(): TraceSpan[] {
