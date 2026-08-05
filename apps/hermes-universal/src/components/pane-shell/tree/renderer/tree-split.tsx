@@ -30,6 +30,7 @@ import {
   setTreeSplitWeights
 } from '../store'
 
+import { notifySplitRender } from './telemetry'
 import {
   computedPx,
   edgeFixedZone,
@@ -71,10 +72,11 @@ export function TreeSplit({ node, root, rootRow }: { node: SplitNode; root?: boo
   const panes = useTiles()
   const hiddenPanes = useStore($hiddenTreePanes)
   const narrow = useStore($narrowViewport)
+  const subtreePanes = useMemo(() => allPaneIds(node), [node])
   // Scoped to THIS subtree's panes: a sash drag writes size overrides on every
   // pointermove, but only the splits whose subtree actually resized should
   // re-render — not every split in the tree.
-  const overrides = useSubtreeOverrides(useMemo(() => allPaneIds(node), [node]))
+  const overrides = useSubtreeOverrides(subtreePanes)
   const editMode = useStore($layoutEditMode)
   const collapsedSides = useStore($collapsedTreeSides)
   const horizontal = node.orientation === 'row'
@@ -403,6 +405,12 @@ export function TreeSplit({ node, root, rootRow }: { node: SplitNode; root?: boo
 
     return pos >= 0 && (pos + 0.5) / visibleOrder.length > 0.5 ? 'right' : 'left'
   }
+
+  // The tracks pass above is the layout calculation, and on a clock clamped to
+  // 1ms it times as zero however much tree it walked. So report the SHAPE of
+  // the work instead and let the counter module total it per frame — see
+  // observability/auto/layout-counters.ts. Null in release.
+  notifySplitRender(node.id, node.children.length, subtreePanes.length)
 
   return (
     <div

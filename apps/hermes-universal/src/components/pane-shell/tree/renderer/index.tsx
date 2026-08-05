@@ -21,7 +21,9 @@
  */
 
 import { useStore } from '@nanostores/react'
-import { type ReactNode, useEffect } from 'react'
+import { Profiler, type ReactNode, useEffect, useLayoutEffect } from 'react'
+
+import { DEV_TOOLS_ENABLED } from '@/observability/enabled'
 
 import { useLayoutEditHotkey } from '../../edit-mode'
 import { publishWorkspaceGeometry } from '../../geometry'
@@ -30,7 +32,28 @@ import { ZoneEditor } from '../zone-editor'
 
 import { TreeEditBar } from './edit-bar'
 import { NarrowOverlays } from './narrow-overlays'
+import { notifyLayoutCommit, notifyReactCommit } from './telemetry'
 import { TreeNode } from './tree-node'
+
+/**
+ * Renders nothing; fires the layout-commit telemetry hook (null unless a dev
+ * build installed the engine probe — see `renderer/telemetry.ts`).
+ *
+ * Three details are load-bearing:
+ *  - a LAYOUT effect, not a passive one, so it runs while the DOM is still
+ *    dirty from this commit — a forced-layout probe scheduled after paint would
+ *    measure the next idle moment instead of this one;
+ *  - NO dependency array, so it fires on every commit rather than on tree
+ *    identity changes only;
+ *  - rendered LAST among the root's children, because React runs layout effects
+ *    child-first and siblings in order, so the final depth-1 sibling is the
+ *    one that fires after every preceding subtree has finished.
+ */
+function LayoutCommitProbe() {
+  useLayoutEffect(notifyLayoutCommit)
+
+  return null
+}
 
 export function LayoutTreeRoot({ children }: { children?: ReactNode }) {
   const tree = useStore($layoutTree)
@@ -71,13 +94,26 @@ export function LayoutTreeRoot({ children }: { children?: ReactNode }) {
           display: none;
         }
       `}</style>
-      <TreeNode node={tree} root rootRow={tree.type === 'split' && tree.orientation === 'row'} />
+      {/* The React commit is the measurement that adjudicates "is the layout
+          tree re-rendering more than it needs to" — the question MJXHRM-139
+          answered by hand (109 commits / 2565ms in a 9-second drag) and nobody
+          could ask again without repeating the work. Dev/bench only: Profiler
+          adds per-commit timing to its whole subtree, so it must not ship. */}
+      {DEV_TOOLS_ENABLED ? (
+        <Profiler id="layout-tree" onRender={notifyReactCommit}>
+          <TreeNode node={tree} root rootRow={tree.type === 'split' && tree.orientation === 'row'} />
+        </Profiler>
+      ) : (
+        <TreeNode node={tree} root rootRow={tree.type === 'split' && tree.orientation === 'row'} />
+      )}
       <NarrowOverlays />
       {/* Structural authoring: the floating palette (edit mode) and the grid
           editor it opens. Both render nothing until their store says so. */}
       <TreeEditBar />
       <ZoneEditor />
       {children}
+      {/* LAST, deliberately — see LayoutCommitProbe. */}
+      <LayoutCommitProbe />
     </div>
   )
 }

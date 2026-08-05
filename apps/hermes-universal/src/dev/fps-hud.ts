@@ -22,14 +22,21 @@
  *
  * THE COST IT CANNOT AVOID, STATED PLAINLY
  *
- * A permanent `requestAnimationFrame` loop keeps the compositor awake, so the
- * app never idles while this is open and the machine draws more power than it
+ * A running `requestAnimationFrame` loop keeps the compositor awake, so the app
+ * never idles while this is open and the machine draws more power than it
  * otherwise would. There is no way to sample frame rate without asking for
  * frames. What it can do is stop entirely when hidden or backgrounded, which it
  * does — a hidden HUD costs nothing, and `×` really means off.
  *
+ * The loop itself belongs to `observability/auto/frames.ts`, not to this file.
+ * One loop serves both this and the tracer's `frame` spans, so the two cannot
+ * disagree about what a frame was, and opening both HUDs costs one loop rather
+ * than two — which matters precisely because the loop perturbs the measurement.
+ *
  * DEV/BENCH ONLY, installed from observability/install.ts.
  */
+
+import { onFrame, setFramesActive } from '@/observability/auto/frames'
 
 import { FrameMeter, LONG_FRAME_MS } from './frame-meter'
 import { BUTTON, createHudShell, DIM, el, ROW } from './hud-shell'
@@ -126,37 +133,19 @@ export function installFpsHud(): () => void {
   }
 
   // ── measurement ───────────────────────────────────────────────────────────
-  let raf = 0
-  let last = 0
+  //
+  // The rAF loop is NOT owned here. `observability/auto/frames.ts` runs one loop
+  // for the whole app and this subscribes to it, so the HUD's frame times and
+  // the tracer's `frame` spans are the same measurement by construction rather
+  // than two loops that agree until they don't — and an app with both open pays
+  // for one loop, not two.
   let painter = 0
-
-  // The rAF callback: arithmetic only. Anything more expensive here lands in the
-  // frames being measured.
-  function frame(now: number): void {
-    if (last !== 0) {
-      meter.push(now - last)
-    }
-
-    last = now
-    raf = requestAnimationFrame(frame)
-  }
-
-  function startLoop(): void {
-    if (raf !== 0) {
-      return
-    }
-
-    // Zero, not `performance.now()`: the first callback would otherwise be
-    // measured against this instant rather than against a previous frame.
-    last = 0
-    raf = requestAnimationFrame(frame)
-  }
+  let unsubscribe: (() => void) | null = null
 
   function stopLoop(): void {
-    if (raf !== 0) {
-      cancelAnimationFrame(raf)
-      raf = 0
-    }
+    unsubscribe?.()
+    unsubscribe = null
+    setFramesActive('fps-hud', false)
 
     if (painter !== 0) {
       window.clearInterval(painter)
@@ -177,7 +166,15 @@ export function installFpsHud(): () => void {
       return
     }
 
-    startLoop()
+    if (unsubscribe === null) {
+      unsubscribe = onFrame(deltaMs => {
+        // Zero is the clock's "no previous frame" sentinel, not a 0ms frame.
+        if (deltaMs > 0) {
+          meter.push(deltaMs)
+        }
+      })
+      setFramesActive('fps-hud', true)
+    }
 
     if (painter === 0) {
       painter = window.setInterval(paint, PAINT_MS)
