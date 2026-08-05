@@ -35,8 +35,9 @@ export default defineConfig({
       // plugin hook with an unhelpful "invalid hook call".
       //
       // Resolved through Node from THIS package, not hardcoded to the workspace
-      // root: pnpm gives the app its own `node_modules/.pnpm/react@…` copy, and a
-      // root-pinned alias hands app code that copy while react-dom keeps its peer
+      // root: npm hoists React to the root today, but any workspace whose range
+      // drifts off the hoisted one gets a nested copy instead, and a root-pinned
+      // alias would then hand app code one copy while react-dom keeps its peer
       // one — two dispatchers, and every hook in the test suite throws
       // "Cannot read properties of null (reading 'useCallback')". `require.resolve`
       // lands on exactly the copy react-dom resolves to, in every install layout.

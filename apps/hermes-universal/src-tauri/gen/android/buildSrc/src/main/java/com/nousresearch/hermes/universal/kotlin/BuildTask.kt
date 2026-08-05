@@ -16,7 +16,7 @@ open class BuildTask : DefaultTask() {
 
     @TaskAction
     fun assemble() {
-        val executable = """pnpm""";
+        val executable = """npm""";
         try {
             runTauriCli(executable)
         } catch (e: Exception) {
@@ -48,7 +48,11 @@ open class BuildTask : DefaultTask() {
         val rootDirRel = rootDirRel ?: throw GradleException("rootDirRel cannot be null")
         val target = target ?: throw GradleException("target cannot be null")
         val release = release ?: throw GradleException("release cannot be null")
-        val args = listOf("tauri", "android", "android-studio-script");
+        // `npm run tauri -- …` rather than a bare `tauri …`: npm has no
+        // package-runner subcommand of its own, so the CLI is reached through
+        // the package's own `tauri` script. Everything appended below lands
+        // after the `--` and is forwarded to the CLI untouched.
+        val args = listOf("run", "tauri", "--", "android", "android-studio-script");
 
         project.exec {
             workingDir(File(project.projectDir, rootDirRel))
