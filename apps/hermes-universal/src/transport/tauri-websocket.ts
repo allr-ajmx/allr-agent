@@ -1,6 +1,8 @@
 import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 
+import { spanInboundFrame, spanOutboundFrame } from '@/observability/auto/websocket'
+
 // An IPC-backed WebSocket: the real socket lives in Rust (`transport.rs`), this
 // class is just a `WebSocketLike` façade so the reused `JsonRpcGatewayClient`
 // can drive it unchanged. It implements exactly the subset that client touches:
@@ -88,7 +90,12 @@ export class TauriWebSocket {
         break
 
       case 'message':
-        this.dispatch('message', { data: payload })
+        // The span covers DISPATCH, not arrival: listeners run synchronously
+        // off this, and on the streaming path they are the whole chat pipeline.
+        // A large gap on a `ws.message` span therefore means time spent
+        // reacting to the frame, which is the question worth asking of a slow
+        // stream.
+        spanInboundFrame(payload, () => this.dispatch('message', { data: payload }))
 
         break
 
@@ -146,11 +153,13 @@ export class TauriWebSocket {
   }
 
   send(text: string): void {
-    if (this.readyState === this.OPEN) {
-      void invoke('ws_send', { id: this.id, text }).catch(() => undefined)
-    } else {
-      this.sendQueue.push(text)
-    }
+    spanOutboundFrame(text, () => {
+      if (this.readyState === this.OPEN) {
+        void invoke('ws_send', { id: this.id, text }).catch(() => undefined)
+      } else {
+        this.sendQueue.push(text)
+      }
+    })
   }
 
   close(): void {
