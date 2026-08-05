@@ -105,12 +105,42 @@ mod imp {
         let filter = EnvFilter::try_from_env("HERMES_TRACE_FILTER")
             .unwrap_or_else(|_| EnvFilter::new("info,hermes_universal_lib=debug,tauri=debug"));
 
-        let exporter = match opentelemetry_otlp::SpanExporter::builder()
-            .with_tonic()
-            .with_endpoint(endpoint())
-            .build()
-        {
-            Ok(exporter) => exporter,
+        // MUST be built inside a tokio runtime context.
+        //
+        // `run()` is a plain fn — Tauri owns the runtime and creates it lazily,
+        // so at this point there is no reactor. The tonic channel and the batch
+        // processor's background task both need one, and without this the app
+        // panics at STARTUP inside hyper-util with "no reactor running" — an
+        // error message that points nowhere near telemetry. `block_on` enters
+        // the same runtime the rest of the app uses, so the exporter's task
+        // lives and dies with it.
+        let built = tauri::async_runtime::block_on(async {
+            let exporter = opentelemetry_otlp::SpanExporter::builder()
+                .with_tonic()
+                .with_endpoint(endpoint())
+                .build()?;
+
+            Ok::<_, opentelemetry_otlp::ExporterBuildError>(
+                SdkTracerProvider::builder()
+                    .with_batch_exporter(exporter)
+                    .with_resource(
+                        Resource::builder()
+                            // Same service name as the frontend on purpose: one
+                            // service, one waterfall. `hermes.run` is what
+                            // separates experiments, not the service name.
+                            .with_service_name("hermes-universal")
+                            .with_attributes([
+                                KeyValue::new("hermes.run", run_label()),
+                                KeyValue::new("telemetry.sdk.language", "rust"),
+                            ])
+                            .build(),
+                    )
+                    .build(),
+            )
+        });
+
+        let provider = match built {
+            Ok(provider) => provider,
             Err(err) => {
                 // A missing collector is the normal case, not an error worth
                 // failing boot over. Say so once and carry on untraced.
@@ -118,22 +148,6 @@ mod imp {
                 return;
             }
         };
-
-        let provider = SdkTracerProvider::builder()
-            .with_batch_exporter(exporter)
-            .with_resource(
-                Resource::builder()
-                    // Same service name as the frontend on purpose: one service,
-                    // one waterfall. `hermes.run` is the filter that separates
-                    // experiments, not the service name.
-                    .with_service_name("hermes-universal")
-                    .with_attributes([
-                        KeyValue::new("hermes.run", run_label()),
-                        KeyValue::new("telemetry.sdk.language", "rust"),
-                    ])
-                    .build(),
-            )
-            .build();
 
         let tracer = provider.tracer("hermes.backend");
 
@@ -159,11 +173,57 @@ mod imp {
     }
 
     pub fn shutdown() {
-        if let Some(provider) = PROVIDER.get() {
-            if let Err(err) = provider.shutdown() {
+        let Some(provider) = PROVIDER.get() else {
+            return;
+        };
+
+        // Inside a runtime for the same reason `init` is: the final export is a
+        // network round trip, and `RunEvent::Exit` fires on a plain callback
+        // with no reactor. Without this the flush silently does nothing and the
+        // last batch — the one covering whatever the user just did — is lost.
+        tauri::async_runtime::block_on(async {
+            if let Err(err) = provider.force_flush() {
                 eprintln!("[hermes/trace] flush on exit failed: {err}");
             }
-        }
+
+            if let Err(err) = provider.shutdown() {
+                eprintln!("[hermes/trace] shutdown failed: {err}");
+            }
+        });
+    }
+}
+
+/// Live smoke test against a real collector.
+///
+/// `#[ignore]` because it needs the Jaeger stack in ~/Documents/dev-instances
+/// running, which CI does not have — but it stays in the tree because it is the
+/// only thing that proves the exporter actually reaches a collector rather than
+/// merely constructing without error. Run it after touching anything in `imp`:
+///
+///   HERMES_TRACE=1 HERMES_TRACE_RUN=smoke \
+///     cargo test --features tracing -- --ignored --nocapture export_reaches_collector
+///
+/// Then look for service `hermes-universal`, operation `telemetry.smoke`, at
+/// http://localhost:8200.
+#[cfg(all(test, feature = "tracing"))]
+mod live_export_tests {
+    #[test]
+    #[ignore = "needs a local OTLP collector on 127.0.0.1:4317"]
+    fn export_reaches_collector() {
+        assert!(
+            super::imp::enabled(),
+            "set HERMES_TRACE=1 — this test asserts the real path, not the disabled one"
+        );
+
+        super::init();
+
+        tracing::info_span!("telemetry.smoke", check = "rust-exporter").in_scope(|| {
+            tracing::info!("hello from the rust backend");
+        });
+
+        // The batch processor flushes on shutdown; without this the span is
+        // still sitting in memory when the test binary exits.
+        super::shutdown();
     }
 }
 
