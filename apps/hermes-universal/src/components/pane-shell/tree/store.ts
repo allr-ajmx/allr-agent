@@ -11,6 +11,8 @@ import { setPluginEnabled } from '@/contrib/plugins-store'
 import { registry } from '@/contrib/registry'
 import { translateNow } from '@/i18n'
 import { readJson, readKey, writeJson, writeKey } from '@/lib/storage'
+import { beginSpan, endSpan, isRecording, recordSpan, span } from '@/observability'
+import { shapeAttrs } from '@/observability/auto/layout-shape'
 import { notify } from '@/store/notifications'
 import { clearAllPaneSizeOverrides } from '@/store/panes'
 import { isSecondaryWindow } from '@/store/windows'
@@ -82,6 +84,10 @@ const STORAGE_KEY = 'hermes.layout.tree.v2'
 
 writeKey('hermes.desktop.layoutTree.v1', null)
 
+/** WebKitGTK clamps `performance.now()` to 1ms, so anything under this is
+ *  indistinguishable from zero. Same floor, same reason, as auto/stores.ts. */
+const ADOPT_NOISE_FLOOR_MS = 1
+
 let defaultTree: LayoutNode | null = null
 
 function loadPersisted(): LayoutNode | null {
@@ -99,7 +105,21 @@ function persist(tree: LayoutNode | null) {
     return
   }
 
-  writeJson(STORAGE_KEY, tree)
+  // Spanned because this is a SYNCHRONOUS `JSON.stringify` + `localStorage`
+  // write on every commit — every tab activate, every drop, every reveal —
+  // while `$paneStates` debounces the same kind of write by 250ms. Whether that
+  // asymmetry costs anything is a measurement, not a guess; `bytes` prices it.
+  //
+  // Inlined rather than wrapped around `writeJson` so the size is read off the
+  // string the write already had to produce. Measuring it separately would
+  // stringify the tree TWICE whenever recording is on — an instrument that
+  // doubles the cost of the thing it is measuring reports a number that is only
+  // true while it is watching.
+  const id = beginSpan('layout.persist')
+  const json = tree === null ? null : JSON.stringify(tree)
+
+  writeKey(STORAGE_KEY, json)
+  endSpan(id, { bytes: json?.length ?? 0 })
 }
 
 /** The live tree (null until a default is declared). A secondary window ignores
@@ -222,7 +242,7 @@ function frontPaneInGroup(paneId: string) {
   const next = setActivePaneOp(tree, group.id, paneId)
 
   if (next !== tree) {
-    commit(next)
+    commit(next, 'front')
   }
 }
 
@@ -513,7 +533,7 @@ export function removeTreePane(paneId: string) {
   const tree = $layoutTree.get()
 
   if (tree) {
-    commit(removePane(tree, paneId))
+    commit(removePane(tree, paneId), 'remove')
   }
 }
 
@@ -574,7 +594,7 @@ export function dismissTreePane(paneId: string) {
 
   if (tree) {
     setDismissed(paneId, true)
-    commit(removePane(tree, paneId))
+    commit(removePane(tree, paneId), 'dismiss')
   }
 }
 
@@ -785,7 +805,7 @@ export function revealTreePane(paneId: string) {
     }
 
     if (next !== tree) {
-      commit(next)
+      commit(next, 'reveal')
     }
   }
 }
@@ -809,7 +829,7 @@ export function mirrorLayoutTree() {
   const tree = $layoutTree.get()
 
   if (tree) {
-    commit(mirrorTreeHorizontal(tree))
+    commit(mirrorTreeHorizontal(tree), 'mirror')
   }
 }
 
@@ -892,7 +912,7 @@ export function declareDefaultTree(tree: LayoutNode) {
   const next = adoptMissingPanes(current, tree)
 
   if (next !== current) {
-    commit(next)
+    commit(next, 'default')
   }
 }
 
@@ -912,14 +932,43 @@ export function declareDefaultTree(tree: LayoutNode) {
  * boots), so user rearrangement wins from then on and plugin reloads keep
  * the pane where the user left it.
  */
+/**
+ * Spanned with a NOISE FLOOR, not unconditionally. This runs on every registry
+ * mutation — a live title refresh, an accent change, any plugin load — and
+ * early-returns when nothing is missing. But `getTiles()`, the `allPaneIds`
+ * walk and the dismissed-pane loop all run BEFORE that return, so the common
+ * case is real work with no result. Recording all of it would bury the trace in
+ * 0ms spans; recording none of it would hide a hot path. So: record when it
+ * cost something, or when it actually adopted.
+ */
 function adoptContributedPanes(): void {
+  const startedAt = isRecording() ? performance.now() : 0
+  let adopted = 0
+  let considered = 0
+
+  const finish = () => {
+    if (startedAt === 0) {
+      return
+    }
+
+    const elapsed = performance.now() - startedAt
+
+    if (elapsed >= ADOPT_NOISE_FLOOR_MS || adopted > 0) {
+      recordSpan('layout.adopt', startedAt, startedAt + elapsed, { missing: adopted, panes: considered })
+    }
+  }
+
   const tree = $layoutTree.get()
 
   if (!tree) {
+    finish()
+
     return
   }
 
   const panes = getTiles()
+
+  considered = panes.length
 
   const tileOf = (paneId: string) => panes.find(c => c.id === paneId)
 
@@ -939,7 +988,11 @@ function adoptContributedPanes(): void {
   const dismissed = $dismissedPanes.get()
   const missing = panes.filter(c => !inTree.has(c.id) && !dismissed.has(c.id))
 
+  adopted = missing.length
+
   if (missing.length === 0) {
+    finish()
+
     return
   }
 
@@ -972,8 +1025,10 @@ function adoptContributedPanes(): void {
   }
 
   if (next !== tree) {
-    commit(next)
+    commit(next, 'adopt')
   }
+
+  finish()
 }
 
 /** Adopt now + on every registry change (call once from the app root). */
@@ -982,13 +1037,29 @@ export function watchContributedPanes(): void {
   registry.subscribe(adoptContributedPanes)
 }
 
-function commit(next: LayoutNode | null) {
+/**
+ * `reason` exists for the trace, and it is the difference between a capture
+ * that says "the tree was written 47 times" and one that says which gesture did
+ * it. The store write alone cannot tell an activate from an adopt, and those
+ * have completely different fixes.
+ *
+ * The tree shape rides along because a commit's real cost is downstream of it —
+ * every split re-walks its subtree on the render this triggers — and that cost
+ * is invisible on a clock clamped to 1ms. See auto/layout-shape.ts.
+ */
+function commit(next: LayoutNode | null, reason: string) {
   if (!next) {
     return
   }
 
-  $layoutTree.set(next)
-  persist(next)
+  span(
+    'layout.commit',
+    () => {
+      $layoutTree.set(next)
+      persist(next)
+    },
+    isRecording() ? { reason, ...shapeAttrs(next) } : undefined
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -1067,7 +1138,7 @@ export function dockPaneBeside(paneId: string, anchorPaneId: string) {
     : insertAtGroup(tree, anchor.id, paneId, pos)
 
   if (next && next !== tree) {
-    commit(next)
+    commit(next, 'dock')
   }
 }
 
@@ -1083,7 +1154,7 @@ export function moveTreePane(paneId: string, target: { groupId: string; pos: Dro
   // movePane returns the SAME root for no-op drops ("stays here") — only a
   // real move customizes the preset or pins the pane as user-placed.
   if (next !== tree) {
-    commit(next)
+    commit(next, 'move')
     markActivePreset('custom')
     markPaneUserPlaced(paneId)
   }
@@ -1103,7 +1174,7 @@ export function applyTree(tree: LayoutNode, presetId: string) {
   // a layout hands pane placement back to the app (auto-docking resumes).
   clearAllPaneSizeOverrides()
   saveUserPlaced(new Set())
-  commit(previous ? adoptMissingPanes(tree, previous) : tree)
+  commit(previous ? adoptMissingPanes(tree, previous) : tree, 'preset')
   markActivePreset(presetId)
 
   // Picking a named layout is an intent to SEE its panes. Toggle-gated panes
@@ -1137,7 +1208,7 @@ export function mergeTreeZones(groupIds: string[], paneId: string, fallbackGroup
   const merged = mergeZonesWithPaneOp(tree, groupIds, paneId)
 
   if (merged) {
-    commit(merged)
+    commit(merged, 'merge')
     markActivePreset('custom')
     markPaneUserPlaced(paneId)
   } else if (fallbackGroupId) {
@@ -1149,7 +1220,7 @@ export function activateTreePane(groupId: string, paneId: string) {
   const tree = $layoutTree.get()
 
   if (tree) {
-    commit(setActivePaneOp(tree, groupId, paneId))
+    commit(setActivePaneOp(tree, groupId, paneId), 'activate')
   }
 }
 
@@ -1157,7 +1228,7 @@ export function reorderTreePane(groupId: string, paneId: string, toIndex: number
   const tree = $layoutTree.get()
 
   if (tree) {
-    commit(reorderPaneInGroupOp(tree, groupId, paneId, toIndex))
+    commit(reorderPaneInGroupOp(tree, groupId, paneId, toIndex), 'reorder')
     markActivePreset('custom')
   }
 }
@@ -1168,7 +1239,7 @@ export function splitTreeZone(groupId: string, side: RootEdge, movePaneId: strin
   const tree = $layoutTree.get()
 
   if (tree) {
-    commit(splitGroupZoneOp(tree, groupId, side, movePaneId))
+    commit(splitGroupZoneOp(tree, groupId, side, movePaneId), 'split')
     markActivePreset('custom')
     markPaneUserPlaced(movePaneId)
   }
@@ -1178,7 +1249,7 @@ export function toggleTreeGroupMinimized(groupId: string, minimized: boolean) {
   const tree = $layoutTree.get()
 
   if (tree) {
-    commit(setGroupMinimized(tree, groupId, minimized))
+    commit(setGroupMinimized(tree, groupId, minimized), 'minimize')
   }
 }
 
@@ -1287,7 +1358,7 @@ export function setTreeGroupHeaderHidden(groupId: string, headerHidden: boolean)
   const tree = $layoutTree.get()
 
   if (tree) {
-    commit(setGroupHeaderHiddenOp(tree, groupId, headerHidden))
+    commit(setGroupHeaderHiddenOp(tree, groupId, headerHidden), 'header')
   }
 }
 

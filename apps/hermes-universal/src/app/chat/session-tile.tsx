@@ -1,5 +1,5 @@
 import { atom, computed } from 'nanostores'
-import { type ReactNode, useEffect, useMemo, useRef } from 'react'
+import { type ReactNode, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 
 import { ChatScreen } from '@/app/chat/chat-screen'
 import type { SessionDragPayload } from '@/app/chat/composer/inline-refs'
@@ -35,6 +35,7 @@ import {
   closeSessionTile,
   discardSessionTile,
   newSessionTab,
+  noteSessionTileMounted,
   patchSessionTile,
   requestCloseSessionTile,
   type SessionTile,
@@ -142,6 +143,11 @@ export function SessionTilePane({ storedSessionId }: { storedSessionId: string }
   const gatewayOpen = useStore($gatewayState) === 'open'
   const view = useMemo(() => buildTileView(storedSessionId), [storedSessionId])
   const resumingRef = useRef(false)
+
+  // Closes the `chat.open` span opened by the gesture that asked for this tile.
+  // A layout effect so it runs in the commit that put the tile on screen; the
+  // span itself closes one frame later, when that commit has actually painted.
+  useLayoutEffect(() => noteSessionTileMounted(storedSessionId), [storedSessionId])
 
   useEffect(() => {
     if (!gatewayOpen || runtimeId || tile?.error || resumingRef.current) {

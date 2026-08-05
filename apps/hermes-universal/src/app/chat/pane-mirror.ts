@@ -12,7 +12,12 @@ import type { ReactElement, ReactNode, PointerEvent as ReactPointerEvent } from 
 import { registerTile } from '@/components/pane-shell/tile/registry'
 import type { DoubleTapContext } from '@/components/pane-shell/tree/renderer/drag-session'
 import { registerPaneCloser, removeTreePane, treePanesWithPrefix } from '@/components/pane-shell/tree/store'
+import { isRecording, recordSpan } from '@/observability'
 import type { TileDock } from '@/store/session-states'
+
+/** Matches the 1ms floor the rest of the layer uses — WebKitGTK's clock cannot
+ *  resolve below it, so anything under is indistinguishable from zero. */
+const SYNC_NOISE_FLOOR_MS = 1
 
 export interface PaneMirror<T> {
   /** Reactive source list. */
@@ -64,7 +69,19 @@ export function paneMirror<T>(cfg: PaneMirror<T>): () => void {
   const registered = new Map<string, { dispose: () => void; title: string; accent?: string }>()
   const paneId = (key: string) => `${cfg.prefix}:${key}`
 
+  /**
+   * Spanned with a noise floor because this fires on every `also` change too —
+   * a session rename, a project-colour edit — and is a no-op for tiles whose
+   * title and accent are unchanged. What the span is really there to expose is
+   * the FAN-OUT: each `registerTile` below invalidates the registry on its own,
+   * so a sync that touches N tiles costs N adoption passes and N tree commits
+   * rather than one, and `registered` is the number that shows it.
+   */
   const sync = () => {
+    const startedAt = isRecording() ? performance.now() : 0
+    let registrations = 0
+    let removals = 0
+
     const tiles = cfg.source.get()
     const wanted = new Set(tiles.map(cfg.key))
 
@@ -108,6 +125,7 @@ export function paneMirror<T>(cfg: PaneMirror<T>): () => void {
       })
 
       registered.set(key, { dispose, title, accent })
+      registrations += 1
 
       if (!current) {
         registerPaneCloser(paneId(key), () => cfg.close(key))
@@ -119,6 +137,7 @@ export function paneMirror<T>(cfg: PaneMirror<T>): () => void {
         entry.dispose()
         registered.delete(key)
         removeTreePane(paneId(key))
+        removals += 1
       }
     }
 
@@ -129,7 +148,23 @@ export function paneMirror<T>(cfg: PaneMirror<T>): () => void {
     for (const id of treePanesWithPrefix(`${cfg.prefix}:`)) {
       if (!wanted.has(id.slice(cfg.prefix.length + 1))) {
         removeTreePane(id)
+        removals += 1
       }
+    }
+
+    if (startedAt === 0) {
+      return
+    }
+
+    const elapsed = performance.now() - startedAt
+
+    if (elapsed >= SYNC_NOISE_FLOOR_MS || registrations > 0 || removals > 0) {
+      recordSpan('layout.tiles.sync', startedAt, startedAt + elapsed, {
+        kind: cfg.kind,
+        registered: registrations,
+        removed: removals,
+        total: tiles.length
+      })
     }
   }
 
