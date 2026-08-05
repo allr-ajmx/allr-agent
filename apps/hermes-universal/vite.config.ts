@@ -1,9 +1,10 @@
+import { execFileSync } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
+import react from '@vitejs/plugin-react'
 // `vitest/config` is a superset of Vite's defineConfig — using it lets the test
 // harness share this file's `@` alias, React plugin, and Tailwind wiring.
 import { defineConfig } from 'vitest/config'
@@ -15,7 +16,31 @@ const host = process.env.TAURI_DEV_HOST
 const require = createRequire(import.meta.url)
 const reactDir = dirname(require.resolve('react/package.json'))
 
+/**
+ * Default label for traces, so an unlabelled capture still says where it came
+ * from. `VITE_TRACE_RUN` overrides it at dev/build time and
+ * `__hermesTrace.run(...)` overrides it at runtime — see src/observability/run.ts.
+ *
+ * Resolved here rather than in the app because the app cannot read git. Failure
+ * is expected and silent: a tarball, a CI checkout in detached HEAD, or no git
+ * at all should not break the build over a label.
+ */
+function gitBranch(): string {
+  try {
+    return execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
+      cwd: fileURLToPath(new URL('.', import.meta.url)),
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore']
+    }).trim()
+  } catch {
+    return 'local'
+  }
+}
+
 export default defineConfig({
+  define: {
+    __TRACE_RUN_DEFAULT__: JSON.stringify(gitBranch())
+  },
   plugins: [react(), tailwindcss()],
   // Tailwind v4 is handled entirely by `@tailwindcss/vite`; pin an explicit
   // empty PostCSS config so Vite doesn't walk UP the filesystem and pick up a
