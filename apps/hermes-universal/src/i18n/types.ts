@@ -2051,6 +2051,17 @@ export interface Translations {
     addToChat: string
   }
 
+  mobileWorkspace: {
+    backToChat: string
+    noProject: string
+    tabsAria: string
+    review: string
+    files: string
+    editor: string
+    terminal: string
+    status: string
+  }
+
   preview: {
     tab: string
     closeTab: (label: string) => string

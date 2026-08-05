@@ -2577,6 +2577,17 @@ export const zh: Translations = {
     addToChat: '添加到对话'
   },
 
+  mobileWorkspace: {
+    backToChat: '对话',
+    noProject: '未打开项目',
+    tabsAria: '工作区分区',
+    review: '审阅',
+    files: '文件',
+    editor: '编辑器',
+    terminal: '终端',
+    status: '状态'
+  },
+
   preview: {
     tab: '预览',
     closeTab: label => `关闭 ${label}`,

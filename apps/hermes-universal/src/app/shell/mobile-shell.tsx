@@ -3,8 +3,8 @@ import { WorkspaceRoutes } from '@/app/contrib/panes'
 import { Sheet, SheetContent } from '@/components/ui/sheet'
 import { useKeyboardInset } from '@/hooks/use-keyboard-inset'
 
-import { MobileRightPanel } from './mobile-right-panel'
 import { MobileTopBar } from './mobile-top-bar'
+import { MobileWorkspace } from './mobile-workspace'
 import { useSidebar } from './sidebar'
 
 // The root mobile layout. A phone takes this branch (IS_MOBILE) instead of the
@@ -50,13 +50,10 @@ export function MobileShell() {
         </SheetContent>
       </Sheet>
 
-      {/* Right sidebar drawer — opened from the top bar's right button. Hosts the
-          Status / Files tabs. Same tap-outside / swipe dismissal, no close X. */}
-      <Sheet onOpenChange={setOpenMobileRight} open={openMobileRight}>
-        <SheetContent className="w-[19rem] gap-0 p-0" showCloseButton={false} side="right">
-          <MobileRightPanel />
-        </SheetContent>
-      </Sheet>
+      {/* The Workspace — opened from the top bar's right button. A full-screen
+          sibling of the chat rather than a drawer: review, files, editor and the
+          terminal each need the whole width and their own keyboard handling. */}
+      {openMobileRight && <MobileWorkspace onClose={() => setOpenMobileRight(false)} />}
     </div>
   )
 }

@@ -43,8 +43,9 @@ const MarkdownBench = BENCH_ENABLED
   : null
 
 /** Open a file from the tree in the real preview pipeline. Verbatim from the
- *  old AppShell's `previewFile`. */
-function previewFile(path: string) {
+ *  old AppShell's `previewFile`. Exported so the mobile Workspace opens files
+ *  through the same pipeline instead of growing a third copy of it. */
+export function previewFile(path: string) {
   void normalizeOrLocalPreviewTarget(path, $currentCwd.get() || undefined)
     .then(target => {
       if (target) {

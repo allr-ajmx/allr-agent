@@ -2416,6 +2416,17 @@ export const en: Translations = {
     addToChat: 'Add to chat'
   },
 
+  mobileWorkspace: {
+    backToChat: 'Chat',
+    noProject: 'No project',
+    tabsAria: 'Workspace sections',
+    review: 'Review',
+    files: 'Files',
+    editor: 'Editor',
+    terminal: 'Terminal',
+    status: 'Status'
+  },
+
   preview: {
     tab: 'Preview',
     closeTab: label => `Close ${label}`,
