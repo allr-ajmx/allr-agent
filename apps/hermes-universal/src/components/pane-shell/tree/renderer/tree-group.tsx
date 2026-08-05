@@ -61,11 +61,12 @@ import {
   SESSION_TILE_DRAG,
   setTreeGroupHeaderHidden,
   splitTreeZone,
-  toggleTreeGroupMinimized,
+  toggleTreeGroupMinimized
 } from '../store'
 
 import { type DoubleTapContext, startPaneDrag } from './drag-session'
 import { forceLoneHeaderForPanes } from './lone-header'
+import { useActiveTabVisible } from './tab-strip-scroll'
 import { notifyPaneCommit, notifyZoneRender } from './telemetry'
 
 /**
@@ -189,6 +190,9 @@ export function TreeGroup({
   const { t } = useI18n()
   const ref = useRef<HTMLDivElement>(null)
   const stripRef = useRef<HTMLDivElement>(null)
+  // The SCROLLER inside the header, not the header itself: `stripRef` is what
+  // the drop caret and the drag session measure against, and it doesn't scroll.
+  const tabsRef = useRef<HTMLDivElement>(null)
   // The chip under the last right-click — the pane the zone menu's Split
   // actions carry into the new zone (header background = the active pane).
   // STATE, not a ref: the menu items (incl. Close's visibility) are JSX
@@ -282,6 +286,17 @@ export function TreeGroup({
   // header IS the collapsed form, exactly as before.
   const verticalCollapse = Boolean(node.minimized) && parentAxis === 'row' && !isEmpty
   const headerVisible = !isEmpty && !verticalCollapse && (Boolean(node.minimized) || !headerHidden)
+
+  // Opening a tab past the right edge otherwise left BOTH the new tab and the
+  // `+` that made it off-screen. `last` scrolls to the very end rather than to
+  // the tab's own edge, so the `+` (which lives after it in the same scroll
+  // content) comes along. Off while the strip isn't rendered — the minimized
+  // form is a rail with its own markup, and there is nothing to measure.
+  useActiveTabVisible(tabsRef, activeId, {
+    enabled: headerVisible && !node.minimized,
+    last: shown.at(-1) === activeId,
+    tabCount: shown.length
+  })
 
   // Drag handles preventDefault pointerdown (no native dblclick), so the
   // header + chips share a synthesized double-tap: restore if collapsed
@@ -476,6 +491,7 @@ export function TreeGroup({
           >
             <div
               className="flex min-w-0 flex-1 overflow-x-auto overflow-y-hidden [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+              ref={tabsRef}
               role="tablist"
             >
               {shown.map(paneId => {
