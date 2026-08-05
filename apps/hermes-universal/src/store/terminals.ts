@@ -1,10 +1,23 @@
+import { persistentAtom } from '@/lib/persisted'
 import { atom } from '@/store/atom'
 import { setTerminalOpen } from '@/store/layout'
+import type { TerminalHostPreference } from '@/transport/terminal-transport'
 
 // Multi-terminal state for the right pane (adapted, much simplified, from
 // desktop's right-sidebar/terminal/terminals.ts). Each entry is just an id — the
 // live shell + xterm live in the per-id TerminalView. Not persisted (shells don't
 // survive an app restart). Closing the last one hides the terminal area.
+
+/**
+ * Which machine new terminals shell into: `auto` applies the gateway-mode rule
+ * (see transport/terminal-transport.ts), `device`/`gateway` pin it. Persisted
+ * because it's a standing preference, and read only at spawn — flipping it never
+ * moves a running shell.
+ */
+export const $terminalHostPreference = persistentAtom<TerminalHostPreference>('hermes.terminalHost', 'auto', {
+  decode: raw => (raw === 'device' || raw === 'gateway' ? raw : 'auto'),
+  encode: value => value
+})
 
 export interface TerminalEntry {
   id: string

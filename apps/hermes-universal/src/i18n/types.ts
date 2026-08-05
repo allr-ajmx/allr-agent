@@ -2026,6 +2026,24 @@ export interface Translations {
     terminalConnecting: string
     terminalReconnecting: string
     terminalClosed: string
+    terminalRestart: string
+    terminalHostChip: (host: string) => string
+    terminalEndExitedTitle: string
+    terminalEndExitedBody: string
+    terminalEndAuthTitle: string
+    terminalEndAuthBody: string
+    terminalEndDisabledTitle: string
+    terminalEndDisabledBody: string
+    terminalEndRefusedTitle: string
+    terminalEndRefusedBody: string
+    terminalEndSupersededTitle: string
+    terminalEndSupersededBody: string
+    terminalEndNoGatewayShellTitle: string
+    terminalEndNoGatewayShellBody: string
+    terminalEndNoLocalShellTitle: string
+    terminalEndNoLocalShellBody: string
+    terminalEndErrorTitle: string
+    terminalEndErrorBody: string
     terminalsAria: string
     terminalNew: string
     terminalCloseOthers: string
