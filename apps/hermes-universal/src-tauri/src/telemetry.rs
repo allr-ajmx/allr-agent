@@ -70,9 +70,18 @@ mod imp {
     use opentelemetry_sdk::{trace::SdkTracerProvider, Resource};
     use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
-    /// Where the collector lives. Overridable because `127.0.0.1` is wrong on a
-    /// phone — there it is the device's own loopback, not the dev host, and the
-    /// export would fail silently forever. (Android emulator: `10.0.2.2`.)
+    /// Where the collector lives.
+    ///
+    /// On a phone `127.0.0.1` is the DEVICE's loopback, not the dev host — so
+    /// this address is only correct there because `npm run adb:reverse` tunnels
+    /// 4317 (and the frontend's 4318) back to the workstation, the same way the
+    /// vite dev ports already are. `android:dev` and `dev:ext:android` run it
+    /// for you; without it the export fails silently forever.
+    ///
+    /// `HERMES_TRACE_ENDPOINT` covers the cases adb cannot: an emulator without
+    /// the tunnel wants `http://10.0.2.2:4317`, a physical device off adb wants
+    /// the workstation's LAN IP, and an iOS device wants the LAN IP too (the
+    /// simulator shares the Mac's network, so loopback works there unchanged).
     const DEFAULT_ENDPOINT: &str = "http://127.0.0.1:4317";
 
     /// Kept so `shutdown` can flush the same provider `init` created.
