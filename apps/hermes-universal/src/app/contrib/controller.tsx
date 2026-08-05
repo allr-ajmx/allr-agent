@@ -8,6 +8,7 @@ import { useLocation } from 'react-router-dom'
 import { PALETTE_AREA, type PaletteContribution } from '@/app/command-palette/contrib'
 import { IdleMount } from '@/components/idle-mount'
 import { toggleLayoutEditMode } from '@/components/pane-shell/edit-mode'
+import { registerTile, registerTiles } from '@/components/pane-shell/tile/registry'
 import { allPaneIds, group, split } from '@/components/pane-shell/tree/model'
 import { LAYOUTS_AREA } from '@/components/pane-shell/tree/presets'
 import { LayoutTreeRoot } from '@/components/pane-shell/tree/renderer'
@@ -117,18 +118,20 @@ const wrapWorkspaceTab = (tab: ReactElement) => <WorkspaceTabMenu>{tab}</Workspa
 // them to idle so they're off the first-paint path, warm before reveal.
 const idle = (node: ReactElement) => <IdleMount>{node}</IdleMount>
 
-registry.registerMany([
+registerTiles([
   {
     id: 'sessions',
-    area: 'panes',
+    kind: 'sessions',
     title: 'sessions',
+    placement: 'left',
     // Collapsible: leaves the grid on narrow viewports (edge overlay instead).
-    // dock: where a RE-ADOPTED pane lands (healed from a stale dismissal).
-    data: {
-      placement: 'left',
+    // dock: where a RE-ADOPTED tile lands (healed from a stale dismissal).
+    chrome: {
       collapsible: true,
       dock: { pane: 'workspace', pos: 'left' },
-      revealAliases: ['chat-sidebar'],
+      revealAliases: ['chat-sidebar']
+    },
+    sizing: {
       width: `${SIDEBAR_DEFAULT_WIDTH}px`,
       minWidth: `${SIDEBAR_DEFAULT_WIDTH}px`,
       maxWidth: `${SIDEBAR_MAX_WIDTH}px`
@@ -137,31 +140,38 @@ registry.registerMany([
   },
   {
     id: 'workspace',
-    area: 'panes',
+    kind: 'chat',
     // Live-retitled to the loaded session by syncWorkspaceTitle below.
     title: 'New session',
-    data: { placement: 'main', minWidth: '22vw', tabWrap: wrapWorkspaceTab, uncloseable: true },
+    placement: 'main',
+    chrome: { tabWrap: wrapWorkspaceTab, uncloseable: true },
+    sizing: { minWidth: '22vw' },
     render: renderWorkspacePane
   },
   {
     id: 'terminal',
-    area: 'panes',
+    kind: 'terminal',
     title: 'terminal',
-    // A single-pane zone declaring a height is a FIXED track (a short deck, not
-    // a third of the window). revealOnPreset: a layout that places the terminal
-    // turns it on so the zone shows instead of staying collapsed behind ⌃`.
-    data: { placement: 'bottom', height: '20vh', minHeight: '7.5rem', maxHeight: '80vh', revealOnPreset: true },
+    placement: 'bottom',
+    // revealOnPreset: a layout that places the terminal turns it on so the zone
+    // shows instead of staying collapsed behind ⌃`.
+    chrome: { revealOnPreset: true },
+    // A single-tile zone declaring a height is a FIXED track (a short deck, not
+    // a third of the window).
+    sizing: { height: '20vh', minHeight: '7.5rem', maxHeight: '80vh' },
     render: () => <TerminalPane />
   },
   {
     id: 'files',
-    area: 'panes',
+    kind: 'files',
     title: 'files',
-    data: {
-      placement: 'right',
+    placement: 'right',
+    chrome: {
       collapsible: true,
       dock: { pane: 'workspace', pos: 'right' },
-      revealAliases: ['file-tree', 'file-browser'],
+      revealAliases: ['file-tree', 'file-browser']
+    },
+    sizing: {
       width: `${FILE_TREE_DEFAULT_WIDTH}px`,
       minWidth: `${FILE_TREE_MIN_WIDTH}px`,
       maxWidth: `${FILE_TREE_MAX_WIDTH}px`
@@ -170,14 +180,14 @@ registry.registerMany([
   },
   {
     id: 'preview',
-    area: 'panes',
+    kind: 'preview',
     title: 'preview',
+    placement: 'right',
     // Exists only while something is previewed — visibility is bound to the
     // preview tabs below. dock: adoption seed only — dockPaneBeside re-docks it
     // next to files on every reveal anyway (position-aware).
-    data: {
-      placement: 'right',
-      dock: { pane: 'files', pos: 'left' },
+    chrome: { dock: { pane: 'files', pos: 'left' } },
+    sizing: {
       width: `${PREVIEW_DEFAULT_WIDTH}px`,
       minWidth: `${PREVIEW_MIN_WIDTH}px`,
       maxWidth: `${PREVIEW_MAX_WIDTH}px`
@@ -186,14 +196,13 @@ registry.registerMany([
   },
   {
     id: 'review',
-    area: 'panes',
+    kind: 'review',
     title: 'review',
+    placement: 'right',
     // The git-diff sidebar: hidden until ⌘G ($reviewOpen); its zone collapses
     // while hidden.
-    data: {
-      placement: 'right',
-      collapsible: true,
-      revealAliases: [REVIEW_PANE_ID],
+    chrome: { collapsible: true, revealAliases: [REVIEW_PANE_ID] },
+    sizing: {
       width: `${FILE_TREE_DEFAULT_WIDTH}px`,
       minWidth: `${FILE_TREE_MIN_WIDTH}px`,
       maxWidth: `${FILE_TREE_MAX_WIDTH}px`
@@ -394,21 +403,21 @@ const syncWorkspaceTitle = () => {
   const selected = $activeStoredSessionId.get()
   const stored = selected ? $sessions.get().find(s => sessionMatchesStoredId(s, selected)) : null
 
-  registry.register({
+  registerTile({
     id: 'workspace',
-    area: 'panes',
+    kind: 'chat',
     title: stored ? storedSessionTitle(stored) : 'New session',
-    data: {
+    placement: 'main',
+    chrome: {
       // The tab's lead dot — same shared map the sidebar row reads, so the main
       // tab and its sidebar row always show the same color.
       accent: sessionColorFor(stored),
       // Pages aren't tab-able: the main zone's bar stands down while one shows.
       headerVeto: $workspaceIsPage.get(),
-      placement: 'main',
-      minWidth: '22vw',
       tabWrap: wrapWorkspaceTab,
       uncloseable: true
     },
+    sizing: { minWidth: '22vw' },
     render: renderWorkspacePane
   })
 }

@@ -16,6 +16,9 @@ import { notify } from '@/store/notifications'
 import { clearAllPaneSizeOverrides } from '@/store/panes'
 import { isSecondaryWindow } from '@/store/windows'
 
+import { findTile, getTiles } from '../tile/registry'
+import { tileChrome } from '../tile/types'
+
 import {
   allPaneIds,
   type DropPosition,
@@ -294,10 +297,7 @@ export function trackActiveTreeGroup(): () => void {
   }
 }
 
-const isUncloseablePane = (paneId: string): boolean =>
-  Boolean(
-    (registry.getArea('panes').find(c => c.id === paneId)?.data as { uncloseable?: boolean } | undefined)?.uncloseable
-  )
+const isUncloseablePane = (paneId: string): boolean => Boolean(tileChrome(findTile(paneId)).uncloseable)
 
 /** ⌘W "main tabs always": close the MAIN (workspace) zone's active tab, unless
  *  it's the uncloseable workspace itself. Returns false when there's nothing to
@@ -437,13 +437,11 @@ function rootRow(): SplitNode | null {
 
   // Column root: find the row child that contains the main pane — that's the
   // row the side-collapse system operates on (sessions left, files right).
-  const panes = registry.getArea('panes')
+  const tiles = getTiles()
 
   const hasMain = (node: LayoutNode): boolean => {
     if (node.type === 'group') {
-      return node.panes.some(
-        id => (panes.find(p => p.id === id)?.data as { placement?: string } | undefined)?.placement === 'main'
-      )
+      return node.panes.some(id => tiles.find(t => t.id === id)?.placement === 'main')
     }
 
     return node.children.some(hasMain)
@@ -466,10 +464,10 @@ export function paneRootSide(paneId: string): null | TreeSide {
     return null
   }
 
-  const panes = registry.getArea('panes')
+  const tiles = getTiles()
   const child = row.children.find(c => allPaneIds(c).includes(paneId))
 
-  return child ? rootChildSide(child, id => panes.find(p => p.id === id)) : null
+  return child ? rootChildSide(child, id => tiles.find(t => t.id === id)) : null
 }
 
 /** The closer-less Close: dismiss the pane (removed + remembered; reveal
@@ -497,7 +495,7 @@ export function closeTreePane(paneId: string) {
   // contribution unregisters but the pane id STAYS in the tree, so
   // re-enabling restores it exactly where it was. (Dismissal + removal
   // would strand the pane with no way back short of a layout reset.)
-  const source = registry.getArea('panes').find(c => c.id === paneId)?.source
+  const source = findTile(paneId)?.source
 
   if (source?.startsWith('plugin:')) {
     const pluginId = source.slice('plugin:'.length)
@@ -558,9 +556,9 @@ export function layoutHasRootSide(side: TreeSide): boolean {
     return false
   }
 
-  const panes = registry.getArea('panes')
+  const tiles = getTiles()
 
-  return row.children.some(child => rootChildSide(child, id => panes.find(p => p.id === id)) === side)
+  return row.children.some(child => rootChildSide(child, id => tiles.find(t => t.id === id)) === side)
 }
 
 /**
@@ -579,16 +577,16 @@ function restoreDismissedSidePanes(side: TreeSide) {
 
   let changed = false
 
-  for (const pane of registry.getArea('panes')) {
-    if (!dismissed.has(pane.id)) {
+  for (const tile of getTiles()) {
+    if (!dismissed.has(tile.id)) {
       continue
     }
 
-    const placement = (pane.data as { placement?: string } | undefined)?.placement
+    const placement = tile.placement
     const paneSide = placement === 'left' ? 'left' : placement === 'main' ? null : 'right'
 
     if (paneSide === side) {
-      setDismissed(pane.id, false)
+      setDismissed(tile.id, false)
       changed = true
     }
   }
@@ -626,8 +624,7 @@ export function treeSideOfPane(paneId: string): TreeSide | null {
     return null
   }
 
-  const placementOf = (id: string) =>
-    (registry.getArea('panes').find(c => c.id === id)?.data as { placement?: string } | undefined)?.placement
+  const placementOf = (id: string) => findTile(id)?.placement
 
   const placements = allPaneIds(child).map(placementOf)
 
@@ -806,7 +803,7 @@ export function declareDefaultTree(tree: LayoutNode) {
  * LIVE pane adoption — a `panes` contribution that isn't in the tree yet
  * (a plugin registered after boot, incl. runtime-loaded ones) joins the
  * tree via the SAME primitive a human drag/drop commits with
- * (`insertAtGroup`: anchor group + side). The pane's data supplies the
+ * (`insertAtGroup`: anchor group + side). The tile's chrome supplies the
  * gesture:
  *
  *  - `dock: { pane, pos }` — "drop me on that edge of that pane". Any pane,
@@ -818,13 +815,6 @@ export function declareDefaultTree(tree: LayoutNode) {
  * boots), so user rearrangement wins from then on and plugin reloads keep
  * the pane where the user left it.
  */
-interface PaneDockHint {
-  pane: string
-  pos: DropPosition
-  /** Center docks: stack BEFORE this pane id (the strip divider's slot). */
-  before?: null | string
-}
-
 function adoptContributedPanes(): void {
   const tree = $layoutTree.get()
 
@@ -832,12 +822,11 @@ function adoptContributedPanes(): void {
     return
   }
 
-  const panes = registry.getArea('panes')
+  const panes = getTiles()
 
-  const dataOf = (paneId: string) =>
-    panes.find(c => c.id === paneId)?.data as { placement?: string; dock?: PaneDockHint } | undefined
+  const tileOf = (paneId: string) => panes.find(c => c.id === paneId)
 
-  const placementOf = (paneId: string) => dataOf(paneId)?.placement
+  const placementOf = (paneId: string) => tileOf(paneId)?.placement
   const mainId = panes.find(c => placementOf(c.id) === 'main')?.id
   const inTree = new Set(allPaneIds(tree))
 
@@ -860,7 +849,7 @@ function adoptContributedPanes(): void {
   let next = tree
 
   for (const pane of missing) {
-    const dock = dataOf(pane.id)?.dock
+    const dock = tileChrome(tileOf(pane.id)).dock
     const placement = placementOf(pane.id) ?? 'right'
 
     const anchor =
@@ -947,7 +936,7 @@ export function dockPaneBeside(paneId: string, anchorPaneId: string) {
     return
   }
 
-  const panes = registry.getArea('panes')
+  const panes = getTiles()
   const anchor = findGroupOfPane(tree, anchorPaneId)
 
   // Anchor must be a live, shown pane — never dock beside a hidden file tree.
@@ -957,11 +946,7 @@ export function dockPaneBeside(paneId: string, anchorPaneId: string) {
 
   // The uncloseable main workspace (session tiles are placement:'main' too,
   // but closeable, so the uncloseable flag disambiguates).
-  const mainId = panes.find(c => {
-    const data = c.data as { placement?: string; uncloseable?: boolean } | undefined
-
-    return data?.placement === 'main' && data.uncloseable
-  })?.id
+  const mainId = panes.find(c => c.placement === 'main' && tileChrome(c).uncloseable)?.id
 
   const order = allPaneIds(tree)
 
@@ -1027,12 +1012,10 @@ export function applyTree(tree: LayoutNode, presetId: string) {
   // preset's DECLARED panes (not the adopted result): logs is auto-adopted
   // hidden into every tree, so only a preset that explicitly places it (Quad)
   // should turn it on.
-  const panes = registry.getArea('panes')
+  const panes = getTiles()
 
   for (const paneId of allPaneIds(tree)) {
-    const data = panes.find(c => c.id === paneId)?.data as { revealOnPreset?: boolean } | undefined
-
-    if (data?.revealOnPreset) {
+    if (tileChrome(panes.find(c => c.id === paneId)).revealOnPreset) {
       paneOpeners[paneId]?.()
     }
   }

@@ -9,9 +9,9 @@
 import type { ReadableAtom } from 'nanostores'
 import type { ReactElement, ReactNode, PointerEvent as ReactPointerEvent } from 'react'
 
+import { registerTile } from '@/components/pane-shell/tile/registry'
 import type { DoubleTapContext } from '@/components/pane-shell/tree/renderer/drag-session'
 import { registerPaneCloser, removeTreePane, treePanesWithPrefix } from '@/components/pane-shell/tree/store'
-import { registry } from '@/contrib/registry'
 import type { TileDock } from '@/store/session-states'
 
 export interface PaneMirror<T> {
@@ -23,6 +23,8 @@ export interface PaneMirror<T> {
   key: (tile: T) => string
   /** Pane-id namespace — the id is `${prefix}:${key}`. */
   prefix: string
+  /** The `kind` every tile this mirror registers reports (`'chat'`, `'page'`). */
+  kind: string
   /** Dock on adoption (default right; `center` = stack into anchor's zone). */
   dir?: (tile: T) => TileDock | undefined
   /** Pane to dock against (default `workspace`) — a drop's target zone. */
@@ -70,25 +72,29 @@ export function paneMirror<T>(cfg: PaneMirror<T>): () => void {
         continue
       }
 
-      const dispose = registry.register({
+      const dispose = registerTile({
         id: paneId(key),
-        area: 'panes',
+        kind: cfg.kind,
         title,
-        data: {
+        placement: 'main',
+        chrome: {
           accent,
           dock: {
             before: cfg.before?.(tile),
             pane: cfg.anchor?.(tile) ?? 'workspace',
             pos: cfg.dir?.(tile) ?? 'right'
           },
-          minWidth: cfg.minWidth,
-          placement: 'main',
+          // A mirrored tile is closeable and lives in the main stack, so it must
+          // keep its strip even alone — otherwise the "3rd tile has no tab" trap
+          // leaves it with nowhere to put the ✕.
+          loneHeader: true,
           tabDrag: cfg.tabDrag
             ? (event: ReactPointerEvent<HTMLElement>, onTap: () => void, double?: DoubleTapContext) =>
                 cfg.tabDrag!(key, event, onTap, double)
-            : undefined, // returns boolean (handled) — see PaneChrome.tabDrag
+            : undefined, // returns boolean (handled) — see TileChrome.tabDrag
           tabWrap: cfg.tabWrap ? (tab: ReactElement) => cfg.tabWrap!(key, tab) : undefined
         },
+        sizing: { minWidth: cfg.minWidth },
         render: () => cfg.render(key)
       })
 

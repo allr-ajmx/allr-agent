@@ -7,65 +7,12 @@
  * live pane contributions; the React split renderer reads it per render.
  */
 
-import type * as React from 'react'
-
-import type { Contribution } from '@/contrib/types'
-
+import type { Tile } from '../../tile/types'
+import { tileSizing } from '../../tile/types'
 import type { GroupNode, LayoutNode } from '../model'
 import { allPaneIds } from '../model'
 
-import type { DoubleTapContext } from './drag-session'
-
 export const MIN_PANE_PX = 80
-
-/** Optional CSS sizing a pane contributes (`data.width` / `data.minWidth`…).
- *  Applied to the pane's GROUP along the axis of the split that contains it —
- *  the same semantics as the app's `Pane width/minWidth/maxWidth` props:
- *  a `width`/`height` makes the zone a FIXED track (sidebar-style — it keeps
- *  its size and the weighted zones absorb the rest); without one the zone
- *  shares leftover space by weight. */
-export interface PaneSizing {
-  width?: string
-  height?: string
-  minWidth?: string
-  maxWidth?: string
-  minHeight?: string
-  maxHeight?: string
-}
-
-/** Chrome behavior flags a pane contributes. Read via `paneChrome`. */
-interface PaneChrome {
-  /** Leaves the grid on narrow viewports; revealed as an edge overlay. */
-  collapsible?: boolean
-  /** Extra ids accepted from PANE_TOGGLE_REVEAL_EVENT (the real app's pane
-   *  ids, e.g. `chat-sidebar` for `sessions`). */
-  revealAliases?: string[]
-  placement?: string
-  /** No Close in the tab menu — the one surface the app can't lose (the
-   *  main workspace). Session tiles share `placement: 'main'` but close. */
-  uncloseable?: boolean
-  /** Wrap this pane's TAB (e.g. in a domain context menu — a session tile's
-   *  pin/branch/rename/archive/delete). The wrapper must render `tab` as its
-   *  interactive child; the zone's own strip menu still owns non-tab space. */
-  tabWrap?: (tab: React.ReactElement) => React.ReactNode
-  /** Override this pane's TAB drag (a session tab drags like a sidebar row —
-   *  stack / split / composer-link — not the generic pane move). Given the
-   *  tab's tap (activate) + double-tap (hide header) so those gestures survive.
-   *  Returns whether it took the drag; `false` (or absent) defers to
-   *  `startPaneDrag` — e.g. the workspace tab on a fresh draft, nothing to link. */
-  tabDrag?: (event: React.PointerEvent<HTMLElement>, onTap: () => void, double?: DoubleTapContext) => boolean
-  /** Suppress the zone header while THIS pane is active — full-page views
-   *  (artifacts/skills/plugin pages) are not tab-able surfaces. The flag is
-   *  live: the workspace contribution re-registers it on route changes. */
-  headerVeto?: boolean
-  /** A lead-dot color for this pane's TAB (a session tab inheriting its
-   *  project color). Generic — any pane may contribute one; the strip just
-   *  renders a tinted dot before the label. Live: the owning contribution
-   *  re-registers it when the resolved color changes. */
-  accent?: string
-}
-
-export const paneChrome = (c: Contribution | undefined) => (c?.data ?? {}) as PaneChrome
 
 /** Resolve a computed style length ("237px" / "none" / "auto") to px. */
 export function computedPx(value: string, fallback: number): number {
@@ -103,7 +50,7 @@ export function resolveCssPx(container: HTMLElement, css: number | string, horiz
 
 /** Everything fixed-track resolution needs about the current view state. */
 export interface TrackContext {
-  paneFor: (id: string) => Contribution | undefined
+  paneFor: (id: string) => Tile | undefined
   paneGone: (id: string) => boolean
   overrides: Record<string, { widthOverride?: number; heightOverride?: number }>
 }
@@ -153,7 +100,7 @@ export function fixedTrackSize(node: LayoutNode, axis: 'row' | 'column', ctx: Tr
     const overrideKey = axis === 'row' ? 'widthOverride' : 'heightOverride'
 
     const declared = (id: string) => {
-      const sizing = (ctx.paneFor(id)?.data ?? {}) as PaneSizing
+      const sizing = tileSizing(ctx.paneFor(id))
       const css = (axis === 'row' ? sizing.width : sizing.height) ?? null
       const override = ctx.overrides[id]?.[overrideKey]
 
@@ -184,7 +131,7 @@ export function fixedTrackSize(node: LayoutNode, axis: 'row' | 'column', ctx: Tr
       return null
     }
 
-    if (sizes.length !== declaredSizes.length && ids.some(id => paneChrome(ctx.paneFor(id)).placement === 'main')) {
+    if (sizes.length !== declaredSizes.length && ids.some(id => ctx.paneFor(id)?.placement === 'main')) {
       return null
     }
 
@@ -237,11 +184,8 @@ export function subtreeGone(node: LayoutNode, ctx: TrackContext): boolean {
  * the main zone, never side-collapsed. This is what keeps the titlebar
  * toggles and reveals 100% main-compatible through ⌘\ flips.
  */
-export function rootChildSide(
-  child: LayoutNode,
-  paneFor: (id: string) => Contribution | undefined
-): 'left' | 'right' | null {
-  const placements = allPaneIds(child).map(id => paneChrome(paneFor(id)).placement)
+export function rootChildSide(child: LayoutNode, paneFor: (id: string) => Tile | undefined): 'left' | 'right' | null {
+  const placements = allPaneIds(child).map(id => paneFor(id)?.placement)
 
   if (placements.includes('main')) {
     return null

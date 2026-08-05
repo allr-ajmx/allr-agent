@@ -140,6 +140,16 @@ export { EmptyState } from '@/app/settings/primitives'
 // -- ui: the design language --------------------------------------------------
 
 export type { StatusbarItem } from '@/app/shell/statusbar-controls'
+/**
+ * A layout TILE — what `ctx.registerTile(...)` takes. Prefer it over
+ * `ctx.register({ area: PANES_AREA, … })`, which hands a tile's chrome and
+ * sizing to an untyped `data` blob where a typo is silent.
+ *
+ * That flat `data` shape still works — a plugin built against an older SDK must
+ * not break — but only `registerTile` type-checks what you declare, and only it
+ * can express fields added later (the mount lifecycle).
+ */
+export type { Tile, TileChrome, TileLifecycle, TilePlacement, TileSizing } from '@/components/pane-shell/tile/types'
 export { StatusDot, type StatusTone } from '@/components/status-dot'
 export { Badge } from '@/components/ui/badge'
 export { Button } from '@/components/ui/button'
@@ -190,16 +200,17 @@ export { Switch } from '@/components/ui/switch'
 export { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 export { Textarea } from '@/components/ui/textarea'
 export { Tip, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-export type { GatewayEventListener } from '@/contrib/events'
 
 // -- contracts ----------------------------------------------------------------
 
+export type { GatewayEventListener } from '@/contrib/events'
 export type {
   HermesPlugin,
   PluginContext,
   PluginContribution,
   PluginRestOptions,
-  PluginStorage
+  PluginStorage,
+  PluginTile
 } from '@/contrib/plugin'
 /** Mount-scoped contribution: while the rendering component is mounted, its
  *  children render in the target area's slot; unmount disposes it. Use for
@@ -225,12 +236,12 @@ export { triggerHaptic as haptic } from '@/lib/haptics'
 /** The app's icon set (RefreshCw, LayoutDashboard, Activity, …). */
 export * as icons from '@/lib/icons'
 export { type KeybindContribution, KEYBINDS_AREA } from '@/lib/keybinds/actions'
+
+export const PANES_AREA = 'panes'
 /** The app's deterministic identity color for a name (profiles, assignees,
  *  authors) + its translucent tag fill — so plugin-rendered identities read
  *  the same hue as everywhere else. */
 export { profileColor, profileColorSoft } from '@/lib/profile-color'
-
-export const PANES_AREA = 'panes'
 /** The shared client itself, for invalidation OUTSIDE React (e.g. a
  *  `ctx.socket` frame invalidating a query). Inside components keep using
  *  `useQueryClient`. */

@@ -9,12 +9,13 @@
 import { useStore } from '@nanostores/react'
 import { type PointerEvent as ReactPointerEvent, useCallback, useMemo, useRef, useSyncExternalStore } from 'react'
 
-import { useContributions } from '@/contrib/react/use-contributions'
 import { rafCoalesce } from '@/lib/raf-coalesce'
 import { cn } from '@/lib/utils'
 import { $paneStates, type PaneStateSnapshot, setPaneHeightOverride, setPaneWidthOverride } from '@/store/panes'
 
 import { $layoutEditMode } from '../../edit-mode'
+import { useTiles } from '../../tile/registry'
+import { tileChrome, tileSizing, type TileSizing } from '../../tile/types'
 import type { LayoutNode, SplitNode } from '../model'
 import { allPaneIds } from '../model'
 import {
@@ -32,8 +33,6 @@ import {
   edgeFixedZone,
   fixedTrackSize,
   MIN_PANE_PX,
-  paneChrome,
-  type PaneSizing,
   resolveCssPx,
   rootChildSide,
   shownPaneIds,
@@ -69,7 +68,7 @@ function useSubtreeOverrides(paneIds: readonly string[]): TrackContext['override
 
 export function TreeSplit({ node, root, rootRow }: { node: SplitNode; root?: boolean; rootRow?: boolean }) {
   const containerRef = useRef<HTMLDivElement>(null)
-  const panes = useContributions('panes')
+  const panes = useTiles()
   const hiddenPanes = useStore($hiddenTreePanes)
   const narrow = useStore($narrowViewport)
   // Scoped to THIS subtree's panes: a sash drag writes size overrides on every
@@ -93,7 +92,7 @@ export function TreeSplit({ node, root, rootRow }: { node: SplitNode; root?: boo
       return false
     }
 
-    return allPaneIds(child).some(id => paneChrome(paneFor(id)).placement === 'main')
+    return allPaneIds(child).some(id => paneFor(id)?.placement === 'main')
   }
 
   // A pane leaves the grid when its contribution isn't registered (yet) — a
@@ -106,7 +105,7 @@ export function TreeSplit({ node, root, rootRow }: { node: SplitNode; root?: boo
   // closed) visible so they're rearrangeable — only truly-absent (unregistered)
   // or narrow-collapsed panes stay gone. Restores itself on exit (render-only).
   const paneGone = (id: string) =>
-    !paneFor(id) || (!editMode && hiddenPanes.has(id)) || (narrow && Boolean(paneChrome(paneFor(id)).collapsible))
+    !paneFor(id) || (!editMode && hiddenPanes.has(id)) || (narrow && Boolean(tileChrome(paneFor(id)).collapsible))
 
   const trackCtx: TrackContext = { paneFor, paneGone, overrides }
 
@@ -125,7 +124,7 @@ export function TreeSplit({ node, root, rootRow }: { node: SplitNode; root?: boo
   // pane fronted in a mixed flex stack must not cap it. A fixed STACK
   // aggregates its panes' clamps (largest-tenant semantics, mirroring the
   // max() track basis) — the active tab's caps must never resize the zone.
-  const sizingFor = (child: LayoutNode, track: string | null): PaneSizing | null => {
+  const sizingFor = (child: LayoutNode, track: string | null): TileSizing | null => {
     if (child.type !== 'group' || child.panes.length === 0) {
       return null
     }
@@ -137,15 +136,15 @@ export function TreeSplit({ node, root, rootRow }: { node: SplitNode; root?: boo
     }
 
     if (shownIds.length <= 1) {
-      return (paneFor(shownIds[0])?.data as PaneSizing | undefined) ?? null
+      return paneFor(shownIds[0])?.sizing ?? null
     }
 
     // Fixed STACK: floors take the largest declared min; caps stay unbounded
     // unless EVERY pane declares one (a single uncapped tenant uncaps the
     // zone). Same largest-tenant basis as the track size — never per-tab.
-    const all = shownIds.map(id => (paneFor(id)?.data ?? {}) as PaneSizing)
+    const all = shownIds.map(id => tileSizing(paneFor(id)))
 
-    const cap = (pick: (s: PaneSizing) => string | undefined) => (all.every(pick) ? cssMax(all.map(pick)) : undefined)
+    const cap = (pick: (s: TileSizing) => string | undefined) => (all.every(pick) ? cssMax(all.map(pick)) : undefined)
 
     return {
       minWidth: cssMax(all.map(s => s.minWidth)),
@@ -337,7 +336,7 @@ export function TreeSplit({ node, root, rootRow }: { node: SplitNode; root?: boo
         let px: number | null = null
 
         for (const paneId of shownPaneIds(child, trackCtx)) {
-          const sizing = (paneFor(paneId)?.data ?? {}) as PaneSizing
+          const sizing = tileSizing(paneFor(paneId))
           const css = horizontal ? sizing.width : sizing.height
           const resolved = css ? resolveCssPx(container, css, horizontal) : null
 

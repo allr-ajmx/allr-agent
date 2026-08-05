@@ -73,6 +73,7 @@ export function connectionCacheKey(conn: Connection | null): string {
 
   const mode = conn.mode ?? 'remote'
   const profile = conn.profile ?? ''
+
   const identity =
     mode === 'ssh' ? conn.remoteIdentity || conn.remoteHost || conn.baseUrl : conn.baseUrl
 

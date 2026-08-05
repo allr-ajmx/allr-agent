@@ -25,13 +25,14 @@ import {
 } from '@/components/ui/pane-tab'
 import { Tip, TipKeybindLabel } from '@/components/ui/tooltip'
 import { ContribBoundary } from '@/contrib/react/boundary'
-import { useContributions } from '@/contrib/react/use-contributions'
 import { useI18n } from '@/i18n'
 import { isChatPaneId } from '@/lib/pane-ids'
 import { cn } from '@/lib/utils'
 
 import { $layoutEditMode } from '../../edit-mode'
 import { useWindowControlsOverlap } from '../../geometry'
+import { useTiles } from '../../tile/registry'
+import { tileChrome } from '../../tile/types'
 import type { DropPosition, GroupNode, RootEdge } from '../model'
 import { adjacentGroup } from '../model'
 import {
@@ -56,7 +57,6 @@ import {
 
 import { type DoubleTapContext, startPaneDrag } from './drag-session'
 import { forceLoneHeaderForPanes } from './lone-header'
-import { paneChrome } from './track-model'
 
 /** A directional action in the zone menu (computed per group state). */
 interface ZoneMenuDirection {
@@ -155,7 +155,7 @@ export function TreeGroup({
   // missing on an inactive tile tab whose zone-active was the uncloseable
   // workspace).
   const [menuPane, setMenuPane] = useState<string | undefined>(undefined)
-  const panes = useContributions('panes')
+  const panes = useTiles()
   // Coarse drag flag only (set once at drag start/end). The per-frame drop
   // HINT lives in ZoneDropOverlay so a moving pointer re-renders the tiny
   // overlay, not every zone's header/body (and not the menuDirections walk).
@@ -174,7 +174,7 @@ export function TreeGroup({
   // Edit mode forces toggle-hidden panes visible so they can be rearranged
   // (mirrors tree-split's paneGone) — restores itself on exit.
   const paneShown = (id: string) =>
-    Boolean(paneFor(id)) && (editMode || !hiddenPanes.has(id)) && !(narrow && paneChrome(paneFor(id)).collapsible)
+    Boolean(paneFor(id)) && (editMode || !hiddenPanes.has(id)) && !(narrow && tileChrome(paneFor(id)).collapsible)
 
   const shown = node.panes.filter(paneShown)
   const activeId = shown.includes(node.active) ? node.active : (shown[0] ?? node.active)
@@ -193,7 +193,7 @@ export function TreeGroup({
   // always shows its header (it IS the header).
   // Session-tile ids force the header even before chrome registers — cycling
   // onto a freshly-split tile used to land headerless ("name card missing").
-  const forceLoneHeader = forceLoneHeaderForPanes(shown, id => paneChrome(paneFor(id)), isCollapsePane)
+  const forceLoneHeader = forceLoneHeaderForPanes(shown, paneFor, isCollapsePane)
 
   // A chat strip gets the `+` new-tab affordance; other strips (terminal,
   // preview) have their own create verb elsewhere.
@@ -202,7 +202,7 @@ export function TreeGroup({
 
   // A full-page view (headerVeto) suppresses the strip while it's the active
   // pane — a page is not a tab-able surface; the bar returns with the chat.
-  const headerHidden = paneChrome(active).headerVeto || (node.headerHidden ?? (shown.length <= 1 && !forceLoneHeader))
+  const headerHidden = tileChrome(active).headerVeto || (node.headerHidden ?? (shown.length <= 1 && !forceLoneHeader))
 
   // A group collapses ALONG its parent split's axis. In a row that means the
   // WIDTH collapses — a full-width horizontal header would strand a tall
@@ -266,12 +266,12 @@ export function TreeGroup({
   const closable = () => {
     const paneId = menuPane ?? activeId
 
-    return paneChrome(paneFor(paneId)).uncloseable ? undefined : paneId
+    return tileChrome(paneFor(paneId)).uncloseable ? undefined : paneId
   }
 
   // The zone hosting the uncloseable workspace never minimizes — collapsing
   // MAIN strands the whole app behind a strip.
-  const minimizable = !shown.some(id => paneChrome(paneFor(id)).uncloseable)
+  const minimizable = !shown.some(id => tileChrome(paneFor(id)).uncloseable)
 
   // Tab ✕: a tool panel (terminal/logs) is REMOVED from the layout (comes back
   // via its toggle); everything else routes through its Close (a session tile
@@ -335,7 +335,7 @@ export function TreeGroup({
               role="tablist"
             >
               {shown.map(paneId => {
-                const closeable = !paneChrome(paneFor(paneId)).uncloseable
+                const closeable = !tileChrome(paneFor(paneId)).uncloseable
                 const title = paneFor(paneId)?.title ?? paneId
 
                 return (
@@ -403,7 +403,7 @@ export function TreeGroup({
             >
               {shown.map(paneId => {
                 const isActive = paneId === activeId && !node.minimized
-                const chrome = paneChrome(paneFor(paneId))
+                const chrome = tileChrome(paneFor(paneId))
                 const closeable = !chrome.uncloseable
                 const title = paneFor(paneId)?.title ?? paneId
 
