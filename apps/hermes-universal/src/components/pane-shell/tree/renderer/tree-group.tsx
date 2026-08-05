@@ -33,6 +33,7 @@ import { $layoutEditMode } from '../../edit-mode'
 import { useWindowControlsOverlap } from '../../geometry'
 import { useTiles } from '../../tile/registry'
 import { tileChrome } from '../../tile/types'
+import { type TileContext, tileShown } from '../../tile/visibility'
 import type { DropPosition, GroupNode, RootEdge } from '../model'
 import { adjacentGroup } from '../model'
 import {
@@ -169,14 +170,12 @@ export function TreeGroup({
   const paneFor = (id: string) => panes.find(p => p.id === id)
 
   // Unregistered (plugin not loaded), chrome-toggled-off, and narrow-collapsed
-  // panes drop out of the header; the active pane falls back to the first
-  // shown one (render-side — the tree keeps `active`).
-  // Edit mode forces toggle-hidden panes visible so they can be rearranged
-  // (mirrors tree-split's paneGone) — restores itself on exit.
-  const paneShown = (id: string) =>
-    Boolean(paneFor(id)) && (editMode || !hiddenPanes.has(id)) && !(narrow && tileChrome(paneFor(id)).collapsible)
+  // tiles drop out of the header; the active tile falls back to the first shown
+  // one (render-side — the tree keeps `active`). The rule itself lives in
+  // tile/visibility.ts, shared with the split renderer.
+  const tileCtx: TileContext = { editMode, hidden: hiddenPanes, narrow, tileFor: paneFor }
 
-  const shown = node.panes.filter(paneShown)
+  const shown = node.panes.filter(id => tileShown(id, tileCtx))
   const activeId = shown.includes(node.active) ? node.active : (shown[0] ?? node.active)
   const active = paneFor(activeId)
   const isEmpty = node.panes.length === 0
@@ -246,7 +245,7 @@ export function TreeGroup({
           run: () => splitTreeZone(node.id, side, menuPane ?? activeId)
         }))
       : DIRECTION_ORDER.flatMap(side => {
-          const neighbor = tree ? adjacentGroup(tree, node.id, side, g => g.panes.some(paneShown)) : null
+          const neighbor = tree ? adjacentGroup(tree, node.id, side, g => g.panes.some(id => tileShown(id, tileCtx))) : null
 
           if (!neighbor || neighbor.id === node.id) {
             return []

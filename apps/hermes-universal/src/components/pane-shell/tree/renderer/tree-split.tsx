@@ -15,7 +15,8 @@ import { $paneStates, type PaneStateSnapshot, setPaneHeightOverride, setPaneWidt
 
 import { $layoutEditMode } from '../../edit-mode'
 import { useTiles } from '../../tile/registry'
-import { tileChrome, tileSizing, type TileSizing } from '../../tile/types'
+import { tileSizing, type TileSizing } from '../../tile/types'
+import { type TileContext, tileGone } from '../../tile/visibility'
 import type { LayoutNode, SplitNode } from '../model'
 import { allPaneIds } from '../model'
 import {
@@ -104,8 +105,9 @@ export function TreeSplit({ node, root, rootRow }: { node: SplitNode; root?: boo
   // Layout-edit mode forces toggle-hidden panes (terminal off, review/preview
   // closed) visible so they're rearrangeable — only truly-absent (unregistered)
   // or narrow-collapsed panes stay gone. Restores itself on exit (render-only).
-  const paneGone = (id: string) =>
-    !paneFor(id) || (!editMode && hiddenPanes.has(id)) || (narrow && Boolean(tileChrome(paneFor(id)).collapsible))
+  // Same rule the zone renderer's tab filter uses — see tile/visibility.ts.
+  const tileCtx: TileContext = { editMode, hidden: hiddenPanes, narrow, tileFor: paneFor }
+  const paneGone = (id: string) => tileGone(id, tileCtx)
 
   const trackCtx: TrackContext = { paneFor, paneGone, overrides }
 
