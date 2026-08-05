@@ -16,6 +16,21 @@ import {
 import type { Translations } from '@/i18n'
 import { Box, Clock, Cpu, LayoutGrid, MessageCircle, Send, Settings, Sparkles, Stars, Users } from '@/lib/icons'
 
+/** Keybind action a destination advertises — the command-menu row's live combo,
+ *  and the rail row's tooltip hint. Keyed by view so both surfaces resolve it
+ *  from what they already carry. */
+export const NAV_ACTION_BY_VIEW: Record<string, string> = {
+  agents: 'nav.agents',
+  artifacts: 'nav.artifacts',
+  chat: 'session.new',
+  'command-center': 'nav.commandCenter',
+  cron: 'nav.cron',
+  messaging: 'nav.messaging',
+  profiles: 'nav.profiles',
+  settings: 'nav.settings',
+  skills: 'nav.skills'
+}
+
 export interface NavItem {
   view: AppView
   path: string

@@ -20,6 +20,7 @@
  *     hangs that agent until it times out.
  */
 
+import { burstVibeHearts } from '@/components/chat/vibe-hearts'
 import type { GatewayEvent } from '@/gateway'
 import { translateNow } from '@/i18n'
 import { coerceStringList, coerceText } from '@/lib/chat-messages'
@@ -414,6 +415,17 @@ export function routeGatewayEvent(event: GatewayEvent): void {
       // pet: crying pose, auto-decaying back to normal after 5s.
       setPetActivity({ busy: false, reasoning: false, toolRunning: false })
       flashPetActivity({ error: true }, 5000)
+
+      break
+
+    // Core-detected affection (ily / <3 / good bot) on the user's message. It
+    // belongs in this half of the router precisely because it's presentation:
+    // the `isActive` gate above is desktop's `isActiveEvent`, so a background
+    // turn stays quiet instead of bursting hearts over the chat on screen.
+    case 'reaction':
+      if ((coerceText(payload.kind) || 'vibe') === 'vibe') {
+        burstVibeHearts()
+      }
 
       break
 

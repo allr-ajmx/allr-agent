@@ -264,6 +264,7 @@ export const ja = defineLocale({
       archivedChats: 'アーカイブ済みチャット',
       about: '情報',
       notifications: '通知',
+      billing: '請求',
       plugins: 'プラグイン'
     },
     plugins: {

@@ -6,6 +6,7 @@ import { CRON_ROUTE, sessionRoute } from '@/app/routes'
 import { Codicon } from '@/components/ui/codicon'
 import { GlyphSpinner } from '@/components/ui/glyph-spinner'
 import { SearchField } from '@/components/ui/search-field'
+import { Tip } from '@/components/ui/tooltip'
 import { useI18n } from '@/i18n'
 import { profileColor } from '@/lib/profile-color'
 import { sessionMatchesSearch } from '@/lib/session-search'
@@ -532,31 +533,33 @@ export function SidebarScrollBody({ onNavigate }: { onNavigate?: () => void }) {
                   <StartWorkButton onStarted={newSessionInWorkspace} repoPath={enteredProject.path} />
                 )}
                 {grouped && !inProject && (
+                  <Tip label={s.projects.newButton}>
+                    <button
+                      aria-label={s.projects.newButton}
+                      className="grid size-5 place-items-center rounded-sm text-(--ui-text-tertiary) opacity-0 transition-opacity hover:bg-(--ui-control-hover-background) hover:text-foreground group-hover/section:opacity-100"
+                      onClick={openProjectCreate}
+                      type="button"
+                    >
+                      <Codicon name="add" size="0.75rem" />
+                    </button>
+                  </Tip>
+                )}
+                <Tip label={grouped ? s.groupTitleGrouped : s.groupTitleUngrouped}>
                   <button
-                    aria-label={s.projects.newButton}
-                    className="grid size-5 place-items-center rounded-sm text-(--ui-text-tertiary) opacity-0 transition-opacity hover:bg-(--ui-control-hover-background) hover:text-foreground group-hover/section:opacity-100"
-                    onClick={openProjectCreate}
-                    title={s.projects.newButton}
+                    aria-label={grouped ? s.showSessions : s.showProjects}
+                    className="grid size-5 place-items-center rounded-sm text-(--ui-text-tertiary) opacity-70 transition-colors hover:bg-(--ui-control-hover-background) hover:text-foreground hover:opacity-100"
+                    onClick={() => {
+                      if (grouped) {
+                        exitProjectScope()
+                      }
+
+                      setSidebarAgentsGrouped(!grouped)
+                    }}
                     type="button"
                   >
-                    <Codicon name="add" size="0.75rem" />
+                    <Codicon name={grouped ? 'list-unordered' : 'root-folder'} size="0.75rem" />
                   </button>
-                )}
-                <button
-                  aria-label={grouped ? s.showSessions : s.showProjects}
-                  className="grid size-5 place-items-center rounded-sm text-(--ui-text-tertiary) opacity-70 transition-colors hover:bg-(--ui-control-hover-background) hover:text-foreground hover:opacity-100"
-                  onClick={() => {
-                    if (grouped) {
-                      exitProjectScope()
-                    }
-
-                    setSidebarAgentsGrouped(!grouped)
-                  }}
-                  title={grouped ? s.groupTitleGrouped : s.groupTitleUngrouped}
-                  type="button"
-                >
-                  <Codicon name={grouped ? 'list-unordered' : 'root-folder'} size="0.75rem" />
-                </button>
+                </Tip>
               </div>
             }
             label={

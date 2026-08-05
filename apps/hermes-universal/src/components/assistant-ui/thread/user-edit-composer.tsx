@@ -26,6 +26,7 @@ import {
   USER_BUBBLE_BASE_CLASS
 } from '@/components/assistant-ui/thread/user-message'
 import { Codicon } from '@/components/ui/codicon'
+import { Tip } from '@/components/ui/tooltip'
 import { useI18n } from '@/i18n'
 import { sanitizeComposerInput } from '@/lib/composer-input-sanitize'
 import { cn } from '@/lib/utils'
@@ -264,22 +265,23 @@ export const UserEditComposer: FC = () => {
               />
             </ComposerPrimitive.Input>
           </div>
-          <button
-            aria-label={copy.sendEdited}
-            className={cn('absolute right-2 bottom-2 size-5', USER_ACTION_ICON_BUTTON_CLASS)}
-            disabled={!canSubmit || submitting}
-            onClick={() => {
-              const editor = editorRef.current
+          <Tip label={copy.sendEdited}>
+            <button
+              aria-label={copy.sendEdited}
+              className={cn('absolute right-2 bottom-2 size-5', USER_ACTION_ICON_BUTTON_CLASS)}
+              disabled={!canSubmit || submitting}
+              onClick={() => {
+                const editor = editorRef.current
 
-              if (editor) {
-                submitEdit(editor)
-              }
-            }}
-            title={copy.sendEdited}
-            type="button"
-          >
-            {submitting ? StopGlyph : <Codicon name="arrow-up" size={USER_ACTION_ICON_SIZE} />}
-          </button>
+                if (editor) {
+                  submitEdit(editor)
+                }
+              }}
+              type="button"
+            >
+              {submitting ? StopGlyph : <Codicon name="arrow-up" size={USER_ACTION_ICON_SIZE} />}
+            </button>
+          </Tip>
         </div>
       </StickyHumanMessageContainer>
     </ComposerPrimitive.Root>

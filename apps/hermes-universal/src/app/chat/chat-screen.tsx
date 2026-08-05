@@ -9,8 +9,10 @@ import { useSessionView } from '@/app/chat/session-view'
 import { SudoBar } from '@/app/chat/sudo-bar'
 import { useFileDrop } from '@/app/chat/use-file-drop'
 import { Thread } from '@/components/assistant-ui/thread/thread'
+import { COMPOSER_HEART_CONFIG, HeartField } from '@/components/chat/vibe-hearts'
 import { IS_MOBILE } from '@/lib/platform'
 import { useStore } from '@/store/atom'
+import { $petActive } from '@/store/pet'
 import { sessionApprovalRequest, sessionSecretRequest, sessionSudoRequest } from '@/store/prompts'
 
 export function ChatScreen() {
@@ -31,6 +33,8 @@ export function ChatScreen() {
   const sudo = useStore(sessionSudoRequest(sessionKey))
   const secret = useStore(sessionSecretRequest(sessionKey))
   const { dragActive } = useFileDrop()
+  // A pet out owns the hearts; the composer lane only catches them when none is.
+  const petActive = useStore($petActive)
 
   const barsPresent = (busy && statusLine) || approval || sudo || secret
 
@@ -62,6 +66,22 @@ export function ChatScreen() {
         )}
         <ChatComposer />
       </ChatRuntimeProvider>
+
+      {/* Vibe hearts rise from the composer only when no pet is out (when one is,
+          they puff off the pet instead — see FloatingPet's PetHeartField). The
+          lane spans the thread, stopping above the composer + status stack.
+          Note: every mounted ChatScreen shares one emitter, so a burst plays in
+          each open tile — desktop behaves the same way. */}
+      {!petActive && (
+        <HeartField
+          className="absolute inset-x-0 z-30"
+          config={COMPOSER_HEART_CONFIG}
+          style={{
+            top: 0,
+            bottom: 'calc(var(--composer-measured-height) + var(--status-stack-measured-height) + 0.25rem)'
+          }}
+        />
+      )}
 
       {/* OS file drag-and-drop affordance — covers the whole chat area (Tauri
           delivers drops window-globally; the drop is handled by useFileDrop). */}

@@ -320,6 +320,7 @@ export interface Translations {
       archivedChats: string
       about: string
       notifications: string
+      billing: string
       plugins: string
     }
     plugins: {
