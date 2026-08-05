@@ -15,20 +15,43 @@
  * then nothing we measure happened for 200ms". A gap is not a stage; it is the
  * ABSENCE of one, and no histogram has a bucket for it. Spans do.
  *
- * ONE RUN, NOT MANY. Percentiles over 500 samples describe a distribution but
- * cannot say that on frame 41 a store write fanned out into a 180ms commit that
- * then blocked the next four frames. Causality only survives in a single trace,
- * so this keeps whole runs and exports them rather than folding them into
- * moments.
+ * ONE CAPTURE, ONE TRACE
+ *
+ * Everything recorded between `setRecording(true)` and `setRecording(false)`
+ * belongs to a single trace, hung off a single `capture` root span.
+ *
+ * The first version instead made every span with an empty stack a ROOT, and
+ * minted a trace id per root. That reads as reasonable and is catastrophic in
+ * practice, because *every* seam in this app is entered from a fresh task —
+ * a PerformanceObserver callback, a Tauri event listener, a React render, an
+ * await continuation — at which point the stack is always empty. So every span
+ * was a root: one session produced 573 traces, essentially all of them a single
+ * span, and nothing nested inside anything. `gapMs` had nothing to subtract
+ * from and Jaeger had nothing to draw.
+ *
+ * Hence `currentParent()`: the synchronous stack when there is one, and the
+ * capture root otherwise. A span with no discoverable parent is not evidence
+ * that a new trace started — it is evidence that the work was scheduled, which
+ * is the normal case in a browser.
+ *
+ * IDENTITY IS A SERIAL, NOT A BUFFER INDEX
+ *
+ * Spans are addressed by a monotonic serial that no drain resets, and a parent
+ * is stored as its parent's SERIAL. That is what lets a trace outlive a flush:
+ * the exporter ships completed spans every couple of seconds and compacts the
+ * buffer, and a child recorded three drains after its parent still points at
+ * the right span. With indices it could not — `clearSpans` recycles them, so a
+ * long operation (an SSH connect runs 45–90s, roughly 45 drains) would graft
+ * its later spans onto whatever unrelated span had inherited the index.
  *
  * COST WHEN OFF
  *
  * Recording is off by default and this module ships in release builds, so
  * "off" has to be genuinely free: every entry point early-returns on one
  * boolean. That is the whole prod cost — no allocation, no timestamp, no work.
- * Enabling it is an explicit act (a console call today; a Diagnostics toggle
- * later), which is what makes it safe to have a user turn on while reproducing
- * a bug and hand back the result.
+ * Enabling it is an explicit act (the dev HUD, or `__hermesTrace.on()`), which
+ * is what makes it safe to have a user turn on while reproducing a bug and hand
+ * back the result.
  *
  * CLOCK CAVEAT
  *
@@ -39,31 +62,40 @@
  */
 
 /**
- * Spans retained per run. A 10-second drag at 60fps with a handful of spans per
- * frame fits comfortably; a streaming session with store autocapture will hit
- * it, which is what the noise floor in `auto/stores.ts` exists to prevent.
+ * Spans held between drains.
+ *
+ * This used to have to cover a whole capture, because a drain destroyed the
+ * buffer's parent relationships and so could only happen between interactions.
+ * It now only has to cover one drain interval (2s) plus whatever is still open,
+ * so the same number is comfortable rather than tight.
+ *
+ * Overflow still DROPS rather than wraps — see `beginSpan`.
  */
 const CAPACITY = 8192
 
-/** Sentinel returned when not recording. `endSpan` ignores it. */
-export const NO_SPAN = -1
+/**
+ * How long one capture may run before it is rolled into a fresh trace.
+ *
+ * One trace per capture is what makes a waterfall readable, but it has a
+ * failure mode: someone turns recording on, forgets, and comes back to a trace
+ * with a quarter million spans that Jaeger will not open. Rolling puts a
+ * ceiling on that at the cost of a seam every ten minutes, which is a much
+ * better trade than an unopenable trace.
+ */
+const DEFAULT_MAX_CAPTURE_MS = 10 * 60 * 1000
+
+/**
+ * Sentinel returned when not recording. `endSpan` ignores it.
+ *
+ * 0 rather than -1 because serials start at 1 — and because OTLP already
+ * reserves an all-zero span id as "none", so the two agree.
+ */
+export const NO_SPAN = 0
 
 let recording = false
 
 export function isRecording(): boolean {
   return recording
-}
-
-/**
- * Turn recording on or off. Off also clears, so a session never accumulates a
- * stale prefix from before someone started paying attention.
- */
-export function setRecording(on: boolean): void {
-  recording = on
-
-  if (!on) {
-    clearSpans()
-  }
 }
 
 const now = (): number => (typeof performance === 'undefined' ? Date.now() : performance.now())
@@ -78,45 +110,191 @@ const now = (): number => (typeof performance === 'undefined' ? Date.now() : per
 const names: string[] = []
 const nameIds = new Map<string, number>()
 const spanName = new Int32Array(CAPACITY)
-const spanParent = new Int32Array(CAPACITY)
+/** This span's stable identity. Survives every drain. */
+const spanSerial = new Float64Array(CAPACITY)
+/** The PARENT'S serial, not its buffer index. 0 means no parent. */
+const spanParent = new Float64Array(CAPACITY)
 const spanStart = new Float64Array(CAPACITY)
 const spanEnd = new Float64Array(CAPACITY)
 /**
- * Which trace each span belongs to. A root span takes the next trace number; a
- * child copies its parent's. See `nextTrace` for why this is not derived from
- * the span's index.
+ * Which capture (trace) each span belongs to. Normally the current one — the
+ * column exists so that spans recorded either side of a capture roll do not get
+ * merged into whichever trace happens to be open at export time.
  */
 const spanTrace = new Float64Array(CAPACITY)
-/** Sparse — only spans actually given attributes appear here. */
+/**
+ * 1 when this span was pushed onto the synchronous stack, so `endSpan` knows
+ * whether to unwind. Detached spans (see `beginDetached`) never are.
+ */
+const spanStacked = new Uint8Array(CAPACITY)
+/** Sparse — only spans actually given attributes appear here, keyed by index. */
 const spanAttrs = new Map<number, SpanAttrs>()
 
 let count = 0
+
 /**
- * Monotonic across the whole page — and deliberately NOT reset by `clearSpans`.
- *
- * Trace ids used to be derived from the root span's INDEX, which broke as soon
- * as the exporter started draining: `clearSpans` sets `count = 0`, so root index
- * 0 in one flush window and root index 0 in the next produced the same trace id
- * (and the same span ids). Jaeger keys on trace id, so unrelated interactions
- * silently merged into one trace, and a long operation spanning many drains
- * could attach its children to whatever trace later occupied the same index.
- *
- * A counter that survives the drain fixes it: identity comes from when a trace
- * STARTED, not from where its span happens to sit in the current buffer.
+ * Monotonic span identity. Deliberately NOT reset by `clearSpans` — that is the
+ * entire point; see the module comment.
  */
-let traceCounter = 0
-/** Open spans, innermost last. Gives each new span its parent. */
+let serialCounter = 0
+/** Monotonic capture identity, which becomes the trace id. Also never reset. */
+let captureCounter = 0
+
+/** Open spans (stack-pushed ones only), innermost last. Holds buffer indices. */
 const stack: number[] = []
+
+/**
+ * Serial → buffer index, for spans opened by `beginSpan`/`beginDetached` and not
+ * yet ended.
+ *
+ * Only OPEN spans are in here, so it stays the size of the nesting depth plus
+ * whatever async work is in flight — a handful of entries, not thousands. That
+ * is what makes a Map affordable on a path this hot: `recordSpan`, which is the
+ * high-volume entry point, never touches it.
+ */
+const openIndex = new Map<number, number>()
 
 export type SpanAttrs = Record<string, number | string>
 
+// ─── Capture lifecycle ──────────────────────────────────────────────────────
+
+/** The root span every other span in a capture hangs from. */
+export interface CaptureRoot {
+  attrs?: SpanAttrs
+  /** Absent while the capture is still open. */
+  endMs?: number
+  name: string
+  serial: number
+  startMs: number
+  trace: number
+}
+
+let captureTrace = 0
+let captureRootSerial = 0
+let captureName = 'capture'
+let captureAttrs: SpanAttrs | undefined
+let captureStart = 0
+let captureEnd: number | undefined
+let maxCaptureMs = DEFAULT_MAX_CAPTURE_MS
+
+function openCapture(label?: string): void {
+  captureCounter += 1
+  serialCounter += 1
+
+  captureTrace = captureCounter
+  captureRootSerial = serialCounter
+  captureName = label ? `capture ${label}` : 'capture'
+  captureAttrs = label ? { run: label } : undefined
+  captureStart = now()
+  captureEnd = undefined
+}
+
 /**
- * The trace number for a span with the given parent: a new one for a root,
- * otherwise the parent's. Called once per span, on the hot path, so it stays a
- * single array read rather than a walk to the root.
+ * Turn recording on or off.
+ *
+ * Turning ON clears whatever was left in the buffer and opens a fresh capture,
+ * so a session never accumulates a stale prefix from before someone started
+ * paying attention.
+ *
+ * Turning OFF stamps the capture root's end but deliberately does NOT clear:
+ * the spans are the thing being collected, and the exporter still has to ship
+ * them. It calls `clearSpans` once the final flush is away.
  */
-function traceFor(parent: number): number {
-  return parent === -1 ? (traceCounter += 1) : spanTrace[parent]
+export function setRecording(on: boolean, label?: string): void {
+  if (on) {
+    clearSpans()
+    openCapture(label)
+    recording = true
+
+    return
+  }
+
+  if (recording) {
+    captureEnd = now()
+  }
+
+  recording = false
+}
+
+/**
+ * Roll into a fresh capture if this one has run past its ceiling.
+ *
+ * Called from the exporter's drain rather than from the recording path: it is a
+ * clock comparison that only needs to be right within a couple of seconds, and
+ * the drain already runs on that cadence. Keeping it off `beginSpan` keeps the
+ * hot path at one boolean.
+ *
+ * Returns the closed capture root when it rolls, so the caller can ship it.
+ */
+export function rollCaptureIfStale(): CaptureRoot | null {
+  if (!recording || now() - captureStart < maxCaptureMs) {
+    return null
+  }
+
+  captureEnd = now()
+
+  const closed = captureRoot()
+
+  rootTaken = closed.serial
+  openCapture(captureAttrs?.run as string | undefined)
+
+  return closed
+}
+
+let rootTaken = 0
+
+/**
+ * The capture root, once, and only once the capture has closed.
+ *
+ * A root span can only be sent with its real end time, which is not known until
+ * recording stops — so between start and stop the trace is deliberately
+ * ROOTLESS in Jaeger. It is browsable that way, just missing its top bar, and
+ * it completes the moment the capture does. The alternative, re-sending the
+ * root on every drain with a provisional end, leaves Jaeger holding a dozen
+ * copies of one span id.
+ */
+export function takeCaptureRoot(): CaptureRoot | null {
+  if (captureEnd === undefined || rootTaken === captureRootSerial) {
+    return null
+  }
+
+  rootTaken = captureRootSerial
+
+  return captureRoot()
+}
+
+export function setMaxCaptureMs(ms: number): void {
+  maxCaptureMs = ms
+}
+
+/** The current capture's root span. Its `endMs` is absent until recording stops. */
+export function captureRoot(): CaptureRoot {
+  return {
+    attrs: captureAttrs,
+    endMs: captureEnd,
+    name: captureName,
+    serial: captureRootSerial,
+    startMs: captureStart,
+    trace: captureTrace
+  }
+}
+
+/** True once recording has stopped and the root is ready to be exported. */
+export function isCaptureClosed(): boolean {
+  return captureEnd !== undefined
+}
+
+// ─── Recording ──────────────────────────────────────────────────────────────
+
+/**
+ * The serial a new span should hang from: the innermost open span, or the
+ * capture root when nothing is open.
+ *
+ * The fallback is the whole fix. Returning "no parent" here is what turned
+ * every scheduled callback into its own trace.
+ */
+function currentParent(): number {
+  return stack.length > 0 ? spanSerial[stack[stack.length - 1]] : captureRootSerial
 }
 
 function intern(name: string): number {
@@ -134,10 +312,29 @@ function intern(name: string): number {
   return id
 }
 
-// ─── Recording ──────────────────────────────────────────────────────────────
+/** Write the shared columns for a new span and return its buffer index. */
+function alloc(name: string, parent: number, startMs: number, endMs: number, attrs?: SpanAttrs): number {
+  const index = count++
+
+  serialCounter += 1
+
+  spanName[index] = intern(name)
+  spanSerial[index] = serialCounter
+  spanParent[index] = parent
+  spanTrace[index] = captureTrace
+  spanStart[index] = startMs
+  spanEnd[index] = endMs
+  spanStacked[index] = 0
+
+  if (attrs) {
+    spanAttrs.set(index, attrs)
+  }
+
+  return index
+}
 
 /**
- * Open a span. The returned id must be passed to `endSpan`.
+ * Open a span. The returned serial must be passed to `endSpan`.
  *
  * Overflow DROPS new spans rather than wrapping. A ring buffer would leave
  * spans whose parents had been overwritten by their own children, which renders
@@ -149,39 +346,65 @@ export function beginSpan(name: string, attrs?: SpanAttrs): number {
     return NO_SPAN
   }
 
-  const id = count++
-  const parent = stack.length > 0 ? stack[stack.length - 1] : -1
+  const index = alloc(name, currentParent(), now(), NaN, attrs)
 
-  spanName[id] = intern(name)
-  spanParent[id] = parent
-  spanTrace[id] = traceFor(parent)
-  spanStart[id] = now()
-  spanEnd[id] = NaN
+  spanStacked[index] = 1
+  stack.push(index)
+  openIndex.set(spanSerial[index], index)
 
-  if (attrs) {
-    spanAttrs.set(id, attrs)
-  }
-
-  stack.push(id)
-
-  return id
+  return spanSerial[index]
 }
 
-export function endSpan(id: number, attrs?: SpanAttrs): void {
-  if (id === NO_SPAN) {
+/**
+ * Open a span that does NOT join the synchronous stack.
+ *
+ * For work that spans an `await`. A synchronous LIFO and an async operation are
+ * incompatible: `http.request` used to sit on the stack for the whole round
+ * trip, so every unrelated span opened while a request was in flight became its
+ * child, and closing it truncated the stack out from under spans that were
+ * legitimately open. Capturing the parent at call time and staying off the
+ * stack gets the parentage right without corrupting anyone else's.
+ */
+export function beginDetached(name: string, attrs?: SpanAttrs): number {
+  if (!recording || count >= CAPACITY) {
+    return NO_SPAN
+  }
+
+  const index = alloc(name, currentParent(), now(), NaN, attrs)
+
+  openIndex.set(spanSerial[index], index)
+
+  return spanSerial[index]
+}
+
+export function endSpan(serial: number, attrs?: SpanAttrs): void {
+  if (serial === NO_SPAN) {
     return
   }
 
-  spanEnd[id] = now()
+  const index = openIndex.get(serial)
+
+  if (index === undefined) {
+    // Already ended, or drained away underneath us. Either way there is nothing
+    // to close and nothing worth complaining about.
+    return
+  }
+
+  spanEnd[index] = now()
+  openIndex.delete(serial)
 
   if (attrs) {
-    spanAttrs.set(id, { ...spanAttrs.get(id), ...attrs })
+    spanAttrs.set(index, { ...spanAttrs.get(index), ...attrs })
+  }
+
+  if (!spanStacked[index]) {
+    return
   }
 
   // Unwind TO this span, tolerating an unbalanced end. Spans wrap callbacks
   // that can throw or be abandoned mid-gesture, and one leaked frame span must
   // not silently reparent the entire rest of the run underneath itself.
-  const at = stack.lastIndexOf(id)
+  const at = stack.lastIndexOf(index)
 
   if (at !== -1) {
     stack.length = at
@@ -191,28 +414,21 @@ export function endSpan(id: number, attrs?: SpanAttrs): void {
 /**
  * Record an ALREADY-FINISHED span from timestamps handed to you.
  *
- * For work that reports itself after the fact — React's Profiler and the
- * PerformanceObserver entries are both like this. They fire once the work is
- * complete and supply its real start and end, so a begin/end pair here would
- * record a zero-length span at the wrong point in the waterfall.
+ * For work that reports itself after the fact — the PerformanceObserver entries
+ * and react-shiki's highlight completion are both like this. They fire once the
+ * work is complete and supply its real start and end, so a begin/end pair here
+ * would record a zero-length span at the wrong point in the waterfall.
+ *
+ * `parent` is explicit for exactly that reason: a late report arrives on some
+ * unrelated task, so "whatever is on the stack right now" is the wrong answer
+ * whenever the caller knows better.
  */
-export function recordSpan(name: string, startMs: number, endMs: number, attrs?: SpanAttrs): void {
+export function recordSpan(name: string, startMs: number, endMs: number, attrs?: SpanAttrs, parent?: number): void {
   if (!recording || count >= CAPACITY) {
     return
   }
 
-  const id = count++
-  const parent = stack.length > 0 ? stack[stack.length - 1] : -1
-
-  spanName[id] = intern(name)
-  spanParent[id] = parent
-  spanTrace[id] = traceFor(parent)
-  spanStart[id] = startMs
-  spanEnd[id] = endMs
-
-  if (attrs) {
-    spanAttrs.set(id, attrs)
-  }
+  alloc(name, parent ?? currentParent(), startMs, endMs, attrs)
 }
 
 /** Span a synchronous call. Returns whatever `fn` returns, always. */
@@ -230,13 +446,41 @@ export function span<T>(name: string, fn: () => T, attrs?: SpanAttrs): T {
   }
 }
 
+/**
+ * Span an async call. The span is detached, so concurrent work is not swept
+ * underneath it and its completion cannot truncate anyone else's stack.
+ */
+export async function spanAsync<T>(name: string, fn: () => Promise<T>, attrs?: SpanAttrs): Promise<T> {
+  if (!recording) {
+    return fn()
+  }
+
+  const id = beginDetached(name, attrs)
+
+  try {
+    const result = await fn()
+
+    endSpan(id)
+
+    return result
+  } catch (error) {
+    // Close it before rethrowing, and mark it — a failed operation that simply
+    // vanished from the trace is worse than no instrumentation, because the gap
+    // it leaves looks like idle time.
+    endSpan(id, { error: 'true' })
+
+    throw error
+  }
+}
+
 export function clearSpans(): void {
   count = 0
   stack.length = 0
   spanAttrs.clear()
+  openIndex.clear()
 }
 
-/** True when no span is open — the only safe moment to drain the buffer. */
+/** True when no span is open. */
 export function isIdle(): boolean {
   return stack.length === 0
 }
@@ -245,22 +489,120 @@ export function spanCount(): number {
   return count
 }
 
+/** How deep the synchronous stack is right now — a live readout for the HUD. */
+export function openSpanCount(): number {
+  return stack.length
+}
+
 // ─── Reading ────────────────────────────────────────────────────────────────
 
-export interface TraceSpan {
+/** A span as the exporter sees it: flat, no derived analysis. */
+export interface ExportSpan {
   attrs?: SpanAttrs
+  endMs: number
+  name: string
+  /** Parent's serial, or 0 for none. */
+  parent: number
+  serial: number
+  startMs: number
+  trace: number
+}
+
+export interface TraceSpan extends ExportSpan {
   depth: number
   durationMs: number
   /** Time inside this span covered by NO child — the residue that matters. */
   gapMs: number
-  id: number
-  name: string
-  parent: number
-  startMs: number
+}
+
+function read(index: number): ExportSpan {
+  return {
+    attrs: spanAttrs.get(index),
+    endMs: spanEnd[index],
+    name: names[spanName[index]],
+    parent: spanParent[index],
+    serial: spanSerial[index],
+    startMs: spanStart[index],
+    trace: spanTrace[index]
+  }
 }
 
 /**
- * Time within `id` that none of its direct children cover.
+ * Take every FINISHED span out of the buffer, leaving the open ones in place.
+ *
+ * This is what makes a capture longer than one flush interval possible. The
+ * open spans are compacted to the front and the stack rewritten to their new
+ * indices; because children reference a parent's SERIAL rather than its slot,
+ * everything recorded after this still resolves to the right parent — including
+ * spans whose parent left in an earlier batch.
+ */
+export function takeCompleted(): ExportSpan[] {
+  const batch: ExportSpan[] = []
+  const keptAttrs = new Map<number, SpanAttrs>()
+  let kept = 0
+
+  for (let i = 0; i < count; i += 1) {
+    if (!Number.isNaN(spanEnd[i])) {
+      batch.push(read(i))
+
+      continue
+    }
+
+    const to = kept
+
+    kept += 1
+
+    const attrs = spanAttrs.get(i)
+
+    if (attrs) {
+      keptAttrs.set(to, attrs)
+    }
+
+    if (to === i) {
+      continue
+    }
+
+    spanName[to] = spanName[i]
+    spanSerial[to] = spanSerial[i]
+    spanParent[to] = spanParent[i]
+    spanTrace[to] = spanTrace[i]
+    spanStart[to] = spanStart[i]
+    spanEnd[to] = spanEnd[i]
+    spanStacked[to] = spanStacked[i]
+
+    // Detached spans are open but never on the stack, hence the guard.
+    const at = stack.indexOf(i)
+
+    if (at !== -1) {
+      stack[at] = to
+    }
+
+    openIndex.set(spanSerial[to], to)
+  }
+
+  count = kept
+  spanAttrs.clear()
+
+  for (const [index, attrs] of keptAttrs) {
+    spanAttrs.set(index, attrs)
+  }
+
+  return batch
+}
+
+/** Everything currently held, without disturbing the buffer. */
+export function peekAll(): ExportSpan[] {
+  const out: ExportSpan[] = []
+
+  for (let i = 0; i < count; i += 1) {
+    out.push(read(i))
+  }
+
+  return out
+}
+
+/**
+ * Time within a span that none of its direct children cover.
  *
  * This is the number the module exists to produce. A frame span of 200ms whose
  * children sum to 20ms says the other 180ms went somewhere with no
@@ -270,19 +612,14 @@ export interface TraceSpan {
  * Overlapping children are merged before subtracting, so two concurrent
  * children cannot be counted twice and drive the gap negative.
  */
-function selfGap(id: number): number {
-  const ranges: [number, number][] = []
-
-  for (let i = 0; i < count; i += 1) {
-    if (spanParent[i] === id && !Number.isNaN(spanEnd[i])) {
-      ranges.push([spanStart[i], spanEnd[i]])
-    }
-  }
-
-  ranges.sort((a, b) => a[0] - b[0])
+function selfGap(startMs: number, endMs: number, children: ExportSpan[]): number {
+  const ranges = children
+    .filter(child => !Number.isNaN(child.endMs))
+    .map(child => [child.startMs, child.endMs] as const)
+    .sort((a, b) => a[0] - b[0])
 
   let covered = 0
-  let cursor = spanStart[id]
+  let cursor = startMs
 
   for (const [from, to] of ranges) {
     const start = Math.max(from, cursor)
@@ -293,53 +630,59 @@ function selfGap(id: number): number {
     }
   }
 
-  const end = Number.isNaN(spanEnd[id]) ? spanStart[id] : spanEnd[id]
-
-  return Math.max(0, end - spanStart[id] - covered)
-}
-
-function depthOf(id: number): number {
-  let depth = 0
-  let cursor = spanParent[id]
-
-  // Bounded: a cycle would otherwise hang the reader, and this runs on a
-  // buffer that unbalanced ends can in principle scramble.
-  while (cursor !== -1 && depth < 64) {
-    depth += 1
-    cursor = spanParent[cursor]
-  }
-
-  return depth
+  return Math.max(0, endMs - startMs - covered)
 }
 
 /**
- * Which trace this span belongs to. One trace per interaction.
+ * The console reader: every held span with its depth and its gap.
  *
- * Replaces an earlier `rootOf(id)` walk: keying on the root's INDEX looked
- * equivalent and was not, because indices are recycled by `clearSpans` while
- * traces are not. See `traceCounter`.
+ * Kept separate from `takeCompleted` because the two want different things.
+ * The exporter wants a flat batch as cheaply as possible every two seconds;
+ * this wants derived analysis, once, when a human asks. Computing the analysis
+ * on the export path made every drain O(n²) — `selfGap` scanned the whole
+ * buffer per span — for numbers nothing on that path reads.
  */
-export function traceOf(id: number): number {
-  return spanTrace[id]
-}
-
 export function spans(): TraceSpan[] {
-  const out: TraceSpan[] = []
+  const all = peekAll()
+  const bySerial = new Map<number, ExportSpan>()
+  const children = new Map<number, ExportSpan[]>()
 
-  for (let i = 0; i < count; i += 1) {
-    const end = Number.isNaN(spanEnd[i]) ? spanStart[i] : spanEnd[i]
+  for (const s of all) {
+    bySerial.set(s.serial, s)
 
-    out.push({
-      attrs: spanAttrs.get(i),
-      depth: depthOf(i),
-      durationMs: end - spanStart[i],
-      gapMs: selfGap(i),
-      id: i,
-      name: names[spanName[i]],
-      parent: spanParent[i],
-      startMs: spanStart[i]
-    })
+    const siblings = children.get(s.parent)
+
+    if (siblings) {
+      siblings.push(s)
+    } else {
+      children.set(s.parent, [s])
+    }
   }
 
-  return out
+  const depthOf = (s: ExportSpan): number => {
+    let depth = 0
+    let cursor = bySerial.get(s.parent)
+
+    // Bounded: a cycle would otherwise hang the reader, and this runs on a
+    // buffer that unbalanced ends can in principle scramble. A parent that
+    // drained in an earlier batch simply stops the walk — the span is shown at
+    // the depth its still-present ancestry implies.
+    while (cursor && depth < 64) {
+      depth += 1
+      cursor = bySerial.get(cursor.parent)
+    }
+
+    return depth
+  }
+
+  return all.map(s => {
+    const end = Number.isNaN(s.endMs) ? s.startMs : s.endMs
+
+    return {
+      ...s,
+      depth: depthOf(s),
+      durationMs: end - s.startMs,
+      gapMs: selfGap(s.startMs, end, children.get(s.serial) ?? [])
+    }
+  })
 }

@@ -10,7 +10,7 @@
  * it costs nothing while recording is off.
  */
 
-import { beginSpan, endSpan } from '../span'
+import { spanAsync } from '../span'
 
 /**
  * Strip a URL down to something safe to put in a span.
@@ -29,21 +29,16 @@ export function safeUrl(url: string): string {
   }
 }
 
-export async function spanHttp<T>(method: string, url: string, run: () => Promise<T>): Promise<T> {
-  const id = beginSpan('http.request', { method, path: safeUrl(url) })
-
-  try {
-    const result = await run()
-
-    endSpan(id)
-
-    return result
-  } catch (error) {
-    // Close the span before rethrowing, and mark it — a failed request that
-    // simply vanished from the trace is worse than no instrumentation, because
-    // the gap it leaves looks like idle time.
-    endSpan(id, { error: 'true' })
-
-    throw error
-  }
+/**
+ * `spanAsync`, not `span`, and that distinction is load-bearing.
+ *
+ * This used to open a stack-pushed span and hold it across the `await`. A
+ * synchronous LIFO cannot describe an in-flight request: every unrelated span
+ * opened while the round trip was outstanding became a child of it, and closing
+ * it truncated the stack out from under spans that were legitimately open. A
+ * detached span records the same interval and gets its parent from where the
+ * call was MADE, which is the honest answer.
+ */
+export function spanHttp<T>(method: string, url: string, run: () => Promise<T>): Promise<T> {
+  return spanAsync('http.request', run, { method, path: safeUrl(url) })
 }
