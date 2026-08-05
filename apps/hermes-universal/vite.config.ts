@@ -20,9 +20,22 @@ const reactDir = dirname(require.resolve('react/package.json'))
 
 /**
  * Default label for traces, so an unlabelled capture still says where it came
- * from. `VITE_TRACE_RUN` overrides it at dev/build time and
- * `__hermesTrace.run(...)` overrides it at runtime — see src/observability/run.ts.
+ * from. `__hermesTrace.run(...)` overrides it at runtime — see
+ * src/observability/run.ts.
  *
+ * `HERMES_TRACE_RUN` names BOTH halves of a full-stack trace from one variable.
+ * The Rust backend reads it from the real environment at startup; a webview has
+ * no environment, so the same name has to be baked in at build time here.
+ * Without this the two halves would need separate labels for the same run, and
+ * the exact pair worth correlating — a frontend span and the Rust work it
+ * caused — would be filed under different names in the one UI built to
+ * correlate them.
+ */
+function traceRunDefault(): string {
+  return process.env.HERMES_TRACE_RUN || gitBranch()
+}
+
+/**
  * Resolved here rather than in the app because the app cannot read git. Failure
  * is expected and silent: a tarball, a CI checkout in detached HEAD, or no git
  * at all should not break the build over a label.
@@ -82,7 +95,7 @@ const storeNamePlugin = {
 
 export default defineConfig({
   define: {
-    __TRACE_RUN_DEFAULT__: JSON.stringify(gitBranch())
+    __TRACE_RUN_DEFAULT__: JSON.stringify(traceRunDefault())
   },
   plugins: [react(), tailwindcss(), ...(STORE_TRACING ? [storeNamePlugin] : [])],
   // Tailwind v4 is handled entirely by `@tailwindcss/vite`; pin an explicit

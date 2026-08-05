@@ -95,8 +95,13 @@ mod imp {
         std::env::var("HERMES_TRACE_ENDPOINT").unwrap_or_else(|_| DEFAULT_ENDPOINT.to_string())
     }
 
-    /// Matches the frontend's `hermes.run` label so both halves of one
-    /// experiment are findable together in Jaeger.
+    /// The experiment label, shared with the frontend.
+    ///
+    /// `HERMES_TRACE_RUN` is read here from the real environment and baked into
+    /// the bundle by vite.config.ts, so one variable names both halves and they
+    /// stay findable together in Jaeger. Setting only `VITE_TRACE_RUN`, or
+    /// calling `__hermesTrace.run()` at runtime, moves the frontend alone and
+    /// leaves the backend on whatever it was launched with.
     fn run_label() -> String {
         std::env::var("HERMES_TRACE_RUN").unwrap_or_else(|_| "local".to_string())
     }
