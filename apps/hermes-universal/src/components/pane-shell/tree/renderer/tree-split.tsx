@@ -16,7 +16,8 @@ import { $paneStates, type PaneStateSnapshot, setPaneHeightOverride, setPaneWidt
 import { $layoutEditMode } from '../../edit-mode'
 import { type EnclosureContext, zoneEnclosure } from '../../tile/enclosure'
 import { useTiles } from '../../tile/registry'
-import { tileSizing, type TileSizing } from '../../tile/types'
+import { tileAxisLength, tileClamps } from '../../tile/sizing'
+import type { TileSizing } from '../../tile/types'
 import { type TileContext, tileGone } from '../../tile/visibility'
 import type { LayoutNode, SplitNode } from '../model'
 import { allPaneIds } from '../model'
@@ -31,7 +32,6 @@ import {
 
 import {
   computedPx,
-  cssMax,
   edgeFixedZone,
   fixedTrackSize,
   MIN_PANE_PX,
@@ -144,19 +144,7 @@ export function TreeSplit({ node, root, rootRow }: { node: SplitNode; root?: boo
       return paneFor(shownIds[0])?.sizing ?? null
     }
 
-    // Fixed STACK: floors take the largest declared min; caps stay unbounded
-    // unless EVERY pane declares one (a single uncapped tenant uncaps the
-    // zone). Same largest-tenant basis as the track size — never per-tab.
-    const all = shownIds.map(id => tileSizing(paneFor(id)))
-
-    const cap = (pick: (s: TileSizing) => string | undefined) => (all.every(pick) ? cssMax(all.map(pick)) : undefined)
-
-    return {
-      minWidth: cssMax(all.map(s => s.minWidth)),
-      maxWidth: cap(s => s.maxWidth),
-      minHeight: cssMax(all.map(s => s.minHeight)),
-      maxHeight: cap(s => s.maxHeight)
-    }
+    return tileClamps(shownIds.map(paneFor))
   }
 
   // Sashes pair each visible child with its nearest visible PREVIOUS sibling
@@ -341,8 +329,9 @@ export function TreeSplit({ node, root, rootRow }: { node: SplitNode; root?: boo
         let px: number | null = null
 
         for (const paneId of shownPaneIds(child, trackCtx)) {
-          const sizing = tileSizing(paneFor(paneId))
-          const css = horizontal ? sizing.width : sizing.height
+          // No override: the sash cleared it above, and we want the zone's
+          // NATURAL default to drag from.
+          const css = tileAxisLength(paneFor(paneId), axis)
           const resolved = css ? resolveCssPx(container, css, horizontal) : null
 
           if (resolved !== null) {

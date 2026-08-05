@@ -7,8 +7,8 @@
  * live pane contributions; the React split renderer reads it per render.
  */
 
+import { cssMax, tileAxisLength } from '../../tile/sizing'
 import type { Tile } from '../../tile/types'
-import { tileSizing } from '../../tile/types'
 import type { GroupNode, LayoutNode } from '../model'
 import { allPaneIds } from '../model'
 
@@ -60,14 +60,6 @@ export interface TrackContext {
 export const shownPaneIds = (group: GroupNode, ctx: TrackContext): string[] =>
   group.panes.filter(id => !ctx.paneGone(id))
 
-/** max() of the defined CSS lengths (deduped); undefined when none — the
- *  largest-tenant basis a fixed stack and its clamps both size from. */
-export const cssMax = (values: (string | null | undefined)[]): string | undefined => {
-  const unique = [...new Set(values.filter((v): v is string => Boolean(v)))]
-
-  return unique.length === 0 ? undefined : unique.length === 1 ? unique[0] : `max(${unique.join(', ')})`
-}
-
 /**
  * THE TRACK MODEL. A node's size along `axis` is FIXED when it resolves to a
  * CSS length, and FLEX (weight-shared leftover) when null:
@@ -98,23 +90,7 @@ export function fixedTrackSize(node: LayoutNode, axis: 'row' | 'column', ctx: Tr
     }
 
     const overrideKey = axis === 'row' ? 'widthOverride' : 'heightOverride'
-
-    const declared = (id: string) => {
-      const sizing = tileSizing(ctx.paneFor(id))
-      const css = (axis === 'row' ? sizing.width : sizing.height) ?? null
-      const override = ctx.overrides[id]?.[overrideKey]
-
-      // An override only refines a pane that DECLARES a size along this axis
-      // (sash drags write overrides to fixed zones only). One without a
-      // declaration is stale data from another surface — honoring it would
-      // turn a flex-at-heart zone (main!) into a fixed track and hand the
-      // whole leftover to the run's absorber.
-      if (css !== null && override !== undefined) {
-        return `${override}px`
-      }
-
-      return css
-    }
+    const declared = (id: string) => tileAxisLength(ctx.paneFor(id), axis, ctx.overrides[id]?.[overrideKey])
 
     // Which zones are FIXED tracks:
     //  - a MAIN-bearing zone (workspace/tile stacked in) is flex-at-heart —
