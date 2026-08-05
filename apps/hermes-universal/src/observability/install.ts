@@ -11,11 +11,15 @@
  * all away.
  */
 
+import { installEventTiming } from './auto/events'
+
 const DEV_TOOLS_ENABLED = import.meta.env.DEV || import.meta.env.VITE_ENABLE_BENCH === 'true'
 
 export function installObservability(): void {
-  // Autocaptures that SHIP go here, unconditionally — they cost nothing while
-  // recording is off and they are the ones worth having from a real user.
+  // SHIPS. One PerformanceObserver, no code in any interaction path, and it
+  // records nothing while recording is off — so there is no reason to withhold
+  // it from the builds where the interesting jank actually happens.
+  installEventTiming()
 
   if (!DEV_TOOLS_ENABLED) {
     return
