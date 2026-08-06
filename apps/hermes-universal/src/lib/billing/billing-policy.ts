@@ -1,6 +1,7 @@
-// VENDORED from apps/shared/src/billing-policy.ts (the app is not a pnpm workspace, so a
-// `@hermes/shared` dependency can't be resolved by the Android build's package
-// manager). Keep in sync with apps/shared if the billing contracts change.
+// VENDORED from apps/shared/src/billing-policy.ts. Historical: the app used to sit outside the npm
+// workspace, so a `@hermes/shared` dependency could not be resolved. It is a
+// workspace member now, so this copy can be replaced with a real import.
+// Until then, keep in sync with apps/shared if the billing contracts change.
 import type { KnownBillingRefusalCode } from './billing-types'
 
 export type BillingRecovery = 'login' | 'none' | 'portal' | 'reconnect' | 'retry' | 'step_up'

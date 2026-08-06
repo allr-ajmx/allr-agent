@@ -21,8 +21,14 @@ import { IS_MOBILE } from './lib/platform'
 import { queryClient } from './lib/query-client'
 import { initSafeAreaInsets } from './lib/safe-area'
 import { restoreSessionCookies } from './lib/session-persist'
+import { installObservability } from './observability/install'
 import { autoRestoreConnection } from './store/gateway-restore'
 import { ThemeProvider } from './themes'
+
+// Span tracing. Installed FIRST so boot-time work falls inside the trace rather
+// than before it. Recording is off by default, so this is a no-op until someone
+// asks for it — see src/observability/index.ts.
+installObservability()
 
 // Rehydrate a persisted gateway/cloud session into the Rust cookie jar (R2b), THEN
 // auto-reconnect to the last-used gateway (D8). Cookies first so a cookie-backed

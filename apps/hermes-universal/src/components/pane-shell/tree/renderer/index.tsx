@@ -21,7 +21,9 @@
  */
 
 import { useStore } from '@nanostores/react'
-import { type ReactNode, useEffect } from 'react'
+import { Profiler, type ReactNode, useEffect } from 'react'
+
+import { DEV_TOOLS_ENABLED } from '@/observability/enabled'
 
 import { useLayoutEditHotkey } from '../../edit-mode'
 import { publishWorkspaceGeometry } from '../../geometry'
@@ -30,7 +32,9 @@ import { ZoneEditor } from '../zone-editor'
 
 import { TreeEditBar } from './edit-bar'
 import { NarrowOverlays } from './narrow-overlays'
+import { notifyReactCommit } from './telemetry'
 import { TreeNode } from './tree-node'
+
 
 export function LayoutTreeRoot({ children }: { children?: ReactNode }) {
   const tree = useStore($layoutTree)
@@ -71,7 +75,18 @@ export function LayoutTreeRoot({ children }: { children?: ReactNode }) {
           display: none;
         }
       `}</style>
-      <TreeNode node={tree} root rootRow={tree.type === 'split' && tree.orientation === 'row'} />
+      {/* The React commit is the measurement that adjudicates "is the layout
+          tree re-rendering more than it needs to" — the question MJXHRM-139
+          answered by hand (109 commits / 2565ms in a 9-second drag) and nobody
+          could ask again without repeating the work. Dev/bench only: Profiler
+          adds per-commit timing to its whole subtree, so it must not ship. */}
+      {DEV_TOOLS_ENABLED ? (
+        <Profiler id="layout-tree" onRender={notifyReactCommit}>
+          <TreeNode node={tree} root rootRow={tree.type === 'split' && tree.orientation === 'row'} />
+        </Profiler>
+      ) : (
+        <TreeNode node={tree} root rootRow={tree.type === 'split' && tree.orientation === 'row'} />
+      )}
       <NarrowOverlays />
       {/* Structural authoring: the floating palette (edit mode) and the grid
           editor it opens. Both render nothing until their store says so. */}

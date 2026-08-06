@@ -1,6 +1,7 @@
 import { useAuiState } from '@assistant-ui/react'
 import { type FC, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
+import { queryVisible } from '@/components/pane-shell/pane-visibility'
 import { triggerHaptic } from '@/lib/haptics'
 import { cn } from '@/lib/utils'
 
@@ -102,7 +103,7 @@ function jumpScroll(viewport: HTMLElement, top: number, duration = 170): void {
 }
 
 function scrollToPrompt(id: string) {
-  const viewport = document.querySelector<HTMLElement>(VIEWPORT)
+  const viewport = queryVisible<HTMLElement>(VIEWPORT)
   const node = viewport?.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(id)}"]`)
 
   if (!viewport || !node) {
@@ -176,7 +177,7 @@ export const ThreadTimeline: FC = () => {
   useEffect(() => () => window.clearTimeout(closeTimerRef.current), [])
 
   useEffect(() => {
-    const viewport = document.querySelector<HTMLElement>(VIEWPORT)
+    const viewport = queryVisible<HTMLElement>(VIEWPORT)
 
     if (!viewport || entries.length === 0) {
       return

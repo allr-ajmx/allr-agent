@@ -61,8 +61,9 @@ const SESSION_INLINE_LIMIT = 7
 /** Live `/` completions backed by the gateway's `complete.slash` RPC. */
 export function useSlashCompletions(options: {
   gateway: HermesGateway | null
-  /** Desktop theme list — `/skin` is owned client-side, so its arg completions
-   *  come from here, not the backend (whose skin list is CLI/TUI-only). */
+  /** Merged theme list — `/skin` is owned client-side, so its arg completions come
+   *  from here, not the backend. Since `gateway.ready`/`skin.changed` fold backend
+   *  skins into the theme registry, this list already covers them. */
   skinThemes?: DesktopThemeCommandOption[]
   activeSkin?: string
 }): {
@@ -83,10 +84,11 @@ export function useSlashCompletions(options: {
 
       const text = `/${query}`
 
-      // The desktop owns /skin entirely (client-side theme context). Surface its
+      // We own /skin entirely (client-side theme context). Surface the merged
       // theme list inside this single popover instead of a bespoke one, and skip
-      // the backend skin completions (which describe CLI/TUI skins that don't
-      // apply here). Matches once we're past `/skin ` into the arg stage.
+      // the backend's own skin completions — its live skin already reaches us
+      // through the theme registry. Matches once we're past `/skin ` into the
+      // arg stage.
       const skinArg = /^\/skin\s+(.*)$/is.exec(text)
 
       if (skinArg && skinThemes) {

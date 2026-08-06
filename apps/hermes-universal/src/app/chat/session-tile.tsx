@@ -1,5 +1,5 @@
 import { atom, computed } from 'nanostores'
-import { type ReactNode, useEffect, useMemo, useRef } from 'react'
+import { type ReactNode, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 
 import { ChatScreen } from '@/app/chat/chat-screen'
 import type { SessionDragPayload } from '@/app/chat/composer/inline-refs'
@@ -34,6 +34,8 @@ import {
   $sessionTiles,
   closeSessionTile,
   discardSessionTile,
+  newSessionTab,
+  noteSessionTileMounted,
   patchSessionTile,
   requestCloseSessionTile,
   type SessionTile,
@@ -142,6 +144,11 @@ export function SessionTilePane({ storedSessionId }: { storedSessionId: string }
   const view = useMemo(() => buildTileView(storedSessionId), [storedSessionId])
   const resumingRef = useRef(false)
 
+  // Closes the `chat.open` span opened by the gesture that asked for this tile.
+  // A layout effect so it runs in the commit that put the tile on screen; the
+  // span itself closes one frame later, when that commit has actually painted.
+  useLayoutEffect(() => noteSessionTileMounted(storedSessionId), [storedSessionId])
+
   useEffect(() => {
     if (!gatewayOpen || runtimeId || tile?.error || resumingRef.current) {
       return
@@ -246,6 +253,9 @@ export const watchSessionTiles = paneMirror<SessionTile>({
   source: $sessionTiles,
   also: [$sessions, $sessionColorById],
   key: tile => tile.storedSessionId,
+  kind: 'chat',
+  linkTarget: true,
+  onNewTab: newSessionTab,
   prefix: 'session-tile',
   dir: tile => tile.dir,
   anchor: tile => tile.anchor,
@@ -298,10 +308,15 @@ export function SessionTabMenu({
   const pinId = stored ? sessionPinId(stored) : storedSessionId
   const isPinned = pinned.includes(pinId)
 
-  // Offer only the close verbs that would actually close something. Subscribing
-  // to the tree keeps the counts live, so the menu never shows "Close to the
-  // right" on the rightmost tab or "Close others" on a lone one.
-  useStore($layoutTree)
+  // Offer only the close verbs that would actually close something, so the menu
+  // never shows "Close to the right" on the rightmost tab or "Close others" on
+  // a lone one.
+  //
+  // Read, not subscribed. This only ever renders as a tab strip's `tabWrap`,
+  // i.e. inside a TreeGroup under LayoutTreeRoot — which already subscribes, so
+  // a tree write re-renders this component anyway and the counts stay live. Its
+  // own `useStore($layoutTree)` bought nothing and cost a second independent
+  // subscriber wakeup, per open tab, on every tree write.
   const closeTargets = treeTabCloseTargets(paneId)
 
   return (

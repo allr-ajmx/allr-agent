@@ -9,10 +9,15 @@
 import type { ReadableAtom } from 'nanostores'
 import type { ReactElement, ReactNode, PointerEvent as ReactPointerEvent } from 'react'
 
+import { registerTile } from '@/components/pane-shell/tile/registry'
 import type { DoubleTapContext } from '@/components/pane-shell/tree/renderer/drag-session'
 import { registerPaneCloser, removeTreePane, treePanesWithPrefix } from '@/components/pane-shell/tree/store'
-import { registry } from '@/contrib/registry'
+import { isRecording, recordSpan } from '@/observability'
 import type { TileDock } from '@/store/session-states'
+
+/** Matches the 1ms floor the rest of the layer uses — WebKitGTK's clock cannot
+ *  resolve below it, so anything under is indistinguishable from zero. */
+const SYNC_NOISE_FLOOR_MS = 1
 
 export interface PaneMirror<T> {
   /** Reactive source list. */
@@ -23,6 +28,15 @@ export interface PaneMirror<T> {
   key: (tile: T) => string
   /** Pane-id namespace — the id is `${prefix}:${key}`. */
   prefix: string
+  /** The `kind` every tile this mirror registers reports (`'chat'`, `'page'`). */
+  kind: string
+  /** Whether a dragged session may be LINKED into these tiles' zone (chat
+   *  surfaces accept it; a page tile has nothing to link into). */
+  linkTarget?: boolean
+  /** What the strip's `+` does for these tiles. Session tiles contribute "new
+   *  chat" so a zone holding only tiles — the workspace dragged elsewhere —
+   *  still offers one. */
+  onNewTab?: () => void
   /** Dock on adoption (default right; `center` = stack into anchor's zone). */
   dir?: (tile: T) => TileDock | undefined
   /** Pane to dock against (default `workspace`) — a drop's target zone. */
@@ -55,7 +69,19 @@ export function paneMirror<T>(cfg: PaneMirror<T>): () => void {
   const registered = new Map<string, { dispose: () => void; title: string; accent?: string }>()
   const paneId = (key: string) => `${cfg.prefix}:${key}`
 
+  /**
+   * Spanned with a noise floor because this fires on every `also` change too —
+   * a session rename, a project-colour edit — and is a no-op for tiles whose
+   * title and accent are unchanged. What the span is really there to expose is
+   * the FAN-OUT: each `registerTile` below invalidates the registry on its own,
+   * so a sync that touches N tiles costs N adoption passes and N tree commits
+   * rather than one, and `registered` is the number that shows it.
+   */
   const sync = () => {
+    const startedAt = isRecording() ? performance.now() : 0
+    let registrations = 0
+    let removals = 0
+
     const tiles = cfg.source.get()
     const wanted = new Set(tiles.map(cfg.key))
 
@@ -70,29 +96,36 @@ export function paneMirror<T>(cfg: PaneMirror<T>): () => void {
         continue
       }
 
-      const dispose = registry.register({
+      const dispose = registerTile({
         id: paneId(key),
-        area: 'panes',
+        kind: cfg.kind,
         title,
-        data: {
+        placement: 'main',
+        chrome: {
           accent,
           dock: {
             before: cfg.before?.(tile),
             pane: cfg.anchor?.(tile) ?? 'workspace',
             pos: cfg.dir?.(tile) ?? 'right'
           },
-          minWidth: cfg.minWidth,
-          placement: 'main',
+          // A mirrored tile is closeable and lives in the main stack, so it must
+          // keep its strip even alone — otherwise the "3rd tile has no tab" trap
+          // leaves it with nowhere to put the ✕.
+          linkTarget: cfg.linkTarget,
+          loneHeader: true,
           tabDrag: cfg.tabDrag
             ? (event: ReactPointerEvent<HTMLElement>, onTap: () => void, double?: DoubleTapContext) =>
                 cfg.tabDrag!(key, event, onTap, double)
-            : undefined, // returns boolean (handled) — see PaneChrome.tabDrag
+            : undefined, // returns boolean (handled) — see TileChrome.tabDrag
           tabWrap: cfg.tabWrap ? (tab: ReactElement) => cfg.tabWrap!(key, tab) : undefined
         },
+        sizing: { minWidth: cfg.minWidth },
+        onNewTab: cfg.onNewTab,
         render: () => cfg.render(key)
       })
 
       registered.set(key, { dispose, title, accent })
+      registrations += 1
 
       if (!current) {
         registerPaneCloser(paneId(key), () => cfg.close(key))
@@ -104,6 +137,7 @@ export function paneMirror<T>(cfg: PaneMirror<T>): () => void {
         entry.dispose()
         registered.delete(key)
         removeTreePane(paneId(key))
+        removals += 1
       }
     }
 
@@ -114,7 +148,23 @@ export function paneMirror<T>(cfg: PaneMirror<T>): () => void {
     for (const id of treePanesWithPrefix(`${cfg.prefix}:`)) {
       if (!wanted.has(id.slice(cfg.prefix.length + 1))) {
         removeTreePane(id)
+        removals += 1
       }
+    }
+
+    if (startedAt === 0) {
+      return
+    }
+
+    const elapsed = performance.now() - startedAt
+
+    if (elapsed >= SYNC_NOISE_FLOOR_MS || registrations > 0 || removals > 0) {
+      recordSpan('layout.tiles.sync', startedAt, startedAt + elapsed, {
+        kind: cfg.kind,
+        registered: registrations,
+        removed: removals,
+        total: tiles.length
+      })
     }
   }
 

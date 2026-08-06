@@ -29,6 +29,12 @@ jobs:
             console.error("::error::Workspace discovery produced an empty package list — refusing to emit a zero-length matrix (would skip all JS/TS checks silently).");
             process.exit(1);
           }
+          // A package that defines any `check:<name>` gets one matrix job per
+          // sub-script and its plain `check` is NOT run — so `check` must be a
+          // pure umbrella over those sub-scripts, never extra work of its own.
+          // Break that and the extra work silently stops being tested: this is
+          // exactly how hermes-universal shipped for months with only
+          // `check:rust` running and typecheck/lint/test/build never executing.
           const checks = [];
           for (const pkg of pkgs) {
             const scripts = pkg.scripts || {};
@@ -45,6 +51,9 @@ jobs:
             console.error("::error::No check scripts found in any workspace package.");
             process.exit(1);
           }
+          // Print the selection so a shadowed script is visible in the log
+          // rather than only as a job that quietly never appears.
+          console.error("::notice::Selected checks — " + checks.map(c => c.package + ":" + c.script).join(", "));
           process.stdout.write("checks=" + JSON.stringify(checks) + "\n");
           ' >> "$GITHUB_OUTPUT"
 
@@ -52,7 +61,10 @@ jobs:
     name: ${{ matrix.package }} / ${{ matrix.script }}
     needs: workspaces
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # A cold `cargo check` builds the whole Tauri dependency tree and will not
+    # finish inside the 20 minutes the JS jobs need. Subsequent runs hit
+    # rust-cache and are fast.
+    timeout-minutes: ${{ endsWith(matrix.script, ':rust') && 45 || 20 }}
     strategy:
       matrix:
         include: ${{ fromJson(needs.workspaces.outputs.checks) }}
@@ -66,4 +78,24 @@ jobs:
       - uses: ./.github/actions/retry
         with:
           command: npm ci
+      # `check:rust` shells out to cargo against a Tauri crate, which needs the
+      # Linux webview headers or it dies in pkg-config. rustup is preinstalled
+      # on the runner, so no extra third-party action is pulled in. Guarded on
+      # the script name so the JS jobs pay nothing for it.
+      - name: Rust prerequisites
+        if: ${{ endsWith(matrix.script, ':rust') }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            libasound2-dev \
+            patchelf
+          rustup toolchain install stable --profile minimal --no-self-update
+          rustup default stable
+      - uses: Swatinem/rust-cache@bc2d2e71bd35c5549942babaa51a89c586b981d1 # v2.8.1
+        if: ${{ endsWith(matrix.script, ':rust') }}
+        with:
+          workspaces: ${{ matrix.package }}/src-tauri
       - run: npm run --prefix ${{ matrix.package }} ${{ matrix.script }}

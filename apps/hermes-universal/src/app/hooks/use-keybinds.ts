@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 
-import { activateTreeTabSlot, closeWorkspaceTab, cycleTreeTabInFocusedZone } from '@/components/pane-shell/tree/store'
+import { activateTreeTabSlot, closeFocusedTabInZone, cycleTreeTabInFocusedZone } from '@/components/pane-shell/tree/store'
 import { contributedKeybindHandler, PROFILE_SLOT_COUNT, SESSION_SLOT_COUNT } from '@/lib/keybinds/actions'
 import { comboAllowedInInput, comboFromEvent, isEditableTarget } from '@/lib/keybinds/combo'
 import { IS_MOBILE } from '@/lib/platform'
@@ -249,7 +249,7 @@ export function useKeybinds(deps: KeybindRuntimeDeps): void {
         return
       }
 
-      closeWorkspaceTab()
+      closeFocusedTabInZone()
     },
     'view.reopenTab': reopenLastClosedTile,
 

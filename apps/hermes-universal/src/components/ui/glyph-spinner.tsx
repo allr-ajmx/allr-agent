@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import spinners, { type BrailleSpinnerName as SpinnerName } from 'unicode-animations'
 
+import { usePaneVisible } from '@/components/pane-shell/pane-visibility'
 import { cn } from '@/lib/utils'
 
 export type { SpinnerName }
@@ -43,13 +44,22 @@ interface GlyphSpinnerProps {
 export function GlyphSpinner({ ariaLabel = 'Loading', className, spinner = 'braille' }: GlyphSpinnerProps) {
   const spin = FRAMES_BY_NAME[spinner] ?? FRAMES_BY_NAME.braille!
   const [frame, setFrame] = useState(0)
+  // Paused in a background tab. Keep-alive leaves every ever-activated chat
+  // mounted, and N of these each ticking a setInterval + setState burn CPU —
+  // and force a re-render apiece — for pixels nobody can see. Outside a tab
+  // stack `usePaneVisible` is true, so nothing else changes.
+  const visible = usePaneVisible()
 
   useEffect(() => {
+    if (!visible) {
+      return
+    }
+
     setFrame(0)
     const id = window.setInterval(() => setFrame(f => (f + 1) % spin.frames.length), spin.interval)
 
     return () => window.clearInterval(id)
-  }, [spin])
+  }, [spin, visible])
 
   return (
     <span

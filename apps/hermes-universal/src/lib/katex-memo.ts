@@ -63,6 +63,8 @@ import type { Pluggable } from 'unified'
 import { SKIP, visitParents } from 'unist-util-visit-parents'
 import type { VFile } from 'vfile'
 
+import { span } from '@/observability'
+
 /**
  * Tag name for the collapsed node. Must stay in sync with the component
  * registered under the same key in
@@ -266,7 +268,15 @@ function createMemoizedRehypeKatex(options: KatexMemoOptions = {}): Pluggable {
         let html = cache.get(key)
 
         if (html === undefined) {
-          html = renderMath(value, displayMode, errorColor, file, scope)
+          // Only the MISS is spanned — a hit is a Map lookup and spanning it
+          // would bury the renders that cost something under thousands that
+          // don't. The span count IS the miss count, which is the number that
+          // says whether this cache is working: on a settled transcript it
+          // should approach zero, and if it doesn't, equations are being
+          // re-keyed rather than KaTeX getting slower.
+          html = span('katex.render', () => renderMath(value, displayMode, errorColor, file, scope), {
+            display: displayMode ? 'block' : 'inline'
+          })
           cache.set(key, html)
         }
 

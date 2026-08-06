@@ -16,6 +16,8 @@
  * ACCIDENTAL collisions, not deliberate reach.
  */
 
+import { toTileContribution } from '@/components/pane-shell/tile/registry'
+import type { Tile } from '@/components/pane-shell/tile/types'
 import { pluginRest, type PluginRestOptions } from '@/hermes'
 import { createPluginI18n, type PluginI18n } from '@/i18n'
 import { pluginSocket } from '@/lib/plugin-transport'
@@ -30,6 +32,10 @@ export type { PluginRestOptions } from '@/hermes'
  *  the host's job, so those fields are off-limits here. */
 export type PluginContribution = Omit<Contribution, 'source' | 'id'> & { id: string }
 
+/** A tile as a plugin declares it: `source` is stamped by the context and `id`
+ *  is namespaced, so neither is the author's to set. */
+export type PluginTile = Omit<Tile, 'source'>
+
 /** Namespaced JSON persistence (the VS Code `globalState` analog). Keys live
  *  under `hermes.plugin.<id>.` — plugins can't read or clobber each other. */
 export interface PluginStorage {
@@ -43,6 +49,11 @@ export interface PluginContext {
   readonly source: string
   /** Register one contribution (id namespaced, source stamped). */
   register: (c: PluginContribution) => () => void
+  /** Contribute a layout TILE — the typed door for `area: 'panes'`. Prefer it
+   *  over `register({ area: PANES_AREA, … })`: a tile's chrome and sizing are
+   *  declared fields here instead of an untyped `data` blob, and only this path
+   *  can express fields added later (the mount lifecycle). */
+  registerTile: (tile: PluginTile) => () => void
   /** Register several at once; the returned disposer removes all of them. */
   registerMany: (cs: PluginContribution[]) => () => void
   /** REST to this plugin's own backend namespace (`/api/plugins/<id>`); `path`
@@ -103,6 +114,11 @@ export function createPluginContext(pluginId: string, onDispose?: (dispose: () =
   const source = `plugin:${pluginId}`
   const scope = (c: PluginContribution): Contribution => ({ ...c, id: `${pluginId}:${c.id}`, source })
 
+  const scopeTile = (tile: PluginTile): Contribution => ({
+    ...toTileContribution({ ...tile, source }),
+    id: `${pluginId}:${tile.id}`
+  })
+
   const track = (dispose: () => void) => {
     onDispose?.(dispose)
 
@@ -112,6 +128,7 @@ export function createPluginContext(pluginId: string, onDispose?: (dispose: () =
   return {
     source,
     register: c => track(registry.register(scope(c))),
+    registerTile: tile => track(registry.register(scopeTile(tile))),
     registerMany: cs => track(registry.registerMany(cs.map(scope))),
     rest: <T>(path: string, opts?: PluginRestOptions) => pluginRest<T>(pluginId, path, opts),
     socket: (path, onMessage) => track(pluginSocket(pluginId, path, onMessage)),

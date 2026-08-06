@@ -63,6 +63,7 @@ export const watchRouteTiles = paneMirror<RouteTile>({
   dir: tile => tile.dir,
   key: tile => tile.path,
   minWidth: '22rem',
+  kind: 'page',
   prefix: 'route-tile',
   render: path => <RouteTilePane path={path} />,
   source: $routeTiles,

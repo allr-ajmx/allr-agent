@@ -52,6 +52,10 @@ import {
 } from '@/store/session-state-types'
 import { upsertSubagent } from '@/store/subagents'
 import { recordToolDiff } from '@/store/tool-diffs'
+// Leaf import (not the `@/themes` barrel) to keep the ThemeProvider module graph
+// out of the gateway event hot path — same reason desktop does it.
+import { ingestBackendSkin } from '@/themes/backend-sync'
+import type { HermesSkin } from '@/themes/skin-contract'
 import type { ContextBreakdown, UsageStats } from '@/types/hermes'
 
 // Self-register at import. Nothing else consumes the gateway's event stream, so
@@ -174,6 +178,15 @@ export function routeGatewayEvent(event: GatewayEvent): void {
   if (GLOBAL_EVENT_TYPES.has(event.type)) {
     if (event.type === 'session.title') {
       applySessionTitle(payload)
+    } else if (event.type === 'gateway.ready') {
+      // Seed the active skin into the theme registry WITHOUT applying, so a fresh
+      // connect never overrides the user's persisted theme. Note the shape: here
+      // the skin is nested, on `skin.changed` the payload IS the skin.
+      ingestBackendSkin((payload as { skin?: HermesSkin }).skin, { apply: false })
+    } else if (event.type === 'skin.changed') {
+      // A runtime switch — Hermes activating a skin it authored, or `/skin` on
+      // another surface. This one repaints.
+      ingestBackendSkin(payload as HermesSkin, { apply: true })
     }
 
     return

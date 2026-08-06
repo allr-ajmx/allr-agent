@@ -61,25 +61,31 @@ export function ProjectTree({
 }: ProjectTreeProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const treeRef = useRef<TreeApi<TreeNode> | null>(null)
-  const [size, setSize] = useState({ height: 0, width: 0 })
+  // HEIGHT ONLY, and that is the whole point. The virtualized list needs a
+  // pixel height to know how many rows to mount; its WIDTH it only ever passes
+  // through to CSS (`react-arborist` types it `number | string` and never does
+  // arithmetic on it), and the row renderer below already pins `width: 100%`.
+  //
+  // Holding width in state made every horizontal resize a re-render of the
+  // whole tree. Measured on a right-sidebar sash drag: 174 commits of this one
+  // pane, 1476ms of React, ~97% of every pane commit in the capture — against
+  // 3 for `sessions` and 2 for `chat`. A horizontal drag now changes nothing
+  // this component reads, so it does not re-render at all.
+  const [height, setHeight] = useState(0)
   const changeByPath = useStore($repoChangeByPath)
 
-  const syncTreeSize = useCallback(() => {
+  const syncTreeSize = useCallback((entries: readonly ResizeObserverEntry[]) => {
     const el = containerRef.current
 
     if (!el) {
       return
     }
 
-    const { height, width } = el.getBoundingClientRect()
+    // From the entry when the observer already computed it; inside RO timing
+    // the fallback read is cheap anyway, but free is cheaper.
+    const next = entries.find(entry => entry.target === el)?.contentRect?.height ?? el.getBoundingClientRect().height
 
-    setSize(prev => {
-      if (prev.height === height && prev.width === width) {
-        return prev
-      }
-
-      return { height, width }
-    })
+    setHeight(prev => (prev === next ? prev : next))
   }, [])
 
   useResizeObserver(syncTreeSize, containerRef)
@@ -180,7 +186,7 @@ export function ProjectTree({
 
   return (
     <div className="min-h-0 flex-1 overflow-hidden" onKeyDownCapture={handleRenameShortcut} ref={containerRef}>
-      {size.height > 0 && size.width > 0 ? (
+      {height > 0 ? (
         <Tree<TreeNode>
           childrenAccessor={node => (node?.isDirectory ? (node.children ?? []) : null)}
           data={data}
@@ -188,7 +194,7 @@ export function ProjectTree({
           disableDrop
           disableEdit
           dndManager={getFileTreeDndManager()}
-          height={size.height}
+          height={height}
           indent={INDENT}
           initialOpenState={openState}
           key={`${cwd}:${collapseNonce}`}
@@ -199,7 +205,8 @@ export function ProjectTree({
           ref={treeRef}
           renderRow={ProjectTreeRowContainer}
           rowHeight={ROW_HEIGHT}
-          width={size.width}
+          // CSS, not a measured pixel count — see the height-only note above.
+          width="100%"
         >
           {props => (
             <ProjectTreeRow

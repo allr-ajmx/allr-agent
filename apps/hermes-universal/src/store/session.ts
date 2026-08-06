@@ -277,6 +277,7 @@ export async function refreshSessions(): Promise<void> {
       'recent',
       scope === ALL_PROFILES ? 'all' : scope
     )
+
     $sessions.set(res.sessions)
     $sessionsTotal.set(scope === ALL_PROFILES ? res.total : (res.profile_totals?.[scope] ?? res.total))
   } catch (err) {

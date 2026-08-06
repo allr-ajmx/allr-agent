@@ -26,7 +26,11 @@ act/
 .pip-cache/
 .uv-cache/
 compose.hermes.local.yml
-export*
+# Root-anchored: unanchored `export*` matched ANY path segment, which silently
+# swallowed src/observability/exporter.ts — a source file that then never got
+# committed while install.ts kept dynamic-importing it. The neighbours here are
+# all repo-root artifacts, so the leading slash is what was meant.
+/export*
 __pycache__/model_tools.cpython-310.pyc
 __pycache__/web_tools.cpython-310.pyc
 logs/

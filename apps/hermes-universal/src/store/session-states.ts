@@ -30,6 +30,7 @@ import {
 import { TILE_PANE_PREFIX, WORKSPACE_PANE_ID } from '@/lib/pane-ids'
 import { readJson, writeJson } from '@/lib/storage'
 import { discardDeltas, disposeStreamBatch, flushDeltas } from '@/lib/stream-batch'
+import { beginDetached, endSpan } from '@/observability'
 import { resetUnscopedStreamPin } from '@/store/event-router'
 import { $activeGatewayProfile, normalizeProfileKey } from '@/store/profile'
 import { clearAllPrompts } from '@/store/prompts'
@@ -582,6 +583,38 @@ function syncTileStripOrder() {
   }
 }
 
+/**
+ * Open spans for chats currently being opened, keyed by stored-session id.
+ *
+ * "Opening a chat is slow" is a user-facing claim and nothing in the trace
+ * measured it: the store write is one frame, the adoption another, the mount a
+ * third, and no span covered the whole arc. This one runs from the gesture to
+ * the first paint that shows the chat — see `noteSessionTileMounted`.
+ *
+ * Detached, not stacked: it spans several tasks, and a stack-pushed span held
+ * that long would sweep everything opened in the meantime underneath it.
+ */
+const opening = new Map<string, number>()
+
+/**
+ * Close the `chat.open` span for a tile that has just mounted.
+ *
+ * Called from `SessionTilePane`'s mount effect and closed on the NEXT frame
+ * rather than immediately: at effect time React has committed the DOM but the
+ * frame has not painted, and click-to-commit is a different (and much more
+ * flattering) number than click-to-pixels.
+ */
+export function noteSessionTileMounted(storedSessionId: string): void {
+  const id = opening.get(storedSessionId)
+
+  if (id === undefined) {
+    return
+  }
+
+  opening.delete(storedSessionId)
+  requestAnimationFrame(() => endSpan(id))
+}
+
 /** Open a tile for a stored session, or MOVE an existing one to the new dock. The
  *  session LOADED IN MAIN never opens as a tile. */
 export function openSessionTile(
@@ -597,6 +630,8 @@ export function openSessionTile(
   }
 
   if (!tiles.some(t => t.storedSessionId === storedSessionId)) {
+    // No session id in the attributes — these spans end up in shared traces.
+    opening.set(storedSessionId, beginDetached('chat.open', { dir }))
     saveTiles([...tiles, { anchor, before, dir, storedSessionId }])
 
     return

@@ -59,8 +59,28 @@ export interface PetActivity {
 
 export const $petActivity = atom<PetActivity>({})
 
-/** Merge steady flags into the activity atom (leaves siblings intact). */
-export const setPetActivity = (next: Partial<PetActivity>) => $petActivity.set({ ...$petActivity.get(), ...next })
+/**
+ * Merge steady flags into the activity atom (leaves siblings intact).
+ *
+ * The no-op guard is load-bearing, not tidiness. `event-router` calls
+ * `setPetActivity({ reasoning: true })` on EVERY reasoning delta — unbatched,
+ * once per token — and the spread produced a fresh object each time. nanostores
+ * compares by identity, so every subscriber of this atom re-ran per token while
+ * the value was, in every case after the first, identical. Returning early when
+ * nothing actually changed turns a per-token notification storm into one
+ * notification per real state transition.
+ */
+export const setPetActivity = (next: Partial<PetActivity>) => {
+  const current = $petActivity.get()
+
+  for (const [key, value] of Object.entries(next) as [keyof PetActivity, boolean | undefined][]) {
+    if (current[key] !== value) {
+      $petActivity.set({ ...current, ...next })
+
+      return
+    }
+  }
+}
 
 let flashTimer: ReturnType<typeof setTimeout> | undefined
 
