@@ -84,6 +84,7 @@ export const en: Translations = {
     revealExplorer: 'Reveal in File Explorer',
     revealFileManager: 'Open Containing Folder',
     revealInSidebar: 'Reveal in filetree',
+    actions: 'File actions',
     copyPath: 'Copy Path',
     copyRelativePath: 'Copy Relative Path',
     rename: 'Rename…',
@@ -608,8 +609,10 @@ export const en: Translations = {
       cloudTitle: 'Hermes Cloud',
       cloudDesc: 'Sign in once to Hermes Cloud and pick from the agents on your account — no URL to paste.',
       sshTitle: 'SSH',
-      sshDesc: 'Reach a Hermes backend on another machine over SSH. Hermes starts it there and tunnels a private port back to this device.',
-      sshTrustHint: 'The first connection to a host asks you to confirm its key fingerprint. A key that later CHANGES is always refused.',
+      sshDesc:
+        'Reach a Hermes backend on another machine over SSH. Hermes starts it there and tunnels a private port back to this device.',
+      sshTrustHint:
+        'The first connection to a host asks you to confirm its key fingerprint. A key that later CHANGES is always refused.',
       sshHostTitle: 'Host',
       sshHostDesc: 'The machine to connect to. `user@host`, `host:port` and `[::1]:port` all work.',
       sshHostPlaceholder: 'user@example.com',
@@ -618,12 +621,15 @@ export const en: Translations = {
       sshPortTitle: 'Port',
       sshPortDesc: 'Leave blank for 22, or whatever ~/.ssh/config sets for this host.',
       sshKeyTitle: 'Private key file',
-      sshKeyDesc: 'Leave blank to try your ssh-agent, then your ~/.ssh/config IdentityFile, then the usual ~/.ssh/id_* keys.',
+      sshKeyDesc:
+        'Leave blank to try your ssh-agent, then your ~/.ssh/config IdentityFile, then the usual ~/.ssh/id_* keys.',
       sshKeyPemTitle: 'Private key',
-      sshKeyPemDesc: 'Paste an OpenSSH private key. It is held in this device\u2019s secure keystore and never written to disk.',
+      sshKeyPemDesc:
+        'Paste an OpenSSH private key. It is held in this device\u2019s secure keystore and never written to disk.',
       sshPassphraseTitle: 'Key passphrase',
       sshPasswordTitle: 'Password',
-      sshPasswordDesc: 'The login password for this host, if it accepts one. Held in this device\u2019s secure keystore. Leave blank to be asked while connecting.',
+      sshPasswordDesc:
+        'The login password for this host, if it accepts one. Held in this device\u2019s secure keystore. Leave blank to be asked while connecting.',
       sshHermesPathTitle: 'Hermes path on the remote',
       sshHermesPathDesc: 'Leave blank to detect it. Set it only when `hermes` is not on the remote PATH.',
       sshHermesPathPlaceholder: '~/hermes-agent/.venv/bin/hermes',
@@ -640,8 +646,10 @@ export const en: Translations = {
       sshHostKeyReject: 'Cancel',
       sshPromptTitle: 'SSH needs a credential',
       sshErrUnreachable: 'Could not reach that host over SSH. Check the address, the port, and your network.',
-      sshErrAuth: 'SSH authentication failed. Add your key to ssh-agent, set an IdentityFile in ~/.ssh/config, or supply a key here.',
-      sshErrHostKey: 'The host key has CHANGED since you last connected. This could be a machine-in-the-middle attack, or the server may have been reinstalled. The connection was refused.',
+      sshErrAuth:
+        'SSH authentication failed. Add your key to ssh-agent, set an IdentityFile in ~/.ssh/config, or supply a key here.',
+      sshErrHostKey:
+        'The host key has CHANGED since you last connected. This could be a machine-in-the-middle attack, or the server may have been reinstalled. The connection was refused.',
       sshErrNotInstalled: 'Hermes is not installed on that host. Install it there, or set the Hermes path explicitly.',
       sshErrPlatform: 'That host runs an operating system Hermes cannot drive over SSH.',
       sshErrTimeout: 'The SSH connection timed out. The link may be half-open after a sleep \u2014 try again.',

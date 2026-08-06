@@ -1,14 +1,11 @@
 import { useStore } from '@nanostores/react'
 import { type KeyboardEvent as ReactKeyboardEvent, type ReactNode, useRef, useState } from 'react'
 
+import { CONTEXT_KIT, DROPDOWN_KIT, type MenuKit } from '@/components/ui/actions-menu'
+import { Codicon } from '@/components/ui/codicon'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
-import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuSeparator,
-  ContextMenuTrigger
-} from '@/components/ui/context-menu'
+import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from '@/components/ui/context-menu'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { translateNow, useI18n } from '@/i18n'
 import { isDesktopFsRemoteMode } from '@/lib/desktop-fs'
 import { IS_MAC } from '@/lib/keybinds/combo'
@@ -41,8 +38,7 @@ export function pickRevealLabel(finder: string, explorer: string, fileManager: s
   return IS_MAC ? finder : IS_WIN ? explorer : fileManager
 }
 
-interface FileEntryContextMenuProps {
-  children: ReactNode
+export interface FileEntryTarget {
   isDirectory: boolean
   /** Display name (basename). */
   name: string
@@ -52,45 +48,107 @@ interface FileEntryContextMenuProps {
   relativeTo?: null | string
 }
 
-/** Right-click menu shared by both file trees (browser + review/git). */
-export function FileEntryContextMenu({ children, isDirectory, name, path, relativeTo }: FileEntryContextMenuProps) {
-  const { t } = useI18n()
-  const m = t.fileMenu
+/**
+ * The file entry's actions, as a render function both menu flavours can use.
+ *
+ * Right-click was the only way to reach any of this, which on a phone means
+ * reveal / copy path / rename / delete simply did not exist. Defining the rows
+ * once and handing them to both the context menu and the kebab is what keeps
+ * the two provably identical instead of two lists that drift.
+ */
+export function fileEntryMenuItems(
+  { isDirectory, name, path, relativeTo }: FileEntryTarget,
+  m: ReturnType<typeof useI18n>['t']['fileMenu']
+): (kit: MenuKit) => ReactNode {
   // Reveal / rename / delete need the local filesystem; hide them on a remote
   // backend (copy-path still works everywhere).
   const localFs = !isDesktopFsRemoteMode()
   const target: FileActionTarget = { isDirectory, name, path }
   const revealLabel = pickRevealLabel(m.revealFinder, m.revealExplorer, m.revealFileManager)
 
+  return (kit: MenuKit) => (
+    <>
+      {localFs && (
+        <>
+          <kit.Item onSelect={() => void revealFile(path)}>{revealLabel}</kit.Item>
+          <kit.Separator />
+        </>
+      )}
+      <kit.Item onSelect={() => void copyFilePath(path)}>{m.copyPath}</kit.Item>
+      {relativeTo && (
+        <kit.Item onSelect={() => void copyFilePath(toRelativePath(path, relativeTo))}>{m.copyRelativePath}</kit.Item>
+      )}
+      {localFs && (
+        <>
+          <kit.Separator />
+          <kit.Item onSelect={() => beginInlineRename(path)}>{m.rename}</kit.Item>
+          <kit.Item onSelect={() => requestFileDelete(target)} variant="destructive">
+            {m.delete}
+          </kit.Item>
+        </>
+      )}
+    </>
+  )
+}
+
+interface FileEntryContextMenuProps extends FileEntryTarget {
+  children: ReactNode
+}
+
+/** Right-click menu shared by both file trees (browser + review/git). */
+export function FileEntryContextMenu({ children, ...target }: FileEntryContextMenuProps) {
+  const { t } = useI18n()
+  const items = fileEntryMenuItems(target, t.fileMenu)
+
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
       {/* Don't restore focus to the row on close: "Rename" mounts an autofocused
           inline input, and the default focus-return would blur it immediately. */}
-      <ContextMenuContent onCloseAutoFocus={event => event.preventDefault()}>
-        {localFs && (
-          <>
-            <ContextMenuItem onSelect={() => void revealFile(path)}>{revealLabel}</ContextMenuItem>
-            <ContextMenuSeparator />
-          </>
-        )}
-        <ContextMenuItem onSelect={() => void copyFilePath(path)}>{m.copyPath}</ContextMenuItem>
-        {relativeTo && (
-          <ContextMenuItem onSelect={() => void copyFilePath(toRelativePath(path, relativeTo))}>
-            {m.copyRelativePath}
-          </ContextMenuItem>
-        )}
-        {localFs && (
-          <>
-            <ContextMenuSeparator />
-            <ContextMenuItem onSelect={() => beginInlineRename(path)}>{m.rename}</ContextMenuItem>
-            <ContextMenuItem onSelect={() => requestFileDelete(target)} variant="destructive">
-              {m.delete}
-            </ContextMenuItem>
-          </>
-        )}
-      </ContextMenuContent>
+      <ContextMenuContent onCloseAutoFocus={event => event.preventDefault()}>{items(CONTEXT_KIT)}</ContextMenuContent>
     </ContextMenu>
+  )
+}
+
+/**
+ * The same actions as a kebab button, for pointers that cannot right-click.
+ *
+ * Hidden until the row is hovered on a fine pointer — a permanent ⋯ on every
+ * row of a dense desktop tree is noise — and simply present on a coarse one,
+ * where it is the only door to these actions.
+ *
+ * Deliberately NOT built on `ActionsMenu`: that wrapper does not forward
+ * `onCloseAutoFocus`, and without it "Rename" mounts its autofocused input and
+ * the menu's focus-return blurs it on the same tick. The shared `items` above
+ * is what keeps this and the context menu in step, not a shared container.
+ */
+export function FileEntryActionsMenu({ className, ...target }: FileEntryTarget & { className?: string }) {
+  const { t } = useI18n()
+  const items = fileEntryMenuItems(target, t.fileMenu)
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          aria-label={t.fileMenu.actions}
+          className={cn(
+            'grid size-5 shrink-0 place-items-center rounded-sm text-(--ui-text-tertiary) transition-opacity hover:bg-(--ui-control-hover-background) hover:text-foreground',
+            'fine:opacity-0 fine:group-hover/row:opacity-100 fine:group-focus-within/row:opacity-100 fine:data-[state=open]:opacity-100',
+            className
+          )}
+          // The tree row navigates on click and starts a drag on pointerdown;
+          // neither should happen because the kebab was pressed.
+          onClick={event => event.stopPropagation()}
+          onPointerDown={event => event.stopPropagation()}
+          type="button"
+        >
+          <Codicon name="kebab-vertical" size="0.875rem" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" onCloseAutoFocus={event => event.preventDefault()} sideOffset={4}>
+        {items(DROPDOWN_KIT)}
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 

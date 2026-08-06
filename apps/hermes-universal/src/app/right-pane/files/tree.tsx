@@ -11,7 +11,7 @@ import { $repoChangeByPath, type RepoChangeKind } from '@/store/coding-status'
 import { $renamingPath, beginInlineRename } from '@/store/file-actions'
 import { $revealInTreeRequest } from '@/store/layout'
 
-import { FileEntryContextMenu, InlineRenameInput, isRenameShortcut } from '../file-actions'
+import { FileEntryActionsMenu, FileEntryContextMenu, InlineRenameInput, isRenameShortcut } from '../file-actions'
 
 import { getFileTreeDndManager } from './dnd-manager'
 import type { TreeNode } from './use-project-tree'
@@ -360,6 +360,17 @@ function ProjectTreeRow({
         // Git decoration (VS Code-style): tint changed files; the explicit color
         // wins over the row's hover/selected text color, so it persists.
         <span className={cn('min-w-0 flex-1 truncate', changeKind && CHANGE_TINT[changeKind])}>{node.data.name}</span>
+      )}
+      {/* The context menu below is right-click only, so without this the row's
+          actions have no touch path at all. Rendered for every row so the
+          column width is stable; it is the visibility that varies. */}
+      {!editing && !isPlaceholder && (
+        <FileEntryActionsMenu
+          isDirectory={isFolder}
+          name={node.data.name}
+          path={node.data.id}
+          relativeTo={relativeTo}
+        />
       )}
     </div>
   )

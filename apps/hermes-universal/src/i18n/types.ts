@@ -133,6 +133,7 @@ export interface Translations {
     revealExplorer: string
     revealFileManager: string
     revealInSidebar: string
+    actions: string
     copyPath: string
     copyRelativePath: string
     rename: string

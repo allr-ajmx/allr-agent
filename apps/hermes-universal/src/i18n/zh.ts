@@ -84,6 +84,7 @@ export const zh: Translations = {
     revealExplorer: '在文件资源管理器中显示',
     revealFileManager: '打开所在文件夹',
     revealInSidebar: '在文件树中显示',
+    actions: '文件操作',
     copyPath: '复制路径',
     copyRelativePath: '复制相对路径',
     rename: '重命名…',
