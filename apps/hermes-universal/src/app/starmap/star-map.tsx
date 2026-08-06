@@ -3,7 +3,7 @@ import { atom, type WritableAtom } from 'nanostores'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { useThemeEpoch } from '@/hooks/use-theme-epoch'
-import { createDoubleTapDetector, isSmartZoomWheel } from '@/lib/trackpad-gestures'
+import { createDoubleTapDetector, createPinchTracker, isSmartZoomWheel } from '@/lib/trackpad-gestures'
 import type { StarmapGraph } from '@/types/hermes'
 
 import { computePalette, memoryInkFor, resolveRgb, rgba } from './color'
@@ -138,6 +138,7 @@ export function StarMap({
   })
 
   const doubleTapRef = useRef(createDoubleTapDetector())
+  const pinchRef = useRef(createPinchTracker())
   const paletteRef = useRef<null | Palette>(null)
   const themeDirtyRef = useRef(true)
   const invalidateRef = useRef<() => void>(() => {})
@@ -815,7 +816,30 @@ export function StarMap({
     setSelectedId(null)
   }
 
+  /** Apply a zoom step about a screen point, holding that point fixed. The one
+   *  place the viewport's zoom is written, so wheel and pinch cannot drift. */
+  const zoomAbout = (step: number, px: number, py: number) => {
+    const vp = viewportRef.current
+    const k = clamp(vp.k * step, ZOOM_MIN, ZOOM_MAX)
+
+    viewportRef.current = { k, x: px - ((px - vp.x) / vp.k) * k, y: py - ((py - vp.y) / vp.k) * k }
+  }
+
   const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (e.pointerType !== 'mouse') {
+      pinchRef.current.down({ pointerId: e.pointerId, x: e.clientX, y: e.clientY })
+
+      // A second contact turns a pan into a pinch. Abandon the pan without
+      // firing its tap branch — the first finger was the start of a two-finger
+      // gesture all along, not a click.
+      if (pinchRef.current.active()) {
+        e.currentTarget.setPointerCapture?.(e.pointerId)
+        dragRef.current = idleDrag()
+
+        return
+      }
+    }
+
     // `button` is only meaningful for a mouse; a touch contact reports 0 but a
     // pen's barrel button would not, and neither should be filtered as a
     // right-click. `isPrimary` keeps a second finger from re-arming the pan.
@@ -851,11 +875,53 @@ export function StarMap({
   const onPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const drag = dragRef.current
 
+    if (e.pointerType !== 'mouse') {
+      const frame = pinchRef.current.move({ pointerId: e.pointerId, x: e.clientX, y: e.clientY })
+
+      if (frame) {
+        // Manual zoom takes over the camera from any auto-fit play-through.
+        setPlaying(false)
+
+        const { x, y } = localXY({ clientX: frame.cx, clientY: frame.cy })
+
+        // Pan by the centroid's travel first, then zoom about where it now is,
+        // so a two-finger drag that also spreads does both at once — which is
+        // what the hand is actually doing.
+        viewportRef.current = {
+          ...viewportRef.current,
+          x: viewportRef.current.x + frame.dx,
+          y: viewportRef.current.y + frame.dy
+        }
+        zoomAbout(frame.scale, x, y)
+        invalidate()
+
+        return
+      }
+    }
+
     if (drag.mode === 'none') {
       // Hover is a mouse-only concept — a finger resting on glass is a press,
       // not a hover, and touch devices deliver a synthetic move before the
       // contact that would light a node up under a finger that isn't there.
       if (e.pointerType !== 'mouse') {
+        // The finger left over from a pinch. Touch only emits moves while a
+        // contact is down, so this is a real one: hand it the pan, seeded here
+        // and now (hence no jump) and pre-marked as moved so releasing it
+        // doesn't register a tap — the user was mid-gesture, not clicking.
+        if (drag.coarse && !pinchRef.current.active()) {
+          dragRef.current = {
+            coarse: true,
+            id: null,
+            mode: 'pan',
+            moved: true,
+            pointerId: e.pointerId,
+            ring: null,
+            sx: e.clientX,
+            sy: e.clientY,
+            vp: viewportRef.current
+          }
+        }
+
         return
       }
 
@@ -936,8 +1002,31 @@ export function StarMap({
     }
   }
 
+  /** Lift a contact out of the pinch. If exactly one finger remains, it becomes
+   *  a pan — re-seeded from where it is *now* against the viewport as it is
+   *  *now*, or the map leaps by the whole pinch's travel on the next move. */
+  const endPinchContact = (e: React.PointerEvent<HTMLCanvasElement>): boolean => {
+    if (e.pointerType === 'mouse') {
+      return false
+    }
+
+    const wasPinching = pinchRef.current.up(e.pointerId)
+
+    if (!wasPinching) {
+      return false
+    }
+
+    dragRef.current = { ...idleDrag(), coarse: true }
+
+    return true
+  }
+
   const onPointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
     releaseCapture(e)
+
+    if (endPinchContact(e)) {
+      return
+    }
 
     if (dragRef.current.pointerId === e.pointerId) {
       endDrag()
@@ -946,6 +1035,7 @@ export function StarMap({
 
   const onPointerCancel = (e: React.PointerEvent<HTMLCanvasElement>) => {
     releaseCapture(e)
+    pinchRef.current.clear()
     hoverRef.current = null
     hoveredRingRef.current = null
     hoveredLinkRef.current = null
@@ -997,11 +1087,7 @@ export function StarMap({
     // Manual zoom takes over the camera from any auto-fit play-through.
     setPlaying(false)
 
-    const px = e.clientX - rect.left
-    const py = e.clientY - rect.top
-    const vp = viewportRef.current
-    const k = clamp(vp.k * (e.deltaY > 0 ? 0.9 : 1.1), ZOOM_MIN, ZOOM_MAX)
-    viewportRef.current = { k, x: px - ((px - vp.x) / vp.k) * k, y: py - ((py - vp.y) / vp.k) * k }
+    zoomAbout(e.deltaY > 0 ? 0.9 : 1.1, e.clientX - rect.left, e.clientY - rect.top)
     invalidate()
   }
 
