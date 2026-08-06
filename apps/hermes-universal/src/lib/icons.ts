@@ -107,6 +107,7 @@ export {
   IconRefresh as RefreshCw,
   IconDeviceFloppy as Save,
   IconSearch as Search,
+  IconSearch as SearchIcon,
   IconSend as Send,
   IconSettings as Settings,
   IconAdjustmentsHorizontal as SlidersHorizontal,
