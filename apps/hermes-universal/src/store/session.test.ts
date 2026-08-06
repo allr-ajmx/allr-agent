@@ -28,7 +28,9 @@ import {
   $sessions,
   $sessionsLimit,
   $sessionsTotal,
+  $unreadFinishedSessionIds,
   branchCurrentSession,
+  clearUnreadFinishedSession,
   deleteSessionLocal,
   openSession,
   refreshSessions,
@@ -44,6 +46,7 @@ afterEach(() => {
   $sessions.set([])
   $sessionsTotal.set(0)
   $activeStoredSessionId.set(null)
+  $unreadFinishedSessionIds.set([])
   $showAllProfiles.set(false)
   $activeProfile.set(null)
   resetSessionsPaging()
@@ -332,5 +335,32 @@ describe('refreshSessions — profile scope', () => {
 
     expect(listAllProfileSessions).toHaveBeenCalledWith($sessionsLimit.get(), 1, 'exclude', 'recent', 'default')
     expect($sessionsTotal.get()).toBe(7)
+  })
+})
+
+describe('unread-finished tracking', () => {
+  it('clears a session id the moment it becomes the active session', () => {
+    $unreadFinishedSessionIds.set(['stored-a', 'stored-b'])
+
+    $activeStoredSessionId.set('stored-a')
+
+    expect($unreadFinishedSessionIds.get()).toEqual(['stored-b'])
+  })
+
+  it('leaves the set alone when the chat goes back to a fresh draft', () => {
+    $unreadFinishedSessionIds.set(['stored-a'])
+
+    $activeStoredSessionId.set(null)
+
+    expect($unreadFinishedSessionIds.get()).toEqual(['stored-a'])
+  })
+
+  it('keeps the same array reference when the id was never unread', () => {
+    const before = ['stored-a']
+    $unreadFinishedSessionIds.set(before)
+
+    clearUnreadFinishedSession('stored-z')
+
+    expect($unreadFinishedSessionIds.get()).toBe(before)
   })
 })

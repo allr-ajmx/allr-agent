@@ -71,6 +71,17 @@ export function clearUnreadFinishedSession(storedSessionId: string): void {
   }
 }
 
+// Opening a session clears its unread state — the user is now looking at it.
+// Hung off the atom rather than the several `openSession`/`hydrateColdSession`
+// call sites so it exactly mirrors the mark, which `session-states.ts#handleTransition`
+// gates on this same atom: a turn that settles while its session ISN'T active
+// becomes unread, and the moment it becomes active it stops being.
+$activeStoredSessionId.listen(storedId => {
+  if (storedId) {
+    clearUnreadFinishedSession(storedId)
+  }
+})
+
 /** Follow a compression-driven stored-id rotation for the LIVE primary runtime
  *  (auto-compression mints a new session id mid-turn). Guarded by provenance so
  *  a stale background rotation can't steal the foreground selection. Called by
