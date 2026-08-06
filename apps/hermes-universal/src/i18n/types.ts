@@ -1116,6 +1116,7 @@ export interface Translations {
       installed: string
       installs: (count: string) => string
     }
+    commands: string
     settingsFields: string
     mcpServers: string
     archivedChats: string

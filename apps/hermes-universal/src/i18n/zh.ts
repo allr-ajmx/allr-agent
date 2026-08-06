@@ -1412,6 +1412,7 @@ export const zh: Translations = {
       installed: '已安装',
       installs: count => `${count} 次安装`
     },
+    commands: '命令',
     settingsFields: '设置字段',
     mcpServers: 'MCP 服务器',
     archivedChats: '已归档对话',

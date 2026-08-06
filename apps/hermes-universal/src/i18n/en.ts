@@ -1233,6 +1233,7 @@ export const en: Translations = {
       installed: 'Installed',
       installs: count => `${count} installs`
     },
+    commands: 'Commands',
     settingsFields: 'Settings fields',
     mcpServers: 'MCP servers',
     archivedChats: 'Archived chats',

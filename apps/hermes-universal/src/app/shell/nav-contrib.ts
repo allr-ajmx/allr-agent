@@ -45,6 +45,7 @@ registry.registerMany(
       action: NAV_ACTION_BY_VIEW[item.view],
       icon: item.icon,
       id: `nav.${item.view}`,
+      keywords: item.keywords,
       labelKey: `nav.${item.labelKey}`,
       // Promote Settings / Command Center to their native activity on Android;
       // everything else navigates in-app (openAppRoute decides).
