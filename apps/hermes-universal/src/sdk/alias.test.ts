@@ -40,12 +40,23 @@ describe('@hermes/plugin-sdk', () => {
     }
 
     // UI kit + libs + data layer.
-    for (const name of ['Button', 'Dialog', 'Checkbox', 'Separator', 'Popover', 'EmptyState', 'StatusDot'] as const) {
+    for (const name of [
+      'Button',
+      'Dialog',
+      'Checkbox',
+      'Separator',
+      'Popover',
+      'EmptyState',
+      'FadeScroll',
+      'StatusDot'
+    ] as const) {
       expect(viaAlias[name]).toBeTruthy()
     }
 
     expect(viaAlias.cn).toBeTypeOf('function')
+    expect(viaAlias.compactNumber).toBeTypeOf('function')
     expect(viaAlias.haptic).toBeTypeOf('function')
+    expect(viaAlias.useGrabScroll).toBeTypeOf('function')
     expect(viaAlias.useQuery).toBeTypeOf('function')
     expect(viaAlias.queryClient).toBeTruthy()
     expect(viaAlias.atom).toBeTypeOf('function')
