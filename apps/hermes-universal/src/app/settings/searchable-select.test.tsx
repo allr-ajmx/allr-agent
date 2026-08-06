@@ -1,6 +1,9 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import type { ConfigFieldSchema } from '@/types/hermes'
+
+import { ConfigField } from './config-section'
 import { rankSearchOption, SearchableSelect } from './searchable-select'
 
 // The scrollIntoView / pointer-capture / ResizeObserver shims Radix Popover and
@@ -79,5 +82,59 @@ describe('SearchableSelect', () => {
     render(<SearchableSelect onChange={vi.fn()} options={options} placeholder="Search…" value="" />)
 
     expect(screen.getByRole('combobox').textContent).toContain('Search…')
+  })
+})
+
+describe('ConfigField searchable routing', () => {
+  const searchableSchema: ConfigFieldSchema = {
+    type: 'select',
+    searchable: true,
+    clearable: true,
+    options: ['America/New_York', 'UTC']
+  }
+
+  it('routes searchable select schemas to SearchableSelect, not a free-text input', () => {
+    const { container } = render(
+      <ConfigField onChange={vi.fn()} schema={searchableSchema} schemaKey="timezone" value="UTC" />
+    )
+
+    // The searchable trigger renders; the generic free-text <Input> does not.
+    expect(container.querySelector('[data-slot="searchable-select-trigger"]')).not.toBeNull()
+    expect(container.querySelector('input[type="text"]')).toBeNull()
+  })
+
+  it('keeps plain string schemas on the free-text input', () => {
+    const { container } = render(
+      <ConfigField onChange={vi.fn()} schema={{ type: 'string' }} schemaKey="some.other.key" value="hello" />
+    )
+
+    expect(container.querySelector('[data-slot="searchable-select-trigger"]')).toBeNull()
+    expect(screen.getByDisplayValue('hello')).not.toBeNull()
+  })
+
+  it('surfaces the clear item via schema.clearable and resets to blank', () => {
+    const onChange = vi.fn()
+
+    render(<ConfigField onChange={onChange} schema={searchableSchema} schemaKey="timezone" value="UTC" />)
+
+    fireEvent.click(screen.getByRole('combobox'))
+    fireEvent.click(screen.getByText('System default'))
+
+    expect(onChange).toHaveBeenCalledWith('')
+  })
+
+  it('routes FREE_INPUT_KEYS to a typeable combobox rather than a closed select', () => {
+    render(
+      <ConfigField
+        onChange={vi.fn()}
+        schema={{ type: 'select', options: ['rachel'] }}
+        schemaKey="tts.elevenlabs.voice_id"
+        value="custom-clone-id"
+      />
+    )
+
+    // The value is a voice id absent from the option list — it must survive.
+    expect(screen.getByDisplayValue('custom-clone-id')).not.toBeNull()
+    expect(screen.getByLabelText('Show options')).not.toBeNull()
   })
 })

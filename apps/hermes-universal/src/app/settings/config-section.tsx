@@ -13,11 +13,20 @@ import { notifyError } from '@/store/notifications'
 import { repoDiscoveryPolicyFromConfig, repoDiscoveryPolicySignature, scanAndRecordRepos } from '@/store/projects'
 import type { ConfigFieldSchema, HermesConfigRecord } from '@/types/hermes'
 
-import { EMPTY_SELECT_VALUE, FIELD_DESCRIPTIONS, FIELD_LABELS, SECTIONS } from './constants'
+import { ComboboxInput } from './combobox-input'
+import {
+  CONTROL_TEXT,
+  EMPTY_SELECT_VALUE,
+  FIELD_DESCRIPTIONS,
+  FIELD_LABELS,
+  FREE_INPUT_KEYS,
+  SECTIONS
+} from './constants'
 import { FallbackModelsField } from './fallback-models-field'
 import { fieldCopyForSchemaKey } from './field-copy'
 import { enumOptionsFor, getNested, prettyName, setNested } from './helpers'
 import { EmptyState, ListRow, LoadingState, SettingsContent } from './primitives'
+import { SearchableSelect } from './searchable-select'
 import { setHermesConfigCache, useHermesConfigRecord } from './use-config-record'
 
 // The schema-driven config field: renders the right control for the schema type
@@ -91,6 +100,39 @@ export function ConfigField({
   }
 
   const selectOptions = enumOptions ?? (schema.type === 'select' ? (schema.options ?? []).map(String) : undefined)
+
+  // Large closed-world lists (e.g. ~590 IANA timezones) get a searchable
+  // Popover + cmdk combobox instead of a closed Select dropdown. The schema
+  // opt-in via `searchable: true` keeps this deterministic — no field
+  // accidentally triggers based on dynamic option count.
+  if (selectOptions && schema.searchable) {
+    return row(
+      <SearchableSelect
+        clearLabel={schema.clearable ? c.systemDefault : undefined}
+        emptyMessage={c.noResults}
+        onChange={next => onChange(next)}
+        options={selectOptions.filter(o => o !== '')}
+        placeholder={c.searchPlaceholder}
+        value={String(value ?? '')}
+      />
+    )
+  }
+
+  // Voice/model name fields are open-world (custom voice IDs, cloned voices,
+  // brand-new model names) — render a free-input combobox where the known
+  // options are dropdown suggestions instead of a closed Select gate.
+  if (selectOptions && FREE_INPUT_KEYS.has(schemaKey)) {
+    return row(
+      <ComboboxInput
+        className={CONTROL_TEXT}
+        onChange={onChange}
+        optionLabels={optionLabels}
+        options={selectOptions.filter(o => o !== '')}
+        placeholder={c.notSet}
+        value={String(value ?? '')}
+      />
+    )
+  }
 
   if (selectOptions) {
     return row(

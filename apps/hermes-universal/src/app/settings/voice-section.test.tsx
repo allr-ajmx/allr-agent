@@ -3,8 +3,10 @@ import { render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // The voice section renders only tts.elevenlabs.voice_id (config carries
-// tts.provider='elevenlabs' so voiceFieldVisible keeps it). With voices listed it
-// becomes a Select (combobox); without, the generic free-text Input (textbox).
+// tts.provider='elevenlabs' so voiceFieldVisible keeps it). The key is in
+// FREE_INPUT_KEYS, so with voices listed it becomes a ComboboxInput — a
+// free-text field whose known voices are dropdown suggestions rather than a
+// gate; without voices, the generic free-text Input.
 vi.mock('@/hermes', () => ({
   // Via ConfigSection → store/projects → store/profile → store/profiles, which
   // syncs the REST scope at import time.
@@ -40,20 +42,21 @@ describe('VoiceSection', () => {
     voices.mockReset()
   })
 
-  it('renders a voice dropdown when ElevenLabs voices are available', async () => {
+  it('renders a suggestion combobox when ElevenLabs voices are available', async () => {
     voices.mockResolvedValue({ available: true, voices: [{ voice_id: 'v1', name: 'rachel', label: 'Rachel' }] })
     renderVoice()
 
-    // The voice field resolves to a Select (combobox) — not a free-text Input.
-    await waitFor(() => expect(screen.getByRole('combobox')).toBeInTheDocument())
-    expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+    // The voice field keeps its current value editable and offers the listed
+    // voices behind the chevron — a custom voice id must stay typeable.
+    await waitFor(() => expect(screen.getByDisplayValue('v1')).toBeInTheDocument())
+    expect(screen.getByLabelText('Show options')).toBeInTheDocument()
   })
 
-  it('falls back to a free-text field when voices cannot be listed', async () => {
+  it('falls back to a plain free-text field when voices cannot be listed', async () => {
     voices.mockResolvedValue({ available: false, voices: [] })
     renderVoice()
 
     expect(await screen.findByRole('textbox')).toBeInTheDocument()
-    expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Show options')).not.toBeInTheDocument()
   })
 })
