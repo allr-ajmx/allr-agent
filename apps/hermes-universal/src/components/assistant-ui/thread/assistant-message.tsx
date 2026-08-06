@@ -7,13 +7,18 @@ import {
   useMessageRuntime
 } from '@assistant-ui/react'
 import { useStore } from '@nanostores/react'
-import { type FC, useCallback, useState } from 'react'
+import { type FC, useCallback, useMemo, useState } from 'react'
 
-import { contentHasVisibleText, messageContentText } from '@/components/assistant-ui/thread/content'
+import {
+  contentHasVisibleText,
+  messageContentText,
+  pickPrimaryPreviewTarget
+} from '@/components/assistant-ui/thread/content'
 import { MESSAGE_PARTS_COMPONENTS } from '@/components/assistant-ui/thread/message-parts'
 import { StreamStallIndicator } from '@/components/assistant-ui/thread/status'
 import { formatMessageTimestamp } from '@/components/assistant-ui/thread/timestamp'
 import { TooltipIconButton } from '@/components/assistant-ui/tooltip-icon-button'
+import { PreviewAttachment } from '@/components/chat/preview-attachment'
 import { Codicon } from '@/components/ui/codicon'
 import { CopyButton } from '@/components/ui/copy-button'
 import {
@@ -25,6 +30,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { useI18n } from '@/i18n'
 import { GitBranchIcon, Loader2Icon, Volume2Icon, VolumeXIcon, XIcon } from '@/lib/icons'
+import { extractPreviewTargets } from '@/lib/preview-targets'
 import { cn } from '@/lib/utils'
 import { playSpeechText, stopVoicePlayback } from '@/lib/voice-playback'
 import { notifyError } from '@/store/notifications'
@@ -59,10 +65,20 @@ export const AssistantMessage: FC<{
   const isPlaceholder = useAuiState(s => s.message.status?.type === 'running' && s.message.content.length === 0)
   const hasVisibleText = useAuiState(s => contentHasVisibleText(s.message.content))
 
-  // FIXME(MJX-205): link preview attachments. Desktop scans completed text for
-  // previewable URLs and renders <PreviewAttachment>. The original reason given
-  // here — no gateway-media RPCs — is likely stale now that MJX-103 landed the
-  // authenticated media transport; re-verify before scoping.
+  // Previewable links in a SETTLED reply. Reading '' while running keeps this
+  // component off the streaming text (see the PERF note above) — the scan runs
+  // once, when the turn lands.
+  const completedText = useAuiState(s =>
+    s.message.status?.type === 'running' ? '' : messageContentText(s.message.content)
+  )
+
+  const previewTargets = useMemo(() => {
+    if (!completedText || !/(https?:\/\/|file:\/\/)/i.test(completedText)) {
+      return []
+    }
+
+    return pickPrimaryPreviewTarget(extractPreviewTargets(completedText))
+  }, [completedText])
 
   const getMessageText = useCallback(() => messageContentText(messageRuntime.getState().content), [messageRuntime])
 
@@ -87,6 +103,13 @@ export const AssistantMessage: FC<{
       >
         <MessagePrimitive.Parts components={MESSAGE_PARTS_COMPONENTS} />
         {isRunning && <StreamStallIndicator />}
+        {previewTargets.length > 0 && (
+          <div className="mt-3 flex flex-wrap gap-2">
+            {previewTargets.map(target => (
+              <PreviewAttachment key={target} target={target} />
+            ))}
+          </div>
+        )}
         <MessagePrimitive.Error>
           <ErrorPrimitive.Root
             className="mt-1.5 flex items-start gap-1.5 text-[0.78rem] leading-5 text-[color-mix(in_srgb,var(--dt-destructive)_78%,var(--ui-text-secondary))]"

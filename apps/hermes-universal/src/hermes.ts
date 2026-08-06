@@ -272,11 +272,14 @@ export async function listSessions(
   limit = 40,
   minMessages = 0,
   archived: 'exclude' | 'include' | 'only' = 'exclude',
-  order: 'created' | 'recent' = 'recent'
+  order: 'created' | 'recent' = 'recent',
+  offset = 0
 ): Promise<PaginatedSessions> {
+  const from = Math.max(0, offset)
+
   const result = await api<PaginatedSessions>({
     path:
-      `/api/sessions?limit=${limit}&offset=0&min_messages=${Math.max(0, minMessages)}` +
+      `/api/sessions?limit=${limit}&offset=${from}&min_messages=${Math.max(0, minMessages)}` +
       `&archived=${archived}&order=${order}`,
     timeoutMs: SESSION_LIST_REQUEST_TIMEOUT_MS
   })
@@ -284,7 +287,7 @@ export async function listSessions(
   return {
     ...result,
     sessions: result.sessions.slice(0, limit),
-    offset: 0
+    offset: from
   }
 }
 
@@ -301,13 +304,19 @@ export interface SessionSourceFilter {
   excludeSources?: string[]
 }
 
+/** How deep `/api/profiles/sessions` can page. The backend over-fetches
+ *  `limit + offset` rows PER PROFILE to merge a correct window and clamps that
+ *  at 500, so `offset + limit` beyond this silently returns a short page. */
+export const PROFILE_SESSIONS_WINDOW_CAP = 500
+
 export async function listAllProfileSessions(
   limit = 40,
   minMessages = 0,
   archived: 'exclude' | 'include' | 'only' = 'exclude',
   order: 'created' | 'recent' = 'recent',
   profile: 'all' | (string & {}) = 'all',
-  filter: SessionSourceFilter = {}
+  filter: SessionSourceFilter = {},
+  offset = 0
 ): Promise<PaginatedSessions> {
   const sourceParam = filter.source ? `&source=${encodeURIComponent(filter.source)}` : ''
 
@@ -315,9 +324,15 @@ export async function listAllProfileSessions(
     ? `&exclude_sources=${encodeURIComponent(filter.excludeSources.join(','))}`
     : ''
 
+  // The aggregator over-fetches `limit + offset` per profile to build a correct
+  // merged window, and caps that at 500 (`hermes_cli/web_server.py`
+  // `get_profiles_sessions`). Past the cap it silently returns a short page, so
+  // stop asking for a window it cannot serve.
+  const from = Math.min(Math.max(0, offset), Math.max(0, PROFILE_SESSIONS_WINDOW_CAP - limit))
+
   const result = await api<PaginatedSessions>({
     path:
-      `/api/profiles/sessions?limit=${limit}&offset=0&min_messages=${Math.max(0, minMessages)}` +
+      `/api/profiles/sessions?limit=${limit}&offset=${from}&min_messages=${Math.max(0, minMessages)}` +
       `&archived=${archived}&order=${order}&profile=${encodeURIComponent(profile)}${sourceParam}${excludeParam}`,
     timeoutMs: SESSION_LIST_REQUEST_TIMEOUT_MS
   })
@@ -325,7 +340,7 @@ export async function listAllProfileSessions(
   return {
     ...result,
     sessions: result.sessions.slice(0, limit),
-    offset: 0
+    offset: from
   }
 }
 
