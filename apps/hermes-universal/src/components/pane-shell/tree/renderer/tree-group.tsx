@@ -37,9 +37,11 @@ import { ContribBoundary } from '@/contrib/react/boundary'
 import { useI18n } from '@/i18n'
 import { cn } from '@/lib/utils'
 import { DEV_TOOLS_ENABLED } from '@/observability/enabled'
+import { canOpenNewWindow } from '@/store/windows'
 
 import { $layoutEditMode } from '../../edit-mode'
 import { hiddenPaneProps, PaneGroupContext, PaneVisibleContext } from '../../pane-visibility'
+import { $detachedTiles, detachTile, reattachTile } from '../../tile/detach'
 import { useTileMap } from '../../tile/registry'
 import { tileChrome } from '../../tile/types'
 import { type TileContext, tileShown } from '../../tile/visibility'
@@ -97,6 +99,33 @@ function PaneProfiler({ children, kind }: { children: ReactNode; kind: string })
   )
 }
 
+/**
+ * What a zone shows while its tile is detached to another window.
+ *
+ * Deliberately inert-looking: the slot is being HELD, not used. Reattach is the
+ * only affordance, because closing the host window does the same thing — there
+ * is exactly one way back and this is a shortcut to it, not a second mode.
+ */
+function DetachedSlot({ paneId, title }: { paneId: string; title: string }) {
+  const { t } = useI18n()
+
+  return (
+    <div className="grid h-full place-items-center px-6 text-center">
+      <div className="flex flex-col items-center gap-2">
+        <Codicon className="text-(--ui-text-quaternary)" name="multiple-windows" size="1rem" />
+        <p className="text-xs text-(--ui-text-tertiary)">{t.zones.detachedBody(title)}</p>
+        <button
+          className="rounded-md border border-(--ui-stroke-tertiary) px-2 py-1 text-[0.6875rem] text-(--ui-text-secondary) transition-colors hover:bg-(--ui-control-hover-background) hover:text-foreground"
+          onClick={() => void reattachTile(paneId)}
+          type="button"
+        >
+          {t.zones.reattach}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 /** A directional action in the zone menu (computed per group state). */
 interface ZoneMenuDirection {
   side: RootEdge
@@ -116,6 +145,7 @@ const DIRECTION_ARROW: Record<RootEdge, string> = { bottom: '↓', left: '←', 
 function ZoneMenu({
   children,
   closable,
+  detachable,
   minimizable = true,
   directions,
   headerHidden,
@@ -126,6 +156,9 @@ function ZoneMenu({
   /** The pane the menu closes (the right-clicked chip / the active pane);
    *  undefined = not closable (the main zone). */
   closable?: () => string | undefined
+  /** The pane the menu detaches to its own window; undefined when this platform
+   *  has no second window, or the pane is already detached. */
+  detachable?: () => string | undefined
   /** False for the zone hosting the uncloseable workspace — collapsing the
    *  MAIN pane strands the app behind a strip. */
   minimizable?: boolean
@@ -149,6 +182,23 @@ function ZoneMenu({
             {direction.label}
           </ContextMenuItem>
         ))}
+        {/* Detach is an explicit INTENT, not a gesture — an in-app drag never
+            crosses a window boundary (drag-session.ts reserves native DnD for
+            real OS drops). Resolved at render like `closable`, so the item names
+            the pane that was actually right-clicked. */}
+        {detachable?.() !== undefined && (
+          <ContextMenuItem
+            onSelect={() => {
+              const paneId = detachable?.()
+
+              if (paneId) {
+                void detachTile(paneId)
+              }
+            }}
+          >
+            {t.zones.detach}
+          </ContextMenuItem>
+        )}
         <ContextMenuItem onSelect={() => setTreeGroupHeaderHidden(nodeId, !headerHidden)}>
           {headerHidden ? t.zones.showHeader : t.zones.hideHeader}
         </ContextMenuItem>
@@ -210,6 +260,7 @@ export function TreeGroup({
 
   const hiddenPanes = useStore($hiddenTreePanes)
   const narrow = useStore($narrowViewport)
+  const detached = useStore($detachedTiles)
 
   const paneFor = (id: string) => byId.get(id)
 
@@ -364,6 +415,15 @@ export function TreeGroup({
     return tileChrome(paneFor(paneId)).uncloseable ? undefined : paneId
   }
 
+  // Any REGISTERED tile can detach — the window hosts it generically, so there
+  // is no roster to keep in sync. Gated on the platform having a second window
+  // (Android doesn't yet) and on the tile not already being out there.
+  const detachable = () => {
+    const paneId = menuPane ?? activeId
+
+    return canOpenNewWindow() && paneFor(paneId) && !detached.has(paneId) ? paneId : undefined
+  }
+
   // The zone hosting the uncloseable workspace never minimizes — collapsing
   // MAIN strands the whole app behind a strip.
   const minimizable = !shown.some(id => tileChrome(paneFor(id)).uncloseable)
@@ -380,6 +440,7 @@ export function TreeGroup({
   // Same menu on the header strip and the edit veil — one prop bag.
   const zoneMenu = {
     closable,
+    detachable,
     directions: menuDirections,
     headerHidden,
     minimizable,
@@ -626,7 +687,12 @@ export function TreeGroup({
                   key={paneId}
                   {...hiddenPaneProps(!isActive)}
                 >
-                  {tile?.render ? (
+                  {detached.has(paneId) ? (
+                    // The tile lives in another window. The SLOT stays — that is
+                    // what makes reattach a restore rather than a fresh
+                    // placement decision — and shows the way back.
+                    <DetachedSlot paneId={paneId} title={tile?.title ?? paneId} />
+                  ) : tile?.render ? (
                     // Visibility flows to the tile so a kept-alive chat surface
                     // can gate its hot (per-token) subscriptions while hidden;
                     // the group id identifies the ZONE it lives in, for state
