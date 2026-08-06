@@ -93,7 +93,7 @@ export function SectionBody({ section }: { section: string }) {
     case 'shortcuts':
       return <KeybindSettings />
 
-    // Pet gallery (K10).
+    // Pet gallery.
     case 'pet':
       return <PetSection />
 

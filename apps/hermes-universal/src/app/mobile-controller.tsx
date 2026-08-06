@@ -42,7 +42,7 @@ import { Titlebar } from './shell/titlebar'
 
 // Connected-guard + routing. Until a gateway connection is ready we show the
 // full-screen ConnectScreen (no nav). Once ready, the first-run onboarding
-// wizard shows if no provider is configured (K11); otherwise the sidebar shell
+// wizard shows if no provider is configured; otherwise the sidebar shell
 // hosts the routed views. The toast stack (portaled to <body>) floats over all.
 export function MobileController() {
   const phase = useStore($connectionPhase)
@@ -80,7 +80,7 @@ export function MobileController() {
   }, [])
 
   // On reaching a live connection, check whether a provider is configured and
-  // pull the active pet's sprite (K10.b) so the in-app pet can render in chat.
+  // pull the active pet's sprite so the in-app pet can render in chat.
   useEffect(() => {
     if (phase === 'ready') {
       void checkConfigured()

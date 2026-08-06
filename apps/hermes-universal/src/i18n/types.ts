@@ -107,7 +107,7 @@ export interface Translations {
     review: string
   }
 
-  // Mobile-only: the read-only code-review / git-diff view (K14).
+  // The code-review / git-diff view.
   review: {
     title: string
     loading: string
@@ -117,7 +117,7 @@ export interface Translations {
     changed: (count: number) => string
   }
 
-  // Mobile-only: the remote workspace file browser (K13).
+  // The remote workspace file browser.
   files: {
     title: string
     loading: string

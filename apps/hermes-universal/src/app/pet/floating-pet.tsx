@@ -16,7 +16,7 @@ import { walkBox } from './roam-geometry'
 import { usePetRoam } from './use-pet-roam'
 import { clampToBox, spriteRotation } from './wall-geometry'
 
-// The in-app pet (K10.b), ported from the desktop in-app mascot: a top-level,
+// The in-app pet, ported from the desktop in-app mascot: a top-level,
 // draggable, roaming sprite mounted at the app root (mobile-controller) so it
 // floats over every route. The desktop's separate-OS-window pop-out is excluded
 // (Tauri has one window; can't work on mobile). Position is top/left-anchored,
