@@ -28,6 +28,10 @@ export const NODE_HIT_PAD_COARSE = 16
 // a fingertip, which covers roughly 8mm of glass.
 export const LINK_PICK_R_FINE = 5
 export const LINK_PICK_R_COARSE = 14
+// Touch's stand-in for right-click. Longer than the app's 450/360ms holds
+// because the competing gesture here is a pan across the whole canvas, and a
+// pan that begins slowly must not open a menu.
+export const STARMAP_LONG_PRESS_MS = 500
 
 export const WHITE: Rgb = { b: 255, g: 255, r: 255 }
 export const BLACK: Rgb = { b: 0, g: 0, r: 0 }

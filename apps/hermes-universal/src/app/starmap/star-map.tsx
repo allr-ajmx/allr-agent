@@ -3,6 +3,8 @@ import { atom, type WritableAtom } from 'nanostores'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { useThemeEpoch } from '@/hooks/use-theme-epoch'
+import { triggerHaptic } from '@/lib/haptics'
+import { createLongPress } from '@/lib/long-press'
 import { createDoubleTapDetector, createPinchTracker, isSmartZoomWheel } from '@/lib/trackpad-gestures'
 import type { StarmapGraph } from '@/types/hermes'
 
@@ -15,6 +17,7 @@ import {
   NODE_HIT_PAD_COARSE,
   NODE_HIT_PAD_FINE,
   RING_OUTER,
+  STARMAP_LONG_PRESS_MS,
   TILT,
   ZOOM_MAX,
   ZOOM_MIN
@@ -139,6 +142,23 @@ export function StarMap({
 
   const doubleTapRef = useRef(createDoubleTapDetector())
   const pinchRef = useRef(createPinchTracker())
+  // Long-press is touch's right-click. Kept in a ref (not a memo) because the
+  // whole interaction layer stays off the render path.
+  const openMenuRef = useRef<(clientX: number, clientY: number, coarse: boolean) => void>(() => {})
+
+  const longPressRef = useRef(
+    createLongPress({
+      ms: STARMAP_LONG_PRESS_MS,
+      onFire: ({ x, y }) => {
+        triggerHaptic('success')
+        // Neither the pan nor the tap branch should also fire: the gesture was
+        // a hold, and the finger has not moved.
+        dragRef.current.moved = true
+        openMenuRef.current(x, y, true)
+      }
+    })
+  )
+
   const paletteRef = useRef<null | Palette>(null)
   const themeDirtyRef = useRef(true)
   const invalidateRef = useRef<() => void>(() => {})
@@ -834,10 +854,13 @@ export function StarMap({
       // gesture all along, not a click.
       if (pinchRef.current.active()) {
         e.currentTarget.setPointerCapture?.(e.pointerId)
+        longPressRef.current.cancel()
         dragRef.current = idleDrag()
 
         return
       }
+
+      longPressRef.current.down(e.clientX, e.clientY)
     }
 
     // `button` is only meaningful for a mouse; a touch contact reports 0 but a
@@ -945,6 +968,8 @@ export function StarMap({
       return
     }
 
+    longPressRef.current.move(e.clientX, e.clientY)
+
     const dx = e.clientX - drag.sx
     const dy = e.clientY - drag.sy
     const slop = drag.coarse ? DRAG_SLOP_COARSE : DRAG_SLOP_FINE
@@ -1023,6 +1048,7 @@ export function StarMap({
 
   const onPointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
     releaseCapture(e)
+    longPressRef.current.up()
 
     if (endPinchContact(e)) {
       return
@@ -1035,6 +1061,7 @@ export function StarMap({
 
   const onPointerCancel = (e: React.PointerEvent<HTMLCanvasElement>) => {
     releaseCapture(e)
+    longPressRef.current.cancel()
     pinchRef.current.clear()
     hoverRef.current = null
     hoveredRingRef.current = null
@@ -1044,6 +1071,7 @@ export function StarMap({
   }
 
   const onPointerLeave = () => {
+    longPressRef.current.cancel()
     hoverRef.current = null
     hoveredRingRef.current = null
     hoveredLinkRef.current = null
@@ -1051,10 +1079,11 @@ export function StarMap({
     endDrag()
   }
 
-  const onContextMenu = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    e.preventDefault()
-    const { x, y } = localXY(e)
-    const node = pickNode(x, y)
+  /** Open the node menu for whatever is under a viewport point. Shared by
+   *  right-click and long-press so the two can't offer different things. */
+  const openNodeMenu = (clientX: number, clientY: number, coarse: boolean) => {
+    const { x, y } = localXY({ clientX, clientY })
+    const node = pickNode(x, y, coarse)
 
     if (!node) {
       return setMenuTarget(null)
@@ -1065,9 +1094,16 @@ export function StarMap({
       id: node.id,
       kind: node.kind === 'memory' ? 'memory' : 'skill',
       label: node.label,
-      x: e.clientX,
-      y: e.clientY
+      x: clientX,
+      y: clientY
     })
+  }
+
+  openMenuRef.current = openNodeMenu
+
+  const onContextMenu = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    e.preventDefault()
+    openNodeMenu(e.clientX, e.clientY, false)
   }
 
   const onWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
