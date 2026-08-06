@@ -5,6 +5,35 @@
    inline per skin by applyTheme(). Declared here so `dark:` utilities compile. */
 @custom-variant dark (&:is(.dark *));
 
+/* Input-capability variants. The desktop port brought its hover-reveal idiom
+   with it (`opacity-0 group-hover:opacity-100`, `text-transparent
+   group-hover:text-…`), which on a touch screen hides PRIMARY actions behind a
+   gesture that does not exist. These two variants are how a call site says
+   "this affordance is reachable without a pointer that can hover".
+
+   Why the media query and not `IS_MOBILE`/`html.is-mobile`: platform.ts
+   deliberately refuses to tag a touchscreen laptop as mobile (it is a device /
+   reach signal, and local-mode capability hangs off it). Whether an action can
+   be revealed by hovering is a question about the INPUT, not the device — so
+   `.is-mobile` keeps owning the rem-scale axis below, and these own the input
+   axis. A tablet and a touchscreen desktop get fixed for free.
+
+   How to use them — the rule is "reveal on coarse iff the hidden element is the
+   ONLY path to that action":
+     - Plain opacity reveal → add `coarse:opacity-100` (plus
+       `coarse:pointer-events-auto` where the site also gates pointer-events).
+     - A display swap, or two elements sharing one slot → INVERT to `fine:`:
+       write the touch layout as the base and scope the hover-hiding to `fine:`.
+       Only one of the two queries can ever match, so there is no source-order
+       fight between the two, and jsdom (which matches neither) sees the touch
+       layout. Layering `coarse:` on top of a `hidden`/`flex` swap does not
+       work — and two elements that share a grid cell would both appear.
+   Decoration (carets, timestamps, drag grabbers, `opacity-30` dimming) is
+   deliberately left hover-only: revealing it buys no capability and makes every
+   list row noisier. See also the touch-target block near the end of this file. */
+@custom-variant coarse (@media (pointer: coarse));
+@custom-variant fine (@media (pointer: fine));
+
 /* ─── Fonts ──────────────────────────────────────────────────────────────────
    Everything the app can name is VENDORED under ./fonts — nothing depends on
    what the host happens to have installed. That is the one place universal
