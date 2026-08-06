@@ -1158,7 +1158,15 @@ export function StarMap({
       {/* Timeline scrubber — centered along the top, clear of the close button.
           z-20 lifts it above the titlebar's app-region drag layer (z-10) so the
           scrubber receives pointer events instead of dragging the window. */}
-      <div className="pointer-events-none absolute inset-x-0 top-6 z-20 flex justify-center px-12">
+      {/* The squeeze was never the timeline's own `w-[28rem]` (it carries
+          `max-w-full`) but this 96px of padding: on a 390px phone it left the
+          scrubber ~250px, about 4px per ring stop. A width problem gets a width
+          breakpoint. `top-6` also ignored the notch, so the row sat under the
+          status bar on a notched device. */}
+      <div
+        className="pointer-events-none absolute inset-x-0 z-20 flex justify-center px-2 sm:px-12"
+        style={{ top: 'calc(var(--safe-area-inset-top, 0px) + 1.5rem)' }}
+      >
         <Timeline
           axis={timeAxis}
           memoryColor={memoryColor}
@@ -1171,12 +1179,26 @@ export function StarMap({
       </div>
 
       {/* Share / import (WoW-talent-style code) — bottom-right, mirroring the legend. */}
-      <div className="pointer-events-auto absolute bottom-2 right-2 z-20 [-webkit-app-region:no-drag]">
+      {/* Pointer-events-auto and in the corner a thumb naturally rests in, so
+          it has to clear the home indicator rather than sit under it. */}
+      <div
+        className="pointer-events-auto absolute z-20 [-webkit-app-region:no-drag]"
+        style={{
+          bottom: 'calc(var(--safe-area-inset-bottom, 0px) + 0.5rem)',
+          right: 'calc(var(--safe-area-inset-right, 0px) + 0.5rem)'
+        }}
+      >
         <ShareControls imported={imported} onImport={importCode} onResetMap={onResetMap} shareCode={shareCode} />
       </div>
 
       {/* Legend — bottom-left, one entry per line like a conventional key. */}
-      <div className="pointer-events-none absolute bottom-2 left-2 flex flex-col gap-1 text-[0.62rem] text-muted-foreground">
+      <div
+        className="pointer-events-none absolute flex flex-col gap-1 text-[0.62rem] text-muted-foreground"
+        style={{
+          bottom: 'calc(var(--safe-area-inset-bottom, 0px) + 0.5rem)',
+          left: 'calc(var(--safe-area-inset-left, 0px) + 0.5rem)'
+        }}
+      >
         <span className="flex items-center gap-1.5">
           <span className="inline-block size-2 rounded-full bg-[var(--theme-primary)]/80" /> skill
         </span>
