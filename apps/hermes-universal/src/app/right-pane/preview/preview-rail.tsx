@@ -80,8 +80,14 @@ function PreviewTab({ active, dirty, tab }: { active: boolean; dirty: boolean; t
             }}
             type="button"
           >
-            {dirty ? <span aria-hidden className="size-1.5 rounded-full bg-amber-500 group-hover/tab:hidden" /> : null}
-            <Codicon className={cn(dirty && 'hidden group-hover/tab:inline')} name="close" size="0.7rem" />
+            {/* A dirty tab shows a dot where the × goes, and hover swaps them.
+                On touch that leaves a control you can tap but can't identify —
+                so there the × always wins. The dirty state is not lost: the
+                Workspace's Editor tab carries its own dirty badge. */}
+            {dirty ? (
+              <span aria-hidden className="size-1.5 rounded-full bg-amber-500 group-hover/tab:hidden coarse:hidden" />
+            ) : null}
+            <Codicon className={cn(dirty && 'hidden group-hover/tab:inline coarse:inline')} name="close" size="0.7rem" />
           </button>
         </div>
       </ContextMenuTrigger>

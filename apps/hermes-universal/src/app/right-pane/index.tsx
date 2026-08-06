@@ -119,7 +119,10 @@ interface FilesystemTabProps extends FileTreeBodyProps {
 const HEADER_ACTION_CLASS =
   'text-sidebar-foreground/70 hover:bg-sidebar-accent! hover:text-sidebar-accent-foreground! focus-visible:ring-sidebar-ring'
 
-const HEADER_ACTION_LABEL_REVEAL = `${HEADER_ACTION_CLASS} pointer-events-none opacity-0 transition-opacity focus-visible:pointer-events-auto focus-visible:opacity-100 group-focus-within/project-header:pointer-events-auto group-focus-within/project-header:opacity-100 group-hover/project-header:pointer-events-auto group-hover/project-header:opacity-100`
+// The reveal carries its own coarse-pointer escape, so call sites don't have
+// to branch: with no hover to wait for, the button is simply present. That also
+// covers a touchscreen desktop, which IS_MOBILE deliberately does not.
+const HEADER_ACTION_LABEL_REVEAL = `${HEADER_ACTION_CLASS} pointer-events-none opacity-0 transition-opacity coarse:pointer-events-auto coarse:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 group-focus-within/project-header:pointer-events-auto group-focus-within/project-header:opacity-100 group-hover/project-header:pointer-events-auto group-hover/project-header:opacity-100`
 
 function FilesystemTab({
   canCollapse,
@@ -158,9 +161,7 @@ function FilesystemTab({
         <Tip label={r.refreshTree}>
           <Button
             aria-label={r.refreshTree}
-            // Hover-reveal is a mouse affordance; on touch the button simply has
-            // to be there.
-            className={IS_MOBILE ? HEADER_ACTION_CLASS : HEADER_ACTION_LABEL_REVEAL}
+            className={HEADER_ACTION_LABEL_REVEAL}
             disabled={loading}
             onClick={onRefresh}
             size="icon-xs"
