@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import {
@@ -24,6 +24,11 @@ import { refreshSessions } from '@/store/session'
 import type { SessionInfo } from '@/types/hermes'
 
 import { EmptyState, ListRow, LoadingState, SectionHeading, SettingsContent } from './primitives'
+import { useDeepLinkHighlight } from './use-deep-link-highlight'
+
+// Shared by the row wrapper and the deep-link lookup so a palette jump can
+// never drift from the id the row actually renders.
+const archivedElementId = (id: string) => `archived-session-${id}`
 
 // Settings → Archived Chats. Ported to desktop parity (apps/desktop/src/app/settings/
 // sessions-settings.tsx): a Default Project Directory picker on top, then the
@@ -141,6 +146,12 @@ export function ArchivedSection() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- load once on mount
   }, [])
 
+  // Deep-link target from the command palette (?session=<id>): the palette
+  // searches archived chats and lands here on the matching row.
+  const sessionReady = useCallback((id: string) => (sessions ?? []).some(session => session.id === id), [sessions])
+
+  useDeepLinkHighlight({ elementId: archivedElementId, param: 'session', ready: sessionReady })
+
   const drop = (id: string) => setSessions(list => (list ? list.filter(x => x.id !== id) : list))
 
   const unarchive = async (id: string) => {
@@ -196,7 +207,7 @@ export function ArchivedSection() {
             const meta = label ? `${label} · ${s.messages(session.message_count)}` : s.messages(session.message_count)
 
             return (
-              <div className="scroll-mt-6 rounded-lg" id={`archived-session-${session.id}`} key={session.id}>
+              <div className="scroll-mt-6 rounded-lg" id={archivedElementId(session.id)} key={session.id}>
                 <ListRow
                   action={
                     <div className="flex items-center gap-1.5">

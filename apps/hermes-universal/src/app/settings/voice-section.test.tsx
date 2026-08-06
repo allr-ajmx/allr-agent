@@ -17,6 +17,8 @@ vi.mock('@/hermes', () => ({
   getElevenLabsVoices: vi.fn()
 }))
 
+import { MemoryRouter } from 'react-router-dom'
+
 import { getElevenLabsVoices } from '@/hermes'
 import { I18nProvider } from '@/i18n'
 import { queryClient } from '@/lib/query-client'
@@ -25,13 +27,17 @@ import { VoiceSection } from './voice-section'
 
 const voices = vi.mocked(getElevenLabsVoices)
 
+// Router context: the config section underneath reads ?field= for palette
+// deep links.
 function renderVoice() {
   return render(
-    <I18nProvider>
-      <QueryClientProvider client={queryClient}>
-        <VoiceSection />
-      </QueryClientProvider>
-    </I18nProvider>
+    <MemoryRouter>
+      <I18nProvider>
+        <QueryClientProvider client={queryClient}>
+          <VoiceSection />
+        </QueryClientProvider>
+      </I18nProvider>
+    </MemoryRouter>
   )
 }
 

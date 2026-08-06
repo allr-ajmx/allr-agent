@@ -31,6 +31,8 @@ vi.mock('@/hermes', () => ({
 vi.mock('@/store/session', () => ({ refreshSessions: vi.fn(async () => undefined) }))
 vi.mock('@/store/projects', () => ({ pickProjectFolder: vi.fn(async () => null) }))
 
+import { MemoryRouter } from 'react-router-dom'
+
 import { setSessionArchived } from '@/hermes'
 import { I18nProvider } from '@/i18n'
 
@@ -38,11 +40,14 @@ import { ArchivedSection } from './archived-section'
 
 const unarchive = vi.mocked(setSessionArchived)
 
+// Router context: the section reads ?session= for palette deep links.
 const renderSection = () =>
   render(
-    <I18nProvider>
-      <ArchivedSection />
-    </I18nProvider>
+    <MemoryRouter>
+      <I18nProvider>
+        <ArchivedSection />
+      </I18nProvider>
+    </MemoryRouter>
   )
 
 describe('ArchivedSection', () => {

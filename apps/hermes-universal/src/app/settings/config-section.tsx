@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -28,6 +28,11 @@ import { enumOptionsFor, getNested, prettyName, setNested } from './helpers'
 import { EmptyState, ListRow, LoadingState, SettingsContent } from './primitives'
 import { SearchableSelect } from './searchable-select'
 import { setHermesConfigCache, useHermesConfigRecord } from './use-config-record'
+import { useDeepLinkHighlight } from './use-deep-link-highlight'
+
+// Shared by the row wrapper and the deep-link lookup so a palette jump can
+// never drift from the id the row actually renders.
+const fieldElementId = (key: string) => `setting-field-${key}`
 
 // The schema-driven config field: renders the right control for the schema type
 // and calls onChange with the parsed value. Ported from desktop config-settings.tsx.
@@ -337,6 +342,11 @@ export function ConfigSection({
     return (section?.keys ?? []).flatMap(k => (schema[k] ? [[k, schema[k]] as [string, ConfigFieldSchema]] : []))
   }, [schema, sectionId])
 
+  // Deep-link target from the command palette (?field=<key>).
+  const fieldReady = useCallback((key: string) => sectionFields.some(([k]) => k === key), [sectionFields])
+
+  useDeepLinkHighlight({ elementId: fieldElementId, param: 'field', ready: fieldReady })
+
   if (!config || !schema) {
     if ((configLoadFailed && !config) || (schemaFailed && !schema)) {
       return (
@@ -372,7 +382,7 @@ export function ConfigSection({
       ) : (
         <div className="grid gap-1 pt-1">
           {visibleFields.map(([key, field]) => (
-            <div className="rounded-lg" key={key}>
+            <div className="scroll-mt-6 rounded-lg" id={fieldElementId(key)} key={key}>
               <ConfigField
                 descriptionExtra={renderDescriptionExtra?.(key, config)}
                 enumOptions={
