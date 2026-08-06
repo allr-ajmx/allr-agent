@@ -197,6 +197,20 @@ export default defineConfig({
     // keeps Vite's default (infer from the page origin) rather than being pinned to
     // a port nothing is listening on.
     hmr: host ? { protocol: 'ws', host, port: 5177 } : undefined,
+    // Transform the shell's entry path before the phone asks for it. On desktop this
+    // is noise; over a phone link every module is a round trip, so serialising
+    // "request → transform → respond" for the first few hundred modules is exactly
+    // the wait being removed. Mobile files are listed alongside the shared entry
+    // because the mobile shell is the surface that is slow to reach.
+    warmup: {
+      clientFiles: [
+        './src/main.tsx',
+        './src/app.tsx',
+        './src/app/mobile-controller.tsx',
+        './src/app/shell/mobile-shell.tsx',
+        './src/app/shell/mobile-surface-shell.tsx'
+      ]
+    },
     // Never watch the Rust build tree or the generated mobile projects.
     // `src-tauri/target` holds hundreds of thousands of build artifacts (every
     // cross-compile arch — Android i686, aarch64, …), and Vite recursively
@@ -223,6 +237,38 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 5179,
     strictPort: true
+  },
+  // Pre-bundle the heavy dependencies that are only reachable through a dynamic
+  // import, so they are ready before anything asks for them.
+  //
+  // The failure this prevents is specific: when Vite meets a dependency it did not
+  // optimise at startup it re-runs the optimiser and RELOADS THE PAGE. A reload
+  // costs a few hundred milliseconds on desktop and re-fetches the whole module
+  // graph over the phone link on Android — so a lazy route silently converts
+  // "navigate to Skills" into "boot the app again".
+  //
+  // Every entry here is a real dependency of this package that the production build
+  // proves lives outside the entry chunk: the CodeMirror and xterm specifiers do not
+  // appear in `index-*.js` at all, and mermaid/katex land in chunks of their own.
+  // Deps reached statically from the entry (shiki, react-shiki, the assistant-ui
+  // stack) are deliberately absent — the scanner already finds those on cold start,
+  // and listing them would only be noise to keep in sync.
+  optimizeDeps: {
+    include: [
+      '@codemirror/commands',
+      '@codemirror/language',
+      '@codemirror/language-data',
+      '@codemirror/state',
+      '@codemirror/view',
+      '@streamdown/mermaid',
+      '@xterm/addon-fit',
+      '@xterm/addon-unicode11',
+      '@xterm/addon-web-links',
+      '@xterm/addon-webgl',
+      '@xterm/xterm',
+      'katex',
+      'mermaid'
+    ]
   },
   build: {
     // Android System WebView baseline — keep the transpile target conservative.
