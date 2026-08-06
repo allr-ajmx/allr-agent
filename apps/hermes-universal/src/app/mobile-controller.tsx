@@ -288,10 +288,16 @@ export function MobileController() {
             model menu ("Edit models"). Self-gates on $modelVisibilityOpen +
             gateway-open; "Add provider…" routes to Providers → Accounts. */}
         {connected && <ModelVisibilityOverlay onOpenProviders={() => openAppRoute('/settings/providers')} />}
-        {/* Floating pet — a top-level draggable + roaming mascot (fixed z-60) that
-            floats over ALL routes. It patrols the Settings overlay's edge when open.
-            Hidden on mobile while the touch shell is a blank scaffold. */}
-        {connected && !IS_MOBILE && (
+        {/* Floating pet — a top-level draggable + roaming mascot that floats over
+            ALL routes. It patrols the Settings overlay's edge when open.
+
+            On a phone it walks all four screen edges rather than only the floor,
+            sits below the composer bars rather than over them, and is picked up
+            with a hold so a scroll starting on it still scrolls. It is hidden
+            while a MobileSurfaceShell surface is up: those are full-screen route
+            surfaces with no card inset, so the overlay ledge the pet would
+            patrol doesn't exist there. */}
+        {connected && !(IS_MOBILE && mobileSurfaceOpen) && (
           <FloatingPet
             overlayOpen={settingsOpen || agentsOpen || commandCenterOpen || cronOpen || profilesOpen || starmapOpen}
           />
