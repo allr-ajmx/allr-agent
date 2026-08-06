@@ -7,7 +7,18 @@ import { createDoubleTapDetector, isSmartZoomWheel } from '@/lib/trackpad-gestur
 import type { StarmapGraph } from '@/types/hermes'
 
 import { computePalette, memoryInkFor, resolveRgb, rgba } from './color'
-import { RING_OUTER, TILT, ZOOM_MAX, ZOOM_MIN } from './constants'
+import {
+  DRAG_SLOP_COARSE,
+  DRAG_SLOP_FINE,
+  LINK_PICK_R_COARSE,
+  LINK_PICK_R_FINE,
+  NODE_HIT_PAD_COARSE,
+  NODE_HIT_PAD_FINE,
+  RING_OUTER,
+  TILT,
+  ZOOM_MAX,
+  ZOOM_MIN
+} from './constants'
 import { clamp, distToSegmentSq, fitScale, fitViewport, nodeRadius } from './geometry'
 import { NodeContextMenu, type NodeMenuTarget } from './node-context-menu'
 import { drawScene, drawScramble } from './render'
@@ -147,11 +158,39 @@ export function StarMap({
     id: null | string
     mode: 'none' | 'pan'
     moved: boolean
+    /** The contact that armed this gesture; later events from any other
+     *  pointer (a pinch's second finger) must not steer it. */
+    pointerId: null | number
+    /** Frozen at press time so move and end agree about the tolerances, even
+     *  if the device is one a user switches inputs on mid-gesture. */
+    coarse: boolean
     ring: null | number
     sx: number
     sy: number
     vp: Viewport
-  }>({ id: null, mode: 'none', moved: false, ring: null, sx: 0, sy: 0, vp: { k: 1, x: 0, y: 0 } })
+  }>({
+    coarse: false,
+    id: null,
+    mode: 'none',
+    moved: false,
+    pointerId: null,
+    ring: null,
+    sx: 0,
+    sy: 0,
+    vp: { k: 1, x: 0, y: 0 }
+  })
+
+  const idleDrag = () => ({
+    coarse: false,
+    id: null,
+    mode: 'none' as const,
+    moved: false,
+    pointerId: null,
+    ring: null,
+    sx: 0,
+    sy: 0,
+    vp: viewportRef.current
+  })
 
   const [selectedId, setSelectedId] = useState<null | string>(null)
   const [menuTarget, setMenuTarget] = useState<NodeMenuTarget | null>(null)
@@ -690,15 +729,16 @@ export function StarMap({
   }, [invalidate, size])
 
   // ── Pointer interactions (invert the tilted projection for hit-testing) ─────
-  const pickNode = (cssX: number, cssY: number): null | SimNode => {
+  const pickNode = (cssX: number, cssY: number, coarse = false): null | SimNode => {
     const vp = viewportRef.current
     // Hit radius mirrors the billboarded draw: rested fit scale, screen space.
     const nodeK = fitScale(sizeRef.current.w, sizeRef.current.h, ringsRef.current)
+    const pad = coarse ? NODE_HIT_PAD_COARSE : NODE_HIT_PAD_FINE
     let best: null | SimNode = null
     let bestD = Infinity
 
     for (const n of nodesRef.current) {
-      const r = nodeRadius(n) * nodeK + 6
+      const r = nodeRadius(n) * nodeK + pad
       const sx = n.x * vp.k + vp.x
       const sy = n.y * vp.k * TILT + vp.y
       const d = (sx - cssX) ** 2 + (sy - cssY) ** 2
@@ -712,11 +752,12 @@ export function StarMap({
     return best
   }
 
-  // Nearest link within ~5px of the cursor (screen space), or null.
-  const pickLink = (cssX: number, cssY: number): null | string => {
+  // Nearest link within the pick radius of the cursor (screen space), or null.
+  const pickLink = (cssX: number, cssY: number, coarse = false): null | string => {
     const vp = viewportRef.current
+    const r = coarse ? LINK_PICK_R_COARSE : LINK_PICK_R_FINE
     let best: null | string = null
-    let bestD = 25
+    let bestD = r * r
 
     for (const link of linksRef.current) {
       const s = typeof link.source === 'object' ? link.source : byIdRef.current.get(String(link.source))
@@ -754,7 +795,9 @@ export function StarMap({
     return null
   }
 
-  const localXY = (e: React.MouseEvent): { x: number; y: number } => {
+  // Structural rather than `React.MouseEvent`, so pointer events, wheel events
+  // and a bare pinch centroid all go through the same conversion.
+  const localXY = (e: { clientX: number; clientY: number }): { x: number; y: number } => {
     const rect = canvasRef.current?.getBoundingClientRect()
 
     return { x: e.clientX - (rect?.left ?? 0), y: e.clientY - (rect?.top ?? 0) }
@@ -772,21 +815,32 @@ export function StarMap({
     setSelectedId(null)
   }
 
-  const onMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (e.button !== 0) {
+  const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    // `button` is only meaningful for a mouse; a touch contact reports 0 but a
+    // pen's barrel button would not, and neither should be filtered as a
+    // right-click. `isPrimary` keeps a second finger from re-arming the pan.
+    if ((e.pointerType === 'mouse' && e.button !== 0) || !e.isPrimary) {
       return
     }
 
+    const coarse = e.pointerType !== 'mouse'
     const { x, y } = localXY(e)
     const ringHit = pickRingLabel(x, y)
     hoveredRingRef.current = null
     // Nodes aren't draggable (static map) — remember which was pressed so a click
     // (press without movement) can select it; any drag just pans.
-    const nodeId = ringHit == null ? (pickNode(x, y)?.id ?? null) : null
+    const nodeId = ringHit == null ? (pickNode(x, y, coarse)?.id ?? null) : null
+
+    // Capture so a gesture that leaves the canvas mid-pan still reports to us,
+    // and so we are guaranteed the matching up/cancel.
+    e.currentTarget.setPointerCapture?.(e.pointerId)
+
     dragRef.current = {
+      coarse,
       id: nodeId,
       mode: 'pan',
       moved: false,
+      pointerId: e.pointerId,
       ring: ringHit,
       sx: e.clientX,
       sy: e.clientY,
@@ -794,10 +848,17 @@ export function StarMap({
     }
   }
 
-  const onMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
+  const onPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const drag = dragRef.current
 
     if (drag.mode === 'none') {
+      // Hover is a mouse-only concept — a finger resting on glass is a press,
+      // not a hover, and touch devices deliver a synthetic move before the
+      // contact that would light a node up under a finger that isn't there.
+      if (e.pointerType !== 'mouse') {
+        return
+      }
+
       const { x, y } = localXY(e)
       const ringHit = pickRingLabel(x, y)
       const id = ringHit == null ? (pickNode(x, y)?.id ?? null) : null
@@ -814,10 +875,15 @@ export function StarMap({
       return
     }
 
+    if (drag.pointerId !== e.pointerId) {
+      return
+    }
+
     const dx = e.clientX - drag.sx
     const dy = e.clientY - drag.sy
+    const slop = drag.coarse ? DRAG_SLOP_COARSE : DRAG_SLOP_FINE
 
-    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
+    if (Math.abs(dx) > slop || Math.abs(dy) > slop) {
       drag.moved = true
     }
 
@@ -832,15 +898,18 @@ export function StarMap({
     }
   }
 
-  const endDrag = () => {
+  /** `cancelled` skips the tap branch: an interrupted gesture (the notification
+   *  shade, a system back-swipe) is not a click, it is a gesture that never
+   *  finished. Without this the drag state also stayed armed forever. */
+  const endDrag = (cancelled = false) => {
     const drag = dragRef.current
 
     // A click (press without movement) toggles a ring date, a node, or clears.
-    if (drag.mode === 'pan' && !drag.moved) {
+    if (!cancelled && drag.mode === 'pan' && !drag.moved) {
       // Double tap (trackpad tap-to-click may never emit a dblclick) resets view.
       if (doubleTapRef.current()) {
         resetView()
-        dragRef.current = { id: null, mode: 'none', moved: false, ring: null, sx: 0, sy: 0, vp: viewportRef.current }
+        dragRef.current = idleDrag()
 
         return
       }
@@ -858,10 +927,33 @@ export function StarMap({
       invalidate()
     }
 
-    dragRef.current = { id: null, mode: 'none', moved: false, ring: null, sx: 0, sy: 0, vp: viewportRef.current }
+    dragRef.current = idleDrag()
   }
 
-  const onMouseLeave = () => {
+  const releaseCapture = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (e.currentTarget.hasPointerCapture?.(e.pointerId)) {
+      e.currentTarget.releasePointerCapture?.(e.pointerId)
+    }
+  }
+
+  const onPointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    releaseCapture(e)
+
+    if (dragRef.current.pointerId === e.pointerId) {
+      endDrag()
+    }
+  }
+
+  const onPointerCancel = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    releaseCapture(e)
+    hoverRef.current = null
+    hoveredRingRef.current = null
+    hoveredLinkRef.current = null
+    invalidate()
+    endDrag(true)
+  }
+
+  const onPointerLeave = () => {
     hoverRef.current = null
     hoveredRingRef.current = null
     hoveredLinkRef.current = null
@@ -916,13 +1008,18 @@ export function StarMap({
   return (
     <div className="relative min-h-0 flex-1 overflow-hidden" ref={wrapRef}>
       <canvas
+        // `touch-none` was already here before any touch handler existed, which
+        // left the canvas both inert and unscrollable on a phone. With the
+        // pointer handlers below it is now doing its actual job: suppressing
+        // the browser's own pan/zoom so ours can run.
         className="block touch-none select-none text-foreground"
         onContextMenu={onContextMenu}
         onDoubleClick={resetView}
-        onMouseDown={onMouseDown}
-        onMouseLeave={onMouseLeave}
-        onMouseMove={onMouseMove}
-        onMouseUp={endDrag}
+        onPointerCancel={onPointerCancel}
+        onPointerDown={onPointerDown}
+        onPointerLeave={onPointerLeave}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
         onWheel={onWheel}
         ref={canvasRef}
       />

@@ -11,6 +11,24 @@ export const FIT_PADDING = 80
 export const TILT = 1 // vertical squash → "looking down at a tilted disk"
 export const RING_STEPS = 4
 
+// ── Input tolerances ─────────────────────────────────────────────────────────
+// Two sets, chosen per gesture from `pointerType` rather than from a media
+// query or IS_MOBILE: a hybrid device can have a mouse and a finger on the same
+// screen, and the mouse should keep its precision while the finger gets slop.
+//
+// A finger wobbles several px just resting, so a 3px drag threshold reads
+// almost every tap as a pan and silently fails to select. 10px matches the
+// composer's pop-out gesture, which arrived at it empirically.
+export const DRAG_SLOP_FINE = 3
+export const DRAG_SLOP_COARSE = 10
+// Extra hit radius around a node, in screen px.
+export const NODE_HIT_PAD_FINE = 6
+export const NODE_HIT_PAD_COARSE = 16
+// A link is a 0.5px line. 5px is already generous for a cursor and hopeless for
+// a fingertip, which covers roughly 8mm of glass.
+export const LINK_PICK_R_FINE = 5
+export const LINK_PICK_R_COARSE = 14
+
 export const WHITE: Rgb = { b: 255, g: 255, r: 255 }
 export const BLACK: Rgb = { b: 0, g: 0, r: 0 }
 
