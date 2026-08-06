@@ -381,7 +381,7 @@ export function CommandCenterView({
                             {formatTimestamp(session.last_active || session.started_at)}
                           </div>
                         </button>
-                        <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                        <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 coarse:opacity-100 focus-within:opacity-100">
                           <RowIconButton
                             onClick={() => (pinned ? unpinSession(pinId) : pinSession(pinId))}
                             title={pinned ? cc.unpinSession : cc.pinSession}
