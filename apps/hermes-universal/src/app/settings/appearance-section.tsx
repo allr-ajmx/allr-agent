@@ -14,6 +14,7 @@ import { selectableCardClass } from '@/lib/selectable-card'
 import { normalize } from '@/lib/text'
 import { cn } from '@/lib/utils'
 import { useStore } from '@/store/atom'
+import { $backdrop, setBackdrop } from '@/store/backdrop'
 import { $embedAllowed, $embedMode, clearEmbedAllowed, type EmbedMode, setEmbedMode } from '@/store/embed-consent'
 import { installFromMarketplace, type MarketplaceSearchItem, searchMarketplace } from '@/store/marketplace'
 import { $toolViewMode, setToolViewMode, type ToolViewMode } from '@/store/tool-view'
@@ -238,6 +239,7 @@ export function AppearanceSection() {
   const a = t.settings.appearance
   const { availableThemes, mode, resolvedMode, setMode, setTheme, themeName } = useTheme()
   const toolViewMode = useStore($toolViewMode)
+  const backdrop = useStore($backdrop)
   const zoomPercent = useStore($zoomPercent)
   const embedMode = useStore($embedMode)
   const embedAllowed = useStore($embedAllowed)
@@ -439,6 +441,25 @@ export function AppearanceSection() {
             }
             description={a.toolViewDesc}
             title={a.toolViewTitle}
+          />
+
+          {/* Chat backdrop */}
+          <ListRow
+            action={
+              <SegmentedControl
+                onChange={id => {
+                  triggerHaptic('selection')
+                  setBackdrop(id === 'on')
+                }}
+                options={[
+                  { id: 'off', label: t.common.off },
+                  { id: 'on', label: t.common.on }
+                ]}
+                value={backdrop ? 'on' : 'off'}
+              />
+            }
+            description={a.backdropDesc}
+            title={a.backdropTitle}
           />
 
           {/* Embeds */}

@@ -4,6 +4,11 @@ import { useNavigate } from 'react-router-dom'
 import { activateTreeTabSlot, closeFocusedTabInZone, cycleTreeTabInFocusedZone } from '@/components/pane-shell/tree/store'
 import { contributedKeybindHandler, PROFILE_SLOT_COUNT, SESSION_SLOT_COUNT } from '@/lib/keybinds/actions'
 import { comboAllowedInInput, comboFromEvent, isEditableTarget } from '@/lib/keybinds/combo'
+import {
+  composerFocusKeysAllowed,
+  isComposerFocusSoftCombo,
+  typeToFocusChar
+} from '@/lib/keybinds/composer-focus-keys'
 import { IS_MOBILE } from '@/lib/platform'
 import { newChatBubble } from '@/store/chat-bubbles'
 import { $repoStatus } from '@/store/coding-status'
@@ -164,7 +169,9 @@ export function useKeybinds(deps: KeybindRuntimeDeps): void {
     // than desktop's `?tab=` query; the keybind panel lives at `shortcuts`.
     'keybinds.openPanel': () => openAppRoute(`${SETTINGS_ROUTE}/shortcuts`),
 
-    'composer.focus': () => requestComposerFocus('main'),
+    // A REBOUND composer.focus chord lands here; the soft `/`/Enter defaults are
+    // intercepted in the dispatcher below so their surface gate can run first.
+    'composer.focus': () => requestComposerFocus('active'),
     'composer.modelPicker': () => setModelPickerOpen(true),
     'composer.voice': requestVoiceToggle,
 
@@ -310,11 +317,32 @@ export function useKeybinds(deps: KeybindRuntimeDeps): void {
 
       const actionId = $comboIndex.get().get(combo)
 
+      // Unbound printable → type-to-focus. Bound chords (shift+n, …) win above.
       if (!actionId) {
+        const typeChar = typeToFocusChar(event)
+
+        if (typeChar && composerFocusKeysAllowed(event, 'type')) {
+          event.preventDefault()
+          requestComposerFocus('active', { typeChar })
+        }
+
         return
       }
 
       if (isEditableTarget(event.target) && !comboAllowedInInput(combo)) {
+        return
+      }
+
+      // Soft `/` / Enter: gated so dialogs/buttons/terminal keep those keys.
+      // Rebound chords fall through to the normal handler.
+      if (actionId === 'composer.focus' && isComposerFocusSoftCombo(combo)) {
+        if (!composerFocusKeysAllowed(event, combo)) {
+          return
+        }
+
+        event.preventDefault()
+        requestComposerFocus('active', { typeChar: combo === '/' ? '/' : undefined })
+
         return
       }
 
