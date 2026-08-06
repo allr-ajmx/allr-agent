@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { PALETTE_AREA } from '@/app/command-palette/contrib'
 import { registry } from '@/contrib/registry'
-import { $commandMenuOpen } from '@/store/command-menu'
+import { $commandPaletteOpen } from '@/store/command-palette'
 
 import { CommandMenu } from './command-menu'
 
@@ -15,11 +15,11 @@ const renderMenu = () =>
     </MemoryRouter>
   )
 
-afterEach(() => $commandMenuOpen.set(false))
+afterEach(() => $commandPaletteOpen.set(false))
 
 describe('CommandMenu', () => {
   it('lists the non-rail views when open and filters by query', () => {
-    $commandMenuOpen.set(true)
+    $commandPaletteOpen.set(true)
     renderMenu()
 
     expect(screen.getByText('Agents')).toBeInTheDocument()
@@ -42,7 +42,7 @@ describe('palette contributions', () => {
     const run = vi.fn()
     const dispose = register({ id: 'demo:cmd', label: 'Rebuild index', run })
 
-    $commandMenuOpen.set(true)
+    $commandPaletteOpen.set(true)
     renderMenu()
 
     expect(screen.getByText('Rebuild index')).toBeInTheDocument()
@@ -50,7 +50,7 @@ describe('palette contributions', () => {
     fireEvent.click(screen.getByText('Rebuild index'))
 
     expect(run).toHaveBeenCalledOnce()
-    expect($commandMenuOpen.get()).toBe(false)
+    expect($commandPaletteOpen.get()).toBe(false)
 
     dispose()
   })
@@ -58,7 +58,7 @@ describe('palette contributions', () => {
   it('matches a contributed command on its keywords, not just its label', () => {
     const dispose = register({ id: 'demo:cmd', keywords: ['reindex', 'cache'], label: 'Rebuild index', run: vi.fn() })
 
-    $commandMenuOpen.set(true)
+    $commandPaletteOpen.set(true)
     renderMenu()
 
     fireEvent.change(screen.getByPlaceholderText('Search'), { target: { value: 'reindex' } })
@@ -73,7 +73,7 @@ describe('palette contributions', () => {
     const run = vi.fn()
     const dispose = register({ id: 'demo:cmd', label: 'Zebra command', run })
 
-    $commandMenuOpen.set(true)
+    $commandPaletteOpen.set(true)
     renderMenu()
 
     const input = screen.getByPlaceholderText('Search')
@@ -91,7 +91,7 @@ describe('palette contributions', () => {
       register({ id: 'demo:no-label', run: vi.fn() }, 'demo:no-label')
     ]
 
-    $commandMenuOpen.set(true)
+    $commandPaletteOpen.set(true)
     renderMenu()
 
     expect(screen.queryByText('No run')).not.toBeInTheDocument()
@@ -114,11 +114,11 @@ describe('palette contributions', () => {
       }
     })
 
-    $commandMenuOpen.set(true)
+    $commandPaletteOpen.set(true)
     renderMenu()
 
     expect(() => fireEvent.click(screen.getByText('Boom'))).not.toThrow()
-    expect($commandMenuOpen.get()).toBe(false)
+    expect($commandPaletteOpen.get()).toBe(false)
 
     spy.mockRestore()
     dispose()

@@ -2,7 +2,7 @@ import { fireEvent, render } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { $commandMenuOpen } from '@/store/command-menu'
+import { $commandPaletteOpen } from '@/store/command-palette'
 import { $bindings, beginCapture, endCapture, resetAllBindings, setBinding } from '@/store/keybinds'
 import { $sidebarOpen, setSidebarOpen } from '@/store/layout'
 import { ThemeProvider } from '@/themes/context'
@@ -27,7 +27,7 @@ function mount() {
 
 afterEach(() => {
   endCapture()
-  $commandMenuOpen.set(false)
+  $commandPaletteOpen.set(false)
   resetAllBindings()
   setSidebarOpen(true)
 })
@@ -65,11 +65,11 @@ describe('useKeybinds', () => {
   })
 
   it('opens the command menu on nav.commandPalette (⌘K)', () => {
-    $commandMenuOpen.set(false)
+    $commandPaletteOpen.set(false)
     mount()
 
     fireEvent.keyDown(window, { code: 'KeyK', key: 'k', metaKey: true })
-    expect($commandMenuOpen.get()).toBe(true)
+    expect($commandPaletteOpen.get()).toBe(true)
   })
 
   it('captures the next combo into the armed action instead of running it', () => {

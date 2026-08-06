@@ -10,7 +10,7 @@ import { Plug } from '@/lib/icons'
 import { useKeybindHint } from '@/lib/keybinds/use-keybind-hint'
 import { cn } from '@/lib/utils'
 import { useStore } from '@/store/atom'
-import { $commandMenuOpen, closeCommandMenu } from '@/store/command-menu'
+import { $commandPaletteOpen, closeCommandPalette } from '@/store/command-palette'
 
 // Reaches every view not on the 4-item sidebar rail. Global (mounted once in the
 // controller): ⌘K / Ctrl+K toggles it, the titlebar + in-drawer buttons open it.
@@ -19,7 +19,7 @@ import { $commandMenuOpen, closeCommandMenu } from '@/store/command-menu'
 // Every row is a `palette` contribution: the app's own destinations register in
 // app/shell/nav-contrib.ts (negative order, so they lead), plugins append.
 export function CommandMenu() {
-  const open = useStore($commandMenuOpen)
+  const open = useStore($commandPaletteOpen)
   const { t } = useI18n()
   const rows = usePaletteContributions()
   const [query, setQuery] = useState('')
@@ -37,7 +37,7 @@ export function CommandMenu() {
 
   const go = (row: PaletteRow) => {
     setQuery('')
-    closeCommandMenu()
+    closeCommandPalette()
 
     // After closing, so a command that opens its own dialog isn't dismissed with
     // this one. A throwing plugin command must not take the menu down with it.
@@ -51,7 +51,7 @@ export function CommandMenu() {
   return (
     <Dialog
       onOpenChange={next => {
-        $commandMenuOpen.set(next)
+        $commandPaletteOpen.set(next)
 
         if (!next) {
           setQuery('')

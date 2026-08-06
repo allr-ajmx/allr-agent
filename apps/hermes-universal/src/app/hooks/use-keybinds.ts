@@ -7,7 +7,7 @@ import { comboAllowedInInput, comboFromEvent, isEditableTarget } from '@/lib/key
 import { IS_MOBILE } from '@/lib/platform'
 import { newChatBubble } from '@/store/chat-bubbles'
 import { $repoStatus } from '@/store/coding-status'
-import { toggleCommandMenu } from '@/store/command-menu'
+import { toggleCommandPalette } from '@/store/command-palette'
 import { $capture, $comboIndex, endCapture, setBinding } from '@/store/keybinds'
 import {
   $terminalOpen,
@@ -168,7 +168,7 @@ export function useKeybinds(deps: KeybindRuntimeDeps): void {
     'composer.modelPicker': () => setModelPickerOpen(true),
     'composer.voice': requestVoiceToggle,
 
-    'nav.commandPalette': toggleCommandMenu,
+    'nav.commandPalette': toggleCommandPalette,
     'nav.commandCenter': deps.toggleCommandCenter,
     'nav.settings': () => openAppRoute(SETTINGS_ROUTE),
     'nav.profiles': () => navigate(PROFILES_ROUTE),
