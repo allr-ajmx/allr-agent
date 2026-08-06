@@ -1,7 +1,7 @@
 import { ActivityScreenRoot } from '@/app/activity-screen'
 import { MobileController } from '@/app/mobile-controller'
-import { SecondaryWindowRoot } from '@/app/secondary-window'
-import { isActivityWindow, isSecondaryWindow } from '@/store/windows'
+import { TileWindowRoot } from '@/app/tile-window'
+import { isActivityWindow, isTileWindow } from '@/store/windows'
 
 export function App() {
   // A native screen activity (`?win=activity`, Android/iOS) renders a single
@@ -12,7 +12,8 @@ export function App() {
     return <ActivityScreenRoot />
   }
 
-  // A native pop-out window (`?win=secondary`) renders a single chat via
-  // SecondaryWindowRoot, bypassing the full shell/overlays entirely (MJX-104).
-  return isSecondaryWindow() ? <SecondaryWindowRoot /> : <MobileController />
+  // A satellite window (`?win=tile`, or the legacy `?win=secondary`) hosts
+  // exactly ONE tile — a detached pane, or the single-chat pop-out — bypassing
+  // the full shell/overlays entirely (MJX-104, generalized in MJXHRM-173).
+  return isTileWindow() ? <TileWindowRoot /> : <MobileController />
 }
