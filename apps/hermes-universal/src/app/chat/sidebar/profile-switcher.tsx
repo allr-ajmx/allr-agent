@@ -33,6 +33,7 @@ import { Tip, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@
 import { getProfileSoul, updateProfileSoul } from '@/hermes'
 import { useI18n } from '@/i18n'
 import { triggerHaptic } from '@/lib/haptics'
+import { createLongPress } from '@/lib/long-press'
 import { PROFILE_SWATCHES, profileColorSoft, resolveProfileColor } from '@/lib/profile-color'
 import {
   REORDER_DRAG_TRANSITION_CSS,
@@ -611,15 +612,16 @@ interface ProfileSquareProps {
   sortDisabled?: boolean
 }
 
-// Hold this long without moving (a drag would have started first) to open the
-// color picker — the "hard press" gesture, distinct from tap-to-select.
-const LONG_PRESS_MS = 450
+// Hold this long without moving (a drag would have started first) — the "hard
+// press" gesture, distinct from tap-to-select. What it opens depends on the
+// pointer: see the pointerdown handler below.
+const PROFILE_LONG_PRESS_MS = 450
 
 // A profile *is* its colored square — no icon-button chrome. Soft profile-tint
 // fill + the initial in the full color; the active one pops to full opacity with
 // a color ring. These pack tightly so the rail reads as a strip of profiles,
 // drag-sort to reorder (a tap below the drag threshold still selects), and
-// right-click to rename/delete. The button carries both the tooltip and
+// right-click (or, on touch, a long press) to rename/delete. The button carries both the tooltip and
 // context-menu triggers via nested asChild Slots, so a single element keeps the
 // dnd listeners, hover tip, and right-click menu.
 function ProfileSquare({
@@ -638,8 +640,11 @@ function ProfileSquare({
   const p = t.profiles
   const hue = color ?? 'var(--ui-text-quaternary)'
   const [pickerOpen, setPickerOpen] = useState(false)
-  const pressTimer = useRef<null | number>(null)
   const suppressClick = useRef(false)
+  const squareRef = useRef<HTMLButtonElement | null>(null)
+  // Which pointer armed the current hold — a mouse and a finger want different
+  // things out of it (see below).
+  const pressPointer = useRef<string>('mouse')
 
   const { attributes, isDragging, isOver, listeners, setNodeRef, transform, transition } = useSortable({
     disabled: sortDisabled,
@@ -647,21 +652,46 @@ function ProfileSquare({
     transition: RAIL_TRANSITION
   })
 
-  const clearPress = () => {
-    if (pressTimer.current != null) {
-      clearTimeout(pressTimer.current)
-      pressTimer.current = null
-    }
-  }
+  // A hold means "more than a tap", but the two pointers reach different things
+  // by other means, so it resolves differently:
+  //
+  //   mouse — right-click already opens the full menu, so the hold stays the
+  //           recolor shortcut it has always been.
+  //   touch — there is no right-click, so rename / edit soul / delete had no
+  //           path at all. The hold opens the context menu instead, and colour
+  //           is its first item, so nothing is lost — it costs one more tap.
+  //
+  // Radix's ContextMenu has no controlled `open`, so the menu is opened the way
+  // a mouse opens it: by dispatching the event its trigger listens for, at the
+  // point the finger is actually holding.
+  const press = useRef(
+    createLongPress({
+      ms: PROFILE_LONG_PRESS_MS,
+      onFire: ({ x, y }) => {
+        suppressClick.current = true
+        triggerHaptic('success')
+
+        if (pressPointer.current === 'mouse') {
+          setPickerOpen(true)
+
+          return
+        }
+
+        squareRef.current?.dispatchEvent(
+          new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: x, clientY: y })
+        )
+      }
+    })
+  ).current
 
   // A real drag (movement past the dnd threshold) cancels the pending hold, so a
   // reorder never doubles as a color pick. Also tidy up on unmount.
   useEffect(() => {
     if (isDragging) {
-      clearPress()
+      press.cancel()
     }
-  }, [isDragging])
-  useEffect(() => clearPress, [])
+  }, [isDragging, press])
+  useEffect(() => () => press.cancel(), [press])
 
   const base = CSS.Transform.toString(transform)
   const ring = active ? `inset 0 0 0 1.5px ${hue}` : ''
@@ -692,7 +722,10 @@ function ProfileSquare({
                       isOver && !isDragging && 'opacity-100',
                       isDragging && 'z-10 cursor-grabbing opacity-100'
                     )}
-                    ref={setNodeRef}
+                    ref={node => {
+                      setNodeRef(node)
+                      squareRef.current = node
+                    }}
                     style={{
                       backgroundColor: profileColorSoft(hue, active ? 30 : 22),
                       boxShadow: [ring, dropTarget, lift].filter(Boolean).join(', ') || undefined,
@@ -721,7 +754,7 @@ function ProfileSquare({
 
                       onSelect()
                     }}
-                    onPointerCancel={clearPress}
+                    onPointerCancel={() => press.cancel()}
                     onPointerDown={event => {
                       listeners?.onPointerDown?.(event)
 
@@ -730,15 +763,15 @@ function ProfileSquare({
                       }
 
                       suppressClick.current = false
-                      clearPress()
-                      pressTimer.current = window.setTimeout(() => {
-                        suppressClick.current = true
-                        triggerHaptic('success')
-                        setPickerOpen(true)
-                      }, LONG_PRESS_MS)
+                      pressPointer.current = event.pointerType || 'mouse'
+                      press.down(event.clientX, event.clientY)
                     }}
-                    onPointerLeave={clearPress}
-                    onPointerUp={clearPress}
+                    // The hold now carries a movement tolerance of its own
+                    // rather than relying solely on dnd to cancel it — a finger
+                    // that drifts is not holding still.
+                    onPointerLeave={() => press.cancel()}
+                    onPointerMove={event => press.move(event.clientX, event.clientY)}
+                    onPointerUp={() => press.up()}
                   >
                     {profileInitial(label)}
                   </button>
