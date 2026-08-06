@@ -4,7 +4,7 @@ import { Codecs, persistentAtom } from '@/lib/persisted'
 import { sessionProjectColor } from '@/lib/session-membership'
 import { $projects } from '@/store/projects'
 import { $sessions, sessionPinId } from '@/store/session'
-import type { SessionInfo } from '@/types/hermes'
+import type { ProjectInfo, SessionInfo } from '@/types/hermes'
 
 // Per-session color OVERRIDES — a user-picked color that wins over the inherited
 // project color. Local like pins, keyed by the DURABLE lineage id so a color
@@ -30,22 +30,31 @@ export function setSessionColorOverride(durableId: string, color: null | string)
   }
 }
 
+// Precedence in one place: an explicit per-session override wins over the
+// inherited project color. Shared by the map below and the single-session
+// lookup, so a session outside the paginated recents page resolves the same way
+// one inside it does.
+function resolveSessionColor(
+  session: SessionInfo,
+  projects: ProjectInfo[],
+  overrides: Record<string, string>
+): string | undefined {
+  return overrides[sessionPinId(session)] ?? sessionProjectColor(session, projects) ?? undefined
+}
+
 // The resolved color for every session, keyed by live session id — the ONE
 // source of truth both the sidebar rows and the pane tabs read, so the two
 // surfaces can never drift. Recomputed only when the session list, projects, or
 // overrides change (all cold atoms; the working/streaming pulse lives in
 // $sessionStates, so a busy flip never rebuilds this), and every consumer reads
 // it as an O(1) lookup rather than re-deriving membership per render.
-//
-// Precedence in one place: an explicit per-session override wins over the
-// inherited project color.
 export const $sessionColorById = computed(
   [$sessions, $projects, $sessionColorOverrides],
   (sessions, projects, overrides) => {
     const map: Record<string, string> = {}
 
     for (const session of sessions) {
-      const color = overrides[sessionPinId(session)] ?? sessionProjectColor(session, projects)
+      const color = resolveSessionColor(session, projects, overrides)
 
       if (color) {
         map[session.id] = color
@@ -57,7 +66,15 @@ export const $sessionColorById = computed(
 )
 
 // The color for a single session object (the tabs already hold the SessionInfo
-// they render, so they resolve through the same map the sidebar reads).
+// they render, so they resolve through the same map the sidebar reads). Falls
+// back to the resolver for a session OLDER than the paginated recents page,
+// which has no entry in the map.
 export function sessionColorFor(session: null | SessionInfo | undefined): string | undefined {
-  return session ? $sessionColorById.get()[session.id] : undefined
+  if (!session) {
+    return undefined
+  }
+
+  return (
+    $sessionColorById.get()[session.id] ?? resolveSessionColor(session, $projects.get(), $sessionColorOverrides.get())
+  )
 }
