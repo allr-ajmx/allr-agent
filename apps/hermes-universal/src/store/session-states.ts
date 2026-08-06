@@ -638,7 +638,7 @@ export function openSessionTile(
   }
 
   const tree = $layoutTree.get()
-  const target = tree ? findGroupOfPane(tree, anchor ?? 'workspace')?.id : null
+  const target = tree ? findGroupOfPane(tree, anchor ?? WORKSPACE_PANE_ID)?.id : null
 
   if (target) {
     moveTreePane(`${TILE_PANE_PREFIX}${storedSessionId}`, { before: before ?? null, groupId: target, pos: dir })
@@ -668,6 +668,27 @@ export function newSessionTab(): void {
   }
 }
 
+/**
+ * Front the MAIN chat and make its zone the focused one.
+ *
+ * The workspace half of `focusOpenSession`, extracted because a NEW session
+ * needs exactly this and the two must not drift (MJXHRM-6).
+ *
+ * It names the workspace's real group rather than `null` on purpose. The passive
+ * `$activeStoredSessionId` listener below homes to `null`, which leaves
+ * `activateTreeTabSlot` / `cycleTreeTabInFocusedZone` inert — they read
+ * `$activeTreeGroup` raw, with none of `closeFocusedTabInZone`'s main-pane
+ * fallback — so ⌥1-9 and ⌃Tab could not switch between two tabs the user was
+ * looking at. An explicit focus act claims the zone; passive navigation does not.
+ */
+export function focusWorkspaceSession(): void {
+  revealTreePane(WORKSPACE_PANE_ID)
+
+  const tree = $layoutTree.get()
+
+  noteActiveTreeGroup(tree ? (findGroupOfPane(tree, WORKSPACE_PANE_ID)?.id ?? null) : null)
+}
+
 /** If a session is already ON SCREEN — an open tile OR the one loaded in main —
  *  front its tab (and focus its zone) and return true; `false` = the caller must
  *  load it into main. */
@@ -686,8 +707,7 @@ export function focusOpenSession(storedSessionId: string): boolean {
   }
 
   if (storedSessionId === $activeStoredSessionId.get()) {
-    revealTreePane('workspace')
-    noteActiveTreeGroup(null)
+    focusWorkspaceSession()
 
     return true
   }
@@ -809,8 +829,13 @@ $activeStoredSessionId.listen(selected => {
     return
   }
 
+  // `null`, not the workspace's group, on purpose: this fires on EVERY primary
+  // navigation (a sidebar row, a deep link, a delete, a profile switch), and
+  // claiming a zone here would make ⌃Tab cycle the main strip instead of opening
+  // the recent-session HUD, and ⌥1-9 activate tabs instead of jumping to recent
+  // sessions. An explicit act — `focusWorkspaceSession` — claims the zone.
   noteActiveTreeGroup(null)
-  revealTreePane('workspace')
+  revealTreePane(WORKSPACE_PANE_ID)
 })
 
 // Dev hook for automation.

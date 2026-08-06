@@ -1,5 +1,11 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
+import { registerTiles } from '@/components/pane-shell/tile/registry'
+import type { Tile } from '@/components/pane-shell/tile/types'
+import { group, split } from '@/components/pane-shell/tree/model'
+import { $activeTreeGroup, $layoutTree, noteActiveTreeGroup } from '@/components/pane-shell/tree/store'
+import { isChatPaneId, sessionTilePaneId, WORKSPACE_PANE_ID } from '@/lib/pane-ids'
+import { $activeStoredSessionId } from '@/store/session'
 import {
   $activeSessionKey,
   $sessionStates,
@@ -12,7 +18,14 @@ import {
   runtimeKeyForStoredSession,
   updateSession
 } from '@/store/session-state-types'
-import { clearAllSessionStates, MAX_CACHED_SESSIONS, pruneSessionStates } from '@/store/session-states'
+import {
+  $sessionTiles,
+  clearAllSessionStates,
+  focusOpenSession,
+  focusWorkspaceSession,
+  MAX_CACHED_SESSIONS,
+  pruneSessionStates
+} from '@/store/session-states'
 
 const seed = (key: string, patch: Partial<ReturnType<typeof emptySessionState>> = {}) =>
   publishSessionState(key, { ...emptySessionState(patch.storedSessionId ?? key), runtimeSessionId: key, ...patch })
@@ -170,5 +183,87 @@ describe('pruneSessionStates', () => {
     pruneSessionStates()
 
     expect($sessionStates.get()['draft:9']).toBeDefined()
+  })
+})
+
+/**
+ * FOCUSING A CHAT that is already on screen (MJXHRM-6).
+ *
+ * `focusWorkspaceSession` is the workspace half of `focusOpenSession`, extracted
+ * so a NEW session and an EXISTING one land in the same end state. Both name the
+ * zone rather than `null`: the tab verbs read `$activeTreeGroup` raw, so a null
+ * zone leaves ⌥1-9 and ⌃Tab inert on tabs the user is looking at.
+ */
+describe('focusWorkspaceSession', () => {
+  const CHAT_GROUP = 'chat-zone'
+  const TOOL_GROUP = 'tool-zone'
+
+  let disposeTiles: (() => void) | null = null
+
+  const seedTree = (panes: string[], active = panes[0]) => {
+    disposeTiles?.()
+    disposeTiles = registerTiles(
+      [...panes, 'terminal'].map<Tile>(id => ({
+        id,
+        kind: isChatPaneId(id) ? 'chat' : 'tool',
+        title: id,
+        render: () => null,
+        placement: isChatPaneId(id) ? 'main' : 'bottom',
+        chrome: id === WORKSPACE_PANE_ID ? { uncloseable: true } : undefined
+      }))
+    )
+
+    $layoutTree.set(
+      split('row', [
+        group(panes, { active, id: CHAT_GROUP }),
+        group(['terminal'], { active: 'terminal', id: TOOL_GROUP })
+      ])
+    )
+  }
+
+  beforeEach(() => {
+    $sessionTiles.set([])
+    $activeStoredSessionId.set(null)
+    noteActiveTreeGroup(TOOL_GROUP)
+  })
+
+  afterEach(() => {
+    disposeTiles?.()
+    disposeTiles = null
+    $layoutTree.set(null)
+  })
+
+  it('claims the workspace zone when the chat is alone in it', () => {
+    seedTree([WORKSPACE_PANE_ID])
+
+    focusWorkspaceSession()
+
+    expect($activeTreeGroup.get()).toBe(CHAT_GROUP)
+  })
+
+  it('fronts the workspace tab when tiles share its zone', () => {
+    const tile = sessionTilePaneId('other')
+    seedTree([WORKSPACE_PANE_ID, tile], tile)
+
+    focusWorkspaceSession()
+
+    expect($activeTreeGroup.get()).toBe(CHAT_GROUP)
+  })
+
+  it('survives a tree that does not exist yet (mobile has no panes)', () => {
+    $layoutTree.set(null)
+
+    expect(() => focusWorkspaceSession()).not.toThrow()
+    expect($activeTreeGroup.get()).toBeNull()
+  })
+
+  // The main-pane branch used to leave the zone null, so clicking the sidebar
+  // row of the chat already in main left ⌃Tab unable to see its own strip.
+  it('is what focusOpenSession uses for the chat already in main', () => {
+    seedTree([WORKSPACE_PANE_ID])
+    $activeStoredSessionId.set('loaded')
+
+    expect(focusOpenSession('loaded')).toBe(true)
+    expect($activeTreeGroup.get()).toBe(CHAT_GROUP)
   })
 })
