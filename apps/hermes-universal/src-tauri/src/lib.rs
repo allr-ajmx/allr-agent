@@ -14,6 +14,7 @@ mod cloud;
 mod link_title;
 mod local_backend;
 mod marketplace;
+mod media;
 mod oauth;
 mod plugins;
 mod pty;
@@ -28,6 +29,7 @@ mod window;
 use appearance::set_window_translucency;
 use link_title::fetch_link_title;
 use marketplace::{marketplace_fetch, marketplace_search};
+use media::{media_set_target, MediaState, MEDIA_SCHEME};
 use cloud::{
     portal_agent_sign_in, portal_discover_agents, portal_login, portal_logout, portal_status,
 };
@@ -109,6 +111,7 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_notification::init())
         .manage(TransportState::new())
+        .manage(MediaState::default())
         .manage(LocalBackendState::default())
         .manage(PtyState::default())
         .manage(VoiceState::default())
@@ -116,6 +119,11 @@ pub fn run() {
         // Live SSH sessions. Unlike desktop's on-disk control socket, nothing
         // here outlives the process, so there is no stale master to evict.
         .manage(SshState::default())
+        // Inline audio/video streams through here instead of loading as a base64
+        // data URL — see media.rs. Registered on the BUILDER, not in `.setup()`:
+        // on Linux, wry registers custom schemes into the WebContext when the
+        // webview is created, so a later registration would never take.
+        .register_asynchronous_uri_scheme_protocol(MEDIA_SCHEME, media::handle)
         .setup(|app| {
             // WebKitGTK (Linux desktop) auto-denies `getUserMedia` unless the
             // embedder answers the WebView's `permission-request` signal — wry
@@ -182,6 +190,7 @@ pub fn run() {
             set_window_translucency,
             marketplace_search,
             marketplace_fetch,
+            media_set_target,
             fetch_link_title,
             oauth_login,
             oauth_status,
