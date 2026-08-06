@@ -536,7 +536,7 @@ export function SidebarScrollBody({ onNavigate }: { onNavigate?: () => void }) {
                   <Tip label={s.projects.newButton}>
                     <button
                       aria-label={s.projects.newButton}
-                      className="grid size-5 place-items-center rounded-sm text-(--ui-text-tertiary) opacity-0 transition-opacity hover:bg-(--ui-control-hover-background) hover:text-foreground group-hover/section:opacity-100"
+                      className="grid size-5 place-items-center rounded-sm text-(--ui-text-tertiary) opacity-0 transition-opacity hover:bg-(--ui-control-hover-background) hover:text-foreground group-hover/section:opacity-100 coarse:opacity-100"
                       onClick={openProjectCreate}
                       type="button"
                     >

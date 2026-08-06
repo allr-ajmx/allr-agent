@@ -119,7 +119,7 @@ export function SidebarSessionRow({
             >
               <Button
                 aria-label={r.actionsFor(title)}
-                className="size-5 rounded-[4px] bg-transparent text-transparent transition-colors duration-100 hover:bg-(--ui-control-active-background) hover:text-foreground focus-visible:bg-(--ui-control-active-background) focus-visible:text-foreground focus-visible:ring-0 data-[state=open]:bg-(--ui-control-active-background) data-[state=open]:text-foreground group-hover:text-(--ui-text-tertiary) [&_svg]:size-3.5!"
+                className="size-5 rounded-[4px] bg-transparent text-transparent transition-colors duration-100 hover:bg-(--ui-control-active-background) hover:text-foreground focus-visible:bg-(--ui-control-active-background) focus-visible:text-foreground focus-visible:ring-0 data-[state=open]:bg-(--ui-control-active-background) data-[state=open]:text-foreground group-hover:text-(--ui-text-tertiary) coarse:text-(--ui-text-tertiary) [&_svg]:size-3.5!"
                 // No tip: this is a DropdownMenu trigger, and a tooltip on a
                 // menu trigger fights the open menu (see DESIGN rule). The
                 // aria-label above already names it for assistive tech.
@@ -145,7 +145,9 @@ export function SidebarSessionRow({
       >
         {isWorking && !needsInput && <span aria-hidden="true" className="arc-border" />}
         <SidebarRowBody
-          className={cn('z-0 group-hover:pr-12', branchStem && 'pl-3.5')}
+          // The kebab is permanently visible on touch, so the padding that
+          // keeps the label out from under it has to be permanent too.
+          className={cn('z-0 group-hover:pr-12 coarse:pr-12', branchStem && 'pl-3.5')}
           onClick={event => {
             // ⇧⌘/⇧⌃-click pops the conversation into its own native window
             // (desktop only; MJX-104). ⇧-click alone still pins.
