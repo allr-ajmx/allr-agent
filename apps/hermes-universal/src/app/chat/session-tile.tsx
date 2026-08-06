@@ -25,6 +25,7 @@ import { type ChatMessage } from '@/store/chat'
 import { createComposerAttachmentScope } from '@/store/composer'
 import { $gatewayState } from '@/store/gateway'
 import { $pinnedSessionIds, pinSession, unpinSession } from '@/store/layout'
+import { startNewSessionTab } from '@/store/new-session'
 import { sessionAwaitingInput } from '@/store/prompts'
 import { $activeStoredSessionId, $sessions, sessionMatchesStoredId, sessionPinId } from '@/store/session'
 import { $sessionColorById, sessionColorFor } from '@/store/session-color'
@@ -34,7 +35,6 @@ import {
   $sessionTiles,
   closeSessionTile,
   discardSessionTile,
-  newSessionTab,
   noteSessionTileMounted,
   patchSessionTile,
   requestCloseSessionTile,
@@ -255,7 +255,7 @@ export const watchSessionTiles = paneMirror<SessionTile>({
   key: tile => tile.storedSessionId,
   kind: 'chat',
   linkTarget: true,
-  onNewTab: newSessionTab,
+  onNewTab: startNewSessionTab,
   prefix: 'session-tile',
   dir: tile => tile.dir,
   anchor: tile => tile.anchor,

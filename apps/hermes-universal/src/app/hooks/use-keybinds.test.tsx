@@ -1,10 +1,18 @@
 import { fireEvent, render } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+
+// ⌘N and ⌘T must go through the ONE helper every other new-session entry point
+// uses, or the focus behaviour drifts back apart (MJXHRM-6).
+vi.mock('@/store/new-session', () => ({
+  startNewSession: vi.fn(),
+  startNewSessionTab: vi.fn()
+}))
 
 import { $commandMenuOpen } from '@/store/command-menu'
 import { $bindings, beginCapture, endCapture, resetAllBindings, setBinding } from '@/store/keybinds'
 import { $sidebarOpen, setSidebarOpen } from '@/store/layout'
+import { startNewSession, startNewSessionTab } from '@/store/new-session'
 import { ThemeProvider } from '@/themes/context'
 
 import { useKeybinds } from './use-keybinds'
@@ -26,6 +34,7 @@ function mount() {
 }
 
 afterEach(() => {
+  vi.clearAllMocks()
   endCapture()
   $commandMenuOpen.set(false)
   resetAllBindings()
@@ -33,6 +42,20 @@ afterEach(() => {
 })
 
 describe('useKeybinds', () => {
+  it('routes session.new through the shared new-session helper', () => {
+    mount()
+
+    fireEvent.keyDown(window, { code: 'KeyN', key: 'n', metaKey: true })
+    expect(startNewSession).toHaveBeenCalledTimes(1)
+  })
+
+  it('routes session.newTab through the shared new-session helper', () => {
+    mount()
+
+    fireEvent.keyDown(window, { code: 'KeyT', key: 't', metaKey: true })
+    expect(startNewSessionTab).toHaveBeenCalledTimes(1)
+  })
+
   it('dispatches view.toggleSidebar on its default mod+b binding', () => {
     setSidebarOpen(true)
     mount()

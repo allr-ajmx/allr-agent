@@ -4,15 +4,12 @@ import { useNavigate } from 'react-router-dom'
 import { activateTreeTabSlot, closeFocusedTabInZone, cycleTreeTabInFocusedZone } from '@/components/pane-shell/tree/store'
 import { contributedKeybindHandler, PROFILE_SLOT_COUNT, SESSION_SLOT_COUNT } from '@/lib/keybinds/actions'
 import { comboAllowedInInput, comboFromEvent, isEditableTarget } from '@/lib/keybinds/combo'
-import { IS_MOBILE } from '@/lib/platform'
-import { newChatBubble } from '@/store/chat-bubbles'
 import { $repoStatus } from '@/store/coding-status'
 import { toggleCommandMenu } from '@/store/command-menu'
 import { $capture, $comboIndex, endCapture, setBinding } from '@/store/keybinds'
 import {
   $terminalOpen,
   FILE_TREE_PANE_ID,
-  NEW_SESSION_FLASH_EVENT,
   requestSessionSearchFocus,
   setTerminalOpen,
   toggleLeftEdge,
@@ -20,6 +17,7 @@ import {
   toggleRightEdge
 } from '@/store/layout'
 import { setModelPickerOpen } from '@/store/model'
+import { startNewSession, startNewSessionTab } from '@/store/new-session'
 import { setPaneOpen } from '@/store/panes'
 import {
   cycleProfile,
@@ -30,12 +28,11 @@ import {
 } from '@/store/profile'
 import { requestNewWorktree } from '@/store/projects'
 import { toggleReview } from '@/store/review'
-import { newSession, toggleSelectedPin } from '@/store/session'
+import { toggleSelectedPin } from '@/store/session'
 import {
   $focusedStoredSessionId,
   $sessionTiles,
   focusOpenSession,
-  newSessionTab,
   reopenLastClosedTile,
   requestCloseSessionTile
 } from '@/store/session-states'
@@ -61,7 +58,6 @@ import {
   ARTIFACTS_ROUTE,
   CRON_ROUTE,
   MESSAGING_ROUTE,
-  NEW_CHAT_ROUTE,
   PROFILES_ROUTE,
   sessionRoute,
   SETTINGS_ROUTE,
@@ -178,19 +174,9 @@ export function useKeybinds(deps: KeybindRuntimeDeps): void {
     'nav.cron': () => navigate(CRON_ROUTE),
     'nav.agents': () => navigate(AGENTS_ROUTE),
 
-    // Match the sidebar New Session button — the same three steps
-    // `use-sidebar-keybinds` used to run for ⌘N before the registry took over.
-    'session.new': () => {
-      // Mobile: a new bubble alongside the current chat (no-op on a draft).
-      if (IS_MOBILE) {
-        newChatBubble()
-      } else {
-        newSession()
-      }
-
-      navigate(NEW_CHAT_ROUTE)
-      window.dispatchEvent(new CustomEvent(NEW_SESSION_FLASH_EVENT))
-    },
+    // Same act as the sidebar's New session row and `/new` — create, route,
+    // focus, flash — which is why all three share one helper.
+    'session.new': () => startNewSession(),
     // ⌘⇧N opens a full app instance in a new native window (desktop only; MJX-104).
     'session.newWindow': () => void openNewWindow(),
     // ⌃Tab steps through the recent-session switcher.
@@ -235,7 +221,7 @@ export function useKeybinds(deps: KeybindRuntimeDeps): void {
     // conversation currently in it as its own tab, then start a fresh chat in
     // the main pane. Both end up in the same strip, which is what the user
     // sees as two tabs. (An unsaved draft has nothing to park.)
-    'session.newTab': newSessionTab,
+    'session.newTab': startNewSessionTab,
     // Fall-through chain, and it deliberately bottoms out in a no-op: ⌘W must
     // never close the window.
     'view.closeTab': () => {
