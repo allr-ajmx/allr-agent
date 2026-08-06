@@ -307,6 +307,11 @@ npm run adb:reverse    # tcp:5176, tcp:5177, tcp:4317, tcp:4318
 `android:dev` and `dev:ext:android` both run it for you. With the tunnel up,
 loopback means the workstation and the default endpoint is right everywhere.
 
+Note that the dev server no longer necessarily rides this tunnel: `HERMES_DEV_HOST`
+(see the README's "Android dev loop") can move 5176/5177 onto Wi-Fi to find the
+faster link. 4317/4318 are unaffected — keep `adb:reverse` running for tracing
+regardless of which transport the frontend is using.
+
 | Situation | Endpoint |
 | --- | --- |
 | Desktop | default |
