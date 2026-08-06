@@ -14,6 +14,7 @@ import {
 import {
   type ComposerInsertMode,
   focusComposerInput,
+  focusHeldByOtherEditor,
   markActiveComposer,
   onComposerFocusRequest,
   onComposerInsertRefsRequest,
@@ -147,11 +148,32 @@ export function useComposerDraft({
     [paintDraft]
   )
 
+  // Autofocus on mount and on a session swap.
   useEffect(() => {
-    if (!inputDisabled) {
+    if (inputDisabled) {
+      return
+    }
+
+    // A TILE arrives on its own schedule — `openSessionTile` saves it with no
+    // runtime id, so this composer mounts only once the async resume lands, well
+    // after the ⌘T that created the tab handed the caret to the fresh chat in
+    // main (MJXHRM-6). Turning up late is not a reason to take focus off an
+    // editor the user is already in. `main` is exempt: it IS the surface a new
+    // chat lands in, and it mounts with the app, not on a network round-trip.
+    if (target !== 'main' && focusHeldByOtherEditor(editorRef.current)) {
+      return
+    }
+
+    focusInput()
+  }, [focusInput, focusKey, inputDisabled, target])
+
+  // An explicit request over the focus bus is unconditional — it is someone
+  // saying "put the caret here", not a component announcing its arrival.
+  useEffect(() => {
+    if (!inputDisabled && focusRequestId > 0) {
       focusInput()
     }
-  }, [focusInput, focusKey, focusRequestId, inputDisabled])
+  }, [focusInput, focusRequestId, inputDisabled])
 
   useEffect(() => {
     if (inputDisabled) {
