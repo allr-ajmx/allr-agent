@@ -1,6 +1,7 @@
 import { WorkspaceRoutes } from '@/app/contrib/panes'
 import { useKeyboardInset } from '@/hooks/use-keyboard-inset'
 
+import { useRestoreLastSession } from './hooks/use-restore-last-session'
 import { MobileSidebar } from './mobile-sidebar'
 import { MobileTopBar } from './mobile-top-bar'
 import { MobileWorkspace } from './mobile-workspace'
@@ -25,6 +26,9 @@ import { useSidebar } from './sidebar'
 export function MobileShell() {
   // Publishes --keyboard-inset / data-keyboard-open, consumed by the lift below.
   useKeyboardInset()
+  // Opens the chat you were last in once the gateway is up, instead of leaving
+  // the phone on the blank new session it always cold-starts with.
+  useRestoreLastSession()
   const { openMobile, setOpenMobile, openMobileRight, setOpenMobileRight } = useSidebar()
 
   return (

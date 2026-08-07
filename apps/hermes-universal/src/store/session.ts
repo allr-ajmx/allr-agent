@@ -9,6 +9,7 @@ import {
 } from '@/hermes'
 import { translateNow } from '@/i18n'
 import { chatMessageText } from '@/lib/chat-messages'
+import { Codecs, persistentAtom } from '@/lib/persisted'
 import { appendLiveSessionProjection, toChatMessages } from '@/lib/session-history'
 import { stableArray } from '@/lib/stable-array'
 import { atom, computed } from '@/store/atom'
@@ -37,7 +38,7 @@ import {
   runtimeKeyForStoredSession,
   updateSession
 } from '@/store/session-state-types'
-import { openAppRoute } from '@/store/windows'
+import { isSecondaryWindow, openAppRoute } from '@/store/windows'
 import type { SessionCreateResponse, SessionInfo, SessionResumeResponse, SessionSearchResult } from '@/types/hermes'
 
 // Session history + switching (Hc2). Lean adaptation of desktop store/session.ts —
@@ -55,6 +56,36 @@ export const $activeStoredSessionId = atom<null | string>(null)
 // Compat alias for ported desktop code (`@/store/session` → `$activeSessionId`).
 // Universal's stored id IS the desktop "active session" id for a single-session app.
 export const $activeSessionId = $activeStoredSessionId
+
+// The last chat that was actually open, remembered across launches.
+//
+// A phone always cold-starts at "/" — there is no window to restore and no URL
+// to come back to — so without this the app opened on an empty new session every
+// time, and the chat you were in the middle of was three taps away in the
+// sidebar. Written on every switch, read once at boot (see
+// `use-restore-last-session`).
+//
+// A draft (null) is deliberately NOT recorded: an unsaved chat has nothing to
+// restore, and letting it overwrite the value would mean opening a new session
+// once wiped out the memory of the last real one. A secondary window never
+// writes — it does not own the user's place in the app.
+const LAST_SESSION_KEY = 'hermes.lastSessionId'
+
+const $lastSessionId = persistentAtom<null | string>(LAST_SESSION_KEY, null, Codecs.nullableText)
+
+if (!isSecondaryWindow()) {
+  $activeStoredSessionId.subscribe(id => {
+    if (id) {
+      $lastSessionId.set(id)
+    }
+  })
+}
+
+/** The session to land on at boot, if any. */
+export function lastOpenedSessionId(): null | string {
+  return $lastSessionId.get()
+}
+
 export const $sessionSearch = atom<SessionSearchResult[]>([])
 export const $searchLoading = atom(false)
 
