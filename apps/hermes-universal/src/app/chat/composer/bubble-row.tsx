@@ -338,7 +338,7 @@ export function BubbleRow() {
   const progressFor = (side: NewSessionSide) => (preview?.newSide === side ? preview.newProgress : 0)
 
   return (
-    <div className="relative w-full select-none py-1" data-slot="bubble-row">
+    <div className="relative w-full select-none" data-slot="bubble-row">
       {/* Title tooltip — above the centered bubble, only while a press is active. */}
       {dragging && (
         <div
@@ -359,8 +359,13 @@ export function BubbleRow() {
         </div>
       )}
 
-      {/* Clip window — the track slides inside it; bubbles fan past the edges. */}
-      <div className="relative w-full touch-none overflow-hidden" ref={containerRef}>
+      {/* Clip window — the track slides inside it; bubbles fan past the edges.
+          The vertical padding is what the centred bubble's `scale-110` needs:
+          `overflow-hidden` clips both axes (CSS won't let one be `visible` while
+          the other is `hidden`) and the strip must clip horizontally, so the
+          enlarged bubble was being shaved top and bottom. The padding moved here
+          off the wrapper, so the row's total height is unchanged. */}
+      <div className="relative w-full touch-none overflow-hidden py-1" ref={containerRef}>
         <div
           className={cn(
             'relative flex w-max items-center gap-2.5 will-change-transform',
