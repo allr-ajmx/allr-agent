@@ -49,10 +49,17 @@ export function MobileChromeBar({
           title menu is a wide target, an edge icon is not), and it is the only
           way its `h-full` resolves — `items-center` leaves this div auto-height,
           against which a percentage height silently falls back to the content's,
-          leaving the title a small pill floating in a mostly empty row. */}
+          leaving the title a small pill floating in a mostly empty row.
+
+          It has to carry its own `items-center` with it: stretching the cell
+          takes its content out of the row's centring, so a `center` that is a
+          plain span — the Workspace's project name, the sidebar's "Sessions" —
+          lands at the TOP of a 48px box while the edge buttons stay centred,
+          and the bar reads as two rows. A `center` that asks for `h-full` still
+          gets the full height; an explicit height beats align-items. */}
       <div className="flex h-12 items-center gap-1 px-2">
         {left}
-        <div className="min-w-0 flex-1 self-stretch overflow-hidden">{center}</div>
+        <div className="flex min-w-0 flex-1 items-center self-stretch overflow-hidden">{center}</div>
         {right}
       </div>
     </div>
