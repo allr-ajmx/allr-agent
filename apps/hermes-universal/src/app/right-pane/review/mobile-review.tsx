@@ -125,13 +125,13 @@ export function MobileReview({ onOpenInEditor, onLeaveToChat }: MobileReviewProp
           {revertTarget?.path == null ? c.revertAllConfirm : c.revertConfirm}
         </p>
         <Button
-          className="min-h-11 w-full"
+          className="w-full"
           onClick={() => void confirmRevert().catch(err => notifyError(err, c.revert))}
           variant="destructive"
         >
           {c.revert}
         </Button>
-        <Button className="min-h-11 w-full" onClick={cancelRevert} variant="ghost">
+        <Button className="w-full" onClick={cancelRevert} variant="ghost">
           {t.common.cancel}
         </Button>
       </SheetContent>
@@ -211,11 +211,12 @@ export function MobileReview({ onOpenInEditor, onLeaveToChat }: MobileReviewProp
       </div>
 
       {files.length > 0 && (
-        <div
-          className="shrink-0 border-t border-(--ui-stroke-tertiary) bg-(--ui-bg-chrome) p-2"
-          style={{ paddingBottom: 'calc(0.5rem + var(--safe-area-inset-bottom))' }}
-        >
-          <Button className="min-h-11 w-full gap-2" onClick={() => setShipOpen(true)}>
+        // No bottom safe-area padding: this panel lives INSIDE the Workspace,
+        // whose tab bar sits below it and already owns the home-indicator inset.
+        // Adding it here counted it twice and left a band of dead chrome between
+        // the Ship button and the bar.
+        <div className="shrink-0 border-t border-(--ui-stroke-tertiary) bg-(--ui-bg-chrome) p-2">
+          <Button className="w-full gap-2" onClick={() => setShipOpen(true)}>
             <Codicon name="git-commit" size="1rem" />
             {m.ship}
           </Button>
@@ -329,7 +330,7 @@ function SheetAction({
   return (
     <button
       className={cn(
-        'flex min-h-11 items-center gap-3 rounded-md px-3 text-sm',
+        'flex min-h-[44px] items-center gap-3 rounded-md px-3 text-sm',
         tone === 'danger' ? 'text-(--ui-red)' : 'text-foreground'
       )}
       onClick={onClick}
@@ -393,7 +394,7 @@ function ShipSheet({ onOpenChange, open }: { onOpenChange: (open: boolean) => vo
             />
 
             <Button
-              className="min-h-11 w-full"
+              className="w-full"
               disabled={!canCommit}
               onClick={() =>
                 void commitChanges(message, { push: true })
@@ -405,7 +406,7 @@ function ShipSheet({ onOpenChange, open }: { onOpenChange: (open: boolean) => vo
             </Button>
 
             <Button
-              className="min-h-11 w-full"
+              className="w-full"
               disabled={!canCommit}
               onClick={() =>
                 void commitChanges(message, { push: false })
@@ -423,7 +424,7 @@ function ShipSheet({ onOpenChange, open }: { onOpenChange: (open: boolean) => vo
             which is exactly when it becomes the obvious next move. */}
         {!hasFiles && (
           <Button
-            className="min-h-11 w-full"
+            className="w-full"
             disabled={busy || !ship.ghReady}
             onClick={() => void createOrOpenPr().catch(err => notifyError(err, c.createPr))}
           >

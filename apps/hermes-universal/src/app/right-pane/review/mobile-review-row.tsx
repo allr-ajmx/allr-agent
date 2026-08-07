@@ -236,7 +236,7 @@ export function MobileReviewRow({
       <div
         aria-selected={selected}
         className={cn(
-          'relative flex min-h-11 touch-pan-y items-center gap-2 bg-(--ui-sidebar-surface-background) px-3 py-1.5 select-none',
+          'relative flex min-h-[44px] touch-pan-y items-center gap-2 bg-(--ui-sidebar-surface-background) px-3 py-1.5 select-none',
           selected && 'bg-(--ui-row-active-background)',
           !dragging && 'transition-transform duration-150'
         )}

@@ -2301,18 +2301,27 @@ html {
    desktop's compact scale. Coarse-pointer platforms need two things back, and
    both are re-added here declaratively rather than by forking the primitives:
 
-   1. Hittable controls. 2.75rem is the usual 44px minimum. Buttons that opt out
-      of a box (the `inline`/`micro` sizes and the boxless text variants) carry
-      `h-auto`, so they are excluded — they must stay flush inside a heading or
-      sentence. Matching on the utility class mirrors the `[class*='rounded-full']`
-      override above; it is the established idiom in this file.
+   1. Hittable controls, at the usual 44px minimum.
+
+      In PIXELS, deliberately. This was `2.75rem`, written believing that was
+      44px — true at a 16px root, but `html.is-mobile` bumps `--dt-base-size` to
+      1.125rem for readability, so on the device this rule exists for it
+      resolved to 49.5px and every button on a phone came out oversized. A touch
+      target is a fingertip, and a fingertip does not grow when the type scale
+      does; it is the one measurement here that must not track the rem.
+
+      Buttons that opt out of a box (the `inline`/`micro` sizes and the boxless
+      text variants) carry `h-auto`, so they are excluded — they must stay flush
+      inside a heading or sentence. Matching on the utility class mirrors the
+      `[class*='rounded-full']` override above; it is the established idiom in
+      this file.
    2. A >=16px font on anything focusable-and-typeable. Below that the Android
       WebView auto-zooms the viewport on focus, which is a functional bug, not a
       style preference. Desktop's controlVariants sit at 12px. */
 @media (pointer: coarse) {
   [data-slot='button']:not([class*='h-auto']) {
-    min-block-size: 2.75rem;
-    min-inline-size: 2.75rem;
+    min-block-size: 44px;
+    min-inline-size: 44px;
   }
 
   [data-slot='input'],

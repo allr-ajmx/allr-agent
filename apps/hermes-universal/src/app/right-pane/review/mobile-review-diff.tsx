@@ -53,7 +53,7 @@ export function MobileReviewDiff({
   return (
     <div className="flex h-full min-h-0 flex-col bg-(--ui-sidebar-surface-background)">
       <header className="shrink-0 border-b border-(--ui-stroke-tertiary)">
-        <div className="flex min-h-11 items-center gap-1 px-1">
+        <div className="flex min-h-[44px] items-center gap-1 px-1">
           <Button aria-label={m.backToFiles} className="size-9 shrink-0" onClick={onBack} size="icon" variant="ghost">
             <Codicon name="chevron-left" size="1.1rem" />
           </Button>
@@ -109,10 +109,9 @@ export function MobileReviewDiff({
         )}
       </div>
 
-      <footer
-        className="shrink-0 border-t border-(--ui-stroke-tertiary) bg-(--ui-bg-chrome)"
-        style={{ paddingBottom: 'var(--safe-area-inset-bottom)' }}
-      >
+      {/* The Workspace's tab bar sits below this and owns the home-indicator
+          inset; padding for it here would count it twice. */}
+      <footer className="shrink-0 border-t border-(--ui-stroke-tertiary) bg-(--ui-bg-chrome)">
         <div className="grid grid-cols-4 gap-0.5 p-1">
           <FooterAction
             icon={file.staged ? 'remove' : 'add'}
@@ -142,7 +141,7 @@ function FooterAction({
   return (
     <button
       className={cn(
-        'flex min-h-11 flex-col items-center justify-center gap-0.5 rounded-md px-1 py-1 text-[0.65rem]',
+        'flex min-h-[44px] flex-col items-center justify-center gap-0.5 rounded-md px-1 py-1 text-[0.65rem]',
         tone === 'danger' ? 'text-(--ui-red)' : 'text-muted-foreground'
       )}
       onClick={onClick}

@@ -34,7 +34,11 @@ export function MobileChromeBar({
       className="shrink-0 border-b border-(--ui-stroke-tertiary) bg-(--ui-bg-chrome) select-none"
       style={{ paddingTop: 'var(--safe-area-inset-top)' }}
     >
-      <div className="flex h-8 items-center gap-1 px-2">
+      {/* Tall enough to contain a touch target. Every button in this row is
+          floored at 44px on a coarse pointer (see styles.css), so an `h-8` row
+          — 36px — clipped the title button on the chat and on Settings. The row
+          is the constraint the buttons already had, made explicit. */}
+      <div className="flex h-11 items-center gap-1 px-2">
         {left}
         <div className="min-w-0 flex-1 overflow-hidden">{center}</div>
         {right}
