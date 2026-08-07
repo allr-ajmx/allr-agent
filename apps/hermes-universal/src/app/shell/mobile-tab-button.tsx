@@ -64,12 +64,21 @@ export function MobileTabButton({
   )
 }
 
-/** The bar the buttons sit in — border, chrome fill and the bottom safe area. */
+/**
+ * The bar the buttons sit in — border, chrome fill and the bottom safe area.
+ *
+ * It stands down while the soft keyboard is up. On a phone the space left over
+ * is small enough that navigation and typing cannot both have a bar: the editor
+ * wants its accessory keys there, and the sidebar's search wants the results.
+ * Driven off the `data-keyboard-open` attribute `use-keyboard-inset` already
+ * sets on <html>, in CSS rather than through a subscription, so the bar goes on
+ * the same frame the keyboard arrives with no render in between.
+ */
 export function MobileTabBar({ ariaLabel, children }: { ariaLabel: string; children: React.ReactNode }) {
   return (
     <nav
       aria-label={ariaLabel}
-      className="shrink-0 border-t border-(--ui-stroke-tertiary) bg-(--ui-bg-chrome)"
+      className="shrink-0 border-t border-(--ui-stroke-tertiary) bg-(--ui-bg-chrome) keyboard-open:hidden"
       style={{ paddingBottom: 'var(--safe-area-inset-bottom)' }}
     >
       {/* Scrolls rather than crushes: a plugin can contribute a nav row, and five

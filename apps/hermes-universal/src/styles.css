@@ -34,6 +34,12 @@
 @custom-variant coarse (@media (pointer: coarse));
 @custom-variant fine (@media (pointer: fine));
 
+/* The soft keyboard is up. `hooks/use-keyboard-inset.ts` sets the attribute on
+   <html>, so this is a state any element can style against — used to stand the
+   phone's bottom nav bar down while typing, where navigation and an accessory
+   key row cannot both have the little screen that is left. */
+@custom-variant keyboard-open (:root[data-keyboard-open] &);
+
 /* ─── Fonts ──────────────────────────────────────────────────────────────────
    Everything the app can name is VENDORED under ./fonts — nothing depends on
    what the host happens to have installed. That is the one place universal
@@ -72,8 +78,8 @@
   font-display: swap;
   src: url('./fonts/inter-latin-wght-normal.woff2') format('woff2');
   unicode-range:
-    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F,
-    U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC,
+    U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 @font-face {
   font-family: 'Inter';
@@ -82,8 +88,8 @@
   font-display: swap;
   src: url('./fonts/inter-latin-ext-wght-normal.woff2') format('woff2');
   unicode-range:
-    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF,
-    U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F,
+    U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
 }
 @font-face {
   font-family: 'Inter';
@@ -92,8 +98,8 @@
   font-display: swap;
   src: url('./fonts/inter-latin-wght-italic.woff2') format('woff2');
   unicode-range:
-    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F,
-    U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC,
+    U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 @font-face {
   font-family: 'Inter';
@@ -102,8 +108,8 @@
   font-display: swap;
   src: url('./fonts/inter-latin-ext-wght-italic.woff2') format('woff2');
   unicode-range:
-    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF,
-    U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F,
+    U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
 }
 
 /* Collapse — 100/300/400/700, roman + italic. */
@@ -574,14 +580,13 @@
        anyone made). The generic tail stays load-bearing: WebKitGTK resolves
        none of the Segoe/SF names, nor `system-ui`/`-webkit-system-ui`. */
     --dt-font-sans:
-      'Segoe WPC', 'Segoe UI', -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', -webkit-system-ui,
-      system-ui, 'Noto Sans', sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol',
-      'Noto Color Emoji', emoji;
+      'Segoe WPC', 'Segoe UI', -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', -webkit-system-ui, system-ui,
+      'Noto Sans', sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji', emoji;
     /* Key caps take the same treatment — native face where it exists, Inter
        elsewhere. Theme typography never overrides this token (desktop parity). */
     --dt-font-kbd:
-      -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', 'Inter', -webkit-system-ui, system-ui,
-      'Noto Sans', sans-serif;
+      -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', 'Inter', -webkit-system-ui, system-ui, 'Noto Sans',
+      sans-serif;
     /* JetBrains Mono first — the face we bundle (@font-face above) and the
        terminal's primary — so code/diff match the terminal on every platform
        instead of drifting to a system Cascadia Code where it's installed.
@@ -1823,7 +1828,6 @@ html {
   }
 }
 
-
 /* Arc-style multicolor action surface (static, not animated), from desktop
    styles.css ~795. Reusable on any Button via className. Left UNLAYERED on
    purpose so it beats Tailwind's bg- / text- variant utilities.
@@ -1840,7 +1844,6 @@ html {
 .btn-arc:hover:not(:disabled) {
   filter: brightness(1.08) saturate(1.06);
 }
-
 
 /* Themed native scrollbars (desktop styles.css ~837), applied app-wide via
    `class="scrollbar-dt"` on #root (index.html) exactly as desktop does. Ported
@@ -1920,7 +1923,6 @@ html {
     display: none;
   }
 }
-
 
 /* Container-query text fitting (desktop styles.css ~1059). */
 .fit-text {
@@ -2007,7 +2009,6 @@ html {
   line-height: 1.25rem;
   white-space: pre;
 }
-
 
 /* -------------------------------------------------------------------------- */
 /* Pet egg hatch (Cmd-K → Pets → Generate)                                    */
