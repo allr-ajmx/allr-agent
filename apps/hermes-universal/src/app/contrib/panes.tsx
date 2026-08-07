@@ -143,7 +143,6 @@ export function WorkspaceRoutes() {
 
   return (
     <Routes>
-      <Route element={<ChatScreen />} path="/" />
       {/* Every page — the app's own and contributed alike — renders as a full
           page inside the workspace pane, each behind its own blast wall, BEFORE
           the catch-all below. */}
@@ -172,6 +171,14 @@ export function WorkspaceRoutes() {
           path="/dev/markdown-bench"
         />
       )}
+      {/* The chat, as ONE route node covering both "/" (a fresh chat) and
+          "/<sessionId>" (a resumed one). It used to be two — a `path="/"` route
+          above the pages and this splat below — and those are different
+          positions in the element tree, so React Router unmounted and remounted
+          the entire chat on every session switch. That teardown is the repaint
+          the phone shows as a flash: thread, scroll position and composer all
+          rebuilt to display the same view. A splat matches an empty remainder,
+          so "/" needs no route of its own. */}
       <Route element={<ChatScreen />} path="*" />
     </Routes>
   )
