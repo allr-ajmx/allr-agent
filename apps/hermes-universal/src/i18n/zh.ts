@@ -396,7 +396,7 @@ export const zh: Translations = {
         }
       },
       test: '发送测试通知',
-      testTitle: 'Hermes',
+      testTitle: 'Hermes (MJX)',
       testBody: '通知工作正常。',
       testSent: '测试已发送。如果没有出现，请检查系统通知权限和专注模式／勿扰模式。',
       testUnsupported: '此系统不支持原生通知。',
@@ -710,7 +710,7 @@ export const zh: Translations = {
       }
     }),
     about: {
-      heading: 'Hermes',
+      heading: 'Hermes (MJX)',
       version: value => `版本 ${value}`,
       versionUnavailable: '版本不可用',
       updates: '更新',
