@@ -235,11 +235,36 @@ export function FloatingPet({ overlayOpen = false }: { overlayOpen?: boolean }) 
     // to be rebuilt, and the pointer handlers below stay stable with it.
   }, [])
 
-  // Put the sprite back the way React draws it at rest. The composed transform
-  // is reasserted on the next render, when the roam loop re-homes the pet.
   const clearHeldLook = useCallback((el: HTMLElement) => {
     el.style.cursor = 'grab'
     el.style.filter = ''
+  }, [])
+
+  // Stand the pet up on whatever it was just put down on, and say so.
+  //
+  // This has to WRITE the transform, not wait for React to. Every pointermove
+  // overwrites `spriteWrap.style.transform` with the carried look (floor
+  // rotation + held scale), and React only rewrites that property when its own
+  // rendered value changes. `$petRoamWall.set(wall)` is a no-op in nanostores
+  // when the wall is unchanged — put the pet back on the wall it came from and
+  // nothing re-rendered, so the imperative upright transform survived the drop
+  // and the pet stood on the ceiling the right way up until some later,
+  // unrelated change happened to move the wall or the walk direction. That
+  // "later change" is the animation you could watch correct it.
+  //
+  // Writing it here also means the rotation lands at RELEASE, before the fall
+  // rather than after it — the roam loop moves the pet by mutating left/top, so
+  // there is no render during a drop to carry it either.
+  const settleSprite = useCallback((at: Point) => {
+    const { h, w } = petSizeRef.current
+    const surfaces = snapshotSurfaces(w, h, { safeArea: IS_MOBILE, walls: IS_MOBILE })
+    const { wall } = resolveSurface(surfaces, at, w, h, walkBox(h, IS_MOBILE))
+
+    $petRoamWall.set(wall)
+
+    if (spriteWrapRef.current) {
+      spriteWrapRef.current.style.transform = `${spriteTransform(wall)} ${facingTransform(at, w, h, wall)}`.trim()
+    }
   }, [])
 
   // Any pointer lifts the pet on contact — mouse, touch and pen alike. There is
@@ -288,15 +313,7 @@ export function FloatingPet({ overlayOpen = false }: { overlayOpen?: boolean }) 
         const committed = { x: drag.x, y: drag.y }
         setPosition(committed)
         persistPosition(committed)
-
-        // Which wall the pet was just put on. The roam loop publishes this as it
-        // walks, but it only runs while roaming is enabled, motion is not
-        // reduced and the agent is idle — so dropping the pet on the ceiling
-        // under any of those left it wearing the last wall's rotation, standing
-        // upright on the top rail until something else happened to tick.
-        const { h, w } = petSizeRef.current
-        const surfaces = snapshotSurfaces(w, h, { safeArea: IS_MOBILE, walls: IS_MOBILE })
-        $petRoamWall.set(resolveSurface(surfaces, committed, w, h, walkBox(h, IS_MOBILE)).wall)
+        settleSprite(committed)
       }
 
       const el = containerRef.current
@@ -306,14 +323,26 @@ export function FloatingPet({ overlayOpen = false }: { overlayOpen?: boolean }) 
         el.releasePointerCapture?.(e.pointerId)
       }
     },
-    [clearHeldLook]
+    [clearHeldLook, settleSprite]
   )
 
   // A system interruption — an incoming call, a gesture the OS claims. Drop the
   // drag where it stands rather than leaving the pet stuck to a dead pointer.
   const onPointerCancel = useCallback(
     (e: React.PointerEvent) => {
+      const drag = dragRef.current
       dragRef.current = null
+
+      // Same landing as a release, deliberately. An interruption used to leave
+      // the pet at its dragged position in the DOM but at its OLD position in
+      // React state, still wearing the carried transform — so it snapped back
+      // and stood upright on whatever it was actually on.
+      if (drag) {
+        const committed = { x: drag.x, y: drag.y }
+        setPosition(committed)
+        persistPosition(committed)
+        settleSprite(committed)
+      }
 
       const el = containerRef.current
 
@@ -322,7 +351,7 @@ export function FloatingPet({ overlayOpen = false }: { overlayOpen?: boolean }) 
         el.releasePointerCapture?.(e.pointerId)
       }
     },
-    [clearHeldLook]
+    [clearHeldLook, settleSprite]
   )
 
   // Commit a roamed-to position back to React state + storage when the loop settles.
