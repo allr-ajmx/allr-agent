@@ -143,7 +143,11 @@ export function ComposerStatusStack({ queue, sessionId }: ComposerStatusStackPro
 
   return (
     <div
-      className="absolute inset-x-0 bottom-full z-3 max-h-[40vh] translate-y-2 overflow-y-auto"
+      // No `translate-y` nudge: this now hangs off the composer SURFACE, whose
+      // top edge is exactly where the card's fused bottom border belongs. It
+      // used to hang off the composer root and needed +8px to cross that box's
+      // `pt-2` gap; here the same offset would slide it over the input.
+      className="absolute inset-x-0 bottom-full z-3 max-h-[40vh] overflow-y-auto"
       onPointerDownCapture={() => blurComposerInput()}
       ref={stackRef}
     >
