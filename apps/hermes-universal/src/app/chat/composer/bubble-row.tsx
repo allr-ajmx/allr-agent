@@ -16,7 +16,13 @@ import { rafCoalesce } from '@/lib/raf-coalesce'
 import { cn } from '@/lib/utils'
 import { useStore } from '@/store/atom'
 import { $chatBubbles, type ChatBubble, newChatBubble, removeBubble, switchToBubble } from '@/store/chat-bubbles'
-import { $activeStoredSessionId, $sessions, $unreadFinishedSessionIds, $workingSessionIds } from '@/store/session'
+import {
+  $activeStoredSessionId,
+  $sessions,
+  $unreadFinishedSessionIds,
+  $workingSessionIds,
+  refreshSessions
+} from '@/store/session'
 
 import { newSessionProgress, type NewSessionSide, resolveDrag, type TrackBounds } from './bubble-drag'
 
@@ -64,7 +70,13 @@ export function BubbleRow() {
   const unread = useStore($unreadFinishedSessionIds)
   const working = useStore($workingSessionIds)
 
-  const activeIndex = bubbles.findIndex(b => b.storedSessionId === activeId)
+  // The active id arrives a beat after the persisted bubbles do, so on a cold
+  // load `findIndex` is -1 for a moment. Centre the first bubble meanwhile —
+  // `centerTranslate(-1)` is 0, which is not "no bubble centred" but "the strip
+  // pinned to the left edge", and that is what the whole row looked like on
+  // every fresh start.
+  const foundIndex = bubbles.findIndex(b => b.storedSessionId === activeId)
+  const activeIndex = foundIndex >= 0 ? foundIndex : 0
 
   const [preview, setPreview] = useState<null | Preview>(null)
   const [translate, setTranslate] = useState(0)
@@ -80,16 +92,32 @@ export function BubbleRow() {
 
   const titleOf = useCallback(
     (bubble: ChatBubble | undefined): string => {
+      // Only a bubble with no stored id is genuinely a new chat. An id we cannot
+      // resolve is a loaded chat whose title has not arrived — saying "New
+      // session" for it made every bubble claim to be one on a cold start.
       if (!bubble || bubble.storedSessionId === null) {
         return t.sidebar.nav['new-session']
       }
 
       const session = sessions.find(s => s.id === bubble.storedSessionId)
 
-      return session ? sessionTitle(session) : t.sidebar.nav['new-session']
+      return session ? sessionTitle(session) : t.common.loading
     },
     [sessions, t]
   )
+
+  // Bubble titles come from the session list, and on a phone nothing else pulls
+  // it — the sidebar is a separate surface that may never have been opened. So
+  // the row asks for it when it holds ids it cannot name.
+  const unresolved = bubbles.some(b => b.storedSessionId !== null && !sessions.some(s => s.id === b.storedSessionId))
+
+  useEffect(() => {
+    if (unresolved) {
+      void refreshSessions()
+    }
+    // Deliberately keyed on the flag, not the lists: this must fire when ids go
+    // unresolved, not on every session-list update.
+  }, [unresolved])
 
   // The translate that pins bubble `index` to the container center.
   const centerTranslate = useCallback(
