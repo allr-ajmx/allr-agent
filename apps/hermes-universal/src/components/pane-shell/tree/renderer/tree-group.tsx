@@ -229,10 +229,14 @@ function ZoneMenu({
 }
 
 export function TreeGroup({
+  foldAxis,
   node,
   parentAxis,
   railSide = 'left'
 }: {
+  /** Set when an ancestor split is CASCADE-FOLDED (see FoldContext): the zone
+   *  collapses along the fold's axis instead of its own parent's. */
+  foldAxis?: 'column' | 'row'
   node: GroupNode
   parentAxis?: 'column' | 'row'
   railSide?: 'left' | 'right'
@@ -334,8 +338,10 @@ export function TreeGroup({
   // WIDTH collapses — a full-width horizontal header would strand a tall
   // empty column, so the minimized form is a narrow vertical rail instead
   // (tabs reading top-to-bottom). In a column (stacked zones) the horizontal
-  // header IS the collapsed form, exactly as before.
-  const verticalCollapse = Boolean(node.minimized) && parentAxis === 'row' && !isEmpty
+  // header IS the collapsed form, exactly as before. Inside a cascading fold
+  // the FOLD's axis wins over the literal parent: a column that folded into a
+  // row is a rail, so its zones are rails too, stacked down the rail.
+  const verticalCollapse = Boolean(node.minimized) && (foldAxis ?? parentAxis) === 'row' && !isEmpty
   const headerVisible = !isEmpty && !verticalCollapse && (Boolean(node.minimized) || !headerHidden)
 
   // Opening a tab past the right edge otherwise left BOTH the new tab and the
