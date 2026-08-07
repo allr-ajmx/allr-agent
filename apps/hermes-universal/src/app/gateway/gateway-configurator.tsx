@@ -20,6 +20,7 @@ import {
   $cloudAgents,
   $cloudConnectingId,
   $cloudDiscover,
+  $cloudError,
   $cloudOrg,
   $cloudOrgs,
   $portalSignedIn,
@@ -45,10 +46,10 @@ import {
   signOut
 } from '@/store/connection'
 import { type Connection, type GatewayMode } from '@/store/gateway-config'
-import { loadGatewayTarget, saveGatewayTarget } from '@/store/gateway-restore'
+import { loadGatewayTarget, saveGatewayTarget, takePendingPortal } from '@/store/gateway-restore'
 import { softSwitchGateway } from '@/store/gateway-soft-switch'
 import { $gatewayMode, setGatewayMode } from '@/store/gateway-switch'
-import { broadcastGatewaySwitch } from '@/store/gateway-switch-sync'
+import { broadcastGatewaySwitch } from '@/store/gateway-switch-broadcast'
 import { notify, notifyError } from '@/store/notifications'
 import {
   answerSshPrompt,
@@ -155,6 +156,18 @@ export function GatewayConfigurator({
   // persisted mode), not a live switch. Nothing disconnects on card select; the
   // persisted $gatewayMode only commits when the user actually connects/saves.
   const [pendingMode, setPendingMode] = useState<GatewayMode>(() => $gatewayMode.get())
+
+  // ...with one exception: an Android portal sign-in coming back. That round-trip reloaded
+  // the SPA, and $gatewayMode still holds whatever we were connected to — so without this
+  // the user returns from the portal to the *remote* card, with no sign that the login
+  // they just completed went anywhere. Consumed in an effect rather than the state
+  // initializer above because the marker is one-shot and initializers can run twice.
+  // Selecting cloud is enough; the `pendingMode === 'cloud'` effect below discovers.
+  useEffect(() => {
+    if (takePendingPortal()) {
+      setPendingMode('cloud')
+    }
+  }, [])
 
   // `embedded` is desktop's chrome-trimmed variant (its boot-recovery card; here the
   // statusbar gateway popover + the reconnect screen): same connect surface, but the
@@ -328,7 +341,13 @@ export function GatewayConfigurator({
 
   const authResolved = probeState === 'done'
   const remoteReady = connection?.mode === 'remote' && phase === 'ready'
-  const oauthConnected = remoteReady && connection?.authMode === 'oauth'
+
+  // The live session belongs to ONE gateway, so the "Signed in / Sign out" state is only
+  // the truth while the field still holds that gateway's URL. Without the comparison,
+  // typing another gateway's URL in Settings keeps showing "Signed in" for the one you
+  // are leaving — and hides the Sign-in button for the one you are trying to reach.
+  const oauthConnected =
+    remoteReady && connection?.authMode === 'oauth' && normalizeBaseUrl(trimmedUrl) === connection.baseUrl
 
   // Which auth control the remote panel shows. Desktop parity: derive it from a
   // live probe while the user edits a URL, ELSE from the live connection, ELSE from
@@ -410,7 +429,16 @@ export function GatewayConfigurator({
     }
   }
 
-  const connectAgent = (agent: CloudAgent): Promise<void> => runConnect(() => connectCloudAgent(agent))
+  // The panel fires this and forgets, so the toast has to happen here — matching every
+  // other connect path. `connectCloudAgent` also parks the reason in $cloudError, which
+  // the panel renders inline.
+  const connectAgent = async (agent: CloudAgent): Promise<void> => {
+    try {
+      await runConnect(() => connectCloudAgent(agent))
+    } catch (err) {
+      notifyError(err, g.applyFailed)
+    }
+  }
 
   const trimmedSshHost = sshForm.host.trim()
 
@@ -483,12 +511,8 @@ export function GatewayConfigurator({
       return
     }
 
-    setSshForm(current =>
-      kind === 'password' ? { ...current, password: answer } : { ...current, passphrase: answer }
-    )
-    void mergeSshSecrets(kind === 'password' ? { password: answer } : { passphrase: answer }).catch(
-      () => {}
-    )
+    setSshForm(current => (kind === 'password' ? { ...current, password: answer } : { ...current, passphrase: answer }))
+    void mergeSshSecrets(kind === 'password' ? { password: answer } : { passphrase: answer }).catch(() => {})
   }
 
   const doConnectSsh = async () => {
@@ -836,11 +860,7 @@ export function GatewayConfigurator({
               embedded/onboarding variant). Persists without connecting. */}
           {variant === 'settings' ? (
             <Button
-              disabled={
-                busy ||
-                (pendingMode === 'remote' && !trimmedUrl) ||
-                (pendingMode === 'ssh' && !trimmedSshHost)
-              }
+              disabled={busy || (pendingMode === 'remote' && !trimmedUrl) || (pendingMode === 'ssh' && !trimmedSshHost)}
               onClick={() => void doSaveForRestart()}
               size="sm"
               variant="outline"
@@ -849,9 +869,7 @@ export function GatewayConfigurator({
             </Button>
           ) : null}
           <Button
-            disabled={
-              busy || (pendingMode === 'remote' && !trimmedUrl) || (pendingMode === 'ssh' && !trimmedSshHost)
-            }
+            disabled={busy || (pendingMode === 'remote' && !trimmedUrl) || (pendingMode === 'ssh' && !trimmedSshHost)}
             onClick={() => {
               if (pendingMode === 'local') {
                 void doConnectLocal()
@@ -892,6 +910,7 @@ function CloudPanel({
   const org = useStore($cloudOrg)
   const discover = useStore($cloudDiscover)
   const connectingId = useStore($cloudConnectingId)
+  const cloudError = useStore($cloudError)
   const [signing, setSigning] = useState(false)
 
   const connectedCloudUrl =
@@ -945,6 +964,16 @@ function CloudPanel({
         description={signedIn ? g.cloudSignedInDesc : g.cloudNeedsSignIn}
         title={g.cloudSignInTitle}
       />
+
+      {/* Every cloud failure lands in $cloudError. Until this row existed they all read
+          as "nothing happened": a sign-in that timed out, a discovery that 401'd and an
+          agent SSO that failed each just stopped their spinner. */}
+      {cloudError ? (
+        <div className="flex items-start gap-2 py-2 text-xs text-destructive">
+          <AlertCircle className="mt-0.5 size-4 shrink-0" />
+          {cloudError}
+        </div>
+      ) : null}
 
       {signedIn ? (
         orgs.length > 0 && !org ? (

@@ -7,7 +7,7 @@ import { $profileColors, $profileOrder, $showAllProfiles } from '@/store/profile
 import { $activeProfile, $profiles } from '@/store/profiles'
 import type { ProfileInfo } from '@/types/hermes'
 
-import { ProfileRail } from './profile-switcher'
+import { ProfileRail, RAIL_VISIBLE_LIMIT } from './profile-switcher'
 
 const profile = (name: string, isDefault = false): ProfileInfo => ({
   name,
@@ -102,52 +102,59 @@ describe('ProfileRail — overflow menu', () => {
   const seed = (count: number) =>
     $profiles.set([profile('default', true), ...Array.from({ length: count }, (_, i) => profile(`p${i}`))])
 
+  // Derived from the limit, not hard-coded: the limit differs between the phone
+  // and the desktop, and names pinned to one of them would quietly stop testing
+  // the boundary they were chosen to sit on.
+  const lastInline = `p${RAIL_VISIBLE_LIMIT - 1}`
+  const firstSpilled = `p${RAIL_VISIBLE_LIMIT}`
+  const lastSpilled = `p${RAIL_VISIBLE_LIMIT + 1}`
+
   const overflow = () => screen.getByRole('button', { name: 'More profiles' })
   // The popover content, not the trigger — both carry the same accessible name.
   const grid = () => within(screen.getByRole('dialog', { name: 'More profiles' }))
 
   it('keeps every square inline at the visible limit', () => {
-    seed(4)
+    seed(RAIL_VISIBLE_LIMIT)
     renderRail()
 
-    expect(square('p3')).toBeInTheDocument()
+    expect(square(lastInline)).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'More profiles' })).not.toBeInTheDocument()
   })
 
   it('spills the tail into the overflow menu past the limit', () => {
-    seed(6)
+    seed(RAIL_VISIBLE_LIMIT + 2)
     renderRail()
 
-    expect(square('p3')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'p4' })).not.toBeInTheDocument()
+    expect(square(lastInline)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: firstSpilled })).not.toBeInTheDocument()
     expect(overflow()).toBeInTheDocument()
   })
 
   it('shows only the hidden profiles in the grid and switches on click', () => {
-    seed(6)
+    seed(RAIL_VISIBLE_LIMIT + 2)
     renderRail()
 
     fireEvent.click(overflow())
 
-    expect(grid().getByRole('button', { name: 'p4' })).toBeInTheDocument()
-    expect(grid().getByRole('button', { name: 'p5' })).toBeInTheDocument()
+    expect(grid().getByRole('button', { name: firstSpilled })).toBeInTheDocument()
+    expect(grid().getByRole('button', { name: lastSpilled })).toBeInTheDocument()
     expect(grid().queryByRole('button', { name: 'p0' })).not.toBeInTheDocument()
 
-    fireEvent.click(grid().getByRole('button', { name: 'p5' }))
-    expect($activeProfile.get()).toBe('p5')
+    fireEvent.click(grid().getByRole('button', { name: lastSpilled }))
+    expect($activeProfile.get()).toBe(lastSpilled)
     expect(screen.queryByRole('dialog', { name: 'More profiles' })).not.toBeInTheDocument()
   })
 
   it('hoists a hidden active profile back onto the rail and out of the grid', () => {
-    seed(6)
-    $activeProfile.set('p4')
+    seed(RAIL_VISIBLE_LIMIT + 2)
+    $activeProfile.set(firstSpilled)
     renderRail()
 
-    expect(square('p4')).toHaveAttribute('aria-pressed', 'true')
+    expect(square(firstSpilled)).toHaveAttribute('aria-pressed', 'true')
 
     fireEvent.click(overflow())
-    expect(grid().getByRole('button', { name: 'p5' })).toBeInTheDocument()
-    expect(grid().queryByRole('button', { name: 'p4' })).not.toBeInTheDocument()
+    expect(grid().getByRole('button', { name: lastSpilled })).toBeInTheDocument()
+    expect(grid().queryByRole('button', { name: firstSpilled })).not.toBeInTheDocument()
   })
 
   // The grid renders the rail's own ProfileSquare, so a spilled profile keeps
@@ -156,29 +163,29 @@ describe('ProfileRail — overflow menu', () => {
     beforeEach(() => vi.useFakeTimers({ shouldAdvanceTime: true }))
 
     it('opens the color picker on long-press and writes the override', () => {
-      seed(6)
+      seed(RAIL_VISIBLE_LIMIT + 2)
       renderRail()
       fireEvent.click(overflow())
 
-      const target = grid().getByRole('button', { name: 'p4' })
+      const target = grid().getByRole('button', { name: firstSpilled })
       fireEvent.pointerDown(target, { button: 0 })
       act(() => vi.advanceTimersByTime(450))
 
       const swatch = PROFILE_SWATCHES[2]
       fireEvent.click(
-        within(screen.getByLabelText('Color for p4')).getByRole('button', { name: `Set color ${swatch}` })
+        within(screen.getByLabelText(`Color for ${firstSpilled}`)).getByRole('button', { name: `Set color ${swatch}` })
       )
-      expect($profileColors.get()).toEqual({ p4: swatch })
+      expect($profileColors.get()).toEqual({ [firstSpilled]: swatch })
     })
 
     it('opens the per-square context menu', () => {
-      seed(6)
+      seed(RAIL_VISIBLE_LIMIT + 2)
       renderRail()
       fireEvent.click(overflow())
 
-      fireEvent.contextMenu(grid().getByRole('button', { name: 'p4' }))
+      fireEvent.contextMenu(grid().getByRole('button', { name: firstSpilled }))
 
-      const menu = within(screen.getByLabelText('Actions for p4'))
+      const menu = within(screen.getByLabelText(`Actions for ${firstSpilled}`))
       expect(menu.getByText('Color…')).toBeInTheDocument()
       expect(menu.getByText('Rename…')).toBeInTheDocument()
       expect(menu.getByText('Edit SOUL.md…')).toBeInTheDocument()

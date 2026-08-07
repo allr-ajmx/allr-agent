@@ -84,6 +84,7 @@ export const zh: Translations = {
     revealExplorer: '在文件资源管理器中显示',
     revealFileManager: '打开所在文件夹',
     revealInSidebar: '在文件树中显示',
+    actions: '文件操作',
     copyPath: '复制路径',
     copyRelativePath: '复制相对路径',
     rename: '重命名…',
@@ -395,7 +396,7 @@ export const zh: Translations = {
         }
       },
       test: '发送测试通知',
-      testTitle: 'Hermes',
+      testTitle: 'Hermes (MJX)',
       testBody: '通知工作正常。',
       testSent: '测试已发送。如果没有出现，请检查系统通知权限和专注模式／勿扰模式。',
       testUnsupported: '此系统不支持原生通知。',
@@ -709,7 +710,7 @@ export const zh: Translations = {
       }
     }),
     about: {
-      heading: 'Hermes',
+      heading: 'Hermes (MJX)',
       version: value => `版本 ${value}`,
       versionUnavailable: '版本不可用',
       updates: '更新',
@@ -2011,7 +2012,8 @@ export const zh: Translations = {
   composer: {
     message: '消息',
     bubbles: {
-      releaseToClose: '松开以关闭'
+      releaseToClose: '松开以关闭',
+      releaseForNewChat: '松开以新建对话'
     },
     wakingProfile: profile => `正在唤醒 ${profile}…`,
     placeholderStarting: '正在启动 Hermes…',
@@ -2548,15 +2550,71 @@ export const zh: Translations = {
     tryAgain: '重试',
     loadingTree: '正在加载文件树',
     loadingFiles: '正在加载文件',
+    filterFiles: '筛选已展开的文件夹',
+    filterNoMatches: '已展开的文件夹中没有匹配项',
     terminalHide: '隐藏终端',
     terminalConnecting: '连接中…',
     terminalReconnecting: '重新连接中…',
     terminalClosed: '终端已关闭',
+    terminalRestart: '重新启动',
+    terminalHostChip: host => `Shell 位于 ${host}`,
+    terminalLocalFallbackChip: '网关无终端 API · Shell 位于本机',
+    terminalEndExitedTitle: '会话已结束',
+    terminalEndExitedBody: 'Shell 已退出。新建一个即可继续。',
+    terminalEndAuthTitle: '会话已过期',
+    terminalEndAuthBody: '网关拒绝了此终端。请重新登录后再重启。',
+    terminalEndDisabledTitle: '终端已禁用',
+    terminalEndDisabledBody: '此网关已关闭 shell 端点。',
+    terminalEndRefusedTitle: '连接被拒绝',
+    terminalEndRefusedBody: '网关拒绝了此终端连接。',
+    terminalEndSupersededTitle: '已被接管',
+    terminalEndSupersededBody: '另一台设备接管了此 shell 会话。',
+    terminalEndNoGatewayShellTitle: '此网关没有 shell',
+    terminalEndNoGatewayShellBody: '此网关不提供远程 shell。请在后端主机上升级 Hermes。',
+    terminalEndNoLocalShellTitle: '此设备没有 shell',
+    terminalEndNoLocalShellBody: '此设备无法运行本地 shell。请连接网关以获取。',
+    terminalEndErrorTitle: '终端错误',
+    terminalEndErrorBody: 'Shell 连接失败。',
     terminalsAria: '终端',
     terminalNew: '新建终端',
     terminalCloseOthers: '关闭其他',
     terminalCloseAll: '关闭全部',
     addToChat: '添加到对话'
+  },
+
+  mobileReview: {
+    summary: count => `${count} 个文件有改动`,
+    loading: '正在加载改动…',
+    loadingDiff: '正在加载差异…',
+    filterAll: '全部',
+    filterUnstaged: '未暂存',
+    noneInFilter: '这里没有内容',
+    ship: '提交…',
+    shipTitle: count => `提交 ${count} 个文件`,
+    shipNothing: '没有可提交的内容',
+    backToFiles: '返回改动文件',
+    previous: '上一个',
+    previousFile: '上一个文件',
+    next: '下一个',
+    nextFile: '下一个文件',
+    fileOf: (index, total) => `第 ${index} / ${total} 个`,
+    markViewed: '标记为已查看',
+    markUnviewed: '标记为未查看',
+    askHermes: '询问 Hermes',
+    askHermesPrompt: path => `关于 \`${path}\` — `,
+    wrap: '自动换行',
+    unwrap: '不换行'
+  },
+
+  mobileWorkspace: {
+    backToChat: '对话',
+    noProject: '未打开项目',
+    tabsAria: '工作区分区',
+    review: '审阅',
+    files: '文件',
+    editor: '编辑器',
+    terminal: '终端',
+    status: '状态'
   },
 
   preview: {

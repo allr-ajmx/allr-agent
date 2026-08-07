@@ -167,7 +167,12 @@ export function useComposerMetrics({ composerRef, composerSurfaceRef, editorRef,
     }
   }, [])
 
-  // Pill compacts on real width (tile/pane), OR when stacked for any reason
-  // (viewport-narrow / wrapped) so the controls row never over-runs.
-  return { compactPill: compactPill || narrow || tight, stacked: expanded || narrow || tight }
+  const isStacked = expanded || narrow || tight
+
+  // The pill collapses to a bare chevron only while it still SHARES a row with
+  // the input — that crowded row is the whole reason to hide the model's name.
+  // Once the composer stacks, the controls have a row to themselves and the name
+  // fits; on a phone that is always, which is why the model was permanently
+  // reduced to an unlabelled chevron there.
+  return { compactPill: compactPill && !isStacked, stacked: isStacked }
 }

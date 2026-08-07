@@ -32,14 +32,7 @@ export interface Secrets {
 // over IPC, never written to disk. `installationId` is not a secret but lives
 // here for durability: see store/installation-id.ts for why losing it orphans
 // remote backends.
-type SecretKey =
-  | 'token'
-  | 'password'
-  | 'cookies'
-  | 'sshKey'
-  | 'sshPassphrase'
-  | 'sshPassword'
-  | 'installationId'
+type SecretKey = 'token' | 'password' | 'cookies' | 'sshKey' | 'sshPassphrase' | 'sshPassword' | 'installationId'
 
 // The plugin's service name is set once per process (a Rust OnceLock), so init is
 // memoized. On failure the cached promise is cleared so a later call can retry.
@@ -192,22 +185,19 @@ export async function mergeSshSecrets(patch: SshSecrets): Promise<boolean> {
 
 /** Read SSH credentials; every field is optional. */
 export async function loadSshSecrets(): Promise<SshSecrets> {
-  return safe<SshSecrets>(
-    async () => {
-      const [privateKeyPem, passphrase, password] = await Promise.all([
-        kGet('sshKey'),
-        kGet('sshPassphrase'),
-        kGet('sshPassword')
-      ])
+  return safe<SshSecrets>(async () => {
+    const [privateKeyPem, passphrase, password] = await Promise.all([
+      kGet('sshKey'),
+      kGet('sshPassphrase'),
+      kGet('sshPassword')
+    ])
 
-      return {
-        privateKeyPem: privateKeyPem ?? undefined,
-        passphrase: passphrase ?? undefined,
-        password: password ?? undefined
-      }
-    },
-    {}
-  )
+    return {
+      privateKeyPem: privateKeyPem ?? undefined,
+      passphrase: passphrase ?? undefined,
+      password: password ?? undefined
+    }
+  }, {})
 }
 
 /** Read this install's stable id, or null when unset/unavailable. */

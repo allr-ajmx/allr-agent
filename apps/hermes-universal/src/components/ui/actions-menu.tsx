@@ -96,8 +96,10 @@ export function renderActionItem(
   )
 }
 
-interface ActionsMenuProps
-  extends Pick<React.ComponentProps<typeof DropdownMenuContent>, 'align' | 'side' | 'sideOffset'> {
+interface ActionsMenuProps extends Pick<
+  React.ComponentProps<typeof DropdownMenuContent>,
+  'align' | 'side' | 'sideOffset'
+> {
   /** The trigger (a kebab button). Wrapped in `DropdownMenuTrigger asChild`. */
   children: React.ReactNode
   /** The action rows, rendered with `DROPDOWN_KIT`. Share this with `ActionsContextMenu`. */

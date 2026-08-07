@@ -309,7 +309,7 @@ export const zhHant = defineLocale({
         }
       },
       test: '傳送測試通知',
-      testTitle: 'Hermes',
+      testTitle: 'Hermes (MJX)',
       testBody: '通知運作正常。',
       testSent: '測試已傳送。若沒有出現，請檢查系統通知權限與專注模式／勿擾模式。',
       testUnsupported: '此系統不支援原生通知。',
@@ -623,7 +623,7 @@ export const zhHant = defineLocale({
       }
     }),
     about: {
-      heading: 'Hermes',
+      heading: 'Hermes (MJX)',
       version: value => `版本 ${value}`,
       versionUnavailable: '版本不可用',
       updates: '更新',

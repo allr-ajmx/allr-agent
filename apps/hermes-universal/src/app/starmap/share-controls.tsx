@@ -113,7 +113,7 @@ export function ShareControls({ imported = false, onImport, onResetMap, shareCod
             {code !== '' && (
               <CopyButton
                 appearance="inline"
-                className="absolute right-1.5 top-1.5 h-5 gap-0 rounded-md px-1 opacity-0 transition-opacity focus-visible:opacity-100 group-hover/code:opacity-100 hover:opacity-100"
+                className="absolute right-1.5 top-1.5 h-5 gap-0 rounded-md px-1 opacity-0 transition-opacity focus-visible:opacity-100 group-hover/code:opacity-100 coarse:opacity-100 hover:opacity-100"
                 iconClassName="size-3"
                 label={t.starmap.copy}
                 showLabel={false}

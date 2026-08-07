@@ -19,13 +19,7 @@ import { RightSidebarPane } from '@/app/right-pane'
 import { PreviewRail } from '@/app/right-pane/preview/preview-rail'
 import { ReviewPane } from '@/app/right-pane/review'
 import { TerminalArea } from '@/app/right-pane/terminal/terminal-area'
-import {
-  ARTIFACTS_ROUTE,
-  contributedRoutes,
-  MESSAGING_ROUTE,
-  ROUTES_AREA,
-  SKILLS_ROUTE
-} from '@/app/routes'
+import { ARTIFACTS_ROUTE, contributedRoutes, MESSAGING_ROUTE, ROUTES_AREA, SKILLS_ROUTE } from '@/app/routes'
 import { ContribBoundary, ContribRender } from '@/contrib/react/boundary'
 import { useContributions } from '@/contrib/react/use-contributions'
 import { registry } from '@/contrib/registry'
@@ -43,8 +37,9 @@ const MarkdownBench = BENCH_ENABLED
   : null
 
 /** Open a file from the tree in the real preview pipeline. Verbatim from the
- *  old AppShell's `previewFile`. */
-function previewFile(path: string) {
+ *  old AppShell's `previewFile`. Exported so the mobile Workspace opens files
+ *  through the same pipeline instead of growing a third copy of it. */
+export function previewFile(path: string) {
   void normalizeOrLocalPreviewTarget(path, $currentCwd.get() || undefined)
     .then(target => {
       if (target) {
@@ -142,7 +137,6 @@ export function WorkspaceRoutes() {
 
   return (
     <Routes>
-      <Route element={<ChatScreen />} path="/" />
       {/* Every page — the app's own and contributed alike — renders as a full
           page inside the workspace pane, each behind its own blast wall, BEFORE
           the catch-all below. */}
@@ -171,6 +165,14 @@ export function WorkspaceRoutes() {
           path="/dev/markdown-bench"
         />
       )}
+      {/* The chat, as ONE route node covering both "/" (a fresh chat) and
+          "/<sessionId>" (a resumed one). It used to be two — a `path="/"` route
+          above the pages and this splat below — and those are different
+          positions in the element tree, so React Router unmounted and remounted
+          the entire chat on every session switch. That teardown is the repaint
+          the phone shows as a flash: thread, scroll position and composer all
+          rebuilt to display the same view. A splat matches an empty remainder,
+          so "/" needs no route of its own. */}
       <Route element={<ChatScreen />} path="*" />
     </Routes>
   )

@@ -106,7 +106,11 @@ export function Titlebar({ connected }: { connected: boolean }) {
           >
             <Codicon name="keyboard" />
           </TitlebarButton>
-          <TitlebarButton actionId="nav.settings" label={t.titlebar.openSettings} onClick={() => openAppRoute('/settings')}>
+          <TitlebarButton
+            actionId="nav.settings"
+            label={t.titlebar.openSettings}
+            onClick={() => openAppRoute('/settings')}
+          >
             <Codicon name="settings-gear" />
           </TitlebarButton>
           <TitlebarButton

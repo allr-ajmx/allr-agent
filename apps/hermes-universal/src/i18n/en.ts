@@ -84,6 +84,7 @@ export const en: Translations = {
     revealExplorer: 'Reveal in File Explorer',
     revealFileManager: 'Open Containing Folder',
     revealInSidebar: 'Reveal in filetree',
+    actions: 'File actions',
     copyPath: 'Copy Path',
     copyRelativePath: 'Copy Relative Path',
     rename: 'Rename…',
@@ -407,7 +408,7 @@ export const en: Translations = {
         }
       },
       test: 'Send test notification',
-      testTitle: 'Hermes',
+      testTitle: 'Hermes (MJX)',
       testBody: 'Notifications are working.',
       testSent: 'Test sent. If nothing appears, check your OS notification permissions and Focus/Do Not Disturb.',
       testUnsupported: 'This system does not support native notifications.',
@@ -518,7 +519,7 @@ export const en: Translations = {
     fieldLabels: FIELD_LABELS,
     fieldDescriptions: FIELD_DESCRIPTIONS,
     about: {
-      heading: 'Hermes',
+      heading: 'Hermes (MJX)',
       version: value => `Version ${value}`,
       versionUnavailable: 'Version unavailable',
       updates: 'Updates',
@@ -608,8 +609,10 @@ export const en: Translations = {
       cloudTitle: 'Hermes Cloud',
       cloudDesc: 'Sign in once to Hermes Cloud and pick from the agents on your account — no URL to paste.',
       sshTitle: 'SSH',
-      sshDesc: 'Reach a Hermes backend on another machine over SSH. Hermes starts it there and tunnels a private port back to this device.',
-      sshTrustHint: 'The first connection to a host asks you to confirm its key fingerprint. A key that later CHANGES is always refused.',
+      sshDesc:
+        'Reach a Hermes backend on another machine over SSH. Hermes starts it there and tunnels a private port back to this device.',
+      sshTrustHint:
+        'The first connection to a host asks you to confirm its key fingerprint. A key that later CHANGES is always refused.',
       sshHostTitle: 'Host',
       sshHostDesc: 'The machine to connect to. `user@host`, `host:port` and `[::1]:port` all work.',
       sshHostPlaceholder: 'user@example.com',
@@ -618,12 +621,15 @@ export const en: Translations = {
       sshPortTitle: 'Port',
       sshPortDesc: 'Leave blank for 22, or whatever ~/.ssh/config sets for this host.',
       sshKeyTitle: 'Private key file',
-      sshKeyDesc: 'Leave blank to try your ssh-agent, then your ~/.ssh/config IdentityFile, then the usual ~/.ssh/id_* keys.',
+      sshKeyDesc:
+        'Leave blank to try your ssh-agent, then your ~/.ssh/config IdentityFile, then the usual ~/.ssh/id_* keys.',
       sshKeyPemTitle: 'Private key',
-      sshKeyPemDesc: 'Paste an OpenSSH private key. It is held in this device\u2019s secure keystore and never written to disk.',
+      sshKeyPemDesc:
+        'Paste an OpenSSH private key. It is held in this device\u2019s secure keystore and never written to disk.',
       sshPassphraseTitle: 'Key passphrase',
       sshPasswordTitle: 'Password',
-      sshPasswordDesc: 'The login password for this host, if it accepts one. Held in this device\u2019s secure keystore. Leave blank to be asked while connecting.',
+      sshPasswordDesc:
+        'The login password for this host, if it accepts one. Held in this device\u2019s secure keystore. Leave blank to be asked while connecting.',
       sshHermesPathTitle: 'Hermes path on the remote',
       sshHermesPathDesc: 'Leave blank to detect it. Set it only when `hermes` is not on the remote PATH.',
       sshHermesPathPlaceholder: '~/hermes-agent/.venv/bin/hermes',
@@ -640,8 +646,10 @@ export const en: Translations = {
       sshHostKeyReject: 'Cancel',
       sshPromptTitle: 'SSH needs a credential',
       sshErrUnreachable: 'Could not reach that host over SSH. Check the address, the port, and your network.',
-      sshErrAuth: 'SSH authentication failed. Add your key to ssh-agent, set an IdentityFile in ~/.ssh/config, or supply a key here.',
-      sshErrHostKey: 'The host key has CHANGED since you last connected. This could be a machine-in-the-middle attack, or the server may have been reinstalled. The connection was refused.',
+      sshErrAuth:
+        'SSH authentication failed. Add your key to ssh-agent, set an IdentityFile in ~/.ssh/config, or supply a key here.',
+      sshErrHostKey:
+        'The host key has CHANGED since you last connected. This could be a machine-in-the-middle attack, or the server may have been reinstalled. The connection was refused.',
       sshErrNotInstalled: 'Hermes is not installed on that host. Install it there, or set the Hermes path explicitly.',
       sshErrPlatform: 'That host runs an operating system Hermes cannot drive over SSH.',
       sshErrTimeout: 'The SSH connection timed out. The link may be half-open after a sleep \u2014 try again.',
@@ -1837,7 +1845,8 @@ export const en: Translations = {
   composer: {
     message: 'Message',
     bubbles: {
-      releaseToClose: 'Release to close'
+      releaseToClose: 'Release to close',
+      releaseForNewChat: 'Release for a new chat'
     },
     wakingProfile: profile => `Waking up ${profile}…`,
     placeholderStarting: 'Starting Hermes...',
@@ -2387,15 +2396,71 @@ export const en: Translations = {
     tryAgain: 'Try again',
     loadingTree: 'Loading file tree',
     loadingFiles: 'Loading files',
+    filterFiles: 'Filter open folders',
+    filterNoMatches: 'No matches in the folders you have open',
     terminalHide: 'Hide terminal',
     terminalConnecting: 'Connecting…',
     terminalReconnecting: 'Reconnecting…',
     terminalClosed: 'Terminal closed',
+    terminalRestart: 'Restart',
+    terminalHostChip: (host: string) => `Shell on ${host}`,
+    terminalLocalFallbackChip: 'No terminal API · shell on this device',
+    terminalEndExitedTitle: 'Session ended',
+    terminalEndExitedBody: 'The shell exited. Start a new one to keep working.',
+    terminalEndAuthTitle: 'Session expired',
+    terminalEndAuthBody: 'The gateway rejected this terminal. Sign in again, then restart it.',
+    terminalEndDisabledTitle: 'Terminal disabled',
+    terminalEndDisabledBody: 'This gateway has its shell endpoint switched off.',
+    terminalEndRefusedTitle: 'Connection refused',
+    terminalEndRefusedBody: 'The gateway refused this terminal connection.',
+    terminalEndSupersededTitle: 'Taken over',
+    terminalEndSupersededBody: 'Another device attached to this shell session.',
+    terminalEndNoGatewayShellTitle: 'No shell on this gateway',
+    terminalEndNoGatewayShellBody: "This gateway doesn't provide a remote shell. Update Hermes on the backend host.",
+    terminalEndNoLocalShellTitle: 'No shell on this device',
+    terminalEndNoLocalShellBody: "This device can't run a local shell. Connect to a gateway to get one.",
+    terminalEndErrorTitle: 'Terminal error',
+    terminalEndErrorBody: 'The shell connection failed.',
     terminalsAria: 'Terminals',
     terminalNew: 'New terminal',
     terminalCloseOthers: 'Close others',
     terminalCloseAll: 'Close all',
     addToChat: 'Add to chat'
+  },
+
+  mobileReview: {
+    summary: count => `${count} ${count === 1 ? 'file' : 'files'} changed`,
+    loading: 'Loading changes…',
+    loadingDiff: 'Loading diff…',
+    filterAll: 'All',
+    filterUnstaged: 'Unstaged',
+    noneInFilter: 'Nothing here',
+    ship: 'Commit…',
+    shipTitle: count => `Ship ${count} ${count === 1 ? 'file' : 'files'}`,
+    shipNothing: 'Nothing to commit',
+    backToFiles: 'Back to changed files',
+    previous: 'Prev',
+    previousFile: 'Previous file',
+    next: 'Next',
+    nextFile: 'Next file',
+    fileOf: (index, total) => `${index} of ${total}`,
+    markViewed: 'Mark as viewed',
+    markUnviewed: 'Mark as not viewed',
+    askHermes: 'Ask Hermes',
+    askHermesPrompt: path => `About \`${path}\` — `,
+    wrap: 'Wrap',
+    unwrap: 'No wrap'
+  },
+
+  mobileWorkspace: {
+    backToChat: 'Chat',
+    noProject: 'No project',
+    tabsAria: 'Workspace sections',
+    review: 'Review',
+    files: 'Files',
+    editor: 'Editor',
+    terminal: 'Terminal',
+    status: 'Status'
   },
 
   preview: {

@@ -199,15 +199,24 @@ export function appViewForPath(pathname: string): AppView {
   return APP_VIEW_BY_PATH.get(pathname) ?? 'chat'
 }
 
-/** True while the workspace pane shows a FULL PAGE (skills/messaging/artifacts)
- *  instead of the chat. The workspace pane contribution mirrors it as
- *  `headerVeto` so the zone tab bar stands down on pages. Overlays
- *  (settings/command-center/…) don't count — the chat stays beneath them. */
+/** Does this route show a FULL PAGE (skills/messaging/artifacts) rather than the
+ *  chat? Overlays (settings/command-center/…) don't count — the chat stays
+ *  beneath them. Pure, so a caller can ask about a path without the atom below:
+ *  only the desktop controller keeps that in sync, and the phone shell needs the
+ *  same answer to decide whether its top-left button is a way out. */
+export function isWorkspacePagePath(pathname: string): boolean {
+  const view = appViewForPath(pathname)
+
+  return view !== 'chat' && !isOverlayView(view)
+}
+
+/** True while the workspace pane shows a full page instead of the chat. The
+ *  workspace pane contribution mirrors it as `headerVeto` so the zone tab bar
+ *  stands down on pages. */
 export const $workspaceIsPage = atom(false)
 
 export function syncWorkspaceIsPage(pathname: string): void {
-  const view = appViewForPath(pathname)
-  const isPage = view !== 'chat' && !isOverlayView(view)
+  const isPage = isWorkspacePagePath(pathname)
 
   if (isPage !== $workspaceIsPage.get()) {
     $workspaceIsPage.set(isPage)

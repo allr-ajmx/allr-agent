@@ -880,30 +880,6 @@ export function ChatBar({
               onPick={replaceTriggerWithChip}
             />
           )}
-          {/* Session-scoped status stack (todos, subagents, background tasks,
-              queue). Out of flow so it never inflates the composer's measured
-              height; it overlays the chat instead of pushing it, and publishes
-              its own --status-stack-measured-height so the thread's clearance
-              accounts for it. Collapses to nothing when every status is empty. */}
-          <ComposerStatusStack
-            queue={
-              activeQueueSessionKey && queuedPrompts.length > 0 ? (
-                <QueuePanel
-                  busy={busy}
-                  editingId={queueEdit?.entryId ?? null}
-                  entries={queuedPrompts}
-                  onDelete={id => {
-                    if (removeQueuedPrompt(activeQueueSessionKey, id) && queueEdit?.entryId === id) {
-                      exitQueuedEdit('cancel')
-                    }
-                  }}
-                  onEdit={beginQueuedEdit}
-                  onSendNow={id => void sendQueuedNow(id)}
-                />
-              ) : null
-            }
-            sessionId={statusSessionId}
-          />
           {!poppedOut && (
             <div
               className="pointer-events-none absolute inset-0 rounded-[inherit]"
@@ -929,6 +905,39 @@ export function ChatBar({
               box. Self-hides below 2 chats; never renders on desktop. */}
           {IS_MOBILE && <BubbleRow />}
           <div className="relative w-full rounded-[inherit]">
+            {/* Session-scoped status stack (todos, subagents, background tasks,
+                preview artifacts, queue). Out of flow so it never inflates the
+                composer's measured height; it overlays the chat instead of
+                pushing it, and publishes its own
+                --status-stack-measured-height so the thread's clearance accounts
+                for it. Collapses to nothing when every status is empty.
+
+                It hangs off THIS box — the composer surface — and not the
+                composer root, because the root also contains the mobile bubble
+                rail. Anchored to the root, `bottom-full` put the stack above the
+                rail, so a file the agent had just made (a preview-artifact row)
+                pushed the parallel-chat strip down and took the top of the
+                composer package for itself. The rail is navigation and stays
+                outermost; the card belongs between it and the input. */}
+            <ComposerStatusStack
+              queue={
+                activeQueueSessionKey && queuedPrompts.length > 0 ? (
+                  <QueuePanel
+                    busy={busy}
+                    editingId={queueEdit?.entryId ?? null}
+                    entries={queuedPrompts}
+                    onDelete={id => {
+                      if (removeQueuedPrompt(activeQueueSessionKey, id) && queueEdit?.entryId === id) {
+                        exitQueuedEdit('cancel')
+                      }
+                    }}
+                    onEdit={beginQueuedEdit}
+                    onSendNow={id => void sendQueuedNow(id)}
+                  />
+                ) : null
+              }
+              sessionId={statusSessionId}
+            />
             <div
               className={cn(
                 'group/composer-surface relative z-4 isolate grid grid-rows-[auto_1fr] overflow-hidden rounded-[inherit] border border-[color-mix(in_srgb,var(--dt-composer-ring)_calc(18%*var(--composer-ring-strength)),var(--dt-input))]',

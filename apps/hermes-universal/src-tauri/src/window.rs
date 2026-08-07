@@ -97,7 +97,7 @@ async fn open_or_focus(app: tauri::AppHandle, label: String, url: String) -> Res
         }
         #[allow(unused_mut)]
         let mut builder = WebviewWindowBuilder::new(&app_main, &label, WebviewUrl::App(url.into()))
-            .title("Hermes")
+            .title("Hermes (MJX)")
             .inner_size(WINDOW_WIDTH, WINDOW_HEIGHT)
             .min_inner_size(WINDOW_MIN_WIDTH, WINDOW_MIN_HEIGHT);
         #[cfg(desktop)]

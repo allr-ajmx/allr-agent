@@ -42,7 +42,7 @@ import { Titlebar } from './shell/titlebar'
 
 // Connected-guard + routing. Until a gateway connection is ready we show the
 // full-screen ConnectScreen (no nav). Once ready, the first-run onboarding
-// wizard shows if no provider is configured (K11); otherwise the sidebar shell
+// wizard shows if no provider is configured; otherwise the sidebar shell
 // hosts the routed views. The toast stack (portaled to <body>) floats over all.
 export function MobileController() {
   const phase = useStore($connectionPhase)
@@ -80,7 +80,7 @@ export function MobileController() {
   }, [])
 
   // On reaching a live connection, check whether a provider is configured and
-  // pull the active pet's sprite (K10.b) so the in-app pet can render in chat.
+  // pull the active pet's sprite so the in-app pet can render in chat.
   useEffect(() => {
     if (phase === 'ready') {
       void checkConfigured()
@@ -135,12 +135,13 @@ export function MobileController() {
   // empty sections — so a disconnect only holds the overlay open on Gateway.
   const settingsGatewayOpen = pathname === GATEWAY_SETTINGS_ROUTE
 
-  // Whether any of the three windowable surfaces (Settings / Command Center /
-  // Profiles) is open — the trigger for the mobile in-app surface shell. Mirrors the
-  // per-surface gates of the desktop overlays (Settings survives a disconnect on the
-  // Gateway page; the other two need a live connection).
+  // Whether any of the windowable surfaces (Settings / Command Center / Profiles /
+  // Cron / Agents) is open — the trigger for the mobile in-app surface shell. Mirrors
+  // the per-surface gates of the desktop overlays (Settings survives a disconnect on
+  // the Gateway page; the others need a live connection).
   const mobileSurfaceOpen =
-    (settingsOpen && (connected || settingsGatewayOpen)) || (connected && (commandCenterOpen || profilesOpen))
+    (settingsOpen && (connected || settingsGatewayOpen)) ||
+    (connected && (agentsOpen || commandCenterOpen || cronOpen || profilesOpen))
 
   let content: ReactNode
 
@@ -253,8 +254,10 @@ export function MobileController() {
         )}
         {/* Agents ("Spawn tree") overlay — desktop's live subagent surface,
             floated over the chat backdrop and opened from the statusbar Agents
-            item. Its Panel supplies the fixed-inset card + close-X / Esc. */}
-        {connected && agentsOpen && <AgentsView onClose={closeOverlayToPreviousRoute} />}
+            item. Its Panel supplies the fixed-inset card + close-X / Esc. On a
+            phone it is a windowable surface instead (MobileSurfaceShell / a
+            native Android screen), so the desktop card never renders there. */}
+        {!IS_MOBILE && connected && agentsOpen && <AgentsView onClose={closeOverlayToPreviousRoute} />}
         {/* Command Center overlay — desktop's Sessions / System / Usage /
             Maintenance ops surface, opened from the statusbar (icon + version
             chips) and the sidebar rail. */}
@@ -269,8 +272,10 @@ export function MobileController() {
         )}
         {/* Cron ("Routines") overlay — desktop's scheduled-jobs master/detail:
             schedule, run history, pause/resume/trigger. Opened from the sidebar
-            rail and from "Manage" on a sidebar cron row. */}
-        {connected && cronOpen && (
+            rail and from "Manage" on a sidebar cron row. On a phone it is a
+            windowable surface instead (MobileSurfaceShell / a native Android
+            screen), so the desktop card never renders there. */}
+        {!IS_MOBILE && connected && cronOpen && (
           <CronView
             onClose={closeOverlayToPreviousRoute}
             onOpenSession={sessionId => navigate(sessionRoute(sessionId))}
@@ -288,10 +293,16 @@ export function MobileController() {
             model menu ("Edit models"). Self-gates on $modelVisibilityOpen +
             gateway-open; "Add provider…" routes to Providers → Accounts. */}
         {connected && <ModelVisibilityOverlay onOpenProviders={() => openAppRoute('/settings/providers')} />}
-        {/* Floating pet — a top-level draggable + roaming mascot (fixed z-60) that
-            floats over ALL routes. It patrols the Settings overlay's edge when open.
-            Hidden on mobile while the touch shell is a blank scaffold. */}
-        {connected && !IS_MOBILE && (
+        {/* Floating pet — a top-level draggable + roaming mascot that floats over
+            ALL routes. It patrols the Settings overlay's edge when open.
+
+            On a phone it walks all four screen edges rather than only the floor,
+            sits below the composer bars rather than over them, and lifts on
+            contact (its box owns the gesture — see PET_TOUCH_ACTION). It is
+            hidden while a MobileSurfaceShell surface is up: those are full-screen route
+            surfaces with no card inset, so the overlay ledge the pet would
+            patrol doesn't exist there. */}
+        {connected && !(IS_MOBILE && mobileSurfaceOpen) && (
           <FloatingPet
             overlayOpen={settingsOpen || agentsOpen || commandCenterOpen || cronOpen || profilesOpen || starmapOpen}
           />

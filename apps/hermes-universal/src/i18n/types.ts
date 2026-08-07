@@ -107,7 +107,7 @@ export interface Translations {
     review: string
   }
 
-  // Mobile-only: the read-only code-review / git-diff view (K14).
+  // The code-review / git-diff view.
   review: {
     title: string
     loading: string
@@ -117,7 +117,7 @@ export interface Translations {
     changed: (count: number) => string
   }
 
-  // Mobile-only: the remote workspace file browser (K13).
+  // The remote workspace file browser.
   files: {
     title: string
     loading: string
@@ -133,6 +133,7 @@ export interface Translations {
     revealExplorer: string
     revealFileManager: string
     revealInSidebar: string
+    actions: string
     copyPath: string
     copyRelativePath: string
     rename: string
@@ -1569,6 +1570,7 @@ export interface Translations {
     message: string
     bubbles: {
       releaseToClose: string
+      releaseForNewChat: string
     }
     wakingProfile: (profile: string) => string
     placeholderStarting: string
@@ -2022,15 +2024,71 @@ export interface Translations {
     tryAgain: string
     loadingTree: string
     loadingFiles: string
+    filterFiles: string
+    filterNoMatches: string
     terminalHide: string
     terminalConnecting: string
     terminalReconnecting: string
     terminalClosed: string
+    terminalRestart: string
+    terminalHostChip: (host: string) => string
+    terminalLocalFallbackChip: string
+    terminalEndExitedTitle: string
+    terminalEndExitedBody: string
+    terminalEndAuthTitle: string
+    terminalEndAuthBody: string
+    terminalEndDisabledTitle: string
+    terminalEndDisabledBody: string
+    terminalEndRefusedTitle: string
+    terminalEndRefusedBody: string
+    terminalEndSupersededTitle: string
+    terminalEndSupersededBody: string
+    terminalEndNoGatewayShellTitle: string
+    terminalEndNoGatewayShellBody: string
+    terminalEndNoLocalShellTitle: string
+    terminalEndNoLocalShellBody: string
+    terminalEndErrorTitle: string
+    terminalEndErrorBody: string
     terminalsAria: string
     terminalNew: string
     terminalCloseOthers: string
     terminalCloseAll: string
     addToChat: string
+  }
+
+  mobileReview: {
+    summary: (count: number) => string
+    loading: string
+    loadingDiff: string
+    filterAll: string
+    filterUnstaged: string
+    noneInFilter: string
+    ship: string
+    shipTitle: (count: number) => string
+    shipNothing: string
+    backToFiles: string
+    previous: string
+    previousFile: string
+    next: string
+    nextFile: string
+    fileOf: (index: number, total: number) => string
+    markViewed: string
+    markUnviewed: string
+    askHermes: string
+    askHermesPrompt: (path: string) => string
+    wrap: string
+    unwrap: string
+  }
+
+  mobileWorkspace: {
+    backToChat: string
+    noProject: string
+    tabsAria: string
+    review: string
+    files: string
+    editor: string
+    terminal: string
+    status: string
   }
 
   preview: {

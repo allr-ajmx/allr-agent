@@ -36,11 +36,18 @@ const SECTIONS: { title: string; ids: readonly string[] }[] = [
   { title: 'Session', ids: ['running-timer', 'session-timer', 'context-usage'] },
   { title: 'Status', ids: ['gateway-health', 'workspace-cwd', 'agents', 'cron', 'approval-mode'] },
   { title: 'Updates', ids: ['version-client', 'version-backend'] },
-  { title: 'System', ids: ['terminal', 'command-center'] }
+  { title: 'System', ids: ['command-center'] }
 ]
 
+// Ids this list deliberately drops. `terminal` toggles `$terminalOpen`, which
+// only desktop surfaces read — on a phone the terminal is a Workspace tab, so
+// the row looked live and did nothing. It has to be named here rather than just
+// left out of SECTIONS, because anything a section does not claim falls through
+// into the trailing contributed bucket.
+const HIDDEN_IDS = new Set(['terminal'])
+
 // Re-shape a bar descriptor for the nav-styled row list:
-//   • icon-only items (command-center, terminal) have no label + a square layout
+//   • icon-only items (command-center) have no label + a square layout
 //     class → label from the tooltip title, drop the square class;
 //   • swap the bar's active highlight for the nav-rail active style so an active
 //     row matches the left sidebar's selected button.
@@ -85,7 +92,7 @@ export function MobileStatusList() {
 
   // Open Settings — appended to the System section (opens the Settings activity on
   // Android, the in-app overlay elsewhere). A synthetic action item so it renders
-  // identically to the other System rows (terminal / command-center).
+  // identically to the other System rows (command-center).
   const openSettingsRow: StatusbarItem = {
     icon: <Settings className="size-3.5" />,
     id: 'open-settings',
@@ -120,13 +127,10 @@ export function MobileStatusList() {
   // every other core id useStatusbarItems emits, so this bucket is the core
   // `plugins` row — pinned first, whichever group it came from — followed by the
   // `statusBar.*` contributions in insertion order (left group, then right).
-  const unclaimed = [...byId.values()].filter(item => !claimed.has(item.id))
+  const unclaimed = [...byId.values()].filter(item => !claimed.has(item.id) && !HIDDEN_IDS.has(item.id))
   const manageRow = unclaimed.find(item => item.id === 'plugins')
 
-  const contributed = [
-    ...(manageRow ? [manageRow] : []),
-    ...unclaimed.filter(item => item.id !== 'plugins')
-  ]
+  const contributed = [...(manageRow ? [manageRow] : []), ...unclaimed.filter(item => item.id !== 'plugins')]
 
   const sections = [
     ...SECTIONS.map(section => ({

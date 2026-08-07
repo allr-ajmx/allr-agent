@@ -26,6 +26,7 @@ import {
 import { $petGenOpen } from '@/store/pet-generate'
 
 import { PetGenerateSheet } from './pet-generate-sheet'
+import { PetSprite } from './pet-sprite'
 import { PetThumb } from './pet-thumb'
 
 // Shared search-input chrome (matches the theme grid's search on Appearance).
@@ -37,6 +38,21 @@ const SEARCH_CHROME =
 // leaves the rest to search; here the cap also grows on demand).
 const RENDER_CAP = 60
 const RENDER_PAGE = 60
+
+// A live mascot at the chosen size, sitting under the size slider.
+//
+// On a phone the pet is unmounted for as long as a settings surface is up — it
+// patrols an overlay ledge that a full-screen route surface doesn't have — so
+// without this the slider has NO visible effect until you leave the screen,
+// which is indistinguishable from "the size change didn't take". The box clips:
+// past roughly half scale the pet outgrows it, which is itself the signal.
+function PetScalePreview() {
+  return (
+    <div className="mt-2 flex h-24 items-center justify-center overflow-hidden rounded-lg border border-(--ui-stroke-tertiary) bg-(--ui-bg-quinary)">
+      <PetSprite />
+    </div>
+  )
+}
 
 // Pet settings, laid out like the desktop `PetSettings` (nested at the bottom of
 // Appearance): enable + choose-a-pet grid, size slider, roam toggle. `PetPanel`
@@ -193,6 +209,7 @@ export function PetPanel() {
                 </span>
               </div>
             }
+            below={<PetScalePreview />}
             description={p.scaleDesc}
             title={p.scaleTitle}
           />

@@ -2,7 +2,11 @@
  * Pure decision helpers for the floating pet's wander — the "what to do & when"
  * layer, split out from the geometry (`roam-geometry.ts`) and the RAF/DOM loop
  * (`use-pet-roam.ts`) so the *rhythm* of the roam is tunable in one place.
- * Ported verbatim from apps/desktop/src/components/pet/roam-behavior.ts.
+ *
+ * Note what is NOT here: any notion of a wall, or of which way is down. These
+ * decisions operate on a tangent span, and a span is a span whether it runs
+ * across the bottom of the screen or up the side of it — so teaching the pet to
+ * walk walls cost this file a rename and nothing else.
  *
  * The goal is a calm, believable critter rather than a fidgeting one:
  *  1. **Loaf, don't pace.** Most decision beats just keep resting; movement is
@@ -11,7 +15,7 @@
  *     the occasional long loaf — so the cadence never reads as a fixed pattern.
  */
 
-import type { Ledge } from './roam-geometry'
+import type { Span } from './wall-geometry'
 
 export type Rng = () => number
 
@@ -32,10 +36,10 @@ export const PAUSE_DWELL: DwellRange = { maxMs: 13000, meanMs: 4200, minMs: 1500
 // Most beats the pet just keeps loafing — a critter that re-walks every beat
 // reads as nervous, not alive.
 export const REST_CHANCE = 0.62
-// When it *does* move, chance it hops to another ledge vs. strolling this one.
+// When it *does* move, chance it hops to another surface vs. strolling this one.
 export const HOP_CHANCE = 0.2
 // Strolls should cover ground, not shuffle: travel at least this fraction of the
-// ledge (or this many px, whichever is larger), up to the room available.
+// span (or this many px, whichever is larger), up to the room available.
 const STROLL_MIN_FRACTION = 0.45
 const STROLL_MIN_PX = 110
 // Bias toward the roomier side so the pet crosses the app instead of pacing one
@@ -68,24 +72,27 @@ export function chooseMove(canHop: boolean, rng: Rng = Math.random): RoamMove {
 }
 
 /**
- * A stroll destination (absolute x) on `ledge` that actually goes somewhere:
- * lean toward the side with more room and guarantee a decent minimum travel, so
- * the pet crosses the app rather than shuffling in place.
+ * A stroll destination along `span` that actually goes somewhere: lean toward
+ * the side with more room and guarantee a decent minimum travel, so the pet
+ * crosses the app rather than shuffling in place.
+ *
+ * `from`/`to` are the tangent axis — x along a floor or ceiling, y up a wall —
+ * so "the roomier side" means "further along", not "further right".
  */
-export function pickStrollTarget(ledge: Ledge, fromX: number, rng: Rng = Math.random): number {
-  const span = ledge.right - ledge.left
+export function pickStrollTarget(span: Span, at: number, rng: Rng = Math.random): number {
+  const length = span.to - span.from
 
-  if (span <= 4) {
-    return ledge.left
+  if (length <= 4) {
+    return span.from
   }
 
-  const roomLeft = fromX - ledge.left
-  const roomRight = ledge.right - fromX
+  const roomBack = at - span.from
+  const roomOn = span.to - at
   // Usually head to the roomier side; the long tail of the coin doubles back.
-  const goRight = rng() < STROLL_TOWARD_ROOM === roomRight >= roomLeft
-  const room = Math.max(0, goRight ? roomRight : roomLeft)
-  const minDist = Math.min(room, Math.max(span * STROLL_MIN_FRACTION, STROLL_MIN_PX))
+  const goOn = rng() < STROLL_TOWARD_ROOM === roomOn >= roomBack
+  const room = Math.max(0, goOn ? roomOn : roomBack)
+  const minDist = Math.min(room, Math.max(length * STROLL_MIN_FRACTION, STROLL_MIN_PX))
   const dist = minDist + rng() * Math.max(0, room - minDist)
 
-  return goRight ? fromX + dist : fromX - dist
+  return goOn ? at + dist : at - dist
 }

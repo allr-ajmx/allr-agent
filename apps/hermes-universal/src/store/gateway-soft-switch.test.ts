@@ -39,10 +39,8 @@ vi.mock('@/store/session', async () => {
     resetSessionsPaging: vi.fn(),
     // The real predicate — the missing-session check is only meaningful if lineage
     // matching behaves as it does in production.
-    sessionMatchesStoredId: (
-      session: { _lineage_root_id?: string; id: string },
-      storedSessionId: string
-    ): boolean => session.id === storedSessionId || session._lineage_root_id === storedSessionId
+    sessionMatchesStoredId: (session: { _lineage_root_id?: string; id: string }, storedSessionId: string): boolean =>
+      session.id === storedSessionId || session._lineage_root_id === storedSessionId
   }
 })
 

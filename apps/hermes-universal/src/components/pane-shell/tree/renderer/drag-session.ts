@@ -33,12 +33,11 @@ import type { PointerEvent as ReactPointerEvent } from 'react'
 import { createDragGhost, type DragGhost } from '@/lib/drag-ghost'
 import { ESCAPE_PRIORITY, pushEscapeLayer } from '@/lib/escape-layers'
 import { reorderCommitHaptic, reorderStepHaptic } from '@/lib/reorder'
+import { dragSlopPx, LONG_PRESS_MS, TAP_MAX_MS } from '@/lib/touch'
 
 import type { DropPosition } from '../model'
 import { $dropHint, $treeDragging, type DropHint, mergeTreeZones, moveTreePane, reorderTreePane } from '../store'
 import { type EngineZone, HighlightedZones, primaryZone, type ZoneRect } from '../zones-engine'
-
-const DRAG_THRESHOLD_PX = 4
 
 /** Normalized radius of the elliptical CENTER region (stack/link). Outside it
  *  the drop targets the dominant-axis edge — the boundary curves with the
@@ -224,6 +223,17 @@ export function startDragSession(e: ReactPointerEvent<HTMLElement>, spec: DragSe
   const sy = e.clientY
   const restoreCursor = document.body.style.cursor
   const restoreSelect = document.body.style.userSelect
+  // A finger competes with the scroll it is probably actually doing. A mouse
+  // does not: nothing else claims a held left button, so a 4px twitch is a
+  // drag. On touch the same 4px is the first frame of every list scroll — which
+  // is what made thumb-scrolling the phone's session list flash a ghost chip
+  // and light up drop hints. So a touch drag must be DELIBERATE: hold still
+  // past LONG_PRESS_MS first, and moving before that settles it as a scroll,
+  // permanently.
+  const touch = e.pointerType !== 'mouse'
+  const slopPx = dragSlopPx(e.pointerType)
+  const startedAt = Date.now()
+  let scrolling = false
   let engaged = false
   let releaseEscapeLayer: (() => void) | null = null
   let ghost: DragGhost | null = null
@@ -279,7 +289,16 @@ export function startDragSession(e: ReactPointerEvent<HTMLElement>, spec: DragSe
 
   const processMove = (x: number, y: number, shift: boolean) => {
     if (!engaged) {
-      if (Math.hypot(x - sx, y - sy) < DRAG_THRESHOLD_PX) {
+      if (scrolling || Math.hypot(x - sx, y - sy) < slopPx) {
+        return
+      }
+
+      // Moved before the hold elapsed — that was a scroll, and it stays one for
+      // the rest of this gesture. Without the latch the drag would simply
+      // engage half a second into the scroll instead.
+      if (touch && Date.now() - startedAt < LONG_PRESS_MS) {
+        scrolling = true
+
         return
       }
 
@@ -348,7 +367,7 @@ export function startDragSession(e: ReactPointerEvent<HTMLElement>, spec: DragSe
       if (commit) {
         spec.onCommit($dropHint.get())
       }
-    } else if (commit) {
+    } else if (commit && (!touch || (!scrolling && Date.now() - startedAt <= TAP_MAX_MS))) {
       const now = Date.now()
 
       if (spec.double && lastTap?.key === spec.double.key && now - lastTap.time < DOUBLE_TAP_MS) {

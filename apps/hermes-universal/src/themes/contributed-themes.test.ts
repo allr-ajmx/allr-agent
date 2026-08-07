@@ -4,7 +4,14 @@ import { registry } from '@/contrib/registry'
 
 import { BUILTIN_THEMES } from './presets'
 import type { DesktopTheme } from './types'
-import { $userThemes, contributedThemes, installUserTheme, listAllThemes, resolveTheme, THEMES_AREA } from './user-themes'
+import {
+  $userThemes,
+  contributedThemes,
+  installUserTheme,
+  listAllThemes,
+  resolveTheme,
+  THEMES_AREA
+} from './user-themes'
 
 const USER_THEMES_KEY = 'hermes-user-themes-v1'
 
@@ -87,10 +94,7 @@ describe('contributed themes', () => {
   })
 
   it('keeps the first of two contributions claiming the same name', () => {
-    const disposers = [
-      contribute(theme('dup', 'First'), 'demo:a'),
-      contribute(theme('dup', 'Second'), 'demo:b')
-    ]
+    const disposers = [contribute(theme('dup', 'First'), 'demo:a'), contribute(theme('dup', 'Second'), 'demo:b')]
 
     expect(contributedThemes()).toHaveLength(1)
     expect(resolveTheme('dup')?.label).toBe('First')

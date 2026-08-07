@@ -1,4 +1,5 @@
 import type * as React from 'react'
+import { useRef } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Codicon } from '@/components/ui/codicon'
@@ -91,6 +92,9 @@ export function SidebarSessionRow({
   const title = sessionTitle(session)
   const age = formatAge(session.last_active || session.started_at, r)
   const needsInput = useStore($attentionSessionIds).includes(session.id)
+  // Latched by the touch tap below, cleared on the next press, so a synthetic
+  // click trailing the same gesture can't resume the session twice.
+  const tapped = useRef(false)
 
   return (
     <SessionContextMenu
@@ -119,7 +123,7 @@ export function SidebarSessionRow({
             >
               <Button
                 aria-label={r.actionsFor(title)}
-                className="size-5 rounded-[4px] bg-transparent text-transparent transition-colors duration-100 hover:bg-(--ui-control-active-background) hover:text-foreground focus-visible:bg-(--ui-control-active-background) focus-visible:text-foreground focus-visible:ring-0 data-[state=open]:bg-(--ui-control-active-background) data-[state=open]:text-foreground group-hover:text-(--ui-text-tertiary) [&_svg]:size-3.5!"
+                className="size-5 rounded-[4px] bg-transparent text-transparent transition-colors duration-100 hover:bg-(--ui-control-active-background) hover:text-foreground focus-visible:bg-(--ui-control-active-background) focus-visible:text-foreground focus-visible:ring-0 data-[state=open]:bg-(--ui-control-active-background) data-[state=open]:text-foreground group-hover:text-(--ui-text-tertiary) coarse:text-(--ui-text-tertiary) [&_svg]:size-3.5!"
                 // No tip: this is a DropdownMenu trigger, and a tooltip on a
                 // menu trigger fights the open menu (see DESIGN rule). The
                 // aria-label above already names it for assistive tech.
@@ -145,8 +149,16 @@ export function SidebarSessionRow({
       >
         {isWorking && !needsInput && <span aria-hidden="true" className="arc-border" />}
         <SidebarRowBody
-          className={cn('z-0 group-hover:pr-12', branchStem && 'pl-3.5')}
+          // The kebab is permanently visible on touch, so the padding that
+          // keeps the label out from under it has to be permanent too.
+          className={cn('z-0 group-hover:pr-12 coarse:pr-12', branchStem && 'pl-3.5')}
           onClick={event => {
+            // A finger already resumed this row from `onTap` below; whether the
+            // engine also synthesizes a click is its business, not ours.
+            if (tapped.current) {
+              return
+            }
+
             // ⇧⌘/⇧⌃-click pops the conversation into its own native window
             // (desktop only; MJX-104). ⇧-click alone still pins.
             if ((event.metaKey || event.ctrlKey) && event.shiftKey && canOpenSessionWindow()) {
@@ -174,11 +186,29 @@ export function SidebarSessionRow({
           // release stays a plain click (onClick above), so click-to-open and
           // shift-to-pin are untouched. The reorder grab keeps its own dnd-kit gesture.
           onPointerDown={event => {
+            tapped.current = false
+
             if ((event.target as HTMLElement).closest('[data-reorder-handle], [data-row-actions]')) {
               return
             }
 
-            startSessionDrag({ id: session.id, profile: session.profile || 'default', title }, event)
+            startSessionDrag(
+              { id: session.id, profile: session.profile || 'default', title },
+              event,
+              // Touch only. A finger's `click` is a verdict the engine reaches
+              // after ruling out a scroll and a drag; the session drag already
+              // knows this release was neither, so resume from that rather than
+              // waiting to see whether a click shows up. A mouse keeps its
+              // native click — modifiers live there.
+              event.pointerType === 'mouse'
+                ? undefined
+                : {
+                    onTap: () => {
+                      tapped.current = true
+                      onResume()
+                    }
+                  }
+            )
           }}
         >
           {reorderable ? (

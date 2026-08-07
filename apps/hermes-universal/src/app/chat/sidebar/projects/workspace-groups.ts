@@ -130,8 +130,7 @@ export function mergeRepoWorktreeGroups(
   // it the backend's recorded-branch main lanes are kept untouched.
   const mainWorktree = (discoveredWorktrees ?? []).find(worktree => worktree.isMain)
 
-  const homeBranch =
-    mainWorktree && !mainWorktree.detached ? mainWorktree.branch?.trim() || DEFAULT_BRANCH_LABEL : ''
+  const homeBranch = mainWorktree && !mainWorktree.detached ? mainWorktree.branch?.trim() || DEFAULT_BRANCH_LABEL : ''
 
   // Reconcile a LINKED worktree lane against git truth so its label AND path
   // describe the SAME worktree. Two repair directions:

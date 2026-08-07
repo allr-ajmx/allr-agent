@@ -8,7 +8,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const httpRequest = vi.hoisted(() => vi.fn())
-const sockets = vi.hoisted(() => [] as Array<{ url: string; listeners: Map<string, (e: unknown) => void>; closed: boolean }>)
+const sockets = vi.hoisted(
+  () => [] as Array<{ url: string; listeners: Map<string, (e: unknown) => void>; closed: boolean }>
+)
 
 vi.mock('@/transport/http', () => ({ getJson: vi.fn(), httpRequest }))
 

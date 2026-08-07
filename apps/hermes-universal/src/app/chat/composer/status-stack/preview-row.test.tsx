@@ -25,7 +25,12 @@ afterEach(() => {
 
 describe('PreviewStatusRow', () => {
   it('sends an http target to the system browser, not the preview pane', async () => {
-    render(<PreviewStatusRow item={artifact({ id: 'url', label: 'localhost:5173', target: 'http://localhost:5173' })} onDismiss={() => undefined} />)
+    render(
+      <PreviewStatusRow
+        item={artifact({ id: 'url', label: 'localhost:5173', target: 'http://localhost:5173' })}
+        onDismiss={() => undefined}
+      />
+    )
 
     fireEvent.click(screen.getByText('localhost:5173'))
 

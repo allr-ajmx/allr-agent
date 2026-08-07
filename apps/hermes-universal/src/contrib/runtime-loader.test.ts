@@ -11,12 +11,7 @@ vi.mock('@/store/notifications', () => ({ notify: vi.fn(), notifyError: vi.fn() 
 import type { DiskEntry, PluginDisk } from './plugin-disk'
 import { $pluginDecisions, $pluginRecords } from './plugins-store'
 import { registry } from './registry'
-import {
-  __resetRuntimeLoaderForTests,
-  loadRuntimePlugin,
-  scanDiskPlugins,
-  unloadRuntimePlugin
-} from './runtime-loader'
+import { __resetRuntimeLoaderForTests, loadRuntimePlugin, scanDiskPlugins, unloadRuntimePlugin } from './runtime-loader'
 
 // jsdom can't `import()` a blob URL, so route the loader's blob back to a module
 // this test controls. Keyed by the generated URL so parallel loads don't collide.
@@ -287,8 +282,7 @@ describe('disk reconciliation', () => {
   })
 
   describe('a door with no stamp (the gateway door)', () => {
-    const hashingDoor = (files: Map<string, FakeFile>) =>
-      fakeDoor(files, { hashToDetectChange: true, kind: 'rest' })
+    const hashingDoor = (files: Map<string, FakeFile>) => fakeDoor(files, { hashToDetectChange: true, kind: 'rest' })
 
     it('hashes source to spot an edit the stamp cannot show', async () => {
       const files = new Map([['kanban', { source: `import a from 'lodash'`, stamp: '' }]])
