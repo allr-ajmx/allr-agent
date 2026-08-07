@@ -34,6 +34,7 @@ import { getProfileSoul, updateProfileSoul } from '@/hermes'
 import { useI18n } from '@/i18n'
 import { triggerHaptic } from '@/lib/haptics'
 import { createLongPress } from '@/lib/long-press'
+import { IS_MOBILE } from '@/lib/platform'
 import { PROFILE_SWATCHES, profileColorSoft, resolveProfileColor } from '@/lib/profile-color'
 import {
   REORDER_DRAG_TRANSITION_CSS,
@@ -73,7 +74,11 @@ const RAIL_GAP = 4 // px — matches gap-1 between squares.
 // endless horizontal scroll), so the tail spills into the "⌄" overflow popover
 // instead. Drag-reorder, long-press-recolor and the context menu stay on the
 // inline squares — the rail never degrades into a text control.
-const RAIL_VISIBLE_LIMIT = 4
+//
+// Higher on a phone: the rail is a footer inside a 19rem pane on the desktop,
+// but the full width of the screen at the top of the phone's sidebar surface,
+// so it has the room for most people's whole profile set without a popover.
+export const RAIL_VISIBLE_LIMIT = IS_MOBILE ? 7 : 4
 
 // The letter that stands in for a profile inside its colored square.
 function profileInitial(name: string): string {
