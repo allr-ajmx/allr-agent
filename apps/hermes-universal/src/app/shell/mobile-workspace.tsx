@@ -6,7 +6,7 @@ import { PreviewRail } from '@/app/right-pane/preview/preview-rail'
 import { absolutePath } from '@/app/right-pane/review/file-tree'
 import { MobileReview } from '@/app/right-pane/review/mobile-review'
 import { TerminalArea } from '@/app/right-pane/terminal/terminal-area'
-import { MobileChromeBar, MobileChromeSpacer } from '@/app/shell/mobile-chrome-bar'
+import { MobileChromeBar } from '@/app/shell/mobile-chrome-bar'
 import { MobileStatusList } from '@/app/shell/mobile-status-list'
 import { MobileTabBar, MobileTabButton } from '@/app/shell/mobile-tab-button'
 import { TitlebarButton } from '@/app/shell/titlebar-button'
@@ -151,25 +151,28 @@ export function MobileWorkspace({ onClose }: { onClose: () => void }) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex flex-col bg-background"
+      className="fixed right-0 left-0 z-50 flex flex-col bg-background"
       style={{
-        marginBottom: 'var(--keyboard-inset, 0px)',
+        // Sized to the VISIBLE rectangle, not the layout viewport. A webview
+        // that reveals a focused input by scrolling the visual viewport leaves
+        // an `inset-0` box at full height and carries it off the top; these two
+        // vars are the region actually on screen, so the surface tracks the
+        // keyboard exactly and without a React render.
+        height: 'var(--visual-viewport-height, 100%)',
         paddingLeft: 'var(--safe-area-inset-left)',
-        paddingRight: 'var(--safe-area-inset-right)'
+        paddingRight: 'var(--safe-area-inset-right)',
+        top: 'var(--visual-viewport-top, 0px)'
       }}
     >
       <MobileChromeBar
         // Which project this surface is acting on. On a phone there is no
         // sidebar or statusbar in view to infer it from.
-        center={
-          <span className="block truncate text-center text-xs text-muted-foreground">{project || copy.noProject}</span>
-        }
+        center={<span className="block truncate text-xs text-muted-foreground">{project || copy.noProject}</span>}
         left={
           <TitlebarButton className="size-4" label={copy.backToChat} onClick={onClose}>
             <Codicon name="chevron-left" size="1.4rem" />
           </TitlebarButton>
         }
-        right={<MobileChromeSpacer />}
       />
 
       <main className="relative min-h-0 flex-1">

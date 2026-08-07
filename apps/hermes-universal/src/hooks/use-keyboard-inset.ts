@@ -40,9 +40,10 @@ const OPEN_THRESHOLD_PX = 80
 
 // The keyboard animates in and out over ~200-300ms, and the webview fires resize
 // events all the way through it. The last event in a burst is not reliably the
-// settled geometry — on Android the close animation can end on a stale frame —
-// so every burst schedules one more measurement after it should be over.
-const SETTLE_MS = 300
+// settled geometry — on Android the close animation can end on a stale frame, and
+// on some Tauri builds it can end on no event at all (tauri#10631) — so a focus
+// change re-measures on its own schedule until the geometry stops moving.
+const SETTLE_MS = [120, 300, 600, 1000] as const
 
 const INITIAL: KeyboardState = { inset: 0, viewportHeight: 0, innerHeight: 0, offsetTop: 0, open: false }
 
@@ -75,11 +76,26 @@ function measure(): KeyboardState {
 
 function start(): () => void {
   const root = document.documentElement
-  let settleTimer: null | ReturnType<typeof setTimeout> = null
+  let settleTimers: ReturnType<typeof setTimeout>[] = []
+
+  const clearSettle = () => {
+    for (const timer of settleTimers) {
+      clearTimeout(timer)
+    }
+
+    settleTimers = []
+  }
 
   const publish = () => {
     current = measure()
     root.style.setProperty('--keyboard-inset', `${current.inset}px`)
+    // The VISIBLE rectangle, published raw. A `position: fixed` surface sized
+    // from these tracks the keyboard exactly, including the case that broke it:
+    // a webview that reveals a focused input by SCROLLING the visual viewport
+    // rather than resizing the layout one, which leaves a layout-viewport-sized
+    // box at full height and carries it off the top of the screen.
+    root.style.setProperty('--visual-viewport-height', `${current.viewportHeight}px`)
+    root.style.setProperty('--visual-viewport-top', `${current.offsetTop}px`)
     root.toggleAttribute('data-keyboard-open', current.open)
 
     for (const listener of listeners) {
@@ -89,12 +105,11 @@ function start(): () => void {
 
   const update = () => {
     publish()
-
-    if (settleTimer !== null) {
-      clearTimeout(settleTimer)
-    }
-
-    settleTimer = setTimeout(publish, SETTLE_MS)
+    clearSettle()
+    // Re-measure across the whole animation rather than once after it: the
+    // stream of resize events is not trustworthy on either end, and a geometry
+    // that has already settled makes these writes no-ops.
+    settleTimers = SETTLE_MS.map(ms => setTimeout(publish, ms))
   }
 
   const vv = window.visualViewport
@@ -104,22 +119,21 @@ function start(): () => void {
   vv?.addEventListener('resize', update)
   vv?.addEventListener('scroll', update)
   window.addEventListener('resize', update)
-  // Blur is the one signal that always precedes a keyboard close, including the
-  // cases where the webview never fires a matching resize.
+  // Focus is the one signal that always brackets a keyboard, including the cases
+  // where the webview never fires a matching resize.
   window.addEventListener('focusin', update)
   window.addEventListener('focusout', update)
 
   return () => {
-    if (settleTimer !== null) {
-      clearTimeout(settleTimer)
-    }
-
+    clearSettle()
     vv?.removeEventListener('resize', update)
     vv?.removeEventListener('scroll', update)
     window.removeEventListener('resize', update)
     window.removeEventListener('focusin', update)
     window.removeEventListener('focusout', update)
     root.style.removeProperty('--keyboard-inset')
+    root.style.removeProperty('--visual-viewport-height')
+    root.style.removeProperty('--visual-viewport-top')
     root.removeAttribute('data-keyboard-open')
     current = INITIAL
   }

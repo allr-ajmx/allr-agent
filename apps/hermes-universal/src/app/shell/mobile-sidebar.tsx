@@ -6,7 +6,7 @@ import { useNavigate } from 'react-router-dom'
 import { ProfileRail } from '@/app/chat/sidebar/profile-switcher'
 import { SidebarScrollBody } from '@/app/chat/sidebar/sidebar-content'
 import { SIDEBAR_NAV_AREA, type SidebarNavContribution } from '@/app/routes'
-import { MobileChromeBar, MobileChromeSpacer } from '@/app/shell/mobile-chrome-bar'
+import { MobileChromeBar } from '@/app/shell/mobile-chrome-bar'
 import { MobileTabBar, MobileTabButton } from '@/app/shell/mobile-tab-button'
 import { TitlebarButton } from '@/app/shell/titlebar-button'
 import { Codicon } from '@/components/ui/codicon'
@@ -84,21 +84,23 @@ export function MobileSidebar({ onClose }: { onClose: () => void }) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex flex-col bg-(--ui-sidebar-surface-background)"
+      className="fixed right-0 left-0 z-50 flex flex-col bg-(--ui-sidebar-surface-background)"
       style={{
-        marginBottom: 'var(--keyboard-inset, 0px)',
+        // The VISIBLE rectangle — see MobileWorkspace for why this is not
+        // `inset-0` plus a keyboard margin.
+        height: 'var(--visual-viewport-height, 100%)',
         paddingLeft: 'var(--safe-area-inset-left)',
-        paddingRight: 'var(--safe-area-inset-right)'
+        paddingRight: 'var(--safe-area-inset-right)',
+        top: 'var(--visual-viewport-top, 0px)'
       }}
     >
       <MobileChromeBar
-        center={<span className="block truncate text-center text-xs text-muted-foreground">{t.sidebar.sessions}</span>}
+        center={<span className="block truncate text-xs text-muted-foreground">{t.sidebar.sessions}</span>}
         left={
           <TitlebarButton className="size-4" label={t.mobileWorkspace.backToChat} onClick={onClose}>
             <Codicon name="chevron-left" size="1.4rem" />
           </TitlebarButton>
         }
-        right={<MobileChromeSpacer />}
       />
 
       {/* Who you are. On the desktop pane this is a footer, under a nav rail that
