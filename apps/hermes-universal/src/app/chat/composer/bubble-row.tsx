@@ -41,6 +41,9 @@ interface GestureState {
   /** Past the new-session commit threshold — tracked so the haptic fires once
    *  on the crossing rather than every frame beyond it. */
   newArmed: boolean
+  /** Which end the gap was pulled open on. Read on release: the ghost the user
+   *  watched grow is on this side, so the real bubble has to land there. */
+  newSide: NewSessionSide | null
 }
 
 interface Preview {
@@ -230,6 +233,8 @@ export function BubbleRow() {
         void triggerHaptic('selection')
       }
 
+      st.newSide = drag.newSessionSide
+
       if (drag.newSessionArmed !== st.newArmed) {
         st.newArmed = drag.newSessionArmed
 
@@ -295,7 +300,11 @@ export function BubbleRow() {
       // pulled open becomes a new chat. Dragging back inside the threshold
       // before releasing falls through below instead, which lands on the end
       // bubble — so the gesture is reversible right up to the last moment.
-      newChatBubble()
+      //
+      // It joins the strip on the side the gap was pulled open on. The ghost
+      // grew there and that is where the user is looking; appending to the far
+      // end instead made the new chat appear behind them.
+      newChatBubble(st.newSide ?? 'end')
       // A no-op inside the store (already on a draft) would otherwise leave the
       // strip parked at the overdrag; the layout effect corrects this when the
       // bubble list does change.
@@ -332,6 +341,7 @@ export function BubbleRow() {
         base,
         bubbles: $chatBubbles.get(),
         newArmed: false,
+        newSide: null,
         peeked: idx < 0 ? 0 : idx,
         startX: event.clientX,
         startY: event.clientY

@@ -111,6 +111,16 @@ describe('chat-bubbles store', () => {
     expect($activeStoredSessionId.get()).toBeNull() // now on the draft
   })
 
+  it('newChatBubble puts the draft on the side it was pulled open from', () => {
+    $activeStoredSessionId.set('a')
+    addBubble('b') // ['a','b']
+
+    // Overdragging RIGHT opens the gap before the first bubble, and that is
+    // where the ghost the user watched grow was drawn.
+    newChatBubble('start')
+    expect(ids()).toEqual([null, 'a', 'b'])
+  })
+
   it('newChatBubble on a draft is a no-op', () => {
     $activeStoredSessionId.set(null) // already a draft
 
