@@ -8,11 +8,11 @@ import { MobileReview } from '@/app/right-pane/review/mobile-review'
 import { TerminalArea } from '@/app/right-pane/terminal/terminal-area'
 import { MobileChromeBar, MobileChromeSpacer } from '@/app/shell/mobile-chrome-bar'
 import { MobileStatusList } from '@/app/shell/mobile-status-list'
+import { MobileTabBar, MobileTabButton } from '@/app/shell/mobile-tab-button'
 import { TitlebarButton } from '@/app/shell/titlebar-button'
 import { Codicon } from '@/components/ui/codicon'
 import { useI18n } from '@/i18n'
 import { ESCAPE_PRIORITY, isTopEscapeLayer, pushEscapeLayer } from '@/lib/escape-layers'
-import { triggerHaptic } from '@/lib/haptics'
 import { persistentAtom } from '@/lib/persisted'
 import { cn } from '@/lib/utils'
 import { useStore } from '@/store/atom'
@@ -72,57 +72,6 @@ function projectLabel(cwd: string): string {
   const parts = trimmed.split(/[/\\]/)
 
   return parts[parts.length - 1] || trimmed
-}
-
-interface WorkspaceTabButtonProps {
-  active: boolean
-  /** Rendered as a count pill; `true` renders a bare dot. */
-  badge?: boolean | number
-  icon: string
-  label: string
-  onSelect: () => void
-}
-
-function WorkspaceTabButton({ active, badge, icon, label, onSelect }: WorkspaceTabButtonProps) {
-  const showBadge = badge === true || (typeof badge === 'number' && badge > 0)
-
-  return (
-    <button
-      aria-current={active ? 'page' : undefined}
-      className={cn(
-        'relative flex min-h-11 flex-1 flex-col items-center justify-center gap-0.5 rounded-md px-1 py-1 transition-colors',
-        active ? 'text-foreground' : 'text-muted-foreground'
-      )}
-      onClick={() => {
-        void triggerHaptic('selection')
-        onSelect()
-      }}
-      type="button"
-    >
-      <span className="relative">
-        <Codicon name={icon} size="1.15rem" />
-        {showBadge && (
-          <span
-            className={cn(
-              'absolute -top-1 -right-2 rounded-full bg-(--ui-accent-primary) text-[0.5625rem] leading-none font-medium text-white',
-              badge === true ? 'size-1.5' : 'min-w-3.5 px-1 py-0.5 text-center'
-            )}
-          >
-            {badge === true ? '' : badge}
-          </span>
-        )}
-      </span>
-      <span className="text-[0.625rem] leading-none">{label}</span>
-      {/* The active marker is a bar rather than a filled pill: at this size a
-          pill crowds the label, and the bar reads at a glance. */}
-      <span
-        className={cn(
-          'absolute inset-x-3 bottom-0 h-0.5 rounded-full',
-          active ? 'bg-(--ui-accent-primary)' : 'bg-transparent'
-        )}
-      />
-    </button>
-  )
 }
 
 export function MobileWorkspace({ onClose }: { onClose: () => void }) {
@@ -268,24 +217,18 @@ export function MobileWorkspace({ onClose }: { onClose: () => void }) {
         )}
       </main>
 
-      <nav
-        aria-label={copy.tabsAria}
-        className="shrink-0 border-t border-(--ui-stroke-tertiary) bg-(--ui-bg-chrome)"
-        style={{ paddingBottom: 'var(--safe-area-inset-bottom)' }}
-      >
-        <div className="flex items-stretch gap-0.5 px-1 py-0.5">
-          {TABS.map(({ icon, id }) => (
-            <WorkspaceTabButton
-              active={tab === id}
-              badge={badges[id]}
-              icon={icon}
-              key={id}
-              label={labels[id]}
-              onSelect={() => show(id)}
-            />
-          ))}
-        </div>
-      </nav>
+      <MobileTabBar ariaLabel={copy.tabsAria}>
+        {TABS.map(({ icon, id }) => (
+          <MobileTabButton
+            active={tab === id}
+            badge={badges[id]}
+            icon={icon}
+            key={id}
+            label={labels[id]}
+            onSelect={() => show(id)}
+          />
+        ))}
+      </MobileTabBar>
     </div>
   )
 }

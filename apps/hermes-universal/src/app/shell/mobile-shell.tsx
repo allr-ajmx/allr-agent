@@ -1,8 +1,7 @@
-import { ChatSidebar } from '@/app/chat/sidebar'
 import { WorkspaceRoutes } from '@/app/contrib/panes'
-import { Sheet, SheetContent } from '@/components/ui/sheet'
 import { useKeyboardInset } from '@/hooks/use-keyboard-inset'
 
+import { MobileSidebar } from './mobile-sidebar'
 import { MobileTopBar } from './mobile-top-bar'
 import { MobileWorkspace } from './mobile-workspace'
 import { useSidebar } from './sidebar'
@@ -40,15 +39,11 @@ export function MobileShell() {
         <WorkspaceRoutes />
       </div>
 
-      {/* Left sidebar as a drawer — opened by the top bar's sidebar button
-          (useSidebar().toggleMobile). One shared <ChatSidebar>, sheet variant. */}
-      <Sheet onOpenChange={setOpenMobile} open={openMobile}>
-        {/* No close X — on mobile it lands in the status-bar/notch area and is
-            redundant (tap outside / swipe to dismiss). */}
-        <SheetContent className="w-[19rem] gap-0 p-0" showCloseButton={false} side="left">
-          <ChatSidebar onNavigate={() => setOpenMobile(false)} variant="sheet" />
-        </SheetContent>
-      </Sheet>
+      {/* The sidebar — opened from the top bar's left button. A full-screen
+          sibling like the Workspace, not a drawer: a long list is the last thing
+          that wants a third of the screen spent on a dimmed backdrop, and the
+          app's two halves should not have two different shapes. */}
+      {openMobile && <MobileSidebar onClose={() => setOpenMobile(false)} />}
 
       {/* The Workspace — opened from the top bar's right button. A full-screen
           sibling of the chat rather than a drawer: review, files, editor and the

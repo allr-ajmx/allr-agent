@@ -130,10 +130,7 @@ export function MobileStatusList() {
   const unclaimed = [...byId.values()].filter(item => !claimed.has(item.id) && !HIDDEN_IDS.has(item.id))
   const manageRow = unclaimed.find(item => item.id === 'plugins')
 
-  const contributed = [
-    ...(manageRow ? [manageRow] : []),
-    ...unclaimed.filter(item => item.id !== 'plugins')
-  ]
+  const contributed = [...(manageRow ? [manageRow] : []), ...unclaimed.filter(item => item.id !== 'plugins')]
 
   const sections = [
     ...SECTIONS.map(section => ({

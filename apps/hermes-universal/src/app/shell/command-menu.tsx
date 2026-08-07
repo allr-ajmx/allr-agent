@@ -30,9 +30,7 @@ export function CommandMenu() {
   const needle = query.trim().toLowerCase()
 
   const filtered = needle
-    ? rows.filter(row =>
-        [row.label, ...(row.keywords ?? [])].some(term => term.toLowerCase().includes(needle))
-      )
+    ? rows.filter(row => [row.label, ...(row.keywords ?? [])].some(term => term.toLowerCase().includes(needle)))
     : rows
 
   const go = (row: PaletteRow) => {

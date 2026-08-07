@@ -154,7 +154,15 @@ let cachedEnteredProject: { project: null | SidebarProjectTree; scope: string } 
 
 // The scroll body: search + (query) merged Results, else the Sessions/recents
 // list. Pinned lands in Phase 5; messaging groups + cron in Phases 7–8.
-export function SidebarScrollBody({ onNavigate }: { onNavigate?: () => void }) {
+export function SidebarScrollBody({
+  onNavigate,
+  searchPlacement = 'top'
+}: {
+  onNavigate?: () => void
+  /** `bottom` puts the field just above the phone surface's nav bar, where a
+   *  thumb already is; the docked pane keeps it at the top of the list. */
+  searchPlacement?: 'bottom' | 'top'
+}) {
   const { t } = useI18n()
   const s = t.sidebar
   const sessions = useStore($sessions)
@@ -493,18 +501,22 @@ export function SidebarScrollBody({ onNavigate }: { onNavigate?: () => void }) {
 
   const hasMore = sessions.length < total
 
+  const searchField = (
+    <div className="shrink-0 px-2 pb-1 pt-1">
+      <SearchField
+        aria-label={s.searchAria}
+        inputRef={searchInputRef}
+        loading={searching}
+        onChange={setQuery}
+        placeholder={s.searchPlaceholder}
+        value={query}
+      />
+    </div>
+  )
+
   return (
     <div className="flex min-h-0 flex-1 flex-col px-2.5 pb-1.5">
-      <div className="shrink-0 px-2 pb-1 pt-1">
-        <SearchField
-          aria-label={s.searchAria}
-          inputRef={searchInputRef}
-          loading={searching}
-          onChange={setQuery}
-          placeholder={s.searchPlaceholder}
-          value={query}
-        />
-      </div>
+      {searchPlacement === 'top' && searchField}
 
       {trimmed ? (
         <SidebarSessionsSection
@@ -699,6 +711,9 @@ export function SidebarScrollBody({ onNavigate }: { onNavigate?: () => void }) {
           )}
         </>
       )}
+
+      {searchPlacement === 'bottom' && searchField}
+
       <ProjectDialog />
     </div>
   )
