@@ -11,9 +11,9 @@ import { syncPetInfo } from '@/store/pet-gallery'
 import { useTheme } from '@/themes/context'
 
 import { PetSprite, roamWalkRow } from './pet-sprite'
-import { walkBox } from './roam-geometry'
+import { snapshotSurfaces, walkBox } from './roam-geometry'
 import { usePetRoam } from './use-pet-roam'
-import { clampToBox, facingSign, spriteRotation, tangentAxis } from './wall-geometry'
+import { clampToBox, facingSign, resolveSurface, spriteRotation, tangentAxis } from './wall-geometry'
 
 // The in-app pet, ported from the desktop in-app mascot: a top-level,
 // draggable, roaming sprite mounted at the app root (mobile-controller) so it
@@ -288,6 +288,15 @@ export function FloatingPet({ overlayOpen = false }: { overlayOpen?: boolean }) 
         const committed = { x: drag.x, y: drag.y }
         setPosition(committed)
         persistPosition(committed)
+
+        // Which wall the pet was just put on. The roam loop publishes this as it
+        // walks, but it only runs while roaming is enabled, motion is not
+        // reduced and the agent is idle — so dropping the pet on the ceiling
+        // under any of those left it wearing the last wall's rotation, standing
+        // upright on the top rail until something else happened to tick.
+        const { h, w } = petSizeRef.current
+        const surfaces = snapshotSurfaces(w, h, { safeArea: IS_MOBILE, walls: IS_MOBILE })
+        $petRoamWall.set(resolveSurface(surfaces, committed, w, h, walkBox(h, IS_MOBILE)).wall)
       }
 
       const el = containerRef.current
