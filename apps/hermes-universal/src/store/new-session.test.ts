@@ -22,7 +22,7 @@ import { registerTiles } from '@/components/pane-shell/tile/registry'
 import type { Tile } from '@/components/pane-shell/tile/types'
 import { group, split } from '@/components/pane-shell/tree/model'
 import { $activeTreeGroup, $layoutTree, noteActiveTreeGroup } from '@/components/pane-shell/tree/store'
-import { isChatPaneId, sessionTilePaneId, WORKSPACE_PANE_ID } from '@/lib/pane-ids'
+import { DRAFT_TILE_KEY, isChatPaneId, sessionTilePaneId, WORKSPACE_PANE_ID } from '@/lib/pane-ids'
 import { navigateTo } from '@/lib/route-nav'
 import { $activeStoredSessionId } from '@/store/session'
 import { $sessionTiles } from '@/store/session-states'
@@ -112,10 +112,13 @@ describe('startNewSessionTab', () => {
     seedTree([WORKSPACE_PANE_ID])
   })
 
-  it('parks the open chat as a tab and starts a fresh one in main', () => {
+  // Inverted in the draft-tile change: it is the NEW chat that gets a tile now,
+  // and the chat already open stays put. Parking it was the old behaviour, and
+  // it meant asking for a new chat moved a chat you had not asked about.
+  it('opens the new chat as a tile and leaves the open one alone', () => {
     startNewSessionTab()
 
-    expect($sessionTiles.get().map(t => t.storedSessionId)).toEqual(['parked'])
+    expect($sessionTiles.get().map(t => t.storedSessionId)).toEqual([DRAFT_TILE_KEY])
     expect($activeStoredSessionId.get()).toBeNull()
   })
 
@@ -158,6 +161,15 @@ describe('startNewSessionTab', () => {
 
     startNewSessionTab()
 
-    expect(tilesWhenFocused).toEqual(['parked'])
+    expect(tilesWhenFocused).toEqual([DRAFT_TILE_KEY])
+  })
+
+  // The new chat lives in a TILE, and a tile owns its own composer scope. Asking
+  // for `'main'` here would put the caret in whatever chat the workspace happens
+  // to be showing — a different conversation than the one just opened.
+  it('puts the caret in the draft TILE composer, not main', () => {
+    startNewSessionTab()
+
+    expect(requestComposerFocus).toHaveBeenCalledWith(`tile:${DRAFT_TILE_KEY}`)
   })
 })

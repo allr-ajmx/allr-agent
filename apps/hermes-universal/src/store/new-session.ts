@@ -21,8 +21,9 @@
  * new session wants `newSession()` / `newSessionTab()`, not the focus act.
  */
 
-import { requestComposerFocus } from '@/app/chat/composer/focus'
+import { type ComposerTarget, requestComposerFocus } from '@/app/chat/composer/focus'
 import { NEW_CHAT_ROUTE } from '@/app/routes'
+import { DRAFT_TILE_KEY } from '@/lib/pane-ids'
 import { IS_MOBILE } from '@/lib/platform'
 import { navigateTo } from '@/lib/route-nav'
 import { newChatBubble } from '@/store/chat-bubbles'
@@ -36,19 +37,20 @@ import { focusWorkspaceSession, newSessionTab } from '@/store/session-states'
  *
  * Runs AFTER the session exists. `newSession()` homes the focused zone to null
  * synchronously on its way through (the `$activeStoredSessionId` listener in
- * `session-states`), and `newSessionTab` parks the previous chat as a tile — so
- * this has to be the last writer or it claims a zone that is about to change.
+ * `session-states`), so this has to be the last writer or it claims a zone that
+ * is about to change.
+ *
+ * `surface` is where the new chat actually WENT. ⌘N loads it in main; ⌘T gives it
+ * its own tile, and a tile has its own composer scope — focusing `'main'` there
+ * would put the caret in a different chat's input than the one just opened.
  */
-function landOnNewSession(): void {
+function landOnNewSession(surface: { composer: ComposerTarget; focusZone: () => void }): void {
   // A page view (Skills / Messaging / Artifacts) owns the workspace pane, so a
   // new chat created underneath one is invisible and has no composer to focus.
   navigateTo(NEW_CHAT_ROUTE)
 
-  focusWorkspaceSession()
-
-  // The fresh chat always loads in MAIN — on phones too, where the only composer
-  // scope is the default one (session tiles, the other scope, are desktop-only).
-  requestComposerFocus('main')
+  surface.focusZone()
+  requestComposerFocus(surface.composer)
 
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent(NEW_SESSION_FLASH_EVENT))
@@ -73,15 +75,21 @@ export function startNewSession({ cwd }: { cwd?: string } = {}): void {
     newSession()
   }
 
-  landOnNewSession()
+  // The fresh chat loads in MAIN — on phones too, where the only composer scope
+  // is the default one (session tiles, the other scope, are desktop-only).
+  landOnNewSession({ composer: 'main', focusZone: focusWorkspaceSession })
 }
 
 /**
- * ⌘T and the `+` at the end of a chat tab strip: park the conversation in main
- * as its own tab, then start a fresh chat in main. Desktop-only surface, so no
- * bubble branch.
+ * ⌘T and the `+` at the end of a chat tab strip: the new chat opens as its OWN
+ * tile, beside whatever is already there. Desktop-only surface, so no bubble
+ * branch.
+ *
+ * `newSessionTab` claims the draft tile's zone itself, so the zone act here is a
+ * no-op — passed anyway so both entry points read the same and neither can
+ * silently lose its focus step.
  */
 export function startNewSessionTab(): void {
   newSessionTab()
-  landOnNewSession()
+  landOnNewSession({ composer: `tile:${DRAFT_TILE_KEY}`, focusZone: () => undefined })
 }
