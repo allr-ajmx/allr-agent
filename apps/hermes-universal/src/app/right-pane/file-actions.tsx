@@ -133,6 +133,11 @@ export function FileEntryActionsMenu({ className, ...target }: FileEntryTarget &
           aria-label={t.fileMenu.actions}
           className={cn(
             'grid size-5 shrink-0 place-items-center rounded-sm text-(--ui-text-tertiary) transition-opacity hover:bg-(--ui-control-hover-background) hover:text-foreground',
+            // A 20px target is a mouse target. On a coarse pointer this is the
+            // ONLY door to rename/delete/reveal, and it swallows the row's own
+            // press — so it has to be a deliberate target, not an accidental
+            // one. `size-11` is 44px; the glyph inside keeps its size.
+            'coarse:size-11',
             'fine:opacity-0 fine:group-hover/row:opacity-100 fine:group-focus-within/row:opacity-100 fine:data-[state=open]:opacity-100',
             className
           )}

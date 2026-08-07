@@ -6,6 +6,7 @@ import { TreeSkeleton } from '@/components/chat/skeletons'
 import { Codicon } from '@/components/ui/codicon'
 import { useResizeObserver } from '@/hooks/use-resize-observer'
 import { IS_MOBILE } from '@/lib/platform'
+import { createTap, isCoarsePointer } from '@/lib/touch'
 import { cn } from '@/lib/utils'
 import { $repoChangeByPath, type RepoChangeKind } from '@/store/coding-status'
 import { $renamingPath, beginInlineRename } from '@/store/file-actions'
@@ -153,19 +154,22 @@ export function ProjectTree({
     [revealNode]
   )
 
-  // THE open-on-tap path, and the only one. arborist's `node.handleClick` selects
-  // and then activates, so this fires for a click anywhere the row container
-  // covers — which is the whole row rect.
+  // THE open-on-tap path, and the only one. It runs from `node.activate()`,
+  // which the row container calls on a mouse click (via `node.handleClick`) and
+  // on a finger tap (via the pointer gesture — see ProjectTreeRowContainer).
   //
-  // Mobile only. A phone has no double-click idiom, so one tap has to open;
-  // desktop keeps select-then-double-click, where a single click is how you pick
-  // a row to rename or drag, and `onDoubleClick` on the row does the opening.
+  // Coarse pointers only. A finger has no double-click idiom, so one tap has to
+  // open; a mouse keeps select-then-double-click, where a single click is how
+  // you pick a row to rename or drag, and `onDoubleClick` on the row opens.
+  // Gated on the LIVE media query rather than `IS_MOBILE`: that const is frozen
+  // at first import (and deliberately never tags a touchscreen laptop), so it is
+  // the wrong question for "what is touching this row".
   //
   // Suppressed for the row being renamed so the context-menu "Rename" (and the
   // click that falls through as its menu closes) can't open the preview instead.
   const handleActivate = useCallback(
     (node: NodeApi<TreeNode>) => {
-      if (!IS_MOBILE || !node.data || node.data.isDirectory || node.data.placeholder) {
+      if (!node.data || node.data.isDirectory || node.data.placeholder || !isCoarsePointer()) {
         return
       }
 
@@ -247,18 +251,71 @@ function TreeSizingState() {
 // to the viewport so long names ellipsize instead of clipping at the pane edge.
 //
 // This container, not the presentational row inside it, is the element arborist
-// sizes to the full row rect, so it owns the click: `node.handleClick` selects
+// sizes to the full row rect, so it owns activation: `node.handleClick` selects
 // and activates, and `onActivate` is where opening lives. Nothing here closes
 // over a callback — a `renderRow` whose identity moves makes arborist unmount
 // and rebuild every visible row, and doing that to the rows under a finger that
 // is still touching one is how a tap ends up tearing out the Radix menus each
 // row carries.
+//
+// A FINGER does not go through `click` at all. On a touch screen `click` is not
+// an event the page receives, it is a verdict the engine reaches after ruling
+// out a scroll and a drag — and for a row inside a scrollable virtualized list
+// the Android WebView routinely rules against a quick jab, which is why a short
+// tap did nothing here while a slower, stationary press worked. `createTap`
+// reads `pointerup` directly and takes the engine out of the decision; the
+// capture-phase guard below then kills the synthetic click if one does arrive,
+// so a tap can never both tap and click. A mouse never arms the gesture and its
+// native click path is untouched.
 function ProjectTreeRowContainer({ attrs, children, innerRef, node }: RowRendererProps<TreeNode>) {
+  // The node instance is rebuilt on every tree state change; the gesture is not.
+  const nodeRef = useRef(node)
+
+  nodeRef.current = node
+
+  const tapRef = useRef<null | ReturnType<typeof createTap>>(null)
+
+  if (!tapRef.current) {
+    tapRef.current = createTap({
+      onTap: () => {
+        const current = nodeRef.current
+
+        if (!current.data || current.data.placeholder || $renamingPath.get() === current.data.id) {
+          return
+        }
+
+        current.select()
+
+        // A folder expands and a file opens — the two halves of what a click
+        // means here, which on the mouse path are split between `handleClick`
+        // (select + activate) and the inner row (toggle).
+        if (current.data.isDirectory) {
+          current.toggle()
+        } else {
+          current.activate()
+        }
+      }
+    })
+  }
+
+  const tap = tapRef.current
+
   return (
     <div
       {...attrs}
       onClick={node.handleClick}
+      onClickCapture={event => {
+        // Capture phase, so this also spares the inner row's handler: the tap
+        // already resolved this gesture.
+        if (tap.fired()) {
+          event.stopPropagation()
+        }
+      }}
       onFocus={e => e.stopPropagation()}
+      onPointerCancel={tap.cancel}
+      onPointerDown={tap.down}
+      onPointerMove={tap.move}
+      onPointerUp={tap.up}
       ref={innerRef}
       style={{ ...attrs.style, minWidth: 0, width: '100%' }}
     >
@@ -310,7 +367,11 @@ function ProjectTreeRow({
         node.isSelected && 'bg-(--ui-row-active-background) text-foreground',
         isPlaceholder && 'pointer-events-none italic text-muted-foreground/70'
       )}
-      draggable={!isPlaceholder && !editing}
+      // Never on a phone. The tree's drag layer is react-dnd's HTML5Backend
+      // (files/dnd-manager.ts), which has no touch path at all — so `draggable`
+      // there buys nothing and costs the gesture engine one more thing to weigh
+      // against "this was a tap" on every press.
+      draggable={!IS_MOBILE && !isPlaceholder && !editing}
       onClick={event => {
         // Read the rename atom LIVE (not the render closure): the fall-through
         // click from a context-menu close can fire before the editing re-render
@@ -402,7 +463,11 @@ function ProjectTreeRow({
     </div>
   )
 
-  if (isPlaceholder) {
+  // No context menu on a phone. Radix's trigger arms a 700ms touch long-press of
+  // its own, which is the third thing competing for the same press — and it is
+  // redundant here, because the kebab above exists precisely so these actions
+  // have a touch path. Right-click keeps it on every pointer that has one.
+  if (isPlaceholder || IS_MOBILE) {
     return row
   }
 
