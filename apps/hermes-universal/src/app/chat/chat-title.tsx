@@ -4,6 +4,7 @@ import { SessionActionsMenu, SessionContextMenu } from '@/app/chat/sidebar/sessi
 import { appViewForPath } from '@/app/routes'
 import { TitleMenuTrigger } from '@/components/ui/title-menu-trigger'
 import { useI18n } from '@/i18n'
+import { cn } from '@/lib/utils'
 import { useStore } from '@/store/atom'
 import { $liveSessionTitle, $sessionId } from '@/store/chat'
 import { $pinnedSessionIds, pinSession, unpinSession } from '@/store/layout'
@@ -18,7 +19,7 @@ import {
 // A plain (non-interactive) title span, shared by the "New session" and page-view
 // (Capabilities/Messaging/Artifacts) cases.
 const PLAIN_TITLE_CLASS =
-  'inline-flex h-6 max-w-full items-center truncate px-2 text-[0.75rem] font-medium leading-none text-(--ui-text-tertiary)'
+  'inline-flex h-6 max-w-full items-center truncate px-2 text-[0.75rem] font-medium leading-4 text-(--ui-text-tertiary)'
 
 // The active session's title as a clickable pill that opens the session actions
 // menu (Rename / Pin / Archive / Delete) + a right-click context menu. Extracted
@@ -30,7 +31,13 @@ const PLAIN_TITLE_CLASS =
 // "New session". This only surfaces where ChatTitle is mounted across routes —
 // the mobile top bar (MobileTopBar); desktop's ChatHeader is chat-only and keeps
 // its own null guard so the empty view stays blank there.
-export function ChatTitle() {
+//
+// `className` is how the phone's top bar makes this fill the row: there the
+// title is the bar's only large target and its one menu, so it takes the whole
+// height and the whole width and left-aligns — the same shape the windowable
+// surfaces' title menu already has. Desktop's header keeps the content-width
+// pill it was drawn as.
+export function ChatTitle({ className }: { className?: string }) {
   const { t } = useI18n()
   const { pathname } = useLocation()
   const activeId = useStore($activeStoredSessionId)
@@ -43,11 +50,11 @@ export function ChatTitle() {
   const view = appViewForPath(pathname)
 
   if (view === 'skills' || view === 'messaging' || view === 'artifacts') {
-    return <span className={PLAIN_TITLE_CLASS}>{t.sidebar.nav[view]}</span>
+    return <span className={cn(PLAIN_TITLE_CLASS, className)}>{t.sidebar.nav[view]}</span>
   }
 
   if (!activeId && !runtimeSessionId) {
-    return <span className={PLAIN_TITLE_CLASS}>{t.sidebar.nav['new-session']}</span>
+    return <span className={cn(PLAIN_TITLE_CLASS, className)}>{t.sidebar.nav['new-session']}</span>
   }
 
   // Resolve by STORED id (resumed) or live RUNTIME id (a new session that has
@@ -62,7 +69,7 @@ export function ChatTitle() {
     : liveTitle.trim() || 'New session'
 
   if (!session) {
-    return <span className={PLAIN_TITLE_CLASS}>{title}</span>
+    return <span className={cn(PLAIN_TITLE_CLASS, className)}>{title}</span>
   }
 
   const pinId = sessionPinId(session)
@@ -81,9 +88,9 @@ export function ChatTitle() {
     <SessionContextMenu {...actions}>
       {/* Real element for the context-menu trigger (SessionActionsMenu is a
           fragment). The pill inside is the click/dropdown trigger. */}
-      <span className="inline-flex min-w-0 max-w-full">
+      <span className={cn('inline-flex min-w-0 max-w-full', className)}>
         <SessionActionsMenu {...actions}>
-          <TitleMenuTrigger>{title}</TitleMenuTrigger>
+          <TitleMenuTrigger className={className}>{title}</TitleMenuTrigger>
         </SessionActionsMenu>
       </span>
     </SessionContextMenu>

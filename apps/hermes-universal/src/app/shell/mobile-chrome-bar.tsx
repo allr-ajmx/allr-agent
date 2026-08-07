@@ -37,13 +37,22 @@ export function MobileChromeBar({
       data-slot="mobile-chrome-bar"
       style={{ paddingTop: 'var(--safe-area-inset-top)' }}
     >
-      {/* Tall enough to contain a touch target. Every button in this row is
-          floored at 44px on a coarse pointer (see styles.css), so an `h-8` row
-          — 36px — clipped the title button on the chat and on Settings. The row
-          is the constraint the buttons already had, made explicit. */}
-      <div className="flex h-11 items-center gap-1 px-2">
+      {/* Tall enough to contain a touch target with room to spare. Every button
+          in this row is floored at 44px on a coarse pointer (see styles.css), so
+          an `h-8` row — 36px — clipped the title button on the chat and on
+          Settings. 44px exactly then made the row fit its contents to the pixel,
+          which reads as cramped and leaves a mistimed tap landing on the border;
+          48px gives the floor 2px of air on each side.
+
+          `self-stretch` on the centre cell, not `items-stretch` on the row: the
+          centre is the only slot whose occupant is asked to fill the bar (a
+          title menu is a wide target, an edge icon is not), and it is the only
+          way its `h-full` resolves — `items-center` leaves this div auto-height,
+          against which a percentage height silently falls back to the content's,
+          leaving the title a small pill floating in a mostly empty row. */}
+      <div className="flex h-12 items-center gap-1 px-2">
         {left}
-        <div className="min-w-0 flex-1 overflow-hidden">{center}</div>
+        <div className="min-w-0 flex-1 self-stretch overflow-hidden">{center}</div>
         {right}
       </div>
     </div>

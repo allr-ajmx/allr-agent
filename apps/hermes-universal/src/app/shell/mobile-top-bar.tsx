@@ -34,7 +34,10 @@ export function MobileTopBar() {
       // Active session title — the same clickable pill (session actions menu)
       // the desktop chat header uses. On mobile the fixed layout has no header
       // row, so it lives here.
-      center={<ChatTitle />}
+      // Fills the row it is given: the title is this bar's only wide target and
+      // the way into the session menu, so it takes the full height and width and
+      // starts at the left edge — matching the title menu on every second screen.
+      center={<ChatTitle className="h-full w-full justify-start" />}
       left={
         <>
           {/* On a full page the useful control in this corner is the way out, so

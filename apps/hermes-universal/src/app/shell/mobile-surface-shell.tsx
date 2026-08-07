@@ -91,7 +91,7 @@ export function MobileSurfaceShell({
           navRows.length > 0 ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <TitleMenuTrigger className="w-full justify-start">{title}</TitleMenuTrigger>
+                <TitleMenuTrigger className="h-full w-full justify-start">{title}</TitleMenuTrigger>
               </DropdownMenuTrigger>
               {/* Aligned to the title, not centred on it: the trigger now fills
                   the row, so "centred on the trigger" put the menu in the middle

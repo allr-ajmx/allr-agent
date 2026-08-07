@@ -19,14 +19,19 @@ export function TitleMenuTrigger({
   return (
     <Button
       className={cn(
-        'pointer-events-auto flex h-6 min-w-0 max-w-full gap-1 overflow-hidden border border-transparent bg-transparent px-2 py-0 text-(--ui-text-secondary) hover:border-(--ui-stroke-tertiary) hover:bg-(--ui-control-hover-background) hover:text-foreground data-[state=open]:border-(--ui-stroke-tertiary) data-[state=open]:bg-(--ui-control-active-background) [-webkit-app-region:no-drag]',
+        'pointer-events-auto flex h-6 min-w-0 max-w-full gap-1 overflow-hidden text-left border border-transparent bg-transparent px-2 py-0 text-(--ui-text-secondary) hover:border-(--ui-stroke-tertiary) hover:bg-(--ui-control-hover-background) hover:text-foreground data-[state=open]:border-(--ui-stroke-tertiary) data-[state=open]:bg-(--ui-control-active-background) [-webkit-app-region:no-drag]',
         className
       )}
       type="button"
       variant="ghost"
       {...props}
     >
-      <span className="min-w-0 flex-1 truncate text-[0.75rem] font-medium leading-none">{children}</span>
+      {/* `flex-1`: when a caller makes this full-width (the phone's top bar) the
+          label takes the slack, so the chevron parks at the far right edge
+          instead of trailing the text. Content-width on desktop, where it is a
+          no-op. `leading-4`, not `leading-none`: `truncate` clips overflow, and
+          a line box exactly one font-size tall cuts descenders off. */}
+      <span className="min-w-0 flex-1 truncate text-[0.75rem] font-medium leading-4">{children}</span>
       <Codicon className="shrink-0 text-(--ui-text-tertiary)" name="chevron-down" size="0.8125rem" />
     </Button>
   )
