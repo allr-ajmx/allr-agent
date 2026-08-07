@@ -18,7 +18,13 @@ export function MobileChromeBar({
   left,
   right
 }: {
-  /** Fills the middle and truncates — a title, a session pill, a menu trigger. */
+  /**
+   * Takes every pixel the edge controls don't, and truncates — a title, a
+   * session pill, a menu trigger. Left-aligned, not centred: a centred title
+   * has to be balanced against whatever sits opposite it, which means a bar
+   * with one button spends the other side on a spacer and a long title
+   * truncates while empty space sits beside it.
+   */
   center?: ReactNode
   left?: ReactNode
   right?: ReactNode
@@ -35,9 +41,4 @@ export function MobileChromeBar({
       </div>
     </div>
   )
-}
-
-/** Balances a single edge button so `center` stays optically centred. */
-export function MobileChromeSpacer() {
-  return <div aria-hidden className="size-4 shrink-0" />
 }

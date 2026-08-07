@@ -1,5 +1,8 @@
+import { useLocation, useNavigate } from 'react-router-dom'
+
 import { ChatTitle } from '@/app/chat/chat-title'
 import { TITLEBAR_AREAS } from '@/app/contrib/surfaces'
+import { isWorkspacePagePath, NEW_CHAT_ROUTE } from '@/app/routes'
 import { Codicon } from '@/components/ui/codicon'
 import { Slot } from '@/contrib/react/slot'
 import { useI18n } from '@/i18n'
@@ -21,6 +24,10 @@ import { TitlebarButton } from './titlebar-button'
 export function MobileTopBar() {
   const { t } = useI18n()
   const { toggleMobile, toggleMobileRight } = useSidebar()
+  const navigate = useNavigate()
+  // Derived from the path rather than read off `$workspaceIsPage`: only the
+  // desktop controller keeps that atom in sync, and this bar is the phone's.
+  const onPage = isWorkspacePagePath(useLocation().pathname)
 
   return (
     <MobileChromeBar
@@ -30,14 +37,25 @@ export function MobileTopBar() {
       center={<ChatTitle />}
       left={
         <>
-          {/* Left-sidebar toggle. Wired to the drawer state (useSidebar). The icon
-              size is set via Codicon's `size` (inline font-size) — it beats
-              TitlebarButton's base `[&_.codicon]` rule, which an equal-specificity
-              class override can't. Big icon nearly filling the button → tight
-              padding. rem tracks the --dt-base-size token. */}
-          <TitlebarButton className="size-4" label={t.titlebar.showSidebar} onClick={toggleMobile}>
-            <Codicon name="comment-discussion" size="1.4rem" />
-          </TitlebarButton>
+          {/* On a full page the useful control in this corner is the way out, so
+              it becomes Back — to the chat, which is the phone's one home. On the
+              chat itself it opens the sidebar.
+
+              `history` rather than a speech bubble or a hamburger: the button
+              names what is behind it (your past chats) instead of the mechanism,
+              and a bubble read as "messages" next to an app that is nothing but
+              messages. The icon size is set via Codicon's `size` (inline
+              font-size) — it beats TitlebarButton's base `[&_.codicon]` rule,
+              which an equal-specificity class override can't. */}
+          {onPage ? (
+            <TitlebarButton className="size-4" label={t.common.back} onClick={() => navigate(NEW_CHAT_ROUTE)}>
+              <Codicon name="chevron-left" size="1.4rem" />
+            </TitlebarButton>
+          ) : (
+            <TitlebarButton className="size-4" label={t.titlebar.showSidebar} onClick={toggleMobile}>
+              <Codicon name="history" size="1.4rem" />
+            </TitlebarButton>
+          )}
           <Slot area={TITLEBAR_AREAS.left} />
         </>
       }

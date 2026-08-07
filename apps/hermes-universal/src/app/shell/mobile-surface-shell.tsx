@@ -5,7 +5,7 @@ import { CronView } from '@/app/cron'
 import { GatewayConnectingScreen } from '@/app/gateway/gateway-connecting-screen'
 import { ProfilesView } from '@/app/profiles'
 import { SettingsFooter, SettingsView } from '@/app/settings/settings-view'
-import { MobileChromeBar, MobileChromeSpacer } from '@/app/shell/mobile-chrome-bar'
+import { MobileChromeBar } from '@/app/shell/mobile-chrome-bar'
 import { useSurfaceNavRows } from '@/app/shell/surface-nav'
 import { TitlebarButton } from '@/app/shell/titlebar-button'
 import { Codicon } from '@/components/ui/codicon'
@@ -88,7 +88,7 @@ export function MobileSurfaceShell({
           navRows.length > 0 ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <TitleMenuTrigger className="mx-auto">{title}</TitleMenuTrigger>
+                <TitleMenuTrigger className="w-full justify-start">{title}</TitleMenuTrigger>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="center" className="max-h-[70vh] w-56 overflow-y-auto" sideOffset={6}>
                 {navRows.map(row => (
@@ -104,7 +104,7 @@ export function MobileSurfaceShell({
               </DropdownMenuContent>
             </DropdownMenu>
           ) : (
-            <span className="block truncate text-center text-sm font-medium">{title}</span>
+            <span className="block truncate text-sm font-medium">{title}</span>
           )
         }
         left={
@@ -112,7 +112,6 @@ export function MobileSurfaceShell({
             <Codicon name="chevron-left" size="1.4rem" />
           </TitlebarButton>
         }
-        right={<MobileChromeSpacer />}
       />
 
       {/* Routed surface. Lifts above the soft keyboard like the home shell. */}
