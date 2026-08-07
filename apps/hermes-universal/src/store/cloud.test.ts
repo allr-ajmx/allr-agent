@@ -10,6 +10,7 @@ import { connectCloud } from '@/store/connection'
 import {
   $cloudAgents,
   $cloudConnectingId,
+  $cloudError,
   $cloudOrgs,
   $portalSignedIn,
   connectCloudAgent,
@@ -36,6 +37,7 @@ beforeEach(() => {
   $cloudOrgs.set([])
   $portalSignedIn.set(false)
   $cloudConnectingId.set(null)
+  $cloudError.set(null)
 })
 
 describe('cloud discovery', () => {
@@ -92,8 +94,22 @@ describe('connectCloudAgent', () => {
     expect(connectCloud).toHaveBeenCalledWith('https://a1.example.com')
   })
 
-  it('does nothing for an agent without a dashboard URL', async () => {
-    await connectCloudAgent({ ...agent, dashboardUrl: null })
+  // Rejecting is the contract: this runs inside softSwitchGateway, which reads a clean
+  // return as a successful switch and would skip its rollback.
+  it('rejects for an agent without a dashboard URL', async () => {
+    await expect(connectCloudAgent({ ...agent, dashboardUrl: null })).rejects.toThrow(/no reachable dashboard/)
     expect(connectCloud).not.toHaveBeenCalled()
+  })
+
+  it('rejects when the silent SSO does not connect', async () => {
+    setImpl(command =>
+      command === 'portal_agent_sign_in'
+        ? Promise.resolve({ connected: false, baseUrl: 'https://a1.example.com' })
+        : Promise.resolve()
+    )
+
+    await expect(connectCloudAgent(agent)).rejects.toThrow()
+    expect(connectCloud).not.toHaveBeenCalled()
+    expect($cloudError.get()).toBeTruthy()
   })
 })

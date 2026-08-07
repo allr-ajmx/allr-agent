@@ -28,7 +28,8 @@ import type { GatewayTarget } from '@/store/gateway-restore'
 import { dialSavedTarget } from '@/store/gateway-restore'
 import { softSwitchGateway } from '@/store/gateway-soft-switch'
 
-import { broadcastGatewaySwitch, initGatewaySwitchSync } from './gateway-switch-sync'
+import { broadcastGatewaySwitch } from './gateway-switch-broadcast'
+import { initGatewaySwitchSync } from './gateway-switch-sync'
 
 const target = { mode: 'remote', url: 'new.gateway.test' } as GatewayTarget
 
