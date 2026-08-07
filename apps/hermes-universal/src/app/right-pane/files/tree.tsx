@@ -310,8 +310,18 @@ function ProjectTreeRow({
 
         if (isFolder) {
           node.toggle()
-        } else {
-          node.select()
+
+          return
+        }
+
+        node.select()
+
+        // A phone has no double-click idiom and no shift key, so select-only
+        // left a file row with nothing visible to show for a tap. One tap opens
+        // it; the desktop keeps select-then-double-click, where a single click
+        // is how you pick a row to rename or drag.
+        if (IS_MOBILE) {
+          onPreviewFile?.(node.data.id)
         }
       }}
       onDoubleClick={event => {

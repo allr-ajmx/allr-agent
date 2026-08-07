@@ -188,13 +188,17 @@ export function MobileWorkspace({ onClose }: { onClose: () => void }) {
         {visited.has('files') && (
           <div className={cn('absolute inset-0 overflow-hidden', tab !== 'files' && 'hidden')}>
             {/* Opening a file jumps to the editor — on a phone the panels can't
-                sit side by side, so the navigation has to be explicit. */}
+                sit side by side, so the navigation has to be explicit. A tap on
+                a file row is what opens it here (the tree has no double-tap
+                idiom), and `onFileOpened` fires once the pane has resolved the
+                path, so we follow a real open rather than an attempted one. */}
             <RightSidebarPane
               onActivateFile={path => {
                 previewFile(path)
                 show('editor')
               }}
               onActivateFolder={previewFile}
+              onFileOpened={() => show('editor')}
             />
           </div>
         )}

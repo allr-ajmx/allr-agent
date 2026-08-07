@@ -25,9 +25,14 @@ import { type TreeNode, useProjectTree } from './files/use-project-tree'
 interface RightSidebarPaneProps {
   onActivateFile: (path: string) => void
   onActivateFolder: (path: string) => void
+  /** Fired once a file has actually been opened in the preview. The pane owns
+   *  the path normalisation, so a host that needs to react to an open — the
+   *  phone brings its Editor tab forward — observes it here rather than
+   *  re-implementing it. */
+  onFileOpened?: (path: string) => void
 }
 
-export function RightSidebarPane({ onActivateFile, onActivateFolder }: RightSidebarPaneProps) {
+export function RightSidebarPane({ onActivateFile, onActivateFolder, onFileOpened }: RightSidebarPaneProps) {
   const { t } = useI18n()
   const r = t.rightSidebar
   const panesFlipped = useStore($panesFlipped)
@@ -69,6 +74,7 @@ export function RightSidebarPane({ onActivateFile, onActivateFolder }: RightSide
       }
 
       setCurrentSessionPreviewTarget(preview, 'file-browser', path)
+      onFileOpened?.(path)
     } catch (error) {
       notifyError(error, r.previewUnavailable)
     }
