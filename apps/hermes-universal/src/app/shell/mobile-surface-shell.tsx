@@ -1,17 +1,16 @@
-import { useLocation } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 
-import { ActivityNavSidebar } from '@/app/activity-screen-nav'
 import { CommandCenterView } from '@/app/command-center'
 import { CronView } from '@/app/cron'
 import { GatewayConnectingScreen } from '@/app/gateway/gateway-connecting-screen'
 import { ProfilesView } from '@/app/profiles'
 import { SettingsFooter, SettingsView } from '@/app/settings/settings-view'
-import { MobileChromeBar } from '@/app/shell/mobile-chrome-bar'
-import { MobileRightPanel } from '@/app/shell/mobile-right-panel'
-import { useSidebar } from '@/app/shell/sidebar'
+import { MobileChromeBar, MobileChromeSpacer } from '@/app/shell/mobile-chrome-bar'
+import { useSurfaceNavRows } from '@/app/shell/surface-nav'
 import { TitlebarButton } from '@/app/shell/titlebar-button'
 import { Codicon } from '@/components/ui/codicon'
-import { Sheet, SheetContent } from '@/components/ui/sheet'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import { TitleMenuTrigger } from '@/components/ui/title-menu-trigger'
 import { useKeyboardInset } from '@/hooks/use-keyboard-inset'
 import { useI18n } from '@/i18n'
 import { useStore } from '@/store/atom'
@@ -21,29 +20,31 @@ import { deleteSessionLocal } from '@/store/session'
 import { activitySurfaceForPath } from '@/store/windows'
 
 // The shared mobile chrome for a windowable surface (Settings / Command Center /
-// Profiles / Cron). It is the SAME layout the Android native activity screen uses, factored
-// out of `app/activity-screen.tsx` so the iOS / generic-mobile in-app overlay
+// Profiles / Cron). It is the SAME layout the Android native activity screen uses,
+// factored out of `app/activity-screen.tsx` so the iOS / generic-mobile in-app overlay
 // (mobile-controller) can present these surfaces with identical chrome instead of the
 // desktop split-nav view (MJX-203).
 //
-// Chrome: a top bar (left nav toggle · centered title · right drawer toggle) over two
-// `Sheet` drawers — the surface's sub-nav on the left (ActivityNavSidebar) and the
-// Status/Files panel on the right (MobileRightPanel). The shown surface is derived
-// LIVE from the route (`activitySurfaceForPath`), so switching surfaces from the
-// right-drawer switcher is an instant in-WebView route change.
+// Chrome: one row — Back on the left, the surface's name in the middle, nothing on
+// the right. A second screen has exactly one way out and it is where a phone user's
+// thumb already goes; a hamburger there meant the way out was a menu item inside a
+// drawer. Where the surface HAS sub-sections, the name itself is the menu: title and
+// chevron are one button, so the thing you read is the thing you tap. Surfaces with
+// no sub-sections (Profiles, Cron are master/detail lists) render a plain title.
+//
+// Section state lives in the URL, so picking a row is an in-WebView route change and
+// the chromeless view (`hideNav`) re-renders at that section.
 //
 // The two hosts differ only in their callbacks, injected here:
 //   • Android native activity (activity-screen): onHome/onOpenSession = returnHome.
 //   • iOS in-app overlay (mobile-controller): onHome = closeOverlayToPreviousRoute,
 //     onOpenSession = navigate(sessionRoute(id)).
-// The caller supplies the surrounding SidebarProvider (so the in-app overlay can use
-// its OWN provider and not share drawer open-state with the home MobileShell).
 export function MobileSurfaceShell({
   onHome,
   onOpenSession,
   onNavigateRoute
 }: {
-  /** Home / back — and each surface's `onClose`. */
+  /** Back / home — and each surface's `onClose`. */
   onHome: () => void
   /** Command Center row tap. */
   onOpenSession: (sessionId: string) => void
@@ -55,9 +56,7 @@ export function MobileSurfaceShell({
   useKeyboardInset()
   const { t } = useI18n()
   const { pathname } = useLocation()
-
-  const { openMobile, setOpenMobile, toggleMobile, openMobileRight, setOpenMobileRight, toggleMobileRight } =
-    useSidebar()
+  const navigate = useNavigate()
 
   const phase = useStore($connectionPhase)
   const hasConnected = useStore($hasConnected)
@@ -65,6 +64,7 @@ export function MobileSurfaceShell({
   const ready = phase === 'ready'
 
   const surface = activitySurfaceForPath(pathname)
+  const navRows = useSurfaceNavRows(surface)
 
   const title =
     surface === 'command-center'
@@ -83,20 +83,36 @@ export function MobileSurfaceShell({
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
-      {/* Top bar — the shared mobile chrome row. Left toggles the section-nav
-          drawer; right toggles the Status/Files + switcher drawer. */}
       <MobileChromeBar
-        center={<span className="block truncate text-center text-sm font-medium">{title}</span>}
+        center={
+          navRows.length > 0 ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <TitleMenuTrigger className="mx-auto">{title}</TitleMenuTrigger>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="center" className="max-h-[70vh] w-56 overflow-y-auto" sideOffset={6}>
+                {navRows.map(row => (
+                  <DropdownMenuItem
+                    className={row.active ? 'bg-(--ui-row-active-background) text-foreground' : undefined}
+                    key={row.id}
+                    onSelect={() => navigate(row.path)}
+                  >
+                    {row.icon}
+                    <span className="min-w-0 flex-1 truncate">{row.label}</span>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : (
+            <span className="block truncate text-center text-sm font-medium">{title}</span>
+          )
+        }
         left={
-          <TitlebarButton className="size-4" label={t.titlebar.showSidebar} onClick={toggleMobile}>
-            <Codicon name="list-unordered" size="1.4rem" />
+          <TitlebarButton className="size-4" label={t.common.back} onClick={onHome}>
+            <Codicon name="chevron-left" size="1.4rem" />
           </TitlebarButton>
         }
-        right={
-          <TitlebarButton className="size-4" label={t.titlebar.showRightSidebar} onClick={toggleMobileRight}>
-            <Codicon name="layout-sidebar-right" size="1.4rem" />
-          </TitlebarButton>
-        }
+        right={<MobileChromeSpacer />}
       />
 
       {/* Routed surface. Lifts above the soft keyboard like the home shell. */}
@@ -123,24 +139,18 @@ export function MobileSurfaceShell({
         )}
       </div>
 
-      {/* Left drawer — the current surface's sub-nav + Home entry. */}
-      <Sheet onOpenChange={setOpenMobile} open={openMobile}>
-        <SheetContent className="w-[19rem] gap-0 p-0" showCloseButton={false} side="left">
-          <ActivityNavSidebar
-            footer={surface === 'settings' ? <SettingsFooter /> : undefined}
-            onHome={onHome}
-            onNavigate={() => setOpenMobile(false)}
-            surface={surface}
-          />
-        </SheetContent>
-      </Sheet>
-
-      {/* Right drawer — Status / Files + the screen switcher, reused from the home shell. */}
-      <Sheet onOpenChange={setOpenMobileRight} open={openMobileRight}>
-        <SheetContent className="w-[19rem] gap-0 p-0" showCloseButton={false} side="right">
-          <MobileRightPanel />
-        </SheetContent>
-      </Sheet>
+      {/* Export / import / reset config. It used to ride the nav drawer's footer;
+          with the drawer gone it sits at the foot of the surface it belongs to —
+          not in the title menu, where its reset confirmation is a Dialog that a
+          closing DropdownMenu would unmount out from under itself. */}
+      {showSurface && surface === 'settings' && (
+        <div
+          className="flex shrink-0 items-center justify-end gap-1 border-t border-(--ui-stroke-tertiary) bg-(--ui-bg-chrome) px-2 py-0.5"
+          style={{ paddingBottom: 'calc(0.125rem + var(--safe-area-inset-bottom))' }}
+        >
+          <SettingsFooter />
+        </div>
+      )}
     </div>
   )
 }
