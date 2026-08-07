@@ -31,10 +31,17 @@ const POSITION_KEY = 'hermes.pet-position.v2'
 const NOMINAL_PET_PX = 96
 
 // Touch pickup. Shorter than a menu-opening hold (this competes with a scroll,
-// not a tap) with a slightly wider tolerance, because the target is small and
-// people aim at a moving sprite.
-const PICKUP_LONG_PRESS_MS = 300
-const PICKUP_MOVE_TOLERANCE_PX = 12
+// not a tap) with a wide tolerance, because the target is small and people aim
+// at a moving sprite. 300ms read as "the pet won't move"; this is short enough
+// to feel like a grab and still long enough that a flick scrolls the thread.
+const PICKUP_LONG_PRESS_MS = 180
+const PICKUP_MOVE_TOLERANCE_PX = 16
+
+// The picked-up look. A haptic alone is easy to miss (and silent on a device
+// with vibration off), so the sprite also swells and casts a shadow the moment
+// the hold arms — the drag has an unmistakable start.
+const HELD_SCALE = 1.12
+const HELD_SHADOW = 'drop-shadow(0 0.375rem 0.625rem rgb(0 0 0 / 0.35))'
 
 // Long enough to outlast the soft keyboard's open/close animation.
 const RECLAMP_DEBOUNCE_MS = 150
@@ -125,6 +132,10 @@ export function FloatingPet({ overlayOpen = false }: { overlayOpen?: boolean }) 
   const dragRef = useRef<{ dx: number; dy: number; x: number; y: number } | null>(null)
 
   const petW = (info.frameW ?? 192) * (info.scale ?? 0.33)
+  // Live width for the dep-free drag callbacks (the long-press captures those
+  // once, so they can't close over the rendered value).
+  const petWRef = useRef(petW)
+  petWRef.current = petW
   const petH = (info.frameH ?? 208) * (info.scale ?? 0.33)
   // Soft contact shadow, sized off the pet. Lighter on light backgrounds.
   const shadowW = Math.round(petW * 0.55)
@@ -200,6 +211,21 @@ export function FloatingPet({ overlayOpen = false }: { overlayOpen?: boolean }) 
     el.setPointerCapture?.(pointerId)
     el.style.cursor = 'grabbing'
     el.style.touchAction = 'none'
+    el.style.filter = HELD_SHADOW
+
+    if (spriteWrapRef.current) {
+      spriteWrapRef.current.style.transform = `${facingTransform(rect.left, petWRef.current)} scale(${HELD_SCALE})`
+    }
+    // Deliberately dep-free: the long-press below captures this once, so a dep
+    // on `petW` would only give that closure a stale copy. The ref is live.
+  }, [])
+
+  // Put the sprite back the way React draws it at rest. The composed transform
+  // is reasserted on the next render, when the roam loop re-homes the pet.
+  const clearHeldLook = useCallback((el: HTMLElement) => {
+    el.style.cursor = 'grab'
+    el.style.touchAction = touchActionAtRest()
+    el.style.filter = ''
   }, [])
 
   // On touch, picking the pet up is a deliberate hold rather than any contact.
@@ -262,7 +288,7 @@ export function FloatingPet({ overlayOpen = false }: { overlayOpen?: boolean }) 
         // Upright while it's in your hand — a pet carried across the screen
         // still rotated onto a wall it left reads as a bug. React reasserts the
         // composed transform on release, when the roam loop re-homes it.
-        spriteWrapRef.current.style.transform = facingTransform(next.x, petW)
+        spriteWrapRef.current.style.transform = `${facingTransform(next.x, petW)} scale(${HELD_SCALE})`
       }
     },
     [clamp, petW, pickup]
@@ -285,12 +311,11 @@ export function FloatingPet({ overlayOpen = false }: { overlayOpen?: boolean }) 
       const el = containerRef.current
 
       if (el) {
-        el.style.cursor = 'grab'
-        el.style.touchAction = touchActionAtRest()
+        clearHeldLook(el)
         el.releasePointerCapture?.(e.pointerId)
       }
     },
-    [pickup]
+    [clearHeldLook, pickup]
   )
 
   // A scroll that began on the pet, or any system interruption. Drop the hold
@@ -304,12 +329,11 @@ export function FloatingPet({ overlayOpen = false }: { overlayOpen?: boolean }) 
       const el = containerRef.current
 
       if (el) {
-        el.style.cursor = 'grab'
-        el.style.touchAction = touchActionAtRest()
+        clearHeldLook(el)
         el.releasePointerCapture?.(e.pointerId)
       }
     },
-    [pickup]
+    [clearHeldLook, pickup]
   )
 
   // Commit a roamed-to position back to React state + storage when the loop settles.
