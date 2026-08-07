@@ -10,11 +10,11 @@ import { useStore } from '@nanostores/react'
 import { type PointerEvent as ReactPointerEvent, useCallback, useMemo, useRef, useSyncExternalStore } from 'react'
 
 import { rafCoalesce } from '@/lib/raf-coalesce'
+import { beginResizeGesture, endResizeGesture } from '@/lib/resize-gesture'
 import { cn } from '@/lib/utils'
 import { $paneStates, type PaneStateSnapshot, setPaneHeightOverride, setPaneWidthOverride } from '@/store/panes'
 
 import { $layoutEditMode } from '../../edit-mode'
-import { beginSashDrag, endSashDrag } from '../../geometry'
 import { type EnclosureContext, zoneEnclosure } from '../../tile/enclosure'
 import { useTiles } from '../../tile/registry'
 import { tileAxisLength, tileClamps } from '../../tile/sizing'
@@ -229,10 +229,11 @@ export function TreeSplit({ node, root, rootRow }: { node: SplitNode; root?: boo
 
       document.body.style.cursor = horizontal ? 'col-resize' : 'row-resize'
       document.body.style.userSelect = 'none'
-      // Suppress the :root geometry-var writes for the gesture (see
-      // geometry.ts — each one restyles the whole document, and the workspace
-      // ResizeObserver fires every frame of a drag). They republish on release.
-      beginSashDrag()
+      // Open the resize gesture: it suppresses the :root geometry-var writes
+      // (geometry.ts — each restyles the whole document) and throttles every
+      // ResizeObserver reaction downstream of the width change, both of which
+      // otherwise run every frame of the drag. Released in `cleanup`.
+      beginResizeGesture()
 
       // Exactly what React last rendered onto the two wrappers, captured BEFORE
       // the first preview write. Only needed for the zero-movement click: no
@@ -326,8 +327,9 @@ export function TreeSplit({ node, root, rootRow }: { node: SplitNode; root?: boo
 
         // AFTER the final store write above — re-enabling first would publish
         // the pre-commit geometry and then take a second RO-driven publish
-        // immediately after. Ordering is load-bearing.
-        endSashDrag()
+        // immediately after. Ordering is load-bearing, and it is also what makes
+        // the throttle's end-of-gesture flush see the committed sizes.
+        endResizeGesture()
         document.body.style.cursor = restoreCursor
         document.body.style.userSelect = restoreSelect
 
