@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   clampToBox,
   cornerNeighbour,
+  facingSign,
   fallTarget,
   FEET_DROP_PX,
   gravitySign,
@@ -253,5 +254,28 @@ describe('spriteRotation', () => {
     expect(spriteRotation('right')).toBe(-90)
     expect(spriteRotation('left')).toBe(90)
     expect(spriteRotation('ceiling')).toBe(180)
+  })
+})
+
+describe('facingSign', () => {
+  it('flips on the two walls whose rotation reverses the tangent', () => {
+    expect(facingSign('floor')).toBe(1)
+    expect(facingSign('left')).toBe(1)
+    expect(facingSign('right')).toBe(-1)
+    expect(facingSign('ceiling')).toBe(-1)
+  })
+
+  // The claim the sign encodes: rotating the sprite's own +x by the wall's
+  // rotation lands on ±1 along that wall's tangent axis. If someone changes
+  // `spriteRotation`, this is what tells them `facingSign` must follow.
+  it('agrees with where spriteRotation actually points the sprite', () => {
+    for (const wall of ['floor', 'ceiling', 'left', 'right'] as const) {
+      const rad = (spriteRotation(wall) * Math.PI) / 180
+      // (1, 0) rotated by θ, with screen y pointing down.
+      const spriteRight = { x: Math.cos(rad), y: Math.sin(rad) }
+      const alongTangent = tangentAxis(wall) === 'x' ? spriteRight.x : spriteRight.y
+
+      expect(Math.sign(Math.round(alongTangent))).toBe(facingSign(wall))
+    }
   })
 })

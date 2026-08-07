@@ -295,9 +295,9 @@ export function MobileController() {
             ALL routes. It patrols the Settings overlay's edge when open.
 
             On a phone it walks all four screen edges rather than only the floor,
-            sits below the composer bars rather than over them, and is picked up
-            with a hold so a scroll starting on it still scrolls. It is hidden
-            while a MobileSurfaceShell surface is up: those are full-screen route
+            sits below the composer bars rather than over them, and lifts on
+            contact (its box owns the gesture — see PET_TOUCH_ACTION). It is
+            hidden while a MobileSurfaceShell surface is up: those are full-screen route
             surfaces with no card inset, so the overlay ledge the pet would
             patrol doesn't exist there. */}
         {connected && !(IS_MOBILE && mobileSurfaceOpen) && (

@@ -282,3 +282,22 @@ export function spriteRotation(wall: Wall): number {
       return 180
   }
 }
+
+/**
+ * Which way along the tangent the UNMIRRORED sprite faces, once `spriteRotation`
+ * has been applied.
+ *
+ * The mirror is composed after the rotation, so it flips the sprite's own x —
+ * and the sprite's own x stops being the screen's the moment the pet leaves the
+ * floor. Rotating (x, y) by θ (screen y down) sends (1, 0) to
+ * (cos θ, sin θ), so sprite-right lands on:
+ *
+ *   floor    0°  → +x  = +tangent  → +1
+ *   left   +90°  → +y  = +tangent  → +1
+ *   right  −90°  → −y  = −tangent  → −1
+ *   ceiling 180° → −x  = −tangent  → −1
+ *
+ * Multiply a tangent-space direction by this before asking for a walk row, or
+ * the pet moonwalks up the right wall and along the ceiling.
+ */
+export const facingSign = (wall: Wall): -1 | 1 => (wall === 'ceiling' || wall === 'right' ? -1 : 1)

@@ -3,7 +3,6 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { PetHeartField, useHeartPreviewHotkey } from '@/components/chat/vibe-hearts'
 import { useMediaQuery } from '@/hooks/use-media-query'
 import { triggerHaptic } from '@/lib/haptics'
-import { createLongPress } from '@/lib/long-press'
 import { IS_MOBILE } from '@/lib/platform'
 import { useStore } from '@/store/atom'
 import { $busy } from '@/store/chat'
@@ -14,7 +13,7 @@ import { useTheme } from '@/themes/context'
 import { PetSprite, roamWalkRow } from './pet-sprite'
 import { walkBox } from './roam-geometry'
 import { usePetRoam } from './use-pet-roam'
-import { clampToBox, spriteRotation } from './wall-geometry'
+import { clampToBox, facingSign, spriteRotation, tangentAxis } from './wall-geometry'
 
 // The in-app pet, ported from the desktop in-app mascot: a top-level,
 // draggable, roaming sprite mounted at the app root (mobile-controller) so it
@@ -30,26 +29,28 @@ const POSITION_KEY = 'hermes.pet-position.v2'
 // Stand-in pet size for the pre-load clamp (real size flows in with `info`).
 const NOMINAL_PET_PX = 96
 
-// Touch pickup. Shorter than a menu-opening hold (this competes with a scroll,
-// not a tap) with a wide tolerance, because the target is small and people aim
-// at a moving sprite. 300ms read as "the pet won't move"; this is short enough
-// to feel like a grab and still long enough that a flick scrolls the thread.
-const PICKUP_LONG_PRESS_MS = 180
-const PICKUP_MOVE_TOLERANCE_PX = 16
-
 // The picked-up look. A haptic alone is easy to miss (and silent on a device
 // with vibration off), so the sprite also swells and casts a shadow the moment
-// the hold arms — the drag has an unmistakable start.
+// it is lifted — the drag has an unmistakable start.
 const HELD_SCALE = 1.12
 const HELD_SHADOW = 'drop-shadow(0 0.375rem 0.625rem rgb(0 0 0 / 0.35))'
 
 // Long enough to outlast the soft keyboard's open/close animation.
 const RECLAMP_DEBOUNCE_MS = 150
 
-// `none` on a mouse (the old behaviour: nothing to yield to). On touch, let a
-// vertical pan through so a scroll starting on the pet scrolls the thread; a
-// hold takes the box back for the drag.
-const touchActionAtRest = (): string => (IS_MOBILE ? 'pan-y' : 'none')
+// `touch-action: none`, on every platform and at all times.
+//
+// The pet used to pass vertical panning through (`pan-y`) so a scroll starting
+// on it still scrolled the thread, and claim the box back once a long press
+// armed. That cannot work: `touch-action` is latched when the browser decides
+// what a gesture is, so re-assigning it mid-gesture is a no-op — the scroller
+// took the touch and fired `pointercancel`, killing the pickup before it could
+// ever fire. The dev HUDs drag correctly precisely because theirs is static.
+//
+// So the pet swallows a scroll that starts inside its ~63×69 box. That is the
+// accepted cost of a mascot you can actually pick up, and it is a box the user
+// can now move out of the way.
+const PET_TOUCH_ACTION = 'none'
 
 // The pet floats above the app, but not above things that block. `.composer-bars`
 // — approval / clarify / sudo / secret prompts — is z-31, and the mobile drawers
@@ -71,12 +72,25 @@ function clampPoint(x: number, y: number, w: number, h: number): Point {
   return clampToBox({ x, y }, w, h, walkBox(h, IS_MOBILE))
 }
 
-// The sprite art faces left by default, so mirror it when the pet's center sits
-// on the left half of the window — it always faces inward, toward the content.
+// Which way a resting pet faces: inward along the surface it is standing on,
+// toward the middle of that surface's walk. On the floor and ceiling that is the
+// horizontal midpoint; on a side wall it is the vertical one — comparing against
+// the window's WIDTH there (as this used to) asks a question about an axis the
+// pet cannot walk, so a wall-standing pet faced whichever way its x happened to
+// fall. `facingSign` then converts that screen-space answer into the sprite's
+// own, which the rotation has turned.
+//
 // Returns a transform *fragment* (possibly empty) so it can compose with the
 // wall rotation rather than replacing it.
-function facingTransform(leftX: number, petW: number): string {
-  return leftX + petW / 2 < (window.innerWidth || 800) / 2 ? 'scaleX(-1)' : ''
+function facingTransform(pos: Point, petW: number, petH: number, wall: PetRoamWall): string {
+  const vertical = tangentAxis(wall) === 'y'
+  const centre = vertical ? pos.y + petH / 2 : pos.x + petW / 2
+  const midpoint = (vertical ? window.innerHeight || 600 : window.innerWidth || 800) / 2
+  // The sprite art faces left by default, so "inward" is un-mirrored when the
+  // pet is past the midpoint and mirrored when it is short of it.
+  const inward = centre < midpoint ? 1 : -1
+
+  return inward * facingSign(wall) > 0 ? 'scaleX(-1)' : ''
 }
 
 const spriteTransform = (wall: PetRoamWall): string => {
@@ -132,11 +146,11 @@ export function FloatingPet({ overlayOpen = false }: { overlayOpen?: boolean }) 
   const dragRef = useRef<{ dx: number; dy: number; x: number; y: number } | null>(null)
 
   const petW = (info.frameW ?? 192) * (info.scale ?? 0.33)
-  // Live width for the dep-free drag callbacks (the long-press captures those
-  // once, so they can't close over the rendered value).
-  const petWRef = useRef(petW)
-  petWRef.current = petW
   const petH = (info.frameH ?? 208) * (info.scale ?? 0.33)
+  // Live size for the dep-free drag callbacks, which must not be rebuilt on
+  // every scale change just to read it.
+  const petSizeRef = useRef({ h: petH, w: petW })
+  petSizeRef.current = { h: petH, w: petW }
   // Soft contact shadow, sized off the pet. Lighter on light backgrounds.
   const shadowW = Math.round(petW * 0.55)
   const shadowH = Math.max(3, Math.round(shadowW * 0.28))
@@ -197,8 +211,7 @@ export function FloatingPet({ overlayOpen = false }: { overlayOpen?: boolean }) 
     }
   }, [clamp])
 
-  // Begin an actual drag: capture the pointer and stop the browser panning
-  // through us for the duration.
+  // Lift the pet: capture the pointer and put on the held look.
   const beginDrag = useCallback((clientX: number, clientY: number, pointerId: number) => {
     const el = containerRef.current
 
@@ -210,59 +223,34 @@ export function FloatingPet({ overlayOpen = false }: { overlayOpen?: boolean }) 
     dragRef.current = { dx: clientX - rect.left, dy: clientY - rect.top, x: rect.left, y: rect.top }
     el.setPointerCapture?.(pointerId)
     el.style.cursor = 'grabbing'
-    el.style.touchAction = 'none'
     el.style.filter = HELD_SHADOW
+    void triggerHaptic('selection')
 
     if (spriteWrapRef.current) {
-      spriteWrapRef.current.style.transform = `${facingTransform(rect.left, petWRef.current)} scale(${HELD_SCALE})`
+      const { h, w } = petSizeRef.current
+      // 'floor' because a carried pet is held upright — see onPointerMove.
+      spriteWrapRef.current.style.transform = `${facingTransform({ x: rect.left, y: rect.top }, w, h, 'floor')} scale(${HELD_SCALE})`
     }
-    // Deliberately dep-free: the long-press below captures this once, so a dep
-    // on `petW` would only give that closure a stale copy. The ref is live.
+    // Dep-free: `petW` is read through a live ref so this callback never needs
+    // to be rebuilt, and the pointer handlers below stay stable with it.
   }, [])
 
   // Put the sprite back the way React draws it at rest. The composed transform
   // is reasserted on the next render, when the roam loop re-homes the pet.
   const clearHeldLook = useCallback((el: HTMLElement) => {
     el.style.cursor = 'grab'
-    el.style.touchAction = touchActionAtRest()
     el.style.filter = ''
   }, [])
 
-  // On touch, picking the pet up is a deliberate hold rather than any contact.
-  // The container used to carry `touchAction: 'none'` unconditionally, which
-  // meant every scroll that happened to start inside its ~63×69 box was
-  // swallowed — the pet floats over the thread, so that is a scroll the user
-  // very much wanted. Now the box passes vertical panning through until a hold
-  // claims it, and a scroll cancels the hold via `pointercancel` first.
-  const pickupRef = useRef<null | number>(null)
-
-  const pickup = useRef(
-    createLongPress({
-      moveTolerancePx: PICKUP_MOVE_TOLERANCE_PX,
-      ms: PICKUP_LONG_PRESS_MS,
-      onFire: ({ x, y }) => {
-        if (pickupRef.current != null) {
-          void triggerHaptic('selection')
-          beginDrag(x, y, pickupRef.current)
-        }
-      }
-    })
-  ).current
-
+  // Any pointer lifts the pet on contact — mouse, touch and pen alike. There is
+  // no hold to wait through: with `touch-action: none` the box owns the gesture
+  // from the first event, so a hold would only add latency to a drag that is
+  // already ours, and the scroll it used to protect is gone either way.
   const onPointerDown = useCallback(
     (e: React.PointerEvent) => {
-      // A mouse drags immediately, exactly as before — there is no scroll to
-      // compete with, and a hold would just feel broken.
-      if (e.pointerType === 'mouse') {
-        beginDrag(e.clientX, e.clientY, e.pointerId)
-
-        return
-      }
-
-      pickupRef.current = e.pointerId
-      pickup.down(e.clientX, e.clientY)
+      beginDrag(e.clientX, e.clientY, e.pointerId)
     },
-    [beginDrag, pickup]
+    [beginDrag]
   )
 
   const onPointerMove = useCallback(
@@ -271,9 +259,6 @@ export function FloatingPet({ overlayOpen = false }: { overlayOpen?: boolean }) 
       const el = containerRef.current
 
       if (!drag || !el) {
-        // Still deciding whether this is a hold or a scroll.
-        pickup.move(e.clientX, e.clientY)
-
         return
       }
 
@@ -288,17 +273,14 @@ export function FloatingPet({ overlayOpen = false }: { overlayOpen?: boolean }) 
         // Upright while it's in your hand — a pet carried across the screen
         // still rotated onto a wall it left reads as a bug. React reasserts the
         // composed transform on release, when the roam loop re-homes it.
-        spriteWrapRef.current.style.transform = `${facingTransform(next.x, petW)} scale(${HELD_SCALE})`
+        spriteWrapRef.current.style.transform = `${facingTransform(next, petW, petH, 'floor')} scale(${HELD_SCALE})`
       }
     },
-    [clamp, petW, pickup]
+    [clamp, petH, petW]
   )
 
   const onPointerUp = useCallback(
     (e: React.PointerEvent) => {
-      pickup.up()
-      pickupRef.current = null
-
       const drag = dragRef.current
 
       if (drag) {
@@ -315,15 +297,13 @@ export function FloatingPet({ overlayOpen = false }: { overlayOpen?: boolean }) 
         el.releasePointerCapture?.(e.pointerId)
       }
     },
-    [clearHeldLook, pickup]
+    [clearHeldLook]
   )
 
-  // A scroll that began on the pet, or any system interruption. Drop the hold
-  // and give the box back to the page.
+  // A system interruption — an incoming call, a gesture the OS claims. Drop the
+  // drag where it stands rather than leaving the pet stuck to a dead pointer.
   const onPointerCancel = useCallback(
     (e: React.PointerEvent) => {
-      pickup.cancel()
-      pickupRef.current = null
       dragRef.current = null
 
       const el = containerRef.current
@@ -333,7 +313,7 @@ export function FloatingPet({ overlayOpen = false }: { overlayOpen?: boolean }) 
         el.releasePointerCapture?.(e.pointerId)
       }
     },
-    [clearHeldLook, pickup]
+    [clearHeldLook]
   )
 
   // Commit a roamed-to position back to React state + storage when the loop settles.
@@ -369,8 +349,13 @@ export function FloatingPet({ overlayOpen = false }: { overlayOpen?: boolean }) 
   // While roaming, drive the directional run row + mirror from travel direction;
   // at rest, fall back to the inward-facing static mascot. The pose itself comes
   // from `$petState` (activity + roam motion), read inside PetSprite.
+  //
+  // `roamDir` is a sign along the surface's TANGENT, which is vertical on a side
+  // wall — and the mirror it feeds is composed after the wall rotation, in the
+  // sprite's own frame. `facingSign` converts between the two; without it the
+  // pet moonwalks up the right wall and along the ceiling.
   const roaming = roamDir !== 0
-  const walk = roamWalkRow(roamDir, info.stateRows)
+  const walk = roamWalkRow((roamDir * facingSign(roamWall)) as -1 | 0 | 1, info.stateRows)
 
   if (!info.enabled || !info.spritesheetBase64) {
     return null
@@ -389,7 +374,7 @@ export function FloatingPet({ overlayOpen = false }: { overlayOpen?: boolean }) 
         pointerEvents: 'auto',
         position: 'fixed',
         top: position.y,
-        touchAction: touchActionAtRest(),
+        touchAction: PET_TOUCH_ACTION,
         userSelect: 'none',
         zIndex: PET_Z_INDEX
       }}
@@ -406,7 +391,7 @@ export function FloatingPet({ overlayOpen = false }: { overlayOpen?: boolean }) 
           lineHeight: 0,
           position: 'relative',
           transform:
-            `${spriteTransform(roamWall)} ${roaming ? (walk.mirror ? 'scaleX(-1)' : '') : facingTransform(position.x, petW)}`.trim(),
+            `${spriteTransform(roamWall)} ${roaming ? (walk.mirror ? 'scaleX(-1)' : '') : facingTransform(position, petW, petH, roamWall)}`.trim(),
           transformOrigin: 'center center',
           zIndex: 1
         }}
