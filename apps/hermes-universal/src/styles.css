@@ -2325,7 +2325,15 @@ html {
       this file.
    2. A >=16px font on anything focusable-and-typeable. Below that the Android
       WebView auto-zooms the viewport on focus, which is a functional bug, not a
-      style preference. Desktop's controlVariants sit at 12px. */
+      style preference. Desktop's controlVariants sit at 12px.
+   3. PRESS FEEDBACK. Every interactive surface in this app acknowledges the
+      pointer through `:hover`, which a finger never triggers — so on a phone a
+      tap that worked and a tap that was swallowed looked exactly alike, and the
+      only way to tell was whether the thing you asked for happened. The tap
+      highlight is the platform's own answer and costs nothing; `:active` covers
+      the rows the highlight can't reach (it paints the hit element, not the row
+      behind it) and reuses the hover token, so a press reads as the same state a
+      hover does. */
 @media (pointer: coarse) {
   [data-slot='button']:not([class*='h-auto']) {
     min-block-size: 44px;
@@ -2336,6 +2344,18 @@ html {
   [data-slot='textarea'],
   [data-slot='select-trigger'] {
     font-size: 1rem;
+  }
+
+  html {
+    /* Chromium defaults this to a heavy translucent black; the theme's own row
+       tint is the same acknowledgement without the bruise. */
+    -webkit-tap-highlight-color: var(--ui-row-hover-background);
+  }
+
+  .row-hover:active,
+  [data-slot='button']:not(:disabled):active {
+    background-color: var(--ui-row-hover-background);
+    transition: none;
   }
 }
 
