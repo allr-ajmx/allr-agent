@@ -3,6 +3,7 @@ import { type FC, useCallback, useEffect, useMemo, useRef, useState } from 'reac
 
 import { queryVisible } from '@/components/pane-shell/pane-visibility'
 import { triggerHaptic } from '@/lib/haptics'
+import { createLongPress } from '@/lib/long-press'
 import { cn } from '@/lib/utils'
 
 import {
@@ -15,6 +16,13 @@ import {
 const MIN_ENTRIES = 4
 const VIEWPORT = '[data-slot="aui_thread-viewport"]'
 const HOVER_CLOSE_MS = 140
+
+// Touch scrub. The rail is built on hover — the popover opens on mouse-enter and
+// each tick lights its row the same way — so on a phone the preview list never
+// appeared and a tap on a 2px tick jumped blind. A hold opens the list, a drag
+// picks from it, and letting go goes there.
+const SCRUB_LONG_PRESS_MS = 280
+const SCRUB_MOVE_TOLERANCE_PX = 12
 
 const ROW_CLASS =
   'row-hover relative flex w-full min-w-0 max-w-full select-none overflow-hidden rounded-md px-2 py-1 text-left outline-hidden'
@@ -176,6 +184,104 @@ export const ThreadTimeline: FC = () => {
 
   useEffect(() => () => window.clearTimeout(closeTimerRef.current), [])
 
+  // ── Touch scrub ───────────────────────────────────────────────────────────
+  // The index currently under the finger, or null when not scrubbing. A ref, not
+  // state: it drives the same DOM-level `paint()` the hover path uses, so a drag
+  // costs no renders.
+  const scrubIndexRef = useRef<null | number>(null)
+  const ticksRef = useRef<HTMLDivElement | null>(null)
+  // Set when a scrub ends, so the `pointerup` that ended it doesn't also fire the
+  // tick's own onClick and jump somewhere else.
+  const scrubbedRef = useRef(false)
+
+  /** The tick whose midpoint is nearest a viewport y. */
+  const tickAt = useCallback((clientY: number): number => {
+    let best = 0
+    let bestDistance = Number.POSITIVE_INFINITY
+
+    tickRefs.current.forEach((node, index) => {
+      if (!node) {
+        return
+      }
+
+      const rect = node.getBoundingClientRect()
+      const distance = Math.abs((rect.top + rect.bottom) / 2 - clientY)
+
+      if (distance < bestDistance) {
+        bestDistance = distance
+        best = index
+      }
+    })
+
+    return best
+  }, [])
+
+  const scrubTo = useCallback(
+    (clientY: number) => {
+      const next = tickAt(clientY)
+
+      if (scrubIndexRef.current === next) {
+        return
+      }
+
+      if (scrubIndexRef.current !== null) {
+        paint(scrubIndexRef.current, false)
+      }
+
+      scrubIndexRef.current = next
+      paint(next, true)
+      void triggerHaptic('selection')
+    },
+    [paint, tickAt]
+  )
+
+  // The long press is built once, so it reads the live callback through a ref
+  // rather than closing over the first render's.
+  const scrubToRef = useRef(scrubTo)
+  scrubToRef.current = scrubTo
+
+  const pickupIdRef = useRef<null | number>(null)
+
+  const pickup = useRef(
+    createLongPress({
+      moveTolerancePx: SCRUB_MOVE_TOLERANCE_PX,
+      ms: SCRUB_LONG_PRESS_MS,
+      onFire: ({ y }) => {
+        if (pickupIdRef.current === null) {
+          return
+        }
+
+        setOpen(true)
+        void triggerHaptic('warning')
+        // Capture so a finger that wanders off the 31px rail keeps scrubbing.
+        ticksRef.current?.setPointerCapture?.(pickupIdRef.current)
+        scrubToRef.current(y)
+      }
+    })
+  ).current
+
+  const endScrub = useCallback(
+    (jump: boolean) => {
+      const index = scrubIndexRef.current
+
+      if (index === null) {
+        return
+      }
+
+      paint(index, false)
+      scrubIndexRef.current = null
+      scrubbedRef.current = true
+      setOpen(false)
+
+      const entry = jump ? entries[index] : undefined
+
+      if (entry) {
+        scrollToPrompt(entry.id)
+      }
+    },
+    [entries, paint]
+  )
+
   useEffect(() => {
     const viewport = queryVisible<HTMLElement>(VIEWPORT)
 
@@ -241,9 +347,48 @@ export const ThreadTimeline: FC = () => {
     >
       <TimelineTicks
         activeIndex={activeIndex}
+        containerRef={ticksRef}
         entries={entries}
         onHover={paint}
-        onJump={scrollToPrompt}
+        onJump={id => {
+          // The pointerup that ended a scrub also lands here; the scrub already
+          // jumped to what the finger chose, which is not what it is over.
+          if (scrubbedRef.current) {
+            scrubbedRef.current = false
+
+            return
+          }
+
+          scrollToPrompt(id)
+        }}
+        onPointerCancel={() => {
+          pickup.cancel()
+          pickupIdRef.current = null
+          endScrub(false)
+        }}
+        onPointerDown={event => {
+          // A mouse keeps hover-to-preview and click-to-jump exactly as they were.
+          if (event.pointerType === 'mouse') {
+            return
+          }
+
+          pickupIdRef.current = event.pointerId
+          pickup.down(event.clientX, event.clientY)
+        }}
+        onPointerMove={event => {
+          if (scrubIndexRef.current !== null) {
+            scrubToRef.current(event.clientY)
+
+            return
+          }
+
+          pickup.move(event.clientX, event.clientY)
+        }}
+        onPointerUp={() => {
+          pickup.up()
+          pickupIdRef.current = null
+          endScrub(true)
+        }}
         tickRefs={tickRefs}
       />
       <TimelinePopover
@@ -291,12 +436,41 @@ const TimelinePopover: FC<{
 
 const TimelineTicks: FC<{
   activeIndex: number
+  containerRef: React.RefObject<HTMLDivElement | null>
   entries: TimelineEntry[]
   onHover: (index: number, on: boolean) => void
   onJump: (id: string) => void
+  onPointerCancel: () => void
+  onPointerDown: (event: React.PointerEvent) => void
+  onPointerMove: (event: React.PointerEvent) => void
+  onPointerUp: () => void
   tickRefs: React.RefObject<(HTMLSpanElement | null)[]>
-}> = ({ activeIndex, entries, onHover, onJump, tickRefs }) => (
-  <div className="flex flex-col items-end py-1" data-slot="thread-timeline-ticks">
+}> = ({
+  activeIndex,
+  containerRef,
+  entries,
+  onHover,
+  onJump,
+  onPointerCancel,
+  onPointerDown,
+  onPointerMove,
+  onPointerUp,
+  tickRefs
+}) => (
+  <div
+    // `touch-none` on a coarse pointer: `touch-action` is latched when the
+    // browser decides what a gesture is, so claiming it once the hold fires
+    // would be too late and the scroller would take the drag. The cost is that
+    // a scroll starting inside this ~31px strip doesn't scroll — acceptable on
+    // the one control whose whole purpose is being dragged along.
+    className="flex flex-col items-end py-1 coarse:touch-none"
+    data-slot="thread-timeline-ticks"
+    onPointerCancel={onPointerCancel}
+    onPointerDown={onPointerDown}
+    onPointerMove={onPointerMove}
+    onPointerUp={onPointerUp}
+    ref={containerRef}
+  >
     {entries.map((entry, index) => (
       <button
         aria-label={entry.preview}
