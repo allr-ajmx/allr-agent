@@ -341,7 +341,13 @@ export function GatewayConfigurator({
 
   const authResolved = probeState === 'done'
   const remoteReady = connection?.mode === 'remote' && phase === 'ready'
-  const oauthConnected = remoteReady && connection?.authMode === 'oauth'
+
+  // The live session belongs to ONE gateway, so the "Signed in / Sign out" state is only
+  // the truth while the field still holds that gateway's URL. Without the comparison,
+  // typing another gateway's URL in Settings keeps showing "Signed in" for the one you
+  // are leaving — and hides the Sign-in button for the one you are trying to reach.
+  const oauthConnected =
+    remoteReady && connection?.authMode === 'oauth' && normalizeBaseUrl(trimmedUrl) === connection.baseUrl
 
   // Which auth control the remote panel shows. Desktop parity: derive it from a
   // live probe while the user edits a URL, ELSE from the live connection, ELSE from
