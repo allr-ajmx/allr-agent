@@ -19,7 +19,7 @@ export function ProjectMenu({ project }: { project: SidebarProjectTree }) {
       <DropdownMenuTrigger asChild>
         <Button
           aria-label={p.menu}
-          className="size-5 rounded-[4px] bg-transparent text-transparent transition-colors hover:bg-(--ui-control-active-background) hover:text-foreground group-hover:text-(--ui-text-tertiary) data-[state=open]:bg-(--ui-control-active-background) data-[state=open]:text-foreground [&_svg]:size-3.5!"
+          className="size-5 rounded-[4px] bg-transparent text-transparent transition-colors hover:bg-(--ui-control-active-background) hover:text-foreground group-hover:text-(--ui-text-tertiary) coarse:text-(--ui-text-tertiary) data-[state=open]:bg-(--ui-control-active-background) data-[state=open]:text-foreground [&_svg]:size-3.5!"
           size="icon"
           variant="ghost"
         >

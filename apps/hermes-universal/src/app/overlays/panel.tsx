@@ -213,8 +213,10 @@ export interface PanelMenuItem {
 
 // Per-row "⋮" actions menu — mirrors the sidebar session row's settled pattern
 // (size-5 ghost trigger + kebab-vertical codicon + w-40 content). Hidden until
-// the row is hovered/focused (or the menu is open). Returns null with no items
-// (e.g. the default profile, which can't be renamed/deleted).
+// the row is hovered/focused (or the menu is open) — except on a coarse
+// pointer, where there is no hover to wait for and this is the row's only path
+// to its actions. Returns null with no items (e.g. the default profile, which
+// can't be renamed/deleted).
 export function PanelRowMenu({ items, label = 'Actions' }: { items: PanelMenuItem[]; label?: string }) {
   if (items.length === 0) {
     return null
@@ -226,7 +228,7 @@ export function PanelRowMenu({ items, label = 'Actions' }: { items: PanelMenuIte
         <Tip label={label}>
           <Button
             aria-label={label}
-            className="size-5 rounded-[4px] bg-transparent text-(--ui-text-tertiary) opacity-0 transition-colors duration-100 hover:bg-(--ui-control-active-background) hover:text-foreground focus-visible:opacity-100 focus-visible:ring-0 group-hover/row:opacity-100 data-[state=open]:bg-(--ui-control-active-background) data-[state=open]:text-foreground data-[state=open]:opacity-100 [&_svg]:size-3.5!"
+            className="size-5 rounded-[4px] bg-transparent text-(--ui-text-tertiary) opacity-0 transition-colors duration-100 hover:bg-(--ui-control-active-background) hover:text-foreground focus-visible:opacity-100 focus-visible:ring-0 group-hover/row:opacity-100 coarse:opacity-100 data-[state=open]:bg-(--ui-control-active-background) data-[state=open]:text-foreground data-[state=open]:opacity-100 [&_svg]:size-3.5!"
             size="icon"
             variant="ghost"
           >

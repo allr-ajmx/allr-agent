@@ -417,9 +417,7 @@ export function SshPanel({
       {hostKey ? (
         <div className="mt-3 grid gap-2 rounded-md border border-(--ui-border) p-3">
           <div className="text-sm font-medium">{g.sshHostKeyTitle}</div>
-          <p className="text-xs text-(--ui-text-secondary)">
-            {g.sshHostKeyDesc(hostKey.host, hostKey.fingerprint)}
-          </p>
+          <p className="text-xs text-(--ui-text-secondary)">{g.sshHostKeyDesc(hostKey.host, hostKey.fingerprint)}</p>
           <div className="flex justify-end gap-2">
             <Button onClick={() => onTrustHostKey(false)} size="sm" variant="outline">
               {g.sshHostKeyReject}

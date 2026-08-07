@@ -1348,7 +1348,7 @@ export function runDebugShare(): Promise<DebugShareResponse> {
   })
 }
 
-// ── Remote workspace filesystem (K13) ───────────────────────────────────────
+// ── Remote workspace filesystem ─────────────────────────────────────────────
 export function readDir(path: string): Promise<ReadDirResult> {
   return api<ReadDirResult>({ ...profileScoped(), path: `/api/fs/list?path=${encodeURIComponent(path)}` })
 }
@@ -1361,7 +1361,7 @@ export function getDefaultCwd(): Promise<DefaultCwdResult> {
   return api<DefaultCwdResult>({ ...profileScoped(), path: '/api/fs/default-cwd' })
 }
 
-// ── Remote git status + diffs (K14, read-only) ──────────────────────────────
+// ── Remote git status + diffs (read-only) ───────────────────────────────────
 export function getRepoStatus(path: string): Promise<RepoStatus | null> {
   return api<RepoStatus | null>({ ...profileScoped(), path: `/api/git/status?path=${encodeURIComponent(path)}` })
 }

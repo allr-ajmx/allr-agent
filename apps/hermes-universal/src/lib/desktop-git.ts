@@ -137,8 +137,7 @@ const remoteGit: GitBridge = {
   // recording repos that don't exist over there. The backend still merges
   // session-derived repos, so discovery degrades instead of breaking.
   // FIXME(MJX-207): a gateway-side `/api/git/scan-repos` would cover those cases.
-  scanRepos: async (roots, options) =>
-    localRepoScanSupported() ? await scanLocalGitRepos(roots, options ?? {}) : []
+  scanRepos: async (roots, options) => (localRepoScanSupported() ? await scanLocalGitRepos(roots, options ?? {}) : [])
 }
 
 export function desktopGit(): GitBridge | undefined {

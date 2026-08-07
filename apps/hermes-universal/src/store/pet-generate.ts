@@ -6,7 +6,7 @@ import { type PetInfo, setPetInfo } from '@/store/pet'
 import { loadPetGallery } from '@/store/pet-gallery'
 import { openAppRoute } from '@/store/windows'
 
-// AI pet generation (K10.c). Three backend steps, mirrored as state here:
+// AI pet generation. Three backend steps, mirrored as state here:
 //   - `pet.generate` produces N cheap base-look *drafts* keyed by a `token`
 //     (streamed in via `pet.generate.progress`).
 //   - `pet.hatch` turns the chosen draft into a full animated pet — installed but

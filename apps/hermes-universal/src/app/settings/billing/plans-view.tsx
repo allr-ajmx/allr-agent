@@ -118,7 +118,7 @@ function PlanCard({ flow, tier }: { flow: DowngradeFlow; tier: BillingPlanTierVi
 
   // When the confirm panel closes (cancel / scheduled), return focus to this tile
   // so keyboard focus is never left detached on the removed panel.
-   
+
   useEffect(() => {
     if (wasConfirming.current && !confirming) {
       cardRef.current?.focus()

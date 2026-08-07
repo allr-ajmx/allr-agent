@@ -46,6 +46,7 @@ import { notify, notifyError } from '@/store/notifications'
 import { $profileScope, ALL_PROFILES } from '@/store/profile'
 
 import { useRefreshHotkey } from '../hooks/use-refresh-hotkey'
+import type { OverlayVariant } from '../overlays/overlay-view'
 import {
   Panel,
   PanelAction,
@@ -271,9 +272,16 @@ interface CronViewProps extends React.ComponentProps<'section'> {
   onClose: () => void
   onOpenSession?: (sessionId: string) => void
   setStatusbarItemGroup?: SetStatusbarItemGroup
+  /** `fullscreen` when hosted as a phone/native screen, which draws its own chrome. */
+  variant?: OverlayVariant
 }
 
-export function CronView({ onClose, onOpenSession, setStatusbarItemGroup: _setStatusbarItemGroup }: CronViewProps) {
+export function CronView({
+  onClose,
+  onOpenSession,
+  setStatusbarItemGroup: _setStatusbarItemGroup,
+  variant
+}: CronViewProps) {
   const { t } = useI18n()
   const c = t.cron
   // Source of truth is the shared atom (also fed by the controller poll), so the
@@ -438,7 +446,7 @@ export function CronView({ onClose, onOpenSession, setStatusbarItemGroup: _setSt
   }
 
   return (
-    <Panel closeLabel={c.close} onClose={onClose}>
+    <Panel closeLabel={c.close} onClose={onClose} variant={variant}>
       {loading && jobs.length === 0 ? (
         <PageLoader label={c.loading} />
       ) : totalCount === 0 ? (

@@ -1,30 +1,50 @@
 //! Nous Cloud / Portal (Privy) integration (Track E4).
 //!
 //! Cloud mode discovers agents from the Nous portal and connects to the chosen
-//! agent's gateway. The portal session is a Privy cookie held in a dedicated,
-//! persistent portal webview (its own `data_directory`), mirroring desktop's
-//! `persist:hermes-remote-oauth` partition. E4.a covers login + status; E4.b
-//! bridges the portal cookie into reqwest to call `/api/agents`; E4.c does the
-//! silent per-agent SSO.
+//! agent's gateway. E4.a covers login + status; E4.b bridges the portal cookie into
+//! reqwest to call `/api/agents`; E4.c does the silent per-agent SSO.
 //!
-//! FIXME(E4): `cookies_for_url()` returns an empty Vec on Android and the Privy
-//! cookie is HttpOnly (so JS can't read it either) — the reqwest cookie bridge
-//! can't authenticate portal calls on Android. Cloud is desktop-working; the
-//! Android fallback (an eval'd fetch inside the portal webview) is deferred.
+//! Two shapes, for the same reason as `oauth.rs`:
+//!
+//!   • Desktop/iOS — the Privy session lives in a dedicated, persistent portal webview
+//!     with its own `data_directory`, mirroring desktop's `persist:hermes-remote-oauth`
+//!     partition. It is kept (hidden) between calls so discovery and the silent SSO can
+//!     reuse it.
+//!   • Android — neither half of that works: a second window would replace the app and
+//!     never close (wry's `setContentView`, see `oauth.rs`), and `data_directory` is not
+//!     honoured — one app-global `CookieManager` holds everything. So the login runs in
+//!     the CALLING webview (navigate away, poll, navigate back) and every later call
+//!     reads the portal cookies back out of that same global store.
+//!
+//! This used to carry a `FIXME(E4)` claiming `cookies_for_url()` returns an empty Vec on
+//! Android. That was the wry `RustWebView.getCookies` null bug, now patched in `build.rs`
+//! — the same read is what makes the Android gateway OAuth poll work today.
 
+#[cfg(not(target_os = "android"))]
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde::Serialize;
 use serde_json::Value;
 use tauri::webview::cookie::Cookie;
-use tauri::{AppHandle, Manager, State, Url, WebviewUrl, WebviewWindowBuilder, WindowEvent};
+use tauri::{AppHandle, State, Url, WebviewWindow};
+// The dedicated portal window and its callback intercept are the desktop/iOS shape only.
+#[cfg(not(target_os = "android"))]
+use tauri::{Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent};
+#[cfg(not(target_os = "android"))]
 use tokio::sync::oneshot;
 
 use crate::transport::TransportState;
 
+#[cfg(not(target_os = "android"))]
 const PORTAL_WINDOW_LABEL: &str = "hermes-portal";
 const DEFAULT_PORTAL: &str = "https://portal.nousresearch.com";
+
+/// How long the Android login may run before we navigate the app back. Tighter than
+/// desktop's 300s for the same reason as `oauth.rs`: the login has replaced the whole app
+/// UI, so there is no in-app cancel until this elapses.
+#[cfg(target_os = "android")]
+const PORTAL_TIMEOUT_SECS_ANDROID: u64 = 120;
 
 /// Portal base URL — env-overridable like desktop (`HERMES_PORTAL_BASE_URL` /
 /// `NOUS_PORTAL_BASE_URL`), trailing slash stripped.
@@ -45,21 +65,36 @@ pub struct PortalStatus {
 
 /// Privy portal session cookie names (bare + prefixed variants), from desktop
 /// `connection-config.ts`.
-pub fn has_privy_cookie(cookies: &[Cookie<'static>]) -> bool {
-    cookies.iter().any(|c| {
-        matches!(
-            c.name(),
-            "privy-token" | "__Host-privy-token" | "__Secure-privy-token" | "privy-session"
-        )
-    })
+fn is_privy_cookie(name: &str) -> bool {
+    matches!(
+        name,
+        "privy-token" | "__Host-privy-token" | "__Secure-privy-token" | "privy-session"
+    )
 }
 
+pub fn has_privy_cookie(cookies: &[Cookie<'static>]) -> bool {
+    cookies.iter().any(|c| is_privy_cookie(c.name()))
+}
+
+/// The Privy cookie values currently held, so the Android login can tell a session it
+/// just minted from one that was already lying around (see `portal_login`).
+#[cfg(target_os = "android")]
+fn privy_cookie_values(cookies: &[Cookie<'static>]) -> Vec<String> {
+    cookies
+        .iter()
+        .filter(|c| is_privy_cookie(c.name()))
+        .map(|c| c.value().to_string())
+        .collect()
+}
+
+#[cfg(not(target_os = "android"))]
 fn portal_data_dir(app: &AppHandle) -> Option<std::path::PathBuf> {
     app.path().app_data_dir().ok().map(|d| d.join("portal-webview"))
 }
 
 /// Build the persistent portal webview (its own data_directory so the Privy
 /// session survives restarts and is shared with the discovery/SSO calls).
+#[cfg(not(target_os = "android"))]
 fn build_portal_window(app: &AppHandle, url: Url, visible: bool) -> tauri::Result<()> {
     let mut builder = WebviewWindowBuilder::new(app, PORTAL_WINDOW_LABEL, WebviewUrl::External(url))
         .title("Nous Portal")
@@ -71,54 +106,123 @@ fn build_portal_window(app: &AppHandle, url: Url, visible: bool) -> tauri::Resul
     builder.build().map(|_| ())
 }
 
-/// Read the portal webview's cookies for the portal origin. Returns false when no
-/// webview exists yet. FIXME(E4): empty on Android (see module note).
-fn portal_signed_in(app: &AppHandle, portal_url: &Url) -> bool {
-    app.get_webview_window(PORTAL_WINDOW_LABEL)
-        .and_then(|w| w.cookies_for_url(portal_url.clone()).ok())
-        .map(|c| has_privy_cookie(&c))
-        .unwrap_or(false)
+/// The portal's cookies, from wherever this platform keeps them (see the module note):
+/// the dedicated portal webview off-Android, the calling webview — reading the one
+/// app-global cookie store — on Android. Empty when there is no session yet.
+fn portal_cookies(app: &AppHandle, webview: &WebviewWindow, portal_url: &Url) -> Vec<Cookie<'static>> {
+    #[cfg(target_os = "android")]
+    {
+        let _ = app;
+
+        webview.cookies_for_url(portal_url.clone()).unwrap_or_default()
+    }
+
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = webview;
+
+        app.get_webview_window(PORTAL_WINDOW_LABEL)
+            .and_then(|w| w.cookies_for_url(portal_url.clone()).ok())
+            .unwrap_or_default()
+    }
 }
 
-/// Interactive portal sign-in: open the portal login page and wait until the
-/// Privy session cookie appears, then hide the window (its data_directory keeps
-/// the session for discovery + agent SSO).
+/// Whether a live Privy session is present. False when no portal webview exists yet.
+fn portal_signed_in(app: &AppHandle, webview: &WebviewWindow, portal_url: &Url) -> bool {
+    has_privy_cookie(&portal_cookies(app, webview, portal_url))
+}
+
+/// Interactive portal sign-in: show the portal login page and wait until the Privy
+/// session cookie appears.
+///
+/// Desktop/iOS open the dedicated portal window and hide it on success (its
+/// data_directory keeps the session for discovery + agent SSO). Android navigates the
+/// CALLING webview there and back — so, exactly like `oauth_login`, this destroys the JS
+/// context and never resolves for the caller; the frontend persists a one-shot marker
+/// first and picks the flow back up after the reload.
 #[tauri::command]
-pub async fn portal_login(app: AppHandle) -> Result<PortalStatus, String> {
+pub async fn portal_login(app: AppHandle, webview: WebviewWindow) -> Result<PortalStatus, String> {
     let base = portal_base();
     let login_url =
         Url::parse(&format!("{base}/login")).map_err(|e| format!("bad portal URL: {e}"))?;
     let portal_url = Url::parse(&base).map_err(|e| format!("bad portal URL: {e}"))?;
 
-    // (Re)create the visible portal window on the main thread.
-    let app_build = app.clone();
-    app.run_on_main_thread(move || {
-        if let Some(existing) = app_build.get_webview_window(PORTAL_WINDOW_LABEL) {
-            let _ = existing.close();
-        }
-        let _ = build_portal_window(&app_build, login_url, true);
-    })
-    .map_err(|e| format!("failed to open portal window: {e}"))?;
+    #[cfg(target_os = "android")]
+    {
+        // The Android cookie store is app-global AND persistent, so a Privy cookie the
+        // server has since revoked can still be sitting there. Accepting on mere presence
+        // would return "signed in" before the user typed anything, and every call after
+        // it would 401 — a sign-in loop with no way out. So require a value we did not
+        // already have: a real login always mints a fresh one.
+        let known = privy_cookie_values(&portal_cookies(&app, &webview, &portal_url));
 
-    // Poll the portal cookie jar (like desktop's 750ms poll) until signed in or
-    // the window is closed / we time out.
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(300);
-    loop {
-        tokio::time::sleep(Duration::from_millis(750)).await;
-        if app.get_webview_window(PORTAL_WINDOW_LABEL).is_none() {
-            return Err("Portal sign-in window was closed before completing".to_string());
+        // Same round-trip as oauth.rs: capture where we are, navigate, poll, come back.
+        let return_url = webview
+            .url()
+            .map_err(|e| format!("could not read current app URL: {e}"))?;
+        log::info!(
+            "[portal] navigating webview {:?} to sign-in; will return to {return_url}",
+            webview.label()
+        );
+        webview
+            .navigate(login_url)
+            .map_err(|e| format!("could not open the portal sign-in page: {e}"))?;
+
+        let deadline = tokio::time::Instant::now()
+            + Duration::from_secs(PORTAL_TIMEOUT_SECS_ANDROID);
+        let mut signed_in = false;
+        while tokio::time::Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(750)).await;
+            let fresh = privy_cookie_values(&portal_cookies(&app, &webview, &portal_url));
+            if fresh.iter().any(|value| !known.contains(value)) {
+                signed_in = true;
+                break;
+            }
         }
-        if portal_signed_in(&app, &portal_url) {
-            let app_hide = app.clone();
-            let _ = app.run_on_main_thread(move || {
-                if let Some(w) = app_hide.get_webview_window(PORTAL_WINDOW_LABEL) {
-                    let _ = w.hide();
-                }
-            });
-            return Ok(PortalStatus { signed_in: true, portal_base_url: base });
-        }
-        if tokio::time::Instant::now() >= deadline {
+
+        // Restore the app either way — on success the reload resumes into cloud mode, on
+        // timeout it lands back on the gateway panel.
+        let _ = webview.navigate(return_url);
+
+        if !signed_in {
             return Err("Portal sign-in timed out".to_string());
+        }
+
+        return Ok(PortalStatus { signed_in: true, portal_base_url: base });
+    }
+
+    #[cfg(not(target_os = "android"))]
+    {
+        // (Re)create the visible portal window on the main thread.
+        let app_build = app.clone();
+        app.run_on_main_thread(move || {
+            if let Some(existing) = app_build.get_webview_window(PORTAL_WINDOW_LABEL) {
+                let _ = existing.close();
+            }
+            let _ = build_portal_window(&app_build, login_url, true);
+        })
+        .map_err(|e| format!("failed to open portal window: {e}"))?;
+
+        // Poll the portal cookie jar (like desktop's 750ms poll) until signed in or
+        // the window is closed / we time out.
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(300);
+        loop {
+            tokio::time::sleep(Duration::from_millis(750)).await;
+            if app.get_webview_window(PORTAL_WINDOW_LABEL).is_none() {
+                return Err("Portal sign-in window was closed before completing".to_string());
+            }
+            if portal_signed_in(&app, &webview, &portal_url) {
+                let app_hide = app.clone();
+                let _ = app.run_on_main_thread(move || {
+                    if let Some(w) = app_hide.get_webview_window(PORTAL_WINDOW_LABEL) {
+                        let _ = w.hide();
+                    }
+                });
+                return Ok(PortalStatus { signed_in: true, portal_base_url: base });
+            }
+            if tokio::time::Instant::now() >= deadline {
+                return Err("Portal sign-in timed out".to_string());
+            }
         }
     }
 }
@@ -197,16 +301,13 @@ fn parse_orgs(v: &Value) -> Vec<CloudOrg> {
 #[tauri::command]
 pub async fn portal_discover_agents(
     app: AppHandle,
+    webview: WebviewWindow,
     org: Option<String>,
 ) -> Result<DiscoverResult, String> {
     let base = portal_base();
     let portal_url = Url::parse(&base).map_err(|e| format!("bad portal URL: {e}"))?;
 
-    // Pull the portal cookies from the (persistent) portal webview.
-    let cookies = app
-        .get_webview_window(PORTAL_WINDOW_LABEL)
-        .and_then(|w| w.cookies_for_url(portal_url).ok())
-        .unwrap_or_default();
+    let cookies = portal_cookies(&app, &webview, &portal_url);
     if !has_privy_cookie(&cookies) {
         return Ok(DiscoverResult { needs_login: true, ..Default::default() });
     }
@@ -259,25 +360,47 @@ pub async fn portal_discover_agents(
 /// Privy session cookie in its data_directory). Best-effort — a missing window
 /// means there's nothing to clear.
 #[tauri::command]
-pub async fn portal_logout(app: AppHandle) -> Result<(), String> {
-    let app_clear = app.clone();
-    app.run_on_main_thread(move || {
-        if let Some(w) = app_clear.get_webview_window(PORTAL_WINDOW_LABEL) {
-            let _ = w.clear_all_browsing_data();
-        }
-    })
-    .map_err(|e| format!("failed to clear portal session: {e}"))?;
-    Ok(())
+pub async fn portal_logout(app: AppHandle, webview: WebviewWindow) -> Result<(), String> {
+    #[cfg(target_os = "android")]
+    {
+        let _ = &app;
+
+        // ponytail: Android has ONE cookie store, so this drops the gateway session too.
+        // Both callers are sign-outs (`signOut`, `cloudSignOut`), so that is at worst a
+        // re-login; per-origin clearing is the upgrade path if it ever isn't.
+        webview
+            .clear_all_browsing_data()
+            .map_err(|e| format!("failed to clear portal session: {e}"))?;
+
+        return Ok(());
+    }
+
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = webview;
+
+        let app_clear = app.clone();
+        app.run_on_main_thread(move || {
+            if let Some(w) = app_clear.get_webview_window(PORTAL_WINDOW_LABEL) {
+                let _ = w.clear_all_browsing_data();
+            }
+        })
+        .map_err(|e| format!("failed to clear portal session: {e}"))?;
+
+        Ok(())
+    }
 }
 
-/// Whether a live portal session exists, without prompting. Ensures a hidden
-/// portal webview exists (to hold/read the persisted session), then reads its
-/// cookies.
+/// Whether a live portal session exists, without prompting. Off-Android this ensures the
+/// hidden portal webview exists first (it is what holds the persisted session); on
+/// Android there is no such webview — the session is in the app-global cookie store, so
+/// the read is immediate.
 #[tauri::command]
-pub async fn portal_status(app: AppHandle) -> Result<PortalStatus, String> {
+pub async fn portal_status(app: AppHandle, webview: WebviewWindow) -> Result<PortalStatus, String> {
     let base = portal_base();
     let portal_url = Url::parse(&base).map_err(|e| format!("bad portal URL: {e}"))?;
 
+    #[cfg(not(target_os = "android"))]
     if app.get_webview_window(PORTAL_WINDOW_LABEL).is_none() {
         let app_build = app.clone();
         let url = portal_url.clone();
@@ -290,7 +413,7 @@ pub async fn portal_status(app: AppHandle) -> Result<PortalStatus, String> {
     }
 
     Ok(PortalStatus {
-        signed_in: portal_signed_in(&app, &portal_url),
+        signed_in: portal_signed_in(&app, &webview, &portal_url),
         portal_base_url: base,
     })
 }
@@ -312,9 +435,15 @@ pub struct AgentSignInResult {
 /// `authorize` step auto-approves for org members with no prompt. The PKCE +
 /// session cookies land in the shared gateway (transport) jar, so the subsequent
 /// ws-ticket mint is authenticated exactly like a manual OAuth login.
+///
+/// Android has no portal webview to drive, so it runs the authorize cascade in reqwest
+/// instead: the Privy cookies are copied out of the app-global store into the shared jar,
+/// and the redirect-following client walks `authorize → portal → agent callback` itself.
+/// Nothing navigates, so unlike `portal_login` this one really is silent there.
 #[tauri::command]
 pub async fn portal_agent_sign_in(
     app: AppHandle,
+    webview: WebviewWindow,
     state: State<'_, TransportState>,
     dashboard_url: String,
 ) -> Result<AgentSignInResult, String> {
@@ -339,6 +468,26 @@ pub async fn portal_agent_sign_in(
         .ok_or_else(|| "no Location on agent /auth/login".to_string())?
         .to_string();
     let authorize_url = Url::parse(&authorize).map_err(|e| format!("bad authorize URL: {e}"))?;
+
+    // 2/3. Approve the authorize request with the live portal session, however this
+    //      platform can, and land the agent's session cookie in the shared jar.
+    let connected = agent_sso(&app, &webview, state.inner(), &base, authorize_url).await?;
+
+    Ok(AgentSignInResult { connected, base_url: base })
+}
+
+/// The authorize leg, desktop/iOS: drive it in the hidden portal webview (same
+/// data_directory → the Privy session auto-approves) with a callback intercept, then
+/// complete the exchange over reqwest.
+#[cfg(not(target_os = "android"))]
+async fn agent_sso(
+    app: &AppHandle,
+    webview: &WebviewWindow,
+    state: &TransportState,
+    base: &str,
+    authorize_url: Url,
+) -> Result<bool, String> {
+    let _ = webview;
     let callback_prefix = format!("{base}/auth/callback");
 
     // 2. Drive the authorize URL in the portal webview (same data_directory → the
@@ -348,7 +497,7 @@ pub async fn portal_agent_sign_in(
     let tx_nav = tx.clone();
     let tx_close = tx.clone();
     let app_build = app.clone();
-    let data_dir = portal_data_dir(&app);
+    let data_dir = portal_data_dir(app);
 
     app.run_on_main_thread(move || {
         if let Some(existing) = app_build.get_webview_window(PORTAL_WINDOW_LABEL) {
@@ -409,10 +558,57 @@ pub async fn portal_agent_sign_in(
     let done = state
         .no_redirect_client()
         .get(&callback_url)
-        .header(reqwest::header::ORIGIN, &base)
+        .header(reqwest::header::ORIGIN, base)
         .send()
         .await
         .map_err(|e| format!("agent auth/callback failed: {e}"))?;
-    let connected = done.status().is_redirection() || done.status().is_success();
-    Ok(AgentSignInResult { connected, base_url: base })
+    Ok(done.status().is_redirection() || done.status().is_success())
+}
+
+/// The authorize leg, Android: there is no portal webview to drive, so bridge the Privy
+/// cookies out of the app-global store into the shared jar and let the
+/// redirect-FOLLOWING client walk the cascade itself. It ends at `{base}/auth/callback`,
+/// which drops the agent session cookie in that same jar — so unlike `portal_login`, this
+/// really is silent here: nothing navigates.
+#[cfg(target_os = "android")]
+async fn agent_sso(
+    app: &AppHandle,
+    webview: &WebviewWindow,
+    state: &TransportState,
+    base: &str,
+    authorize_url: Url,
+) -> Result<bool, String> {
+    let portal_url = Url::parse(&portal_base()).map_err(|e| format!("bad portal URL: {e}"))?;
+    let cookies = portal_cookies(app, webview, &portal_url);
+    if !has_privy_cookie(&cookies) {
+        return Err("Not signed in to the Nous portal".to_string());
+    }
+    {
+        let mut store = state
+            .cookies()
+            .lock()
+            .map_err(|_| "cookie jar poisoned".to_string())?;
+        for cookie in &cookies {
+            let _ = store.insert_raw(cookie, &portal_url);
+        }
+    }
+
+    let cascade = state
+        .client()
+        .get(authorize_url)
+        .send()
+        .await
+        .map_err(|e| format!("silent SSO failed: {e}"))?;
+    log::info!("[portal] silent SSO cascade -> {}", cascade.status());
+
+    // The cookie is what matters, not the final page — confirm it server-side the same
+    // way oauth.rs does after an interactive login.
+    let me = state
+        .client()
+        .get(format!("{base}/api/auth/me"))
+        .header(reqwest::header::ORIGIN, base)
+        .send()
+        .await;
+
+    Ok(matches!(me, Ok(ref resp) if resp.status().is_success()))
 }

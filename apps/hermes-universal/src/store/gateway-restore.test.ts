@@ -10,14 +10,20 @@ vi.mock('@/store/connection', () => ({
   loadSavedLogin: vi.fn().mockResolvedValue({ token: 'T', password: 'P' })
 }))
 
+vi.mock('@/lib/auth', () => ({ oauthStatus: vi.fn().mockResolvedValue({ signedIn: false }) }))
+vi.mock('@/store/gateway-switch-broadcast', () => ({ broadcastGatewaySwitch: vi.fn() }))
+
+import { oauthStatus } from '@/lib/auth'
 import { connect, connectCloud, connectLocal, connectSsh } from '@/store/connection'
+import { broadcastGatewaySwitch } from '@/store/gateway-switch-broadcast'
 
 import {
   $restoring,
   autoRestoreConnection,
   clearGatewayTarget,
   loadGatewayTarget,
-  saveGatewayTarget
+  saveGatewayTarget,
+  savePendingOAuth
 } from './gateway-restore'
 
 beforeEach(() => {
@@ -80,6 +86,47 @@ describe('autoRestoreConnection', () => {
     saveGatewayTarget({ mode: 'remote', url: 'host:1' })
     await autoRestoreConnection()
     expect($restoring.get()).toBe(false)
+  })
+})
+
+// On Android the sign-in navigates ONE webview away and back, which reloads the SPA —
+// and that webview need not be the shell (Settings runs in its own activity). So the
+// resume has to re-home the others, or they keep serving the gateway we just left.
+describe('android oauth resume', () => {
+  it('finishes the connect and tells every other WebView', async () => {
+    savePendingOAuth({ base: 'https://gw.b', username: 'admin' })
+    vi.mocked(oauthStatus).mockResolvedValueOnce({ signedIn: true })
+    // connect() is mocked here, so stand in for the target it persists on success.
+    saveGatewayTarget({ mode: 'remote', url: 'https://gw.b' })
+
+    await autoRestoreConnection()
+
+    expect(connect).toHaveBeenCalledWith({ url: 'https://gw.b', username: 'admin' })
+    expect(broadcastGatewaySwitch).toHaveBeenCalledWith('remote', expect.objectContaining({ url: 'https://gw.b' }))
+    expect($restoring.get()).toBe(false)
+  })
+
+  it('does not broadcast a connect that failed', async () => {
+    savePendingOAuth({ base: 'https://gw.b' })
+    vi.mocked(oauthStatus).mockResolvedValueOnce({ signedIn: true })
+    vi.mocked(connect).mockRejectedValueOnce(new Error('unreachable'))
+    saveGatewayTarget({ mode: 'remote', url: 'https://gw.b' })
+
+    await autoRestoreConnection()
+
+    expect(broadcastGatewaySwitch).not.toHaveBeenCalled()
+    expect($restoring.get()).toBe(false)
+  })
+
+  // A cancelled login leaves the marker consumed but no session: fall through to the
+  // ordinary restore rather than re-navigating into a sign-in loop.
+  it('falls through when the sign-in never landed', async () => {
+    savePendingOAuth({ base: 'https://gw.b' })
+
+    await autoRestoreConnection()
+
+    expect(connect).not.toHaveBeenCalled()
+    expect(broadcastGatewaySwitch).not.toHaveBeenCalled()
   })
 })
 

@@ -62,7 +62,10 @@ export function ProjectOverviewRow({
           {project.sessionCount > 0 && <SidebarCount>{project.sessionCount}</SidebarCount>}
           {previews.length > 0 && (
             <button
-              className="ml-auto grid size-4 shrink-0 place-items-center rounded-sm text-(--ui-text-tertiary) opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100"
+              // Not a decorative caret: the row's label navigates into the
+              // project, so this button is the only way to peek at its
+              // sessions in place.
+              className="ml-auto grid size-4 shrink-0 place-items-center rounded-sm text-(--ui-text-tertiary) opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100 coarse:opacity-100"
               onClick={() => setExpanded(v => !v)}
               type="button"
             >

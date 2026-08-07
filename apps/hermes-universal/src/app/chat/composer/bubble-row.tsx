@@ -11,12 +11,20 @@ import {
 import { useI18n } from '@/i18n'
 import { sessionTitle } from '@/lib/chat-runtime'
 import { triggerHaptic } from '@/lib/haptics'
-import { MessageCircle } from '@/lib/icons'
+import { MessageCircle, Plus } from '@/lib/icons'
 import { rafCoalesce } from '@/lib/raf-coalesce'
 import { cn } from '@/lib/utils'
 import { useStore } from '@/store/atom'
-import { $chatBubbles, type ChatBubble, removeBubble, switchToBubble } from '@/store/chat-bubbles'
-import { $activeStoredSessionId, $sessions, $unreadFinishedSessionIds, $workingSessionIds } from '@/store/session'
+import { $chatBubbles, type ChatBubble, newChatBubble, removeBubble, switchToBubble } from '@/store/chat-bubbles'
+import {
+  $activeStoredSessionId,
+  $sessions,
+  $unreadFinishedSessionIds,
+  $workingSessionIds,
+  refreshSessions
+} from '@/store/session'
+
+import { newSessionProgress, type NewSessionSide, resolveDrag, type TrackBounds } from './bubble-drag'
 
 // Distance up (px) before a held bubble arms for close. The pointer must also
 // travel more vertically than horizontally, so a diagonal swipe still switches
@@ -30,11 +38,22 @@ interface GestureState {
   bubbles: ChatBubble[]
   peeked: number
   armed: boolean
+  /** Past the new-session commit threshold — tracked so the haptic fires once
+   *  on the crossing rather than every frame beyond it. */
+  newArmed: boolean
+  /** Which end the gap was pulled open on. Read on release: the ghost the user
+   *  watched grow is on this side, so the real bubble has to land there. */
+  newSide: NewSessionSide | null
 }
 
 interface Preview {
   peeked: number
   closeArmed: boolean
+  /** Which empty side the new-session bubble is showing on, if any. */
+  newSide: NewSessionSide | null
+  newArmed: boolean
+  /** 0 → 1 across reveal→commit, for growing the ghost in. */
+  newProgress: number
 }
 
 /**
@@ -54,7 +73,13 @@ export function BubbleRow() {
   const unread = useStore($unreadFinishedSessionIds)
   const working = useStore($workingSessionIds)
 
-  const activeIndex = bubbles.findIndex(b => b.storedSessionId === activeId)
+  // The active id arrives a beat after the persisted bubbles do, so on a cold
+  // load `findIndex` is -1 for a moment. Centre the first bubble meanwhile —
+  // `centerTranslate(-1)` is 0, which is not "no bubble centred" but "the strip
+  // pinned to the left edge", and that is what the whole row looked like on
+  // every fresh start.
+  const foundIndex = bubbles.findIndex(b => b.storedSessionId === activeId)
+  const activeIndex = foundIndex >= 0 ? foundIndex : 0
 
   const [preview, setPreview] = useState<null | Preview>(null)
   const [translate, setTranslate] = useState(0)
@@ -70,21 +95,48 @@ export function BubbleRow() {
 
   const titleOf = useCallback(
     (bubble: ChatBubble | undefined): string => {
+      // Only a bubble with no stored id is genuinely a new chat. An id we cannot
+      // resolve is a loaded chat whose title has not arrived — saying "New
+      // session" for it made every bubble claim to be one on a cold start.
       if (!bubble || bubble.storedSessionId === null) {
         return t.sidebar.nav['new-session']
       }
 
       const session = sessions.find(s => s.id === bubble.storedSessionId)
 
-      return session ? sessionTitle(session) : t.sidebar.nav['new-session']
+      return session ? sessionTitle(session) : t.common.loading
     },
     [sessions, t]
   )
+
+  // Bubble titles come from the session list, and on a phone nothing else pulls
+  // it — the sidebar is a separate surface that may never have been opened. So
+  // the row asks for it when it holds ids it cannot name.
+  const unresolved = bubbles.some(b => b.storedSessionId !== null && !sessions.some(s => s.id === b.storedSessionId))
+
+  useEffect(() => {
+    if (unresolved) {
+      void refreshSessions()
+    }
+    // Deliberately keyed on the flag, not the lists: this must fire when ids go
+    // unresolved, not on every session-list update.
+  }, [unresolved])
 
   // The translate that pins bubble `index` to the container center.
   const centerTranslate = useCallback(
     (index: number) => (index >= 0 ? containerCenterRef.current - (centersRef.current[index] ?? 0) : 0),
     []
+  )
+
+  // The translates that park the first and last bubble at the centre. Dragging
+  // stops here: past it the strip has nothing left to show, and letting it keep
+  // sliding is what made the highlight and the centred bubble disagree.
+  const trackBounds = useCallback(
+    (): TrackBounds => ({
+      max: centerTranslate(0),
+      min: centerTranslate(Math.max(0, centersRef.current.length - 1))
+    }),
+    [centerTranslate]
   )
 
   // The bubble nearest the center for a given track translate.
@@ -161,22 +213,46 @@ export function BubbleRow() {
         }
       }
 
-      // While armed for close, freeze the slide so the red bubble stays put.
-      if (!armed) {
-        const tx = st.base + dx
-        setTranslate(tx)
+      // While armed for close, freeze the slide so the red bubble stays put —
+      // and with it any new-session arming, so one gesture can't mean both.
+      if (armed) {
+        setPreview({ closeArmed: true, newArmed: false, newProgress: 0, newSide: null, peeked: st.peeked })
 
-        const peeked = peekedFor(tx)
+        return
+      }
 
-        if (peeked !== st.peeked) {
-          st.peeked = peeked
-          void triggerHaptic('selection')
+      const drag = resolveDrag(st.base + dx, trackBounds())
+      setTranslate(drag.translate)
+
+      // Peek from the CLAMPED translate: past the end stop there is no further
+      // bubble, so the end one stays picked however hard you pull.
+      const peeked = peekedFor(drag.clamped)
+
+      if (peeked !== st.peeked) {
+        st.peeked = peeked
+        void triggerHaptic('selection')
+      }
+
+      st.newSide = drag.newSessionSide
+
+      if (drag.newSessionArmed !== st.newArmed) {
+        st.newArmed = drag.newSessionArmed
+
+        // Same cue the close gesture uses: "you have armed something, let go".
+        if (drag.newSessionArmed) {
+          void triggerHaptic('warning')
         }
       }
 
-      setPreview({ closeArmed: armed, peeked: st.peeked })
+      setPreview({
+        closeArmed: false,
+        newArmed: drag.newSessionArmed,
+        newProgress: newSessionProgress(drag.overshoot),
+        newSide: drag.newSessionSide,
+        peeked: st.peeked
+      })
     },
-    [peekedFor]
+    [peekedFor, trackBounds]
   )
 
   const mover = useMemo(() => rafCoalesce(applyMove), [applyMove])
@@ -219,6 +295,24 @@ export function BubbleRow() {
       return
     }
 
+    if (st.newArmed) {
+      // Dragged out past the end of the strip and let go: the empty side you
+      // pulled open becomes a new chat. Dragging back inside the threshold
+      // before releasing falls through below instead, which lands on the end
+      // bubble — so the gesture is reversible right up to the last moment.
+      //
+      // It joins the strip on the side the gap was pulled open on. The ghost
+      // grew there and that is where the user is looking; appending to the far
+      // end instead made the new chat appear behind them.
+      newChatBubble(st.newSide ?? 'end')
+      // A no-op inside the store (already on a draft) would otherwise leave the
+      // strip parked at the overdrag; the layout effect corrects this when the
+      // bubble list does change.
+      setTranslate(centerTranslate(st.peeked))
+
+      return
+    }
+
     if (target) {
       // No-op inside the store when it's already the active bubble.
       switchToBubble(target.storedSessionId)
@@ -246,12 +340,20 @@ export function BubbleRow() {
         armed: false,
         base,
         bubbles: $chatBubbles.get(),
+        newArmed: false,
+        newSide: null,
         peeked: idx < 0 ? 0 : idx,
         startX: event.clientX,
         startY: event.clientY
       }
       setTranslate(base)
-      setPreview({ closeArmed: false, peeked: idx < 0 ? 0 : idx })
+      setPreview({
+        closeArmed: false,
+        newArmed: false,
+        newProgress: 0,
+        newSide: null,
+        peeked: idx < 0 ? 0 : idx
+      })
       void triggerHaptic('selection')
 
       window.addEventListener('pointermove', onMove, { passive: false })
@@ -270,9 +372,11 @@ export function BubbleRow() {
   // The bubble sitting at (or sliding into) center — enlarged + highlighted.
   const centeredIndex = preview ? preview.peeked : activeIndex
   const peekBubble = preview ? bubbles[preview.peeked] : null
+  // Only the side actually being pulled open shows a ghost; the other stays at 0.
+  const progressFor = (side: NewSessionSide) => (preview?.newSide === side ? preview.newProgress : 0)
 
   return (
-    <div className="relative w-full select-none py-1" data-slot="bubble-row">
+    <div className="relative w-full select-none" data-slot="bubble-row">
       {/* Title tooltip — above the centered bubble, only while a press is active. */}
       {dragging && (
         <div
@@ -280,23 +384,41 @@ export function BubbleRow() {
             'pointer-events-none absolute -top-9 left-1/2 z-10 max-w-[70%] -translate-x-1/2 truncate rounded-md px-2 py-0.5 text-[0.7rem] font-medium shadow-sm',
             preview?.closeArmed
               ? 'bg-destructive/15 text-destructive'
-              : 'bg-(--ui-bg-chrome) text-(--ui-text-secondary)'
+              : preview?.newArmed
+                ? 'bg-primary/15 text-primary'
+                : 'bg-(--ui-bg-chrome) text-(--ui-text-secondary)'
           )}
         >
-          {preview?.closeArmed ? t.composer.bubbles.releaseToClose : titleOf(peekBubble ?? undefined)}
+          {preview?.closeArmed
+            ? t.composer.bubbles.releaseToClose
+            : preview?.newArmed
+              ? t.composer.bubbles.releaseForNewChat
+              : titleOf(peekBubble ?? undefined)}
         </div>
       )}
 
-      {/* Clip window — the track slides inside it; bubbles fan past the edges. */}
-      <div className="relative w-full touch-none overflow-hidden" ref={containerRef}>
+      {/* Clip window — the track slides inside it; bubbles fan past the edges.
+          The vertical padding is what the centred bubble's `scale-110` needs:
+          `overflow-hidden` clips both axes (CSS won't let one be `visible` while
+          the other is `hidden`) and the strip must clip horizontally, so the
+          enlarged bubble was being shaved top and bottom. The padding moved here
+          off the wrapper, so the row's total height is unchanged. */}
+      <div className="relative w-full touch-none overflow-hidden py-1" ref={containerRef}>
         <div
           className={cn(
-            'flex w-max items-center gap-2.5 will-change-transform',
+            'relative flex w-max items-center gap-2.5 will-change-transform',
             !dragging && 'transition-transform duration-300 ease-out'
           )}
           ref={trackRef}
           style={{ transform: `translateX(${translate}px)` }}
         >
+          {/* The new-session bubbles flank the strip and are ABSOLUTE, not flex
+              children: laid out they would shift every `offsetLeft` that
+              `recompute` measures, moving the real bubbles to make room for
+              something that is invisible almost all of the time. */}
+          <NewSessionGhost armed={Boolean(preview?.newArmed)} progress={progressFor('start')} side="start" />
+          <NewSessionGhost armed={Boolean(preview?.newArmed)} progress={progressFor('end')} side="end" />
+
           {bubbles.map((bubble, index) => {
             const isCentered = index === centeredIndex
             const armed = isCentered && preview?.closeArmed
@@ -335,6 +457,40 @@ export function BubbleRow() {
           })}
         </div>
       </div>
+    </div>
+  )
+}
+
+/**
+ * The bubble that appears in the empty space past the end of the strip, and
+ * becomes a new chat if you let go there.
+ *
+ * It grows and solidifies across the reveal→commit span rather than popping in
+ * at the end, so the commit point is something you watch approach instead of
+ * something you are told about once you have passed it. Sized and offset to sit
+ * exactly where the next real bubble would (`size-8` + the track's `gap-2.5`).
+ */
+function NewSessionGhost({ armed, progress, side }: { armed: boolean; progress: number; side: NewSessionSide }) {
+  if (progress <= 0) {
+    return null
+  }
+
+  return (
+    <div
+      aria-hidden
+      className={cn(
+        'pointer-events-none absolute top-1/2 flex size-8 items-center justify-center rounded-full',
+        side === 'start' ? '-left-[2.625rem]' : '-right-[2.625rem]',
+        armed ? 'bg-primary text-primary-foreground' : 'bg-primary/15 text-primary'
+      )}
+      style={{
+        opacity: 0.5 + 0.5 * progress,
+        // One inline transform: a Tailwind `-translate-y-1/2` would be replaced
+        // by this rather than composed with it.
+        transform: `translateY(-50%) scale(${0.7 + 0.4 * progress})`
+      }}
+    >
+      <Plus size={18} />
     </div>
   )
 }

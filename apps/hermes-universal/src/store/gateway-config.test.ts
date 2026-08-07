@@ -169,9 +169,7 @@ describe('connectionCacheKey', () => {
 
   it('separates profiles on one backend', () => {
     const base = sshConn('http://127.0.0.1:41337')
-    expect(connectionCacheKey({ ...base, profile: 'work' })).not.toBe(
-      connectionCacheKey({ ...base, profile: 'home' })
-    )
+    expect(connectionCacheKey({ ...base, profile: 'work' })).not.toBe(connectionCacheKey({ ...base, profile: 'home' }))
   })
 
   it('keys every other mode on the baseUrl', () => {

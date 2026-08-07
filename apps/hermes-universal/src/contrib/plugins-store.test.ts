@@ -13,8 +13,13 @@ import {
 const DECISIONS_KEY = 'hermes.desktop.pluginDecisions.v2'
 const LEGACY_DISABLED_KEY = 'hermes.desktop.disabledPlugins.v1'
 
-const record = (id: string, over: Partial<Parameters<typeof publishPlugin>[0]> = {}) =>
-  ({ id, kind: 'disk' as const, name: id, status: 'loaded' as const, ...over })
+const record = (id: string, over: Partial<Parameters<typeof publishPlugin>[0]> = {}) => ({
+  id,
+  kind: 'disk' as const,
+  name: id,
+  status: 'loaded' as const,
+  ...over
+})
 
 beforeEach(() => {
   $pluginRecords.set({})

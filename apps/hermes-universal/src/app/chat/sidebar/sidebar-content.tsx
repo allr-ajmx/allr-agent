@@ -77,6 +77,7 @@ import {
   sessionPinId,
   startSessionInWorkspace
 } from '@/store/session'
+import { openAppRoute } from '@/store/windows'
 import type { SessionInfo, SessionSearchResult } from '@/types/hermes'
 
 import { countLabel } from './chrome'
@@ -141,9 +142,27 @@ const SESSIONS_CONTENT_GROUPED_CLASS = SESSIONS_CONTENT_CLASS.replace('gap-px', 
 
 const SESSIONS_ROOT_CLASS = 'flex min-h-0 flex-1 flex-col p-0'
 
+// The entered project's sessions, remembered across mounts.
+//
+// Every other list this body shows lives in a store, so closing and reopening the
+// phone's sidebar drawer re-paints them instantly from cache while the refresh
+// runs behind. This one was component state, so a reopen started at null and the
+// rows blanked and repopulated — the one part of the sidebar that visibly
+// reloaded. Module-level, not a store: it is a per-scope render cache, and only
+// this component has any use for it.
+let cachedEnteredProject: { project: null | SidebarProjectTree; scope: string } | null = null
+
 // The scroll body: search + (query) merged Results, else the Sessions/recents
 // list. Pinned lands in Phase 5; messaging groups + cron in Phases 7–8.
-export function SidebarScrollBody({ onNavigate }: { onNavigate?: () => void }) {
+export function SidebarScrollBody({
+  onNavigate,
+  searchPlacement = 'top'
+}: {
+  onNavigate?: () => void
+  /** `bottom` puts the field just above the phone surface's nav bar, where a
+   *  thumb already is; the docked pane keeps it at the top of the list. */
+  searchPlacement?: 'bottom' | 'top'
+}) {
   const { t } = useI18n()
   const s = t.sidebar
   const sessions = useStore($sessions)
@@ -175,7 +194,19 @@ export function SidebarScrollBody({ onNavigate }: { onNavigate?: () => void }) {
   const profileScope = useStore($profileScope)
   const profiles = useStore($profiles)
   const [messagingReveal, setMessagingReveal] = useState<Record<string, number>>({})
-  const [enteredProject, setEnteredProject] = useState<SidebarProjectTree | null>(null)
+
+  const [enteredProject, setEnteredProjectState] = useState<SidebarProjectTree | null>(() =>
+    cachedEnteredProject?.scope === scope ? cachedEnteredProject.project : null
+  )
+
+  const setEnteredProject = useCallback(
+    (project: null | SidebarProjectTree) => {
+      cachedEnteredProject = { project, scope }
+      setEnteredProjectState(project)
+    },
+    [scope]
+  )
+
   const [query, setQuery] = useState('')
   const searchInputRef = useRef<HTMLInputElement>(null)
   const navigate = useNavigate()
@@ -199,8 +230,18 @@ export function SidebarScrollBody({ onNavigate }: { onNavigate?: () => void }) {
     return () => clearInterval(timer)
   }, [profileScope])
 
-  // A big all-profiles page must not carry over into one small profile.
+  // A big all-profiles page must not carry over into one small profile — but only
+  // on an actual switch. On a phone the sidebar is a drawer that unmounts when it
+  // closes, so running this on mount meant every reopen silently threw away
+  // "Load more" and the list visibly shrank back to one page.
+  const scopeAtMount = useRef(profileScope)
+
   useEffect(() => {
+    if (profileScope === scopeAtMount.current) {
+      return
+    }
+
+    scopeAtMount.current = profileScope
     resetSessionsPaging()
   }, [profileScope])
 
@@ -260,7 +301,7 @@ export function SidebarScrollBody({ onNavigate }: { onNavigate?: () => void }) {
     } else {
       setEnteredProject(null)
     }
-  }, [grouped, scope, projectTree])
+  }, [grouped, scope, projectTree, setEnteredProject])
 
   // A new session lands server-side when its first turn runs, but no gateway
   // event refreshes the sidebar. Re-pull the session list (and, when inside a
@@ -277,7 +318,7 @@ export function SidebarScrollBody({ onNavigate }: { onNavigate?: () => void }) {
     if (grouped && scope !== ALL_PROJECTS) {
       void fetchProjectSessions(scope).then(setEnteredProject)
     }
-  }, [busy, runtimeSessionId, grouped, scope, profileScope])
+  }, [busy, runtimeSessionId, grouped, scope, profileScope, setEnteredProject])
 
   useEffect(() => {
     const timer = setTimeout(() => void searchSessionsQuery(query), 200)
@@ -384,8 +425,7 @@ export function SidebarScrollBody({ onNavigate }: { onNavigate?: () => void }) {
   // before they hold any Hermes session. Only while drilled in — the overview
   // shows no lanes, so probing there would be pure cost.
   const scopedRepoPaths = useMemo(
-    () =>
-      (enteredProject?.repos ?? []).map(repo => repo.path).filter((path): path is string => Boolean(path?.trim())),
+    () => (enteredProject?.repos ?? []).map(repo => repo.path).filter((path): path is string => Boolean(path?.trim())),
     [enteredProject]
   )
 
@@ -461,18 +501,22 @@ export function SidebarScrollBody({ onNavigate }: { onNavigate?: () => void }) {
 
   const hasMore = sessions.length < total
 
+  const searchField = (
+    <div className="shrink-0 px-2 pb-1 pt-1">
+      <SearchField
+        aria-label={s.searchAria}
+        inputRef={searchInputRef}
+        loading={searching}
+        onChange={setQuery}
+        placeholder={s.searchPlaceholder}
+        value={query}
+      />
+    </div>
+  )
+
   return (
     <div className="flex min-h-0 flex-1 flex-col px-2.5 pb-1.5">
-      <div className="shrink-0 px-2 pb-1 pt-1">
-        <SearchField
-          aria-label={s.searchAria}
-          inputRef={searchInputRef}
-          loading={searching}
-          onChange={setQuery}
-          placeholder={s.searchPlaceholder}
-          value={query}
-        />
-      </div>
+      {searchPlacement === 'top' && searchField}
 
       {trimmed ? (
         <SidebarSessionsSection
@@ -536,7 +580,7 @@ export function SidebarScrollBody({ onNavigate }: { onNavigate?: () => void }) {
                   <Tip label={s.projects.newButton}>
                     <button
                       aria-label={s.projects.newButton}
-                      className="grid size-5 place-items-center rounded-sm text-(--ui-text-tertiary) opacity-0 transition-opacity hover:bg-(--ui-control-hover-background) hover:text-foreground group-hover/section:opacity-100"
+                      className="grid size-5 place-items-center rounded-sm text-(--ui-text-tertiary) opacity-0 transition-opacity hover:bg-(--ui-control-hover-background) hover:text-foreground group-hover/section:opacity-100 coarse:opacity-100"
                       onClick={openProjectCreate}
                       type="button"
                     >
@@ -654,7 +698,7 @@ export function SidebarScrollBody({ onNavigate }: { onNavigate?: () => void }) {
             <SidebarCronJobsSection
               jobs={cronJobs}
               label={s.cronJobs}
-              onManageJob={() => navigate(CRON_ROUTE)}
+              onManageJob={() => openAppRoute(CRON_ROUTE)}
               onOpenRun={id => {
                 void openSession(id)
                 navigate(sessionRoute(id))
@@ -667,6 +711,9 @@ export function SidebarScrollBody({ onNavigate }: { onNavigate?: () => void }) {
           )}
         </>
       )}
+
+      {searchPlacement === 'bottom' && searchField}
+
       <ProjectDialog />
     </div>
   )

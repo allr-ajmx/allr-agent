@@ -1,9 +1,9 @@
-import { emit, listen } from '@tauri-apps/api/event'
+import { listen } from '@tauri-apps/api/event'
 
 import { IS_TAURI } from '@/lib/platform'
-import type { GatewayMode } from '@/store/gateway-config'
-import { dialSavedTarget, type GatewayTarget } from '@/store/gateway-restore'
+import { dialSavedTarget } from '@/store/gateway-restore'
 import { softSwitchGateway } from '@/store/gateway-soft-switch'
+import { type GatewaySwitchedPayload, SWITCH_EVENT, WEBVIEW_ID } from '@/store/gateway-switch-broadcast'
 
 // Cross-WebView gateway switching.
 //
@@ -14,54 +14,11 @@ import { softSwitchGateway } from '@/store/gateway-soft-switch'
 // in-memory atom, so it is per-WebView too. Without this module a switch driven
 // from one surface leaves every other surface quietly talking to the OLD backend.
 //
-// So the initiator broadcasts, and every other WebView re-homes onto the same
-// gateway. The event name follows the `ssh://…` convention in store/ssh-backend.ts,
-// and the listener is wired by a side-effect import in main.tsx exactly like
-// store/event-router.
-
-const SWITCH_EVENT = 'gateway://switched'
-
-interface GatewaySwitchedPayload {
-  /** The sending WebView, so a receiver can drop its own echo (emit is global). */
-  origin: string
-  mode: GatewayMode
-  /** The gateway to re-home onto. Non-secret — secrets stay in the keyring, and
-   *  dialSavedTarget fetches them on the receiving side. */
-  target: GatewayTarget
-}
-
-// Identifies THIS WebView. Deliberately not the Tauri window label: the mobile
-// activity screens are extra webviews inside one window and can share a label,
-// which would make them discard each other's events as self-echo.
-const WEBVIEW_ID = (() => {
-  try {
-    return crypto.randomUUID()
-  } catch {
-    return `wv-${Date.now()}-${Math.random().toString(36).slice(2)}`
-  }
-})()
-
-/**
- * Tell every other WebView that this one just moved to another gateway.
- *
- * Call AFTER the switch has succeeded — the payload describes a gateway that is
- * known to be reachable, so followers are not sent chasing a dial that just failed.
- *
- * Only the initiating surface calls this (gateway-configurator's `runConnect`).
- * Followers re-home through `softSwitchGateway` WITHOUT re-broadcasting, so the
- * "don't echo forever" guard is structural rather than a flag — a second caller of
- * softSwitchGateway would need to broadcast here too.
- */
-export function broadcastGatewaySwitch(mode: GatewayMode, target: GatewayTarget): void {
-  if (!IS_TAURI) {
-    return
-  }
-
-  const payload: GatewaySwitchedPayload = { origin: WEBVIEW_ID, mode, target }
-
-  // Best-effort: a failed broadcast must never fail the switch that just worked.
-  void emit(SWITCH_EVENT, payload).catch(() => {})
-}
+// So the initiator broadcasts (store/gateway-switch-broadcast.ts — the send half lives
+// in its own leaf module so gateway-restore can broadcast without an import cycle), and
+// every other WebView re-homes onto the same gateway here. The event name follows the
+// `ssh://…` convention in store/ssh-backend.ts, and the listener is wired by a
+// side-effect import in main.tsx exactly like store/event-router.
 
 let started = false
 

@@ -141,7 +141,9 @@ describe('EnteredProjectContent', () => {
     fireEvent.click(await screen.findByText(/remove worktree…/i))
     fireEvent.click(await screen.findByRole('button', { name: 'Remove worktree' }))
 
-    await vi.waitFor(() => expect(removeWorktreePath).toHaveBeenCalledWith('/work/repo', '/work/repo/.worktrees/feature-x', { force: false }))
+    await vi.waitFor(() =>
+      expect(removeWorktreePath).toHaveBeenCalledWith('/work/repo', '/work/repo/.worktrees/feature-x', { force: false })
+    )
     expect(await screen.findByRole('button', { name: /force remove/i })).toBeInTheDocument()
   })
 })

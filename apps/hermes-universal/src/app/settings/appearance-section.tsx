@@ -337,7 +337,7 @@ export function AppearanceSection() {
                               <Tip label={a.removeTheme}>
                                 <button
                                   aria-label={a.removeTheme}
-                                  className="absolute right-1.5 top-1.5 grid size-6 place-items-center rounded-md bg-(--ui-bg-elevated)/80 text-(--ui-text-tertiary) opacity-0 backdrop-blur-sm transition hover:text-(--ui-red) focus-visible:opacity-100 group-hover:opacity-100"
+                                  className="absolute right-1.5 top-1.5 grid size-6 place-items-center rounded-md bg-(--ui-bg-elevated)/80 text-(--ui-text-tertiary) opacity-0 backdrop-blur-sm transition hover:text-(--ui-red) focus-visible:opacity-100 group-hover:opacity-100 coarse:opacity-100"
                                   onClick={() => {
                                     triggerHaptic('selection')
                                     removeUserTheme(theme.name)

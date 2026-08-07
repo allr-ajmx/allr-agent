@@ -37,7 +37,7 @@ export function WorkspaceAddButton({ label, onClick }: { label: string; onClick:
     <Tip label={label}>
       <button
         aria-label={label}
-        className="grid size-4 shrink-0 place-items-center rounded-sm bg-transparent text-(--ui-text-quaternary) opacity-0 transition-opacity group-hover/workspace:opacity-100 hover:bg-(--ui-control-hover-background) hover:text-foreground"
+        className="grid size-4 shrink-0 place-items-center rounded-sm bg-transparent text-(--ui-text-quaternary) opacity-0 transition-opacity group-hover/workspace:opacity-100 coarse:opacity-100 hover:bg-(--ui-control-hover-background) hover:text-foreground"
         onClick={onClick}
         type="button"
       >
@@ -119,7 +119,7 @@ export function WorkspaceMenu({ path, onRemove }: { path: null | string; onRemov
     <ActionsMenu ariaLabel={p.menu} contentClassName="w-48" items={items}>
       <button
         aria-label={p.menu}
-        className="grid size-4 shrink-0 place-items-center rounded-sm bg-transparent text-(--ui-text-quaternary) opacity-0 transition-opacity group-hover/workspace:opacity-100 hover:bg-(--ui-control-hover-background) hover:text-foreground data-[state=open]:opacity-100"
+        className="grid size-4 shrink-0 place-items-center rounded-sm bg-transparent text-(--ui-text-quaternary) opacity-0 transition-opacity group-hover/workspace:opacity-100 coarse:opacity-100 hover:bg-(--ui-control-hover-background) hover:text-foreground data-[state=open]:opacity-100"
         onClick={event => event.stopPropagation()}
         type="button"
       >
@@ -166,7 +166,7 @@ export function StartWorkButton({ repoPath, onStarted }: { repoPath: string; onS
       <Tip label={p.startWork}>
         <button
           aria-label={p.startWork}
-          className="grid size-4 shrink-0 place-items-center rounded-sm bg-transparent text-(--ui-text-quaternary) opacity-0 transition-opacity group-hover/section:opacity-100 hover:bg-(--ui-control-hover-background) hover:text-foreground focus-visible:opacity-100"
+          className="grid size-4 shrink-0 place-items-center rounded-sm bg-transparent text-(--ui-text-quaternary) opacity-0 transition-opacity group-hover/section:opacity-100 coarse:opacity-100 hover:bg-(--ui-control-hover-background) hover:text-foreground focus-visible:opacity-100"
           onClick={() => setOpen(true)}
           type="button"
         >

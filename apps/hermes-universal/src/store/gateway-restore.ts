@@ -12,6 +12,7 @@ import {
 } from '@/store/connection'
 import type { GatewayMode } from '@/store/gateway-config'
 import { $gatewayMode } from '@/store/gateway-switch'
+import { broadcastGatewaySwitch } from '@/store/gateway-switch-broadcast'
 
 // Auto-connect on restart (D8). The live connection ($connection/$connectionPhase)
 // is memory-only, so without this the app always cold-boots to the connect screen
@@ -83,12 +84,14 @@ export function clearGatewayTarget(): void {
 }
 
 // --- Android OAuth resume marker --------------------------------------------------
-// On Android the OAuth sign-in navigates the MAIN webview to the gateway login and back
-// (a second window can't be dismissed there — see src-tauri/src/oauth.rs), which reloads
-// the SPA and destroys the JS mid-connect. We stash the connect intent here BEFORE
-// navigating away so the fresh boot can finish it (the Rust cookie jar is in-memory and
-// survives the reload). localStorage is per-origin and the app origin is unchanged across
-// the round-trip, so the marker survives. One-shot: the resume reads-and-clears it.
+// On Android an interactive sign-in navigates the CALLING webview to the login page and
+// back (a second window can't be dismissed there — see src-tauri/src/oauth.rs), which
+// reloads the SPA and destroys the JS mid-connect. We stash the connect intent here
+// BEFORE navigating away so the fresh boot can finish it (the Rust cookie jar is
+// in-memory and survives the reload). localStorage is per-origin and the app origin is
+// unchanged across the round-trip, so the marker survives. One-shot: the resume
+// reads-and-clears it. The portal (Hermes Cloud) login does the same round-trip and gets
+// its own marker below.
 
 const PENDING_OAUTH_KEY = 'hermes.oauth.pending'
 
@@ -128,6 +131,29 @@ export function takePendingOAuth(): PendingOAuth | null {
 /** Whether an OAuth resume is queued — read synchronously to seed `$restoring`. */
 export function hasPendingOAuth(): boolean {
   return Boolean(loadString(PENDING_OAUTH_KEY))
+}
+
+// The portal (Hermes Cloud) equivalent. It carries no payload — the portal session is a
+// single global thing, so all the reload needs to know is "you were in the middle of
+// signing in to the portal", which puts the gateway panel back on the cloud card instead
+// of dropping the user on whatever mode was persisted.
+const PENDING_PORTAL_KEY = 'hermes.portal.pending'
+
+/** Queue a portal-sign-in resume for the next boot (best-effort). Android only. */
+export function savePendingPortal(): void {
+  try {
+    saveString(PENDING_PORTAL_KEY, '1')
+  } catch {
+    // storage disabled — the user just lands on the gateway panel and taps again.
+  }
+}
+
+/** Read AND clear the portal marker (one-shot). */
+export function takePendingPortal(): boolean {
+  const raw = loadString(PENDING_PORTAL_KEY)
+  removeKey(PENDING_PORTAL_KEY)
+
+  return Boolean(raw)
 }
 
 /** Whether a restorable connection exists — read synchronously at module load so
@@ -229,6 +255,17 @@ export async function autoRestoreConnection(): Promise<void> {
 
       try {
         await connect({ url: pending.base, username: pending.username })
+        // Only the ONE WebView the sign-in navigated came back on the new gateway — and
+        // it need not be the shell: on Android, Settings runs in its own activity, so a
+        // switch driven from there leaves MainActivity serving the gateway we just left.
+        // This is the same broadcast the configurator makes for a switch that completed
+        // without a round-trip (the resume can't use it — the navigation destroyed that
+        // JS context mid-`softSwitchGateway`).
+        const target = loadGatewayTarget()
+
+        if (target) {
+          broadcastGatewaySwitch('remote', target)
+        }
       } catch {
         // connect() already set $connectionError + phase; connect screen surfaces it.
       } finally {

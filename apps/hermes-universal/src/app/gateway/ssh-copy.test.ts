@@ -51,8 +51,8 @@ describe('sshErrorMessage', () => {
 
   it('distinguishes the failures a user can act on', () => {
     const distinct = new Set(
-      (['unreachable', 'auth-failed', 'host-key-changed', 'hermes-not-found', 'update-required'] as const).map(
-        kind => sshErrorMessage({ kind, message: '' }, g)
+      (['unreachable', 'auth-failed', 'host-key-changed', 'hermes-not-found', 'update-required'] as const).map(kind =>
+        sshErrorMessage({ kind, message: '' }, g)
       )
     )
 

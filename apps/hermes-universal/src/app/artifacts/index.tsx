@@ -581,7 +581,7 @@ function LocationCell({ artifact }: { artifact: ArtifactRecord; ctx: CellCtx }) 
       <CopyButton
         appearance="icon"
         buttonSize="icon-xs"
-        className="shrink-0 text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:opacity-100 group-hover/location:opacity-100"
+        className="shrink-0 text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:opacity-100 group-hover/location:opacity-100 coarse:opacity-100"
         iconClassName="size-3.5"
         label={copyLabel}
         text={artifact.value}

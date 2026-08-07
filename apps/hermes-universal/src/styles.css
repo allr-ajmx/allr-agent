@@ -1,9 +1,52 @@
 @import 'tailwindcss';
 @plugin '@tailwindcss/typography';
+/* shadcn's overlay components are written against this vocabulary — `animate-in`,
+   `fade-in-0`, `zoom-in-95`, `slide-in-from-left`, and their `-out` twins. It was
+   never a dependency here (nor in apps/desktop), so every one of those classes
+   resolved to nothing and the sidebars, dialogs, sheets, popovers, tooltips and
+   dropdowns all snapped in and out with no transition at all. Nothing reported
+   it: an unknown Tailwind class is silently dropped, which is the whole reason
+   `better-tailwindcss/no-unknown-classes` now guards this app. */
+@import 'tw-animate-css';
 /* Class-based dark variant (matches desktop). `.dark` is toggled on <html> by
    the ThemeProvider (Ic7); the mode-appropriate `--theme-*` seeds are injected
    inline per skin by applyTheme(). Declared here so `dark:` utilities compile. */
 @custom-variant dark (&:is(.dark *));
+
+/* Input-capability variants. The desktop port brought its hover-reveal idiom
+   with it (`opacity-0 group-hover:opacity-100`, `text-transparent
+   group-hover:text-…`), which on a touch screen hides PRIMARY actions behind a
+   gesture that does not exist. These two variants are how a call site says
+   "this affordance is reachable without a pointer that can hover".
+
+   Why the media query and not `IS_MOBILE`/`html.is-mobile`: platform.ts
+   deliberately refuses to tag a touchscreen laptop as mobile (it is a device /
+   reach signal, and local-mode capability hangs off it). Whether an action can
+   be revealed by hovering is a question about the INPUT, not the device — so
+   `.is-mobile` keeps owning the rem-scale axis below, and these own the input
+   axis. A tablet and a touchscreen desktop get fixed for free.
+
+   How to use them — the rule is "reveal on coarse iff the hidden element is the
+   ONLY path to that action":
+     - Plain opacity reveal → add `coarse:opacity-100` (plus
+       `coarse:pointer-events-auto` where the site also gates pointer-events).
+     - A display swap, or two elements sharing one slot → INVERT to `fine:`:
+       write the touch layout as the base and scope the hover-hiding to `fine:`.
+       Only one of the two queries can ever match, so there is no source-order
+       fight between the two, and jsdom (which matches neither) sees the touch
+       layout. Layering `coarse:` on top of a `hidden`/`flex` swap does not
+       work — and two elements that share a grid cell would both appear.
+   Decoration (carets, timestamps, drag grabbers, `opacity-30` dimming) is
+   deliberately left hover-only: revealing it buys no capability and makes every
+   list row noisier. See also the touch-target block near the end of this file. */
+@custom-variant coarse (@media (pointer: coarse));
+@custom-variant fine (@media (pointer: fine));
+
+/* The soft keyboard is up. `hooks/use-keyboard-inset.ts` sets the attribute on
+   <html>, so this is a state any element can style against — used to stand the
+   phone's bottom nav bar down while typing, where navigation and an accessory
+   key row cannot both have the little screen that is left. */
+@custom-variant keyboard-open (:root[data-keyboard-open] &);
 
 /* ─── Fonts ──────────────────────────────────────────────────────────────────
    Everything the app can name is VENDORED under ./fonts — nothing depends on
@@ -43,8 +86,8 @@
   font-display: swap;
   src: url('./fonts/inter-latin-wght-normal.woff2') format('woff2');
   unicode-range:
-    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F,
-    U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC,
+    U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 @font-face {
   font-family: 'Inter';
@@ -53,8 +96,8 @@
   font-display: swap;
   src: url('./fonts/inter-latin-ext-wght-normal.woff2') format('woff2');
   unicode-range:
-    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF,
-    U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F,
+    U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
 }
 @font-face {
   font-family: 'Inter';
@@ -63,8 +106,8 @@
   font-display: swap;
   src: url('./fonts/inter-latin-wght-italic.woff2') format('woff2');
   unicode-range:
-    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F,
-    U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC,
+    U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 @font-face {
   font-family: 'Inter';
@@ -73,8 +116,8 @@
   font-display: swap;
   src: url('./fonts/inter-latin-ext-wght-italic.woff2') format('woff2');
   unicode-range:
-    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF,
-    U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F,
+    U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
 }
 
 /* Collapse — 100/300/400/700, roman + italic. */
@@ -545,14 +588,13 @@
        anyone made). The generic tail stays load-bearing: WebKitGTK resolves
        none of the Segoe/SF names, nor `system-ui`/`-webkit-system-ui`. */
     --dt-font-sans:
-      'Segoe WPC', 'Segoe UI', -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', -webkit-system-ui,
-      system-ui, 'Noto Sans', sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol',
-      'Noto Color Emoji', emoji;
+      'Segoe WPC', 'Segoe UI', -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', -webkit-system-ui, system-ui,
+      'Noto Sans', sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji', emoji;
     /* Key caps take the same treatment — native face where it exists, Inter
        elsewhere. Theme typography never overrides this token (desktop parity). */
     --dt-font-kbd:
-      -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', 'Inter', -webkit-system-ui, system-ui,
-      'Noto Sans', sans-serif;
+      -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', 'Inter', -webkit-system-ui, system-ui, 'Noto Sans',
+      sans-serif;
     /* JetBrains Mono first — the face we bundle (@font-face above) and the
        terminal's primary — so code/diff match the terminal on every platform
        instead of drifting to a system Cascadia Code where it's installed.
@@ -1794,7 +1836,6 @@ html {
   }
 }
 
-
 /* Arc-style multicolor action surface (static, not animated), from desktop
    styles.css ~795. Reusable on any Button via className. Left UNLAYERED on
    purpose so it beats Tailwind's bg- / text- variant utilities.
@@ -1811,7 +1852,6 @@ html {
 .btn-arc:hover:not(:disabled) {
   filter: brightness(1.08) saturate(1.06);
 }
-
 
 /* Themed native scrollbars (desktop styles.css ~837), applied app-wide via
    `class="scrollbar-dt"` on #root (index.html) exactly as desktop does. Ported
@@ -1891,7 +1931,6 @@ html {
     display: none;
   }
 }
-
 
 /* Container-query text fitting (desktop styles.css ~1059). */
 .fit-text {
@@ -1978,7 +2017,6 @@ html {
   line-height: 1.25rem;
   white-space: pre;
 }
-
 
 /* -------------------------------------------------------------------------- */
 /* Pet egg hatch (Cmd-K → Pets → Generate)                                    */
@@ -2271,18 +2309,35 @@ html {
    desktop's compact scale. Coarse-pointer platforms need two things back, and
    both are re-added here declaratively rather than by forking the primitives:
 
-   1. Hittable controls. 2.75rem is the usual 44px minimum. Buttons that opt out
-      of a box (the `inline`/`micro` sizes and the boxless text variants) carry
-      `h-auto`, so they are excluded — they must stay flush inside a heading or
-      sentence. Matching on the utility class mirrors the `[class*='rounded-full']`
-      override above; it is the established idiom in this file.
+   1. Hittable controls, at the usual 44px minimum.
+
+      In PIXELS, deliberately. This was `2.75rem`, written believing that was
+      44px — true at a 16px root, but `html.is-mobile` bumps `--dt-base-size` to
+      1.125rem for readability, so on the device this rule exists for it
+      resolved to 49.5px and every button on a phone came out oversized. A touch
+      target is a fingertip, and a fingertip does not grow when the type scale
+      does; it is the one measurement here that must not track the rem.
+
+      Buttons that opt out of a box (the `inline`/`micro` sizes and the boxless
+      text variants) carry `h-auto`, so they are excluded — they must stay flush
+      inside a heading or sentence. Matching on the utility class mirrors the
+      `[class*='rounded-full']` override above; it is the established idiom in
+      this file.
    2. A >=16px font on anything focusable-and-typeable. Below that the Android
       WebView auto-zooms the viewport on focus, which is a functional bug, not a
-      style preference. Desktop's controlVariants sit at 12px. */
+      style preference. Desktop's controlVariants sit at 12px.
+   3. PRESS FEEDBACK. Every interactive surface in this app acknowledges the
+      pointer through `:hover`, which a finger never triggers — so on a phone a
+      tap that worked and a tap that was swallowed looked exactly alike, and the
+      only way to tell was whether the thing you asked for happened. The tap
+      highlight is the platform's own answer and costs nothing; `:active` covers
+      the rows the highlight can't reach (it paints the hit element, not the row
+      behind it) and reuses the hover token, so a press reads as the same state a
+      hover does. */
 @media (pointer: coarse) {
   [data-slot='button']:not([class*='h-auto']) {
-    min-block-size: 2.75rem;
-    min-inline-size: 2.75rem;
+    min-block-size: 44px;
+    min-inline-size: 44px;
   }
 
   [data-slot='input'],
@@ -2290,4 +2345,38 @@ html {
   [data-slot='select-trigger'] {
     font-size: 1rem;
   }
+
+  html {
+    /* Chromium defaults this to a heavy translucent black; the theme's own row
+       tint is the same acknowledgement without the bruise. */
+    -webkit-tap-highlight-color: var(--ui-row-hover-background);
+  }
+
+  .row-hover:active,
+  [data-slot='button']:not(:disabled):active {
+    background-color: var(--ui-row-hover-background);
+    transition: none;
+  }
+}
+
+/* ─── Soft-wrapped diffs ─────────────────────────────────────────────────────
+   `FileDiffPanel` in wrap mode. Every diff renderer in components/chat/
+   diff-lines.tsx — plain rows, the windowed rows, and the ones Shiki's
+   transformer builds — tags its lines `.diff-line`, so re-flowing all three is
+   one rule here instead of a `wrap` prop threaded through each of them.
+
+   `min-w-max` is what has to go: it sizes a row to its longest unbroken run,
+   which is precisely the horizontal scroll we are trying to remove. `anywhere`
+   rather than `break-word` because the lines that overflow a phone are usually
+   one long token (a path, a base64 blob, a minified bundle) with no break
+   opportunity in them at all.
+
+   The fixed row height goes too: a wrapped line is as many rows tall as it
+   needs, and the panel drops out of its virtualized path whenever wrap is on
+   for exactly that reason. */
+[data-diff-wrap] .diff-line {
+  block-size: auto;
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }

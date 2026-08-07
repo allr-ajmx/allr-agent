@@ -59,10 +59,7 @@ export async function driveChargeSettlement(deps: SettlementDeps): Promise<Settl
           return { kind: 'timed_out' }
         }
 
-        const wait = Math.min(
-          (status.retry_after ?? 5) * 1000,
-          SETTLEMENT_MAX_RETRY_AFTER_MS
-        )
+        const wait = Math.min((status.retry_after ?? 5) * 1000, SETTLEMENT_MAX_RETRY_AFTER_MS)
 
         await deps.sleep(wait)
 

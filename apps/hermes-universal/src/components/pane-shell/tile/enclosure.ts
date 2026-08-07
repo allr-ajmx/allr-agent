@@ -83,8 +83,7 @@ const sideGone = (child: LayoutNode, ctx: EnclosureContext, horizontal: boolean)
 const isEmptyZone = (child: LayoutNode): boolean => child.type === 'group' && child.panes.length === 0
 
 export function zoneEnclosure(child: LayoutNode, ctx: EnclosureContext, horizontal: boolean): ZoneEnclosure {
-  const collapsed =
-    subtreeGone(child, ctx) || (isEmptyZone(child) && !ctx.editMode) || sideGone(child, ctx, horizontal)
+  const collapsed = subtreeGone(child, ctx) || (isEmptyZone(child) && !ctx.editMode) || sideGone(child, ctx, horizontal)
 
   return {
     collapsed,

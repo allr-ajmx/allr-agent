@@ -34,8 +34,7 @@ export type BillingSimBehavior = (typeof BILLING_SIM_BEHAVIORS)[number]
 
 /** How many `pending` polls precede the terminal status, then what that status is. */
 type ChargeScript =
-  | { kind: 'fail'; pendingPolls: number; reason: ChargeFailureReason }
-  | { kind: 'settle'; pendingPolls: number }
+  { kind: 'fail'; pendingPolls: number; reason: ChargeFailureReason } | { kind: 'settle'; pendingPolls: number }
 
 interface SimBehaviorSpec {
   /** Refuse `updateAutoReload` outright. */

@@ -247,8 +247,13 @@ export function removeBubble(target: null | string) {
 }
 
 /** Mobile "new session": if on an EXISTING session, spawn a NEW draft bubble and
- *  keep the current one as its own bubble; if already on a draft, do nothing. */
-export function newChatBubble() {
+ *  keep the current one as its own bubble; if already on a draft, do nothing.
+ *
+ *  `side` is which END of the strip the bubble joins. The overdrag gesture opens
+ *  a gap on one specific side and grows a ghost bubble in it — landing the real
+ *  bubble on the other end would move the chat you just watched appear. Callers
+ *  with no side (the ⌘N keybind, the sidebar row) keep the append default. */
+export function newChatBubble(side: 'end' | 'start' = 'end') {
   const active = $activeStoredSessionId.get()
 
   if (active === null) {
@@ -258,7 +263,10 @@ export function newChatBubble() {
   ensureBubble(active)
 
   if (!$chatBubbles.get().some(b => b.storedSessionId === null)) {
-    setBubbles([...$chatBubbles.get(), { storedSessionId: null }])
+    const draft: ChatBubble = { storedSessionId: null }
+    const list = $chatBubbles.get()
+
+    setBubbles(side === 'start' ? [draft, ...list] : [...list, draft])
   }
 
   newSession()

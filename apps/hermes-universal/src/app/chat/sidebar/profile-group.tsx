@@ -59,7 +59,7 @@ export function SidebarProfileGroup({ group, onNewSession, renderRows }: Sidebar
             <Tip label={s.newSessionIn(group.label)}>
               <button
                 aria-label={s.newSessionIn(group.label)}
-                className="grid size-5 shrink-0 place-items-center rounded-sm text-(--ui-text-tertiary) opacity-0 transition hover:bg-(--ui-control-hover-background) hover:text-foreground group-hover:opacity-100"
+                className="grid size-5 shrink-0 place-items-center rounded-sm text-(--ui-text-tertiary) opacity-0 transition hover:bg-(--ui-control-hover-background) hover:text-foreground group-hover:opacity-100 coarse:opacity-100"
                 onClick={() => {
                   // Reveal the lane the new session lands in (same as the worktree
                   // lanes' "+", which force it open rather than toggling).

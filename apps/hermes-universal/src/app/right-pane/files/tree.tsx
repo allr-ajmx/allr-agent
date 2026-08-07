@@ -5,18 +5,23 @@ import { type NodeApi, type NodeRendererProps, type RowRendererProps, Tree, type
 import { TreeSkeleton } from '@/components/chat/skeletons'
 import { Codicon } from '@/components/ui/codicon'
 import { useResizeObserver } from '@/hooks/use-resize-observer'
+import { IS_MOBILE } from '@/lib/platform'
+import { createTap, isCoarsePointer } from '@/lib/touch'
 import { cn } from '@/lib/utils'
 import { $repoChangeByPath, type RepoChangeKind } from '@/store/coding-status'
 import { $renamingPath, beginInlineRename } from '@/store/file-actions'
 import { $revealInTreeRequest } from '@/store/layout'
 
-import { FileEntryContextMenu, InlineRenameInput, isRenameShortcut } from '../file-actions'
+import { FileEntryActionsMenu, FileEntryContextMenu, InlineRenameInput, isRenameShortcut } from '../file-actions'
 
 import { getFileTreeDndManager } from './dnd-manager'
 import type { TreeNode } from './use-project-tree'
 
-const ROW_HEIGHT = 22
-const INDENT = 10
+// 22px rows are a mouse target. On touch the row IS the hit area (there are no
+// hover affordances to aim at), so it gets the platform minimum, and the indent
+// grows with it so nesting still reads at that scale.
+const ROW_HEIGHT = IS_MOBILE ? 44 : 22
+const INDENT = IS_MOBILE ? 14 : 10
 /** Fixed base inset (`px-6.5`) layered on top of arborist's depth indent. */
 const TREE_ROW_INSET = '17px'
 
@@ -149,12 +154,26 @@ export function ProjectTree({
     [revealNode]
   )
 
+  // THE open-on-tap path, and the only one. It runs from `node.activate()`,
+  // which the row container calls on a mouse click (via `node.handleClick`) and
+  // on a finger tap (via the pointer gesture — see ProjectTreeRowContainer).
+  //
+  // Coarse pointers only. A finger has no double-click idiom, so one tap has to
+  // open; a mouse keeps select-then-double-click, where a single click is how
+  // you pick a row to rename or drag, and `onDoubleClick` on the row opens.
+  // Gated on the LIVE media query rather than `IS_MOBILE`: that const is frozen
+  // at first import (and deliberately never tags a touchscreen laptop), so it is
+  // the wrong question for "what is touching this row".
+  //
+  // Suppressed for the row being renamed so the context-menu "Rename" (and the
+  // click that falls through as its menu closes) can't open the preview instead.
   const handleActivate = useCallback(
     (node: NodeApi<TreeNode>) => {
-      // arborist fires onActivate on click/dblclick/Enter — independent of the
-      // row's own handlers. Suppress it for the row being renamed so the
-      // context-menu "Rename" (and its fall-through) can't open the preview.
-      if (node.data && !node.data.isDirectory && $renamingPath.get() !== node.data.id) {
+      if (!node.data || node.data.isDirectory || node.data.placeholder || !isCoarsePointer()) {
+        return
+      }
+
+      if ($renamingPath.get() !== node.data.id) {
         onPreviewFile?.(node.data.id)
       }
     },
@@ -230,12 +249,73 @@ function TreeSizingState() {
 // span horizontally-scrolled content), which grows the row to its full name
 // width and defeats the inner `truncate`. We don't scroll sideways — pin the row
 // to the viewport so long names ellipsize instead of clipping at the pane edge.
+//
+// This container, not the presentational row inside it, is the element arborist
+// sizes to the full row rect, so it owns activation: `node.handleClick` selects
+// and activates, and `onActivate` is where opening lives. Nothing here closes
+// over a callback — a `renderRow` whose identity moves makes arborist unmount
+// and rebuild every visible row, and doing that to the rows under a finger that
+// is still touching one is how a tap ends up tearing out the Radix menus each
+// row carries.
+//
+// A FINGER does not go through `click` at all. On a touch screen `click` is not
+// an event the page receives, it is a verdict the engine reaches after ruling
+// out a scroll and a drag — and for a row inside a scrollable virtualized list
+// the Android WebView routinely rules against a quick jab, which is why a short
+// tap did nothing here while a slower, stationary press worked. `createTap`
+// reads `pointerup` directly and takes the engine out of the decision; the
+// capture-phase guard below then kills the synthetic click if one does arrive,
+// so a tap can never both tap and click. A mouse never arms the gesture and its
+// native click path is untouched.
 function ProjectTreeRowContainer({ attrs, children, innerRef, node }: RowRendererProps<TreeNode>) {
+  // The node instance is rebuilt on every tree state change; the gesture is not.
+  const nodeRef = useRef(node)
+
+  nodeRef.current = node
+
+  const tapRef = useRef<null | ReturnType<typeof createTap>>(null)
+
+  if (!tapRef.current) {
+    tapRef.current = createTap({
+      onTap: () => {
+        const current = nodeRef.current
+
+        if (!current.data || current.data.placeholder || $renamingPath.get() === current.data.id) {
+          return
+        }
+
+        current.select()
+
+        // A folder expands and a file opens — the two halves of what a click
+        // means here, which on the mouse path are split between `handleClick`
+        // (select + activate) and the inner row (toggle).
+        if (current.data.isDirectory) {
+          current.toggle()
+        } else {
+          current.activate()
+        }
+      }
+    })
+  }
+
+  const tap = tapRef.current
+
   return (
     <div
       {...attrs}
       onClick={node.handleClick}
+      onClickCapture={event => {
+        // Capture phase, so this also spares the inner row's handler: the tap
+        // already resolved this gesture.
+        if (tap.fired()) {
+          event.stopPropagation()
+        }
+      }}
       onFocus={e => e.stopPropagation()}
+      onPointerCancel={tap.cancel}
+      onPointerDown={tap.down}
+      onPointerMove={tap.move}
+      onPointerUp={tap.up}
       ref={innerRef}
       style={{ ...attrs.style, minWidth: 0, width: '100%' }}
     >
@@ -282,31 +362,44 @@ function ProjectTreeRow({
       aria-expanded={isFolder ? node.isOpen : undefined}
       aria-selected={node.isSelected}
       className={cn(
-        'group/row row-hover flex h-full select-none items-center gap-1 border border-transparent px-3 text-xs font-normal leading-(--file-tree-row-height) text-(--ui-text-secondary) hover:text-foreground',
+        'group/row row-hover flex h-full select-none items-center gap-1 border border-transparent px-3 font-normal leading-(--file-tree-row-height) text-(--ui-text-secondary) hover:text-foreground',
+        IS_MOBILE ? 'gap-2 text-sm leading-normal' : 'text-xs',
         node.isSelected && 'bg-(--ui-row-active-background) text-foreground',
         isPlaceholder && 'pointer-events-none italic text-muted-foreground/70'
       )}
-      draggable={!isPlaceholder && !editing}
+      // Never on a phone. The tree's drag layer is react-dnd's HTML5Backend
+      // (files/dnd-manager.ts), which has no touch path at all — so `draggable`
+      // there buys nothing and costs the gesture engine one more thing to weigh
+      // against "this was a tap" on every press.
+      draggable={!IS_MOBILE && !isPlaceholder && !editing}
       onClick={event => {
-        event.stopPropagation()
-
         // Read the rename atom LIVE (not the render closure): the fall-through
         // click from a context-menu close can fire before the editing re-render
         // commits, so a stale closure would still select/activate and yank focus.
         if (isPlaceholder || $renamingPath.get() === node.data.id) {
+          event.stopPropagation()
+
           return
         }
 
         if (event.shiftKey) {
+          event.stopPropagation()
           ;(isFolder ? onAttachFolder : onAttachFile)(node.data.id)
 
           return
         }
 
+        // Everything else FALLS THROUGH to the row container, which is the
+        // element arborist sizes to the whole row and the single place selection
+        // and activation live. This handler used to stop propagation
+        // unconditionally, which meant the container's click — and with it
+        // `onActivate`, the open — only ever ran for the sliver of row this div
+        // did not cover.
+        //
+        // A folder still toggles here: `handleClick` selects and activates but
+        // never toggles, and expanding is what a tap on a folder means.
         if (isFolder) {
           node.toggle()
-        } else {
-          node.select()
         }
       }}
       onDoubleClick={event => {
@@ -356,10 +449,25 @@ function ProjectTreeRow({
         // wins over the row's hover/selected text color, so it persists.
         <span className={cn('min-w-0 flex-1 truncate', changeKind && CHANGE_TINT[changeKind])}>{node.data.name}</span>
       )}
+      {/* The context menu below is right-click only, so without this the row's
+          actions have no touch path at all. Rendered for every row so the
+          column width is stable; it is the visibility that varies. */}
+      {!editing && !isPlaceholder && (
+        <FileEntryActionsMenu
+          isDirectory={isFolder}
+          name={node.data.name}
+          path={node.data.id}
+          relativeTo={relativeTo}
+        />
+      )}
     </div>
   )
 
-  if (isPlaceholder) {
+  // No context menu on a phone. Radix's trigger arms a 700ms touch long-press of
+  // its own, which is the third thing competing for the same press — and it is
+  // redundant here, because the kebab above exists precisely so these actions
+  // have a touch path. Right-click keeps it on every pointer that has one.
+  if (isPlaceholder || IS_MOBILE) {
     return row
   }
 

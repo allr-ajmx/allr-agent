@@ -90,6 +90,79 @@ function measureAndPublish(): void {
   }
 }
 
+export interface SafeAreaInsets {
+  top: number
+  right: number
+  bottom: number
+  left: number
+}
+
+const ZERO_INSETS: SafeAreaInsets = { bottom: 0, left: 0, right: 0, top: 0 }
+
+/** Resolve a CSS length that has already been computed to px. Anything the
+ *  browser hands back in another unit (or as an empty string, before the
+ *  publisher has run) reads as 0 rather than NaN. */
+function toPx(value: string): number {
+  const n = Number.parseFloat(value)
+
+  return Number.isFinite(n) && value.trim().endsWith('px') ? n : 0
+}
+
+/** Read a custom property off `:root`. Prefers the computed value (which picks
+ *  up the `env()` fallbacks declared in styles.css) and falls back to the inline
+ *  declaration — jsdom, and some engines, don't resolve custom properties
+ *  through getComputedStyle, and this module must never answer NaN. */
+function readRootVar(name: string): number {
+  if (typeof document === 'undefined') {
+    return 0
+  }
+
+  const root = document.documentElement
+
+  if (!root) {
+    return 0
+  }
+
+  const computed = typeof getComputedStyle === 'function' ? getComputedStyle(root).getPropertyValue(name) : ''
+
+  return toPx(computed || root.style.getPropertyValue(name))
+}
+
+/**
+ * Read the published insets as numbers, for the JS side of layout — geometry
+ * that CSS can't express, like where a free-floating element is allowed to sit.
+ *
+ * Reads the `--safe-area-inset-*` vars rather than `env()` directly, on purpose:
+ * those vars are this module's stable republication of a value the mobile
+ * webviews resolve late (see the header), so a caller gets the same number CSS
+ * is using at that moment instead of racing env(). Never throws — off-DOM and
+ * pre-publish it answers zeroes, which is the correct desktop answer anyway.
+ */
+export function readSafeAreaInsets(): SafeAreaInsets {
+  if (typeof document === 'undefined') {
+    return ZERO_INSETS
+  }
+
+  return {
+    bottom: readRootVar('--safe-area-inset-bottom'),
+    left: readRootVar('--safe-area-inset-left'),
+    right: readRootVar('--safe-area-inset-right'),
+    top: readRootVar('--safe-area-inset-top')
+  }
+}
+
+/**
+ * The soft keyboard's height, in px, as published by `useKeyboardInset`.
+ *
+ * Anything laid out in the normal flow is lifted by `--keyboard-inset` for free
+ * (the mobile shell applies it as a margin), but a `position: fixed` element is
+ * not — it stays put and ends up behind the keyboard. Those callers have to
+ * subtract this themselves.
+ */
+export function readKeyboardInset(): number {
+  return readRootVar('--keyboard-inset')
+}
+
 /**
  * Start publishing `--safe-area-inset-{top,right,bottom,left}` to `:root` and
  * keep them correct across the webview's late env() resolution and later

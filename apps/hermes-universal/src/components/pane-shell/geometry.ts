@@ -19,7 +19,6 @@
  * of the Electron-shaped code above would have been reusable anyway.
  */
 
-
 import { $layoutTree } from '@/components/pane-shell/tree/store'
 
 import { queryVisible } from './pane-visibility'

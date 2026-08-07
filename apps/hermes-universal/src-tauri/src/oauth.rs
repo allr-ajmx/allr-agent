@@ -25,8 +25,8 @@
 //! A timeout backstops the poll so a missed / abandoned login can't hang connect().
 
 use serde::Serialize;
-use tauri::{AppHandle, Manager, State, Url};
-// Desktop/iOS open a dedicated sign-in window; Android reuses the main webview
+use tauri::{AppHandle, Manager, State, Url, WebviewWindow};
+// Desktop/iOS open a dedicated sign-in window; Android reuses the CALLING webview
 // (see `oauth_login`), so these are only referenced off-Android.
 #[cfg(not(target_os = "android"))]
 use tauri::{WebviewUrl, WebviewWindowBuilder};
@@ -37,7 +37,7 @@ use crate::transport::TransportState;
 
 /// The single label for the interactive sign-in window (desktop/iOS). Reused (closed +
 /// rebuilt) across attempts so a stale window never lingers. Not used on Android, which
-/// drives the login through the main webview instead of a second window.
+/// drives the login through the calling webview instead of a second window.
 #[cfg(not(target_os = "android"))]
 const OAUTH_WINDOW_LABEL: &str = "hermes-oauth";
 
@@ -46,7 +46,7 @@ const OAUTH_WINDOW_LABEL: &str = "hermes-oauth";
 #[cfg(not(target_os = "android"))]
 const OAUTH_TIMEOUT_SECS: u64 = 300;
 
-/// Android runs the login in the main webview, which replaces the entire app UI for the
+/// Android runs the login in the calling webview, which replaces the entire app UI for the
 /// duration (no in-app cancel until this elapses), so keep the wait tighter than desktop.
 #[cfg(target_os = "android")]
 const OAUTH_TIMEOUT_SECS_ANDROID: u64 = 120;
@@ -67,8 +67,8 @@ fn is_session_cookie(name: &str) -> bool {
 ///
 /// Returns `Ok(())` on a confirmed-live session, or `Err` on timeout. When the polled
 /// window disappears mid-flow this is an error only if `treat_missing_window_as_error`
-/// (desktop: the user closed the sign-in window; Android: the `main` window always
-/// exists, so a transient miss just retries).
+/// (desktop: the user closed the sign-in window; Android: the calling webview outlives
+/// the navigation, so a transient miss just retries).
 ///
 /// `cookies_for_url` reads the platform cookie store (HttpOnly cookies included, unlike
 /// `document.cookie`) and is safe from this async (off-main) context — the same call the
@@ -78,7 +78,7 @@ async fn poll_session_cookies(
     state: &TransportState,
     base: &str,
     base_url: &Url,
-    label: &'static str,
+    label: &str,
     timeout_secs: u64,
     treat_missing_window_as_error: bool,
 ) -> Result<(), String> {
@@ -152,12 +152,18 @@ async fn poll_session_cookies(
 /// Desktop/iOS open a dedicated sign-in `WebviewWindow` that floats over the app.
 /// Android CANNOT: wry attaches its webview via `setContentView` (an Activity has one
 /// content view) and has no `Drop` to remove it, so a second window would replace the
-/// app and never close. Instead, on Android we navigate the MAIN webview to the login,
+/// app and never close. Instead, on Android we navigate the CALLING webview to the login,
 /// poll the same cookies, then navigate it back — the SPA reload resumes the connect via
 /// a one-shot marker the frontend persisted before we navigated away.
+///
+/// `webview` is the caller, injected by Tauri. It matters on Android: the windowable
+/// surfaces (Settings, Command Center, …) run in their own native activity on a webview
+/// labelled `screen` (see `window.rs`), so driving a hardcoded `main` would load the login
+/// into a BACKGROUNDED activity — invisible to the user, and dead on arrival.
 #[tauri::command]
 pub async fn oauth_login(
     app: AppHandle,
+    webview: WebviewWindow,
     state: State<'_, TransportState>,
     base: String,
     provider: Option<String>,
@@ -176,6 +182,9 @@ pub async fn oauth_login(
 
     #[cfg(not(target_os = "android"))]
     {
+        // The caller hosts the login only on Android; here we build our own window.
+        let _ = webview;
+
         // Build the window on the main thread (gtk/WKWebView requirement). A oneshot
         // carries the build result back so a failure surfaces instead of a dead poll.
         let (build_tx, build_rx) = oneshot::channel::<Result<(), String>>();
@@ -228,18 +237,19 @@ pub async fn oauth_login(
 
     #[cfg(target_os = "android")]
     {
-        let main = app
-            .get_webview_window("main")
-            .ok_or_else(|| "main window not found".to_string())?;
         // Capture the app's current URL so we can return to it (dev serves from the Vite
-        // dev server, prod from http://tauri.localhost/ — never hardcode). navigate/url
-        // are safe (and required) off the main thread; wrapping url() on the main thread
-        // would deadlock the MainPipe round-trip it makes internally.
-        let return_url = main
+        // dev server, prod from http://tauri.localhost/ — never hardcode; and an activity
+        // screen carries `?win=activity#/settings`, which is how the user gets back to the
+        // page they started from). navigate/url are safe (and required) off the main
+        // thread; wrapping url() on the main thread would deadlock the MainPipe round-trip
+        // it makes internally.
+        let label = webview.label().to_string();
+        let return_url = webview
             .url()
             .map_err(|e| format!("could not read current app URL: {e}"))?;
-        log::info!("[oauth] navigating main webview to sign-in; will return to {return_url}");
-        main.navigate(login_url)
+        log::info!("[oauth] navigating webview {label:?} to sign-in; will return to {return_url}");
+        webview
+            .navigate(login_url)
             .map_err(|e| format!("could not open sign-in page: {e}"))?;
 
         let outcome = poll_session_cookies(
@@ -247,7 +257,7 @@ pub async fn oauth_login(
             state.inner(),
             &base,
             &base_url,
-            "main",
+            &label,
             OAUTH_TIMEOUT_SECS_ANDROID,
             false,
         )
@@ -255,7 +265,7 @@ pub async fn oauth_login(
 
         // Restore the app regardless of outcome: the SPA reload auto-resumes the connect
         // (on success) or lands on the connect screen (on cancel/timeout).
-        let _ = main.navigate(return_url);
+        let _ = webview.navigate(return_url);
 
         outcome
     }

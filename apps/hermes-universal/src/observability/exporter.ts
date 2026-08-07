@@ -127,7 +127,10 @@ async function drain(root: CaptureRoot | null = null): Promise<void> {
     const payload = toOtlpBatch(batch, roots)
     const serialisedAt = performance.now()
 
-    recordSpan('exporter.drain', startedAt, serialisedAt, { serialiseMs: Math.round(serialisedAt - startedAt), spans: batch.length })
+    recordSpan('exporter.drain', startedAt, serialisedAt, {
+      serialiseMs: Math.round(serialisedAt - startedAt),
+      spans: batch.length
+    })
 
     await post(payload)
   } finally {

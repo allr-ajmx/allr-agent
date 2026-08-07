@@ -72,12 +72,7 @@ describe('sdkImportMap', () => {
   it('maps every specifier the loader rewrites, longest key first', () => {
     const map = sdkImportMap()
 
-    expect(Object.keys(map)).toEqual([
-      '@hermes/plugin-sdk',
-      'react/jsx-dev-runtime',
-      'react/jsx-runtime',
-      'react'
-    ])
+    expect(Object.keys(map)).toEqual(['@hermes/plugin-sdk', 'react/jsx-dev-runtime', 'react/jsx-runtime', 'react'])
 
     for (const url of Object.values(map)) {
       expect(url).toMatch(/^blob:/)
