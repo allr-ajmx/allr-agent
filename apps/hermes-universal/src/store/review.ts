@@ -30,6 +30,7 @@ export const REVIEW_PANE_ID = 'review'
 const OPEN_KEY = 'hermes.desktop.reviewOpen'
 const COMMIT_DEFAULT_KEY = 'hermes.desktop.reviewCommitDefault'
 const TREE_MODE_KEY = 'hermes.desktop.reviewTreeMode'
+const WRAP_KEY = 'hermes.desktop.reviewDiffWrap'
 const SELECTED_KEY = 'hermes.desktop.reviewSelectedPath'
 const REVIEW_REFRESH_DEBOUNCE_MS = 100
 const SHIP_INFO_STALE_MS = 30_000
@@ -55,6 +56,16 @@ export const $reviewTreeMode = persistentAtom<ReviewTreeMode>(TREE_MODE_KEY, 'tr
 
 export function toggleReviewTreeMode(): void {
   $reviewTreeMode.set($reviewTreeMode.get() === 'tree' ? 'list' : 'tree')
+}
+
+// Soft-wrap long lines in the diff. Persisted because it is a reading
+// preference, not a per-file one: someone who wants wrapping on a phone wants it
+// on every file, and re-toggling it per diff is the annoyance the setting exists
+// to remove.
+export const $reviewDiffWrap = persistentAtom(WRAP_KEY, false, Codecs.bool)
+
+export function toggleReviewDiffWrap(): void {
+  $reviewDiffWrap.set(!$reviewDiffWrap.get())
 }
 
 export const $reviewFiles = atom<HermesReviewFile[]>([])

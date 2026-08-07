@@ -35,7 +35,6 @@ import { NarrowOverlays } from './narrow-overlays'
 import { notifyReactCommit } from './telemetry'
 import { TreeNode } from './tree-node'
 
-
 export function LayoutTreeRoot({ children }: { children?: ReactNode }) {
   const tree = useStore($layoutTree)
 

@@ -7,27 +7,51 @@ import { WebglAddon } from '@xterm/addon-webgl'
 import { Terminal } from '@xterm/xterm'
 import { useEffect, useRef, useState } from 'react'
 
-import { useI18n } from '@/i18n'
+import { Button } from '@/components/ui/button'
+import { type Translations, useI18n } from '@/i18n'
+import { IS_MOBILE, LOCAL_MODE_SUPPORTED } from '@/lib/platform'
 import { cn } from '@/lib/utils'
+import { useStore } from '@/store/atom'
+import { $connection } from '@/store/connection'
+import { forgetGatewayFeatures } from '@/store/gateway-features'
+import { $terminalHostPreference } from '@/store/terminals'
 import { $effectiveCwd } from '@/store/workspace-events'
 import { useTheme } from '@/themes/context'
 import type { DesktopTheme } from '@/themes/types'
-import { LocalPtySocket } from '@/transport/local-pty'
+import {
+  createTerminalTransport,
+  resolveTerminalTransportKind,
+  type TerminalEnd,
+  type TerminalTransport,
+  terminalTransportInputs,
+  type TerminalTransportKind
+} from '@/transport/terminal-transport'
 
+import { applyTerminalModifiers, MobileTerminalKeys, nextModifierState, type TerminalModifiers } from './mobile-keys'
 import { terminalTheme, withSurface } from './terminal-theme'
 
-// The right-pane integrated terminal. Renders a LOCAL shell (spawned natively in
-// Rust via portable-pty — see src-tauri/src/pty.rs) into xterm, mirroring the
-// desktop node-pty terminal: raw keystrokes out, xterm.onResize → pty_resize,
-// PTY output bytes written straight to xterm, WebGL renderer on wide hosts only.
-// The remote gateway path (TerminalSocket / /api/shell-pty) is kept for later.
+// The right-pane integrated terminal: an xterm bound to whichever shell the
+// workspace actually lives on. The transport is chosen at spawn by the gateway
+// mode (transport/terminal-transport.ts) — a local portable-pty shell for a
+// `local` gateway, `/api/shell-pty` on the backend host for remote/cloud/ssh, and
+// always remote on a phone, which has no local shell to spawn.
+//
+// Wiring is identical either way: raw keystrokes out, xterm.onResize → transport
+// resize, PTY output written straight to xterm, WebGL renderer on wide hosts only.
 
 // SGR mouse reports (from xterm's own mouse tracking) must not be forwarded to
 // the PTY — the shell would double-handle them.
 // eslint-disable-next-line no-control-regex -- ESC (\x1b) is the sequence being matched; that's the point.
 const SGR_MOUSE_RE = /^\x1b\[<\d+;\d+;\d+[Mm]$/
 
-type Status = 'closed' | 'connecting' | 'open'
+type Status = 'connecting' | 'ended' | 'open'
+
+/** Phone floor for the terminal type, and the bounds pinch-zoom moves between.
+ *  The low end still has to fit ~80 columns on a tablet; the high end is where a
+ *  narrow phone drops to ~30 columns and stops being a terminal. */
+const MOBILE_FONT_SIZE = 13
+const MIN_FONT_SIZE = 8
+const MAX_FONT_SIZE = 22
 
 // Build the full xterm ITheme for the live skin: a complete, readable ANSI table
 // per painted mode (VS Code defaults, overlaid with the skin's palette if it ever
@@ -41,16 +65,79 @@ function buildTerminalTheme(theme: DesktopTheme, mode: 'light' | 'dark') {
   return withSurface(terminalTheme(mode, palette))
 }
 
+/** The end state, as a sentence. Every transport failure lands here, so the pane
+ *  can always say WHAT happened and WHERE, instead of going blank. */
+function endCopy(t: Translations, end: TerminalEnd, kind: TerminalTransportKind): { body: string; title: string } {
+  const copy = t.rightSidebar
+
+  switch (end.kind) {
+    case 'auth':
+      return { body: copy.terminalEndAuthBody, title: copy.terminalEndAuthTitle }
+
+    case 'disabled':
+      return { body: copy.terminalEndDisabledBody, title: copy.terminalEndDisabledTitle }
+
+    case 'error':
+      return { body: copy.terminalEndErrorBody, title: copy.terminalEndErrorTitle }
+
+    case 'refused':
+      return { body: copy.terminalEndRefusedBody, title: copy.terminalEndRefusedTitle }
+
+    case 'superseded':
+      return { body: copy.terminalEndSupersededBody, title: copy.terminalEndSupersededTitle }
+
+    case 'unsupported':
+      return kind === 'remote'
+        ? { body: copy.terminalEndNoGatewayShellBody, title: copy.terminalEndNoGatewayShellTitle }
+        : { body: copy.terminalEndNoLocalShellBody, title: copy.terminalEndNoLocalShellTitle }
+
+    case 'exited':
+
+    default:
+      return { body: copy.terminalEndExitedBody, title: copy.terminalEndExitedTitle }
+  }
+}
+
 export function TerminalView() {
   const { t } = useI18n()
   const { renderedMode, theme: appTheme } = useTheme()
+
+  const connection = useStore($connection)
+  const preference = useStore($terminalHostPreference)
 
   const hostRef = useRef<HTMLDivElement | null>(null)
   const termRef = useRef<Terminal | null>(null)
   const fitRef = useRef<FitAddon | null>(null)
   const webglRef = useRef<WebglAddon | null>(null)
-  const socketRef = useRef<LocalPtySocket | null>(null)
+  const socketRef = useRef<TerminalTransport | null>(null)
   const [status, setStatus] = useState<Status>('connecting')
+  const [end, setEnd] = useState<TerminalEnd | null>(null)
+  const [shellHost, setShellHost] = useState<null | string>(null)
+  // Bumped by "Restart" — the only way to respawn. A shell exiting is deliberate,
+  // and with no reattach a dropped socket is a dead shell, so neither auto-retries.
+  const [attempt, setAttempt] = useState(0)
+  // Sticky for the session once a gateway turns out to have no terminal API: this
+  // pane shells into the device instead. Cleared by Restart, which also re-probes.
+  const [fellBack, setFellBack] = useState(false)
+
+  // Sticky Ctrl/Alt for the key row. Held in a ref as well as state because the
+  // xterm data handler is registered once, at mount, and must read them live.
+  const [modifiers, setModifiers] = useState<TerminalModifiers>({ alt: 'off', ctrl: 'off' })
+  const modifiersRef = useRef(modifiers)
+  modifiersRef.current = modifiers
+
+  /** The single write path: apply the armed modifiers, then clear the one-shots. */
+  const sendRef = useRef((data: string) => {
+    const active = modifiersRef.current
+    socketRef.current?.write(applyTerminalModifiers(data, active))
+
+    if (active.alt === 'armed' || active.ctrl === 'armed') {
+      setModifiers(current => ({
+        alt: current.alt === 'armed' ? 'off' : current.alt,
+        ctrl: current.ctrl === 'armed' ? 'off' : current.ctrl
+      }))
+    }
+  })
 
   // Build the xterm instance once.
   useEffect(() => {
@@ -71,7 +158,9 @@ export function TerminalView() {
       // needs no `ui-monospace` repair: every entry is a concrete family and
       // the bundled JetBrains Mono leads, so it resolves on every webview.
       fontFamily: "'JetBrains Mono', 'Cascadia Code', 'SF Mono', Menlo, Consolas, monospace",
-      fontSize: 12,
+      // 12px is a desktop reading size held at desk distance. A handset gets a
+      // point more as its floor, and pinch-to-zoom from there (below).
+      fontSize: IS_MOBILE ? MOBILE_FONT_SIZE : 12,
       // VS Code's terminal.integrated.minimumContrastRatio (4.5). xterm defaults
       // to 1 (off), which paints the raw saturated ANSI palette — vivid green/cyan
       // on a light surface reads as candy. Clamping darkens/lightens each glyph
@@ -119,7 +208,7 @@ export function TerminalView() {
     // as the bundled face is actually available. (jsdom has no document.fonts.)
     let disposed = false
     void document.fonts
-      ?.load('12px "JetBrains Mono"')
+      ?.load(`${term.options.fontSize ?? 12}px "JetBrains Mono"`)
       .then(() => {
         if (disposed) {
           return
@@ -142,7 +231,9 @@ export function TerminalView() {
         return
       }
 
-      socketRef.current?.write(data)
+      // Everything typed goes through the same gate as the key row, so a Ctrl
+      // armed there applies to the letter that follows from the system keyboard.
+      sendRef.current(data)
     })
 
     const onResize = term.onResize(({ cols, rows }) => socketRef.current?.resize(cols, rows))
@@ -175,9 +266,10 @@ export function TerminalView() {
     }
   }, [])
 
-  // Spawn the local shell once, when this terminal mounts. A local shell exit is
-  // deliberate (no reconnect), and re-spawning on a cwd change would kill a live
-  // shell — so we capture the workspace cwd at spawn time rather than reacting.
+  // Spawn the shell once per attempt. The cwd and the connection are SNAPSHOTTED
+  // here rather than subscribed: switching chats must not cd a running shell, and
+  // switching gateways must not yank it out from under a live command. Re-running
+  // is an explicit user act (Restart), never automatic.
   useEffect(() => {
     let disposed = false
 
@@ -188,6 +280,7 @@ export function TerminalView() {
     }
 
     setStatus('connecting')
+    setEnd(null)
 
     try {
       fitRef.current?.fit()
@@ -195,23 +288,42 @@ export function TerminalView() {
       /* host not laid out yet */
     }
 
-    socketRef.current = new LocalPtySocket(
-      // Snapshot at spawn (desktop parity): a terminal keeps the directory it was
-      // opened in — switching chats doesn't cd an already-running shell.
+    const conn = $connection.get()
+
+    // Already fell back — re-resolving would only dial the same absent endpoint again.
+    const kind = fellBack
+      ? 'local'
+      : resolveTerminalTransportKind(terminalTransportInputs(conn, $terminalHostPreference.get()))
+
+    socketRef.current = createTerminalTransport(
+      kind,
+      conn,
       { cols: term.cols, cwd: $effectiveCwd.get() || undefined, rows: term.rows },
       {
-        onData: bytes => termRef.current?.write(bytes),
-        onError: () => {},
-        onExit: () => {
-          if (!disposed) {
-            setStatus('closed')
-          }
-        },
-        onSpawn: () => {
+        onData: data => termRef.current?.write(data),
+        onEnd: reason => {
           if (disposed) {
             return
           }
 
+          // A gateway with no terminal API is a dead end on a phone, but a desktop has
+          // a shell of its own — take it rather than paint a blank rectangle. The chip
+          // then says so, because this shell is NOT on the machine the file tree shows.
+          if (reason.kind === 'unsupported' && kind === 'remote' && LOCAL_MODE_SUPPORTED && !fellBack) {
+            setFellBack(true)
+
+            return
+          }
+
+          setEnd(reason)
+          setStatus('ended')
+        },
+        onReady: info => {
+          if (disposed) {
+            return
+          }
+
+          setShellHost(info.host)
           setStatus('open')
           const t = termRef.current
 
@@ -232,6 +344,86 @@ export function TerminalView() {
       disposed = true
       socketRef.current?.close()
       socketRef.current = null
+    }
+    // `connection`/`preference` are intentionally not deps — see the snapshot note
+    // above; they are read from the atoms at spawn time.
+  }, [attempt, fellBack])
+
+  // Pinch to resize the type — the universal terminal gesture (Termius, Blink),
+  // and the only practical answer to "80 columns don't fit on a phone": you zoom
+  // out for a wide TUI and back in to read. Two pointers only, so it can never
+  // interfere with scrolling or selection.
+  useEffect(() => {
+    const host = hostRef.current
+
+    if (!IS_MOBILE || !host) {
+      return
+    }
+
+    const points = new Map<number, { x: number; y: number }>()
+    let startSpread = 0
+    let startSize = 0
+
+    const spread = () => {
+      const [a, b] = [...points.values()]
+
+      return a && b ? Math.hypot(a.x - b.x, a.y - b.y) : 0
+    }
+
+    const onPointerDown = (event: PointerEvent) => {
+      if (event.pointerType === 'mouse') {
+        return
+      }
+
+      points.set(event.pointerId, { x: event.clientX, y: event.clientY })
+
+      if (points.size === 2) {
+        startSpread = spread()
+        startSize = termRef.current?.options.fontSize ?? MOBILE_FONT_SIZE
+      }
+    }
+
+    const onPointerMove = (event: PointerEvent) => {
+      if (!points.has(event.pointerId)) {
+        return
+      }
+
+      points.set(event.pointerId, { x: event.clientX, y: event.clientY })
+
+      const term = termRef.current
+
+      if (points.size !== 2 || !term || startSpread <= 0) {
+        return
+      }
+
+      const next = Math.round(Math.min(MAX_FONT_SIZE, Math.max(MIN_FONT_SIZE, (startSize * spread()) / startSpread)))
+
+      if (next !== term.options.fontSize) {
+        term.options.fontSize = next
+
+        try {
+          fitRef.current?.fit()
+        } catch {
+          /* mid-transition */
+        }
+      }
+    }
+
+    const onPointerUp = (event: PointerEvent) => {
+      points.delete(event.pointerId)
+      startSpread = 0
+    }
+
+    host.addEventListener('pointerdown', onPointerDown)
+    host.addEventListener('pointermove', onPointerMove)
+    host.addEventListener('pointerup', onPointerUp)
+    host.addEventListener('pointercancel', onPointerUp)
+
+    return () => {
+      host.removeEventListener('pointerdown', onPointerDown)
+      host.removeEventListener('pointermove', onPointerMove)
+      host.removeEventListener('pointerup', onPointerUp)
+      host.removeEventListener('pointercancel', onPointerUp)
     }
   }, [])
 
@@ -261,28 +453,107 @@ export function TerminalView() {
     return () => cancelAnimationFrame(raf)
   }, [appTheme, renderedMode])
 
-  const statusLabel =
-    status === 'open' ? null : status === 'closed' ? t.rightSidebar.terminalClosed : t.rightSidebar.terminalConnecting
+  // Display-only read of the live atoms: which host a NEW terminal would use, and
+  // therefore which "no shell" sentence applies here. Mirrors the spawn effect's
+  // override so a fallen-back pane is described as the local shell it actually is.
+  const kind = fellBack ? 'local' : resolveTerminalTransportKind(terminalTransportInputs(connection, preference))
+  const copy = end ? endCopy(t, end, kind) : null
+
+  // Which machine you are typing into. A phone gives no ambient cue at all, and a
+  // desktop on a remote gateway now shells somewhere other than itself — so the
+  // chip shows for every remote shell, and the local one stays unlabelled (it's
+  // the machine in front of you).
+  const hostChip = status === 'open' && kind === 'remote' && shellHost ? shellHost : null
 
   return (
-    <div className="relative h-full min-h-0 bg-(--ui-editor-surface-background) p-2 text-foreground">
-      {/* The outer div paints the inset padding; the inner div is the xterm host so
+    <div className="flex h-full min-h-0 flex-col bg-(--ui-editor-surface-background) text-foreground">
+      <div className="relative min-h-0 flex-1 p-2">
+        {/* The outer div paints the inset padding; the inner div is the xterm host so
           the canvas sizes to the content area (FitAddon) and the p-2 reads as
           terminal padding. Both the padding and the xterm screen/viewport are the
           same --ui-editor-surface-background var, so the inset stays seamless. */}
-      <div
-        className="h-full min-h-0 overflow-hidden bg-(--ui-editor-surface-background) [&_.xterm-screen]:bg-(--ui-editor-surface-background)! [&_.xterm-viewport]:bg-(--ui-editor-surface-background)!"
-        ref={hostRef}
-      />
-      {statusLabel && (
         <div
-          className={cn(
-            'pointer-events-none absolute right-2 top-1 rounded px-1.5 py-0.5 text-[0.65rem]',
-            status === 'closed' ? 'bg-destructive/15 text-destructive' : 'bg-black/30 text-white/80'
-          )}
-        >
-          {statusLabel}
-        </div>
+          className="h-full min-h-0 overflow-hidden bg-(--ui-editor-surface-background) [&_.xterm-screen]:bg-(--ui-editor-surface-background)! [&_.xterm-viewport]:bg-(--ui-editor-surface-background)!"
+          ref={hostRef}
+        />
+
+        {status === 'connecting' && (
+          <div className="pointer-events-none absolute right-2 top-1 rounded bg-black/30 px-1.5 py-0.5 text-[0.65rem] text-white/80">
+            {t.rightSidebar.terminalConnecting}
+          </div>
+        )}
+
+        {hostChip && (
+          <div
+            className="pointer-events-none absolute right-2 top-1 max-w-[60%] truncate rounded bg-black/25 px-1.5 py-0.5 text-[0.65rem] text-white/70"
+            title={t.rightSidebar.terminalHostChip(hostChip)}
+          >
+            {t.rightSidebar.terminalHostChip(hostChip)}
+          </div>
+        )}
+
+        {/* Stays for the session: the file tree is on the gateway and this shell is
+            not, so the mismatch has to keep being visible, not fade out. */}
+        {fellBack && status === 'open' && (
+          <div
+            className="pointer-events-none absolute right-2 top-1 max-w-[70%] truncate rounded bg-destructive/40 px-1.5 py-0.5 text-[0.65rem] text-white/90"
+            title={t.rightSidebar.terminalLocalFallbackChip}
+          >
+            ⚠ {t.rightSidebar.terminalLocalFallbackChip}
+          </div>
+        )}
+
+        {/* An ended shell gets a real explanation and a way out — never a blank
+          rectangle the user has to guess about. */}
+        {copy && (
+          <div className="absolute inset-0 flex items-center justify-center bg-(--ui-editor-surface-background)/85 p-6">
+            <div className="flex max-w-xs flex-col items-center gap-2 text-center">
+              <div
+                className={cn('text-sm font-medium', end?.kind === 'exited' ? 'text-foreground' : 'text-destructive')}
+              >
+                {copy.title}
+              </div>
+              <p className="text-xs text-muted-foreground">{copy.body}</p>
+              {end?.detail && (
+                <p className="max-h-16 overflow-y-auto font-code text-[0.65rem] break-words text-muted-foreground/80">
+                  {end.detail}
+                </p>
+              )}
+              <Button
+                className="mt-1"
+                onClick={() => {
+                  // Re-probe: the gateway may have been upgraded since we asked, and a
+                  // failed probe must not keep this pane on the device shell forever.
+                  forgetGatewayFeatures($connection.get())
+                  setFellBack(false)
+                  setAttempt(value => value + 1)
+                }}
+                size="sm"
+                variant="secondary"
+              >
+                {t.rightSidebar.terminalRestart}
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Esc, Tab, Ctrl and the arrows don't exist on a phone keyboard, and they
+          are most of what a shell is driven by. No point showing the row once the
+          shell is gone. */}
+      {IS_MOBILE && status !== 'ended' && (
+        <MobileTerminalKeys
+          modifiers={modifiers}
+          onCycleModifier={modifier =>
+            setModifiers(current => ({ ...current, [modifier]: nextModifierState(current[modifier]) }))
+          }
+          onSend={data => {
+            sendRef.current(data)
+            // The row refuses focus, so the terminal still owns it — but a key
+            // pressed before the user ever tapped the screen must still land.
+            termRef.current?.focus()
+          }}
+        />
       )}
     </div>
   )

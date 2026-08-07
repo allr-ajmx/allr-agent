@@ -5,6 +5,7 @@ import { composerDockCard } from '@/components/chat/composer-dock'
 import { StatusSection } from '@/components/chat/status-section'
 import { Codicon } from '@/components/ui/codicon'
 import { useI18n } from '@/i18n'
+import { IS_MOBILE } from '@/lib/platform'
 import { cn } from '@/lib/utils'
 import { useStore } from '@/store/atom'
 import { $previewStatusBySession, dismissPreviewArtifact, type PreviewArtifact } from '@/store/preview-status'
@@ -103,14 +104,17 @@ export function ComposerStatusStack({ queue, sessionId }: ComposerStatusStackPro
   const visible = sections.length > 0
   const stackRef = useRef<HTMLDivElement | null>(null)
 
-  // The stack is out of flow (overlays the thread), so the composer's measured
-  // height never sees it. Publish our own bucketed measured height so the
-  // thread's last-message clearance can add it and the stack never hides messages.
+  // Desktop only. There the stack is out of flow (overlays the thread), so the
+  // composer's measured height never sees it — publish our own bucketed height
+  // so the thread's last-message clearance can add it and the stack never hides
+  // messages. On mobile the stack is IN flow, so it is already inside
+  // --composer-measured-height and adding it again would double-count, leaving
+  // a card-sized hole under the last message.
   useLayoutEffect(() => {
     const root = document.documentElement
     const el = stackRef.current
 
-    if (!visible || !el) {
+    if (!visible || !el || IS_MOBILE) {
       root.style.removeProperty('--status-stack-measured-height')
 
       return
@@ -143,7 +147,18 @@ export function ComposerStatusStack({ queue, sessionId }: ComposerStatusStackPro
 
   return (
     <div
-      className="absolute inset-x-0 bottom-full z-3 max-h-[40vh] translate-y-2 overflow-y-auto"
+      // Desktop: out of flow, hanging off the composer SURFACE, whose top edge
+      // is exactly where the card's fused bottom border belongs. (No
+      // `translate-y` nudge — it used to hang off the composer root and needed
+      // +8px to cross that box's `pt-2` gap; here that would slide it over the
+      // input.)
+      //
+      // Mobile: in flow, so it opens a real gap instead of growing upward over
+      // whatever is there. Out of flow it covered the parallel-chat rail, which
+      // sits in flow immediately above this same edge — the rail is navigation
+      // and has to stay on top, so a file the agent just made hid the way to
+      // switch chats. In flow the order reads top to bottom: rail, card, input.
+      className={cn('z-3 max-h-[40vh] overflow-y-auto', !IS_MOBILE && 'absolute inset-x-0 bottom-full')}
       onPointerDownCapture={() => blurComposerInput()}
       ref={stackRef}
     >

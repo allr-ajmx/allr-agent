@@ -15,8 +15,14 @@ import { defineConfig } from 'vitest/config'
 // the day that flag flips.
 import { addStoreNames } from './src/observability/auto/store-names.ts'
 
-// Tauri expects a fixed dev port and a non-clearing console. For Android
-// device dev the host must be reachable from the phone, so bind 0.0.0.0.
+// Tauri expects a fixed dev port and a non-clearing console.
+//
+// `TAURI_DEV_HOST` is the address the DEVICE dials — NOT the address this server
+// binds. The two are different questions and conflating them is a trap: the CLI
+// rewrites a `localhost` devUrl to a real address whenever the attached Android
+// device is physical (tauri-cli `use_network_address_for_dev_url`), so on a phone
+// run this is always set to something, and binding only to it would make the
+// server unreachable over whichever transport it did not name. See `server` below.
 const host = process.env.TAURI_DEV_HOST
 
 const require = createRequire(import.meta.url)
@@ -178,10 +184,33 @@ export default defineConfig({
   },
   clearScreen: false,
   server: {
-    host: host || '0.0.0.0',
+    // Always every interface, never `TAURI_DEV_HOST`. A phone reaches this server
+    // one of two ways — through an `adb reverse` tunnel, which arrives on loopback,
+    // or over Wi-Fi, which arrives on the LAN interface — and `npm run android:dev`
+    // picks between them at the command line. Binding 0.0.0.0 serves both, so
+    // switching transports to find the faster one never needs a config edit.
+    host: '0.0.0.0',
     port: 5176,
     strictPort: true,
+    // Only the CLIENT half is address-specific: this is what the HMR runtime in the
+    // webview dials back on. Left `undefined` off-device so a desktop `npm run dev`
+    // keeps Vite's default (infer from the page origin) rather than being pinned to
+    // a port nothing is listening on.
     hmr: host ? { protocol: 'ws', host, port: 5177 } : undefined,
+    // Transform the shell's entry path before the phone asks for it. On desktop this
+    // is noise; over a phone link every module is a round trip, so serialising
+    // "request → transform → respond" for the first few hundred modules is exactly
+    // the wait being removed. Mobile files are listed alongside the shared entry
+    // because the mobile shell is the surface that is slow to reach.
+    warmup: {
+      clientFiles: [
+        './src/main.tsx',
+        './src/app.tsx',
+        './src/app/mobile-controller.tsx',
+        './src/app/shell/mobile-shell.tsx',
+        './src/app/shell/mobile-surface-shell.tsx'
+      ]
+    },
     // Never watch the Rust build trees or the generated mobile projects.
     // `src-tauri/target*` holds hundreds of thousands of build artifacts (every
     // cross-compile arch — Android i686, aarch64, …; the glob covers the
@@ -204,9 +233,44 @@ export default defineConfig({
   // Fixed port so src-tauri/tauri.prodweb.conf.json's devUrl can match it;
   // 5177 is taken by HMR on device builds, 5178 left as headroom.
   preview: {
-    host: host || '0.0.0.0',
+    // 0.0.0.0 for the same reason `server.host` is — and here it is load-bearing:
+    // there is no `adb reverse` mapping for 5179, so a device run of `dev:prodweb`
+    // has to arrive over the LAN interface.
+    host: '0.0.0.0',
     port: 5179,
     strictPort: true
+  },
+  // Pre-bundle the heavy dependencies that are only reachable through a dynamic
+  // import, so they are ready before anything asks for them.
+  //
+  // The failure this prevents is specific: when Vite meets a dependency it did not
+  // optimise at startup it re-runs the optimiser and RELOADS THE PAGE. A reload
+  // costs a few hundred milliseconds on desktop and re-fetches the whole module
+  // graph over the phone link on Android — so a lazy route silently converts
+  // "navigate to Skills" into "boot the app again".
+  //
+  // Every entry here is a real dependency of this package that the production build
+  // proves lives outside the entry chunk: the CodeMirror and xterm specifiers do not
+  // appear in `index-*.js` at all, and mermaid/katex land in chunks of their own.
+  // Deps reached statically from the entry (shiki, react-shiki, the assistant-ui
+  // stack) are deliberately absent — the scanner already finds those on cold start,
+  // and listing them would only be noise to keep in sync.
+  optimizeDeps: {
+    include: [
+      '@codemirror/commands',
+      '@codemirror/language',
+      '@codemirror/language-data',
+      '@codemirror/state',
+      '@codemirror/view',
+      '@streamdown/mermaid',
+      '@xterm/addon-fit',
+      '@xterm/addon-unicode11',
+      '@xterm/addon-web-links',
+      '@xterm/addon-webgl',
+      '@xterm/xterm',
+      'katex',
+      'mermaid'
+    ]
   },
   build: {
     // Android System WebView baseline — keep the transpile target conservative.

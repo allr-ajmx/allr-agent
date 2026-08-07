@@ -18,7 +18,9 @@ describe('addStoreNames', () => {
     // The exact shape that broke the regex version.
     const code = `export const $restoring = atom(hasSavedTarget() || hasPendingOAuth())`
 
-    expect(addStoreNames(code)).toBe(`export const $restoring = atom(hasSavedTarget() || hasPendingOAuth(), '$restoring')`)
+    expect(addStoreNames(code)).toBe(
+      `export const $restoring = atom(hasSavedTarget() || hasPendingOAuth(), '$restoring')`
+    )
   })
 
   it('supplies a value when the call has no arguments', () => {

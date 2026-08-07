@@ -2,15 +2,14 @@ import { invoke } from '@tauri-apps/api/core'
 
 import { portalAgentSignIn, portalLogout } from '@/lib/auth'
 import { errorText } from '@/lib/error-text'
+import { IS_ANDROID } from '@/lib/platform'
 import { atom } from '@/store/atom'
 import { connectCloud } from '@/store/connection'
-import { saveGatewayTarget } from '@/store/gateway-restore'
+import { saveGatewayTarget, savePendingPortal } from '@/store/gateway-restore'
 
 // Nous Cloud store (E5). Portal login + agent discovery + connect. The Privy
 // portal session + per-agent SSO live in Rust (src-tauri/src/cloud.rs); this holds
-// the discovery state and orchestrates the connect. Desktop-working; on Android
-// the portal cookie can't be bridged (FIXME(E4) in cloud.rs) so discovery returns
-// needsLogin there.
+// the discovery state and orchestrates the connect.
 
 export interface CloudAgent {
   id: string
@@ -110,9 +109,20 @@ export async function refreshCloud(): Promise<void> {
   }
 }
 
-/** Interactive portal sign-in, then discover. */
+/**
+ * Interactive portal sign-in, then discover.
+ *
+ * On ANDROID this may never return: the Rust command navigates the calling webview to the
+ * portal and back, which destroys this JS context (same round-trip as the gateway OAuth —
+ * see store/connection.ts `beginOAuthLogin`). The marker persisted first is what puts the
+ * gateway panel back on the cloud card after the reload.
+ */
 export async function cloudSignIn(): Promise<void> {
   $cloudError.set(null)
+
+  if (IS_ANDROID) {
+    savePendingPortal()
+  }
 
   try {
     const status = await portalLogin()
@@ -161,12 +171,20 @@ export async function cloudSignOut(): Promise<void> {
   }
 }
 
-/** Silent SSO into the agent's gateway, then connect in cloud/oauth mode. */
+/**
+ * Silent SSO into the agent's gateway, then connect in cloud/oauth mode.
+ *
+ * Throws on failure. It is called INSIDE `softSwitchGateway`, which reads a clean return
+ * as "the switch worked" — so swallowing here skipped the rollback (leaving the session
+ * lists wiped and the socket closed) and then broadcast the *previous* target to every
+ * other WebView, re-homing them onto the gateway this one had just left.
+ */
 export async function connectCloudAgent(agent: CloudAgent): Promise<void> {
   if (!agent.dashboardUrl) {
-    $cloudError.set('This agent has no reachable dashboard yet.')
+    const message = 'This agent has no reachable dashboard yet.'
+    $cloudError.set(message)
 
-    return
+    throw new Error(message)
   }
 
   $cloudError.set(null)
@@ -190,6 +208,8 @@ export async function connectCloudAgent(agent: CloudAgent): Promise<void> {
     })
   } catch (err) {
     $cloudError.set(errorText(err))
+
+    throw err
   } finally {
     $cloudConnectingId.set(null)
   }

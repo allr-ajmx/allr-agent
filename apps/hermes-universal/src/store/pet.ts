@@ -148,12 +148,21 @@ export function derivePetState(activity: PetActivity): PetState {
 // (The "at rest" gate lives in FloatingPet — computed from chat `$busy` there —
 // so this store stays decoupled from the gateway/chat chain that pet tests mock.)
 export type PetMotion = 'run' | 'jump'
+export type PetRoamWall = 'floor' | 'ceiling' | 'left' | 'right'
 
 export const $petRoam = persistentAtom<boolean>('hermes.pet-roam', true, Codecs.bool)
 export const setPetRoam = (on: boolean) => $petRoam.set(on)
 
 export const $petMotion = atom<PetMotion | null>(null)
 export const $petRoamDir = atom<-1 | 0 | 1>(0)
+
+/**
+ * Which surface the pet is standing on. On a phone it walks all four edges of
+ * the viewport, so the sprite has to rotate to keep its feet against whatever
+ * it is on — mirroring alone would leave it walking a wall upside-down. Always
+ * `floor` on desktop, where only the floor and its perches exist.
+ */
+export const $petRoamWall = atom<PetRoamWall>('floor')
 
 /**
  * The live pose the sprite draws. Activity always wins; only when the agent is

@@ -3105,11 +3105,20 @@ async def get_ssh_ownership(request: Request):
 
 @app.get("/api/health")
 async def get_health():
-    """Lightweight process liveness for desktop/backend readiness probes."""
+    """Lightweight process liveness for desktop/backend readiness probes.
+
+    ``features`` advertises endpoints a client cannot otherwise discover. A
+    WebSocket route that does not exist is NOT a 404 on the wire: Starlette
+    closes it pre-accept and uvicorn renders any pre-accept close as a bare
+    403, which is indistinguishable from an auth/origin rejection. So a client
+    dialling ``/api/shell-pty`` against an older gateway can only tell "you are
+    not allowed" from "this build has no terminal API" by asking here first.
+    """
     return {
         "ok": True,
         "version": __version__,
         "auth_required": bool(getattr(app.state, "auth_required", False)),
+        "features": {"shell_pty": True},
     }
 
 

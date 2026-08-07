@@ -54,8 +54,9 @@ const STATUS_GLYPH: Record<string, { icon: string; tone: string }> = {
 }
 
 // Review paths are repo-relative; the composer drop expects absolute paths, so
-// join against the active session cwd (the repo we probed).
-function absolutePath(relative: string): string {
+// join against the active session cwd (the repo we probed). Exported for the
+// mobile review surface, which needs the same absolute path for preview/copy.
+export function absolutePath(relative: string): string {
   if (/^([a-zA-Z]:[\\/]|\/)/.test(relative)) {
     return relative
   }

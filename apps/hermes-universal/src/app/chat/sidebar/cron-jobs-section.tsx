@@ -223,10 +223,16 @@ function CronJobSidebarRow({
           </button>
         </Tip>
         <div className="flex items-center gap-0.5 justify-self-end pr-1">
-          <span className="text-[0.6875rem] text-(--ui-text-tertiary) tabular-nums group-hover/cron:hidden">
+          {/* Hover swapped the next-run time out for the actions, which on
+              touch left Trigger and Manage with no path at all — this row has
+              no context menu to fall back on. Inverted rather than layered:
+              the touch layout is the base and the swap is scoped to `fine:`,
+              so the two can never both claim the slot. The label beside them
+              is `min-w-0 truncate`, so it yields the width. */}
+          <span className="text-[0.6875rem] text-(--ui-text-tertiary) tabular-nums fine:group-hover/cron:hidden">
             {meta}
           </span>
-          <div className="hidden items-center gap-0.5 group-hover/cron:flex">
+          <div className="flex items-center gap-0.5 fine:hidden fine:group-hover/cron:flex">
             <Tip label={c.triggerNow}>
               <button
                 aria-label={c.triggerNow}

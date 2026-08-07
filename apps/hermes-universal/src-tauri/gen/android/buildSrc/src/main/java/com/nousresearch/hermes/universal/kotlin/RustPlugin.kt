@@ -58,6 +58,11 @@ open class RustPlugin : Plugin<Project> {
                 }
 
                 tasks["mergeUniversal${profileCapitalized}JniLibFolders"].dependsOn(buildTask)
+                // The generated Kotlin (RustWebView, TauriActivity, …) is written by cargo,
+                // and RustWebView.getCookies is patched null-safe there too (src-tauri/build.rs).
+                // Without this dependency the Kotlin compile races cargo and can compile the
+                // pre-patch source, which crashes the app on the first cookie poll of a sign-in.
+                tasks["compileUniversal${profileCapitalized}Kotlin"].dependsOn(buildTask)
 
                 for (targetPair in targetsList.withIndex()) {
                     val targetName = targetPair.value
@@ -76,6 +81,9 @@ open class RustPlugin : Plugin<Project> {
 
                     buildTask.dependsOn(targetBuildTask)
                     tasks["merge$targetArchCapitalized${profileCapitalized}JniLibFolders"].dependsOn(
+                        targetBuildTask
+                    )
+                    tasks["compile$targetArchCapitalized${profileCapitalized}Kotlin"].dependsOn(
                         targetBuildTask
                     )
                 }

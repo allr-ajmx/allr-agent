@@ -1,4 +1,3 @@
-import type { useSensors } from '@dnd-kit/core'
 import type * as React from 'react'
 
 import { SidebarPanelLabel } from '@/app/shell/sidebar-label'
@@ -101,7 +100,6 @@ export interface SidebarSessionsSectionProps {
   groups?: SidebarSessionGroup[]
   onNewSessionInProfile?: (profileKey: string) => void
   onReorderSessions?: (ids: string[]) => void
-  dndSensors?: ReturnType<typeof useSensors>
   // Project overview / entered-project rendering (takes precedence over the flat
   // session list when present).
   projectOverview?: SidebarProjectTree[]
@@ -145,7 +143,6 @@ export function SidebarSessionsSection(props: SidebarSessionsSectionProps) {
     groups,
     onNewSessionInProfile,
     onReorderSessions,
-    dndSensors,
     projectOverview,
     projectContent,
     projectsLoading = false,
@@ -237,7 +234,7 @@ export function SidebarSessionsSection(props: SidebarSessionsSectionProps) {
 
     inner =
       projectsDraggable && onReorderProjects ? (
-        <ReorderableList ids={projectOverview.map(p => p.id)} onReorder={onReorderProjects} sensors={dndSensors}>
+        <ReorderableList ids={projectOverview.map(p => p.id)} onReorder={onReorderProjects}>
           {rows}
         </ReorderableList>
       ) : (
@@ -275,7 +272,7 @@ export function SidebarSessionsSection(props: SidebarSessionsSectionProps) {
 
     inner =
       sessionsDraggable && onReorderSessions ? (
-        <ReorderableList ids={sessions.map(s => s.id)} onReorder={onReorderSessions} sensors={dndSensors}>
+        <ReorderableList ids={sessions.map(s => s.id)} onReorder={onReorderSessions}>
           {virtual}
         </ReorderableList>
       ) : (
@@ -283,7 +280,7 @@ export function SidebarSessionsSection(props: SidebarSessionsSectionProps) {
       )
   } else if (sessionsDraggable && onReorderSessions) {
     inner = (
-      <ReorderableList ids={sessions.map(s => s.id)} onReorder={onReorderSessions} sensors={dndSensors}>
+      <ReorderableList ids={sessions.map(s => s.id)} onReorder={onReorderSessions}>
         {sessions.map(session => renderRow(session, true))}
       </ReorderableList>
     )

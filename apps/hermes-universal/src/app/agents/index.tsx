@@ -20,6 +20,7 @@ import {
   type SubagentStreamEntry
 } from '@/store/subagents'
 
+import type { OverlayVariant } from '../overlays/overlay-view'
 import { Panel, PanelEmpty, PanelHeader } from '../overlays/panel'
 
 // Mirrors statusGlyph() in tool-fallback.tsx so subagent rows speak the
@@ -75,9 +76,11 @@ function streamGlyph(entry: SubagentStreamEntry): ReactNode {
 
 interface AgentsViewProps {
   onClose: () => void
+  /** `fullscreen` when hosted as a phone/native screen, which draws its own chrome. */
+  variant?: OverlayVariant
 }
 
-export function AgentsView({ onClose }: AgentsViewProps) {
+export function AgentsView({ onClose, variant }: AgentsViewProps) {
   const { t } = useI18n()
   const subagentsBySession = useStore($subagentsBySession)
 
@@ -87,7 +90,7 @@ export function AgentsView({ onClose }: AgentsViewProps) {
   const tree = useMemo(() => buildSubagentTree(allSubagents(subagentsBySession)), [subagentsBySession])
 
   return (
-    <Panel closeLabel={t.agents.close} onClose={onClose}>
+    <Panel closeLabel={t.agents.close} onClose={onClose} variant={variant}>
       {tree.length === 0 ? (
         <PanelEmpty description={t.agents.emptyDesc} icon="hubot" title={t.agents.emptyTitle} />
       ) : (

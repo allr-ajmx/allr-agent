@@ -76,6 +76,14 @@ export const ROW = 'display:flex;gap:4px;align-items:center'
 
 export const DIM = 'rgba(255,255,255,.3)'
 
+// A finger has no hover and no 1px precision, so the header grows into a real
+// grab handle and its buttons into real targets. Read once at construction:
+// these are inline styles on raw DOM, which cannot carry a media query.
+const COARSE_POINTER =
+  typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+    ? window.matchMedia('(pointer: coarse)').matches
+    : false
+
 export interface HudShell {
   panel: HTMLElement
   header: HTMLElement
@@ -136,11 +144,21 @@ export function createHudShell(options: HudShellOptions): HudShell {
     ].join(';')
   )
 
-  const header = el('div', `${ROW};padding:3px 6px;cursor:grab`)
+  // `touch-action:none` is what makes the HUD draggable by finger at all: without
+  // it the webview claims the gesture as a page pan and fires `pointercancel`
+  // mid-drag, so the panel would twitch a few pixels and stop.
+  const header = el('div', `${ROW};padding:${COARSE_POINTER ? '9px 8px' : '3px 6px'};cursor:grab;touch-action:none`)
   const dot = el('span', `flex:0 0 auto;width:7px;height:7px;border-radius:50%;background:${DIM}`)
-  const title = el('span', 'flex:1 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:.7', options.title)
-  const collapseButton = el('button', BUTTON, '–')
-  const hideButton = el('button', BUTTON, '×')
+
+  const title = el(
+    'span',
+    'flex:1 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:.7',
+    options.title
+  )
+
+  const chromeButton = COARSE_POINTER ? `${BUTTON};padding:4px 10px` : BUTTON
+  const collapseButton = el('button', chromeButton, '–')
+  const hideButton = el('button', chromeButton, '×')
 
   header.append(dot, title, collapseButton, hideButton)
 
@@ -191,7 +209,10 @@ export function createHudShell(options: HudShellOptions): HudShell {
   const drag = { dx: 0, dy: 0, on: false }
 
   header.addEventListener('pointerdown', event => {
-    if (event.target !== header && event.target !== dot && event.target !== title) {
+    // Everything in the header is a grab handle EXCEPT the two chrome buttons.
+    // Naming what drags meant a finger landing a pixel off the label did
+    // nothing; naming what doesn't leaves no dead zone to hit.
+    if (event.target === collapseButton || event.target === hideButton) {
       return
     }
 

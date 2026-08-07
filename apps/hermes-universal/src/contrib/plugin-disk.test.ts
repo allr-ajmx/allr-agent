@@ -36,11 +36,17 @@ beforeEach(() => {
   localStorage.clear()
 
   invoke.mockImplementation((cmd: string) => {
-    if (cmd === 'plugins_root') {return Promise.resolve('/home/u/.hermes/desktop-plugins')}
+    if (cmd === 'plugins_root') {
+      return Promise.resolve('/home/u/.hermes/desktop-plugins')
+    }
 
-    if (cmd === 'plugins_list') {return Promise.resolve([])}
+    if (cmd === 'plugins_list') {
+      return Promise.resolve([])
+    }
 
-    if (cmd === 'plugins_read') {return Promise.resolve('export default {}')}
+    if (cmd === 'plugins_read') {
+      return Promise.resolve('export default {}')
+    }
 
     return Promise.reject(new Error(`unexpected command ${cmd}`))
   })
@@ -104,9 +110,13 @@ describe('door selection', () => {
 describe('local door', () => {
   const localDoor = async () => {
     invoke.mockImplementation((cmd: string) => {
-      if (cmd === 'plugins_root') {return Promise.resolve('/home/u/.hermes/desktop-plugins')}
+      if (cmd === 'plugins_root') {
+        return Promise.resolve('/home/u/.hermes/desktop-plugins')
+      }
 
-      if (cmd === 'plugins_list') {return Promise.resolve([rustEntry('kanban')])}
+      if (cmd === 'plugins_list') {
+        return Promise.resolve([rustEntry('kanban')])
+      }
 
       return Promise.resolve('export default { id: "kanban" }')
     })

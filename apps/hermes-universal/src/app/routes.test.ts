@@ -2,14 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import { registry } from '@/contrib/registry'
 
-import {
-  appViewForPath,
-  contributedRoutes,
-  isOverlayView,
-  ROUTES_AREA,
-  routeSessionId,
-  sessionRoute
-} from './routes'
+import { appViewForPath, contributedRoutes, isOverlayView, ROUTES_AREA, routeSessionId, sessionRoute } from './routes'
 
 describe('routes', () => {
   it('maps reserved paths to their view, everything else to chat', () => {

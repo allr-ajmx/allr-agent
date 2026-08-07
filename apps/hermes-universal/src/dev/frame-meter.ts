@@ -71,7 +71,10 @@ export function summarize(durations: readonly number[]): FrameStats {
     // between callbacks; reporting Infinity fps would be worse than reporting 0.
     fps: mean > 0 ? 1000 / mean : 0,
     longFrames,
-    p95Ms: percentile([...durations].sort((a, b) => a - b), 0.95),
+    p95Ms: percentile(
+      [...durations].sort((a, b) => a - b),
+      0.95
+    ),
     sampleCount: durations.length,
     worstMs: worst
   }

@@ -230,7 +230,8 @@ export const CodingStatusRow = memo(function CodingStatusRow({
             {/* Branch actions kebab. ALWAYS laid out; only its opacity flips on
                 hover/focus/open, so revealing it never reflows the row (no layout
                 shift). pointer-events follow opacity so the invisible trigger
-                isn't clickable at rest. */}
+                isn't clickable at rest — which on a coarse pointer meant the
+                kebab was not merely invisible but inert, so both flip there. */}
             {onBranchOff && (
               <ActionsMenu
                 align="end"
@@ -242,7 +243,7 @@ export const CodingStatusRow = memo(function CodingStatusRow({
               >
                 <Button
                   aria-label={s.newBranch}
-                  className="pointer-events-none size-4 shrink-0 text-muted-foreground/60 opacity-0 transition group-focus-within/status-row:pointer-events-auto group-focus-within/status-row:opacity-100 group-hover/status-row:pointer-events-auto group-hover/status-row:opacity-100 hover:text-foreground data-[state=open]:pointer-events-auto data-[state=open]:opacity-100"
+                  className="pointer-events-none size-4 shrink-0 text-muted-foreground/60 opacity-0 transition coarse:pointer-events-auto coarse:opacity-100 group-focus-within/status-row:pointer-events-auto group-focus-within/status-row:opacity-100 group-hover/status-row:pointer-events-auto group-hover/status-row:opacity-100 hover:text-foreground data-[state=open]:pointer-events-auto data-[state=open]:opacity-100"
                   onClick={event => event.stopPropagation()}
                   onKeyDown={event => {
                     // The row's onActivate also fires on Enter/Space; keep it from

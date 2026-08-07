@@ -12,7 +12,7 @@ import type * as SshBackendModule from '@/store/ssh-backend'
 // on screen for the 45-90s the tunnel takes to come up.
 
 vi.mock('@/store/gateway-soft-switch', () => ({ softSwitchGateway: vi.fn().mockResolvedValue(undefined) }))
-vi.mock('@/store/gateway-switch-sync', () => ({ broadcastGatewaySwitch: vi.fn() }))
+vi.mock('@/store/gateway-switch-broadcast', () => ({ broadcastGatewaySwitch: vi.fn() }))
 vi.mock('@/lib/secure-store', () => ({
   // Resolves to a record, never null — the form prefill reads fields off it directly.
   loadSshSecrets: vi.fn().mockResolvedValue({}),
@@ -39,7 +39,7 @@ import { queryClient } from '@/lib/query-client'
 import { connectSsh } from '@/store/connection'
 import { saveGatewayTarget } from '@/store/gateway-restore'
 import { softSwitchGateway } from '@/store/gateway-soft-switch'
-import { broadcastGatewaySwitch } from '@/store/gateway-switch-sync'
+import { broadcastGatewaySwitch } from '@/store/gateway-switch-broadcast'
 
 import { GatewayConfigurator } from './gateway-configurator'
 

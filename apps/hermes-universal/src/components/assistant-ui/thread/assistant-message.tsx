@@ -133,7 +133,12 @@ const AssistantActionBar: FC<MessageActionProps> = ({ messageId, getMessageText,
           // invisible by default (opacity-0 + pointer-events-none, reveals on
           // hover), so keeping it mounted reserves stable layout height with
           // no visual change during streaming.
-          'relative flex flex-row items-center justify-end gap-2 py-1.5 opacity-0 pointer-events-none group-hover:pointer-events-auto group-hover:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100',
+          //
+          // On a coarse pointer it is simply visible: copy and the ⋯ menu
+          // (branch a new chat, read aloud, timestamp) are otherwise
+          // unreachable on every message in the thread. Height is already
+          // reserved either way, so this changes visibility, not layout.
+          'relative flex flex-row items-center justify-end gap-2 py-1.5 opacity-0 pointer-events-none group-hover:pointer-events-auto group-hover:opacity-100 coarse:pointer-events-auto coarse:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100',
           menuOpen && 'pointer-events-auto opacity-100 [&_button]:opacity-100'
         )}
         data-slot="aui_msg-actions"

@@ -1,9 +1,10 @@
 import { QueryClientProvider } from '@tanstack/react-query'
 import { render, screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 
 import { I18nProvider } from '@/i18n'
 import { queryClient } from '@/lib/query-client'
+import { $connection, $connectionPhase } from '@/store/connection'
 
 import { GatewayConfigurator } from './gateway-configurator'
 
@@ -41,5 +42,35 @@ describe('GatewayConfigurator variants', () => {
     // and 3-col where it is not, so only rejecting one would prove nothing.
     expect(grid?.className).not.toContain('min-[42rem]:grid-cols-3')
     expect(grid?.className).not.toContain('min-[42rem]:grid-cols-4')
+  })
+})
+
+// The session belongs to ONE gateway. Reporting it against whatever URL is in the field
+// is how "sign in to a different gateway" became unreachable from Settings: the pill said
+// Signed in, and the button it replaced was the only way to start the sign-in.
+describe('signed-in state is scoped to the connected gateway', () => {
+  afterEach(() => {
+    $connection.set(null)
+    $connectionPhase.set('idle')
+    localStorage.clear()
+  })
+
+  function connectedTo(liveUrl: string, fieldUrl: string) {
+    localStorage.setItem('hermes.url', fieldUrl)
+    $connection.set({ baseUrl: liveUrl, mode: 'remote', authMode: 'oauth' })
+    $connectionPhase.set('ready')
+    renderVariant('settings')
+  }
+
+  it('shows Signed in for the gateway actually connected', () => {
+    connectedTo('https://gw.a', 'https://gw.a')
+    expect(screen.getByText('Signed in')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Sign in' })).not.toBeInTheDocument()
+  })
+
+  it('offers Sign in once the field holds a different gateway', () => {
+    connectedTo('https://gw.a', 'https://gw.b')
+    expect(screen.queryByText('Signed in')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument()
   })
 })

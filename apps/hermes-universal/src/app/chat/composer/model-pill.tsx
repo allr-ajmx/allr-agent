@@ -21,7 +21,9 @@ import {
 import type { ChatBarState } from './types'
 
 const PILL = cn(
-  'h-(--composer-control-size) max-w-40 shrink-0 gap-1 rounded-md px-2 text-xs font-normal',
+  // `min-w-0` so the label's `truncate` can actually act if the controls row
+  // does get tight — without it the pill is its content's width and pushes.
+  'h-(--composer-control-size) min-w-0 max-w-40 shrink-0 gap-1 rounded-md px-2 text-xs font-normal',
   'text-(--ui-text-tertiary) hover:bg-(--chrome-action-hover) hover:text-foreground'
 )
 

@@ -78,15 +78,12 @@ describe('CodingStatusRow', () => {
 
   it('offers branch-off, switch and worktree entries in the kebab', async () => {
     $repoStatus.set(status())
-    $repoWorktrees.set([{ branch: 'other', detached: false, isMain: false, locked: false, path: '/repo/.worktrees/other' }])
+    $repoWorktrees.set([
+      { branch: 'other', detached: false, isMain: false, locked: false, path: '/repo/.worktrees/other' }
+    ])
 
     render(
-      <CodingStatusRow
-        onBranchOff={noop}
-        onOpenWorktree={() => undefined}
-        onSwitchBranch={noop}
-        repoPath="/repo"
-      />
+      <CodingStatusRow onBranchOff={noop} onOpenWorktree={() => undefined} onSwitchBranch={noop} repoPath="/repo" />
     )
 
     openKebab()
