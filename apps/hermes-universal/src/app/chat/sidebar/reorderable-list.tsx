@@ -1,7 +1,22 @@
-import type { useSensors } from '@dnd-kit/core'
-import { closestCenter, DndContext, type DragEndEvent } from '@dnd-kit/core'
-import { arrayMove, SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
+import {
+  closestCenter,
+  DndContext,
+  type DragEndEvent,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors
+} from '@dnd-kit/core'
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy
+} from '@dnd-kit/sortable'
 import type * as React from 'react'
+
+import { TAP_SLOP_PX } from '@/lib/touch'
 
 // Sidebar reordering is a strictly vertical list. Ported verbatim from desktop
 // `app/chat/sidebar/reorderable-list.tsx`.
@@ -10,14 +25,22 @@ const reorderAutoScroll = { threshold: { x: 0, y: 0.2 } }
 export function ReorderableList({
   children,
   ids,
-  onReorder,
-  sensors
+  onReorder
 }: {
   children: React.ReactNode
   ids: string[]
   onReorder: (ids: string[]) => void
-  sensors?: ReturnType<typeof useSensors>
 }) {
+  // dnd-kit's DEFAULT PointerSensor has no activation constraint: the first
+  // pointermove starts a reorder. That is survivable with a mouse and not with a
+  // thumb — and the grab handle is `touch-none`, so a touch landing on it could
+  // neither scroll the list nor stay a tap. This used to take a `sensors` prop
+  // threaded down from `sessions-section`, which nothing ever passed.
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: TAP_SLOP_PX } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  )
+
   const handleDragEnd = ({ activatorEvent, active, over }: DragEndEvent) => {
     if (!(activatorEvent instanceof KeyboardEvent)) {
       ;(document.activeElement as HTMLElement | null)?.blur()

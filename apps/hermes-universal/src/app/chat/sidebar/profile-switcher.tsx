@@ -42,6 +42,7 @@ import {
   reorderCommitHaptic,
   reorderStepHaptic
 } from '@/lib/reorder'
+import { TAP_SLOP_PX } from '@/lib/touch'
 import { cn } from '@/lib/utils'
 import { useStore } from '@/store/atom'
 import { notify, notifyError } from '@/store/notifications'
@@ -208,7 +209,7 @@ export function ProfileRail() {
   // activation distance differs, and the sessions list adds vertical autoScroll
   // this horizontal strip must not inherit.
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(PointerSensor, { activationConstraint: { distance: TAP_SLOP_PX } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   )
 
