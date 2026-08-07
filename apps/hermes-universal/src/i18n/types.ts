@@ -2075,6 +2075,8 @@ export interface Translations {
     markUnviewed: string
     askHermes: string
     askHermesPrompt: (path: string) => string
+    wrap: string
+    unwrap: string
   }
 
   mobileWorkspace: {

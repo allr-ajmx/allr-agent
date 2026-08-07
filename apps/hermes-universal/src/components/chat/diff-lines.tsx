@@ -52,8 +52,12 @@ const DIFF_KIND_TEXT: Record<DiffKind, string> = {
   remove: 'text-rose-800 dark:text-rose-200'
 }
 
-const DIFF_LINE_BASE = 'block min-w-max whitespace-pre border-l-2 px-2.5 py-px'
-const PREVIEW_DIFF_LINE_BASE = 'block h-5 min-w-max whitespace-pre px-2.5 leading-5'
+// `diff-line` is a hook, not a style: it is the one handle every renderer here
+// shares (plain rows, Shiki's transformer output, the windowed rows), so a
+// wrapping panel can re-flow all three from a single rule in styles.css instead
+// of threading a `wrap` prop through each of them.
+const DIFF_LINE_BASE = 'diff-line block min-w-max whitespace-pre border-l-2 px-2.5 py-px'
+const PREVIEW_DIFF_LINE_BASE = 'diff-line block h-5 min-w-max whitespace-pre px-2.5 leading-5'
 const PREVIEW_CHUNK_LINES = 200
 const PREVIEW_LINE_PX = 20
 const PREVIEW_OVERSCAN_LINES = 400
@@ -563,6 +567,10 @@ interface FileDiffPanelProps {
    *  diff in a scrolling pane (the review panel), so only visible rows mount
    *  instead of highlighting every line. `showLineNumbers` implies windowing. */
   virtualized?: boolean
+  /** Soft-wrap long lines instead of scrolling sideways. Reading a diff on a
+   *  phone is mostly reading long lines, and a horizontal scrollbar is the one
+   *  gesture a thumb is worst at. */
+  wrap?: boolean
 }
 
 export function FileDiffPanel({
@@ -571,7 +579,8 @@ export function FileDiffPanel({
   fullText,
   path,
   showLineNumbers = false,
-  virtualized = false
+  virtualized = false,
+  wrap = false
 }: FileDiffPanelProps) {
   const lines = React.useMemo(
     () => (fullText != null ? parseFullFileDiff(diff, fullText) : parseDiff(diff)),
@@ -591,7 +600,15 @@ export function FileDiffPanel({
 
   const language = shikiLanguageForFilename(path)
   const canHighlight = Boolean(language) && !exceedsHighlightBudget(fullText ?? diff)
-  const windowed = showLineNumbers || virtualized
+  // Wrapping and windowing are mutually exclusive, and the window is what gives
+  // way. Both the fixed-row scroller and the line-number gutter beside it place
+  // rows by multiplying an index by a constant row height; a wrapped line is
+  // however many rows tall it needs to be, so the two would drift apart within a
+  // screenful. A wrapped diff therefore renders every row — bounded by the same
+  // highlight budget the tool cards use, and opt-in per file.
+  // ponytail: unwindowed while wrapped. If a huge diff drags here, the fix is a
+  // measuring virtualizer, not a smaller budget.
+  const windowed = (showLineNumbers || virtualized) && !wrap
 
   // Windowed: we own fixed-height rows and render only the visible chunks, so a
   // large diff never mounts (or Shiki-highlights) every line. Compact tool cards
@@ -619,7 +636,7 @@ export function FileDiffPanel({
 
   if (!windowed) {
     return (
-      <div className={cn(DIFF_BOX_CLASS, className)} data-slot="file-diff-panel">
+      <div className={cn(DIFF_BOX_CLASS, className)} data-diff-wrap={wrap ? '' : undefined} data-slot="file-diff-panel">
         {compactBody}
       </div>
     )

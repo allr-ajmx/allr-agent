@@ -2600,7 +2600,9 @@ export const zh: Translations = {
     markViewed: '标记为已查看',
     markUnviewed: '标记为未查看',
     askHermes: '询问 Hermes',
-    askHermesPrompt: path => `关于 \`${path}\` — `
+    askHermesPrompt: path => `关于 \`${path}\` — `,
+    wrap: '自动换行',
+    unwrap: '不换行'
   },
 
   mobileWorkspace: {

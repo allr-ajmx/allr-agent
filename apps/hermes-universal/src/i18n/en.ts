@@ -2446,7 +2446,9 @@ export const en: Translations = {
     markViewed: 'Mark as viewed',
     markUnviewed: 'Mark as not viewed',
     askHermes: 'Ask Hermes',
-    askHermesPrompt: path => `About \`${path}\` — `
+    askHermesPrompt: path => `About \`${path}\` — `,
+    wrap: 'Wrap',
+    unwrap: 'No wrap'
   },
 
   mobileWorkspace: {

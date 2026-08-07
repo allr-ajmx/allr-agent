@@ -6,7 +6,13 @@ import type { HermesReviewFile } from '@/global'
 import { useI18n } from '@/i18n'
 import { cn } from '@/lib/utils'
 import { useStore } from '@/store/atom'
-import { $reviewDiff, $reviewDiffLoading, selectReviewFile } from '@/store/review'
+import {
+  $reviewDiff,
+  $reviewDiffLoading,
+  $reviewDiffWrap,
+  selectReviewFile,
+  toggleReviewDiffWrap
+} from '@/store/review'
 
 // The full-screen diff. On a phone the list and the diff can't share a viewport,
 // so this is a detail view over the list rather than the desktop's stacked panel.
@@ -44,6 +50,7 @@ export function MobileReviewDiff({
   const m = t.mobileReview
   const diff = useStore($reviewDiff)
   const loading = useStore($reviewDiffLoading)
+  const wrap = useStore($reviewDiffWrap)
 
   const index = files.findIndex(entry => entry.path === file.path)
   const previous = index > 0 ? files[index - 1] : null
@@ -108,7 +115,14 @@ export function MobileReviewDiff({
              max-height beats `h-full`. Without this the diff sat in a 12rem strip
              with the rest of the screen empty below it. Same cancellation the
              desktop review pane does. */
-          <FileDiffPanel className="mx-0 mb-0 h-full max-h-none" diff={diff} path={file.path} showLineNumbers virtualized />
+          <FileDiffPanel
+            className="mx-0 mb-0 h-full max-h-none"
+            diff={diff}
+            path={file.path}
+            showLineNumbers
+            virtualized
+            wrap={wrap}
+          />
         ) : (
           <div className="p-4 text-xs text-muted-foreground">{c.noDiff}</div>
         )}
@@ -117,7 +131,7 @@ export function MobileReviewDiff({
       {/* The Workspace's tab bar sits below this and owns the home-indicator
           inset; padding for it here would count it twice. */}
       <footer className="shrink-0 border-t border-(--ui-stroke-tertiary) bg-(--ui-bg-chrome)">
-        <div className="grid grid-cols-4 gap-0.5 p-1">
+        <div className="grid grid-cols-5 gap-0.5 p-1">
           <FooterAction
             icon={file.staged ? 'remove' : 'add'}
             label={file.staged ? c.unstage : c.stage}
@@ -126,6 +140,16 @@ export function MobileReviewDiff({
           <FooterAction icon="discard" label={c.revert} onClick={() => onRevert(file)} tone="danger" />
           <FooterAction icon="go-to-file" label={c.openFile} onClick={() => onOpenInEditor(file)} />
           <FooterAction icon="comment-discussion" label={m.askHermes} onClick={() => onAskHermes(file)} />
+          {/* Wrap belongs beside the actions rather than in the header: it is
+              something you reach for mid-read, having just hit a line that runs
+              off the screen, and the header is at the other end of the phone
+              from your thumb. */}
+          <FooterAction
+            active={wrap}
+            icon="word-wrap"
+            label={wrap ? m.unwrap : m.wrap}
+            onClick={toggleReviewDiffWrap}
+          />
         </div>
       </footer>
     </div>
@@ -133,11 +157,15 @@ export function MobileReviewDiff({
 }
 
 function FooterAction({
+  active,
   icon,
   label,
   onClick,
   tone
 }: {
+  /** A toggle that is currently ON — reads as pressed rather than as one of the
+   *  one-shot actions beside it. */
+  active?: boolean
   icon: string
   label: string
   onClick: () => void
@@ -145,9 +173,11 @@ function FooterAction({
 }) {
   return (
     <button
+      aria-pressed={active}
       className={cn(
         'flex min-h-[44px] flex-col items-center justify-center gap-0.5 rounded-md px-1 py-1 text-[0.65rem]',
-        tone === 'danger' ? 'text-(--ui-red)' : 'text-muted-foreground'
+        tone === 'danger' ? 'text-(--ui-red)' : 'text-muted-foreground',
+        active && 'bg-(--ui-control-active-background) text-foreground'
       )}
       onClick={onClick}
       type="button"

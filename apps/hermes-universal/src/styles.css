@@ -2330,3 +2330,25 @@ html {
     font-size: 1rem;
   }
 }
+
+/* ─── Soft-wrapped diffs ─────────────────────────────────────────────────────
+   `FileDiffPanel` in wrap mode. Every diff renderer in components/chat/
+   diff-lines.tsx — plain rows, the windowed rows, and the ones Shiki's
+   transformer builds — tags its lines `.diff-line`, so re-flowing all three is
+   one rule here instead of a `wrap` prop threaded through each of them.
+
+   `min-w-max` is what has to go: it sizes a row to its longest unbroken run,
+   which is precisely the horizontal scroll we are trying to remove. `anywhere`
+   rather than `break-word` because the lines that overflow a phone are usually
+   one long token (a path, a base64 blob, a minified bundle) with no break
+   opportunity in them at all.
+
+   The fixed row height goes too: a wrapped line is as many rows tall as it
+   needs, and the panel drops out of its virtualized path whenever wrap is on
+   for exactly that reason. */
+[data-diff-wrap] .diff-line {
+  block-size: auto;
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
