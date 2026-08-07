@@ -151,7 +151,9 @@ export function MobileWorkspace({ onClose }: { onClose: () => void }) {
 
   return (
     <div
-      className="fixed right-0 left-0 z-50 flex flex-col bg-background"
+      // In from the right, matching the button that opens it — see MobileSidebar
+      // for why these surfaces animate at all.
+      className="animate-in slide-in-from-right fixed right-0 left-0 z-50 flex flex-col bg-background duration-150"
       style={{
         // Sized to the VISIBLE rectangle, not the layout viewport. A webview
         // that reveals a focused input by scrolling the visual viewport leaves

@@ -84,7 +84,12 @@ export function MobileSidebar({ onClose }: { onClose: () => void }) {
 
   return (
     <div
-      className="fixed right-0 left-0 z-50 flex flex-col bg-(--ui-sidebar-surface-background)"
+      // Slides in from the side it belongs to, fast. A full-screen surface that
+      // simply appears reads as a route change rather than a panel, and gives no
+      // hint which edge to swipe back toward. 150ms — long enough to see the
+      // direction, short enough that it never sits between you and the list.
+      // Enter only: an exit needs the surface to outlive its own unmount.
+      className="animate-in slide-in-from-left fixed right-0 left-0 z-50 flex flex-col bg-(--ui-sidebar-surface-background) duration-150"
       style={{
         // The VISIBLE rectangle — see MobileWorkspace for why this is not
         // `inset-0` plus a keyboard margin.
