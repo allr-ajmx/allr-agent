@@ -10,6 +10,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { type Translations, useI18n } from '@/i18n'
 import { IS_MOBILE, LOCAL_MODE_SUPPORTED } from '@/lib/platform'
+import { throttleDuringResize } from '@/lib/resize-gesture'
 import { cn } from '@/lib/utils'
 import { useStore } from '@/store/atom'
 import { $connection } from '@/store/connection'
@@ -240,7 +241,12 @@ export function TerminalView() {
 
     let raf = 0
 
-    const ro = new ResizeObserver(() => {
+    // Throttled while a pane sash or the window edge is being dragged: a fit is
+    // a full grid reflow, and every cols/rows change it produces also sends a
+    // PTY resize over IPC (`onResize` above) — per frame, for the whole drag,
+    // for intermediate widths nobody reads and the shell never keeps. The rAF
+    // below stays as the sub-frame coalescer for everything else.
+    const refit = throttleDuringResize('terminal', () => {
       cancelAnimationFrame(raf)
       raf = requestAnimationFrame(() => {
         try {
@@ -250,6 +256,8 @@ export function TerminalView() {
         }
       })
     })
+
+    const ro = new ResizeObserver(() => refit())
 
     ro.observe(host)
 

@@ -1,5 +1,7 @@
 import { type RefObject, useLayoutEffect, useRef } from 'react'
 
+import { throttleDuringResize } from '@/lib/resize-gesture'
+
 /**
  * Observe element resizes. The callback receives the ResizeObserver entries
  * (empty only in non-RO environments) so callers can read the observed size
@@ -23,6 +25,12 @@ import { type RefObject, useLayoutEffect, useRef } from 'react'
  * 2,600 callbacks across 40 pointermoves — 65 separate callbacks per frame,
  * each carrying exactly one entry — and 977ms of script time attributed to
  * this file. Batching collapses that to one callback per frame.
+ *
+ * Batching fixed the DELIVERY count, not the work: one callback a frame still
+ * fans out to every handler, so ~100 bubbles is ~100 measure-and-setState passes
+ * per frame of a drag. So deliveries are additionally THROTTLED while a resize
+ * gesture is running (lib/resize-gesture.ts) — untouched at every other time, so
+ * mount measurement and a composer growing as you type behave exactly as before.
  */
 
 type Handler = (entries: readonly ResizeObserverEntry[]) => void
@@ -32,6 +40,53 @@ const handlers = new WeakMap<Element, Set<Handler>>()
 
 let shared: null | ResizeObserver = null
 
+/**
+ * Entries awaiting delivery, keyed by target so a throttled flush carries the
+ * LATEST size per element. Without this, a deferred delivery would replay a
+ * stale rect — and mid-drag every rect but the last one is stale.
+ */
+const queued = new Map<Element, ResizeObserverEntry>()
+
+/** Fan the queued entries out, grouped so a caller observing several elements is
+ *  invoked once with all of its entries — the contract a private observer gave. */
+const deliver = () => {
+  if (queued.size === 0) {
+    return
+  }
+
+  const entries = [...queued.values()]
+
+  queued.clear()
+
+  const byHandler = new Map<Handler, ResizeObserverEntry[]>()
+
+  for (const entry of entries) {
+    const targets = handlers.get(entry.target)
+
+    if (!targets) {
+      continue
+    }
+
+    for (const handler of targets) {
+      const list = byHandler.get(handler)
+
+      if (list) {
+        list.push(entry)
+      } else {
+        byHandler.set(handler, [entry])
+      }
+    }
+  }
+
+  for (const [handler, group] of byHandler) {
+    handler(group)
+  }
+}
+
+// 'chat' because the dominant consumer by count is the transcript's per-bubble
+// clamp measurement; the category is what a future optimization profile keys on.
+const deliverThrottled = throttleDuringResize('chat', deliver)
+
 function sharedObserver(): null | ResizeObserver {
   if (typeof ResizeObserver === 'undefined') {
     return null
@@ -39,32 +94,11 @@ function sharedObserver(): null | ResizeObserver {
 
   if (!shared) {
     shared = new ResizeObserver(entries => {
-      // Group this delivery's entries by handler so a caller observing several
-      // elements is still invoked once, with all of its entries — the same
-      // contract a private observer gave it.
-      const byHandler = new Map<Handler, ResizeObserverEntry[]>()
-
       for (const entry of entries) {
-        const targets = handlers.get(entry.target)
-
-        if (!targets) {
-          continue
-        }
-
-        for (const handler of targets) {
-          const list = byHandler.get(handler)
-
-          if (list) {
-            list.push(entry)
-          } else {
-            byHandler.set(handler, [entry])
-          }
-        }
+        queued.set(entry.target, entry)
       }
 
-      for (const [handler, group] of byHandler) {
-        handler(group)
-      }
+      deliverThrottled()
     })
   }
 
