@@ -18,8 +18,13 @@ fn main() {
 /// wry regenerates the Kotlin from its own crate template on every build, and
 /// exposes no hook to override a method body, so we post-process the emitted
 /// file here. Our crate depends on wry, so wry's build script (which writes the
-/// file) has already run by the time this executes, and Gradle compiles the
-/// Kotlin only after cargo finishes — so the patch always lands in time.
+/// file) has already run by the time this executes.
+///
+/// Gradle does NOT order the Kotlin compile after cargo on its own — the generated
+/// source set is an undeclared input. `gen/android/buildSrc/.../RustPlugin.kt` wires
+/// `compile<Arch><Profile>Kotlin` to depend on the cargo task so this patch lands
+/// before the Kotlin that reads it is compiled. Without that dependency the two race,
+/// and a build that loses ships the crashing `getCookies` no matter what we write here.
 fn patch_android_get_cookies() {
     // Only relevant to Android builds; the env var below is set by the Tauri
     // CLI for `tauri android dev|build`.
