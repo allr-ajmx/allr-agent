@@ -80,6 +80,11 @@ def test_health_reports_liveness_without_loading_gateway_config(gated_client, mo
         "ok": True,
         "version": web_server.__version__,
         "auth_required": True,
+        # Capability advertisement: a client cannot discover an absent WebSocket
+        # route (uvicorn answers every pre-accept close with a bare 403), so
+        # /api/shell-pty has to be announced here or the right-pane terminal
+        # cannot tell "no terminal API" from "you are not allowed".
+        "features": {"shell_pty": True},
     }
 
 
