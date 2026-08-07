@@ -106,21 +106,59 @@ export function MobileReview({ onOpenInEditor, onLeaveToChat }: MobileReviewProp
     onLeaveToChat()
   }
 
+  // Revert is the one destructive action here and it cannot be undone, so it
+  // confirms — as a sheet, since a phone dialog with a tiny "Discard" button is
+  // exactly how people lose work.
+  //
+  // `$reviewRevertTarget` is `undefined` when closed and `{path: null}` for
+  // revert-all, so the open test MUST be against `undefined`: testing `null`
+  // leaves the sheet open from first render AND makes `cancelRevert()` a no-op,
+  // which (Radix modal ⇒ `pointer-events: none` on <body>) locks the whole
+  // Workspace behind it.
+  const revertSheet = (
+    <Sheet onOpenChange={open => !open && cancelRevert()} open={revertTarget !== undefined}>
+      <SheetContent className="gap-2 p-4" showCloseButton={false} side="bottom">
+        <SheetHeader className="p-0">
+          <SheetTitle>{revertTarget?.path == null ? c.revertAll : c.revert}</SheetTitle>
+        </SheetHeader>
+        <p className="text-xs text-muted-foreground">
+          {revertTarget?.path == null ? c.revertAllConfirm : c.revertConfirm}
+        </p>
+        <Button
+          className="min-h-11 w-full"
+          onClick={() => void confirmRevert().catch(err => notifyError(err, c.revert))}
+          variant="destructive"
+        >
+          {c.revert}
+        </Button>
+        <Button className="min-h-11 w-full" onClick={cancelRevert} variant="ghost">
+          {t.common.cancel}
+        </Button>
+      </SheetContent>
+    </Sheet>
+  )
+
   if (!isRepo) {
     return <EmptyState label={c.notRepo} />
   }
 
+  // The sheet is a sibling of BOTH branches: revert is reachable from the diff
+  // footer too, and rendering it only in the list branch made that path set the
+  // store and show nothing.
   if (selected) {
     return (
-      <MobileReviewDiff
-        file={selected}
-        files={files}
-        onAskHermes={askHermes}
-        onBack={clearReviewSelection}
-        onOpenInEditor={onOpenInEditor}
-        onRevert={file => requestRevert(file.path)}
-        onToggleStage={toggleStage}
-      />
+      <>
+        <MobileReviewDiff
+          file={selected}
+          files={files}
+          onAskHermes={askHermes}
+          onBack={clearReviewSelection}
+          onOpenInEditor={onOpenInEditor}
+          onRevert={file => requestRevert(file.path)}
+          onToggleStage={toggleStage}
+        />
+        {revertSheet}
+      </>
     )
   }
 
@@ -194,29 +232,7 @@ export function MobileReview({ onOpenInEditor, onLeaveToChat }: MobileReviewProp
 
       <ShipSheet onOpenChange={setShipOpen} open={shipOpen} />
 
-      {/* Revert is the one destructive action here and it cannot be undone, so it
-          confirms — as a sheet, since a phone dialog with a tiny "Discard" button
-          is exactly how people lose work. */}
-      <Sheet onOpenChange={open => !open && cancelRevert()} open={revertTarget !== null}>
-        <SheetContent className="gap-2 p-4" showCloseButton={false} side="bottom">
-          <SheetHeader className="p-0">
-            <SheetTitle>{revertTarget?.path == null ? c.revertAll : c.revert}</SheetTitle>
-          </SheetHeader>
-          <p className="text-xs text-muted-foreground">
-            {revertTarget?.path == null ? c.revertAllConfirm : c.revertConfirm}
-          </p>
-          <Button
-            className="min-h-11 w-full"
-            onClick={() => void confirmRevert().catch(err => notifyError(err, c.revert))}
-            variant="destructive"
-          >
-            {c.revert}
-          </Button>
-          <Button className="min-h-11 w-full" onClick={cancelRevert} variant="ghost">
-            {t.common.cancel}
-          </Button>
-        </SheetContent>
-      </Sheet>
+      {revertSheet}
     </div>
   )
 }
