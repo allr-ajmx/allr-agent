@@ -77,6 +77,7 @@ import {
   sessionPinId,
   startSessionInWorkspace
 } from '@/store/session'
+import { openAppRoute } from '@/store/windows'
 import type { SessionInfo, SessionSearchResult } from '@/types/hermes'
 
 import { countLabel } from './chrome'
@@ -384,8 +385,7 @@ export function SidebarScrollBody({ onNavigate }: { onNavigate?: () => void }) {
   // before they hold any Hermes session. Only while drilled in — the overview
   // shows no lanes, so probing there would be pure cost.
   const scopedRepoPaths = useMemo(
-    () =>
-      (enteredProject?.repos ?? []).map(repo => repo.path).filter((path): path is string => Boolean(path?.trim())),
+    () => (enteredProject?.repos ?? []).map(repo => repo.path).filter((path): path is string => Boolean(path?.trim())),
     [enteredProject]
   )
 
@@ -654,7 +654,7 @@ export function SidebarScrollBody({ onNavigate }: { onNavigate?: () => void }) {
             <SidebarCronJobsSection
               jobs={cronJobs}
               label={s.cronJobs}
-              onManageJob={() => navigate(CRON_ROUTE)}
+              onManageJob={() => openAppRoute(CRON_ROUTE)}
               onOpenRun={id => {
                 void openSession(id)
                 navigate(sessionRoute(id))

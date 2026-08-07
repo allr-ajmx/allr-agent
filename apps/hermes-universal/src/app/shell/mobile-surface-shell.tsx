@@ -2,6 +2,7 @@ import { useLocation } from 'react-router-dom'
 
 import { ActivityNavSidebar } from '@/app/activity-screen-nav'
 import { CommandCenterView } from '@/app/command-center'
+import { CronView } from '@/app/cron'
 import { GatewayConnectingScreen } from '@/app/gateway/gateway-connecting-screen'
 import { ProfilesView } from '@/app/profiles'
 import { SettingsFooter, SettingsView } from '@/app/settings/settings-view'
@@ -20,7 +21,7 @@ import { deleteSessionLocal } from '@/store/session'
 import { activitySurfaceForPath } from '@/store/windows'
 
 // The shared mobile chrome for a windowable surface (Settings / Command Center /
-// Profiles). It is the SAME layout the Android native activity screen uses, factored
+// Profiles / Cron). It is the SAME layout the Android native activity screen uses, factored
 // out of `app/activity-screen.tsx` so the iOS / generic-mobile in-app overlay
 // (mobile-controller) can present these surfaces with identical chrome instead of the
 // desktop split-nav view (MJX-203).
@@ -68,14 +69,16 @@ export function MobileSurfaceShell({
   const title =
     surface === 'command-center'
       ? t.commandCenter.commandCenter
-      : surface === 'profiles'
-        ? t.profiles.title
-        : t.commandCenter.settings
+      : surface === 'cron'
+        ? t.cron.title
+        : surface === 'profiles'
+          ? t.profiles.title
+          : t.commandCenter.settings
 
-  // Command Center + Profiles need a live connection for their data; Settings can
-  // render once we've ever connected so it survives a reconnect. A soft gateway
-  // switch briefly drops the socket while it re-dials — keep the surface mounted
-  // across it rather than flashing the connecting screen.
+  // Command Center / Cron / Profiles need a live connection for their data;
+  // Settings can render once we've ever connected so it survives a reconnect. A
+  // soft gateway switch briefly drops the socket while it re-dials — keep the
+  // surface mounted across it rather than flashing the connecting screen.
   const showSurface = surface === 'settings' ? ready || hasConnected : ready || (switching && hasConnected)
 
   return (
@@ -110,6 +113,8 @@ export function MobileSurfaceShell({
               onOpenSession={onOpenSession}
               variant="fullscreen"
             />
+          ) : surface === 'cron' ? (
+            <CronView onClose={onHome} onOpenSession={onOpenSession} variant="fullscreen" />
           ) : (
             <ProfilesView onClose={onHome} variant="fullscreen" />
           )

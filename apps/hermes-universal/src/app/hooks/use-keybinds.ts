@@ -1,7 +1,11 @@
 import { useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 
-import { activateTreeTabSlot, closeFocusedTabInZone, cycleTreeTabInFocusedZone } from '@/components/pane-shell/tree/store'
+import {
+  activateTreeTabSlot,
+  closeFocusedTabInZone,
+  cycleTreeTabInFocusedZone
+} from '@/components/pane-shell/tree/store'
 import { contributedKeybindHandler, PROFILE_SLOT_COUNT, SESSION_SLOT_COUNT } from '@/lib/keybinds/actions'
 import { comboAllowedInInput, comboFromEvent, isEditableTarget } from '@/lib/keybinds/combo'
 import { IS_MOBILE } from '@/lib/platform'
@@ -175,7 +179,7 @@ export function useKeybinds(deps: KeybindRuntimeDeps): void {
     'nav.skills': () => navigate(SKILLS_ROUTE),
     'nav.messaging': () => navigate(MESSAGING_ROUTE),
     'nav.artifacts': () => navigate(ARTIFACTS_ROUTE),
-    'nav.cron': () => navigate(CRON_ROUTE),
+    'nav.cron': () => openAppRoute(CRON_ROUTE),
     'nav.agents': () => navigate(AGENTS_ROUTE),
 
     // Match the sidebar New Session button — the same three steps

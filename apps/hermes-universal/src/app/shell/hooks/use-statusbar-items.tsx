@@ -3,7 +3,7 @@ import { useLocation } from 'react-router-dom'
 
 import { jobState } from '@/app/cron/job-state'
 import { PlatformGlyph } from '@/app/messaging/platform-icon'
-import { AGENTS_ROUTE, appViewForPath, CRON_ROUTE, PLUGINS_SETTINGS_ROUTE } from '@/app/routes'
+import { AGENTS_ROUTE, appViewForPath, PLUGINS_SETTINGS_ROUTE } from '@/app/routes'
 import { useApprovalModeStatusbarItem } from '@/app/shell/approval-mode-menu'
 import { ContextUsagePanel } from '@/app/shell/context-usage-panel'
 import { GatewayMenuPanel } from '@/app/shell/gateway-menu-panel'
@@ -28,7 +28,7 @@ import { notify } from '@/store/notifications'
 import { $activeProfile } from '@/store/profiles'
 import { $subagentsBySession, activeSubagentCount, failedSubagentCount } from '@/store/subagents'
 import { $appVersion, $gatewayRestarting, $inferenceStatus, $statusSnapshot } from '@/store/system-status'
-import { openSettingsScreen, openSystemScreen } from '@/store/windows'
+import { openCronScreen, openSettingsScreen, openSystemScreen } from '@/store/windows'
 import { $effectiveCwd, ensureWorkspaceCwd } from '@/store/workspace-events'
 
 // Copy the absolute cwd to the clipboard, toasting on success (mirrors the
@@ -40,8 +40,9 @@ function copyWorkspacePath(cwd: string, copiedMsg: string): void {
 // Ported/adapted from apps/desktop/src/app/shell/hooks/use-statusbar-items.tsx.
 // Assembles the left/right statusbar item descriptors from universal stores.
 // Divergences from desktop, all driven by the remote-client shape:
-//   • command-center / agents / cron navigate to routes (with an active
-//     highlight from the current view) instead of toggling in-window panels;
+//   • agents navigates to a route (with an active highlight from the current
+//     view) instead of toggling an in-window panel, and command-center / cron
+//     open as windowable screens;
 //   • version items link to the Command Center system panel (no client
 //     self-updater by design; the backend-update flow lives there);
 //   • the workspace-cwd menu drops desktop's OS-reveal entry unless we're a
@@ -189,8 +190,7 @@ export function useStatusbarItems(opts?: {
     />
   )
 
-  const isRemoteBackend =
-    connection?.mode === 'remote' || connection?.mode === 'cloud' || connection?.mode === 'ssh'
+  const isRemoteBackend = connection?.mode === 'remote' || connection?.mode === 'cloud' || connection?.mode === 'ssh'
 
   const backendVersion = status?.version
 
@@ -351,8 +351,11 @@ export function useStatusbarItems(opts?: {
       icon: <Clock className="size-3" />,
       id: 'cron',
       label: copy.cron,
+      // Windowable surface, like Command Center: `openCronScreen` gets the native
+      // screen activity on Android and a plain route change everywhere else.
+      // A bare `to` would navigate in-place and skip that.
+      onSelect: () => void openCronScreen(),
       title: copy.openCron,
-      to: CRON_ROUTE,
       toggleLabel: copy.cron,
       variant: 'action'
     }
@@ -442,7 +445,11 @@ export function useStatusbarItems(opts?: {
       // phone never mounts the Statusbar, so this only ever appears in the mobile
       // Status list — `includeAll` is exactly that caller. Desktop has no such
       // row: its titlebar reaches Settings directly.
-      detail: rich ? (pluginFailedCount > 0 ? accent(`${pluginLoadedCount} · ${pluginFailedCount} failed`) : accent(String(pluginLoadedCount))) : undefined,
+      detail: rich
+        ? pluginFailedCount > 0
+          ? accent(`${pluginLoadedCount} · ${pluginFailedCount} failed`)
+          : accent(String(pluginLoadedCount))
+        : undefined,
       hidden: !opts?.includeAll,
       icon: <Plug className="size-3.5" />,
       id: 'plugins',

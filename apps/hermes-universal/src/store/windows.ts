@@ -1,7 +1,7 @@
 import { supportsMultipleWindows } from '@tauri-apps/api/app'
 import { invoke } from '@tauri-apps/api/core'
 
-import { COMMAND_CENTER_ROUTE, PROFILES_ROUTE, SETTINGS_ROUTE } from '@/app/routes'
+import { COMMAND_CENTER_ROUTE, CRON_ROUTE, PROFILES_ROUTE, SETTINGS_ROUTE } from '@/app/routes'
 import { IS_ANDROID, IS_DESKTOP, IS_IOS } from '@/lib/platform'
 import { navigateTo } from '@/lib/route-nav'
 import { notifyError } from '@/store/notifications'
@@ -40,7 +40,7 @@ export function isSecondaryWindow(): boolean {
 
 // --------------------------------------------------------------------------
 // Activity screens (MJX-141 Android / MJX-176 iOS). Windowable surfaces (Settings,
-// Command Center, Profiles) open in ONE native screen activity / scene — a separate
+// Command Center, Profiles, Cron) open in ONE native screen activity / scene — a separate
 // WebView carrying `?win=activity` before the HashRouter `#`. The surface it shows
 // is derived LIVE from the current route (`activitySurfaceForPath`), NOT a fixed
 // launch marker, so switching between surfaces inside the activity is just an
@@ -50,7 +50,23 @@ export function isSecondaryWindow(): boolean {
 
 const ACTIVITY_WINDOW_FLAG = 'activity'
 
-export type ActivitySurface = 'command-center' | 'profiles' | 'settings'
+export type ActivitySurface = 'command-center' | 'cron' | 'profiles' | 'settings'
+
+// The windowable surfaces, as one table: `activitySurfaceForPath` reads it to
+// decide what the activity renders and `openAppRoute` reads it to decide what
+// gets promoted to a native screen. Adding a surface means adding a row here —
+// two parallel if-chains is how they drift apart.
+const ACTIVITY_ROUTES: readonly { route: string; surface: ActivitySurface }[] = [
+  { route: COMMAND_CENTER_ROUTE, surface: 'command-center' },
+  { route: CRON_ROUTE, surface: 'cron' },
+  { route: PROFILES_ROUTE, surface: 'profiles' },
+  { route: SETTINGS_ROUTE, surface: 'settings' }
+]
+
+/** Matches the route itself and anything under it — a child path or a query. */
+function matchesRoute(path: string, route: string): boolean {
+  return path === route || path.startsWith(`${route}/`) || path.startsWith(`${route}?`)
+}
 
 let activityWindowCache: boolean | null = null
 
@@ -77,15 +93,7 @@ export function isActivityWindow(): boolean {
 // Which surface the screen activity renders, from the current route (default
 // Settings). Drives both `ActivityScreenRoot` and its nav drawer.
 export function activitySurfaceForPath(pathname: string): ActivitySurface {
-  if (pathname === COMMAND_CENTER_ROUTE || pathname.startsWith(`${COMMAND_CENTER_ROUTE}/`)) {
-    return 'command-center'
-  }
-
-  if (pathname === PROFILES_ROUTE || pathname.startsWith(`${PROFILES_ROUTE}/`)) {
-    return 'profiles'
-  }
-
-  return 'settings'
+  return ACTIVITY_ROUTES.find(entry => matchesRoute(pathname, entry.route))?.surface ?? 'settings'
 }
 
 // The activity's native bridge (added by SettingsActivity/SystemActivity's
@@ -150,28 +158,16 @@ export async function openProfilesScreen(route: string = PROFILES_ROUTE): Promis
   await openActivityScreen(route)
 }
 
+export async function openCronScreen(route: string = CRON_ROUTE): Promise<void> {
+  await openActivityScreen(route)
+}
+
 // Single funnel for the openers: promote the windowable surfaces to the native
 // screen activity on Android, navigate everything else (and all non-Android) in
 // app. Callers replace their `navigate(path)` / `navigateTo(path)` with this.
 export function openAppRoute(route: string): void {
-  if (route === SETTINGS_ROUTE || route.startsWith(`${SETTINGS_ROUTE}/`)) {
-    void openSettingsScreen(route)
-
-    return
-  }
-
-  if (
-    route === COMMAND_CENTER_ROUTE ||
-    route.startsWith(`${COMMAND_CENTER_ROUTE}/`) ||
-    route.startsWith(`${COMMAND_CENTER_ROUTE}?`)
-  ) {
-    void openSystemScreen(route)
-
-    return
-  }
-
-  if (route === PROFILES_ROUTE || route.startsWith(`${PROFILES_ROUTE}/`)) {
-    void openProfilesScreen(route)
+  if (ACTIVITY_ROUTES.some(entry => matchesRoute(route, entry.route))) {
+    void openActivityScreen(route)
 
     return
   }
@@ -210,7 +206,7 @@ let iosSceneCapable = true
 
 if (IS_IOS) {
   supportsMultipleWindows()
-    .then((ok) => {
+    .then(ok => {
       iosSceneCapable = ok
     })
     .catch(() => {

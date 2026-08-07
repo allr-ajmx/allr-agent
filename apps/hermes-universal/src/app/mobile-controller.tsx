@@ -135,12 +135,13 @@ export function MobileController() {
   // empty sections — so a disconnect only holds the overlay open on Gateway.
   const settingsGatewayOpen = pathname === GATEWAY_SETTINGS_ROUTE
 
-  // Whether any of the three windowable surfaces (Settings / Command Center /
-  // Profiles) is open — the trigger for the mobile in-app surface shell. Mirrors the
+  // Whether any of the windowable surfaces (Settings / Command Center / Profiles /
+  // Cron) is open — the trigger for the mobile in-app surface shell. Mirrors the
   // per-surface gates of the desktop overlays (Settings survives a disconnect on the
-  // Gateway page; the other two need a live connection).
+  // Gateway page; the others need a live connection).
   const mobileSurfaceOpen =
-    (settingsOpen && (connected || settingsGatewayOpen)) || (connected && (commandCenterOpen || profilesOpen))
+    (settingsOpen && (connected || settingsGatewayOpen)) ||
+    (connected && (commandCenterOpen || cronOpen || profilesOpen))
 
   let content: ReactNode
 
@@ -269,8 +270,10 @@ export function MobileController() {
         )}
         {/* Cron ("Routines") overlay — desktop's scheduled-jobs master/detail:
             schedule, run history, pause/resume/trigger. Opened from the sidebar
-            rail and from "Manage" on a sidebar cron row. */}
-        {connected && cronOpen && (
+            rail and from "Manage" on a sidebar cron row. On a phone it is a
+            windowable surface instead (MobileSurfaceShell / a native Android
+            screen), so the desktop card never renders there. */}
+        {!IS_MOBILE && connected && cronOpen && (
           <CronView
             onClose={closeOverlayToPreviousRoute}
             onOpenSession={sessionId => navigate(sessionRoute(sessionId))}
