@@ -30,9 +30,10 @@ import { $effectiveCwd } from '@/store/workspace-events'
 // the primary navigation on a surface you drive one-handed, so it belongs in the
 // thumb zone — the top row stays for context and escape.
 //
-// Ordering is deliberate and is NOT the desktop's. On a phone you are watching an
-// agent work, so Review leads and the editor sits behind it; the desktop leads
-// with files because you are building there.
+// Ordering is deliberate and is NOT the desktop's. On a phone the surface opens
+// on Status — the "what is this thing doing right now" answer you reach for
+// one-handed — and Review sits next to it because seeing what the agent changed
+// is the second question. The desktop leads with files because you build there.
 //
 // The chat is never lost: this surface is a sibling of it, one tap away in either
 // direction, and every panel stays mounted so scroll, diff position, editor buffer
@@ -46,11 +47,11 @@ interface TabDef {
 }
 
 const TABS: readonly TabDef[] = [
+  { icon: 'pulse', id: 'status' },
   { icon: 'git-compare', id: 'review' },
   { icon: 'files', id: 'files' },
   { icon: 'file-code', id: 'editor' },
-  { icon: 'terminal', id: 'terminal' },
-  { icon: 'pulse', id: 'status' }
+  { icon: 'terminal', id: 'terminal' }
 ]
 
 function isTabId(value: string): value is TabId {
@@ -59,8 +60,8 @@ function isTabId(value: string): value is TabId {
 
 /** Survives close/reopen: coming back to the Workspace should land where you left
  *  it, the same way the old right drawer remembered Status vs Files. */
-const $workspaceTab = persistentAtom<TabId>('hermes.workspaceTab', 'review', {
-  decode: raw => (isTabId(raw) ? raw : 'review'),
+const $workspaceTab = persistentAtom<TabId>('hermes.workspaceTab', 'status', {
+  decode: raw => (isTabId(raw) ? raw : 'status'),
   encode: value => value
 })
 
