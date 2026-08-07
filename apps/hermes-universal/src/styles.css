@@ -1,5 +1,13 @@
 @import 'tailwindcss';
 @plugin '@tailwindcss/typography';
+/* shadcn's overlay components are written against this vocabulary — `animate-in`,
+   `fade-in-0`, `zoom-in-95`, `slide-in-from-left`, and their `-out` twins. It was
+   never a dependency here (nor in apps/desktop), so every one of those classes
+   resolved to nothing and the sidebars, dialogs, sheets, popovers, tooltips and
+   dropdowns all snapped in and out with no transition at all. Nothing reported
+   it: an unknown Tailwind class is silently dropped, which is the whole reason
+   `better-tailwindcss/no-unknown-classes` now guards this app. */
+@import 'tw-animate-css';
 /* Class-based dark variant (matches desktop). `.dark` is toggled on <html> by
    the ThemeProvider (Ic7); the mode-appropriate `--theme-*` seeds are injected
    inline per skin by applyTheme(). Declared here so `dark:` utilities compile. */

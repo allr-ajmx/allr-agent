@@ -18,17 +18,14 @@ const HAND_WRITTEN_CSS_CLASSES =
 // Listing them keeps the rule at `error` so a NEW typo fails the build now,
 // instead of drowning in a wall of pre-existing warnings nobody reads.
 //
-// The `animate-*`/`fade-*`/`zoom-*`/`slide-*` group is shadcn's overlay
-// enter/exit animation vocabulary, which lives in the `tw-animate-css` package —
-// not a dependency of this app OR of apps/desktop, and not hand-defined in
-// either stylesheet. Every dialog, sheet, popover, tooltip and dropdown in the
-// app is therefore un-animated. Fix = `npm i -D tw-animate-css` + one
-// `@import 'tw-animate-css'` in styles.css, then drop the group from here.
-//
-// The rest are orphaned hooks whose CSS never came across in the desktop port.
+// These are orphaned hooks whose CSS never came across in the desktop port.
 // Fix = delete the class from the JSX, or write the rule it is asking for.
+//
+// `(^|:)` not `^`: the rule reports a class with its variant chain attached
+// (`data-[state=open]:animate-in`), so an `^`-anchored pattern silently never
+// matches the ones that carry a variant.
 const KNOWN_DEAD_CLASSES =
-  /(^|:)(animate-(in|out)|fade-(in|out)-0|zoom-(in|out)-95|slide-in-from-(top|right|bottom|left)(-1|-2)?|slide-out-to-(top|right|bottom|left)|aui-button-icon|checkpoint-(container|divider|icon|restore-text)|coding-status-bar|composer-(fallback-surface|human-ai-pair-container|human-message-container)|font-code|good|human-(execution-message-top|message-with-todos-wrapper)|muted|ui-prompt-input(__container|-editor__input))$/
+  /(^|:)(aui-button-icon|checkpoint-(container|divider|icon|restore-text)|coding-status-bar|composer-(fallback-surface|human-ai-pair-container|human-message-container)|font-code|good|human-(execution-message-top|message-with-todos-wrapper)|muted|ui-prompt-input(__container|-editor__input))$/
 
 export default [
   ...shared,
