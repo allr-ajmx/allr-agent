@@ -136,12 +136,12 @@ export function MobileController() {
   const settingsGatewayOpen = pathname === GATEWAY_SETTINGS_ROUTE
 
   // Whether any of the windowable surfaces (Settings / Command Center / Profiles /
-  // Cron) is open — the trigger for the mobile in-app surface shell. Mirrors the
-  // per-surface gates of the desktop overlays (Settings survives a disconnect on the
-  // Gateway page; the others need a live connection).
+  // Cron / Agents) is open — the trigger for the mobile in-app surface shell. Mirrors
+  // the per-surface gates of the desktop overlays (Settings survives a disconnect on
+  // the Gateway page; the others need a live connection).
   const mobileSurfaceOpen =
     (settingsOpen && (connected || settingsGatewayOpen)) ||
-    (connected && (commandCenterOpen || cronOpen || profilesOpen))
+    (connected && (agentsOpen || commandCenterOpen || cronOpen || profilesOpen))
 
   let content: ReactNode
 
@@ -254,8 +254,10 @@ export function MobileController() {
         )}
         {/* Agents ("Spawn tree") overlay — desktop's live subagent surface,
             floated over the chat backdrop and opened from the statusbar Agents
-            item. Its Panel supplies the fixed-inset card + close-X / Esc. */}
-        {connected && agentsOpen && <AgentsView onClose={closeOverlayToPreviousRoute} />}
+            item. Its Panel supplies the fixed-inset card + close-X / Esc. On a
+            phone it is a windowable surface instead (MobileSurfaceShell / a
+            native Android screen), so the desktop card never renders there. */}
+        {!IS_MOBILE && connected && agentsOpen && <AgentsView onClose={closeOverlayToPreviousRoute} />}
         {/* Command Center overlay — desktop's Sessions / System / Usage /
             Maintenance ops surface, opened from the statusbar (icon + version
             chips) and the sidebar rail. */}

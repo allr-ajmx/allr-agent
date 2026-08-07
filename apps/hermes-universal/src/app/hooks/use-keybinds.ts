@@ -180,7 +180,7 @@ export function useKeybinds(deps: KeybindRuntimeDeps): void {
     'nav.messaging': () => navigate(MESSAGING_ROUTE),
     'nav.artifacts': () => navigate(ARTIFACTS_ROUTE),
     'nav.cron': () => openAppRoute(CRON_ROUTE),
-    'nav.agents': () => navigate(AGENTS_ROUTE),
+    'nav.agents': () => openAppRoute(AGENTS_ROUTE),
 
     // Match the sidebar New Session button — the same three steps
     // `use-sidebar-keybinds` used to run for ⌘N before the registry took over.

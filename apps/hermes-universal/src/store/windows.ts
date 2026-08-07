@@ -1,7 +1,7 @@
 import { supportsMultipleWindows } from '@tauri-apps/api/app'
 import { invoke } from '@tauri-apps/api/core'
 
-import { COMMAND_CENTER_ROUTE, CRON_ROUTE, PROFILES_ROUTE, SETTINGS_ROUTE } from '@/app/routes'
+import { AGENTS_ROUTE, COMMAND_CENTER_ROUTE, CRON_ROUTE, PROFILES_ROUTE, SETTINGS_ROUTE } from '@/app/routes'
 import { IS_ANDROID, IS_DESKTOP, IS_IOS } from '@/lib/platform'
 import { navigateTo } from '@/lib/route-nav'
 import { notifyError } from '@/store/notifications'
@@ -50,13 +50,14 @@ export function isSecondaryWindow(): boolean {
 
 const ACTIVITY_WINDOW_FLAG = 'activity'
 
-export type ActivitySurface = 'command-center' | 'cron' | 'profiles' | 'settings'
+export type ActivitySurface = 'agents' | 'command-center' | 'cron' | 'profiles' | 'settings'
 
 // The windowable surfaces, as one table: `activitySurfaceForPath` reads it to
 // decide what the activity renders and `openAppRoute` reads it to decide what
 // gets promoted to a native screen. Adding a surface means adding a row here —
 // two parallel if-chains is how they drift apart.
 const ACTIVITY_ROUTES: readonly { route: string; surface: ActivitySurface }[] = [
+  { route: AGENTS_ROUTE, surface: 'agents' },
   { route: COMMAND_CENTER_ROUTE, surface: 'command-center' },
   { route: CRON_ROUTE, surface: 'cron' },
   { route: PROFILES_ROUTE, surface: 'profiles' },
@@ -159,6 +160,10 @@ export async function openProfilesScreen(route: string = PROFILES_ROUTE): Promis
 }
 
 export async function openCronScreen(route: string = CRON_ROUTE): Promise<void> {
+  await openActivityScreen(route)
+}
+
+export async function openAgentsScreen(route: string = AGENTS_ROUTE): Promise<void> {
   await openActivityScreen(route)
 }
 

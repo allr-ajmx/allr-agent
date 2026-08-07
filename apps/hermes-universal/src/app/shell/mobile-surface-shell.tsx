@@ -1,5 +1,6 @@
 import { useLocation, useNavigate } from 'react-router-dom'
 
+import { AgentsView } from '@/app/agents'
 import { CommandCenterView } from '@/app/command-center'
 import { CronView } from '@/app/cron'
 import { GatewayConnectingScreen } from '@/app/gateway/gateway-connecting-screen'
@@ -67,13 +68,15 @@ export function MobileSurfaceShell({
   const navRows = useSurfaceNavRows(surface)
 
   const title =
-    surface === 'command-center'
-      ? t.commandCenter.commandCenter
-      : surface === 'cron'
-        ? t.cron.title
-        : surface === 'profiles'
-          ? t.profiles.title
-          : t.commandCenter.settings
+    surface === 'agents'
+      ? t.agents.title
+      : surface === 'command-center'
+        ? t.commandCenter.commandCenter
+        : surface === 'cron'
+          ? t.cron.title
+          : surface === 'profiles'
+            ? t.profiles.title
+            : t.commandCenter.settings
 
   // Command Center / Cron / Profiles need a live connection for their data;
   // Settings can render once we've ever connected so it survives a reconnect. A
@@ -90,7 +93,10 @@ export function MobileSurfaceShell({
               <DropdownMenuTrigger asChild>
                 <TitleMenuTrigger className="w-full justify-start">{title}</TitleMenuTrigger>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="center" className="max-h-[70vh] w-56 overflow-y-auto" sideOffset={6}>
+              {/* Aligned to the title, not centred on it: the trigger now fills
+                  the row, so "centred on the trigger" put the menu in the middle
+                  of the screen with nothing above it. */}
+              <DropdownMenuContent align="start" className="max-h-[70vh] w-56 overflow-y-auto" sideOffset={6}>
                 {navRows.map(row => (
                   <DropdownMenuItem
                     className={row.active ? 'bg-(--ui-row-active-background) text-foreground' : undefined}
@@ -130,6 +136,8 @@ export function MobileSurfaceShell({
             />
           ) : surface === 'cron' ? (
             <CronView onClose={onHome} onOpenSession={onOpenSession} variant="fullscreen" />
+          ) : surface === 'agents' ? (
+            <AgentsView onClose={onHome} variant="fullscreen" />
           ) : (
             <ProfilesView onClose={onHome} variant="fullscreen" />
           )

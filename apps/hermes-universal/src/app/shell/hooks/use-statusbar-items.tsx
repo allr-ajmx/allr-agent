@@ -3,7 +3,7 @@ import { useLocation } from 'react-router-dom'
 
 import { jobState } from '@/app/cron/job-state'
 import { PlatformGlyph } from '@/app/messaging/platform-icon'
-import { AGENTS_ROUTE, appViewForPath, PLUGINS_SETTINGS_ROUTE } from '@/app/routes'
+import { appViewForPath, PLUGINS_SETTINGS_ROUTE } from '@/app/routes'
 import { useApprovalModeStatusbarItem } from '@/app/shell/approval-mode-menu'
 import { ContextUsagePanel } from '@/app/shell/context-usage-panel'
 import { GatewayMenuPanel } from '@/app/shell/gateway-menu-panel'
@@ -28,7 +28,7 @@ import { notify } from '@/store/notifications'
 import { $activeProfile } from '@/store/profiles'
 import { $subagentsBySession, activeSubagentCount, failedSubagentCount } from '@/store/subagents'
 import { $appVersion, $gatewayRestarting, $inferenceStatus, $statusSnapshot } from '@/store/system-status'
-import { openCronScreen, openSettingsScreen, openSystemScreen } from '@/store/windows'
+import { openAgentsScreen, openCronScreen, openSettingsScreen, openSystemScreen } from '@/store/windows'
 import { $effectiveCwd, ensureWorkspaceCwd } from '@/store/workspace-events'
 
 // Copy the absolute cwd to the clipboard, toasting on success (mirrors the
@@ -40,9 +40,8 @@ function copyWorkspacePath(cwd: string, copiedMsg: string): void {
 // Ported/adapted from apps/desktop/src/app/shell/hooks/use-statusbar-items.tsx.
 // Assembles the left/right statusbar item descriptors from universal stores.
 // Divergences from desktop, all driven by the remote-client shape:
-//   • agents navigates to a route (with an active highlight from the current
-//     view) instead of toggling an in-window panel, and command-center / cron
-//     open as windowable screens;
+//   • command-center / cron / agents open as windowable screens instead of
+//     toggling in-window panels;
 //   • version items link to the Command Center system panel (no client
 //     self-updater by design; the backend-update flow lives there);
 //   • the workspace-cwd menu drops desktop's OS-reveal entry unless we're a
@@ -340,8 +339,11 @@ export function useStatusbarItems(opts?: {
       actionId: 'nav.agents',
       id: 'agents',
       label: copy.agents,
+      // Windowable surface, like Command Center and Cron: `openAgentsScreen`
+      // gets the native screen activity on Android and a plain route change
+      // everywhere else. A bare `to` would navigate in place and skip it.
+      onSelect: () => void openAgentsScreen(),
       title: copy.openAgents,
-      to: AGENTS_ROUTE,
       toggleLabel: copy.agents,
       variant: 'action'
     },
