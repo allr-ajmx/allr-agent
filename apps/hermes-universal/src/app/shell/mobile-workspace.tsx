@@ -6,8 +6,9 @@ import { PreviewRail } from '@/app/right-pane/preview/preview-rail'
 import { absolutePath } from '@/app/right-pane/review/file-tree'
 import { MobileReview } from '@/app/right-pane/review/mobile-review'
 import { TerminalArea } from '@/app/right-pane/terminal/terminal-area'
+import { MobileChromeBar, MobileChromeSpacer } from '@/app/shell/mobile-chrome-bar'
 import { MobileStatusList } from '@/app/shell/mobile-status-list'
-import { Button } from '@/components/ui/button'
+import { TitlebarButton } from '@/app/shell/titlebar-button'
 import { Codicon } from '@/components/ui/codicon'
 import { useI18n } from '@/i18n'
 import { ESCAPE_PRIORITY, isTopEscapeLayer, pushEscapeLayer } from '@/lib/escape-layers'
@@ -208,27 +209,19 @@ export function MobileWorkspace({ onClose }: { onClose: () => void }) {
         paddingRight: 'var(--safe-area-inset-right)'
       }}
     >
-      <header
-        className="shrink-0 border-b border-(--ui-stroke-tertiary) bg-(--ui-bg-chrome)"
-        style={{ paddingTop: 'var(--safe-area-inset-top)' }}
-      >
-        <div className="flex h-10 items-center gap-1 px-1">
-          <Button className="gap-1 px-2 text-(--ui-text-tertiary)" onClick={onClose} size="sm" variant="ghost">
-            <Codicon name="chevron-left" size="1rem" />
-            {copy.backToChat}
-          </Button>
-
-          {/* Which project this surface is acting on. On a phone there is no
-              sidebar or statusbar in view to infer it from. */}
-          <div className="min-w-0 flex-1 truncate text-center text-xs text-muted-foreground">
-            {project || copy.noProject}
-          </div>
-
-          {/* Balances the back button so the project label stays optically
-              centred; nothing lives on the right yet. */}
-          <div className="w-16 shrink-0" />
-        </div>
-      </header>
+      <MobileChromeBar
+        // Which project this surface is acting on. On a phone there is no
+        // sidebar or statusbar in view to infer it from.
+        center={
+          <span className="block truncate text-center text-xs text-muted-foreground">{project || copy.noProject}</span>
+        }
+        left={
+          <TitlebarButton className="size-4" label={copy.backToChat} onClick={onClose}>
+            <Codicon name="chevron-left" size="1.4rem" />
+          </TitlebarButton>
+        }
+        right={<MobileChromeSpacer />}
+      />
 
       <main className="relative min-h-0 flex-1">
         {visited.has('review') && (

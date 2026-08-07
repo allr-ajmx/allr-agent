@@ -5,6 +5,7 @@ import { CommandCenterView } from '@/app/command-center'
 import { GatewayConnectingScreen } from '@/app/gateway/gateway-connecting-screen'
 import { ProfilesView } from '@/app/profiles'
 import { SettingsFooter, SettingsView } from '@/app/settings/settings-view'
+import { MobileChromeBar } from '@/app/shell/mobile-chrome-bar'
 import { MobileRightPanel } from '@/app/shell/mobile-right-panel'
 import { useSidebar } from '@/app/shell/sidebar'
 import { TitlebarButton } from '@/app/shell/titlebar-button'
@@ -79,26 +80,21 @@ export function MobileSurfaceShell({
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
-      {/* Top bar — owns the safe-area top inset (status-bar / notch). Left toggles
-          the section-nav drawer; right toggles the Status/Files + switcher drawer. */}
-      <div
-        className="shrink-0 border-b border-(--ui-stroke-tertiary) bg-(--ui-bg-chrome) select-none"
-        style={{ paddingTop: 'var(--safe-area-inset-top)' }}
-      >
-        <div className="flex h-8 items-center gap-1 px-2">
+      {/* Top bar — the shared mobile chrome row. Left toggles the section-nav
+          drawer; right toggles the Status/Files + switcher drawer. */}
+      <MobileChromeBar
+        center={<span className="block truncate text-center text-sm font-medium">{title}</span>}
+        left={
           <TitlebarButton className="size-4" label={t.titlebar.showSidebar} onClick={toggleMobile}>
             <Codicon name="list-unordered" size="1.4rem" />
           </TitlebarButton>
-
-          <div className="min-w-0 flex-1 overflow-hidden">
-            <span className="block truncate text-center text-sm font-medium">{title}</span>
-          </div>
-
+        }
+        right={
           <TitlebarButton className="size-4" label={t.titlebar.showRightSidebar} onClick={toggleMobileRight}>
             <Codicon name="layout-sidebar-right" size="1.4rem" />
           </TitlebarButton>
-        </div>
-      </div>
+        }
+      />
 
       {/* Routed surface. Lifts above the soft keyboard like the home shell. */}
       <div className="flex min-h-0 flex-1 flex-col" style={{ marginBottom: 'var(--keyboard-inset, 0px)' }}>
