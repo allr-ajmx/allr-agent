@@ -1845,7 +1845,8 @@ export const en: Translations = {
   composer: {
     message: 'Message',
     bubbles: {
-      releaseToClose: 'Release to close'
+      releaseToClose: 'Release to close',
+      releaseForNewChat: 'Release for a new chat'
     },
     wakingProfile: profile => `Waking up ${profile}…`,
     placeholderStarting: 'Starting Hermes...',

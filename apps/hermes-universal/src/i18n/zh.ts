@@ -2012,7 +2012,8 @@ export const zh: Translations = {
   composer: {
     message: '消息',
     bubbles: {
-      releaseToClose: '松开以关闭'
+      releaseToClose: '松开以关闭',
+      releaseForNewChat: '松开以新建对话'
     },
     wakingProfile: profile => `正在唤醒 ${profile}…`,
     placeholderStarting: '正在启动 Hermes…',

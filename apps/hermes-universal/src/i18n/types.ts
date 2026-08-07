@@ -1570,6 +1570,7 @@ export interface Translations {
     message: string
     bubbles: {
       releaseToClose: string
+      releaseForNewChat: string
     }
     wakingProfile: (profile: string) => string
     placeholderStarting: string
