@@ -2,7 +2,7 @@
   "name": "@hermes/universal",
   "private": true,
   "version": "0.0.1",
-  "description": "Hermes Universal \u2014 Tauri v2 client (desktop + Android + iOS from one codebase).",
+  "description": "Hermes Universal — Tauri v2 client (desktop + Android + iOS from one codebase).",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -112,6 +112,7 @@
     "@vitejs/plugin-react": "^6.0.2",
     "esbuild": "^0.28.1",
     "eslint": "^9.39.4",
+    "eslint-plugin-better-tailwindcss": "^4.7.0",
     "eslint-plugin-perfectionist": "^5.9.0",
     "eslint-plugin-react": "^7.37.5",
     "eslint-plugin-react-hooks": "^7.1.1",
