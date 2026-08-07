@@ -14,7 +14,7 @@ import { readJson, readKey, writeJson, writeKey } from '@/lib/storage'
 import { beginSpan, endSpan, isRecording, recordSpan, span } from '@/observability'
 import { shapeAttrs } from '@/observability/auto/layout-shape'
 import { notify } from '@/store/notifications'
-import { clearAllPaneSizeOverrides } from '@/store/panes'
+import { clearAllPaneSizeOverrides, renamePaneState } from '@/store/panes'
 import { isSecondaryWindow } from '@/store/windows'
 
 import { $layoutEditMode } from '../edit-mode'
@@ -36,6 +36,7 @@ import {
   movePane as movePaneOp,
   normalize,
   removePane,
+  renamePane,
   reorderPaneInGroup as reorderPaneInGroupOp,
   type RootEdge,
   setActivePane as setActivePaneOp,
@@ -535,6 +536,46 @@ export function removeTreePane(paneId: string) {
   if (tree) {
     commit(removePane(tree, paneId), 'remove')
   }
+}
+
+/**
+ * Re-label a pane that is staying exactly where it is — the draft chat taking
+ * its real session id on first submit.
+ *
+ * The tree is only one of four places a pane id is a key. The other three are
+ * side tables, and skipping any of them is the quiet kind of bug: the tab holds
+ * its slot, so nothing looks wrong until the pane has silently lost the width
+ * the user dragged it to, or a hidden pane comes back visible.
+ */
+export function renameTreePane(from: string, to: string) {
+  const tree = $layoutTree.get()
+
+  if (!tree || from === to) {
+    return
+  }
+
+  const next = renamePane(tree, from, to)
+
+  // `renamePane` refuses a rotation it cannot make safely (unknown `from`, or a
+  // `to` already in the tree). Leaving the side tables alone in that case keeps
+  // them consistent with the tree that did not change.
+  if (next === tree) {
+    return
+  }
+
+  renamePaneState(from, to)
+
+  for (const set of [$hiddenTreePanes, $dismissedPanes]) {
+    if (set.get().has(from)) {
+      const moved = new Set(set.get())
+
+      moved.delete(from)
+      moved.add(to)
+      set.set(moved)
+    }
+  }
+
+  commit(next, 'rename')
 }
 
 /** The layout's root ROW — the split that contains main + the side columns.

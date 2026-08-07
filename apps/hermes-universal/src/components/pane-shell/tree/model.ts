@@ -184,6 +184,43 @@ export function normalize(node: LayoutNode): LayoutNode | null {
   return { ...node, children, weights }
 }
 
+/**
+ * Give a pane a new id, in place.
+ *
+ * Only for an id that ROTATES under a pane that is otherwise unchanged — a draft
+ * chat receiving its real session id on first submit. Remove-then-insert is not
+ * the same thing: it re-enters through adoption and lands wherever the dock hint
+ * says, so the user would watch their chat jump zones the moment they hit send.
+ *
+ * No normalize: the shape is untouched, only a label. A `from` that isn't in the
+ * tree, or a `to` that already is, returns the tree unchanged — a rotation must
+ * never be able to produce a duplicate leaf.
+ */
+export function renamePane(node: LayoutNode, from: string, to: string): LayoutNode {
+  if (from === to || !allPaneIds(node).includes(from) || allPaneIds(node).includes(to)) {
+    return node
+  }
+
+  const walk = (n: LayoutNode): LayoutNode => {
+    if (n.type === 'group') {
+      if (!n.panes.includes(from)) {
+        return n
+      }
+
+      // Mapped, not filtered-and-pushed: the tab keeps its slot in the strip.
+      return {
+        ...n,
+        panes: n.panes.map(p => (p === from ? to : p)),
+        active: n.active === from ? to : n.active
+      }
+    }
+
+    return { ...n, children: n.children.map(walk) }
+  }
+
+  return walk(node)
+}
+
 /** Remove a pane wherever it lives. Closing the ACTIVE tab activates its
  *  previous neighbor (the next one when it was first) — browser-tab feel,
  *  never a jump to the strip's start. */
