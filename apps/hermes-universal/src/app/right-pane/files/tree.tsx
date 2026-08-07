@@ -1,5 +1,5 @@
 import { useStore } from '@nanostores/react'
-import { type KeyboardEvent as ReactKeyboardEvent, useCallback, useEffect, useRef, useState } from 'react'
+import { type KeyboardEvent as ReactKeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { type NodeApi, type NodeRendererProps, type RowRendererProps, Tree, type TreeApi } from 'react-arborist'
 
 import { TreeSkeleton } from '@/components/chat/skeletons'
@@ -184,6 +184,10 @@ export function ProjectTree({
     beginInlineRename(node.data.id)
   }, [])
 
+  // Memoised: arborist remounts every row when `renderRow` changes identity, so
+  // rebuilding this each render would throw the list away on every keystroke.
+  const rowContainer = useMemo(() => makeRowContainer(onPreviewFile), [onPreviewFile])
+
   return (
     <div className="min-h-0 flex-1 overflow-hidden" onKeyDownCapture={handleRenameShortcut} ref={containerRef}>
       {height > 0 ? (
@@ -203,7 +207,7 @@ export function ProjectTree({
           openByDefault={false}
           padding={0}
           ref={treeRef}
-          renderRow={ProjectTreeRowContainer}
+          renderRow={rowContainer}
           rowHeight={ROW_HEIGHT}
           // CSS, not a measured pixel count — see the height-only note above.
           width="100%"
@@ -234,18 +238,34 @@ function TreeSizingState() {
 // span horizontally-scrolled content), which grows the row to its full name
 // width and defeats the inner `truncate`. We don't scroll sideways — pin the row
 // to the viewport so long names ellipsize instead of clipping at the pane edge.
-function ProjectTreeRowContainer({ attrs, children, innerRef, node }: RowRendererProps<TreeNode>) {
-  return (
-    <div
-      {...attrs}
-      onClick={node.handleClick}
-      onFocus={e => e.stopPropagation()}
-      ref={innerRef}
-      style={{ ...attrs.style, minWidth: 0, width: '100%' }}
-    >
-      {children}
-    </div>
-  )
+//
+// This container, not the presentational row inside it, is the element arborist
+// sizes to the full row rect — so it is where the phone's open-on-tap belongs.
+// On the inner div the target was whatever that div happened to cover, which in
+// practice meant the file's name and not much else.
+function makeRowContainer(onOpen?: (path: string) => void) {
+  return function ProjectTreeRowContainer({ attrs, children, innerRef, node }: RowRendererProps<TreeNode>) {
+    return (
+      <div
+        {...attrs}
+        onClick={event => {
+          node.handleClick(event)
+
+          // Folders toggle (the inner row owns that); a file opens. Guarded on
+          // the live rename atom for the same reason the inner row is: a
+          // context-menu close can fall through before the edit re-render lands.
+          if (IS_MOBILE && node.data && !node.data.isDirectory && $renamingPath.get() !== node.data.id) {
+            onOpen?.(node.data.id)
+          }
+        }}
+        onFocus={e => e.stopPropagation()}
+        ref={innerRef}
+        style={{ ...attrs.style, minWidth: 0, width: '100%' }}
+      >
+        {children}
+      </div>
+    )
+  }
 }
 
 const CHANGE_TINT: Record<RepoChangeKind, string> = {
@@ -308,20 +328,12 @@ function ProjectTreeRow({
           return
         }
 
+        // Opening on a phone tap lives on the ROW CONTAINER, not here — that is
+        // the element sized to the whole row, so the target is the whole row.
         if (isFolder) {
           node.toggle()
-
-          return
-        }
-
-        node.select()
-
-        // A phone has no double-click idiom and no shift key, so select-only
-        // left a file row with nothing visible to show for a tap. One tap opens
-        // it; the desktop keeps select-then-double-click, where a single click
-        // is how you pick a row to rename or drag.
-        if (IS_MOBILE) {
-          onPreviewFile?.(node.data.id)
+        } else {
+          node.select()
         }
       }}
       onDoubleClick={event => {
