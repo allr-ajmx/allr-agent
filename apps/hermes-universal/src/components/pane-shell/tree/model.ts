@@ -243,7 +243,12 @@ export function insertAtGroup(
         // target has no prior tab, so the newcomer takes it regardless.
         const active = activate || n.panes.length === 0 ? paneId : n.active
 
-        return { ...n, panes, active, headerHidden: false }
+        // A GESTURE (drop/reveal) also un-minimizes: dropping a pane onto a
+        // collapsed strip otherwise leaves it invisible behind that strip, and
+        // with the cascading fold it would vanish into a rail. Silent adoption
+        // must NOT — re-collapsing zones on boot is exactly the hazard the
+        // `activate` flag exists to avoid (see store.ts adoptContributedPanes).
+        return { ...n, panes, active, headerHidden: false, minimized: activate ? undefined : n.minimized }
       }
 
       const orientation: Orientation = pos === 'left' || pos === 'right' ? 'row' : 'column'
