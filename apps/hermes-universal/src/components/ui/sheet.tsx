@@ -60,8 +60,15 @@ function SheetContent({
             'inset-y-0 left-0 h-full w-3/4 border-r data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left sm:max-w-sm',
           side === 'top' &&
             'inset-x-0 top-0 h-auto border-b data-[state=closed]:slide-out-to-top data-[state=open]:slide-in-from-top',
+          // Sits ON TOP of the soft keyboard, not under it. The portal puts this
+          // on <body>, outside the shell that lifts its content by
+          // `--keyboard-inset`, so a `bottom: 0` sheet is anchored to the layout
+          // viewport — i.e. behind the keyboard the moment a field in it takes
+          // focus. The var is live and absent on desktop, so this is a no-op there.
+          // The max height is the other half: a sheet that has been lifted can
+          // otherwise run off the top of the screen with no way to scroll back.
           side === 'bottom' &&
-            'inset-x-0 bottom-0 h-auto border-t data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom',
+            'inset-x-0 bottom-[var(--keyboard-inset,0px)] h-auto max-h-[calc(var(--visual-viewport-height,100vh)-2rem)] overflow-y-auto border-t data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom',
           className
         )}
         data-slot="sheet-content"
