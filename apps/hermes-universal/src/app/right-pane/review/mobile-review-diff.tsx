@@ -103,7 +103,12 @@ export function MobileReviewDiff({
         {loading && !diff ? (
           <div className="p-4 text-xs text-muted-foreground">{m.loadingDiff}</div>
         ) : diff ? (
-          <FileDiffPanel className="h-full" diff={diff} path={file.path} showLineNumbers virtualized />
+          /* `max-h-none` and the margin resets are not decoration: FileDiffPanel's
+             base box is a tool CARD (`max-h-[12rem]` plus a negative bleed), and a
+             max-height beats `h-full`. Without this the diff sat in a 12rem strip
+             with the rest of the screen empty below it. Same cancellation the
+             desktop review pane does. */
+          <FileDiffPanel className="mx-0 mb-0 h-full max-h-none" diff={diff} path={file.path} showLineNumbers virtualized />
         ) : (
           <div className="p-4 text-xs text-muted-foreground">{c.noDiff}</div>
         )}
