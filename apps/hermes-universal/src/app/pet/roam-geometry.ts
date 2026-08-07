@@ -25,6 +25,14 @@ const PERCH_SELECTORS = ['[data-slot="composer-surface"]', '[data-slot="profile-
 // the walk box comes from the safe area instead.
 const FLOOR_BAR_SELECTOR = '[data-slot="statusbar"]'
 
+// The phone's counterpart at the other end: a full-width bar pinned to the
+// window top. The pet walks along its BOTTOM edge, so the ceiling it clings to
+// is the underside of the app's chrome rather than the underside of the window
+// — which is what put it behind the top bar, half-hidden and untouchable.
+// Desktop has no equivalent (its titlebar is a window chrome the pet never
+// reaches), so this is only consulted on the safe-area path.
+const CEILING_BAR_SELECTOR = '[data-slot="mobile-chrome-bar"]'
+
 const vw = (): number => window.innerWidth || 800
 const vh = (): number => window.innerHeight || 600
 
@@ -57,6 +65,25 @@ function floorY(width: number, height: number, petH: number): number {
   return height
 }
 
+/** The top ground line: the bottom of the phone's chrome bar when one is pinned
+ *  full-width across the window top, otherwise the caller's fallback (the safe
+ *  area). The bar owns the notch inset itself, so its `bottom` already clears
+ *  both. */
+function ceilingY(width: number, height: number, petH: number, fallback: number): number {
+  const bar = document.querySelector(CEILING_BAR_SELECTOR)
+
+  if (bar) {
+    const rect = bar.getBoundingClientRect()
+
+    // Full-width, flush with the window top, and leaving room to stand under.
+    if (rect.width >= width * 0.5 && rect.top < 4 && rect.bottom + petH <= height) {
+      return rect.bottom
+    }
+  }
+
+  return fallback
+}
+
 /**
  * The area the pet may occupy.
  *
@@ -64,6 +91,10 @@ function floorY(width: number, height: number, petH: number): number {
  * standing on the home indicator and sitting under the notch — the old code
  * used raw `window.innerHeight`, and the status bar it used to stand on isn't
  * mounted on mobile at all, so nothing was holding it up.
+ *
+ * The top comes from the chrome bar rather than the safe area alone. Insetting
+ * only by the notch left the ceiling wall running behind the app's own top bar,
+ * so a pet that climbed up there disappeared under it.
  *
  * The keyboard is subtracted from the bottom as well. The pet is
  * `position: fixed`, so `--keyboard-inset` (which the mobile shell applies as a
@@ -80,9 +111,10 @@ export function walkBox(petH: number, safeArea: boolean): WalkBox {
 
   const insets = readSafeAreaInsets()
   const keyboard = readKeyboardInset()
-  const bottom = Math.max(insets.top + petH, height - insets.bottom - keyboard)
+  const top = ceilingY(width, height, petH, insets.top)
+  const bottom = Math.max(top + petH, height - insets.bottom - keyboard)
 
-  return { bottom, left: insets.left, right: Math.max(insets.left, width - insets.right), top: insets.top }
+  return { bottom, left: insets.left, right: Math.max(insets.left, width - insets.right), top }
 }
 
 /**

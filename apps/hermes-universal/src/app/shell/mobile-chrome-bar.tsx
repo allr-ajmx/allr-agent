@@ -32,6 +32,9 @@ export function MobileChromeBar({
   return (
     <div
       className="shrink-0 border-b border-(--ui-stroke-tertiary) bg-(--ui-bg-chrome) select-none"
+      // Named so the pet's walk box can find it: this bar is the phone's
+      // ceiling, the way the desktop statusbar is its floor.
+      data-slot="mobile-chrome-bar"
       style={{ paddingTop: 'var(--safe-area-inset-top)' }}
     >
       {/* Tall enough to contain a touch target. Every button in this row is
