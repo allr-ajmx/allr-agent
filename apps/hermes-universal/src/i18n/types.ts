@@ -2032,6 +2032,7 @@ export interface Translations {
     terminalClosed: string
     terminalRestart: string
     terminalHostChip: (host: string) => string
+    terminalLocalFallbackChip: string
     terminalEndExitedTitle: string
     terminalEndExitedBody: string
     terminalEndAuthTitle: string

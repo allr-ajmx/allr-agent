@@ -1,4 +1,5 @@
 import { type Connection, resolveTerminalWsUrl } from '@/store/gateway-config'
+import { gatewayFeatures } from '@/store/gateway-features'
 
 import { TerminalSocket } from './terminal-socket'
 import type {
@@ -65,8 +66,14 @@ function endForCloseCode(code: number | undefined): TerminalEnd {
   }
 }
 
-/** An upgrade that never reached the endpoint (older gateway, wrong path) fails in
- *  Rust with the HTTP status in the message rather than a WS close code. */
+/** An upgrade that never completed fails in Rust with the HTTP status in the message
+ *  rather than a WS close code.
+ *
+ *  Note the 403 here is genuinely auth/origin/peer: a gateway that does not HAVE
+ *  `/api/shell-pty` is caught by the capability probe in `init()` and never reaches
+ *  this point. Without that probe it could not be told apart — uvicorn answers every
+ *  pre-accept close with a bare 403, and a route Starlette never matched is one of
+ *  them, so the 404 branch below only ever fires for a reverse proxy in the way. */
 function endForError(message: string): TerminalEnd {
   if (/\b404\b|not found/i.test(message)) {
     return { detail: message, kind: 'unsupported' }
@@ -121,6 +128,19 @@ export class RemotePtySocket implements TerminalTransport {
 
   private async init(): Promise<void> {
     let url: string
+
+    // Ask before dialling. An older gateway has no `/api/shell-pty`, and the refusal
+    // it sends back is a bare 403 that reads as "session expired" — so the capability
+    // has to come from `/api/health`, where absence means the build predates it.
+    if (!(await gatewayFeatures(this.connection)).shellPty) {
+      this.end({ kind: 'unsupported' })
+
+      return
+    }
+
+    if (this.closed) {
+      return
+    }
 
     try {
       // The cwd is a query param, path-hardened server-side; omitted entirely when

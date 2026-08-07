@@ -2404,6 +2404,7 @@ export const en: Translations = {
     terminalClosed: 'Terminal closed',
     terminalRestart: 'Restart',
     terminalHostChip: (host: string) => `Shell on ${host}`,
+    terminalLocalFallbackChip: 'No terminal API · shell on this device',
     terminalEndExitedTitle: 'Session ended',
     terminalEndExitedBody: 'The shell exited. Start a new one to keep working.',
     terminalEndAuthTitle: 'Session expired',

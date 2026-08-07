@@ -9,10 +9,11 @@ import { useEffect, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { type Translations, useI18n } from '@/i18n'
-import { IS_MOBILE } from '@/lib/platform'
+import { IS_MOBILE, LOCAL_MODE_SUPPORTED } from '@/lib/platform'
 import { cn } from '@/lib/utils'
 import { useStore } from '@/store/atom'
 import { $connection } from '@/store/connection'
+import { forgetGatewayFeatures } from '@/store/gateway-features'
 import { $terminalHostPreference } from '@/store/terminals'
 import { $effectiveCwd } from '@/store/workspace-events'
 import { useTheme } from '@/themes/context'
@@ -115,6 +116,9 @@ export function TerminalView() {
   // Bumped by "Restart" — the only way to respawn. A shell exiting is deliberate,
   // and with no reattach a dropped socket is a dead shell, so neither auto-retries.
   const [attempt, setAttempt] = useState(0)
+  // Sticky for the session once a gateway turns out to have no terminal API: this
+  // pane shells into the device instead. Cleared by Restart, which also re-probes.
+  const [fellBack, setFellBack] = useState(false)
 
   // Sticky Ctrl/Alt for the key row. Held in a ref as well as state because the
   // xterm data handler is registered once, at mount, and must read them live.
@@ -285,7 +289,11 @@ export function TerminalView() {
     }
 
     const conn = $connection.get()
-    const kind = resolveTerminalTransportKind(terminalTransportInputs(conn, $terminalHostPreference.get()))
+
+    // Already fell back — re-resolving would only dial the same absent endpoint again.
+    const kind = fellBack
+      ? 'local'
+      : resolveTerminalTransportKind(terminalTransportInputs(conn, $terminalHostPreference.get()))
 
     socketRef.current = createTerminalTransport(
       kind,
@@ -294,10 +302,21 @@ export function TerminalView() {
       {
         onData: data => termRef.current?.write(data),
         onEnd: reason => {
-          if (!disposed) {
-            setEnd(reason)
-            setStatus('ended')
+          if (disposed) {
+            return
           }
+
+          // A gateway with no terminal API is a dead end on a phone, but a desktop has
+          // a shell of its own — take it rather than paint a blank rectangle. The chip
+          // then says so, because this shell is NOT on the machine the file tree shows.
+          if (reason.kind === 'unsupported' && kind === 'remote' && LOCAL_MODE_SUPPORTED && !fellBack) {
+            setFellBack(true)
+
+            return
+          }
+
+          setEnd(reason)
+          setStatus('ended')
         },
         onReady: info => {
           if (disposed) {
@@ -328,7 +347,7 @@ export function TerminalView() {
     }
     // `connection`/`preference` are intentionally not deps — see the snapshot note
     // above; they are read from the atoms at spawn time.
-  }, [attempt])
+  }, [attempt, fellBack])
 
   // Pinch to resize the type — the universal terminal gesture (Termius, Blink),
   // and the only practical answer to "80 columns don't fit on a phone": you zoom
@@ -435,8 +454,9 @@ export function TerminalView() {
   }, [appTheme, renderedMode])
 
   // Display-only read of the live atoms: which host a NEW terminal would use, and
-  // therefore which "no shell" sentence applies here.
-  const kind = resolveTerminalTransportKind(terminalTransportInputs(connection, preference))
+  // therefore which "no shell" sentence applies here. Mirrors the spawn effect's
+  // override so a fallen-back pane is described as the local shell it actually is.
+  const kind = fellBack ? 'local' : resolveTerminalTransportKind(terminalTransportInputs(connection, preference))
   const copy = end ? endCopy(t, end, kind) : null
 
   // Which machine you are typing into. A phone gives no ambient cue at all, and a
@@ -472,6 +492,17 @@ export function TerminalView() {
           </div>
         )}
 
+        {/* Stays for the session: the file tree is on the gateway and this shell is
+            not, so the mismatch has to keep being visible, not fade out. */}
+        {fellBack && status === 'open' && (
+          <div
+            className="pointer-events-none absolute right-2 top-1 max-w-[70%] truncate rounded bg-destructive/40 px-1.5 py-0.5 text-[0.65rem] text-white/90"
+            title={t.rightSidebar.terminalLocalFallbackChip}
+          >
+            ⚠ {t.rightSidebar.terminalLocalFallbackChip}
+          </div>
+        )}
+
         {/* An ended shell gets a real explanation and a way out — never a blank
           rectangle the user has to guess about. */}
         {copy && (
@@ -488,7 +519,18 @@ export function TerminalView() {
                   {end.detail}
                 </p>
               )}
-              <Button className="mt-1" onClick={() => setAttempt(value => value + 1)} size="sm" variant="secondary">
+              <Button
+                className="mt-1"
+                onClick={() => {
+                  // Re-probe: the gateway may have been upgraded since we asked, and a
+                  // failed probe must not keep this pane on the device shell forever.
+                  forgetGatewayFeatures($connection.get())
+                  setFellBack(false)
+                  setAttempt(value => value + 1)
+                }}
+                size="sm"
+                variant="secondary"
+              >
                 {t.rightSidebar.terminalRestart}
               </Button>
             </div>

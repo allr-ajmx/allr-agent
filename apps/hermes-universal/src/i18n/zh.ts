@@ -2558,6 +2558,7 @@ export const zh: Translations = {
     terminalClosed: '终端已关闭',
     terminalRestart: '重新启动',
     terminalHostChip: host => `Shell 位于 ${host}`,
+    terminalLocalFallbackChip: '网关无终端 API · Shell 位于本机',
     terminalEndExitedTitle: '会话已结束',
     terminalEndExitedBody: 'Shell 已退出。新建一个即可继续。',
     terminalEndAuthTitle: '会话已过期',
