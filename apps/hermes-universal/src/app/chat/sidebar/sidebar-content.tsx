@@ -142,6 +142,16 @@ const SESSIONS_CONTENT_GROUPED_CLASS = SESSIONS_CONTENT_CLASS.replace('gap-px', 
 
 const SESSIONS_ROOT_CLASS = 'flex min-h-0 flex-1 flex-col p-0'
 
+// The entered project's sessions, remembered across mounts.
+//
+// Every other list this body shows lives in a store, so closing and reopening the
+// phone's sidebar drawer re-paints them instantly from cache while the refresh
+// runs behind. This one was component state, so a reopen started at null and the
+// rows blanked and repopulated — the one part of the sidebar that visibly
+// reloaded. Module-level, not a store: it is a per-scope render cache, and only
+// this component has any use for it.
+let cachedEnteredProject: { project: null | SidebarProjectTree; scope: string } | null = null
+
 // The scroll body: search + (query) merged Results, else the Sessions/recents
 // list. Pinned lands in Phase 5; messaging groups + cron in Phases 7–8.
 export function SidebarScrollBody({ onNavigate }: { onNavigate?: () => void }) {
@@ -176,7 +186,19 @@ export function SidebarScrollBody({ onNavigate }: { onNavigate?: () => void }) {
   const profileScope = useStore($profileScope)
   const profiles = useStore($profiles)
   const [messagingReveal, setMessagingReveal] = useState<Record<string, number>>({})
-  const [enteredProject, setEnteredProject] = useState<SidebarProjectTree | null>(null)
+
+  const [enteredProject, setEnteredProjectState] = useState<SidebarProjectTree | null>(() =>
+    cachedEnteredProject?.scope === scope ? cachedEnteredProject.project : null
+  )
+
+  const setEnteredProject = useCallback(
+    (project: null | SidebarProjectTree) => {
+      cachedEnteredProject = { project, scope }
+      setEnteredProjectState(project)
+    },
+    [scope]
+  )
+
   const [query, setQuery] = useState('')
   const searchInputRef = useRef<HTMLInputElement>(null)
   const navigate = useNavigate()
@@ -200,8 +222,18 @@ export function SidebarScrollBody({ onNavigate }: { onNavigate?: () => void }) {
     return () => clearInterval(timer)
   }, [profileScope])
 
-  // A big all-profiles page must not carry over into one small profile.
+  // A big all-profiles page must not carry over into one small profile — but only
+  // on an actual switch. On a phone the sidebar is a drawer that unmounts when it
+  // closes, so running this on mount meant every reopen silently threw away
+  // "Load more" and the list visibly shrank back to one page.
+  const scopeAtMount = useRef(profileScope)
+
   useEffect(() => {
+    if (profileScope === scopeAtMount.current) {
+      return
+    }
+
+    scopeAtMount.current = profileScope
     resetSessionsPaging()
   }, [profileScope])
 
@@ -261,7 +293,7 @@ export function SidebarScrollBody({ onNavigate }: { onNavigate?: () => void }) {
     } else {
       setEnteredProject(null)
     }
-  }, [grouped, scope, projectTree])
+  }, [grouped, scope, projectTree, setEnteredProject])
 
   // A new session lands server-side when its first turn runs, but no gateway
   // event refreshes the sidebar. Re-pull the session list (and, when inside a
@@ -278,7 +310,7 @@ export function SidebarScrollBody({ onNavigate }: { onNavigate?: () => void }) {
     if (grouped && scope !== ALL_PROJECTS) {
       void fetchProjectSessions(scope).then(setEnteredProject)
     }
-  }, [busy, runtimeSessionId, grouped, scope, profileScope])
+  }, [busy, runtimeSessionId, grouped, scope, profileScope, setEnteredProject])
 
   useEffect(() => {
     const timer = setTimeout(() => void searchSessionsQuery(query), 200)
