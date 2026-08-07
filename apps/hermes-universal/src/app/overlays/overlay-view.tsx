@@ -72,7 +72,9 @@ export function OverlayView({
   // height the same way and their backgrounds run flush to the top.
   if (fullscreen) {
     return (
-      <div className={cn('flex h-full min-h-0 flex-col overflow-hidden bg-(--ui-chat-surface-background)', rootClassName)}>
+      <div
+        className={cn('flex h-full min-h-0 flex-col overflow-hidden bg-(--ui-chat-surface-background)', rootClassName)}
+      >
         <div className={cn('min-h-0 flex flex-1 flex-col', contentClassName)}>{children}</div>
       </div>
     )

@@ -566,8 +566,7 @@ function rootRow(): SplitNode | null {
 
   return (
     (tree.children.find(child => child.type === 'split' && child.orientation === 'row' && hasMain(child)) as
-      | SplitNode
-      | undefined) ?? null
+      SplitNode | undefined) ?? null
   )
 }
 

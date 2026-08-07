@@ -158,10 +158,7 @@ export function ComposerStatusStack({ queue, sessionId }: ComposerStatusStackPro
       // sits in flow immediately above this same edge — the rail is navigation
       // and has to stay on top, so a file the agent just made hid the way to
       // switch chats. In flow the order reads top to bottom: rail, card, input.
-      className={cn(
-        'z-3 max-h-[40vh] overflow-y-auto',
-        !IS_MOBILE && 'absolute inset-x-0 bottom-full'
-      )}
+      className={cn('z-3 max-h-[40vh] overflow-y-auto', !IS_MOBILE && 'absolute inset-x-0 bottom-full')}
       onPointerDownCapture={() => blurComposerInput()}
       ref={stackRef}
     >

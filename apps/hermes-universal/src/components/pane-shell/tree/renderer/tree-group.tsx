@@ -61,7 +61,7 @@ import {
   SESSION_TILE_DRAG,
   setTreeGroupHeaderHidden,
   splitTreeZone,
-  toggleTreeGroupMinimized,
+  toggleTreeGroupMinimized
 } from '../store'
 
 import { type DoubleTapContext, startPaneDrag } from './drag-session'

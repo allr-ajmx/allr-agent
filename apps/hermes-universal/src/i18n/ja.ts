@@ -269,7 +269,8 @@ export const ja = defineLocale({
     },
     plugins: {
       title: 'プラグイン',
-      blurb: 'ビルドに同梱されたもの、または desktop-plugins フォルダーに置いたもの。無効にすると即座にアンロードされます。',
+      blurb:
+        'ビルドに同梱されたもの、または desktop-plugins フォルダーに置いたもの。無効にすると即座にアンロードされます。',
       count: (n: number) => `${n} 個インストール済み`,
       openFolder: 'プラグインフォルダーを開く',
       rescan: '再スキャン',

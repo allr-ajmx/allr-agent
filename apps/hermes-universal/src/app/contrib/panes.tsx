@@ -19,13 +19,7 @@ import { RightSidebarPane } from '@/app/right-pane'
 import { PreviewRail } from '@/app/right-pane/preview/preview-rail'
 import { ReviewPane } from '@/app/right-pane/review'
 import { TerminalArea } from '@/app/right-pane/terminal/terminal-area'
-import {
-  ARTIFACTS_ROUTE,
-  contributedRoutes,
-  MESSAGING_ROUTE,
-  ROUTES_AREA,
-  SKILLS_ROUTE
-} from '@/app/routes'
+import { ARTIFACTS_ROUTE, contributedRoutes, MESSAGING_ROUTE, ROUTES_AREA, SKILLS_ROUTE } from '@/app/routes'
 import { ContribBoundary, ContribRender } from '@/contrib/react/boundary'
 import { useContributions } from '@/contrib/react/use-contributions'
 import { registry } from '@/contrib/registry'

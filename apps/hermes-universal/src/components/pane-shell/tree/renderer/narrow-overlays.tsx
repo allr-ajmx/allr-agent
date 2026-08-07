@@ -19,8 +19,6 @@ import { type Tile, tileChrome, tileSizing } from '../../tile/types'
 import { allPaneIds } from '../model'
 import { $hiddenTreePanes, $layoutTree, $narrowViewport } from '../store'
 
-
-
 export function NarrowOverlays() {
   const narrow = useStore($narrowViewport)
   const tree = useStore($layoutTree)

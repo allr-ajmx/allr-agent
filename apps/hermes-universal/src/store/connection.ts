@@ -294,9 +294,7 @@ export async function connectSsh(
   // Publish progress for surfaces that never see the attempt id — the connecting
   // screen during a boot restore, and the tunnel re-bootstrap. Subscribed before
   // the invoke so no step is missed.
-  const unlistenProgress = await onSshProgress(attemptId, progress => $sshStep.set(progress.step)).catch(
-    () => null
-  )
+  const unlistenProgress = await onSshProgress(attemptId, progress => $sshStep.set(progress.step)).catch(() => null)
 
   try {
     // Secrets come from the keyring, never from the saved target.
@@ -461,7 +459,6 @@ export async function signOut(): Promise<void> {
   await forgetSavedLogin().catch(() => {})
   disconnect()
 }
-
 
 // --------------------------------------------------------------------------
 // SSH tunnel watchdog

@@ -87,7 +87,11 @@ function PreviewTab({ active, dirty, tab }: { active: boolean; dirty: boolean; t
             {dirty ? (
               <span aria-hidden className="size-1.5 rounded-full bg-amber-500 group-hover/tab:hidden coarse:hidden" />
             ) : null}
-            <Codicon className={cn(dirty && 'hidden group-hover/tab:inline coarse:inline')} name="close" size="0.7rem" />
+            <Codicon
+              className={cn(dirty && 'hidden group-hover/tab:inline coarse:inline')}
+              name="close"
+              size="0.7rem"
+            />
           </button>
         </div>
       </ContextMenuTrigger>

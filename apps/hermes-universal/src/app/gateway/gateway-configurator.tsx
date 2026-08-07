@@ -511,12 +511,8 @@ export function GatewayConfigurator({
       return
     }
 
-    setSshForm(current =>
-      kind === 'password' ? { ...current, password: answer } : { ...current, passphrase: answer }
-    )
-    void mergeSshSecrets(kind === 'password' ? { password: answer } : { passphrase: answer }).catch(
-      () => {}
-    )
+    setSshForm(current => (kind === 'password' ? { ...current, password: answer } : { ...current, passphrase: answer }))
+    void mergeSshSecrets(kind === 'password' ? { password: answer } : { passphrase: answer }).catch(() => {})
   }
 
   const doConnectSsh = async () => {
@@ -864,11 +860,7 @@ export function GatewayConfigurator({
               embedded/onboarding variant). Persists without connecting. */}
           {variant === 'settings' ? (
             <Button
-              disabled={
-                busy ||
-                (pendingMode === 'remote' && !trimmedUrl) ||
-                (pendingMode === 'ssh' && !trimmedSshHost)
-              }
+              disabled={busy || (pendingMode === 'remote' && !trimmedUrl) || (pendingMode === 'ssh' && !trimmedSshHost)}
               onClick={() => void doSaveForRestart()}
               size="sm"
               variant="outline"
@@ -877,9 +869,7 @@ export function GatewayConfigurator({
             </Button>
           ) : null}
           <Button
-            disabled={
-              busy || (pendingMode === 'remote' && !trimmedUrl) || (pendingMode === 'ssh' && !trimmedSshHost)
-            }
+            disabled={busy || (pendingMode === 'remote' && !trimmedUrl) || (pendingMode === 'ssh' && !trimmedSshHost)}
             onClick={() => {
               if (pendingMode === 'local') {
                 void doConnectLocal()
