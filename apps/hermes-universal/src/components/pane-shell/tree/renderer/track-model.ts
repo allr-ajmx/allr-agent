@@ -121,17 +121,15 @@ export function fixedTrackSize(node: LayoutNode, axis: 'row' | 'column', ctx: Tr
   const visible = node.children.filter(child => !subtreeGone(child, ctx))
 
   const sizes = visible.map(child =>
-    // A minimized zone is a 1.75rem strip ONLY along the axis it collapsed on
-    // (this split's own orientation — its parent axis). ACROSS that axis the
-    // strip STRETCHES to fill, so it must report flex (null), NOT a fixed
-    // 1.75rem — otherwise an ancestor track (the root row asking this COLUMN
-    // for its width) reads the minimized child as fixed-thin and collapses the
-    // WHOLE column/row to a rail, dragging every sibling down with it.
-    child.type === 'group' && child.minimized
-      ? node.orientation === axis
-        ? MINIMIZED_TRACK
-        : null
-      : fixedTrackSize(child, axis, ctx)
+    // A FOLDED child (a minimized zone, or a split whose every visible zone is
+    // minimized — see `subtreeFolded`) is a 1.75rem strip ONLY along the axis
+    // it collapsed on (this split's own orientation — its parent axis). ACROSS
+    // that axis the strip STRETCHES to fill, so it must report flex (null),
+    // NOT a fixed 1.75rem — otherwise an ancestor track (the root row asking
+    // this COLUMN for its width) reads the minimized child as fixed-thin and
+    // collapses the WHOLE column/row to a rail, dragging every sibling down
+    // with it.
+    subtreeFolded(child, ctx) ? (node.orientation === axis ? MINIMIZED_TRACK : null) : fixedTrackSize(child, axis, ctx)
   )
 
   if (node.orientation === axis) {
@@ -144,6 +142,35 @@ export function fixedTrackSize(node: LayoutNode, axis: 'row' | 'column', ctx: Tr
 
   // Across the axis a flex child just stretches; the fixed ones set the size.
   return cssMax(sizes) ?? null
+}
+
+/**
+ * The CASCADING FOLD: true when this node is collapsed to a strip — either a
+ * zone the user minimized, or a split whose every visible zone is folded. A
+ * column of three minimized zones is three stacked header strips wasting a
+ * whole column, so the split itself folds along its PARENT's axis into one
+ * thin rail and the neighbours absorb the freed space. Recurses upward.
+ *
+ * DERIVED, never stored: no new tree field, so `normalize`/persistence stay
+ * untouched and "unfold" is just "a zone inside stopped being minimized".
+ * `subtreeFolded(group) === Boolean(group.minimized)`, so it SUBSUMES the old
+ * group checks — a folded split then flows through the exact plumbing a
+ * minimized zone already uses (MINIMIZED_TRACK, `minimized` enclosure,
+ * `flex: 0 0 auto`, disabled sashes).
+ *
+ * Gone children neither count nor block — the same `subtreeGone` filter
+ * `fixedTrackSize` uses above, so the two predicates cannot disagree. An
+ * all-gone subtree is `false` and stays `collapsed` via that branch: fold
+ * never competes with collapse.
+ */
+export function subtreeFolded(node: LayoutNode, ctx: TrackContext): boolean {
+  if (node.type === 'group') {
+    return Boolean(node.minimized)
+  }
+
+  const visible = node.children.filter(child => !subtreeGone(child, ctx))
+
+  return visible.length > 0 && visible.every(child => subtreeFolded(child, ctx))
 }
 
 /** True when every pane in the subtree is hidden/narrow-collapsed. */
