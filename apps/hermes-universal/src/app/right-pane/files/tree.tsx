@@ -1,5 +1,5 @@
 import { useStore } from '@nanostores/react'
-import { type KeyboardEvent as ReactKeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { type KeyboardEvent as ReactKeyboardEvent, useCallback, useEffect, useRef, useState } from 'react'
 import { type NodeApi, type NodeRendererProps, type RowRendererProps, Tree, type TreeApi } from 'react-arborist'
 
 import { TreeSkeleton } from '@/components/chat/skeletons'
@@ -153,12 +153,23 @@ export function ProjectTree({
     [revealNode]
   )
 
+  // THE open-on-tap path, and the only one. arborist's `node.handleClick` selects
+  // and then activates, so this fires for a click anywhere the row container
+  // covers — which is the whole row rect.
+  //
+  // Mobile only. A phone has no double-click idiom, so one tap has to open;
+  // desktop keeps select-then-double-click, where a single click is how you pick
+  // a row to rename or drag, and `onDoubleClick` on the row does the opening.
+  //
+  // Suppressed for the row being renamed so the context-menu "Rename" (and the
+  // click that falls through as its menu closes) can't open the preview instead.
   const handleActivate = useCallback(
     (node: NodeApi<TreeNode>) => {
-      // arborist fires onActivate on click/dblclick/Enter — independent of the
-      // row's own handlers. Suppress it for the row being renamed so the
-      // context-menu "Rename" (and its fall-through) can't open the preview.
-      if (node.data && !node.data.isDirectory && $renamingPath.get() !== node.data.id) {
+      if (!IS_MOBILE || !node.data || node.data.isDirectory || node.data.placeholder) {
+        return
+      }
+
+      if ($renamingPath.get() !== node.data.id) {
         onPreviewFile?.(node.data.id)
       }
     },
@@ -184,10 +195,6 @@ export function ProjectTree({
     beginInlineRename(node.data.id)
   }, [])
 
-  // Memoised: arborist remounts every row when `renderRow` changes identity, so
-  // rebuilding this each render would throw the list away on every keystroke.
-  const rowContainer = useMemo(() => makeRowContainer(onPreviewFile), [onPreviewFile])
-
   return (
     <div className="min-h-0 flex-1 overflow-hidden" onKeyDownCapture={handleRenameShortcut} ref={containerRef}>
       {height > 0 ? (
@@ -207,7 +214,7 @@ export function ProjectTree({
           openByDefault={false}
           padding={0}
           ref={treeRef}
-          renderRow={rowContainer}
+          renderRow={ProjectTreeRowContainer}
           rowHeight={ROW_HEIGHT}
           // CSS, not a measured pixel count — see the height-only note above.
           width="100%"
@@ -240,32 +247,24 @@ function TreeSizingState() {
 // to the viewport so long names ellipsize instead of clipping at the pane edge.
 //
 // This container, not the presentational row inside it, is the element arborist
-// sizes to the full row rect — so it is where the phone's open-on-tap belongs.
-// On the inner div the target was whatever that div happened to cover, which in
-// practice meant the file's name and not much else.
-function makeRowContainer(onOpen?: (path: string) => void) {
-  return function ProjectTreeRowContainer({ attrs, children, innerRef, node }: RowRendererProps<TreeNode>) {
-    return (
-      <div
-        {...attrs}
-        onClick={event => {
-          node.handleClick(event)
-
-          // Folders toggle (the inner row owns that); a file opens. Guarded on
-          // the live rename atom for the same reason the inner row is: a
-          // context-menu close can fall through before the edit re-render lands.
-          if (IS_MOBILE && node.data && !node.data.isDirectory && $renamingPath.get() !== node.data.id) {
-            onOpen?.(node.data.id)
-          }
-        }}
-        onFocus={e => e.stopPropagation()}
-        ref={innerRef}
-        style={{ ...attrs.style, minWidth: 0, width: '100%' }}
-      >
-        {children}
-      </div>
-    )
-  }
+// sizes to the full row rect, so it owns the click: `node.handleClick` selects
+// and activates, and `onActivate` is where opening lives. Nothing here closes
+// over a callback — a `renderRow` whose identity moves makes arborist unmount
+// and rebuild every visible row, and doing that to the rows under a finger that
+// is still touching one is how a tap ends up tearing out the Radix menus each
+// row carries.
+function ProjectTreeRowContainer({ attrs, children, innerRef, node }: RowRendererProps<TreeNode>) {
+  return (
+    <div
+      {...attrs}
+      onClick={node.handleClick}
+      onFocus={e => e.stopPropagation()}
+      ref={innerRef}
+      style={{ ...attrs.style, minWidth: 0, width: '100%' }}
+    >
+      {children}
+    </div>
+  )
 }
 
 const CHANGE_TINT: Record<RepoChangeKind, string> = {
@@ -313,27 +312,33 @@ function ProjectTreeRow({
       )}
       draggable={!isPlaceholder && !editing}
       onClick={event => {
-        event.stopPropagation()
-
         // Read the rename atom LIVE (not the render closure): the fall-through
         // click from a context-menu close can fire before the editing re-render
         // commits, so a stale closure would still select/activate and yank focus.
         if (isPlaceholder || $renamingPath.get() === node.data.id) {
+          event.stopPropagation()
+
           return
         }
 
         if (event.shiftKey) {
+          event.stopPropagation()
           ;(isFolder ? onAttachFolder : onAttachFile)(node.data.id)
 
           return
         }
 
-        // Opening on a phone tap lives on the ROW CONTAINER, not here — that is
-        // the element sized to the whole row, so the target is the whole row.
+        // Everything else FALLS THROUGH to the row container, which is the
+        // element arborist sizes to the whole row and the single place selection
+        // and activation live. This handler used to stop propagation
+        // unconditionally, which meant the container's click — and with it
+        // `onActivate`, the open — only ever ran for the sliver of row this div
+        // did not cover.
+        //
+        // A folder still toggles here: `handleClick` selects and activates but
+        // never toggles, and expanding is what a tap on a folder means.
         if (isFolder) {
           node.toggle()
-        } else {
-          node.select()
         }
       }}
       onDoubleClick={event => {
