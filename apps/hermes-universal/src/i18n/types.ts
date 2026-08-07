@@ -382,6 +382,13 @@ export interface Translations {
       embedsAlways: string
       embedsOff: string
       embedsReset: (count: number) => string
+      resizeRateTitle: string
+      resizeRateDesc: string
+      resizeRateOptions: Record<'balanced' | 'battery' | 'off' | 'smooth', string>
+      resizeRateCaption: (hz: number, ms: number) => string
+      resizeRateUnthrottled: string
+      resizeCalmTitle: string
+      resizeCalmDesc: string
       product: string
       productDesc: string
       technical: string

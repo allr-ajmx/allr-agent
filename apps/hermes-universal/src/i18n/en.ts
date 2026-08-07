@@ -459,6 +459,20 @@ export const en: Translations = {
       embedsAlways: 'Always',
       embedsOff: 'Off',
       embedsReset: (count: number) => `Reset ${count} allowed ${count === 1 ? 'service' : 'services'}`,
+      resizeRateTitle: 'Resize Smoothness',
+      resizeRateDesc:
+        'How often panes re-measure while you drag a divider or the window edge. Fewer updates means a smoother drag; the layout always lands correct when you let go. Nothing outside a drag is affected.',
+      resizeRateOptions: {
+        off: 'Off',
+        smooth: 'Smooth',
+        balanced: 'Balanced',
+        battery: 'Battery'
+      },
+      resizeRateCaption: (hz: number, ms: number) => `~${hz} updates/sec · ${ms}ms`,
+      resizeRateUnthrottled: 'Every frame — no throttling',
+      resizeCalmTitle: 'Settle Before Showing',
+      resizeCalmDesc:
+        'On a longer drag, hold the last frame instead of re-flowing text as you go. Turn this on if resizing still looks like the content is breaking apart.',
       product: 'Product',
       productDesc: 'Human-friendly tool activity with concise summaries.',
       technical: 'Technical',

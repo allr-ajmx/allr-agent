@@ -590,9 +590,11 @@ export function TreeGroup({
         </ZoneMenu>
       )}
 
-      {/* Body: the active pane's contributed content, or the empty zone. */}
+      {/* Body: the active pane's contributed content, or the empty zone.
+          `data-tree-body` is what the opt-in calm-while-resizing rule targets
+          (styles.css): one marker on the container, not a rule per surface. */}
       {!node.minimized && (
-        <div className="relative min-h-0 min-w-0 flex-1 overflow-auto">
+        <div className="relative min-h-0 min-w-0 flex-1 overflow-auto" data-tree-body>
           {isEmpty ? (
             <div className="grid h-full place-items-center">
               {/* Same decode primitive as the CONNECTING boot overlay. */}

@@ -2380,3 +2380,26 @@ html {
   overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
+
+/* ─── Calm while resizing (opt-in) ───────────────────────────────────────────
+   `$calmDuringResize` in lib/resize-gesture.ts stamps `data-resizing` on <html>
+   once a resize gesture outlives its grace period. Throttling alone still lets
+   text re-wrap several times a second; this hides those intermediate steps
+   behind the last painted frame, so a drag reads as SETTLING rather than as the
+   content breaking apart and reassembling.
+
+   Deliberately not `content-visibility`: universal runs WebKitGTK, not Chromium,
+   and that is exactly the class of property that behaves differently there.
+   Opacity and suppressed motion are boring and portable.
+
+   Off by default — with the flag off the attribute is never written, so this
+   rule never matches and costs a selector nobody evaluates. */
+[data-resizing] [data-tree-body] {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+[data-resizing] [data-tree-body] * {
+  animation-play-state: paused !important;
+  transition: none !important;
+}

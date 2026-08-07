@@ -446,6 +446,19 @@ export const zh: Translations = {
       embedsAlways: '总是',
       embedsOff: '关闭',
       embedsReset: (count: number) => `重置 ${count} 个已允许的服务`,
+      resizeRateTitle: '缩放流畅度',
+      resizeRateDesc:
+        '拖动分隔线或窗口边缘时，窗格重新测量的频率。更新越少，拖动越流畅；松手后布局始终会落到正确位置。不影响拖动以外的任何情况。',
+      resizeRateOptions: {
+        off: '关闭',
+        smooth: '流畅',
+        balanced: '均衡',
+        battery: '省电'
+      },
+      resizeRateCaption: (hz: number, ms: number) => `约 ${hz} 次/秒 · ${ms} 毫秒`,
+      resizeRateUnthrottled: '每帧更新 — 不做节流',
+      resizeCalmTitle: '稳定后再显示',
+      resizeCalmDesc: '较长的拖动过程中保持最后一帧，而不是随拖动重排文本。如果缩放时内容看起来仍在错乱，请开启。',
       product: '产品',
       productDesc: '易读的工具活动与简洁摘要。',
       technical: '技术',
