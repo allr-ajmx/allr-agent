@@ -81,7 +81,7 @@ export function OverlayView({
   }
 
   // Full-bleed: edge-to-edge over the whole window (no backdrop, inset or card
-  // chrome) but keeps a Home button + Esc, so it reads as a full-screen surface on
+  // chrome) but keeps a Back button + Esc, so it reads as a full-screen surface on
   // top of the primary window that dismisses back to it. Honours the device safe
   // areas (status-bar / notch / home-indicator) the same way the Android activity
   // screen does (`app/activity-screen.tsx`): the header clears the top inset, the
@@ -113,18 +113,21 @@ export function OverlayView({
             </div>
           )}
 
-          {/* Full-bleed has no close ✕ — a labelled Home button returns to the
-              primary view instead (iOS activity-screen dismissal). */}
+          {/* Full-bleed has no close ✕ — a Back chevron returns to the route you
+              came from, which is what `onClose` actually does here
+              (`closeOverlayToPreviousRoute`), and what every other phone surface
+              puts in this corner. Icon-only: the coarse-pointer floor in
+              styles.css keeps it a 44px target, and the star map's timeline
+              scrubber shares this band. */}
           <Button
             aria-label={closeLabel}
-            className="pointer-events-auto absolute left-3 -translate-y-1/2 gap-1.5 text-(--ui-text-tertiary) hover:bg-(--chrome-action-hover) hover:text-foreground"
+            className="pointer-events-auto absolute left-3 -translate-y-1/2 text-(--ui-text-tertiary) hover:bg-(--chrome-action-hover) hover:text-foreground"
             onClick={closeOverlay}
             size="sm"
             style={{ top: 'calc(var(--safe-area-inset-top) + 0.1875rem + var(--titlebar-height) / 2)' }}
             variant="ghost"
           >
-            <Codicon name="home" size="1rem" />
-            Home
+            <Codicon name="chevron-left" size="1.4rem" />
           </Button>
         </div>
 
