@@ -50,7 +50,12 @@ const mockFeatures = vi.mocked(gatewayFeatures)
 
 const CONN: Connection = { authMode: 'none', baseUrl: 'http://gw.test', mode: 'remote' }
 
-function handlers(): { calls: TerminalTransportHandlers; end: ReturnType<typeof vi.fn>; ready: ReturnType<typeof vi.fn>; status: ReturnType<typeof vi.fn> } {
+function handlers(): {
+  calls: TerminalTransportHandlers
+  end: ReturnType<typeof vi.fn>
+  ready: ReturnType<typeof vi.fn>
+  status: ReturnType<typeof vi.fn>
+} {
   const end = vi.fn()
   const ready = vi.fn()
   const status = vi.fn()
