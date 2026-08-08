@@ -843,6 +843,11 @@ _SCHEMA_OVERRIDES: Dict[str, Dict[str, Any]] = {
         "description": "Terminal execution backend",
         "options": ["local", "docker", "ssh", "modal", "daytona", "singularity"],
     },
+    "terminal.shell_pty": {
+        "type": "select",
+        "description": "Dashboard shell terminal: auto = enabled, off = disabled",
+        "options": ["auto", "off"],
+    },
     "terminal.modal_mode": {
         "type": "select",
         "description": "Modal sandbox mode",
@@ -2045,6 +2050,39 @@ def _fs_find_git_root(start: Path) -> str | None:
     return None
 
 
+_SHELL_PTY_ENV_ALLOW = frozenset({
+    "PATH", "HOME", "USER", "LOGNAME", "SHELL", "LANG", "LC_ALL", "LC_CTYPE",
+    "TZ", "XDG_RUNTIME_DIR", "SSH_AUTH_SOCK",  # SSH_AUTH_SOCK = agent-forwarding handle
+    "DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_CONFIG",
+    "DOCKER_CERT_PATH", "DOCKER_TLS_VERIFY", "HERMES_DOCKER_BINARY",
+})
+
+
+def _shell_pty_env() -> dict[str, str]:
+    """Env for the shell-pty child: an allowlist of the gateway's env, plus the
+    fixed TERM_* overrides. Deliberately drops API keys / tokens (a login shell
+    re-sources the user's rc files, so an interactive user loses nothing real)."""
+    env = {k: v for k, v in os.environ.items() if k in _SHELL_PTY_ENV_ALLOW}
+    env["TERM"] = "xterm-256color"
+    env["COLORTERM"] = "truecolor"
+    env["TERM_PROGRAM"] = "Hermes"
+    env["HERMES_UNIVERSAL_TERMINAL"] = "1"
+    return env
+
+
+def _shell_pty_disabled_reason() -> str | None:
+    """None if shell-pty is enabled; else a short reason string."""
+    val = os.environ.get("TERMINAL_SHELL_PTY")
+    if val is None:
+        try:
+            val = ((load_config().get("terminal") or {}).get("shell_pty"))
+        except Exception:
+            val = None
+    if str(val or "auto").strip().lower() == "off":
+        return "shell terminal is disabled by configuration (terminal.shell_pty: off)"
+    return None
+
+
 def _fs_default_cwd() -> str:
     cfg_terminal = load_config().get("terminal") or {}
     raw = str(cfg_terminal.get("cwd") or os.environ.get("TERMINAL_CWD") or "").strip()
@@ -3118,7 +3156,7 @@ async def get_health():
         "ok": True,
         "version": __version__,
         "auth_required": bool(getattr(app.state, "auth_required", False)),
-        "features": {"shell_pty": True},
+        "features": {"shell_pty": _shell_pty_disabled_reason() is None},
     }
 
 
@@ -18821,6 +18859,12 @@ async def shell_pty_ws(ws: WebSocket) -> None:
     await ws.accept()
     _log.info("shell-pty accepted peer=%s mode=%s", peer, mode)
 
+    disabled = _shell_pty_disabled_reason()
+    if disabled:
+        await ws.send_text(f"\r\n\x1b[31mTerminal unavailable: {disabled}\x1b[0m\r\n")
+        await ws.close(code=4404)
+        return
+
     if not _PTY_BRIDGE_AVAILABLE:
         await ws.send_text(
             "\r\n\x1b[31mTerminal unavailable: the shell terminal requires a POSIX "
@@ -18845,14 +18889,10 @@ async def shell_pty_ws(ws: WebSocket) -> None:
         cwd = os.path.expanduser("~")
 
     shell = os.environ.get("SHELL") or "/bin/bash"
-    env = os.environ.copy()
-    env["TERM"] = "xterm-256color"
-    env["COLORTERM"] = "truecolor"
-    env["TERM_PROGRAM"] = "Hermes"
-    env["HERMES_UNIVERSAL_TERMINAL"] = "1"
+    env = _shell_pty_env()
 
     try:
-        bridge = PtyBridge.spawn([shell], cwd=cwd, env=env)
+        bridge = PtyBridge.spawn([shell, "-l"], cwd=cwd, env=env)
     except PtyUnavailableError as exc:
         await ws.send_text(f"\r\n\x1b[31mTerminal unavailable: {exc}\x1b[0m\r\n")
         await ws.close(code=1011)
@@ -20489,6 +20529,20 @@ def start_server(
     # Record the bound host so host_header_middleware can validate incoming
     # Host headers against it. Defends against DNS rebinding (GHSA-ppp5-vxwm-4cf7).
     app.state.bound_host = host
+
+    try:
+        from gateway.platforms.base import is_network_accessible
+        _tb = str(((load_config().get("terminal") or {}).get("backend")) or "local").strip().lower()
+        if is_network_accessible(host) and _tb == "local" and _shell_pty_disabled_reason() is None:
+            _log.warning(
+                "Dashboard is network-accessible (%s) and /api/shell-pty spawns an "
+                "UNSANDBOXED interactive shell as the host user with full file access. "
+                "Anyone with a valid session gets host code execution. Strongly consider "
+                "terminal.backend: docker (sandbox) or binding to loopback, and firewall "
+                "this port to trusted networks.", host,
+            )
+    except Exception:
+        pass
 
     # ── Start uvicorn with direct Server API ─────────────────────────
     # We use uvicorn.Server directly (not uvicorn.run) so we can split
