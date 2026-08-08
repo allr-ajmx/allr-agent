@@ -36,6 +36,7 @@ import {
   unpinSession
 } from '@/store/layout'
 import { $sidebarCronOpen, setSidebarCronOpen } from '@/store/layout'
+import { startNewSession } from '@/store/new-session'
 import { $profileScope, ALL_PROFILES, normalizeProfileKey } from '@/store/profile'
 import { $profiles, setActiveProfile } from '@/store/profiles'
 import {
@@ -68,14 +69,12 @@ import {
   isMessagingSource,
   loadMoreSessions,
   messagingSourceLabel,
-  newSession,
   openSession,
   refreshMessagingSessions,
   refreshSessions,
   resetSessionsPaging,
   searchSessionsQuery,
-  sessionPinId,
-  startSessionInWorkspace
+  sessionPinId
 } from '@/store/session'
 import { openAppRoute } from '@/store/windows'
 import type { SessionInfo, SessionSearchResult } from '@/types/hermes'
@@ -456,10 +455,9 @@ export function SidebarScrollBody({
   // carrying no draft (unlike the composer's branch-off hand-off).
   const newSessionInWorkspace = useCallback(
     (path: null | string) => {
-      startSessionInWorkspace(path ?? '')
-      navigate('/')
+      startNewSession({ cwd: path ?? '' })
     },
-    [navigate]
+    []
   )
 
   // Project overview rows: drop dismissed auto-projects, sort, then apply the
@@ -481,7 +479,7 @@ export function SidebarScrollBody({
   // would collapse the browse view the user is standing in.
   const startSessionInProfile = (profileKey: string) => {
     setActiveProfile(profileKey === 'default' ? null : profileKey)
-    newSession()
+    startNewSession()
   }
 
   const rowHandlers = {

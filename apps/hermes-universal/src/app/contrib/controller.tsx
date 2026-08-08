@@ -54,11 +54,12 @@ import {
   SIDEBAR_DEFAULT_WIDTH,
   SIDEBAR_MAX_WIDTH
 } from '@/store/layout'
+import { startNewSessionTab } from '@/store/new-session'
 import { $previewTabs, closeAllPreviewTabs } from '@/store/preview'
 import { $reviewOpen, closeReview, REVIEW_PANE_ID } from '@/store/review'
 import { $activeStoredSessionId, $sessions, sessionMatchesStoredId } from '@/store/session'
 import { $sessionColorById, sessionColorFor } from '@/store/session-color'
-import { invalidateRuntimeBindings, newSessionTab, setVisibleBubbleKeysProvider } from '@/store/session-states'
+import { invalidateRuntimeBindings, setVisibleBubbleKeysProvider } from '@/store/session-states'
 import { toggleStatusbarVisible } from '@/store/statusbar-prefs'
 
 import { watchRouteTiles } from '../chat/route-tile'
@@ -145,7 +146,7 @@ registerTiles([
     chrome: { linkTarget: true, tabWrap: wrapWorkspaceTab, uncloseable: true },
     sizing: { minWidth: '22vw' },
     // The `+` on the strip this tile sits in: another chat.
-    onNewTab: newSessionTab,
+    onNewTab: startNewSessionTab,
     render: renderWorkspacePane
   },
   {
@@ -418,7 +419,7 @@ const syncWorkspaceTitle = () => {
       uncloseable: true
     },
     sizing: { minWidth: '22vw' },
-    onNewTab: newSessionTab,
+    onNewTab: startNewSessionTab,
     render: renderWorkspacePane
   })
 }

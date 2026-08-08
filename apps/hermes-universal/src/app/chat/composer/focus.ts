@@ -166,6 +166,26 @@ export const focusComposerInput = (el: HTMLElement | null) => {
   window.setTimeout(focus, 0)
 }
 
+/**
+ * Is the caret in some OTHER live editor right now?
+ *
+ * Guards a composer that mounts LATE from stealing focus off one the user is
+ * already in. A session tile is saved with no runtime id, so `TileChat` mounts
+ * only once its async resume lands — hundreds of ms after the ⌘T that parked it
+ * — and its autofocus arrived long after the fresh chat had rightfully taken the
+ * caret (MJXHRM-6). Same rule keeps opening a tile mid-sentence from eating what
+ * you were typing. An EXPLICIT request over the focus bus still always wins.
+ */
+export const focusHeldByOtherEditor = (self: HTMLElement | null): boolean => {
+  const el = typeof document === 'undefined' ? null : document.activeElement
+
+  return (
+    el instanceof HTMLElement &&
+    el !== self &&
+    (el.isContentEditable || el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)
+  )
+}
+
 /** Drop focus from the main composer input (status-stack chrome, sidebar, etc.). */
 export const blurComposerInput = () => {
   const el = queryVisible(`[data-slot="${RICH_INPUT_SLOT}"]`)

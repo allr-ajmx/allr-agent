@@ -184,6 +184,23 @@ export function togglePane(id: string) {
   $paneStates.set({ ...current, [id]: { ...existing, open: !(existing?.open ?? false) } })
 }
 
+/** Carry a pane's saved state to a new id. Paired with `renameTreePane` — a pane
+ *  that keeps its slot but loses its dragged width has not really been renamed. */
+export function renamePaneState(from: string, to: string) {
+  const current = $paneStates.get()
+  const existing = current[from]
+
+  if (!existing) {
+    return
+  }
+
+  const next = { ...current, [to]: existing }
+
+  delete next[from]
+
+  $paneStates.set(next)
+}
+
 export function setPaneWidthOverride(id: string, width: number | undefined) {
   const current = $paneStates.get()
   const existing = current[id] ?? { open: false }

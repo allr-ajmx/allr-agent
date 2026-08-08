@@ -1,6 +1,9 @@
 dist/
 node_modules/
-src-tauri/target/
+# One tree per surface: desktop keeps `target/`, the dev:ext:android / :ios
+# scripts point CARGO_TARGET_DIR at `target-android/` / `target-ios/` so two
+# concurrent `tauri dev` runs never block each other on Cargo's build lock.
+src-tauri/target*/
 # Track the generated Android project (gen/android) so our native customizations
 # — activity subclasses, the Home bridge, manifest edits — are versioned and the
 # mobile build is reproducible. Its own gen/android/.gitignore excludes the build

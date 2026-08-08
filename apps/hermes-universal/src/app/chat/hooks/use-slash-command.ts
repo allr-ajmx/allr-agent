@@ -1,6 +1,6 @@
 import { useCallback } from 'react'
 
-import { NEW_CHAT_ROUTE, PET_SETTINGS_ROUTE, STARMAP_ROUTE } from '@/app/routes'
+import { PET_SETTINGS_ROUTE, STARMAP_ROUTE } from '@/app/routes'
 import type { BrowserManageResponse, SessionTitleResponse, SlashExecResponse } from '@/app/types'
 import { getProfiles } from '@/hermes'
 import { useI18n } from '@/i18n'
@@ -21,8 +21,8 @@ import { setComposerDraft } from '@/store/composer'
 import { $connection } from '@/store/connection'
 import { requestGateway } from '@/store/gateway'
 import { handoffSession } from '@/store/handoff'
-import { NEW_SESSION_FLASH_EVENT } from '@/store/layout'
 import { setModelPickerOpen } from '@/store/model'
+import { startNewSession } from '@/store/new-session'
 import { notify, notifyError } from '@/store/notifications'
 import { setPetScale } from '@/store/pet-gallery'
 import { openPetGenerate } from '@/store/pet-generate'
@@ -31,7 +31,6 @@ import {
   $sessions,
   $yoloActive,
   branchCurrentSession,
-  newSession,
   openSession,
   refreshSessions,
   setSessionPickerOpen,
@@ -215,13 +214,10 @@ export function useSlashCommand() {
       // desktop-slash-commands.ts plus an entry here — never a new branch in a
       // dispatch ladder.
       const actionHandlers: Record<DesktopActionId, (ctx: SlashActionCtx) => Promise<void>> = {
-        // Same three steps as the sidebar's New Session button / ⌘N
-        // (nav-rail.tsx, use-keybinds.ts): reset the thread, land on the
-        // new-chat route, flash the rail.
+        // The same act as the sidebar's New session row and ⌘N, through the
+        // one helper all three share (store/new-session.ts).
         new: async () => {
-          newSession()
-          navigateTo(NEW_CHAT_ROUTE)
-          window.dispatchEvent(new CustomEvent(NEW_SESSION_FLASH_EVENT))
+          startNewSession()
         },
         branch: async () => {
           await branchCurrentSession()
