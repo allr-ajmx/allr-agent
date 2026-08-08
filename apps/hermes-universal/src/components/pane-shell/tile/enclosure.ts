@@ -22,7 +22,7 @@
  */
 
 import { allPaneIds, type LayoutNode } from '../tree/model'
-import { rootChildSide, subtreeGone, type TrackContext } from '../tree/renderer/track-model'
+import { rootChildSide, subtreeFolded, subtreeGone, type TrackContext } from '../tree/renderer/track-model'
 import type { TreeSide } from '../tree/store'
 
 import type { Tile, TileId } from './types'
@@ -87,7 +87,10 @@ export function zoneEnclosure(child: LayoutNode, ctx: EnclosureContext, horizont
 
   return {
     collapsed,
-    minimized: child.type === 'group' && Boolean(child.minimized),
+    // A SPLIT whose every visible zone is minimized is itself a strip (the
+    // cascading fold) — `subtreeFolded` subsumes the plain `group.minimized`
+    // check, so a folded split takes the minimized branch everywhere below.
+    minimized: subtreeFolded(child, ctx),
     // Only for tiles the BREAKPOINT collapsed, not ones a chrome toggle hid —
     // unmounting a toggle-hidden tile would throw away state the toggle
     // promises to bring straight back.

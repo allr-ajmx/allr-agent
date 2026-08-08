@@ -16,7 +16,7 @@ import { $paneStates, type PaneStateSnapshot, setPaneHeightOverride, setPaneWidt
 import { $layoutEditMode } from '../../edit-mode'
 import { beginSashDrag, endSashDrag } from '../../geometry'
 import { type EnclosureContext, zoneEnclosure } from '../../tile/enclosure'
-import { useTiles } from '../../tile/registry'
+import { useTileMap } from '../../tile/registry'
 import { tileAxisLength, tileClamps } from '../../tile/sizing'
 import type { TileSizing } from '../../tile/types'
 import { type TileContext, tileGone } from '../../tile/visibility'
@@ -41,7 +41,7 @@ import {
   shownPaneIds,
   type TrackContext
 } from './track-model'
-import { TreeNode } from './tree-node'
+import { type FoldContext, TreeNode } from './tree-node'
 
 /**
  * The size overrides for a fixed set of panes, referentially stable until one
@@ -68,9 +68,19 @@ function useSubtreeOverrides(paneIds: readonly string[]): TrackContext['override
   return useSyncExternalStore(cb => $paneStates.listen(cb), snapshot, snapshot)
 }
 
-export function TreeSplit({ node, root, rootRow }: { node: SplitNode; root?: boolean; rootRow?: boolean }) {
+export function TreeSplit({
+  folded,
+  node,
+  root,
+  rootRow
+}: {
+  folded?: FoldContext
+  node: SplitNode
+  root?: boolean
+  rootRow?: boolean
+}) {
   const containerRef = useRef<HTMLDivElement>(null)
-  const panes = useTiles()
+  const byId = useTileMap()
   const hiddenPanes = useStore($hiddenTreePanes)
   const narrow = useStore($narrowViewport)
   const subtreePanes = useMemo(() => allPaneIds(node), [node])
@@ -80,7 +90,12 @@ export function TreeSplit({ node, root, rootRow }: { node: SplitNode; root?: boo
   const overrides = useSubtreeOverrides(subtreePanes)
   const editMode = useStore($layoutEditMode)
   const collapsedSides = useStore($collapsedTreeSides)
-  const horizontal = node.orientation === 'row'
+  // Inside a fold this split IS a strip, so it lays its (all-minimized) zones
+  // out along the OUTER fold axis — a folded column inside a row stacks its
+  // rails vertically, i.e. across the fold. `axis` stays the literal
+  // orientation for the track context: every child hits the minimized branch
+  // while folded, so it is inert there.
+  const horizontal = folded ? folded.axis === 'column' : node.orientation === 'row'
   const axis = node.orientation
 
   // When the root is a column (Terminal deck, Quad), the root ROW — the one
@@ -102,7 +117,7 @@ export function TreeSplit({ node, root, rootRow }: { node: SplitNode; root?: boo
   // runtime plugin's pane collapses until the plugin loads, then appears; no
   // placeholder flash — when a chrome toggle hides it, or when the viewport
   // is narrow and the pane is collapsible (edge overlay instead).
-  const paneFor = (id: string) => panes.find(p => p.id === id)
+  const paneFor = (id: string) => byId.get(id)
 
   // Layout-edit mode forces toggle-hidden panes (terminal off, review/preview
   // closed) visible so they're rearrangeable — only truly-absent (unregistered)
@@ -349,7 +364,7 @@ export function TreeSplit({ node, root, rootRow }: { node: SplitNode; root?: boo
     },
     // trackCtx is derived state rebuilt per render; the drag captures it once.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [axis, editMode, horizontal, node.children, node.id, node.weights, hiddenPanes, narrow, overrides, panes]
+    [axis, editMode, horizontal, node.children, node.id, node.weights, hiddenPanes, narrow, overrides, byId]
   )
 
   // Double-click a sash: every neighbor returns to its DEFAULT size.
@@ -427,7 +442,7 @@ export function TreeSplit({ node, root, rootRow }: { node: SplitNode; root?: boo
       setTreeSplitWeights(node.id, !preset && !pinned ? weights.map(() => 1) : weights)
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [axis, editMode, horizontal, node.children, node.id, node.weights, hiddenPanes, narrow, overrides, panes]
+    [axis, editMode, horizontal, node.children, node.id, node.weights, hiddenPanes, narrow, overrides, byId]
   )
 
   // One pass per child: enclosure, resolved fixed track and clamps.
@@ -529,6 +544,19 @@ export function TreeSplit({ node, root, rootRow }: { node: SplitNode; root?: boo
             )}
             {!narrowCollapsed && (
               <TreeNode
+                // WHERE THE FOLD IS BORN: a child SPLIT that reads as minimized
+                // is one whose every visible zone is minimized (subtreeFolded),
+                // so it renders as a single strip along THIS split's axis — and
+                // everything under it must take its strip form from that axis,
+                // not from its own orientation. Already-folded subtrees pass the
+                // outer context straight through: the fold has exactly one
+                // origin, the outermost split that collapsed.
+                folded={
+                  folded ??
+                  (child.type === 'split' && minimized
+                    ? { axis, railSide: horizontal ? railSideFor(i) : undefined }
+                    : undefined)
+                }
                 node={child}
                 parentAxis={axis}
                 railSide={horizontal ? railSideFor(i) : undefined}

@@ -2420,6 +2420,14 @@ export interface Translations {
     pluginDisabled: (pluginId: string) => string
     pluginDisabledBody: string
     missingPane: (paneId: string) => string
+    /** Zone menu: move this tile into its own native window (MJXHRM-173). */
+    detach: string
+    /** Bring a detached tile back into its held slot. */
+    reattach: string
+    /** Placeholder body in the slot a detached tile left behind. */
+    detachedBody: (title: string) => string
+    /** A tile window whose tile id resolves to nothing registered. */
+    detachedMissing: string
     editTitle: string
     editHint: string
     reset: string

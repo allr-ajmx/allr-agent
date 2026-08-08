@@ -22,8 +22,6 @@
  *  - No `TitlebarTool`. Universal's titlebar is composed of TitlebarButton JSX,
  *    not descriptors, so `titleBar.left/center/right` are plain Slots — use a
  *    `render()` contribution. Same mechanism reaches the mobile top bar.
- *  - No `FloatingAnchor`. Universal's layout tree has no floating-pane renderer,
- *    so `placement: 'floating'` has nothing to render it.
  *  - `ctx.rest` cannot upload (see `pluginRest`), and `ctx.socket` needs a
  *    token-mode connection (see `pluginSocket`).
  */
@@ -150,6 +148,12 @@ export type { StatusbarItem } from '@/app/shell/statusbar-controls'
  * can express fields added later (the mount lifecycle).
  */
 export type { Tile, TileChrome, TileLifecycle, TilePlacement, TileSizing } from '@/components/pane-shell/tile/types'
+/** Spawn corner for `placement: 'floating'` — the one NON-tiling placement: the
+ *  tile is excluded from the layout tree and rendered as a fixed, draggable card
+ *  above it. It takes no width from any zone, has no tab, and can't be docked.
+ *  Pair it with `chrome.anchor` (default `'top-right'`) plus `sizing.width` /
+ *  `sizing.height`. A right/bottom anchor also tracks that viewport edge. */
+export type { FloatingAnchor } from '@/components/pane-shell/tree/renderer/floating-rect'
 export { StatusDot, type StatusTone } from '@/components/status-dot'
 export { Badge } from '@/components/ui/badge'
 export { Button } from '@/components/ui/button'

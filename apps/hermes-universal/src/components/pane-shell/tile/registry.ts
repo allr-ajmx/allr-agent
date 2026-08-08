@@ -65,6 +65,7 @@ const CHROME_KEYS = [
   'revealAliases',
   'accent',
   'dock',
+  'anchor',
   'tabWrap',
   'tabDrag',
   'loneHeader'
@@ -183,7 +184,38 @@ export function getTiles(): readonly Tile[] {
 /** One tile by id, or `undefined` when it isn't registered (a plugin that
  *  hasn't loaded, a session tile whose session closed). */
 export function findTile(id: TileId): Tile | undefined {
-  return toTile(registry.getArea(PANES_AREA).find(c => c.id === id))
+  return tileMap().get(id)
+}
+
+/**
+ * Every registered tile, KEYED BY ID.
+ *
+ * The engine resolves ids to tiles constantly — once per pane per predicate,
+ * several times per pane per render, and inside `node.panes.some(...)` walks
+ * that are themselves inside a walk of every zone. Each of those was a linear
+ * scan of the whole tile set, i.e. O(tiles) nested in O(panes).
+ *
+ * It costs nothing to fix because the invalidation point already exists: the
+ * map is built by the same `resolve()` that memoizes the array, on the same
+ * registry-snapshot identity. A tile set that hasn't mutated returns the same
+ * Map, so this is also safe as a memo/effect dependency.
+ */
+export function tileMap(): ReadonlyMap<TileId, Tile> {
+  resolve(registry.getArea(PANES_AREA))
+
+  return cachedById
+}
+
+/** `tileMap` for React, subscribed to the tile set. Same stability contract as
+ *  `useTiles` — a new identity only when the area actually mutates. */
+export function useTileMap(): ReadonlyMap<TileId, Tile> {
+  const contributions = useContributions(PANES_AREA)
+
+  return useMemo(() => {
+    resolve(contributions)
+
+    return cachedById
+  }, [contributions])
 }
 
 /** Subscribe a React tree to the tile set. Memoized on the registry snapshot's
@@ -197,9 +229,11 @@ export function useTiles(): readonly Tile[] {
 }
 
 /** Cache the mapped array per snapshot so `getTiles()` — called from stores on
- *  every tree commit — doesn't rebuild the list on each read. */
+ *  every tree commit — doesn't rebuild the list on each read. The id map rides
+ *  the same cache: one pass builds both, and they invalidate together. */
 let cachedFrom: readonly Contribution[] | null = null
 let cachedTiles: readonly Tile[] = []
+let cachedById: ReadonlyMap<TileId, Tile> = new Map()
 
 function resolve(contributions: readonly Contribution[]): readonly Tile[] {
   if (cachedFrom === contributions) {
@@ -208,6 +242,7 @@ function resolve(contributions: readonly Contribution[]): readonly Tile[] {
 
   cachedFrom = contributions
   cachedTiles = contributions.map(toTile).filter((tile): tile is Tile => tile !== undefined)
+  cachedById = new Map(cachedTiles.map(tile => [tile.id, tile]))
 
   return cachedTiles
 }

@@ -48,7 +48,7 @@ use voice::{
     voice_arm, voice_close, voice_force_turn, voice_open, voice_suspend, voice_update_auth,
     VoiceState,
 };
-use window::{open_instance_window, open_screen_window, open_session_window};
+use window::{open_instance_window, open_screen_window, open_session_window, open_tile_window};
 
 /// Open a URL in the system browser. Routed through the opener plugin's Rust API
 /// rather than its JS `openUrl` command: a Rust-internal call isn't gated by the
@@ -201,6 +201,7 @@ pub fn run() {
             plugins_read,
             open_session_window,
             open_instance_window,
+            open_tile_window,
             open_screen_window,
             update_check,
             update_open_download,
@@ -226,6 +227,23 @@ pub fn run() {
             #[cfg(target_os = "ios")]
             if let tauri::RunEvent::SceneRequested { .. } = &event {
                 window::fill_requested_scene(app_handle);
+            }
+
+            // A detached tile's window went away — tell the app so the tile goes
+            // back in its slot (MJXHRM-173). This lives here rather than in the
+            // closing webview because a torn-down WebKitGTK view is the least
+            // reliable place to send a message from; tao reports the destroy
+            // whether or not the page got a chance to run anything.
+            if let tauri::RunEvent::WindowEvent {
+                label,
+                event: tauri::WindowEvent::Destroyed,
+                ..
+            } = &event
+            {
+                if window::is_tile_window_label(label) {
+                    use tauri::Emitter;
+                    let _ = app_handle.emit(window::TILE_WINDOW_CLOSED_EVENT, label.clone());
+                }
             }
 
             // Flush pending spans before the process goes away. The batch

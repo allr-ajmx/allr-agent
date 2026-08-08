@@ -4,11 +4,14 @@ import { MemoryRouter } from 'react-router-dom'
 import type * as RouterModule from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import type * as NotificationsModule from '@/store/notifications'
 import type * as SessionModule from '@/store/session'
 
-// A pop-out is pinned to ONE session by its route. When another WebView switches
-// gateway this window re-homes, and sessions are per-backend — so the chat it is
-// showing usually does not exist on the gateway it just landed on.
+// TileWindowRoot hosts exactly one tile. With no `?tile=` in the URL — the legacy
+// `?win=secondary` pop-out shape, and what jsdom gives us here — it routes to the
+// CHAT host, which is pinned to ONE session by its route. When another WebView
+// switches gateway this window re-homes, and sessions are per-backend, so the chat
+// it is showing usually does not exist on the gateway it just landed on.
 
 const navigate = vi.fn()
 
@@ -20,7 +23,13 @@ vi.mock('@/app/chat/chat-screen', () => ({ ChatScreen: () => <div>chat</div> }))
 vi.mock('@/app/chat/chat-title', () => ({ ChatTitle: () => <div>title</div> }))
 vi.mock('@/app/shell/window-controls', () => ({ WindowControls: () => null }))
 vi.mock('@/components/notifications', () => ({ NotificationStack: () => null }))
-vi.mock('@/store/notifications', () => ({ notify: vi.fn() }))
+// Partial: the tile window imports the contribution controller (for its
+// module-scope tile registrations), which drags in the plugin SDK — and that
+// wants `notifyError` too.
+vi.mock('@/store/notifications', async importActual => ({
+  ...(await importActual<typeof NotificationsModule>()),
+  notify: vi.fn()
+}))
 vi.mock('@/store/gateway-soft-switch', () => ({ sessionMissingFromCurrentGateway: vi.fn() }))
 // Partial: session-states/chat-bubbles reach for other exports through the import
 // graph, so replacing the whole module breaks the render.
@@ -37,12 +46,12 @@ import { $gatewaySwitching } from '@/store/gateway-switch'
 import { notify } from '@/store/notifications'
 import { newSession, openSession } from '@/store/session'
 
-import { SecondaryWindowRoot } from './secondary-window'
+import { TileWindowRoot } from './tile-window'
 
 function renderAt(path: string) {
   return render(
     <MemoryRouter initialEntries={[path]}>
-      <SecondaryWindowRoot />
+      <TileWindowRoot />
     </MemoryRouter>
   )
 }
@@ -67,7 +76,7 @@ beforeEach(() => {
   vi.mocked(sessionMissingFromCurrentGateway).mockReturnValue(false)
 })
 
-describe('SecondaryWindowRoot — session after a re-home', () => {
+describe('TileWindowRoot chat host — session after a re-home', () => {
   it('resumes its session normally on a cold open', async () => {
     renderAt('/sess-1')
 
