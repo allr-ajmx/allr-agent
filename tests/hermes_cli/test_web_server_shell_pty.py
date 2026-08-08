@@ -197,21 +197,21 @@ async def test_shell_pty_network_local_refuses(monkeypatch):
     monkeypatch.setattr(web_server.PtyBridge, "spawn", staticmethod(fake_spawn))
     monkeypatch.setattr(web_server, "load_config", lambda: {"terminal": {"backend": "local"}})
     monkeypatch.delenv("TERMINAL_ENV", raising=False)
-    web_server.app.state.bound_host = "0.0.0.0"
+    # setattr (not a bare assignment) so monkeypatch restores the prior value on
+    # teardown — a leaked non-loopback bound_host arms the host-header gate for
+    # every later test.
+    monkeypatch.setattr(web_server.app.state, "bound_host", "0.0.0.0", raising=False)
 
     from starlette.testclient import TestClient
     from starlette.websockets import WebSocketDisconnect
 
     client = TestClient(web_server.app)
-    try:
-        with pytest.raises(WebSocketDisconnect) as excinfo:
-            with client.websocket_connect("/api/shell-pty") as ws:
-                assert "network-exposed" in ws.receive_text()
-                ws.receive_text()
-        assert excinfo.value.code == 4404
-        assert spawned == []
-    finally:
-        web_server.app.state.bound_host = "127.0.0.1"
+    with pytest.raises(WebSocketDisconnect) as excinfo:
+        with client.websocket_connect("/api/shell-pty") as ws:
+            assert "network-exposed" in ws.receive_text()
+            ws.receive_text()
+    assert excinfo.value.code == 4404
+    assert spawned == []
 
 
 @pytest.mark.asyncio
