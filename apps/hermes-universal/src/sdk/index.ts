@@ -22,8 +22,6 @@
  *  - No `TitlebarTool`. Universal's titlebar is composed of TitlebarButton JSX,
  *    not descriptors, so `titleBar.left/center/right` are plain Slots — use a
  *    `render()` contribution. Same mechanism reaches the mobile top bar.
- *  - No `FloatingAnchor`. Universal's layout tree has no floating-pane renderer,
- *    so `placement: 'floating'` has nothing to render it.
  *  - `ctx.rest` cannot upload (see `pluginRest`), and `ctx.socket` needs a
  *    token-mode connection (see `pluginSocket`).
  */
@@ -150,6 +148,12 @@ export type { StatusbarItem } from '@/app/shell/statusbar-controls'
  * can express fields added later (the mount lifecycle).
  */
 export type { Tile, TileChrome, TileLifecycle, TilePlacement, TileSizing } from '@/components/pane-shell/tile/types'
+/** Spawn corner for `placement: 'floating'` — the one NON-tiling placement: the
+ *  tile is excluded from the layout tree and rendered as a fixed, draggable card
+ *  above it. It takes no width from any zone, has no tab, and can't be docked.
+ *  Pair it with `chrome.anchor` (default `'top-right'`) plus `sizing.width` /
+ *  `sizing.height`. A right/bottom anchor also tracks that viewport edge. */
+export type { FloatingAnchor } from '@/components/pane-shell/tree/renderer/floating-rect'
 export { StatusDot, type StatusTone } from '@/components/status-dot'
 export { Badge } from '@/components/ui/badge'
 export { Button } from '@/components/ui/button'
@@ -182,6 +186,7 @@ export {
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
 export { ErrorState } from '@/components/ui/error-state'
+export { FadeScroll } from '@/components/ui/fade-scroll'
 export { GlyphSpinner } from '@/components/ui/glyph-spinner'
 export { Input } from '@/components/ui/input'
 export { Kbd, KbdGroup } from '@/components/ui/kbd'
@@ -219,6 +224,9 @@ export type {
  *  id with your plugin slug (`kanban:board-switcher`). */
 export { Contribute, type ContributeProps } from '@/contrib/react/contribute'
 export type { Contribution } from '@/contrib/types'
+/** Grab-to-pan for overflow containers (boards, timelines, wide tables) —
+ *  the shared scrub primitive; don't hand-roll drag-to-scroll. */
+export { type GrabScroll, useGrabScroll } from '@/hooks/use-grab-scroll'
 /** Localized copy. `useI18n` reuses the app's strings; `usePluginI18n(id)` +
  *  `ctx.i18n.register` let a plugin ship its OWN locale bundles, scoped like
  *  `ctx.storage` and resolved against the app's active locale — no core edit. */
@@ -232,6 +240,9 @@ export {
   useI18n,
   usePluginI18n
 } from '@/i18n'
+/** THE compact-number formatter — every user-facing count/token figure goes
+ *  through here (1230 → "1.2k", 1_500_000 → "1.5M"). Don't hand-roll `/1000`. */
+export { compactNumber } from '@/lib/format'
 export { triggerHaptic as haptic } from '@/lib/haptics'
 /** The app's icon set (RefreshCw, LayoutDashboard, Activity, …). */
 export * as icons from '@/lib/icons'

@@ -13,7 +13,7 @@ import { Codicon } from '@/components/ui/codicon'
 import { useContributions } from '@/contrib/react/use-contributions'
 import { useI18n } from '@/i18n'
 import { ESCAPE_PRIORITY, isTopEscapeLayer, pushEscapeLayer } from '@/lib/escape-layers'
-import { openCommandMenu } from '@/store/command-menu'
+import { openCommandPalette } from '@/store/command-palette'
 
 // The phone's sidebar: a full-screen surface, not a 19rem drawer.
 //
@@ -137,12 +137,12 @@ export function MobileSidebar({ onClose }: { onClose: () => void }) {
         ))}
 
         {/* Every view that is not one of the rows above. A phone has no titlebar
-            to reach the command menu from, so it lives here. */}
+            to reach the command palette from, so it lives here. */}
         <MobileTabButton
           icon="search"
           label={t.titlebar.search}
           onSelect={() => {
-            openCommandMenu()
+            openCommandPalette()
             onClose()
           }}
         />

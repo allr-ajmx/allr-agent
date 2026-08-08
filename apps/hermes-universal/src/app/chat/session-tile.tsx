@@ -7,6 +7,7 @@ import { type ComposerScope, ComposerScopeProvider } from '@/app/chat/composer/s
 import { paneMirror } from '@/app/chat/pane-mirror'
 import { startSessionDrag } from '@/app/chat/session-drag'
 import { type SessionView, SessionViewProvider } from '@/app/chat/session-view'
+import { detachTile } from '@/components/pane-shell/tile/detach'
 import { findGroupOfPane } from '@/components/pane-shell/tree/model'
 import {
   $layoutTree,
@@ -17,14 +18,15 @@ import {
   treeTabCloseTargets
 } from '@/components/pane-shell/tree/store'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
-import { useI18n } from '@/i18n'
+import { translateNow, useI18n } from '@/i18n'
 import { sessionTitle } from '@/lib/chat-runtime'
-import { WORKSPACE_PANE_ID } from '@/lib/pane-ids'
+import { DRAFT_TILE_KEY, isDraftTileKey, sessionTilePaneId, WORKSPACE_PANE_ID } from '@/lib/pane-ids'
 import { useStore } from '@/store/atom'
 import { type ChatMessage } from '@/store/chat'
 import { createComposerAttachmentScope } from '@/store/composer'
 import { $gatewayState } from '@/store/gateway'
 import { $pinnedSessionIds, pinSession, unpinSession } from '@/store/layout'
+import { startNewSessionTab } from '@/store/new-session'
 import { sessionAwaitingInput } from '@/store/prompts'
 import { $activeStoredSessionId, $sessions, sessionMatchesStoredId, sessionPinId } from '@/store/session'
 import { $sessionColorById, sessionColorFor } from '@/store/session-color'
@@ -34,7 +36,6 @@ import {
   $sessionTiles,
   closeSessionTile,
   discardSessionTile,
-  newSessionTab,
   noteSessionTileMounted,
   patchSessionTile,
   requestCloseSessionTile,
@@ -132,6 +133,29 @@ function TileChat({
   )
 }
 
+/**
+ * The DRAFT tile — the unsaved chat, as a tile like any other.
+ *
+ * There is nothing to resume. A draft already owns a slice in `$sessionStates`
+ * under its placeholder key, which is the same kind of slice every other tile
+ * resumes INTO, and `tileRuntimeKey` resolves the draft key to it — so the view
+ * below is built by the same `buildTileView` every saved tile uses, and a new
+ * chat renders through exactly the component an old one does.
+ *
+ * The runtime key is read live rather than captured: `newSession()` mints a fresh
+ * draft key each time, and the tile follows the current one.
+ */
+function DraftTilePane() {
+  const view = useMemo(() => buildTileView(DRAFT_TILE_KEY), [])
+  const runtimeId = useStore(view.$runtimeId)
+
+  if (!runtimeId) {
+    return null
+  }
+
+  return <TileChat runtimeId={runtimeId} storedSessionId={DRAFT_TILE_KEY} view={view} />
+}
+
 /** A session tile pane: resumes the stored session into its own state slice on
  *  mount, then renders the tile chat. Shows an error card (retryable) on a
  *  terminal resume failure, or a spinner while the runtime binds. */
@@ -220,6 +244,12 @@ export function SessionTilePane({ storedSessionId }: { storedSessionId: string }
 // ---------------------------------------------------------------------------
 
 function tileTitle(storedSessionId: string): string {
+  // The draft names no session, so there is nothing to look up — it reads as the
+  // same "New session" the workspace tab shows for an unsaved chat.
+  if (isDraftTileKey(storedSessionId)) {
+    return translateNow('sidebar.nav.new-session')
+  }
+
   const stored = $sessions.get().find(s => sessionMatchesStoredId(s, storedSessionId))
 
   return stored ? sessionTitle(stored) : 'Session'
@@ -255,7 +285,7 @@ export const watchSessionTiles = paneMirror<SessionTile>({
   key: tile => tile.storedSessionId,
   kind: 'chat',
   linkTarget: true,
-  onNewTab: newSessionTab,
+  onNewTab: startNewSessionTab,
   prefix: 'session-tile',
   dir: tile => tile.dir,
   anchor: tile => tile.anchor,
@@ -263,14 +293,35 @@ export const watchSessionTiles = paneMirror<SessionTile>({
   minWidth: '20rem',
   title: tileTitle,
   accent: tileAccent,
-  render: storedSessionId => <SessionTilePane storedSessionId={storedSessionId} />,
-  tabWrap: (storedSessionId, tab) => (
-    <SessionTabMenu paneId={`session-tile:${storedSessionId}`} storedSessionId={storedSessionId}>
-      {tab}
-    </SessionTabMenu>
-  ),
+  render: storedSessionId =>
+    isDraftTileKey(storedSessionId) ? <DraftTilePane /> : <SessionTilePane storedSessionId={storedSessionId} />,
+  // The draft has no session to pin, branch, rename, archive or delete, so its
+  // tab is a plain tab — the same passthrough `WorkspaceTabMenu` already does for
+  // an unsaved chat. It keeps its ✕ (the pane closer below), which is the one
+  // verb that means something on an empty chat.
+  tabWrap: (storedSessionId, tab) =>
+    isDraftTileKey(storedSessionId) ? (
+      tab
+    ) : (
+      <SessionTabMenu paneId={`session-tile:${storedSessionId}`} storedSessionId={storedSessionId}>
+        {tab}
+      </SessionTabMenu>
+    ),
   tabDrag: (storedSessionId, event, onTap, double) => {
-    startSessionDrag(tileDragPayload(storedSessionId), event, { double, onTap })
+    // A draft is not an `@session` — there is no id to link into a composer or
+    // hand to another window. Returning false leaves the tab on the ordinary
+    // pane drag, so it still moves between zones like every other tab.
+    if (isDraftTileKey(storedSessionId)) {
+      return false
+    }
+
+    // Dropped clear of the window, the tile gets one of its own — the gesture
+    // form of the zone menu's "Open in new window".
+    startSessionDrag(tileDragPayload(storedSessionId), event, {
+      double,
+      onTap,
+      tearOff: () => void detachTile(sessionTilePaneId(storedSessionId))
+    })
 
     return true
   },

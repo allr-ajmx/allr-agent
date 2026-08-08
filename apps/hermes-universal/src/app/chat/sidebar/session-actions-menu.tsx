@@ -3,7 +3,16 @@ import { useEffect, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Codicon } from '@/components/ui/codicon'
-import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from '@/components/ui/context-menu'
+import { ColorSwatches } from '@/components/ui/color-swatches'
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
+  ContextMenuTrigger
+} from '@/components/ui/context-menu'
 import {
   Dialog,
   DialogContent,
@@ -12,15 +21,31 @@ import {
   DialogHeader,
   DialogTitle
 } from '@/components/ui/dialog'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import { useI18n } from '@/i18n'
 import { triggerHaptic } from '@/lib/haptics'
 import { IS_MOBILE } from '@/lib/platform'
+import { PROFILE_SWATCHES } from '@/lib/profile-color'
 import { useStore } from '@/store/atom'
 import { addBubble } from '@/store/chat-bubbles'
 import { notify, notifyError } from '@/store/notifications'
-import { $activeStoredSessionId, renameSessionLocal } from '@/store/session'
+import {
+  $activeStoredSessionId,
+  $sessions,
+  renameSessionLocal,
+  sessionMatchesStoredId,
+  sessionPinId
+} from '@/store/session'
+import { $sessionColorOverrides, setSessionColorOverride } from '@/store/session-color'
 import { openSessionTile } from '@/store/session-states'
 import { canOpenSessionWindow, openSessionInNewWindow } from '@/store/windows'
 
@@ -48,7 +73,50 @@ interface SessionActions {
   onCloseAll?: () => void
 }
 
-type MenuItemComponent = typeof DropdownMenuItem | typeof ContextMenuItem
+// The two menu surfaces this row menu renders on, reduced to the parts it uses.
+// Universal wires Radix's DropdownMenu*/ContextMenu* directly (desktop has a
+// MenuKit abstraction), so the kit is assembled at each call site below.
+interface MenuKit {
+  Item: typeof DropdownMenuItem | typeof ContextMenuItem
+  Sub: typeof DropdownMenuSub | typeof ContextMenuSub
+  SubContent: typeof DropdownMenuSubContent | typeof ContextMenuSubContent
+  SubTrigger: typeof DropdownMenuSubTrigger | typeof ContextMenuSubTrigger
+}
+
+const DROPDOWN_KIT: MenuKit = {
+  Item: DropdownMenuItem,
+  Sub: DropdownMenuSub,
+  SubContent: DropdownMenuSubContent,
+  SubTrigger: DropdownMenuSubTrigger
+}
+
+const CONTEXT_KIT: MenuKit = {
+  Item: ContextMenuItem,
+  Sub: ContextMenuSub,
+  SubContent: ContextMenuSubContent,
+  SubTrigger: ContextMenuSubTrigger
+}
+
+// The color picker inside the session menu's Appearance submenu. Its own
+// component so only an OPEN submenu subscribes to the stores (not every row's
+// menu). Reads/writes the override keyed by the DURABLE id so a color survives
+// compression; clearing falls back to the inherited project color.
+function SessionColorSwatches({ sessionId }: { sessionId: string }) {
+  const { t } = useI18n()
+  const overrides = useStore($sessionColorOverrides)
+  const session = useStore($sessions).find(s => sessionMatchesStoredId(s, sessionId))
+  const durableId = session ? sessionPinId(session) : sessionId
+
+  return (
+    <ColorSwatches
+      clearIcon="circle-slash"
+      clearLabel={t.sidebar.projects.noColor}
+      onChange={color => setSessionColorOverride(durableId, color)}
+      swatches={PROFILE_SWATCHES}
+      value={overrides[durableId] ?? null}
+    />
+  )
+}
 
 interface ItemSpec {
   className?: string
@@ -58,6 +126,20 @@ interface ItemSpec {
   onSelect: (event: Event) => void
   variant?: 'destructive'
 }
+
+/** A submenu entry in the otherwise-flat spec list, so its position stays
+ *  declarative alongside the plain items rather than hard-coded in the render. */
+interface SubSpec {
+  disabled: boolean
+  icon: string
+  kind: 'sub'
+  label: string
+  render: () => React.ReactNode
+}
+
+type MenuSpec = ItemSpec | SubSpec
+
+const isSub = (spec: MenuSpec): spec is SubSpec => 'kind' in spec
 
 function useSessionActions({
   sessionId,
@@ -81,7 +163,7 @@ function useSessionActions({
   // session already loaded in the workspace — hide it there.
   const isActiveSession = Boolean(sessionId) && sessionId === activeStoredId
 
-  const specs: ItemSpec[] = [
+  const specs: MenuSpec[] = [
     {
       disabled: !onPin,
       icon: 'pin',
@@ -143,6 +225,15 @@ function useSessionActions({
         void triggerHaptic('selection')
         setRenameOpen(true)
       }
+    },
+    // Appearance — the per-session color override. Sits with the identity verbs
+    // (it names the session as much as its title does), same as desktop.
+    {
+      disabled: !sessionId,
+      icon: 'symbol-color',
+      kind: 'sub' as const,
+      label: t.sidebar.projects.menuAppearance,
+      render: () => <SessionColorSwatches sessionId={sessionId} />
     },
     // Branch — only offered where a branch handler is wired (a tile tab). A
     // plain sidebar row doesn't pass one, so its menu is unchanged.
@@ -237,14 +328,30 @@ function useSessionActions({
       : [])
   ]
 
-  const renderItems = (Item: MenuItemComponent) => (
+  const renderItems = (kit: MenuKit) => (
     <>
-      {specs.map(({ className, disabled, icon, label, onSelect, variant }) => (
-        <Item className={className} disabled={disabled} key={label} onSelect={onSelect} variant={variant}>
-          <Codicon name={icon} size="0.875rem" />
-          <span>{label}</span>
-        </Item>
-      ))}
+      {specs.map(spec =>
+        isSub(spec) ? (
+          <kit.Sub key={spec.label}>
+            <kit.SubTrigger disabled={spec.disabled}>
+              <Codicon name={spec.icon} size="0.875rem" />
+              <span>{spec.label}</span>
+            </kit.SubTrigger>
+            <kit.SubContent className="p-2">{spec.render()}</kit.SubContent>
+          </kit.Sub>
+        ) : (
+          <kit.Item
+            className={spec.className}
+            disabled={spec.disabled}
+            key={spec.label}
+            onSelect={spec.onSelect}
+            variant={spec.variant}
+          >
+            <Codicon name={spec.icon} size="0.875rem" />
+            <span>{spec.label}</span>
+          </kit.Item>
+        )
+      )}
     </>
   )
 
@@ -268,7 +375,7 @@ export function SessionActionsMenu({ children, ...actions }: SessionActionsMenuP
       <DropdownMenu>
         <DropdownMenuTrigger asChild>{children}</DropdownMenuTrigger>
         <DropdownMenuContent align="end" aria-label={t.sidebar.row.actionsFor(actions.title)} className="w-40">
-          {renderItems(DropdownMenuItem)}
+          {renderItems(DROPDOWN_KIT)}
         </DropdownMenuContent>
       </DropdownMenu>
       {renameDialog}
@@ -289,7 +396,7 @@ export function SessionContextMenu({ children, ...actions }: SessionContextMenuP
       <ContextMenu>
         <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
         <ContextMenuContent aria-label={t.sidebar.row.actionsFor(actions.title)} className="w-40">
-          {renderItems(ContextMenuItem)}
+          {renderItems(CONTEXT_KIT)}
         </ContextMenuContent>
       </ContextMenu>
       {renameDialog}

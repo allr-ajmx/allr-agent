@@ -286,8 +286,26 @@ $activeStoredSessionId.subscribe(id => {
   const was = prevActiveId
   prevActiveId = id
 
+  // A draft is the active chat but has no bubble of its own — the boot case. The
+  // row hydrates from persisted ids, so `findIndex` misses, and bubble-row's
+  // cold-load `?: 0` fallback then centres and highlights bubble[0]: a real,
+  // unrelated chat wearing the "New session" label. Giving the draft its own
+  // bubble is what stops it borrowing a neighbour's, and the fallback goes back
+  // to doing only the job it was written for.
+  //
+  // Only when the row already HAS bubbles: there is no neighbour to squat on
+  // otherwise, and seeding one here would put a bubble in a row that is empty by
+  // design everywhere but mobile (see the module header).
+  if (id === null) {
+    if ($chatBubbles.get().length > 0) {
+      ensureBubble(null)
+    }
+
+    return
+  }
+
   // Only a fresh save transitions from a draft (null) to a brand-new id.
-  if (was !== null || id === null) {
+  if (was !== null) {
     return
   }
 

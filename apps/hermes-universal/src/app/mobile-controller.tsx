@@ -27,12 +27,12 @@ import { $statusbarVisible } from '@/store/statusbar-prefs'
 import { openAppRoute } from '@/store/windows'
 import { bumpZoom, initZoom, setZoomPercent } from '@/store/zoom'
 
+import { CommandPalette } from './command-palette'
 import { ContribController } from './contrib/controller'
 import { WorkspaceRoutes } from './contrib/panes'
 import { useKeybinds } from './hooks/use-keybinds'
 import { COMMAND_CENTER_ROUTE, GATEWAY_SETTINGS_ROUTE, sessionRoute } from './routes'
 import { SessionSwitcher } from './session-switcher'
-import { CommandMenu } from './shell/command-menu'
 import { useOverlayRouting } from './shell/hooks/use-overlay-routing'
 import { MobileShell } from './shell/mobile-shell'
 import { MobileSurfaceShell } from './shell/mobile-surface-shell'
@@ -177,10 +177,11 @@ export function MobileController() {
     content = (
       <>
         <NotificationStack />
-        {/* Global command menu — ⌘K (the `nav.commandPalette` keybind), titlebar
-            search, and the in-drawer button all open it; reaches every view not
-            on the 4-item sidebar rail. */}
-        <CommandMenu />
+        {/* Global command palette — ⌘K (the `nav.commandPalette` keybind),
+            titlebar search, and the in-drawer button all open it; reaches every
+            view not on the 4-item sidebar rail, plus sessions, settings fields,
+            themes and plugin commands. */}
+        <CommandPalette />
         {/* ⌃Tab session switcher HUD — keyboard-driven from useKeybinds. */}
         <SessionSwitcher />
         {/* Layout fork, mobile-first so a phone NEVER falls into the docked

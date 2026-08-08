@@ -49,6 +49,32 @@ const WINDOW_MIN_HEIGHT: f64 = 520.0;
 #[cfg(any(desktop, target_os = "ios"))]
 static INSTANCE_SEQ: AtomicU32 = AtomicU32::new(1);
 
+/// Label prefix for a detached-tile window (`capabilities/default.json` scopes
+/// the JS surface with a matching `tile-*` glob).
+#[cfg(any(desktop, target_os = "ios"))]
+const TILE_LABEL_PREFIX: &str = "tile";
+
+/// A session tile's id — must match `TILE_PANE_PREFIX` in `src/lib/pane-ids.ts`.
+#[cfg(any(desktop, target_os = "ios"))]
+const SESSION_TILE_PREFIX: &str = "session-tile:";
+
+/// Emitted to every window when a detached-tile window is destroyed, so the
+/// primary window can put the tile back in its slot.
+///
+/// Native-side on purpose: the alternative is the closing webview announcing its
+/// own `pagehide`, which is exactly the signal least likely to survive a window
+/// being torn down — and universal runs WebKitGTK on Linux, where that is not a
+/// theoretical worry. `RunEvent::WindowEvent` fires from tao regardless.
+pub const TILE_WINDOW_CLOSED_EVENT: &str = "hermes://tile-window-closed";
+
+/// Whether a destroyed window was a detached tile. The label is SLUGGED
+/// (`session-tile:x` -> `tile-session-tile-x`) and therefore not the tile id, so
+/// `open_tile_window` RETURNS the label it built and the frontend matches on
+/// that — rather than either side reimplementing the other's slug.
+pub fn is_tile_window_label(label: &str) -> bool {
+    label.starts_with("tile-")
+}
+
 /// Build a frameless window for `url` under `label`, or focus the existing one
 /// (one window per target). The gtk/WKWebView calls must run on the main thread;
 /// a oneshot carries the build result back so a failure surfaces to the caller.
@@ -85,12 +111,13 @@ async fn open_or_focus(app: tauri::AppHandle, label: String, url: String) -> Res
     rx.await.map_err(|_| "failed to open window".to_string())?
 }
 
-/// Map a session id to a Tauri window label. Labels allow only `[A-Za-z0-9-/:_]`;
-/// anything else collapses to `-` (stored ids are uuid-like, so collisions are
-/// not a practical concern).
+/// Map an id to a Tauri window label under `prefix`. Labels allow only
+/// `[A-Za-z0-9-/:_]`; anything else collapses to `-` (stored ids are uuid-like
+/// and tile ids are authored constants, so collisions are not a practical
+/// concern).
 #[cfg(any(desktop, target_os = "ios"))]
-fn session_label(session_id: &str) -> String {
-    let slug: String = session_id
+fn slug_label(prefix: &str, id: &str) -> String {
+    let slug: String = id
         .chars()
         .map(|c| {
             if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
@@ -100,13 +127,63 @@ fn session_label(session_id: &str) -> String {
             }
         })
         .collect();
-    format!("session-{slug}")
+    format!("{prefix}-{slug}")
+}
+
+/// Reject ids that would corrupt the URL's query/hash split when placed verbatim
+/// (`routeSessionId` also rejects `/`).
+#[cfg(any(desktop, target_os = "ios"))]
+fn url_safe(id: &str) -> bool {
+    !id.is_empty()
+        && !id.contains(['#', '?', '&', '/', '%'])
+        && !id.chars().any(|c| c.is_whitespace())
+}
+
+/// Open ONE TILE in its own frameless window / scene — the `placement: 'detached'`
+/// transport (MJXHRM-173).
+///
+/// `?win=tile&tile=<id>` puts the frontend into single-tile mode; the optional
+/// `session_id` rides in the HashRouter route (`#/<id>`) for a chat tile, whose
+/// host resumes that session. `watch=1` marks a spectator window for a running
+/// subagent.
+///
+/// One window per tile: the label is derived from the tile id, so a second detach
+/// of the same tile focuses the window that already exists. Returns that label —
+/// it is what `TILE_WINDOW_CLOSED_EVENT` reports, and the caller needs the pair to
+/// know which tile to reattach.
+#[cfg(any(desktop, target_os = "ios"))]
+#[tauri::command]
+pub async fn open_tile_window(
+    app: tauri::AppHandle,
+    tile_id: String,
+    session_id: Option<String>,
+    watch: Option<bool>,
+) -> Result<String, String> {
+    let tile = tile_id.trim();
+    if !url_safe(tile) {
+        return Err("unsupported tile id".to_string());
+    }
+    let session = session_id.unwrap_or_default();
+    let session = session.trim();
+    if !session.is_empty() && !url_safe(session) {
+        return Err("unsupported session id".to_string());
+    }
+    let watch_frag = if watch.unwrap_or(false) { "&watch=1" } else { "" };
+    let route = if session.is_empty() {
+        String::new()
+    } else {
+        format!("#/{session}")
+    };
+    let url = format!("index.html?win=tile&tile={tile}{watch_frag}{route}");
+    let label = slug_label(TILE_LABEL_PREFIX, tile);
+    open_or_focus(app, label.clone(), url).await?;
+    Ok(label)
 }
 
 /// Open a single chat session in its own frameless window / scene (desktop pop-out,
-/// iOS scene). The id rides in the HashRouter route (`#/<id>`); `?win=secondary`
-/// (read before the hash) puts the frontend into single-chat mode. `watch=1` marks
-/// a spectator window for a running subagent.
+/// iOS scene). Kept as its own command because the pop-out is reachable from three
+/// call sites that know a SESSION and not a tile; it delegates to the tile window
+/// so both paths produce the same root.
 #[cfg(any(desktop, target_os = "ios"))]
 #[tauri::command]
 pub async fn open_session_window(
@@ -115,17 +192,17 @@ pub async fn open_session_window(
     watch: Option<bool>,
 ) -> Result<(), String> {
     let id = session_id.trim();
-    if id.is_empty() {
-        return Err("invalid session id".to_string());
-    }
-    // The id is placed verbatim into the URL's query/hash. Reject characters that
-    // would corrupt the split or the route (`routeSessionId` also rejects `/`).
-    if id.contains(['#', '?', '/', '%']) || id.chars().any(|c| c.is_whitespace()) {
+    if !url_safe(id) {
         return Err("unsupported session id".to_string());
     }
-    let watch_frag = if watch.unwrap_or(false) { "&watch=1" } else { "" };
-    let url = format!("index.html?win=secondary{watch_frag}#/{id}");
-    open_or_focus(app, session_label(id), url).await
+    open_tile_window(
+        app,
+        format!("{SESSION_TILE_PREFIX}{id}"),
+        Some(id.to_string()),
+        watch,
+    )
+    .await
+    .map(|_| ())
 }
 
 /// Open a full app instance in a new window / scene (desktop ⌘⇧N peer, iOS scene).
@@ -155,6 +232,17 @@ pub async fn open_session_window(
 #[cfg(target_os = "android")]
 #[tauri::command]
 pub async fn open_instance_window(_app: tauri::AppHandle) -> Result<(), String> {
+    Err("unsupported_platform".to_string())
+}
+
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn open_tile_window(
+    _app: tauri::AppHandle,
+    _tile_id: String,
+    _session_id: Option<String>,
+    _watch: Option<bool>,
+) -> Result<String, String> {
     Err("unsupported_platform".to_string())
 }
 

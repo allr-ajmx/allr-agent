@@ -76,6 +76,21 @@ export function useComposerMetrics({ composerRef, composerSurfaceRef, editorRef,
   const lastBucketedSurfaceHeightRef = useRef(0)
   const lastTightRef = useRef<boolean | null>(null)
   const lastCompactPillRef = useRef<boolean | null>(null)
+  // The element the vars were last written to, so unmount clears the same one.
+  const hostRef = useRef<HTMLElement | null>(null)
+
+  // WHERE the measured vars live: this composer's OWN chat root, not the
+  // document. They used to go on `<html>`, which was fine while one chat was on
+  // screen and wrong the moment tiles arrived — every open chat ran this hook
+  // against the same two variables, so the last one to measure won and every
+  // other tile sized its transcript from a stranger's composer.
+  //
+  // `.chat` (styles.css) is where `--thread-viewport-height` is declared, so a
+  // value written here re-substitutes for this tile and inherits no further.
+  // Falling back to the document keeps the single-surface paths (mobile, a
+  // secondary window) behaving exactly as before.
+  const metricsHost = (composer: HTMLElement): HTMLElement =>
+    composer.closest<HTMLElement>('.chat') ?? document.documentElement
 
   const syncComposerMetrics = useCallback(() => {
     const composer = composerRef.current
@@ -84,12 +99,14 @@ export function useComposerMetrics({ composerRef, composerSurfaceRef, editorRef,
       return
     }
 
+    hostRef.current = metricsHost(composer)
+
     // Floating composer is out of the thread's flow — it must not reserve any
     // bottom clearance. Zero the measured vars so the thread reclaims the space.
     // (Read globals here so the callback stays stable; mirror the popoutAllowed
     // gate since secondary windows are forced docked.)
     if ($composerPoppedOut.get() && !isSecondaryWindow()) {
-      const root = document.documentElement
+      const root = hostRef.current ?? document.documentElement
       lastBucketedHeightRef.current = 0
       lastBucketedSurfaceHeightRef.current = 0
       root.style.setProperty('--composer-measured-height', '0px')
@@ -100,7 +117,7 @@ export function useComposerMetrics({ composerRef, composerSurfaceRef, editorRef,
 
     const { height, width } = composer.getBoundingClientRect()
     const surfaceHeight = composerSurfaceRef.current?.getBoundingClientRect().height
-    const root = document.documentElement
+    const root = hostRef.current ?? document.documentElement
 
     if (width > 0) {
       const nextTight = width < COMPOSER_STACK_BREAKPOINT_PX
@@ -161,9 +178,14 @@ export function useComposerMetrics({ composerRef, composerSurfaceRef, editorRef,
 
   useEffect(() => {
     return () => {
-      const root = document.documentElement
-      root.style.removeProperty('--composer-measured-height')
-      root.style.removeProperty('--composer-surface-measured-height')
+      // The element we actually wrote to — by unmount the composer ref is
+      // already null, so clearing `.chat` by lookup would find nothing and
+      // leave a dead override behind on a kept-alive tile.
+      const root = hostRef.current
+
+      root?.style.removeProperty('--composer-measured-height')
+      root?.style.removeProperty('--composer-surface-measured-height')
+      hostRef.current = null
     }
   }, [])
 

@@ -14,11 +14,11 @@ import { readJson, readKey, writeJson, writeKey } from '@/lib/storage'
 import { beginSpan, endSpan, isRecording, recordSpan, span } from '@/observability'
 import { shapeAttrs } from '@/observability/auto/layout-shape'
 import { notify } from '@/store/notifications'
-import { clearAllPaneSizeOverrides } from '@/store/panes'
+import { clearAllPaneSizeOverrides, renamePaneState } from '@/store/panes'
 import { isSecondaryWindow } from '@/store/windows'
 
 import { $layoutEditMode } from '../edit-mode'
-import { findTile, getTiles } from '../tile/registry'
+import { findTile, getTiles, tileMap } from '../tile/registry'
 import { tileChrome } from '../tile/types'
 import { type TileContext, tileShown } from '../tile/visibility'
 
@@ -36,6 +36,7 @@ import {
   movePane as movePaneOp,
   normalize,
   removePane,
+  renamePane,
   reorderPaneInGroup as reorderPaneInGroupOp,
   type RootEdge,
   setActivePane as setActivePaneOp,
@@ -45,6 +46,7 @@ import {
   splitGroupZone as splitGroupZoneOp,
   type SplitNode
 } from './model'
+import { FLOATING_PLACEMENT } from './renderer/floating-rect'
 import { rootChildSide } from './renderer/track-model'
 
 /**
@@ -537,6 +539,46 @@ export function removeTreePane(paneId: string) {
   }
 }
 
+/**
+ * Re-label a pane that is staying exactly where it is — the draft chat taking
+ * its real session id on first submit.
+ *
+ * The tree is only one of four places a pane id is a key. The other three are
+ * side tables, and skipping any of them is the quiet kind of bug: the tab holds
+ * its slot, so nothing looks wrong until the pane has silently lost the width
+ * the user dragged it to, or a hidden pane comes back visible.
+ */
+export function renameTreePane(from: string, to: string) {
+  const tree = $layoutTree.get()
+
+  if (!tree || from === to) {
+    return
+  }
+
+  const next = renamePane(tree, from, to)
+
+  // `renamePane` refuses a rotation it cannot make safely (unknown `from`, or a
+  // `to` already in the tree). Leaving the side tables alone in that case keeps
+  // them consistent with the tree that did not change.
+  if (next === tree) {
+    return
+  }
+
+  renamePaneState(from, to)
+
+  for (const set of [$hiddenTreePanes, $dismissedPanes]) {
+    if (set.get().has(from)) {
+      const moved = new Set(set.get())
+
+      moved.delete(from)
+      moved.add(to)
+      set.set(moved)
+    }
+  }
+
+  commit(next, 'rename')
+}
+
 /** The layout's root ROW — the split that contains main + the side columns.
  *  Usually the root itself (Default, Focus); in a column-root layout (Terminal
  *  deck, Quad) it's the row child that holds sessions/workspace/files. Returns
@@ -554,11 +596,11 @@ function rootRow(): SplitNode | null {
 
   // Column root: find the row child that contains the main pane — that's the
   // row the side-collapse system operates on (sessions left, files right).
-  const tiles = getTiles()
+  const byId = tileMap()
 
   const hasMain = (node: LayoutNode): boolean => {
     if (node.type === 'group') {
-      return node.panes.some(id => tiles.find(t => t.id === id)?.placement === 'main')
+      return node.panes.some(id => byId.get(id)?.placement === 'main')
     }
 
     return node.children.some(hasMain)
@@ -580,10 +622,10 @@ export function paneRootSide(paneId: string): null | TreeSide {
     return null
   }
 
-  const tiles = getTiles()
+  const byId = tileMap()
   const child = row.children.find(c => allPaneIds(c).includes(paneId))
 
-  return child ? rootChildSide(child, id => tiles.find(t => t.id === id)) : null
+  return child ? rootChildSide(child, id => byId.get(id)) : null
 }
 
 /** The closer-less Close: dismiss the pane (removed + remembered; reveal
@@ -672,9 +714,9 @@ export function layoutHasRootSide(side: TreeSide): boolean {
     return false
   }
 
-  const tiles = getTiles()
+  const byId = tileMap()
 
-  return row.children.some(child => rootChildSide(child, id => tiles.find(t => t.id === id)) === side)
+  return row.children.some(child => rootChildSide(child, id => byId.get(id)) === side)
 }
 
 /**
@@ -969,7 +1011,8 @@ function adoptContributedPanes(): void {
 
   considered = panes.length
 
-  const tileOf = (paneId: string) => panes.find(c => c.id === paneId)
+  const byId = tileMap()
+  const tileOf = (paneId: string) => byId.get(paneId)
 
   const placementOf = (paneId: string) => tileOf(paneId)?.placement
   const mainId = panes.find(c => placementOf(c.id) === 'main')?.id
@@ -985,7 +1028,12 @@ function adoptContributedPanes(): void {
   }
 
   const dismissed = $dismissedPanes.get()
-  const missing = panes.filter(c => !inTree.has(c.id) && !dismissed.has(c.id))
+
+  // `placement: 'floating'` opts OUT of the tree entirely — those tiles render
+  // as fixed cards above it (renderer/floating-panes.tsx). Adopting one would
+  // turn it into a track that steals width from a zone, which is the whole
+  // thing floating exists to avoid.
+  const missing = panes.filter(c => !inTree.has(c.id) && !dismissed.has(c.id) && c.placement !== FLOATING_PLACEMENT)
 
   adopted = missing.length
 

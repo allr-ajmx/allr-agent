@@ -13,9 +13,11 @@ import type { SessionInfo } from '@/types/hermes'
 
 import { ProfileTag } from '../profile-tag'
 import { startSessionDrag } from '../session-drag'
+import { SessionStatusDot } from '../session-status-dot'
 
 import { SidebarRowBody, SidebarRowGrab, SidebarRowLabel, SidebarRowLead, SidebarRowShell } from './chrome'
 import { SessionActionsMenu, SessionContextMenu } from './session-actions-menu'
+import { sessionShowsRunningArc } from './session-row-state'
 
 // Ported/adapted from desktop `app/chat/sidebar/session-row.tsx`. ⇧⌘-click pops
 // the conversation into a native window on desktop (MJX-104); drag-to-composer is
@@ -147,7 +149,7 @@ export function SidebarSessionRow({
         style={style}
         {...rest}
       >
-        {isWorking && !needsInput && <span aria-hidden="true" className="arc-border" />}
+        {sessionShowsRunningArc({ isWorking, needsInput }) && <span aria-hidden="true" className="arc-border" />}
         <SidebarRowBody
           // The kebab is permanently visible on touch, so the padding that
           // keeps the label out from under it has to be permanent too.
@@ -218,16 +220,16 @@ export function SidebarSessionRow({
               dragHandleProps={dragHandleProps}
               leadClassName={needsInput ? 'overflow-visible' : undefined}
             >
-              <SessionRowLeadDot
+              <SessionStatusDot
                 branchStem={branchStem}
                 className="transition-opacity group-hover/handle:opacity-0 group-focus-within/handle:opacity-0"
-                isWorking={isWorking}
-                needsInput={needsInput}
+                session={session}
+                storedSessionId={session.id}
               />
             </SidebarRowGrab>
           ) : (
             <SidebarRowLead className={needsInput ? 'overflow-visible' : 'overflow-hidden'}>
-              <SessionRowLeadDot branchStem={branchStem} isWorking={isWorking} needsInput={needsInput} />
+              <SessionStatusDot branchStem={branchStem} session={session} storedSessionId={session.id} />
             </SidebarRowLead>
           )}
           {showProfile && <ProfileTag profile={session.profile} />}
@@ -237,66 +239,5 @@ export function SidebarSessionRow({
         </SidebarRowBody>
       </SidebarRowShell>
     </SessionContextMenu>
-  )
-}
-
-function SessionRowLeadDot({
-  branchStem,
-  isWorking,
-  needsInput = false,
-  className
-}: {
-  branchStem?: string
-  isWorking: boolean
-  needsInput?: boolean
-  className?: string
-}) {
-  return (
-    <span className={cn('flex items-center gap-0.5', className)}>
-      {branchStem ? (
-        <span aria-hidden className="shrink-0 font-mono text-[0.625rem] leading-none text-(--ui-text-quaternary)">
-          {branchStem}
-        </span>
-      ) : null}
-      <SidebarRowDot isWorking={isWorking} needsInput={needsInput} />
-    </span>
-  )
-}
-
-function SidebarRowDot({
-  isWorking,
-  needsInput = false,
-  className
-}: {
-  isWorking: boolean
-  needsInput?: boolean
-  className?: string
-}) {
-  const { t } = useI18n()
-  const r = t.sidebar.row
-
-  if (needsInput) {
-    return (
-      <span
-        aria-label={r.needsInput}
-        className={cn('quest-glow relative size-1.5 rounded-full bg-amber-500', className)}
-        role="status"
-        title={r.waitingForAnswer}
-      />
-    )
-  }
-
-  return (
-    <span
-      aria-label={isWorking ? r.sessionRunning : undefined}
-      className={cn(
-        'rounded-full',
-        isWorking
-          ? "relative size-1.5 bg-(--ui-accent) shadow-[0_0_0.625rem_color-mix(in_srgb,var(--ui-accent)_55%,transparent)] before:absolute before:inset-0 before:animate-ping before:rounded-full before:bg-(--ui-accent) before:opacity-70 before:content-['']"
-          : 'size-1 bg-(--ui-text-quaternary) opacity-80',
-        className
-      )}
-      role={isWorking ? 'status' : undefined}
-    />
   )
 }

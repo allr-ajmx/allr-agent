@@ -123,8 +123,9 @@ registry.registerMany([
 ])
 
 /** The `workspace` pane — the app route table (chat + full-page views). Full
- *  pages mark the zone body `data-zone-no-header` so the zone's tab bar stands
- *  down while a page shows (mirrors `headerVeto`). Overlay routes fall through
+ *  pages mark the zone body `data-zone-no-header` for the drawer layout, which
+ *  has no tab strip of its own; in the layout tree the strip STAYS on a page —
+ *  with sessions as tiles it is the way back to them. Overlay routes fall through
  *  to the chat backdrop (rendered as MobileController portals over the shell). */
 export function WorkspaceRoutes() {
   // Subscribed, not read once: a plugin that loads after first paint (disk door,

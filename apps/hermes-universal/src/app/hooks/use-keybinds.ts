@@ -7,16 +7,14 @@ import {
   cycleTreeTabInFocusedZone
 } from '@/components/pane-shell/tree/store'
 import { contributedKeybindHandler, PROFILE_SLOT_COUNT, SESSION_SLOT_COUNT } from '@/lib/keybinds/actions'
-import { comboAllowedInInput, comboFromEvent, isEditableTarget } from '@/lib/keybinds/combo'
-import { IS_MOBILE } from '@/lib/platform'
-import { newChatBubble } from '@/store/chat-bubbles'
+import { comboAllowedInInput, comboFromEvent, isEditableTarget, isShiftPrintableCombo } from '@/lib/keybinds/combo'
+import { composerFocusKeysAllowed, isComposerFocusSoftCombo, typeToFocusChar } from '@/lib/keybinds/composer-focus-keys'
 import { $repoStatus } from '@/store/coding-status'
-import { toggleCommandMenu } from '@/store/command-menu'
+import { toggleCommandPalette } from '@/store/command-palette'
 import { $capture, $comboIndex, endCapture, setBinding } from '@/store/keybinds'
 import {
   $terminalOpen,
   FILE_TREE_PANE_ID,
-  NEW_SESSION_FLASH_EVENT,
   requestSessionSearchFocus,
   setTerminalOpen,
   toggleLeftEdge,
@@ -24,6 +22,7 @@ import {
   toggleRightEdge
 } from '@/store/layout'
 import { setModelPickerOpen } from '@/store/model'
+import { startNewSession, startNewSessionTab } from '@/store/new-session'
 import { setPaneOpen } from '@/store/panes'
 import {
   cycleProfile,
@@ -34,12 +33,11 @@ import {
 } from '@/store/profile'
 import { requestNewWorktree } from '@/store/projects'
 import { toggleReview } from '@/store/review'
-import { newSession, toggleSelectedPin } from '@/store/session'
+import { toggleSelectedPin } from '@/store/session'
 import {
   $focusedStoredSessionId,
   $sessionTiles,
   focusOpenSession,
-  newSessionTab,
   reopenLastClosedTile,
   requestCloseSessionTile
 } from '@/store/session-states'
@@ -65,7 +63,6 @@ import {
   ARTIFACTS_ROUTE,
   CRON_ROUTE,
   MESSAGING_ROUTE,
-  NEW_CHAT_ROUTE,
   PROFILES_ROUTE,
   sessionRoute,
   SETTINGS_ROUTE,
@@ -168,11 +165,13 @@ export function useKeybinds(deps: KeybindRuntimeDeps): void {
     // than desktop's `?tab=` query; the keybind panel lives at `shortcuts`.
     'keybinds.openPanel': () => openAppRoute(`${SETTINGS_ROUTE}/shortcuts`),
 
-    'composer.focus': () => requestComposerFocus('main'),
+    // A REBOUND composer.focus chord lands here; the soft `/`/Enter defaults are
+    // intercepted in the dispatcher below so their surface gate can run first.
+    'composer.focus': () => requestComposerFocus('active'),
     'composer.modelPicker': () => setModelPickerOpen(true),
     'composer.voice': requestVoiceToggle,
 
-    'nav.commandPalette': toggleCommandMenu,
+    'nav.commandPalette': toggleCommandPalette,
     'nav.commandCenter': deps.toggleCommandCenter,
     'nav.settings': () => openAppRoute(SETTINGS_ROUTE),
     'nav.profiles': () => navigate(PROFILES_ROUTE),
@@ -182,19 +181,9 @@ export function useKeybinds(deps: KeybindRuntimeDeps): void {
     'nav.cron': () => openAppRoute(CRON_ROUTE),
     'nav.agents': () => openAppRoute(AGENTS_ROUTE),
 
-    // Match the sidebar New Session button — the same three steps
-    // `use-sidebar-keybinds` used to run for ⌘N before the registry took over.
-    'session.new': () => {
-      // Mobile: a new bubble alongside the current chat (no-op on a draft).
-      if (IS_MOBILE) {
-        newChatBubble()
-      } else {
-        newSession()
-      }
-
-      navigate(NEW_CHAT_ROUTE)
-      window.dispatchEvent(new CustomEvent(NEW_SESSION_FLASH_EVENT))
-    },
+    // Same act as the sidebar's New session row and `/new` — create, route,
+    // focus, flash — which is why all three share one helper.
+    'session.new': () => startNewSession(),
     // ⌘⇧N opens a full app instance in a new native window (desktop only; MJX-104).
     'session.newWindow': () => void openNewWindow(),
     // ⌃Tab steps through the recent-session switcher.
@@ -239,7 +228,7 @@ export function useKeybinds(deps: KeybindRuntimeDeps): void {
     // conversation currently in it as its own tab, then start a fresh chat in
     // the main pane. Both end up in the same strip, which is what the user
     // sees as two tabs. (An unsaved draft has nothing to park.)
-    'session.newTab': newSessionTab,
+    'session.newTab': startNewSessionTab,
     // Fall-through chain, and it deliberately bottoms out in a no-op: ⌘W must
     // never close the window.
     'view.closeTab': () => {
@@ -314,11 +303,41 @@ export function useKeybinds(deps: KeybindRuntimeDeps): void {
 
       const actionId = $comboIndex.get().get(combo)
 
-      if (!actionId) {
-        return
+      // Printable → type-to-focus. A Shift+<char> chord is a capital letter
+      // first and a shortcut second, so it comes through here too: `shift+n`
+      // ships as a New session default, and letting the binding win meant a
+      // message could never start with an N (nor an X — `shift+x` flips the
+      // theme). The composer only takes it when it would take any other letter,
+      // so the chord keeps working from a dialog, the terminal or a full page.
+      if (!actionId || isShiftPrintableCombo(combo)) {
+        const typeChar = typeToFocusChar(event)
+
+        if (typeChar && composerFocusKeysAllowed(event, 'type')) {
+          event.preventDefault()
+          requestComposerFocus('active', { typeChar })
+
+          return
+        }
+
+        if (!actionId) {
+          return
+        }
       }
 
       if (isEditableTarget(event.target) && !comboAllowedInInput(combo)) {
+        return
+      }
+
+      // Soft `/` / Enter: gated so dialogs/buttons/terminal keep those keys.
+      // Rebound chords fall through to the normal handler.
+      if (actionId === 'composer.focus' && isComposerFocusSoftCombo(combo)) {
+        if (!composerFocusKeysAllowed(event, combo)) {
+          return
+        }
+
+        event.preventDefault()
+        requestComposerFocus('active', { typeChar: combo === '/' ? '/' : undefined })
+
         return
       }
 

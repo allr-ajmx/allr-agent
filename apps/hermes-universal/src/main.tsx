@@ -1,6 +1,9 @@
 import 'katex/dist/katex.min.css'
 import '@vscode/codicons/dist/codicon.css'
 import './styles.css'
+// Side-effect import: the hermes-media:// scheme handler lives in Rust and can't
+// read the connection store, so this subscription pushes the gateway target in.
+import './lib/media-stream'
 // Side-effect import: the gateway event router must be listening before any
 // connection is opened below. It self-registers, so this import IS the wiring.
 import './store/event-router'

@@ -5,15 +5,25 @@ import { PetPanel } from '@/app/pet/pet-section'
 import { LanguageSwitcher } from '@/components/language-switcher'
 import { Button } from '@/components/ui/button'
 import { SegmentedControl } from '@/components/ui/segmented-control'
+import { Switch } from '@/components/ui/switch'
 import { Tip } from '@/components/ui/tooltip'
 import { useI18n } from '@/i18n'
 import { triggerHaptic } from '@/lib/haptics'
 import { Check, Download, Loader2, Monitor, Moon, Palette, Sun, Trash } from '@/lib/icons'
 import { IS_DESKTOP, IS_TAURI } from '@/lib/platform'
+import {
+  $calmDuringResize,
+  $resizeThrottle,
+  RESIZE_THROTTLE_MS,
+  RESIZE_THROTTLE_PRESETS,
+  resizeThrottleHz,
+  type ResizeThrottlePreset
+} from '@/lib/resize-gesture'
 import { selectableCardClass } from '@/lib/selectable-card'
 import { normalize } from '@/lib/text'
 import { cn } from '@/lib/utils'
 import { useStore } from '@/store/atom'
+import { $backdrop, setBackdrop } from '@/store/backdrop'
 import { $embedAllowed, $embedMode, clearEmbedAllowed, type EmbedMode, setEmbedMode } from '@/store/embed-consent'
 import { installFromMarketplace, type MarketplaceSearchItem, searchMarketplace } from '@/store/marketplace'
 import { $toolViewMode, setToolViewMode, type ToolViewMode } from '@/store/tool-view'
@@ -238,10 +248,13 @@ export function AppearanceSection() {
   const a = t.settings.appearance
   const { availableThemes, mode, resolvedMode, setMode, setTheme, themeName } = useTheme()
   const toolViewMode = useStore($toolViewMode)
+  const backdrop = useStore($backdrop)
   const zoomPercent = useStore($zoomPercent)
   const embedMode = useStore($embedMode)
   const embedAllowed = useStore($embedAllowed)
   const translucency = useStore($translucency)
+  const resizeThrottle = useStore($resizeThrottle)
+  const calmDuringResize = useStore($calmDuringResize)
   const installs = useStore($marketplaceInstalls)
   const [query, setQuery] = useState('')
 
@@ -259,6 +272,8 @@ export function AppearanceSection() {
   ] as const satisfies readonly { id: EmbedMode; label: string }[]
 
   const uiScaleOptions = UI_SCALE_PRESETS.map(preset => ({ id: preset, label: `${preset}%` }))
+
+  const resizeOptions = RESIZE_THROTTLE_PRESETS.map(preset => ({ id: preset, label: a.resizeRateOptions[preset] }))
 
   const matchedScale =
     UI_SCALE_PRESETS.find(preset => Number(preset) === zoomPercent) ?? ('' as (typeof UI_SCALE_PRESETS)[number])
@@ -441,6 +456,25 @@ export function AppearanceSection() {
             title={a.toolViewTitle}
           />
 
+          {/* Chat backdrop */}
+          <ListRow
+            action={
+              <SegmentedControl
+                onChange={id => {
+                  triggerHaptic('selection')
+                  setBackdrop(id === 'on')
+                }}
+                options={[
+                  { id: 'off', label: t.common.off },
+                  { id: 'on', label: t.common.on }
+                ]}
+                value={backdrop ? 'on' : 'off'}
+              />
+            }
+            description={a.backdropDesc}
+            title={a.backdropTitle}
+          />
+
           {/* Embeds */}
           <ListRow
             action={
@@ -469,6 +503,46 @@ export function AppearanceSection() {
             }
             description={a.embedsDesc}
             title={a.embedsTitle}
+          />
+
+          {/* Resize rate — how often panes re-measure WHILE a sash or the window
+              edge is being dragged. Nothing outside a drag is affected. */}
+          <ListRow
+            action={
+              <div className="flex flex-col items-end gap-1.5">
+                <SegmentedControl
+                  onChange={id => {
+                    triggerHaptic('selection')
+                    $resizeThrottle.set(id as ResizeThrottlePreset)
+                  }}
+                  options={resizeOptions}
+                  value={resizeThrottle}
+                />
+                <span className="text-[length:var(--conversation-caption-font-size)] text-(--ui-text-tertiary)">
+                  {RESIZE_THROTTLE_MS[resizeThrottle] === 0
+                    ? a.resizeRateUnthrottled
+                    : a.resizeRateCaption(resizeThrottleHz(resizeThrottle), RESIZE_THROTTLE_MS[resizeThrottle])}
+                </span>
+              </div>
+            }
+            description={a.resizeRateDesc}
+            title={a.resizeRateTitle}
+          />
+
+          {/* The stronger version of the same idea, off by default: hide the
+              intermediate steps entirely rather than just thinning them out. */}
+          <ListRow
+            action={
+              <Switch
+                checked={calmDuringResize}
+                onCheckedChange={next => {
+                  triggerHaptic('selection')
+                  $calmDuringResize.set(next)
+                }}
+              />
+            }
+            description={a.resizeCalmDesc}
+            title={a.resizeCalmTitle}
           />
         </div>
       </div>

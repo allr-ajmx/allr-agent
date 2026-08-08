@@ -211,9 +211,11 @@ export default defineConfig({
         './src/app/shell/mobile-surface-shell.tsx'
       ]
     },
-    // Never watch the Rust build tree or the generated mobile projects.
-    // `src-tauri/target` holds hundreds of thousands of build artifacts (every
-    // cross-compile arch — Android i686, aarch64, …), and Vite recursively
+    // Never watch the Rust build trees or the generated mobile projects.
+    // `src-tauri/target*` holds hundreds of thousands of build artifacts (every
+    // cross-compile arch — Android i686, aarch64, …; the glob covers the
+    // per-surface trees the dev:ext:* scripts point CARGO_TARGET_DIR at, so
+    // desktop and Android never contend), and Vite recursively
     // watching it exhausts Linux's inotify watcher limit (ENOSPC). `src-tauri/gen`
     // holds the generated Android/iOS projects: during `tauri android dev`,
     // Gradle continuously rewrites files under `gen/android/build/` (e.g.
@@ -222,7 +224,7 @@ export default defineConfig({
     // app state to a fresh boot. Both trees are generated and gitignored; Tauri
     // already restarts the app on native changes, so the dev server has no reason
     // to look in either.
-    watch: { ignored: ['**/src-tauri/target/**', '**/src-tauri/gen/**'] }
+    watch: { ignored: ['**/src-tauri/target*/**', '**/src-tauri/gen/**'] }
   },
   // Serves the PRODUCTION bundle from dist/. `npm run dev:prodweb` points the
   // Tauri dev shell here instead of at the dev server, so the Rust side stays in

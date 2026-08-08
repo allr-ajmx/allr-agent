@@ -122,6 +122,10 @@ hex = "0.4"
 # (ssh/coordinator.rs, ported from electron/ssh-bootstrap-coordinator.ts).
 tokio-util = "0.7"
 futures-util = { version = "0.3", default-features = false, features = ["sink"] }
+# Already in the tree transitively (url / reqwest), so naming it directly costs
+# no extra compilation unit. Used by the hermes-media:// scheme to decode a path
+# for its extension check without hand-rolling a decoder.
+percent-encoding = "2"
 # rustls so we don't need OpenSSL/NDK-cross OpenSSL on the Android build.
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "cookies"] }
 # Enable BOTH root sources: native-roots so desktop honors the OS trust store (corporate

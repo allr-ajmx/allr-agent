@@ -37,10 +37,39 @@ If you only need to run or package for local use, `npm run tauri build --bundles
 | command | what it does |
 | --- | --- |
 | `npm run dev` | Vite dev server (port 5176). Pair with `npm run tauri dev`. |
+| `npm run dev:ext:*` | One dev server, several native shells attached to it (see below). |
 | `npm run dev:prodweb` | Tauri dev shell against the **minified production** frontend (see below). |
 | `npm run check` | typecheck → lint → test → build. What CI runs. |
 | `npm run fix` | `eslint --fix` then Prettier. Run before pushing. |
 | `npm run tauri build` | Full release bundle (deb + rpm + AppImage). |
+
+### `dev:ext:*` — desktop and mobile side by side
+
+Normally each `tauri dev` spawns its own Vite. The `ext` ("external Vite") split
+inverts that: you start **one** dev server and attach as many native shells to it as
+you like, so desktop and a phone can show the same frontend at once.
+
+```
+npm run dev:ext:vite       # the one dev server — leave it running
+npm run dev:ext:desktop    # in another terminal
+npm run dev:ext:android    # …and another (adb reverses 5176/5177 for you)
+npm run dev:ext:ios
+```
+
+`src-tauri/tauri.external-vite.conf.json` is the whole trick: it blanks
+`beforeDevCommand` so the shells point at the running server instead of starting one.
+
+Two things keep the shells from disturbing each other:
+
+- **`src-tauri/.taurignore`** — each shell runs its own Rust file watcher over
+  `src-tauri/`. Without this, an Android build's Gradle and Cargo output made the
+  desktop watcher rebuild continuously. Genuine source edits still rebuild both
+  shells; only generated output is filtered.
+- **A Cargo target tree per surface** — desktop keeps `src-tauri/target`, while
+  `dev:ext:android` and `dev:ext:ios` set `CARGO_TARGET_DIR` to
+  `src-tauri/target-android` / `target-ios`. Concurrent builds would otherwise
+  serialize on Cargo's lock over the shared directory. The first Android or iOS run
+  after a fresh checkout rebuilds from scratch into its own tree.
 
 ### `dev:prodweb`
 

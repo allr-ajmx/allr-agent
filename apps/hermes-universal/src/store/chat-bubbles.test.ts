@@ -192,4 +192,40 @@ describe('chat-bubbles store', () => {
 
     expect(dropSessionState).toHaveBeenCalledWith('rt-b-compacted')
   })
+
+  // The boot case. Bubbles hydrate from persisted ids while the active chat is a
+  // draft, so the row could not find the active session and `bubble-row`'s
+  // cold-load fallback centred bubble[0] — a real, unrelated chat presenting
+  // itself as "New session". The draft needs a bubble of its own to stop it
+  // borrowing a neighbour's.
+  it('gives an active draft its own bubble when the row already has some', () => {
+    $chatBubbles.set([{ storedSessionId: 'a' }, { storedSessionId: 'b' }])
+
+    $activeStoredSessionId.set('a')
+    $activeStoredSessionId.set(null)
+
+    expect(ids()).toEqual([null, 'a', 'b'])
+  })
+
+  it('does not stack up draft bubbles', () => {
+    $chatBubbles.set([{ storedSessionId: 'a' }])
+
+    $activeStoredSessionId.set('a')
+    $activeStoredSessionId.set(null)
+    $activeStoredSessionId.set('a')
+    $activeStoredSessionId.set(null)
+
+    expect(ids().filter(id => id === null)).toHaveLength(1)
+  })
+
+  // Off mobile the row is empty by design, and a lone draft bubble has nothing
+  // to sit beside — there is no neighbour for it to have been squatting on.
+  it('seeds nothing into an empty row', () => {
+    $activeStoredSessionId.set('a')
+    $chatBubbles.set([])
+
+    $activeStoredSessionId.set(null)
+
+    expect(ids()).toEqual([])
+  })
 })

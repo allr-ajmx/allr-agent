@@ -16,6 +16,8 @@ vi.mock('@/hermes', () => ({
   saveHermesConfig: vi.fn(async () => ({ ok: true }))
 }))
 
+import { MemoryRouter } from 'react-router-dom'
+
 import { getHermesConfigRecord, saveHermesConfig } from '@/hermes'
 import { I18nProvider } from '@/i18n'
 import { queryClient } from '@/lib/query-client'
@@ -26,12 +28,15 @@ import { getNested } from './helpers'
 const save = vi.mocked(saveHermesConfig)
 
 function renderSection() {
+  // Router context: the section reads ?field= for palette deep links.
   return render(
-    <I18nProvider>
-      <QueryClientProvider client={queryClient}>
-        <ConfigSection sectionId="chat" />
-      </QueryClientProvider>
-    </I18nProvider>
+    <MemoryRouter>
+      <I18nProvider>
+        <QueryClientProvider client={queryClient}>
+          <ConfigSection sectionId="chat" />
+        </QueryClientProvider>
+      </I18nProvider>
+    </MemoryRouter>
   )
 }
 

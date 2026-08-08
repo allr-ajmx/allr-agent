@@ -8,8 +8,11 @@ import type { SessionMessage, SessionResumeResponse } from '@/types/hermes'
 // preceding assistant's tool-call by tool_call_id/name; buffer tool-only
 // assistants onto the surrounding turn) — dropping media/todos/generated-image/
 // branch/timestamp/argsText concerns.
-// FIXME(MJX-205): displayContentForMessage strips the "Attached Context" marker
-// only; no ref reinjection.
+//
+// Desktop additionally collapses a `/skill` turn back to its invocation via
+// `skillInvocationText` (a fallback for older gateways that persisted the whole
+// expanded skill body). Universal has no equivalent helper and current gateways
+// already project the invocation, so that branch is deliberately absent.
 
 function textFromUnknown(value: unknown, depth = 0): string {
   if (typeof value === 'string') {
@@ -82,6 +85,7 @@ function firstNonEmptyObject(...values: unknown[]): Record<string, unknown> {
 
 const ATTACHED_CONTEXT_MARKER_RE = /(?:^|\n)--- Attached Context ---\s*\n/
 const CONTEXT_WARNINGS_MARKER_RE = /(?:^|\n)--- Context Warnings ---[\s\S]*$/
+const CONTEXT_REF_RE = /@(file|folder|url|image|tool|terminal):(?:"[^"\n]+"|'[^'\n]+'|`[^`\n]+`|\S+)/g
 
 function displayContentForMessage(role: SessionMessage['role'], content: unknown): string {
   const text = textFromUnknown(content)
@@ -96,7 +100,17 @@ function displayContentForMessage(role: SessionMessage['role'], content: unknown
     return text.replace(CONTEXT_WARNINGS_MARKER_RE, '').trim()
   }
 
-  return text.slice(0, marker.index).replace(CONTEXT_WARNINGS_MARKER_RE, '').trim()
+  const visibleText = text.slice(0, marker.index).replace(CONTEXT_WARNINGS_MARKER_RE, '').trim()
+  const attachedContext = text.slice(marker.index + marker[0].length)
+  const refs = [...new Set(Array.from(attachedContext.matchAll(CONTEXT_REF_RE)).map(match => match[0]))]
+
+  // The prose keeps the `@file:` token the user typed, so it already chips in
+  // place (`components/assistant-ui/directive-content.tsx` renders them). Only
+  // hoist a ref the prose is missing — a turn persisted by an older backend that
+  // stripped the tokens. Re-listing an inline ref would chip twice.
+  const missing = refs.filter(ref => !visibleText.includes(ref))
+
+  return [missing.join('\n'), visibleText].filter(Boolean).join('\n\n') || visibleText
 }
 
 function parseStoredToolResult(content: unknown): unknown {

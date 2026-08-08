@@ -25,9 +25,16 @@ import {
   $layoutTree,
   moveTreePane,
   noteActiveTreeGroup,
+  renameTreePane,
   revealTreePane
 } from '@/components/pane-shell/tree/store'
-import { TILE_PANE_PREFIX, WORKSPACE_PANE_ID } from '@/lib/pane-ids'
+import {
+  DRAFT_TILE_KEY,
+  DRAFT_TILE_PANE_ID,
+  storedIdFromTilePane,
+  TILE_PANE_PREFIX,
+  WORKSPACE_PANE_ID
+} from '@/lib/pane-ids'
 import { readJson, writeJson } from '@/lib/storage'
 import { discardDeltas, disposeStreamBatch, flushDeltas } from '@/lib/stream-batch'
 import { beginDetached, endSpan } from '@/observability'
@@ -163,6 +170,16 @@ function handleTransition(previous: ClientSessionState | null, next: ClientSessi
 
     clearSettled(previous.storedSessionId)
     setSessionStalled(previous.storedSessionId, false)
+  }
+
+  // A DRAFT taking its issued id — the guard above misses it, because a draft
+  // has no previous stored id to differ from. This is the one moment the app's
+  // one unsaved chat becomes a real one, so both surfaces that gave it a
+  // placeholder identity trade it in here: the desktop tile is renamed in place,
+  // and the mobile bubble folds the id in (chat-bubbles.ts, via its own
+  // `$activeStoredSessionId` watcher).
+  if (!previous?.storedSessionId && next.storedSessionId) {
+    adoptDraftTile(next.storedSessionId)
   }
 
   if (next.busy) {
@@ -455,7 +472,10 @@ function persistTiles() {
 
 function saveTiles(tiles: SessionTile[]) {
   $sessionTiles.set(tiles)
-  const stored = tiles.map(toStored)
+  // The draft tile is never persisted: `draft` names no session, so restoring it
+  // would reopen an empty tab pointing at nothing. Same rule the bubble row
+  // already applies to its draft.
+  const stored = tiles.filter(t => t.storedSessionId !== DRAFT_TILE_KEY).map(toStored)
 
   if (stored.length > 0) {
     tilesByProfile[profileKey()] = stored
@@ -491,6 +511,16 @@ if (!isSecondaryWindow()) {
 export function tileRuntimeKey(storedSessionId: null | string): null | string {
   if (!storedSessionId) {
     return null
+  }
+
+  // The draft tile names no session, so there is no stored id to look up — its
+  // slice is the active placeholder one. Resolving it HERE rather than in the
+  // pane is what makes the draft a tile like any other: its view, its busy
+  // state and its close-confirm all read through this one function.
+  if (storedSessionId === DRAFT_TILE_KEY) {
+    const active = $activeSessionKey.get()
+
+    return isPlaceholderKey(active) ? active : null
   }
 
   return (
@@ -638,7 +668,7 @@ export function openSessionTile(
   }
 
   const tree = $layoutTree.get()
-  const target = tree ? findGroupOfPane(tree, anchor ?? 'workspace')?.id : null
+  const target = tree ? findGroupOfPane(tree, anchor ?? WORKSPACE_PANE_ID)?.id : null
 
   if (target) {
     moveTreePane(`${TILE_PANE_PREFIX}${storedSessionId}`, { before: before ?? null, groupId: target, pos: dir })
@@ -650,22 +680,111 @@ export function openSessionTile(
 /**
  * "New chat tab" — ⌘T, and the `+` at the end of a chat tab strip.
  *
- * The main pane is a pane like any other, so a new tab means: park the
- * conversation currently in it as its own tab, then start a fresh chat in the
- * main pane. Both end up in the same strip, which is what reads as two tabs.
+ * The new chat gets its OWN tile, beside whatever is already open. It used to
+ * work the other way around: the draft took over the main pane and the chat that
+ * was already there got parked into a tile — so asking for a new chat moved a
+ * chat you had not asked about, and the new one was the single chat in the app
+ * that was not a tile. A draft is a session like any other in `$sessionStates`;
+ * this makes it a tile like any other too.
  *
- * Order matters — `openSessionTile` refuses the session loaded in main (it
- * would then be on screen twice), so the main pane has to let go of it first.
- * An unsaved draft has nothing to park.
+ * ONE draft at a time: a second `+` on an empty draft fronts the one already
+ * there rather than stacking up empty chats nobody sent a message in.
  */
 export function newSessionTab(): void {
-  const current = $activeStoredSessionId.get()
-
   newSession()
 
-  if (current) {
-    openSessionTile(current, 'center', WORKSPACE_PANE_ID)
+  // Anchored on the chat the user is looking at, stacked into its zone — a new
+  // tab belongs in the strip you asked from, not docked to the side.
+  const anchor = activeChatPaneId()
+
+  if (!$sessionTiles.get().some(t => t.storedSessionId === DRAFT_TILE_KEY)) {
+    saveTiles([...$sessionTiles.get(), { anchor, dir: 'center', storedSessionId: DRAFT_TILE_KEY }])
   }
+
+  focusDraftTile(anchor)
+}
+
+/**
+ * Front the draft tile and claim the zone it lives in.
+ *
+ * The zone is resolved from the ANCHOR, not from the draft's own pane: the tile
+ * was registered a moment ago and the pane mirror does not put it in the tree
+ * until React's next commit, so looking the draft up here finds nothing and the
+ * focused zone stays `null` — which is exactly the state that leaves ⌥1-9 and
+ * ⌃Tab inert (they read `$activeTreeGroup` raw). The draft stacks INTO the
+ * anchor's zone, so the anchor names the right group and it is already there.
+ */
+function focusDraftTile(anchor: string): void {
+  revealTreePane(DRAFT_TILE_PANE_ID)
+
+  const tree = $layoutTree.get()
+
+  if (!tree) {
+    return
+  }
+
+  const group = findGroupOfPane(tree, DRAFT_TILE_PANE_ID) ?? findGroupOfPane(tree, anchor)
+
+  if (group) {
+    noteActiveTreeGroup(group.id)
+  }
+}
+
+/** The pane of the chat currently on screen — a tile's if one is fronted, else
+ *  the workspace. What a new tab anchors to. */
+function activeChatPaneId(): string {
+  const active = $activeStoredSessionId.get()
+  const tile = active && $sessionTiles.get().some(t => t.storedSessionId === active)
+
+  return tile ? `${TILE_PANE_PREFIX}${active}` : WORKSPACE_PANE_ID
+}
+
+/**
+ * The draft tile taking its real session id, on first submit.
+ *
+ * A rename, not a close-and-reopen: re-registering would send the pane back
+ * through adoption and dock it wherever its hint points, so the chat would jump
+ * zones at the exact moment the user hit send. `renameTreePane` carries the slot,
+ * the width and the active flag; this carries the tile record.
+ */
+function adoptDraftTile(storedSessionId: string): void {
+  const tiles = $sessionTiles.get()
+
+  if (!tiles.some(t => t.storedSessionId === DRAFT_TILE_KEY)) {
+    return
+  }
+
+  // Already open as its own tile (the draft was abandoned onto an existing
+  // chat): drop the draft rather than creating a duplicate tab for one session.
+  if (tiles.some(t => t.storedSessionId === storedSessionId)) {
+    saveTiles(tiles.filter(t => t.storedSessionId !== DRAFT_TILE_KEY))
+
+    return
+  }
+
+  renameTreePane(DRAFT_TILE_PANE_ID, `${TILE_PANE_PREFIX}${storedSessionId}`)
+  saveTiles(tiles.map(t => (t.storedSessionId === DRAFT_TILE_KEY ? { ...t, storedSessionId } : t)))
+}
+
+/**
+ * Front the MAIN chat and make its zone the focused one.
+ *
+ * The workspace half of `focusOpenSession`, extracted because a NEW session
+ * needs exactly this and the two must not drift (MJXHRM-6).
+ *
+ * It names the workspace's real group rather than `null` on purpose. The passive
+ * `$activeStoredSessionId` listener below homes to `null`, which leaves
+ * `activateTreeTabSlot` / `cycleTreeTabInFocusedZone` inert — they read
+ * `$activeTreeGroup` raw, with none of `closeFocusedTabInZone`'s main-pane
+ * fallback — so ⌥1-9 and ⌃Tab could not switch between two tabs the user was
+ * looking at. An explicit focus act claims the zone; passive navigation does not.
+ */
+export function focusWorkspaceSession(): void {
+  revealTreePane(WORKSPACE_PANE_ID)
+
+  const tree = $layoutTree.get()
+
+  noteActiveTreeGroup(tree ? (findGroupOfPane(tree, WORKSPACE_PANE_ID)?.id ?? null) : null)
 }
 
 /** If a session is already ON SCREEN — an open tile OR the one loaded in main —
@@ -686,8 +805,7 @@ export function focusOpenSession(storedSessionId: string): boolean {
   }
 
   if (storedSessionId === $activeStoredSessionId.get()) {
-    revealTreePane('workspace')
-    noteActiveTreeGroup(null)
+    focusWorkspaceSession()
 
     return true
   }
@@ -702,7 +820,10 @@ const closedStack = (): SessionTile[] => (closedTilesByProfile[profileKey()] ??=
 export function closeSessionTile(storedSessionId: string) {
   const tile = $sessionTiles.get().find(t => t.storedSessionId === storedSessionId)
 
-  if (tile) {
+  // The draft is not reopenable: ⌘⇧T would restore a tab for a chat that never
+  // existed. Closing an empty draft discards it, which is what closing an empty
+  // draft means.
+  if (tile && storedSessionId !== DRAFT_TILE_KEY) {
     closedStack().push({ anchor: tile.anchor, before: tile.before, dir: tile.dir, storedSessionId })
   }
 
@@ -770,14 +891,44 @@ export function reopenLastClosedTile(): void {
 // route-driven active session.
 // ---------------------------------------------------------------------------
 
-/** Stored id of the focused session (the interacted zone's tile, else the active one). */
-export const $focusedStoredSessionId = computed(
-  [$activeTreeGroup, $layoutTree, $activeStoredSessionId],
-  (groupId, tree, selected) => {
-    const active = groupId && tree ? findGroup(tree, groupId)?.active : undefined
+/**
+ * The last interacted zone that actually HOSTS a chat.
+ *
+ * `$activeTreeGroup` moves on every pointerdown/focusin anywhere in the tree, so
+ * clicking a folder in the file tree — or the terminal, or the review pane —
+ * makes a non-chat zone the interacted one, and the derivation below would fall
+ * straight back to the sidebar's selection. Everything keyed on "the focused
+ * session" would then bounce between the tile you were reading and whatever the
+ * sidebar last picked, every time you touched a side pane.
+ *
+ * Zones hosting the workspace count: the main pane's session IS the selection,
+ * so falling back there is the right answer rather than a stale one.
+ */
+const $chatTreeGroup = atom<null | string>(null)
 
-    return active?.startsWith(TILE_PANE_PREFIX) ? active.slice(TILE_PANE_PREFIX.length) : selected
+$activeTreeGroup.subscribe(groupId => {
+  const tree = $layoutTree.get()
+  const active = groupId && tree ? findGroup(tree, groupId)?.active : undefined
+
+  if (active === WORKSPACE_PANE_ID || active?.startsWith(TILE_PANE_PREFIX)) {
+    $chatTreeGroup.set(groupId)
   }
+})
+
+/** Pane id of the FOCUSED chat surface — the interacted chat zone's tile, else
+ *  the workspace. The composer focus bus resolves `'active'` through this, so
+ *  typing lands in the chat you are looking at rather than the one that mounted
+ *  last. */
+export const $focusedChatPane = computed([$chatTreeGroup, $layoutTree], (groupId, tree) => {
+  const active = groupId && tree ? findGroup(tree, groupId)?.active : undefined
+
+  return active?.startsWith(TILE_PANE_PREFIX) ? active : WORKSPACE_PANE_ID
+})
+
+/** Stored id of the focused session (the interacted chat zone's tile, else the active one). */
+export const $focusedStoredSessionId = computed(
+  [$focusedChatPane, $activeStoredSessionId],
+  (pane, selected) => storedIdFromTilePane(pane) ?? selected
 )
 
 /** Session key of the focused session (a tile's bound key, else the active one). */
@@ -799,6 +950,11 @@ export const $focusedSessionState = computed(
   (key, activeKey, states) => states[key ?? activeKey] ?? states[activeKey] ?? EMPTY_SESSION_STATE
 )
 
+/** The focused chat's project directory — `''` for a detached chat. What the
+ *  workspace surfaces (file tree, review, terminal, statusbar) point at, via
+ *  `$effectiveCwd` in store/workspace-events, which adds the root fallback. */
+export const $focusedCwd = computed($focusedSessionState, state => state.cwd)
+
 /** A PRIMARY navigation homes focus to the workspace — UNLESS the selected id is
  *  already an open TILE (where `focusOpenSession` owns the move). */
 export const selectionHomesToWorkspace = (selected: null | string, tiles: readonly SessionTile[]): boolean =>
@@ -809,8 +965,13 @@ $activeStoredSessionId.listen(selected => {
     return
   }
 
+  // `null`, not the workspace's group, on purpose: this fires on EVERY primary
+  // navigation (a sidebar row, a deep link, a delete, a profile switch), and
+  // claiming a zone here would make ⌃Tab cycle the main strip instead of opening
+  // the recent-session HUD, and ⌥1-9 activate tabs instead of jumping to recent
+  // sessions. An explicit act — `focusWorkspaceSession` — claims the zone.
   noteActiveTreeGroup(null)
-  revealTreePane('workspace')
+  revealTreePane(WORKSPACE_PANE_ID)
 })
 
 // Dev hook for automation.

@@ -175,6 +175,11 @@ export interface DragSessionSpec {
   onEnd?(): void
   /** Sub-threshold release = a click on the handle. */
   onTap?(): void
+  /** Release BEYOND the window's own edges — the tear-off. A drag that ends
+   *  nowhere in this window is the gesture for "give this its own window", so
+   *  the handles that can leave declare what that means; without it an
+   *  off-window release just cancels, as every other deny area does. */
+  tearOff?(): void
   double?: DoubleTapContext
   /** Floating chip following the pointer — for drags whose source doesn't
    *  stay visibly "held" (a sidebar row, unlike a dimmed tab). See
@@ -212,6 +217,14 @@ function suppressDragClick(committed: boolean) {
  * instantly: the session registers as the TOP escape layer, tears down
  * synchronously, and nothing commits.
  */
+/** Is this point outside the window's own viewport? The pointer keeps
+ *  reporting through a held drag (capture is taken on engage), so it reads
+ *  negative or past the edge once the drag leaves the window — which is the
+ *  tear-off gesture rather than a miss. */
+export function isOffWindow(x: number, y: number, width: number, height: number): boolean {
+  return x < 0 || y < 0 || x > width || y > height
+}
+
 export function startDragSession(e: ReactPointerEvent<HTMLElement>, spec: DragSessionSpec) {
   if (e.button !== 0) {
     return
@@ -242,6 +255,9 @@ export function startDragSession(e: ReactPointerEvent<HTMLElement>, spec: DragSe
   // point; all hit testing happens at most once per frame.
   let pending: { x: number; y: number; shift: boolean } | null = null
   let raf = 0
+  // Set by the last processed move: the release lands where the pointer was,
+  // and off-window that means tear-off rather than cancel.
+  let tearingOff = false
 
   // Cursor writes are per-frame; only touch the style when the value changes.
   const setCursor = (value: string) => {
@@ -308,10 +324,13 @@ export function startDragSession(e: ReactPointerEvent<HTMLElement>, spec: DragSe
     ghost?.moveTo(x, y)
 
     const hint = spec.resolveMove(x, y, shift)
+    tearingOff = !hint && Boolean(spec.tearOff) && isOffWindow(x, y, window.innerWidth, window.innerHeight)
 
-    // Over a deny area (no target — titlebar / statusbar / gutters /
-    // off-window) the release cancels; the cursor says so up front.
-    setCursor(hint ? 'grabbing' : 'no-drop')
+    // Over a deny area (no target — titlebar / statusbar / gutters) the release
+    // cancels; the cursor says so up front. OFF the window is not a deny area
+    // for a handle that can tear off — saying no-drop there is what made the
+    // gesture read as unsupported.
+    setCursor(hint || tearingOff ? 'grabbing' : 'no-drop')
     publishHint(hint)
   }
 
@@ -364,7 +383,9 @@ export function startDragSession(e: ReactPointerEvent<HTMLElement>, spec: DragSe
     if (engaged) {
       suppressDragClick(commit)
 
-      if (commit) {
+      if (commit && tearingOff) {
+        spec.tearOff?.()
+      } else if (commit) {
         spec.onCommit($dropHint.get())
       }
     } else if (commit && (!touch || (!scrolling && Date.now() - startedAt <= TAP_MAX_MS))) {
@@ -441,7 +462,8 @@ export function startPaneDrag(
   onTap?: () => void,
   reorder?: ReorderContext,
   double?: DoubleTapContext,
-  ghostLabel?: string
+  ghostLabel?: string,
+  tearOff?: () => void
 ) {
   if (e.button !== 0) {
     return
@@ -495,6 +517,7 @@ export function startPaneDrag(
     double,
     ghost: ghostLabel ? { label: ghostLabel } : undefined,
     onTap,
+    tearOff,
 
     onEngage(x, y) {
       if (reorder && withinStrip(x, y)) {

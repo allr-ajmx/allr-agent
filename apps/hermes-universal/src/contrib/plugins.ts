@@ -1,10 +1,11 @@
 /**
  * Plugin discovery — both delivery modes:
  *
- *  - BUNDLED: every `src/plugins/<name>/plugin.{ts,tsx}` default-exporting a
+ *  - BUNDLED: every `<name>/plugin.{ts,tsx}` under the shared sample-plugin
+ *    source (`packages/hermes-sample-plugins/`) default-exporting a
  *    `HermesPlugin` registers automatically (vite glob — drop a folder in).
- *    None ship in-tree today, same as desktop; reference/demo plugins live in
- *    the companion `hermes-example-plugins` repo.
+ *    That directory is the ONE canonical copy: desktop runs the same glob
+ *    against the same files, so the samples can't drift between the two apps.
  *  - RUNTIME: the disk door (`<hermes home>/desktop-plugins/<name>/plugin.js`
  *    locally, or the connected gateway's copy) — the agent's/user's door,
  *    watched + hot-reloaded by the runtime loader.
@@ -14,7 +15,10 @@ import { createPluginContext, type HermesPlugin } from './plugin'
 import { pluginActive, publishPlugin } from './plugins-store'
 import { watchRuntimePlugins } from './runtime-loader'
 
-const modules = import.meta.glob<{ default: HermesPlugin }>('../plugins/*/plugin.{ts,tsx}', { eager: true })
+const modules = import.meta.glob<{ default: HermesPlugin }>(
+  '../../../../packages/hermes-sample-plugins/*/plugin.{ts,tsx}',
+  { eager: true }
+)
 
 // One-shot init guard. Contributions themselves register by id (re-registering
 // is idempotent), but the disk-door watcher setup below (watchRuntimePlugins)

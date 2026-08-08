@@ -96,7 +96,7 @@ function chatZonePane(groupId: string): null | string {
 export function startSessionDrag(
   payload: SessionDragPayload,
   e: ReactPointerEvent<HTMLElement>,
-  opts?: { double?: DoubleTapContext; onTap?: () => void }
+  opts?: { double?: DoubleTapContext; onTap?: () => void; tearOff?: () => void }
 ) {
   let zones: EngineZone[] = []
   let strips: StripSnapshot[] = []
@@ -120,6 +120,7 @@ export function startSessionDrag(
     double: opts?.double,
     ghost: { label: sessionLabel(payload) },
     onTap: opts?.onTap,
+    tearOff: opts?.tearOff,
 
     onEngage() {
       zones = snapshotZones()

@@ -26,7 +26,7 @@ import { useI18n } from '@/i18n'
 import { ESCAPE_PRIORITY, isTopEscapeLayer, pushEscapeLayer } from '@/lib/escape-layers'
 import { cn } from '@/lib/utils'
 
-import { getTiles } from '../tile/registry'
+import { tileMap } from '../tile/registry'
 import { gridPlacement } from '../tile/types'
 
 import {
@@ -288,11 +288,11 @@ export function ZoneEditor() {
     const paneIds = allPaneIds($layoutTree.get() ?? { type: 'group', id: 'tmp', panes: [], active: '' })
     // Placement hints ride on the pane contributions (`data.placement`), so
     // zones are assigned by ROLE (main/left/right/bottom), not index order.
-    const tiles = getTiles()
+    const byId = tileMap()
 
     const placed = paneIds.map(id => ({
       id,
-      placement: gridPlacement(tiles.find(t => t.id === id)?.placement)
+      placement: gridPlacement(byId.get(id)?.placement)
     }))
 
     const tree = gridToTree(model, placed)

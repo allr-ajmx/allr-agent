@@ -20,6 +20,7 @@
  */
 
 import { $layoutTree } from '@/components/pane-shell/tree/store'
+import { onResizeGestureEnd, resizeGestureActive } from '@/lib/resize-gesture'
 
 import { queryVisible } from './pane-visibility'
 
@@ -27,31 +28,18 @@ import { queryVisible } from './pane-visibility'
 // Workspace-edge CSS vars
 // ---------------------------------------------------------------------------
 
-// --- Sash-drag deferral ------------------------------------------------------
+// --- Resize deferral ---------------------------------------------------------
 //
-// The tree sash holds this for the duration of a resize gesture (pointerdown to
-// pointerup). While held, `publishWorkspaceGeometry` skips its `:root` custom
-// property writes: each one invalidates computed style for the WHOLE document,
-// and the sash's ResizeObserver fires every frame of the drag. The vars only
-// align titlebar chrome, so republishing once on release is visually identical.
+// While a resize gesture runs, `publishWorkspaceGeometry` skips its `:root`
+// custom property writes: each one invalidates computed style for the WHOLE
+// document, and the ResizeObserver below fires every frame of a drag. The vars
+// only align titlebar chrome, so republishing once at the end is visually
+// identical.
 //
-// A depth counter rather than a boolean, so overlapping gestures nest safely.
-let sashDragDepth = 0
-let onSashDragEnd: null | (() => void) = null
-
-export function beginSashDrag() {
-  sashDragDepth += 1
-}
-
-export function endSashDrag() {
-  sashDragDepth = Math.max(0, sashDragDepth - 1)
-
-  if (sashDragDepth === 0) {
-    onSashDragEnd?.()
-  }
-}
-
-const sashDragging = () => sashDragDepth > 0
+// The gesture itself lives in `lib/resize-gesture.ts` — this file owned the
+// depth counter back when the sash was the only thing that opened one. It now
+// also covers an OS window-edge drag, which used to write both vars on every
+// resize event.
 
 /**
  * Publish the workspace zone's viewport edges as root CSS vars:
@@ -72,9 +60,9 @@ export function publishWorkspaceGeometry(): () => void {
   const ro = new ResizeObserver(() => measure())
 
   const measure = () => {
-    // DEFERRED during a sash drag (see beginSashDrag above) — republished once
-    // on release via the onSashDragEnd hook registered below.
-    if (sashDragging()) {
+    // DEFERRED during a resize gesture (see above) — republished once at the
+    // end via the onResizeGestureEnd hook registered below.
+    if (resizeGestureActive()) {
       return
     }
 
@@ -117,15 +105,15 @@ export function publishWorkspaceGeometry(): () => void {
   // frame later, after the DOM committed. RO covers width changes (sash drags,
   // side collapses); window resize covers the rest.
   const unsubTree = $layoutTree.listen(() => requestAnimationFrame(measure))
-  // Drag released -> publish the final geometry the deferral above skipped. A
+  // Gesture over -> publish the final geometry the deferral above skipped. A
   // frame later, so the DOM has committed the release's own store write.
-  onSashDragEnd = () => requestAnimationFrame(measure)
+  const unsubGesture = onResizeGestureEnd(() => requestAnimationFrame(measure))
   window.addEventListener('resize', measure)
   measure()
 
   return () => {
     unsubTree()
-    onSashDragEnd = null
+    unsubGesture()
     window.removeEventListener('resize', measure)
     ro.disconnect()
     root.style.removeProperty('--workspace-left')

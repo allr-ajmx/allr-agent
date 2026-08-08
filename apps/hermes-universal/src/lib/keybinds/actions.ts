@@ -60,7 +60,9 @@ const SESSION_SLOT_ACTIONS: KeybindActionMeta[] = Array.from({ length: SESSION_S
 
 export const KEYBIND_ACTIONS: readonly KeybindActionMeta[] = [
   // ── Composer ─────────────────────────────────────────────────────────────
-  { id: 'composer.focus', category: 'composer', defaults: [] },
+  // Soft defaults: gated by `composerFocusKeysAllowed` so dialogs, menus, the
+  // terminal and a live clarify card keep those keys.
+  { id: 'composer.focus', category: 'composer', defaults: ['/', 'enter'] },
   { id: 'composer.modelPicker', category: 'composer', defaults: [] },
   // Voice conversation toggle — ⌥B, keeping the "b" of the documented
   // `voice.record_key` but on Alt rather than Control. `ctrl+b` folds to `mod`

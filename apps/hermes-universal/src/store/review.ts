@@ -10,9 +10,9 @@ import { openExternalLink } from '@/lib/external-link'
 import { requestOneShot } from '@/lib/oneshot'
 import { Codecs, persistentAtom } from '@/lib/persisted'
 
-import { $busy, $currentCwd } from './chat'
+import { $busy } from './chat'
 import { refreshRepoStatus } from './coding-status'
-import { $workspaceChangeTick } from './workspace-events'
+import { $effectiveCwd, $workspaceChangeTick } from './workspace-events'
 
 // State for the review pane: the working-tree changed-file list, the selected
 // file's diff, and the git mutations (stage / unstage / revert). The active
@@ -95,7 +95,10 @@ export const $reviewShipBusy = atom(false)
 // True while a commit message is being generated (drives the input's spinner).
 export const $reviewCommitMsgBusy = atom(false)
 
-const repoCwd = (): null | string => $currentCwd.get()?.trim() || null
+// The repo the pane diffs. `$effectiveCwd`, so it tracks the FOCUSED chat and
+// falls back to the workspace root exactly like the file tree it sits next to —
+// two adjacent panes must never describe two different repos.
+const repoCwd = (): null | string => $effectiveCwd.get()?.trim() || null
 
 type ReviewBridge = GitBridge['review']
 let reviewRefreshSeq = 0
@@ -488,10 +491,10 @@ $busy.subscribe(busy => {
   prevBusy = busy
 })
 
-// The active session's cwd changed → the repo changed under the pane. Clear the
+// The focused chat's cwd changed → the repo changed under the pane. Clear the
 // stale file list + selection up front so the pane drops straight to its loading
 // skeleton instead of blipping the previous repo's diff into the new one.
-$currentCwd.subscribe(() => {
+$effectiveCwd.subscribe(() => {
   if ($reviewOpen.get()) {
     clearReviewSelection()
     $reviewFiles.set([])

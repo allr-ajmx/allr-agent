@@ -621,6 +621,11 @@
     --message-text-indent: 0.75rem;
     --conversation-text-font-size: 0.8125rem;
     --conversation-tool-font-size: 0.6875rem;
+    /* Scaffolding greys — the quiet lines around the reply (thinking header,
+       settled tool run, activity ticker) and the counts trailing them. One pair
+       of knobs so those surfaces cannot drift into two different greys. */
+    --conversation-scaffold-text: color-mix(in srgb, var(--ui-base) 64%, transparent);
+    --conversation-scaffold-meta: color-mix(in srgb, var(--ui-base) 44%, transparent);
     --conversation-caption-font-size: 0.75rem;
     --conversation-line-height: 1.125rem;
     --conversation-caption-line-height: 1rem;
@@ -631,10 +636,6 @@
     /* Tight gap between tool rows inside a single action group, so a back-to-back
        run still reads as one cohesive sequence. */
     --tool-row-gap: 0.375rem;
-    /* Height of the bounded, auto-scrolling window a long adjacent tool-call run
-       collapses into (see `.tool-group-scroll`). Sized to show a few rows before
-       the scroll + top fade kick in. */
-    --tool-group-scroll-max-h: 6.75rem;
     /* Paragraph spacing — vertical gap between prose paragraphs, both inside a
        markdown block and between consecutive prose parts. Single knob; tweak
        freely. */
@@ -654,12 +655,14 @@
     --composer-input-max-height: 9.375rem;
     --composer-input-inline-min-width: 8rem;
     --composer-fallback-height: 2.75rem;
+    /* Fallbacks until `use-composer-metrics` measures the real composer. It
+       writes the two vars onto the composer's OWN `.chat` root, and
+       `--thread-viewport-height` is declared THERE (not here) so each chat
+       re-substitutes them: a custom property is substituted where it is
+       declared and inherits already-resolved, so a formula on `:root` would
+       pin every tile to the root's values. */
     --composer-measured-height: calc(0.5rem + var(--composer-shell-pad-block-end) + var(--composer-fallback-height));
     --composer-surface-measured-height: var(--composer-fallback-height);
-    --thread-viewport-height: max(
-      0rem,
-      calc(100% - var(--composer-measured-height) + var(--composer-surface-measured-height))
-    );
     --vsq: min(0.5vh, 0.5vw);
     --image-preview-max-width: 34rem;
     --image-preview-height: clamp(16.25rem, calc(var(--vsq) * 100), 26.25rem);
@@ -1157,6 +1160,15 @@
   /* Positioning context for the out-of-flow floating scroll-to-bottom button
      (see scroll-to-bottom-button.tsx), which anchors above the composer footer. */
   position: relative;
+  /* Declared HERE, per chat, not on :root — this is the element
+     `use-composer-metrics` writes the two measured heights to, and a custom
+     property substitutes where it is declared. On :root every tile resolved
+     this against whichever composer measured last. The `100%` resolves against
+     the thread viewport's own box (list.tsx), not this one. */
+  --thread-viewport-height: max(
+    0rem,
+    calc(100% - var(--composer-measured-height) + var(--composer-surface-measured-height))
+  );
 }
 /* The chat thread scroller owns its own stick-to-bottom scroll. Slim native
    scrollbar where the standard CSS scrollbar properties are supported (recent
@@ -1542,32 +1554,52 @@ html {
   opacity: 1;
 }
 
-/* Long adjacent tool-call run collapsed into a fixed, auto-scrolling window.
-   ToolGroupSlot pins the newest call to the bottom (unless the user scrolls
-   up), so a back-to-back run stays compact instead of pushing the reply off
-   screen. A thin scrollbar keeps the affordance discoverable. */
-.tool-group-scroll {
-  scrollbar-width: thin;
-  scrollbar-color: var(--ui-stroke-tertiary) transparent;
+/* Fade scaffolding so the prose reading column stays primary. Each surface
+   opts in with `data-conversation-scaffold` — thinking header, tool row, run
+   summary, live status line — instead of being named by its own selector here.
+
+   Marked per surface and never on a container: opacity opens a stacking
+   context, so nothing inside a faded parent can be more opaque than it, and
+   one row (an open diff) could not stay lit while its siblings dimmed. Hence
+   the tool group wrapper carries no mark and each row inside it carries its
+   own — no two marked elements nest, so the fade never compounds. */
+[data-slot='aui_assistant-message-content'] [data-conversation-scaffold] {
+  opacity: 0.67;
+  transition: opacity 120ms ease-out;
 }
 
-/* Break out of the fixed window the moment any row inside is expanded: the
-   user is now reading a diff/output, so let it grow to full height instead of
-   peering at it through a ~2-row viewport. Collapsing the row drops it back
-   into the compact, auto-scrolling window. Beats a larger fixed cap since an
-   open row already bounds its own payload with an inner scroll. */
-.tool-group-scroll:has([data-tool-row][data-tool-open]) {
-  max-height: none;
-  -webkit-mask-image: none;
-  mask-image: none;
+/* Lift on hover or *keyboard* focus only. `:focus-within` also matches the
+   focus a mouse click leaves on the disclosure toggle, which kept a row lit
+   after you clicked to collapse it; `:has(:focus-visible)` excludes that. */
+[data-slot='aui_assistant-message-content'] [data-conversation-scaffold]:is(:hover, :has(:focus-visible)) {
+  opacity: 1;
 }
 
-/* Top gradient — only applied once the user is scrolled down off the top, so
-   the oldest visible call fades up under the fade while the first row stays
-   fully legible when scrolled all the way up. */
-.tool-group-scroll--faded {
-  -webkit-mask-image: linear-gradient(to bottom, transparent 0, black 2rem, black 100%);
-  mask-image: linear-gradient(to bottom, transparent 0, black 2rem, black 100%);
+/* The live run's one-line ticker: each new call slides the one before it up and
+   out, so a turn touching thirty files reads as a single line ticking over in
+   place instead of a list growing down the page. Rows are clipped to a uniform
+   line box so the reel's offset stays exact whatever a row contains. */
+.tool-ticker {
+  height: var(--conversation-line-height);
+  overflow: hidden;
+}
+
+.tool-ticker__reel {
+  transform: translateY(calc(var(--tool-ticker-index, 0) * var(--conversation-line-height) * -1));
+  transition: transform 240ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.tool-ticker__row {
+  display: flex;
+  height: var(--conversation-line-height);
+  align-items: center;
+  overflow: hidden;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tool-ticker__reel {
+    transition: none;
+  }
 }
 
 /* Conversation block rhythm. Scaffolding (tool / thinking) gets a roomy block
@@ -2379,4 +2411,27 @@ html {
   min-inline-size: 0;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
+}
+
+/* ─── Calm while resizing (opt-in) ───────────────────────────────────────────
+   `$calmDuringResize` in lib/resize-gesture.ts stamps `data-resizing` on <html>
+   once a resize gesture outlives its grace period. Throttling alone still lets
+   text re-wrap several times a second; this hides those intermediate steps
+   behind the last painted frame, so a drag reads as SETTLING rather than as the
+   content breaking apart and reassembling.
+
+   Deliberately not `content-visibility`: universal runs WebKitGTK, not Chromium,
+   and that is exactly the class of property that behaves differently there.
+   Opacity and suppressed motion are boring and portable.
+
+   Off by default — with the flag off the attribute is never written, so this
+   rule never matches and costs a selector nobody evaluates. */
+[data-resizing] [data-tree-body] {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+[data-resizing] [data-tree-body] * {
+  animation-play-state: paused !important;
+  transition: none !important;
 }

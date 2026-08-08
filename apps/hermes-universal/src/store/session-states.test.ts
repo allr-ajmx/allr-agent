@@ -1,5 +1,11 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
+import { registerTiles } from '@/components/pane-shell/tile/registry'
+import type { Tile } from '@/components/pane-shell/tile/types'
+import { group, split } from '@/components/pane-shell/tree/model'
+import { $activeTreeGroup, $layoutTree, noteActiveTreeGroup } from '@/components/pane-shell/tree/store'
+import { isChatPaneId, sessionTilePaneId, WORKSPACE_PANE_ID } from '@/lib/pane-ids'
+import { $activeStoredSessionId } from '@/store/session'
 import {
   $activeSessionKey,
   $sessionStates,
@@ -12,7 +18,17 @@ import {
   runtimeKeyForStoredSession,
   updateSession
 } from '@/store/session-state-types'
-import { clearAllSessionStates, MAX_CACHED_SESSIONS, pruneSessionStates } from '@/store/session-states'
+import {
+  $focusedChatPane,
+  $focusedCwd,
+  $sessionTiles,
+  clearAllSessionStates,
+  focusOpenSession,
+  focusWorkspaceSession,
+  MAX_CACHED_SESSIONS,
+  pruneSessionStates
+} from '@/store/session-states'
+import { $effectiveCwd, $workspaceCwd } from '@/store/workspace-events'
 
 const seed = (key: string, patch: Partial<ReturnType<typeof emptySessionState>> = {}) =>
   publishSessionState(key, { ...emptySessionState(patch.storedSessionId ?? key), runtimeSessionId: key, ...patch })
@@ -170,5 +186,182 @@ describe('pruneSessionStates', () => {
     pruneSessionStates()
 
     expect($sessionStates.get()['draft:9']).toBeDefined()
+  })
+})
+
+/**
+ * FOCUSING A CHAT that is already on screen (MJXHRM-6).
+ *
+ * `focusWorkspaceSession` is the workspace half of `focusOpenSession`, extracted
+ * so a NEW session and an EXISTING one land in the same end state. Both name the
+ * zone rather than `null`: the tab verbs read `$activeTreeGroup` raw, so a null
+ * zone leaves ⌥1-9 and ⌃Tab inert on tabs the user is looking at.
+ */
+describe('focusWorkspaceSession', () => {
+  const CHAT_GROUP = 'chat-zone'
+  const TOOL_GROUP = 'tool-zone'
+
+  let disposeTiles: (() => void) | null = null
+
+  const seedTree = (panes: string[], active = panes[0]) => {
+    disposeTiles?.()
+    disposeTiles = registerTiles(
+      [...panes, 'terminal'].map<Tile>(id => ({
+        id,
+        kind: isChatPaneId(id) ? 'chat' : 'tool',
+        title: id,
+        render: () => null,
+        placement: isChatPaneId(id) ? 'main' : 'bottom',
+        chrome: id === WORKSPACE_PANE_ID ? { uncloseable: true } : undefined
+      }))
+    )
+
+    $layoutTree.set(
+      split('row', [
+        group(panes, { active, id: CHAT_GROUP }),
+        group(['terminal'], { active: 'terminal', id: TOOL_GROUP })
+      ])
+    )
+  }
+
+  beforeEach(() => {
+    $sessionTiles.set([])
+    $activeStoredSessionId.set(null)
+    noteActiveTreeGroup(TOOL_GROUP)
+  })
+
+  afterEach(() => {
+    disposeTiles?.()
+    disposeTiles = null
+    $layoutTree.set(null)
+  })
+
+  it('claims the workspace zone when the chat is alone in it', () => {
+    seedTree([WORKSPACE_PANE_ID])
+
+    focusWorkspaceSession()
+
+    expect($activeTreeGroup.get()).toBe(CHAT_GROUP)
+  })
+
+  it('fronts the workspace tab when tiles share its zone', () => {
+    const tile = sessionTilePaneId('other')
+    seedTree([WORKSPACE_PANE_ID, tile], tile)
+
+    focusWorkspaceSession()
+
+    expect($activeTreeGroup.get()).toBe(CHAT_GROUP)
+  })
+
+  it('survives a tree that does not exist yet (mobile has no panes)', () => {
+    $layoutTree.set(null)
+
+    expect(() => focusWorkspaceSession()).not.toThrow()
+    expect($activeTreeGroup.get()).toBeNull()
+  })
+
+  // The main-pane branch used to leave the zone null, so clicking the sidebar
+  // row of the chat already in main left ⌃Tab unable to see its own strip.
+  it('is what focusOpenSession uses for the chat already in main', () => {
+    seedTree([WORKSPACE_PANE_ID])
+    $activeStoredSessionId.set('loaded')
+
+    expect(focusOpenSession('loaded')).toBe(true)
+    expect($activeTreeGroup.get()).toBe(CHAT_GROUP)
+  })
+})
+
+// The directory the workspace surfaces (file tree, review, terminal, statusbar)
+// describe. It used to be the SIDEBAR's selection, so tiling two chats side by
+// side left the file tree pinned to whichever one the sidebar last picked.
+describe('$focusedCwd', () => {
+  const CHAT_GROUP = 'chat-zone'
+  const FILES_GROUP = 'files-zone'
+  const paneA = sessionTilePaneId('a')
+  const paneB = sessionTilePaneId('b')
+
+  let disposeTiles: (() => void) | null = null
+
+  const seedTree = (active: string) => {
+    disposeTiles?.()
+    disposeTiles = registerTiles(
+      [paneA, paneB, 'files'].map<Tile>(id => ({
+        id,
+        kind: isChatPaneId(id) ? 'chat' : 'tool',
+        title: id,
+        render: () => null,
+        placement: isChatPaneId(id) ? 'main' : 'right'
+      }))
+    )
+
+    $layoutTree.set(
+      split('row', [
+        group([paneA, paneB], { active, id: CHAT_GROUP }),
+        group(['files'], { active: 'files', id: FILES_GROUP })
+      ])
+    )
+  }
+
+  beforeEach(() => {
+    $sessionTiles.set([])
+    $activeStoredSessionId.set(null)
+    $workspaceCwd.set('')
+    seed('rt-a', { cwd: '/proj/a', storedSessionId: 'a' })
+    seed('rt-b', { cwd: '/proj/b', storedSessionId: 'b' })
+  })
+
+  afterEach(() => {
+    disposeTiles?.()
+    disposeTiles = null
+    $layoutTree.set(null)
+    $workspaceCwd.set('')
+  })
+
+  it('follows the focused tile, not the sidebar selection', () => {
+    seedTree(paneA)
+    noteActiveTreeGroup(CHAT_GROUP)
+    expect($focusedCwd.get()).toBe('/proj/a')
+
+    seedTree(paneB)
+    expect($focusedCwd.get()).toBe('/proj/b')
+  })
+
+  // Clicking a folder in the tree notes the FILES zone as the interacted one.
+  // Without the chat-zone latch that fell back to the sidebar's pick, so the
+  // root jumped out from under the click that selected it.
+  it('does not move when a non-chat zone is interacted with', () => {
+    seedTree(paneB)
+    noteActiveTreeGroup(CHAT_GROUP)
+    noteActiveTreeGroup(FILES_GROUP)
+
+    expect($focusedCwd.get()).toBe('/proj/b')
+  })
+
+  it('falls back to the workspace root for a detached chat', () => {
+    seed('rt-a', { cwd: '', storedSessionId: 'a' })
+    seedTree(paneA)
+    noteActiveTreeGroup(CHAT_GROUP)
+    $workspaceCwd.set('/srv/workspace')
+
+    expect($focusedCwd.get()).toBe('')
+    expect($effectiveCwd.get()).toBe('/srv/workspace')
+  })
+
+  // Which composer typing lands in resolves through this pane id. It used to be
+  // a mount-order latch, so the tile that finished resuming last took the keys.
+  describe('$focusedChatPane', () => {
+    it('names the focused tile, and falls back to the workspace', () => {
+      seedTree(paneB)
+      noteActiveTreeGroup(CHAT_GROUP)
+      expect($focusedChatPane.get()).toBe(paneB)
+
+      // A non-chat zone does not move it; nothing focused reads as the workspace.
+      noteActiveTreeGroup(FILES_GROUP)
+      expect($focusedChatPane.get()).toBe(paneB)
+
+      $layoutTree.set(null)
+      noteActiveTreeGroup(null)
+      expect($focusedChatPane.get()).toBe(WORKSPACE_PANE_ID)
+    })
   })
 })

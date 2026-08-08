@@ -12,10 +12,10 @@ import { useI18n } from '@/i18n'
 import { normalizeOrLocalPreviewTarget } from '@/lib/local-preview'
 import { IS_MOBILE } from '@/lib/platform'
 import { cn } from '@/lib/utils'
-import { $currentCwd } from '@/store/chat'
 import { $panesFlipped, revealFileInTree } from '@/store/layout'
 import { notifyError } from '@/store/notifications'
 import { setCurrentSessionPreviewTarget } from '@/store/preview'
+import { $effectiveCwd } from '@/store/workspace-events'
 
 import { SidebarPanelLabel } from '../shell/sidebar-label'
 
@@ -36,13 +36,13 @@ export function RightSidebarPane({ onActivateFile, onActivateFolder, onFileOpene
   const { t } = useI18n()
   const r = t.rightSidebar
   const panesFlipped = useStore($panesFlipped)
-  const currentCwd = useStore($currentCwd).trim()
-
-  // The file tree is simply "browse the session's working directory". If the
-  // session has a cwd — a repo, a sibling worktree, or any folder — show it. A
-  // bare/detached chat (resolveNewSessionCwd → '') has none, so it shows the
-  // empty hint instead of whatever dir Hermes happens to run from.
-  const hasWorkspace = Boolean(currentCwd)
+  // "Browse the FOCUSED chat's working directory" — the tile you last clicked
+  // into, not whatever the left sidebar last selected. A bare/detached chat
+  // (resolveNewSessionCwd → '') has none, so `$effectiveCwd` hands back the
+  // backend workspace root instead of leaving the tree blank; it only stays
+  // empty during the boot window before that root has landed.
+  const cwd = useStore($effectiveCwd).trim()
+  const hasWorkspace = Boolean(cwd)
 
   const {
     collapseAll,
@@ -55,7 +55,7 @@ export function RightSidebarPane({ onActivateFile, onActivateFolder, onFileOpene
     rootError,
     rootLoading,
     setNodeOpen
-  } = useProjectTree(hasWorkspace ? currentCwd : '')
+  } = useProjectTree(cwd)
 
   const cwdName =
     effectiveCwd

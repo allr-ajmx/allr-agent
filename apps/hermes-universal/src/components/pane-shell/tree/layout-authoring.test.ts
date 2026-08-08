@@ -9,6 +9,7 @@ import { registry } from '@/contrib/registry'
 
 import { doMerge, initColumns, initGrid, initPriorityGrid, initRows, isGridValid, splitZone } from './grid-model'
 import { gridIsTreeExpressible, gridToTree } from './grid-to-tree'
+import { group, insertAtGroup } from './model'
 import { deleteUserPreset, isUserPreset, LAYOUTS_AREA, saveLayoutPresetTree } from './presets'
 
 const savedIds: string[] = []
@@ -119,5 +120,23 @@ describe('user presets', () => {
 
   it('refuses an unnamed preset rather than saving an id-less one', () => {
     expect(saveLayoutPresetTree('   ', { id: 'g', panes: [], active: '', type: 'group' })).toBeNull()
+  })
+})
+
+describe('insertAtGroup into a minimized zone', () => {
+  const target = () => group(['files'], { id: 'z', minimized: true })
+
+  it('un-minimizes on a GESTURE drop — the pane must not land behind the strip', () => {
+    const tree = insertAtGroup(target(), 'z', 'terminal', 'center')
+
+    expect(tree?.type === 'group' && tree.minimized).toBeUndefined()
+    expect(tree?.type === 'group' && tree.active).toBe('terminal')
+  })
+
+  it('stays minimized on SILENT adoption — boot must not re-open collapsed zones', () => {
+    const tree = insertAtGroup(target(), 'z', 'terminal', 'center', null, false)
+
+    expect(tree?.type === 'group' && tree.minimized).toBe(true)
+    expect(tree?.type === 'group' && tree.active).toBe('files')
   })
 })

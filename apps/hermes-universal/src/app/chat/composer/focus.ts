@@ -11,6 +11,7 @@
  */
 
 import { queryVisible } from '@/components/pane-shell/pane-visibility'
+import { storedIdFromTilePane } from '@/lib/pane-ids'
 
 import type { InlineRefInput } from './inline-refs'
 import { RICH_INPUT_SLOT } from './rich-editor'
@@ -22,6 +23,10 @@ export type ComposerInsertMode = 'block' | 'inline'
 
 interface FocusDetail {
   target: ComposerTarget
+  /** The printable character that triggered a type-to-focus, appended to the
+   *  draft on arrival. Absent for a bare focus request (soft Enter, a panel
+   *  handing focus back), which just focuses without typing. */
+  typeChar?: string
 }
 
 interface InsertDetail {
@@ -80,12 +85,23 @@ export const markActiveComposer = (target: ComposerTarget) => {
   activeTarget = target
 }
 
+/** The composer a chat PANE owns: a tile's own, or `main` for the workspace.
+ *  How the focused zone (`$focusedChatPane`) names the composer `'active'`
+ *  resolves to — wired in app/contrib/controller. */
+export const composerTargetForPane = (paneId: string): ComposerTarget => {
+  const stored = storedIdFromTilePane(paneId)
+
+  return stored ? `tile:${stored}` : 'main'
+}
+
 /** The composer that last held focus — the target `'active'` resolves to.
  *  Used by broadcast listeners (voice, Esc-to-stop) to act on exactly one. */
 export const getActiveComposer = (): ComposerTarget => activeTarget
 
-export const requestComposerFocus = (target: ComposerTarget | 'active' = 'active') =>
-  dispatch<FocusDetail>(FOCUS_EVENT, { target: resolve(target) })
+export const requestComposerFocus = (
+  target: ComposerTarget | 'active' = 'active',
+  { typeChar }: { typeChar?: string } = {}
+) => dispatch<FocusDetail>(FOCUS_EVENT, { target: resolve(target), typeChar })
 
 export const requestComposerInsert = (
   text: string,
@@ -100,8 +116,8 @@ export const requestComposerInsert = (
   dispatch<InsertDetail>(INSERT_EVENT, { mode, target: resolve(target), text: trimmed })
 }
 
-export const onComposerFocusRequest = (handler: (target: ComposerTarget) => void) =>
-  subscribe<FocusDetail>(FOCUS_EVENT, ({ target }) => handler(target))
+export const onComposerFocusRequest = (handler: (detail: FocusDetail) => void) =>
+  subscribe<FocusDetail>(FOCUS_EVENT, handler)
 
 export const onComposerInsertRequest = (handler: (detail: InsertDetail) => void) =>
   subscribe<InsertDetail>(INSERT_EVENT, handler)
@@ -164,6 +180,26 @@ export const focusComposerInput = (el: HTMLElement | null) => {
   focus()
   window.requestAnimationFrame(focus)
   window.setTimeout(focus, 0)
+}
+
+/**
+ * Is the caret in some OTHER live editor right now?
+ *
+ * Guards a composer that mounts LATE from stealing focus off one the user is
+ * already in. A session tile is saved with no runtime id, so `TileChat` mounts
+ * only once its async resume lands — hundreds of ms after the ⌘T that parked it
+ * — and its autofocus arrived long after the fresh chat had rightfully taken the
+ * caret (MJXHRM-6). Same rule keeps opening a tile mid-sentence from eating what
+ * you were typing. An EXPLICIT request over the focus bus still always wins.
+ */
+export const focusHeldByOtherEditor = (self: HTMLElement | null): boolean => {
+  const el = typeof document === 'undefined' ? null : document.activeElement
+
+  return (
+    el instanceof HTMLElement &&
+    el !== self &&
+    (el.isContentEditable || el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)
+  )
 }
 
 /** Drop focus from the main composer input (status-stack chrome, sidebar, etc.). */

@@ -94,3 +94,19 @@ describe('comboAllowedInInput', () => {
     expect(comboAllowedInInput('alt+shift+i')).toBe(true)
   })
 })
+
+// A capital letter must reach the composer even when a shortcut claims that
+// chord — `shift+n` (New session) made a message starting with N untypable.
+describe('isShiftPrintableCombo', () => {
+  it('matches shift plus one character, not the named keys', async () => {
+    const { isShiftPrintableCombo } = await loadCombo('MacIntel')
+
+    expect(isShiftPrintableCombo('shift+n')).toBe(true)
+    expect(isShiftPrintableCombo('shift+1')).toBe(true)
+    expect(isShiftPrintableCombo('shift+/')).toBe(true)
+    expect(isShiftPrintableCombo('shift+enter')).toBe(false)
+    expect(isShiftPrintableCombo('shift+tab')).toBe(false)
+    expect(isShiftPrintableCombo('mod+shift+n')).toBe(false)
+    expect(isShiftPrintableCombo('n')).toBe(false)
+  })
+})

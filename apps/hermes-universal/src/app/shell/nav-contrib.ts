@@ -23,15 +23,12 @@ import { PALETTE_AREA } from '@/app/command-palette/contrib'
 import {
   ARTIFACTS_ROUTE,
   MESSAGING_ROUTE,
-  NEW_CHAT_ROUTE,
   SIDEBAR_NAV_AREA,
   type SidebarNavContribution,
   SKILLS_ROUTE
 } from '@/app/routes'
 import { registry } from '@/contrib/registry'
-import { IS_MOBILE } from '@/lib/platform'
-import { newChatBubble } from '@/store/chat-bubbles'
-import { newSession } from '@/store/session'
+import { startNewSession } from '@/store/new-session'
 import { openAppRoute } from '@/store/windows'
 
 import { NAV_ACTION_BY_VIEW, NAV_ITEMS } from './nav-items'
@@ -45,6 +42,7 @@ registry.registerMany(
       action: NAV_ACTION_BY_VIEW[item.view],
       icon: item.icon,
       id: `nav.${item.view}`,
+      keywords: item.keywords,
       labelKey: `nav.${item.labelKey}`,
       // Promote Settings / Command Center to their native activity on Android;
       // everything else navigates in-app (openAppRoute decides).
@@ -54,18 +52,6 @@ registry.registerMany(
     order: -1000 + index * 10
   }))
 )
-
-/** New session: a parallel bubble on phones (don't replace the chat on screen),
- *  a plain new session on desktop. Then land on the draft route. */
-function startNewSession() {
-  if (IS_MOBILE) {
-    newChatBubble()
-  } else {
-    newSession()
-  }
-
-  openAppRoute(NEW_CHAT_ROUTE)
-}
 
 const RAIL_ROWS: Array<SidebarNavContribution & { id: string }> = [
   // No `view`: New session is an action, not a destination — it never lights up

@@ -28,8 +28,11 @@ import {
   $sessions,
   $sessionsLimit,
   $sessionsTotal,
+  $unreadFinishedSessionIds,
   branchCurrentSession,
+  clearUnreadFinishedSession,
   deleteSessionLocal,
+  loadMoreSessions,
   openSession,
   refreshSessions,
   renameSessionLocal,
@@ -44,6 +47,7 @@ afterEach(() => {
   $sessions.set([])
   $sessionsTotal.set(0)
   $activeStoredSessionId.set(null)
+  $unreadFinishedSessionIds.set([])
   $showAllProfiles.set(false)
   $activeProfile.set(null)
   resetSessionsPaging()
@@ -332,5 +336,79 @@ describe('refreshSessions — profile scope', () => {
 
     expect(listAllProfileSessions).toHaveBeenCalledWith($sessionsLimit.get(), 1, 'exclude', 'recent', 'default')
     expect($sessionsTotal.get()).toBe(7)
+  })
+})
+
+describe('loadMoreSessions', () => {
+  const page = (sessions: SessionInfo[], over: Partial<PaginatedSessions> = {}): PaginatedSessions =>
+    ({ limit: 30, offset: 0, sessions, total: 7, ...over }) as PaginatedSessions
+
+  it('asks for the NEXT page by offset and appends it', async () => {
+    $sessions.set([row('a', 'A'), row('b', 'B')])
+    vi.mocked(listAllProfileSessions).mockResolvedValue(page([row('c', 'C')]))
+
+    await loadMoreSessions()
+
+    // offset = rows already loaded; the window is not re-fetched.
+    expect(listAllProfileSessions).toHaveBeenCalledWith(30, 1, 'exclude', 'recent', 'default', {}, 2)
+    expect($sessions.get().map(s => s.id)).toEqual(['a', 'b', 'c'])
+    expect($sessionsLimit.get()).toBe(3)
+  })
+
+  // Ordering is by recency, so a session that gets a message between the two
+  // fetches slides into the earlier page and would otherwise render twice.
+  it('drops a row that shifted into the previous page', async () => {
+    $sessions.set([row('a', 'A'), row('b', 'B')])
+    vi.mocked(listAllProfileSessions).mockResolvedValue(page([row('b', 'B'), row('c', 'C')]))
+
+    await loadMoreSessions()
+
+    expect($sessions.get().map(s => s.id)).toEqual(['a', 'b', 'c'])
+  })
+
+  it('keeps the loaded rows when the next page comes back empty', async () => {
+    $sessions.set([row('a', 'A')])
+    vi.mocked(listAllProfileSessions).mockResolvedValue(page([]))
+
+    await loadMoreSessions()
+
+    expect($sessions.get().map(s => s.id)).toEqual(['a'])
+    expect($sessionsLimit.get()).toBe(1)
+  })
+
+  it('keeps the loaded rows when the fetch fails', async () => {
+    $sessions.set([row('a', 'A')])
+    vi.mocked(listAllProfileSessions).mockRejectedValue(new Error('offline'))
+
+    await loadMoreSessions()
+
+    expect($sessions.get().map(s => s.id)).toEqual(['a'])
+  })
+})
+
+describe('unread-finished tracking', () => {
+  it('clears a session id the moment it becomes the active session', () => {
+    $unreadFinishedSessionIds.set(['stored-a', 'stored-b'])
+
+    $activeStoredSessionId.set('stored-a')
+
+    expect($unreadFinishedSessionIds.get()).toEqual(['stored-b'])
+  })
+
+  it('leaves the set alone when the chat goes back to a fresh draft', () => {
+    $unreadFinishedSessionIds.set(['stored-a'])
+
+    $activeStoredSessionId.set(null)
+
+    expect($unreadFinishedSessionIds.get()).toEqual(['stored-a'])
+  })
+
+  it('keeps the same array reference when the id was never unread', () => {
+    const before = ['stored-a']
+    $unreadFinishedSessionIds.set(before)
+
+    clearUnreadFinishedSession('stored-z')
+
+    expect($unreadFinishedSessionIds.get()).toBe(before)
   })
 })

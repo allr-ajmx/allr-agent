@@ -14,7 +14,8 @@ import {
 import {
   type ComposerInsertMode,
   focusComposerInput,
-  markActiveComposer,
+  focusHeldByOtherEditor,
+  getActiveComposer,
   onComposerFocusRequest,
   onComposerInsertRefsRequest,
   onComposerInsertRequest
@@ -99,10 +100,12 @@ export function useComposerDraft({
 
   const [focusRequestId, setFocusRequestId] = useState(0)
 
+  // Focus only. Marking the active composer is NOT this function's job: a real
+  // focus fires `onFocus` on the input, which marks — while a mount-time call
+  // marking would hand every keystroke to whichever tile resumed last.
   const focusInput = useCallback(() => {
     focusComposerInput(editorRef.current)
-    markActiveComposer(target)
-  }, [target])
+  }, [])
 
   const requestMainFocus = useCallback(() => {
     setFocusRequestId(id => id + 1)
@@ -147,21 +150,58 @@ export function useComposerDraft({
     [paintDraft]
   )
 
+  // Autofocus on mount and on a session swap.
   useEffect(() => {
-    if (!inputDisabled) {
+    if (inputDisabled) {
+      return
+    }
+
+    // Only the FOCUSED chat's composer may claim the caret on arrival. Tiles
+    // arrive on their own schedule — `openSessionTile` saves one with no runtime
+    // id, so its composer mounts once the async resume lands, long after the ⌘T
+    // that created the tab (MJXHRM-6) — and with several tiles open the last one
+    // home would otherwise win every keystroke. The focused zone already names
+    // the chat the user is in, and it names it BEFORE the mount (`focusDraftTile`
+    // claims the zone as the tab is created), so a fresh tab still autofocuses.
+    if (target !== getActiveComposer()) {
+      return
+    }
+
+    // Same target, but an editor the user is already in (the edit composer
+    // inside this chat) holds the caret: arriving is not a reason to take it.
+    if (focusHeldByOtherEditor(editorRef.current)) {
+      return
+    }
+
+    focusInput()
+  }, [focusInput, focusKey, inputDisabled, target])
+
+  // An explicit request over the focus bus is unconditional — it is someone
+  // saying "put the caret here", not a component announcing its arrival.
+  useEffect(() => {
+    if (!inputDisabled && focusRequestId > 0) {
       focusInput()
     }
-  }, [focusInput, focusKey, focusRequestId, inputDisabled])
+  }, [focusInput, focusRequestId, inputDisabled])
 
   useEffect(() => {
     if (inputDisabled) {
       return undefined
     }
 
-    const offFocus = onComposerFocusRequest(requested => {
-      if (requested === target) {
-        setFocusRequestId(id => id + 1)
+    const offFocus = onComposerFocusRequest(({ target: requested, typeChar }) => {
+      if (requested !== target) {
+        return
       }
+
+      // Type-to-focus appends at end; bare Enter just focuses.
+      if (typeChar) {
+        paintDraft(`${draftRef.current}${typeChar}`, true)
+
+        return
+      }
+
+      setFocusRequestId(id => id + 1)
     })
 
     const offInsert = onComposerInsertRequest(({ mode, target: requested, text }) => {
@@ -174,7 +214,7 @@ export function useComposerDraft({
       offFocus()
       offInsert()
     }
-  }, [appendExternalText, inputDisabled, target])
+  }, [appendExternalText, inputDisabled, paintDraft, target])
 
   const stashAt = (scope: string | null, text = draftRef.current, attachments = attachmentScope.$attachments.get()) =>
     stashSessionDraft(scope, text, attachments)

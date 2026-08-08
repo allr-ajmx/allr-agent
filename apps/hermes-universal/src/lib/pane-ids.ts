@@ -14,6 +14,24 @@ export const TILE_PANE_PREFIX = 'session-tile:'
 /** The main workspace pane — the chat that is not a tile. */
 export const WORKSPACE_PANE_ID = 'workspace'
 
+/**
+ * Stand-in stored id for the ONE unsaved chat.
+ *
+ * A draft has no stored id, and the tile layer is keyed by one — so without a
+ * placeholder the only chat that cannot be a tile is the new one, which is
+ * exactly the special-casing being removed. The gateway issues real ids, and
+ * they are uuid-like, so `draft` cannot collide with one.
+ *
+ * It is a real pane id for as long as the chat is unsaved, then RENAMED in place
+ * to the issued id (`renameTreePane`) so the tile keeps its slot, its width and
+ * its active state across the first message.
+ */
+export const DRAFT_TILE_KEY = 'draft'
+
+export const DRAFT_TILE_PANE_ID = `${TILE_PANE_PREFIX}${DRAFT_TILE_KEY}`
+
+export const isDraftTileKey = (storedSessionId: string): boolean => storedSessionId === DRAFT_TILE_KEY
+
 export const sessionTilePaneId = (storedSessionId: string): string => `${TILE_PANE_PREFIX}${storedSessionId}`
 
 /** The stored session id a tile pane names, or null if it isn't a tile pane. */

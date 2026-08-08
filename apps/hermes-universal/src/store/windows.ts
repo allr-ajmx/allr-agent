@@ -17,26 +17,59 @@ import { notifyError } from '@/store/notifications'
 // composer popout/metrics hooks).
 
 const SECONDARY_WINDOW_FLAG = 'secondary'
+const TILE_WINDOW_FLAG = 'tile'
 
-let secondaryWindowCache: boolean | null = null
-
-export function isSecondaryWindow(): boolean {
-  if (secondaryWindowCache !== null) {
-    return secondaryWindowCache
-  }
-
-  let result = false
-
+/** Read `?win=` once. Everything below is derived from it, so a bad/absent
+ *  search string degrades to "primary window" in one place. */
+function winFlag(): null | string {
   try {
-    result = new URLSearchParams(window.location.search).get('win') === SECONDARY_WINDOW_FLAG
+    return new URLSearchParams(window.location.search).get('win')
   } catch {
-    result = false
+    return null
+  }
+}
+
+let tileWindowCache: boolean | null = null
+
+/**
+ * True in a SATELLITE window that hosts exactly one tile — the
+ * `placement: 'detached'` host (MJXHRM-173).
+ *
+ * `?win=secondary` counts. It was the chat-only pop-out's flag before the tile
+ * window generalized it, and a URL is a contract: an already-open window and any
+ * stored link keep working. Only the code path behind them was unified.
+ */
+export function isTileWindow(): boolean {
+  if (tileWindowCache !== null) {
+    return tileWindowCache
   }
 
-  secondaryWindowCache = result
+  const flag = winFlag()
 
-  return result
+  tileWindowCache = flag === TILE_WINDOW_FLAG || flag === SECONDARY_WINDOW_FLAG
+
+  return tileWindowCache
 }
+
+/** The tile this window hosts, or null when the URL doesn't name one (a legacy
+ *  `?win=secondary` pop-out — its target is the SESSION in the route). */
+export function detachedTileId(): null | string {
+  try {
+    return new URLSearchParams(window.location.search).get('tile')
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Whether this window should stand down from owning the app's persisted state.
+ *
+ * Every consumer of this asks exactly that — should I write the layout tree, the
+ * session tiles, the chat bubbles, the composer pop-out? — and the answer for a
+ * tile window is the same "no" it was for the chat pop-out. Hence one predicate
+ * that widened rather than nine call sites renamed.
+ */
+export const isSecondaryWindow = isTileWindow
 
 // --------------------------------------------------------------------------
 // Activity screens (MJX-141 Android / MJX-176 iOS). Windowable surfaces (Settings,
@@ -252,6 +285,51 @@ export async function openSessionInNewWindow(sessionId: string, opts?: { watch?:
     'Could not open chat in a new window'
   )
 }
+
+/**
+ * Open one TILE in its own native window. Returns the window's LABEL, which is
+ * how a close is matched back to a tile: the label is slugged from the id, so
+ * having Rust hand it back beats either side reimplementing the other's slug.
+ * Null when the open failed or the platform has no second window.
+ */
+export async function openTileWindow(
+  tileId: string,
+  opts?: { sessionId?: string; watch?: boolean }
+): Promise<null | string> {
+  if (!tileId || !canOpenNewWindow()) {
+    return null
+  }
+
+  try {
+    return await invoke<string>('open_tile_window', {
+      tileId,
+      sessionId: opts?.sessionId ?? null,
+      watch: opts?.watch ?? false
+    })
+  } catch (err) {
+    notifyError(err, 'Could not open the tile in a new window')
+
+    return null
+  }
+}
+
+/** Close a detached tile's window by the label `openTileWindow` returned. A
+ *  window the user already closed is not an error — the reattach that follows
+ *  is the point, and it has already happened. */
+export async function closeTileWindow(label: string): Promise<void> {
+  try {
+    const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow')
+
+    await WebviewWindow.getByLabel(label).then(win => win?.close())
+  } catch {
+    // Already gone, or no window system here.
+  }
+}
+
+/** Fires when a detached tile's window is destroyed, with that window's label.
+ *  Emitted natively (see `src-tauri/src/window.rs`) because a torn-down webview
+ *  is the least reliable place to send a message from. */
+export const TILE_WINDOW_CLOSED_EVENT = 'hermes://tile-window-closed'
 
 export async function openNewWindow(): Promise<void> {
   if (!canOpenNewWindow()) {

@@ -304,6 +304,43 @@ export async function updateProject(
   )
 }
 
+/**
+ * Set a project's color and/or icon.
+ *
+ * An INHERITED project (`isAuto`) is a git repo root the backend promoted into
+ * the tree with no `projects.db` row behind it — there is no id to PATCH. So
+ * theming one MATERIALIZES it into a real project, carrying whichever of
+ * color/icon was already set so setting one doesn't wipe the other.
+ *
+ * Ported from desktop `store/projects.ts#setProjectAppearance`. Returns whether
+ * a project was materialized, so callers can react to the tree gaining a row.
+ */
+export async function setProjectAppearance(
+  project: Pick<SidebarProjectTree, 'color' | 'icon' | 'id' | 'isAuto' | 'label' | 'path'>,
+  patch: { color?: null | string; icon?: null | string }
+): Promise<boolean> {
+  if (!project.isAuto) {
+    await updateProject(project.id, patch)
+
+    return false
+  }
+
+  // An auto node with no path has nothing to anchor a real project to.
+  if (!project.path) {
+    return false
+  }
+
+  await createProject({
+    name: project.label,
+    folders: [project.path],
+    primaryPath: project.path,
+    color: (patch.color ?? project.color) || undefined,
+    icon: (patch.icon ?? project.icon) || undefined
+  })
+
+  return true
+}
+
 export async function addProjectFolder(
   id: string,
   path: string,

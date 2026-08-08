@@ -12,7 +12,7 @@ import shared from '../../eslint.config.shared.mjs'
 // (`data-[state=open]:animate-in`), so an `^`-anchored pattern silently never
 // matches the ones that carry a variant.
 const HAND_WRITTEN_CSS_CLASSES =
-  /(^|:)(arc-border|aui-(md|md-table|prose-fence|shiki)|brand|chat|codicon(-modifier-spin)?|composer-bars|connect(-card|-title)?|desktop-input-chrome|dither|katex-host|particle(-field|__glyph|__sway)?|progress-slide|quest-glow|shimmer|sticky-human-clamp|thinking-preview|thread-jump-button|tool-group-scroll(--faded)?)$/
+  /(^|:)(arc-border|aui-(md|md-table|prose-fence|shiki)|brand|chat|codicon(-modifier-spin)?|composer-bars|connect(-card|-title)?|desktop-input-chrome|dither|katex-host|particle(-field|__glyph|__sway)?|progress-slide|quest-glow|shimmer|sticky-human-clamp|thinking-preview|thread-jump-button|tool-group-scroll(--faded)?|tool-ticker(__reel|__row)?)$/
 
 // ponytail: quarantined debt, not exemptions — these resolve to nothing today.
 // Listing them keeps the rule at `error` so a NEW typo fails the build now,

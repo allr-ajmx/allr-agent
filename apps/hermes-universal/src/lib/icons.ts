@@ -13,6 +13,7 @@ export {
   // Notification toasts (Track I)
   IconAlertCircle as AlertCircle,
   IconAlertTriangle as AlertTriangle,
+  IconAppWindow as AppWindow,
   IconArchive as Archive,
   IconArchiveOff as ArchiveOff,
   // Composer (Phase 7 chat-UI port) — aliased to the exact names the desktop
@@ -47,6 +48,7 @@ export {
   IconCreditCard as CreditCard,
   IconDownload as Download,
   // Memory provider panels (config sections port)
+  IconEgg as Egg,
   IconExternalLink as ExternalLink,
   IconEye as Eye,
   IconEyeOff as EyeOff,
@@ -68,6 +70,7 @@ export {
   IconInfoCircle as Info,
   IconKey as Key,
   IconKeyboard as Keyboard,
+  IconKey as KeyRound,
   IconLayersIntersect2 as Layers3,
   IconLayoutDashboard as LayoutDashboard,
   IconLayoutGrid as LayoutGrid,
@@ -89,6 +92,9 @@ export {
   IconMessage2 as MessageSquareText,
   IconMicrophone as Mic,
   IconDeviceDesktop as Monitor,
+  // Desktop uses lucide's MonitorPlay for the link-preview attachment; tabler's
+  // nearest "a screen showing something" glyph is the TV.
+  IconDeviceTv as MonitorPlay,
   IconMoon as Moon,
   IconDotsVertical as MoreVertical,
   // Notifications completion-sound preview
@@ -107,8 +113,10 @@ export {
   IconRefresh as RefreshCw,
   IconDeviceFloppy as Save,
   IconSearch as Search,
+  IconSearch as SearchIcon,
   IconSend as Send,
   IconSettings as Settings,
+  IconSettings2 as Settings2,
   IconAdjustmentsHorizontal as SlidersHorizontal,
   IconSparkles as Sparkles,
   IconSquare as Square,

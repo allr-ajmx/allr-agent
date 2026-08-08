@@ -16,7 +16,7 @@ import { triggerHaptic } from '@/lib/haptics'
 import { IS_MOBILE } from '@/lib/platform'
 import { cn } from '@/lib/utils'
 import { useStore } from '@/store/atom'
-import { openCommandMenu } from '@/store/command-menu'
+import { openCommandPalette } from '@/store/command-palette'
 import { $bindings, bindingsFor } from '@/store/keybinds'
 import { NEW_SESSION_FLASH_EVENT } from '@/store/layout'
 import { openRouteTile } from '@/store/route-tiles'
@@ -199,7 +199,7 @@ export function SidebarNavRail({ variant, onNavigate }: { variant: 'pane' | 'she
             <button
               className={cn(ROW_BASE, 'mt-1')}
               onClick={() => {
-                openCommandMenu()
+                openCommandPalette()
                 onNavigate?.()
               }}
               type="button"

@@ -10,13 +10,13 @@ import { useStore } from '@nanostores/react'
 import { type PointerEvent as ReactPointerEvent, useCallback, useMemo, useRef, useSyncExternalStore } from 'react'
 
 import { rafCoalesce } from '@/lib/raf-coalesce'
+import { beginResizeGesture, endResizeGesture } from '@/lib/resize-gesture'
 import { cn } from '@/lib/utils'
 import { $paneStates, type PaneStateSnapshot, setPaneHeightOverride, setPaneWidthOverride } from '@/store/panes'
 
 import { $layoutEditMode } from '../../edit-mode'
-import { beginSashDrag, endSashDrag } from '../../geometry'
 import { type EnclosureContext, zoneEnclosure } from '../../tile/enclosure'
-import { useTiles } from '../../tile/registry'
+import { useTileMap } from '../../tile/registry'
 import { tileAxisLength, tileClamps } from '../../tile/sizing'
 import type { TileSizing } from '../../tile/types'
 import { type TileContext, tileGone } from '../../tile/visibility'
@@ -37,11 +37,12 @@ import {
   edgeFixedZone,
   fixedTrackSize,
   MIN_PANE_PX,
+  previewGrow,
   resolveCssPx,
   shownPaneIds,
   type TrackContext
 } from './track-model'
-import { TreeNode } from './tree-node'
+import { type FoldContext, TreeNode } from './tree-node'
 
 /**
  * The size overrides for a fixed set of panes, referentially stable until one
@@ -68,9 +69,19 @@ function useSubtreeOverrides(paneIds: readonly string[]): TrackContext['override
   return useSyncExternalStore(cb => $paneStates.listen(cb), snapshot, snapshot)
 }
 
-export function TreeSplit({ node, root, rootRow }: { node: SplitNode; root?: boolean; rootRow?: boolean }) {
+export function TreeSplit({
+  folded,
+  node,
+  root,
+  rootRow
+}: {
+  folded?: FoldContext
+  node: SplitNode
+  root?: boolean
+  rootRow?: boolean
+}) {
   const containerRef = useRef<HTMLDivElement>(null)
-  const panes = useTiles()
+  const byId = useTileMap()
   const hiddenPanes = useStore($hiddenTreePanes)
   const narrow = useStore($narrowViewport)
   const subtreePanes = useMemo(() => allPaneIds(node), [node])
@@ -80,7 +91,12 @@ export function TreeSplit({ node, root, rootRow }: { node: SplitNode; root?: boo
   const overrides = useSubtreeOverrides(subtreePanes)
   const editMode = useStore($layoutEditMode)
   const collapsedSides = useStore($collapsedTreeSides)
-  const horizontal = node.orientation === 'row'
+  // Inside a fold this split IS a strip, so it lays its (all-minimized) zones
+  // out along the OUTER fold axis — a folded column inside a row stacks its
+  // rails vertically, i.e. across the fold. `axis` stays the literal
+  // orientation for the track context: every child hits the minimized branch
+  // while folded, so it is inert there.
+  const horizontal = folded ? folded.axis === 'column' : node.orientation === 'row'
   const axis = node.orientation
 
   // When the root is a column (Terminal deck, Quad), the root ROW — the one
@@ -102,7 +118,7 @@ export function TreeSplit({ node, root, rootRow }: { node: SplitNode; root?: boo
   // runtime plugin's pane collapses until the plugin loads, then appears; no
   // placeholder flash — when a chrome toggle hides it, or when the viewport
   // is narrow and the pane is collapsible (edge overlay instead).
-  const paneFor = (id: string) => panes.find(p => p.id === id)
+  const paneFor = (id: string) => byId.get(id)
 
   // Layout-edit mode forces toggle-hidden panes (terminal off, review/preview
   // closed) visible so they're rearrangeable — only truly-absent (unregistered)
@@ -126,22 +142,23 @@ export function TreeSplit({ node, root, rootRow }: { node: SplitNode; root?: boo
     tileFor: paneFor
   }
 
-  // Min/max clamps come from a direct GROUP child's panes (the same clamps
-  // the app's Pane props express) — but ONLY when they can speak for the
-  // zone: a fixed track (pure sidebar stack) or a single-pane zone. A sidebar
-  // pane fronted in a mixed flex stack must not cap it. A fixed STACK
-  // aggregates its panes' clamps (largest-tenant semantics, mirroring the
-  // max() track basis) — the active tab's caps must never resize the zone.
-  const sizingFor = (child: LayoutNode, track: string | null): TileSizing | null => {
+  // Min/max clamps come from a direct GROUP child's panes (the same clamps the
+  // app's Pane props express), aggregated with largest-tenant semantics that
+  // mirror the max() track basis — the active tab's clamps must never resize
+  // the zone.
+  //
+  // A multi-pane FLEX zone used to bail out here and get no clamps at all, so
+  // that a sidebar pane fronted in a mixed flex stack could not cap it. But
+  // `tileClamps` already guarantees exactly that — a cap survives only when
+  // EVERY tenant declares one, so a single uncapped tenant uncaps the zone —
+  // and the bail also threw away the FLOOR, which is why a chat zone with two
+  // tabs could be crushed to a sliver despite its panes declaring `minWidth`.
+  const sizingFor = (child: LayoutNode): TileSizing | null => {
     if (child.type !== 'group' || child.panes.length === 0) {
       return null
     }
 
     const shownIds = shownPaneIds(child, trackCtx)
-
-    if (track === null && shownIds.length !== 1) {
-      return null
-    }
 
     if (shownIds.length <= 1) {
       return paneFor(shownIds[0])?.sizing ?? null
@@ -229,10 +246,11 @@ export function TreeSplit({ node, root, rootRow }: { node: SplitNode; root?: boo
 
       document.body.style.cursor = horizontal ? 'col-resize' : 'row-resize'
       document.body.style.userSelect = 'none'
-      // Suppress the :root geometry-var writes for the gesture (see
-      // geometry.ts — each one restyles the whole document, and the workspace
-      // ResizeObserver fires every frame of a drag). They republish on release.
-      beginSashDrag()
+      // Open the resize gesture: it suppresses the :root geometry-var writes
+      // (geometry.ts — each restyles the whole document) and throttles every
+      // ResizeObserver reaction downstream of the width change, both of which
+      // otherwise run every frame of the drag. Released in `cleanup`.
+      beginResizeGesture()
 
       // Exactly what React last rendered onto the two wrappers, captured BEFORE
       // the first preview write. Only needed for the zero-movement click: no
@@ -240,6 +258,13 @@ export function TreeSplit({ node, root, rootRow }: { node: SplitNode; root?: boo
       // the preview and the seam would stay where the pointer grazed it.
       const styleA = kidA.getAttribute('style')
       const styleB = kidB.getAttribute('style')
+
+      // The two sides' share of the run's grow pool, read from what React last
+      // rendered. A flex-vs-flex preview MOVES grow between them rather than
+      // replacing it (see previewSide), so this total is the invariant the
+      // whole drag preserves.
+      const growOf = (el: HTMLElement) => Number.parseFloat(window.getComputedStyle(el).flexGrow) || 0
+      const growTotal = growOf(kidA) + growOf(kidB)
 
       /**
        * Move one side of the seam by writing inline style — no store, no
@@ -251,15 +276,25 @@ export function TreeSplit({ node, root, rootRow }: { node: SplitNode; root?: boo
        *    remainder exactly as the track model would have rendered it —
        *    writing both sides here produced a phantom gap where a hidden
        *    sidebar lived.
-       *  - a FLEX-vs-FLEX seam pins both sides to `0 1 <px>`. Their combined
-       *    px is constant, so other flex tracks in the same run see an
-       *    unchanged leftover.
+       *  - a FLEX-vs-FLEX seam SPLITS the pair's grow by the new px ratio.
+       *    This used to pin both sides to `0 1 <px>`, on the reasoning that
+       *    their combined px is constant so the rest of the run sees an
+       *    unchanged leftover. True of the leftover, false of who claims it:
+       *    `grow(i)` (below) normalizes the run's grows to sum to 1, so
+       *    zeroing two of them left the survivors claiming a FRACTION of the
+       *    free space and the remainder claimed by nobody — a blank band at
+       *    the end of the flex line for the length of the drag. Invisible
+       *    with exactly two flex tracks (the pair IS the run); any third one
+       *    leaks. Redistributing keeps the sum at `growTotal`, so the run
+       *    still claims 100% and the preview matches what the commit renders.
        */
       const previewSide = (el: HTMLElement, fixed: boolean, px: number) => {
         if (fixed) {
           el.style.flexBasis = `${px}px`
         } else if (!a.fixed && !b.fixed) {
-          el.style.flex = `0 1 ${px}px`
+          const g = previewGrow(growTotal, px, a0px + b0px)
+
+          el.style.flex = `${g} ${g} 0px`
         }
       }
 
@@ -326,8 +361,9 @@ export function TreeSplit({ node, root, rootRow }: { node: SplitNode; root?: boo
 
         // AFTER the final store write above — re-enabling first would publish
         // the pre-commit geometry and then take a second RO-driven publish
-        // immediately after. Ordering is load-bearing.
-        endSashDrag()
+        // immediately after. Ordering is load-bearing, and it is also what makes
+        // the throttle's end-of-gesture flush see the committed sizes.
+        endResizeGesture()
         document.body.style.cursor = restoreCursor
         document.body.style.userSelect = restoreSelect
 
@@ -349,7 +385,7 @@ export function TreeSplit({ node, root, rootRow }: { node: SplitNode; root?: boo
     },
     // trackCtx is derived state rebuilt per render; the drag captures it once.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [axis, editMode, horizontal, node.children, node.id, node.weights, hiddenPanes, narrow, overrides, panes]
+    [axis, editMode, horizontal, node.children, node.id, node.weights, hiddenPanes, narrow, overrides, byId]
   )
 
   // Double-click a sash: every neighbor returns to its DEFAULT size.
@@ -427,7 +463,7 @@ export function TreeSplit({ node, root, rootRow }: { node: SplitNode; root?: boo
       setTreeSplitWeights(node.id, !preset && !pinned ? weights.map(() => 1) : weights)
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [axis, editMode, horizontal, node.children, node.id, node.weights, hiddenPanes, narrow, overrides, panes]
+    [axis, editMode, horizontal, node.children, node.id, node.weights, hiddenPanes, narrow, overrides, byId]
   )
 
   // One pass per child: enclosure, resolved fixed track and clamps.
@@ -436,7 +472,7 @@ export function TreeSplit({ node, root, rootRow }: { node: SplitNode; root?: boo
   const tracks = node.children.map(child => {
     const { collapsed, minimized, narrowCollapsed } = zoneEnclosure(child, enclosureCtx, horizontal)
     const track = minimized || collapsed ? null : fixedTrackSize(child, axis, trackCtx)
-    const sizing = minimized || collapsed ? null : sizingFor(child, track)
+    const sizing = minimized || collapsed ? null : sizingFor(child)
 
     return { child, collapsed, minimized, narrowCollapsed, sizing, track }
   })
@@ -529,6 +565,19 @@ export function TreeSplit({ node, root, rootRow }: { node: SplitNode; root?: boo
             )}
             {!narrowCollapsed && (
               <TreeNode
+                // WHERE THE FOLD IS BORN: a child SPLIT that reads as minimized
+                // is one whose every visible zone is minimized (subtreeFolded),
+                // so it renders as a single strip along THIS split's axis — and
+                // everything under it must take its strip form from that axis,
+                // not from its own orientation. Already-folded subtrees pass the
+                // outer context straight through: the fold has exactly one
+                // origin, the outermost split that collapsed.
+                folded={
+                  folded ??
+                  (child.type === 'split' && minimized
+                    ? { axis, railSide: horizontal ? railSideFor(i) : undefined }
+                    : undefined)
+                }
                 node={child}
                 parentAxis={axis}
                 railSide={horizontal ? railSideFor(i) : undefined}

@@ -249,6 +249,31 @@ export const ENUM_OPTIONS: Record<string, string[]> = {
   'updates.non_interactive_local_changes': ['stash', 'discard']
 }
 
+// Voice/model name fields render as a free-input combobox instead of a closed
+// Select: providers accept custom voice IDs (ElevenLabs cloned voices, xAI
+// custom voices, Edge's 400+ catalog) and ship new model names faster than this
+// list updates. The ENUM_OPTIONS above become suggestions rather than a gate for
+// these keys.
+export const FREE_INPUT_KEYS = new Set([
+  'tts.edge.voice',
+  'tts.openai.model',
+  'tts.openai.voice',
+  'tts.elevenlabs.voice_id',
+  'tts.gemini.model',
+  'tts.gemini.voice',
+  'tts.xai.voice_id',
+  'tts.minimax.model',
+  'tts.minimax.voice_id',
+  'tts.mistral.model',
+  'tts.mistral.voice_id',
+  'tts.neutts.model',
+  'tts.kittentts.model',
+  'tts.kittentts.voice',
+  'tts.piper.voice',
+  'tts.deepinfra.model',
+  'tts.deepinfra.voice'
+])
+
 export const FIELD_LABELS: Record<string, string> = defineFieldCopy({
   model: 'Default Model',
   modelContextLength: 'Context Window',

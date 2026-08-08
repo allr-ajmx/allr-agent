@@ -272,7 +272,15 @@ export function finalizeParts(parts: ChatPart[], finalText: string): ChatPart[] 
   return kept
 }
 
-export function applyCompletion(messages: ChatMessage[], finalText: string): ChatMessage[] {
+export function applyCompletion(messages: ChatMessage[], text: string): ChatMessage[] {
+  // The gateway's `final_response` carries the agent's raw `MEDIA:` markers,
+  // while the streamed text has already been rewritten to `#media:` links. Left
+  // raw, the completion overwrote a rendered attachment with literal
+  // "MEDIA:/path" text at the end of every turn — the media appeared, then
+  // vanished on settle — and the same-turn comparison below (rendered vs raw)
+  // missed, appending a duplicate bubble. Guarded like the streaming call site:
+  // the rewrite also normalizes blank lines, which must not touch plain prose.
+  const finalText = text.includes('MEDIA:') ? renderMediaTags(text) : text
   const error = completionErrorText(finalText)
 
   const settle = (message: ChatMessage): ChatMessage =>

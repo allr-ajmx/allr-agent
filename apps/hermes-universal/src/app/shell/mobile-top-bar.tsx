@@ -25,7 +25,7 @@ export function MobileTopBar() {
   const { t } = useI18n()
   const { toggleMobile, toggleMobileRight } = useSidebar()
   const navigate = useNavigate()
-  // Derived from the path rather than read off `$workspaceIsPage`: only the
+  // Derived from the path rather than read off `$workspacePage`: only the
   // desktop controller keeps that atom in sync, and this bar is the phone's.
   const onPage = isWorkspacePagePath(useLocation().pathname)
 

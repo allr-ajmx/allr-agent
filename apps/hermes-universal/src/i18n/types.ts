@@ -372,6 +372,8 @@ export interface Translations {
       colorModeDesc: string
       toolViewTitle: string
       toolViewDesc: string
+      backdropTitle: string
+      backdropDesc: string
       uiScaleTitle: string
       uiScaleDesc: (percent: number) => string
       translucencyTitle: string
@@ -382,6 +384,13 @@ export interface Translations {
       embedsAlways: string
       embedsOff: string
       embedsReset: (count: number) => string
+      resizeRateTitle: string
+      resizeRateDesc: string
+      resizeRateOptions: Record<'balanced' | 'battery' | 'off' | 'smooth', string>
+      resizeRateCaption: (hz: number, ms: number) => string
+      resizeRateUnthrottled: string
+      resizeCalmTitle: string
+      resizeCalmDesc: string
       product: string
       productDesc: string
       technical: string
@@ -475,6 +484,9 @@ export interface Translations {
       noneParen: string
       notSet: string
       commaSeparated: string
+      searchPlaceholder: string
+      noResults: string
+      systemDefault: string
       loading: string
       emptyTitle: string
       emptyDesc: string
@@ -1114,6 +1126,7 @@ export interface Translations {
       installed: string
       installs: (count: string) => string
     }
+    commands: string
     settingsFields: string
     mcpServers: string
     archivedChats: string
@@ -1553,6 +1566,7 @@ export interface Translations {
       sessionRunning: string
       needsInput: string
       waitingForAnswer: string
+      finishedUnread: string
       handoffOrigin: (platform: string) => string
       renamed: string
       renameFailed: string
@@ -2420,6 +2434,14 @@ export interface Translations {
     pluginDisabled: (pluginId: string) => string
     pluginDisabledBody: string
     missingPane: (paneId: string) => string
+    /** Zone menu: move this tile into its own native window (MJXHRM-173). */
+    detach: string
+    /** Bring a detached tile back into its held slot. */
+    reattach: string
+    /** Placeholder body in the slot a detached tile left behind. */
+    detachedBody: (title: string) => string
+    /** A tile window whose tile id resolves to nothing registered. */
+    detachedMissing: string
     editTitle: string
     editHint: string
     reset: string

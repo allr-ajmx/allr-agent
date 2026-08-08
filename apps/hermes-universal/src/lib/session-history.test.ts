@@ -188,3 +188,44 @@ describe('reduced (session.resume) transcripts', () => {
     expect(toolParts.map(t => t.args?.context)).toEqual(['ls', 'pwd'])
   })
 })
+
+describe('attached context', () => {
+  const withContext = (prose: string, attached: string) =>
+    texts(toChatMessages([msg({ role: 'user', content: `${prose}\n--- Attached Context ---\n${attached}` })])[0].parts)
+
+  it('hides the attached block itself — the injected file contents never reach the bubble', () => {
+    const [text] = withContext('look at this', '📄 @file:src/app.ts (120 tokens)\n\nexport const secret = 1')
+
+    expect(text).not.toContain('export const secret')
+    expect(text).not.toContain('120 tokens')
+    expect(text).toContain('look at this')
+  })
+
+  it('hoists a ref the prose no longer carries so it still chips', () => {
+    expect(withContext('look at this', '📄 @file:src/app.ts (120 tokens)')).toEqual([
+      '@file:src/app.ts\n\nlook at this'
+    ])
+  })
+
+  it('does not re-list a ref the prose already contains', () => {
+    expect(withContext('check @file:src/app.ts please', '📄 @file:src/app.ts (120 tokens)')).toEqual([
+      'check @file:src/app.ts please'
+    ])
+  })
+
+  it('dedupes a ref attached more than once', () => {
+    expect(withContext('go', '@file:a.ts\n@file:a.ts\n@url:https://x.dev')).toEqual([
+      '@file:a.ts\n@url:https://x.dev\n\ngo'
+    ])
+  })
+
+  it('keeps the refs when the prose is empty', () => {
+    expect(withContext('', '@file:a.ts')).toEqual(['@file:a.ts'])
+  })
+
+  it('strips a trailing context-warnings block', () => {
+    const out = toChatMessages([msg({ role: 'user', content: 'hi\n--- Context Warnings ---\ntoo big' })])
+
+    expect(texts(out[0].parts)).toEqual(['hi'])
+  })
+})

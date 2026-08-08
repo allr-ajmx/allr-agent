@@ -5,10 +5,10 @@
  * one list from one area rather than a built-in branch plus contributions.
  *
  * Kept at desktop's path (`app/command-palette/contrib.ts`) so ported code and the
- * SDK's import line match, even though universal's surface is a command MENU
- * (app/shell/command-menu.tsx: a filtered list in a Dialog) rather than desktop's
- * full ⌘K palette. Universal honours id / label / icon / keywords / order / run,
- * plus `action` (desktop's live hotkey hint) and the core-only `labelKey`.
+ * SDK's import line match. Universal honours id / label / icon / keywords /
+ * order / run, plus `action` (the live hotkey hint) and the core-only `labelKey`.
+ * The palette renders app destinations and plugin commands in separate groups,
+ * told apart by the contribution's `source`.
  */
 
 import { useContributions } from '@/contrib/react/use-contributions'
@@ -36,6 +36,10 @@ export interface PaletteContribution {
 export interface PaletteRow extends PaletteContribution {
   key: string
   label: string
+  /** Registering source — `undefined` for the app's own rows, the plugin id for
+   *  a plugin's. The palette groups core destinations and plugin commands
+   *  separately on it. */
+  source?: string
 }
 
 /** Command rows with stable render keys and locale-resolved labels. */
@@ -51,7 +55,8 @@ export function usePaletteContributions(): PaletteRow[] {
       return {
         ...(data as PaletteContribution),
         key: `${c.source ?? 'core'}:${c.id}`,
-        label: data?.label ?? (data?.labelKey ? translateFrom(l => TRANSLATIONS[l], locale, data.labelKey, []) : '')
+        label: data?.label ?? (data?.labelKey ? translateFrom(l => TRANSLATIONS[l], locale, data.labelKey, []) : ''),
+        source: c.source
       }
     })
     .filter(item => Boolean(item.label) && typeof item.run === 'function')

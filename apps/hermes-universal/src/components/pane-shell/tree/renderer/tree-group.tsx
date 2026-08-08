@@ -37,10 +37,12 @@ import { ContribBoundary } from '@/contrib/react/boundary'
 import { useI18n } from '@/i18n'
 import { cn } from '@/lib/utils'
 import { DEV_TOOLS_ENABLED } from '@/observability/enabled'
+import { canOpenNewWindow } from '@/store/windows'
 
 import { $layoutEditMode } from '../../edit-mode'
 import { hiddenPaneProps, PaneGroupContext, PaneVisibleContext } from '../../pane-visibility'
-import { useTiles } from '../../tile/registry'
+import { $detachedTiles, detachTile, reattachTile } from '../../tile/detach'
+import { useTileMap } from '../../tile/registry'
 import { tileChrome } from '../../tile/types'
 import { type TileContext, tileShown } from '../../tile/visibility'
 import type { DropPosition, GroupNode, RootEdge } from '../model'
@@ -66,6 +68,7 @@ import {
 
 import { type DoubleTapContext, startPaneDrag } from './drag-session'
 import { forceLoneHeaderForPanes } from './lone-header'
+import { useActiveTabVisible } from './tab-strip-scroll'
 import { notifyPaneCommit, notifyZoneRender } from './telemetry'
 
 /**
@@ -96,6 +99,33 @@ function PaneProfiler({ children, kind }: { children: ReactNode; kind: string })
   )
 }
 
+/**
+ * What a zone shows while its tile is detached to another window.
+ *
+ * Deliberately inert-looking: the slot is being HELD, not used. Reattach is the
+ * only affordance, because closing the host window does the same thing — there
+ * is exactly one way back and this is a shortcut to it, not a second mode.
+ */
+function DetachedSlot({ paneId, title }: { paneId: string; title: string }) {
+  const { t } = useI18n()
+
+  return (
+    <div className="grid h-full place-items-center px-6 text-center">
+      <div className="flex flex-col items-center gap-2">
+        <Codicon className="text-(--ui-text-quaternary)" name="multiple-windows" size="1rem" />
+        <p className="text-xs text-(--ui-text-tertiary)">{t.zones.detachedBody(title)}</p>
+        <button
+          className="rounded-md border border-(--ui-stroke-tertiary) px-2 py-1 text-[0.6875rem] text-(--ui-text-secondary) transition-colors hover:bg-(--ui-control-hover-background) hover:text-foreground"
+          onClick={() => void reattachTile(paneId)}
+          type="button"
+        >
+          {t.zones.reattach}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 /** A directional action in the zone menu (computed per group state). */
 interface ZoneMenuDirection {
   side: RootEdge
@@ -115,6 +145,7 @@ const DIRECTION_ARROW: Record<RootEdge, string> = { bottom: '↓', left: '←', 
 function ZoneMenu({
   children,
   closable,
+  detachable,
   minimizable = true,
   directions,
   headerHidden,
@@ -125,6 +156,9 @@ function ZoneMenu({
   /** The pane the menu closes (the right-clicked chip / the active pane);
    *  undefined = not closable (the main zone). */
   closable?: () => string | undefined
+  /** The pane the menu detaches to its own window; undefined when this platform
+   *  has no second window, or the pane is already detached. */
+  detachable?: () => string | undefined
   /** False for the zone hosting the uncloseable workspace — collapsing the
    *  MAIN pane strands the app behind a strip. */
   minimizable?: boolean
@@ -148,6 +182,23 @@ function ZoneMenu({
             {direction.label}
           </ContextMenuItem>
         ))}
+        {/* The named form of the tear-off (drag a tab clear of the window):
+            same verb, same `canDetach` rule, for when the gesture isn't handy
+            or the pane is a keyboard-only reach. Resolved at render like
+            `closable`, so the item names the pane actually right-clicked. */}
+        {detachable?.() !== undefined && (
+          <ContextMenuItem
+            onSelect={() => {
+              const paneId = detachable?.()
+
+              if (paneId) {
+                void detachTile(paneId)
+              }
+            }}
+          >
+            {t.zones.detach}
+          </ContextMenuItem>
+        )}
         <ContextMenuItem onSelect={() => setTreeGroupHeaderHidden(nodeId, !headerHidden)}>
           {headerHidden ? t.zones.showHeader : t.zones.hideHeader}
         </ContextMenuItem>
@@ -178,10 +229,14 @@ function ZoneMenu({
 }
 
 export function TreeGroup({
+  foldAxis,
   node,
   parentAxis,
   railSide = 'left'
 }: {
+  /** Set when an ancestor split is CASCADE-FOLDED (see FoldContext): the zone
+   *  collapses along the fold's axis instead of its own parent's. */
+  foldAxis?: 'column' | 'row'
   node: GroupNode
   parentAxis?: 'column' | 'row'
   railSide?: 'left' | 'right'
@@ -189,6 +244,9 @@ export function TreeGroup({
   const { t } = useI18n()
   const ref = useRef<HTMLDivElement>(null)
   const stripRef = useRef<HTMLDivElement>(null)
+  // The SCROLLER inside the header, not the header itself: `stripRef` is what
+  // the drop caret and the drag session measure against, and it doesn't scroll.
+  const tabsRef = useRef<HTMLDivElement>(null)
   // The chip under the last right-click — the pane the zone menu's Split
   // actions carry into the new zone (header background = the active pane).
   // STATE, not a ref: the menu items (incl. Close's visibility) are JSX
@@ -197,7 +255,7 @@ export function TreeGroup({
   // missing on an inactive tile tab whose zone-active was the uncloseable
   // workspace).
   const [menuPane, setMenuPane] = useState<string | undefined>(undefined)
-  const panes = useTiles()
+  const byId = useTileMap()
   // Coarse drag flag only (set once at drag start/end). The per-frame drop
   // HINT lives in ZoneDropOverlay so a moving pointer re-renders the tiny
   // overlay, not every zone's header/body (and not the menuDirections walk).
@@ -206,8 +264,9 @@ export function TreeGroup({
 
   const hiddenPanes = useStore($hiddenTreePanes)
   const narrow = useStore($narrowViewport)
+  const detached = useStore($detachedTiles)
 
-  const paneFor = (id: string) => panes.find(p => p.id === id)
+  const paneFor = (id: string) => byId.get(id)
 
   // Unregistered (plugin not loaded), chrome-toggled-off, and narrow-collapsed
   // tiles drop out of the header; the active tile falls back to the first shown
@@ -279,9 +338,21 @@ export function TreeGroup({
   // WIDTH collapses — a full-width horizontal header would strand a tall
   // empty column, so the minimized form is a narrow vertical rail instead
   // (tabs reading top-to-bottom). In a column (stacked zones) the horizontal
-  // header IS the collapsed form, exactly as before.
-  const verticalCollapse = Boolean(node.minimized) && parentAxis === 'row' && !isEmpty
+  // header IS the collapsed form, exactly as before. Inside a cascading fold
+  // the FOLD's axis wins over the literal parent: a column that folded into a
+  // row is a rail, so its zones are rails too, stacked down the rail.
+  const verticalCollapse = Boolean(node.minimized) && (foldAxis ?? parentAxis) === 'row' && !isEmpty
   const headerVisible = !isEmpty && !verticalCollapse && (Boolean(node.minimized) || !headerHidden)
+
+  // Opening a tab past the right edge otherwise left BOTH the new tab and the
+  // `+` that made it off-screen. `last` scrolls to the very end rather than to
+  // the tab's own edge, so the `+` (which lives after it in the same scroll
+  // content) comes along. Off while the strip isn't rendered — the minimized
+  // form is a rail with its own markup, and there is nothing to measure.
+  useActiveTabVisible(tabsRef, activeId, {
+    enabled: headerVisible && !node.minimized,
+    tabCount: shown.length
+  })
 
   // Drag handles preventDefault pointerdown (no native dblclick), so the
   // header + chips share a synthesized double-tap: restore if collapsed
@@ -349,9 +420,37 @@ export function TreeGroup({
     return tileChrome(paneFor(paneId)).uncloseable ? undefined : paneId
   }
 
+  // Any REGISTERED tile can detach — the window hosts it generically, so there
+  // is no roster to keep in sync. Gated on the platform having a second window
+  // (Android doesn't yet) and on the tile not already being out there.
+  //
+  // `uncloseable` is excluded for the same reason Close is: the main workspace
+  // pane is the app's home surface, it carries whatever session is active
+  // rather than one of its own, and leaving would swap it for a placeholder.
+  const canDetach = (paneId: string): boolean =>
+    canOpenNewWindow() && Boolean(paneFor(paneId)) && !tileChrome(paneFor(paneId)).uncloseable && !detached.has(paneId)
+
+  const detachable = () => {
+    const paneId = menuPane ?? activeId
+
+    return canDetach(paneId) ? paneId : undefined
+  }
+
+  /** Drag a tab clear of the window to give it one of its own — the gesture
+   *  form of the menu's "Open in new window", offered by exactly the panes the
+   *  menu offers it to. */
+  const tearOffTab = (paneId: string) => (canDetach(paneId) ? () => void detachTile(paneId) : undefined)
+
   // The zone hosting the uncloseable workspace never minimizes — collapsing
   // MAIN strands the whole app behind a strip.
   const minimizable = !shown.some(id => tileChrome(paneFor(id)).uncloseable)
+
+  // Tap-to-collapse is the DetailPane gesture, and it belongs to TOOL zones
+  // (terminal/files) — the panels it was written for. On a CHAT strip the empty
+  // space beside the tabs is a target the user aims at constantly (reaching a
+  // tab, working its menu), so a stray click there folded the whole zone away.
+  // The chevron and the zone menu still minimize a chat zone deliberately.
+  const tapCollapses = minimizable && shown.some(isCollapsePane)
 
   // Tab ✕: a tool panel (terminal/logs) is REMOVED from the layout (comes back
   // via its toggle); everything else routes through its Close (a session tile
@@ -365,6 +464,7 @@ export function TreeGroup({
   // Same menu on the header strip and the edit veil — one prop bag.
   const zoneMenu = {
     closable,
+    detachable,
     directions: menuDirections,
     headerHidden,
     minimizable,
@@ -460,12 +560,12 @@ export function TreeGroup({
             }}
             onPointerDown={e =>
               // Tap the header to collapse to it / expand back — the DetailPane
-              // / sidebar-section gesture (never for the main zone). Double-tap
-              // hides the header entirely. Drag still moves the pane.
+              // / sidebar-section gesture (tool zones only). Double-tap hides
+              // the header entirely. Drag still moves the pane.
               startPaneDrag(
                 activeId,
                 e,
-                () => minimizable && toggleCollapse(),
+                () => tapCollapses && toggleCollapse(),
                 undefined,
                 hideHeaderDoubleTap,
                 active?.title ?? activeId
@@ -476,6 +576,7 @@ export function TreeGroup({
           >
             <div
               className="flex min-w-0 flex-1 overflow-x-auto overflow-y-hidden [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+              ref={tabsRef}
               role="tablist"
             >
               {shown.map(paneId => {
@@ -534,7 +635,8 @@ export function TreeGroup({
                           onTap,
                           stripRef.current ? { groupId: node.id, strip: stripRef.current } : undefined,
                           hideHeaderDoubleTap,
-                          title
+                          title,
+                          tearOffTab(paneId)
                         )
                       }
                     }}
@@ -556,24 +658,28 @@ export function TreeGroup({
                 // tile tab); the wrapper needs the key since it's the root.
                 return <Fragment key={paneId}>{chrome.tabWrap ? chrome.tabWrap(tab) : tab}</Fragment>
               })}
-
-              {/* New-tab affordance, chat strips only — the same thing ⌘T does.
-                  A terminal or preview strip has its own create verb, so a `+`
-                  there would be ambiguous. */}
-              {onNewTab && (
-                <Tip label={<TipKeybindLabel actionId="session.newTab" text={t.zones.newTab} />}>
-                  <button
-                    aria-label={t.zones.newTab}
-                    className="mx-1 grid size-5 shrink-0 place-items-center self-center rounded-md text-(--ui-text-tertiary) opacity-0 transition-opacity hover:bg-(--ui-control-hover-background) hover:text-foreground focus-visible:opacity-100 group-hover/pane-header:opacity-100"
-                    onClick={onNewTab}
-                    onPointerDown={e => e.stopPropagation()}
-                    type="button"
-                  >
-                    <Codicon name="add" size="0.75rem" />
-                  </button>
-                </Tip>
-              )}
             </div>
+            {/* New-tab affordance, chat strips only — the same thing ⌘T does.
+                A terminal or preview strip has its own create verb, so a `+`
+                there would be ambiguous.
+
+                OUTSIDE the scroller, with the chevron and the caret: inside it
+                the `+` was scroll content, so the moment the tabs overflowed it
+                slid off the end with them and making one more tab meant
+                scrolling back by hand. */}
+            {onNewTab && (
+              <Tip label={<TipKeybindLabel actionId="session.newTab" text={t.zones.newTab} />}>
+                <button
+                  aria-label={t.zones.newTab}
+                  className="mx-1 grid size-5 shrink-0 place-items-center self-center rounded-md text-(--ui-text-tertiary) opacity-0 transition-opacity hover:bg-(--ui-control-hover-background) hover:text-foreground focus-visible:opacity-100 group-hover/pane-header:opacity-100"
+                  onClick={onNewTab}
+                  onPointerDown={e => e.stopPropagation()}
+                  type="button"
+                >
+                  <Codicon name="add" size="0.75rem" />
+                </button>
+              </Tip>
+            )}
             {minimizable && (
               <button
                 aria-label={node.minimized ? t.zones.restore : t.zones.minimize}
@@ -590,9 +696,11 @@ export function TreeGroup({
         </ZoneMenu>
       )}
 
-      {/* Body: the active pane's contributed content, or the empty zone. */}
+      {/* Body: the active pane's contributed content, or the empty zone.
+          `data-tree-body` is what the opt-in calm-while-resizing rule targets
+          (styles.css): one marker on the container, not a rule per surface. */}
       {!node.minimized && (
-        <div className="relative min-h-0 min-w-0 flex-1 overflow-auto">
+        <div className="relative min-h-0 min-w-0 flex-1 overflow-auto" data-tree-body>
           {isEmpty ? (
             <div className="grid h-full place-items-center">
               {/* Same decode primitive as the CONNECTING boot overlay. */}
@@ -606,11 +714,22 @@ export function TreeGroup({
               return (
                 <div
                   aria-hidden={!isActive || undefined}
-                  className={cn('absolute inset-0 overflow-auto', !isActive && 'pointer-events-none invisible')}
+                  // CLIP, never scroll. Every surface that can sit in a zone
+                  // brings its own scroller (the transcript's viewport, the
+                  // file tree, xterm, CodeMirror), so `overflow-auto` here was
+                  // a second scrollbar wrapped around the first — and since
+                  // WebKitGTK draws classic, space-taking bars, even a
+                  // sub-pixel overflow painted a permanent one on both axes.
+                  className={cn('absolute inset-0 overflow-hidden', !isActive && 'pointer-events-none invisible')}
                   key={paneId}
                   {...hiddenPaneProps(!isActive)}
                 >
-                  {tile?.render ? (
+                  {detached.has(paneId) ? (
+                    // The tile lives in another window. The SLOT stays — that is
+                    // what makes reattach a restore rather than a fresh
+                    // placement decision — and shows the way back.
+                    <DetachedSlot paneId={paneId} title={tile?.title ?? paneId} />
+                  ) : tile?.render ? (
                     // Visibility flows to the tile so a kept-alive chat surface
                     // can gate its hot (per-token) subscriptions while hidden;
                     // the group id identifies the ZONE it lives in, for state
@@ -754,7 +873,7 @@ const REGION: Record<DropPosition, CSSProperties> = {
 function ZoneDropOverlay({ node }: { node: GroupNode }) {
   const dragging = useStore($treeDragging)
   const hint = useStore($dropHint)
-  const tiles = useTiles()
+  const byId = useTileMap()
 
   if (dragging === null) {
     return null
@@ -768,7 +887,7 @@ function ZoneDropOverlay({ node }: { node: GroupNode }) {
   // may be LINKED into its zone (`chrome.linkTarget`). This used to be
   // `node.panes.some(isChatPaneId)` — the layout engine reading a chat id
   // prefix to decide a drop affordance.
-  const linkZone = node.panes.some(id => tileChrome(tiles.find(t => t.id === id)).linkTarget)
+  const linkZone = node.panes.some(id => tileChrome(byId.get(id)).linkTarget)
 
   const isDragSource = node.panes.includes(dragging)
 

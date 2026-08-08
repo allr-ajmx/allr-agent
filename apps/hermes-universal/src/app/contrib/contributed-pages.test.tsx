@@ -46,7 +46,7 @@ describe('contributed pages', () => {
     renderAt('/kanban')
 
     expect(screen.getByTestId('board')).toBeInTheDocument()
-    // It is a page, so the zone tab bar stands down (headerVeto).
+    // It is a page, so the drawer layout's zone body is marked headerless.
     expect(document.querySelector('[data-zone-no-header]')).toBeTruthy()
   })
 
