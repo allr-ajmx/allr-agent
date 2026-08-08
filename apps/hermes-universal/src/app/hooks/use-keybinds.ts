@@ -7,7 +7,7 @@ import {
   cycleTreeTabInFocusedZone
 } from '@/components/pane-shell/tree/store'
 import { contributedKeybindHandler, PROFILE_SLOT_COUNT, SESSION_SLOT_COUNT } from '@/lib/keybinds/actions'
-import { comboAllowedInInput, comboFromEvent, isEditableTarget } from '@/lib/keybinds/combo'
+import { comboAllowedInInput, comboFromEvent, isEditableTarget, isShiftPrintableCombo } from '@/lib/keybinds/combo'
 import { composerFocusKeysAllowed, isComposerFocusSoftCombo, typeToFocusChar } from '@/lib/keybinds/composer-focus-keys'
 import { $repoStatus } from '@/store/coding-status'
 import { toggleCommandPalette } from '@/store/command-palette'
@@ -303,16 +303,25 @@ export function useKeybinds(deps: KeybindRuntimeDeps): void {
 
       const actionId = $comboIndex.get().get(combo)
 
-      // Unbound printable → type-to-focus. Bound chords (shift+n, …) win above.
-      if (!actionId) {
+      // Printable → type-to-focus. A Shift+<char> chord is a capital letter
+      // first and a shortcut second, so it comes through here too: `shift+n`
+      // ships as a New session default, and letting the binding win meant a
+      // message could never start with an N (nor an X — `shift+x` flips the
+      // theme). The composer only takes it when it would take any other letter,
+      // so the chord keeps working from a dialog, the terminal or a full page.
+      if (!actionId || isShiftPrintableCombo(combo)) {
         const typeChar = typeToFocusChar(event)
 
         if (typeChar && composerFocusKeysAllowed(event, 'type')) {
           event.preventDefault()
           requestComposerFocus('active', { typeChar })
+
+          return
         }
 
-        return
+        if (!actionId) {
+          return
+        }
       }
 
       if (isEditableTarget(event.target) && !comboAllowedInInput(combo)) {

@@ -207,3 +207,12 @@ export function isEditableTarget(target: EventTarget | null): boolean {
 export function comboAllowedInInput(combo: string): boolean {
   return /^(?:mod|ctrl|alt)(?:\+|$)/.test(combo)
 }
+
+// Shift plus a single character — i.e. a CAPITAL LETTER (or `!`, `?`, …). Such a
+// chord is a keystroke before it is a shortcut, so type-to-focus wins it whenever
+// the composer would take the character: `shift+n` shipping as a New session
+// default otherwise means a message can never START with an N. Multi-char bases
+// (shift+enter, shift+tab) type nothing and keep their binding.
+export function isShiftPrintableCombo(combo: string): boolean {
+  return /^shift\+.$/.test(combo)
+}

@@ -9,6 +9,12 @@ vi.mock('@/store/new-session', () => ({
   startNewSessionTab: vi.fn()
 }))
 
+vi.mock('@/app/chat/composer/focus', async importOriginal => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  requestComposerFocus: vi.fn()
+}))
+
+import { requestComposerFocus } from '@/app/chat/composer/focus'
 import { $commandPaletteOpen } from '@/store/command-palette'
 import { $bindings, beginCapture, endCapture, resetAllBindings, setBinding } from '@/store/keybinds'
 import { $sidebarOpen, setSidebarOpen } from '@/store/layout'
@@ -93,6 +99,32 @@ describe('useKeybinds', () => {
 
     fireEvent.keyDown(window, { code: 'KeyK', key: 'k', metaKey: true })
     expect($commandPaletteOpen.get()).toBe(true)
+  })
+
+  // `shift+n` (New session) and `shift+x` (theme) shadowed two capital letters:
+  // typing a message that started with one ran the shortcut instead.
+  it('types a capital letter into the composer rather than running its shift chord', () => {
+    mount()
+
+    fireEvent.keyDown(window, { code: 'KeyN', key: 'N', shiftKey: true })
+
+    expect(startNewSession).not.toHaveBeenCalled()
+    expect(requestComposerFocus).toHaveBeenCalledWith('active', { typeChar: 'N' })
+  })
+
+  // …but the chord still works where the composer would not have taken the key.
+  it('runs the shift chord when a surface owns the keys', () => {
+    const dialog = document.createElement('div')
+    dialog.setAttribute('role', 'dialog')
+    document.body.append(dialog)
+    mount()
+
+    fireEvent.keyDown(window, { code: 'KeyN', key: 'N', shiftKey: true })
+
+    expect(requestComposerFocus).not.toHaveBeenCalled()
+    expect(startNewSession).toHaveBeenCalledTimes(1)
+
+    dialog.remove()
   })
 
   it('captures the next combo into the armed action instead of running it', () => {
