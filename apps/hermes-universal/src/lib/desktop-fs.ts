@@ -137,3 +137,13 @@ export async function selectDesktopPaths(options?: SelectPathsOptions): Promise<
 
   return remotePicker ? remotePicker.selectPaths({ ...options, multiple: false }) : []
 }
+
+/**
+ * Pick paths on the BACKEND filesystem, unconditionally — no native-dialog
+ * shortcut. For callers where the user chose "remote" explicitly (composer
+ * attach menu), so a directory pick must not fall into `selectDesktopPaths`'s
+ * local OS dialog branch. Empty when no picker is registered.
+ */
+export async function selectRemotePaths(options?: SelectPathsOptions): Promise<string[]> {
+  return remotePicker ? remotePicker.selectPaths({ ...options, multiple: false }) : []
+}
