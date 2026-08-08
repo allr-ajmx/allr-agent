@@ -15,7 +15,7 @@ import {
   type ComposerInsertMode,
   focusComposerInput,
   focusHeldByOtherEditor,
-  markActiveComposer,
+  getActiveComposer,
   onComposerFocusRequest,
   onComposerInsertRefsRequest,
   onComposerInsertRequest
@@ -100,10 +100,12 @@ export function useComposerDraft({
 
   const [focusRequestId, setFocusRequestId] = useState(0)
 
+  // Focus only. Marking the active composer is NOT this function's job: a real
+  // focus fires `onFocus` on the input, which marks — while a mount-time call
+  // marking would hand every keystroke to whichever tile resumed last.
   const focusInput = useCallback(() => {
     focusComposerInput(editorRef.current)
-    markActiveComposer(target)
-  }, [target])
+  }, [])
 
   const requestMainFocus = useCallback(() => {
     setFocusRequestId(id => id + 1)
@@ -154,13 +156,20 @@ export function useComposerDraft({
       return
     }
 
-    // A TILE arrives on its own schedule — `openSessionTile` saves it with no
-    // runtime id, so this composer mounts only once the async resume lands, well
-    // after the ⌘T that created the tab handed the caret to the fresh chat in
-    // main (MJXHRM-6). Turning up late is not a reason to take focus off an
-    // editor the user is already in. `main` is exempt: it IS the surface a new
-    // chat lands in, and it mounts with the app, not on a network round-trip.
-    if (target !== 'main' && focusHeldByOtherEditor(editorRef.current)) {
+    // Only the FOCUSED chat's composer may claim the caret on arrival. Tiles
+    // arrive on their own schedule — `openSessionTile` saves one with no runtime
+    // id, so its composer mounts once the async resume lands, long after the ⌘T
+    // that created the tab (MJXHRM-6) — and with several tiles open the last one
+    // home would otherwise win every keystroke. The focused zone already names
+    // the chat the user is in, and it names it BEFORE the mount (`focusDraftTile`
+    // claims the zone as the tab is created), so a fresh tab still autofocuses.
+    if (target !== getActiveComposer()) {
+      return
+    }
+
+    // Same target, but an editor the user is already in (the edit composer
+    // inside this chat) holds the caret: arriving is not a reason to take it.
+    if (focusHeldByOtherEditor(editorRef.current)) {
       return
     }
 

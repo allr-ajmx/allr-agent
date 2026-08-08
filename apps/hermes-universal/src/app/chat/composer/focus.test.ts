@@ -9,7 +9,9 @@
 
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { focusHeldByOtherEditor } from './focus'
+import { DRAFT_TILE_PANE_ID, sessionTilePaneId, WORKSPACE_PANE_ID } from '@/lib/pane-ids'
+
+import { composerTargetForPane, focusHeldByOtherEditor } from './focus'
 
 const mount = <T extends HTMLElement>(el: T): T => {
   document.body.append(el)
@@ -30,6 +32,18 @@ const editable = () => {
 
 afterEach(() => {
   document.body.replaceChildren()
+})
+
+// The focused chat ZONE names the composer that `'active'` resolves to, so
+// typing follows the tile you are looking at instead of the one that mounted
+// last. This is that mapping.
+describe('composerTargetForPane', () => {
+  it('maps a tile pane to its own composer and the workspace to main', () => {
+    expect(composerTargetForPane(sessionTilePaneId('abc'))).toBe('tile:abc')
+    expect(composerTargetForPane(DRAFT_TILE_PANE_ID)).toBe('tile:draft')
+    expect(composerTargetForPane(WORKSPACE_PANE_ID)).toBe('main')
+    expect(composerTargetForPane('files')).toBe('main')
+  })
 })
 
 describe('focusHeldByOtherEditor', () => {

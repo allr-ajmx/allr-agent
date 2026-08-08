@@ -28,7 +28,13 @@ import {
   renameTreePane,
   revealTreePane
 } from '@/components/pane-shell/tree/store'
-import { DRAFT_TILE_KEY, DRAFT_TILE_PANE_ID, TILE_PANE_PREFIX, WORKSPACE_PANE_ID } from '@/lib/pane-ids'
+import {
+  DRAFT_TILE_KEY,
+  DRAFT_TILE_PANE_ID,
+  storedIdFromTilePane,
+  TILE_PANE_PREFIX,
+  WORKSPACE_PANE_ID
+} from '@/lib/pane-ids'
 import { readJson, writeJson } from '@/lib/storage'
 import { discardDeltas, disposeStreamBatch, flushDeltas } from '@/lib/stream-batch'
 import { beginDetached, endSpan } from '@/observability'
@@ -909,14 +915,20 @@ $activeTreeGroup.subscribe(groupId => {
   }
 })
 
+/** Pane id of the FOCUSED chat surface — the interacted chat zone's tile, else
+ *  the workspace. The composer focus bus resolves `'active'` through this, so
+ *  typing lands in the chat you are looking at rather than the one that mounted
+ *  last. */
+export const $focusedChatPane = computed([$chatTreeGroup, $layoutTree], (groupId, tree) => {
+  const active = groupId && tree ? findGroup(tree, groupId)?.active : undefined
+
+  return active?.startsWith(TILE_PANE_PREFIX) ? active : WORKSPACE_PANE_ID
+})
+
 /** Stored id of the focused session (the interacted chat zone's tile, else the active one). */
 export const $focusedStoredSessionId = computed(
-  [$chatTreeGroup, $layoutTree, $activeStoredSessionId],
-  (groupId, tree, selected) => {
-    const active = groupId && tree ? findGroup(tree, groupId)?.active : undefined
-
-    return active?.startsWith(TILE_PANE_PREFIX) ? active.slice(TILE_PANE_PREFIX.length) : selected
-  }
+  [$focusedChatPane, $activeStoredSessionId],
+  (pane, selected) => storedIdFromTilePane(pane) ?? selected
 )
 
 /** Session key of the focused session (a tile's bound key, else the active one). */

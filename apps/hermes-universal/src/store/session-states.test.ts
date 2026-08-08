@@ -19,6 +19,7 @@ import {
   updateSession
 } from '@/store/session-state-types'
 import {
+  $focusedChatPane,
   $focusedCwd,
   $sessionTiles,
   clearAllSessionStates,
@@ -344,5 +345,23 @@ describe('$focusedCwd', () => {
 
     expect($focusedCwd.get()).toBe('')
     expect($effectiveCwd.get()).toBe('/srv/workspace')
+  })
+
+  // Which composer typing lands in resolves through this pane id. It used to be
+  // a mount-order latch, so the tile that finished resuming last took the keys.
+  describe('$focusedChatPane', () => {
+    it('names the focused tile, and falls back to the workspace', () => {
+      seedTree(paneB)
+      noteActiveTreeGroup(CHAT_GROUP)
+      expect($focusedChatPane.get()).toBe(paneB)
+
+      // A non-chat zone does not move it; nothing focused reads as the workspace.
+      noteActiveTreeGroup(FILES_GROUP)
+      expect($focusedChatPane.get()).toBe(paneB)
+
+      $layoutTree.set(null)
+      noteActiveTreeGroup(null)
+      expect($focusedChatPane.get()).toBe(WORKSPACE_PANE_ID)
+    })
   })
 })

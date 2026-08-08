@@ -11,6 +11,7 @@
  */
 
 import { queryVisible } from '@/components/pane-shell/pane-visibility'
+import { storedIdFromTilePane } from '@/lib/pane-ids'
 
 import type { InlineRefInput } from './inline-refs'
 import { RICH_INPUT_SLOT } from './rich-editor'
@@ -82,6 +83,15 @@ const subscribe = <T>(name: string, handler: (detail: T) => void) => {
 
 export const markActiveComposer = (target: ComposerTarget) => {
   activeTarget = target
+}
+
+/** The composer a chat PANE owns: a tile's own, or `main` for the workspace.
+ *  How the focused zone (`$focusedChatPane`) names the composer `'active'`
+ *  resolves to — wired in app/contrib/controller. */
+export const composerTargetForPane = (paneId: string): ComposerTarget => {
+  const stored = storedIdFromTilePane(paneId)
+
+  return stored ? `tile:${stored}` : 'main'
 }
 
 /** The composer that last held focus — the target `'active'` resolves to.
