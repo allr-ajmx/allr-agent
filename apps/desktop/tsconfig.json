@@ -22,7 +22,7 @@
       "@hermes/shared": ["../shared/src/index.ts"]
     }
   },
-  "include": ["src", "../shared/src"],
+  "include": ["src", "../shared/src", "../../packages/hermes-sample-plugins"],
   "exclude": ["e2e", "electron", "playwright.config.ts"],
   "references": [{ "path": "./tsconfig.electron.json" }]
 }
