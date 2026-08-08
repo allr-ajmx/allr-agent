@@ -1640,6 +1640,9 @@ export interface Translations {
     attachLabel: string
     files: string
     folder: string
+    back: string
+    local: string
+    remote: string
     images: string
     pasteImage: string
     url: string
@@ -2005,6 +2008,8 @@ export interface Translations {
     remotePickerTitle: string
     remotePickerDescription: string
     remotePickerSelect: string
+    remoteFilePickerTitle: string
+    remoteFilePickerDescription: string
     folderTip: (cwd: string) => string
     openFolder: string
     refreshTree: string

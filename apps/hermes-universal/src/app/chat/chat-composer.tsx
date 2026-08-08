@@ -3,6 +3,8 @@ import { useCallback, useEffect } from 'react'
 import {
   pickAttachment,
   pickFolderAttachment,
+  pickRemoteAttachment,
+  pickRemoteFolderAttachment,
   type StagedAttachment,
   stagedToComposerAttachment
 } from '@/app/chat/attachments'
@@ -128,6 +130,18 @@ export function ChatComposer() {
   const onPickFiles = useCallback(() => void pickAttachment().then(addStagedToScope), [scope])
   const onPickImages = useCallback(() => void pickAttachment().then(addStagedToScope), [scope])
   const onPickFolders = useCallback(() => void pickFolderAttachment().then(addStagedToScope), [scope])
+
+  // Remote picks open the backend-fs browser at the session's cwd.
+  const onPickRemoteFiles = useCallback(
+    () => void pickRemoteAttachment(cwd || undefined).then(addStagedToScope),
+    [cwd, scope]
+  )
+
+  const onPickRemoteFolders = useCallback(
+    () => void pickRemoteFolderAttachment(cwd || undefined).then(addStagedToScope),
+    [cwd, scope]
+  )
+
   const onRemoveAttachment = useCallback((id: string) => scope.attachments.remove(id), [scope])
 
   const onTranscribeAudio = useCallback(async (audio: Blob): Promise<string> => {
@@ -148,6 +162,8 @@ export function ChatComposer() {
       onPickFiles={onPickFiles}
       onPickFolders={onPickFolders}
       onPickImages={onPickImages}
+      onPickRemoteFiles={onPickRemoteFiles}
+      onPickRemoteFolders={onPickRemoteFolders}
       onRemoveAttachment={onRemoveAttachment}
       onSubmit={onSubmit}
       onTranscribeAudio={onTranscribeAudio}

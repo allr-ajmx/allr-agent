@@ -15,7 +15,18 @@ import {
 import { Kbd } from '@/components/ui/kbd'
 import { Tip } from '@/components/ui/tooltip'
 import { useI18n } from '@/i18n'
-import { Clipboard, FileText, FolderOpen, type IconComponent, ImageIcon, Link, MessageSquareText } from '@/lib/icons'
+import {
+  ChevronLeft,
+  Clipboard,
+  FileText,
+  FolderOpen,
+  Globe,
+  type IconComponent,
+  ImageIcon,
+  Link,
+  MessageSquareText,
+  Monitor
+} from '@/lib/icons'
 import { cn } from '@/lib/utils'
 
 import { useComposerAttachmentProviders } from './contrib'
@@ -31,7 +42,9 @@ export function ContextMenu({
   onPasteClipboardImage,
   onPickFiles,
   onPickFolders,
-  onPickImages
+  onPickImages,
+  onPickRemoteFiles,
+  onPickRemoteFolders
 }: ContextMenuProps) {
   const { t } = useI18n()
   const c = t.composer
@@ -40,13 +53,23 @@ export function ContextMenu({
   // window (composer "+" anchor), so we promoted it to a real Dialog —
   // easier to grow with search / descriptions, and no positioning math.
   const [snippetsOpen, setSnippetsOpen] = useState(false)
+  // Files/Folder each fan out to Local (OS dialog) vs Remote (backend fs
+  // browser). Same submenu-positioning bug as snippets, so instead of a Radix
+  // sub the menu content swaps in place and Back returns to the root view.
+  const [view, setView] = useState<'root' | 'files' | 'folder'>('root')
   // `composer.attachments` contributions — plugin/core-registered rows that
   // extend this menu through the same registry as every other surface.
   const attachmentProviders = useComposerAttachmentProviders()
 
+  // Keep the dropdown open while stepping between views.
+  const stay = (fn: () => void) => (event: Event) => {
+    event.preventDefault()
+    fn()
+  }
+
   return (
     <>
-      <DropdownMenu>
+      <DropdownMenu onOpenChange={open => !open && setView('root')}>
         <Tip label={state.tools.label} side="top">
           <DropdownMenuTrigger asChild>
             <Button
@@ -65,54 +88,92 @@ export function ContextMenu({
           </DropdownMenuTrigger>
         </Tip>
         <DropdownMenuContent align="start" className={cn('w-60', composerPanelCard)} side="top" sideOffset={6}>
-          <DropdownMenuLabel className="px-2 pb-0.5 pt-0.5 text-[0.625rem] font-semibold uppercase tracking-wider text-(--ui-text-tertiary)">
-            {c.attachLabel}
-          </DropdownMenuLabel>
-          <ContextMenuItem disabled={!onPickFiles} icon={FileText} onSelect={onPickFiles}>
-            {c.files}
-          </ContextMenuItem>
-          <ContextMenuItem disabled={!onPickFolders} icon={FolderOpen} onSelect={onPickFolders}>
-            {c.folder}
-          </ContextMenuItem>
-          <ContextMenuItem disabled={!onPickImages} icon={ImageIcon} onSelect={onPickImages}>
-            {c.images}
-          </ContextMenuItem>
-          <ContextMenuItem
-            disabled={!onPasteClipboardImage}
-            icon={Clipboard}
-            onSelect={onPasteClipboardImage ? () => void onPasteClipboardImage() : undefined}
-          >
-            {c.pasteImage}
-          </ContextMenuItem>
-          <ContextMenuItem icon={Link} onSelect={onOpenUrlDialog}>
-            {c.url}
-          </ContextMenuItem>
+          {view !== 'root' ? (
+            <>
+              <DropdownMenuLabel className="px-2 pb-0.5 pt-0.5 text-[0.625rem] font-semibold uppercase tracking-wider text-(--ui-text-tertiary)">
+                {view === 'files' ? c.files : c.folder}
+              </DropdownMenuLabel>
+              <ContextMenuItem icon={ChevronLeft} onSelect={stay(() => setView('root'))}>
+                {c.back}
+              </ContextMenuItem>
 
-          <DropdownMenuSeparator />
+              <DropdownMenuSeparator />
 
-          <ContextMenuItem icon={MessageSquareText} onSelect={() => setSnippetsOpen(true)}>
-            {c.promptSnippets}
-          </ContextMenuItem>
+              <ContextMenuItem
+                disabled={view === 'files' ? !onPickFiles : !onPickFolders}
+                icon={Monitor}
+                onSelect={view === 'files' ? onPickFiles : onPickFolders}
+              >
+                {c.local}
+              </ContextMenuItem>
+              <ContextMenuItem
+                disabled={view === 'files' ? !onPickRemoteFiles : !onPickRemoteFolders}
+                icon={Globe}
+                onSelect={view === 'files' ? onPickRemoteFiles : onPickRemoteFolders}
+              >
+                {c.remote}
+              </ContextMenuItem>
+            </>
+          ) : (
+            <>
+              <DropdownMenuLabel className="px-2 pb-0.5 pt-0.5 text-[0.625rem] font-semibold uppercase tracking-wider text-(--ui-text-tertiary)">
+                {c.attachLabel}
+              </DropdownMenuLabel>
+              <ContextMenuItem
+                disabled={!onPickFiles && !onPickRemoteFiles}
+                icon={FileText}
+                onSelect={stay(() => setView('files'))}
+              >
+                {c.files}
+              </ContextMenuItem>
+              <ContextMenuItem
+                disabled={!onPickFolders && !onPickRemoteFolders}
+                icon={FolderOpen}
+                onSelect={stay(() => setView('folder'))}
+              >
+                {c.folder}
+              </ContextMenuItem>
+              <ContextMenuItem disabled={!onPickImages} icon={ImageIcon} onSelect={onPickImages}>
+                {c.images}
+              </ContextMenuItem>
+              <ContextMenuItem
+                disabled={!onPasteClipboardImage}
+                icon={Clipboard}
+                onSelect={onPasteClipboardImage ? () => void onPasteClipboardImage() : undefined}
+              >
+                {c.pasteImage}
+              </ContextMenuItem>
+              <ContextMenuItem icon={Link} onSelect={onOpenUrlDialog}>
+                {c.url}
+              </ContextMenuItem>
 
-          {attachmentProviders.length > 0 && <DropdownMenuSeparator />}
-          {attachmentProviders.map(provider => (
-            <DropdownMenuItem
-              className="text-[length:var(--conversation-tool-font-size)] focus:bg-(--ui-bg-tertiary)"
-              key={provider.key}
-              onSelect={() => void provider.run({ insertText: onInsertText })}
-            >
-              <Codicon name={provider.icon ?? 'plug'} size="0.875rem" />
-              <span>{provider.label}</span>
-            </DropdownMenuItem>
-          ))}
+              <DropdownMenuSeparator />
 
-          <DropdownMenuSeparator />
+              <ContextMenuItem icon={MessageSquareText} onSelect={() => setSnippetsOpen(true)}>
+                {c.promptSnippets}
+              </ContextMenuItem>
 
-          <div className="px-2 py-1 text-[0.7rem] text-muted-foreground/80">
-            {c.tipPre}
-            <Kbd size="sm">@</Kbd>
-            {c.tipPost}
-          </div>
+              {attachmentProviders.length > 0 && <DropdownMenuSeparator />}
+              {attachmentProviders.map(provider => (
+                <DropdownMenuItem
+                  className="text-[length:var(--conversation-tool-font-size)] focus:bg-(--ui-bg-tertiary)"
+                  key={provider.key}
+                  onSelect={() => void provider.run({ insertText: onInsertText })}
+                >
+                  <Codicon name={provider.icon ?? 'plug'} size="0.875rem" />
+                  <span>{provider.label}</span>
+                </DropdownMenuItem>
+              ))}
+
+              <DropdownMenuSeparator />
+
+              <div className="px-2 py-1 text-[0.7rem] text-muted-foreground/80">
+                {c.tipPre}
+                <Kbd size="sm">@</Kbd>
+                {c.tipPost}
+              </div>
+            </>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
 
@@ -181,7 +242,7 @@ interface ContextMenuItemProps {
   children: string
   disabled?: boolean
   icon: IconComponent
-  onSelect?: () => void
+  onSelect?: (event: Event) => void
 }
 
 interface ContextMenuProps {
@@ -191,6 +252,8 @@ interface ContextMenuProps {
   onPickFiles?: () => void
   onPickFolders?: () => void
   onPickImages?: () => void
+  onPickRemoteFiles?: () => void
+  onPickRemoteFolders?: () => void
   state: ChatBarState
 }
 

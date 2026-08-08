@@ -29,6 +29,8 @@ function pathName(path: string) {
 
 interface PendingSelection {
   defaultPath: string
+  /** File mode: files are listed and clicking one resolves it; folders only navigate. */
+  files: boolean
   resolve: (paths: string[]) => void
   title: string
 }
@@ -38,7 +40,7 @@ export function RemoteFolderPicker() {
   const r = t.rightSidebar
   const [pending, setPending] = useState<PendingSelection | null>(null)
   const [currentPath, setCurrentPath] = useState('/')
-  const [entries, setEntries] = useState<Array<{ name: string; path: string }>>([])
+  const [entries, setEntries] = useState<Array<{ isDirectory: boolean; name: string; path: string }>>([])
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
@@ -46,14 +48,20 @@ export function RemoteFolderPicker() {
     setDesktopFsRemotePicker({
       selectPaths: options =>
         new Promise(resolve => {
+          const files = !options?.directories
           const defaultPath = clean(options?.defaultPath || '/')
           setCurrentPath(defaultPath)
-          setPending({ defaultPath, resolve, title: options?.title || r.remotePickerTitle })
+          setPending({
+            defaultPath,
+            files,
+            resolve,
+            title: options?.title || (files ? r.remoteFilePickerTitle : r.remotePickerTitle)
+          })
         })
     })
 
     return () => setDesktopFsRemotePicker(null)
-  }, [r.remotePickerTitle])
+  }, [r.remoteFilePickerTitle, r.remotePickerTitle])
 
   useEffect(() => {
     if (!pending) {
@@ -78,7 +86,9 @@ export function RemoteFolderPicker() {
         }
 
         setEntries(
-          result.entries.filter(entry => entry.isDirectory).map(entry => ({ name: entry.name, path: entry.path }))
+          result.entries
+            .filter(entry => pending.files || entry.isDirectory)
+            .map(entry => ({ isDirectory: entry.isDirectory, name: entry.name, path: entry.path }))
         )
       })
       .catch(err => {
@@ -123,7 +133,9 @@ export function RemoteFolderPicker() {
       <DialogContent className="flex h-[min(36rem,calc(100vh-4rem))] max-w-lg flex-col gap-0 overflow-hidden p-0">
         <div className="shrink-0 border-b border-border/70 px-4 py-3">
           <DialogTitle className="text-sm">{pending?.title || r.remotePickerTitle}</DialogTitle>
-          <DialogDescription className="mt-1 text-xs">{r.remotePickerDescription}</DialogDescription>
+          <DialogDescription className="mt-1 text-xs">
+            {pending?.files ? r.remoteFilePickerDescription : r.remotePickerDescription}
+          </DialogDescription>
         </div>
 
         <div className="flex min-h-0 flex-1 flex-col">
@@ -160,7 +172,12 @@ export function RemoteFolderPicker() {
               <div className="px-2 py-3 text-xs text-muted-foreground">{r.emptyBody}</div>
             ) : (
               entries.map(entry => (
-                <FolderRow key={entry.path} name={pathName(entry.path)} onClick={() => setCurrentPath(entry.path)} />
+                <FolderRow
+                  icon={entry.isDirectory ? 'folder' : 'file'}
+                  key={entry.path}
+                  name={pathName(entry.path)}
+                  onClick={() => (entry.isDirectory ? setCurrentPath(entry.path) : close([entry.path]))}
+                />
               ))
             )}
           </div>
@@ -172,9 +189,11 @@ export function RemoteFolderPicker() {
             <Button onClick={() => close()} size="sm" variant="ghost">
               {t.common.cancel}
             </Button>
-            <Button onClick={() => close([currentPath])} size="sm">
-              {r.remotePickerSelect}
-            </Button>
+            {!pending?.files && (
+              <Button onClick={() => close([currentPath])} size="sm">
+                {r.remotePickerSelect}
+              </Button>
+            )}
           </div>
         </div>
       </DialogContent>
@@ -182,7 +201,17 @@ export function RemoteFolderPicker() {
   )
 }
 
-function FolderRow({ disabled = false, name, onClick }: { disabled?: boolean; name: string; onClick: () => void }) {
+function FolderRow({
+  disabled = false,
+  icon = 'folder',
+  name,
+  onClick
+}: {
+  disabled?: boolean
+  icon?: string
+  name: string
+  onClick: () => void
+}) {
   return (
     <button
       className="row-hover flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-(--ui-text-secondary) hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
@@ -190,7 +219,7 @@ function FolderRow({ disabled = false, name, onClick }: { disabled?: boolean; na
       onClick={onClick}
       type="button"
     >
-      <Codicon name="folder" size="0.875rem" />
+      <Codicon name={icon} size="0.875rem" />
       <span className="min-w-0 truncate">{name}</span>
     </button>
   )
