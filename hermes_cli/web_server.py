@@ -3156,7 +3156,11 @@ async def get_health():
         "ok": True,
         "version": __version__,
         "auth_required": bool(getattr(app.state, "auth_required", False)),
-        "features": {"shell_pty": _shell_pty_disabled_reason() is None},
+        "features": {
+            "shell_pty": _shell_pty_disabled_reason() is None,
+            # Reattach rides on the same substrate as shell-pty; availability tracks it.
+            "shell_pty_reattach": _shell_pty_disabled_reason() is None,
+        },
     }
 
 
@@ -19072,18 +19076,75 @@ async def shell_pty_ws(ws: WebSocket) -> None:
         await ws.close(code=4404)
         return
 
+    # ?attach=<token> opts into keep-alive: the shell outlives this socket and
+    # reattaches by token (replays the ring buffer). No token = legacy ephemeral
+    # 1:1 pump (killed on disconnect). The refusal gate above already ran, so the
+    # attach branch only changes HOW the resolved argv/env/cwd get spawned.
+    attach = (ws.query_params.get("attach") or "").strip() or None
+
+    def _spawn():
+        return PtyBridge.spawn(argv, cwd=cwd, env=env)
+
+    if attach is None:
+        try:
+            bridge = _spawn()
+        except PtyUnavailableError as exc:
+            await ws.send_text(f"\r\n\x1b[31mTerminal unavailable: {exc}\x1b[0m\r\n")
+            await ws.close(code=1011)
+            return
+        except (FileNotFoundError, OSError) as exc:
+            await ws.send_text(f"\r\n\x1b[31mTerminal failed to start: {exc}\x1b[0m\r\n")
+            await ws.close(code=1011)
+            return
+        await _legacy_pump(ws, bridge)
+        return
+
+    # Namespace the key so shell-pty tokens can never collide with /api/pty's
+    # (which key on the raw attach token + profile/resume).
+    reg_key = f"shellpty:{attach}"
     try:
-        bridge = PtyBridge.spawn(argv, cwd=cwd, env=env)
+        session, _created = await PTY_REGISTRY.attach_or_spawn(reg_key, spawn=_spawn)
     except PtyUnavailableError as exc:
         await ws.send_text(f"\r\n\x1b[31mTerminal unavailable: {exc}\x1b[0m\r\n")
         await ws.close(code=1011)
         return
-    except (FileNotFoundError, OSError) as exc:
+    except (FileNotFoundError, OSError, RegistryFull) as exc:
         await ws.send_text(f"\r\n\x1b[31mTerminal failed to start: {exc}\x1b[0m\r\n")
         await ws.close(code=1011)
         return
 
-    await _legacy_pump(ws, bridge)
+    await session.attach(ws)
+
+    # Writer loop only: the session's drain task (one per PTY, in the registry)
+    # forwards output to the attached socket and ring-buffers while detached.
+    # On child EOF the drain closes this socket with 4410, unparking receive().
+    try:
+        while True:
+            try:
+                msg = await ws.receive()
+            except RuntimeError:
+                break
+            if msg.get("type") == "websocket.disconnect":
+                break
+            raw = msg.get("bytes")
+            if raw is None:
+                text = msg.get("text")
+                raw = text.encode("utf-8") if isinstance(text, str) else b""
+            if not raw:
+                continue
+
+            match = _RESIZE_RE.match(raw)
+            if match and match.end() == len(raw):
+                session.bridge.resize(cols=int(match.group(1)), rows=int(match.group(2)))
+                continue
+
+            session.bridge.write(raw)
+    except WebSocketDisconnect:
+        pass
+    finally:
+        # Detach only — the PTY keeps running for a reattach; the reaper closes
+        # it after the TTL (or immediately on process exit).
+        PTY_REGISTRY.detach(reg_key, ws)
 
 
 # ---------------------------------------------------------------------------

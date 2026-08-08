@@ -240,6 +240,119 @@ async def test_shell_pty_modal_refuses(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_shell_pty_attach_registers_and_reattaches(monkeypatch):
+    """?attach= binds the shell to a keep-alive session: one spawn, reattach by
+    token, and a second live connect on the same token supersedes the first."""
+    spawned = []
+
+    class FakeBridge:
+        def __init__(self):
+            self.alive = True
+
+        def read(self, timeout):
+            return b""  # idle forever — keeps the session alive across the drop
+
+        def write(self, data):
+            pass
+
+        def resize(self, cols, rows):
+            pass
+
+        def close(self):
+            self.alive = False
+
+    def fake_spawn(argv, cwd=None, env=None):
+        spawned.append(list(argv))
+        return FakeBridge()
+
+    _bypass_ws_gates(monkeypatch)
+    monkeypatch.setattr(web_server.PtyBridge, "spawn", staticmethod(fake_spawn))
+
+    from starlette.testclient import TestClient
+
+    client = TestClient(web_server.app)
+    try:
+        with client.websocket_connect("/api/shell-pty?attach=TOK1") as ws1:
+            ws1.send_bytes(b"hi")
+        # Registered under the namespaced key, kept alive after the socket dropped.
+        assert "shellpty:TOK1" in web_server.PTY_REGISTRY._sessions
+
+        # Reattach with the same token: no respawn.
+        with client.websocket_connect("/api/shell-pty?attach=TOK1") as ws2:
+            ws2.send_bytes(b"again")
+        assert len(spawned) == 1
+
+        # A distinct token spawns its own session (no collision with /api/pty keys).
+        with client.websocket_connect("/api/shell-pty?attach=TOK2") as ws3:
+            ws3.send_bytes(b"other")
+        assert len(spawned) == 2
+        assert "shellpty:TOK2" in web_server.PTY_REGISTRY._sessions
+    finally:
+        web_server.PTY_REGISTRY._sessions.clear()
+
+
+@pytest.mark.asyncio
+async def test_shell_pty_attach_second_live_connect_supersedes(monkeypatch):
+    """Two overlapping connects on one token: the first is closed 4409 (superseded)."""
+    def fake_spawn(argv, cwd=None, env=None):
+        class FakeBridge:
+            alive = True
+
+            def read(self, timeout):
+                return b""
+
+            def write(self, data):
+                pass
+
+            def resize(self, cols, rows):
+                pass
+
+            def close(self):
+                pass
+
+        return FakeBridge()
+
+    _bypass_ws_gates(monkeypatch)
+    monkeypatch.setattr(web_server.PtyBridge, "spawn", staticmethod(fake_spawn))
+
+    from starlette.testclient import TestClient
+    from starlette.websockets import WebSocketDisconnect
+
+    client = TestClient(web_server.app)
+    try:
+        with client.websocket_connect("/api/shell-pty?attach=DUP") as ws1:
+            ws1.send_bytes(b"first")
+            with pytest.raises(WebSocketDisconnect) as excinfo:
+                with client.websocket_connect("/api/shell-pty?attach=DUP") as ws2:
+                    ws2.send_bytes(b"second")
+                    # ws1 is now superseded; the next frame it sees is the close.
+                    ws1.receive_bytes()
+            from hermes_cli.pty_session import WS_CLOSE_SUPERSEDED
+
+            assert excinfo.value.code == WS_CLOSE_SUPERSEDED
+    finally:
+        web_server.PTY_REGISTRY._sessions.clear()
+
+
+@pytest.mark.asyncio
+async def test_health_advertises_shell_pty_reattach(monkeypatch):
+    from starlette.testclient import TestClient
+
+    client = TestClient(web_server.app)
+    # A loopback Host header so this passes whether or not a prior test armed the
+    # host-header gate by leaving app.state.bound_host set.
+    h = {"host": "127.0.0.1"}
+
+    monkeypatch.delenv("TERMINAL_SHELL_PTY", raising=False)
+    feats = client.get("/api/health", headers=h).json()["features"]
+    assert feats["shell_pty_reattach"] is True
+
+    monkeypatch.setenv("TERMINAL_SHELL_PTY", "off")
+    feats = client.get("/api/health", headers=h).json()["features"]
+    assert feats["shell_pty_reattach"] is False
+
+
+@pytest.mark.asyncio
 async def test_shell_pty_rejects_unauthenticated(monkeypatch):
     monkeypatch.setattr(web_server, "_ws_auth_reason", lambda ws: ("missing", ""))
 
