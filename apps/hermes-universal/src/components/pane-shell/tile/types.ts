@@ -166,6 +166,9 @@ export interface Tile {
   kind: string
   /** Tab label. Live-retitleable — re-registering the same id replaces it. */
   title: string
+  /** The surface. It is handed a box exactly the size of the zone body and
+   *  CLIPPED to it — a tile owns its own scrolling, because the zone will not
+   *  scroll for it (one scroller per surface; see `tree/renderer/tree-group`). */
   render: () => ReactNode
 
   placement?: TilePlacement

@@ -691,7 +691,13 @@ export function TreeGroup({
               return (
                 <div
                   aria-hidden={!isActive || undefined}
-                  className={cn('absolute inset-0 overflow-auto', !isActive && 'pointer-events-none invisible')}
+                  // CLIP, never scroll. Every surface that can sit in a zone
+                  // brings its own scroller (the transcript's viewport, the
+                  // file tree, xterm, CodeMirror), so `overflow-auto` here was
+                  // a second scrollbar wrapped around the first — and since
+                  // WebKitGTK draws classic, space-taking bars, even a
+                  // sub-pixel overflow painted a permanent one on both axes.
+                  className={cn('absolute inset-0 overflow-hidden', !isActive && 'pointer-events-none invisible')}
                   key={paneId}
                   {...hiddenPaneProps(!isActive)}
                 >

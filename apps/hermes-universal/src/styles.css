@@ -655,12 +655,14 @@
     --composer-input-max-height: 9.375rem;
     --composer-input-inline-min-width: 8rem;
     --composer-fallback-height: 2.75rem;
+    /* Fallbacks until `use-composer-metrics` measures the real composer. It
+       writes the two vars onto the composer's OWN `.chat` root, and
+       `--thread-viewport-height` is declared THERE (not here) so each chat
+       re-substitutes them: a custom property is substituted where it is
+       declared and inherits already-resolved, so a formula on `:root` would
+       pin every tile to the root's values. */
     --composer-measured-height: calc(0.5rem + var(--composer-shell-pad-block-end) + var(--composer-fallback-height));
     --composer-surface-measured-height: var(--composer-fallback-height);
-    --thread-viewport-height: max(
-      0rem,
-      calc(100% - var(--composer-measured-height) + var(--composer-surface-measured-height))
-    );
     --vsq: min(0.5vh, 0.5vw);
     --image-preview-max-width: 34rem;
     --image-preview-height: clamp(16.25rem, calc(var(--vsq) * 100), 26.25rem);
@@ -1158,6 +1160,15 @@
   /* Positioning context for the out-of-flow floating scroll-to-bottom button
      (see scroll-to-bottom-button.tsx), which anchors above the composer footer. */
   position: relative;
+  /* Declared HERE, per chat, not on :root — this is the element
+     `use-composer-metrics` writes the two measured heights to, and a custom
+     property substitutes where it is declared. On :root every tile resolved
+     this against whichever composer measured last. The `100%` resolves against
+     the thread viewport's own box (list.tsx), not this one. */
+  --thread-viewport-height: max(
+    0rem,
+    calc(100% - var(--composer-measured-height) + var(--composer-surface-measured-height))
+  );
 }
 /* The chat thread scroller owns its own stick-to-bottom scroll. Slim native
    scrollbar where the standard CSS scrollbar properties are supported (recent
