@@ -35,18 +35,24 @@ vi.mock('@/hermes', () => ({
   saveMemoryProviderConfig: vi.fn(async () => ({ ok: true }))
 }))
 
+import { MemoryRouter } from 'react-router-dom'
+
 import { I18nProvider } from '@/i18n'
 import { queryClient } from '@/lib/query-client'
 
 import { MemorySection } from './memory-section'
 
+// Router context: the config section underneath reads ?field= for palette
+// deep links.
 function renderMemory() {
   return render(
-    <I18nProvider>
-      <QueryClientProvider client={queryClient}>
-        <MemorySection />
-      </QueryClientProvider>
-    </I18nProvider>
+    <MemoryRouter>
+      <I18nProvider>
+        <QueryClientProvider client={queryClient}>
+          <MemorySection />
+        </QueryClientProvider>
+      </I18nProvider>
+    </MemoryRouter>
   )
 }
 

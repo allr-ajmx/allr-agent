@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -13,12 +13,26 @@ import { notifyError } from '@/store/notifications'
 import { repoDiscoveryPolicyFromConfig, repoDiscoveryPolicySignature, scanAndRecordRepos } from '@/store/projects'
 import type { ConfigFieldSchema, HermesConfigRecord } from '@/types/hermes'
 
-import { EMPTY_SELECT_VALUE, FIELD_DESCRIPTIONS, FIELD_LABELS, SECTIONS } from './constants'
+import { ComboboxInput } from './combobox-input'
+import {
+  CONTROL_TEXT,
+  EMPTY_SELECT_VALUE,
+  FIELD_DESCRIPTIONS,
+  FIELD_LABELS,
+  FREE_INPUT_KEYS,
+  SECTIONS
+} from './constants'
 import { FallbackModelsField } from './fallback-models-field'
 import { fieldCopyForSchemaKey } from './field-copy'
 import { enumOptionsFor, getNested, prettyName, setNested } from './helpers'
 import { EmptyState, ListRow, LoadingState, SettingsContent } from './primitives'
+import { SearchableSelect } from './searchable-select'
 import { setHermesConfigCache, useHermesConfigRecord } from './use-config-record'
+import { useDeepLinkHighlight } from './use-deep-link-highlight'
+
+// Shared by the row wrapper and the deep-link lookup so a palette jump can
+// never drift from the id the row actually renders.
+const fieldElementId = (key: string) => `setting-field-${key}`
 
 // The schema-driven config field: renders the right control for the schema type
 // and calls onChange with the parsed value. Ported from desktop config-settings.tsx.
@@ -91,6 +105,39 @@ export function ConfigField({
   }
 
   const selectOptions = enumOptions ?? (schema.type === 'select' ? (schema.options ?? []).map(String) : undefined)
+
+  // Large closed-world lists (e.g. ~590 IANA timezones) get a searchable
+  // Popover + cmdk combobox instead of a closed Select dropdown. The schema
+  // opt-in via `searchable: true` keeps this deterministic — no field
+  // accidentally triggers based on dynamic option count.
+  if (selectOptions && schema.searchable) {
+    return row(
+      <SearchableSelect
+        clearLabel={schema.clearable ? c.systemDefault : undefined}
+        emptyMessage={c.noResults}
+        onChange={next => onChange(next)}
+        options={selectOptions.filter(o => o !== '')}
+        placeholder={c.searchPlaceholder}
+        value={String(value ?? '')}
+      />
+    )
+  }
+
+  // Voice/model name fields are open-world (custom voice IDs, cloned voices,
+  // brand-new model names) — render a free-input combobox where the known
+  // options are dropdown suggestions instead of a closed Select gate.
+  if (selectOptions && FREE_INPUT_KEYS.has(schemaKey)) {
+    return row(
+      <ComboboxInput
+        className={CONTROL_TEXT}
+        onChange={onChange}
+        optionLabels={optionLabels}
+        options={selectOptions.filter(o => o !== '')}
+        placeholder={c.notSet}
+        value={String(value ?? '')}
+      />
+    )
+  }
 
   if (selectOptions) {
     return row(
@@ -295,6 +342,11 @@ export function ConfigSection({
     return (section?.keys ?? []).flatMap(k => (schema[k] ? [[k, schema[k]] as [string, ConfigFieldSchema]] : []))
   }, [schema, sectionId])
 
+  // Deep-link target from the command palette (?field=<key>).
+  const fieldReady = useCallback((key: string) => sectionFields.some(([k]) => k === key), [sectionFields])
+
+  useDeepLinkHighlight({ elementId: fieldElementId, param: 'field', ready: fieldReady })
+
   if (!config || !schema) {
     if ((configLoadFailed && !config) || (schemaFailed && !schema)) {
       return (
@@ -330,7 +382,7 @@ export function ConfigSection({
       ) : (
         <div className="grid gap-1 pt-1">
           {visibleFields.map(([key, field]) => (
-            <div className="rounded-lg" key={key}>
+            <div className="scroll-mt-6 rounded-lg" id={fieldElementId(key)} key={key}>
               <ConfigField
                 descriptionExtra={renderDescriptionExtra?.(key, config)}
                 enumOptions={

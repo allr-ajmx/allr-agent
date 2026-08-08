@@ -558,6 +558,9 @@ export const en: Translations = {
       noneParen: '(none)',
       notSet: 'Not set',
       commaSeparated: 'comma-separated values',
+      searchPlaceholder: 'Search…',
+      noResults: 'No results found',
+      systemDefault: 'System default',
       loading: 'Loading Hermes configuration...',
       emptyTitle: 'Nothing to configure',
       emptyDesc: 'This section has no adjustable settings.',
@@ -1240,6 +1243,7 @@ export const en: Translations = {
       installed: 'Installed',
       installs: count => `${count} installs`
     },
+    commands: 'Commands',
     settingsFields: 'Settings fields',
     mcpServers: 'MCP servers',
     archivedChats: 'Archived chats',

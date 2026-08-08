@@ -3,7 +3,7 @@ import { Codicon } from '@/components/ui/codicon'
 import { Slot } from '@/contrib/react/slot'
 import { useI18n } from '@/i18n'
 import { useStore } from '@/store/atom'
-import { openCommandMenu } from '@/store/command-menu'
+import { openCommandPalette } from '@/store/command-palette'
 import { $hapticsMuted } from '@/store/haptics'
 import {
   $leftEdgeOpen,
@@ -62,7 +62,7 @@ export function Titlebar({ connected }: { connected: boolean }) {
           >
             <Codicon name="arrow-swap" />
           </TitlebarButton>
-          <TitlebarButton actionId="nav.commandPalette" label={t.titlebar.searchTitle} onClick={openCommandMenu}>
+          <TitlebarButton actionId="nav.commandPalette" label={t.titlebar.searchTitle} onClick={openCommandPalette}>
             <Codicon name="search" />
           </TitlebarButton>
           <Slot area={TITLEBAR_AREAS.left} />
