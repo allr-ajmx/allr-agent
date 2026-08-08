@@ -1,8 +1,12 @@
 import { Link, useParams } from 'react-router-dom'
 
 import { PetSection } from '@/app/pet/pet-section'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useI18n } from '@/i18n'
 import { ChevronLeft } from '@/lib/icons'
+import { useStore } from '@/store/atom'
+import { $terminalHostPreference, setTerminalHostPreference } from '@/store/terminals'
+import type { TerminalHostPreference } from '@/transport/terminal-transport'
 
 import { AboutSection } from './about-section'
 import { AppearanceSection } from './appearance-section'
@@ -16,10 +20,46 @@ import { MemorySection } from './memory-section'
 import { ModelSection } from './model-section'
 import { NotificationsSection } from './notifications-section'
 import { PluginsSettings } from './plugins-settings'
-import { EmptyState, SettingsContent } from './primitives'
+import { EmptyState, ListRow, SettingsContent } from './primitives'
 import { ProvidersSection } from './providers-section'
 import { useSettingsNav } from './settings-nav'
 import { VoiceSection } from './voice-section'
+
+// "Shell runs on" override for `resolveTerminalTransportKind` (transport/terminal-
+// transport.ts) — a device-local preference, not a schema config field, so it's a
+// headerSlot above the Workspace page's schema fields rather than a `SECTIONS` key.
+function TerminalHostRow() {
+  const { t } = useI18n()
+  const copy = t.settings.workspace
+  const preference = useStore($terminalHostPreference)
+
+  const options = [
+    { id: 'auto', label: copy.terminalHostAuto },
+    { id: 'device', label: copy.terminalHostDevice },
+    { id: 'gateway', label: copy.terminalHostGateway }
+  ] as const satisfies readonly { id: TerminalHostPreference; label: string }[]
+
+  return (
+    <ListRow
+      action={
+        <Select onValueChange={value => setTerminalHostPreference(value as TerminalHostPreference)} value={preference}>
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {options.map(option => (
+              <SelectItem key={option.id} value={option.id}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      }
+      description={copy.terminalHostDesc}
+      title={copy.terminalHostTitle}
+    />
+  )
+}
 
 // The per-section body. Each Track-J chunk replaces its placeholder case with a
 // real renderer (Jc8 appearance, Jc9 notifications, Jc10 keys, …). Exported so
@@ -35,12 +75,15 @@ export function SectionBody({ section }: { section: string }) {
     // Schema-driven config sections (Jc4).
     case 'chat':
 
-    case 'workspace':
-
     case 'safety':
 
     case 'advanced':
       return <ConfigSection sectionId={group} />
+
+    // Workspace: schema fields plus the "Shell runs on" device-local override,
+    // which isn't a schema key (nothing to send to the gateway).
+    case 'workspace':
+      return <ConfigSection headerSlot={<TerminalHostRow />} sectionId={group} />
 
     // Providers: Accounts (OAuth sign-in) + API keys + custom-endpoints sub-tabs.
     case 'providers':

@@ -416,6 +416,13 @@ export const en: Translations = {
       completionSoundDesc: 'Plays when an agent turn finishes. Pick a preset and preview it here.',
       completionSoundPreview: 'Preview'
     },
+    workspace: {
+      terminalHostTitle: 'Shell runs on',
+      terminalHostDesc: 'Which machine new terminals connect to.',
+      terminalHostAuto: 'Automatic (follow gateway)',
+      terminalHostDevice: 'This device',
+      terminalHostGateway: 'Gateway / workspace host'
+    },
     sections: {
       model: 'Model',
       chat: 'Chat',

@@ -404,6 +404,13 @@ export const zh: Translations = {
       completionSoundDesc: '智能体回合结束时播放。可在此选择预设并预览。',
       completionSoundPreview: '预览'
     },
+    workspace: {
+      terminalHostTitle: 'Shell 运行位置',
+      terminalHostDesc: '新终端连接到哪台机器。',
+      terminalHostAuto: '自动（跟随网关）',
+      terminalHostDevice: '此设备',
+      terminalHostGateway: '网关／工作区主机'
+    },
     sections: {
       model: '模型',
       chat: '对话',
