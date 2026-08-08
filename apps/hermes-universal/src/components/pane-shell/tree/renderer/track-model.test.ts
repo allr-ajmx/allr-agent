@@ -15,7 +15,7 @@ import { describe, expect, it } from 'vitest'
 
 import { group, split } from '../model'
 
-import { fixedTrackSize, MINIMIZED_TRACK, subtreeFolded, type TrackContext } from './track-model'
+import { fixedTrackSize, MINIMIZED_TRACK, previewGrow, subtreeFolded, type TrackContext } from './track-model'
 
 /** Panes are registered, sized-less and on screen unless listed in `gone`. */
 const ctx = (gone: string[] = []): TrackContext => ({
@@ -87,5 +87,38 @@ describe('fixedTrackSize axis contract', () => {
     )
     // …and an open flex sibling still makes the run flex.
     expect(fixedTrackSize(split('column', [min('files'), group(['terminal'])]), 'column', ctx())).toBeNull()
+  })
+})
+
+/**
+ * The sash preview's grow split. A run's grows are normalized to sum to 1, so
+ * a preview that hands either side a grow of its own choosing leaves the run
+ * claiming less than all of the free space — and the remainder shows as a
+ * blank band for the length of the drag. These two properties are exactly
+ * what makes that impossible.
+ */
+describe('previewGrow', () => {
+  // The pair holds 0.8 of a run's grow and is 400px + 600px wide.
+  const growTotal = 0.8
+  const total = 1000
+
+  it('keeps the pair summing to its own grow at every shift', () => {
+    for (const shift of [-399, -100, 0, 1, 250, 599]) {
+      const a = previewGrow(growTotal, 400 + shift, total)
+      const b = previewGrow(growTotal, 600 - shift, total)
+
+      expect(a + b).toBeCloseTo(growTotal, 10)
+    }
+  })
+
+  it('reproduces the rendered grows at rest', () => {
+    // Width is proportional to grow within a run, so an unmoved seam must hand
+    // back exactly what React rendered — else the first frame of a drag jumps.
+    expect(previewGrow(growTotal, 400, total)).toBeCloseTo(growTotal * 0.4, 10)
+    expect(previewGrow(growTotal, 600, total)).toBeCloseTo(growTotal * 0.6, 10)
+  })
+
+  it('falls back to the pair total when there is nothing to divide', () => {
+    expect(previewGrow(growTotal, 0, 0)).toBe(growTotal)
   })
 })

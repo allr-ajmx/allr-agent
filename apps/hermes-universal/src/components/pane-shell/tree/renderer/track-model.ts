@@ -80,6 +80,25 @@ export const shownPaneIds = (group: GroupNode, ctx: TrackContext): string[] =>
  *  are both 28px thick. */
 export const MINIMIZED_TRACK = '1.75rem'
 
+/**
+ * One side's grow while a flex-vs-flex sash is being dragged: the PAIR's grow
+ * split by the pair's new px ratio.
+ *
+ * The renderer normalizes a run's grows to sum to 1, so a preview that hands
+ * either side a grow of its own choosing (the old `flex: 0 1 <px>` pinned both
+ * to zero) leaves the run claiming less than all of the free space — and the
+ * unclaimed remainder shows as a blank band until the commit re-renders. Two
+ * properties make that impossible here, and `track-model.test.ts` pins both:
+ * the two sides sum back to `growTotal` for any shift (because `px_a + px_b`
+ * is the constant `total`), and at shift 0 they reproduce the grows React
+ * rendered (because within a run width is proportional to grow).
+ *
+ * `total` of 0 means there is nothing to divide — the caller's px values are
+ * degenerate, so hand back the pair's own total and let flexbox settle it.
+ */
+export const previewGrow = (growTotal: number, px: number, total: number): number =>
+  total > 0 ? (growTotal * px) / total : growTotal
+
 export function fixedTrackSize(node: LayoutNode, axis: 'row' | 'column', ctx: TrackContext): string | null {
   if (node.type === 'group') {
     // Ancestor splits must size a minimized zone as its strip, not as its

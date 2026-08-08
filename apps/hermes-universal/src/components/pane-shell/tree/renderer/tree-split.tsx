@@ -37,6 +37,7 @@ import {
   edgeFixedZone,
   fixedTrackSize,
   MIN_PANE_PX,
+  previewGrow,
   resolveCssPx,
   shownPaneIds,
   type TrackContext
@@ -141,22 +142,23 @@ export function TreeSplit({
     tileFor: paneFor
   }
 
-  // Min/max clamps come from a direct GROUP child's panes (the same clamps
-  // the app's Pane props express) — but ONLY when they can speak for the
-  // zone: a fixed track (pure sidebar stack) or a single-pane zone. A sidebar
-  // pane fronted in a mixed flex stack must not cap it. A fixed STACK
-  // aggregates its panes' clamps (largest-tenant semantics, mirroring the
-  // max() track basis) — the active tab's caps must never resize the zone.
-  const sizingFor = (child: LayoutNode, track: string | null): TileSizing | null => {
+  // Min/max clamps come from a direct GROUP child's panes (the same clamps the
+  // app's Pane props express), aggregated with largest-tenant semantics that
+  // mirror the max() track basis — the active tab's clamps must never resize
+  // the zone.
+  //
+  // A multi-pane FLEX zone used to bail out here and get no clamps at all, so
+  // that a sidebar pane fronted in a mixed flex stack could not cap it. But
+  // `tileClamps` already guarantees exactly that — a cap survives only when
+  // EVERY tenant declares one, so a single uncapped tenant uncaps the zone —
+  // and the bail also threw away the FLOOR, which is why a chat zone with two
+  // tabs could be crushed to a sliver despite its panes declaring `minWidth`.
+  const sizingFor = (child: LayoutNode): TileSizing | null => {
     if (child.type !== 'group' || child.panes.length === 0) {
       return null
     }
 
     const shownIds = shownPaneIds(child, trackCtx)
-
-    if (track === null && shownIds.length !== 1) {
-      return null
-    }
 
     if (shownIds.length <= 1) {
       return paneFor(shownIds[0])?.sizing ?? null
@@ -257,6 +259,13 @@ export function TreeSplit({
       const styleA = kidA.getAttribute('style')
       const styleB = kidB.getAttribute('style')
 
+      // The two sides' share of the run's grow pool, read from what React last
+      // rendered. A flex-vs-flex preview MOVES grow between them rather than
+      // replacing it (see previewSide), so this total is the invariant the
+      // whole drag preserves.
+      const growOf = (el: HTMLElement) => Number.parseFloat(window.getComputedStyle(el).flexGrow) || 0
+      const growTotal = growOf(kidA) + growOf(kidB)
+
       /**
        * Move one side of the seam by writing inline style — no store, no
        * re-render. The asymmetry between the branches is the subtle part:
@@ -267,15 +276,25 @@ export function TreeSplit({
        *    remainder exactly as the track model would have rendered it —
        *    writing both sides here produced a phantom gap where a hidden
        *    sidebar lived.
-       *  - a FLEX-vs-FLEX seam pins both sides to `0 1 <px>`. Their combined
-       *    px is constant, so other flex tracks in the same run see an
-       *    unchanged leftover.
+       *  - a FLEX-vs-FLEX seam SPLITS the pair's grow by the new px ratio.
+       *    This used to pin both sides to `0 1 <px>`, on the reasoning that
+       *    their combined px is constant so the rest of the run sees an
+       *    unchanged leftover. True of the leftover, false of who claims it:
+       *    `grow(i)` (below) normalizes the run's grows to sum to 1, so
+       *    zeroing two of them left the survivors claiming a FRACTION of the
+       *    free space and the remainder claimed by nobody — a blank band at
+       *    the end of the flex line for the length of the drag. Invisible
+       *    with exactly two flex tracks (the pair IS the run); any third one
+       *    leaks. Redistributing keeps the sum at `growTotal`, so the run
+       *    still claims 100% and the preview matches what the commit renders.
        */
       const previewSide = (el: HTMLElement, fixed: boolean, px: number) => {
         if (fixed) {
           el.style.flexBasis = `${px}px`
         } else if (!a.fixed && !b.fixed) {
-          el.style.flex = `0 1 ${px}px`
+          const g = previewGrow(growTotal, px, a0px + b0px)
+
+          el.style.flex = `${g} ${g} 0px`
         }
       }
 
@@ -453,7 +472,7 @@ export function TreeSplit({
   const tracks = node.children.map(child => {
     const { collapsed, minimized, narrowCollapsed } = zoneEnclosure(child, enclosureCtx, horizontal)
     const track = minimized || collapsed ? null : fixedTrackSize(child, axis, trackCtx)
-    const sizing = minimized || collapsed ? null : sizingFor(child, track)
+    const sizing = minimized || collapsed ? null : sizingFor(child)
 
     return { child, collapsed, minimized, narrowCollapsed, sizing, track }
   })
