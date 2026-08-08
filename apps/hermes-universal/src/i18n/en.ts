@@ -416,6 +416,13 @@ export const en: Translations = {
       completionSoundDesc: 'Plays when an agent turn finishes. Pick a preset and preview it here.',
       completionSoundPreview: 'Preview'
     },
+    workspace: {
+      terminalHostTitle: 'Shell runs on',
+      terminalHostDesc: 'Which machine new terminals connect to.',
+      terminalHostAuto: 'Automatic (follow gateway)',
+      terminalHostDevice: 'This device',
+      terminalHostGateway: 'Gateway / workspace host'
+    },
     sections: {
       model: 'Model',
       chat: 'Chat',
@@ -2422,6 +2429,7 @@ export const en: Translations = {
     terminalHide: 'Hide terminal',
     terminalConnecting: 'Connecting…',
     terminalReconnecting: 'Reconnecting…',
+    terminalReattached: 'Reattached (replayed)',
     terminalClosed: 'Terminal closed',
     terminalRestart: 'Restart',
     terminalHostChip: (host: string) => `Shell on ${host}`,
@@ -2434,8 +2442,8 @@ export const en: Translations = {
     terminalEndDisabledBody: 'This gateway has its shell endpoint switched off.',
     terminalEndRefusedTitle: 'Connection refused',
     terminalEndRefusedBody: 'The gateway refused this terminal connection.',
-    terminalEndSupersededTitle: 'Taken over',
-    terminalEndSupersededBody: 'Another device attached to this shell session.',
+    terminalEndSupersededTitle: 'Taken over on another device',
+    terminalEndSupersededBody: 'Another device attached to this shell session. Restart to take it back here.',
     terminalEndNoGatewayShellTitle: 'No shell on this gateway',
     terminalEndNoGatewayShellBody: "This gateway doesn't provide a remote shell. Update Hermes on the backend host.",
     terminalEndNoLocalShellTitle: 'No shell on this device',

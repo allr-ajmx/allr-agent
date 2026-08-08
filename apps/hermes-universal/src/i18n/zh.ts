@@ -404,6 +404,13 @@ export const zh: Translations = {
       completionSoundDesc: '智能体回合结束时播放。可在此选择预设并预览。',
       completionSoundPreview: '预览'
     },
+    workspace: {
+      terminalHostTitle: 'Shell 运行位置',
+      terminalHostDesc: '新终端连接到哪台机器。',
+      terminalHostAuto: '自动（跟随网关）',
+      terminalHostDevice: '此设备',
+      terminalHostGateway: '网关／工作区主机'
+    },
     sections: {
       model: '模型',
       chat: '对话',
@@ -2575,6 +2582,7 @@ export const zh: Translations = {
     terminalHide: '隐藏终端',
     terminalConnecting: '连接中…',
     terminalReconnecting: '重新连接中…',
+    terminalReattached: '已重新接入（已回放）',
     terminalClosed: '终端已关闭',
     terminalRestart: '重新启动',
     terminalHostChip: host => `Shell 位于 ${host}`,
@@ -2587,8 +2595,8 @@ export const zh: Translations = {
     terminalEndDisabledBody: '此网关已关闭 shell 端点。',
     terminalEndRefusedTitle: '连接被拒绝',
     terminalEndRefusedBody: '网关拒绝了此终端连接。',
-    terminalEndSupersededTitle: '已被接管',
-    terminalEndSupersededBody: '另一台设备接管了此 shell 会话。',
+    terminalEndSupersededTitle: '已在另一台设备上被接管',
+    terminalEndSupersededBody: '另一台设备接管了此 shell 会话。重新启动即可夺回到本机。',
     terminalEndNoGatewayShellTitle: '此网关没有 shell',
     terminalEndNoGatewayShellBody: '此网关不提供远程 shell。请在后端主机上升级 Hermes。',
     terminalEndNoLocalShellTitle: '此设备没有 shell',

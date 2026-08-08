@@ -843,6 +843,11 @@ _SCHEMA_OVERRIDES: Dict[str, Dict[str, Any]] = {
         "description": "Terminal execution backend",
         "options": ["local", "docker", "ssh", "modal", "daytona", "singularity"],
     },
+    "terminal.shell_pty": {
+        "type": "select",
+        "description": "Dashboard shell terminal: auto = enabled, off = disabled",
+        "options": ["auto", "off"],
+    },
     "terminal.modal_mode": {
         "type": "select",
         "description": "Modal sandbox mode",
@@ -2045,6 +2050,39 @@ def _fs_find_git_root(start: Path) -> str | None:
     return None
 
 
+_SHELL_PTY_ENV_ALLOW = frozenset({
+    "PATH", "HOME", "USER", "LOGNAME", "SHELL", "LANG", "LC_ALL", "LC_CTYPE",
+    "TZ", "XDG_RUNTIME_DIR", "SSH_AUTH_SOCK",  # SSH_AUTH_SOCK = agent-forwarding handle
+    "DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_CONFIG",
+    "DOCKER_CERT_PATH", "DOCKER_TLS_VERIFY", "HERMES_DOCKER_BINARY",
+})
+
+
+def _shell_pty_env() -> dict[str, str]:
+    """Env for the shell-pty child: an allowlist of the gateway's env, plus the
+    fixed TERM_* overrides. Deliberately drops API keys / tokens (a login shell
+    re-sources the user's rc files, so an interactive user loses nothing real)."""
+    env = {k: v for k, v in os.environ.items() if k in _SHELL_PTY_ENV_ALLOW}
+    env["TERM"] = "xterm-256color"
+    env["COLORTERM"] = "truecolor"
+    env["TERM_PROGRAM"] = "Hermes"
+    env["HERMES_UNIVERSAL_TERMINAL"] = "1"
+    return env
+
+
+def _shell_pty_disabled_reason() -> str | None:
+    """None if shell-pty is enabled; else a short reason string."""
+    val = os.environ.get("TERMINAL_SHELL_PTY")
+    if val is None:
+        try:
+            val = ((load_config().get("terminal") or {}).get("shell_pty"))
+        except Exception:
+            val = None
+    if str(val or "auto").strip().lower() == "off":
+        return "shell terminal is disabled by configuration (terminal.shell_pty: off)"
+    return None
+
+
 def _fs_default_cwd() -> str:
     cfg_terminal = load_config().get("terminal") or {}
     raw = str(cfg_terminal.get("cwd") or os.environ.get("TERMINAL_CWD") or "").strip()
@@ -3118,7 +3156,11 @@ async def get_health():
         "ok": True,
         "version": __version__,
         "auth_required": bool(getattr(app.state, "auth_required", False)),
-        "features": {"shell_pty": True},
+        "features": {
+            "shell_pty": _shell_pty_disabled_reason() is None,
+            # Reattach rides on the same substrate as shell-pty; availability tracks it.
+            "shell_pty_reattach": _shell_pty_disabled_reason() is None,
+        },
     }
 
 
@@ -16796,6 +16838,176 @@ def _probe_terminal_backend(name: str, terminal_cfg: dict) -> tuple:
         return ("unavailable", f"Probe failed: {exc}")
 
 
+def _shell_pty_target(
+    cwd_param: str | None, *, network_exposed: bool
+) -> tuple[list[str], dict, str | None, str | None]:
+    """Resolve the interactive-shell target for /api/shell-pty by terminal.backend.
+
+    Returns ``(argv, env, cwd, refusal_reason)``. A non-None *refusal_reason*
+    means REFUSE (the caller closes 4404) and NEVER fall back to an unsandboxed
+    host shell. Shells out to ``docker info``/``docker ps`` (up to ~2s), so call
+    it via ``asyncio.to_thread`` — never on the event loop.
+    """
+    try:
+        terminal_cfg = load_config().get("terminal")
+    except Exception:
+        terminal_cfg = None
+    if not isinstance(terminal_cfg, dict):
+        terminal_cfg = {}
+
+    # TERMINAL_ENV (the launcher's env var) wins over config, matching the rest
+    # of the terminal stack (tools/terminal_tool.py reads os.getenv first).
+    backend = (os.environ.get("TERMINAL_ENV") or "").strip().lower()
+    if not backend:
+        backend = str(terminal_cfg.get("backend") or "local").strip().lower()
+
+    if backend == "local":
+        if network_exposed:
+            return (
+                [],
+                {},
+                None,
+                "the gateway is network-exposed and the shell backend is "
+                "unsandboxed (terminal.backend: local). Set terminal.backend to "
+                "docker/ssh, or bind the dashboard to loopback.",
+            )
+        # Host login shell. cwd: (path-hardened) ?cwd= -> default workspace -> ~.
+        cwd = _fs_default_cwd()
+        if cwd_param:
+            try:
+                candidate = _fs_path(cwd_param)
+                if candidate.is_dir():
+                    cwd = str(candidate)
+            except Exception:
+                pass
+        if not os.path.isdir(cwd):
+            cwd = os.path.expanduser("~")
+        shell = os.environ.get("SHELL") or "/bin/bash"
+        return ([shell, "-l"], _shell_pty_env(), cwd, None)
+
+    if backend == "docker":
+        status, message = _probe_docker_backend()
+        if status != "ready":
+            reason = message or "Docker backend unavailable."
+            if "permission" in reason.lower() or "denied" in reason.lower():
+                reason += " (check docker socket access for the gateway user)."
+            return ([], {}, None, reason)
+        try:
+            from tools.environments.docker import (
+                find_docker,
+                _sanitize_label_value,
+                _get_active_profile_name,
+            )
+
+            docker = find_docker() or "docker"
+            profile = _sanitize_label_value(_get_active_profile_name())
+            out = subprocess.run(
+                [
+                    docker,
+                    "ps",
+                    "--filter",
+                    "label=hermes-agent=1",
+                    "--filter",
+                    "label=hermes-task-id=default",
+                    "--filter",
+                    f"label=hermes-profile={profile}",
+                    "--filter",
+                    "status=running",
+                    "--format",
+                    "{{.ID}}",
+                ],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=5,
+            )
+            lines = [ln.strip() for ln in (out.stdout or "").splitlines() if ln.strip()]
+            cid = lines[0] if lines else ""
+        except Exception as exc:
+            return ([], {}, None, f"could not query the sandbox container: {exc}")
+        if not cid:
+            return (
+                [],
+                {},
+                None,
+                "the sandbox container is not running yet — send the agent a "
+                "command first, or set terminal.backend: local on a trusted "
+                "(loopback) bind.",
+            )
+        if cwd_param:
+            _log.info("shell-pty docker backend: discarding host ?cwd=%s", cwd_param)
+        from tools.terminal_tool import _is_unusable_container_cwd
+
+        container_cwd = _terminal_cfg_value(terminal_cfg, "cwd", "TERMINAL_CWD")
+        if not container_cwd or _is_unusable_container_cwd(container_cwd):
+            container_cwd = "/workspace"
+        # Always `bash` inside the image — the host $SHELL may be fish/zsh, which
+        # need not exist in the container. Host-side PtyBridge cwd is None: the
+        # docker CLI ignores it and `-w` sets the in-container working dir.
+        argv = [
+            docker,
+            "exec",
+            "-it",
+            "-w",
+            container_cwd,
+            "-e",
+            "TERM=xterm-256color",
+            "-e",
+            "COLORTERM=truecolor",
+            "-e",
+            "TERM_PROGRAM=Hermes",
+            "-e",
+            "HERMES_UNIVERSAL_TERMINAL=1",
+            cid,
+            "bash",
+            "-l",
+        ]
+        # ponytail: open question deferred to the teardown phase — whether
+        # killing the `docker exec` client also kills the container-side bash is
+        # docker-version-dependent; no pkill marker in v1.
+        return (argv, _shell_pty_env(), None, None)
+
+    if backend == "ssh":
+        status, message = _probe_ssh_backend(terminal_cfg)
+        if status != "ready":
+            return ([], {}, None, message or "SSH backend unavailable.")
+        host = _terminal_cfg_value(terminal_cfg, "ssh_host", "TERMINAL_SSH_HOST")
+        user = _terminal_cfg_value(terminal_cfg, "ssh_user", "TERMINAL_SSH_USER")
+        port = _terminal_cfg_value(terminal_cfg, "ssh_port", "TERMINAL_SSH_PORT")
+        key = _terminal_cfg_value(terminal_cfg, "ssh_key", "TERMINAL_SSH_KEY")
+        # Mirror SSHEnvironment._build_ssh_command's flags, made interactive with
+        # -tt (force a remote PTY for a login shell). BatchMode=yes stays: a
+        # password/passphrase prompt in a browser pane would hang forever with no
+        # way to answer it.
+        argv = [
+            "ssh",
+            "-tt",
+            "-o",
+            "BatchMode=yes",
+            "-o",
+            "StrictHostKeyChecking=accept-new",
+            "-o",
+            "ConnectTimeout=10",
+        ]
+        if port and port != "22":
+            argv += ["-p", port]
+        if key:
+            argv += ["-i", key]
+        argv.append(f"{user}@{host}")
+        return (argv, _shell_pty_env(), None, None)
+
+    # modal / daytona / singularity: no interactive-shell handle exists.
+    return (
+        [],
+        {},
+        None,
+        f"terminal.backend '{backend}' cannot host an interactive shell (its "
+        "sandbox handle is process-local / SDK-only). Use docker or ssh, or a "
+        "loopback bind with terminal.backend: local.",
+    )
+
+
 @app.get("/api/tools/terminal/backends")
 async def get_terminal_backends(profile: Optional[str] = None):
     """Terminal execution backend rows with health probes for the picker panel.
@@ -18821,6 +19033,12 @@ async def shell_pty_ws(ws: WebSocket) -> None:
     await ws.accept()
     _log.info("shell-pty accepted peer=%s mode=%s", peer, mode)
 
+    disabled = _shell_pty_disabled_reason()
+    if disabled:
+        await ws.send_text(f"\r\n\x1b[31mTerminal unavailable: {disabled}\x1b[0m\r\n")
+        await ws.close(code=4404)
+        return
+
     if not _PTY_BRIDGE_AVAILABLE:
         await ws.send_text(
             "\r\n\x1b[31mTerminal unavailable: the shell terminal requires a POSIX "
@@ -18830,39 +19048,103 @@ async def shell_pty_ws(ws: WebSocket) -> None:
         await ws.close(code=1011)
         return
 
-    # Working directory: an optional (path-hardened) ?cwd=, else the backend's
-    # default workspace cwd, else $HOME.
+    # Working directory hint: an optional (path-hardened) ?cwd= consumed only by
+    # the local branch; docker/ssh discard it (container/remote paths differ).
     cwd_param = (ws.query_params.get("cwd") or "").strip() or None
-    cwd = _fs_default_cwd()
-    if cwd_param:
-        try:
-            candidate = _fs_path(cwd_param)
-            if candidate.is_dir():
-                cwd = str(candidate)
-        except Exception:
-            pass
-    if not os.path.isdir(cwd):
-        cwd = os.path.expanduser("~")
 
-    shell = os.environ.get("SHELL") or "/bin/bash"
-    env = os.environ.copy()
-    env["TERM"] = "xterm-256color"
-    env["COLORTERM"] = "truecolor"
-    env["TERM_PROGRAM"] = "Hermes"
-    env["HERMES_UNIVERSAL_TERMINAL"] = "1"
-
+    # Route by terminal.backend, and REFUSE (close 4404) rather than silently
+    # hand out an unsandboxed host shell when that would be unsafe. NEVER 1011
+    # for a refusal — the client treats 1011 as "respawn a LOCAL host shell",
+    # the exact outcome this gate exists to prevent.
+    network_exposed = False
     try:
-        bridge = PtyBridge.spawn([shell], cwd=cwd, env=env)
+        from gateway.platforms.base import is_network_accessible
+
+        network_exposed = is_network_accessible(
+            getattr(app.state, "bound_host", "127.0.0.1")
+        )
+    except Exception:
+        pass
+    # Backend probe/discovery shells out to docker info/ps (~2s) — keep it off
+    # the event loop.
+    argv, env, cwd, refusal = await asyncio.to_thread(
+        _shell_pty_target, cwd_param, network_exposed=network_exposed
+    )
+    if refusal:
+        await ws.send_text(f"\r\n\x1b[31mTerminal unavailable: {refusal}\x1b[0m\r\n")
+        _log.warning("shell-pty refused: %s peer=%s", refusal, peer)
+        await ws.close(code=4404)
+        return
+
+    # ?attach=<token> opts into keep-alive: the shell outlives this socket and
+    # reattaches by token (replays the ring buffer). No token = legacy ephemeral
+    # 1:1 pump (killed on disconnect). The refusal gate above already ran, so the
+    # attach branch only changes HOW the resolved argv/env/cwd get spawned.
+    attach = (ws.query_params.get("attach") or "").strip() or None
+
+    def _spawn():
+        return PtyBridge.spawn(argv, cwd=cwd, env=env)
+
+    if attach is None:
+        try:
+            bridge = _spawn()
+        except PtyUnavailableError as exc:
+            await ws.send_text(f"\r\n\x1b[31mTerminal unavailable: {exc}\x1b[0m\r\n")
+            await ws.close(code=1011)
+            return
+        except (FileNotFoundError, OSError) as exc:
+            await ws.send_text(f"\r\n\x1b[31mTerminal failed to start: {exc}\x1b[0m\r\n")
+            await ws.close(code=1011)
+            return
+        await _legacy_pump(ws, bridge)
+        return
+
+    # Namespace the key so shell-pty tokens can never collide with /api/pty's
+    # (which key on the raw attach token + profile/resume).
+    reg_key = f"shellpty:{attach}"
+    try:
+        session, _created = await PTY_REGISTRY.attach_or_spawn(reg_key, spawn=_spawn)
     except PtyUnavailableError as exc:
         await ws.send_text(f"\r\n\x1b[31mTerminal unavailable: {exc}\x1b[0m\r\n")
         await ws.close(code=1011)
         return
-    except (FileNotFoundError, OSError) as exc:
+    except (FileNotFoundError, OSError, RegistryFull) as exc:
         await ws.send_text(f"\r\n\x1b[31mTerminal failed to start: {exc}\x1b[0m\r\n")
         await ws.close(code=1011)
         return
 
-    await _legacy_pump(ws, bridge)
+    await session.attach(ws)
+
+    # Writer loop only: the session's drain task (one per PTY, in the registry)
+    # forwards output to the attached socket and ring-buffers while detached.
+    # On child EOF the drain closes this socket with 4410, unparking receive().
+    try:
+        while True:
+            try:
+                msg = await ws.receive()
+            except RuntimeError:
+                break
+            if msg.get("type") == "websocket.disconnect":
+                break
+            raw = msg.get("bytes")
+            if raw is None:
+                text = msg.get("text")
+                raw = text.encode("utf-8") if isinstance(text, str) else b""
+            if not raw:
+                continue
+
+            match = _RESIZE_RE.match(raw)
+            if match and match.end() == len(raw):
+                session.bridge.resize(cols=int(match.group(1)), rows=int(match.group(2)))
+                continue
+
+            session.bridge.write(raw)
+    except WebSocketDisconnect:
+        pass
+    finally:
+        # Detach only — the PTY keeps running for a reattach; the reaper closes
+        # it after the TTL (or immediately on process exit).
+        PTY_REGISTRY.detach(reg_key, ws)
 
 
 # ---------------------------------------------------------------------------
@@ -20489,6 +20771,20 @@ def start_server(
     # Record the bound host so host_header_middleware can validate incoming
     # Host headers against it. Defends against DNS rebinding (GHSA-ppp5-vxwm-4cf7).
     app.state.bound_host = host
+
+    try:
+        from gateway.platforms.base import is_network_accessible
+        _tb = str(((load_config().get("terminal") or {}).get("backend")) or "local").strip().lower()
+        if is_network_accessible(host) and _tb == "local" and _shell_pty_disabled_reason() is None:
+            _log.warning(
+                "Dashboard is network-accessible (%s) and /api/shell-pty spawns an "
+                "UNSANDBOXED interactive shell as the host user with full file access. "
+                "Anyone with a valid session gets host code execution. Strongly consider "
+                "terminal.backend: docker (sandbox) or binding to loopback, and firewall "
+                "this port to trusted networks.", host,
+            )
+    except Exception:
+        pass
 
     # ── Start uvicorn with direct Server API ─────────────────────────
     # We use uvicorn.Server directly (not uvicorn.run) so we can split

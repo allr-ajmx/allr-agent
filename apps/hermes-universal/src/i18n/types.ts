@@ -362,6 +362,13 @@ export interface Translations {
       completionSoundDesc: string
       completionSoundPreview: string
     }
+    workspace: {
+      terminalHostTitle: string
+      terminalHostDesc: string
+      terminalHostAuto: string
+      terminalHostDevice: string
+      terminalHostGateway: string
+    }
     sections: Record<string, string>
     searchPlaceholder: Record<'about' | 'config' | 'gateway' | 'keys' | 'mcp' | 'sessions', string>
     modeOptions: Record<'light' | 'dark' | 'system', ModeOptionCopy>
@@ -2043,6 +2050,7 @@ export interface Translations {
     terminalHide: string
     terminalConnecting: string
     terminalReconnecting: string
+    terminalReattached: string
     terminalClosed: string
     terminalRestart: string
     terminalHostChip: (host: string) => string
