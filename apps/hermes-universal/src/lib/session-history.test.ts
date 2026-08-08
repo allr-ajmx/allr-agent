@@ -224,9 +224,7 @@ describe('attached context', () => {
   })
 
   it('strips a trailing context-warnings block', () => {
-    const out = toChatMessages([
-      msg({ role: 'user', content: 'hi\n--- Context Warnings ---\ntoo big' })
-    ])
+    const out = toChatMessages([msg({ role: 'user', content: 'hi\n--- Context Warnings ---\ntoo big' })])
 
     expect(texts(out[0].parts)).toEqual(['hi'])
   })

@@ -9,7 +9,14 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import { allPaneIds, findGroupOfPane, group, type GroupNode, renamePane, split } from '@/components/pane-shell/tree/model'
+import {
+  allPaneIds,
+  findGroupOfPane,
+  group,
+  type GroupNode,
+  renamePane,
+  split
+} from '@/components/pane-shell/tree/model'
 import {
   $dismissedPanes,
   $hiddenTreePanes,

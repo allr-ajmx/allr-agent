@@ -1033,9 +1033,7 @@ function adoptContributedPanes(): void {
   // as fixed cards above it (renderer/floating-panes.tsx). Adopting one would
   // turn it into a track that steals width from a zone, which is the whole
   // thing floating exists to avoid.
-  const missing = panes.filter(
-    c => !inTree.has(c.id) && !dismissed.has(c.id) && c.placement !== FLOATING_PLACEMENT
-  )
+  const missing = panes.filter(c => !inTree.has(c.id) && !dismissed.has(c.id) && c.placement !== FLOATING_PLACEMENT)
 
   adopted = missing.length
 

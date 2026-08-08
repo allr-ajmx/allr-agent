@@ -297,12 +297,7 @@ function MediaAttachment({ path }: { path: string }) {
     return (
       <span className="my-3 block max-w-2xl rounded-xl border border-border bg-muted/35 p-3">
         <span className="mb-2 block truncate text-xs font-medium text-muted-foreground">{name}</span>
-        <video
-          className="block max-h-112 w-full rounded-lg bg-black"
-          controls
-          onError={handleMediaError}
-          src={src}
-        />
+        <video className="block max-h-112 w-full rounded-lg bg-black" controls onError={handleMediaError} src={src} />
         {failed && <OpenMediaButton kind="video" path={path} />}
       </span>
     )

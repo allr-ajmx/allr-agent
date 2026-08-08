@@ -98,7 +98,13 @@ export function PreviewAttachment({ target }: { target: string }) {
         onClick={() => void togglePreview()}
         type="button"
       >
-        {opening ? t.preview.opening : isActive ? t.preview.hide : isUrl ? t.preview.openInBrowser : t.preview.openPreview}
+        {opening
+          ? t.preview.opening
+          : isActive
+            ? t.preview.hide
+            : isUrl
+              ? t.preview.openInBrowser
+              : t.preview.openPreview}
       </button>
     </div>
   )

@@ -453,12 +453,9 @@ export function SidebarScrollBody({
 
   // "+" on a repo or worktree lane: open a fresh chat anchored to that path,
   // carrying no draft (unlike the composer's branch-off hand-off).
-  const newSessionInWorkspace = useCallback(
-    (path: null | string) => {
-      startNewSession({ cwd: path ?? '' })
-    },
-    []
-  )
+  const newSessionInWorkspace = useCallback((path: null | string) => {
+    startNewSession({ cwd: path ?? '' })
+  }, [])
 
   // Project overview rows: drop dismissed auto-projects, sort, then apply the
   // manual drag order when the user has set one.

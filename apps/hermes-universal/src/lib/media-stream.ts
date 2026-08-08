@@ -15,20 +15,7 @@ import { $connection } from '@/store/connection'
 
 // Mirrors `streamable_mime` in media.rs and desktop's STREAMABLE_MEDIA_EXTS.
 // Anything outside this set keeps the data-URL path.
-const STREAMABLE_EXTS = new Set([
-  'avi',
-  'flac',
-  'm4a',
-  'm4v',
-  'mkv',
-  'mov',
-  'mp3',
-  'mp4',
-  'ogg',
-  'opus',
-  'wav',
-  'webm'
-])
+const STREAMABLE_EXTS = new Set(['avi', 'flac', 'm4a', 'm4v', 'mkv', 'mov', 'mp3', 'mp4', 'ogg', 'opus', 'wav', 'webm'])
 
 /**
  * The scheme's origin, which differs by platform: Windows and Android serve a

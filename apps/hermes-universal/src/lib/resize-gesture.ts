@@ -156,11 +156,7 @@ const presetCodec: Codec<ResizeThrottlePreset> = {
   encode: value => value
 }
 
-export const $resizeThrottle = persistentAtom<ResizeThrottlePreset>(
-  'hermes.resizeThrottle',
-  'balanced',
-  presetCodec
-)
+export const $resizeThrottle = persistentAtom<ResizeThrottlePreset>('hermes.resizeThrottle', 'balanced', presetCodec)
 
 /** Milliseconds between updates for `category` while a gesture is running. */
 export function resizeThrottleMs(category: ResizeCategory): number {
