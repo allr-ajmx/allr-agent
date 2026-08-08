@@ -15,6 +15,7 @@ import { useI18n } from '@/i18n'
 import { Activity, AlertCircle, Clock, Command, FolderOpen, Hash, Loader2, Plug, Terminal, Zap } from '@/lib/icons'
 import { IS_DESKTOP, IS_MOBILE } from '@/lib/platform'
 import { revealPathInFileManager } from '@/lib/reveal-path'
+import { projectForCwd } from '@/lib/session-membership'
 import { contextBarLabel, LiveDuration, usageContextLabel } from '@/lib/statusbar'
 import { cn } from '@/lib/utils'
 import { workspaceLabel } from '@/lib/workspace-path'
@@ -26,6 +27,7 @@ import { $gatewayState, requestGateway } from '@/store/gateway'
 import { $terminalOpen, revealFileInTree, toggleTerminalOpen } from '@/store/layout'
 import { notify } from '@/store/notifications'
 import { $activeProfile } from '@/store/profiles'
+import { $projects } from '@/store/projects'
 import { $subagentsBySession, activeSubagentCount, failedSubagentCount } from '@/store/subagents'
 import { $appVersion, $gatewayRestarting, $inferenceStatus, $statusSnapshot } from '@/store/system-status'
 import { openAgentsScreen, openCronScreen, openSettingsScreen, openSystemScreen } from '@/store/windows'
@@ -91,6 +93,14 @@ export function useStatusbarItems(opts?: {
   const currentCwd = useStore($effectiveCwd)
   const cronJobs = useStore($cronJobs)
   const pluginRecords = useStore($pluginRecords)
+  const projects = useStore($projects)
+
+  // ACTIVE PROJECT IDENTITY — the one place the bar answers "which project am I
+  // in". A cwd owned by an explicit project shows that project's name and its
+  // color/icon glyph, so the bar, the sidebar rows and the pane tabs all name
+  // the same thing the same way. Falls back to the bare workspace label when no
+  // project owns the directory.
+  const activeProject = useMemo(() => projectForCwd(currentCwd, projects), [currentCwd, projects])
 
   const fileMenu = t.fileMenu
   const contextUsage = usageContextLabel(currentUsage)
@@ -281,10 +291,20 @@ export function useStatusbarItems(opts?: {
       // workspace label only.
       detail: rich && currentCwd ? currentCwd : undefined,
       hidden: !currentCwd,
-      icon: <FolderOpen className="size-3" />,
+      // A project-owned cwd wears the project's own glyph, tinted by its color;
+      // an unowned one keeps the neutral folder.
+      icon: activeProject ? (
+        <Codicon
+          name={activeProject.icon || 'folder-library'}
+          size="0.75rem"
+          style={activeProject.color ? { color: activeProject.color } : undefined}
+        />
+      ) : (
+        <FolderOpen className="size-3" />
+      ),
       id: 'workspace-cwd',
       toggleLabel: copy.toggleWorkspace,
-      label: currentCwd ? workspaceLabel(currentCwd) : undefined,
+      label: activeProject?.name || (currentCwd ? workspaceLabel(currentCwd) : undefined),
       menuItems: currentCwd
         ? [
             {

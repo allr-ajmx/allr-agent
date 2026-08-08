@@ -94,6 +94,17 @@ export function clearUnreadFinishedSession(storedSessionId: string): void {
   }
 }
 
+// Opening a session clears its unread state — the user is now looking at it.
+// Hung off the atom rather than the several `openSession`/`hydrateColdSession`
+// call sites so it exactly mirrors the mark, which `session-states.ts#handleTransition`
+// gates on this same atom: a turn that settles while its session ISN'T active
+// becomes unread, and the moment it becomes active it stops being.
+$activeStoredSessionId.listen(storedId => {
+  if (storedId) {
+    clearUnreadFinishedSession(storedId)
+  }
+})
+
 /** Follow a compression-driven stored-id rotation for the LIVE primary runtime
  *  (auto-compression mints a new session id mid-turn). Guarded by provenance so
  *  a stale background rotation can't steal the foreground selection. Called by
@@ -287,6 +298,11 @@ export async function refreshMessagingSessions(): Promise<void> {
 // need. `$sessionsLimit` stays global, so in browse mode a limit of N is split
 // across profiles by recency; `resetSessionsPaging()` keeps a big browse-mode
 // limit from leaking into a small single profile.
+//
+// This RELOADS the whole loaded window (offset 0, `$sessionsLimit` rows) rather
+// than paging: it runs when the list may have changed underneath us, so every
+// loaded row has to be re-read to stay correct. Paging deeper is
+// `loadMoreSessions`, which appends a single offset-addressed page.
 export async function refreshSessions(): Promise<void> {
   $sessionsLoading.set(true)
 
@@ -318,11 +334,47 @@ export function resetSessionsPaging(): void {
   $sessionsLimit.set(PAGE)
 }
 
-// The aggregator slices at `limit` with offset=0, so "load more" = re-fetch with
-// a bigger limit. FIXME(MJX-205): true offset pagination.
+/**
+ * Append the NEXT page — one `offset`-addressed fetch of `PAGE` rows, not a
+ * re-fetch of the whole window. `$sessionsLimit` tracks how many rows are
+ * loaded so a later `refreshSessions()` restores the same depth.
+ *
+ * Rows are de-duplicated by id: the list is ordered by recency, so a session
+ * that gets a message between the two fetches shifts toward the head and can
+ * appear in both pages. Without the guard it would render twice and React would
+ * warn on the duplicate key.
+ */
 export async function loadMoreSessions(): Promise<void> {
-  $sessionsLimit.set($sessionsLimit.get() + PAGE)
-  await refreshSessions()
+  const loaded = $sessions.get()
+  const scope = $profileScope.get()
+
+  $sessionsLoading.set(true)
+
+  try {
+    const res = await listAllProfileSessions(
+      PAGE,
+      1,
+      'exclude',
+      'recent',
+      scope === ALL_PROFILES ? 'all' : scope,
+      {},
+      loaded.length
+    )
+
+    const seen = new Set(loaded.map(session => session.id))
+    const fresh = (res.sessions ?? []).filter(session => !seen.has(session.id))
+
+    if (fresh.length) {
+      $sessions.set([...loaded, ...fresh])
+    }
+
+    $sessionsLimit.set(loaded.length + fresh.length)
+    $sessionsTotal.set(scope === ALL_PROFILES ? res.total : (res.profile_totals?.[scope] ?? res.total))
+  } catch (err) {
+    notifyError(err, 'Failed to load sessions')
+  } finally {
+    $sessionsLoading.set(false)
+  }
 }
 
 // Only the newest open may write chat state. Two async sources (the REST

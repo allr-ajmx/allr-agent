@@ -89,6 +89,9 @@ export {
   IconMessage2 as MessageSquareText,
   IconMicrophone as Mic,
   IconDeviceDesktop as Monitor,
+  // Desktop uses lucide's MonitorPlay for the link-preview attachment; tabler's
+  // nearest "a screen showing something" glyph is the TV.
+  IconDeviceTv as MonitorPlay,
   IconMoon as Moon,
   IconDotsVertical as MoreVertical,
   // Notifications completion-sound preview

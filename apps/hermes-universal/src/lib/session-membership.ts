@@ -110,6 +110,43 @@ export function liveSessionProjectId(session: SessionInfo, explicitProjects: Pro
 }
 
 /**
+ * The explicit project that owns a bare DIRECTORY — the one whose folder is the
+ * longest prefix of `cwd`. The path half of {@link liveSessionProjectId}, minus
+ * the repo-root fallback: a status bar showing "which project am I in" wants a
+ * real project row (it has the name, color and icon to render) or nothing, not
+ * a synthetic auto-project id it can't look anything up on.
+ */
+export function projectForCwd(cwd: string, projects: ProjectInfo[]): null | ProjectInfo {
+  const target = (cwd || '').trim()
+
+  if (!target) {
+    return null
+  }
+
+  let best: null | ProjectInfo = null
+  let bestLen = -1
+
+  for (const project of projects) {
+    if (project.archived) {
+      continue
+    }
+
+    for (const folder of project.folders) {
+      if (isPathUnder(folder.path, target)) {
+        const len = segments(folder.path).length
+
+        if (len > bestLen) {
+          bestLen = len
+          best = project
+        }
+      }
+    }
+  }
+
+  return best
+}
+
+/**
  * The color a session inherits from its owning project — the explicit project
  * whose folder is the longest prefix of the session's cwd/repo-root, when that
  * project carries a user-set color. Auto-promoted repo projects have no color

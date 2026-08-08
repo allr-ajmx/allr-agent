@@ -1,5 +1,6 @@
 import { readDesktopFileDataUrl } from '@/lib/desktop-fs'
 import { filePathFromMediaPath, isFileMediaPath, isInlineMediaSrc, mediaName } from '@/lib/media-format'
+import { canStreamMedia, mediaStreamUrl } from '@/lib/media-stream'
 import { $connection } from '@/store/connection'
 
 // Media resolver for the universal (Tauri) client. Ported from
@@ -15,10 +16,13 @@ import { $connection } from '@/store/connection'
 // gap (was tracked as K4) for display; the `&token=` download URL below is kept
 // only as an "open/download" affordance.
 //
-// Deferred (see markdown-text.tsx): the desktop `hermes-media://` streaming
-// scheme for seekable, uncapped audio/video. Universal uses data URLs for now,
-// which load the whole file into memory and don't support seeking — fine for
-// images and short clips; a Tauri custom URI scheme is the follow-up.
+// Audio and video take a different route: the `hermes-media://` scheme
+// (lib/media-stream.ts + src-tauri/src/media.rs), which proxies bounded HTTP
+// ranges so a clip is seekable and never fully in memory. Images and everything
+// else keep the data URL — they are small, and a data URL needs no scheme or CSP
+// surface. `MediaAttachment` falls back to the data URL once if the stream
+// errors, which covers a gateway that confines its download endpoint or caps
+// file size.
 //
 // The pure path/kind helpers live in lib/media-format.ts (no store/transport
 // deps); re-exported here so existing `@/lib/media` importers are unchanged.
@@ -41,6 +45,12 @@ export {
 export async function resolveMediaDisplaySrc(path: string): Promise<string> {
   if (isInlineMediaSrc(path) || !isFileMediaPath(path)) {
     return path
+  }
+
+  // Synchronous for the streaming branch — no base64 round trip before the
+  // element even mounts, which the data-URL path always paid.
+  if (canStreamMedia(path)) {
+    return mediaStreamUrl(path)
   }
 
   return gatewayMediaDataUrl(path)

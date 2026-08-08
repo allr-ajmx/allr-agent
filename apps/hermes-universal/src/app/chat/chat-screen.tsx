@@ -9,6 +9,7 @@ import { useSessionView } from '@/app/chat/session-view'
 import { SudoBar } from '@/app/chat/sudo-bar'
 import { useFileDrop } from '@/app/chat/use-file-drop'
 import { Thread } from '@/components/assistant-ui/thread/thread'
+import { Backdrop } from '@/components/backdrop'
 import { COMPOSER_HEART_CONFIG, HeartField } from '@/components/chat/vibe-hearts'
 import { IS_MOBILE } from '@/lib/platform'
 import { useStore } from '@/store/atom'
@@ -40,6 +41,8 @@ export function ChatScreen() {
 
   return (
     <div className="chat">
+      {/* Decoration behind everything, toggleable from Settings → Appearance. */}
+      <Backdrop />
       {/* The chat title lives INSIDE the chat area (desktop parity — see
           chat-header.tsx / desktop's in-pane ChatHeader), so it tracks the chat
           pane when the left sidebar opens and is absent on non-chat views. On

@@ -18,11 +18,13 @@ import { createMemoizedMathPlugin, KATEX_HTML_TAG } from '@/lib/katex-memo'
 import { preprocessMarkdown } from '@/lib/markdown-preprocess'
 import {
   downloadGatewayMediaFile,
+  gatewayMediaDataUrl,
   mediaKind,
   mediaName,
   mediaPathFromMarkdownHref,
   resolveMediaDisplaySrc
 } from '@/lib/media'
+import { isMediaStreamUrl } from '@/lib/media-stream'
 import { cn } from '@/lib/utils'
 import { span } from '@/observability'
 
@@ -171,13 +173,6 @@ function childrenToText(children: unknown): string {
   return ''
 }
 
-async function mediaSrc(path: string): Promise<string> {
-  // FIXME(MJX-205): audio/video load as data URLs (whole file in memory, no
-  // seeking) until a Tauri media-streaming scheme replaces desktop's
-  // hermes-media:// — fine for images and short clips.
-  return resolveMediaDisplaySrc(path)
-}
-
 // The media file lives on the gateway, so "open" fetches the bytes over the
 // authenticated bridge and hands them to the webview as a download.
 function useOpenMediaFile(path: string) {
@@ -218,18 +213,41 @@ function OpenMediaButton({ kind, path }: { kind: 'audio' | 'video'; path: string
 
 // Renders a `#media:` attachment: images/audio/video inline, other kinds (and
 // load failures) fall back to a download link. Ported from desktop's
-// MediaAttachment, minus the hermes-media:// streaming branch (deferred).
+// MediaAttachment; audio/video resolve to the `hermes-media://` streaming URL
+// (see lib/media-stream.ts) with a one-shot data-URL retry behind them.
 function MediaAttachment({ path }: { path: string }) {
   const [src, setSrc] = useState('')
   const [failed, setFailed] = useState(false)
+  const [triedFallback, setTriedFallback] = useState(false)
   const { open, openFailed } = useOpenMediaFile(path)
   const kind = mediaKind(path)
   const name = mediaName(path)
+
+  /**
+   * The stream URL can legitimately fail where the data URL still works: a
+   * hosted gateway confines `/api/files/download` to its managed root while
+   * `/api/fs/read-data-url` is unconfined, files over 100 MB are refused, and an
+   * older gateway may not serve the endpoint at all. Try the data URL once
+   * before surfacing the "Open …" fallback.
+   */
+  const handleMediaError = () => {
+    if (triedFallback || !isMediaStreamUrl(src)) {
+      setFailed(true)
+
+      return
+    }
+
+    setTriedFallback(true)
+    void gatewayMediaDataUrl(path)
+      .then(setSrc)
+      .catch(() => setFailed(true))
+  }
 
   useEffect(() => {
     let cancelled = false
 
     setFailed(false)
+    setTriedFallback(false)
     setSrc('')
 
     if (kind === 'file') {
@@ -240,7 +258,7 @@ function MediaAttachment({ path }: { path: string }) {
       }
     }
 
-    void mediaSrc(path)
+    void resolveMediaDisplaySrc(path)
       .then(value => {
         if (!cancelled) {
           setSrc(value)
@@ -269,7 +287,7 @@ function MediaAttachment({ path }: { path: string }) {
     return (
       <span className="my-3 block max-w-md rounded-xl border border-border bg-muted/35 p-3">
         <span className="mb-2 block truncate text-xs font-medium text-muted-foreground">{name}</span>
-        <audio className="block w-full" controls onError={() => setFailed(true)} preload="metadata" src={src} />
+        <audio className="block w-full" controls onError={handleMediaError} preload="metadata" src={src} />
         {failed && <OpenMediaButton kind="audio" path={path} />}
       </span>
     )
@@ -282,7 +300,7 @@ function MediaAttachment({ path }: { path: string }) {
         <video
           className="block max-h-112 w-full rounded-lg bg-black"
           controls
-          onError={() => setFailed(true)}
+          onError={handleMediaError}
           src={src}
         />
         {failed && <OpenMediaButton kind="video" path={path} />}
@@ -308,9 +326,9 @@ function MediaAttachment({ path }: { path: string }) {
 }
 
 // `#media:` hrefs render as inline attachments; everything else routes through
-// rich URL embeds / PrettyLink. (Link-preview attachments — desktop's
-// PreviewAttachment scan — stay deferred: they depend on the preview store
-// remodel, tracked separately in Tier 4.)
+// rich URL embeds / PrettyLink. (The link-preview TOGGLE for a settled reply is
+// separate and lives on the message footer — see `PreviewAttachment`, wired in
+// thread/assistant-message.tsx.)
 function MarkdownLink({ children, className, href, ...props }: ComponentProps<'a'>) {
   const mediaPath = mediaPathFromMarkdownHref(href)
 

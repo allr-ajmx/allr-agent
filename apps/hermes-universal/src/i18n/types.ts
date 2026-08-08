@@ -372,6 +372,8 @@ export interface Translations {
       colorModeDesc: string
       toolViewTitle: string
       toolViewDesc: string
+      backdropTitle: string
+      backdropDesc: string
       uiScaleTitle: string
       uiScaleDesc: (percent: number) => string
       translucencyTitle: string
@@ -1553,6 +1555,7 @@ export interface Translations {
       sessionRunning: string
       needsInput: string
       waitingForAnswer: string
+      finishedUnread: string
       handoffOrigin: (platform: string) => string
       renamed: string
       renameFailed: string

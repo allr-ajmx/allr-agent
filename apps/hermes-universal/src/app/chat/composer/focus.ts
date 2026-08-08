@@ -22,6 +22,10 @@ export type ComposerInsertMode = 'block' | 'inline'
 
 interface FocusDetail {
   target: ComposerTarget
+  /** The printable character that triggered a type-to-focus, appended to the
+   *  draft on arrival. Absent for a bare focus request (soft Enter, a panel
+   *  handing focus back), which just focuses without typing. */
+  typeChar?: string
 }
 
 interface InsertDetail {
@@ -84,8 +88,10 @@ export const markActiveComposer = (target: ComposerTarget) => {
  *  Used by broadcast listeners (voice, Esc-to-stop) to act on exactly one. */
 export const getActiveComposer = (): ComposerTarget => activeTarget
 
-export const requestComposerFocus = (target: ComposerTarget | 'active' = 'active') =>
-  dispatch<FocusDetail>(FOCUS_EVENT, { target: resolve(target) })
+export const requestComposerFocus = (
+  target: ComposerTarget | 'active' = 'active',
+  { typeChar }: { typeChar?: string } = {}
+) => dispatch<FocusDetail>(FOCUS_EVENT, { target: resolve(target), typeChar })
 
 export const requestComposerInsert = (
   text: string,
@@ -100,8 +106,8 @@ export const requestComposerInsert = (
   dispatch<InsertDetail>(INSERT_EVENT, { mode, target: resolve(target), text: trimmed })
 }
 
-export const onComposerFocusRequest = (handler: (target: ComposerTarget) => void) =>
-  subscribe<FocusDetail>(FOCUS_EVENT, ({ target }) => handler(target))
+export const onComposerFocusRequest = (handler: (detail: FocusDetail) => void) =>
+  subscribe<FocusDetail>(FOCUS_EVENT, handler)
 
 export const onComposerInsertRequest = (handler: (detail: InsertDetail) => void) =>
   subscribe<InsertDetail>(INSERT_EVENT, handler)

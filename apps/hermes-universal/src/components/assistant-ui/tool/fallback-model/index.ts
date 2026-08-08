@@ -66,7 +66,8 @@ function fileEditPath(args: Record<string, unknown>, result: Record<string, unkn
   )
 }
 
-function fileEditBasename(path: string): string {
+/** The basename of a path, for naming what a tool acted on. */
+export function fileEditBasename(path: string): string {
   const normalized = path.replace(/\\/g, '/').trim()
 
   return normalized.split('/').filter(Boolean).pop() || normalized
@@ -571,7 +572,8 @@ function summarizeBrowserSnapshot(snapshot: string): string {
   return labels.length ? `${stats}\nTop controls: ${labels.join(', ')}` : stats
 }
 
-function firstStringField(record: Record<string, unknown>, keys: readonly string[]): string {
+/** The first non-empty string among `keys`, for pulling a target out of args. */
+export function firstStringField(record: Record<string, unknown>, keys: readonly string[]): string {
   for (const key of keys) {
     const value = record[key]
 

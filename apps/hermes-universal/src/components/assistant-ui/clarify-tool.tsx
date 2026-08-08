@@ -365,7 +365,13 @@ function ClarifyToolPending({ args }: ToolCallMessagePartProps) {
   }
 
   return (
-    <ClarifyShell className="grid gap-2 px-2.5 py-2">
+    // `data-clarify-choices` marks the panel as owning its OWN shortcut keys
+    // (Enter, and 1..N+1 / A.. for the N choices plus "Other") while they're
+    // live, so the global type-to-focus listener (`clarifyCardOwnsKey`) yields
+    // exactly those and lets every other printable through to the composer —
+    // typing a real message instead of picking an option stays possible. The
+    // value is the choice count so the check needs no store access.
+    <ClarifyShell className="grid gap-2 px-2.5 py-2" data-clarify-choices={hasChoices ? choices.length : undefined}>
       <div className="flex items-start gap-2">
         <span className="flex-1 whitespace-pre-wrap font-medium leading-(--conversation-line-height)">{question}</span>
         <MessageQuestion aria-hidden className="mt-px size-4 shrink-0 text-(--ui-text-tertiary)" />
