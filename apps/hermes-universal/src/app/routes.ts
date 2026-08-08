@@ -210,15 +210,21 @@ export function isWorkspacePagePath(pathname: string): boolean {
   return view !== 'chat' && !isOverlayView(view)
 }
 
-/** True while the workspace pane shows a full page instead of the chat. The
- *  workspace pane contribution mirrors it as `headerVeto` so the zone tab bar
- *  stands down on pages. */
-export const $workspaceIsPage = atom(false)
+/** The full page the workspace pane currently shows — its TITLE, which the
+ *  workspace tile puts on its tab so the strip says "Capabilities" rather than
+ *  the chat's name. `null` while the pane shows the chat. */
+export const $workspacePage = atom<null | string>(null)
 
-export function syncWorkspaceIsPage(pathname: string): void {
-  const isPage = isWorkspacePagePath(pathname)
+/** Tab title for a page path: the route contribution's own, else the path
+ *  itself (a plugin page that registered no title still needs a tab label). */
+function workspacePageTitle(pathname: string): string {
+  return contributedRoutes().find(route => route.path === pathname)?.title || pathname.replace(/^\//, '')
+}
 
-  if (isPage !== $workspaceIsPage.get()) {
-    $workspaceIsPage.set(isPage)
+export function syncWorkspacePage(pathname: string): void {
+  const page = isWorkspacePagePath(pathname) ? workspacePageTitle(pathname) : null
+
+  if (page !== $workspacePage.get()) {
+    $workspacePage.set(page)
   }
 }

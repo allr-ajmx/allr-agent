@@ -5,6 +5,7 @@ import { computed } from 'nanostores'
 import { type ReactElement, useEffect } from 'react'
 import { useLocation } from 'react-router-dom'
 
+import { composerTargetForPane, markActiveComposer } from '@/app/chat/composer/focus'
 import { PALETTE_AREA, type PaletteContribution } from '@/app/command-palette/contrib'
 import { IdleMount } from '@/components/idle-mount'
 import { toggleLayoutEditMode } from '@/components/pane-shell/edit-mode'
@@ -58,7 +59,12 @@ import { $previewTabs, closeAllPreviewTabs } from '@/store/preview'
 import { $reviewOpen, closeReview, REVIEW_PANE_ID } from '@/store/review'
 import { $activeStoredSessionId, $sessions, sessionMatchesStoredId } from '@/store/session'
 import { $sessionColorById, sessionColorFor } from '@/store/session-color'
-import { invalidateRuntimeBindings, setVisibleBubbleKeysProvider } from '@/store/session-states'
+import {
+  $focusedChatPane,
+  focusWorkspaceSession,
+  invalidateRuntimeBindings,
+  setVisibleBubbleKeysProvider
+} from '@/store/session-states'
 import { toggleStatusbarVisible } from '@/store/statusbar-prefs'
 import { $effectiveCwd, ensureWorkspaceCwd } from '@/store/workspace-events'
 
@@ -71,7 +77,7 @@ import {
 } from '../chat/session-tile'
 import { ChatSidebar } from '../chat/sidebar'
 import { RemoteFolderPicker } from '../right-pane/files/remote-picker'
-import { $workspaceIsPage, syncWorkspaceIsPage } from '../routes'
+import { $workspacePage, isWorkspacePagePath, syncWorkspacePage } from '../routes'
 
 import { FilesPane, PreviewRailPane, ReviewPaneContent, TerminalPane, WorkspaceRoutes } from './panes'
 
@@ -402,18 +408,20 @@ registerLayoutResetHandler(stackSessionTilesIntoMain)
 const syncWorkspaceTitle = () => {
   const selected = $activeStoredSessionId.get()
   const stored = selected ? $sessions.get().find(s => sessionMatchesStoredId(s, selected)) : null
+  // A page takes the tab's NAME while it shows — the strip stays up (sessions
+  // are tiles now, so it is the way back to them) and a tab reading "New
+  // session" over Capabilities would name the wrong thing.
+  const page = $workspacePage.get()
 
   registerTile({
     id: 'workspace',
     kind: 'chat',
-    title: stored ? storedSessionTitle(stored) : 'New session',
+    title: page ?? (stored ? storedSessionTitle(stored) : 'New session'),
     placement: 'main',
     chrome: {
       // The tab's lead dot — same shared map the sidebar row reads, so the main
       // tab and its sidebar row always show the same color.
       accent: sessionColorFor(stored),
-      // Pages aren't tab-able: the main zone's bar stands down while one shows.
-      headerVeto: $workspaceIsPage.get(),
       linkTarget: true,
       tabWrap: wrapWorkspaceTab,
       uncloseable: true
@@ -427,7 +435,13 @@ const syncWorkspaceTitle = () => {
 $activeStoredSessionId.listen(syncWorkspaceTitle)
 $sessions.listen(syncWorkspaceTitle)
 $sessionColorById.listen(syncWorkspaceTitle)
-$workspaceIsPage.listen(syncWorkspaceTitle)
+$workspacePage.listen(syncWorkspaceTitle)
+
+// Typing lands in the chat you are LOOKING at. The focus bus resolves `'active'`
+// through a module latch; without this it moves only when a composer is focused
+// outright, so clicking a tile's transcript — or a tile simply mounting last —
+// left the keys with another chat.
+$focusedChatPane.listen(pane => markActiveComposer(composerTargetForPane(pane)))
 
 // ---------------------------------------------------------------------------
 // Titlebar toggles → tree. Universal's titlebar buttons keep their store
@@ -564,14 +578,23 @@ const revealPreview = () => {
 $previewTabs.listen(tabs => tabs.length > 0 && revealPreview())
 
 /**
- * The workspace grid: mounts the layout tree. Publishes `$workspaceIsPage` from
- * the router location so the workspace tab's header vetoes on full pages.
+ * The workspace grid: mounts the layout tree. Publishes `$workspacePage` from
+ * the router location (the workspace tab reads it as its title) and fronts the
+ * workspace pane whenever a full page opens in it.
  */
 export function ContribController() {
   const { pathname } = useLocation()
 
   useEffect(() => {
-    syncWorkspaceIsPage(pathname)
+    syncWorkspacePage(pathname)
+
+    // A page opens IN the workspace pane, which with session tiles is often a
+    // background tab: front it and claim its zone, or the click lands on a
+    // surface nobody can see. Here rather than in the rail's handler so the
+    // keybinds, the command palette and a deep link all behave the same.
+    if (isWorkspacePagePath(pathname)) {
+      focusWorkspaceSession()
+    }
   }, [pathname])
 
   // LayoutTreeRoot is `flex flex-1` — it fills a flex COLUMN with a real height

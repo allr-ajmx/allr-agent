@@ -6,8 +6,10 @@
  * keys (dialogs, menus, terminal, …) are left alone.
  */
 
-import { $workspaceIsPage } from '@/app/routes'
+import { $workspacePage } from '@/app/routes'
 import { queryVisible } from '@/components/pane-shell/pane-visibility'
+import { WORKSPACE_PANE_ID } from '@/lib/pane-ids'
+import { $focusedChatPane } from '@/store/session-states'
 import { switcherActive } from '@/store/session-switcher'
 
 import { isEditableTarget, isFocusWithin } from './combo'
@@ -99,7 +101,7 @@ export function clarifyCardOwnsKey(event: KeyboardEvent): boolean {
 }
 
 /**
- * Dialogs, menus, terminal, full pages, session switcher, and any open overlay —
+ * Dialogs, menus, terminal, the focused full page, session switcher, and any open overlay —
  * they keep their keys, so type-to-focus / soft `/` / Enter stand down rather
  * than stealing keystrokes those surfaces own (or leaking them into the composer
  * mounted behind an overlay). A live clarify card is handled per-key by
@@ -108,7 +110,10 @@ export function clarifyCardOwnsKey(event: KeyboardEvent): boolean {
 export function composerFocusBlockedBySurface(): boolean {
   return (
     switcherActive() ||
-    $workspaceIsPage.get() ||
+    // A page owns the keys only while it IS the focused chat surface. It lives in
+    // the workspace pane, and a chat tile beside it must still take typing —
+    // otherwise opening Capabilities silently kills the keyboard for every tile.
+    ($workspacePage.get() !== null && $focusedChatPane.get() === WORKSPACE_PANE_ID) ||
     isFocusWithin('[data-terminal]') ||
     Boolean(document.querySelector(BLOCKING_OVERLAY))
   )

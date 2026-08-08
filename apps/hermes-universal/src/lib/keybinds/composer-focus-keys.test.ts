@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { $workspaceIsPage } from '@/app/routes'
+import { $workspacePage } from '@/app/routes'
+import { group } from '@/components/pane-shell/tree/model'
+import { $layoutTree, noteActiveTreeGroup } from '@/components/pane-shell/tree/store'
+import { sessionTilePaneId } from '@/lib/pane-ids'
 import { $switcherOpen, closeSwitcher } from '@/store/session-switcher'
 
 import {
@@ -42,13 +45,17 @@ describe('isActivateOnEnterTarget', () => {
 
 describe('composerFocusBlockedBySurface', () => {
   beforeEach(() => {
-    $workspaceIsPage.set(false)
+    $workspacePage.set(null)
+    $layoutTree.set(null)
+    noteActiveTreeGroup(null)
     closeSwitcher()
     document.body.replaceChildren()
   })
 
   afterEach(() => {
-    $workspaceIsPage.set(false)
+    $workspacePage.set(null)
+    $layoutTree.set(null)
+    noteActiveTreeGroup(null)
     closeSwitcher()
     document.body.replaceChildren()
   })
@@ -68,8 +75,20 @@ describe('composerFocusBlockedBySurface', () => {
     expect(composerFocusBlockedBySurface()).toBe(true)
 
     closeSwitcher()
-    $workspaceIsPage.set(true)
+    $workspacePage.set('Capabilities')
     expect(composerFocusBlockedBySurface()).toBe(true)
+  })
+
+  // The page lives in the workspace pane. With sessions as tiles it sits BESIDE
+  // chats, so a blanket block on "a page is open" took the keyboard away from
+  // every tile the moment Capabilities was opened.
+  it('leaves the keys with a focused chat tile while a page shows elsewhere', () => {
+    const pane = sessionTilePaneId('a')
+    $layoutTree.set(group([pane], { active: pane, id: 'chat-zone' }))
+    noteActiveTreeGroup('chat-zone')
+    $workspacePage.set('Capabilities')
+
+    expect(composerFocusBlockedBySurface()).toBe(false)
   })
 
   it('blocks while an overlay covers the chat (composer sits behind it)', () => {
@@ -122,14 +141,18 @@ describe('typeToFocusChar', () => {
 
 describe('composerFocusKeysAllowed', () => {
   beforeEach(() => {
-    $workspaceIsPage.set(false)
+    $workspacePage.set(null)
+    $layoutTree.set(null)
+    noteActiveTreeGroup(null)
     closeSwitcher()
     document.body.replaceChildren()
     vi.spyOn(document, 'activeElement', 'get').mockReturnValue(document.body)
   })
 
   afterEach(() => {
-    $workspaceIsPage.set(false)
+    $workspacePage.set(null)
+    $layoutTree.set(null)
+    noteActiveTreeGroup(null)
     closeSwitcher()
     document.body.replaceChildren()
     vi.restoreAllMocks()
