@@ -182,10 +182,10 @@ function ZoneMenu({
             {direction.label}
           </ContextMenuItem>
         ))}
-        {/* Detach is an explicit INTENT, not a gesture — an in-app drag never
-            crosses a window boundary (drag-session.ts reserves native DnD for
-            real OS drops). Resolved at render like `closable`, so the item names
-            the pane that was actually right-clicked. */}
+        {/* The named form of the tear-off (drag a tab clear of the window):
+            same verb, same `canDetach` rule, for when the gesture isn't handy
+            or the pane is a keyboard-only reach. Resolved at render like
+            `closable`, so the item names the pane actually right-clicked. */}
         {detachable?.() !== undefined && (
           <ContextMenuItem
             onSelect={() => {
@@ -351,7 +351,6 @@ export function TreeGroup({
   // form is a rail with its own markup, and there is nothing to measure.
   useActiveTabVisible(tabsRef, activeId, {
     enabled: headerVisible && !node.minimized,
-    last: shown.at(-1) === activeId,
     tabCount: shown.length
   })
 
@@ -424,15 +423,34 @@ export function TreeGroup({
   // Any REGISTERED tile can detach — the window hosts it generically, so there
   // is no roster to keep in sync. Gated on the platform having a second window
   // (Android doesn't yet) and on the tile not already being out there.
+  //
+  // `uncloseable` is excluded for the same reason Close is: the main workspace
+  // pane is the app's home surface, it carries whatever session is active
+  // rather than one of its own, and leaving would swap it for a placeholder.
+  const canDetach = (paneId: string): boolean =>
+    canOpenNewWindow() && Boolean(paneFor(paneId)) && !tileChrome(paneFor(paneId)).uncloseable && !detached.has(paneId)
+
   const detachable = () => {
     const paneId = menuPane ?? activeId
 
-    return canOpenNewWindow() && paneFor(paneId) && !detached.has(paneId) ? paneId : undefined
+    return canDetach(paneId) ? paneId : undefined
   }
+
+  /** Drag a tab clear of the window to give it one of its own — the gesture
+   *  form of the menu's "Open in new window", offered by exactly the panes the
+   *  menu offers it to. */
+  const tearOffTab = (paneId: string) => (canDetach(paneId) ? () => void detachTile(paneId) : undefined)
 
   // The zone hosting the uncloseable workspace never minimizes — collapsing
   // MAIN strands the whole app behind a strip.
   const minimizable = !shown.some(id => tileChrome(paneFor(id)).uncloseable)
+
+  // Tap-to-collapse is the DetailPane gesture, and it belongs to TOOL zones
+  // (terminal/files) — the panels it was written for. On a CHAT strip the empty
+  // space beside the tabs is a target the user aims at constantly (reaching a
+  // tab, working its menu), so a stray click there folded the whole zone away.
+  // The chevron and the zone menu still minimize a chat zone deliberately.
+  const tapCollapses = minimizable && shown.some(isCollapsePane)
 
   // Tab ✕: a tool panel (terminal/logs) is REMOVED from the layout (comes back
   // via its toggle); everything else routes through its Close (a session tile
@@ -542,12 +560,12 @@ export function TreeGroup({
             }}
             onPointerDown={e =>
               // Tap the header to collapse to it / expand back — the DetailPane
-              // / sidebar-section gesture (never for the main zone). Double-tap
-              // hides the header entirely. Drag still moves the pane.
+              // / sidebar-section gesture (tool zones only). Double-tap hides
+              // the header entirely. Drag still moves the pane.
               startPaneDrag(
                 activeId,
                 e,
-                () => minimizable && toggleCollapse(),
+                () => tapCollapses && toggleCollapse(),
                 undefined,
                 hideHeaderDoubleTap,
                 active?.title ?? activeId
@@ -617,7 +635,8 @@ export function TreeGroup({
                           onTap,
                           stripRef.current ? { groupId: node.id, strip: stripRef.current } : undefined,
                           hideHeaderDoubleTap,
-                          title
+                          title,
+                          tearOffTab(paneId)
                         )
                       }
                     }}
@@ -639,24 +658,28 @@ export function TreeGroup({
                 // tile tab); the wrapper needs the key since it's the root.
                 return <Fragment key={paneId}>{chrome.tabWrap ? chrome.tabWrap(tab) : tab}</Fragment>
               })}
-
-              {/* New-tab affordance, chat strips only — the same thing ⌘T does.
-                  A terminal or preview strip has its own create verb, so a `+`
-                  there would be ambiguous. */}
-              {onNewTab && (
-                <Tip label={<TipKeybindLabel actionId="session.newTab" text={t.zones.newTab} />}>
-                  <button
-                    aria-label={t.zones.newTab}
-                    className="mx-1 grid size-5 shrink-0 place-items-center self-center rounded-md text-(--ui-text-tertiary) opacity-0 transition-opacity hover:bg-(--ui-control-hover-background) hover:text-foreground focus-visible:opacity-100 group-hover/pane-header:opacity-100"
-                    onClick={onNewTab}
-                    onPointerDown={e => e.stopPropagation()}
-                    type="button"
-                  >
-                    <Codicon name="add" size="0.75rem" />
-                  </button>
-                </Tip>
-              )}
             </div>
+            {/* New-tab affordance, chat strips only — the same thing ⌘T does.
+                A terminal or preview strip has its own create verb, so a `+`
+                there would be ambiguous.
+
+                OUTSIDE the scroller, with the chevron and the caret: inside it
+                the `+` was scroll content, so the moment the tabs overflowed it
+                slid off the end with them and making one more tab meant
+                scrolling back by hand. */}
+            {onNewTab && (
+              <Tip label={<TipKeybindLabel actionId="session.newTab" text={t.zones.newTab} />}>
+                <button
+                  aria-label={t.zones.newTab}
+                  className="mx-1 grid size-5 shrink-0 place-items-center self-center rounded-md text-(--ui-text-tertiary) opacity-0 transition-opacity hover:bg-(--ui-control-hover-background) hover:text-foreground focus-visible:opacity-100 group-hover/pane-header:opacity-100"
+                  onClick={onNewTab}
+                  onPointerDown={e => e.stopPropagation()}
+                  type="button"
+                >
+                  <Codicon name="add" size="0.75rem" />
+                </button>
+              </Tip>
+            )}
             {minimizable && (
               <button
                 aria-label={node.minimized ? t.zones.restore : t.zones.minimize}

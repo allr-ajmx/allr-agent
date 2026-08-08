@@ -7,6 +7,7 @@ import { type ComposerScope, ComposerScopeProvider } from '@/app/chat/composer/s
 import { paneMirror } from '@/app/chat/pane-mirror'
 import { startSessionDrag } from '@/app/chat/session-drag'
 import { type SessionView, SessionViewProvider } from '@/app/chat/session-view'
+import { detachTile } from '@/components/pane-shell/tile/detach'
 import { findGroupOfPane } from '@/components/pane-shell/tree/model'
 import {
   $layoutTree,
@@ -19,7 +20,7 @@ import {
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { translateNow, useI18n } from '@/i18n'
 import { sessionTitle } from '@/lib/chat-runtime'
-import { DRAFT_TILE_KEY, isDraftTileKey, WORKSPACE_PANE_ID } from '@/lib/pane-ids'
+import { DRAFT_TILE_KEY, isDraftTileKey, sessionTilePaneId, WORKSPACE_PANE_ID } from '@/lib/pane-ids'
 import { useStore } from '@/store/atom'
 import { type ChatMessage } from '@/store/chat'
 import { createComposerAttachmentScope } from '@/store/composer'
@@ -314,7 +315,13 @@ export const watchSessionTiles = paneMirror<SessionTile>({
       return false
     }
 
-    startSessionDrag(tileDragPayload(storedSessionId), event, { double, onTap })
+    // Dropped clear of the window, the tile gets one of its own — the gesture
+    // form of the zone menu's "Open in new window".
+    startSessionDrag(tileDragPayload(storedSessionId), event, {
+      double,
+      onTap,
+      tearOff: () => void detachTile(sessionTilePaneId(storedSessionId))
+    })
 
     return true
   },

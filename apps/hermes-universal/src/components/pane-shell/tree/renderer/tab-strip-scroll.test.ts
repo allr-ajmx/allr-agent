@@ -3,11 +3,11 @@ import { describe, expect, it } from 'vitest'
 import { tabStripScrollLeft } from './tab-strip-scroll'
 
 describe('tabStripScrollLeft', () => {
-  // 300px window over 900px of tabs + "+" → 600px of scroll range.
+  // 300px window over 900px of tabs → 600px of scroll range. The "+" is not in
+  // here: it lives outside the scroller, so it is never scroll content.
   const strip = (over: Partial<Parameters<typeof tabStripScrollLeft>[0]> = {}) =>
     tabStripScrollLeft({
       clientWidth: 300,
-      last: false,
       scrollLeft: 0,
       scrollWidth: 900,
       tabEnd: 0,
@@ -15,8 +15,8 @@ describe('tabStripScrollLeft', () => {
       ...over
     })
 
-  it('scrolls to the end for the last tab so the "+" comes with it', () => {
-    expect(strip({ last: true, scrollLeft: 0, tabEnd: 880, tabStart: 780 })).toBe(600)
+  it('reveals the last tab fully — its end IS the end of the content', () => {
+    expect(strip({ scrollLeft: 0, tabEnd: 900, tabStart: 800 })).toBe(600)
   })
 
   it('leaves the offset alone when the tab is already fully visible', () => {
@@ -32,7 +32,7 @@ describe('tabStripScrollLeft', () => {
   })
 
   it('never exceeds the scrollable range', () => {
-    expect(strip({ last: true, scrollWidth: 250 })).toBe(0)
+    expect(strip({ scrollWidth: 250 })).toBe(0)
     expect(strip({ scrollLeft: 0, tabEnd: 1200, tabStart: 1100 })).toBe(600)
   })
 })
