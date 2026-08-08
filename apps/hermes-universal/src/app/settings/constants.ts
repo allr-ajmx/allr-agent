@@ -591,7 +591,6 @@ export const SECTIONS: DesktopConfigSection[] = [
     icon: Wrench,
     keys: [
       'toolsets',
-      'terminal.backend',
       'terminal.timeout',
       'terminal.docker_image',
       'terminal.singularity_image',

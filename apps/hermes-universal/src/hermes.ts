@@ -62,6 +62,7 @@ import type {
   SkillInfo,
   StarmapGraph,
   StatusResponse,
+  TerminalBackendsResponse,
   ToolsetConfig,
   ToolsetInfo,
   ToolsetModelsResponse
@@ -171,6 +172,9 @@ export type {
   StaleAuxAssignment,
   StarmapGraph,
   StatusResponse,
+  TerminalBackendInfo,
+  TerminalBackendsResponse,
+  TerminalBackendStatus,
   ToolsetConfig,
   ToolsetInfo,
   ToolsetModel,
@@ -844,6 +848,22 @@ export function runToolsetPostSetup(name: string, key: string): Promise<ActionRe
     path: `/api/tools/toolsets/${encodeURIComponent(name)}/post-setup`,
     method: 'POST',
     body: { key }
+  })
+}
+
+export function getTerminalBackends(): Promise<TerminalBackendsResponse> {
+  return api<TerminalBackendsResponse>({
+    ...profileScoped(),
+    path: '/api/tools/terminal/backends'
+  })
+}
+
+export function selectTerminalBackend(backend: string): Promise<{ ok: boolean; backend: string }> {
+  return api<{ ok: boolean; backend: string }>({
+    ...profileScoped(),
+    path: '/api/tools/terminal/backend',
+    method: 'PUT',
+    body: { backend }
   })
 }
 
