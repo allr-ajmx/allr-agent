@@ -18,7 +18,6 @@ import { useI18n } from '@/i18n'
 import { isDesktopFsRemoteMode } from '@/lib/desktop-fs'
 import { normalizeOrLocalPreviewTarget } from '@/lib/local-preview'
 import { cn } from '@/lib/utils'
-import { $currentCwd } from '@/store/chat'
 import { $renamingPath, copyFilePath, revealFile, toRelativePath } from '@/store/file-actions'
 import { $sidebarWorkspaceNodeOpen, revealFileInTree, toggleWorkspaceNodeCollapsed } from '@/store/layout'
 import { notifyError } from '@/store/notifications'
@@ -34,6 +33,7 @@ import {
   stageReviewFile,
   unstageReviewFile
 } from '@/store/review'
+import { $effectiveCwd } from '@/store/workspace-events'
 
 import { pickRevealLabel } from '../file-actions'
 
@@ -54,14 +54,15 @@ const STATUS_GLYPH: Record<string, { icon: string; tone: string }> = {
 }
 
 // Review paths are repo-relative; the composer drop expects absolute paths, so
-// join against the active session cwd (the repo we probed). Exported for the
+// join against the repo the pane probed (the focused chat's cwd, or the
+// workspace root). Exported for the
 // mobile review surface, which needs the same absolute path for preview/copy.
 export function absolutePath(relative: string): string {
   if (/^([a-zA-Z]:[\\/]|\/)/.test(relative)) {
     return relative
   }
 
-  const cwd = $currentCwd
+  const cwd = $effectiveCwd
     .get()
     ?.trim()
     .replace(/[\\/]+$/, '')
@@ -236,7 +237,7 @@ function ReviewFileRow({ node, depth }: { node: ReviewTreeNode; depth: number })
   const selected = file.path === selectedPath
   const glyph = STATUS_GLYPH[file.status] ?? STATUS_GLYPH.M
   const dragPath = absolutePath(file.path)
-  const cwd = useStore($currentCwd)
+  const cwd = useStore($effectiveCwd)
 
   // Single-click shows the inline diff; double-click opens the file in the main
   // preview pane (matching the file browser). They're mutually exclusive: defer

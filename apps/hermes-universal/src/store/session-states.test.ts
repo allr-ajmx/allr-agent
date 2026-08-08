@@ -19,6 +19,7 @@ import {
   updateSession
 } from '@/store/session-state-types'
 import {
+  $focusedCwd,
   $sessionTiles,
   clearAllSessionStates,
   focusOpenSession,
@@ -26,6 +27,7 @@ import {
   MAX_CACHED_SESSIONS,
   pruneSessionStates
 } from '@/store/session-states'
+import { $effectiveCwd, $workspaceCwd } from '@/store/workspace-events'
 
 const seed = (key: string, patch: Partial<ReturnType<typeof emptySessionState>> = {}) =>
   publishSessionState(key, { ...emptySessionState(patch.storedSessionId ?? key), runtimeSessionId: key, ...patch })
@@ -265,5 +267,82 @@ describe('focusWorkspaceSession', () => {
 
     expect(focusOpenSession('loaded')).toBe(true)
     expect($activeTreeGroup.get()).toBe(CHAT_GROUP)
+  })
+})
+
+// The directory the workspace surfaces (file tree, review, terminal, statusbar)
+// describe. It used to be the SIDEBAR's selection, so tiling two chats side by
+// side left the file tree pinned to whichever one the sidebar last picked.
+describe('$focusedCwd', () => {
+  const CHAT_GROUP = 'chat-zone'
+  const FILES_GROUP = 'files-zone'
+  const paneA = sessionTilePaneId('a')
+  const paneB = sessionTilePaneId('b')
+
+  let disposeTiles: (() => void) | null = null
+
+  const seedTree = (active: string) => {
+    disposeTiles?.()
+    disposeTiles = registerTiles(
+      [paneA, paneB, 'files'].map<Tile>(id => ({
+        id,
+        kind: isChatPaneId(id) ? 'chat' : 'tool',
+        title: id,
+        render: () => null,
+        placement: isChatPaneId(id) ? 'main' : 'right'
+      }))
+    )
+
+    $layoutTree.set(
+      split('row', [
+        group([paneA, paneB], { active, id: CHAT_GROUP }),
+        group(['files'], { active: 'files', id: FILES_GROUP })
+      ])
+    )
+  }
+
+  beforeEach(() => {
+    $sessionTiles.set([])
+    $activeStoredSessionId.set(null)
+    $workspaceCwd.set('')
+    seed('rt-a', { cwd: '/proj/a', storedSessionId: 'a' })
+    seed('rt-b', { cwd: '/proj/b', storedSessionId: 'b' })
+  })
+
+  afterEach(() => {
+    disposeTiles?.()
+    disposeTiles = null
+    $layoutTree.set(null)
+    $workspaceCwd.set('')
+  })
+
+  it('follows the focused tile, not the sidebar selection', () => {
+    seedTree(paneA)
+    noteActiveTreeGroup(CHAT_GROUP)
+    expect($focusedCwd.get()).toBe('/proj/a')
+
+    seedTree(paneB)
+    expect($focusedCwd.get()).toBe('/proj/b')
+  })
+
+  // Clicking a folder in the tree notes the FILES zone as the interacted one.
+  // Without the chat-zone latch that fell back to the sidebar's pick, so the
+  // root jumped out from under the click that selected it.
+  it('does not move when a non-chat zone is interacted with', () => {
+    seedTree(paneB)
+    noteActiveTreeGroup(CHAT_GROUP)
+    noteActiveTreeGroup(FILES_GROUP)
+
+    expect($focusedCwd.get()).toBe('/proj/b')
+  })
+
+  it('falls back to the workspace root for a detached chat', () => {
+    seed('rt-a', { cwd: '', storedSessionId: 'a' })
+    seedTree(paneA)
+    noteActiveTreeGroup(CHAT_GROUP)
+    $workspaceCwd.set('/srv/workspace')
+
+    expect($focusedCwd.get()).toBe('')
+    expect($effectiveCwd.get()).toBe('/srv/workspace')
   })
 })

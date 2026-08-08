@@ -1,6 +1,6 @@
 import { getDefaultCwd } from '@/hermes'
 import { atom, computed, type ReadableAtom } from '@/store/atom'
-import { $currentCwd } from '@/store/chat'
+import { $focusedCwd } from '@/store/session-states'
 
 // Ported from desktop's store/workspace-events.ts. Event-driven "the working
 // tree changed" signal — the smart replacement for polling. The agent only
@@ -156,14 +156,21 @@ export function ensureWorkspaceCwd(): Promise<string> {
   return cwdInflight
 }
 
-// What the UI should treat as "the current directory": the active chat's project
-// directory when it has one, else the backend workspace root. Chats can be
-// detached (no cwd), and on a fresh client no chat is open at all — both fall
-// back to the root so the file tree / statusbar / terminal always have somewhere
-// to point, rather than going blank (desktop shows an empty hint there instead,
-// but it always has a local FS to fall back on).
+// What the UI should treat as "the current directory": the FOCUSED chat's
+// project directory when it has one, else the backend workspace root.
+//
+// Focused, not active: with several chats tiled side by side, the one you last
+// clicked into is the one the file tree / review / terminal / statusbar should
+// be describing. `$currentCwd` only moves when the LEFT SIDEBAR selects a
+// session, so surfaces built on it stayed pinned to whatever the sidebar last
+// picked no matter which tile you were working in.
+//
+// Chats can be detached (no cwd), and on a fresh client no chat is open at all —
+// both fall back to the root so those surfaces always have somewhere to point,
+// rather than going blank (desktop shows an empty hint there instead, but it
+// always has a local FS to fall back on).
 export const $effectiveCwd: ReadableAtom<string> = computed(
-  [$currentCwd, $workspaceCwd],
+  [$focusedCwd, $workspaceCwd],
   (sessionCwd, workspaceRoot) => sessionCwd.trim() || workspaceRoot
 )
 

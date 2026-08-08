@@ -885,9 +885,33 @@ export function reopenLastClosedTile(): void {
 // route-driven active session.
 // ---------------------------------------------------------------------------
 
-/** Stored id of the focused session (the interacted zone's tile, else the active one). */
+/**
+ * The last interacted zone that actually HOSTS a chat.
+ *
+ * `$activeTreeGroup` moves on every pointerdown/focusin anywhere in the tree, so
+ * clicking a folder in the file tree — or the terminal, or the review pane —
+ * makes a non-chat zone the interacted one, and the derivation below would fall
+ * straight back to the sidebar's selection. Everything keyed on "the focused
+ * session" would then bounce between the tile you were reading and whatever the
+ * sidebar last picked, every time you touched a side pane.
+ *
+ * Zones hosting the workspace count: the main pane's session IS the selection,
+ * so falling back there is the right answer rather than a stale one.
+ */
+const $chatTreeGroup = atom<null | string>(null)
+
+$activeTreeGroup.subscribe(groupId => {
+  const tree = $layoutTree.get()
+  const active = groupId && tree ? findGroup(tree, groupId)?.active : undefined
+
+  if (active === WORKSPACE_PANE_ID || active?.startsWith(TILE_PANE_PREFIX)) {
+    $chatTreeGroup.set(groupId)
+  }
+})
+
+/** Stored id of the focused session (the interacted chat zone's tile, else the active one). */
 export const $focusedStoredSessionId = computed(
-  [$activeTreeGroup, $layoutTree, $activeStoredSessionId],
+  [$chatTreeGroup, $layoutTree, $activeStoredSessionId],
   (groupId, tree, selected) => {
     const active = groupId && tree ? findGroup(tree, groupId)?.active : undefined
 
@@ -913,6 +937,11 @@ export const $focusedSessionState = computed(
   [$focusedRuntimeId, $activeSessionKey, $sessionStates],
   (key, activeKey, states) => states[key ?? activeKey] ?? states[activeKey] ?? EMPTY_SESSION_STATE
 )
+
+/** The focused chat's project directory — `''` for a detached chat. What the
+ *  workspace surfaces (file tree, review, terminal, statusbar) point at, via
+ *  `$effectiveCwd` in store/workspace-events, which adds the root fallback. */
+export const $focusedCwd = computed($focusedSessionState, state => state.cwd)
 
 /** A PRIMARY navigation homes focus to the workspace — UNLESS the selected id is
  *  already an open TILE (where `focusOpenSession` owns the move). */

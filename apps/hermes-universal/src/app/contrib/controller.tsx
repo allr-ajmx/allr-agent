@@ -35,7 +35,6 @@ import { discoverRuntimePlugins } from '@/contrib/runtime-loader'
 import { sessionTitle as storedSessionTitle } from '@/lib/chat-runtime'
 import { LayoutDashboard, PanelBottom, Plug } from '@/lib/icons'
 import { type KeybindContribution, KEYBINDS_AREA } from '@/lib/keybinds/actions'
-import { $currentCwd } from '@/store/chat'
 import { $chatBubbles, bubbleRuntimeKey } from '@/store/chat-bubbles'
 import { $gatewayState } from '@/store/gateway'
 import {
@@ -61,6 +60,7 @@ import { $activeStoredSessionId, $sessions, sessionMatchesStoredId } from '@/sto
 import { $sessionColorById, sessionColorFor } from '@/store/session-color'
 import { invalidateRuntimeBindings, setVisibleBubbleKeysProvider } from '@/store/session-states'
 import { toggleStatusbarVisible } from '@/store/statusbar-prefs'
+import { $effectiveCwd, ensureWorkspaceCwd } from '@/store/workspace-events'
 
 import { watchRouteTiles } from '../chat/route-tile'
 import {
@@ -509,9 +509,17 @@ bindTreeSideVisibility('left', $sidebarOpen, setSidebarOpen)
 bindTreeSideVisibility('right', $rightSidebarOpen, open => $rightSidebarOpen.set(open))
 
 // Workspace-scoped surfaces: the file tree + git diff only mean something
-// inside a project. A detached chat (no cwd) hides them. The terminal is NOT
-// workspace-gated: its zone stands on its own.
-const $hasWorkspace = computed($currentCwd, cwd => Boolean(cwd.trim()))
+// inside a project. The terminal is NOT workspace-gated: its zone stands on its
+// own.
+//
+// `$effectiveCwd`, not `$currentCwd`: a detached chat falls back to the backend
+// workspace root, so these surfaces have somewhere to point instead of hiding —
+// which is what the terminal and statusbar have always done. That leaves the
+// gate false only until the root lands, so fetch it up front rather than
+// relying on the statusbar hook (its only other caller) being mounted.
+void ensureWorkspaceCwd()
+
+const $hasWorkspace = computed($effectiveCwd, cwd => Boolean(cwd.trim()))
 
 bindPaneVisibility('files', $hasWorkspace)
 // ⌘G — the review sidebar appears/disappears (and comes to the front).
