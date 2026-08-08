@@ -2036,6 +2036,7 @@ export interface Translations {
     terminalHide: string
     terminalConnecting: string
     terminalReconnecting: string
+    terminalReattached: string
     terminalClosed: string
     terminalRestart: string
     terminalHostChip: (host: string) => string

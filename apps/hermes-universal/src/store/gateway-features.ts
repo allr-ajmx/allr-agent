@@ -15,9 +15,13 @@ import { httpRequest } from '@/transport/http'
 export interface GatewayFeatures {
   /** `/api/shell-pty` — the gateway-hosted shell behind the right-pane terminal. */
   shellPty: boolean
+  /** `/api/shell-pty?attach=` keeps the shell alive across WS drops and replays a
+   *  ring buffer on reattach. Absent on older gateways that only do the ephemeral
+   *  shell — so we only send an attach token when this is advertised. */
+  shellPtyReattach: boolean
 }
 
-const NONE: GatewayFeatures = { shellPty: false }
+const NONE: GatewayFeatures = { shellPty: false, shellPtyReattach: false }
 
 /** Successful probes only. A gateway is asked once per app run, not once per terminal. */
 const cache = new Map<string, Promise<GatewayFeatures>>()
@@ -33,7 +37,10 @@ async function probe(baseUrl: string): Promise<GatewayFeatures> {
 
   // An older gateway answers 200 with no `features` at all. Absence is the answer:
   // it predates the endpoint, so the capability is off.
-  return { shellPty: body.features?.shell_pty === true }
+  return {
+    shellPty: body.features?.shell_pty === true,
+    shellPtyReattach: body.features?.shell_pty_reattach === true
+  }
 }
 
 /**

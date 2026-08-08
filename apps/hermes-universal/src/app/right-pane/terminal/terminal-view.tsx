@@ -44,7 +44,11 @@ import { terminalTheme, withSurface } from './terminal-theme'
 // eslint-disable-next-line no-control-regex -- ESC (\x1b) is the sequence being matched; that's the point.
 const SGR_MOUSE_RE = /^\x1b\[<\d+;\d+;\d+[Mm]$/
 
-type Status = 'connecting' | 'ended' | 'open'
+type Status = 'connecting' | 'ended' | 'open' | 'reattached' | 'reconnecting'
+
+/** How long the one-shot "Reattached (replayed)" chip stays up before settling to
+ *  the plain live state, so the replayed scrollback burst reads as a reconnect. */
+const REATTACHED_CHIP_MS = 2500
 
 /** Phone floor for the terminal type, and the bounds pinch-zoom moves between.
  *  The low end still has to fit ~80 columns on a tablet; the high end is where a
@@ -98,7 +102,7 @@ function endCopy(t: Translations, end: TerminalEnd, kind: TerminalTransportKind)
   }
 }
 
-export function TerminalView() {
+export function TerminalView({ id }: { id: string }) {
   const { t } = useI18n()
   const { renderedMode, theme: appTheme } = useTheme()
 
@@ -110,6 +114,7 @@ export function TerminalView() {
   const fitRef = useRef<FitAddon | null>(null)
   const webglRef = useRef<WebglAddon | null>(null)
   const socketRef = useRef<TerminalTransport | null>(null)
+  const reattachTimerRef = useRef<null | ReturnType<typeof setTimeout>>(null)
   const [status, setStatus] = useState<Status>('connecting')
   const [end, setEnd] = useState<TerminalEnd | null>(null)
   const [shellHost, setShellHost] = useState<null | string>(null)
@@ -298,7 +303,7 @@ export function TerminalView() {
     socketRef.current = createTerminalTransport(
       kind,
       conn,
-      { cols: term.cols, cwd: $effectiveCwd.get() || undefined, rows: term.rows },
+      { cols: term.cols, cwd: $effectiveCwd.get() || undefined, rows: term.rows, terminalId: id },
       {
         onData: data => termRef.current?.write(data),
         onEnd: reason => {
@@ -324,7 +329,24 @@ export function TerminalView() {
           }
 
           setShellHost(info.host)
-          setStatus('open')
+
+          // A reattach replays the server's scrollback buffer — flag it for a beat so
+          // the burst reads as "reconnected", then settle to the plain live state.
+          if (reattachTimerRef.current) {
+            clearTimeout(reattachTimerRef.current)
+            reattachTimerRef.current = null
+          }
+
+          if (info.replayed) {
+            setStatus('reattached')
+            reattachTimerRef.current = setTimeout(() => {
+              reattachTimerRef.current = null
+              setStatus('open')
+            }, REATTACHED_CHIP_MS)
+          } else {
+            setStatus('open')
+          }
+
           const t = termRef.current
 
           if (t) {
@@ -336,18 +358,30 @@ export function TerminalView() {
 
             socketRef.current?.resize(t.cols, t.rows)
           }
+        },
+        onStatus: next => {
+          if (!disposed && next === 'reconnecting') {
+            setStatus('reconnecting')
+          }
         }
       }
     )
 
     return () => {
       disposed = true
+
+      if (reattachTimerRef.current) {
+        clearTimeout(reattachTimerRef.current)
+        reattachTimerRef.current = null
+      }
+
       socketRef.current?.close()
       socketRef.current = null
     }
     // `connection`/`preference` are intentionally not deps — see the snapshot note
-    // above; they are read from the atoms at spawn time.
-  }, [attempt, fellBack])
+    // above; they are read from the atoms at spawn time. `id` is stable per mounted
+    // pane (the map is keyed on it), so it never re-triggers a spawn.
+  }, [attempt, fellBack, id])
 
   // Pinch to resize the type — the universal terminal gesture (Termius, Blink),
   // and the only practical answer to "80 columns don't fit on a phone": you zoom
@@ -480,6 +514,21 @@ export function TerminalView() {
         {status === 'connecting' && (
           <div className="pointer-events-none absolute right-2 top-1 rounded bg-black/30 px-1.5 py-0.5 text-[0.65rem] text-white/80">
             {t.rightSidebar.terminalConnecting}
+          </div>
+        )}
+
+        {/* An abnormal drop is being retried with backoff — the shell is kept alive
+            server-side, so this is a wait, not a failure. */}
+        {status === 'reconnecting' && (
+          <div className="pointer-events-none absolute right-2 top-1 rounded bg-black/30 px-1.5 py-0.5 text-[0.65rem] text-white/80">
+            {t.rightSidebar.terminalReconnecting}
+          </div>
+        )}
+
+        {/* One-shot after a reattach: the burst of replayed scrollback is expected. */}
+        {status === 'reattached' && (
+          <div className="pointer-events-none absolute right-2 top-1 rounded bg-black/30 px-1.5 py-0.5 text-[0.65rem] text-white/80">
+            {t.rightSidebar.terminalReattached}
           </div>
         )}
 

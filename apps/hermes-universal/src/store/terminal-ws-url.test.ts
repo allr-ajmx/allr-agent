@@ -19,4 +19,13 @@ describe('resolveTerminalWsUrl', () => {
     const url = await resolveTerminalWsUrl({ authMode: 'none', baseUrl: 'https://host.example' })
     expect(url).toBe('wss://host.example/api/shell-pty')
   })
+
+  it('appends and url-encodes the attach reattach token when supplied', async () => {
+    const url = await resolveTerminalWsUrl(
+      { authMode: 'none', baseUrl: 'http://localhost:8788' },
+      { attach: 'remote::http://gw:term-1' }
+    )
+
+    expect(url).toContain('attach=remote%3A%3Ahttp')
+  })
 })
