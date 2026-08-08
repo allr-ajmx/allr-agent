@@ -16834,6 +16834,176 @@ def _probe_terminal_backend(name: str, terminal_cfg: dict) -> tuple:
         return ("unavailable", f"Probe failed: {exc}")
 
 
+def _shell_pty_target(
+    cwd_param: str | None, *, network_exposed: bool
+) -> tuple[list[str], dict, str | None, str | None]:
+    """Resolve the interactive-shell target for /api/shell-pty by terminal.backend.
+
+    Returns ``(argv, env, cwd, refusal_reason)``. A non-None *refusal_reason*
+    means REFUSE (the caller closes 4404) and NEVER fall back to an unsandboxed
+    host shell. Shells out to ``docker info``/``docker ps`` (up to ~2s), so call
+    it via ``asyncio.to_thread`` — never on the event loop.
+    """
+    try:
+        terminal_cfg = load_config().get("terminal")
+    except Exception:
+        terminal_cfg = None
+    if not isinstance(terminal_cfg, dict):
+        terminal_cfg = {}
+
+    # TERMINAL_ENV (the launcher's env var) wins over config, matching the rest
+    # of the terminal stack (tools/terminal_tool.py reads os.getenv first).
+    backend = (os.environ.get("TERMINAL_ENV") or "").strip().lower()
+    if not backend:
+        backend = str(terminal_cfg.get("backend") or "local").strip().lower()
+
+    if backend == "local":
+        if network_exposed:
+            return (
+                [],
+                {},
+                None,
+                "the gateway is network-exposed and the shell backend is "
+                "unsandboxed (terminal.backend: local). Set terminal.backend to "
+                "docker/ssh, or bind the dashboard to loopback.",
+            )
+        # Host login shell. cwd: (path-hardened) ?cwd= -> default workspace -> ~.
+        cwd = _fs_default_cwd()
+        if cwd_param:
+            try:
+                candidate = _fs_path(cwd_param)
+                if candidate.is_dir():
+                    cwd = str(candidate)
+            except Exception:
+                pass
+        if not os.path.isdir(cwd):
+            cwd = os.path.expanduser("~")
+        shell = os.environ.get("SHELL") or "/bin/bash"
+        return ([shell, "-l"], _shell_pty_env(), cwd, None)
+
+    if backend == "docker":
+        status, message = _probe_docker_backend()
+        if status != "ready":
+            reason = message or "Docker backend unavailable."
+            if "permission" in reason.lower() or "denied" in reason.lower():
+                reason += " (check docker socket access for the gateway user)."
+            return ([], {}, None, reason)
+        try:
+            from tools.environments.docker import (
+                find_docker,
+                _sanitize_label_value,
+                _get_active_profile_name,
+            )
+
+            docker = find_docker() or "docker"
+            profile = _sanitize_label_value(_get_active_profile_name())
+            out = subprocess.run(
+                [
+                    docker,
+                    "ps",
+                    "--filter",
+                    "label=hermes-agent=1",
+                    "--filter",
+                    "label=hermes-task-id=default",
+                    "--filter",
+                    f"label=hermes-profile={profile}",
+                    "--filter",
+                    "status=running",
+                    "--format",
+                    "{{.ID}}",
+                ],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=5,
+            )
+            lines = [ln.strip() for ln in (out.stdout or "").splitlines() if ln.strip()]
+            cid = lines[0] if lines else ""
+        except Exception as exc:
+            return ([], {}, None, f"could not query the sandbox container: {exc}")
+        if not cid:
+            return (
+                [],
+                {},
+                None,
+                "the sandbox container is not running yet — send the agent a "
+                "command first, or set terminal.backend: local on a trusted "
+                "(loopback) bind.",
+            )
+        if cwd_param:
+            _log.info("shell-pty docker backend: discarding host ?cwd=%s", cwd_param)
+        from tools.terminal_tool import _is_unusable_container_cwd
+
+        container_cwd = _terminal_cfg_value(terminal_cfg, "cwd", "TERMINAL_CWD")
+        if not container_cwd or _is_unusable_container_cwd(container_cwd):
+            container_cwd = "/workspace"
+        # Always `bash` inside the image — the host $SHELL may be fish/zsh, which
+        # need not exist in the container. Host-side PtyBridge cwd is None: the
+        # docker CLI ignores it and `-w` sets the in-container working dir.
+        argv = [
+            docker,
+            "exec",
+            "-it",
+            "-w",
+            container_cwd,
+            "-e",
+            "TERM=xterm-256color",
+            "-e",
+            "COLORTERM=truecolor",
+            "-e",
+            "TERM_PROGRAM=Hermes",
+            "-e",
+            "HERMES_UNIVERSAL_TERMINAL=1",
+            cid,
+            "bash",
+            "-l",
+        ]
+        # ponytail: open question deferred to the teardown phase — whether
+        # killing the `docker exec` client also kills the container-side bash is
+        # docker-version-dependent; no pkill marker in v1.
+        return (argv, _shell_pty_env(), None, None)
+
+    if backend == "ssh":
+        status, message = _probe_ssh_backend(terminal_cfg)
+        if status != "ready":
+            return ([], {}, None, message or "SSH backend unavailable.")
+        host = _terminal_cfg_value(terminal_cfg, "ssh_host", "TERMINAL_SSH_HOST")
+        user = _terminal_cfg_value(terminal_cfg, "ssh_user", "TERMINAL_SSH_USER")
+        port = _terminal_cfg_value(terminal_cfg, "ssh_port", "TERMINAL_SSH_PORT")
+        key = _terminal_cfg_value(terminal_cfg, "ssh_key", "TERMINAL_SSH_KEY")
+        # Mirror SSHEnvironment._build_ssh_command's flags, made interactive with
+        # -tt (force a remote PTY for a login shell). BatchMode=yes stays: a
+        # password/passphrase prompt in a browser pane would hang forever with no
+        # way to answer it.
+        argv = [
+            "ssh",
+            "-tt",
+            "-o",
+            "BatchMode=yes",
+            "-o",
+            "StrictHostKeyChecking=accept-new",
+            "-o",
+            "ConnectTimeout=10",
+        ]
+        if port and port != "22":
+            argv += ["-p", port]
+        if key:
+            argv += ["-i", key]
+        argv.append(f"{user}@{host}")
+        return (argv, _shell_pty_env(), None, None)
+
+    # modal / daytona / singularity: no interactive-shell handle exists.
+    return (
+        [],
+        {},
+        None,
+        f"terminal.backend '{backend}' cannot host an interactive shell (its "
+        "sandbox handle is process-local / SDK-only). Use docker or ssh, or a "
+        "loopback bind with terminal.backend: local.",
+    )
+
+
 @app.get("/api/tools/terminal/backends")
 async def get_terminal_backends(profile: Optional[str] = None):
     """Terminal execution backend rows with health probes for the picker panel.
@@ -18874,25 +19044,36 @@ async def shell_pty_ws(ws: WebSocket) -> None:
         await ws.close(code=1011)
         return
 
-    # Working directory: an optional (path-hardened) ?cwd=, else the backend's
-    # default workspace cwd, else $HOME.
+    # Working directory hint: an optional (path-hardened) ?cwd= consumed only by
+    # the local branch; docker/ssh discard it (container/remote paths differ).
     cwd_param = (ws.query_params.get("cwd") or "").strip() or None
-    cwd = _fs_default_cwd()
-    if cwd_param:
-        try:
-            candidate = _fs_path(cwd_param)
-            if candidate.is_dir():
-                cwd = str(candidate)
-        except Exception:
-            pass
-    if not os.path.isdir(cwd):
-        cwd = os.path.expanduser("~")
 
-    shell = os.environ.get("SHELL") or "/bin/bash"
-    env = _shell_pty_env()
+    # Route by terminal.backend, and REFUSE (close 4404) rather than silently
+    # hand out an unsandboxed host shell when that would be unsafe. NEVER 1011
+    # for a refusal — the client treats 1011 as "respawn a LOCAL host shell",
+    # the exact outcome this gate exists to prevent.
+    network_exposed = False
+    try:
+        from gateway.platforms.base import is_network_accessible
+
+        network_exposed = is_network_accessible(
+            getattr(app.state, "bound_host", "127.0.0.1")
+        )
+    except Exception:
+        pass
+    # Backend probe/discovery shells out to docker info/ps (~2s) — keep it off
+    # the event loop.
+    argv, env, cwd, refusal = await asyncio.to_thread(
+        _shell_pty_target, cwd_param, network_exposed=network_exposed
+    )
+    if refusal:
+        await ws.send_text(f"\r\n\x1b[31mTerminal unavailable: {refusal}\x1b[0m\r\n")
+        _log.warning("shell-pty refused: %s peer=%s", refusal, peer)
+        await ws.close(code=4404)
+        return
 
     try:
-        bridge = PtyBridge.spawn([shell, "-l"], cwd=cwd, env=env)
+        bridge = PtyBridge.spawn(argv, cwd=cwd, env=env)
     except PtyUnavailableError as exc:
         await ws.send_text(f"\r\n\x1b[31mTerminal unavailable: {exc}\x1b[0m\r\n")
         await ws.close(code=1011)
