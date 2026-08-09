@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
+import { ModelPickerDialog } from '@/components/model-picker'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -201,6 +202,11 @@ export function ModelSettings({ onMainModelChanged }: ModelSettingsProps) {
   // place — mirrors the onboarding ApiKeyForm but scoped to the model picker.
   const [apiKeyDraft, setApiKeyDraft] = useState('')
   const [activating, setActivating] = useState(false)
+  // The shared model picker (components/model-picker), reused here as its
+  // second call site: two chained <Select>s make you already know which
+  // provider a model lives under, while the picker is searchable across the
+  // whole catalog with the same keyboard nav the composer's ⌘⇧M gives.
+  const [pickerOpen, setPickerOpen] = useState(false)
 
   // Retained from the desktop port; without profile-switching it stays 0, so the
   // `epoch` guards below are inert (but harmless — keeps the port verbatim).
@@ -678,6 +684,9 @@ export function ModelSettings({ onMainModelChanged }: ModelSettingsProps) {
                   ))}
                 </SelectContent>
               </Select>
+              <Button onClick={() => setPickerOpen(true)} size="sm" variant="ghost">
+                {m.change}
+              </Button>
               <Button
                 disabled={!selectedProvider || !selectedModel || applying}
                 onClick={() => void applyMainModel()}
@@ -689,6 +698,20 @@ export function ModelSettings({ onMainModelChanged }: ModelSettingsProps) {
             </>
           )}
         </div>
+        {/* Sessionless: the profile default is what we are editing, so the
+            picker fetches the global catalog and only stages the pick — Apply
+            still owns the write. */}
+        <ModelPickerDialog
+          currentModel={selectedModel}
+          currentProvider={selectedProvider}
+          onOpenChange={setPickerOpen}
+          onOpenProviders={openOnboarding}
+          onSelect={selection => {
+            setSelectedProvider(selection.provider)
+            setSelectedModel(selection.model)
+          }}
+          open={pickerOpen}
+        />
         {needsSetup && !setupIsApiKey && (
           <p className="mt-2 text-xs text-muted-foreground">
             {selectedProviderRow?.auth_type === 'api_key'

@@ -15,30 +15,24 @@ import {
   DropdownMenuSub,
   DropdownMenuSubTrigger
 } from '@/components/ui/dropdown-menu'
+import { HighlightMatches } from '@/components/ui/highlight-matches'
 import { Skeleton } from '@/components/ui/skeleton'
 import type { HermesGateway } from '@/hermes'
 import { useI18n } from '@/i18n'
-import { requestModelOptions } from '@/lib/model-options'
-import {
-  currentPickerSelection,
-  displayModelName,
-  modelDisplayParts,
-  reasoningEffortLabel
-} from '@/lib/model-status-label'
-import { normalize } from '@/lib/text'
+import { modelOptionsQueryKey, requestModelOptions } from '@/lib/model-options'
+import { currentPickerSelection, modelDisplayParts, reasoningEffortLabel } from '@/lib/model-status-label'
 import { cn } from '@/lib/utils'
 import { $sessionId as $activeSessionId } from '@/store/chat'
 import { $currentFastMode, $currentModel, $currentProvider, $currentReasoningEffort } from '@/store/model'
 import { $modelPresets, applyModelPreset, modelPresetKey } from '@/store/model-presets'
 import {
   $visibleModels,
-  collapseModelFamilies,
-  DEFAULT_VISIBLE_PER_PROVIDER,
+  curatedFamilies,
   effectiveVisibleKeys,
   type ModelFamily,
-  modelVisibilityKey,
   setModelVisibilityOpen
 } from '@/store/model-visibility'
+import { $activeGatewayProfile } from '@/store/profile'
 import { $collapsedProviders, toggleCollapsedProvider } from '@/store/provider-collapse'
 import type { ModelOptionProvider, ModelOptionsResponse } from '@/types/hermes'
 
@@ -71,6 +65,7 @@ export function ModelMenuPanel({ gateway, onSelectModel, requestGateway }: Model
   // toggling effort/fast/model re-renders this panel in place without forcing
   // the parent to rebuild the menu content (which would close the dropdown).
   const activeSessionId = useStore($activeSessionId)
+  const profile = useStore($activeGatewayProfile)
   const collapsedProviders = useStore($collapsedProviders)
   const currentFastMode = useStore($currentFastMode)
   const currentModel = useStore($currentModel)
@@ -80,7 +75,7 @@ export function ModelMenuPanel({ gateway, onSelectModel, requestGateway }: Model
   const visibleModels = useStore($visibleModels)
 
   const modelOptions = useQuery({
-    queryKey: ['model-options', activeSessionId || 'global'],
+    queryKey: modelOptionsQueryKey(profile, activeSessionId),
     // Gateway-first even with no session yet: a connected (possibly remote)
     // gateway owns the model catalog, including virtual providers like `moa`
     // that the local REST fallback can't know about (#53817).
@@ -138,7 +133,7 @@ export function ModelMenuPanel({ gateway, onSelectModel, requestGateway }: Model
     setRefreshing(true)
 
     try {
-      const queryKey = ['model-options', activeSessionId || 'global']
+      const queryKey = modelOptionsQueryKey(profile, activeSessionId)
 
       const next = await requestModelOptions({ gateway, refresh: true, sessionId: activeSessionId })
 
@@ -245,7 +240,9 @@ export function ModelMenuPanel({ gateway, onSelectModel, requestGateway }: Model
                   }}
                   textValue=""
                 >
-                  <span className="truncate">{group.provider.name}</span>
+                  <span className="truncate">
+                    <HighlightMatches query={search} text={group.provider.name} />
+                  </span>
                   <DisclosureCaret
                     className="shrink-0 text-(--ui-text-tertiary) opacity-0 transition group-hover/label:opacity-100"
                     open={!collapsed}
@@ -319,7 +316,7 @@ export function ModelMenuPanel({ gateway, onSelectModel, requestGateway }: Model
                           }}
                         >
                           <span className="min-w-0 flex-1 truncate">
-                            {name}
+                            <HighlightMatches query={search} text={name} />
                             {meta ? <span className="text-(--ui-text-tertiary)"> {meta}</span> : null}
                           </span>
                           {isCurrent ? (
@@ -394,58 +391,23 @@ export function ModelMenuPanel({ gateway, onSelectModel, requestGateway }: Model
   )
 }
 
-// Collapsed we show the user's chosen models (or the curated default); typing
-// spans every available model so anything is reachable past the cut. A search
-// is itself a narrowing action, so we do NOT cap per-provider matches — a
-// provider serving 19 models (e.g. opencode-go) must show all 19 when the user
-// searches for it, not a truncated subset. (#47077 follow-up)
+// Which families each provider contributes is decided by `curatedFamilies` in
+// store/model-visibility — the featured shortlist, the user's Edit Models
+// choices and the search widening are all one implementation shared with the
+// full picker and the Edit Models dialog. All this does is drop empty providers
+// and put the groups in a stable order.
 
 function groupModels(
   providers: ModelOptionProvider[],
   search: string,
   current: { model: string; provider: string },
-  visible: Set<string> | null
+  visible: Set<string>
 ): ProviderGroup[] {
-  const q = normalize(search)
   const groups: ProviderGroup[] = []
 
   for (const provider of providers) {
-    const allFamilies = collapseModelFamilies(provider.models ?? [])
-
-    if (allFamilies.length === 0) {
-      continue
-    }
-
-    const matches = (family: ModelFamily) =>
-      `${family.id} ${family.fastId ?? ''} ${provider.name} ${provider.slug} ${displayModelName(family.id)}`
-        .toLowerCase()
-        .includes(q)
-
-    // Which model ids to show (the active one is always added on top of this).
-    let shown: Set<string>
-
-    if (q) {
-      // Search spans every family, regardless of visibility.
-      shown = new Set(allFamilies.filter(matches).map(family => family.id))
-    } else if (visible) {
-      // User has customized which models show — honor their selection exactly.
-      shown = new Set(
-        allFamilies.filter(family => visible.has(modelVisibilityKey(provider.slug, family.id))).map(family => family.id)
-      )
-    } else {
-      // Default: curated top-N families per provider.
-      shown = new Set(allFamilies.slice(0, DEFAULT_VISIBLE_PER_PROVIDER).map(family => family.id))
-    }
-
-    // Always include the active model — but keep every row in the provider's
-    // stable curated order (filter `allFamilies`, never reorder), so selecting
-    // a model can't shuffle the list.
-    const activeId =
-      provider.slug === current.provider && current.model
-        ? allFamilies.find(family => family.id === current.model || family.fastId === current.model)?.id
-        : undefined
-
-    const families = allFamilies.filter(family => shown.has(family.id) || family.id === activeId)
+    const activeModel = provider.slug === current.provider ? current.model : undefined
+    const families = curatedFamilies(provider, { activeModel, search, visible })
 
     if (families.length > 0) {
       groups.push({ families, provider })

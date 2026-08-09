@@ -4,6 +4,7 @@ import { ModelVisibilityDialog } from '@/components/model-visibility-dialog'
 import { $sessionId } from '@/store/chat'
 import { $gatewayState, getGatewayClient } from '@/store/gateway'
 import { $modelVisibilityOpen, setModelVisibilityOpen } from '@/store/model-visibility'
+import { $activeGatewayProfile } from '@/store/profile'
 
 interface ModelVisibilityOverlayProps {
   onOpenProviders: () => void
@@ -16,6 +17,7 @@ interface ModelVisibilityOverlayProps {
 // via getGatewayClient() the way the composer does.
 export function ModelVisibilityOverlay({ onOpenProviders }: ModelVisibilityOverlayProps) {
   const sessionId = useStore($sessionId)
+  const profile = useStore($activeGatewayProfile)
   const gatewayOpen = useStore($gatewayState) === 'open'
   const open = useStore($modelVisibilityOpen)
 
@@ -29,6 +31,7 @@ export function ModelVisibilityOverlay({ onOpenProviders }: ModelVisibilityOverl
       onOpenChange={setModelVisibilityOpen}
       onOpenProviders={onOpenProviders}
       open={open}
+      profile={profile}
       sessionId={sessionId}
     />
   )

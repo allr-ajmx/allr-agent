@@ -6,6 +6,7 @@ import { CommandCenterView } from '@/app/command-center'
 import { ConnectScreen } from '@/app/connect-screen'
 import { CronView } from '@/app/cron'
 import { GatewayConnectingScreen } from '@/app/gateway/gateway-connecting-screen'
+import { ModelPickerOverlay } from '@/app/model-picker-overlay'
 import { ModelVisibilityOverlay } from '@/app/model-visibility-overlay'
 import { OnboardingScreen } from '@/app/onboarding/onboarding-screen'
 import { FloatingPet } from '@/app/pet/floating-pet'
@@ -294,6 +295,10 @@ export function MobileController() {
             model menu ("Edit models"). Self-gates on $modelVisibilityOpen +
             gateway-open; "Add provider…" routes to Providers → Accounts. */}
         {connected && <ModelVisibilityOverlay onOpenProviders={() => openAppRoute('/settings/providers')} />}
+        {/* Full model picker — the ⌘⇧M surface (composer.modelPicker) and the
+            composer pill's fallback when there is no live dropdown. Self-gates
+            on $modelPickerOpen + gateway-open, same as the dialog above. */}
+        {connected && <ModelPickerOverlay onOpenProviders={() => openAppRoute('/settings/providers')} />}
         {/* Floating pet — a top-level draggable + roaming mascot that floats over
             ALL routes. It patrols the Settings overlay's edge when open.
 
