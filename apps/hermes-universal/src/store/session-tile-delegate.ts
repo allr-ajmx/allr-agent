@@ -15,9 +15,23 @@ import { getSessionMessages } from '@/hermes'
 import { appendLiveSessionProjection, toChatMessages } from '@/lib/session-history'
 import { type ChatMessage, nextId } from '@/store/chat'
 import { requestGateway } from '@/store/gateway'
-import { $sessions, archiveSessionLocal, deleteSessionLocal } from '@/store/session'
+import {
+  $sessions,
+  archiveSessionLocal,
+  branchStoredSession,
+  deleteSessionLocal,
+  knownSessionProfile,
+  resolveSessionProfile,
+  sessionProfileIsAmbiguous
+} from '@/store/session'
 import { $sessionStates, emptySessionState, runtimeKeyForStoredSession } from '@/store/session-state-types'
-import { closeSessionTile, publishSessionState, setSessionTileDelegate, updateSession } from '@/store/session-states'
+import {
+  closeSessionTile,
+  openSessionTile,
+  publishSessionState,
+  setSessionTileDelegate,
+  updateSession
+} from '@/store/session-states'
 import type { SessionResumeResponse } from '@/types/hermes'
 
 function userMessage(text: string): ChatMessage {
@@ -47,13 +61,23 @@ async function resumeSessionToState(storedId: string): Promise<string> {
 }
 
 async function hydrateSessionToState(storedId: string): Promise<string> {
+  // A tile can open a session from ANY profile, not just the live one. Resuming
+  // (or reading the transcript) without one lets the gateway fall back to the
+  // launch-profile database and fork the conversation into the wrong profile —
+  // so resolve the owner first. Synchronous for a loaded row and for a
+  // single-profile install; a by-id probe only when the answer can actually
+  // differ (see resolveSessionProfile).
+  const profile =
+    knownSessionProfile(storedId) ?? (sessionProfileIsAmbiguous() ? await resolveSessionProfile(storedId) : undefined)
+
   const transcript = await Promise.resolve()
-    .then(() => getSessionMessages(storedId))
+    .then(() => getSessionMessages(storedId, profile))
     .catch(() => null)
 
   const resumed = await requestGateway<SessionResumeResponse>('session.resume', {
     session_id: storedId,
-    cols: 96
+    cols: 96,
+    ...(profile ? { profile } : {})
   })
 
   const restMessages = transcript?.messages?.length ? toChatMessages(transcript.messages) : null
@@ -111,9 +135,26 @@ setSessionTileDelegate({
     await archiveSessionLocal(storedId)
   },
 
-  // Branch-from-session is a best-effort /branch slash for now.
+  /**
+   * Branch a session from its TAB — read its stored transcript, fork it on the
+   * parent's owning profile, and open the result in a new tab.
+   *
+   * This used to submit a literal `/branch` prompt to the target session, which
+   * asked the AGENT to branch mid-conversation rather than forking the
+   * transcript: it needed a live runtime, it appended a turn to the session you
+   * were branching FROM, and it silently did nothing on a session that wasn't
+   * running. The fork is a client-side copy plus `session.create`, so it works on
+   * any listed session, running or not.
+   */
   async branchSession(storedId) {
-    await requestGateway('prompt.submit', { session_id: storedId, text: '/branch' }).catch(() => {})
+    const branched = await branchStoredSession(storedId)
+
+    if (branched) {
+      // Its own tab, stacked beside the parent — the parent stays exactly where
+      // it was, which is the point of branching from its tab rather than from
+      // inside it.
+      openSessionTile(branched, 'center')
+    }
   },
 
   async deleteSession(storedId) {

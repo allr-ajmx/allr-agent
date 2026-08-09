@@ -12,7 +12,7 @@ import { $connection } from '@/store/connection'
 import { requestGateway } from '@/store/gateway'
 import { setSidebarAgentsGrouped } from '@/store/layout'
 import { notify, notifyError } from '@/store/notifications'
-import { newSession } from '@/store/session'
+import { newSession, pruneSessionTombstones } from '@/store/session'
 import type { ProjectInfo, ProjectsPayload } from '@/types/hermes'
 
 // First-class per-profile Projects, served by the gateway `projects.*` JSON-RPC
@@ -78,6 +78,11 @@ export async function refreshProjectTree(): Promise<void> {
     const res = await requestGateway<ProjectTreePayload>('projects.tree', { preview_limit: 3 })
     $projectTree.set(res.projects ?? [])
     $activeProjectId.set(res.active_id ?? null)
+    // The tree is the authority on what still exists, so it is what LIFTS a
+    // delete/archive tombstone: an id it no longer scopes is genuinely gone.
+    // Until then the tombstone keeps the row evicted from the recents list, so
+    // a snapshot taken before the mutation landed can't flash it back.
+    pruneSessionTombstones(res.scoped_session_ids ?? [])
     markRpcSuccess()
   } catch (err) {
     markRpcFailure(err)

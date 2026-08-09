@@ -1,6 +1,7 @@
 import { COMMAND_CENTER_ROUTE } from '@/app/routes'
 import {
   deleteSession,
+  getSession,
   getSessionMessages,
   listAllProfileSessions,
   renameSession,
@@ -20,7 +21,8 @@ import { $pinnedSessionIds, pinSession, unpinSession } from '@/store/layout'
 import { notify, notifyError } from '@/store/notifications'
 import { flashPetActivity } from '@/store/pet'
 // Import direction is `session.ts → profile.ts → profiles.ts`; never the reverse.
-import { $profileScope, ALL_PROFILES } from '@/store/profile'
+import { $activeGatewayProfile, $profileScope, ALL_PROFILES, normalizeProfileKey } from '@/store/profile'
+import { $profiles } from '@/store/profiles'
 import {
   $activeSessionKey,
   $sessionStates,
@@ -49,7 +51,8 @@ export const $activeStoredSessionId = atom<null | string>(null)
 // Universal's stored id IS the desktop "active session" id for a single-session app.
 export const $activeSessionId = $activeStoredSessionId
 
-// The last chat that was actually open, remembered across launches.
+// The last chat that was actually open, remembered across launches — PER
+// PROFILE.
 //
 // A phone always cold-starts at "/" — there is no window to restore and no URL
 // to come back to — so without this the app opened on an empty new session every
@@ -57,25 +60,237 @@ export const $activeSessionId = $activeStoredSessionId
 // sidebar. Written on every switch, read once at boot (see
 // `use-restore-last-session`).
 //
+// One global key remembered ONE session across every profile, so booting under
+// profile B restored a session owned by profile A — which then resumed against
+// B's backend and forked the conversation into the wrong profile's database.
+// Keyed by the session's OWNING profile instead (the aggregator tags every row),
+// so each profile remembers its own place. The old global key is deliberately
+// NOT migrated: which profile owned that value is unknowable, and guessing is
+// exactly the cross-profile bleed this scoping exists to prevent.
+//
 // A draft (null) is deliberately NOT recorded: an unsaved chat has nothing to
 // restore, and letting it overwrite the value would mean opening a new session
 // once wiped out the memory of the last real one. A secondary window never
 // writes — it does not own the user's place in the app.
-const LAST_SESSION_KEY = 'hermes.lastSessionId'
+const LAST_SESSION_KEY = 'hermes.lastSessionId.byProfile'
 
-const $lastSessionId = persistentAtom<null | string>(LAST_SESSION_KEY, null, Codecs.nullableText)
+const $lastSessionByProfile = persistentAtom<Record<string, string>>(LAST_SESSION_KEY, {}, Codecs.stringRecord)
 
 if (!isSecondaryWindow()) {
   $activeStoredSessionId.subscribe(id => {
-    if (id) {
-      $lastSessionId.set(id)
+    if (!id) {
+      return
+    }
+
+    const owner = knownSessionProfile(id) ?? $activeGatewayProfile.get()
+    const current = $lastSessionByProfile.get()
+
+    if (current[owner] !== id) {
+      $lastSessionByProfile.set({ ...current, [owner]: id })
     }
   })
 }
 
-/** The session to land on at boot, if any. */
+/** The session to land on at boot, if any — the one last open on THIS profile. */
 export function lastOpenedSessionId(): null | string {
-  return $lastSessionId.get()
+  return $lastSessionByProfile.get()[$activeGatewayProfile.get()] ?? null
+}
+
+// ---------------------------------------------------------------------------
+// OWNING PROFILE — which profile's database a stored session actually lives in.
+//
+// Every session-scoped call (resume, transcript read, delete, archive, rename)
+// is served by ONE profile's backend. Sent without a profile it lands on
+// whichever gateway is live, so opening a session from another profile resumed
+// against the wrong database and forked the conversation into it. The REST layer
+// has taken an optional `profile` all along (see hermes.ts); universal simply
+// never passed one.
+// ---------------------------------------------------------------------------
+
+/** Resolutions we paid a lookup for. A session's owner never changes, so this is
+ *  a permanent answer, and it keeps a cold tab switch off the network. */
+const profileByStoredId = new Map<string, string>()
+
+/** Drop the resolution cache. The keys are profile NAMES, so a renamed, removed
+ *  or newly created profile can make every remembered answer stale. */
+export function clearSessionProfileCache(): void {
+  profileByStoredId.clear()
+}
+
+$profiles.listen(clearSessionProfileCache)
+
+/** The owning profile we ALREADY know, with no network round-trip: the row's own
+ *  stamp, or a previous resolution. Used where an await would be wrong (the
+ *  remembered-id subscriber) or wasteful (an optimistic mutation). */
+export function knownSessionProfile(storedSessionId: string): string | undefined {
+  const cached = $sessions
+    .get()
+    .find(session => sessionMatchesStoredId(session, storedSessionId))
+    ?.profile?.trim()
+
+  return cached || profileByStoredId.get(storedSessionId)
+}
+
+/**
+ * Whether a session's owner is worth PROBING for.
+ *
+ * With one profile configured there is no wrong answer to route around, and the
+ * calls behave exactly as they always did without a `profile`. Callers check
+ * this so the common open stays synchronous: awaiting a resolution that can only
+ * return `undefined` would defer every resume by a microtask for nothing.
+ */
+export function sessionProfileIsAmbiguous(): boolean {
+  return $profiles.get().length > 1
+}
+
+/**
+ * Resolve the profile a stored session belongs to, probing the backends if the
+ * loaded rows can't answer.
+ *
+ * The cross-profile aggregator stamps `profile` on every row it returns, so the
+ * sidebar's own sessions answer for free. A session OUTSIDE the loaded window —
+ * right-clicked from search, restored from a tile, opened by id — is a cache
+ * miss, and with several profiles configured a miss cannot be assumed to be the
+ * active one. Each probe is a single by-id lookup that 404s when the id isn't on
+ * that profile, which is far cheaper than pulling every profile's recents.
+ */
+export async function resolveSessionProfile(storedSessionId: null | string): Promise<string | undefined> {
+  if (!storedSessionId) {
+    return undefined
+  }
+
+  const known = knownSessionProfile(storedSessionId)
+
+  if (known || !sessionProfileIsAmbiguous()) {
+    return known
+  }
+
+  const activeKey = $activeGatewayProfile.get()
+
+  const others = $profiles
+    .get()
+    .map(profile => normalizeProfileKey(profile.name))
+    .filter(key => key !== activeKey)
+
+  // The active profile first, unscoped — one row lookup that covers every
+  // single-profile install and any id on the live backend.
+  const candidates: (string | undefined)[] = [undefined, ...others]
+
+  for (const candidate of candidates) {
+    try {
+      const session = await getSession(storedSessionId, candidate)
+      const owner = normalizeProfileKey(session.profile?.trim() || candidate || activeKey)
+
+      profileByStoredId.set(storedSessionId, owner)
+
+      return owner
+    } catch {
+      // Not on this profile — keep probing. A total miss falls through to
+      // `undefined`, which is the pre-existing "let the gateway decide" path.
+    }
+  }
+
+  return undefined
+}
+
+// ---------------------------------------------------------------------------
+// TOMBSTONES — ids the user just deleted or archived.
+//
+// The optimistic removal from `$sessions` is instant, but the backend's next
+// list page is a snapshot that may predate the mutation, so a refresh landing
+// mid-flight put the row straight back. These are the client-side eviction: a
+// refreshed page is filtered through them, and a tombstone only lifts once the
+// mutation has settled AND the backend has stopped listing the id.
+// ---------------------------------------------------------------------------
+
+export const $removedSessionIds = atom<ReadonlySet<string>>(new Set())
+
+/** Ids whose delete/archive RPC is still in flight. Their tombstones are PINNED:
+ *  a snapshot taken before the mutation landed must not lift them. */
+const mutatingSessionIds = new Set<string>()
+
+function editIdSet(current: ReadonlySet<string>, ids: readonly (null | string | undefined)[], add: boolean) {
+  const next = new Set(current)
+
+  for (const id of ids) {
+    const trimmed = id?.trim()
+
+    if (trimmed) {
+      add ? next.add(trimmed) : next.delete(trimmed)
+    }
+  }
+
+  return next.size === current.size ? null : next
+}
+
+export function tombstoneSessions(ids: readonly (null | string | undefined)[]): void {
+  const next = editIdSet($removedSessionIds.get(), ids, true)
+
+  if (next) {
+    $removedSessionIds.set(next)
+  }
+}
+
+/** Undo a tombstone — the mutation failed and its row is back. */
+export function untombstoneSessions(ids: readonly (null | string | undefined)[]): void {
+  const next = editIdSet($removedSessionIds.get(), ids, false)
+
+  if (next) {
+    $removedSessionIds.set(next)
+  }
+}
+
+function markSessionMutation(ids: readonly (null | string | undefined)[], inFlight: boolean): void {
+  for (const id of ids) {
+    const trimmed = id?.trim()
+
+    if (trimmed) {
+      inFlight ? mutatingSessionIds.add(trimmed) : mutatingSessionIds.delete(trimmed)
+    }
+  }
+}
+
+export function isTombstonedSession(id: null | string | undefined): boolean {
+  const trimmed = id?.trim()
+
+  return Boolean(trimmed && $removedSessionIds.get().has(trimmed))
+}
+
+/**
+ * Strip rows the user just removed.
+ *
+ * Used on a freshly fetched recents page AND at render for the project tree,
+ * whose lanes come straight from the backend snapshot rather than from
+ * `$sessions` — without the overlay a deleted chat stayed in its lane until the
+ * next `projects.tree`, i.e. the flat list and the tree disagreed about whether
+ * it existed. Subscribe to `$removedSessionIds` at the render site so the
+ * overlay lifts with the tombstone.
+ */
+export function withoutTombstoned(sessions: SessionInfo[]): SessionInfo[] {
+  return $removedSessionIds.get().size === 0
+    ? sessions
+    : sessions.filter(session => !isTombstonedSession(session.id) && !isTombstonedSession(session._lineage_root_id))
+}
+
+/**
+ * Lift tombstones the backend has caught up with. `stillListed` is whatever the
+ * server just said exists — a refreshed page, or `projects.tree`'s scoped ids.
+ * A tombstone survives while the id is still listed (the delete hasn't landed on
+ * their side) or while its own mutation is in flight, so nothing flashes back.
+ */
+export function pruneSessionTombstones(stillListed: Iterable<string>): void {
+  const current = $removedSessionIds.get()
+
+  if (current.size === 0) {
+    return
+  }
+
+  const listed = new Set(stillListed)
+  const pending = new Set([...current].filter(id => listed.has(id) || mutatingSessionIds.has(id)))
+
+  if (pending.size !== current.size) {
+    $removedSessionIds.set(pending)
+  }
 }
 
 export const $sessionSearch = atom<SessionSearchResult[]>([])
@@ -317,7 +532,12 @@ export async function refreshSessions(): Promise<void> {
       scope === ALL_PROFILES ? 'all' : scope
     )
 
-    $sessions.set(res.sessions)
+    // A refresh can race an in-flight delete/archive, and the page it returns
+    // may predate it. Honouring the optimistic tombstones is what keeps the row
+    // from flashing back; the ids the server DID return then lift the ones it
+    // has caught up with.
+    $sessions.set(withoutTombstoned(res.sessions ?? []))
+    pruneSessionTombstones((res.sessions ?? []).map(session => session.id))
     $sessionsTotal.set(scope === ALL_PROFILES ? res.total : (res.profile_totals?.[scope] ?? res.total))
   } catch (err) {
     // A list-fetch failure is not any one chat's status: surface it as a
@@ -362,7 +582,7 @@ export async function loadMoreSessions(): Promise<void> {
     )
 
     const seen = new Set(loaded.map(session => session.id))
-    const fresh = (res.sessions ?? []).filter(session => !seen.has(session.id))
+    const fresh = withoutTombstoned(res.sessions ?? []).filter(session => !seen.has(session.id))
 
     if (fresh.length) {
       $sessions.set([...loaded, ...fresh])
@@ -459,18 +679,36 @@ async function hydrateColdSession(storedId: string): Promise<void> {
   // the running turn, and `inflight` carries its tail. Settle to idle otherwise.
   let stillRunning = false
 
+  // Resolve the OWNING profile before either call. A session can be opened from
+  // any profile — a search hit, a restored tile, a deep link — and a resume or a
+  // transcript read without one lands on whichever gateway is live, forking the
+  // conversation into the wrong profile's database.
+  //
+  // Both fast paths are SYNCHRONOUS on purpose: a loaded row carries its own
+  // stamp, and a single-profile install has nothing to route. Only a genuine
+  // miss on a multi-profile install awaits a probe — otherwise the resume would
+  // be deferred a microtask on every single open, which is long enough for a
+  // second open to overtake it.
+  const known = knownSessionProfile(storedId)
+  const profile = known ?? (sessionProfileIsAmbiguous() ? await resolveSessionProfile(storedId) : undefined)
+
+  if (!isCurrentOpen(generation)) {
+    return
+  }
+
   // The REST transcript and the resume RPC are independent, so run them
   // concurrently (desktop does the same): wall time is max(), not sum, and the
   // transcript paints as soon as it lands instead of waiting on the agent build.
   // `.then(...)` rather than a bare call so a synchronous throw inside the REST
   // client can't take the resume down with it.
   const transcriptPromise = Promise.resolve()
-    .then(() => getSessionMessages(storedId))
+    .then(() => getSessionMessages(storedId, profile))
     .catch(() => null)
 
   const resumePromise = requestGateway<SessionResumeResponse>('session.resume', {
     session_id: storedId,
-    cols: 96
+    cols: 96,
+    ...(profile ? { profile } : {})
   })
 
   // The rejection is consumed by the `await` below; this only keeps it from
@@ -589,6 +827,14 @@ export function startSessionInWorkspace(path: string): void {
  * superseding the first-message preview. Desktop parity (upsertOptimisticSession).
  */
 export function registerNewSession(id: string, firstMessage: string): void {
+  insertOptimisticSession(id, firstMessage)
+  $activeStoredSessionId.set(id)
+}
+
+/** The row half of `registerNewSession`, without claiming the main pane — a
+ *  branch opened in its own TAB must appear in the sidebar without taking the
+ *  chat you branched FROM off the screen. */
+function insertOptimisticSession(id: string, firstMessage: string): void {
   const now = Math.floor(Date.now() / 1000)
 
   const stub: SessionInfo = {
@@ -612,7 +858,6 @@ export function registerNewSession(id: string, firstMessage: string): void {
   }
 
   $sessions.set([stub, ...$sessions.get().filter(s => s.id !== id)])
-  $activeStoredSessionId.set(id)
 }
 
 /** The copyable spine of a branch: user/assistant turns that carry text.
@@ -698,14 +943,49 @@ export async function branchCurrentSession(messageId?: string): Promise<boolean>
     return false
   }
 
-  const parentStoredId = $activeStoredSessionId.get()
-  const cwd = $currentCwd.get().trim()
+  const storedId = await forkBranchSession({
+    branchMessages,
+    cwd: $currentCwd.get().trim(),
+    foreground: true,
+    parentStoredId: $activeStoredSessionId.get()
+  })
 
+  return storedId !== null
+}
+
+type BranchMessage = { content: string; role: ChatMessage['role']; source: ChatMessage }
+
+interface ForkBranchOptions {
+  branchMessages: BranchMessage[]
+  cwd: string
+  /** Whether the branch takes over the MAIN pane. A branch made from a session's
+   *  tab opens in its own tab instead, so the chat you branched from stays put. */
+  foreground: boolean
+  parentStoredId: null | string
+  /** The profile that owns the PARENT. A branch belongs to its parent's
+   *  database; omitted, `session.create` lands it on whichever gateway is live —
+   *  the "the session jumped to another profile after branching" bug. */
+  profile?: string
+}
+
+/**
+ * Create the branch session and seed it locally. Shared by branching the OPEN
+ * chat (`branchCurrentSession`) and branching any listed one
+ * (`branchStoredSession`); returns the new stored id, or null on failure.
+ */
+async function forkBranchSession({
+  branchMessages,
+  cwd,
+  foreground,
+  parentStoredId,
+  profile
+}: ForkBranchOptions): Promise<null | string> {
   try {
     // No title: the backend auto-names the branch from its parent's lineage.
     const branched = await requestGateway<SessionCreateResponse>('session.create', {
       cols: 96,
       ...(cwd && { cwd }),
+      ...(profile ? { profile } : {}),
       messages: branchMessages.map(({ content, role }) => ({ content, role })),
       ...(parentStoredId && { parent_session_id: parentStoredId })
     })
@@ -729,25 +1009,80 @@ export async function branchCurrentSession(messageId?: string): Promise<boolean>
       cwd: (branched.info?.cwd ?? cwd ?? '').trim(),
       sessionStartedAt: Date.now()
     })
-    $activeSessionKey.set(branched.session_id)
-    registerNewSession(storedId, branchMessages.map(({ content }) => content).find(Boolean) ?? '')
+
+    const preview = branchMessages.map(({ content }) => content).find(Boolean) ?? ''
+
+    if (foreground) {
+      $activeSessionKey.set(branched.session_id)
+      registerNewSession(storedId, preview)
+    } else {
+      insertOptimisticSession(storedId, preview)
+    }
+
+    // The branch is created ON the parent's profile, so its row is owned by that
+    // profile too — otherwise the first refresh that scopes the sidebar drops it.
     setSessions(prev =>
       prev.map(session =>
         session.id === storedId
           ? {
               ...session,
               parent_session_id: parentStoredId ?? null,
+              ...(profile ? { profile } : {}),
               title: translateNow('desktop.branchTitle', siblings + 1).toLowerCase()
             }
           : session
       )
     )
 
-    return true
+    return storedId
   } catch (err) {
     notifyError(err, translateNow('desktop.branchFailed'))
 
-    return false
+    return null
+  }
+}
+
+/**
+ * Branch ANY listed session, not just the open one — the session tab / sidebar
+ * row's "Branch" verb.
+ *
+ * Reads the target's STORED transcript directly, so it needs neither a resume
+ * nor the session to be active, and it runs on the parent's OWNING profile
+ * throughout: the transcript read and the create both carry it, so a branch made
+ * from another profile's tab lands in that profile's database and nests under
+ * its real parent instead of appearing as an orphan on the live one.
+ *
+ * Returns the new branch's stored id so the caller can decide where it opens.
+ */
+export async function branchStoredSession(storedSessionId: string): Promise<null | string> {
+  const profile = await resolveSessionProfile(storedSessionId)
+  const stored = $sessions.get().find(session => sessionMatchesStoredId(session, storedSessionId))
+
+  try {
+    const transcript = await getSessionMessages(storedSessionId, profile)
+    const branchMessages = toBranchMessages(toChatMessages(transcript.messages ?? []))
+
+    if (!branchMessages.length) {
+      notify({
+        kind: 'warning',
+        title: translateNow('desktop.nothingToBranch'),
+        message: translateNow('desktop.branchNoText')
+      })
+
+      return null
+    }
+
+    return await forkBranchSession({
+      branchMessages,
+      cwd: stored?.cwd?.trim() ?? '',
+      foreground: false,
+      parentStoredId: stored?.id ?? storedSessionId,
+      profile
+    })
+  } catch (err) {
+    notifyError(err, translateNow('desktop.branchFailed'))
+
+    return null
   }
 }
 
@@ -777,44 +1112,75 @@ export async function renameSessionLocal(id: string, title: string): Promise<voi
   $sessions.set(prev.map(s => (s.id === id ? { ...s, title } : s)))
 
   try {
-    await renameSession(id, title)
+    await renameSession(id, title, knownSessionProfile(id))
   } catch (err) {
     $sessions.set(prev)
     notifyError(err, 'Rename failed')
   }
 }
 
+/** The ids a removal has to evict. A pin — and the backend's own row — can be
+ *  keyed on the durable lineage root rather than the live tip after a
+ *  compression, so both have to fall or the row comes back under the other id. */
+function removalIds(session: SessionInfo | undefined, id: string): string[] {
+  return [id, session?.id, session?._lineage_root_id].filter((value): value is string => Boolean(value))
+}
+
 export async function deleteSessionLocal(id: string): Promise<void> {
   const prev = $sessions.get()
+  const removed = prev.find(s => sessionMatchesStoredId(s, id))
+  const ids = removalIds(removed, id)
+  // Read the owner BEFORE the optimistic removal — afterwards the row that
+  // carries the stamp is gone and the mutation would go out unscoped.
+  const owner = knownSessionProfile(id)
+
   $sessions.set(prev.filter(s => s.id !== id))
   $sessionsTotal.set(Math.max(0, $sessionsTotal.get() - 1))
+  // Pin the tombstone for as long as the RPC is in flight, so a list or project
+  // tree refresh that predates it can't flash the row back.
+  tombstoneSessions(ids)
+  markSessionMutation(ids, true)
 
   if ($activeStoredSessionId.get() === id) {
     newSession()
   }
 
   try {
-    await deleteSession(id)
+    await deleteSession(id, owner)
   } catch (err) {
     $sessions.set(prev)
     $sessionsTotal.set($sessionsTotal.get() + 1)
+    untombstoneSessions(ids)
     notifyError(err, 'Delete failed')
+  } finally {
+    // Released, not lifted: the tombstone now prunes normally, once the backend
+    // stops listing the id.
+    markSessionMutation(ids, false)
   }
 }
 
 export async function archiveSessionLocal(id: string): Promise<void> {
   const prev = $sessions.get()
+  const archived = prev.find(s => sessionMatchesStoredId(s, id))
+  const ids = removalIds(archived, id)
+  const owner = knownSessionProfile(id)
+
   $sessions.set(prev.filter(s => s.id !== id))
+  tombstoneSessions(ids)
+  markSessionMutation(ids, true)
 
   if ($activeStoredSessionId.get() === id) {
     newSession()
   }
 
   try {
-    await setSessionArchived(id, true)
+    await setSessionArchived(id, true, owner)
   } catch (err) {
     $sessions.set(prev)
+    untombstoneSessions(ids)
     notifyError(err, 'Archive failed')
+  } finally {
+    markSessionMutation(ids, false)
   }
 }
 
