@@ -18,14 +18,16 @@ export interface ApiKeyOption {
 
 export const LOCAL_ENV_KEY = 'OPENAI_BASE_URL'
 
+// Curated order mirrors CANONICAL_PROVIDERS: Fireworks leads the key catalog,
+// ahead of OpenRouter and the rest.
 export const API_KEY_OPTIONS: ApiKeyOption[] = [
-  { id: 'openrouter', name: 'OpenRouter', envKey: 'OPENROUTER_API_KEY', docsUrl: 'https://openrouter.ai/keys' },
   {
     id: 'fireworks',
     name: 'Fireworks AI',
     envKey: 'FIREWORKS_API_KEY',
     docsUrl: 'https://app.fireworks.ai/settings/users/api-keys'
   },
+  { id: 'openrouter', name: 'OpenRouter', envKey: 'OPENROUTER_API_KEY', docsUrl: 'https://openrouter.ai/keys' },
   { id: 'openai', name: 'OpenAI', envKey: 'OPENAI_API_KEY', docsUrl: 'https://platform.openai.com/api-keys' },
   { id: 'gemini', name: 'Google Gemini', envKey: 'GEMINI_API_KEY', docsUrl: 'https://aistudio.google.com/app/apikey' },
   { id: 'xai', name: 'xAI Grok', envKey: 'XAI_API_KEY', docsUrl: 'https://console.x.ai/' },

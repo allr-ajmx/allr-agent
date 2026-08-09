@@ -78,29 +78,35 @@ function Picker() {
             )}
           </button>
         ))}
-        {options.map(option => (
-          <button
-            className="flex items-center gap-3 rounded-lg border border-border bg-card p-3 text-left transition-colors hover:border-primary"
-            key={option.id}
-            onClick={() => selectApiKeyProvider(option)}
-            type="button"
-          >
-            <span className="min-w-0 flex-1">
-              <span className="flex items-center gap-2">
-                <span className="truncate text-sm font-medium text-foreground">{option.name}</span>
-                {option.id === 'openrouter' && (
-                  <span className="rounded-full bg-primary/15 px-1.5 py-0.5 text-[0.65rem] font-medium text-primary">
-                    {t.onboarding.recommended}
-                  </span>
-                )}
+        {options.map(option => {
+          // Fireworks is the promoted BYOK provider (CANONICAL_PROVIDERS order),
+          // so it leads the list, wears the badge, and pitches itself rather than
+          // reciting the generic catalog blurb every other row shares.
+          const featured = option.id === 'fireworks'
+          const description = featured ? t.onboarding.fireworksPitch : copy[option.id]?.description
+
+          return (
+            <button
+              className="flex items-center gap-3 rounded-lg border border-border bg-card p-3 text-left transition-colors hover:border-primary"
+              key={option.id}
+              onClick={() => selectApiKeyProvider(option)}
+              type="button"
+            >
+              <span className="min-w-0 flex-1">
+                <span className="flex items-center gap-2">
+                  <span className="truncate text-sm font-medium text-foreground">{option.name}</span>
+                  {featured && (
+                    <span className="rounded-full bg-primary/15 px-1.5 py-0.5 text-[0.65rem] font-medium text-primary">
+                      {t.onboarding.recommended}
+                    </span>
+                  )}
+                </span>
+                {description && <span className="mt-0.5 block text-xs text-muted-foreground">{description}</span>}
               </span>
-              {copy[option.id]?.description && (
-                <span className="mt-0.5 block text-xs text-muted-foreground">{copy[option.id].description}</span>
-              )}
-            </span>
-            <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
-          </button>
-        ))}
+              <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+            </button>
+          )
+        })}
       </div>
 
       <Button className="mt-6 w-full" onClick={() => chooseLater()} variant="ghost">

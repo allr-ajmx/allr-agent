@@ -111,3 +111,41 @@ describe('OnboardingScreen — CLI-terminal (external) providers', () => {
     )
   })
 })
+
+// Fireworks is the promoted BYOK provider — it leads the key catalog and carries
+// the badge that used to sit on OpenRouter.
+describe('OnboardingScreen — the promoted key provider', () => {
+  const keyRows = () =>
+    screen
+      .getAllByRole('button')
+      .map(button => button.textContent ?? '')
+      .filter(text => text.includes('Fireworks AI') || text.includes('OpenRouter'))
+
+  it('puts Fireworks ahead of OpenRouter', async () => {
+    renderScreen()
+    await screen.findByRole('button', { name: /Sign in with Qwen/ })
+
+    const [first, second] = keyRows()
+    expect(first).toContain('Fireworks AI')
+    expect(second).toContain('OpenRouter')
+  })
+
+  it('badges Fireworks with its pitch, and leaves OpenRouter unbadged', async () => {
+    renderScreen()
+    await screen.findByRole('button', { name: /Sign in with Qwen/ })
+
+    const [fireworks, openrouter] = keyRows()
+    expect(fireworks).toContain('Recommended')
+    expect(fireworks).toContain('Direct model API — Fireworks-hosted frontier models')
+    expect(openrouter).not.toContain('Recommended')
+  })
+
+  it('opens the key form on the Fireworks env var', async () => {
+    renderScreen()
+
+    fireEvent.click(await screen.findByRole('button', { name: /Fireworks AI/ }))
+
+    expect(screen.getByPlaceholderText(/Paste/)).toBeInTheDocument()
+    expect($onboarding.get().option?.envKey).toBe('FIREWORKS_API_KEY')
+  })
+})

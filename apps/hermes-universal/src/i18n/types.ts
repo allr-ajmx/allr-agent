@@ -1839,6 +1839,7 @@ export interface Translations {
     recommended: string
     connected: string
     featuredPitch: string
+    fireworksPitch: string
     openRouterPitch: string
     apiKeyOptions: Record<string, { short: string; description: string }>
     backToSignIn: string
