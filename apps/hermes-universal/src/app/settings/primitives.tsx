@@ -141,6 +141,38 @@ export function ListRowSkeleton({ wide = false }: { wide?: boolean }) {
   )
 }
 
+// A full settings page in its loading shape: an optional leading search field
+// over one or more sections, each an optional heading above a run of rows.
+// `<SettingsSkeleton search sections={[{ heading, rows }]} />`. `children` is
+// for real content that already renders its own loading shape and should stay
+// mounted (the Model page's header slot).
+export function SettingsSkeleton({
+  children,
+  search = false,
+  sections = [{ rows: 4 }]
+}: {
+  children?: ReactNode
+  search?: boolean
+  sections?: { heading?: boolean; rows: number }[]
+}) {
+  return (
+    <SettingsContent>
+      {children}
+      {search && <Skeleton className="mb-3 h-8 w-full" />}
+      {sections.map((section, index) => (
+        <section className={cn(index > 0 && 'mt-6')} key={index}>
+          {section.heading && <SectionHeadingSkeleton />}
+          <div className="grid gap-1">
+            {Array.from({ length: section.rows }, (_, row) => (
+              <ListRowSkeleton key={row} />
+            ))}
+          </div>
+        </section>
+      ))}
+    </SettingsContent>
+  )
+}
+
 export function EmptyState({ title, description }: { title: string; description?: string }) {
   return (
     <div className="flex flex-col items-center gap-1 px-6 py-16 text-center">
