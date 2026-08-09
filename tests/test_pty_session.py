@@ -1,4 +1,5 @@
 import asyncio
+import threading
 import time
 
 import pytest
@@ -160,6 +161,67 @@ async def test_new_key_at_capacity_raises_when_none_reapable():
     with pytest.raises(RegistryFull):
         await reg.attach_or_spawn("b", spawn=lambda: FakeBridge([]))
     await reg.close_all()
+
+
+async def _drop_the_caller_mid_fork(reg, bridge):
+    """Cancel an attach_or_spawn caller while its fork is in flight.
+
+    Stands in for the client that disconnects inside the few milliseconds the
+    spawn takes — a refresh, a flaky tunnel. Returns once the registry has
+    settled.
+    """
+    forked = threading.Event()
+    release = threading.Event()
+
+    def slow_spawn():
+        forked.set()              # the child exists as of this line...
+        release.wait(5)
+        return bridge
+
+    caller = asyncio.create_task(reg.attach_or_spawn("tok", spawn=slow_spawn))
+    while not forked.is_set():    # ...and the caller walks away right here
+        await asyncio.sleep(0.01)
+    caller.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await caller
+    release.set()
+
+    for _ in range(500):
+        if "tok" in reg._sessions:
+            return
+        await asyncio.sleep(0.01)
+
+
+@pytest.mark.asyncio
+async def test_spawn_cancelled_mid_fork_is_not_orphaned():
+    """The registry ends up owning a child whose caller never came back.
+
+    Before the shield, the CancelledError landed between the fork and the
+    registry insert and the process was leaked for the life of the gateway:
+    unregistered, unreferenced, and with nothing left alive to close it.
+    """
+    reg = make_registry()
+    b = FakeBridge([b"", b""])
+    await _drop_the_caller_mid_fork(reg, b)
+
+    assert "tok" in reg._sessions
+    assert b.closed is False              # still running — it is a live PTY
+    await reg.close_all()
+    assert b.closed is True               # ...and the registry can dispose of it
+
+
+@pytest.mark.asyncio
+async def test_spawn_cancelled_mid_fork_is_reapable():
+    """Nobody will ever attach to it, so it must not sit there holding a PTY."""
+    reg = make_registry(ttl=10.0)
+    b = FakeBridge([b"", b""])
+    await _drop_the_caller_mid_fork(reg, b)
+
+    s = reg._sessions["tok"]
+    assert s.attached is False
+    await reg.reap_idle(now=s.last_detached_at + 11.0)   # idle 11s, ttl 10s
+    assert "tok" not in reg._sessions
+    assert b.closed is True
 
 
 @pytest.mark.asyncio

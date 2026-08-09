@@ -136,6 +136,26 @@ async def run_reaper(registry: "PtySessionRegistry", *, interval: float = 60.0) 
             pass
 
 
+def _mark_unclaimed(task) -> None:
+    """Hand a session nobody will ever attach to over to the reaper.
+
+    ``attach_or_spawn``'s caller was cancelled while the shielded spawn was
+    still in flight, so the session that spawn went on to register has no
+    viewer and never will get one. ``reap_idle`` only dooms a detached session,
+    and this one was never attached, so without a detach timestamp it would sit
+    in the registry holding a PTY for the life of the process.
+
+    Also retrieves the task's exception on the failure path, so a spawn that
+    blew up after its caller walked away doesn't log "exception was never
+    retrieved".
+    """
+    if task.cancelled():
+        return
+    if task.exception() is not None:
+        return
+    task.result().last_detached_at = time.monotonic()
+
+
 class PtySessionRegistry:
     def __init__(self, *, ttl: float, max_sessions: int,
                  buffer_cap: int, read_timeout: float) -> None:
@@ -156,6 +176,23 @@ class PtySessionRegistry:
             self._sessions.pop(key, None)
         if len(self._sessions) >= self._max:
             self._reap_one_idle_or_raise()
+        # The fork has already happened by the time `spawn` returns, so a
+        # CancelledError landing between it and the registry insert — a client
+        # that drops inside the few milliseconds the spawn takes, i.e. a
+        # refresh or a flaky tunnel — would leave the child forked,
+        # unregistered and unreferenced, with nothing left alive to close it.
+        # Shield the whole spawn-and-register: the registry always ends up
+        # owning what was forked, and the reaper can dispose of it.
+        create = asyncio.ensure_future(self._spawn_and_register(key, spawn))
+        try:
+            session = await asyncio.shield(create)
+        except asyncio.CancelledError:
+            create.add_done_callback(_mark_unclaimed)
+            raise
+        return session, True
+
+    async def _spawn_and_register(self, key: str, spawn: Callable[[], object]
+                                  ) -> PtySession:
         # PTY spawn does blocking fork/exec work — keep it off the event
         # loop (#53227).
         bridge = await asyncio.to_thread(spawn)
@@ -163,7 +200,7 @@ class PtySessionRegistry:
                              read_timeout=self._read_timeout)
         await session.start()
         self._sessions[key] = session
-        return session, True
+        return session
 
     def detach(self, key: str, ws) -> None:
         s = self._sessions.get(key)
