@@ -2416,6 +2416,12 @@ export interface Translations {
     noClipboardImage: string
     clipboardPasteFailed: string
     dropFiles: string
+    compress: {
+      working: string
+      workingOn: (topic: string) => string
+      removed: (count: number) => string
+      nothingToCompress: string
+    }
     handoff: {
       pickPlatform: string
       success: (platform: string) => string

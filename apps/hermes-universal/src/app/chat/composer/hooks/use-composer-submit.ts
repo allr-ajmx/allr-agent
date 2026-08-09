@@ -18,6 +18,9 @@ interface UseComposerSubmitArgs {
   attachments: ComposerAttachment[]
   busy: boolean
   canSteer: boolean
+  /** The turn is summarizing its own context — nothing to redirect, so a
+   *  correction typed here queues for the next turn instead. */
+  compacting: boolean
   clearDraft: () => void
   disabled: boolean
   draftRef: RefObject<string>
@@ -53,6 +56,7 @@ export function useComposerSubmit({
   attachments,
   busy,
   canSteer,
+  compacting,
   clearDraft,
   disabled,
   draftRef,
@@ -137,9 +141,15 @@ export function useComposerSubmit({
     const text = draftRef.current
     const payloadPresent = text.trim().length > 0 || attachments.length > 0
 
+    // Compaction counts as busy even when the turn flag says otherwise: a
+    // manual `/compress` summarizes an idle session, and a prompt submitted
+    // into that window comes back "session busy" with the words already gone
+    // from the composer. Queuing instead is what upstream #69783 fixed.
+    const turnOccupied = busy || compacting
+
     if (queueEdit) {
       exitQueuedEdit('save')
-    } else if (busy) {
+    } else if (turnOccupied) {
       // Slash commands should execute immediately even while the agent is
       // busy — they're client-side operations (/yolo, /skin, /new, /help,
       // etc.) or self-contained gateway RPCs (/status, /compress).  onSubmit
@@ -177,7 +187,10 @@ export function useComposerSubmit({
   // for snappy feedback; if the gateway rejects (no live tool window) the words
   // are re-queued so nothing is lost — same safety net as a plain queue.
   const steerDraft = () => {
-    if (!onSteer || !canSteer) {
+    // Re-checked against live state rather than trusting the rendered
+    // `canSteer`: compaction can start between the last render and this
+    // keystroke, and a steer sent into a summarize call is silently lost.
+    if (!onSteer || !canSteer || compacting) {
       return
     }
 

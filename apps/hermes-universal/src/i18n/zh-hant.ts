@@ -2515,6 +2515,12 @@ export const zhHant = defineLocale({
     noClipboardImage: '剪貼簿中沒有圖片',
     clipboardPasteFailed: '剪貼簿貼上失敗',
     dropFiles: '拖曳檔案',
+    compress: {
+      working: '正在壓縮脈絡…',
+      workingOn: topic => `正在圍繞以下主題壓縮脈絡：${topic}`,
+      removed: count => `已壓縮 ${count} 則訊息`,
+      nothingToCompress: '沒有可壓縮的內容'
+    },
     handoff: {
       pickPlatform: '選擇目標平台',
       success: platform => `已移交到 ${platform}。隨時可在此處恢復。`,

@@ -2614,6 +2614,12 @@ export const ja = defineLocale({
     noClipboardImage: 'クリップボードに画像が見つかりません',
     clipboardPasteFailed: 'クリップボードからの貼り付けに失敗しました',
     dropFiles: 'ファイルをドロップ',
+    compress: {
+      working: 'コンテキストを圧縮しています…',
+      workingOn: topic => `次のトピックについてコンテキストを圧縮しています: ${topic}`,
+      removed: count => `${count} 件のメッセージを圧縮しました`,
+      nothingToCompress: '圧縮するものはありません'
+    },
     handoff: {
       pickPlatform: '送信先を選択',
       success: platform => `${platform} に引き継ぎました。いつでもここで再開できます。`,

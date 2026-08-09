@@ -1195,8 +1195,7 @@ export const zh: Translations = {
         inUse: '使用中',
         restartRequired: '需要重启',
         restartHint: backend => `已保存。${backend} 将在网关重启后生效——运行中的进程在启动时已固定其后端。`,
-        restartBanner: (configured, active) =>
-          `已选择 ${configured}，但此网关仍在运行 ${active}。请重启以应用。`,
+        restartBanner: (configured, active) => `已选择 ${configured}，但此网关仍在运行 ${active}。请重启以应用。`,
         selectedTitle: '后端已保存',
         selectedMessage: backend => `terminal.backend 现在是 ${backend}。`,
         failedSelect: backend => `选择 ${backend} 失败`,
@@ -2976,6 +2975,12 @@ export const zh: Translations = {
     noClipboardImage: '剪贴板中没有图片',
     clipboardPasteFailed: '粘贴剪贴板失败',
     dropFiles: '拖放文件',
+    compress: {
+      working: '正在压缩上下文…',
+      workingOn: topic => `正在围绕以下主题压缩上下文：${topic}`,
+      removed: count => `已压缩 ${count} 条消息`,
+      nothingToCompress: '没有可压缩的内容'
+    },
     handoff: {
       pickPlatform: '选择目标平台',
       success: platform => `已移交到 ${platform}。随时可在此处恢复。`,

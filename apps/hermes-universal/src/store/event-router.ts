@@ -32,6 +32,7 @@ import { triggerHaptic } from '@/lib/haptics'
 import { invalidateSlashCompletions } from '@/lib/slash-completion-cache'
 import { type DeltaChannel, flushDeltas, queueDelta, setStreamBatchSink } from '@/lib/stream-batch'
 import { stopSpeaking } from '@/lib/tts'
+import { routeCompactionEvent } from '@/store/compaction'
 import { addGatewayEventListener, requestGateway } from '@/store/gateway'
 import { dispatchNativeNotification } from '@/store/native-notifications'
 import { flashPetActivity, setPetActivity } from '@/store/pet'
@@ -236,6 +237,11 @@ export function routeGatewayEvent(event: GatewayEvent): void {
   // reacting to, not the one from the frame before. Cheap: the fold returns the
   // same record unless something actually changed (store/turn-lifecycle.ts).
   routeTurnEvent(key, event)
+  // Compaction is silent on the wire — no `message.start`, no visible output —
+  // so its start/end is inferred from `status.update` kinds plus the first real
+  // output that follows (store/compaction.ts). Folded here, before the delta
+  // short-circuit, because that first output is usually a delta.
+  routeCompactionEvent(key, event.type, payload)
 
   // Streaming text is BATCHED (lib/stream-batch) — one React commit per flush
   // window instead of one per token, which matters most when several sessions

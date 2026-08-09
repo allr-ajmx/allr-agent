@@ -590,8 +590,7 @@ export const en: Translations = {
       imported: 'Config imported',
       invalidJson: 'Invalid config JSON',
       keepAwakeTitle: 'Keep computer awake',
-      keepAwakeDesc:
-        'Stop this machine from sleeping so long or overnight runs keep going. The display can still dim.'
+      keepAwakeDesc: 'Stop this machine from sleeping so long or overnight runs keep going. The display can still dim.'
     },
     credentials: {
       pasteKey: 'Paste key',
@@ -2844,6 +2843,12 @@ export const en: Translations = {
     noClipboardImage: 'No image found in clipboard',
     clipboardPasteFailed: 'Clipboard paste failed',
     dropFiles: 'Drop files',
+    compress: {
+      working: 'Compressing context…',
+      workingOn: topic => `Compressing context for: ${topic}`,
+      removed: count => `Compressed ${count} message${count === 1 ? '' : 's'}`,
+      nothingToCompress: 'Nothing to compress'
+    },
     handoff: {
       pickPlatform: 'Choose a destination',
       success: platform => `Handed off to ${platform}. Resume here anytime.`,

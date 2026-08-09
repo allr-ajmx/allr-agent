@@ -12,6 +12,7 @@ import { DATA_IMAGE_URL_RE } from '@/lib/embedded-images'
 import { triggerHaptic } from '@/lib/haptics'
 import { IS_MOBILE } from '@/lib/platform'
 import { cn } from '@/lib/utils'
+import { sessionCompacting } from '@/store/compaction'
 import { browseBackward, browseForward, deriveUserHistory, isBrowsingHistory } from '@/store/composer-input-history'
 import { POPOUT_WIDTH_REM } from '@/store/composer-popout'
 import { removeQueuedPrompt } from '@/store/composer-queue'
@@ -116,6 +117,9 @@ export function ChatBar({
   // prompt owns its own dismissal (Skip, Reject, dialog close).
   const awaitingInput = useStore(scope.$awaitingInput)
   const activeQueueSessionKey = queueSessionKey || sessionId || null
+  // The turn is summarizing its own context. It has no live model request to
+  // redirect, so every correction queues while this is true (store/compaction.ts).
+  const compacting = useStore(sessionCompacting(activeQueueSessionKey))
 
   // Status items (subagents, background processes) are keyed by the RUNTIME
   // session id — gateway events and process.list both speak that id. Only the
@@ -219,7 +223,10 @@ export function ChatBar({
 
   // Steer only makes sense mid-turn, text-only (the gateway can't carry images
   // into a tool result) and never for a slash command (those execute inline).
-  const canSteer = busy && !!onSteer && attachments.length === 0 && isSteerableText
+  // A COMPACTING turn is excluded too: it is inside a summarize call, so there
+  // is no live model request to redirect — the words have to queue for the next
+  // turn instead of being dropped on the floor (MJXHRM-78).
+  const canSteer = busy && !compacting && !!onSteer && attachments.length === 0 && isSteerableText
 
   // The submit engine — the orchestration seam where draft + queue meet. Owns
   // the submit decision tree, the send-with-restore primitive, and steer.
@@ -230,6 +237,7 @@ export function ChatBar({
     busy,
     canSteer,
     clearDraft,
+    compacting,
     disabled,
     draftRef,
     drainNextQueued,
