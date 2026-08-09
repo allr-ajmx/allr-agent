@@ -8,9 +8,7 @@ import { useI18n } from '@/i18n'
 import { openExternalLink } from '@/lib/external-link'
 import { cn } from '@/lib/utils'
 import { useStore } from '@/store/atom'
-import { PREVIEW_PANE_ID } from '@/store/layout'
 import { notifyError } from '@/store/notifications'
-import { $paneOpen } from '@/store/panes'
 import { $activePreviewPath, closePreviewTab, setPreviewTarget } from '@/store/preview'
 import { type PreviewArtifact } from '@/store/preview-status'
 
@@ -55,12 +53,14 @@ interface PreviewStatusRowProps {
 export const PreviewStatusRow = memo(function PreviewStatusRow({ item, onDismiss }: PreviewStatusRowProps) {
   const { t } = useI18n()
   const activePath = useStore($activePreviewPath)
-  const previewPaneOpen = useStore($paneOpen(PREVIEW_PANE_ID))
   const [opening, setOpening] = useState(false)
 
   const isUrl = URL_TARGET.test(item.target.trim())
   const path = isUrl ? '' : filePathFor(item)
-  const isOpen = !isUrl && previewPaneOpen && activePath === path
+  // A preview is a TILE now, so "showing" is a property of the tab list, not of
+  // a pane's open flag. The old `$paneOpen(PREVIEW_PANE_ID)` conjunct named the
+  // singleton rail pane that no longer exists in the layout tree.
+  const isOpen = !isUrl && activePath === path
 
   const activate = async () => {
     if (opening) {

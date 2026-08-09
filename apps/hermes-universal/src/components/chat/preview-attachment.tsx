@@ -6,9 +6,7 @@ import { useI18n } from '@/i18n'
 import { openExternalLink } from '@/lib/external-link'
 import { MonitorPlay } from '@/lib/icons'
 import { previewName } from '@/lib/preview-targets'
-import { PREVIEW_PANE_ID } from '@/store/layout'
 import { notifyError } from '@/store/notifications'
-import { $paneOpen } from '@/store/panes'
 import { $activePreviewPath, closePreviewTab, setPreviewTarget } from '@/store/preview'
 
 const URL_TARGET = /^https?:\/\//i
@@ -50,12 +48,13 @@ export function PreviewAttachment({ target }: { target: string }) {
   const { t } = useI18n()
   const cwd = useStore(useSessionView().$cwd)
   const activePath = useStore($activePreviewPath)
-  const previewPaneOpen = useStore($paneOpen(PREVIEW_PANE_ID))
   const [opening, setOpening] = useState(false)
 
   const isUrl = URL_TARGET.test(target.trim())
   const path = isUrl ? '' : filePathFor(target, cwd)
-  const isActive = !isUrl && previewPaneOpen && activePath === path
+  // A preview is a TILE now — "showing" is the tab list's business, not a
+  // singleton pane's open flag (see preview-row.tsx).
+  const isActive = !isUrl && activePath === path
   const name = previewName(target)
 
   const togglePreview = async () => {

@@ -18,6 +18,7 @@
 
 import type { ReactElement, ReactNode, PointerEvent as ReactPointerEvent } from 'react'
 
+import type { PaneStripTool } from '@/components/ui/pane-tab'
 import type { ContributionSource } from '@/contrib/types'
 
 import type { PanePlacementHint } from '../tree/grid-to-tree'
@@ -108,6 +109,17 @@ export interface TileChrome {
    *  pin/branch/rename/archive/delete). The wrapper must render `tab` as its
    *  interactive child; the zone's own strip menu still owns non-tab space. */
   tabWrap?: (tab: ReactElement) => ReactNode
+  /**
+   * Glyph buttons this tile contributes to its zone's STRIP, after the last tab
+   * (where `+` sits), while it is the ACTIVE tile — e.g. a preview's
+   * source/rendered/diff switch.
+   *
+   * DATA, not markup: the strip's `PaneStripGlyph` owns the styling, so a tile
+   * cannot grow its own button look. Read during the strip's render rather than
+   * captured at registration, so a tool's `active`/`disabled` can move faster
+   * than tile re-registration — call `invalidateStripTools()` when it does.
+   */
+  stripTools?: () => readonly PaneStripTool[]
   /** Override this tile's TAB drag (a session tab drags like a sidebar row —
    *  stack / split / composer-link — not the generic pane move). Given the
    *  tab's tap (activate) + double-tap (hide header) so those gestures survive.

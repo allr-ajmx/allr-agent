@@ -16,7 +16,6 @@ import { Route, Routes } from 'react-router-dom'
 
 import { ChatScreen } from '@/app/chat/chat-screen'
 import { RightSidebarPane } from '@/app/right-pane'
-import { PreviewRail } from '@/app/right-pane/preview/preview-rail'
 import { ReviewPane } from '@/app/right-pane/review'
 import { TerminalArea } from '@/app/right-pane/terminal/terminal-area'
 import { ARTIFACTS_ROUTE, contributedRoutes, MESSAGING_ROUTE, ROUTES_AREA, SKILLS_ROUTE } from '@/app/routes'
@@ -52,11 +51,6 @@ export function previewFile(path: string) {
 /** The `files` pane — the file browser; activating a file opens it in preview. */
 export function FilesPane() {
   return <RightSidebarPane onActivateFile={previewFile} onActivateFolder={previewFile} />
-}
-
-/** The `preview` pane — the tabbed file viewer/editor rail (its own tab strip). */
-export function PreviewRailPane() {
-  return <PreviewRail />
 }
 
 /** The `review` pane — the git diff sidebar, keyed on the cwd so switching

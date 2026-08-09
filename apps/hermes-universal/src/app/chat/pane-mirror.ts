@@ -12,6 +12,7 @@ import type { ReactElement, ReactNode, PointerEvent as ReactPointerEvent } from 
 import { registerTile } from '@/components/pane-shell/tile/registry'
 import type { DoubleTapContext } from '@/components/pane-shell/tree/renderer/drag-session'
 import { registerPaneCloser, removeTreePane, treePanesWithPrefix } from '@/components/pane-shell/tree/store'
+import type { PaneStripTool } from '@/components/ui/pane-tab'
 import { isRecording, recordSpan } from '@/observability'
 import type { TileDock } from '@/store/session-states'
 
@@ -49,6 +50,10 @@ export interface PaneMirror<T> {
    *  on every `also` change, so pass the color source in `also` to keep it live. */
   accent?: (key: string) => string | undefined
   render: (key: string) => ReactNode
+  /** Glyph buttons the tile contributes to its zone's strip while it is the
+   *  ACTIVE tile — e.g. a preview's source/rendered/diff switch. DATA, not
+   *  markup: `PaneStripGlyph` owns the styling (see TileChrome.stripTools). */
+  stripTools?: (key: string) => readonly PaneStripTool[]
   /** Wrap the tile's TAB (domain context menu — session verbs). */
   tabWrap?: (key: string, tab: ReactElement) => ReactNode
   /** Override the tile's TAB drag (session drop language: stack/split/link).
@@ -113,6 +118,7 @@ export function paneMirror<T>(cfg: PaneMirror<T>): () => void {
           // leaves it with nowhere to put the ✕.
           linkTarget: cfg.linkTarget,
           loneHeader: true,
+          stripTools: cfg.stripTools ? () => cfg.stripTools!(key) : undefined,
           tabDrag: cfg.tabDrag
             ? (event: ReactPointerEvent<HTMLElement>, onTap: () => void, double?: DoubleTapContext) =>
                 cfg.tabDrag!(key, event, onTap, double)

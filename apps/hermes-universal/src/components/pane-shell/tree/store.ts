@@ -312,6 +312,21 @@ export function isCollapsePane(paneId: string): boolean {
   return Boolean(tileChrome(findTile(paneId)).toolPanel)
 }
 
+/**
+ * Bumped when a tile's STRIP TOOLS change state without the tile itself being
+ * re-registered (a preview switching view mode, a file finishing its load).
+ *
+ * The strip reads `TileChrome.stripTools()` during render, so it needs a reason
+ * to render again. Re-registering the tile would work but costs a whole registry
+ * invalidation — an adoption pass and a tree commit — for what is a glyph's
+ * `active` flag, so the strip subscribes to this counter instead.
+ */
+export const $stripToolsRevision = atom(0)
+
+export function invalidateStripTools() {
+  $stripToolsRevision.set($stripToolsRevision.get() + 1)
+}
+
 const resetHandlers = new Set<() => void>()
 
 /** Run during a layout reset, BEFORE generic adoption — lets an owner

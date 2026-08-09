@@ -125,7 +125,8 @@ export const KEYBIND_ACTIONS: readonly KeybindActionMeta[] = [
   { id: 'view.showTerminal', category: 'view', defaults: ['ctrl+`'] },
   { id: 'view.newTerminal', category: 'view', defaults: ['ctrl+shift+`'] },
   // Same Ctrl(+Shift) terminal family: arrows walk the (vertical) tab rail, W
-  // kills the active one. ⌘W is taken (close preview tab) and ⌘⇧[ ] are profiles,
+  // kills the active one. ⌘W is taken (close the focused ZONE's tab — a preview
+  // tab is one of those now, so it has no rung of its own) and ⌘⇧[ ] are profiles,
   // so these stay on `ctrl` — distinct on macOS, folding to Ctrl elsewhere.
   { id: 'view.nextTerminal', category: 'view', defaults: ['ctrl+shift+down'] },
   { id: 'view.prevTerminal', category: 'view', defaults: ['ctrl+shift+up'] },

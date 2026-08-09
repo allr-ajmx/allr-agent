@@ -21,16 +21,19 @@ import {
   useState
 } from 'react'
 
+import { CONTEXT_KIT } from '@/components/ui/actions-menu'
 import { Codicon } from '@/components/ui/codicon'
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from '@/components/ui/context-menu'
 import { DecodeText } from '@/components/ui/decode-text'
 import { DROP_SHEET_BLUR_CLASS, DROP_SHEET_CLASS } from '@/components/ui/drop-affordance'
 import {
-  PANE_TAB_STRIP_LINE,
   PANE_TAB_STRIP_LINE_LEFT,
   PANE_TAB_STRIP_LINE_RIGHT,
+  PaneStripGlyph,
   PaneTab,
-  PaneTabLabel
+  paneTabCloseItems,
+  PaneTabLabel,
+  PaneTabStrip
 } from '@/components/ui/pane-tab'
 import { Tip, TipKeybindLabel } from '@/components/ui/tooltip'
 import { ContribBoundary } from '@/contrib/react/boundary'
@@ -52,9 +55,13 @@ import {
   $hiddenTreePanes,
   $layoutTree,
   $narrowViewport,
+  $stripToolsRevision,
   $treeDragging,
   activateTreePane,
+  closeAllTreeTabs,
+  closeOtherTreeTabs,
   closeTreePane,
+  closeTreeTabsToRight,
   collapseTreePane,
   dismissTreePane,
   isCollapsePane,
@@ -63,7 +70,8 @@ import {
   SESSION_TILE_DRAG,
   setTreeGroupHeaderHidden,
   splitTreeZone,
-  toggleTreeGroupMinimized
+  toggleTreeGroupMinimized,
+  treeTabCloseTargets
 } from '../store'
 
 import { type DoubleTapContext, startPaneDrag } from './drag-session'
@@ -149,6 +157,7 @@ function ZoneMenu({
   minimizable = true,
   directions,
   headerHidden,
+  menuTarget,
   minimized,
   nodeId
 }: {
@@ -156,6 +165,10 @@ function ZoneMenu({
   /** The pane the menu closes (the right-clicked chip / the active pane);
    *  undefined = not closable (the main zone). */
   closable?: () => string | undefined
+  /** The pane the menu ACTS ON, closeable or not. The plain Close is gated on
+   *  `closable`, but "close others / to the right / all" are relative to this
+   *  tab and mean something even on the uncloseable workspace. */
+  menuTarget: () => string
   /** The pane the menu detaches to its own window; undefined when this platform
    *  has no second window, or the pane is already detached. */
   detachable?: () => string | undefined
@@ -207,22 +220,19 @@ function ZoneMenu({
             {minimized ? t.zones.restore : t.zones.minimize}
           </ContextMenuItem>
         )}
-        {/* Resolved at render: the menu mounts on open, after the right-click
-            set menuPane — so an uncloseable target hides the item instead
-            of offering a dead action. */}
-        {closable?.() !== undefined && (
-          <ContextMenuItem
-            onSelect={() => {
-              const paneId = closable?.()
-
-              if (paneId) {
-                closeTreePane(paneId)
-              }
-            }}
-          >
-            {t.common.close}
-          </ContextMenuItem>
-        )}
+        {/* The shared tab close group — Close / others / to the right / all —
+            so every tab in the app (session, page, preview, tool panel) answers
+            a right-click identically. Resolved at render: the menu mounts on
+            open, after the right-click set menuPane, so an uncloseable target
+            drops Close instead of offering a dead action while keeping the
+            verbs that still mean something for its zone. */}
+        {paneTabCloseItems(CONTEXT_KIT, {
+          counts: treeTabCloseTargets(menuTarget()),
+          onClose: closable?.() === undefined ? undefined : () => closeTreePane(closable()!),
+          onCloseAll: () => closeAllTreeTabs(menuTarget()),
+          onCloseOthers: () => closeOtherTreeTabs(menuTarget()),
+          onCloseToRight: () => closeTreeTabsToRight(menuTarget())
+        })}
       </ContextMenuContent>
     </ContextMenu>
   )
@@ -265,6 +275,9 @@ export function TreeGroup({
   const hiddenPanes = useStore($hiddenTreePanes)
   const narrow = useStore($narrowViewport)
   const detached = useStore($detachedTiles)
+  // A tile's strip tools are read during THIS render (see `stripTools` below),
+  // so a glyph whose state moved without the tile re-registering needs a nudge.
+  useStore($stripToolsRevision)
 
   const paneFor = (id: string) => byId.get(id)
 
@@ -329,6 +342,11 @@ export function TreeGroup({
   // chat pane — which meant exactly one strip in the app could ever have a `+`,
   // and a plugin's stackable surface could not offer one at all.
   const onNewTab = shown.map(paneFor).find(tile => tile?.onNewTab)?.onNewTab
+
+  // Glyphs the ACTIVE tile contributes to this strip (a preview's view-mode
+  // switch), read fresh on every render so a tool's `active` flag tracks the
+  // real thing rather than a snapshot taken at registration time.
+  const stripTools = tileChrome(active).stripTools?.() ?? []
 
   // A full-page view (headerVeto) suppresses the strip while it's the active
   // pane — a page is not a tab-able surface; the bar returns with the chat.
@@ -467,6 +485,7 @@ export function TreeGroup({
     detachable,
     directions: menuDirections,
     headerHidden,
+    menuTarget: () => menuPane ?? activeId,
     minimizable,
     minimized: node.minimized,
     nodeId: node.id
@@ -540,19 +559,15 @@ export function TreeGroup({
         </ZoneMenu>
       )}
 
-      {/* Header: the file-preview tab strip (PaneTab), one shared component. */}
+      {/* Header: the zone's tab strip — `PaneTabStrip` + `PaneTab`, the ONE tab
+          bar in the app. Session, page and preview tabs all render through it,
+          so there is no second strip at a second height to drift from it. */}
       {headerVisible && (
         <ZoneMenu {...zoneMenu}>
-          <div
-            // Active = sidebar surface (merges into body). Strip =
-            // `--theme-card-seed` (VS Code `tab.inactiveBackground`). Line =
-            // PANE_TAB_STRIP_LINE; active tab cuts through it.
+          <PaneTabStrip
             // data-zone-tabstrip: a drop over here STACKS (drag-session reads it).
-            className={cn(
-              'group/pane-header relative flex h-7 shrink-0 select-none bg-(--pane-tab-strip-bg) [-webkit-app-region:no-drag] [--pane-tab-active-bg:var(--ui-sidebar-surface-background)] [--pane-tab-strip-bg:var(--theme-card-seed)]',
-              PANE_TAB_STRIP_LINE
-            )}
             data-zone-tabstrip={node.id}
+            listRef={tabsRef}
             onContextMenu={e => {
               setMenuPane(
                 (e.target as HTMLElement).closest('[data-tree-tab]')?.getAttribute('data-tree-tab') ?? undefined
@@ -573,126 +588,133 @@ export function TreeGroup({
             }
             ref={stripRef}
             style={{ cursor: 'grab' }}
-          >
-            <div
-              className="flex min-w-0 flex-1 overflow-x-auto overflow-y-hidden [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-              ref={tabsRef}
-              role="tablist"
-            >
-              {shown.map(paneId => {
-                const isActive = paneId === activeId && !node.minimized
-                const chrome = tileChrome(paneFor(paneId))
-                const closeable = !chrome.uncloseable
-                const title = paneFor(paneId)?.title ?? paneId
-
-                const tab = (
-                  <PaneTab
-                    active={isActive}
-                    aria-selected={isActive}
-                    data-tree-tab={paneId}
-                    key={paneId}
-                    onAuxClick={e => {
-                      // Middle-click closes, the way it does in every tabbed
-                      // app. Guarded on `closeable` so the workspace tab — the
-                      // one pane that must survive — ignores it.
-                      if (e.button === 1 && closeable) {
-                        e.preventDefault()
-                        e.stopPropagation()
-                        closeTab(paneId)
-                      }
-                    }}
-                    onClose={closeable ? () => closeTab(paneId) : undefined}
-                    onPointerDown={e => {
-                      // Tabs ACTIVATE (restoring a collapsed group). Minimize
-                      // lives on the chevron / single-pane label — overloading
-                      // the active tab made double-click a minimize/restore/hide
-                      // lottery.
-                      const onTap = () => {
-                        if (node.minimized) {
-                          restoreTreePane(paneId)
-                        }
-
-                        activateTreePane(node.id, paneId)
-                      }
-
-                      // Claim the press so the STRIP's own pane-drag handler
-                      // (parent onPointerDown) can't also fire. startPaneDrag
-                      // does this internally; the session drag (shared with
-                      // sidebar rows) doesn't, so do it here for both paths.
-                      if (e.button === 0) {
-                        e.preventDefault()
-                        e.stopPropagation()
-                      }
-
-                      // A pane may own its tab drag (a session tab speaks the
-                      // session drop language — link/stack/split); `false` defers
-                      // to the generic pane move (the workspace tab on a fresh
-                      // draft has no session to link).
-                      if (!chrome.tabDrag?.(e, onTap, hideHeaderDoubleTap)) {
-                        startPaneDrag(
-                          paneId,
-                          e,
-                          onTap,
-                          stripRef.current ? { groupId: node.id, strip: stripRef.current } : undefined,
-                          hideHeaderDoubleTap,
-                          title,
-                          tearOffTab(paneId)
-                        )
-                      }
-                    }}
-                    role="tab"
-                    style={{ cursor: 'grab' }}
+            trailing={
+              <>
+                {/* Tools the active tile contributes, then the `+`, the chevron
+                    and the caret — all OUTSIDE the scroller. Inside it they were
+                    scroll content, so the moment the tabs overflowed they slid
+                    off the end and reaching them meant scrolling back by hand. */}
+                {stripTools.map(tool => (
+                  <PaneStripGlyph
+                    active={tool.active}
+                    disabled={tool.disabled}
+                    icon={tool.icon}
+                    key={tool.id}
+                    label={tool.label}
+                    onSelect={tool.onSelect}
+                  />
+                ))}
+                {/* New-tab affordance, chat strips only — the same thing ⌘T does.
+                    A terminal or preview strip has its own create verb, so a `+`
+                    there would be ambiguous. */}
+                {onNewTab && (
+                  <Tip label={<TipKeybindLabel actionId="session.newTab" text={t.zones.newTab} />}>
+                    <button
+                      aria-label={t.zones.newTab}
+                      className="mx-1 grid size-5 shrink-0 place-items-center self-center rounded-md text-(--ui-text-tertiary) opacity-0 transition-opacity hover:bg-(--ui-control-hover-background) hover:text-foreground focus-visible:opacity-100 group-hover/pane-header:opacity-100"
+                      onClick={onNewTab}
+                      onPointerDown={e => e.stopPropagation()}
+                      type="button"
+                    >
+                      <Codicon name="add" size="0.75rem" />
+                    </button>
+                  </Tip>
+                )}
+                {minimizable && (
+                  <button
+                    aria-label={node.minimized ? t.zones.restore : t.zones.minimize}
+                    className="mx-1 grid size-5 shrink-0 place-items-center self-center rounded-md text-(--ui-text-tertiary) opacity-0 transition-opacity hover:bg-(--ui-control-hover-background) hover:text-foreground focus-visible:opacity-100 group-hover/pane-header:opacity-100"
+                    onClick={toggleCollapse}
+                    onPointerDown={e => e.stopPropagation()}
+                    type="button"
                   >
-                    {chrome.accent ? (
-                      <span
-                        aria-hidden="true"
-                        className="ml-2 -mr-1 size-1 shrink-0 rounded-full"
-                        style={{ backgroundColor: chrome.accent }}
-                      />
-                    ) : null}
-                    <PaneTabLabel>{title}</PaneTabLabel>
-                  </PaneTab>
-                )
+                    <Codicon name={node.minimized ? 'chevron-down' : 'chevron-up'} size="0.75rem" />
+                  </button>
+                )}
+                <StripDropCaret groupId={node.id} stripRef={stripRef} />
+              </>
+            }
+          >
+            {shown.map(paneId => {
+              const isActive = paneId === activeId && !node.minimized
+              const chrome = tileChrome(paneFor(paneId))
+              const closeable = !chrome.uncloseable
+              const title = paneFor(paneId)?.title ?? paneId
 
-                // A pane may wrap ITS tab in a domain menu (session verbs on a
-                // tile tab); the wrapper needs the key since it's the root.
-                return <Fragment key={paneId}>{chrome.tabWrap ? chrome.tabWrap(tab) : tab}</Fragment>
-              })}
-            </div>
-            {/* New-tab affordance, chat strips only — the same thing ⌘T does.
-                A terminal or preview strip has its own create verb, so a `+`
-                there would be ambiguous.
+              const tab = (
+                <PaneTab
+                  active={isActive}
+                  aria-selected={isActive}
+                  data-tree-tab={paneId}
+                  key={paneId}
+                  onAuxClick={e => {
+                    // Middle-click closes, the way it does in every tabbed
+                    // app. Guarded on `closeable` so the workspace tab — the
+                    // one pane that must survive — ignores it.
+                    if (e.button === 1 && closeable) {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      closeTab(paneId)
+                    }
+                  }}
+                  onClose={closeable ? () => closeTab(paneId) : undefined}
+                  onPointerDown={e => {
+                    // Tabs ACTIVATE (restoring a collapsed group). Minimize
+                    // lives on the chevron / single-pane label — overloading
+                    // the active tab made double-click a minimize/restore/hide
+                    // lottery.
+                    const onTap = () => {
+                      if (node.minimized) {
+                        restoreTreePane(paneId)
+                      }
 
-                OUTSIDE the scroller, with the chevron and the caret: inside it
-                the `+` was scroll content, so the moment the tabs overflowed it
-                slid off the end with them and making one more tab meant
-                scrolling back by hand. */}
-            {onNewTab && (
-              <Tip label={<TipKeybindLabel actionId="session.newTab" text={t.zones.newTab} />}>
-                <button
-                  aria-label={t.zones.newTab}
-                  className="mx-1 grid size-5 shrink-0 place-items-center self-center rounded-md text-(--ui-text-tertiary) opacity-0 transition-opacity hover:bg-(--ui-control-hover-background) hover:text-foreground focus-visible:opacity-100 group-hover/pane-header:opacity-100"
-                  onClick={onNewTab}
-                  onPointerDown={e => e.stopPropagation()}
-                  type="button"
+                      activateTreePane(node.id, paneId)
+                    }
+
+                    // Claim the press so the STRIP's own pane-drag handler
+                    // (parent onPointerDown) can't also fire. startPaneDrag
+                    // does this internally; the session drag (shared with
+                    // sidebar rows) doesn't, so do it here for both paths.
+                    if (e.button === 0) {
+                      e.preventDefault()
+                      e.stopPropagation()
+                    }
+
+                    // A pane may own its tab drag (a session tab speaks the
+                    // session drop language — link/stack/split); `false` defers
+                    // to the generic pane move (the workspace tab on a fresh
+                    // draft has no session to link).
+                    if (!chrome.tabDrag?.(e, onTap, hideHeaderDoubleTap)) {
+                      startPaneDrag(
+                        paneId,
+                        e,
+                        onTap,
+                        stripRef.current ? { groupId: node.id, strip: stripRef.current } : undefined,
+                        hideHeaderDoubleTap,
+                        title,
+                        tearOffTab(paneId)
+                      )
+                    }
+                  }}
+                  role="tab"
+                  style={{ cursor: 'grab' }}
                 >
-                  <Codicon name="add" size="0.75rem" />
-                </button>
-              </Tip>
-            )}
-            {minimizable && (
-              <button
-                aria-label={node.minimized ? t.zones.restore : t.zones.minimize}
-                className="mx-1 grid size-5 shrink-0 place-items-center self-center rounded-md text-(--ui-text-tertiary) opacity-0 transition-opacity hover:bg-(--ui-control-hover-background) hover:text-foreground focus-visible:opacity-100 group-hover/pane-header:opacity-100"
-                onClick={toggleCollapse}
-                onPointerDown={e => e.stopPropagation()}
-                type="button"
-              >
-                <Codicon name={node.minimized ? 'chevron-down' : 'chevron-up'} size="0.75rem" />
-              </button>
-            )}
-            <StripDropCaret groupId={node.id} stripRef={stripRef} />
-          </div>
+                  {chrome.accent ? (
+                    <span
+                      aria-hidden="true"
+                      className="ml-2 -mr-1 size-1 shrink-0 rounded-full"
+                      style={{ backgroundColor: chrome.accent }}
+                    />
+                  ) : null}
+                  <PaneTabLabel>{title}</PaneTabLabel>
+                </PaneTab>
+              )
+
+              // A pane may wrap ITS tab in a domain menu (session verbs on a
+              // tile tab); the wrapper needs the key since it's the root.
+              return <Fragment key={paneId}>{chrome.tabWrap ? chrome.tabWrap(tab) : tab}</Fragment>
+            })}
+          </PaneTabStrip>
         </ZoneMenu>
       )}
 
