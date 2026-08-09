@@ -17,10 +17,11 @@ import { transcribeAudio } from '@/hermes'
 import { SLASH_COMMAND_RE } from '@/lib/chat-runtime'
 import { triggerHaptic } from '@/lib/haptics'
 import { useStore } from '@/store/atom'
-import { sendPrompt } from '@/store/chat'
+import { redirectPrompt, sendPrompt } from '@/store/chat'
 import { type ComposerAttachment } from '@/store/composer'
 import { $gatewayState, getGatewayClient, requestGateway } from '@/store/gateway'
 import { refreshCurrentModel, selectModel } from '@/store/model'
+import { $activeSessionKey } from '@/store/session-state-types'
 import { sessionTileDelegate } from '@/store/session-states'
 
 // Read a recorded audio blob into a base64 data URL for the gateway audio.* RPC.
@@ -105,6 +106,17 @@ export function ChatComposer() {
     [executeSlashCommand, scope, view]
   )
 
+  // Stop and correct: cancel the live model request and rebuild the turn with
+  // this text, keeping the reasoning and completed work already on screen. The
+  // composer queues the words itself when this resolves false, so a runtime
+  // that cannot redirect loses nothing.
+  // `$runtimeId` is the session KEY (see app/chat/session-view), so a tile's
+  // composer corrects the tile's own turn.
+  const onSteer = useCallback(
+    (text: string): Promise<boolean> => redirectPrompt(text, view.$runtimeId.get() ?? $activeSessionKey.get()),
+    [view]
+  )
+
   // Interrupt the running turn (Esc / Stop). Best-effort — a backend without
   // session.interrupt simply rejects and the turn keeps running.
   const onCancel = useCallback(() => {
@@ -165,6 +177,7 @@ export function ChatComposer() {
       onPickRemoteFiles={onPickRemoteFiles}
       onPickRemoteFolders={onPickRemoteFolders}
       onRemoveAttachment={onRemoveAttachment}
+      onSteer={onSteer}
       onSubmit={onSubmit}
       onTranscribeAudio={onTranscribeAudio}
       queueSessionKey={sessionId}

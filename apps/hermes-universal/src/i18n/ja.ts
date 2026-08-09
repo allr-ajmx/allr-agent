@@ -1800,6 +1800,7 @@ export const ja = defineLocale({
       'composer.slash': 'スラッシュコマンドパレット',
       'composer.help': 'クイックヘルプ（削除で閉じる）',
       'composer.sendNewline': '送信 · 改行は Shift+Enter',
+      'composer.queue': '次のターンにキューする',
       'composer.sendQueued': '次のキュー済みターンを送信',
       'keybinds.openPanel': 'すべてのキーボードショートカット',
       'composer.cancel': 'ポップオーバーを閉じる · 実行をキャンセル',

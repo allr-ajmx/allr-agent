@@ -416,7 +416,16 @@ export function appendLiveSessionProjection(
   const inflightStreaming = Boolean(projection.inflight?.streaming)
   const queuedUser = projection.queued?.user?.trim() ?? ''
 
-  if (!inflightUser && !inflightAssistant && !inflightStreaming && !queuedUser) {
+  // Mid-turn corrections the gateway accepted (`_record_inflight_correction`).
+  // Carried ALONGSIDE the prompt that started the turn, never over it, so a
+  // resume rebuilds every user bubble the turn produced — without this a
+  // reconnect repainted the thread with the correction missing, which reads as
+  // "my message vanished on reload".
+  const corrections = (projection.inflight?.corrections ?? [])
+    .map(correction => correction.trim())
+    .filter(correction => correction.length > 0)
+
+  if (!inflightUser && !inflightAssistant && !inflightStreaming && !queuedUser && corrections.length === 0) {
     return messages
   }
 
@@ -431,9 +440,19 @@ export function appendLiveSessionProjection(
     })
   }
 
+  // Corrections sit between the original prompt and the reply they redirected —
+  // the same place the live path inserts them (store/chat.ts redirectPrompt).
+  corrections.forEach((correction, index) => {
+    projected.push({
+      id: `user-inflight-correction-${index}-${sessionId}`,
+      parts: [{ text: correction, type: 'text' }],
+      role: 'user'
+    })
+  })
+
   // Keep a pending assistant boundary even before the first delta when a
   // queued user turn follows it. This preserves the two distinct turns.
-  if (inflightAssistant || inflightStreaming || (inflightUser && queuedUser)) {
+  if (inflightAssistant || inflightStreaming || corrections.length > 0 || (inflightUser && queuedUser)) {
     projected.push({
       id: `assistant-stream-${sessionId}`,
       parts: inflightAssistant ? [{ text: renderMediaTags(inflightAssistant), type: 'text' }] : [],

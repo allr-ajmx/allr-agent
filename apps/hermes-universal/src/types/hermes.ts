@@ -327,6 +327,19 @@ export interface SessionCreateResponse {
   stored_session_id?: string
 }
 
+/**
+ * Response from `session.redirect` — the "stop and correct" RPC.
+ *
+ * `redirected` == the live model request was cancelled and rebuilt in place
+ * with this text; `queued` == the correction arrived in the turn-build window
+ * (no agent to redirect yet) and becomes the NEXT turn's prompt; `rejected` ==
+ * the runtime cannot redirect, and the caller must queue the words itself.
+ */
+export interface SessionRedirectResponse {
+  status?: 'queued' | 'redirected' | 'rejected'
+  text?: string
+}
+
 export interface SessionInfo {
   archived?: boolean
   cwd?: null | string
@@ -404,6 +417,15 @@ export interface SessionResumeResponse {
   // waiting in gateway memory.
   inflight?: null | {
     assistant?: string
+    /** Mid-turn corrections the gateway accepted, oldest first. Carried
+     *  alongside `user` (never over it) so a resuming client can rebuild every
+     *  user bubble the turn produced. */
+    corrections?: string[]
+    /** A retained failed turn: the terminal frame was lost on the disconnect,
+     *  and this is the only record of the failure the client will get. */
+    error?: string
+    recoverable?: boolean
+    status?: string
     streaming?: boolean
     user?: string
   }

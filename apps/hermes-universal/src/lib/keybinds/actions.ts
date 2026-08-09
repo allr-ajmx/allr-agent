@@ -213,7 +213,11 @@ export interface KeybindReadonly {
 export const KEYBIND_READONLY: readonly KeybindReadonly[] = [
   { id: 'composer.send', category: 'composer', keys: ['enter'] },
   { id: 'composer.newline', category: 'composer', keys: ['shift+enter'] },
-  { id: 'composer.steer', category: 'composer', keys: ['mod+enter'] },
+  // Enter is overloaded on purpose: it SENDS an idle chat and STEERS a running
+  // one, so the primary key always does the primary thing. mod+Enter is the
+  // explicit "don't interrupt, line this up next".
+  { id: 'composer.steer', category: 'composer', keys: ['enter'] },
+  { id: 'composer.queue', category: 'composer', keys: ['mod+enter'] },
   { id: 'composer.sendQueued', category: 'composer', keys: ['mod+shift+k'] },
   { id: 'composer.mention', category: 'composer', keys: ['@'] },
   { id: 'composer.slash', category: 'composer', keys: ['/'] },

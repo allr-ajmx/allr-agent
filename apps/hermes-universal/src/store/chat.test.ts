@@ -17,6 +17,7 @@ import { requestGateway } from '@/store/gateway'
 import { sessionClarifyRequest } from '@/store/prompts'
 import { newDraftKey, updateSession } from '@/store/session-state-types'
 import { $subagentsBySession } from '@/store/subagents'
+import { beginTurn, getInflightTurn } from '@/store/turn-lifecycle'
 import { resetSessionStates, seedActiveSession, seedSession, sessionMessages } from '@/test-sessions'
 
 vi.mock('@/components/chat/vibe-hearts', () => ({ burstVibeHearts: vi.fn() }))
@@ -33,6 +34,7 @@ import {
   $sudo,
   type ChatMessage,
   ensureSession,
+  redirectPrompt,
   resetChat,
   respondClarify,
   respondSudo,
@@ -579,5 +581,93 @@ describe('submitEditedPrompt (edit + rewind)', () => {
     expect(vi.mocked(requestGateway).mock.calls[1][1]).not.toHaveProperty('truncate_before_user_ordinal')
     // The optimistic truncation stands — the resend did land.
     expect($messages.get().map(m => m.id)).toEqual(['u1', 'a1', 'u2'])
+  })
+})
+
+// --- Active-turn correction ("stop and correct") ---------------------------
+//
+// Steering is not a queue nudge: `session.redirect` cancels the model request
+// in place and rebuilds the turn with the correction folded in.
+describe('redirectPrompt', () => {
+  const seedLiveTurn = () => {
+    seedActiveSession('runtime-1', {
+      runtimeSessionId: 'runtime-1',
+      busy: true,
+      messages: [
+        { id: 'u1', role: 'user', parts: [{ type: 'text', text: 'do a thing' }] },
+        { id: 'a1', role: 'assistant', parts: [{ type: 'text', text: 'partial…' }], pending: true }
+      ]
+    })
+  }
+
+  const roles = () => sessionMessages('runtime-1').map(m => m.role)
+  const texts = () => sessionMessages('runtime-1').map(m => m.parts.map(p => ('text' in p ? p.text : '')).join(''))
+
+  // A redirect aborts the model request, so its completion frame can race the
+  // RPC response — the correction has to be placed before the reply it is
+  // replacing, not appended once the response settles.
+  it('places the correction above the live reply', async () => {
+    seedLiveTurn()
+    vi.mocked(requestGateway).mockResolvedValueOnce({ status: 'redirected' })
+
+    expect(await redirectPrompt('actually do this', 'runtime-1')).toBe(true)
+
+    expect(requestGateway).toHaveBeenCalledWith('session.redirect', {
+      session_id: 'runtime-1',
+      text: 'actually do this'
+    })
+    expect(roles()).toEqual(['user', 'user', 'assistant'])
+    expect(texts()[1]).toBe('actually do this')
+  })
+
+  // The turn-build window: no agent to redirect yet, so this is the NEXT
+  // turn's prompt and must not sit above a reply it had no part in.
+  it('moves a QUEUED correction to the tail', async () => {
+    seedLiveTurn()
+    vi.mocked(requestGateway).mockResolvedValueOnce({ status: 'queued' })
+
+    expect(await redirectPrompt('actually do this', 'runtime-1')).toBe(true)
+    expect(roles()).toEqual(['user', 'assistant', 'user'])
+  })
+
+  // The caller queues the words itself on false, so the optimistic row must go
+  // — leaving it would show a message the agent never received.
+  it('withdraws the row when the gateway rejects', async () => {
+    seedLiveTurn()
+    vi.mocked(requestGateway).mockResolvedValueOnce({ status: 'rejected' })
+
+    expect(await redirectPrompt('actually do this', 'runtime-1')).toBe(false)
+    expect(roles()).toEqual(['user', 'assistant'])
+  })
+
+  it('withdraws the row when the RPC throws', async () => {
+    seedLiveTurn()
+    vi.mocked(requestGateway).mockRejectedValueOnce(new Error('socket down'))
+
+    expect(await redirectPrompt('actually do this', 'runtime-1')).toBe(false)
+    expect(roles()).toEqual(['user', 'assistant'])
+  })
+
+  it('does nothing without text or a live session', async () => {
+    seedLiveTurn()
+
+    expect(await redirectPrompt('   ', 'runtime-1')).toBe(false)
+    expect(await redirectPrompt('hi', 'no-such-session')).toBe(false)
+    expect(requestGateway).not.toHaveBeenCalledWith('session.redirect', expect.anything())
+  })
+
+  // The record is what a reconnect reconciles against, and what the warm-resume
+  // projection rebuilds the extra user bubble from.
+  it('records the correction on the in-flight turn', async () => {
+    seedLiveTurn()
+    beginTurn('runtime-1', { prompt: 'do a thing' })
+    vi.mocked(requestGateway).mockResolvedValueOnce({ status: 'redirected' })
+
+    await redirectPrompt('actually do this', 'runtime-1')
+
+    expect(getInflightTurn('runtime-1')).toMatchObject({
+      prompt: 'do a thing',
+      corrections: ['actually do this']
+    })
   })
 })

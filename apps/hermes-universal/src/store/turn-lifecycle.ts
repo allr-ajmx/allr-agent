@@ -465,18 +465,16 @@ export function remoteTurnSnapshot(resumed: SessionResumeResponse): RemoteTurnSn
   const inflight = resumed.inflight ?? null
   const auto = (resumed as { auto_continue?: { attempt?: number; interrupted_at?: number } }).auto_continue
 
-  const corrections = Array.isArray((inflight as { corrections?: unknown } | null)?.corrections)
-    ? (inflight as { corrections: unknown[] }).corrections
-        .filter((c): c is string => typeof c === 'string' && c.trim().length > 0)
-        .map(c => c.trim())
-    : []
+  const corrections = (inflight?.corrections ?? [])
+    .filter((c): c is string => typeof c === 'string' && c.trim().length > 0)
+    .map(c => c.trim())
 
   return {
     running: Boolean(resumed.running ?? inflight?.streaming),
     streaming: Boolean(inflight?.streaming),
     user: (inflight?.user ?? '').trim(),
     corrections,
-    error: String((inflight as { error?: unknown } | null)?.error ?? '').trim(),
+    error: (inflight?.error ?? '').trim(),
     autoContinue: auto
       ? { attempt: Number(auto.attempt ?? 1) || 1, interruptedAt: Number(auto.interrupted_at ?? 0) || 0 }
       : null
