@@ -1911,6 +1911,9 @@ if _config_path.exists():
                 "docker_forward_env": "TERMINAL_DOCKER_FORWARD_ENV",
                 "singularity_image": "TERMINAL_SINGULARITY_IMAGE",
                 "modal_image": "TERMINAL_MODAL_IMAGE",
+                # Same gap as cli.py: modal_mode was bridged only by
+                # hermes_cli/config.py, so it had no effect for gateway runs.
+                "modal_mode": "TERMINAL_MODAL_MODE",
                 "daytona_image": "TERMINAL_DAYTONA_IMAGE",
                 "ssh_host": "TERMINAL_SSH_HOST",
                 "ssh_user": "TERMINAL_SSH_USER",

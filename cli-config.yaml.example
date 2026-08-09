@@ -331,6 +331,15 @@ terminal:
 # Add sudo_password to any terminal config above to enable sudo commands.
 # The password is piped via `sudo -S`. Works with local, ssh, docker, etc.
 #
+# SCOPE: `terminal.sudo_password` in this file is honoured ONLY by the classic
+# interactive CLI, which bridges it to $SUDO_PASSWORD at startup. The dashboard /
+# `hermes serve` backend and the messaging gateway read $SUDO_PASSWORD from the
+# environment and never from this key, so setting it here has no effect there —
+# export SUDO_PASSWORD in those environments instead. It is deliberately not
+# bridged through the config→env map: that path also mirrors values into
+# ~/.hermes/.env, and a sudo password does not belong in a file written as a
+# side effect of `hermes config set`.
+#
 # SECURITY WARNING: Password stored in plaintext!
 #
 # INTERACTIVE PROMPT: If sudo_password is unset and the CLI is running,

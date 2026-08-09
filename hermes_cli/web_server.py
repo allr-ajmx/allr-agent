@@ -869,8 +869,14 @@ _SCHEMA_OVERRIDES: Dict[str, Dict[str, Any]] = {
     },
     "terminal.modal_mode": {
         "type": "select",
-        "description": "Modal sandbox mode",
-        "options": ["sandbox", "function"],
+        "description": (
+            "Modal sandbox mode. auto picks per workload; direct runs in this "
+            "process; managed uses a Modal-side runner."
+        ),
+        # Must stay in step with tools/tool_backend_helpers.py::_VALID_MODAL_MODES —
+        # coerce_modal_mode silently discards anything else, so the previous
+        # ["sandbox", "function"] options both collapsed to "auto" when chosen.
+        "options": ["auto", "direct", "managed"],
     },
     "proxy.enabled": {
         "type": "boolean",
@@ -2089,6 +2095,53 @@ def _shell_pty_env() -> dict[str, str]:
     return env
 
 
+def _normalize_shell_pty_mode(value) -> str:
+    """Normalize ``terminal.shell_pty`` into ``"auto"`` or ``"off"``.
+
+    YAML 1.1 (which ``load_config`` uses — ``yaml.CSafeLoader``) parses a bare
+    ``off`` as the boolean ``False``, so the documented form in
+    ``cli-config.yaml.example`` — ``shell_pty: off`` — never arrives here as the
+    string ``"off"``. The previous ``str(value or "auto")`` collapsed that
+    ``False`` straight back to ``"auto"`` and left the interactive host shell
+    ENABLED on a gateway whose operator had switched it off in so many words.
+
+    The bridged path fails the same way for a different reason: when the key is
+    present in config, ``apply_terminal_config_to_env`` stringifies the boolean
+    into ``TERMINAL_SHELL_PTY="False"``, and ``"false" != "off"``.
+
+    So accept every shape a real config can produce. Mirrors
+    ``tools.approval._normalize_approval_mode``, which solved this same YAML
+    trap for ``approvals.mode``.
+    """
+    _VALID_MODES = ("auto", "off")
+    # Bare `off`/`no`/`false` → False; `on`/`yes`/`true` → True.
+    if isinstance(value, bool):
+        return "off" if value is False else "auto"
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if not normalized:
+            return "auto"
+        # "false"/"no"/"0" reach here from the env bridge's str(False) and from
+        # anyone who quoted the value; they mean the same thing the bool did.
+        if normalized in {"off", "false", "no", "0"}:
+            return "off"
+        if normalized in _VALID_MODES:
+            return normalized
+        _log.warning(
+            "Unknown terminal.shell_pty %r — defaulting to 'auto' (enabled). "
+            "Valid values: %s",
+            value,
+            ", ".join(_VALID_MODES),
+        )
+        return "auto"
+    # `shell_pty: 0` is an undocumented but obvious way to mean "off"; honour it
+    # rather than repeat the class of bug this function exists to fix.
+    if isinstance(value, (int, float)):
+        return "off" if value == 0 else "auto"
+    # None (YAML `null`/`~`) and anything exotic: unset means enabled.
+    return "auto"
+
+
 def _shell_pty_disabled_reason() -> str | None:
     """None if shell-pty is enabled; else a short reason string."""
     val = os.environ.get("TERMINAL_SHELL_PTY")
@@ -2097,9 +2150,67 @@ def _shell_pty_disabled_reason() -> str | None:
             val = ((load_config().get("terminal") or {}).get("shell_pty"))
         except Exception:
             val = None
-    if str(val or "auto").strip().lower() == "off":
+    if _normalize_shell_pty_mode(val) == "off":
         return "shell terminal is disabled by configuration (terminal.shell_pty: off)"
     return None
+
+
+def _effective_terminal_backend(terminal_cfg: dict | None = None) -> tuple[str, str]:
+    """``(effective, configured)`` for ``terminal.backend``.
+
+    *configured* is what ``config.yaml`` says. *effective* is what the running
+    process will actually use: ``TERMINAL_ENV`` wins, and that variable is pinned
+    into ``os.environ`` at startup by ``apply_terminal_config_to_env``
+    (``hermes_cli/main.py``) from the config as it was **when the process
+    started**. The two therefore disagree whenever config is edited at runtime —
+    by the backend picker, by ``hermes config set``, or by hand — until a
+    restart. Callers that report state to a human must show both.
+    """
+    if terminal_cfg is None:
+        try:
+            terminal_cfg = load_config().get("terminal")
+        except Exception:
+            terminal_cfg = None
+    if not isinstance(terminal_cfg, dict):
+        terminal_cfg = {}
+
+    configured = str(terminal_cfg.get("backend") or "local").strip().lower() or "local"
+    effective = (os.environ.get("TERMINAL_ENV") or "").strip().lower() or configured
+    return effective, configured
+
+
+def _resolve_shell_pty_backend(terminal_cfg: dict | None = None) -> str:
+    """Which backend hosts the shell pane (``/api/shell-pty``).
+
+    ``terminal.shell_pty_backend`` routes the pane independently of the agent, so
+    ``terminal.backend: docker`` can keep agent execution sandboxed while the pane
+    shells into the host. ``auto`` (the default) inherits ``terminal.backend``.
+
+    Unlike ``terminal.backend``, this key is deliberately absent from
+    ``TERMINAL_CONFIG_ENV_MAP``, so nothing pins it at startup and a config edit
+    takes effect on the next connection.
+
+    Shared with ``get_terminal_backends`` and the startup bind warning so the
+    picker, the warning and the router can never disagree about what is in force.
+    """
+    if terminal_cfg is None:
+        try:
+            terminal_cfg = load_config().get("terminal")
+        except Exception:
+            terminal_cfg = None
+    if not isinstance(terminal_cfg, dict):
+        terminal_cfg = {}
+
+    raw = os.environ.get("TERMINAL_SHELL_PTY_BACKEND")
+    if raw is None:
+        raw = terminal_cfg.get("shell_pty_backend")
+    # Not vulnerable to the YAML-bool trap that bit terminal.shell_pty (none of
+    # auto/local/docker/ssh is a YAML 1.1 boolean word), but normalized through
+    # the same shape so a future option named `off`/`no` cannot reintroduce it.
+    backend = "auto" if isinstance(raw, bool) or raw is None else str(raw).strip().lower()
+    if backend in {"", "auto", "inherit"}:
+        return _effective_terminal_backend(terminal_cfg)[0]
+    return backend
 
 
 def _shell_pty_allow_unsandboxed() -> bool:
@@ -16890,19 +17001,7 @@ def _shell_pty_target(
     if not isinstance(terminal_cfg, dict):
         terminal_cfg = {}
 
-    # The shell pane can be routed independently of the agent: terminal.backend
-    # keeps sandboxing agent execution while shell_pty_backend says where THIS
-    # pane lands. "auto" (the default) means inherit, which is the old behaviour.
-    shell_backend = os.environ.get("TERMINAL_SHELL_PTY_BACKEND")
-    if shell_backend is None:
-        shell_backend = terminal_cfg.get("shell_pty_backend")
-    backend = str(shell_backend or "auto").strip().lower()
-    if backend in {"", "auto", "inherit"}:
-        # TERMINAL_ENV (the launcher's env var) wins over config, matching the rest
-        # of the terminal stack (tools/terminal_tool.py reads os.getenv first).
-        backend = (os.environ.get("TERMINAL_ENV") or "").strip().lower()
-        if not backend:
-            backend = str(terminal_cfg.get("backend") or "local").strip().lower()
+    backend = _resolve_shell_pty_backend(terminal_cfg)
 
     if backend == "local":
         # An unsandboxed host shell reachable off-box is host code execution for
@@ -17078,9 +17177,15 @@ async def get_terminal_backends(profile: Optional[str] = None):
         terminal_cfg = config.get("terminal")
         if not isinstance(terminal_cfg, dict):
             terminal_cfg = {}
-        active = str(terminal_cfg.get("backend") or "local").strip().lower()
+        # `active` is what the process ACTUALLY uses, not what config says. The
+        # two differ whenever config was edited after startup, because
+        # TERMINAL_ENV is pinned then and wins forever after — so reporting the
+        # config value would paint "In use" on a backend nothing is using.
+        active, configured = _effective_terminal_backend(terminal_cfg)
         if active not in _TERMINAL_BACKEND_NAMES:
             active = "local"
+        if configured not in _TERMINAL_BACKEND_NAMES:
+            configured = "local"
 
         backends = []
         for row in _TERMINAL_BACKENDS:
@@ -17090,10 +17195,18 @@ async def get_terminal_backends(profile: Optional[str] = None):
                 "label": row["label"],
                 "description": row["description"],
                 "active": row["name"] == active,
+                # Selected in config.yaml but not yet in force — the panel marks
+                # this row "restart required" instead of claiming it is running.
+                "pending": row["name"] == configured and configured != active,
                 "status": status,
                 "detail": detail,
             })
-    return {"active": active, "backends": backends}
+    return {
+        "active": active,
+        "configured": configured,
+        "restart_required": configured != active,
+        "backends": backends,
+    }
 
 
 class TerminalBackendSelect(BaseModel):
@@ -20832,12 +20945,10 @@ def start_server(
     try:
         from gateway.platforms.base import is_network_accessible
         _terminal = (load_config().get("terminal") or {})
-        _sb = os.environ.get("TERMINAL_SHELL_PTY_BACKEND")
-        if _sb is None:
-            _sb = _terminal.get("shell_pty_backend")
-        _tb = str(_sb or "auto").strip().lower()
-        if _tb in {"", "auto", "inherit"}:
-            _tb = str(_terminal.get("backend") or "local").strip().lower()
+        # Same resolver the router uses, so this warning can never disagree with
+        # what /api/shell-pty will actually do (it previously read config only,
+        # and so stayed silent on a gateway whose pinned TERMINAL_ENV was local).
+        _tb = _resolve_shell_pty_backend(_terminal)
         if is_network_accessible(host) and _tb == "local" and _shell_pty_disabled_reason() is None:
             # Two distinct states worth telling apart in the log: the shell is
             # actually reachable (opt-in on), or every dial will be refused.

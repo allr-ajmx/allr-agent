@@ -7674,6 +7674,10 @@ TERMINAL_CONFIG_ENV_MAP = {
     # its container env. Both are read in-process by hermes_cli/web_server.py
     # (env first, config second) and no child process needs them.
     "modal_mode": "TERMINAL_MODAL_MODE",
+    # cli.py and gateway/run.py have always bridged home_mode; this map did not,
+    # so `terminal.home_mode` silently had no effect under `hermes serve` and the
+    # dashboard backend. The four-way invariant test now pins all three maps.
+    "home_mode": "TERMINAL_HOME_MODE",
     "cwd": "TERMINAL_CWD",
     "timeout": "TERMINAL_TIMEOUT",
     "lifetime_seconds": "TERMINAL_LIFETIME_SECONDS",
