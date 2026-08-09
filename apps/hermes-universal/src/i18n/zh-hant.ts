@@ -670,7 +670,9 @@ export const zhHant = defineLocale({
       failedLoad: '設定載入失敗',
       autosaveFailed: '自動儲存失敗',
       imported: '設定已匯入',
-      invalidJson: '設定 JSON 無效'
+      invalidJson: '設定 JSON 無效',
+      keepAwakeTitle: '保持電腦喚醒',
+      keepAwakeDesc: '阻止本機睡眠，讓長時間或整夜執行持續進行。螢幕仍可變暗。'
     },
     credentials: {
       pasteKey: '貼上金鑰',
@@ -1980,6 +1982,7 @@ export const zhHant = defineLocale({
     recommended: '建議',
     connected: '已連線',
     featuredPitch: '一個訂閱，300+ 前沿模型 — 執行 Hermes 的建議方式',
+    fireworksPitch: '直接模型 API — Fireworks 託管的前沿模型',
     openRouterPitch: '一個金鑰，數百個模型 — 穩定的預設選擇',
     apiKeyOptions: {
       fireworks: { short: '直接模型 API', description: '直接存取 Fireworks AI 託管的模型。' },
@@ -2117,6 +2120,8 @@ export const zhHant = defineLocale({
       openCommandCenter: '開啟命令中心',
       showTerminal: '顯示終端機',
       hideTerminal: '隱藏終端機',
+      keepAwakeOn: '保持喚醒中 — 點擊以允許睡眠',
+      keepAwakeOff: '保持電腦喚醒',
       gateway: '閘道',
       gatewayReady: '就緒',
       gatewayNeedsSetup: '需要設定',

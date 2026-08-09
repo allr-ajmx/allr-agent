@@ -12,7 +12,19 @@ import { Codicon } from '@/components/ui/codicon'
 import { StatusDot } from '@/components/ui/status-dot'
 import { $pluginRecords } from '@/contrib/plugins-store'
 import { useI18n } from '@/i18n'
-import { Activity, AlertCircle, Clock, Command, FolderOpen, Hash, Loader2, Plug, Terminal, Zap } from '@/lib/icons'
+import {
+  Activity,
+  AlertCircle,
+  Clock,
+  Command,
+  FolderOpen,
+  Hash,
+  Loader2,
+  Plug,
+  Sun,
+  Terminal,
+  Zap
+} from '@/lib/icons'
 import { IS_DESKTOP, IS_MOBILE } from '@/lib/platform'
 import { revealPathInFileManager } from '@/lib/reveal-path'
 import { projectForCwd } from '@/lib/session-membership'
@@ -24,6 +36,7 @@ import { $busy, $currentUsage, $sessionId, $sessionStartedAt, $turnStartedAt } f
 import { $connection, $status } from '@/store/connection'
 import { $cronJobs, refreshCronJobs } from '@/store/cron'
 import { $gatewayState, requestGateway } from '@/store/gateway'
+import { $keepAwake, toggleKeepAwake } from '@/store/keep-awake'
 import { $terminalOpen, revealFileInTree, toggleTerminalOpen } from '@/store/layout'
 import { notify } from '@/store/notifications'
 import { $activeProfile } from '@/store/profiles'
@@ -89,6 +102,7 @@ export function useStatusbarItems(opts?: {
   const sessionId = useStore($sessionId)
   const subagentsBySession = useStore($subagentsBySession)
   const terminalOpen = useStore($terminalOpen)
+  const keepAwake = useStore($keepAwake)
   // The active chat's project directory, falling back to the workspace root.
   const currentCwd = useStore($effectiveCwd)
   const cronJobs = useStore($cronJobs)
@@ -433,6 +447,20 @@ export function useStatusbarItems(opts?: {
       onSelect: () => toggleTerminalOpen(),
       title: terminalOpen ? copy.hideTerminal : copy.showTerminal,
       toggleLabel: copy.toggleTerminal,
+      variant: 'action'
+    },
+    {
+      // Quick reach for the Advanced-page toggle: a long unattended run is
+      // exactly when you notice the machine is about to sleep. Lit while the
+      // inhibitor is held. Desktop-only — `hidden` also keeps it out of the
+      // mobile Status list, which renders with `includeAll`.
+      className: cn('w-7 justify-center px-0', keepAwake && 'bg-accent/55 text-foreground'),
+      hidden: !IS_DESKTOP,
+      icon: <Sun className="size-3.5" />,
+      id: 'keep-awake',
+      onSelect: () => toggleKeepAwake(),
+      title: keepAwake ? copy.keepAwakeOn : copy.keepAwakeOff,
+      toggleLabel: copy.toggleKeepAwake,
       variant: 'action'
     },
     {

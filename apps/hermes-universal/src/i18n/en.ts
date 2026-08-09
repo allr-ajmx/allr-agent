@@ -588,7 +588,10 @@ export const en: Translations = {
       failedLoad: 'Settings failed to load',
       autosaveFailed: 'Autosave failed',
       imported: 'Config imported',
-      invalidJson: 'Invalid config JSON'
+      invalidJson: 'Invalid config JSON',
+      keepAwakeTitle: 'Keep computer awake',
+      keepAwakeDesc:
+        'Stop this machine from sleeping so long or overnight runs keep going. The display can still dim.'
     },
     credentials: {
       pasteKey: 'Paste key',
@@ -2196,6 +2199,7 @@ export const en: Translations = {
     recommended: 'Recommended',
     connected: 'Connected',
     featuredPitch: 'One subscription, 300+ frontier models — the recommended way to run Hermes',
+    fireworksPitch: 'Direct model API — Fireworks-hosted frontier models',
     openRouterPitch: 'One key, hundreds of models — a solid default',
     apiKeyOptions: {
       fireworks: {
@@ -2354,6 +2358,8 @@ export const en: Translations = {
       openCommandCenter: 'Open Command Center',
       showTerminal: 'Show terminal',
       hideTerminal: 'Hide terminal',
+      keepAwakeOn: 'Keeping awake — click to allow sleep',
+      keepAwakeOff: 'Keep computer awake',
       gateway: 'Gateway',
       gatewayReady: 'ready',
       gatewayNeedsSetup: 'needs setup',
@@ -2373,6 +2379,7 @@ export const en: Translations = {
       toggleRunningTimer: 'Turn timer',
       toggleSessionTimer: 'Session timer',
       toggleTerminal: 'Terminal',
+      toggleKeepAwake: 'Keep awake',
       toggleVersion: 'Version & updates',
       toggleWorkspace: 'Workspace',
       agents: 'Agents',
