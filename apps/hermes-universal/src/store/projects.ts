@@ -2,7 +2,7 @@ import type { SidebarProjectTree } from '@/app/chat/sidebar/projects/model'
 import type { HermesGitBaseBranch, HermesGitBranch } from '@/global'
 import { getHermesConfig } from '@/hermes'
 import { translateNow } from '@/i18n'
-import { copyTextToClipboard, desktopDefaultCwd, selectDesktopPaths } from '@/lib/desktop-fs'
+import { copyTextToClipboard, desktopDefaultCwd, selectDesktopPaths, writeDesktopFileText } from '@/lib/desktop-fs'
 import { desktopGit } from '@/lib/desktop-git'
 import { persistentAtom } from '@/lib/persisted'
 import { revealPathInFileManager } from '@/lib/reveal-path'
@@ -219,6 +219,27 @@ export async function generateProjectIdea(name: string, seed = ''): Promise<stri
   }
 }
 
+// Write IDEA.md to a project's primary folder. Ported from desktop
+// `store/projects.ts`, but the write is REPORTED rather than swallowed: every
+// universal fs write is a gateway round trip (there is no local-fs branch), so
+// it can fail for reasons the user can act on — and the create dialog promises
+// in so many words that the idea is "saved to IDEA.md". A silent failure would
+// be the same broken promise this replaced. The project is created either way.
+async function writeProjectIdea(folder: null | string | undefined, idea: string): Promise<void> {
+  const dir = (folder || '').trim()
+  const body = idea.trim()
+
+  if (!dir || !body) {
+    return
+  }
+
+  try {
+    await writeDesktopFileText(`${dir.replace(/[/\\]+$/, '')}/IDEA.md`, `${body}\n`)
+  } catch (err) {
+    notifyError(err, translateNow('sidebar.projects.ideaWriteFailed'))
+  }
+}
+
 export async function createProject(input: CreateProjectInput): Promise<ProjectInfo | null> {
   if ($projectsRpcAvailable.get() === false) {
     throw staleBackendError()
@@ -249,6 +270,13 @@ export async function createProject(input: CreateProjectInput): Promise<ProjectI
   const created = res.project
 
   if (created) {
+    if (input.idea) {
+      // Awaited, unlike desktop's fire-and-forget: the dialog closes the moment
+      // this resolves, and a failure notice that lands after the close reads as
+      // unrelated noise.
+      await writeProjectIdea(created.primary_path ?? created.folders?.[0]?.path ?? input.primaryPath, input.idea)
+    }
+
     if (!$projects.get().some(p => p.id === created.id)) {
       $projects.set([...$projects.get(), created])
     }

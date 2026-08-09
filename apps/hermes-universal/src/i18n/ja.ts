@@ -1650,6 +1650,8 @@ export const ja = defineLocale({
       ideaGenerate: 'アイデアを生成',
       ideaGenerating: '生成中…',
       ideaShuffle: 'テンプレートをシャッフル',
+      ideaFailed: 'アイデアを生成できませんでした',
+      ideaWriteFailed: 'プロジェクトは作成されましたが、IDEA.md を保存できませんでした',
       noFolders: 'まだフォルダがありません。',
       addFolder: 'フォルダを追加',
       primaryBadge: 'メイン',

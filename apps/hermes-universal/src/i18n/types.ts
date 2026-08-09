@@ -1518,6 +1518,7 @@ export interface Translations {
       ideaGenerating: string
       ideaShuffle: string
       ideaFailed: string
+      ideaWriteFailed: string
       noFolders: string
       addFolder: string
       folderPath: string
