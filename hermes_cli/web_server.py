@@ -19091,7 +19091,9 @@ async def shell_pty_ws(ws: WebSocket) -> None:
     disabled = _shell_pty_disabled_reason()
     if disabled:
         await ws.send_text(f"\r\n\x1b[31mTerminal unavailable: {disabled}\x1b[0m\r\n")
-        await ws.close(code=4404)
+        # The reason rides the close frame too: the pane's end panel covers the
+        # scrollback, so text alone would leave the client with a bare "disabled".
+        await ws.close(code=4404, reason=_ws_close_reason(disabled))
         return
 
     if not _PTY_BRIDGE_AVAILABLE:
@@ -19128,7 +19130,7 @@ async def shell_pty_ws(ws: WebSocket) -> None:
     if refusal:
         await ws.send_text(f"\r\n\x1b[31mTerminal unavailable: {refusal}\x1b[0m\r\n")
         _log.warning("shell-pty refused: %s peer=%s", refusal, peer)
-        await ws.close(code=4404)
+        await ws.close(code=4404, reason=_ws_close_reason(refusal))
         return
 
     # ?attach=<token> opts into keep-alive: the shell outlives this socket and

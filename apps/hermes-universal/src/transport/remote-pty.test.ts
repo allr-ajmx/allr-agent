@@ -11,7 +11,7 @@ import type { TerminalTransportHandlers } from './terminal-transport'
 const { instances, MockSocket } = vi.hoisted(() => {
   interface Handlers {
     onBinary: (b: Uint8Array) => void
-    onClose: (code?: number) => void
+    onClose: (code?: number, reason?: string) => void
     onError: (m: string) => void
     onOpen: () => void
     onText: (t: string) => void
@@ -108,6 +108,35 @@ describe('RemotePtySocket reattach', () => {
     expect(h.status).not.toHaveBeenCalled()
     // No re-dial: still the single socket.
     expect(instances).toHaveLength(1)
+  })
+
+  it('carries the server close reason into the end state', async () => {
+    mockFeatures.mockResolvedValue({ shellPty: true, shellPtyReattach: true })
+    const h = handlers()
+    spawn(h.calls)
+
+    await vi.waitFor(() => expect(instances).toHaveLength(1))
+    instances[0].handlers.onOpen()
+    instances[0].handlers.onClose(4404, 'the sandbox container is not running yet')
+
+    // 4404 covers everything from "switched off" to "no sandbox running" — without
+    // the reason the pane could only say "Terminal disabled".
+    expect(h.end).toHaveBeenCalledWith({
+      detail: 'the sandbox container is not running yet',
+      kind: 'disabled'
+    })
+  })
+
+  it('still ends cleanly when the close carries no reason', async () => {
+    mockFeatures.mockResolvedValue({ shellPty: true, shellPtyReattach: true })
+    const h = handlers()
+    spawn(h.calls)
+
+    await vi.waitFor(() => expect(instances).toHaveLength(1))
+    instances[0].handlers.onOpen()
+    instances[0].handlers.onClose(4404)
+
+    expect(h.end).toHaveBeenCalledWith({ detail: undefined, kind: 'disabled' })
   })
 
   it('reconnects on an abnormal drop and flags the reattach as replayed', async () => {

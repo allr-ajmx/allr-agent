@@ -296,6 +296,37 @@ async def test_shell_pty_backend_overrides_agent_backend(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_shell_pty_refusal_rides_the_close_frame(monkeypatch):
+    """The pane's end panel covers the scrollback, so the ANSI banner alone leaves
+    the client with a bare "disabled" — the reason must be on the close frame."""
+    _bypass_ws_gates(monkeypatch)
+    monkeypatch.setattr(
+        web_server.PtyBridge,
+        "spawn",
+        staticmethod(lambda *a, **k: pytest.fail("spawn must not be called")),
+    )
+    monkeypatch.setattr(web_server, "load_config", lambda: {"terminal": {"backend": "local"}})
+    monkeypatch.delenv("TERMINAL_ENV", raising=False)
+    monkeypatch.delenv("TERMINAL_SHELL_PTY_BACKEND", raising=False)
+    monkeypatch.delenv("TERMINAL_ALLOW_UNSANDBOXED_SHELL", raising=False)
+    monkeypatch.setattr(web_server.app.state, "bound_host", "0.0.0.0", raising=False)
+
+    from starlette.testclient import TestClient
+    from starlette.websockets import WebSocketDisconnect
+
+    client = TestClient(web_server.app)
+    with pytest.raises(WebSocketDisconnect) as excinfo:
+        with client.websocket_connect("/api/shell-pty") as ws:
+            ws.receive_text()
+            ws.receive_text()
+
+    assert excinfo.value.code == 4404
+    assert "network-exposed" in (excinfo.value.reason or "")
+    # RFC 6455 caps the close reason at 123 bytes.
+    assert len((excinfo.value.reason or "").encode("utf-8")) <= 123
+
+
+@pytest.mark.asyncio
 async def test_shell_pty_modal_refuses(monkeypatch):
     spawned = []
 

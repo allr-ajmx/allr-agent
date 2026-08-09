@@ -50,24 +50,29 @@ const CLOSE_ABNORMAL = 1006
 const RECONNECT_BASE_MS = 500
 const RECONNECT_MAX_MS = 10_000
 
-function endForCloseCode(code: number | undefined): TerminalEnd {
+/** `reason` is the server's close-frame text. A 4404 covers everything from "switched
+ *  off in config" to "the sandbox container isn't running" — the code alone would tell
+ *  the user none of that, so the sentence rides along as `detail`. */
+function endForCloseCode(code: number | undefined, reason?: string): TerminalEnd {
+  const detail = reason?.trim() || undefined
+
   switch (code) {
     case CLOSE_AUTH:
-      return { kind: 'auth' }
+      return { detail, kind: 'auth' }
 
     case CLOSE_DISABLED:
-      return { kind: 'disabled' }
+      return { detail, kind: 'disabled' }
 
     case CLOSE_FORBIDDEN:
 
     case CLOSE_PEER:
-      return { kind: 'refused' }
+      return { detail, kind: 'refused' }
 
     case CLOSE_INTERNAL:
-      return { kind: 'unsupported' }
+      return { detail, kind: 'unsupported' }
 
     case CLOSE_SUPERSEDED:
-      return { kind: 'superseded' }
+      return { detail, kind: 'superseded' }
 
     case CLOSE_PROCESS_EXITED:
       return { kind: 'exited' }
@@ -211,7 +216,7 @@ export class RemotePtySocket implements TerminalTransport {
 
     this.socket = new TerminalSocket(url, {
       onBinary: bytes => this.handlers.onData(bytes),
-      onClose: code => this.handleClose(code),
+      onClose: (code, reason) => this.handleClose(code, reason),
       onError: message => this.handleError(message),
       onOpen: () => {
         this.live = true
@@ -228,7 +233,7 @@ export class RemotePtySocket implements TerminalTransport {
     })
   }
 
-  private handleClose(code: number | undefined): void {
+  private handleClose(code: number | undefined, reason?: string): void {
     this.live = false
 
     if (this.closed || this.ended) {
@@ -241,7 +246,7 @@ export class RemotePtySocket implements TerminalTransport {
       return
     }
 
-    this.end(endForCloseCode(code))
+    this.end(endForCloseCode(code, reason))
   }
 
   private handleError(message: string): void {
