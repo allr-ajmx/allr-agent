@@ -89,8 +89,17 @@ describe('TerminalBackendPanel', () => {
     expect(screen.getByText('In use')).toBeTruthy()
   })
 
-  it('selects a backend when clicked and reports the change', async () => {
+  it('selects a backend when clicked and re-reads what the gateway is actually running', async () => {
     const onConfiguredChange = vi.fn()
+    // The write lands, and the re-read confirms the process picked it up.
+    getTerminalBackends.mockResolvedValueOnce(backends()).mockResolvedValueOnce(
+      backends({
+        active: 'ssh',
+        backends: backends().backends.map(b => ({ ...b, active: b.name === 'ssh' })),
+        configured: 'ssh',
+        restart_required: false
+      })
+    )
     const { TerminalBackendPanel } = await import('./terminal-backend-panel')
     render(<TerminalBackendPanel onConfiguredChange={onConfiguredChange} />)
 
@@ -98,9 +107,34 @@ describe('TerminalBackendPanel', () => {
 
     await waitFor(() => expect(selectTerminalBackend).toHaveBeenCalledWith('ssh'))
     await waitFor(() => expect(onConfiguredChange).toHaveBeenCalled())
-    // Active highlight moves without a refetch.
-    const ssh = screen.getByRole('button', { name: /SSH/ })
-    expect(ssh.getAttribute('aria-pressed')).toBe('true')
+    await waitFor(() => expect(screen.getByRole('button', { name: /SSH/ }).getAttribute('aria-pressed')).toBe('true'))
+  })
+
+  it('does NOT claim the new backend is in use when the gateway needs a restart', async () => {
+    // The regression this panel shipped with: `terminal.backend` is pinned into
+    // TERMINAL_ENV at gateway startup, so a selection made now is inert until a
+    // restart. The panel used to paint "In use" on it regardless.
+    getTerminalBackends.mockResolvedValueOnce(backends()).mockResolvedValueOnce(
+      backends({
+        active: 'local',
+        backends: backends().backends.map(b => ({
+          ...b,
+          active: b.name === 'local',
+          pending: b.name === 'ssh'
+        })),
+        configured: 'ssh',
+        restart_required: true
+      })
+    )
+    const { TerminalBackendPanel } = await import('./terminal-backend-panel')
+    render(<TerminalBackendPanel onConfiguredChange={vi.fn()} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: /SSH/ }))
+
+    await waitFor(() => expect(screen.getByText('Restart required')).toBeTruthy())
+    // Local is still what is running, and says so.
+    expect(screen.getByRole('button', { name: /Local/ }).getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByRole('button', { name: /SSH/ }).getAttribute('aria-pressed')).toBe('false')
   })
 
   it('allows selecting a needs_setup backend (guidance instead of blocking)', async () => {

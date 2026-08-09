@@ -127,6 +127,52 @@ describe('RemotePtySocket reattach', () => {
     })
   })
 
+  it('prefers the full banner over the close frame, which RFC 6455 truncates at 123 bytes', async () => {
+    mockFeatures.mockResolvedValue({ shellPty: true, shellPtyReattach: true })
+    const h = handlers()
+    spawn(h.calls)
+
+    await vi.waitFor(() => expect(instances).toHaveLength(1))
+    instances[0].handlers.onOpen()
+    // What the server actually sends: the whole sentence as a coloured text frame…
+    instances[0].handlers.onText(
+      '\r\n[31mTerminal unavailable: the gateway is network-exposed and the shell backend ' +
+        'is unsandboxed (terminal.backend: local). Set terminal.backend to docker/ssh, bind the ' +
+        'dashboard to loopback, or set terminal.allow_unsandboxed_shell: true.[0m\r\n'
+    )
+    // …then the same text on the close frame, clipped mid-word by the 123-byte cap.
+    instances[0].handlers.onClose(
+      4404,
+      'the gateway is network-exposed and the shell backend is unsandboxed (terminal.backend: local). Set terminal.backend to d...'
+    )
+
+    const end = h.end.mock.calls[0][0]
+
+    expect(end.kind).toBe('disabled')
+    // The remedy is the part the truncation ate; it has to survive.
+    expect(end.detail).toContain('allow_unsandboxed_shell')
+    expect(end.detail).not.toContain('...')
+    // ANSI colouring is stripped — this goes into a text panel, not a terminal.
+    expect(end.detail).not.toContain('[')
+  })
+
+  it('falls back to the close reason when no banner was sent', async () => {
+    mockFeatures.mockResolvedValue({ shellPty: true, shellPtyReattach: true })
+    const h = handlers()
+    spawn(h.calls)
+
+    await vi.waitFor(() => expect(instances).toHaveLength(1))
+    instances[0].handlers.onOpen()
+    // Ordinary shell output must not be mistaken for a refusal banner.
+    instances[0].handlers.onText('user@host:~$ echo Terminal unavailable\r\n')
+    instances[0].handlers.onClose(4409, 'superseded by another client')
+
+    expect(h.end).toHaveBeenCalledWith({
+      detail: 'superseded by another client',
+      kind: 'superseded'
+    })
+  })
+
   it('still ends cleanly when the close carries no reason', async () => {
     mockFeatures.mockResolvedValue({ shellPty: true, shellPtyReattach: true })
     const h = handlers()
