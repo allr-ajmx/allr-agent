@@ -848,6 +848,25 @@ _SCHEMA_OVERRIDES: Dict[str, Dict[str, Any]] = {
         "description": "Dashboard shell terminal: auto = enabled, off = disabled",
         "options": ["auto", "off"],
     },
+    "terminal.shell_pty_backend": {
+        "type": "select",
+        "description": (
+            "Where the shell pane runs. auto = inherit terminal.backend; set it "
+            "explicitly to keep agent execution sandboxed while the pane shells "
+            "into the host."
+        ),
+        "options": ["auto", "local", "docker", "ssh"],
+    },
+    "terminal.allow_unsandboxed_shell": {
+        "type": "boolean",
+        "description": (
+            "Permit the unsandboxed host shell when the dashboard is bound to a "
+            "non-loopback address. Anyone with a valid session then has host "
+            "code execution as the gateway user — only enable on a trusted, "
+            "auth-gated network."
+        ),
+        "category": "security",
+    },
     "terminal.modal_mode": {
         "type": "select",
         "description": "Modal sandbox mode",
@@ -2081,6 +2100,22 @@ def _shell_pty_disabled_reason() -> str | None:
     if str(val or "auto").strip().lower() == "off":
         return "shell terminal is disabled by configuration (terminal.shell_pty: off)"
     return None
+
+
+def _shell_pty_allow_unsandboxed() -> bool:
+    """True when the operator has opted into the unsandboxed host shell on a
+    network-exposed bind. Off by default — see the config docstring: with it on,
+    any valid dashboard session is host code execution as the gateway user. Env
+    wins over config, matching ``_shell_pty_disabled_reason``."""
+    from utils import is_truthy_value
+
+    val = os.environ.get("TERMINAL_ALLOW_UNSANDBOXED_SHELL")
+    if val is None:
+        try:
+            val = ((load_config().get("terminal") or {}).get("allow_unsandboxed_shell"))
+        except Exception:
+            val = None
+    return is_truthy_value(val)
 
 
 def _fs_default_cwd() -> str:
@@ -16855,21 +16890,41 @@ def _shell_pty_target(
     if not isinstance(terminal_cfg, dict):
         terminal_cfg = {}
 
-    # TERMINAL_ENV (the launcher's env var) wins over config, matching the rest
-    # of the terminal stack (tools/terminal_tool.py reads os.getenv first).
-    backend = (os.environ.get("TERMINAL_ENV") or "").strip().lower()
-    if not backend:
-        backend = str(terminal_cfg.get("backend") or "local").strip().lower()
+    # The shell pane can be routed independently of the agent: terminal.backend
+    # keeps sandboxing agent execution while shell_pty_backend says where THIS
+    # pane lands. "auto" (the default) means inherit, which is the old behaviour.
+    shell_backend = os.environ.get("TERMINAL_SHELL_PTY_BACKEND")
+    if shell_backend is None:
+        shell_backend = terminal_cfg.get("shell_pty_backend")
+    backend = str(shell_backend or "auto").strip().lower()
+    if backend in {"", "auto", "inherit"}:
+        # TERMINAL_ENV (the launcher's env var) wins over config, matching the rest
+        # of the terminal stack (tools/terminal_tool.py reads os.getenv first).
+        backend = (os.environ.get("TERMINAL_ENV") or "").strip().lower()
+        if not backend:
+            backend = str(terminal_cfg.get("backend") or "local").strip().lower()
 
     if backend == "local":
-        if network_exposed:
+        # An unsandboxed host shell reachable off-box is host code execution for
+        # anyone holding a session, so it stays refused unless the operator says
+        # otherwise in so many words.
+        if network_exposed and not _shell_pty_allow_unsandboxed():
             return (
                 [],
                 {},
                 None,
                 "the gateway is network-exposed and the shell backend is "
                 "unsandboxed (terminal.backend: local). Set terminal.backend to "
-                "docker/ssh, or bind the dashboard to loopback.",
+                "docker/ssh, bind the dashboard to loopback, or — only on a "
+                "trusted, auth-gated network — set "
+                "terminal.allow_unsandboxed_shell: true.",
+            )
+        if network_exposed:
+            _log.warning(
+                "shell-pty: spawning an UNSANDBOXED host shell on a "
+                "network-exposed bind, permitted by "
+                "terminal.allow_unsandboxed_shell. Anyone with a valid session "
+                "has host code execution as this user."
             )
         # Host login shell. cwd: (path-hardened) ?cwd= -> default workspace -> ~.
         cwd = _fs_default_cwd()
@@ -20774,15 +20829,32 @@ def start_server(
 
     try:
         from gateway.platforms.base import is_network_accessible
-        _tb = str(((load_config().get("terminal") or {}).get("backend")) or "local").strip().lower()
+        _terminal = (load_config().get("terminal") or {})
+        _sb = os.environ.get("TERMINAL_SHELL_PTY_BACKEND")
+        if _sb is None:
+            _sb = _terminal.get("shell_pty_backend")
+        _tb = str(_sb or "auto").strip().lower()
+        if _tb in {"", "auto", "inherit"}:
+            _tb = str(_terminal.get("backend") or "local").strip().lower()
         if is_network_accessible(host) and _tb == "local" and _shell_pty_disabled_reason() is None:
-            _log.warning(
-                "Dashboard is network-accessible (%s) and /api/shell-pty spawns an "
-                "UNSANDBOXED interactive shell as the host user with full file access. "
-                "Anyone with a valid session gets host code execution. Strongly consider "
-                "terminal.backend: docker (sandbox) or binding to loopback, and firewall "
-                "this port to trusted networks.", host,
-            )
+            # Two distinct states worth telling apart in the log: the shell is
+            # actually reachable (opt-in on), or every dial will be refused.
+            if _shell_pty_allow_unsandboxed():
+                _log.warning(
+                    "Dashboard is network-accessible (%s) and /api/shell-pty spawns an "
+                    "UNSANDBOXED interactive shell as the host user with full file access. "
+                    "Anyone with a valid session gets host code execution — permitted by "
+                    "terminal.allow_unsandboxed_shell. Firewall this port to trusted "
+                    "networks.", host,
+                )
+            else:
+                _log.warning(
+                    "Dashboard is network-accessible (%s) and the shell backend is "
+                    "unsandboxed (local), so /api/shell-pty will REFUSE every connection. "
+                    "Set terminal.shell_pty_backend: docker/ssh, bind to loopback, or — on "
+                    "a trusted, auth-gated network — terminal.allow_unsandboxed_shell: true.",
+                    host,
+                )
     except Exception:
         pass
 

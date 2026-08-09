@@ -214,6 +214,87 @@ async def test_shell_pty_network_local_refuses(monkeypatch):
     assert spawned == []
 
 
+class _IdleBridge:
+    """A shell that never says anything — enough to prove spawn happened."""
+
+    def read(self, timeout):
+        return b""
+
+    def write(self, data):
+        pass
+
+    def resize(self, cols, rows):
+        pass
+
+    def close(self):
+        pass
+
+
+@pytest.mark.asyncio
+async def test_shell_pty_network_local_allowed_by_opt_in(monkeypatch):
+    """terminal.allow_unsandboxed_shell is the deliberate escape hatch for a
+    trusted-but-non-loopback bind (VPN/tunnel + auth gate)."""
+    spawned = []
+
+    def fake_spawn(argv, **kwargs):
+        spawned.append(list(argv))
+        return _IdleBridge()
+
+    _bypass_ws_gates(monkeypatch)
+    monkeypatch.setattr(web_server.PtyBridge, "spawn", staticmethod(fake_spawn))
+    monkeypatch.setattr(
+        web_server,
+        "load_config",
+        lambda: {"terminal": {"backend": "local", "allow_unsandboxed_shell": True}},
+    )
+    monkeypatch.delenv("TERMINAL_ENV", raising=False)
+    monkeypatch.delenv("TERMINAL_SHELL_PTY_BACKEND", raising=False)
+    monkeypatch.delenv("TERMINAL_ALLOW_UNSANDBOXED_SHELL", raising=False)
+    monkeypatch.setattr(web_server.app.state, "bound_host", "0.0.0.0", raising=False)
+
+    from starlette.testclient import TestClient
+
+    client = TestClient(web_server.app)
+    with client.websocket_connect("/api/shell-pty") as ws:
+        ws.send_bytes(b"hi")
+
+    assert spawned and spawned[0][-1] == "-l"
+
+
+@pytest.mark.asyncio
+async def test_shell_pty_backend_overrides_agent_backend(monkeypatch):
+    """shell_pty_backend routes the PANE only: the agent stays on terminal.backend
+    (docker here), while the pane shells into the host on a loopback bind."""
+    spawned = []
+
+    def fake_spawn(argv, **kwargs):
+        spawned.append(list(argv))
+        return _IdleBridge()
+
+    def _no_docker():
+        raise AssertionError("the docker backend must not be probed for the pane")
+
+    _bypass_ws_gates(monkeypatch)
+    monkeypatch.setattr(web_server.PtyBridge, "spawn", staticmethod(fake_spawn))
+    monkeypatch.setattr(web_server, "_probe_docker_backend", _no_docker)
+    monkeypatch.setattr(
+        web_server,
+        "load_config",
+        lambda: {"terminal": {"backend": "docker", "shell_pty_backend": "local"}},
+    )
+    monkeypatch.delenv("TERMINAL_ENV", raising=False)
+    monkeypatch.delenv("TERMINAL_SHELL_PTY_BACKEND", raising=False)
+    monkeypatch.setattr(web_server.app.state, "bound_host", "127.0.0.1", raising=False)
+
+    from starlette.testclient import TestClient
+
+    client = TestClient(web_server.app)
+    with client.websocket_connect("/api/shell-pty") as ws:
+        ws.send_bytes(b"hi")
+
+    assert spawned and spawned[0][-1] == "-l"
+
+
 @pytest.mark.asyncio
 async def test_shell_pty_modal_refuses(monkeypatch):
     spawned = []
