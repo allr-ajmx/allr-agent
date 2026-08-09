@@ -13,6 +13,10 @@
  *    elements and the menu panel (the same primitive `host.state` uses);
  *  - label/detail/icon of a DATA item are ReactNodes, so they can be tiny
  *    components that subscribe — a static item shape with live innards.
+ *
+ * Ships OFF by default (`defaultEnabled: false`): it reimplements the core
+ * statusbar pill, so enabling it alongside the real one renders the pill twice.
+ * Upstream dropped its own in-tree copy for exactly that reason.
  */
 
 import {
@@ -350,6 +354,7 @@ function PillLabel() {
 const plugin: HermesPlugin = {
   id: 'gateway-pill',
   name: 'Gateway Pill',
+  defaultEnabled: false,
   register(ctx) {
     startReadinessPoll()
 
