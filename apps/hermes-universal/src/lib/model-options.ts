@@ -10,6 +10,23 @@ interface ModelOptionsRequest {
   sessionId?: null | string
 }
 
+/**
+ * The one React Query key every `model.options` consumer uses. Scoped by
+ * PROFILE as well as session: the catalog a profile sees depends on the
+ * credentials that profile is configured with, so a profile switch must not
+ * serve the previous profile's providers out of cache. A null/blank profile
+ * normalizes to `default` (the root profile), matching `normalizeProfileKey`.
+ *
+ * Sessionless surfaces (Settings, a pre-session composer) pass no session and
+ * share the `global` bucket. Invalidating the bare `['model-options']` prefix
+ * still clears every profile and session at once.
+ */
+export function modelOptionsQueryKey(profile: null | string | undefined, sessionId?: null | string) {
+  const profileKey = (profile ?? '').trim() || 'default'
+
+  return ['model-options', profileKey, sessionId || 'global'] as const
+}
+
 export function requestModelOptions({
   explicitOnly = true,
   gateway,

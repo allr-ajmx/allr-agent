@@ -13,7 +13,7 @@ import { Package } from '@/lib/icons'
 import { useStore } from '@/store/atom'
 import { notifyError } from '@/store/notifications'
 
-import { EmptyState, ListRow, Pill, SectionHeading, SettingsContent } from './primitives'
+import { EmptyState, ListRow, ListRowSkeleton, Pill, SectionHeading, SettingsContent } from './primitives'
 
 // Ported from apps/desktop/src/app/settings/plugins-settings.tsx. Universal adds
 // the dual-door surface: the active door and its root are always named, and the
@@ -178,7 +178,16 @@ export function PluginsSettings() {
         />
       </div>
 
-      {rows.length === 0 ? (
+      {/* Until the active door reports in, `rows` is legitimately empty — show
+          the list's shape rather than flashing "no plugins" at someone who has
+          plenty. */}
+      {loading ? (
+        <div>
+          <ListRowSkeleton />
+          <ListRowSkeleton />
+          <ListRowSkeleton />
+        </div>
+      ) : rows.length === 0 ? (
         <EmptyState title={p.empty} />
       ) : (
         <div className="divide-y divide-(--ui-stroke-tertiary)">

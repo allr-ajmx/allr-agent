@@ -15,8 +15,9 @@ export const $currentModel = persistentAtom('hermes.model.current', '', Codecs.t
 export const $currentProvider = persistentAtom('hermes.model.provider', '', Codecs.text)
 export const $currentReasoningEffort = persistentAtom('hermes.model.effort', '', Codecs.text)
 export const $currentFastMode = persistentAtom('hermes.model.fast', false, Codecs.bool)
-// Fallback picker-open flag (desktop opened a full picker overlay when no live
-// model menu existed). Universal always provides the menu, so this stays quiet.
+// Open flag for the full model picker (components/model-picker, mounted by
+// app/model-picker-overlay). Raised by ⌘⇧M (`composer.modelPicker`) and by the
+// composer pill when the gateway is closed and no live dropdown exists.
 export const $modelPickerOpen = atom(false)
 
 export const setCurrentModel = (value: string): void => $currentModel.set(value)

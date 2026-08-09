@@ -14,10 +14,13 @@ import {
 } from './helpers'
 
 describe('settings helpers', () => {
-  it('lists Hindsight as a built-in memory provider option', () => {
-    const options = enumOptionsFor('memory.provider', '', {})
-
-    expect(options).toContain('hindsight')
+  it('does not shadow the backend schema options for memory.provider', () => {
+    // memory.provider options are discovery-driven and served by the backend
+    // config schema (merged per-request); enumOptionsFor must return undefined
+    // so config-field consumes schema.options instead of a stale static list —
+    // otherwise a user-installed or pip-provided memory backend is unpickable.
+    expect(enumOptionsFor('memory.provider', '', {})).toBeUndefined()
+    expect(enumOptionsFor('memory.provider', 'honcho', {})).toBeUndefined()
   })
 
   describe('defineFieldCopy', () => {

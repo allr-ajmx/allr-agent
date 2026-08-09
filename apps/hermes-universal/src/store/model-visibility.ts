@@ -1,5 +1,8 @@
 import { atom } from 'nanostores'
 
+import { modelSearchText } from '@/lib/model-search-text'
+import { displayModelName } from '@/lib/model-status-label'
+import { normalize } from '@/lib/text'
 import type { ModelOptionProvider } from '@/types/hermes'
 
 const STORAGE_KEY = 'hermes.visible-models'
@@ -133,13 +136,22 @@ export function defaultVisibleKeys(providers: readonly ModelOptionProvider[]): S
   return keys
 }
 
-/** Add a provider's curated default model keys (top-N collapsed families) to
- *  `target`. Shared by `defaultVisibleKeys` and `resolveVisibleKeys` so the
+/** Add a provider's curated default model keys to `target`. Prefers the
+ *  backend's `featured_models` shortlist (one flagship per lab) for aggregator
+ *  providers that would otherwise flood the default view with dozens of models;
+ *  falls back to the top-N collapsed families when a provider ships no featured
+ *  list. Shared by `defaultVisibleKeys` and `resolveVisibleKeys` so the
  *  expansion rule lives in exactly one place. */
 function expandProviderDefaults(provider: ModelOptionProvider, target: Set<string>): void {
   const families = collapseModelFamilies(provider.models ?? [])
 
-  for (const family of families.slice(0, DEFAULT_VISIBLE_PER_PROVIDER)) {
+  const featured = provider.featured_models ?? []
+
+  const defaults = featured.length
+    ? families.filter(family => featured.includes(family.id))
+    : families.slice(0, DEFAULT_VISIBLE_PER_PROVIDER)
+
+  for (const family of defaults) {
     target.add(modelVisibilityKey(provider.slug, family.id))
   }
 }
@@ -230,4 +242,108 @@ export function toggleModelVisibility(
   }
 
   return next
+}
+
+/** Compute the next persisted visibility set when a provider's master switch is
+ *  flipped (the Edit Models select-all). `visible=true` enables every one of the
+ *  provider's collapsed model families (and clears its hide-all sentinel);
+ *  `visible=false` removes them all and records the sentinel so the defaults are
+ *  not silently re-expanded. Seeds from `resolveVisibleKeys` so other providers'
+ *  state (including their sentinels) survives the persist, mirroring
+ *  `toggleModelVisibility`. */
+export function setProviderVisibility(
+  stored: Set<string> | null,
+  providers: readonly ModelOptionProvider[],
+  providerSlug: string,
+  visible: boolean
+): Set<string> {
+  const next = resolveVisibleKeys(stored, providers)
+  const sentinel = emptyProviderSentinelKey(providerSlug)
+  const provider = providers.find(p => p.slug === providerSlug)
+  const families = collapseModelFamilies(provider?.models ?? [])
+
+  // Drop every existing entry for this provider (real keys + sentinel); we
+  // rebuild its state from scratch below.
+  for (const key of [...next]) {
+    if (key.startsWith(`${providerSlug}::`)) {
+      next.delete(key)
+    }
+  }
+
+  if (visible) {
+    for (const family of families) {
+      next.add(modelVisibilityKey(providerSlug, family.id))
+    }
+
+    // A provider with zero models can't be "all on" — leave it empty rather
+    // than stranding a sentinel that reads as an explicit hide-all.
+    if (families.length === 0) {
+      next.delete(sentinel)
+    }
+  } else {
+    next.add(sentinel)
+  }
+
+  return next
+}
+
+interface CuratedFamiliesOptions {
+  /** The surface's active model id (base or `…-fast` sibling). Its family is
+   *  always kept, so selecting a model can never make its own row vanish. */
+  activeModel?: string
+  /** Raw search box text. Any query spans the WHOLE catalog. */
+  search?: string
+  /** Display-visible keys — `effectiveVisibleKeys(stored, providers)`. */
+  visible: Set<string>
+}
+
+/**
+ * Which of a provider's model families a picker should render. This is the one
+ * place curation lives: hosts (the composer dropdown, the ⌘⇧M dialog, Edit
+ * Models) pass their search box and the resolved visibility set and render what
+ * comes back — they do not each re-derive "top-N vs featured vs searching".
+ *
+ * Collapsed we show the user's chosen models (or the curated default); typing
+ * spans every available model so anything is reachable past the cut. A search is
+ * itself a narrowing action, so we do NOT cap per-provider matches — a provider
+ * serving 19 models must show all 19 when the user searches for it, not a
+ * truncated subset. Catalog order is preserved throughout: we only filter, never
+ * re-sort, so the backend's curated ordering survives.
+ */
+export function curatedFamilies(
+  provider: ModelOptionProvider,
+  { activeModel, search, visible }: CuratedFamiliesOptions
+): ModelFamily[] {
+  const families = collapseModelFamilies(provider.models ?? [])
+
+  if (families.length === 0) {
+    return families
+  }
+
+  const activeId = activeModel
+    ? families.find(family => family.id === activeModel || family.fastId === activeModel)?.id
+    : undefined
+
+  const q = normalize(search)
+
+  const shown = q
+    ? new Set(families.filter(family => familyMatches(provider, family, q)).map(family => family.id))
+    : new Set(families.filter(family => visible.has(modelVisibilityKey(provider.slug, family.id))).map(f => f.id))
+
+  return families.filter(family => shown.has(family.id) || family.id === activeId)
+}
+
+/** Substring match over everything a user might type to find a model: the wire
+ *  id and its `…-fast` sibling, the provider's name and slug, the prettified
+ *  display name, and the search-only aliases (`k3` → `kimi`). */
+function familyMatches(provider: ModelOptionProvider, family: ModelFamily, query: string): boolean {
+  const haystack = [
+    modelSearchText(family.id),
+    family.fastId ?? '',
+    provider.name,
+    provider.slug,
+    displayModelName(family.id)
+  ].join(' ')
+
+  return haystack.toLowerCase().includes(query)
 }

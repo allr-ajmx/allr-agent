@@ -25,7 +25,7 @@ import {
 import { FallbackModelsField } from './fallback-models-field'
 import { fieldCopyForSchemaKey } from './field-copy'
 import { enumOptionsFor, getNested, prettyName, setNested } from './helpers'
-import { EmptyState, ListRow, LoadingState, SettingsContent } from './primitives'
+import { EmptyState, ListRow, SettingsContent, SettingsSkeleton } from './primitives'
 import { SearchableSelect } from './searchable-select'
 import { setHermesConfigCache, useHermesConfigRecord } from './use-config-record'
 import { useDeepLinkHighlight } from './use-deep-link-highlight'
@@ -367,7 +367,13 @@ export function ConfigSection({
       )
     }
 
-    return <LoadingState label={c.loading} />
+    // The header slot (Settings -> Model) owns its own DOM-shaped skeleton, so
+    // keep it mounted and let it load in parallel with the schema.
+    return (
+      <SettingsSkeleton sections={[{ rows: 6 }]}>
+        {headerSlot && <div className="pt-1">{headerSlot}</div>}
+      </SettingsSkeleton>
+    )
   }
 
   const visibleFields = fieldFilter ? sectionFields.filter(([key]) => fieldFilter(key, config)) : sectionFields

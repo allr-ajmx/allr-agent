@@ -21,7 +21,7 @@ import { CustomEndpointsSettings } from './custom-endpoints-settings'
 import { SettingsCategoryHeading, useEnvCredentials } from './env-credentials'
 import { providerGroup, providerMeta, providerPriority } from './helpers'
 import { FEATURED_ID, providerTitle, sortProviders } from './oauth-provider-display'
-import { LoadingState, SettingsContent } from './primitives'
+import { SettingsContent, SettingsSkeleton } from './primitives'
 
 interface ProviderKeyGroup extends ProviderKeyRowGroup {
   priority: number
@@ -375,7 +375,7 @@ export function ProvidersSection({ view }: { view: 'accounts' | 'custom-endpoint
   }
 
   if (!vars) {
-    return <LoadingState label={t.settings.providers.loading} />
+    return <SettingsSkeleton search={view === 'keys'} sections={[{ rows: 6 }]} />
   }
 
   const hasOauth = oauthProviders.length > 0

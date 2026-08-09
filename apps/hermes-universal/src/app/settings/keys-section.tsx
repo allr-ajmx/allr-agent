@@ -4,7 +4,7 @@ import { useI18n } from '@/i18n'
 
 import { CredentialKeyCard, credentialPlaceholder, credentialRowLabel } from './credential-key-ui'
 import { useEnvCredentials } from './env-credentials'
-import { LoadingState, SettingsContent } from './primitives'
+import { SettingsContent, SettingsSkeleton } from './primitives'
 
 // Settings → Tools & Keys. Ported to desktop parity (apps/desktop/src/app/settings/
 // keys-settings.tsx): the Tools (tool API keys) and Settings (server / webhook /
@@ -46,7 +46,7 @@ export function KeysSection({ view }: { view: KeysView }) {
   }, [vars, view])
 
   if (!vars) {
-    return <LoadingState label={t.settings.keys.loading} />
+    return <SettingsSkeleton sections={[{ rows: 5 }]} />
   }
 
   return (

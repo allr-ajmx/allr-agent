@@ -23,7 +23,7 @@ import { pickProjectFolder } from '@/store/projects'
 import { refreshSessions } from '@/store/session'
 import type { SessionInfo } from '@/types/hermes'
 
-import { EmptyState, ListRow, LoadingState, SectionHeading, SettingsContent } from './primitives'
+import { EmptyState, ListRow, SectionHeading, SettingsContent, SettingsSkeleton } from './primitives'
 import { useDeepLinkHighlight } from './use-deep-link-highlight'
 
 // Shared by the row wrapper and the deep-link lookup so a palette jump can
@@ -184,7 +184,11 @@ export function ArchivedSection() {
   }
 
   if (!sessions && !failed) {
-    return <LoadingState label={s.loading} />
+    return (
+      <SettingsSkeleton
+        sections={IS_DESKTOP ? [{ rows: 1 }, { heading: true, rows: 4 }] : [{ heading: true, rows: 4 }]}
+      />
+    )
   }
 
   const list = sessions ?? []
