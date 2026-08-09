@@ -25,7 +25,7 @@ export function TerminalArea() {
       <div className="relative min-w-0 flex-1">
         {terminals.map(term => (
           <div className={cn('absolute inset-0', term.id !== activeId && 'invisible')} key={term.id}>
-            <TerminalView />
+            <TerminalView id={term.id} />
           </div>
         ))}
       </div>

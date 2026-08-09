@@ -1,6 +1,7 @@
 import { open } from '@tauri-apps/plugin-dialog'
 import { readFile } from '@tauri-apps/plugin-fs'
 
+import { selectRemotePaths } from '@/lib/desktop-fs'
 import { ensureSession } from '@/store/chat'
 import type { ComposerAttachment } from '@/store/composer'
 import { requestGateway } from '@/store/gateway'
@@ -93,6 +94,24 @@ export async function pickFolderAttachment(): Promise<StagedAttachment | null> {
   }
 
   return { name: basename(path), ref: `@folder:${path}` }
+}
+
+// Remote picks browse the BACKEND filesystem, so no staging/file.attach — the
+// path already lives where the session runs and a raw ref is the whole job
+// (the same shape the gateway's @-mention completions produce).
+
+/** Pick a file on the backend filesystem → `@file:` ref. */
+export async function pickRemoteAttachment(defaultPath?: string): Promise<StagedAttachment | null> {
+  const [path] = await selectRemotePaths({ defaultPath })
+
+  return path ? { name: basename(path), ref: `@file:${path}` } : null
+}
+
+/** Pick a folder on the backend filesystem → `@folder:` ref. */
+export async function pickRemoteFolderAttachment(defaultPath?: string): Promise<StagedAttachment | null> {
+  const [path] = await selectRemotePaths({ defaultPath, directories: true })
+
+  return path ? { name: basename(path), ref: `@folder:${path}` } : null
 }
 
 /**

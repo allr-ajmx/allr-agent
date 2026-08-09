@@ -18,10 +18,32 @@ function deriveOrigin(wsUrl: string): string | undefined {
   }
 }
 
+/** The `/close` payload is `{code, reason}` (transport.rs), but a bare number is
+ *  what older Rust cores emit — a desktop app can outlive its bundled core across
+ *  a JS-only hot update, so both shapes stay readable. */
+function parseClosePayload(payload: unknown): { code?: number; reason?: string } {
+  if (typeof payload === 'number') {
+    return { code: payload }
+  }
+
+  if (payload && typeof payload === 'object') {
+    const { code, reason } = payload as { code?: unknown; reason?: unknown }
+
+    return {
+      code: typeof code === 'number' ? code : undefined,
+      reason: typeof reason === 'string' && reason.trim() ? reason : undefined
+    }
+  }
+
+  return {}
+}
+
 export interface TerminalSocketHandlers {
   onBinary: (bytes: Uint8Array) => void
-  /** `code` is the WS close code (e.g. 4401 auth, 4410 child-exit) or undefined. */
-  onClose: (code?: number) => void
+  /** `code` is the WS close code (e.g. 4401 auth, 4410 child-exit) or undefined.
+   *  `reason` is the server's close-frame text when it sent one — for a 4404 that
+   *  is the sentence explaining WHY, which the pane shows under its headline. */
+  onClose: (code?: number, reason?: string) => void
   onError: (message: string) => void
   onOpen: () => void
   onText: (text: string) => void
@@ -56,7 +78,10 @@ export class TerminalSocket {
         sub('binary', payload => this.handlers.onBinary(Uint8Array.from((payload as number[]) ?? []))),
         sub('close', payload => {
           this.open = false
-          this.handlers.onClose(typeof payload === 'number' ? payload : undefined)
+
+          const { code, reason } = parseClosePayload(payload)
+
+          this.handlers.onClose(code, reason)
         }),
         sub('error', payload => this.handlers.onError(String(payload)))
       ])

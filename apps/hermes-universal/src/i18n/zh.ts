@@ -404,6 +404,13 @@ export const zh: Translations = {
       completionSoundDesc: '智能体回合结束时播放。可在此选择预设并预览。',
       completionSoundPreview: '预览'
     },
+    workspace: {
+      terminalHostTitle: 'Shell 运行位置',
+      terminalHostDesc: '新终端连接到哪台机器。',
+      terminalHostAuto: '自动（跟随网关）',
+      terminalHostDevice: '此设备',
+      terminalHostGateway: '网关／工作区主机'
+    },
     sections: {
       model: '模型',
       chat: '对话',
@@ -1173,7 +1180,26 @@ export const zh: Translations = {
       modelInactiveHint: '请先选择此后端，然后再更改其模型。',
       modelSelectedTitle: '模型已选择',
       modelSelectedMessage: model => `${model} 将应用于新会话。`,
-      failedSelectModel: model => `选择 ${model} 失败`
+      failedSelectModel: model => `选择 ${model} 失败`,
+      terminalBackend: {
+        sectionTitle: '执行后端',
+        sandboxHint:
+          "'local' 在网关主机上运行——没有沙箱，安装内容会持久保留。docker / ssh 会隔离 shell；在 docker 上除非挂载了卷，否则是临时的。",
+        loading: '正在检查执行后端…',
+        failedLoad: '无法加载终端后端',
+        ready: '就绪',
+        needsSetup: '需要设置',
+        unavailable: '不可用',
+        inUse: '使用中',
+        restartRequired: '需要重启',
+        restartHint: backend => `已保存。${backend} 将在网关重启后生效——运行中的进程在启动时已固定其后端。`,
+        restartBanner: (configured, active) =>
+          `已选择 ${configured}，但此网关仍在运行 ${active}。请重启以应用。`,
+        selectedTitle: '后端已保存',
+        selectedMessage: backend => `terminal.backend 现在是 ${backend}。`,
+        failedSelect: backend => `选择 ${backend} 失败`,
+        needsSetupHint: '您现在可以选择此后端——在设置完成之前命令会失败。'
+      }
     }
   },
 
@@ -2135,6 +2161,9 @@ export const zh: Translations = {
     attachLabel: '附加',
     files: '文件…',
     folder: '文件夹…',
+    back: '返回',
+    local: '本地…',
+    remote: '远程…',
     images: '图片…',
     pasteImage: '粘贴图片',
     url: 'URL…',
@@ -2551,6 +2580,8 @@ export const zh: Translations = {
     remotePickerTitle: '选择远程文件夹',
     remotePickerDescription: '浏览已连接后端上的文件夹。',
     remotePickerSelect: '选择文件夹',
+    remoteFilePickerTitle: '选择远程文件',
+    remoteFilePickerDescription: '浏览已连接后端上的文件。',
     folderTip: cwd => `${cwd} — 点击更改文件夹`,
     openFolder: '打开文件夹',
     refreshTree: '刷新文件树',
@@ -2575,6 +2606,7 @@ export const zh: Translations = {
     terminalHide: '隐藏终端',
     terminalConnecting: '连接中…',
     terminalReconnecting: '重新连接中…',
+    terminalReattached: '已重新接入（已回放）',
     terminalClosed: '终端已关闭',
     terminalRestart: '重新启动',
     terminalHostChip: host => `Shell 位于 ${host}`,
@@ -2587,8 +2619,8 @@ export const zh: Translations = {
     terminalEndDisabledBody: '此网关已关闭 shell 端点。',
     terminalEndRefusedTitle: '连接被拒绝',
     terminalEndRefusedBody: '网关拒绝了此终端连接。',
-    terminalEndSupersededTitle: '已被接管',
-    terminalEndSupersededBody: '另一台设备接管了此 shell 会话。',
+    terminalEndSupersededTitle: '已在另一台设备上被接管',
+    terminalEndSupersededBody: '另一台设备接管了此 shell 会话。重新启动即可夺回到本机。',
     terminalEndNoGatewayShellTitle: '此网关没有 shell',
     terminalEndNoGatewayShellBody: '此网关不提供远程 shell。请在后端主机上升级 Hermes。',
     terminalEndNoLocalShellTitle: '此设备没有 shell',

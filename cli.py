@@ -665,6 +665,9 @@ def load_cli_config() -> Dict[str, Any]:
         "docker_forward_env": "TERMINAL_DOCKER_FORWARD_ENV",
         "singularity_image": "TERMINAL_SINGULARITY_IMAGE",
         "modal_image": "TERMINAL_MODAL_IMAGE",
+        # Was bridged only by hermes_cli/config.py, so `terminal.modal_mode` in
+        # config.yaml did nothing for classic CLI / TUI runs.
+        "modal_mode": "TERMINAL_MODAL_MODE",
         "daytona_image": "TERMINAL_DAYTONA_IMAGE",
         # SSH config
         "ssh_host": "TERMINAL_SSH_HOST",

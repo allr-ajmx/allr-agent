@@ -212,6 +212,15 @@ model:
 #   - Gateway/messaging/cron: Uses terminal.cwd here; legacy .env cwd values are deprecated
 terminal:
   backend: "local"
+  # shell_pty: auto   # auto | off — set off to disable the dashboard shell terminal
+  # shell_pty_backend: auto   # auto | local | docker | ssh — where the shell pane runs.
+  #                           # auto inherits `backend`; set it to keep agent execution
+  #                           # sandboxed while the pane shells into the host.
+  # allow_unsandboxed_shell: false
+  #   SECURITY: the unsandboxed host shell is refused whenever the dashboard is bound to a
+  #   non-loopback address, because any valid session would then be host code execution as
+  #   the gateway user. Set true only when that port is reachable from a trusted network
+  #   (VPN/tunnel) and the dashboard is auth-gated. Env: TERMINAL_ALLOW_UNSANDBOXED_SHELL.
   cwd: "."  # For local backend: "." = current directory. Ignored for remote backends unless a backend documents otherwise.
   timeout: 180
   # HOME policy for tool subprocesses:
@@ -321,6 +330,15 @@ terminal:
 # -----------------------------------------------------------------------------
 # Add sudo_password to any terminal config above to enable sudo commands.
 # The password is piped via `sudo -S`. Works with local, ssh, docker, etc.
+#
+# SCOPE: `terminal.sudo_password` in this file is honoured ONLY by the classic
+# interactive CLI, which bridges it to $SUDO_PASSWORD at startup. The dashboard /
+# `hermes serve` backend and the messaging gateway read $SUDO_PASSWORD from the
+# environment and never from this key, so setting it here has no effect there —
+# export SUDO_PASSWORD in those environments instead. It is deliberately not
+# bridged through the config→env map: that path also mirrors values into
+# ~/.hermes/.env, and a sudo password does not belong in a file written as a
+# side effect of `hermes config set`.
 #
 # SECURITY WARNING: Password stored in plaintext!
 #

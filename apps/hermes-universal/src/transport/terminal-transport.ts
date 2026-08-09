@@ -89,13 +89,22 @@ export interface TerminalEnd {
   detail?: string
 }
 
+/** In-flight status the transport surfaces between ready and ended. Only the
+ *  reattaching remote shell emits these; local + first-connect are covered by
+ *  `onReady`/`onEnd`. */
+export type TerminalStatus = 'reconnecting'
+
 export interface TerminalTransportHandlers {
   /** PTY output. Bytes from both paths; the remote WS also delivers text frames. */
   onData: (data: string | Uint8Array) => void
   onEnd: (end: TerminalEnd) => void
   /** The shell is live. `host` is what the pane shows the user ("this device" vs
-   *  the gateway's host), so they always know which machine they're typing into. */
-  onReady: (info: { host: string }) => void
+   *  the gateway's host), so they always know which machine they're typing into.
+   *  `replayed` marks a reattach whose scrollback the server just replayed, so the
+   *  burst of buffered output reads as "reconnected", not a glitch. */
+  onReady: (info: { host: string; replayed?: boolean }) => void
+  /** A reattachable remote shell dropped and is retrying. One-shot per drop. */
+  onStatus?: (status: TerminalStatus) => void
 }
 
 export interface TerminalTransportOptions {
@@ -103,6 +112,9 @@ export interface TerminalTransportOptions {
   /** Snapshotted at spawn — a terminal keeps the directory it was opened in. */
   cwd?: string
   rows: number
+  /** Stable per-pane id (store/terminals.ts). Threaded to the remote transport so
+   *  it can derive the `?attach=` reattach token; unused by the local shell. */
+  terminalId?: string
 }
 
 export interface TerminalTransport {

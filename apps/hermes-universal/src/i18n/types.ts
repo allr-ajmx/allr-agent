@@ -362,6 +362,13 @@ export interface Translations {
       completionSoundDesc: string
       completionSoundPreview: string
     }
+    workspace: {
+      terminalHostTitle: string
+      terminalHostDesc: string
+      terminalHostAuto: string
+      terminalHostDevice: string
+      terminalHostGateway: string
+    }
     sections: Record<string, string>
     searchPlaceholder: Record<'about' | 'config' | 'gateway' | 'keys' | 'mcp' | 'sessions', string>
     modeOptions: Record<'light' | 'dark' | 'system', ModeOptionCopy>
@@ -880,6 +887,23 @@ export interface Translations {
       modelSelectedTitle: string
       modelSelectedMessage: (model: string) => string
       failedSelectModel: (model: string) => string
+      terminalBackend: {
+        sectionTitle: string
+        sandboxHint: string
+        loading: string
+        failedLoad: string
+        ready: string
+        needsSetup: string
+        unavailable: string
+        inUse: string
+        restartRequired: string
+        restartHint: (backend: string) => string
+        restartBanner: (configured: string, active: string) => string
+        selectedTitle: string
+        selectedMessage: (backend: string) => string
+        failedSelect: (backend: string) => string
+        needsSetupHint: string
+      }
     }
   }
 
@@ -1654,6 +1678,9 @@ export interface Translations {
     attachLabel: string
     files: string
     folder: string
+    back: string
+    local: string
+    remote: string
     images: string
     pasteImage: string
     url: string
@@ -2019,6 +2046,8 @@ export interface Translations {
     remotePickerTitle: string
     remotePickerDescription: string
     remotePickerSelect: string
+    remoteFilePickerTitle: string
+    remoteFilePickerDescription: string
     folderTip: (cwd: string) => string
     openFolder: string
     refreshTree: string
@@ -2043,6 +2072,7 @@ export interface Translations {
     terminalHide: string
     terminalConnecting: string
     terminalReconnecting: string
+    terminalReattached: string
     terminalClosed: string
     terminalRestart: string
     terminalHostChip: (host: string) => string

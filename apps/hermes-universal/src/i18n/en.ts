@@ -416,6 +416,13 @@ export const en: Translations = {
       completionSoundDesc: 'Plays when an agent turn finishes. Pick a preset and preview it here.',
       completionSoundPreview: 'Preview'
     },
+    workspace: {
+      terminalHostTitle: 'Shell runs on',
+      terminalHostDesc: 'Which machine new terminals connect to.',
+      terminalHostAuto: 'Automatic (follow gateway)',
+      terminalHostDevice: 'This device',
+      terminalHostGateway: 'Gateway / workspace host'
+    },
     sections: {
       model: 'Model',
       chat: 'Chat',
@@ -999,7 +1006,27 @@ export const en: Translations = {
       modelInactiveHint: 'Select this backend first to change its model.',
       modelSelectedTitle: 'Model selected',
       modelSelectedMessage: model => `${model} applies to new sessions.`,
-      failedSelectModel: model => `Failed to select ${model}`
+      failedSelectModel: model => `Failed to select ${model}`,
+      terminalBackend: {
+        sectionTitle: 'Execution backend',
+        sandboxHint:
+          "'local' runs on the gateway host — no sandbox, installs persist. docker / ssh isolate the shell; on docker it's ephemeral unless a volume is mounted.",
+        loading: 'Checking execution backends…',
+        failedLoad: 'Could not load terminal backends',
+        ready: 'Ready',
+        needsSetup: 'Needs setup',
+        unavailable: 'Unavailable',
+        inUse: 'In use',
+        restartRequired: 'Restart required',
+        restartHint: backend =>
+          `Saved. ${backend} takes effect when the gateway restarts — the running process pinned its backend at startup.`,
+        restartBanner: (configured, active) =>
+          `Selected ${configured}, but this gateway is still running ${active}. Restart it to apply.`,
+        selectedTitle: 'Backend saved',
+        selectedMessage: backend => `terminal.backend is now ${backend}.`,
+        failedSelect: backend => `Failed to select ${backend}`,
+        needsSetupHint: 'You can select this backend now — commands will fail until setup is complete.'
+      }
     }
   },
 
@@ -1969,6 +1996,9 @@ export const en: Translations = {
     attachLabel: 'Attach',
     files: 'Files…',
     folder: 'Folder…',
+    back: 'Back',
+    local: 'Local…',
+    remote: 'Remote…',
     images: 'Images…',
     pasteImage: 'Paste image',
     url: 'URL…',
@@ -2398,6 +2428,8 @@ export const en: Translations = {
     remotePickerTitle: 'Choose remote folder',
     remotePickerDescription: 'Browse folders on the connected backend.',
     remotePickerSelect: 'Select folder',
+    remoteFilePickerTitle: 'Choose remote file',
+    remoteFilePickerDescription: 'Browse files on the connected backend.',
     folderTip: cwd => `${cwd} — click to change folder`,
     openFolder: 'Open folder',
     refreshTree: 'Refresh tree',
@@ -2422,6 +2454,7 @@ export const en: Translations = {
     terminalHide: 'Hide terminal',
     terminalConnecting: 'Connecting…',
     terminalReconnecting: 'Reconnecting…',
+    terminalReattached: 'Reattached (replayed)',
     terminalClosed: 'Terminal closed',
     terminalRestart: 'Restart',
     terminalHostChip: (host: string) => `Shell on ${host}`,
@@ -2434,8 +2467,8 @@ export const en: Translations = {
     terminalEndDisabledBody: 'This gateway has its shell endpoint switched off.',
     terminalEndRefusedTitle: 'Connection refused',
     terminalEndRefusedBody: 'The gateway refused this terminal connection.',
-    terminalEndSupersededTitle: 'Taken over',
-    terminalEndSupersededBody: 'Another device attached to this shell session.',
+    terminalEndSupersededTitle: 'Taken over on another device',
+    terminalEndSupersededBody: 'Another device attached to this shell session. Restart to take it back here.',
     terminalEndNoGatewayShellTitle: 'No shell on this gateway',
     terminalEndNoGatewayShellBody: "This gateway doesn't provide a remote shell. Update Hermes on the backend host.",
     terminalEndNoLocalShellTitle: 'No shell on this device',

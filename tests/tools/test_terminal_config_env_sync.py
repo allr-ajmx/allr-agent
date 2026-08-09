@@ -26,6 +26,8 @@ mirrors the pattern used in tests/hermes_cli/test_config_drift.py.
 import ast
 import inspect
 
+import pytest
+
 
 def _extract_dict_values(source: str, dict_name: str) -> set[str]:
     """Return the set of *value* strings in `dict_name = { "k": "VALUE", ... }`.
@@ -322,3 +324,116 @@ def test_docker_forward_env_is_bridged_everywhere():
     assert "docker_forward_env" in _gateway_env_map_keys()
     assert "docker_forward_env" in _save_config_env_sync_keys()
     assert "TERMINAL_DOCKER_FORWARD_ENV" in _terminal_tool_env_var_names()
+
+
+# ---------------------------------------------------------------------------
+# The general invariant.
+#
+# The eight pins above were each written after a key had already shipped broken
+# in one map. That is one test per bug, discovered one bug at a time —
+# `terminal.home_mode` sat in cli.py and gateway/run.py but not in
+# TERMINAL_CONFIG_ENV_MAP, so it silently did nothing under `hermes serve`, and
+# no pin existed to notice.
+#
+# This parametrization closes the class instead of the instances: every key
+# bridged by ANY of the three maps must be bridged by all three, or be listed as
+# a justified exception. A new key cannot be half-wired without failing here.
+# ---------------------------------------------------------------------------
+
+
+# Keys deliberately bridged by only some paths. Each needs a reason, not just an
+# entry — an unexplained exception is how the drift starts again.
+_JUSTIFIED_PARTIAL = {
+    # Legacy YAML alias for `backend`, accepted only by cli.py for old
+    # cli-config.yaml files. `backend` itself is bridged everywhere.
+    "env_type",
+    # A credential, not a terminal-backend option. Bridged to $SUDO_PASSWORD by
+    # cli.py only, and deliberately NOT via TERMINAL_CONFIG_ENV_MAP: that path
+    # also mirrors values into ~/.hermes/.env, and a sudo password must not be
+    # written there as a side effect of `hermes config set`. See the SCOPE note
+    # in cli-config.yaml.example.
+    "sudo_password",
+    # set_config_value handles terminal.cwd separately (placeholder values like
+    # "." must not be bridged as literal paths), so it is absent from
+    # _save_config_env_sync_keys by construction while present in both launcher
+    # maps. See the `key != "terminal.cwd"` guard in set_config_value.
+    "cwd",
+    # TERMINAL_SHELL_PTY is consumed only by hermes_cli/web_server.py, and the
+    # only process that serves /api/shell-pty is `hermes serve` / `hermes
+    # dashboard`, which bridges through TERMINAL_CONFIG_ENV_MAP via
+    # cmd_dashboard. The classic CLI and the messaging gateway host no such
+    # endpoint, so bridging it there would be noise.
+    "shell_pty",
+}
+
+# cli.py names the backend key `env_type` (the legacy cli-config.yaml spelling)
+# while the other two maps use `backend`. Same setting, same env var.
+_CLI_KEY_ALIASES = {"backend": "env_type"}
+
+
+def _all_bridged_keys() -> set[str]:
+    """Union of every terminal key any bridge path claims to handle."""
+    from hermes_cli import config as hc_config
+
+    return (
+        _cli_env_map_keys()
+        | _gateway_env_map_keys()
+        | set(hc_config.TERMINAL_CONFIG_ENV_MAP)
+    ) - _JUSTIFIED_PARTIAL
+
+
+@pytest.mark.parametrize("key", sorted(_all_bridged_keys()))
+def test_every_terminal_key_is_bridged_everywhere(key):
+    """A terminal.* key bridged by one launcher must be bridged by all of them.
+
+    Half-bridging means the setting works from one entry point and silently does
+    nothing from another — the exact shape of every bug the pins above record.
+    """
+    from hermes_cli import config as hc_config
+
+    cli_keys = _cli_env_map_keys()
+    cli_name = _CLI_KEY_ALIASES.get(key, key)
+
+    missing = [
+        name
+        for name, keys, lookup in (
+            ("cli.py env_mappings", cli_keys, cli_name),
+            ("gateway/run.py _terminal_env_map", _gateway_env_map_keys(), key),
+            ("config.py TERMINAL_CONFIG_ENV_MAP", set(hc_config.TERMINAL_CONFIG_ENV_MAP), key),
+        )
+        if lookup not in keys
+    ]
+
+    assert not missing, (
+        f"terminal.{key} is bridged by some paths but missing from: "
+        f"{', '.join(missing)}. Add it there, or justify the omission in "
+        f"_JUSTIFIED_PARTIAL."
+    )
+
+
+def test_bridged_env_vars_are_actually_consumed():
+    """A key bridged into an env var nothing reads is dead config.
+
+    Not fatal, but it should be a deliberate choice: either something consumes
+    the variable, or the key should not claim to be bridged.
+    """
+    from hermes_cli import config as hc_config
+
+    consumed = _terminal_tool_env_var_names()
+    # Read by other modules rather than terminal_tool, verified by grep:
+    #   TERMINAL_SANDBOX_DIR  -> tools/environments/base.py::get_sandbox_dir
+    #   TERMINAL_HOME_MODE    -> home-mode resolution outside terminal_tool
+    #   TERMINAL_SHELL_PTY    -> hermes_cli/web_server.py::_shell_pty_disabled_reason
+    consumed_elsewhere = {
+        "TERMINAL_SANDBOX_DIR",
+        "TERMINAL_HOME_MODE",
+        "TERMINAL_SHELL_PTY",
+    }
+
+    orphans = {
+        key: env_var
+        for key, env_var in hc_config.TERMINAL_CONFIG_ENV_MAP.items()
+        if env_var not in consumed and env_var not in consumed_elsewhere
+    }
+
+    assert not orphans, f"bridged but never read: {orphans}"

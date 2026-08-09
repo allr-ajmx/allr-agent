@@ -200,6 +200,10 @@ pub async fn ws_open(
         // Close code (e.g. 4401 auth / 4410 child-exit from /api/shell-pty) so the
         // terminal can decide whether to reconnect. `None` on error/EOF exits.
         let mut close_code: Option<u16> = None;
+        // The server's close reason, when it sent one. /api/shell-pty puts its
+        // refusal sentence here (RFC 6455 caps it at 123 bytes), which is the
+        // only way the pane can say WHY a 4404 happened instead of "disabled".
+        let mut close_reason: Option<String> = None;
         while let Some(item) = read.next().await {
             match item {
                 Ok(Message::Text(text)) => {
@@ -218,7 +222,13 @@ pub async fn ws_open(
                     let _ = tx_pong.send(Message::Pong(payload));
                 }
                 Ok(Message::Close(frame)) => {
-                    close_code = frame.map(|f| u16::from(f.code));
+                    if let Some(frame) = frame {
+                        close_code = Some(u16::from(frame.code));
+                        let reason = frame.reason.to_string();
+                        if !reason.is_empty() {
+                            close_reason = Some(reason);
+                        }
+                    }
                     break;
                 }
                 Ok(_) => {}
@@ -228,9 +238,13 @@ pub async fn ws_open(
                 }
             }
         }
-        // Payload is the close code (or null). The JSON-RPC gateway socket ignores
-        // it; the terminal socket uses it for reconnect decisions.
-        let _ = app_reader.emit(&format!("ws://{id_reader}/close"), close_code);
+        // Payload is `{code, reason}`, both nullable. The JSON-RPC gateway socket
+        // ignores it; the terminal socket uses the code for reconnect decisions and
+        // the reason for the end banner.
+        let _ = app_reader.emit(
+            &format!("ws://{id_reader}/close"),
+            serde_json::json!({ "code": close_code, "reason": close_reason }),
+        );
     });
 
     state

@@ -1,4 +1,4 @@
-import { type Connection, resolveTerminalWsUrl } from '@/store/gateway-config'
+import { type Connection, connectionCacheKey, resolveTerminalWsUrl } from '@/store/gateway-config'
 import { gatewayFeatures } from '@/store/gateway-features'
 
 import { TerminalSocket } from './terminal-socket'
@@ -14,9 +14,16 @@ import type {
 // both ways; the only in-band control is the resize escape below, which the
 // server's pump consumes without writing it to the PTY.
 //
-// v1 is deliberately EPHEMERAL: no `?attach=` token, so a dropped socket is a
-// dead shell and the pane says so rather than silently restarting. Keep-alive +
-// scrollback replay (the server already has the registry for it) is MJXHRM-164.
+// When the gateway advertises `shell_pty_reattach` we dial with a stable
+// `?attach=<token>` so the shell survives WS drops: the server replays its ring
+// buffer on reattach, and an abnormal close (network drop) is retried with capped
+// backoff instead of ending the pane. Older gateways (no reattach) keep the v1
+// EPHEMERAL behaviour — no token, a dropped socket is a dead shell — so nothing
+// regresses when talking to a backend that predates MJXHRM-184.
+//
+// Terminal close codes are NEVER retried: 4410 (shell exited), 4401 (auth),
+// 4403/4408 (refused), 4404 (disabled), 4409 (superseded — another device took
+// over), 1011 (no POSIX PTY). Only a transport-level drop reconnects.
 
 /** ESC, kept as a named constant so no raw control byte lands in the source. */
 const ESC = '\u001b'
@@ -35,25 +42,52 @@ const CLOSE_SUPERSEDED = 4409
 const CLOSE_PROCESS_EXITED = 4410
 /** The server's "no POSIX PTY here" path (native-Windows gateway) closes 1011. */
 const CLOSE_INTERNAL = 1011
+/** Abnormal closure — no close frame arrived (the socket dropped under us). This
+ *  is the one code, alongside a missing code, that a reattachable shell retries. */
+const CLOSE_ABNORMAL = 1006
 
-function endForCloseCode(code: number | undefined): TerminalEnd {
+/** Reconnect backoff for a reattachable shell: capped exponential from 500ms. */
+const RECONNECT_BASE_MS = 500
+const RECONNECT_MAX_MS = 10_000
+
+/** The server writes the full explanation as a text frame immediately before closing,
+ *  then repeats it on the close frame — but RFC 6455 caps a close reason at 123 bytes,
+ *  and every backend refusal is longer than that, so the close frame arrives truncated
+ *  mid-word ("…Set terminal.backend to d"). The banner is the complete text, so prefer
+ *  it and keep the close reason as the fallback for closes that send no banner. */
+const BANNER_RE = /Terminal (?:unavailable|failed to start): ([\s\S]+)/
+// eslint-disable-next-line no-control-regex -- stripping the server's SGR colouring is the point.
+const ANSI_RE = /\x1b\[[0-9;]*m/g
+
+function bannerDetail(text: string): string | undefined {
+  const match = BANNER_RE.exec(text.replace(ANSI_RE, ''))
+
+  return match?.[1]?.trim() || undefined
+}
+
+/** `reason` is the server's close-frame text. A 4404 covers everything from "switched
+ *  off in config" to "the sandbox container isn't running" — the code alone would tell
+ *  the user none of that, so the sentence rides along as `detail`. */
+function endForCloseCode(code: number | undefined, reason?: string): TerminalEnd {
+  const detail = reason?.trim() || undefined
+
   switch (code) {
     case CLOSE_AUTH:
-      return { kind: 'auth' }
+      return { detail, kind: 'auth' }
 
     case CLOSE_DISABLED:
-      return { kind: 'disabled' }
+      return { detail, kind: 'disabled' }
 
     case CLOSE_FORBIDDEN:
 
     case CLOSE_PEER:
-      return { kind: 'refused' }
+      return { detail, kind: 'refused' }
 
     case CLOSE_INTERNAL:
-      return { kind: 'unsupported' }
+      return { detail, kind: 'unsupported' }
 
     case CLOSE_SUPERSEDED:
-      return { kind: 'superseded' }
+      return { detail, kind: 'superseded' }
 
     case CLOSE_PROCESS_EXITED:
       return { kind: 'exited' }
@@ -105,7 +139,15 @@ export class RemotePtySocket implements TerminalTransport {
   private closed = false
   private ended = false
   private live = false
+  /** Last "Terminal unavailable: …" banner seen — the untruncated form of what the
+   *  close frame can only carry 123 bytes of. Cleared per dial by reassignment. */
+  private lastBanner: string | undefined
   private size: null | { cols: number; rows: number } = null
+  /** The stable `?attach=` token, or null when the gateway can't reattach — which
+   *  is also the flag for "may this drop reconnect at all". */
+  private attachToken: null | string = null
+  private reconnectAttempts = 0
+  private reconnectTimer: null | ReturnType<typeof setTimeout> = null
 
   constructor(
     private readonly connection: Connection,
@@ -127,12 +169,12 @@ export class RemotePtySocket implements TerminalTransport {
   }
 
   private async init(): Promise<void> {
-    let url: string
-
     // Ask before dialling. An older gateway has no `/api/shell-pty`, and the refusal
     // it sends back is a bare 403 that reads as "session expired" — so the capability
     // has to come from `/api/health`, where absence means the build predates it.
-    if (!(await gatewayFeatures(this.connection)).shellPty) {
+    const features = await gatewayFeatures(this.connection)
+
+    if (!features.shellPty) {
       this.end({ kind: 'unsupported' })
 
       return
@@ -142,10 +184,43 @@ export class RemotePtySocket implements TerminalTransport {
       return
     }
 
+    // A stable token per (backend identity, terminal pane) so a reconnect — and a
+    // deliberate Restart — reattach to the SAME shell. connectionCacheKey survives
+    // ssh re-tunnels; the terminal id survives tab switches. Only when the gateway
+    // advertises reattach: an ephemeral gateway must not be handed a token it will
+    // reject. resolveTerminalWsUrl url-encodes it via URLSearchParams.
+    this.attachToken =
+      features.shellPtyReattach && this.options.terminalId
+        ? `${connectionCacheKey(this.connection)}:${this.options.terminalId}`
+        : null
+
+    await this.connect(false)
+  }
+
+  /** Dial (or re-dial) the shell. `reattach` marks a reconnect so the ready signal
+   *  can tell the pane the server replayed scrollback. */
+  private async connect(reattach: boolean): Promise<void> {
+    if (this.closed || this.ended) {
+      return
+    }
+
+    let url: string
+
+    // The cwd is a query param, path-hardened server-side; omitted entirely when the
+    // session has no workspace so the backend picks its own default. `attach` opts
+    // into the keep-alive shell + ring-buffer replay.
+    const params: Record<string, string> = {}
+
+    if (this.options.cwd) {
+      params.cwd = this.options.cwd
+    }
+
+    if (this.attachToken) {
+      params.attach = this.attachToken
+    }
+
     try {
-      // The cwd is a query param, path-hardened server-side; omitted entirely when
-      // the session has no workspace so the backend picks its own default.
-      url = await resolveTerminalWsUrl(this.connection, this.options.cwd ? { cwd: this.options.cwd } : {})
+      url = await resolveTerminalWsUrl(this.connection, params)
     } catch (err) {
       // A ticket mint failing is the session having expired, not a broken terminal.
       this.end(endForError(err instanceof Error ? err.message : String(err)))
@@ -153,17 +228,18 @@ export class RemotePtySocket implements TerminalTransport {
       return
     }
 
-    if (this.closed) {
+    if (this.closed || this.ended) {
       return
     }
 
     this.socket = new TerminalSocket(url, {
       onBinary: bytes => this.handlers.onData(bytes),
-      onClose: code => this.end(endForCloseCode(code)),
-      onError: message => this.end(endForError(message)),
+      onClose: (code, reason) => this.handleClose(code, reason),
+      onError: message => this.handleError(message),
       onOpen: () => {
         this.live = true
-        this.handlers.onReady({ host: hostLabel(this.connection) })
+        this.reconnectAttempts = 0
+        this.handlers.onReady({ host: hostLabel(this.connection), replayed: reattach })
 
         // The PTY spawns at the server's default size; push ours immediately so
         // the first prompt wraps to the real viewport.
@@ -171,8 +247,80 @@ export class RemotePtySocket implements TerminalTransport {
           this.socket?.sendText(resizeEscape(this.size.cols, this.size.rows))
         }
       },
-      onText: text => this.handlers.onData(text)
+      onText: text => {
+        // Keep the untruncated refusal for the end panel; the pane still writes
+        // it to the scrollback, which the panel then covers.
+        const banner = bannerDetail(text)
+
+        if (banner) {
+          this.lastBanner = banner
+        }
+
+        this.handlers.onData(text)
+      }
     })
+  }
+
+  private handleClose(code: number | undefined, reason?: string): void {
+    this.live = false
+
+    if (this.closed || this.ended) {
+      return
+    }
+
+    if (this.shouldReconnect(code)) {
+      this.scheduleReconnect()
+
+      return
+    }
+
+    this.end(endForCloseCode(code, this.lastBanner ?? reason))
+  }
+
+  private handleError(message: string): void {
+    this.live = false
+
+    if (this.closed || this.ended) {
+      return
+    }
+
+    // Reuse the close-error mapping: a 404/401/403 upgrade failure is terminal
+    // (unsupported/auth), but a bare transport error on a reattachable shell is a
+    // network blip worth retrying.
+    const mapped = endForError(message)
+
+    if (this.attachToken && mapped.kind === 'error') {
+      this.scheduleReconnect()
+
+      return
+    }
+
+    this.end(mapped)
+  }
+
+  /** Only a reattachable shell reconnects, and only on a transport-level drop —
+   *  1006 (no close frame) or a missing code. Every server close code (4401/4403/
+   *  4404/4408/4409/4410) and 1011 is a deliberate end, handled by endForCloseCode. */
+  private shouldReconnect(code: number | undefined): boolean {
+    return this.attachToken !== null && (code === undefined || code === CLOSE_ABNORMAL)
+  }
+
+  private scheduleReconnect(): void {
+    if (this.closed || this.ended) {
+      return
+    }
+
+    // Drop the dead socket's listeners before dialling again.
+    this.socket?.close()
+    this.socket = null
+    this.handlers.onStatus?.('reconnecting')
+
+    const delay = Math.min(RECONNECT_MAX_MS, RECONNECT_BASE_MS * 2 ** this.reconnectAttempts)
+    this.reconnectAttempts += 1
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null
+      void this.connect(true)
+    }, delay)
   }
 
   write(data: string): void {
@@ -192,6 +340,12 @@ export class RemotePtySocket implements TerminalTransport {
   close(): void {
     this.closed = true
     this.live = false
+
+    if (this.reconnectTimer !== null) {
+      clearTimeout(this.reconnectTimer)
+      this.reconnectTimer = null
+    }
+
     this.socket?.close()
     this.socket = null
   }

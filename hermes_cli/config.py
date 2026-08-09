@@ -1153,6 +1153,16 @@ DEFAULT_CONFIG = {
 
     "terminal": {
         "backend": "local",
+        # Which backend hosts the dashboard/universal shell pane (/api/shell-pty).
+        # "auto" inherits `backend`; set it explicitly to keep the agent sandboxed
+        # (backend: docker) while the interactive pane shells into the host.
+        "shell_pty_backend": "auto",
+        # Permit the unsandboxed host shell on a NETWORK-EXPOSED bind. Off by
+        # default: with it on, anyone holding a valid dashboard session gets host
+        # code execution as the gateway user. Only turn it on when the port is
+        # reachable from a trusted network (VPN/tunnel) AND the dashboard is
+        # auth-gated.
+        "allow_unsandboxed_shell": False,
         "modal_mode": "auto",
         "cwd": ".",  # Use current directory
         "timeout": 180,
@@ -7656,7 +7666,18 @@ def write_platform_config_field(
 
 TERMINAL_CONFIG_ENV_MAP = {
     "backend": "TERMINAL_ENV",
+    "shell_pty": "TERMINAL_SHELL_PTY",
+    # NOTE: shell_pty_backend / allow_unsandboxed_shell are deliberately NOT
+    # bridged here. This map's values overwrite existing env whenever the user's
+    # config.yaml has a `terminal:` section, which would clobber a deployment
+    # that sets TERMINAL_SHELL_PTY_BACKEND / TERMINAL_ALLOW_UNSANDBOXED_SHELL in
+    # its container env. Both are read in-process by hermes_cli/web_server.py
+    # (env first, config second) and no child process needs them.
     "modal_mode": "TERMINAL_MODAL_MODE",
+    # cli.py and gateway/run.py have always bridged home_mode; this map did not,
+    # so `terminal.home_mode` silently had no effect under `hermes serve` and the
+    # dashboard backend. The four-way invariant test now pins all three maps.
+    "home_mode": "TERMINAL_HOME_MODE",
     "cwd": "TERMINAL_CWD",
     "timeout": "TERMINAL_TIMEOUT",
     "lifetime_seconds": "TERMINAL_LIFETIME_SECONDS",

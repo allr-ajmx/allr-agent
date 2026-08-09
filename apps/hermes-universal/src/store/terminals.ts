@@ -19,6 +19,10 @@ export const $terminalHostPreference = persistentAtom<TerminalHostPreference>('h
   encode: value => value
 })
 
+export function setTerminalHostPreference(preference: TerminalHostPreference): void {
+  $terminalHostPreference.set(preference)
+}
+
 export interface TerminalEntry {
   id: string
   title: string
