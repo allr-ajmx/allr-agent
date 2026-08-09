@@ -52,6 +52,7 @@ import {
 } from '@/store/session-state-types'
 import { upsertSubagent } from '@/store/subagents'
 import { recordToolDiff } from '@/store/tool-diffs'
+import { routeTurnEvent, startTurnReconciler } from '@/store/turn-lifecycle'
 // Leaf import (not the `@/themes` barrel) to keep the ThemeProvider module graph
 // out of the gateway event hot path — same reason desktop does it.
 import { ingestBackendSkin } from '@/themes/backend-sync'
@@ -173,6 +174,13 @@ function applySessionTitle(payload: Record<string, unknown>): void {
 
 /** Fold one gateway event into the session that owns it. */
 export function routeGatewayEvent(event: GatewayEvent): void {
+  // Arm reconnect reconciliation on the first frame rather than at import.
+  // A socket that drops mid-turn and comes back is the window where a terminal
+  // frame goes missing, and this is the first moment we know there is a socket
+  // at all — modules that import the router without ever seeing an event (the
+  // store tests, which partially mock `@/store/gateway`) never subscribe.
+  startTurnReconciler()
+
   const payload = (event.payload ?? {}) as Record<string, unknown>
 
   if (GLOBAL_EVENT_TYPES.has(event.type)) {
@@ -221,6 +229,13 @@ export function routeGatewayEvent(event: GatewayEvent): void {
   }
 
   const isActive = key === $activeSessionKey.get()
+
+  // The in-flight TURN is folded before anything else, including the batched
+  // deltas below — a consumer reacting to a transcript write (the crash journal,
+  // the compaction gate) must see the turn state that matches the frame it is
+  // reacting to, not the one from the frame before. Cheap: the fold returns the
+  // same record unless something actually changed (store/turn-lifecycle.ts).
+  routeTurnEvent(key, event)
 
   // Streaming text is BATCHED (lib/stream-batch) — one React commit per flush
   // window instead of one per token, which matters most when several sessions

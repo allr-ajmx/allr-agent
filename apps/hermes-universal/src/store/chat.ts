@@ -57,6 +57,7 @@ import {
   updateSession
 } from '@/store/session-state-types'
 import { clearSessionSubagents } from '@/store/subagents'
+import { beginTurn, settleTurn } from '@/store/turn-lifecycle'
 import type { SessionCreateResponse, UsageStats } from '@/types/hermes'
 
 // The chat transcript model and its pure reducers now live in the LEAF module
@@ -286,6 +287,11 @@ export async function sendPrompt(text: string): Promise<void> {
     statusLine: '',
     messages: [...state.messages, { id: nextId(), role: 'user', parts: [{ type: 'text', text: trimmed }] }]
   }))
+  // Open the in-flight turn NOW, not on `message.start`: the window between the
+  // submit leaving and the gateway acknowledging it is precisely the one a
+  // reconnect lands in, and a turn with no record there is a turn nothing can
+  // reconcile (store/turn-lifecycle.ts).
+  beginTurn(startKey, { prompt: trimmed })
   setPetActivity({ busy: true }) // pet: start working the moment the user sends
 
   // A draft rekeys to its runtime id, so the slice moves; anything else keeps
@@ -307,6 +313,7 @@ export async function sendPrompt(text: string): Promise<void> {
 
     await requestGateway('prompt.submit', { session_id: sessionId, text: trimmed }, PROMPT_SUBMIT_TIMEOUT_MS)
   } catch (err) {
+    settleTurn(submitKey, 'error')
     updateSession(submitKey, state => ({
       ...state,
       busy: false,
