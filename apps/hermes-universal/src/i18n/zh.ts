@@ -777,7 +777,9 @@ export const zh: Translations = {
       failedLoad: '设置加载失败',
       autosaveFailed: '自动保存失败',
       imported: '配置已导入',
-      invalidJson: '配置 JSON 无效'
+      invalidJson: '配置 JSON 无效',
+      keepAwakeTitle: '保持电脑唤醒',
+      keepAwakeDesc: '阻止本机休眠，让长时间或通宵运行继续进行。屏幕仍可变暗。'
     },
     credentials: {
       pasteKey: '粘贴密钥',
@@ -2501,6 +2503,7 @@ export const zh: Translations = {
       toggleRunningTimer: '回合计时',
       toggleSessionTimer: '会话计时',
       toggleTerminal: '终端',
+      toggleKeepAwake: '保持唤醒',
       toggleVersion: '版本与更新',
       toggleWorkspace: '工作区',
       unknown: '未知',
@@ -2518,6 +2521,8 @@ export const zh: Translations = {
       openCommandCenter: '打开命令中心',
       showTerminal: '显示终端',
       hideTerminal: '隐藏终端',
+      keepAwakeOn: '保持唤醒中 — 点击以允许休眠',
+      keepAwakeOff: '保持电脑唤醒',
       gateway: '网关',
       gatewayReady: '就绪',
       gatewayNeedsSetup: '需要设置',

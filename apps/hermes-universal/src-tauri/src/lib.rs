@@ -11,6 +11,7 @@
 
 mod appearance;
 mod cloud;
+mod keep_awake;
 mod link_title;
 mod local_backend;
 mod marketplace;
@@ -27,6 +28,7 @@ mod voice;
 mod window;
 
 use appearance::set_window_translucency;
+use keep_awake::{set_keep_awake, KeepAwakeState};
 use link_title::fetch_link_title;
 use marketplace::{marketplace_fetch, marketplace_search};
 use media::{media_set_target, MediaState, MEDIA_SCHEME};
@@ -114,6 +116,9 @@ pub fn run() {
         .manage(MediaState::default())
         .manage(LocalBackendState::default())
         .manage(PtyState::default())
+        // The one system-sleep inhibitor. It releases on drop, so quitting frees
+        // the machine even if the webview never turned the preference back off.
+        .manage(KeepAwakeState::default())
         .manage(VoiceState::default())
         .manage(UpdateState::default())
         // Live SSH sessions. Unlike desktop's on-disk control socket, nothing
@@ -188,6 +193,7 @@ pub fn run() {
             open_external,
             reveal_in_file_manager,
             set_window_translucency,
+            set_keep_awake,
             marketplace_search,
             marketplace_fetch,
             media_set_target,

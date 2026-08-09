@@ -26,6 +26,7 @@ import { initSafeAreaInsets } from './lib/safe-area'
 import { restoreSessionCookies } from './lib/session-persist'
 import { installObservability } from './observability/install'
 import { autoRestoreConnection } from './store/gateway-restore'
+import { initKeepAwake } from './store/keep-awake'
 import { ThemeProvider } from './themes'
 
 // Span tracing. Installed FIRST so boot-time work falls inside the trace rather
@@ -42,6 +43,11 @@ installObservability()
 void restoreSessionCookies().finally(() => {
   void autoRestoreConnection()
 })
+
+// The keep-awake preference lives in the webview but the inhibitor lives in
+// Rust and dies with the process, so a relaunch has to re-arm it — otherwise the
+// toggle reads "on" while the machine is free to sleep. No-op off desktop.
+initKeepAwake()
 
 // Pull KaTeX's faces in at idle. They are `font-display: block`, so the first
 // equation of a session otherwise renders INVISIBLE until they land (see

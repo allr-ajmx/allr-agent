@@ -2,9 +2,13 @@ import { Link, useParams } from 'react-router-dom'
 
 import { PetSection } from '@/app/pet/pet-section'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Switch } from '@/components/ui/switch'
 import { useI18n } from '@/i18n'
+import { triggerHaptic } from '@/lib/haptics'
 import { ChevronLeft } from '@/lib/icons'
+import { IS_DESKTOP } from '@/lib/platform'
 import { useStore } from '@/store/atom'
+import { $keepAwake, setKeepAwake } from '@/store/keep-awake'
 import { $terminalHostPreference, setTerminalHostPreference } from '@/store/terminals'
 import type { TerminalHostPreference } from '@/transport/terminal-transport'
 
@@ -61,6 +65,33 @@ function TerminalHostRow() {
   )
 }
 
+// Keep-awake, like the terminal-host override, is a device-local machine
+// preference with nothing to send to the gateway — so it rides above the Advanced
+// page's schema fields rather than living in `SECTIONS`. Desktop-only: the
+// inhibitor has no mobile equivalent (store/keep-awake.ts).
+function KeepAwakeRow() {
+  const { t } = useI18n()
+  const copy = t.settings.config
+  const keepAwake = useStore($keepAwake)
+
+  return (
+    <ListRow
+      action={
+        <Switch
+          aria-label={copy.keepAwakeTitle}
+          checked={keepAwake}
+          onCheckedChange={on => {
+            triggerHaptic('selection')
+            setKeepAwake(on)
+          }}
+        />
+      }
+      description={copy.keepAwakeDesc}
+      title={copy.keepAwakeTitle}
+    />
+  )
+}
+
 // The per-section body. Each Track-J chunk replaces its placeholder case with a
 // real renderer (Jc8 appearance, Jc9 notifications, Jc10 keys, …). Exported so
 // the desktop-style SettingsView overlay renders the active section here too.
@@ -76,9 +107,12 @@ export function SectionBody({ section }: { section: string }) {
     case 'chat':
 
     case 'safety':
-
-    case 'advanced':
       return <ConfigSection sectionId={group} />
+
+    // Advanced: schema fields plus the device-local keep-awake toggle, which has
+    // no config key (desktop parity — `ac9a1014a6` homes it here).
+    case 'advanced':
+      return <ConfigSection headerSlot={IS_DESKTOP ? <KeepAwakeRow /> : undefined} sectionId={group} />
 
     // Workspace: schema fields plus the "Shell runs on" device-local override,
     // which isn't a schema key (nothing to send to the gateway).

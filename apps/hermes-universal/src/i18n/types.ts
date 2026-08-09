@@ -501,6 +501,8 @@ export interface Translations {
       autosaveFailed: string
       imported: string
       invalidJson: string
+      keepAwakeTitle: string
+      keepAwakeDesc: string
     }
     credentials: {
       pasteKey: string
@@ -1973,6 +1975,8 @@ export interface Translations {
       openCommandCenter: string
       showTerminal: string
       hideTerminal: string
+      keepAwakeOn: string
+      keepAwakeOff: string
       gateway: string
       gatewayReady: string
       gatewayNeedsSetup: string
@@ -1990,6 +1994,7 @@ export interface Translations {
       toggleRunningTimer: string
       toggleSessionTimer: string
       toggleTerminal: string
+      toggleKeepAwake: string
       toggleVersion: string
       toggleWorkspace: string
       agents: string

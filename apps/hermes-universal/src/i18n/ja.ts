@@ -683,7 +683,9 @@ export const ja = defineLocale({
       failedLoad: '設定の読み込みに失敗しました',
       autosaveFailed: '自動保存に失敗しました',
       imported: '設定をインポートしました',
-      invalidJson: '設定 JSON が無効です'
+      invalidJson: '設定 JSON が無効です',
+      keepAwakeTitle: 'コンピューターをスリープさせない',
+      keepAwakeDesc: '本体のスリープを防ぎ、長時間や夜通しの実行を継続します。画面は暗転できます。'
     },
     credentials: {
       pasteKey: 'キーを貼り付け',
@@ -2181,6 +2183,8 @@ export const ja = defineLocale({
       openCommandCenter: 'コマンドセンターを開く',
       showTerminal: 'ターミナルを表示',
       hideTerminal: 'ターミナルを非表示',
+      keepAwakeOn: 'スリープ抑止中 — クリックで解除',
+      keepAwakeOff: 'コンピューターをスリープさせない',
       gateway: 'ゲートウェイ',
       gatewayReady: '準備完了',
       gatewayNeedsSetup: '設定が必要',
