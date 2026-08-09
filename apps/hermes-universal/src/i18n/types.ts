@@ -896,6 +896,9 @@ export interface Translations {
         needsSetup: string
         unavailable: string
         inUse: string
+        restartRequired: string
+        restartHint: (backend: string) => string
+        restartBanner: (configured: string, active: string) => string
         selectedTitle: string
         selectedMessage: (backend: string) => string
         failedSelect: (backend: string) => string

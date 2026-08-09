@@ -1191,8 +1191,12 @@ export const zh: Translations = {
         needsSetup: '需要设置',
         unavailable: '不可用',
         inUse: '使用中',
-        selectedTitle: '后端已选择',
-        selectedMessage: backend => `终端命令现在通过 ${backend} 运行。将应用于新会话。`,
+        restartRequired: '需要重启',
+        restartHint: backend => `已保存。${backend} 将在网关重启后生效——运行中的进程在启动时已固定其后端。`,
+        restartBanner: (configured, active) =>
+          `已选择 ${configured}，但此网关仍在运行 ${active}。请重启以应用。`,
+        selectedTitle: '后端已保存',
+        selectedMessage: backend => `terminal.backend 现在是 ${backend}。`,
         failedSelect: backend => `选择 ${backend} 失败`,
         needsSetupHint: '您现在可以选择此后端——在设置完成之前命令会失败。'
       }

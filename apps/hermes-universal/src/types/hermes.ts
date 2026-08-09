@@ -736,8 +736,13 @@ export interface TerminalBackendInfo {
   name: string
   label: string
   description: string
-  /** True when this backend is the current `terminal.backend` config value. */
+  /** True when this backend is the one the gateway process is ACTUALLY using —
+   *  `TERMINAL_ENV` if the launcher pinned it, else the config value. */
   active: boolean
+  /** True when config.yaml selects this backend but the running process has not
+   *  picked it up yet: `TERMINAL_ENV` is pinned at startup, so a selection made
+   *  now only takes effect on restart. */
+  pending?: boolean
   status: TerminalBackendStatus
   /** Setup guidance / probe detail for non-ready rows (empty when ready). */
   detail: string
@@ -745,7 +750,12 @@ export interface TerminalBackendInfo {
 
 /** Shape of `GET /api/tools/terminal/backends`. */
 export interface TerminalBackendsResponse {
+  /** Effective backend — what the process is running, not what config says. */
   active: string
+  /** What `terminal.backend` says on disk. Differs from `active` after a
+   *  selection that has not been restarted into. Absent on older gateways. */
+  configured?: string
+  restart_required?: boolean
   backends: TerminalBackendInfo[]
 }
 

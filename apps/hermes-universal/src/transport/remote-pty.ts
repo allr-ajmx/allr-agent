@@ -50,6 +50,21 @@ const CLOSE_ABNORMAL = 1006
 const RECONNECT_BASE_MS = 500
 const RECONNECT_MAX_MS = 10_000
 
+/** The server writes the full explanation as a text frame immediately before closing,
+ *  then repeats it on the close frame — but RFC 6455 caps a close reason at 123 bytes,
+ *  and every backend refusal is longer than that, so the close frame arrives truncated
+ *  mid-word ("…Set terminal.backend to d"). The banner is the complete text, so prefer
+ *  it and keep the close reason as the fallback for closes that send no banner. */
+const BANNER_RE = /Terminal (?:unavailable|failed to start): ([\s\S]+)/
+// eslint-disable-next-line no-control-regex -- stripping the server's SGR colouring is the point.
+const ANSI_RE = /\x1b\[[0-9;]*m/g
+
+function bannerDetail(text: string): string | undefined {
+  const match = BANNER_RE.exec(text.replace(ANSI_RE, ''))
+
+  return match?.[1]?.trim() || undefined
+}
+
 /** `reason` is the server's close-frame text. A 4404 covers everything from "switched
  *  off in config" to "the sandbox container isn't running" — the code alone would tell
  *  the user none of that, so the sentence rides along as `detail`. */
@@ -124,6 +139,9 @@ export class RemotePtySocket implements TerminalTransport {
   private closed = false
   private ended = false
   private live = false
+  /** Last "Terminal unavailable: …" banner seen — the untruncated form of what the
+   *  close frame can only carry 123 bytes of. Cleared per dial by reassignment. */
+  private lastBanner: string | undefined
   private size: null | { cols: number; rows: number } = null
   /** The stable `?attach=` token, or null when the gateway can't reattach — which
    *  is also the flag for "may this drop reconnect at all". */
@@ -229,7 +247,17 @@ export class RemotePtySocket implements TerminalTransport {
           this.socket?.sendText(resizeEscape(this.size.cols, this.size.rows))
         }
       },
-      onText: text => this.handlers.onData(text)
+      onText: text => {
+        // Keep the untruncated refusal for the end panel; the pane still writes
+        // it to the scrollback, which the panel then covers.
+        const banner = bannerDetail(text)
+
+        if (banner) {
+          this.lastBanner = banner
+        }
+
+        this.handlers.onData(text)
+      }
     })
   }
 
@@ -246,7 +274,7 @@ export class RemotePtySocket implements TerminalTransport {
       return
     }
 
-    this.end(endForCloseCode(code, reason))
+    this.end(endForCloseCode(code, this.lastBanner ?? reason))
   }
 
   private handleError(message: string): void {

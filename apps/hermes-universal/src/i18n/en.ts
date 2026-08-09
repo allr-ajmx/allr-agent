@@ -1017,8 +1017,13 @@ export const en: Translations = {
         needsSetup: 'Needs setup',
         unavailable: 'Unavailable',
         inUse: 'In use',
-        selectedTitle: 'Backend selected',
-        selectedMessage: backend => `Terminal commands now run via ${backend}. Applies to new sessions.`,
+        restartRequired: 'Restart required',
+        restartHint: backend =>
+          `Saved. ${backend} takes effect when the gateway restarts — the running process pinned its backend at startup.`,
+        restartBanner: (configured, active) =>
+          `Selected ${configured}, but this gateway is still running ${active}. Restart it to apply.`,
+        selectedTitle: 'Backend saved',
+        selectedMessage: backend => `terminal.backend is now ${backend}.`,
         failedSelect: backend => `Failed to select ${backend}`,
         needsSetupHint: 'You can select this backend now — commands will fail until setup is complete.'
       }
