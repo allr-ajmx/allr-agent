@@ -2825,7 +2825,10 @@ export const zh: Translations = {
       placeholder: '输入你的答案…',
       skip: '跳过',
       continueLabel: '继续',
-      skipped: '已跳过'
+      skipped: '已跳过',
+      lateAnswer: (question, choice) => `关于“${question}” — 我的回答：${choice}`,
+      lateAnswerTip: '将该回答草拟为后续消息',
+      lateAnswerHint: '该提问已不再等待回复。选择一项即可草拟为后续消息。'
     },
     tool: {
       code: '代码',

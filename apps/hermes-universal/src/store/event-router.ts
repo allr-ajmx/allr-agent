@@ -32,6 +32,7 @@ import { triggerHaptic } from '@/lib/haptics'
 import { invalidateSlashCompletions } from '@/lib/slash-completion-cache'
 import { type DeltaChannel, flushDeltas, queueDelta, setStreamBatchSink } from '@/lib/stream-batch'
 import { stopSpeaking } from '@/lib/tts'
+import { readChoices } from '@/store/clarify'
 import { routeCompactionEvent } from '@/store/compaction'
 import { addGatewayEventListener, requestGateway } from '@/store/gateway'
 import { dispatchNativeNotification } from '@/store/native-notifications'
@@ -289,7 +290,10 @@ export function routeGatewayEvent(event: GatewayEvent): void {
       const question = coerceText(payload.question) || coerceText(payload.prompt) || coerceText(payload.message)
 
       if (requestId && question) {
-        setSessionClarify(key, { requestId, question, choices: coerceStringList(payload.choices) })
+        // Normalized here, not in the panel: this is the PRIMARY source for the
+        // choice list (`tool.start` ships no args), so a blank / multi-line /
+        // 4KB entry from a sloppy tool call would reach the renderer unguarded.
+        setSessionClarify(key, { requestId, question, choices: readChoices('gateway', question, payload.choices) })
         dispatchNativeNotification({
           kind: 'input',
           title: translateNow('notifications.native.inputTitle'),

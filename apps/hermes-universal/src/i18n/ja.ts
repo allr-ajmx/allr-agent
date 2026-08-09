@@ -2432,7 +2432,10 @@ export const ja = defineLocale({
       placeholder: '回答を入力…',
       skip: 'スキップ',
       continueLabel: '続行',
-      skipped: 'スキップ'
+      skipped: 'スキップ',
+      lateAnswer: (question, choice) => `「${question}」について — 私の回答: ${choice}`,
+      lateAnswerTip: 'この回答をフォローアップメッセージとして下書きする',
+      lateAnswerHint: 'この質問はもう回答を待っていません。選択するとフォローアップメッセージとして下書きされます。'
     },
     tool: {
       code: 'コード',

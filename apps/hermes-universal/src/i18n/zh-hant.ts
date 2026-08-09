@@ -2361,7 +2361,10 @@ export const zhHant = defineLocale({
       placeholder: '輸入您的答案…',
       skip: '略過',
       continueLabel: '繼續',
-      skipped: '已略過'
+      skipped: '已略過',
+      lateAnswer: (question, choice) => `關於「${question}」 — 我的回答：${choice}`,
+      lateAnswerTip: '將此回答草擬為後續訊息',
+      lateAnswerHint: '此提問已不再等待回覆。選擇一項即可草擬為後續訊息。'
     },
     tool: {
       code: '程式碼',

@@ -2290,6 +2290,9 @@ export interface Translations {
       skip: string
       continueLabel: string
       skipped: string
+      lateAnswer: (question: string, choice: string) => string
+      lateAnswerTip: string
+      lateAnswerHint: string
     }
     tool: {
       code: string
