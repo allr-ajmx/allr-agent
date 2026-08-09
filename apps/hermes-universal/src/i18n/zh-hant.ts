@@ -1749,6 +1749,7 @@ export const zhHant = defineLocale({
       'composer.slash': '斜線指令面板',
       'composer.help': '此快速說明（刪除以關閉）',
       'composer.sendNewline': '傳送 · Shift+Enter 換行',
+      'composer.queue': '排入下一回合',
       'composer.sendQueued': '傳送下一個排隊的回合',
       'keybinds.openPanel': '所有鍵盤快捷鍵',
       'composer.cancel': '關閉彈出視窗 · 取消執行',
@@ -2361,7 +2362,10 @@ export const zhHant = defineLocale({
       placeholder: '輸入您的答案…',
       skip: '略過',
       continueLabel: '繼續',
-      skipped: '已略過'
+      skipped: '已略過',
+      lateAnswer: (question, choice) => `關於「${question}」 — 我的回答：${choice}`,
+      lateAnswerTip: '將此回答草擬為後續訊息',
+      lateAnswerHint: '此提問已不再等待回覆。選擇一項即可草擬為後續訊息。'
     },
     tool: {
       code: '程式碼',
@@ -2515,6 +2519,12 @@ export const zhHant = defineLocale({
     noClipboardImage: '剪貼簿中沒有圖片',
     clipboardPasteFailed: '剪貼簿貼上失敗',
     dropFiles: '拖曳檔案',
+    compress: {
+      working: '正在壓縮脈絡…',
+      workingOn: topic => `正在圍繞以下主題壓縮脈絡：${topic}`,
+      removed: count => `已壓縮 ${count} 則訊息`,
+      nothingToCompress: '沒有可壓縮的內容'
+    },
     handoff: {
       pickPlatform: '選擇目標平台',
       success: platform => `已移交到 ${platform}。隨時可在此處恢復。`,

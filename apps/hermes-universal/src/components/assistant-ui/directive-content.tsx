@@ -2,9 +2,12 @@ import type { TextMessagePartComponent, TextMessagePartProps } from '@assistant-
 import type { FC } from 'react'
 import { Fragment, useEffect, useMemo, useState } from 'react'
 
+import { openSessionIntentFromModifiers, openSessionRef } from '@/app/open-session'
 import { ZoomableImage } from '@/components/chat/zoomable-image'
+import { Tip } from '@/components/ui/tooltip'
 import { extractEmbeddedImages } from '@/lib/embedded-images'
 import { gatewayMediaDataUrl } from '@/lib/media'
+import { parseSessionRefValue, useSessionLinkTitle } from '@/lib/session-link-title'
 
 import { DIRECTIVE_CHIP_CLASS, hermesDirectiveFormatter, iconPathsFor } from './directive-text'
 
@@ -62,6 +65,8 @@ export function DirectiveContent({ text }: { text: string }) {
           <Fragment key={`t-${index}`}>{segment.text}</Fragment>
         ) : segment.type === 'image' ? (
           <DirectiveImage id={segment.id} key={`img-${index}-${segment.id}`} label={segment.label} />
+        ) : segment.type === 'session' ? (
+          <SessionChip id={segment.id} key={`s-${index}-${segment.id}`} label={segment.label} />
         ) : (
           <DirectiveChip id={segment.id} key={`m-${index}-${segment.id}`} label={segment.label} type={segment.type} />
         )
@@ -155,3 +160,33 @@ const DirectiveChip: FC<{
     <span className="truncate">{label}</span>
   </span>
 )
+
+/**
+ * A `@session:` ref the agent wrote — the one directive kind that names
+ * something you can GO to.
+ *
+ * The chip resolves its own title (`lib/session-link-title`, which dedupes N
+ * chips for one session down to one lookup) and opens the conversation on
+ * click, fronting it if it is already on screen. Cmd/Ctrl-click opens it beside
+ * what is there instead of taking over the main chat.
+ */
+const SessionChip: FC<{ id: string; label: string }> = ({ id, label }) => {
+  const title = useSessionLinkTitle(id, label)
+  const { sessionId } = parseSessionRefValue(id)
+
+  return (
+    <Tip label={id}>
+      <button
+        className={`${DIRECTIVE_CHIP_CLASS} cursor-pointer hover:bg-(--chrome-action-hover)`}
+        data-directive-id={id}
+        data-directive-type="session"
+        data-slot="aui_directive-chip"
+        onClick={event => openSessionRef(sessionId, openSessionIntentFromModifiers(event))}
+        type="button"
+      >
+        <DirectiveIcon type="session" />
+        <span className="truncate">{title}</span>
+      </button>
+    </Tip>
+  )
+}

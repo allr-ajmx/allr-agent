@@ -57,7 +57,8 @@ import {
   updateSession
 } from '@/store/session-state-types'
 import { clearSessionSubagents } from '@/store/subagents'
-import type { SessionCreateResponse, UsageStats } from '@/types/hermes'
+import { beginTurn, recordTurnCorrection, settleTurn } from '@/store/turn-lifecycle'
+import type { SessionCreateResponse, SessionRedirectResponse, UsageStats } from '@/types/hermes'
 
 // The chat transcript model and its pure reducers now live in the LEAF module
 // @/lib/chat-messages, so the unified session reducer can apply the exact same
@@ -286,6 +287,11 @@ export async function sendPrompt(text: string): Promise<void> {
     statusLine: '',
     messages: [...state.messages, { id: nextId(), role: 'user', parts: [{ type: 'text', text: trimmed }] }]
   }))
+  // Open the in-flight turn NOW, not on `message.start`: the window between the
+  // submit leaving and the gateway acknowledging it is precisely the one a
+  // reconnect lands in, and a turn with no record there is a turn nothing can
+  // reconcile (store/turn-lifecycle.ts).
+  beginTurn(startKey, { prompt: trimmed })
   setPetActivity({ busy: true }) // pet: start working the moment the user sends
 
   // A draft rekeys to its runtime id, so the slice moves; anything else keeps
@@ -307,6 +313,7 @@ export async function sendPrompt(text: string): Promise<void> {
 
     await requestGateway('prompt.submit', { session_id: sessionId, text: trimmed }, PROMPT_SUBMIT_TIMEOUT_MS)
   } catch (err) {
+    settleTurn(submitKey, 'error')
     updateSession(submitKey, state => ({
       ...state,
       busy: false,
@@ -319,6 +326,108 @@ export async function sendPrompt(text: string): Promise<void> {
     }
 
     notifyError(err, 'Message failed to send')
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Active-turn correction ("stop and correct").
+//
+// Steering is not a queue nudge. `session.redirect` cancels the model request
+// in place and rebuilds the live turn with the correction folded in, keeping
+// the reasoning and completed tool work already on screen; during a tool the
+// gateway defers it to the next safe result boundary. The queue is the
+// FALLBACK for what redirect cannot take: an attachment, a compacting turn, or
+// a runtime that does not support it.
+// ---------------------------------------------------------------------------
+
+/**
+ * Insert a user message immediately BEFORE the live reply, rather than at the
+ * tail.
+ *
+ * A redirect aborts the model request, so its `message.complete` can race the
+ * RPC response. Appending after the response settles would leave the correction
+ * sitting underneath a reply the redirect has already replaced.
+ */
+function insertCorrectionMessage(key: string, text: string): string {
+  const id = nextId()
+
+  updateSession(key, state => {
+    const messages = state.messages
+    const pendingIndex = messages.findIndex(message => message.role === 'assistant' && message.pending)
+    const lastAssistantIndex = messages.map(message => message.role).lastIndexOf('assistant')
+    const at = pendingIndex >= 0 ? pendingIndex : lastAssistantIndex
+
+    const correction: ChatMessage = { id, role: 'user', parts: [{ type: 'text', text }] }
+
+    return {
+      ...state,
+      messages: at < 0 ? [...messages, correction] : [...messages.slice(0, at), correction, ...messages.slice(at)]
+    }
+  })
+
+  return id
+}
+
+const dropMessage = (key: string, id: string): void => {
+  updateSession(key, state => ({ ...state, messages: state.messages.filter(message => message.id !== id) }))
+}
+
+const moveMessageToEnd = (key: string, id: string): void => {
+  updateSession(key, state => {
+    const message = state.messages.find(candidate => candidate.id === id)
+
+    return message
+      ? { ...state, messages: [...state.messages.filter(candidate => candidate.id !== id), message] }
+      : state
+  })
+}
+
+/**
+ * Correct the live turn. Resolves true when the gateway took the words —
+ * whether as an in-place redirect or as the next turn's prompt — and false when
+ * the caller must queue them itself so nothing is lost.
+ */
+export async function redirectPrompt(rawText: string, key = $activeSessionKey.get()): Promise<boolean> {
+  const text = rawText.trim()
+  const sessionId = $sessionStates.get()[key]?.runtimeSessionId
+
+  if (!text || !sessionId) {
+    return false
+  }
+
+  const messageId = insertCorrectionMessage(key, text)
+
+  try {
+    const result = await requestGateway<SessionRedirectResponse>('session.redirect', {
+      session_id: sessionId,
+      text
+    })
+
+    if (result?.status === 'redirected') {
+      // Folded into the live turn — the correction belongs where it was placed,
+      // above the reply it is redirecting.
+      recordTurnCorrection(key, text)
+
+      return true
+    }
+
+    if (result?.status === 'queued') {
+      // The turn-build window: the gateway had no agent to redirect yet, so
+      // this is the NEXT turn's prompt. It has to sit at the tail, not
+      // mid-transcript above a reply it had no part in.
+      moveMessageToEnd(key, messageId)
+      recordTurnCorrection(key, text)
+
+      return true
+    }
+
+    dropMessage(key, messageId)
+
+    return false
+  } catch {
+    dropMessage(key, messageId)
+
+    return false
   }
 }
 

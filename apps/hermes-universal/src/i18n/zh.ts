@@ -305,6 +305,7 @@ export const zh: Translations = {
       'composer.send': '发送消息',
       'composer.newline': '插入换行',
       'composer.steer': '引导正在运行的回合',
+      'composer.queue': '排入下一回合',
       'composer.sendQueued': '发送下一条排队消息',
       'composer.mention': '引用文件、文件夹、网址',
       'composer.slash': '斜杠命令面板',
@@ -1195,8 +1196,7 @@ export const zh: Translations = {
         inUse: '使用中',
         restartRequired: '需要重启',
         restartHint: backend => `已保存。${backend} 将在网关重启后生效——运行中的进程在启动时已固定其后端。`,
-        restartBanner: (configured, active) =>
-          `已选择 ${configured}，但此网关仍在运行 ${active}。请重启以应用。`,
+        restartBanner: (configured, active) => `已选择 ${configured}，但此网关仍在运行 ${active}。请重启以应用。`,
         selectedTitle: '后端已保存',
         selectedMessage: backend => `terminal.backend 现在是 ${backend}。`,
         failedSelect: backend => `选择 ${backend} 失败`,
@@ -2826,7 +2826,10 @@ export const zh: Translations = {
       placeholder: '输入你的答案…',
       skip: '跳过',
       continueLabel: '继续',
-      skipped: '已跳过'
+      skipped: '已跳过',
+      lateAnswer: (question, choice) => `关于“${question}” — 我的回答：${choice}`,
+      lateAnswerTip: '将该回答草拟为后续消息',
+      lateAnswerHint: '该提问已不再等待回复。选择一项即可草拟为后续消息。'
     },
     tool: {
       code: '代码',
@@ -2976,6 +2979,12 @@ export const zh: Translations = {
     noClipboardImage: '剪贴板中没有图片',
     clipboardPasteFailed: '粘贴剪贴板失败',
     dropFiles: '拖放文件',
+    compress: {
+      working: '正在压缩上下文…',
+      workingOn: topic => `正在围绕以下主题压缩上下文：${topic}`,
+      removed: count => `已压缩 ${count} 条消息`,
+      nothingToCompress: '没有可压缩的内容'
+    },
     handoff: {
       pickPlatform: '选择目标平台',
       success: platform => `已移交到 ${platform}。随时可在此处恢复。`,

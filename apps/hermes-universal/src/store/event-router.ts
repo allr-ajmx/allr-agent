@@ -20,6 +20,11 @@
  *     hangs that agent until it times out.
  */
 
+// Side-effect import: wires live-tail reconciliation and the crash journal to
+// the session store. It has no call site of its own, and the router is the
+// module guaranteed to be loaded whenever a turn can run.
+import '@/store/turn-hydration'
+
 import { burstVibeHearts } from '@/components/chat/vibe-hearts'
 import type { GatewayEvent } from '@/gateway'
 import { translateNow } from '@/i18n'
@@ -32,6 +37,8 @@ import { triggerHaptic } from '@/lib/haptics'
 import { invalidateSlashCompletions } from '@/lib/slash-completion-cache'
 import { type DeltaChannel, flushDeltas, queueDelta, setStreamBatchSink } from '@/lib/stream-batch'
 import { stopSpeaking } from '@/lib/tts'
+import { readChoices } from '@/store/clarify'
+import { routeCompactionEvent } from '@/store/compaction'
 import { addGatewayEventListener, requestGateway } from '@/store/gateway'
 import { dispatchNativeNotification } from '@/store/native-notifications'
 import { flashPetActivity, setPetActivity } from '@/store/pet'
@@ -52,6 +59,7 @@ import {
 } from '@/store/session-state-types'
 import { upsertSubagent } from '@/store/subagents'
 import { recordToolDiff } from '@/store/tool-diffs'
+import { routeTurnEvent, startTurnReconciler } from '@/store/turn-lifecycle'
 // Leaf import (not the `@/themes` barrel) to keep the ThemeProvider module graph
 // out of the gateway event hot path — same reason desktop does it.
 import { ingestBackendSkin } from '@/themes/backend-sync'
@@ -173,6 +181,13 @@ function applySessionTitle(payload: Record<string, unknown>): void {
 
 /** Fold one gateway event into the session that owns it. */
 export function routeGatewayEvent(event: GatewayEvent): void {
+  // Arm reconnect reconciliation on the first frame rather than at import.
+  // A socket that drops mid-turn and comes back is the window where a terminal
+  // frame goes missing, and this is the first moment we know there is a socket
+  // at all — modules that import the router without ever seeing an event (the
+  // store tests, which partially mock `@/store/gateway`) never subscribe.
+  startTurnReconciler()
+
   const payload = (event.payload ?? {}) as Record<string, unknown>
 
   if (GLOBAL_EVENT_TYPES.has(event.type)) {
@@ -222,6 +237,18 @@ export function routeGatewayEvent(event: GatewayEvent): void {
 
   const isActive = key === $activeSessionKey.get()
 
+  // The in-flight TURN is folded before anything else, including the batched
+  // deltas below — a consumer reacting to a transcript write (the crash journal,
+  // the compaction gate) must see the turn state that matches the frame it is
+  // reacting to, not the one from the frame before. Cheap: the fold returns the
+  // same record unless something actually changed (store/turn-lifecycle.ts).
+  routeTurnEvent(key, event)
+  // Compaction is silent on the wire — no `message.start`, no visible output —
+  // so its start/end is inferred from `status.update` kinds plus the first real
+  // output that follows (store/compaction.ts). Folded here, before the delta
+  // short-circuit, because that first output is usually a delta.
+  routeCompactionEvent(key, event.type, payload)
+
   // Streaming text is BATCHED (lib/stream-batch) — one React commit per flush
   // window instead of one per token, which matters most when several sessions
   // stream at once. Everything else applies immediately, so any non-delta event
@@ -268,7 +295,10 @@ export function routeGatewayEvent(event: GatewayEvent): void {
       const question = coerceText(payload.question) || coerceText(payload.prompt) || coerceText(payload.message)
 
       if (requestId && question) {
-        setSessionClarify(key, { requestId, question, choices: coerceStringList(payload.choices) })
+        // Normalized here, not in the panel: this is the PRIMARY source for the
+        // choice list (`tool.start` ships no args), so a blank / multi-line /
+        // 4KB entry from a sloppy tool call would reach the renderer unguarded.
+        setSessionClarify(key, { requestId, question, choices: readChoices('gateway', question, payload.choices) })
         dispatchNativeNotification({
           kind: 'input',
           title: translateNow('notifications.native.inputTitle'),

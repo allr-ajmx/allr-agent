@@ -57,7 +57,7 @@ export function ComposerControls({
 }: {
   autoSpeak: boolean
   busy: boolean
-  busyAction: 'queue' | 'stop'
+  busyAction: 'queue' | 'steer' | 'stop'
   canSteer: boolean
   canSubmit: boolean
   compactModelPill?: boolean
@@ -74,8 +74,13 @@ export function ComposerControls({
   const c = t.composer
   // Read from the keybind registry rather than hardcoding the chord — steer is a
   // readonly binding today, but the registry stays the single source of truth.
-  const steerCombo = bindingsFor('composer.steer')[0] ?? 'mod+enter'
+  const steerCombo = bindingsFor('composer.steer')[0] ?? 'enter'
   const steerLabel = `${c.steer} (${formatCombo(steerCombo)})`
+
+  // The primary button has to say what the primary key does: while a turn runs,
+  // Enter steers it. Only an attachment, a compacting turn or a slash command
+  // demotes it to a queue.
+  const busyActionLabel = busyAction === 'steer' ? c.steer : busyAction === 'queue' ? c.queueMessage : c.stop
 
   const steerTip = (
     <span className="inline-flex items-center gap-1.5">
@@ -133,8 +138,10 @@ export function ComposerControls({
         <Tip
           label={
             busy ? (
-              busyAction === 'queue' ? (
-                <TipKeybindLabel actionId="composer.sendQueued" text={c.queueMessage} />
+              busyAction === 'steer' ? (
+                <TipKeybindLabel actionId="composer.steer" text={c.steer} />
+              ) : busyAction === 'queue' ? (
+                <TipKeybindLabel actionId="composer.queue" text={c.queueMessage} />
               ) : (
                 c.stop
               )
@@ -144,13 +151,15 @@ export function ComposerControls({
           }
         >
           <Button
-            aria-label={busy ? (busyAction === 'queue' ? c.queueMessage : c.stop) : c.send}
+            aria-label={busy ? busyActionLabel : c.send}
             className={PRIMARY_ICON_BTN}
             disabled={disabled || !canSubmit}
             type="submit"
           >
             {busy ? (
-              busyAction === 'queue' ? (
+              busyAction === 'steer' ? (
+                <SteeringWheel className={iconSize.sm} />
+              ) : busyAction === 'queue' ? (
                 <Layers3 className={iconSize.sm} />
               ) : (
                 <span className="block size-2.5 rounded-[0.1875rem] bg-current" />

@@ -46,6 +46,7 @@ export interface DesktopThemeCommandOption {
 export type DesktopActionId =
   | 'branch'
   | 'browser'
+  | 'compress'
   | 'handoff'
   | 'hatch'
   | 'help'
@@ -163,7 +164,17 @@ const DESKTOP_COMMAND_SPECS: readonly DesktopCommandSpec[] = [
     surface: exec()
   },
   { name: '/background', description: 'Run a prompt in the background', aliases: ['/bg', '/btw'], surface: exec() },
-  { name: '/compress', description: 'Compress this conversation context', surface: exec() },
+  // /compress must be an ACTION (the session.compress RPC), never exec: the
+  // slash-worker route times out on a large session (45s pipe / 30s WS) long
+  // before the summarize call finishes, and command.dispatch then reports the
+  // misleading "not a quick/plugin/skill command: compress".
+  {
+    name: '/compress',
+    description: 'Compress this conversation context',
+    aliases: ['/compact'],
+    surface: action('compress'),
+    args: true
+  },
   { name: '/debug', description: 'Create a debug report', surface: exec() },
   { name: '/goal', description: 'Manage the standing goal for this session', surface: exec() },
   { name: '/personality', description: 'Switch personality for this session', surface: exec(), args: true },
@@ -202,7 +213,6 @@ const NO_DESKTOP_SURFACE: Record<DesktopUnavailableReason, readonly string[]> = 
   terminal: [
     '/busy',
     '/clear',
-    '/compact',
     '/config',
     '/copy',
     '/cron',

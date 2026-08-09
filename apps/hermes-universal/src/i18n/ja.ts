@@ -1800,6 +1800,7 @@ export const ja = defineLocale({
       'composer.slash': 'スラッシュコマンドパレット',
       'composer.help': 'クイックヘルプ（削除で閉じる）',
       'composer.sendNewline': '送信 · 改行は Shift+Enter',
+      'composer.queue': '次のターンにキューする',
       'composer.sendQueued': '次のキュー済みターンを送信',
       'keybinds.openPanel': 'すべてのキーボードショートカット',
       'composer.cancel': 'ポップオーバーを閉じる · 実行をキャンセル',
@@ -2432,7 +2433,10 @@ export const ja = defineLocale({
       placeholder: '回答を入力…',
       skip: 'スキップ',
       continueLabel: '続行',
-      skipped: 'スキップ'
+      skipped: 'スキップ',
+      lateAnswer: (question, choice) => `「${question}」について — 私の回答: ${choice}`,
+      lateAnswerTip: 'この回答をフォローアップメッセージとして下書きする',
+      lateAnswerHint: 'この質問はもう回答を待っていません。選択するとフォローアップメッセージとして下書きされます。'
     },
     tool: {
       code: 'コード',
@@ -2614,6 +2618,12 @@ export const ja = defineLocale({
     noClipboardImage: 'クリップボードに画像が見つかりません',
     clipboardPasteFailed: 'クリップボードからの貼り付けに失敗しました',
     dropFiles: 'ファイルをドロップ',
+    compress: {
+      working: 'コンテキストを圧縮しています…',
+      workingOn: topic => `次のトピックについてコンテキストを圧縮しています: ${topic}`,
+      removed: count => `${count} 件のメッセージを圧縮しました`,
+      nothingToCompress: '圧縮するものはありません'
+    },
     handoff: {
       pickPlatform: '送信先を選択',
       success: platform => `${platform} に引き継ぎました。いつでもここで再開できます。`,

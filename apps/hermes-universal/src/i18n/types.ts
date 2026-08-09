@@ -2290,6 +2290,9 @@ export interface Translations {
       skip: string
       continueLabel: string
       skipped: string
+      lateAnswer: (question: string, choice: string) => string
+      lateAnswerTip: string
+      lateAnswerHint: string
     }
     tool: {
       code: string
@@ -2416,6 +2419,12 @@ export interface Translations {
     noClipboardImage: string
     clipboardPasteFailed: string
     dropFiles: string
+    compress: {
+      working: string
+      workingOn: (topic: string) => string
+      removed: (count: number) => string
+      nothingToCompress: string
+    }
     handoff: {
       pickPlatform: string
       success: (platform: string) => string

@@ -103,6 +103,31 @@ describe('appendLiveSessionProjection', () => {
     ])
   })
 
+  // A correction accepted mid-turn lives on the snapshot ALONGSIDE the prompt
+  // that started the turn, never over it. Dropping it here repainted the thread
+  // on reconnect with the user's correction missing — "my message vanished".
+  it('rebuilds mid-turn corrections between the prompt and the reply', () => {
+    const out = appendLiveSessionProjection([], {
+      inflight: { corrections: ['actually do this', '  '], streaming: true, user: 'do the thing' },
+      session_id: 's1'
+    })
+
+    expect(out.map(m => m.role)).toEqual(['user', 'user', 'assistant'])
+    expect(out[0]).toMatchObject({ parts: [{ type: 'text', text: 'do the thing' }] })
+    expect(out[1]).toMatchObject({ parts: [{ type: 'text', text: 'actually do this' }] })
+  })
+
+  // A correction can be the ONLY thing the snapshot carries (the prompt itself
+  // already committed to history before the turn was redirected).
+  it('projects a correction even with nothing else in flight', () => {
+    const out = appendLiveSessionProjection([], {
+      inflight: { corrections: ['actually do this'] },
+      session_id: 's1'
+    })
+
+    expect(out.map(m => m.role)).toEqual(['user', 'assistant'])
+  })
+
   it('projects an accepted queued prompt after the running turn', () => {
     const out = appendLiveSessionProjection([], {
       inflight: { streaming: true, user: 'first' },

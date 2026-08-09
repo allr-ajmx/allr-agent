@@ -315,6 +315,7 @@ export const en: Translations = {
       'composer.send': 'Send message',
       'composer.newline': 'Insert newline',
       'composer.steer': 'Steer the running turn',
+      'composer.queue': 'Queue for the next turn',
       'composer.sendQueued': 'Send next queued turn',
       'composer.mention': 'Reference files, folders, URLs',
       'composer.slash': 'Slash command palette',
@@ -590,8 +591,7 @@ export const en: Translations = {
       imported: 'Config imported',
       invalidJson: 'Invalid config JSON',
       keepAwakeTitle: 'Keep computer awake',
-      keepAwakeDesc:
-        'Stop this machine from sleeping so long or overnight runs keep going. The display can still dim.'
+      keepAwakeDesc: 'Stop this machine from sleeping so long or overnight runs keep going. The display can still dim.'
     },
     credentials: {
       pasteKey: 'Paste key',
@@ -2680,7 +2680,10 @@ export const en: Translations = {
       placeholder: 'Type your answer…',
       skip: 'Skip',
       continueLabel: 'Continue',
-      skipped: 'Skipped'
+      skipped: 'Skipped',
+      lateAnswer: (question, choice) => `Re: "${question}" — my answer: ${choice}`,
+      lateAnswerTip: 'Draft this answer as a follow-up message',
+      lateAnswerHint: 'This prompt is no longer waiting. Pick an option to draft it as a follow-up message.'
     },
     tool: {
       code: 'Code',
@@ -2844,6 +2847,12 @@ export const en: Translations = {
     noClipboardImage: 'No image found in clipboard',
     clipboardPasteFailed: 'Clipboard paste failed',
     dropFiles: 'Drop files',
+    compress: {
+      working: 'Compressing context…',
+      workingOn: topic => `Compressing context for: ${topic}`,
+      removed: count => `Compressed ${count} message${count === 1 ? '' : 's'}`,
+      nothingToCompress: 'Nothing to compress'
+    },
     handoff: {
       pickPlatform: 'Choose a destination',
       success: platform => `Handed off to ${platform}. Resume here anytime.`,

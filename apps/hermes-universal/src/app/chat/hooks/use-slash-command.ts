@@ -1,7 +1,12 @@
 import { useCallback } from 'react'
 
 import { PET_SETTINGS_ROUTE, STARMAP_ROUTE } from '@/app/routes'
-import type { BrowserManageResponse, SessionTitleResponse, SlashExecResponse } from '@/app/types'
+import type {
+  BrowserManageResponse,
+  SessionCompressResponse,
+  SessionTitleResponse,
+  SlashExecResponse
+} from '@/app/types'
 import { getProfiles } from '@/hermes'
 import { useI18n } from '@/i18n'
 import { parseCommandDispatch, parseSlashCommand, sessionTitle } from '@/lib/chat-runtime'
@@ -14,16 +19,18 @@ import {
   resolveDesktopCommand
 } from '@/lib/desktop-slash-commands'
 import { navigateTo } from '@/lib/route-nav'
+import { toChatMessages } from '@/lib/session-history'
 import { isSessionIdCandidate, renderCommandsCatalog, slashStatusText } from '@/lib/slash-utils'
 import { setSessionYolo } from '@/lib/yolo-session'
 import { $busy, $sessionId, appendSystemMessage, ensureSession, sendPrompt } from '@/store/chat'
+import { setSessionCompacting } from '@/store/compaction'
 import { setComposerDraft } from '@/store/composer'
 import { $connection } from '@/store/connection'
 import { requestGateway } from '@/store/gateway'
 import { handoffSession } from '@/store/handoff'
 import { setModelPickerOpen } from '@/store/model'
 import { startNewSession } from '@/store/new-session'
-import { notify, notifyError } from '@/store/notifications'
+import { dismissNotification, notify, notifyError } from '@/store/notifications'
 import { setPetScale } from '@/store/pet-gallery'
 import { openPetGenerate } from '@/store/pet-generate'
 import { $activeGatewayProfile, normalizeProfileKey, selectProfile } from '@/store/profile'
@@ -36,8 +43,26 @@ import {
   setSessionPickerOpen,
   setSessions
 } from '@/store/session'
+import { $activeSessionKey, updateSession } from '@/store/session-state-types'
 import { openAppRoute } from '@/store/windows'
 import { useSkinCommand } from '@/themes'
+import type { UsageStats } from '@/types/hermes'
+
+/**
+ * `session.compress` is an LLM call over the whole conversation — minutes on a
+ * large session. The default WS timeout would abandon it long before the
+ * gateway answers, which is the whole reason it is not an exec command.
+ */
+const SESSION_COMPRESS_TIMEOUT_MS = 120_000
+
+/** In-flight compress claims, by runtime session id. Module-level so a remount
+ *  mid-compression can't fire a second summarize call for the same session. */
+const compressInFlight = new Set<string>()
+
+const EMPTY_USAGE: UsageStats = { calls: 0, input: 0, output: 0, total: 0 }
+
+const isMissingRpcMethod = (err: unknown): boolean =>
+  /method not found|unknown method|no such method/i.test(err instanceof Error ? err.message : String(err))
 
 /** Everything a slash handler needs about the invocation it's serving. */
 interface SlashActionCtx {
@@ -221,6 +246,122 @@ export function useSlashCommand() {
         },
         branch: async () => {
           await branchCurrentSession()
+        },
+        // /compress (alias /compact) runs the gateway's dedicated
+        // `session.compress` RPC — the TUI's own path. It must NOT go through
+        // runExec: summarizing a large session outlives the slash worker's pipe
+        // timeout (45s) and the WS default, and the resulting slash.exec error
+        // cascades into command.dispatch's misleading "not a quick/plugin/skill
+        // command: compress".
+        //
+        // The RPC hands back the POST-compress history (the same shape
+        // session.resume returns), so the transcript is replaced from it —
+        // otherwise the bubbles that were just summarized away stay on screen
+        // forever. Scoped to the submitting session KEY, so a late result after
+        // a chat switch refreshes its own slice instead of the foreground one.
+        compress: async ctx => {
+          const resolved = await withSlashOutput(ctx)
+
+          if (!resolved) {
+            return
+          }
+
+          const { render: renderSlashOutput, sessionId } = resolved
+          const key = $activeSessionKey.get()
+          const focusTopic = ctx.arg.trim()
+          const noticeId = `session-compress:${sessionId}`
+
+          // Coalesce concurrent requests for one session, so a double-Enter
+          // can't fire two summarize calls against the same conversation.
+          if (compressInFlight.has(sessionId)) {
+            return
+          }
+
+          compressInFlight.add(sessionId)
+          // The composer gates on this too: a correction typed while the
+          // context is being summarized has no live model request to redirect,
+          // so it queues instead of being dropped.
+          setSessionCompacting(key, true)
+          notify({
+            durationMs: 0,
+            id: noticeId,
+            kind: 'info',
+            message: focusTopic ? copy.compress.workingOn(focusTopic) : copy.compress.working
+          })
+
+          try {
+            const result = await requestGateway<SessionCompressResponse>(
+              'session.compress',
+              { session_id: sessionId, ...(focusTopic && { focus_topic: focusTopic }) },
+              SESSION_COMPRESS_TIMEOUT_MS
+            )
+
+            if (Array.isArray(result?.messages)) {
+              const messages = toChatMessages(result.messages)
+              updateSession(key, state => ({ ...state, messages }))
+            }
+
+            const usage = { ...result?.usage, ...result?.info?.usage }
+
+            if (Object.keys(usage).length > 0) {
+              updateSession(key, state => ({ ...state, usage: { ...EMPTY_USAGE, ...state.usage, ...usage } }))
+            }
+
+            if (result?.info?.title !== undefined) {
+              const title = result.info.title || null
+              setSessions(prev => prev.map(s => (s.id === sessionId ? { ...s, title } : s)))
+            }
+
+            const lines = [result?.summary?.headline, result?.summary?.token_line, result?.summary?.note].filter(
+              (line): line is string => Boolean(line)
+            )
+
+            if (result?.summary?.headline) {
+              const aborted = result.status === 'aborted' || result.summary.aborted === true
+
+              // A successful compression earns a durable system line; an abort
+              // stays transient, because appending an error to the transcript
+              // reads as a state change that did not happen.
+              if (!aborted) {
+                renderSlashOutput(lines.join('\n'))
+              }
+
+              notify({
+                durationMs: 5_000,
+                id: noticeId,
+                kind: aborted ? 'error' : 'success',
+                message: lines.join('\n')
+              })
+
+              return
+            }
+
+            const hostOutput = result?.host_ack?.output?.trim()
+            const removed = result?.removed ?? 0
+
+            const message =
+              hostOutput || (removed > 0 ? copy.compress.removed(removed) : copy.compress.nothingToCompress)
+
+            renderSlashOutput(message)
+            notify({ durationMs: 5_000, id: noticeId, kind: 'success', message })
+          } catch (err) {
+            dismissNotification(noticeId)
+
+            // App and gateway update independently: an older gateway that has
+            // not shipped session.compress must not turn a once-working command
+            // into "method not found". It cannot offer the longer timeout, but
+            // the slash-worker path still summarizes.
+            if (isMissingRpcMethod(err)) {
+              await runExec(ctx)
+
+              return
+            }
+
+            renderSlashOutput(`error: ${err instanceof Error ? err.message : String(err)}`)
+          } finally {
+            compressInFlight.delete(sessionId)
+            setSessionCompacting(key, false)
+          }
         },
         // /yolo is a per-session approval bypass, same scope as the TUI's
         // Shift+Tab. With no session yet we arm it locally; the session-create

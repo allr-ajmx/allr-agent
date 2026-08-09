@@ -1,4 +1,5 @@
 import { renderMediaTags } from '@/lib/chat-media'
+import { shouldProjectInflightDump, userTurnAlreadyPersisted } from '@/lib/live-tail'
 import type { ChatMessage, ChatPart, ToolCallPart } from '@/store/chat'
 import type { SessionMessage, SessionResumeResponse } from '@/types/hermes'
 
@@ -416,14 +417,27 @@ export function appendLiveSessionProjection(
   const inflightStreaming = Boolean(projection.inflight?.streaming)
   const queuedUser = projection.queued?.user?.trim() ?? ''
 
-  if (!inflightUser && !inflightAssistant && !inflightStreaming && !queuedUser) {
+  // Mid-turn corrections the gateway accepted (`_record_inflight_correction`).
+  // Carried ALONGSIDE the prompt that started the turn, never over it, so a
+  // resume rebuilds every user bubble the turn produced — without this a
+  // reconnect repainted the thread with the correction missing, which reads as
+  // "my message vanished on reload".
+  const corrections = (projection.inflight?.corrections ?? [])
+    .map(correction => correction.trim())
+    .filter(correction => correction.length > 0)
+
+  if (!inflightUser && !inflightAssistant && !inflightStreaming && !queuedUser && corrections.length === 0) {
     return messages
   }
 
   const sessionId = projection.session_id || 'session'
   const projected: ChatMessage[] = []
 
-  if (inflightUser) {
+  // A backgrounded prompt whose user row already committed would otherwise
+  // render twice — once from history, once from the snapshot that still names
+  // it. Compared on the prose alone, because the gateway rewrites `@file:` and
+  // image references on the way through (lib/live-tail).
+  if (inflightUser && !userTurnAlreadyPersisted(messages, inflightUser)) {
     projected.push({
       id: `user-inflight-${sessionId}`,
       parts: [{ text: inflightUser, type: 'text' }],
@@ -431,9 +445,28 @@ export function appendLiveSessionProjection(
     })
   }
 
+  // Corrections sit between the original prompt and the reply they redirected —
+  // the same place the live path inserts them (store/chat.ts redirectPrompt).
+  corrections.forEach((correction, index) => {
+    projected.push({
+      id: `user-inflight-correction-${index}-${sessionId}`,
+      parts: [{ text: correction, type: 'text' }],
+      role: 'user'
+    })
+  })
+
   // Keep a pending assistant boundary even before the first delta when a
   // queued user turn follows it. This preserves the two distinct turns.
-  if (inflightAssistant || inflightStreaming || (inflightUser && queuedUser)) {
+  // `inflight.assistant` is a FLAT dump of everything the turn has said so far,
+  // thinking included. Appending it after a live row that already renders that
+  // work as reasoning + tool parts sandwiches the structure between two
+  // renderings of one answer, so it is skipped when the turn is already
+  // structured — unless the snapshot carries an error, which is the one thing
+  // no structured row can be assumed to have surfaced.
+  const wantsAssistantRow =
+    inflightAssistant || inflightStreaming || corrections.length > 0 || (inflightUser && queuedUser)
+
+  if (wantsAssistantRow && shouldProjectInflightDump(messages, Boolean(projection.inflight?.error))) {
     projected.push({
       id: `assistant-stream-${sessionId}`,
       parts: inflightAssistant ? [{ text: renderMediaTags(inflightAssistant), type: 'text' }] : [],

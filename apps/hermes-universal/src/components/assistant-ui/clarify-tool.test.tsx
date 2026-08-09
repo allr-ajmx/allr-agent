@@ -1,6 +1,6 @@
 import type * as AssistantUI from '@assistant-ui/react'
 import type { ToolCallMessagePartProps } from '@assistant-ui/react'
-import { cleanup, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -15,6 +15,7 @@ vi.mock('@assistant-ui/react', async importActual => {
   return { ...actual, useAuiState: () => true }
 })
 
+import { onComposerInsertRequest } from '@/app/chat/composer/focus'
 import { setSessionClarify } from '@/store/prompts'
 import { seedActiveSession } from '@/test-sessions'
 
@@ -158,5 +159,137 @@ describe('ClarifyTool settled view', () => {
 
     expect(screen.getByText('Anything else?')).toBeTruthy()
     expect(screen.getByText('Skipped')).toBeTruthy()
+  })
+})
+
+describe('ClarifyTool choice hygiene', () => {
+  // Choices come out of a model's tool call, so they are only as well-formed as
+  // the model made them: a blank entry renders an unlabelled button, a
+  // multi-line one breaks the single-row layout.
+  it('drops blank, multi-line and over-long choices before rendering', () => {
+    setSessionClarify('sess-1', {
+      requestId: 'c-hygiene',
+      question: 'Pick one',
+      choices: ['staging', '   ', 'two\nlines', 'x'.repeat(400), 'prod']
+    })
+
+    renderClarify(<ClarifyTool {...clarifyProps({}, undefined, 'clarify-hygiene')} />)
+
+    expect(screen.getByRole('button', { name: /staging/ })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /prod/ })).toBeTruthy()
+    expect(document.querySelectorAll('[data-choice]')).toHaveLength(2)
+  })
+})
+
+describe('ClarifyTool keyboard navigation', () => {
+  const renderWithChoices = (id: string) => {
+    setSessionClarify('sess-1', { requestId: id, question: 'Which target?', choices: ['staging', 'prod'] })
+    renderClarify(<ClarifyTool {...clarifyProps({}, undefined, id)} />)
+  }
+
+  const press = (key: string) => act(() => void fireEvent.keyDown(window, { key }))
+
+  const highlighted = () => document.querySelector('[data-highlighted]')?.textContent ?? ''
+
+  it('moves a cursor with the arrow keys, wrapping past the Other row', () => {
+    renderWithChoices('c-arrows')
+
+    // The cursor starts on the first choice.
+    expect(highlighted()).toContain('staging')
+
+    press('ArrowDown')
+
+    expect(highlighted()).toContain('prod')
+
+    // One more lands on the trailing "Other" row, then wraps to the top.
+    press('ArrowDown')
+
+    expect(document.querySelector('label[data-highlighted]')).toBeTruthy()
+
+    press('ArrowDown')
+
+    expect(highlighted()).toContain('staging')
+  })
+
+  it('picks a choice by digit as well as by letter', () => {
+    renderWithChoices('c-digits')
+    press('2')
+
+    // Picking stages the answer — Continue enables rather than firing at once.
+    expect(screen.getByRole('button', { name: /Continue/ }).hasAttribute('disabled')).toBe(false)
+    expect(document.querySelector('[data-choice][aria-current]')?.textContent).toContain('prod')
+  })
+
+  // Arrow navigation is a move, not a pick: leaving a staged answer behind
+  // would let the cursor and the selection disagree about what Enter sends.
+  it('clears a staged answer when the cursor moves', () => {
+    renderWithChoices('c-move-clears')
+    press('1')
+
+    expect(screen.getByRole('button', { name: /Continue/ }).hasAttribute('disabled')).toBe(false)
+
+    press('ArrowDown')
+
+    expect(screen.getByRole('button', { name: /Continue/ }).hasAttribute('disabled')).toBe(true)
+  })
+
+  // Testing only INPUT/TEXTAREA let a focused Skip button lose its own Enter
+  // to the card's global handler.
+  it('stands down while any focusable control holds focus', () => {
+    renderWithChoices('c-focus-guard')
+
+    const skip = screen.getByRole('button', { name: 'Skip' })
+    act(() => skip.focus())
+    press('2')
+
+    // Nothing was staged: Continue stays disabled and the cursor never left
+    // the first row it started on.
+    expect(screen.getByRole('button', { name: /Continue/ }).hasAttribute('disabled')).toBe(true)
+    expect(document.querySelector('[data-choice][aria-current]')?.textContent).toContain('staging')
+  })
+})
+
+describe('ClarifyTool skipped choices', () => {
+  // The blocking request is long gone — the tool already returned empty — so a
+  // pick cannot resolve it retroactively. It drafts a follow-up instead.
+  it('keeps a skipped clarify answerable by drafting a follow-up', async () => {
+    const inserted: string[] = []
+    const dispose = onComposerInsertRequest(({ text }) => inserted.push(text))
+
+    renderClarify(
+      <ClarifyTool
+        {...clarifyProps(
+          { question: 'Which target?', choices: ['staging', 'prod'] },
+          { question: 'Which target?', user_response: '' },
+          'clarify-late'
+        )}
+      />
+    )
+
+    expect(document.querySelector('[data-clarify-late-choices]')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: /prod/ }))
+    // The composer bus dispatches on a macrotask so a click handler can finish
+    // before the composer reacts.
+    await act(() => new Promise(resolve => setTimeout(resolve, 0)))
+    dispose()
+
+    expect(inserted).toHaveLength(1)
+    expect(inserted[0]).toContain('prod')
+    expect(inserted[0]).toContain('Which target?')
+  })
+
+  it('shows no late choices for an ANSWERED clarify', () => {
+    renderClarify(
+      <ClarifyTool
+        {...clarifyProps(
+          { question: 'Which target?', choices: ['staging', 'prod'] },
+          { question: 'Which target?', user_response: 'staging' },
+          'clarify-answered'
+        )}
+      />
+    )
+
+    expect(document.querySelector('[data-clarify-late-choices]')).toBeNull()
   })
 })

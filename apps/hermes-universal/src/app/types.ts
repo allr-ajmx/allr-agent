@@ -2,6 +2,8 @@
 // apps/desktop/src/app/types.ts (only the slash-relevant subset — the desktop
 // file also carries composer/sidebar/contribution types universal doesn't use).
 
+import type { SessionMessage, UsageStats } from '@/types/hermes'
+
 export interface SlashExecResponse {
   output?: string
   warning?: string
@@ -75,3 +77,27 @@ export type CommandDispatchResponse =
   | SkillCommandDispatchResponse
   | SendCommandDispatchResponse
   | PrefillCommandDispatchResponse
+
+/** Response from the `session.compress` RPC. `messages` is the post-compress
+ *  history (the same shape `session.resume` returns via `_history_to_messages`),
+ *  so the transcript can be replaced from it directly. */
+export interface SessionCompressResponse {
+  host_ack?: {
+    output?: string
+  }
+  info?: {
+    title?: string
+    usage?: Partial<UsageStats>
+  }
+  messages?: SessionMessage[]
+  removed?: number
+  status?: string
+  summary?: {
+    aborted?: boolean
+    headline?: string
+    noop?: boolean
+    note?: null | string
+    token_line?: string
+  }
+  usage?: Partial<UsageStats>
+}
