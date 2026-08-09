@@ -17,6 +17,7 @@ import { useI18n } from '@/i18n'
 import { $dismissedWorktreeIds, dismissWorktree, setWorkspaceNodeOpen } from '@/store/layout'
 import { notifyError } from '@/store/notifications'
 import { removeWorktreePath } from '@/store/projects'
+import { withoutTombstoned } from '@/store/session'
 import type { SessionInfo } from '@/types/hermes'
 
 import { SidebarRowStack } from '../chrome'
@@ -51,9 +52,13 @@ export function EnteredProjectContent({
   }
 
   // Home's rows aren't anchored to a folder, so there's no repo or worktree
-  // structure to show — just the chats.
+  // structure to show — just the chats. Tombstoned the same way a lane's rows
+  // are: these come from the backend tree snapshot, which still lists a session
+  // the user just deleted until its next refresh.
   if (project.isNoProject) {
-    return <>{renderRows(project.repos.flatMap(repo => repo.groups.flatMap(group => group.sessions)))}</>
+    return (
+      <>{renderRows(withoutTombstoned(project.repos.flatMap(repo => repo.groups.flatMap(group => group.sessions))))}</>
+    )
   }
 
   const single = project.repos.length === 1

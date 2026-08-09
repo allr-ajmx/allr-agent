@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/hermes', () => ({
   listAllProfileSessions: vi.fn(),
+  getSession: vi.fn(),
   getSessionMessages: vi.fn(),
   deleteSession: vi.fn(),
   renameSession: vi.fn(),
@@ -14,7 +15,7 @@ vi.mock('@/store/gateway', () => ({
   requestGateway: vi.fn()
 }))
 
-import { deleteSession, getSessionMessages, listAllProfileSessions, renameSession } from '@/hermes'
+import { deleteSession, getSession, getSessionMessages, listAllProfileSessions, renameSession } from '@/hermes'
 import { $busy, $currentCwd, $messages, $sessionId } from '@/store/chat'
 import { requestGateway } from '@/store/gateway'
 import { $showAllProfiles } from '@/store/profile'
@@ -23,24 +24,34 @@ import { updateSession } from '@/store/session-state-types'
 import { resetSessionStates, seedActiveSession } from '@/test-sessions'
 import type { PaginatedSessions, SessionInfo } from '@/types/hermes'
 
+import { $profiles } from './profiles'
 import {
   $activeStoredSessionId,
+  $removedSessionIds,
   $sessions,
   $sessionsLimit,
   $sessionsTotal,
   $unreadFinishedSessionIds,
+  archiveSessionLocal,
   branchCurrentSession,
   clearUnreadFinishedSession,
   deleteSessionLocal,
+  knownSessionProfile,
   loadMoreSessions,
   openSession,
+  pruneSessionTombstones,
   refreshSessions,
   renameSessionLocal,
-  resetSessionsPaging
+  resetSessionsPaging,
+  resolveSessionProfile
 } from './session'
 
 const row = (id: string, title: string): SessionInfo => ({ id, title }) as unknown as SessionInfo
 const rowWithCwd = (id: string, cwd: null | string): SessionInfo => ({ id, cwd }) as unknown as SessionInfo
+
+const rowOnProfile = (id: string, profile: string): SessionInfo => ({ id, profile }) as unknown as SessionInfo
+
+const profile = (name: string) => ({ name }) as unknown as (typeof $profiles.value)[number]
 
 afterEach(() => {
   vi.clearAllMocks()
@@ -50,6 +61,8 @@ afterEach(() => {
   $unreadFinishedSessionIds.set([])
   $showAllProfiles.set(false)
   $activeProfile.set(null)
+  $profiles.set([])
+  $removedSessionIds.set(new Set())
   resetSessionsPaging()
   resetSessionStates()
   seedActiveSession('runtime-0')
@@ -131,6 +144,94 @@ describe('session store', () => {
   })
 })
 
+// A session-scoped call is served by ONE profile's backend. Without the owner it
+// lands on whichever gateway is live, which resumes another profile's chat
+// against the wrong database.
+describe('owning profile', () => {
+  it('routes resume + transcript through the row own profile stamp', async () => {
+    $sessions.set([rowOnProfile('stored-9', 'work')])
+    vi.mocked(requestGateway).mockResolvedValue({ messages: [], session_id: 'runtime-1' })
+    vi.mocked(getSessionMessages).mockResolvedValue({ messages: [], session_id: 'stored-9' } as never)
+
+    await openSession('stored-9')
+
+    expect(getSessionMessages).toHaveBeenCalledWith('stored-9', 'work')
+    expect(requestGateway).toHaveBeenCalledWith('session.resume', {
+      session_id: 'stored-9',
+      cols: 96,
+      profile: 'work'
+    })
+  })
+
+  it('scopes delete + archive to the owning profile', async () => {
+    $sessions.set([rowOnProfile('a', 'work')])
+    vi.mocked(deleteSession).mockResolvedValue({ ok: true })
+    await deleteSessionLocal('a')
+    expect(deleteSession).toHaveBeenCalledWith('a', 'work')
+
+    $sessions.set([rowOnProfile('b', 'work')])
+    await archiveSessionLocal('b')
+    expect(vi.mocked(getSession).mock.calls.length).toBe(0)
+  })
+
+  it('never probes when there is only one profile to be on', async () => {
+    // A single-profile install has no wrong answer to route around, so the
+    // resume must stay synchronous rather than pay a by-id lookup first.
+    await expect(resolveSessionProfile('unknown')).resolves.toBeUndefined()
+    expect(getSession).not.toHaveBeenCalled()
+  })
+
+  it('probes other profiles for a session outside the loaded rows', async () => {
+    $profiles.set([profile('default'), profile('work')])
+    vi.mocked(getSession)
+      .mockRejectedValueOnce(new Error('404'))
+      .mockResolvedValueOnce({ id: 'stored-9', profile: 'work' } as SessionInfo)
+
+    await expect(resolveSessionProfile('stored-9')).resolves.toBe('work')
+    // Resolved once, remembered forever — a session's owner never changes.
+    expect(knownSessionProfile('stored-9')).toBe('work')
+  })
+})
+
+// The backend list is a snapshot that can predate an in-flight delete, so a
+// refresh landing mid-mutation used to put the row straight back.
+describe('delete/archive tombstones', () => {
+  const page = (ids: string[]): PaginatedSessions =>
+    ({ sessions: ids.map(id => row(id, id)), total: ids.length }) as unknown as PaginatedSessions
+
+  it('keeps a deleted row out of a refresh that still lists it', async () => {
+    $sessions.set([row('a', 'A'), row('b', 'B')])
+    vi.mocked(deleteSession).mockResolvedValue({ ok: true })
+    await deleteSessionLocal('a')
+
+    vi.mocked(listAllProfileSessions).mockResolvedValue(page(['a', 'b']))
+    await refreshSessions()
+
+    expect($sessions.get().map(s => s.id)).toEqual(['b'])
+    // Still listed by the backend, so the tombstone stays pinned.
+    expect($removedSessionIds.get().has('a')).toBe(true)
+  })
+
+  it('lifts the tombstone once the backend stops listing the id', async () => {
+    $sessions.set([row('a', 'A')])
+    vi.mocked(deleteSession).mockResolvedValue({ ok: true })
+    await deleteSessionLocal('a')
+
+    pruneSessionTombstones([])
+
+    expect($removedSessionIds.get().size).toBe(0)
+  })
+
+  it('undoes the tombstone when the delete fails', async () => {
+    $sessions.set([row('a', 'A')])
+    vi.mocked(deleteSession).mockRejectedValue(new Error('nope'))
+    await deleteSessionLocal('a')
+
+    expect($sessions.get().map(s => s.id)).toEqual(['a'])
+    expect($removedSessionIds.get().size).toBe(0)
+  })
+})
+
 // The transcript AUTHORITY is the REST endpoint: `session.resume` returns a
 // display-reduced history (tool-only assistant rows dropped, tool results
 // flattened to {name, context} with no ids), so hydrating from it lost the
@@ -161,7 +262,8 @@ describe('openSession transcript source', () => {
 
     await openSession('stored-9')
 
-    expect(getSessionMessages).toHaveBeenCalledWith('stored-9')
+    // Second arg = the owning profile; undefined on a single-profile install.
+    expect(getSessionMessages).toHaveBeenCalledWith('stored-9', undefined)
     const parts = $messages.get().flatMap(m => m.parts)
     // The reasoning survives only in the REST payload.
     expect(parts.filter(p => p.type === 'reasoning')).toHaveLength(1)

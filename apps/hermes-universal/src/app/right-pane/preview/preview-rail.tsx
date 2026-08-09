@@ -16,8 +16,14 @@ import { $dirtyPreviewPaths } from '@/store/preview-edit'
 
 import { PreviewFile } from './preview-file'
 
-// The VS Code-style tabbed file viewer/editor rail. Ported (simplified) from
-// desktop's chat/right-rail/preview.tsx: a tab strip over the active PreviewFile.
+// The VS Code-style tabbed file viewer/editor rail — for the shells that have
+// NO LAYOUT TREE: the phone Workspace's Editor tab and the narrow AppShell
+// drawer. In the tree, a preview is a tile (app/chat/preview-tile.tsx) and the
+// ZONE owns its tab, so this rail's own strip is not a second bar there — it
+// simply isn't on that path at all.
+//
+// It reads the same `$previewTabs` / `$activePreviewPath` / view-mode stores the
+// tiles do, so a file opened on one shell is the same open file on the other.
 
 export function PreviewRail() {
   const tabs = useStore($previewTabs)

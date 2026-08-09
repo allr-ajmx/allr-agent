@@ -18,14 +18,12 @@ import {
   bindTreeSideVisibility,
   declareDefaultTree,
   dismissTreePane,
-  dockPaneBeside,
   mirrorLayoutTree,
   paneRootSide,
   registerLayoutResetHandler,
   registerPaneCloser,
   registerPaneOpener,
   resetLayoutTree,
-  revealTreePane,
   setPaneCollapsed,
   setTreePaneHidden,
   watchContributedPanes
@@ -46,16 +44,12 @@ import {
   FILE_TREE_DEFAULT_WIDTH,
   FILE_TREE_MAX_WIDTH,
   FILE_TREE_MIN_WIDTH,
-  PREVIEW_DEFAULT_WIDTH,
-  PREVIEW_MAX_WIDTH,
-  PREVIEW_MIN_WIDTH,
   setSidebarOpen,
   setTerminalOpen,
   SIDEBAR_DEFAULT_WIDTH,
   SIDEBAR_MAX_WIDTH
 } from '@/store/layout'
 import { startNewSessionTab } from '@/store/new-session'
-import { $previewTabs, closeAllPreviewTabs } from '@/store/preview'
 import { $reviewOpen, closeReview, REVIEW_PANE_ID } from '@/store/review'
 import { $activeStoredSessionId, $sessions, sessionMatchesStoredId } from '@/store/session'
 import { $sessionColorById, sessionColorFor } from '@/store/session-color'
@@ -68,6 +62,7 @@ import {
 import { toggleStatusbarVisible } from '@/store/statusbar-prefs'
 import { $effectiveCwd, ensureWorkspaceCwd } from '@/store/workspace-events'
 
+import { watchPreviewTiles } from '../chat/preview-tile'
 import { watchRouteTiles } from '../chat/route-tile'
 import {
   SessionTileCloseConfirm,
@@ -79,7 +74,7 @@ import { ChatSidebar } from '../chat/sidebar'
 import { RemoteFolderPicker } from '../right-pane/files/remote-picker'
 import { $workspacePage, isWorkspacePagePath, syncWorkspacePage } from '../routes'
 
-import { FilesPane, PreviewRailPane, ReviewPaneContent, TerminalPane, WorkspaceRoutes } from './panes'
+import { FilesPane, ReviewPaneContent, TerminalPane, WorkspaceRoutes } from './panes'
 
 /**
  * Layout-tree contribution root (ported from desktop's `app/contrib/
@@ -188,22 +183,6 @@ registerTiles([
     render: () => idle(<FilesPane />)
   },
   {
-    id: 'preview',
-    kind: 'preview',
-    title: 'preview',
-    placement: 'right',
-    // Exists only while something is previewed — visibility is bound to the
-    // preview tabs below. dock: adoption seed only — dockPaneBeside re-docks it
-    // next to files on every reveal anyway (position-aware).
-    chrome: { dock: { pane: 'files', pos: 'left' } },
-    sizing: {
-      width: `${PREVIEW_DEFAULT_WIDTH}px`,
-      minWidth: `${PREVIEW_MIN_WIDTH}px`,
-      maxWidth: `${PREVIEW_MAX_WIDTH}px`
-    },
-    render: () => idle(<PreviewRailPane />)
-  },
-  {
     id: 'review',
     kind: 'review',
     title: 'review',
@@ -237,12 +216,8 @@ const DEFAULT_TREE = split(
       [
         split(
           'row',
-          [
-            group(['review'], { id: 'grp-review' }),
-            group(['preview'], { id: 'grp-preview' }),
-            group(['files'], { id: 'grp-files' })
-          ],
-          [1, 1, 1.2],
+          [group(['review'], { id: 'grp-review' }), group(['files'], { id: 'grp-files' })],
+          [1, 1.2],
           'spl-rail'
         ),
         group(['terminal'], { id: 'grp-terminal' })
@@ -255,16 +230,15 @@ const DEFAULT_TREE = split(
   'spl-root'
 )
 
-const FOCUS_TREE = split(
-  'row',
-  [group(['sessions']), group(['workspace', 'files', 'preview', 'review', 'terminal'])],
-  [1, 4.6]
-)
+// No `preview` slot in any preset: a preview is a TILE now, one pane per open
+// file, docked beside main when it opens (see app/chat/preview-tile.tsx). A
+// preset can't reserve a slot for a pane that doesn't exist until you open one.
+const FOCUS_TREE = split('row', [group(['sessions']), group(['workspace', 'files', 'review', 'terminal'])], [1, 4.6])
 
 const TERMINAL_TREE = split(
   'column',
   [
-    split('row', [group(['sessions']), group(['workspace']), group(['files', 'preview', 'review'])], [1, 3.2, 1.2]),
+    split('row', [group(['sessions']), group(['workspace']), group(['files', 'review'])], [1, 3.2, 1.2]),
     group(['terminal'])
   ],
   [3, 1]
@@ -274,7 +248,7 @@ const QUAD_TREE = split(
   'column',
   [
     split('row', [group(['sessions', 'files']), group(['workspace'])], [1, 3]),
-    split('row', [group(['terminal']), group(['preview', 'review'])], [1.4, 1])
+    split('row', [group(['terminal']), group(['review'])], [1.4, 1])
   ],
   [3, 1]
 )
@@ -369,11 +343,13 @@ discoverBundledPlugins()
 watchContributedPanes()
 
 // Mirror `$sessionTiles` into layout-tree panes and collapse tiles into the
-// workspace on a layout reset. Page (route) tiles ride the same mirror, keyed by
-// path instead of session id. (Tile sessions stream off the shared gateway
-// stream: THE event router self-registers on import — see store/event-router.ts.)
+// workspace on a layout reset. Page (route) tiles and PREVIEW tiles ride the
+// same mirror, keyed by path instead of session id. (Tile sessions stream off
+// the shared gateway stream: THE event router self-registers on import — see
+// store/event-router.ts.)
 watchSessionTiles()
 watchRouteTiles()
+watchPreviewTiles()
 
 // A reconnect issues new runtime ids, so every binding we hold is dead. Drop
 // the bindings (NOT the sessions — a draft's unsent text is the one thing that
@@ -551,12 +527,6 @@ bindPaneCollapse(
   () => setTerminalOpen(true)
 )
 
-// Preview EXISTS only while something is previewed (closing the last preview
-// tab closes the pane; a new target opens + fronts it).
-const $previewVisible = computed($previewTabs, tabs => tabs.length > 0)
-
-bindPaneVisibility('preview', $previewVisible, closeAllPreviewTabs)
-
 // Sessions/files Close = collapse their SIDE — but only while the pane actually
 // lives in that root side column. Dragged next to main, a side collapse can't
 // hide it, so Close falls back to dismissal there.
@@ -566,16 +536,6 @@ registerPaneCloser('sessions', () =>
 registerPaneCloser('files', () =>
   paneRootSide('files') === 'right' ? $rightSidebarOpen.set(false) : dismissTreePane('files')
 )
-
-// A preview target lands NEXT TO the file tree — position-aware: wherever files
-// currently lives, the preview zone docks directly beside it. Then reveal: open
-// the side, unhide, front.
-const revealPreview = () => {
-  dockPaneBeside('preview', 'files')
-  revealTreePane('preview')
-}
-
-$previewTabs.listen(tabs => tabs.length > 0 && revealPreview())
 
 /**
  * The workspace grid: mounts the layout tree. Publishes `$workspacePage` from
