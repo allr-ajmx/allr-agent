@@ -1803,6 +1803,7 @@ export const en: Translations = {
       ideaGenerating: 'Generating…',
       ideaShuffle: 'Shuffle templates',
       ideaFailed: 'Could not generate an idea',
+      ideaWriteFailed: 'Project created, but IDEA.md could not be saved',
       noFolders: 'No folders added yet.',
       addFolder: 'Add folder',
       folderPath: 'Paste a folder path',

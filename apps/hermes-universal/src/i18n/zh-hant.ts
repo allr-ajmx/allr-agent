@@ -1602,6 +1602,8 @@ export const zhHant = defineLocale({
       ideaGenerate: '產生想法',
       ideaGenerating: '產生中…',
       ideaShuffle: '隨機範本',
+      ideaFailed: '無法產生想法',
+      ideaWriteFailed: '專案已建立，但無法儲存 IDEA.md',
       noFolders: '尚未新增資料夾。',
       addFolder: '新增資料夾',
       primaryBadge: '主要',

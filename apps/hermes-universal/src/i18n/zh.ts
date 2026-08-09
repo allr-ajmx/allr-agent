@@ -1970,6 +1970,7 @@ export const zh: Translations = {
       ideaGenerating: '生成中…',
       ideaShuffle: '随机模板',
       ideaFailed: '无法生成想法',
+      ideaWriteFailed: '项目已创建，但无法保存 IDEA.md',
       noFolders: '尚未添加文件夹。',
       addFolder: '添加文件夹',
       folderPath: '粘贴文件夹路径',
