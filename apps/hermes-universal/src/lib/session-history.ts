@@ -1,4 +1,5 @@
 import { renderMediaTags } from '@/lib/chat-media'
+import { shouldProjectInflightDump, userTurnAlreadyPersisted } from '@/lib/live-tail'
 import type { ChatMessage, ChatPart, ToolCallPart } from '@/store/chat'
 import type { SessionMessage, SessionResumeResponse } from '@/types/hermes'
 
@@ -432,7 +433,11 @@ export function appendLiveSessionProjection(
   const sessionId = projection.session_id || 'session'
   const projected: ChatMessage[] = []
 
-  if (inflightUser) {
+  // A backgrounded prompt whose user row already committed would otherwise
+  // render twice — once from history, once from the snapshot that still names
+  // it. Compared on the prose alone, because the gateway rewrites `@file:` and
+  // image references on the way through (lib/live-tail).
+  if (inflightUser && !userTurnAlreadyPersisted(messages, inflightUser)) {
     projected.push({
       id: `user-inflight-${sessionId}`,
       parts: [{ text: inflightUser, type: 'text' }],
@@ -452,7 +457,16 @@ export function appendLiveSessionProjection(
 
   // Keep a pending assistant boundary even before the first delta when a
   // queued user turn follows it. This preserves the two distinct turns.
-  if (inflightAssistant || inflightStreaming || corrections.length > 0 || (inflightUser && queuedUser)) {
+  // `inflight.assistant` is a FLAT dump of everything the turn has said so far,
+  // thinking included. Appending it after a live row that already renders that
+  // work as reasoning + tool parts sandwiches the structure between two
+  // renderings of one answer, so it is skipped when the turn is already
+  // structured — unless the snapshot carries an error, which is the one thing
+  // no structured row can be assumed to have surfaced.
+  const wantsAssistantRow =
+    inflightAssistant || inflightStreaming || corrections.length > 0 || (inflightUser && queuedUser)
+
+  if (wantsAssistantRow && shouldProjectInflightDump(messages, Boolean(projection.inflight?.error))) {
     projected.push({
       id: `assistant-stream-${sessionId}`,
       parts: inflightAssistant ? [{ text: renderMediaTags(inflightAssistant), type: 'text' }] : [],

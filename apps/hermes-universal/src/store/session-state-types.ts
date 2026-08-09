@@ -176,7 +176,10 @@ export function setSessionDisposeHook(hook: (key: string, state: ClientSessionSt
  */
 interface SessionKeyHooks {
   drop: (key: string) => void
-  rekey: (fromKey: string, toKey: string) => void
+  /** `previous` is the slice AS IT WAS before the move — the only copy of the
+   *  turn the outgoing key was mid-way through, which a hydrating rekey
+   *  overwrites with the backend's answer. */
+  rekey: (fromKey: string, toKey: string, previous: ClientSessionState) => void
 }
 
 const sessionKeyHooks = new Set<SessionKeyHooks>()
@@ -352,7 +355,7 @@ export function rekeySession(fromKey: string, toKey: string, patch?: Partial<Cli
   // rotated before being rekeyed still has callers holding its older ids.
   remapStoredIdIndex(fromKey, toKey)
   indexStoredId(prevAtTarget, next, toKey)
-  fireSessionKeyHook(hooks => hooks.rekey(fromKey, toKey))
+  fireSessionKeyHook(hooks => hooks.rekey(fromKey, toKey, moving))
 
   if ($activeSessionKey.get() === fromKey) {
     $activeSessionKey.set(toKey)

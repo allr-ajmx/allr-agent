@@ -20,10 +20,10 @@
  *     hangs that agent until it times out.
  */
 
-// Side-effect import: wires the crash journal to the session store. It has no
-// call site of its own, and the router is the module guaranteed to be loaded
-// whenever a turn can run.
-import '@/store/turn-journal'
+// Side-effect import: wires live-tail reconciliation and the crash journal to
+// the session store. It has no call site of its own, and the router is the
+// module guaranteed to be loaded whenever a turn can run.
+import '@/store/turn-hydration'
 
 import { burstVibeHearts } from '@/components/chat/vibe-hearts'
 import type { GatewayEvent } from '@/gateway'
