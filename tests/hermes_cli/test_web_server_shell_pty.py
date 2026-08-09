@@ -351,6 +351,23 @@ async def test_shell_pty_modal_refuses(monkeypatch):
     assert spawned == []
 
 
+# A byte the fake shell greets us with, used as a registration barrier.
+#
+# Leaving a `with client.websocket_connect(...)` block does NOT let the endpoint
+# finish: starlette's WebSocketTestSession unwinds its ExitStack LIFO, so it
+# sends the disconnect and then cancels the endpoint task's CancelScope, which
+# swallows the cancellation silently. `/api/shell-pty` hops through two threads
+# (`_shell_pty_target`, then PtyBridge.spawn) before PTY_REGISTRY records
+# anything, so asserting on server-side state straight after the block races
+# that teardown — and loses on a loaded CI runner (slice 6/8, PR #84).
+#
+# A byte can only reach the client from PtySession._drain or .attach, both of
+# which run strictly after `_sessions[key] = session`. Reading one inside the
+# block therefore proves registration happened, with no sleeps or polling.
+# Same handshake test_shell_pty_spawns_shell_and_pumps uses for its own output.
+_BANNER = b"ready\r\n"
+
+
 @pytest.mark.asyncio
 async def test_shell_pty_attach_registers_and_reattaches(monkeypatch):
     """?attach= binds the shell to a keep-alive session: one spawn, reattach by
@@ -360,9 +377,13 @@ async def test_shell_pty_attach_registers_and_reattaches(monkeypatch):
     class FakeBridge:
         def __init__(self):
             self.alive = True
+            self._outbox = [_BANNER]  # one greeting, then idle forever
 
         def read(self, timeout):
-            return b""  # idle forever — keeps the session alive across the drop
+            # The greeting is this test's registration barrier — see _BANNER.
+            # After it, b"" idles forever, keeping the session alive across the
+            # drop.
+            return self._outbox.pop(0) if self._outbox else b""
 
         def write(self, data):
             pass
@@ -385,17 +406,20 @@ async def test_shell_pty_attach_registers_and_reattaches(monkeypatch):
     client = TestClient(web_server.app)
     try:
         with client.websocket_connect("/api/shell-pty?attach=TOK1") as ws1:
+            assert ws1.receive_bytes() == _BANNER
             ws1.send_bytes(b"hi")
         # Registered under the namespaced key, kept alive after the socket dropped.
         assert "shellpty:TOK1" in web_server.PTY_REGISTRY._sessions
 
-        # Reattach with the same token: no respawn.
+        # Reattach with the same token: no respawn, and the ring buffer replays.
         with client.websocket_connect("/api/shell-pty?attach=TOK1") as ws2:
+            assert ws2.receive_bytes() == _BANNER
             ws2.send_bytes(b"again")
         assert len(spawned) == 1
 
         # A distinct token spawns its own session (no collision with /api/pty keys).
         with client.websocket_connect("/api/shell-pty?attach=TOK2") as ws3:
+            assert ws3.receive_bytes() == _BANNER
             ws3.send_bytes(b"other")
         assert len(spawned) == 2
         assert "shellpty:TOK2" in web_server.PTY_REGISTRY._sessions
