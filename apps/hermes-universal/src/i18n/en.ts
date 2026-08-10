@@ -1938,6 +1938,7 @@ export const en: Translations = {
       needsInput: 'Needs your input',
       waitingForAnswer: 'Waiting for your answer',
       finishedUnread: 'Finished — unread',
+      draftSession: 'Draft — nothing sent yet',
       handoffOrigin: platform => `Handed off from ${platform}`,
       renamed: 'Renamed',
       renameFailed: 'Rename failed',
@@ -2706,6 +2707,7 @@ export const en: Translations = {
       loadingSession: 'Loading session',
       showEarlier: 'Show earlier messages',
       loadingResponse: 'Hermes is loading a response',
+      compacting: 'Summarizing thread',
       resumeWhenBackgroundDone: count =>
         count === 1
           ? 'Will resume when the background task finishes'
@@ -2899,6 +2901,9 @@ export const en: Translations = {
     stopFailed: 'Stop failed',
     regenerateFailed: 'Regenerate failed',
     editFailed: 'Edit failed',
+    restoreMissing: 'Could not find the message to restore.',
+    restoreEmpty: 'Cannot restore an empty message.',
+    restoreNoSession: 'No active session to restore.',
     resumeFailed: 'Resume failed',
     resumeStrandedTitle: "Couldn't load this session",
     resumeStrandedBody:

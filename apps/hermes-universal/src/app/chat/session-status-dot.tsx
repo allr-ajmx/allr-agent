@@ -59,6 +59,14 @@ const DOT_VARIANTS: Record<SessionDotState, DotVariant> = {
     role: 'status',
     title: r => r.finishedUnread
   },
+  // Hollow grey, the faintest ink the app has — nothing has ever run here. An
+  // outline says "open, not producing"; a draft is the one state that has yet to
+  // do anything at all, so it sits a shade dimmer than any live outline would.
+  draft: {
+    ariaLabel: r => r.draftSession,
+    className: `${DOT_BASE} border border-(--ui-text-quaternary)`,
+    title: r => r.draftSession
+  },
   // Settled: the project color, or nothing at all. An uncolored session used to
   // get a grey dot, which put a mark of the same weight as a status next to
   // every resting row and made "no color" look like a state of its own.
@@ -71,8 +79,12 @@ export interface SessionStatusDotProps {
   /** The STORED session id — the key every live-state atom (working /
    *  attention / stalled / unread) is keyed by, on BOTH surfaces: the sidebar
    *  row's `session.id` and a pane tile's `storedSessionId` are the same stored
-   *  id (`$workingSessionIds` et al. map `storedSessionId`). */
-  storedSessionId: string
+   *  id (`$workingSessionIds` et al. map `storedSessionId`).
+   *
+   *  Null on a chat that has yet to reach the backend — the workspace tab on a
+   *  fresh draft, a draft tile. There is no id to key by and no turn behind it,
+   *  which is the draft state by definition. */
+  storedSessionId: null | string
   /** The session row for color resolution — recents OR the project tree. Call
    *  sites already hold it; passing it lets the idle dot inherit the project
    *  color even for a session older than the paginated recents page (which has
@@ -86,8 +98,13 @@ export interface SessionStatusDotProps {
 }
 
 /**
- * SESSION STATUS DOT — the ONE primitive the sidebar row and the switcher
- * render, so a session's status and color can never disagree between surfaces.
+ * SESSION STATUS DOT — the ONE primitive the sidebar row, the PANE TABS (the
+ * main workspace tab and every session tile's tab, via `TileChrome.tabLead`),
+ * the ⌃Tab switcher and the mobile bubble strip render, so a session's status
+ * and color can never disagree between surfaces. Before MJXHRM-385 the switcher
+ * and the bubble strip each hand-rolled their own dot, and the bubble's used
+ * AMBER for a running turn and RED for an unread one — the amber this component
+ * reserves for "needs your input", and a colour nothing else used at all.
  * It reads every signal itself from the shared stores keyed by the stored
  * session id: live state (working / needs-input / stalled / unread, made
  * mutually exclusive by `sessionDotState`) and the resolved color (override →
@@ -113,12 +130,12 @@ export function SessionStatusDot({ storedSessionId, session, branchStem, classNa
   //
   // Note the shape split, unlike desktop: universal's $workingSessionIds
   // resolves to a Set, the other three to arrays.
-  const needsInput = useStoreSelector($attentionSessionIds, ids => ids.includes(storedSessionId))
-  const isWorking = useStoreSelector($workingSessionIds, ids => ids.has(storedSessionId))
-  const isStalled = useStoreSelector($stalledSessionIds, ids => ids.includes(storedSessionId))
-  const isUnread = useStoreSelector($unreadFinishedSessionIds, ids => ids.includes(storedSessionId))
+  const needsInput = useStoreSelector($attentionSessionIds, ids => storedSessionId !== null && ids.includes(storedSessionId))
+  const isWorking = useStoreSelector($workingSessionIds, ids => storedSessionId !== null && ids.has(storedSessionId))
+  const isStalled = useStoreSelector($stalledSessionIds, ids => storedSessionId !== null && ids.includes(storedSessionId))
+  const isUnread = useStoreSelector($unreadFinishedSessionIds, ids => storedSessionId !== null && ids.includes(storedSessionId))
 
-  const dotState = sessionDotState({ isStalled, isUnread, isWorking, needsInput })
+  const dotState = sessionDotState({ isDraft: storedSessionId === null, isStalled, isUnread, isWorking, needsInput })
   const variant = DOT_VARIANTS[dotState]
 
   return (

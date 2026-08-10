@@ -496,6 +496,53 @@ export async function redirectPrompt(rawText: string, key = $activeSessionKey.ge
   }
 }
 
+/**
+ * Stop the live turn on ONE session (Esc / the composer's Stop / a user bubble's
+ * Stop / a tile's Stop).
+ *
+ * `session.interrupt` runs against the RUNTIME id, so it is one of the verbs most
+ * likely to be holding a dead binding after a sleep/wake — and all three call
+ * sites used to swallow the rejection with a bare `.catch(() => {})`. That is why
+ * "Stop stopped working after the laptop slept" never surfaced as anything: the
+ * control was dead, silently, with no retry (MJXHRM-366).
+ *
+ * Recovered like every other session-scoped RPC, and a genuine failure raises a
+ * toast. Resolves true when the gateway took the interrupt.
+ */
+export async function interruptSession(key = $activeSessionKey.get()): Promise<boolean> {
+  const slice = $sessionStates.get()[key]
+  const sessionId = slice?.runtimeSessionId
+
+  if (!sessionId) {
+    return false
+  }
+
+  // A recovery hands back a fresh runtime id and the slice moves with it.
+  let liveKey = key
+
+  try {
+    const { withSessionNotFoundResume } = await sessionRecovery()
+
+    await withSessionNotFoundResume(
+      sessionId,
+      slice.storedSessionId,
+      live => requestGateway('session.interrupt', { session_id: live }),
+      {
+        onRecovered: live => {
+          rekeySession(liveKey, live, { runtimeSessionId: live })
+          liveKey = live
+        }
+      }
+    )
+
+    return true
+  } catch (err) {
+    notifyError(err, translateNow('desktop.stopFailed'))
+
+    return false
+  }
+}
+
 /** How the transcript should be rewound to re-run an edited prompt. */
 export interface EditPlan {
   editedMessage: ChatMessage
@@ -553,35 +600,90 @@ const isStaleTargetError = (error: unknown): boolean =>
   /no longer in session history|not in session history/i.test(error instanceof Error ? error.message : String(error))
 
 /**
+ * Build `prompt.submit` truncation params. Ordinal 0 truncates to an EMPTY
+ * transcript (restoring or editing the first user turn) — the gateway refuses
+ * that edge unless `confirm_empty_truncate` is set, so a stale client cannot
+ * silently wipe a session with a leftover ordinal. Ported from desktop's
+ * `truncateSubmitParams`; universal omitted it, which made a rewind to the very
+ * first prompt fail with a 422 that read as "restore is broken".
+ */
+function truncateSubmitParams(truncateOrdinal: number | undefined): Record<string, unknown> {
+  if (truncateOrdinal === undefined) {
+    return {}
+  }
+
+  return {
+    truncate_before_user_ordinal: truncateOrdinal,
+    ...(truncateOrdinal === 0 ? { confirm_empty_truncate: true } : {})
+  }
+}
+
+/**
+ * The session a rewind is running against. MUTABLE on purpose: a stale-runtime
+ * recovery mid-rewind hands back a fresh runtime id and moves the slice with it,
+ * and both the retry below and the caller's rollback have to address the session
+ * where it now lives rather than where it started.
+ */
+interface RewindTarget {
+  /** The slice key the transcript lives under. */
+  key: string
+  /** The wire-facing runtime id. */
+  sessionId: string
+  /** The durable id a recovery resumes FROM. */
+  storedId: null | string
+}
+
+/**
  * Rewind a turn: `prompt.submit` with an optional `truncate_before_user_ordinal`
  * (drops that user turn + everything after). Idle rewinds submit directly —
  * interrupting an idle agent can leave a stale interrupt flag that cancels the
  * fresh turn; live turns interrupt first, and a raced "session busy" response
  * interrupts + retries. Ported from desktop's `runRewindSubmit`.
+ *
+ * Both RPCs run through `withSessionNotFoundResume` (MJXHRM-367). A rewind is
+ * the LONGEST-idle submit path in the app — the user reads a reply, thinks, and
+ * only then edits or restores — so it is the one most likely to be holding a
+ * runtime id the gateway has already dropped, and it was the only submit path
+ * left unwrapped.
  */
 async function runRewindSubmit(
-  sessionId: string,
+  target: RewindTarget,
   text: string,
   truncateOrdinal: number | undefined,
   interruptFirst: boolean
 ): Promise<void> {
+  const { withSessionNotFoundResume } = await sessionRecovery()
+
+  const recover = async <T>(call: (liveSessionId: string) => Promise<T>): Promise<T> => {
+    const { result } = await withSessionNotFoundResume(target.sessionId, target.storedId, call, {
+      onRecovered: live => {
+        rekeySession(target.key, live, { runtimeSessionId: live })
+        target.key = live
+        target.sessionId = live
+      }
+    })
+
+    return result
+  }
+
   const interrupt = async () => {
     try {
-      await requestGateway('session.interrupt', { session_id: sessionId })
+      await recover(live => requestGateway('session.interrupt', { session_id: live }))
     } catch {
-      // Best-effort. The submit path still gates on the gateway state.
+      // Best-effort, and deliberately still quiet HERE (unlike `interruptSession`):
+      // this interrupt is immediately followed by a submit whose failure IS
+      // surfaced, so a toast for the interrupt alone would fire on rewinds that
+      // then succeed. The recovery above is the part that was missing.
     }
   }
 
   const submit = () =>
-    requestGateway(
-      'prompt.submit',
-      {
-        session_id: sessionId,
-        text,
-        ...(truncateOrdinal !== undefined && { truncate_before_user_ordinal: truncateOrdinal })
-      },
-      PROMPT_SUBMIT_TIMEOUT_MS
+    recover(live =>
+      requestGateway(
+        'prompt.submit',
+        { session_id: live, text, ...truncateSubmitParams(truncateOrdinal) },
+        PROMPT_SUBMIT_TIMEOUT_MS
+      )
     )
 
   if (interruptFirst) {
@@ -632,6 +734,12 @@ export async function submitEditedPrompt(sourceId: string, rawText: string): Pro
   // submit settles.
   const editKey = $activeSessionKey.get()
 
+  const target: RewindTarget = {
+    key: editKey,
+    sessionId,
+    storedId: $sessionStates.get()[editKey]?.storedSessionId ?? null
+  }
+
   updateSession(editKey, state => ({
     ...state,
     busy: true,
@@ -641,13 +749,13 @@ export async function submitEditedPrompt(sourceId: string, rawText: string): Pro
   }))
 
   try {
-    await runRewindSubmit(sessionId, plan.text, plan.truncateOrdinal, wasBusy)
+    await runRewindSubmit(target, plan.text, plan.truncateOrdinal, wasBusy)
   } catch (err) {
     // The target turn moved under us (e.g. auto-compression rotated the
     // history). We already interrupted, so land the text as a plain resend.
     if (!plan.isFailedTurn && isStaleTargetError(err)) {
       try {
-        await runRewindSubmit(sessionId, plan.text, undefined, false)
+        await runRewindSubmit(target, plan.text, undefined, false)
 
         return
       } catch {
@@ -656,8 +764,9 @@ export async function submitEditedPrompt(sourceId: string, rawText: string): Pro
     }
 
     // Restore the pre-edit transcript so the UI matches what's persisted
-    // instead of stranding a partial timeline.
-    updateSession(editKey, state => ({
+    // instead of stranding a partial timeline. Addressed to `target.key`, which
+    // a mid-flight recovery may have moved.
+    updateSession(target.key, state => ({
       ...state,
       busy: false,
       turnStartedAt: null,
@@ -665,6 +774,150 @@ export async function submitEditedPrompt(sourceId: string, rawText: string): Pro
       messages
     }))
     notifyError(err, translateNow('desktop.editFailed'))
+  }
+}
+
+/** How the transcript should be rewound to re-run an EXISTING prompt unchanged. */
+export interface RestorePlan {
+  sourceIndex: number
+  text: string
+  truncateOrdinal: number
+}
+
+/** The nth user turn's index, or -1. The backend truncates by user ordinal, and
+ *  universal renders no hidden branch-loser rows, so every user row counts. */
+function userIndexAtOrdinal(messages: ChatMessage[], targetOrdinal: number): number {
+  let ordinal = 0
+
+  for (let index = 0; index < messages.length; index += 1) {
+    if (messages[index].role !== 'user') {
+      continue
+    }
+
+    if (ordinal === targetOrdinal) {
+      return index
+    }
+
+    ordinal += 1
+  }
+
+  return -1
+}
+
+const userOrdinalAt = (messages: ChatMessage[], end: number): number =>
+  messages.slice(0, end).filter(message => message.role === 'user').length
+
+/**
+ * Resolve the user turn a restore should rewind to. Throws with a user-facing
+ * reason — a destructive action must say why it refused rather than no-op.
+ *
+ * The id is the primary key and the ordinal the fallback: the transcript can be
+ * re-keyed under us between the click and the confirm (an auto-compaction
+ * rewrites committed ids), and the ordinal still names the same turn.
+ * Ported from desktop's `planRestore`.
+ */
+export function planRestore(
+  messages: ChatMessage[],
+  messageId: string,
+  target?: { text?: string; userOrdinal?: null | number }
+): RestorePlan {
+  const idIndex = messages.findIndex(message => message.id === messageId && message.role === 'user')
+
+  const fallbackIndex =
+    target?.userOrdinal === null || target?.userOrdinal === undefined
+      ? -1
+      : userIndexAtOrdinal(messages, target.userOrdinal)
+
+  const sourceIndex = idIndex >= 0 ? idIndex : fallbackIndex
+  const source = messages[sourceIndex]
+
+  if (!source || source.role !== 'user') {
+    throw new Error(translateNow('desktop.restoreMissing'))
+  }
+
+  const text = (chatMessageText(source).trim() || target?.text?.trim() || '').trim()
+
+  if (!text) {
+    throw new Error(translateNow('desktop.restoreEmpty'))
+  }
+
+  return {
+    sourceIndex,
+    text,
+    truncateOrdinal:
+      target?.userOrdinal === null || target?.userOrdinal === undefined
+        ? userOrdinalAt(messages, sourceIndex)
+        : target.userOrdinal
+  }
+}
+
+/**
+ * Cursor-style "restore checkpoint": rewind the conversation to a past user
+ * prompt and run it again from there, unchanged.
+ *
+ * Shares the edit path's rewind primitive — `prompt.submit` with
+ * `truncate_before_user_ordinal` drops that user turn and everything after it,
+ * then the same text goes back as a fresh turn. Callers confirm first; errors are
+ * rethrown so the confirming surface can surface them.
+ */
+export async function restoreToMessage(
+  messageId: string,
+  restoreTarget?: { text?: string; userOrdinal?: null | number },
+  restoreKey = $activeSessionKey.get()
+): Promise<void> {
+  // Addressed by KEY, not by the active-chat projections: a tile's transcript
+  // renders the same user bubble, and a rewind is destructive enough that
+  // "whichever chat is on screen" is the wrong session to resolve it against.
+  const slice = $sessionStates.get()[restoreKey]
+  const sessionId = slice?.runtimeSessionId
+
+  if (!sessionId) {
+    throw new Error(translateNow('desktop.restoreNoSession'))
+  }
+
+  const messages = slice.messages
+  const plan = planRestore(messages, messageId, restoreTarget)
+
+  // The turns being discarded belong to an abandoned timeline — same cleanup the
+  // edit path does before its re-run repopulates.
+  stopSpeaking()
+  clearNotifications()
+  clearPreviewArtifacts(sessionId)
+
+  const wasBusy = slice.busy
+
+  const target: RewindTarget = {
+    key: restoreKey,
+    sessionId,
+    storedId: slice.storedSessionId
+  }
+
+  // The prompt itself stays: it is being re-run, not withdrawn. Everything after
+  // it belongs to the abandoned timeline and disappears immediately.
+  updateSession(restoreKey, state => ({
+    ...state,
+    busy: true,
+    interrupted: false,
+    turnStartedAt: Date.now(),
+    statusLine: '',
+    messages: messages.slice(0, plan.sourceIndex + 1)
+  }))
+
+  try {
+    await runRewindSubmit(target, plan.text, plan.truncateOrdinal, wasBusy)
+  } catch (err) {
+    // The rewind never landed. Roll the optimistic truncation back to the full
+    // history so the transcript matches what is persisted — leaving it truncated
+    // is what makes every later send look duplicative.
+    updateSession(target.key, state => ({
+      ...state,
+      busy: false,
+      turnStartedAt: null,
+      statusLine: err instanceof Error ? err.message : String(err),
+      messages
+    }))
+
+    throw err
   }
 }
 

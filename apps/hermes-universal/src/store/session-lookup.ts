@@ -20,18 +20,24 @@
  *    renders once a project is entered.
  *
  * It lives in its own module because `store/session` cannot import
- * `store/projects` (projects already imports session), and it takes the atoms as
- * arguments nowhere: a tab's title is read during a sync, not during a render,
- * so the caller subscribes and this stays a plain lookup.
+ * `store/projects` (projects already imports session).
+ *
+ * `sessionRowFor` itself is a PLAIN LOOKUP that subscribes to nothing — most of
+ * its callers read a title during a pane-mirror sync, not during a render, and
+ * hand `SESSION_ROW_SOURCES` to their own listener list. `useSessionRow` is the
+ * render-time face of the same thing, and it lives here rather than at the call
+ * site so "what the lookup reads" and "what a component subscribes to" cannot
+ * drift apart.
  */
 
+import { useStore } from '@/store/atom'
 import { $projectTree } from '@/store/projects'
 import { $pinnedSessionCache, $sessions, sessionMatchesStoredId } from '@/store/session'
 import type { SessionInfo } from '@/types/hermes'
 
-/** The atoms `sessionRowFor` reads. Pass these to a pane mirror's `also` (or
- *  subscribe to them in a component) so a title resolved through the wider
- *  lookup refreshes when a later source lands. */
+/** The atoms `sessionRowFor` reads. Pass these to a pane mirror's `also`, or to
+ *  a module-level listener list, so a title resolved through the wider lookup
+ *  refreshes when a later source lands. Components want `useSessionRow`. */
 export const SESSION_ROW_SOURCES = [$sessions, $pinnedSessionCache, $projectTree] as const
 
 /**
@@ -78,4 +84,29 @@ export function sessionRowFor(storedSessionId: null | string): null | SessionInf
   }
 
   return null
+}
+
+/**
+ * `sessionRowFor` as a hook — the row, and a subscription to every source it
+ * might have found it in.
+ *
+ * The subscription breadth is the whole point. A component that resolves a
+ * session through the wider lookup but subscribes only to `$sessions` renders
+ * correctly ONCE and then never updates when the pinned cache or the project
+ * tree lands — the fallback sources would be silently dead on any surface that
+ * mounts before them.
+ *
+ * The sources are destructured out of `SESSION_ROW_SOURCES` rather than
+ * imported again, so the tuple stays the one list. They are then subscribed
+ * INDIVIDUALLY and in a fixed order, because hooks cannot be called in a loop —
+ * add a source to the tuple and you must add a `useStore` here with it.
+ */
+export function useSessionRow(storedSessionId: null | string): null | SessionInfo {
+  const [recents, pinnedCache, projectTree] = SESSION_ROW_SOURCES
+
+  useStore(recents)
+  useStore(pinnedCache)
+  useStore(projectTree)
+
+  return sessionRowFor(storedSessionId)
 }

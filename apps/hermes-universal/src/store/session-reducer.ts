@@ -228,10 +228,49 @@ export function reduceSessionState(
       // Truthiness-gated (desktop parity): an empty cwd means "unknown", not
       // "detach the current one".
       return typeof payload.cwd === 'string' && payload.cwd ? { ...state, cwd: payload.cwd } : state
+    /**
+     * A clarify parks the agent in the backend's `_block` until
+     * `clarify.respond` lands, and the inline ClarifyTool normally mounts from
+     * the EARLIER `tool.start` row. When that row was missed — a stream
+     * reconnect, a hydration race, a background session whose slice was created
+     * by this very event — the sidebar said "needs input" and there was nowhere
+     * to render the question, so the turn was unanswerable and hung forever.
+     *
+     * Upsert a stable pending clarify row from the request itself, keyed on the
+     * REQUEST id. A real `tool.start`/`tool.complete` carrying the same id merges
+     * into it rather than duplicating (see lib/chat-tool-parts), which is why the
+     * synthetic row resolves on its own once the user answers. Desktop does the
+     * same in `use-message-stream/gateway-event.ts`.
+     */
+    case 'clarify.request': {
+      const requestId = coerceText(payload.request_id)
+      const question = coerceText(payload.question)
+
+      if (!requestId || !question) {
+        return { ...state, needsInput: true }
+      }
+
+      // Raw strings only; the panel normalizes at the render boundary
+      // (store/clarify.ts) and re-reads the store's copy in preference to these.
+      const choices = Array.isArray(payload.choices)
+        ? payload.choices.filter((choice): choice is string => typeof choice === 'string')
+        : []
+
+      return {
+        ...state,
+        needsInput: true,
+        messages: patchActive(state.messages, m => ({
+          ...m,
+          parts: upsertToolPart(
+            m.parts,
+            { args: { choices, question }, name: 'clarify', tool_id: requestId },
+            'running'
+          )
+        }))
+      }
+    }
 
     case 'approval.request':
-
-    case 'clarify.request':
 
     case 'sudo.request':
 

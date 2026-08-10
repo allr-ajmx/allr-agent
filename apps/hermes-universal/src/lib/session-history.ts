@@ -488,7 +488,16 @@ export function appendLiveSessionProjection(
 
   // Corrections sit between the original prompt and the reply they redirected —
   // the same place the live path inserts them (store/chat.ts redirectPrompt).
+  //
+  // Deduped against the transcript for the same reason `inflightUser` is: on a
+  // RECONNECT this projects onto a slice that already holds the corrections the
+  // user typed in this process, and re-appending them would render every
+  // correction a second time on each drop / re-open.
   corrections.forEach((correction, index) => {
+    if (userTurnAlreadyPersisted(messages, correction)) {
+      return
+    }
+
     projected.push({
       id: `user-inflight-correction-${index}-${sessionId}`,
       parts: [{ text: correction, type: 'text' }],

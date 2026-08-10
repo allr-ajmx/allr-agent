@@ -1769,6 +1769,7 @@ export const ja = defineLocale({
       needsInput: '入力が必要です',
       waitingForAnswer: '回答を待っています',
       finishedUnread: '完了 — 未読',
+      draftSession: '下書き — 未送信',
       handoffOrigin: platform => `${platform} から引き継ぎ`,
       renamed: '名前を変更しました',
       renameFailed: '名前の変更に失敗しました',
@@ -2430,6 +2431,7 @@ export const ja = defineLocale({
       loadingSession: 'セッションを読み込み中',
       showEarlier: '以前のメッセージを表示',
       loadingResponse: 'Hermes が応答を読み込み中',
+      compacting: 'スレッドを要約中',
       resumeWhenBackgroundDone: count =>
         count === 1
           ? 'バックグラウンドタスクの完了後に再開します'
@@ -2641,6 +2643,9 @@ export const ja = defineLocale({
     stopFailed: '停止に失敗しました',
     regenerateFailed: '再生成に失敗しました',
     editFailed: '編集に失敗しました',
+    restoreMissing: '復元するメッセージが見つかりません。',
+    restoreEmpty: '空のメッセージは復元できません。',
+    restoreNoSession: '復元できるアクティブなセッションがありません。',
     resumeFailed: '再開に失敗しました',
     resumeStrandedTitle: 'このセッションを読み込めませんでした',
     resumeStrandedBody:

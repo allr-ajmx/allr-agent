@@ -24,7 +24,7 @@
 
 import { requestGateway } from '@/store/gateway'
 import { knownSessionProfile, resolveSessionProfile, sessionProfileIsAmbiguous } from '@/store/session'
-import { aliasStoredSessionId } from '@/store/session-state-types'
+import { aliasStoredSessionId, rekeySession, runtimeKeyForStoredSession } from '@/store/session-state-types'
 
 /** Does this rejection mean "that runtime id no longer exists"? The gateway
  *  answers a dead runtime with a plain message, so this is a text test. */
@@ -60,11 +60,42 @@ export class SessionRecoveryAborted extends Error {
   }
 }
 
+/**
+ * THE default republish: move the recovered session's slice onto the runtime id
+ * the resume just handed back.
+ *
+ * This used to be `aliasStoredSessionId(storedSessionId, liveSessionId)`, which
+ * resolves the live id THROUGH the stored-id index — so it did something only in
+ * the one case where the fresh runtime id happened to already be indexed as a
+ * stored id, and was a silent no-op for every session that had actually been
+ * resumed (MJXHRM-308). The slice then stayed under its dead key while the event
+ * router addressed frames by the new one, and the session hung busy forever with
+ * no error and nothing to retry.
+ *
+ * A rekey is the correct move because it is the same one `ensureSession` makes
+ * for a draft: `store/session-state-types.ts` carries the stored-id aliases, the
+ * active pointer, and the keyed side-state (the in-flight turn, the blocking
+ * prompts) across in ONE atom write, so no subscriber ever sees the session under
+ * neither key. The alias remains the fallback for a session with no open slice —
+ * there is nothing to move, and the index entry is still worth having.
+ */
+export function republishRecoveredSession(storedSessionId: string, liveSessionId: string): void {
+  const key = runtimeKeyForStoredSession(storedSessionId)
+
+  if (key && key !== liveSessionId) {
+    rekeySession(key, liveSessionId, { runtimeSessionId: liveSessionId, storedSessionId })
+
+    return
+  }
+
+  aliasStoredSessionId(storedSessionId, liveSessionId)
+}
+
 export interface SessionRecoveryDeps {
-  /** Publish the fresh live id. The default aliases the stored id onto the live
-   *  session's state key so every surface reading through the index follows;
-   *  a caller holding its own hot ref must update that too, or the ref and the
-   *  atom point at different runtimes. */
+  /** Publish the fresh live id. The default rekeys the session's slice onto the
+   *  recovered runtime id (`republishRecoveredSession`) so every surface reading
+   *  through the index follows; a caller holding its own hot ref must update that
+   *  too, or the ref and the atom point at different runtimes. */
   onRecovered?: (liveSessionId: string) => void
   /** Non-null reason ⇒ abort instead of retrying. Evaluated AFTER the resume and
    *  BEFORE the retry, because the resume is the slow await. */
@@ -140,9 +171,9 @@ export async function withSessionNotFoundResume<T>(
       throw new SessionRecoveryAborted(drift, recoveredId)
     }
 
-    // Default publish: point the stored id at the live session's slice so the
-    // state map, and everything reading through it, follows the new runtime.
-    ;(deps.onRecovered ?? (live => aliasStoredSessionId(storedSessionId, live)))(recoveredId)
+    // Default publish: move the slice onto the live runtime id so the state map,
+    // and everything reading through it, follows the new runtime.
+    ;(deps.onRecovered ?? (live => republishRecoveredSession(storedSessionId, live)))(recoveredId)
 
     return { recovered: true, result: await call(recoveredId), sessionId: recoveredId }
   }

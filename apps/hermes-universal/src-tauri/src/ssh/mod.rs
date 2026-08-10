@@ -1516,6 +1516,11 @@ mod tests {
         // Android does have a HOME, but it is an app-private sandbox with no
         // ~/.ssh in it; pretending otherwise would send the config reader and the
         // known-hosts store somewhere meaningless.
+        //
+        // `home_dir()` reads $HOME, which other tests in this crate rewrite, so
+        // take the crate-wide env lock before asserting on it.
+        let _guard = crate::test_env::env_lock();
+
         if cfg!(target_os = "android") || cfg!(target_os = "ios") {
             assert!(home_dir().is_none());
         } else {

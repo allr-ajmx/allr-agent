@@ -55,7 +55,6 @@ import {
 import { startNewSession, startNewSessionTab } from '@/store/new-session'
 import { $reviewOpen, closeReview, REVIEW_PANE_ID } from '@/store/review'
 import { $activeStoredSessionId, openSession, setBranchedSessionOpener } from '@/store/session'
-import { $sessionColorById, sessionColorFor } from '@/store/session-color'
 import { SESSION_ROW_SOURCES, sessionRowFor } from '@/store/session-lookup'
 import {
   $focusedChatPane,
@@ -71,6 +70,7 @@ import { $effectiveCwd, ensureWorkspaceCwd } from '@/store/workspace-events'
 
 import { watchPreviewTiles } from '../chat/preview-tile'
 import { watchRouteTiles } from '../chat/route-tile'
+import { SessionStatusDot } from '../chat/session-status-dot'
 import {
   SessionTileCloseConfirm,
   stackSessionTilesIntoMain,
@@ -415,9 +415,11 @@ const syncWorkspaceTitle = () => {
     title: page ?? (stored ? storedSessionTitle(stored) : selected ? translateNow('common.loading') : 'New session'),
     placement: 'main',
     chrome: {
-      // The tab's lead dot — same shared map the sidebar row reads, so the main
-      // tab and its sidebar row always show the same color.
-      accent: sessionColorFor(stored),
+      // The tab's lead dot — the SAME component the sidebar row, the switcher
+      // and the mobile bubble strip render, so the main tab can never disagree
+      // with them about a session's colour OR its status. It subscribes for
+      // itself, so a turn starting no longer re-registers this tile.
+      tabLead: () => <SessionStatusDot session={stored} storedSessionId={selected} />,
       linkTarget: true,
       tabWrap: wrapWorkspaceTab,
       uncloseable: true
@@ -432,7 +434,9 @@ $activeStoredSessionId.listen(syncWorkspaceTitle)
 // Every source the wider lookup reads, so a tab that resolved through the
 // pinned cache or the project tree retitles when the real row arrives.
 SESSION_ROW_SOURCES.forEach(source => source.listen(syncWorkspaceTitle))
-$sessionColorById.listen(syncWorkspaceTitle)
+// No `$sessionColorById` listener: the lead dot resolves colour AND status for
+// itself, so a project recolour repaints the dot without re-registering the
+// tile (which invalidates the whole tree).
 $workspacePage.listen(syncWorkspaceTitle)
 
 // Typing lands in the chat you are LOOKING at. The focus bus resolves `'active'`
