@@ -747,6 +747,8 @@ export const en: Translations = {
       saveAndReconnect: 'Save and reconnect',
       diagnostics: 'Diagnostics',
       diagnosticsDesc: 'Connection status and recent gateway logs — useful when the gateway misbehaves.',
+      configFloorWarning: (version, floor) =>
+        `Config v${version} predates the v${floor} support floor and no longer migrates automatically. Back up config.yaml in the Hermes home above and run \`hermes setup\` to regenerate, or set _config_version: ${floor} after reviewing the changelog.`,
       openLogs: 'Open logs',
       incompleteTitle: 'Remote gateway incomplete',
       incompleteSignIn: 'Enter a remote URL and sign in before switching to remote.',

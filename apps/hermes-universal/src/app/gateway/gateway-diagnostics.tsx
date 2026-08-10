@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import { LogView } from '@/components/ui/log-view'
 import { getLogs, getStatus } from '@/hermes'
 import { useI18n } from '@/i18n'
-import { Loader2, RefreshCw } from '@/lib/icons'
+import { AlertCircle, Loader2, RefreshCw } from '@/lib/icons'
 import { LOG_NOISE_RE, trimLogLine } from '@/lib/log-format'
 import { openSystemScreen } from '@/store/windows'
 import type { StatusResponse } from '@/types/hermes'
@@ -18,6 +18,33 @@ import type { StatusResponse } from '@/types/hermes'
 
 const LOG_LINES = 120
 const LOG_VISIBLE = 40
+
+/**
+ * The oldest config schema the backend still auto-migrates
+ * (`hermes_cli/config_migrations.py` `SUPPORT_FLOOR_VERSION`). Below it the
+ * v4/v5/v9 migration steps are gone: the config loads byte-for-byte untouched
+ * and the only warning goes to the backend's stderr, which nobody running the
+ * GUI will ever read. Things then quietly do not work, with no explanation.
+ *
+ * Duplicated as a literal because `/api/status` ships `config_version` and
+ * `latest_config_version` but NOT `support_floor_message()`.
+ */
+const CONFIG_SUPPORT_FLOOR = 12
+
+/**
+ * Mirror of the backend's `floor_refused` gate — with one deliberate gap.
+ *
+ * `check_config_version()` coerces a MISSING `_config_version` key to 0, and the
+ * backend exempts exactly that case: a fresh minimal or cloned config is not an
+ * ancient install, so it migrates normally. Over HTTP the two are
+ * indistinguishable — both arrive as `config_version: 0`. So 0 is read as "no
+ * explicit version" and never warned about; a false alarm on every hand-written
+ * config would be worse than missing a literal `_config_version: 0`, which
+ * nobody writes (the coercion also lands garbage and booleans there).
+ */
+function isBelowConfigSupportFloor(status: StatusResponse): boolean {
+  return status.config_version > 0 && status.config_version < CONFIG_SUPPORT_FLOOR
+}
 
 export function GatewayDiagnostics() {
   const { t } = useI18n()
@@ -76,6 +103,12 @@ export function GatewayDiagnostics() {
           <div className="mt-1 font-mono text-[0.68rem] text-muted-foreground/60">
             {status.hermes_home} · config v{status.config_version}
           </div>
+          {isBelowConfigSupportFloor(status) ? (
+            <div className="mt-2 flex items-start gap-2 rounded-md bg-(--ui-warning-bg) px-3 py-2 text-xs text-(--ui-warning-text)">
+              <AlertCircle className="mt-0.5 size-3.5 shrink-0" />
+              <span>{g.configFloorWarning(status.config_version, CONFIG_SUPPORT_FLOOR)}</span>
+            </div>
+          ) : null}
         </div>
       ) : null}
 

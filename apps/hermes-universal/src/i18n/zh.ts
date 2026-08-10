@@ -926,6 +926,8 @@ export const zh: Translations = {
       saveAndReconnect: '保存并重连',
       diagnostics: '诊断',
       diagnosticsDesc: '连接状态和最近的网关日志 — 网关异常时很有用。',
+      configFloorWarning: (version, floor) =>
+        `配置 v${version} 早于受支持的下限 v${floor}，已不再自动迁移。请备份上方 Hermes 主目录中的 config.yaml 并运行 \`hermes setup\` 重新生成，或在查阅变更日志后设置 _config_version: ${floor}。`,
       openLogs: '打开日志',
       incompleteTitle: '远程网关配置不完整',
       incompleteSignIn: '切换到远程前，请输入远程 URL 并完成登录。',

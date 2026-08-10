@@ -372,6 +372,12 @@ export interface SessionInfo {
   output_tokens: number
   /** Parent conversation when this row is a /branch fork. */
   parent_session_id?: null | string
+  /** The backend's DURABLE pin flag (`sessions.pinned`) — distinct from
+   *  universal's own localStorage pin list in `store/layout.ts`, which never
+   *  reaches the server. It is the reason a row can arrive PAST the requested
+   *  `limit`: the list endpoints back-fill pinned conversations the page window
+   *  left out, and `hermes.ts` keeps those rows rather than trimming them. */
+  pinned?: boolean
   preview: null | string
   source: null | string
   started_at: number

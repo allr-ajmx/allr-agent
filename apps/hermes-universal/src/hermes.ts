@@ -272,6 +272,28 @@ export async function pluginRest<T>(pluginId: string, path: string, opts: Plugin
  *  module because it needs a store import this file deliberately avoids. */
 export { pluginPathSuffix }
 
+/**
+ * Trim a page to its window WITHOUT discarding pinned rows.
+ *
+ * Both list endpoints pass `include_pinned=True`, which deliberately back-fills
+ * pinned conversations PAST the LIMIT and appends them after the recency window
+ * (`hermes_state.py` `list_sessions_rich`). A pin means "always reachable", so
+ * an aged-out pinned chat arriving past `limit` is the contract working, not a
+ * paging accident — and a plain `slice(0, limit)` threw exactly those rows away
+ * again, since they are precisely the ones at the tail.
+ *
+ * Ported from apps/desktop/src/hermes.ts `pageWindow`.
+ */
+function pageWindow(sessions: SessionInfo[], limit: number): SessionInfo[] {
+  if (sessions.length <= limit) {
+    return sessions
+  }
+
+  const recent = sessions.slice(0, limit)
+
+  return [...recent, ...sessions.slice(limit).filter(session => session.pinned)]
+}
+
 export async function listSessions(
   limit = 40,
   minMessages = 0,
@@ -290,7 +312,7 @@ export async function listSessions(
 
   return {
     ...result,
-    sessions: result.sessions.slice(0, limit),
+    sessions: pageWindow(result.sessions, limit),
     offset: from
   }
 }
@@ -343,7 +365,7 @@ export async function listAllProfileSessions(
 
   return {
     ...result,
-    sessions: result.sessions.slice(0, limit),
+    sessions: pageWindow(result.sessions, limit),
     offset: from
   }
 }

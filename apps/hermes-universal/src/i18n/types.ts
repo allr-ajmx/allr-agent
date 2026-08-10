@@ -641,6 +641,7 @@ export interface Translations {
       saveAndReconnect: string
       diagnostics: string
       diagnosticsDesc: string
+      configFloorWarning: (version: number, floor: number) => string
       openLogs: string
       incompleteTitle: string
       incompleteSignIn: string
