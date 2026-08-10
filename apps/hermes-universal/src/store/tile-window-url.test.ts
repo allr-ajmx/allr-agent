@@ -114,3 +114,41 @@ describe('detachedTileId', () => {
     expect((await load()).detachedTileId()).toBeNull()
   })
 })
+
+/**
+ * MJXHRM-420: an activity window shares this origin's localStorage, so it must
+ * not write the primary window's layout/tiles/bubbles — but it still reads
+ * them, because exporting a profile from the Profiles activity bundles the
+ * layout tree and on Android that screen is the only way to do it.
+ */
+describe('ownsPersistedAppState', () => {
+  it('is true in the primary window', async () => {
+    atSearch('')
+
+    const windows = await load()
+    expect(windows.ownsPersistedAppState()).toBe(true)
+    expect(windows.isSecondaryWindow()).toBe(false)
+  })
+
+  it('is false in an activity window, which still reads as non-secondary', async () => {
+    atSearch('?win=activity')
+
+    const windows = await load()
+    expect(windows.isActivityWindow()).toBe(true)
+    // The read gate stays open — only writes are withheld.
+    expect(windows.isSecondaryWindow()).toBe(false)
+    expect(windows.ownsPersistedAppState()).toBe(false)
+  })
+
+  it('is false in a tile window', async () => {
+    atSearch('?win=tile&tile=terminal')
+
+    expect((await load()).ownsPersistedAppState()).toBe(false)
+  })
+
+  it('is false in the legacy secondary pop-out', async () => {
+    atSearch('?win=secondary')
+
+    expect((await load()).ownsPersistedAppState()).toBe(false)
+  })
+})

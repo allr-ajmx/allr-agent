@@ -83,6 +83,27 @@ export function isSecondaryWindow(): boolean {
   return isTileWindow() || isSatelliteWindow()
 }
 
+/**
+ * Whether this window may WRITE the app's persisted state (MJXHRM-420).
+ *
+ * Wider than `isSecondaryWindow()` by exactly one case: the native activity
+ * screens. Windows of one origin share `localStorage`, so an activity window —
+ * which reads `isSecondaryWindow() === false`, because it is neither a tile nor
+ * a satellite — was free to write the layout tree, the session tiles, the chat
+ * bubbles and the last-session marker over the real window's. It hosts
+ * Settings / Command Center / Profiles / Cron and has no layout of its own, so
+ * every such write is someone else's state being clobbered.
+ *
+ * Deliberately NOT folded into `isSecondaryWindow()`. That predicate also gates
+ * the initial READ of those atoms, and an activity window still wants to read:
+ * exporting a profile from the Profiles screen bundles `$layoutTree`, and on
+ * Android that screen is the only way to do it — so blanking the read would
+ * export an empty layout every time. Read as primary, write as nobody.
+ */
+export function ownsPersistedAppState(): boolean {
+  return !isSecondaryWindow() && !isActivityWindow()
+}
+
 // --------------------------------------------------------------------------
 // Activity screens (MJX-141 Android / MJX-176 iOS). Windowable surfaces (Settings,
 // Command Center, Profiles, Cron) open in ONE native screen activity / scene — a separate
