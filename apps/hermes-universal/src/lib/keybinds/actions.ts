@@ -30,6 +30,13 @@ export interface KeybindActionMeta {
   defaults: readonly string[]
   /** Display label for CONTRIBUTED actions (built-ins use i18n). */
   label?: string
+  /**
+   * Claim this action's combo from the OPERATING SYSTEM, so it fires while
+   * Hermes is in the background (`lib/keybinds/global-shortcut.ts`). Desktop
+   * only, and exclusive machine-wide — which is exactly why it goes through this
+   * registry: a chord taken from every other app has to be rebindable.
+   */
+  global?: boolean
 }
 
 // Positional switch slots for *named* profiles: ⌘1…⌘9 for profiles 1-9, then
@@ -144,6 +151,16 @@ export const KEYBIND_ACTIONS: readonly KeybindActionMeta[] = [
   { id: 'view.closeTab', category: 'view', defaults: ['mod+w'] },
   { id: 'view.reopenTab', category: 'view', defaults: ['mod+shift+t'] },
   { id: 'appearance.toggleMode', category: 'view', defaults: ['shift+x'] },
+  // Summon the HUD — the floating second surface (MJXHRM-213). `global` claims
+  // the chord from the OS so it answers from inside another application, which
+  // is the entire point of that surface.
+  //
+  // Shipped UNBOUND on purpose: this wave landed the substrate (the window
+  // lifecycle + the OS-hotkey registrar), not the surface, and a default chord
+  // taken from every other app on the machine has to buy something. SE-J gives
+  // it a default when there is a HUD to summon; until then a user can still
+  // assign one from the shortcuts panel and watch it work.
+  { id: 'view.toggleHud', category: 'view', defaults: [], global: true },
   { id: 'keybinds.openPanel', category: 'view', defaults: ['mod+/'] }
 ]
 
@@ -188,6 +205,11 @@ export function allKeybindActions(): KeybindActionMeta[] {
       label: k.label
     }))
   ]
+}
+
+/** The actions whose combos are claimed from the OS rather than the DOM. */
+export function globalKeybindActions(): KeybindActionMeta[] {
+  return allKeybindActions().filter(action => action.global)
 }
 
 export function keybindAction(id: string): KeybindActionMeta | undefined {

@@ -273,6 +273,7 @@ export const en: Translations = {
       'session.togglePin': 'Pin / unpin current session',
       'workspace.newWorktree': 'New worktree',
       'workspace.openFolder': 'Open folder as project',
+      'view.toggleHud': 'Toggle HUD window',
       'composer.focus': 'Focus composer',
       'composer.modelPicker': 'Open model picker',
       'composer.voice': 'Start / stop voice conversation',

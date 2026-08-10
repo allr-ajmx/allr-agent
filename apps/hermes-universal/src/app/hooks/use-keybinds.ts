@@ -11,6 +11,7 @@ import { onReleaseTypingFocus } from '@/components/ui/keyboard-first'
 import { contributedKeybindHandler, PROFILE_SLOT_COUNT, SESSION_SLOT_COUNT } from '@/lib/keybinds/actions'
 import { comboAllowedInInput, comboFromEvent, isEditableTarget, isShiftPrintableCombo } from '@/lib/keybinds/combo'
 import { composerFocusKeysAllowed, isComposerFocusSoftCombo, typeToFocusChar } from '@/lib/keybinds/composer-focus-keys'
+import { setGlobalShortcutDispatch, startGlobalShortcuts } from '@/lib/keybinds/global-shortcut'
 import { storedIdFromTilePane } from '@/lib/pane-ids'
 import { openWorktreeDialog } from '@/store/coding-status'
 import { toggleCommandPalette } from '@/store/command-palette'
@@ -51,7 +52,7 @@ import {
 } from '@/store/session-switcher'
 import { toggleStatusbarVisible } from '@/store/statusbar-prefs'
 import { closeActiveTerminal, createTerminal, cycleTerminal } from '@/store/terminals'
-import { openAppRoute, openNewWindow } from '@/store/windows'
+import { HUD_SATELLITE, openAppRoute, openNewWindow, toggleSatelliteWindow } from '@/store/windows'
 import { useTheme } from '@/themes/context'
 
 import { requestComposerFocus, requestVoiceToggle } from '../chat/composer/focus'
@@ -252,6 +253,11 @@ export function useKeybinds(deps: KeybindRuntimeDeps): void {
     'view.reopenTab': reopenLastClosedTile,
 
     'appearance.toggleMode': () => setMode(resolvedMode === 'dark' ? 'light' : 'dark'),
+    // Summon/dismiss the floating HUD window. Shipped unbound (see actions.ts) —
+    // MJXHRM-213 renders the surface and gives it a default chord. The lifecycle
+    // is already whole: opening twice focuses, closing the main window takes it
+    // down with it.
+    'view.toggleHud': () => void toggleSatelliteWindow(HUD_SATELLITE),
 
     'profile.default': switchToDefaultProfile,
     ...profileSwitchHandlers,
@@ -280,6 +286,16 @@ export function useKeybinds(deps: KeybindRuntimeDeps): void {
       ),
     []
   )
+
+  // OS-level hotkeys go through the same handler map as the in-app ones — an
+  // action's behaviour must not depend on which side of the window boundary the
+  // keypress came from. Only the CLAIM differs, and that lives in
+  // `lib/keybinds/global-shortcut.ts`.
+  useEffect(() => {
+    setGlobalShortcutDispatch(actionId => handlersRef.current[actionId]?.())
+
+    return startGlobalShortcuts()
+  }, [])
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
