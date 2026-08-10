@@ -221,7 +221,6 @@ function SidebarSessionRowImpl({
               ariaLabel={`${r.rename} ${title}`}
               dragging={dragging}
               dragHandleProps={dragHandleProps}
-              leadClassName={needsInput ? 'overflow-visible' : undefined}
             >
               <SessionStatusDot
                 branchStem={branchStem}
@@ -231,7 +230,7 @@ function SidebarSessionRowImpl({
               />
             </SidebarRowGrab>
           ) : (
-            <SidebarRowLead className={needsInput ? 'overflow-visible' : 'overflow-hidden'}>
+            <SidebarRowLead className="overflow-hidden">
               <SessionStatusDot branchStem={branchStem} session={session} storedSessionId={session.id} />
             </SidebarRowLead>
           )}
