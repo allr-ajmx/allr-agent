@@ -42,6 +42,10 @@ export interface ChatMessage {
   parts: ChatPart[]
   /** Assistant message is still streaming. */
   pending?: boolean
+  /** Sealed mid-turn commentary (`message.interim`) — rendered without the
+   *  action-bar footer, so a turn that narrates itself across several
+   *  paragraphs doesn't grow a copy/read-aloud row under each one. */
+  interim?: boolean
   error?: string
 }
 

@@ -22,6 +22,8 @@ function convertMessage(message: ChatMessage): ThreadMessageLike {
     id: message.id,
     role: message.role,
     content: message.parts as ThreadMessageLike['content'],
+    // Carries ChatMessage.interim to AssistantMessage's footer gate.
+    ...(message.interim ? { metadata: { custom: { interim: true } } } : {}),
     status:
       message.role === 'assistant'
         ? message.error
