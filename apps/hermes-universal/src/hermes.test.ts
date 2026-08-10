@@ -6,9 +6,11 @@ import { api } from '@/lib/api'
 import type { SessionInfo } from '@/types/hermes'
 
 import {
+  getAutomationBlueprints,
   getHermesConfig,
   getSession,
   getStatus,
+  instantiateAutomationBlueprint,
   listAllProfileSessions,
   listSessions,
   saveHermesConfig
@@ -41,6 +43,38 @@ describe('hermes REST client', () => {
   it('saveHermesConfig → PUT /api/config with a body', async () => {
     await saveHermesConfig({ x: 1 })
     expect(mockApi).toHaveBeenCalledWith(expect.objectContaining({ path: '/api/config', method: 'PUT' }))
+  })
+})
+
+// The catalog GET is global; instantiate names the profile it WRITES the job to
+// (the backend defaults that query param to "default", which is not the same as
+// the caller's active profile) — so the two calls must not be symmetrical.
+describe('automation blueprints', () => {
+  it('getAutomationBlueprints → GET /api/cron/blueprints, unscoped', async () => {
+    mockApi.mockResolvedValueOnce({ blueprints: [] })
+    await getAutomationBlueprints()
+
+    expect(mockApi).toHaveBeenCalledWith(expect.objectContaining({ path: '/api/cron/blueprints' }))
+  })
+
+  it('instantiateAutomationBlueprint → POST with the blueprint key, values and target profile', async () => {
+    await instantiateAutomationBlueprint({ blueprint: 'daily-brief', values: { time: '08:00' } }, 'work')
+
+    expect(mockApi).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: { blueprint: 'daily-brief', values: { time: '08:00' } },
+        method: 'POST',
+        path: '/api/cron/blueprints/instantiate?profile=work'
+      })
+    )
+  })
+
+  it('encodes a profile name that needs it', async () => {
+    await instantiateAutomationBlueprint({ blueprint: 'x', values: {} }, 'my profile')
+
+    expect(mockApi).toHaveBeenCalledWith(
+      expect.objectContaining({ path: '/api/cron/blueprints/instantiate?profile=my%20profile' })
+    )
   })
 })
 

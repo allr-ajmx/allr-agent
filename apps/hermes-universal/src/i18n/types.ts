@@ -1488,6 +1488,16 @@ export interface Translations {
     scriptOnlyEditHint: string
     saveChanges: string
     createAction: string
+    // Automation Blueprints — the create dialog's "Start from" gallery and the
+    // typed-slot form it swaps in.
+    blueprints: {
+      startFrom: string
+      custom: string
+      scheduleIt: string
+      scheduling: string
+      scheduled: string
+      failedLoad: string
+    }
   }
 
   artifacts: {

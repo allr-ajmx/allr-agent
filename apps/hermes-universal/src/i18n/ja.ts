@@ -1615,7 +1615,15 @@ export const ja = defineLocale({
     scheduleRequired: 'スケジュールは必須です。',
     scriptOnlyEditHint: 'スクリプトのみのジョブ（AI プロンプトなし）。ジョブ ID:',
     saveChanges: '変更を保存',
-    createAction: 'Cron を作成'
+    createAction: 'Cron を作成',
+    blueprints: {
+      startFrom: 'ここから開始',
+      custom: 'カスタム',
+      scheduleIt: 'スケジュールする',
+      scheduling: 'スケジュール中...',
+      scheduled: 'ブループリントをスケジュールしました',
+      failedLoad: 'ブループリントの読み込みに失敗しました'
+    }
   },
 
   artifacts: {

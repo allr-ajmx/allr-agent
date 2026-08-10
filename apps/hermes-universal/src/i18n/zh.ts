@@ -1943,7 +1943,15 @@ export const zh: Translations = {
     scheduleRequired: '排程为必填项。',
     scriptOnlyEditHint: '仅脚本任务（无 AI 提示词）。任务 ID：',
     saveChanges: '保存更改',
-    createAction: '创建定时任务'
+    createAction: '创建定时任务',
+    blueprints: {
+      startFrom: '从此开始',
+      custom: '自定义',
+      scheduleIt: '安排任务',
+      scheduling: '安排中…',
+      scheduled: '蓝图已安排',
+      failedLoad: '加载蓝图失败'
+    }
   },
 
   artifacts: {
