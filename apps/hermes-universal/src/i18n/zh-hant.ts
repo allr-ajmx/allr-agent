@@ -289,7 +289,19 @@ export const zhHant = defineLocale({
       sourceNone: '沒有可用的外掛資料夾',
       gatewayDoor: '從已連線的後端載入外掛',
       gatewayDoorHint: '來自後端的外掛程式碼擁有與應用程式本身相同的權限。',
-      gatewayDoorUnavailable: '此後端未報告外掛資料夾。'
+      gatewayDoorUnavailable: '此後端未報告外掛資料夾。',
+      agent: {
+        title: '代理外掛',
+        blurb:
+          '執行於 Hermes 後端——工具、技能、MCP 伺服器、掛鉤與斜線指令。「可攜」外掛是 Agent Plugins 標準套件（技能 + MCP 組合，也可在其他代理中使用）。開關於新工作階段生效。',
+        empty: '尚未安裝代理外掛。',
+        loadFailed: '無法載入代理外掛',
+        portable: '可攜',
+        search: '搜尋外掛…',
+        noMatches: '沒有符合的外掛。',
+        toggleFailed: (name: string) => `無法切換 ${name}`,
+        sources: { bundled: '內建', entrypoint: 'pip', git: 'git', project: '專案', user: '使用者' }
+      }
     },
     notifications: {
       title: '通知',
@@ -373,6 +385,12 @@ export const zhHant = defineLocale({
       uiScaleTitle: '介面縮放',
       uiScaleDesc: (percent: number) =>
         `縮放整個應用程式的文字與介面。也可使用 Cmd/Ctrl 加 +、- 或 0 調整。目前：${percent}%`,
+      terminalFontTitle: '終端機字型',
+      terminalFontDesc:
+        '選擇已安裝的字型用於整合終端機。Nerd Font 可正確顯示 Powerlevel10k 與 Shell 圖示；留空則使用內建的 JetBrains Mono。',
+      terminalFontPlaceholder: 'MesloLGS NF 或 CSS 字型堆疊',
+      terminalFontPreview: '字形預覽',
+      terminalFontReset: '使用預設字型',
       translucencyTitle: '視窗透明',
       translucencyDesc: '讓整個視窗透出桌面。僅支援 macOS 與 Windows。',
       embedsTitle: '內嵌預覽',
