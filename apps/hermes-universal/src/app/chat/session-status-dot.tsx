@@ -21,47 +21,49 @@ type DotVariant = {
 }
 
 // Shared base for every active dot; idle is smaller and uses its own class.
-const DOT_BASE = 'relative size-1.5 rounded-full'
+const DOT_BASE = 'size-1.5 rounded-full'
 
-// Pseudo-element ping ring that scales outward and fades — shared scaffold for
-// the two pulsing dots. The `before:bg-*` color is written inline per variant
-// (NOT interpolated here): Tailwind only generates utilities it can see as
-// complete static strings, so a `before:bg-${color}` template never emits.
-const PING = "before:absolute before:inset-0 before:animate-ping before:rounded-full before:content-['']"
-
+// Three colors and one fill/hollow axis, none of it moving. Motion on a 6px
+// circle can only say "something is happening" — which the row's arc already
+// says, better — while costing a repaint per frame on every row at once. What
+// the dot is for is telling states APART, and that is a job for color and fill:
+// filled means producing, hollow means open but quiet.
 const DOT_VARIANTS: Record<SessionDotState, DotVariant> = {
-  // Amber steady — a clarify/approval is blocking the turn. Steady (not
-  // pulsing) reads as "your turn", distinct from the accent pulse of a turn.
+  // Amber — a clarify/approval is blocking the turn. The one "act now" color,
+  // and the only state the user is required to do something about.
   'needs-input': {
     ariaLabel: r => r.needsInput,
-    className: `${DOT_BASE} quest-glow bg-amber-500`,
+    className: `${DOT_BASE} bg-amber-500`,
     role: 'status',
     title: r => r.waitingForAnswer
   },
-  // Accent pulse — the LLM turn is actively running.
+  // Accent — the turn is running. The row's arc carries the motion.
   working: {
     ariaLabel: r => r.sessionRunning,
-    className: `${DOT_BASE} bg-(--ui-accent) shadow-[0_0_0.625rem_color-mix(in_srgb,var(--ui-accent)_55%,transparent)] ${PING} before:bg-(--ui-accent) before:opacity-70`,
+    className: `${DOT_BASE} bg-(--ui-accent)`,
     role: 'status'
   },
-  // Quiet accent pulse — the turn is still authoritative-running, but no
-  // stream activity has arrived for the watchdog window.
+  // Hollow accent — still authoritatively running, but nothing has arrived for
+  // the watchdog window. Same color as working because it IS working; hollow
+  // because nothing is coming out of it right now.
   stalled: {
     ariaLabel: r => r.sessionRunning,
-    className: `${DOT_BASE} bg-(--ui-accent) opacity-70 ${PING} before:bg-(--ui-accent) before:opacity-40`,
+    className: `${DOT_BASE} border border-(--ui-accent)`,
     role: 'status',
     title: r => r.sessionRunning
   },
-  // Steady green — a background session's turn completed and the user hasn't
-  // opened it since. "Something new here, go look."
+  // Emerald — the turn finished while the user was looking elsewhere.
   unread: {
     ariaLabel: r => r.finishedUnread,
     className: `${DOT_BASE} bg-emerald-500`,
     role: 'status',
     title: r => r.finishedUnread
   },
+  // Settled: the project color, or nothing at all. An uncolored session used to
+  // get a grey dot, which put a mark of the same weight as a status next to
+  // every resting row and made "no color" look like a state of its own.
   idle: {
-    className: 'size-1 rounded-full bg-(--ui-text-quaternary) opacity-80'
+    className: 'size-1 rounded-full'
   }
 }
 
@@ -117,6 +119,7 @@ export function SessionStatusDot({ storedSessionId, session, branchStem, classNa
   const isUnread = useStoreSelector($unreadFinishedSessionIds, ids => ids.includes(storedSessionId))
 
   const dotState = sessionDotState({ isStalled, isUnread, isWorking, needsInput })
+  const variant = DOT_VARIANTS[dotState]
 
   return (
     <span className={cn('flex items-center gap-0.5', className)}>
@@ -125,14 +128,17 @@ export function SessionStatusDot({ storedSessionId, session, branchStem, classNa
           {branchStem}
         </span>
       ) : null}
-      {dotState === 'idle' && color ? (
-        <span aria-hidden="true" className="size-1 rounded-full" style={{ backgroundColor: color }} />
+      {dotState === 'idle' ? (
+        // Rendered even with no color to paint: an empty dot of the same size
+        // keeps every row's title on one left edge, so a session finishing
+        // can't shift the list under the pointer.
+        <span aria-hidden="true" className={variant.className} style={color ? { backgroundColor: color } : undefined} />
       ) : (
         <span
-          aria-label={DOT_VARIANTS[dotState].ariaLabel?.(r)}
-          className={DOT_VARIANTS[dotState].className}
-          role={DOT_VARIANTS[dotState].role}
-          title={DOT_VARIANTS[dotState].title?.(r)}
+          aria-label={variant.ariaLabel?.(r)}
+          className={variant.className}
+          role={variant.role}
+          title={variant.title?.(r)}
         />
       )}
     </span>

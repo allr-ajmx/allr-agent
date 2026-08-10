@@ -13,6 +13,7 @@ import {
   SiWhatsapp
 } from '@icons-pack/react-simple-icons'
 import type { ComponentType, SVGProps } from 'react'
+import { memo } from 'react'
 
 import { Globe, Link as LinkIcon, MessageSquareText } from '@/lib/icons'
 import { cn } from '@/lib/utils'
@@ -88,7 +89,14 @@ interface PlatformAvatarProps {
   className?: string
 }
 
-export function PlatformAvatar({ className, platformId, platformName }: PlatformAvatarProps) {
+/** Memoized (desktop parity): every prop is a string, and the avatar is list
+ *  rendered — once per messaging platform in the sidebar group headers and the
+ *  platform table — so it holds cleanly whenever the list re-renders around it. */
+export const PlatformAvatar = memo(function PlatformAvatar({
+  className,
+  platformId,
+  platformName
+}: PlatformAvatarProps) {
   const spec = PLATFORM_ICONS[platformId]
 
   const baseClass = cn(
@@ -120,7 +128,7 @@ export function PlatformAvatar({ className, platformId, platformName }: Platform
       {Icon ? <Icon className="size-3.5" /> : spec.monogram || platformName.charAt(0).toUpperCase()}
     </span>
   )
-}
+})
 
 interface PlatformGlyphProps {
   platformId: string

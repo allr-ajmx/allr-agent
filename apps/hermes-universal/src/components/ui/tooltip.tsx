@@ -5,6 +5,10 @@ import { useI18n } from '@/i18n'
 import { useKeybindHint } from '@/lib/keybinds/use-keybind-hint'
 import { cn } from '@/lib/utils'
 
+/** True inside `RootTooltipProvider`. `TooltipScope` reads it to decide whether
+ *  a subtree still needs a provider of its own — see the note on `Tip`. */
+const HasTooltipProvider = React.createContext(false)
+
 function TooltipProvider({
   delayDuration = 0,
   // Tips are labels, not interactive surfaces. Hoverable content + Radix's
@@ -104,22 +108,66 @@ interface TipProps extends Omit<React.ComponentProps<typeof TooltipPrimitive.Con
   delayDuration?: number
 }
 
+/** Supplies a `TooltipProvider` only where one is missing. Inside the app that
+ *  is never — `RootTooltipProvider` covers the whole tree — so this collapses to
+ *  a passthrough and the Radix provider subtree disappears from the hot path.
+ *  Outside it (every unit test, and any surface mounted off the app root) Radix
+ *  would throw "`Tooltip` must be used within `TooltipProvider`", so the local
+ *  provider is still there as a fallback. */
+function TooltipScope({ children, delayDuration = 0 }: { children: React.ReactNode; delayDuration?: number }) {
+  const provided = React.useContext(HasTooltipProvider)
+
+  if (provided) {
+    return <>{children}</>
+  }
+
+  return (
+    <TooltipProvider delayDuration={delayDuration} disableHoverableContent>
+      {children}
+    </TooltipProvider>
+  )
+}
+
 // Drop-in replacement for native `title=`: wrap any single element. Instant,
-// position-aware, themed. Self-contained (carries its own Provider) so it works
-// anywhere without a provider ancestor. Renders the child untouched when label
-// is falsy. Open state is trigger-hover only — never sticky, never click-blocking.
+// position-aware, themed. Renders the child untouched when label is falsy.
+// Open state is trigger-hover only — never sticky, never click-blocking.
+//
+// NO per-instance `TooltipProvider` inside the app. There are ~100 `Tip` call
+// sites, and each private provider is another subtree that re-renders whenever
+// anything above it does. Measured on desktop with the same shape, on a sash
+// drag with five mounted tiles: 52,784 TooltipProvider renders and 18.3s of
+// component time in a single gesture.
+//
+// Radix's provider holds only refs and stable callbacks (no reactive state), so
+// hoisting one to the app root is exactly what it is designed for — see
+// `RootTooltipProvider`, mounted in main.tsx. `Tooltip` still reads
+// `delayDuration`/`disableHoverableContent` from context, and the per-Tip
+// overrides below keep the previous behaviour for anything that passed them.
 function Tip({ label, children, delayDuration = 0, ...props }: TipProps) {
   if (!label) {
     return <>{children}</>
   }
 
   return (
-    <TooltipProvider delayDuration={delayDuration} disableHoverableContent>
-      <Tooltip disableHoverableContent>
+    <TooltipScope delayDuration={delayDuration}>
+      <Tooltip delayDuration={delayDuration} disableHoverableContent>
         <TooltipTrigger asChild>{children}</TooltipTrigger>
         <TooltipContent {...props}>{label}</TooltipContent>
       </Tooltip>
-    </TooltipProvider>
+    </TooltipScope>
+  )
+}
+
+/** The app's single tooltip provider. Mounted once at the root so no `Tip` and
+ *  no hand-composed `Tooltip` needs one of its own. Defaults match what `Tip`
+ *  used to pass per instance. */
+function RootTooltipProvider({ children }: { children: React.ReactNode }) {
+  return (
+    <HasTooltipProvider value>
+      <TooltipProvider delayDuration={0} disableHoverableContent>
+        {children}
+      </TooltipProvider>
+    </HasTooltipProvider>
   )
 }
 
@@ -163,4 +211,14 @@ function TipKeybindLabel({ actionId, text }: TipKeybindLabelProps) {
   return <TipHintLabel hint={hint ?? undefined} text={label} />
 }
 
-export { Tip, TipHintLabel, TipKeybindLabel, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger }
+export {
+  RootTooltipProvider,
+  Tip,
+  TipHintLabel,
+  TipKeybindLabel,
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipScope,
+  TooltipTrigger
+}

@@ -899,8 +899,7 @@
 /* ── Sidebar row visual states (ported from desktop styles.css) ──
    .dither  = the textured section-label dot.
    row-hover = shared instant-in / 100ms-out list-row highlight.
-   .arc-border = animated running-turn border on a working session row.
-   .quest-glow = amber "needs your input" pulse on a clarify-blocked dot. */
+   .arc-border = animated running-turn border on a working session row. */
 .dither {
   background: repeating-conic-gradient(currentColor 0% 25%, transparent 0% 50%) 0 0 / 0.125rem 0.125rem;
 }
@@ -1026,34 +1025,7 @@
   }
 }
 
-@keyframes quest-glow {
-  0%,
-  100% {
-    transform: scale(1);
-    box-shadow:
-      0 0 0.1875rem color-mix(in srgb, var(--color-amber-500, #f59e0b) 70%, transparent),
-      0 0 0.5rem color-mix(in srgb, var(--color-amber-500, #f59e0b) 45%, transparent);
-  }
-  50% {
-    transform: scale(1.18);
-    box-shadow:
-      0 0 0.3125rem color-mix(in srgb, var(--color-amber-500, #f59e0b) 90%, transparent),
-      0 0 0.875rem color-mix(in srgb, var(--color-amber-500, #f59e0b) 65%, transparent);
-  }
-}
-
-.quest-glow {
-  animation: quest-glow 1.8s ease-in-out infinite;
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .quest-glow {
-    animation: none;
-    box-shadow:
-      0 0 0.25rem color-mix(in srgb, var(--color-amber-500, #f59e0b) 80%, transparent),
-      0 0 0.625rem color-mix(in srgb, var(--color-amber-500, #f59e0b) 55%, transparent);
-  }
-
   .arc-border::before {
     animation: none;
   }

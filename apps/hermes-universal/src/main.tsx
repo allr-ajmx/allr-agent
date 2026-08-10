@@ -1,6 +1,12 @@
 import 'katex/dist/katex.min.css'
 import '@vscode/codicons/dist/codicon.css'
 import './styles.css'
+// Dev-only render counter. MUST precede the `react-dom` import below: react-dom
+// captures the devtools hook at module init, so bippy has to install during THIS
+// import's evaluation or every commit goes unseen. `vite.config.ts` aliases this
+// specifier to a no-op module for non-dev builds, so neither the counter nor
+// bippy reaches a shipped renderer.
+import '@/debug/dev-only'
 // Side-effect import: the hermes-media:// scheme handler lives in Rust and can't
 // read the connection store, so this subscription pushes the gateway target in.
 import './lib/media-stream'
@@ -22,6 +28,7 @@ import { HashRouter } from 'react-router-dom'
 import { App } from './app'
 import { RootErrorBoundary } from './components/error-boundary'
 import { HapticsProvider } from './components/haptics-provider'
+import { RootTooltipProvider } from './components/ui/tooltip'
 import { I18nProvider } from './i18n'
 import { warmKatexFonts } from './lib/katex-fonts'
 import { IS_MOBILE } from './lib/platform'
@@ -77,9 +84,15 @@ createRoot(container).render(
       <ThemeProvider>
         <QueryClientProvider client={queryClient}>
           <HapticsProvider>
-            <HashRouter>
-              <App />
-            </HashRouter>
+            {/* ONE tooltip provider for the whole app. Every `Tip` used to carry
+                its own, and with ~100 call sites those subtrees dominated
+                unrelated interactions. Radix's provider holds only refs and
+                stable callbacks, so hoisting is what it is for. */}
+            <RootTooltipProvider>
+              <HashRouter>
+                <App />
+              </HashRouter>
+            </RootTooltipProvider>
           </HapticsProvider>
         </QueryClientProvider>
       </ThemeProvider>

@@ -15,7 +15,13 @@ import {
 
 import { cn } from '@/lib/utils'
 import { useStore } from '@/store/atom'
-import { $paneStates, ensurePaneRegistered, setPaneHeightOverride, setPaneWidthOverride } from '@/store/panes'
+import {
+  $paneStates,
+  $paneWidthOverride,
+  ensurePaneRegistered,
+  setPaneHeightOverride,
+  setPaneWidthOverride
+} from '@/store/panes'
 
 import { PaneShellContext, type PaneShellContextValue, type PaneSlot } from './context'
 
@@ -327,8 +333,37 @@ export function PaneShell({ children, className, style }: PaneShellProps) {
     [ctxValue.cssVars, ctxValue.gridTemplate, ctxValue.gridTemplateRows, style]
   )
 
+  // A pane's SLOT — which column and row it occupies, and whether it is open —
+  // is independent of every size override: a sash drag moves the shell's own
+  // grid tracks, never a pane's placement. But the context value is what every
+  // `Pane` and `PaneMain` consumes, and a context value cannot be bailed out of
+  // by React, so rebuilding it once per drag frame re-rendered every mounted
+  // pane — sidebar, terminal rail, preview, right rail — for a gesture that
+  // changed none of them.
+  //
+  // Gate it on a signature of the slots (all primitives, so the signature is
+  // complete). This component still re-renders per frame, because it owns
+  // `gridTemplateColumns`; nothing below it does.
+  const slotSignature = useMemo(() => {
+    const parts = [`main:${ctxValue.mainColumn}`]
+
+    for (const [paneId, slot] of ctxValue.paneById) {
+      parts.push(`${paneId}:${slot.open}:${slot.side}:${slot.gridColumn}:${slot.gridRow}:${slot.bottomRow}`)
+    }
+
+    return parts.join('|')
+  }, [ctxValue])
+
+  const shellContext = useMemo<PaneShellContextValue>(
+    () => ({ mainColumn: ctxValue.mainColumn, paneById: ctxValue.paneById }),
+    // Keyed on the signature ON PURPOSE — an equal signature means the previous
+    // map describes the same layout, and reusing it is what keeps the panes still.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [slotSignature]
+  )
+
   return (
-    <PaneShellContext.Provider value={{ mainColumn: ctxValue.mainColumn, paneById: ctxValue.paneById }}>
+    <PaneShellContext.Provider value={shellContext}>
       <div className={cn('relative grid h-full min-h-0', className)} data-pane-shell="" style={composedStyle}>
         {children}
       </div>
@@ -354,7 +389,11 @@ export function Pane({
   width
 }: PaneProps) {
   const ctx = useContext(PaneShellContext)
-  const paneStates = useStore($paneStates)
+  // THIS pane's width only. The whole `$paneStates` record is rewritten on every
+  // frame of any sash drag, so subscribing to it made one pane's resize repaint
+  // every other mounted pane — and the value is read for one thing, the
+  // collapsed hover-reveal overlay's width.
+  const widthOverride = useStore($paneWidthOverride(id))
   const registered = useRef(false)
   const paneRef = useRef<HTMLDivElement | null>(null)
   // Keyboard (mod+b) pins the reveal open while collapsed; hover is CSS.
@@ -366,7 +405,7 @@ export function Pane({
   // Collapsed + hoverReveal: float the pane contents over the main column on
   // hover/focus instead of hiding them. Honors any persisted resize width.
   const overlayActive = !open && hoverReveal && !disabled
-  const override = resizable ? paneStates[id]?.widthOverride : undefined
+  const override = resizable ? widthOverride : undefined
 
   // Overlay width: an explicit `overlayWidth` (e.g. min width on mobile) wins,
   // else the persisted resize override, else the docked width.

@@ -1,12 +1,12 @@
 import type * as React from 'react'
-import { useRef } from 'react'
+import { memo, useRef } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Codicon } from '@/components/ui/codicon'
 import { type Translations, useI18n } from '@/i18n'
 import { triggerHaptic } from '@/lib/haptics'
+import { useStoreSelector } from '@/lib/use-session-slice'
 import { cn } from '@/lib/utils'
-import { useStore } from '@/store/atom'
 import { $attentionSessionIds } from '@/store/session'
 import { canOpenSessionWindow, openSessionInNewWindow } from '@/store/windows'
 import type { SessionInfo } from '@/types/hermes'
@@ -70,7 +70,7 @@ function sessionTitle(session: SessionInfo): string {
   return session.title?.trim() || session.preview?.trim() || 'Untitled'
 }
 
-export function SidebarSessionRow({
+function SidebarSessionRowImpl({
   session,
   branchStem,
   isPinned,
@@ -93,7 +93,10 @@ export function SidebarSessionRow({
   const r = t.sidebar.row
   const title = sessionTitle(session)
   const age = formatAge(session.last_active || session.started_at, r)
-  const needsInput = useStore($attentionSessionIds).includes(session.id)
+  // Selector, not `useStore(...).includes(...)`: the attention array's reference
+  // changes whenever ANY session starts or stops waiting on an answer, which
+  // re-rendered every row in the sidebar for one row's state.
+  const needsInput = useStoreSelector($attentionSessionIds, ids => ids.includes(session.id))
   // Latched by the touch tap below, cleared on the next press, so a synthetic
   // click trailing the same gesture can't resume the session twice.
   const tapped = useRef(false)
@@ -218,7 +221,6 @@ export function SidebarSessionRow({
               ariaLabel={`${r.rename} ${title}`}
               dragging={dragging}
               dragHandleProps={dragHandleProps}
-              leadClassName={needsInput ? 'overflow-visible' : undefined}
             >
               <SessionStatusDot
                 branchStem={branchStem}
@@ -228,7 +230,7 @@ export function SidebarSessionRow({
               />
             </SidebarRowGrab>
           ) : (
-            <SidebarRowLead className={needsInput ? 'overflow-visible' : 'overflow-hidden'}>
+            <SidebarRowLead className="overflow-hidden">
               <SessionStatusDot branchStem={branchStem} session={session} storedSessionId={session.id} />
             </SidebarRowLead>
           )}
@@ -241,3 +243,48 @@ export function SidebarSessionRow({
     </SessionContextMenu>
   )
 }
+
+/** Shallow-compares the two props that arrive as fresh objects from the sortable
+ *  bindings. dnd-kit memoizes the attributes and listeners inside them, so their
+ *  VALUES are stable even though the wrapper object is rebuilt each render. */
+function shallowEqual(a: object | undefined, b: object | undefined): boolean {
+  if (a === b) {
+    return true
+  }
+
+  if (!a || !b) {
+    return false
+  }
+
+  const left = a as Record<string, unknown>
+  const right = b as Record<string, unknown>
+  const keys = Object.keys(left)
+
+  return keys.length === Object.keys(right).length && keys.every(key => Object.is(left[key], right[key]))
+}
+
+/**
+ * Deliberately does NOT compare `onArchive`/`onDelete`/`onPin`/`onResume`
+ * (desktop's `rowPropsEqual` makes the same call). `sessions-section` builds
+ * those as fresh closures for every row on every render — comparing them would
+ * mean no row ever bails out, which is the whole point of the boundary. They
+ * close over nothing but the session id, which `session` already covers.
+ */
+function rowPropsEqual(a: SidebarSessionRowProps, b: SidebarSessionRowProps): boolean {
+  return (
+    a.session === b.session &&
+    a.isPinned === b.isPinned &&
+    a.isSelected === b.isSelected &&
+    a.isWorking === b.isWorking &&
+    a.branchStem === b.branchStem &&
+    a.reorderable === b.reorderable &&
+    a.dragging === b.dragging &&
+    a.showProfile === b.showProfile &&
+    a.className === b.className &&
+    a.ref === b.ref &&
+    shallowEqual(a.style, b.style) &&
+    shallowEqual(a.dragHandleProps, b.dragHandleProps)
+  )
+}
+
+export const SidebarSessionRow = memo(SidebarSessionRowImpl, rowPropsEqual)
