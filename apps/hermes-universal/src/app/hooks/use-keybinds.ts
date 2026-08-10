@@ -7,6 +7,7 @@ import {
   cycleTreeTabInFocusedZone,
   focusedTabTarget
 } from '@/components/pane-shell/tree/store'
+import { onReleaseTypingFocus } from '@/components/ui/keyboard-first'
 import { contributedKeybindHandler, PROFILE_SLOT_COUNT, SESSION_SLOT_COUNT } from '@/lib/keybinds/actions'
 import { comboAllowedInInput, comboFromEvent, isEditableTarget, isShiftPrintableCombo } from '@/lib/keybinds/combo'
 import { composerFocusKeysAllowed, isComposerFocusSoftCombo, typeToFocusChar } from '@/lib/keybinds/composer-focus-keys'
@@ -257,6 +258,25 @@ export function useKeybinds(deps: KeybindRuntimeDeps): void {
     // The rail owns the create dialog; this just asks it to open (MJX-108).
     'profile.create': requestProfileCreate
   }
+
+  // A keyboard-first overlay (⌘K, the model picker) hands the keyboard back
+  // here when it closes — the composer bus lives on this side, so the primitive
+  // stays ignorant of what "typing" means on any given surface.
+  //
+  // Deferred one frame and skipped when something else editable has claimed
+  // focus, because a palette action can legitimately open a dialog or navigate
+  // — the release must never steal focus from the surface it just opened.
+  useEffect(
+    () =>
+      onReleaseTypingFocus(() =>
+        requestAnimationFrame(() => {
+          if (!isEditableTarget(document.activeElement)) {
+            requestComposerFocus('active')
+          }
+        })
+      ),
+    []
+  )
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
