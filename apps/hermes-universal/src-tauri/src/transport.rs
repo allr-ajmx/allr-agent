@@ -18,12 +18,75 @@ use std::time::Duration;
 use futures_util::{SinkExt, StreamExt};
 use reqwest_cookie_store::CookieStoreMutex;
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, State, Url};
 use tokio::sync::{mpsc, Mutex};
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::Message;
 
 const USER_AGENT: &str = concat!("hermes-universal/", env!("CARGO_PKG_VERSION"));
+
+/// Query parameters that carry a credential and must never reach a log line, an
+/// error string, or the UI. The gateway WS authorizes with `?token=` (local /
+/// SSH) or a per-connect `?ticket=` (gated + oauth) — see `store/gateway-config`
+/// — so a WS URL *is* credential material, not just an address.
+const SECRET_QUERY_KEYS: &[&str] = &[
+    "access_token",
+    "api_key",
+    "key",
+    "password",
+    "refresh_token",
+    "secret",
+    "ticket",
+    "token",
+];
+
+/// A URL safe to put in an error or a log: every secret-bearing query value is
+/// replaced with `***`, while scheme, host, path and non-secret params (e.g.
+/// `profile`) survive so the message still diagnoses something.
+///
+/// A parse failure truncates at the `?` rather than echoing the raw string — an
+/// unparseable URL is exactly the case where a credential would otherwise ride
+/// along untouched.
+pub fn redact_url(raw: &str) -> String {
+    let Ok(mut url) = Url::parse(raw) else {
+        return match raw.split_once('?') {
+            Some((head, _)) => format!("{head}?***"),
+            None => raw.to_string(),
+        };
+    };
+
+    if url.query().is_none() {
+        return url.to_string();
+    }
+
+    let pairs: Vec<(String, String)> = url
+        .query_pairs()
+        .map(|(key, value)| {
+            let value = if SECRET_QUERY_KEYS.contains(&key.as_ref()) {
+                "***".to_string()
+            } else {
+                value.into_owned()
+            };
+            (key.into_owned(), value)
+        })
+        .collect();
+
+    url.query_pairs_mut().clear().extend_pairs(pairs);
+    url.to_string()
+}
+
+/// Scrub `url` out of a message some library built for us. reqwest embeds the
+/// request URL in every transport error (`error sending request for url (…)`),
+/// and tungstenite does the same for several of its URL errors, so an error we
+/// merely forward can leak the ws auth param even though we never formatted it
+/// in ourselves.
+fn redact_error(message: String, url: &str) -> String {
+    if url.is_empty() || !message.contains(url) {
+        return message;
+    }
+
+    message.replace(url, &redact_url(url))
+}
 
 /// A live raw WebSocket: `tx` feeds the writer task; the two task handles are
 /// aborted on close.
@@ -139,7 +202,13 @@ pub async fn http_request(
         builder = builder.timeout(Duration::from_millis(ms));
     }
 
-    let resp = builder.send().await.map_err(|e| e.to_string())?;
+    // reqwest puts the request URL in its transport errors; REST auth rides in a
+    // header rather than the query, but a caller is free to pass either, so the
+    // scrub is unconditional.
+    let resp = builder
+        .send()
+        .await
+        .map_err(|e| redact_error(e.to_string(), &req.url))?;
     let status = resp.status().as_u16();
     let headers = resp
         .headers()
@@ -168,10 +237,13 @@ pub async fn ws_open(
     url: String,
     origin: Option<String>,
 ) -> Result<(), String> {
+    // The URL carries the ws auth param, so it is redacted before it can reach
+    // an error string — this one bubbles all the way to $connectionError and is
+    // rendered on the connecting screen.
     let mut request = url
         .clone()
         .into_client_request()
-        .map_err(|e| format!("invalid ws url {url}: {e}"))?;
+        .map_err(|e| format!("invalid ws url {}: {e}", redact_url(&url)))?;
     if let Some(origin) = origin {
         if let Ok(value) = origin.parse() {
             request.headers_mut().insert("Origin", value);
@@ -180,7 +252,7 @@ pub async fn ws_open(
 
     let (stream, _resp) = tokio_tungstenite::connect_async(request)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| redact_error(e.to_string(), &url))?;
     let (mut write, mut read) = stream.split();
 
     let (tx, mut rx) = mpsc::unbounded_channel::<Message>();
@@ -299,13 +371,97 @@ pub fn cookies_export(state: State<'_, TransportState>) -> Result<String, String
 /// Rehydrate the shared cookie jar from a previously-exported JSON blob (skipping
 /// any expired cookies). Called once on launch before the first connect so a saved
 /// gateway/cloud session is restored without a fresh sign-in.
+///
+/// The import REPLACES the jar, so it is guarded three ways — a keyring read that
+/// silently returned nothing, or a blob that no longer decrypts, must not be able
+/// to sign a live session out:
+///
+///   1. A blank payload is refused outright (an empty keyring entry, not a jar).
+///   2. A parse failure is LOGGED rather than swallowed — a session that stopped
+///      surviving restarts is otherwise invisible, and a keyring blob that stops
+///      decrypting is exactly the shape that failure takes.
+///   3. A payload that parses to zero live cookies never replaces a jar that
+///      already holds some.
+///
+/// The JS layer (lib/session-persist) guards (1) too; this is the boundary, and
+/// the command is callable regardless of what that layer does.
 #[tauri::command]
 pub fn cookies_import(state: State<'_, TransportState>, json: String) -> Result<(), String> {
-    let loaded = cookie_store::serde::json::load(json.as_bytes()).map_err(|e| e.to_string())?;
+    if json.trim().is_empty() {
+        log::warn!("[transport] refusing to import an empty cookie jar payload");
+        return Err("empty cookie jar payload".to_string());
+    }
+
+    let loaded = cookie_store::serde::json::load(json.as_bytes()).map_err(|e| {
+        // Never log `json` itself: it is the session.
+        log::warn!("[transport] stored cookie jar failed to decode ({e}); keeping the live jar");
+        e.to_string()
+    })?;
+
     let mut store = state
         .cookies()
         .lock()
         .map_err(|_| "cookie jar poisoned".to_string())?;
+
+    if loaded.iter_unexpired().next().is_none() && store.iter_unexpired().next().is_some() {
+        log::warn!("[transport] stored cookie jar held no live cookies; keeping the live jar");
+        return Ok(());
+    }
+
     *store = loaded;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{redact_error, redact_url};
+
+    #[test]
+    fn redacts_the_ws_auth_param_and_keeps_everything_else() {
+        assert_eq!(
+            redact_url("ws://127.0.0.1:5051/api/ws?token=s3cr3t&profile=work"),
+            "ws://127.0.0.1:5051/api/ws?token=***&profile=work"
+        );
+        assert_eq!(
+            redact_url("wss://gw.example.com/api/ws?ticket=abc123"),
+            "wss://gw.example.com/api/ws?ticket=***"
+        );
+    }
+
+    #[test]
+    fn leaves_a_credential_free_url_alone() {
+        assert_eq!(
+            redact_url("https://gw.example.com/api/status"),
+            "https://gw.example.com/api/status"
+        );
+        assert_eq!(
+            redact_url("https://gw.example.com/api/config?profile=work"),
+            "https://gw.example.com/api/config?profile=work"
+        );
+    }
+
+    #[test]
+    fn truncates_at_the_query_when_the_url_will_not_parse() {
+        // The unparseable case is exactly where a credential would otherwise
+        // ride along verbatim, so it must not fall through to the raw string.
+        let redacted = redact_url("not a url at all?token=s3cr3t");
+        assert!(!redacted.contains("s3cr3t"), "{redacted}");
+        assert_eq!(redacted, "not a url at all?***");
+    }
+
+    #[test]
+    fn scrubs_a_url_a_library_embedded_in_its_own_error() {
+        let url = "ws://127.0.0.1:5051/api/ws?token=s3cr3t";
+        let message = redact_error(format!("error sending request for url ({url})"), url);
+
+        assert!(!message.contains("s3cr3t"), "{message}");
+        assert!(message.contains("token=***"), "{message}");
+    }
+
+    #[test]
+    fn leaves_an_error_that_never_mentioned_the_url_untouched() {
+        let message = redact_error("connection reset by peer".to_string(), "ws://h/api/ws?token=x");
+
+        assert_eq!(message, "connection reset by peer");
+    }
 }
