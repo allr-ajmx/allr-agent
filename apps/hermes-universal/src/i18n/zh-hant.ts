@@ -1781,6 +1781,7 @@ export const zhHant = defineLocale({
     lookupNoMatches: '沒有相符項目。',
     lookupTry: '試試',
     lookupOr: '或',
+    openDirective: '開啟',
     commonCommands: '常用指令',
     hotkeys: '快捷鍵',
     helpFooter: '開啟完整面板 · 退格鍵關閉',

@@ -2009,6 +2009,7 @@ export const en: Translations = {
     lookupNoMatches: 'No matches.',
     lookupTry: 'Try',
     lookupOr: 'or',
+    openDirective: 'Open',
     commonCommands: 'Common commands',
     hotkeys: 'Hotkeys',
     helpFooter: 'opens the full panel · backspace dismisses',
