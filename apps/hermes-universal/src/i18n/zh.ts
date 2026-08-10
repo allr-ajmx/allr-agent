@@ -2853,6 +2853,7 @@ export const zh: Translations = {
       loadingSession: '正在加载会话',
       showEarlier: '显示更早的消息',
       loadingResponse: 'Hermes 正在加载回复',
+      compacting: '正在总结对话',
       resumeWhenBackgroundDone: count =>
         count === 1 ? '后台任务完成后将自动继续' : `${count} 个后台任务完成后将自动继续`,
       thinking: '思考中',
@@ -3030,6 +3031,9 @@ export const zh: Translations = {
     stopFailed: '停止失败',
     regenerateFailed: '重新生成失败',
     editFailed: '编辑失败',
+    restoreMissing: '找不到要恢复的消息。',
+    restoreEmpty: '无法恢复空消息。',
+    restoreNoSession: '没有可恢复的活动会话。',
     resumeFailed: '恢复失败',
     resumeStrandedTitle: '无法加载此会话',
     resumeStrandedBody: '与此会话的连接失败，自动重试已停止。请确认网关正在运行，然后重试。',

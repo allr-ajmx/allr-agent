@@ -2309,6 +2309,7 @@ export interface Translations {
       loadingSession: string
       showEarlier: string
       loadingResponse: string
+      compacting: string
       resumeWhenBackgroundDone: (count: number) => string
       thinking: string
       thought: string
@@ -2460,6 +2461,9 @@ export interface Translations {
     stopFailed: string
     regenerateFailed: string
     editFailed: string
+    restoreMissing: string
+    restoreEmpty: string
+    restoreNoSession: string
     resumeFailed: string
     resumeStrandedTitle: string
     resumeStrandedBody: string
