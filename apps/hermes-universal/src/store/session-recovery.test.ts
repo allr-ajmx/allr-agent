@@ -5,6 +5,8 @@ const knownSessionProfile = vi.fn<(id: string) => string | undefined>()
 const sessionProfileIsAmbiguous = vi.fn(() => false)
 const resolveSessionProfile = vi.fn(async () => undefined)
 const aliasStoredSessionId = vi.fn()
+const rekeySession = vi.fn()
+const runtimeKeyForStoredSession = vi.fn<(id: null | string) => null | string>(() => null)
 
 vi.mock('@/store/gateway', () => ({
   requestGateway: (...args: unknown[]) => requestGateway(...args)
@@ -17,7 +19,9 @@ vi.mock('@/store/session', () => ({
 }))
 
 vi.mock('@/store/session-state-types', () => ({
-  aliasStoredSessionId: (...args: unknown[]) => aliasStoredSessionId(...args)
+  aliasStoredSessionId: (...args: unknown[]) => aliasStoredSessionId(...args),
+  rekeySession: (...args: unknown[]) => rekeySession(...args),
+  runtimeKeyForStoredSession: (id: null | string) => runtimeKeyForStoredSession(id)
 }))
 
 const { isSessionNotFoundError, SessionRecoveryAborted, withSessionNotFoundResume } = await import('./session-recovery')
@@ -30,6 +34,8 @@ beforeEach(() => {
   sessionProfileIsAmbiguous.mockReset().mockReturnValue(false)
   resolveSessionProfile.mockReset().mockResolvedValue(undefined)
   aliasStoredSessionId.mockReset()
+  rekeySession.mockReset()
+  runtimeKeyForStoredSession.mockReset().mockReturnValue(null)
 })
 
 describe('isSessionNotFoundError', () => {
@@ -74,8 +80,44 @@ describe('withSessionNotFoundResume', () => {
       omit_messages: true
     })
     // The recovered binding is published, or every later call still holds the
-    // dead id and recovers again on each one.
+    // dead id and recovers again on each one. With no open slice there is
+    // nothing to move, so the index alias is the whole publish.
     expect(aliasStoredSessionId).toHaveBeenCalledWith('stored-1', 'live-2')
+    expect(rekeySession).not.toHaveBeenCalled()
+  })
+
+  // MJXHRM-308: the default used to be `aliasStoredSessionId(stored, live)`,
+  // which resolves the LIVE id through the stored-id index — a silent no-op for
+  // any resumed session. The slice stayed under its dead key, the router
+  // addressed frames by the new one, and the session hung busy forever.
+  it('MOVES an open slice onto the recovered runtime id', async () => {
+    requestGateway.mockResolvedValue({ session_id: 'live-2' })
+    runtimeKeyForStoredSession.mockReturnValue('live-1')
+
+    await withSessionNotFoundResume('live-1', 'stored-1', async id => {
+      if (id === 'live-1') {
+        throw notFound()
+      }
+    })
+
+    expect(rekeySession).toHaveBeenCalledWith('live-1', 'live-2', {
+      runtimeSessionId: 'live-2',
+      storedSessionId: 'stored-1'
+    })
+    expect(aliasStoredSessionId).not.toHaveBeenCalled()
+  })
+
+  it('does not rekey a slice that is already under the recovered id', async () => {
+    requestGateway.mockResolvedValue({ session_id: 'live-2' })
+    runtimeKeyForStoredSession.mockReturnValue('live-2')
+
+    await withSessionNotFoundResume('live-1', 'stored-1', async id => {
+      if (id === 'live-1') {
+        throw notFound()
+      }
+    })
+
+    expect(rekeySession).not.toHaveBeenCalled()
   })
 
   it('resumes on the owning profile without probing a single-profile install', async () => {

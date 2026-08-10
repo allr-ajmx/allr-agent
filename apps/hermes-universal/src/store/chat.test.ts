@@ -23,6 +23,13 @@ import { resetSessionStates, seedActiveSession, seedSession, sessionMessages } f
 vi.mock('@/components/chat/vibe-hearts', () => ({ burstVibeHearts: vi.fn() }))
 import { burstVibeHearts } from '@/components/chat/vibe-hearts'
 
+vi.mock('@/store/notifications', () => ({
+  clearNotifications: vi.fn(),
+  notifyError: vi.fn(),
+  notifySuccess: vi.fn()
+}))
+import { notifyError } from '@/store/notifications'
+
 import {
   $approval,
   $busy,
@@ -35,10 +42,12 @@ import {
   $sudo,
   type ChatMessage,
   ensureSession,
+  interruptSession,
   redirectPrompt,
   resetChat,
   respondClarify,
   respondSudo,
+  restoreToMessage,
   sendPrompt,
   submitEditedPrompt
 } from './chat'
@@ -58,6 +67,7 @@ beforeEach(() => {
   seedActiveSession('runtime-1')
   vi.mocked(requestGateway).mockReset()
   vi.mocked(burstVibeHearts).mockReset()
+  vi.mocked(notifyError).mockReset()
 })
 
 describe('reaction events', () => {
@@ -583,6 +593,158 @@ describe('submitEditedPrompt (edit + rewind)', () => {
     expect(vi.mocked(requestGateway).mock.calls[1][1]).not.toHaveProperty('truncate_before_user_ordinal')
     // The optimistic truncation stands — the resend did land.
     expect($messages.get().map(m => m.id)).toEqual(['u1', 'a1', 'u2'])
+  })
+
+  // MJXHRM-367: every other submit path recovers a runtime the gateway dropped;
+  // this one did not, and a rewind is the LONGEST-idle submit in the app (read
+  // the reply, think, then edit) — the one most likely to be holding a dead id.
+  it('recovers a dead runtime mid-rewind and retries on the fresh id', async () => {
+    seedTurns()
+
+    vi.mocked(requestGateway).mockImplementation(async (method: string, params?: Record<string, unknown>) => {
+      if (method === 'session.resume') {
+        return { session_id: 'runtime-2' }
+      }
+
+      if (params?.session_id === 'runtime-1') {
+        throw new Error('session not found: runtime-1')
+      }
+
+      return {}
+    })
+
+    await submitEditedPrompt('u2', 'second ask, revised')
+
+    // The retry went out on the recovered id, and the slice moved with it — a
+    // slice left under the dead key stops receiving its own reply.
+    expect(requestGateway).toHaveBeenCalledWith(
+      'prompt.submit',
+      expect.objectContaining({ session_id: 'runtime-2' }),
+      expect.anything()
+    )
+    expect($sessionStates.get()['runtime-1']).toBeUndefined()
+    expect($sessionStates.get()['runtime-2']?.messages.map(m => m.id)).toEqual(['u1', 'a1', 'u2'])
+  })
+})
+
+// --- Restore checkpoint (rewind to a past prompt and re-run it) -------------
+//
+// MJXHRM-370: the confirmation flow was fully implemented in the message
+// component and had NO caller, so none of this was reachable.
+describe('restoreToMessage', () => {
+  const seedTurns = () =>
+    seedActiveSession('runtime-1', {
+      messages: [
+        { id: 'u1', role: 'user', parts: [{ type: 'text', text: 'first ask' }] },
+        { id: 'a1', role: 'assistant', parts: [{ type: 'text', text: 'first answer' }] },
+        { id: 'u2', role: 'user', parts: [{ type: 'text', text: 'second ask' }] },
+        { id: 'a2', role: 'assistant', parts: [{ type: 'text', text: 'second answer' }] }
+      ]
+    })
+
+  it('truncates to the target prompt and re-runs it unchanged', async () => {
+    seedTurns()
+    vi.mocked(requestGateway).mockResolvedValue({})
+
+    await restoreToMessage('u2', { text: 'second ask', userOrdinal: 1 })
+
+    expect(requestGateway).toHaveBeenCalledWith(
+      'prompt.submit',
+      expect.objectContaining({ text: 'second ask', truncate_before_user_ordinal: 1 }),
+      expect.anything()
+    )
+    // The prompt STAYS — it is being re-run, not withdrawn.
+    expect($messages.get().map(m => m.id)).toEqual(['u1', 'a1', 'u2'])
+    expect($busy.get()).toBe(true)
+  })
+
+  // Ordinal 0 truncates to an EMPTY transcript, which the gateway refuses unless
+  // the client says it meant it — universal omitted the flag entirely, so a
+  // restore to the very first prompt 422'd.
+  it('confirms an empty truncate when restoring the first prompt', async () => {
+    seedTurns()
+    vi.mocked(requestGateway).mockResolvedValue({})
+
+    await restoreToMessage('u1', { text: 'first ask', userOrdinal: 0 })
+
+    expect(requestGateway).toHaveBeenCalledWith(
+      'prompt.submit',
+      expect.objectContaining({ truncate_before_user_ordinal: 0, confirm_empty_truncate: true }),
+      expect.anything()
+    )
+  })
+
+  it('falls back to the user ordinal when the id was re-keyed under us', async () => {
+    seedTurns()
+    vi.mocked(requestGateway).mockResolvedValue({})
+
+    await restoreToMessage('an-id-from-before-a-compaction', { text: 'second ask', userOrdinal: 1 })
+
+    expect(requestGateway).toHaveBeenCalledWith(
+      'prompt.submit',
+      expect.objectContaining({ text: 'second ask' }),
+      expect.anything()
+    )
+  })
+
+  it('rolls the transcript back and rethrows when the rewind fails', async () => {
+    seedTurns()
+    vi.mocked(requestGateway).mockRejectedValue(new Error('nope'))
+
+    await expect(restoreToMessage('u2', { text: 'second ask', userOrdinal: 1 })).rejects.toThrow('nope')
+
+    expect($messages.get().map(m => m.id)).toEqual(['u1', 'a1', 'u2', 'a2'])
+    expect($busy.get()).toBe(false)
+  })
+
+  it('refuses a target it cannot resolve rather than truncating something else', async () => {
+    seedTurns()
+
+    await expect(restoreToMessage('nope', { text: '', userOrdinal: null })).rejects.toThrow(/find the message/i)
+    expect(requestGateway).not.toHaveBeenCalled()
+  })
+})
+
+// --- Stop -------------------------------------------------------------------
+//
+// MJXHRM-366: all three `session.interrupt` call sites swallowed the rejection
+// with a bare `.catch(() => {})`, so after a sleep/wake Stop was a dead control
+// with no error and no retry.
+describe('interruptSession', () => {
+  it('recovers a dead runtime and interrupts the fresh one', async () => {
+    seedActiveSession('runtime-1', { busy: true })
+
+    vi.mocked(requestGateway).mockImplementation(async (method: string, params?: Record<string, unknown>) => {
+      if (method === 'session.resume') {
+        return { session_id: 'runtime-2' }
+      }
+
+      if (params?.session_id === 'runtime-1') {
+        throw new Error('session not found: runtime-1')
+      }
+
+      return {}
+    })
+
+    await expect(interruptSession('runtime-1')).resolves.toBe(true)
+
+    expect(requestGateway).toHaveBeenCalledWith('session.interrupt', { session_id: 'runtime-2' })
+    expect($sessionStates.get()['runtime-2']?.busy).toBe(true)
+  })
+
+  it('reports failure instead of swallowing it', async () => {
+    seedActiveSession('runtime-1', { busy: true })
+    vi.mocked(requestGateway).mockRejectedValue(new Error('transport is gone'))
+
+    await expect(interruptSession('runtime-1')).resolves.toBe(false)
+    expect(notifyError).toHaveBeenCalled()
+  })
+
+  it('does nothing for a draft that has no runtime id', async () => {
+    seedActiveSession('draft:1', { runtimeSessionId: null })
+
+    await expect(interruptSession('draft:1')).resolves.toBe(false)
+    expect(requestGateway).not.toHaveBeenCalled()
   })
 })
 
