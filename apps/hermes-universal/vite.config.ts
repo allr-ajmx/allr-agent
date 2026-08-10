@@ -164,7 +164,18 @@ const emojibaseAssets = () => ({
   }
 })
 
-export default defineConfig({
+// The dev-only render counter (src/debug) must be imported STATICALLY above
+// react-dom — react-dom captures the devtools hook at module init, so a dynamic
+// import lands too late and observes zero commits. A static side-effect import
+// can't be tree-shaken, so instead the whole graph is aliased out of any non-dev
+// build. `command === 'serve'` covers `vite dev`; vitest also reports 'serve',
+// and never imports main.tsx, so nothing is loaded there either way.
+const debugEntry = (command: string) =>
+  fileURLToPath(
+    new URL(command === 'serve' ? './src/debug/dev-only.ts' : './src/debug/dev-only.noop.ts', import.meta.url)
+  )
+
+export default defineConfig(({ command }) => ({
   define: {
     __TRACE_RUN_DEFAULT__: JSON.stringify(traceRunDefault())
   },
@@ -176,6 +187,8 @@ export default defineConfig({
   css: { postcss: { plugins: [] } },
   resolve: {
     alias: {
+      // Exact-match key, declared first so it wins over the `@` prefix below.
+      '@/debug/dev-only': debugEntry(command),
       // Store autocapture — see storeNamePlugin above for why this is two
       // entries. Order matters only for readability; the keys are exact.
       ...(STORE_TRACING
@@ -329,4 +342,4 @@ export default defineConfig({
     // skip stylesheet processing in tests.
     css: false
   }
-})
+}))

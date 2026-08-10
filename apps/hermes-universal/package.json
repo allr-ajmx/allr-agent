@@ -114,6 +114,7 @@
     "@typescript-eslint/eslint-plugin": "^8.59.1",
     "@typescript-eslint/parser": "^8.59.1",
     "@vitejs/plugin-react": "6.0.3",
+    "bippy": "0.5.43",
     "esbuild": "0.28.1",
     "eslint": "^9.39.4",
     "eslint-plugin-better-tailwindcss": "^4.7.0",

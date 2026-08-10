@@ -1,6 +1,12 @@
 import 'katex/dist/katex.min.css'
 import '@vscode/codicons/dist/codicon.css'
 import './styles.css'
+// Dev-only render counter. MUST precede the `react-dom` import below: react-dom
+// captures the devtools hook at module init, so bippy has to install during THIS
+// import's evaluation or every commit goes unseen. `vite.config.ts` aliases this
+// specifier to a no-op module for non-dev builds, so neither the counter nor
+// bippy reaches a shipped renderer.
+import '@/debug/dev-only'
 // Side-effect import: the hermes-media:// scheme handler lives in Rust and can't
 // read the connection store, so this subscription pushes the gateway target in.
 import './lib/media-stream'
