@@ -1,5 +1,5 @@
 import type * as React from 'react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { ZoomableImage } from '@/components/chat/zoomable-image'
@@ -94,7 +94,7 @@ type CellCtx = {
 }
 
 interface ArtifactColumn {
-  Cell: (props: { artifact: ArtifactRecord; ctx: CellCtx }) => React.ReactElement
+  Cell: React.ComponentType<{ artifact: ArtifactRecord; ctx: CellCtx }>
   bodyClassName: string
   header: (filter: ArtifactFilter, a: Translations['artifacts']) => string
   id: 'location' | 'primary' | 'session'
@@ -266,10 +266,13 @@ export function ArtifactsView({ setStatusbarItemGroup: _setStatusbarItemGroup, .
     })
   }, [])
 
-  const cellCtx: CellCtx = {
-    onOpen: openArtifact,
-    onOpenChat: sessionId => navigate(sessionRoute(sessionId))
-  }
+  const openChat = useCallback((sessionId: string) => navigate(sessionRoute(sessionId)), [navigate])
+
+  // Stable, because it is the prop every memoized cell compares. A fresh object
+  // (or a fresh inline `onOpenChat`) here would make those memo boundaries dead
+  // code — the table is up to 100 rows × 3 cells, so this is the half of the
+  // change that does the work.
+  const cellCtx = useMemo<CellCtx>(() => ({ onOpen: openArtifact, onOpenChat: openChat }), [openArtifact, openChat])
 
   return (
     <PageSearchShell
@@ -333,7 +336,7 @@ export function ArtifactsView({ setStatusbarItemGroup: _setStatusbarItemGroup, .
                       failedImage={failedImageIds.has(artifact.id)}
                       key={artifact.id}
                       onImageError={markImageFailed}
-                      onOpenChat={sessionId => navigate(sessionRoute(sessionId))}
+                      onOpenChat={openChat}
                     />
                   ))}
                 </div>
@@ -537,7 +540,11 @@ function ArtifactCellAction({
   )
 }
 
-function PrimaryCell({ artifact, ctx }: { artifact: ArtifactRecord; ctx: CellCtx }) {
+// The three cells below are memoized (desktop parity). Both props are stable —
+// `artifact` is an element of the fetched array, `ctx` is memoized above — so
+// re-rendering the view for a search keystroke or a page change no longer
+// re-runs every cell of every row that did not move.
+const PrimaryCell = memo(function PrimaryCell({ artifact, ctx }: { artifact: ArtifactRecord; ctx: CellCtx }) {
   const isLink = artifact.kind === 'link'
   const Icon = isLink ? Link2 : FileText
   const fetchedTitle = useLinkTitle(isLink ? artifact.href : null)
@@ -558,9 +565,9 @@ function PrimaryCell({ artifact, ctx }: { artifact: ArtifactRecord; ctx: CellCtx
       </span>
     </ArtifactCellAction>
   )
-}
+})
 
-function LocationCell({ artifact }: { artifact: ArtifactRecord; ctx: CellCtx }) {
+const LocationCell = memo(function LocationCell({ artifact }: { artifact: ArtifactRecord; ctx: CellCtx }) {
   const { t } = useI18n()
   const isLink = artifact.kind === 'link'
   const value = isLink ? hostPathLabel(artifact.value) : artifact.value
@@ -589,9 +596,9 @@ function LocationCell({ artifact }: { artifact: ArtifactRecord; ctx: CellCtx }) 
       />
     </div>
   )
-}
+})
 
-function SessionCell({ artifact, ctx }: { artifact: ArtifactRecord; ctx: CellCtx }) {
+const SessionCell = memo(function SessionCell({ artifact, ctx }: { artifact: ArtifactRecord; ctx: CellCtx }) {
   return (
     <ArtifactCellAction onClick={() => ctx.onOpenChat(artifact.sessionId)} title={artifact.sessionTitle}>
       <span className="flex min-w-0 flex-col">
@@ -602,7 +609,7 @@ function SessionCell({ artifact, ctx }: { artifact: ArtifactRecord; ctx: CellCtx
       </span>
     </ArtifactCellAction>
   )
-}
+})
 
 const ARTIFACT_COLUMNS: readonly ArtifactColumn[] = [
   {
