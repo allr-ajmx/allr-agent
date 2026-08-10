@@ -55,7 +55,10 @@ pub struct SshError {
 
 impl SshError {
     pub fn new(kind: SshErrorKind, message: impl Into<String>) -> Self {
-        Self { kind, message: redact_secrets(&message.into()) }
+        Self {
+            kind,
+            message: redact_secrets(&message.into()),
+        }
     }
 
     pub fn unknown(message: impl Into<String>) -> Self {
@@ -227,21 +230,39 @@ mod tests {
             classify_stderr("Received disconnect: Too many authentication failures"),
             SshErrorKind::AuthFailed
         );
-        assert_eq!(classify_stderr("ssh: Could not resolve hostname nope"), SshErrorKind::Unreachable);
-        assert_eq!(classify_stderr("connect to host x port 22: Connection refused"), SshErrorKind::Unreachable);
-        assert_eq!(classify_stderr("No route to host"), SshErrorKind::Unreachable);
+        assert_eq!(
+            classify_stderr("ssh: Could not resolve hostname nope"),
+            SshErrorKind::Unreachable
+        );
+        assert_eq!(
+            classify_stderr("connect to host x port 22: Connection refused"),
+            SshErrorKind::Unreachable
+        );
+        assert_eq!(
+            classify_stderr("No route to host"),
+            SshErrorKind::Unreachable
+        );
     }
 
     #[test]
     fn unmatched_stderr_is_unknown() {
         assert_eq!(classify_stderr(""), SshErrorKind::Unknown);
-        assert_eq!(classify_stderr("bash: hermes: command not found"), SshErrorKind::Unknown);
+        assert_eq!(
+            classify_stderr("bash: hermes: command not found"),
+            SshErrorKind::Unknown
+        );
     }
 
     #[test]
     fn classification_is_case_insensitive() {
-        assert_eq!(classify_stderr("PERMISSION DENIED"), SshErrorKind::AuthFailed);
-        assert_eq!(classify_stderr("connection REFUSED"), SshErrorKind::Unreachable);
+        assert_eq!(
+            classify_stderr("PERMISSION DENIED"),
+            SshErrorKind::AuthFailed
+        );
+        assert_eq!(
+            classify_stderr("connection REFUSED"),
+            SshErrorKind::Unreachable
+        );
     }
 
     #[test]
@@ -254,7 +275,10 @@ mod tests {
             redact_secrets("X-Hermes-Session-Token: abc123"),
             "X-Hermes-Session-Token: <redacted>"
         );
-        assert_eq!(redact_secrets("Authorization: Bearer sk-xyz"), "Authorization: Bearer <redacted>");
+        assert_eq!(
+            redact_secrets("Authorization: Bearer sk-xyz"),
+            "Authorization: Bearer <redacted>"
+        );
         assert_eq!(
             redact_secrets("ws://127.0.0.1:5/api/ws?token=secret"),
             "ws://127.0.0.1:5/api/ws?token=<redacted>"
@@ -269,7 +293,10 @@ mod tests {
     fn redaction_preserves_surrounding_text_and_newlines() {
         let input = "line one\nGET /api/ws?token=abc HTTP/1.1\nline three\n";
         let out = redact_secrets(input);
-        assert_eq!(out, "line one\nGET /api/ws?token=<redacted> HTTP/1.1\nline three\n");
+        assert_eq!(
+            out,
+            "line one\nGET /api/ws?token=<redacted> HTTP/1.1\nline three\n"
+        );
         assert_eq!(out.lines().count(), 3);
     }
 
@@ -282,7 +309,11 @@ mod tests {
     #[test]
     fn ssh_error_redacts_on_construction() {
         let err = SshError::new(SshErrorKind::Unknown, "spawn failed: token=hunter2");
-        assert!(!err.message.contains("hunter2"), "constructor must redact: {}", err.message);
+        assert!(
+            !err.message.contains("hunter2"),
+            "constructor must redact: {}",
+            err.message
+        );
     }
 
     #[test]
@@ -305,7 +336,10 @@ mod tests {
     fn kinds_serialize_as_the_desktop_strings() {
         let json = serde_json::to_string(&SshErrorKind::HostKeyChanged).unwrap();
         assert_eq!(json, "\"host-key-changed\"");
-        assert_eq!(serde_json::to_string(&SshErrorKind::AuthFailed).unwrap(), "\"auth-failed\"");
+        assert_eq!(
+            serde_json::to_string(&SshErrorKind::AuthFailed).unwrap(),
+            "\"auth-failed\""
+        );
         assert_eq!(
             serde_json::to_string(&SshErrorKind::UpdateRequired).unwrap(),
             "\"update-required\""

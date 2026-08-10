@@ -22,8 +22,8 @@ use super::error::{SshError, SshErrorKind};
 use super::ownership::fingerprint_token;
 use super::progress::{ProgressReporter, SshStep};
 use super::remote_paths::{
-    expand_remote_path, lockfile_path, ownership_directory, shq, spawn_log_path, validate_spawn_nonce,
-    LOCKFILE_SCHEMA_VERSION, PROTOCOL_VERSION,
+    expand_remote_path, lockfile_path, ownership_directory, shq, spawn_log_path,
+    validate_spawn_nonce, LOCKFILE_SCHEMA_VERSION, PROTOCOL_VERSION,
 };
 use super::remote_scripts;
 use super::session::SshSession;
@@ -98,8 +98,11 @@ pub fn parse_lock(text: &str, ownership_id: &str) -> Option<BackendLock> {
 
     validate_spawn_nonce(&lock.spawn_nonce).ok()?;
 
-    let fingerprint_ok =
-        lock.token_fingerprint.len() == 32 && lock.token_fingerprint.bytes().all(|b| b.is_ascii_hexdigit());
+    let fingerprint_ok = lock.token_fingerprint.len() == 32
+        && lock
+            .token_fingerprint
+            .bytes()
+            .all(|b| b.is_ascii_hexdigit());
 
     if !fingerprint_ok {
         return None;
@@ -111,7 +114,13 @@ pub fn parse_lock(text: &str, ownership_id: &str) -> Option<BackendLock> {
         return None;
     }
 
-    for field in [&lock.profile, &lock.hermes_path, &lock.hermes_home, &lock.log_path, &lock.started_at] {
+    for field in [
+        &lock.profile,
+        &lock.hermes_path,
+        &lock.hermes_home,
+        &lock.log_path,
+        &lock.started_at,
+    ] {
         if field.len() > MAX_FIELD_LEN {
             return None;
         }
@@ -227,8 +236,11 @@ pub const DEFAULT_READY_TIMEOUT: Duration = Duration::from_secs(45);
 /// Where a `hermes` install might be when the login-shell probe misses. These
 /// are the installer's own command locations (`scripts/install.sh`): per-user,
 /// root/FHS, and the legacy venv.
-const FALLBACK_HERMES_PATHS: [&str; 3] =
-    ["~/.local/bin/hermes", "/usr/local/bin/hermes", "~/.hermes/hermes-agent/venv/bin/hermes"];
+const FALLBACK_HERMES_PATHS: [&str; 3] = [
+    "~/.local/bin/hermes",
+    "/usr/local/bin/hermes",
+    "~/.hermes/hermes-agent/venv/bin/hermes",
+];
 
 #[derive(Debug, Clone, Default)]
 pub struct RemotePlatform {
@@ -255,7 +267,10 @@ fn transient(message: impl Into<String>) -> SshError {
 /// never be mistaken for the OS name.
 pub async fn probe_platform(session: &SshSession) -> Result<RemotePlatform, SshError> {
     println!("[ssh probe] running fenced `uname -s; uname -m`");
-    let out = session.exec_fenced("uname -s; uname -m", None).await?.require_success("uname")?;
+    let out = session
+        .exec_fenced("uname -s; uname -m", None)
+        .await?
+        .require_success("uname")?;
     println!("[ssh probe] fenced uname output: {out:?}");
 
     let mut lines = out.lines().map(str::trim).filter(|l| !l.is_empty());
@@ -297,7 +312,10 @@ async fn is_executable(session: &SshSession, candidate: &str) -> bool {
 /// A **blank** path auto-detects, starting with a *login* shell — `ssh host cmd`
 /// runs a non-login shell whose PATH misses per-user installs, which is exactly
 /// where `hermes` usually lives.
-pub async fn locate_hermes(session: &SshSession, explicit: Option<&str>) -> Result<String, SshError> {
+pub async fn locate_hermes(
+    session: &SshSession,
+    explicit: Option<&str>,
+) -> Result<String, SshError> {
     if let Some(explicit) = explicit.filter(|p| !p.trim().is_empty()) {
         println!("[ssh probe] locate_hermes: checking explicit path {explicit:?}");
 
@@ -320,9 +338,18 @@ pub async fn locate_hermes(session: &SshSession, explicit: Option<&str>) -> Resu
     let mut candidates: Vec<String> = Vec::new();
 
     println!("[ssh probe] locate_hermes: probing login shell for `command -v hermes`");
-    if let Ok(found) = session.exec_fenced(&format!("sh -lc {}", shq("command -v hermes")), None).await {
+    if let Ok(found) = session
+        .exec_fenced(&format!("sh -lc {}", shq("command -v hermes")), None)
+        .await
+    {
         // A login shell may print a banner first, so take the last line.
-        if let Some(path) = found.stdout.lines().map(str::trim).filter(|l| !l.is_empty()).next_back() {
+        if let Some(path) = found
+            .stdout
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .next_back()
+        {
             println!("[ssh probe] locate_hermes: login shell found {path:?}");
             candidates.push(path.to_string());
         }
@@ -351,10 +378,16 @@ pub async fn locate_hermes(session: &SshSession, explicit: Option<&str>) -> Resu
 /// Follow an `exec` shim to the real binary. Falls back to the candidate.
 /// Fenced so shell startup noise can't get mistaken for the resolved path.
 async fn resolve_launcher(session: &SshSession, candidate: &str) -> Result<String, SshError> {
-    let out = session.exec_fenced(&remote_scripts::resolve_launcher(candidate), None).await;
+    let out = session
+        .exec_fenced(&remote_scripts::resolve_launcher(candidate), None)
+        .await;
 
     let resolved = out.map(|o| o.stdout.trim().to_string()).unwrap_or_default();
-    let resolved = if resolved.is_empty() { candidate.to_string() } else { resolved };
+    let resolved = if resolved.is_empty() {
+        candidate.to_string()
+    } else {
+        resolved
+    };
 
     println!("[ssh probe] resolve_launcher: {candidate:?} -> {resolved:?}");
     Ok(resolved)
@@ -386,18 +419,33 @@ pub async fn probe_hermes_home(session: &SshSession) -> Result<String, SshError>
         .await
         .map_err(|e| transient(format!("Could not resolve the remote Hermes home: {e}")))?;
 
-    Ok(out.stdout.lines().map(str::trim).filter(|l| !l.is_empty()).next_back().unwrap_or("~/.hermes").to_string())
+    Ok(out
+        .stdout
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .next_back()
+        .unwrap_or("~/.hermes")
+        .to_string())
 }
 
 /// Whether the remote `hermes` understands the ownership contract.
-pub async fn supports_ssh_ownership(session: &SshSession, hermes_path: &str) -> Result<bool, SshError> {
-    let out = session.exec_fenced(&build_capability_probe(hermes_path)?, None).await?;
+pub async fn supports_ssh_ownership(
+    session: &SshSession,
+    hermes_path: &str,
+) -> Result<bool, SshError> {
+    let out = session
+        .exec_fenced(&build_capability_probe(hermes_path)?, None)
+        .await?;
 
     Ok(capability_probe_passed(&out.stdout))
 }
 
 /// Read the ownership record, if any.
-pub async fn read_lockfile(session: &SshSession, ownership_id: &str) -> Result<Option<BackendLock>, SshError> {
+pub async fn read_lockfile(
+    session: &SshSession,
+    ownership_id: &str,
+) -> Result<Option<BackendLock>, SshError> {
     let path = expand_remote_path(&lockfile_path(ownership_id)?)?;
 
     // No `exit` here (unlike the equivalent bash idiom): a script wrapped by
@@ -406,7 +454,11 @@ pub async fn read_lockfile(session: &SshSession, ownership_id: &str) -> Result<O
     let out = session
         .exec_fenced(&format!("if [ -e {path} ]; then cat {path}; fi"), None)
         .await
-        .map_err(|e| transient(format!("Could not read the SSH backend ownership record: {e}")))?;
+        .map_err(|e| {
+            transient(format!(
+                "Could not read the SSH backend ownership record: {e}"
+            ))
+        })?;
 
     let lock = parse_lock(&out.stdout, ownership_id);
     println!("[ssh probe] read_lockfile: {path:?} -> {lock:?}");
@@ -433,10 +485,17 @@ pub async fn write_lockfile(
         validate_spawn_nonce(temp_suffix)?
     ))?;
 
-    let json = serde_json::to_string(lock)
-        .map_err(|e| SshError::new(SshErrorKind::Unknown, format!("Could not encode the lock record: {e}")))?;
+    let json = serde_json::to_string(lock).map_err(|e| {
+        SshError::new(
+            SshErrorKind::Unknown,
+            format!("Could not encode the lock record: {e}"),
+        )
+    })?;
 
-    println!("[ssh probe] write_lockfile: writing to {final_path:?} (pid={}, port={})", lock.pid, lock.port);
+    println!(
+        "[ssh probe] write_lockfile: writing to {final_path:?} (pid={}, port={})",
+        lock.pid, lock.port
+    );
     // Fenced like everything else, even though `&&` and `>` are syntax every
     // shell agrees on: the record is `shq`-quoted JSON, and fish drops one
     // backslash of every pair inside a single-quoted word, so a field carrying
@@ -470,12 +529,18 @@ pub async fn remote_pid_alive(session: &SshSession, pid: i64) -> Result<bool, Ss
     }
 
     let out = session
-        .exec_fenced(&format!("kill -0 {pid} 2>/dev/null && echo ALIVE || echo DEAD"), None)
+        .exec_fenced(
+            &format!("kill -0 {pid} 2>/dev/null && echo ALIVE || echo DEAD"),
+            None,
+        )
         .await
         .map_err(|e| transient(format!("Could not verify the SSH backend process: {e}")))?;
 
     let alive = out.stdout.trim() == "ALIVE";
-    println!("[ssh probe] remote_pid_alive: pid={pid} -> {alive} (raw={:?})", out.stdout);
+    println!(
+        "[ssh probe] remote_pid_alive: pid={pid} -> {alive} (raw={:?})",
+        out.stdout
+    );
     Ok(alive)
 }
 
@@ -496,13 +561,17 @@ pub async fn pid_is_our_dashboard(
 
     let command = remote_scripts::pid_is_our_dashboard(pid, spawn_nonce, hermes_path)?;
 
-    let out = session
-        .exec_fenced(&command, None)
-        .await
-        .map_err(|e| transient(format!("Could not verify SSH backend process ownership: {e}")))?;
+    let out = session.exec_fenced(&command, None).await.map_err(|e| {
+        transient(format!(
+            "Could not verify SSH backend process ownership: {e}"
+        ))
+    })?;
 
     let owned = out.stdout.trim() == "OWNED";
-    println!("[ssh probe] pid_is_our_dashboard: pid={pid} nonce={spawn_nonce:?} -> {owned} (raw={:?})", out.stdout);
+    println!(
+        "[ssh probe] pid_is_our_dashboard: pid={pid} nonce={spawn_nonce:?} -> {owned} (raw={:?})",
+        out.stdout
+    );
     Ok(owned)
 }
 
@@ -514,9 +583,14 @@ pub async fn cleanup_stale(
     lock: &BackendLock,
     pid_alive: bool,
 ) -> Result<(), SshError> {
-    println!("[ssh probe] cleanup_stale: pid={} pid_alive={pid_alive}", lock.pid);
+    println!(
+        "[ssh probe] cleanup_stale: pid={} pid_alive={pid_alive}",
+        lock.pid
+    );
 
-    if pid_alive && pid_is_our_dashboard(session, lock.pid, &lock.spawn_nonce, &lock.hermes_path).await? {
+    if pid_alive
+        && pid_is_our_dashboard(session, lock.pid, &lock.spawn_nonce, &lock.hermes_path).await?
+    {
         // Wait for it to actually go away (5s), rather than assuming the signal
         // took: respawning while the old process still holds its port would give
         // us a backend we cannot reach.
@@ -525,7 +599,10 @@ pub async fn cleanup_stale(
         // then make the final statement the thing whose exit status the
         // fence's trailing marker captures: 0 if the process died in time, 1
         // if the wait timed out.
-        println!("[ssh probe] cleanup_stale: killing pid={} and waiting up to 5s", lock.pid);
+        println!(
+            "[ssh probe] cleanup_stale: killing pid={} and waiting up to 5s",
+            lock.pid
+        );
         session
             .exec_fenced(
                 &format!(
@@ -581,7 +658,10 @@ pub async fn spawn_remote_dashboard(
     println!("[ssh probe] spawn_remote_dashboard: uploading session token to {token_file_path:?}");
     // The secret goes over stdin, never argv.
     if let Err(err) = session
-        .exec_fenced(&remote_scripts::upload_token(&token_file_path), Some(token.as_bytes()))
+        .exec_fenced(
+            &remote_scripts::upload_token(&token_file_path),
+            Some(token.as_bytes()),
+        )
         .await
         .and_then(|o| o.require_success("uploading the session token"))
     {
@@ -591,11 +671,20 @@ pub async fn spawn_remote_dashboard(
         return Err(err);
     }
 
-    let spawn_command =
-        build_spawn_command(hermes_path, profile, &log_path, Some(&token_file_path), Some(spawn_nonce))?;
+    let spawn_command = build_spawn_command(
+        hermes_path,
+        profile,
+        &log_path,
+        Some(&token_file_path),
+        Some(spawn_nonce),
+    )?;
 
     println!("[ssh probe] spawn_remote_dashboard: spawning backend, log={log_path:?}");
-    let out = match session.exec_fenced(&spawn_command, None).await.and_then(|o| o.require_success("starting the backend")) {
+    let out = match session
+        .exec_fenced(&spawn_command, None)
+        .await
+        .and_then(|o| o.require_success("starting the backend"))
+    {
         Ok(out) => out,
         Err(err) => {
             println!("[ssh probe] spawn_remote_dashboard: spawn command failed: {err}");
@@ -656,7 +745,10 @@ pub async fn wait_for_ready_port(
     let remote_log = expand_remote_path(log_path)?;
     let deadline = tokio::time::Instant::now() + timeout;
 
-    println!("[ssh probe] wait_for_ready_port: polling {remote_log:?} for pid={pid}, timeout={}s", timeout.as_secs());
+    println!(
+        "[ssh probe] wait_for_ready_port: polling {remote_log:?} for pid={pid}, timeout={}s",
+        timeout.as_secs()
+    );
 
     while tokio::time::Instant::now() < deadline {
         if !remote_pid_alive(session, pid).await? {
@@ -681,7 +773,10 @@ pub async fn wait_for_ready_port(
         tokio::time::sleep(READY_POLL_INTERVAL).await;
     }
 
-    println!("[ssh probe] wait_for_ready_port: timed out after {}s for pid={pid}", timeout.as_secs());
+    println!(
+        "[ssh probe] wait_for_ready_port: timed out after {}s for pid={pid}",
+        timeout.as_secs()
+    );
 
     Err(SshError::new(
         SshErrorKind::Timeout,
@@ -760,7 +855,10 @@ pub async fn survey_hermes(
 ) -> Result<(String, String, String), SshError> {
     reporter.step(SshStep::LocatingHermes);
     let hermes_path = locate_hermes(session, explicit_hermes_path).await?;
-    reporter.step_with(SshStep::LocatingHermes, format!("found hermes at {hermes_path}"));
+    reporter.step_with(
+        SshStep::LocatingHermes,
+        format!("found hermes at {hermes_path}"),
+    );
 
     let hermes_version = probe_hermes_version(session, &hermes_path).await;
     let hermes_home = probe_hermes_home(session).await?;
@@ -803,7 +901,10 @@ mod tests {
     #[test]
     fn round_trips_a_valid_lock() {
         let original = lock();
-        assert_eq!(parse_lock(&json(&original), OWNER).as_ref(), Some(&original));
+        assert_eq!(
+            parse_lock(&json(&original), OWNER).as_ref(),
+            Some(&original)
+        );
     }
 
     #[test]
@@ -828,7 +929,10 @@ mod tests {
         for pid in [0, -1, MAX_PID + 1] {
             let mut l = lock();
             l.pid = pid;
-            assert!(parse_lock(&json(&l), OWNER).is_none(), "pid {pid} must be rejected");
+            assert!(
+                parse_lock(&json(&l), OWNER).is_none(),
+                "pid {pid} must be rejected"
+            );
         }
     }
 
@@ -838,7 +942,8 @@ mod tests {
         // ownership for cleanup, never valid enough to connect to.
         let mut l = lock();
         l.port = 0;
-        let parsed = parse_lock(&json(&l), OWNER).expect("a port-0 record is still a valid ownership proof");
+        let parsed =
+            parse_lock(&json(&l), OWNER).expect("a port-0 record is still a valid ownership proof");
         assert!(!parsed.is_reusable());
         assert!(lock().is_reusable());
     }
@@ -925,16 +1030,24 @@ mod tests {
 
     #[test]
     fn spawn_command_detaches_and_reports_the_pid() {
-        let out = build_spawn_command("/usr/local/bin/hermes", None, "~/x.log", None, None).unwrap();
-        assert!(out.contains("command -v setsid || echo nohup"), "macOS has no setsid: {out}");
+        let out =
+            build_spawn_command("/usr/local/bin/hermes", None, "~/x.log", None, None).unwrap();
+        assert!(
+            out.contains("command -v setsid || echo nohup"),
+            "macOS has no setsid: {out}"
+        );
         assert!(out.contains("</dev/null"), "{out}");
-        assert!(out.ends_with("& echo $!'"), "the pid is how ownership is later proven: {out}");
+        assert!(
+            out.ends_with("& echo $!'"),
+            "the pid is how ownership is later proven: {out}"
+        );
     }
 
     #[test]
     fn spawn_command_places_the_profile_before_the_subcommand() {
         // The CLI takes --profile as a global flag, ahead of `serve`.
-        let out = build_spawn_command("/usr/local/bin/hermes", Some("work"), "~/x.log", None, None).unwrap();
+        let out = build_spawn_command("/usr/local/bin/hermes", Some("work"), "~/x.log", None, None)
+            .unwrap();
         let profile_at = out.find("--profile").expect("profile flag");
         let serve_at = out.find("serve --isolated").expect("subcommand");
         assert!(profile_at < serve_at, "{out}");
@@ -943,7 +1056,10 @@ mod tests {
     /// Reverse `shq`: unwrap one layer of POSIX single-quoting. Used to prove the
     /// nesting round-trips rather than eyeballing a doubly-escaped string.
     fn unshq(quoted: &str) -> String {
-        let inner = quoted.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')).expect("one shell word");
+        let inner = quoted
+            .strip_prefix('\'')
+            .and_then(|s| s.strip_suffix('\''))
+            .expect("one shell word");
 
         inner.replace("'\\''", "'")
     }
@@ -954,14 +1070,23 @@ mod tests {
         // the --profile argument, then `shq` again for the whole `sh -c` string.
         // Peeling them proves the injection never becomes shell syntax.
         let hostile = "a'; rm -rf /; #";
-        let out =
-            build_spawn_command("/usr/local/bin/hermes", Some(hostile), "~/x.log", None, None).unwrap();
+        let out = build_spawn_command(
+            "/usr/local/bin/hermes",
+            Some(hostile),
+            "~/x.log",
+            None,
+            None,
+        )
+        .unwrap();
 
         let (_, sh_arg) = out.split_once("sh -c ").expect("sh -c argument");
         let inner = unshq(sh_arg);
 
         // One layer off: the profile is still a quoted argument, not syntax.
-        assert!(inner.contains(&format!("--profile {}", shq(hostile))), "{inner}");
+        assert!(
+            inner.contains(&format!("--profile {}", shq(hostile))),
+            "{inner}"
+        );
         // Two layers off: the original text, intact and inert.
         let (_, after) = inner.split_once("--profile ").expect("profile flag");
         let (profile_word, _) = after.split_once(" serve").expect("subcommand follows");
@@ -970,7 +1095,8 @@ mod tests {
 
     #[test]
     fn spawn_command_omits_optional_args_when_absent() {
-        let out = build_spawn_command("/usr/local/bin/hermes", None, "~/x.log", None, None).unwrap();
+        let out =
+            build_spawn_command("/usr/local/bin/hermes", None, "~/x.log", None, None).unwrap();
         assert!(!out.contains("--ssh-session-token-file"), "{out}");
         assert!(!out.contains("--ssh-owner-nonce"), "{out}");
         assert!(!out.contains("--profile"), "{out}");
@@ -980,7 +1106,10 @@ mod tests {
     fn spawn_command_rejects_a_relative_hermes_path() {
         assert!(build_spawn_command("hermes", None, "~/x.log", None, None).is_err());
         assert!(build_spawn_command("/usr/local/bin/hermes", None, "x.log", None, None).is_err());
-        assert!(build_spawn_command("/usr/local/bin/hermes", None, "~/x.log", None, Some("bad")).is_err());
+        assert!(
+            build_spawn_command("/usr/local/bin/hermes", None, "~/x.log", None, Some("bad"))
+                .is_err()
+        );
     }
 
     #[test]
@@ -1003,8 +1132,14 @@ mod tests {
 
     #[test]
     fn scrapes_both_ready_line_spellings() {
-        assert_eq!(scrape_ready_port("HERMES_BACKEND_READY port=51001"), Some(51001));
-        assert_eq!(scrape_ready_port("HERMES_DASHBOARD_READY port=8788"), Some(8788));
+        assert_eq!(
+            scrape_ready_port("HERMES_BACKEND_READY port=51001"),
+            Some(51001)
+        );
+        assert_eq!(
+            scrape_ready_port("HERMES_DASHBOARD_READY port=8788"),
+            Some(8788)
+        );
     }
 
     #[test]
@@ -1017,27 +1152,43 @@ mod tests {
 
     #[test]
     fn scrape_requires_the_marker_at_the_line_start() {
-        assert_eq!(scrape_ready_port("INFO: HERMES_BACKEND_READY port=51001"), None);
+        assert_eq!(
+            scrape_ready_port("INFO: HERMES_BACKEND_READY port=51001"),
+            None
+        );
         assert_eq!(scrape_ready_port("uvicorn running on 8788"), None);
         assert_eq!(scrape_ready_port(""), None);
     }
 
     #[test]
     fn scrape_rejects_unparseable_and_zero_ports() {
-        assert_eq!(scrape_ready_port("HERMES_BACKEND_READY port=notaport"), None);
+        assert_eq!(
+            scrape_ready_port("HERMES_BACKEND_READY port=notaport"),
+            None
+        );
         assert_eq!(scrape_ready_port("HERMES_BACKEND_READY port="), None);
         assert_eq!(scrape_ready_port("HERMES_BACKEND_READY port=0"), None);
-        assert_eq!(scrape_ready_port("HERMES_BACKEND_READY port=99999"), None, "out of u16 range");
+        assert_eq!(
+            scrape_ready_port("HERMES_BACKEND_READY port=99999"),
+            None,
+            "out of u16 range"
+        );
     }
 
     #[test]
     fn scrape_ignores_trailing_text_after_the_port() {
-        assert_eq!(scrape_ready_port("HERMES_BACKEND_READY port=51001 pid=42"), Some(51001));
+        assert_eq!(
+            scrape_ready_port("HERMES_BACKEND_READY port=51001 pid=42"),
+            Some(51001)
+        );
     }
 
     /// A lock whose fingerprint matches `TOKEN`, matching `hermes_path`/`home`.
     fn reusable_lock() -> BackendLock {
-        BackendLock { token_fingerprint: fingerprint_token(TOKEN), ..lock() }
+        BackendLock {
+            token_fingerprint: fingerprint_token(TOKEN),
+            ..lock()
+        }
     }
 
     const TOKEN: &str = "hunter2";
@@ -1074,7 +1225,10 @@ mod tests {
     fn a_token_we_no_longer_hold_blocks_reuse() {
         // Without the stored token we cannot authenticate to the backend, so
         // reattaching would produce a connection that fails on its first call.
-        assert!(!reusable(&reusable_lock(), true, true, ""), "no token at all");
+        assert!(
+            !reusable(&reusable_lock(), true, true, ""),
+            "no token at all"
+        );
         assert!(!reusable(&reusable_lock(), true, true, "a-different-token"));
     }
 
@@ -1084,8 +1238,22 @@ mod tests {
         // started, so it is running the wrong install or against the wrong state
         // directory. Respawn rather than silently use the old one.
         let l = reusable_lock();
-        assert!(!lock_is_reusable(&l, true, true, TOKEN, "/opt/other/hermes", HOME));
-        assert!(!lock_is_reusable(&l, true, true, TOKEN, HERMES, "/home/u/.hermes-other"));
+        assert!(!lock_is_reusable(
+            &l,
+            true,
+            true,
+            TOKEN,
+            "/opt/other/hermes",
+            HOME
+        ));
+        assert!(!lock_is_reusable(
+            &l,
+            true,
+            true,
+            TOKEN,
+            HERMES,
+            "/home/u/.hermes-other"
+        ));
     }
 
     #[test]

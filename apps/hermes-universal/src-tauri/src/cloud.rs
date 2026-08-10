@@ -104,17 +104,21 @@ fn privy_cookie_values(cookies: &[Cookie<'static>]) -> Vec<String> {
 
 #[cfg(not(target_os = "android"))]
 fn portal_data_dir(app: &AppHandle) -> Option<std::path::PathBuf> {
-    app.path().app_data_dir().ok().map(|d| d.join("portal-webview"))
+    app.path()
+        .app_data_dir()
+        .ok()
+        .map(|d| d.join("portal-webview"))
 }
 
 /// Build the persistent portal webview (its own data_directory so the Privy
 /// session survives restarts and is shared with the discovery/SSO calls).
 #[cfg(not(target_os = "android"))]
 fn build_portal_window(app: &AppHandle, url: Url, visible: bool) -> tauri::Result<()> {
-    let mut builder = WebviewWindowBuilder::new(app, PORTAL_WINDOW_LABEL, WebviewUrl::External(url))
-        .title("Nous Portal")
-        .inner_size(520.0, 720.0)
-        .visible(visible);
+    let mut builder =
+        WebviewWindowBuilder::new(app, PORTAL_WINDOW_LABEL, WebviewUrl::External(url))
+            .title("Nous Portal")
+            .inner_size(520.0, 720.0)
+            .visible(visible);
     if let Some(dir) = portal_data_dir(app) {
         builder = builder.data_directory(dir);
     }
@@ -124,12 +128,18 @@ fn build_portal_window(app: &AppHandle, url: Url, visible: bool) -> tauri::Resul
 /// The portal's cookies, from wherever this platform keeps them (see the module note):
 /// the dedicated portal webview off-Android, the calling webview — reading the one
 /// app-global cookie store — on Android. Empty when there is no session yet.
-fn portal_cookies(app: &AppHandle, webview: &WebviewWindow, portal_url: &Url) -> Vec<Cookie<'static>> {
+fn portal_cookies(
+    app: &AppHandle,
+    webview: &WebviewWindow,
+    portal_url: &Url,
+) -> Vec<Cookie<'static>> {
     #[cfg(target_os = "android")]
     {
         let _ = app;
 
-        webview.cookies_for_url(portal_url.clone()).unwrap_or_default()
+        webview
+            .cookies_for_url(portal_url.clone())
+            .unwrap_or_default()
     }
 
     #[cfg(not(target_os = "android"))]
@@ -183,8 +193,8 @@ pub async fn portal_login(app: AppHandle, webview: WebviewWindow) -> Result<Port
             .navigate(login_url)
             .map_err(|e| format!("could not open the portal sign-in page: {e}"))?;
 
-        let deadline = tokio::time::Instant::now()
-            + Duration::from_secs(PORTAL_TIMEOUT_SECS_ANDROID);
+        let deadline =
+            tokio::time::Instant::now() + Duration::from_secs(PORTAL_TIMEOUT_SECS_ANDROID);
         let mut signed_in = false;
         while tokio::time::Instant::now() < deadline {
             tokio::time::sleep(Duration::from_millis(750)).await;
@@ -203,7 +213,10 @@ pub async fn portal_login(app: AppHandle, webview: WebviewWindow) -> Result<Port
             return Err("Portal sign-in timed out".to_string());
         }
 
-        return Ok(PortalStatus { signed_in: true, portal_base_url: base });
+        return Ok(PortalStatus {
+            signed_in: true,
+            portal_base_url: base,
+        });
     }
 
     #[cfg(not(target_os = "android"))]
@@ -233,7 +246,10 @@ pub async fn portal_login(app: AppHandle, webview: WebviewWindow) -> Result<Port
                         let _ = w.hide();
                     }
                 });
-                return Ok(PortalStatus { signed_in: true, portal_base_url: base });
+                return Ok(PortalStatus {
+                    signed_in: true,
+                    portal_base_url: base,
+                });
             }
             if tokio::time::Instant::now() >= deadline {
                 return Err("Portal sign-in timed out".to_string());
@@ -280,9 +296,20 @@ pub struct DiscoverResult {
 fn parse_agent(v: &Value) -> Option<CloudAgent> {
     Some(CloudAgent {
         id: v.get("id")?.as_str()?.to_string(),
-        name: v.get("name").and_then(Value::as_str).unwrap_or("").to_string(),
-        status: v.get("status").and_then(Value::as_str).unwrap_or("unknown").to_string(),
-        dashboard_url: v.get("dashboardUrl").and_then(Value::as_str).map(str::to_string),
+        name: v
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string(),
+        status: v
+            .get("status")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown")
+            .to_string(),
+        dashboard_url: v
+            .get("dashboardUrl")
+            .and_then(Value::as_str)
+            .map(str::to_string),
         dashboard_gateway_state: v
             .get("dashboardGatewayState")
             .and_then(Value::as_str)
@@ -295,9 +322,20 @@ fn parse_org(v: &Value) -> Option<CloudOrg> {
     Some(CloudOrg {
         id: v.get("id")?.as_str()?.to_string(),
         slug: v.get("slug").and_then(Value::as_str).map(str::to_string),
-        name: v.get("name").and_then(Value::as_str).unwrap_or("").to_string(),
-        is_personal: v.get("isPersonal").and_then(Value::as_bool).unwrap_or(false),
-        role: v.get("role").and_then(Value::as_str).unwrap_or("MEMBER").to_string(),
+        name: v
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string(),
+        is_personal: v
+            .get("isPersonal")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        role: v
+            .get("role")
+            .and_then(Value::as_str)
+            .unwrap_or("MEMBER")
+            .to_string(),
     })
 }
 
@@ -324,7 +362,10 @@ pub async fn portal_discover_agents(
 
     let cookies = portal_cookies(&app, &webview, &portal_url);
     if !has_privy_cookie(&cookies) {
-        return Ok(DiscoverResult { needs_login: true, ..Default::default() });
+        return Ok(DiscoverResult {
+            needs_login: true,
+            ..Default::default()
+        });
     }
     let cookie_header = cookies
         .iter()
@@ -348,7 +389,10 @@ pub async fn portal_discover_agents(
 
     let status = resp.status();
     if status.as_u16() == 401 {
-        return Ok(DiscoverResult { needs_login: true, ..Default::default() });
+        return Ok(DiscoverResult {
+            needs_login: true,
+            ..Default::default()
+        });
     }
     let body: Value = resp.json().await.unwrap_or(Value::Null);
     if status.as_u16() == 409 {
@@ -368,7 +412,11 @@ pub async fn portal_discover_agents(
         .map(|arr| arr.iter().filter_map(parse_agent).collect())
         .unwrap_or_default();
     let org = body.get("org").and_then(parse_org);
-    Ok(DiscoverResult { agents, org, ..Default::default() })
+    Ok(DiscoverResult {
+        agents,
+        org,
+        ..Default::default()
+    })
 }
 
 /// Sign out of the portal: clear the portal webview's stored browsing data (the
@@ -474,7 +522,10 @@ pub async fn portal_agent_sign_in(
         .await
         .map_err(|e| format!("agent auth/login failed: {e}"))?;
     if !resp.status().is_redirection() {
-        return Err(format!("expected a redirect from agent /auth/login, got {}", resp.status()));
+        return Err(format!(
+            "expected a redirect from agent /auth/login, got {}",
+            resp.status()
+        ));
     }
     let authorize = resp
         .headers()
@@ -488,7 +539,10 @@ pub async fn portal_agent_sign_in(
     //      platform can, and land the agent's session cookie in the shared jar.
     let connected = agent_sso(&app, &webview, state.inner(), &base, authorize_url).await?;
 
-    Ok(AgentSignInResult { connected, base_url: base })
+    Ok(AgentSignInResult {
+        connected,
+        base_url: base,
+    })
 }
 
 /// The authorize leg, desktop/iOS: drive it in the hidden portal webview (same
@@ -518,29 +572,36 @@ async fn agent_sso(
         if let Some(existing) = app_build.get_webview_window(PORTAL_WINDOW_LABEL) {
             let _ = existing.close();
         }
-        let mut builder =
-            WebviewWindowBuilder::new(&app_build, PORTAL_WINDOW_LABEL, WebviewUrl::External(authorize_url))
-                .title("Nous Portal")
-                .inner_size(520.0, 720.0)
-                .visible(false)
-                .on_navigation(move |url| {
-                    if url.as_str().starts_with(&callback_prefix) {
-                        if let Some(tx) = tx_nav.lock().ok().and_then(|mut g| g.take()) {
-                            let _ = tx.send(Ok(url.to_string()));
-                        }
-                        return false;
-                    }
-                    true
-                });
+        let mut builder = WebviewWindowBuilder::new(
+            &app_build,
+            PORTAL_WINDOW_LABEL,
+            WebviewUrl::External(authorize_url),
+        )
+        .title("Nous Portal")
+        .inner_size(520.0, 720.0)
+        .visible(false)
+        .on_navigation(move |url| {
+            if url.as_str().starts_with(&callback_prefix) {
+                if let Some(tx) = tx_nav.lock().ok().and_then(|mut g| g.take()) {
+                    let _ = tx.send(Ok(url.to_string()));
+                }
+                return false;
+            }
+            true
+        });
         if let Some(dir) = data_dir {
             builder = builder.data_directory(dir);
         }
         match builder.build() {
             Ok(win) => {
                 win.on_window_event(move |event| {
-                    if matches!(event, WindowEvent::CloseRequested { .. } | WindowEvent::Destroyed) {
+                    if matches!(
+                        event,
+                        WindowEvent::CloseRequested { .. } | WindowEvent::Destroyed
+                    ) {
                         if let Some(tx) = tx_close.lock().ok().and_then(|mut g| g.take()) {
-                            let _ = tx.send(Err("Portal window closed before SSO completed".to_string()));
+                            let _ = tx
+                                .send(Err("Portal window closed before SSO completed".to_string()));
                         }
                     }
                 });
@@ -566,7 +627,10 @@ async fn agent_sso(
 
         // Guard dropped before the hop to the main thread — never hold a std
         // lock across a scheduling boundary.
-        let unresolved = tx_reveal.lock().map(|guard| guard.is_some()).unwrap_or(false);
+        let unresolved = tx_reveal
+            .lock()
+            .map(|guard| guard.is_some())
+            .unwrap_or(false);
 
         if !unresolved {
             return;

@@ -172,8 +172,8 @@ mod imp {
                 match reader.read(&mut buf) {
                     Ok(0) | Err(_) => break,
                     Ok(n) => {
-                        let _ = app_reader
-                            .emit(&format!("pty://{id_reader}/data"), buf[..n].to_vec());
+                        let _ =
+                            app_reader.emit(&format!("pty://{id_reader}/data"), buf[..n].to_vec());
                     }
                 }
             }
@@ -265,10 +265,7 @@ pub async fn pty_resize(
 
 #[cfg(desktop)]
 #[tauri::command]
-pub async fn pty_kill(
-    state: tauri::State<'_, imp::PtyState>,
-    id: String,
-) -> Result<(), String> {
+pub async fn pty_kill(state: tauri::State<'_, imp::PtyState>, id: String) -> Result<(), String> {
     imp::kill(&state, id).await
 }
 

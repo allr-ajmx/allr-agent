@@ -105,7 +105,11 @@ async fn open_or_focus(app: tauri::AppHandle, label: String, url: String) -> Res
             builder = builder.decorations(false);
         }
         let build = builder.build();
-        let _ = tx.send(build.map(|_| ()).map_err(|e| format!("could not open window: {e}")));
+        let _ = tx.send(
+            build
+                .map(|_| ())
+                .map_err(|e| format!("could not open window: {e}")),
+        );
     })
     .map_err(|e| format!("failed to schedule window: {e}"))?;
     rx.await.map_err(|_| "failed to open window".to_string())?
@@ -168,7 +172,11 @@ pub async fn open_tile_window(
     if !session.is_empty() && !url_safe(session) {
         return Err("unsupported session id".to_string());
     }
-    let watch_frag = if watch.unwrap_or(false) { "&watch=1" } else { "" };
+    let watch_frag = if watch.unwrap_or(false) {
+        "&watch=1"
+    } else {
+        ""
+    };
     let route = if session.is_empty() {
         String::new()
     } else {
@@ -309,7 +317,11 @@ async fn open_activity(
         #[cfg(not(target_os = "android"))]
         let _ = activity;
         let build = builder.build();
-        let _ = tx.send(build.map(|_| ()).map_err(|e| format!("could not open window: {e}")));
+        let _ = tx.send(
+            build
+                .map(|_| ())
+                .map_err(|e| format!("could not open window: {e}")),
+        );
     })
     .map_err(|e| format!("failed to schedule window: {e}"))?;
     rx.await.map_err(|_| "failed to open window".to_string())?

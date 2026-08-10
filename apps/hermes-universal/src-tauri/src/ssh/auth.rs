@@ -111,7 +111,12 @@ async fn load_key(
 
             russh::keys::load_secret_key(path, Some(&passphrase))
                 .map(Some)
-                .map_err(|e| SshError::new(SshErrorKind::AuthFailed, format!("Could not decrypt {path}: {e}")))
+                .map_err(|e| {
+                    SshError::new(
+                        SshErrorKind::AuthFailed,
+                        format!("Could not decrypt {path}: {e}"),
+                    )
+                })
         }
 
         // A key that is absent or unreadable is not a failure of the ladder —
@@ -137,7 +142,12 @@ async fn try_key(
         .authenticate_publickey(user, with_hash)
         .await
         .map(|r| r.success())
-        .map_err(|e| SshError::new(SshErrorKind::AuthFailed, format!("Public-key authentication failed: {e}")))
+        .map_err(|e| {
+            SshError::new(
+                SshErrorKind::AuthFailed,
+                format!("Public-key authentication failed: {e}"),
+            )
+        })
 }
 
 /// Ask the server which RSA signature hash it supports, defaulting to SHA-512.
@@ -146,7 +156,12 @@ async fn best_rsa_hash(handle: &Handle<SshHandler>, key: &PrivateKey) -> Option<
         return None;
     }
 
-    handle.best_supported_rsa_hash().await.ok().flatten().unwrap_or(Some(HashAlg::Sha512))
+    handle
+        .best_supported_rsa_hash()
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or(Some(HashAlg::Sha512))
 }
 
 /// Walk the ladder. Returns which rung got in, or an `AuthFailed` naming what
@@ -180,14 +195,23 @@ pub async fn authenticate(
     }
 
     // 3. A pasted PEM from the keyring — the mobile route.
-    if let Some(pem) = creds.private_key_pem.as_deref().filter(|p| !p.trim().is_empty()) {
+    if let Some(pem) = creds
+        .private_key_pem
+        .as_deref()
+        .filter(|p| !p.trim().is_empty())
+    {
         let key = match russh::keys::decode_secret_key(pem, creds.passphrase.as_deref()) {
             Ok(key) => key,
             Err(russh::keys::Error::KeyIsEncrypted) => {
-                let passphrase = prompter.prompt(PromptKind::Passphrase, "Passphrase for the stored key").await?;
+                let passphrase = prompter
+                    .prompt(PromptKind::Passphrase, "Passphrase for the stored key")
+                    .await?;
 
                 russh::keys::decode_secret_key(pem, Some(&passphrase)).map_err(|e| {
-                    SshError::new(SshErrorKind::AuthFailed, format!("Could not decrypt the stored key: {e}"))
+                    SshError::new(
+                        SshErrorKind::AuthFailed,
+                        format!("Could not decrypt the stored key: {e}"),
+                    )
                 })?
             }
             Err(e) => {
@@ -215,7 +239,12 @@ pub async fn authenticate(
             .authenticate_password(user, password)
             .await
             .map(|r| r.success())
-            .map_err(|e| SshError::new(SshErrorKind::AuthFailed, format!("Password authentication failed: {e}")))?;
+            .map_err(|e| {
+                SshError::new(
+                    SshErrorKind::AuthFailed,
+                    format!("Password authentication failed: {e}"),
+                )
+            })?;
 
         if ok {
             return Ok(AuthMethodUsed::Password);
@@ -224,7 +253,10 @@ pub async fn authenticate(
         attempted.push("password");
     }
 
-    Err(SshError::new(SshErrorKind::AuthFailed, auth_failure_message(user, &attempted, had_password)))
+    Err(SshError::new(
+        SshErrorKind::AuthFailed,
+        auth_failure_message(user, &attempted, had_password),
+    ))
 }
 
 /// Explain a failed ladder in terms of what it actually did.
@@ -236,8 +268,11 @@ pub async fn authenticate(
 /// stated outright rather than left to be inferred from a list it is missing
 /// from.
 fn auth_failure_message(user: &str, attempted: &[&str], had_password: bool) -> String {
-    let tried =
-        if attempted.is_empty() { "nothing available".to_string() } else { attempted.join(", ") };
+    let tried = if attempted.is_empty() {
+        "nothing available".to_string()
+    } else {
+        attempted.join(", ")
+    };
 
     let missing_password = if had_password {
         ""
@@ -253,7 +288,10 @@ fn auth_failure_message(user: &str, attempted: &[&str], had_password: bool) -> S
 }
 
 /// The password to try, from the caller or from a prompt.
-async fn resolve_password(creds: &Credentials, prompter: &dyn Prompter) -> Result<Option<String>, SshError> {
+async fn resolve_password(
+    creds: &Credentials,
+    prompter: &dyn Prompter,
+) -> Result<Option<String>, SshError> {
     if let Some(p) = creds.password.as_deref().filter(|p| !p.is_empty()) {
         return Ok(Some(p.to_string()));
     }
@@ -271,14 +309,19 @@ async fn try_agent(handle: &mut Handle<SshHandler>, user: &str) -> Result<bool, 
     use russh::keys::agent::client::AgentClient;
 
     // No SSH_AUTH_SOCK, or nothing listening on it: this rung does not exist.
-    let mut agent = AgentClient::connect_env()
-        .await
-        .map_err(|e| SshError::new(SshErrorKind::AuthFailed, format!("No usable ssh-agent: {e}")))?;
+    let mut agent = AgentClient::connect_env().await.map_err(|e| {
+        SshError::new(
+            SshErrorKind::AuthFailed,
+            format!("No usable ssh-agent: {e}"),
+        )
+    })?;
 
-    let identities = agent
-        .request_identities()
-        .await
-        .map_err(|e| SshError::new(SshErrorKind::AuthFailed, format!("Could not list agent identities: {e}")))?;
+    let identities = agent.request_identities().await.map_err(|e| {
+        SshError::new(
+            SshErrorKind::AuthFailed,
+            format!("Could not list agent identities: {e}"),
+        )
+    })?;
 
     for identity in identities {
         let public: PublicKey = match &identity {
@@ -288,12 +331,20 @@ async fn try_agent(handle: &mut Handle<SshHandler>, user: &str) -> Result<bool, 
         };
 
         let hash_alg = if matches!(public.algorithm(), russh::keys::Algorithm::Rsa { .. }) {
-            handle.best_supported_rsa_hash().await.ok().flatten().unwrap_or(Some(HashAlg::Sha512))
+            handle
+                .best_supported_rsa_hash()
+                .await
+                .ok()
+                .flatten()
+                .unwrap_or(Some(HashAlg::Sha512))
         } else {
             None
         };
 
-        if let Ok(result) = handle.authenticate_publickey_with(user, public, hash_alg, &mut agent).await {
+        if let Ok(result) = handle
+            .authenticate_publickey_with(user, public, hash_alg, &mut agent)
+            .await
+        {
             if result.success() {
                 return Ok(true);
             }
@@ -308,7 +359,10 @@ async fn try_agent(handle: &mut Handle<SshHandler>, user: &str) -> Result<bool, 
 /// is absent rather than broken.
 #[cfg(not(unix))]
 async fn try_agent(_handle: &mut Handle<SshHandler>, _user: &str) -> Result<bool, SshError> {
-    Err(SshError::new(SshErrorKind::AuthFailed, "ssh-agent is not available on this platform."))
+    Err(SshError::new(
+        SshErrorKind::AuthFailed,
+        "ssh-agent is not available on this platform.",
+    ))
 }
 
 #[cfg(test)]
@@ -332,7 +386,10 @@ mod tests {
         let out = key_file_candidates(&creds, Some(&home()));
         assert_eq!(out[0], "/keys/explicit");
         assert_eq!(out[1], "/keys/from-config");
-        assert_eq!(out[2], "/home/u/.ssh/id_ed25519", "ed25519 before rsa, as OpenSSH prefers");
+        assert_eq!(
+            out[2], "/home/u/.ssh/id_ed25519",
+            "ed25519 before rsa, as OpenSSH prefers"
+        );
         assert!(out.contains(&"/home/u/.ssh/id_rsa".to_string()));
     }
 
@@ -352,15 +409,21 @@ mod tests {
 
     #[test]
     fn candidates_ignore_blank_values() {
-        let creds =
-            Credentials { key_path: Some("   ".into()), identity_file: Some(String::new()), ..Default::default() };
+        let creds = Credentials {
+            key_path: Some("   ".into()),
+            identity_file: Some(String::new()),
+            ..Default::default()
+        };
         assert!(key_file_candidates(&creds, None).is_empty());
     }
 
     #[test]
     fn candidates_without_a_home_yield_only_explicit_paths() {
         // Mobile: no ~/.ssh to fall back on, so nothing is invented.
-        let creds = Credentials { key_path: Some("/keys/explicit".into()), ..Default::default() };
+        let creds = Credentials {
+            key_path: Some("/keys/explicit".into()),
+            ..Default::default()
+        };
         assert_eq!(key_file_candidates(&creds, None), vec!["/keys/explicit"]);
         assert!(key_file_candidates(&Credentials::default(), None).is_empty());
     }
@@ -370,7 +433,10 @@ mod tests {
         let out = key_file_candidates(&Credentials::default(), Some(&home()));
         assert_eq!(out.len(), DEFAULT_KEY_NAMES.len());
         for name in DEFAULT_KEY_NAMES {
-            assert!(out.iter().any(|c| c.ends_with(name)), "{name} missing from {out:?}");
+            assert!(
+                out.iter().any(|c| c.ends_with(name)),
+                "{name} missing from {out:?}"
+            );
         }
     }
 
@@ -405,10 +471,26 @@ mod tests {
     fn is_empty_reflects_whether_a_silent_connect_is_possible() {
         // Drives whether a boot restore may even attempt the dial.
         assert!(Credentials::default().is_empty());
-        assert!(!Credentials { key_path: Some("/k".into()), ..Default::default() }.is_empty());
-        assert!(!Credentials { private_key_pem: Some("pem".into()), ..Default::default() }.is_empty());
-        assert!(!Credentials { password: Some("pw".into()), ..Default::default() }.is_empty());
+        assert!(!Credentials {
+            key_path: Some("/k".into()),
+            ..Default::default()
+        }
+        .is_empty());
+        assert!(!Credentials {
+            private_key_pem: Some("pem".into()),
+            ..Default::default()
+        }
+        .is_empty());
+        assert!(!Credentials {
+            password: Some("pw".into()),
+            ..Default::default()
+        }
+        .is_empty());
         // A passphrase alone unlocks nothing — there is no key for it to open.
-        assert!(Credentials { passphrase: Some("pp".into()), ..Default::default() }.is_empty());
+        assert!(Credentials {
+            passphrase: Some("pp".into()),
+            ..Default::default()
+        }
+        .is_empty());
     }
 }

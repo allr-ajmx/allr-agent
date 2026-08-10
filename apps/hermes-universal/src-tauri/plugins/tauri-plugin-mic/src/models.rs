@@ -7,11 +7,11 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum PermissionState {
-  Granted,
-  Denied,
-  Prompt,
-  #[serde(rename = "prompt-with-rationale")]
-  PromptWithRationale,
+    Granted,
+    Denied,
+    Prompt,
+    #[serde(rename = "prompt-with-rationale")]
+    PromptWithRationale,
 }
 
 /// The native side resolves a JSON object keyed by the permission *alias* declared
@@ -19,5 +19,5 @@ pub enum PermissionState {
 /// (and the matching iOS resolve). The field name here MUST equal that alias.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PermissionStatus {
-  pub microphone: PermissionState,
+    pub microphone: PermissionState,
 }

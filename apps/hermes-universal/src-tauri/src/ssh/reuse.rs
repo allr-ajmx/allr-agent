@@ -60,7 +60,10 @@ pub fn classify_proof(body: &str, expected_nonce: &str) -> ReuseClassification {
         return ReuseClassification::AuthenticatedStale;
     };
 
-    if proof.ok && proof.ssh_owner_nonce == expected_nonce && proof.protocol_version == PROTOCOL_VERSION {
+    if proof.ok
+        && proof.ssh_owner_nonce == expected_nonce
+        && proof.protocol_version == PROTOCOL_VERSION
+    {
         ReuseClassification::AuthenticatedOk
     } else {
         ReuseClassification::AuthenticatedStale
@@ -118,14 +121,21 @@ pub async fn probe_reuse_proof(
 ///
 /// The log line only says uvicorn bound a port; this says the app behind it is
 /// actually serving and accepts our token.
-pub async fn wait_for_hermes(client: &reqwest::Client, base_url: &str, token: &str) -> Result<(), SshError> {
+pub async fn wait_for_hermes(
+    client: &reqwest::Client,
+    base_url: &str,
+    token: &str,
+) -> Result<(), SshError> {
     let deadline = tokio::time::Instant::now() + READY_TIMEOUT;
 
     loop {
         if tokio::time::Instant::now() >= deadline {
             return Err(SshError::new(
                 SshErrorKind::Timeout,
-                format!("The remote backend did not become ready within {}s.", READY_TIMEOUT.as_secs()),
+                format!(
+                    "The remote backend did not become ready within {}s.",
+                    READY_TIMEOUT.as_secs()
+                ),
             ));
         }
 
@@ -161,7 +171,10 @@ pub fn extract_served_token(html: &str) -> Option<String> {
 
     // Only whitespace and `=` may sit between the marker and the value; anything
     // else means we matched a different statement that merely mentions it.
-    if rest[..quote].chars().any(|c| !c.is_whitespace() && c != '=') {
+    if rest[..quote]
+        .chars()
+        .any(|c| !c.is_whitespace() && c != '=')
+    {
         return None;
     }
 
@@ -190,7 +203,11 @@ pub fn is_foreign_backend(served: &str, spawned: &str, process_alive: bool) -> b
 }
 
 /// Resolve the token to actually use, falling back to the spawn token.
-pub async fn resolve_served_token(client: &reqwest::Client, base_url: &str, spawn_token: &str) -> String {
+pub async fn resolve_served_token(
+    client: &reqwest::Client,
+    base_url: &str,
+    spawn_token: &str,
+) -> String {
     let served = client
         .get(format!("{base_url}/"))
         .timeout(PROBE_TIMEOUT)
@@ -204,7 +221,11 @@ pub async fn resolve_served_token(client: &reqwest::Client, base_url: &str, spaw
     };
 
     // A page we cannot read is not evidence of anything; keep what we minted.
-    body.await.ok().as_deref().and_then(extract_served_token).unwrap_or_else(|| spawn_token.to_string())
+    body.await
+        .ok()
+        .as_deref()
+        .and_then(extract_served_token)
+        .unwrap_or_else(|| spawn_token.to_string())
 }
 
 #[cfg(test)]
@@ -218,7 +239,10 @@ mod tests {
         let body = format!(
             r#"{{"ok":true,"sshOwnerNonce":"{NONCE}","protocolVersion":{PROTOCOL_VERSION}}}"#
         );
-        assert_eq!(classify_proof(&body, NONCE), ReuseClassification::AuthenticatedOk);
+        assert_eq!(
+            classify_proof(&body, NONCE),
+            ReuseClassification::AuthenticatedOk
+        );
     }
 
     #[test]
@@ -246,7 +270,11 @@ mod tests {
     fn an_unreadable_proof_is_stale_not_a_crash() {
         // Something else answering our tunnel will not return our JSON.
         for body in ["", "not json", "<html>404</html>", "null"] {
-            assert_eq!(classify_proof(body, NONCE), ReuseClassification::AuthenticatedStale, "{body}");
+            assert_eq!(
+                classify_proof(body, NONCE),
+                ReuseClassification::AuthenticatedStale,
+                "{body}"
+            );
         }
     }
 
@@ -289,7 +317,10 @@ mod tests {
         assert_eq!(extract_served_token(""), None);
         assert_eq!(extract_served_token("<html><body>hi</body></html>"), None);
         // An unterminated literal is not a token.
-        assert_eq!(extract_served_token(r#"window.__HERMES_SESSION_TOKEN__ = "unclosed"#), None);
+        assert_eq!(
+            extract_served_token(r#"window.__HERMES_SESSION_TOKEN__ = "unclosed"#),
+            None
+        );
     }
 
     #[test]

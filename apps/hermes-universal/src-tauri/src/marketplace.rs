@@ -59,9 +59,11 @@ fn is_valid_id(id: &str) -> bool {
     let parts: Vec<&str> = id.split('.').collect();
 
     parts.len() == 2
-        && parts
-            .iter()
-            .all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-'))
+        && parts.iter().all(|p| {
+            !p.is_empty()
+                && p.chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+        })
 }
 
 /// POST an ExtensionQuery payload and return the parsed gallery response.
@@ -90,23 +92,43 @@ fn looks_like_icon_theme(extension: &Value) -> bool {
     let tags: Vec<String> = extension
         .get("tags")
         .and_then(|t| t.as_array())
-        .map(|arr| arr.iter().filter_map(|v| v.as_str()).map(|s| s.to_lowercase()).collect())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str())
+                .map(|s| s.to_lowercase())
+                .collect()
+        })
         .unwrap_or_default();
 
-    if tags.iter().any(|t| t == "icon-theme" || t == "product-icon-theme") {
+    if tags
+        .iter()
+        .any(|t| t == "icon-theme" || t == "product-icon-theme")
+    {
         return true;
     }
 
     let text = format!(
         "{} {}",
-        extension.get("displayName").and_then(|v| v.as_str()).unwrap_or(""),
-        extension.get("shortDescription").and_then(|v| v.as_str()).unwrap_or("")
+        extension
+            .get("displayName")
+            .and_then(|v| v.as_str())
+            .unwrap_or(""),
+        extension
+            .get("shortDescription")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
     )
     .to_lowercase();
 
-    ["icon theme", "file icon", "product icon", "icon pack", "fileicons"]
-        .iter()
-        .any(|needle| text.contains(needle))
+    [
+        "icon theme",
+        "file icon",
+        "product icon",
+        "icon pack",
+        "fileicons",
+    ]
+    .iter()
+    .any(|needle| text.contains(needle))
 }
 
 /// Search the Marketplace for color-theme extensions. An empty query returns the
@@ -168,7 +190,10 @@ pub async fn marketplace_search(
             .and_then(|p| p.get("publisherName"))
             .and_then(|v| v.as_str())
             .unwrap_or("");
-        let extension_name = extension.get("extensionName").and_then(|v| v.as_str()).unwrap_or("");
+        let extension_name = extension
+            .get("extensionName")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
         let display_name = extension
             .get("displayName")
             .and_then(|v| v.as_str())
@@ -182,13 +207,18 @@ pub async fn marketplace_search(
             .filter(|s| !s.is_empty())
             .unwrap_or(publisher_name)
             .to_string();
-        let description = extension.get("shortDescription").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let description = extension
+            .get("shortDescription")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
         let installs = extension
             .get("statistics")
             .and_then(|s| s.as_array())
             .and_then(|arr| {
-                arr.iter()
-                    .find(|stat| stat.get("statisticName").and_then(|v| v.as_str()) == Some("install"))
+                arr.iter().find(|stat| {
+                    stat.get("statisticName").and_then(|v| v.as_str()) == Some("install")
+                })
             })
             .and_then(|stat| stat.get("value"))
             .and_then(|v| v.as_f64())
@@ -246,9 +276,9 @@ async fn resolve_extension(client: &reqwest::Client, id: &str) -> Result<(String
         .get("files")
         .and_then(|f| f.as_array())
         .and_then(|files| {
-            files
-                .iter()
-                .find(|file| file.get("assetType").and_then(|v| v.as_str()) == Some(VSIX_ASSET_TYPE))
+            files.iter().find(|file| {
+                file.get("assetType").and_then(|v| v.as_str()) == Some(VSIX_ASSET_TYPE)
+            })
         })
         .and_then(|file| file.get("source"))
         .and_then(|v| v.as_str())
@@ -346,9 +376,16 @@ fn extract_themes(vsix: &[u8]) -> Result<Vec<MarketplaceThemeFile>, String> {
             .or_else(|| pkg.get("name").and_then(|v| v.as_str()))
             .unwrap_or("VS Code Theme")
             .to_string();
-        let ui_theme = entry.get("uiTheme").and_then(|v| v.as_str()).map(|s| s.to_string());
+        let ui_theme = entry
+            .get("uiTheme")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
 
-        themes.push(MarketplaceThemeFile { label, ui_theme, contents });
+        themes.push(MarketplaceThemeFile {
+            label,
+            ui_theme,
+            contents,
+        });
     }
 
     Ok(themes)
@@ -371,5 +408,9 @@ pub async fn marketplace_fetch(
     let vsix = download_capped(&client, &vsix_url, MAX_VSIX_BYTES).await?;
     let themes = extract_themes(&vsix)?;
 
-    Ok(MarketplaceThemeResult { extension_id: trimmed, display_name, themes })
+    Ok(MarketplaceThemeResult {
+        extension_id: trimmed,
+        display_name,
+        themes,
+    })
 }

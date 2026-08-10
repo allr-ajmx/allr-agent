@@ -319,7 +319,12 @@ impl TransportState {
 
         // Descending order tries the longest shared prefix first, so a base of
         // `https://host/hermes` wins over a bare `https://host`.
-        if let Some(base) = bases.known.iter().rev().find(|base| url_is_under(url, base)) {
+        if let Some(base) = bases
+            .known
+            .iter()
+            .rev()
+            .find(|base| url_is_under(url, base))
+        {
             return Some(base.clone());
         }
 
@@ -383,7 +388,10 @@ fn caller_set_authorization(headers: &HashMap<String, String>) -> bool {
 /// Attach the gateway bearer, if we hold one. Split out so the "the header is
 /// actually on the request" invariant is testable without a network or a
 /// keyring: `RequestBuilder::build` produces the request without sending it.
-fn apply_gateway_bearer(builder: reqwest::RequestBuilder, bearer: Option<&str>) -> reqwest::RequestBuilder {
+fn apply_gateway_bearer(
+    builder: reqwest::RequestBuilder,
+    bearer: Option<&str>,
+) -> reqwest::RequestBuilder {
     match bearer {
         Some(token) => builder.bearer_auth(token),
         None => builder,
@@ -574,8 +582,8 @@ pub async fn ws_open(
                         // Legacy: a JSON number array on the old event. Kept for
                         // one release so an old JS bundle still gets its frames.
                         None => {
-                            let _ =
-                                app_reader.emit(&format!("ws://{id_reader}/binary"), payload.to_vec());
+                            let _ = app_reader
+                                .emit(&format!("ws://{id_reader}/binary"), payload.to_vec());
                         }
                     }
                 }
@@ -714,7 +722,10 @@ mod tests {
     };
 
     /// A `Channel` that records what it was handed, standing in for the webview.
-    fn recording_channel() -> (Channel<InvokeResponseBody>, Arc<Mutex<Vec<InvokeResponseBody>>>) {
+    fn recording_channel() -> (
+        Channel<InvokeResponseBody>,
+        Arc<Mutex<Vec<InvokeResponseBody>>>,
+    ) {
         let seen: Arc<Mutex<Vec<InvokeResponseBody>>> = Arc::new(Mutex::new(Vec::new()));
         let sink = seen.clone();
 
@@ -808,7 +819,10 @@ mod tests {
 
     #[test]
     fn leaves_an_error_that_never_mentioned_the_url_untouched() {
-        let message = redact_error("connection reset by peer".to_string(), "ws://h/api/ws?token=x");
+        let message = redact_error(
+            "connection reset by peer".to_string(),
+            "ws://h/api/ws?token=x",
+        );
 
         assert_eq!(message, "connection reset by peer");
     }
@@ -820,9 +834,12 @@ mod tests {
     #[test]
     fn attaches_the_gateway_bearer_to_the_outgoing_request() {
         let client = reqwest::Client::new();
-        let request = apply_gateway_bearer(client.post("https://gw.example.com/api/auth/ws-ticket"), Some("at-1"))
-            .build()
-            .expect("request builds");
+        let request = apply_gateway_bearer(
+            client.post("https://gw.example.com/api/auth/ws-ticket"),
+            Some("at-1"),
+        )
+        .build()
+        .expect("request builds");
 
         assert_eq!(
             request
@@ -842,7 +859,10 @@ mod tests {
 
         // A cookie session authenticates from the shared jar; an empty bearer
         // header would make the gated middleware answer 401 instead.
-        assert!(request.headers().get(reqwest::header::AUTHORIZATION).is_none());
+        assert!(request
+            .headers()
+            .get(reqwest::header::AUTHORIZATION)
+            .is_none());
     }
 
     #[test]
@@ -856,7 +876,9 @@ mod tests {
         assert!(caller_set_authorization(
             &[("authorization".to_string(), "Basic x".to_string())].into()
         ));
-        assert!(!caller_set_authorization(&[("Origin".to_string(), "https://gw".to_string())].into()));
+        assert!(!caller_set_authorization(
+            &[("Origin".to_string(), "https://gw".to_string())].into()
+        ));
     }
 
     #[test]
@@ -874,7 +896,10 @@ mod tests {
             state.bearer_base_for_url("https://gw.example.com.evil.test/api/steal"),
             Some("https://gw.example.com".to_string())
         );
-        assert_eq!(state.bearer_base_for_url("https://gw.example.com.evil.test/steal"), None);
+        assert_eq!(
+            state.bearer_base_for_url("https://gw.example.com.evil.test/steal"),
+            None
+        );
     }
 
     #[test]
@@ -909,7 +934,10 @@ mod tests {
 
         state.note_no_bearer_base("https://gw.example.com");
 
-        assert_eq!(state.bearer_base_for_url("https://gw.example.com/api/status"), None);
+        assert_eq!(
+            state.bearer_base_for_url("https://gw.example.com/api/status"),
+            None
+        );
     }
 
     #[test]
@@ -918,7 +946,10 @@ mod tests {
         // fetch from paying a Secret Service round trip to learn nothing.
         let state = TransportState::new();
 
-        assert_eq!(state.bearer_base_for_url("https://third-party.test/v1/models"), None);
+        assert_eq!(
+            state.bearer_base_for_url("https://third-party.test/v1/models"),
+            None
+        );
         assert_eq!(state.bearer_base_for_url("https://gw.example.com/"), None);
     }
 
@@ -946,7 +977,8 @@ mod tests {
 
     #[test]
     fn scrubs_a_bearer_a_library_quoted_back_at_us() {
-        let message = redact_bearer("request failed: Authorization: Bearer eyJhbGciOi.J9.sig".to_string());
+        let message =
+            redact_bearer("request failed: Authorization: Bearer eyJhbGciOi.J9.sig".to_string());
 
         assert!(!message.contains("eyJhbGciOi"), "{message}");
         assert_eq!(message, "request failed: Authorization: Bearer ***");
@@ -979,6 +1011,9 @@ mod tests {
         // A short value is not a credential worth protecting, and replacing it
         // would shred unrelated messages that happen to contain it.
         assert_eq!(redact_secret("a b c".to_string(), "b"), "a b c");
-        assert_eq!(redact_secret("nothing to do".to_string(), "rt-0123456789"), "nothing to do");
+        assert_eq!(
+            redact_secret("nothing to do".to_string(), "rt-0123456789"),
+            "nothing to do"
+        );
     }
 }

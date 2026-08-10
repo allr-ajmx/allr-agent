@@ -57,7 +57,10 @@ pub struct Vad {
 
 impl Vad {
     pub fn new(cfg: VadConfig) -> Self {
-        Self { cfg, t: Timers::default() }
+        Self {
+            cfg,
+            t: Timers::default(),
+        }
     }
 
     /// Swap the level/onset thresholds (Normal ↔ BargeIn) without disturbing the
@@ -162,7 +165,7 @@ mod tests {
         vad.arm(0);
         assert_eq!(vad.observe_armed(LOUD, 100), None); // spike begins
         assert_eq!(vad.observe_armed(QUIET, 150), None); // spike ends → run reset
-        // A later loud frame starts a fresh run; 200 -> 450 needed, not 100 -> 450.
+                                                         // A later loud frame starts a fresh run; 200 -> 450 needed, not 100 -> 450.
         assert_eq!(vad.observe_armed(LOUD, 200), None);
         assert_eq!(vad.observe_armed(LOUD, 499), None);
         assert_eq!(vad.observe_armed(LOUD, 500), Some(VadEvent::SpeechStart));
@@ -173,7 +176,10 @@ mod tests {
         let mut vad = Vad::new(cfg());
         vad.arm(0);
         assert_eq!(vad.observe_armed(QUIET, 11_999), None);
-        assert_eq!(vad.observe_armed(QUIET, 12_000), Some(VadEvent::IdleTimeout));
+        assert_eq!(
+            vad.observe_armed(QUIET, 12_000),
+            Some(VadEvent::IdleTimeout)
+        );
         // Does not fire again while still armed.
         assert_eq!(vad.observe_armed(QUIET, 13_000), None);
     }

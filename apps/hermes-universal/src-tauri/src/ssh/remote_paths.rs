@@ -56,14 +56,18 @@ pub fn validate_remote_path(path: &str) -> Result<(), SshError> {
     }
 
     if path.contains(['\0', '\n', '\r']) {
-        return Err(err("Unsafe remote path: contains NUL or newline.".to_string()));
+        return Err(err(
+            "Unsafe remote path: contains NUL or newline.".to_string()
+        ));
     }
 
     if path == "~" || path.starts_with("~/") || path.starts_with('/') {
         return Ok(());
     }
 
-    Err(err(format!("Remote path must be absolute or start with ~/: \"{path}\"")))
+    Err(err(format!(
+        "Remote path must be absolute or start with ~/: \"{path}\""
+    )))
 }
 
 /// Quote a remote path, letting the remote shell expand a leading `~`.
@@ -89,7 +93,10 @@ pub fn expand_remote_path(path: &str) -> Result<String, SshError> {
 /// Ownership IDs are the directory name for per-install remote state, so the
 /// shape is enforced before it ever reaches a path.
 pub fn validate_ownership_id(ownership_id: &str) -> Result<&str, SshError> {
-    let ok = ownership_id.len() == 32 && ownership_id.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase());
+    let ok = ownership_id.len() == 32
+        && ownership_id
+            .bytes()
+            .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase());
 
     if ok {
         Ok(ownership_id)
@@ -99,7 +106,10 @@ pub fn validate_ownership_id(ownership_id: &str) -> Result<&str, SshError> {
 }
 
 pub fn validate_spawn_nonce(spawn_nonce: &str) -> Result<&str, SshError> {
-    let ok = spawn_nonce.len() == 16 && spawn_nonce.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase());
+    let ok = spawn_nonce.len() == 16
+        && spawn_nonce
+            .bytes()
+            .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase());
 
     if ok {
         Ok(spawn_nonce)
@@ -109,15 +119,25 @@ pub fn validate_spawn_nonce(spawn_nonce: &str) -> Result<&str, SshError> {
 }
 
 pub fn ownership_directory(ownership_id: &str) -> Result<String, SshError> {
-    Ok(format!("{REMOTE_LOCK_DIR}/{}", validate_ownership_id(ownership_id)?))
+    Ok(format!(
+        "{REMOTE_LOCK_DIR}/{}",
+        validate_ownership_id(ownership_id)?
+    ))
 }
 
 pub fn lockfile_path(ownership_id: &str) -> Result<String, SshError> {
-    Ok(format!("{}/backend.lock.json", ownership_directory(ownership_id)?))
+    Ok(format!(
+        "{}/backend.lock.json",
+        ownership_directory(ownership_id)?
+    ))
 }
 
 pub fn spawn_log_path(ownership_id: &str, spawn_nonce: &str) -> Result<String, SshError> {
-    Ok(format!("{}/{}.log", ownership_directory(ownership_id)?, validate_spawn_nonce(spawn_nonce)?))
+    Ok(format!(
+        "{}/{}.log",
+        ownership_directory(ownership_id)?,
+        validate_spawn_nonce(spawn_nonce)?
+    ))
 }
 
 #[cfg(test)]
@@ -143,41 +163,75 @@ mod tests {
     #[test]
     fn shq_neutralizes_shell_metacharacters() {
         // These must survive as literal text, not as shell syntax.
-        for hostile in ["; rm -rf /", "$(whoami)", "`id`", "a && b", "x | y", "$HOME"] {
+        for hostile in [
+            "; rm -rf /",
+            "$(whoami)",
+            "`id`",
+            "a && b",
+            "x | y",
+            "$HOME",
+        ] {
             let quoted = shq(hostile);
             assert!(quoted.starts_with('\'') && quoted.ends_with('\''));
-            assert_eq!(&quoted[1..quoted.len() - 1], hostile, "no quote to escape in {hostile}");
+            assert_eq!(
+                &quoted[1..quoted.len() - 1],
+                hostile,
+                "no quote to escape in {hostile}"
+            );
         }
     }
 
     #[test]
     fn validate_remote_path_accepts_absolute_and_tilde() {
         for good in ["/usr/local/bin/hermes", "~", "~/.local/bin/hermes", "~/x"] {
-            assert!(validate_remote_path(good).is_ok(), "{good} should be accepted");
+            assert!(
+                validate_remote_path(good).is_ok(),
+                "{good} should be accepted"
+            );
         }
     }
 
     #[test]
     fn validate_remote_path_rejects_relative_and_control_chars() {
         for bad in ["", "hermes", "./hermes", "../hermes", "bin/hermes"] {
-            assert!(validate_remote_path(bad).is_err(), "{bad} should be rejected");
+            assert!(
+                validate_remote_path(bad).is_err(),
+                "{bad} should be rejected"
+            );
         }
-        for bad in ["/usr/bin/her\nmes", "/usr/bin/her\0mes", "/usr/bin/her\rmes", "~/a\nb"] {
-            assert!(validate_remote_path(bad).is_err(), "{bad:?} should be rejected");
+        for bad in [
+            "/usr/bin/her\nmes",
+            "/usr/bin/her\0mes",
+            "/usr/bin/her\rmes",
+            "~/a\nb",
+        ] {
+            assert!(
+                validate_remote_path(bad).is_err(),
+                "{bad:?} should be rejected"
+            );
         }
     }
 
     #[test]
     fn expand_remote_path_handles_the_three_shapes() {
         assert_eq!(expand_remote_path("~").unwrap(), "\"$HOME\"");
-        assert_eq!(expand_remote_path("~/.local/bin/hermes").unwrap(), "\"$HOME\"'/.local/bin/hermes'");
-        assert_eq!(expand_remote_path("/usr/local/bin/hermes").unwrap(), "'/usr/local/bin/hermes'");
+        assert_eq!(
+            expand_remote_path("~/.local/bin/hermes").unwrap(),
+            "\"$HOME\"'/.local/bin/hermes'"
+        );
+        assert_eq!(
+            expand_remote_path("/usr/local/bin/hermes").unwrap(),
+            "'/usr/local/bin/hermes'"
+        );
     }
 
     #[test]
     fn expand_remote_path_quotes_hostile_paths() {
         // A tilde path still gets everything after ~ single-quoted.
-        assert_eq!(expand_remote_path("~/a b/$(id)").unwrap(), "\"$HOME\"'/a b/$(id)'");
+        assert_eq!(
+            expand_remote_path("~/a b/$(id)").unwrap(),
+            "\"$HOME\"'/a b/$(id)'"
+        );
         assert_eq!(expand_remote_path("/tmp/a b").unwrap(), "'/tmp/a b'");
     }
 
@@ -191,10 +245,22 @@ mod tests {
     fn ownership_id_shape_is_enforced() {
         assert!(validate_ownership_id(OWNER).is_ok());
         assert!(validate_ownership_id("").is_err());
-        assert!(validate_ownership_id("0123456789abcdef").is_err(), "too short");
-        assert!(validate_ownership_id(&format!("{OWNER}0")).is_err(), "too long");
-        assert!(validate_ownership_id("0123456789abcdef0123456789abcdeg").is_err(), "non-hex");
-        assert!(validate_ownership_id("0123456789ABCDEF0123456789abcdef").is_err(), "uppercase");
+        assert!(
+            validate_ownership_id("0123456789abcdef").is_err(),
+            "too short"
+        );
+        assert!(
+            validate_ownership_id(&format!("{OWNER}0")).is_err(),
+            "too long"
+        );
+        assert!(
+            validate_ownership_id("0123456789abcdef0123456789abcdeg").is_err(),
+            "non-hex"
+        );
+        assert!(
+            validate_ownership_id("0123456789ABCDEF0123456789abcdef").is_err(),
+            "uppercase"
+        );
         // The reason the shape is enforced at all: it becomes a path segment.
         assert!(validate_ownership_id("../../etc").is_err());
     }
@@ -209,7 +275,10 @@ mod tests {
 
     #[test]
     fn remote_paths_are_built_under_the_lock_dir() {
-        assert_eq!(ownership_directory(OWNER).unwrap(), format!("~/.hermes/desktop-ssh/{OWNER}"));
+        assert_eq!(
+            ownership_directory(OWNER).unwrap(),
+            format!("~/.hermes/desktop-ssh/{OWNER}")
+        );
         assert_eq!(
             lockfile_path(OWNER).unwrap(),
             format!("~/.hermes/desktop-ssh/{OWNER}/backend.lock.json")

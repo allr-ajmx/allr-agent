@@ -131,7 +131,8 @@ pub mod native {
 
     fn random_bytes(len: usize) -> Result<Vec<u8>, String> {
         let mut buf = vec![0u8; len];
-        getrandom::getrandom(&mut buf).map_err(|e| format!("no secure randomness available: {e}"))?;
+        getrandom::getrandom(&mut buf)
+            .map_err(|e| format!("no secure randomness available: {e}"))?;
 
         Ok(buf)
     }
@@ -184,7 +185,13 @@ pub mod native {
     /// Build the `/auth/native/authorize` URL opened in the system browser.
     /// `provider` may be empty — the gateway auto-selects when exactly one session
     /// provider is registered, so we do not have to hardcode a name.
-    pub fn build_authorize_url(base: &str, challenge: &str, redirect_uri: &str, state: &str, provider: &str) -> String {
+    pub fn build_authorize_url(
+        base: &str,
+        challenge: &str,
+        redirect_uri: &str,
+        state: &str,
+        provider: &str,
+    ) -> String {
         let mut url = format!(
             "{}/auth/native/authorize?code_challenge={}&code_challenge_method=S256&redirect_uri={}&state={}",
             base.trim_end_matches('/'),
@@ -356,12 +363,15 @@ pub mod native {
             // published challenge. Pinning it proves we hash the ASCII VERIFIER,
             // not the raw entropy — the classic way to get PKCE subtly wrong.
             let pair = pkce_from_entropy(&[
-                116, 24, 223, 180, 151, 153, 224, 37, 79, 250, 96, 125, 216, 173, 187, 186, 22, 212, 37, 77, 105, 214,
-                191, 240, 91, 88, 5, 88, 83, 132, 141, 121,
+                116, 24, 223, 180, 151, 153, 224, 37, 79, 250, 96, 125, 216, 173, 187, 186, 22,
+                212, 37, 77, 105, 214, 191, 240, 91, 88, 5, 88, 83, 132, 141, 121,
             ]);
 
             assert_eq!(pair.verifier, "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk");
-            assert_eq!(pair.challenge, "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM");
+            assert_eq!(
+                pair.challenge,
+                "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
+            );
         }
 
         #[test]
@@ -391,13 +401,18 @@ pub mod native {
             assert!(!supports_native_flow(&cookie_only));
             // An older gateway never says native_pkce — falling back is the point.
             assert!(!supports_native_flow(&older));
-            assert!(!supports_native_flow(&serde_json::json!({ "auth_flows": "native_pkce" })));
+            assert!(!supports_native_flow(
+                &serde_json::json!({ "auth_flows": "native_pkce" })
+            ));
         }
 
         #[test]
         fn the_redirect_uri_is_a_loopback_ip_literal_never_localhost() {
             // The gateway rejects `localhost` outright (RFC 8252 §8.3).
-            assert_eq!(loopback_redirect_uri(51234), "http://127.0.0.1:51234/callback");
+            assert_eq!(
+                loopback_redirect_uri(51234),
+                "http://127.0.0.1:51234/callback"
+            );
         }
 
         #[test]
@@ -420,7 +435,8 @@ pub mod native {
 
         #[test]
         fn an_empty_provider_is_omitted_so_the_gateway_can_auto_select() {
-            let url = build_authorize_url("https://gw", "c", "http://127.0.0.1:1/callback", "s", "");
+            let url =
+                build_authorize_url("https://gw", "c", "http://127.0.0.1:1/callback", "s", "");
 
             assert!(!url.contains("provider="));
         }
@@ -444,7 +460,8 @@ pub mod native {
 
         #[test]
         fn a_gateway_error_redirect_is_surfaced_rather_than_swallowed() {
-            let err = parse_callback_target("/callback?error=access_denied&state=xyz", "xyz").unwrap_err();
+            let err = parse_callback_target("/callback?error=access_denied&state=xyz", "xyz")
+                .unwrap_err();
 
             assert!(err.contains("access_denied"));
         }
@@ -456,7 +473,8 @@ pub mod native {
 
         #[test]
         fn percent_escapes_in_the_callback_are_decoded() {
-            let code = parse_callback_target("/callback?code=a%2Fb%2Bc&state=x%20y", "x y").unwrap();
+            let code =
+                parse_callback_target("/callback?code=a%2Fb%2Bc&state=x%20y", "x y").unwrap();
 
             assert_eq!(code, "a/b+c");
         }
@@ -504,8 +522,14 @@ pub mod native {
 
         #[test]
         fn keyring_accounts_are_namespaced_and_per_gateway() {
-            assert_eq!(keyring_account("https://a.example/"), "nativeAuth:https://a.example");
-            assert_ne!(keyring_account("https://a.example"), keyring_account("https://b.example"));
+            assert_eq!(
+                keyring_account("https://a.example/"),
+                "nativeAuth:https://a.example"
+            );
+            assert_ne!(
+                keyring_account("https://a.example"),
+                keyring_account("https://b.example")
+            );
             // Must not collide with the JS-side entries under the same service.
             assert_ne!(keyring_account("https://a.example"), "cookies");
         }
@@ -614,7 +638,12 @@ fn clear_native_tokens(app: &AppHandle, state: &TransportState, base: &str) {
 /// falling back to the webview flow is always safe, whereas guessing "yes" on a
 /// gateway that cannot broker would strand the user in a browser tab.
 async fn advertises_native_flow(state: &TransportState, base: &str) -> bool {
-    let Ok(resp) = state.client().get(format!("{base}/api/status")).send().await else {
+    let Ok(resp) = state
+        .client()
+        .get(format!("{base}/api/status"))
+        .send()
+        .await
+    else {
         return false;
     };
 
@@ -988,14 +1017,19 @@ pub async fn oauth_login(
     // or password-only) drops through to the webview cascade with no version check
     // and no behaviour change.
     if advertises_native_flow(state.inner(), &base).await {
-        log::info!("[oauth] gateway advertises {}; taking the native flow", native::NATIVE_FLOW_ID);
+        log::info!(
+            "[oauth] gateway advertises {}; taking the native flow",
+            native::NATIVE_FLOW_ID
+        );
 
         match run_native_login(&app, state.inner(), &base, &provider).await {
             Ok(_) => return Ok(()),
             // Fall through rather than fail: the cookie flow still works, and a
             // user who cannot sign in at all is a worse outcome than one who signs
             // in the old way. The reason is logged, never surfaced as a dead end.
-            Err(e) => log::warn!("[oauth] native sign-in failed, falling back to the webview flow: {e}"),
+            Err(e) => {
+                log::warn!("[oauth] native sign-in failed, falling back to the webview flow: {e}")
+            }
         }
     }
 

@@ -20,12 +20,17 @@ use super::error::{SshError, SshErrorKind};
 /// The installation ID's required shape: 32 lowercase hex characters.
 pub fn validate_installation_id(installation_id: &str) -> Result<&str, SshError> {
     let ok = installation_id.len() == 32
-        && installation_id.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase());
+        && installation_id
+            .bytes()
+            .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase());
 
     if ok {
         Ok(installation_id)
     } else {
-        Err(SshError::new(SshErrorKind::Unknown, "Installation ID is invalid."))
+        Err(SshError::new(
+            SshErrorKind::Unknown,
+            "Installation ID is invalid.",
+        ))
     }
 }
 
@@ -67,13 +72,20 @@ mod tests {
     fn ownership_id_is_32_lowercase_hex() {
         let out = ssh_ownership_id(ID, "default").unwrap();
         assert_eq!(out.len(), 32);
-        assert!(out.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()), "{out}");
+        assert!(
+            out.bytes()
+                .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()),
+            "{out}"
+        );
     }
 
     #[test]
     fn ownership_id_is_stable() {
         // Stability is the whole contract — an unstable ID orphans remote backends.
-        assert_eq!(ssh_ownership_id(ID, "default").unwrap(), ssh_ownership_id(ID, "default").unwrap());
+        assert_eq!(
+            ssh_ownership_id(ID, "default").unwrap(),
+            ssh_ownership_id(ID, "default").unwrap()
+        );
     }
 
     #[test]
@@ -103,9 +115,18 @@ mod tests {
     #[test]
     fn rejects_malformed_installation_ids() {
         assert!(ssh_ownership_id("", "s").is_err());
-        assert!(ssh_ownership_id("0123456789abcdef", "s").is_err(), "too short");
-        assert!(ssh_ownership_id(&format!("{ID}0"), "s").is_err(), "too long");
-        assert!(ssh_ownership_id("0123456789ABCDEF0123456789abcdef", "s").is_err(), "uppercase");
+        assert!(
+            ssh_ownership_id("0123456789abcdef", "s").is_err(),
+            "too short"
+        );
+        assert!(
+            ssh_ownership_id(&format!("{ID}0"), "s").is_err(),
+            "too long"
+        );
+        assert!(
+            ssh_ownership_id("0123456789ABCDEF0123456789abcdef", "s").is_err(),
+            "uppercase"
+        );
         assert!(ssh_ownership_id("../../etc/passwd/aaaaaaaaaaaaaaaa", "s").is_err());
     }
 
@@ -120,7 +141,10 @@ mod tests {
     fn token_fingerprint_is_a_truncated_sha256() {
         // Pinned against `printf 'hunter2' | sha256sum` so a future refactor cannot
         // silently change the digest and invalidate every existing lockfile.
-        assert_eq!(fingerprint_token("hunter2"), "f52fbd32b2b3b86ff88ef6c490628285");
+        assert_eq!(
+            fingerprint_token("hunter2"),
+            "f52fbd32b2b3b86ff88ef6c490628285"
+        );
         assert_eq!(fingerprint_token("hunter2").len(), 32);
     }
 

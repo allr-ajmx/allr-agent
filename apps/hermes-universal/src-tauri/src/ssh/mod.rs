@@ -216,7 +216,10 @@ fn known_hosts_path(app: &AppHandle) -> Result<PathBuf, SshError> {
     let app_data = app.path().app_data_dir().ok();
 
     known_hosts::store_path(home_dir().as_deref(), app_data.as_deref()).ok_or_else(|| {
-        SshError::new(SshErrorKind::Unknown, "No writable location for the known-hosts store.")
+        SshError::new(
+            SshErrorKind::Unknown,
+            "No writable location for the known-hosts store.",
+        )
     })
 }
 
@@ -229,12 +232,22 @@ fn resolve_target(
     input: &SshTargetInput,
 ) -> Result<(target::SshTarget, String, Credentials), SshError> {
     let Some(mut target) = normalize_ssh_target(input)? else {
-        return Err(SshError::new(SshErrorKind::Unknown, "An SSH host is required."));
+        return Err(SshError::new(
+            SshErrorKind::Unknown,
+            "An SSH host is required.",
+        ));
     };
 
     let home = home_dir();
     let resolved = config::default_config_path(home.as_deref())
-        .map(|path| config::resolve_host(&target.host, &path, home.as_deref(), &config::FsConfigReader))
+        .map(|path| {
+            config::resolve_host(
+                &target.host,
+                &path,
+                home.as_deref(),
+                &config::FsConfigReader,
+            )
+        })
         .unwrap_or_default();
 
     // Refuse rather than quietly connect direct: a Host the user expects to be
@@ -290,18 +303,31 @@ async fn arm_prompts(
         pending_host_key: Arc::new(Mutex::new(None)),
     });
 
-    state.attempts.lock().await.insert(attempt_id.to_string(), Arc::clone(&attempt));
+    state
+        .attempts
+        .lock()
+        .await
+        .insert(attempt_id.to_string(), Arc::clone(&attempt));
 
     if !interactive {
         // A boot restore has no UI to answer with. Trust-on-first-use still
         // applies (that is what desktop did), but nothing may block on a person.
-        return (Box::new(NoPrompter), Arc::new(HostKeyPolicy::AcceptNew), attempt);
+        return (
+            Box::new(NoPrompter),
+            Arc::new(HostKeyPolicy::AcceptNew),
+            attempt,
+        );
     }
 
     let (prompt_tx, prompt_rx) = mpsc::channel::<PromptRequest>(4);
     let (host_key_tx, host_key_rx) = mpsc::channel::<HostKeyPrompt>(1);
 
-    tokio::spawn(forward_prompts(app.clone(), attempt_id.to_string(), Arc::clone(&attempt), prompt_rx));
+    tokio::spawn(forward_prompts(
+        app.clone(),
+        attempt_id.to_string(),
+        Arc::clone(&attempt),
+        prompt_rx,
+    ));
     tokio::spawn(forward_host_key_prompts(
         app.clone(),
         attempt_id.to_string(),
@@ -309,7 +335,11 @@ async fn arm_prompts(
         host_key_rx,
     ));
 
-    (Box::new(ChannelPrompter::new(prompt_tx)), Arc::new(HostKeyPolicy::Ask(host_key_tx)), attempt)
+    (
+        Box::new(ChannelPrompter::new(prompt_tx)),
+        Arc::new(HostKeyPolicy::Ask(host_key_tx)),
+        attempt,
+    )
 }
 
 /// What the UI receives when the connect needs an answer.
@@ -345,7 +375,11 @@ async fn forward_prompts(
         counter += 1;
         let prompt_id = format!("{attempt_id}-{counter}");
 
-        attempt.pending.lock().await.insert(prompt_id.clone(), request.respond);
+        attempt
+            .pending
+            .lock()
+            .await
+            .insert(prompt_id.clone(), request.respond);
 
         let payload = PromptEvent {
             prompt_id,
@@ -372,8 +406,11 @@ async fn forward_host_key_prompts(
     while let Some(request) = rx.recv().await {
         *attempt.pending_host_key.lock().await = Some(request.respond);
 
-        let payload =
-            HostKeyEvent { host: request.host, port: request.port, fingerprint: request.fingerprint };
+        let payload = HostKeyEvent {
+            host: request.host,
+            port: request.port,
+            fingerprint: request.fingerprint,
+        };
 
         let _ = app.emit(&format!("ssh://{attempt_id}/host-key"), payload);
     }
@@ -404,7 +441,8 @@ pub async fn ssh_test(
     credentials.passphrase = config.passphrase.clone();
     credentials.password = config.password.clone();
 
-    let (prompter, policy, _attempt) = arm_prompts(&app, &state, &attempt_id, config.interactive).await;
+    let (prompter, policy, _attempt) =
+        arm_prompts(&app, &state, &attempt_id, config.interactive).await;
     let known_hosts_path = known_hosts_path(&app)?;
 
     reporter.step(SshStep::Connecting);
@@ -422,7 +460,10 @@ pub async fn ssh_test(
         let session = SshSession::open(target, user, options, prompter.as_ref()).await?;
 
         reporter.step(SshStep::ProbingPlatform);
-        let uname = session.exec_fenced("uname -s; uname -m", None).await?.require_success("uname")?;
+        let uname = session
+            .exec_fenced("uname -s; uname -m", None)
+            .await?
+            .require_success("uname")?;
 
         let mut lines = uname.lines().map(str::trim).filter(|l| !l.is_empty());
         let platform = lines.next().map(str::to_string);
@@ -439,7 +480,12 @@ pub async fn ssh_test(
 
     let (platform, arch) = result?;
 
-    Ok(SshTestResult { reachable: true, host_label, platform, arch })
+    Ok(SshTestResult {
+        reachable: true,
+        host_label,
+        platform,
+        arch,
+    })
 }
 
 /// Every concrete `Host` alias in `~/.ssh/config`, for the settings dropdown.
@@ -452,7 +498,11 @@ pub async fn ssh_list_config_hosts() -> Result<Vec<String>, SshError> {
         return Ok(Vec::new());
     };
 
-    Ok(config::list_host_aliases(&path, home.as_deref(), &config::FsConfigReader))
+    Ok(config::list_host_aliases(
+        &path,
+        home.as_deref(),
+        &config::FsConfigReader,
+    ))
 }
 
 /// What `~/.ssh/config` resolves an alias to. Replaces desktop's `ssh -G`.
@@ -464,7 +514,12 @@ pub async fn ssh_resolve_host(host: String) -> Result<SshResolvedHost, SshError>
         return Ok(SshResolvedHost::default());
     };
 
-    Ok(describe_resolved(config::resolve_host(&host, &path, home.as_deref(), &config::FsConfigReader)))
+    Ok(describe_resolved(config::resolve_host(
+        &host,
+        &path,
+        home.as_deref(),
+        &config::FsConfigReader,
+    )))
 }
 
 /// Flatten a resolved Host block into what the settings form shows.
@@ -506,14 +561,21 @@ pub async fn ssh_answer_prompt(
         .await
         .get(&attempt_id)
         .cloned()
-        .ok_or_else(|| SshError::new(SshErrorKind::Cancelled, "That connection attempt is no longer running."))?;
+        .ok_or_else(|| {
+            SshError::new(
+                SshErrorKind::Cancelled,
+                "That connection attempt is no longer running.",
+            )
+        })?;
 
     let responder = attempt
         .pending
         .lock()
         .await
         .remove(&prompt_id)
-        .ok_or_else(|| SshError::new(SshErrorKind::Cancelled, "That prompt is no longer waiting."))?;
+        .ok_or_else(|| {
+            SshError::new(SshErrorKind::Cancelled, "That prompt is no longer waiting.")
+        })?;
 
     // A closed receiver means the prompt already timed out; not worth surfacing.
     let _ = responder.send(answer);
@@ -534,14 +596,21 @@ pub async fn ssh_trust_host_key(
         .await
         .get(&attempt_id)
         .cloned()
-        .ok_or_else(|| SshError::new(SshErrorKind::Cancelled, "That connection attempt is no longer running."))?;
+        .ok_or_else(|| {
+            SshError::new(
+                SshErrorKind::Cancelled,
+                "That connection attempt is no longer running.",
+            )
+        })?;
 
     let responder = attempt
         .pending_host_key
         .lock()
         .await
         .take()
-        .ok_or_else(|| SshError::new(SshErrorKind::Cancelled, "No host-key decision is pending."))?;
+        .ok_or_else(|| {
+            SshError::new(SshErrorKind::Cancelled, "No host-key decision is pending.")
+        })?;
 
     let _ = responder.send(accept);
 
@@ -564,7 +633,10 @@ pub async fn ssh_cancel(state: State<'_, SshState>, attempt_id: String) -> Resul
 /// purpose so the next connect reuses it. Only an explicit cleanup, once
 /// ownership is proven, may terminate it.
 #[tauri::command]
-pub async fn ssh_disconnect(state: State<'_, SshState>, profile: Option<String>) -> Result<(), SshError> {
+pub async fn ssh_disconnect(
+    state: State<'_, SshState>,
+    profile: Option<String>,
+) -> Result<(), SshError> {
     let scope = scope_of(profile.as_deref());
     state.forwards.lock().await.remove(&scope);
 
@@ -650,10 +722,12 @@ pub async fn ssh_connect(
     let reporter = ProgressReporter::new(app.clone(), &attempt_id);
     let scope = scope_of(config.profile.as_deref());
 
-    let installation_id = config
-        .installation_id
-        .as_deref()
-        .ok_or_else(|| SshError::new(SshErrorKind::Unknown, "This install has no SSH identity yet."))?;
+    let installation_id = config.installation_id.as_deref().ok_or_else(|| {
+        SshError::new(
+            SshErrorKind::Unknown,
+            "This install has no SSH identity yet.",
+        )
+    })?;
 
     let ownership_id = ownership::ssh_ownership_id(installation_id, &scope)?;
 
@@ -662,7 +736,8 @@ pub async fn ssh_connect(
     credentials.passphrase = config.passphrase.clone();
     credentials.password = config.password.clone();
 
-    let (prompter, policy, _attempt) = arm_prompts(&app, &state, &attempt_id, config.interactive).await;
+    let (prompter, policy, _attempt) =
+        arm_prompts(&app, &state, &attempt_id, config.interactive).await;
     let host_label = target.label();
     let remote_hermes_path = target.remote_hermes_path.clone();
 
@@ -700,7 +775,12 @@ pub async fn ssh_connect(
 
             // Replace any previous session for this scope, closing it first so a
             // reconnect does not leak the old tunnel.
-            if let Some(previous) = state.sessions.lock().await.insert(scope.clone(), Arc::clone(&session)) {
+            if let Some(previous) = state
+                .sessions
+                .lock()
+                .await
+                .insert(scope.clone(), Arc::clone(&session))
+            {
                 let _ = previous.close().await;
             }
 
@@ -714,7 +794,10 @@ pub async fn ssh_connect(
         }
 
         Err(err) => {
-            println!("[ssh probe] ssh_connect: failed: {err} (kind={:?})", err.kind);
+            println!(
+                "[ssh probe] ssh_connect: failed: {err} (kind={:?})",
+                err.kind
+            );
             let _ = session.close().await;
 
             Err(err)
@@ -734,7 +817,8 @@ async fn establish(
     reporter.step(SshStep::ProbingPlatform);
 
     let (platform, windows_runtime) =
-        windows_lifecycle::detect_remote_platform(session, remote_hermes_path.unwrap_or_default()).await?;
+        windows_lifecycle::detect_remote_platform(session, remote_hermes_path.unwrap_or_default())
+            .await?;
     println!(
         "[ssh probe] establish: platform={:?} arch={:?} windows={}",
         platform.os,
@@ -770,10 +854,21 @@ async fn establish(
     if let Some(lock) = posix_lifecycle::read_lockfile(session, ownership_id).await? {
         let pid_alive = posix_lifecycle::remote_pid_alive(session, lock.pid).await?;
         let owned = pid_alive
-            && posix_lifecycle::pid_is_our_dashboard(session, lock.pid, &lock.spawn_nonce, &lock.hermes_path)
-                .await?;
-        let reusable =
-            posix_lifecycle::lock_is_reusable(&lock, pid_alive, owned, &reuse_token, &hermes_path, &hermes_home);
+            && posix_lifecycle::pid_is_our_dashboard(
+                session,
+                lock.pid,
+                &lock.spawn_nonce,
+                &lock.hermes_path,
+            )
+            .await?;
+        let reusable = posix_lifecycle::lock_is_reusable(
+            &lock,
+            pid_alive,
+            owned,
+            &reuse_token,
+            &hermes_path,
+            &hermes_home,
+        );
         println!(
             "[ssh probe] establish: existing lock pid={} pid_alive={pid_alive} owned={owned} reusable={reusable}",
             lock.pid
@@ -783,16 +878,21 @@ async fn establish(
             reporter.step(SshStep::Forwarding);
             let forward = forward::open(Arc::clone(session), lock.port).await?;
             let base_url = forward.base_url();
-            println!("[ssh probe] establish: opened tunnel to remote port={} -> {base_url}", lock.port);
+            println!(
+                "[ssh probe] establish: opened tunnel to remote port={} -> {base_url}",
+                lock.port
+            );
 
             reporter.step(SshStep::Verifying);
 
-            let reuse_result = reuse::probe_reuse_proof(&client, &base_url, &reuse_token, &lock.spawn_nonce).await;
+            let reuse_result =
+                reuse::probe_reuse_proof(&client, &base_url, &reuse_token, &lock.spawn_nonce).await;
             println!("[ssh probe] establish: reuse probe -> {reuse_result:?}");
 
             match reuse_result {
                 Ok(reuse::ReuseClassification::AuthenticatedOk) => {
-                    let token = adopt_token(&client, session, &base_url, &reuse_token, lock.pid).await?;
+                    let token =
+                        adopt_token(&client, session, &base_url, &reuse_token, lock.pid).await?;
 
                     return Ok((
                         SshConnection {
@@ -871,7 +971,10 @@ async fn establish_windows(
 ) -> Result<(SshConnection, forward::PortForward), SshError> {
     reporter.step(SshStep::LocatingHermes);
     let hermes_version = windows_lifecycle::inspect_install(session, &mut runtime).await?;
-    reporter.step_with(SshStep::LocatingHermes, format!("found hermes at {}", runtime.hermes_path));
+    reporter.step_with(
+        SshStep::LocatingHermes,
+        format!("found hermes at {}", runtime.hermes_path),
+    );
 
     reporter.step(SshStep::CheckingExisting);
 
@@ -902,7 +1005,8 @@ async fn establish_windows(
 
             reporter.step(SshStep::Verifying);
 
-            match reuse::probe_reuse_proof(client, &base_url, reuse_token, &lock.spawn_nonce).await {
+            match reuse::probe_reuse_proof(client, &base_url, reuse_token, &lock.spawn_nonce).await
+            {
                 Ok(reuse::ReuseClassification::AuthenticatedOk) => {
                     return Ok((
                         SshConnection {
@@ -926,7 +1030,8 @@ async fn establish_windows(
 
                 Ok(reuse::ReuseClassification::AuthenticatedStale) => {
                     drop(forward);
-                    windows_lifecycle::cleanup_owned(session, &runtime, ownership_id, Some(&lock)).await?;
+                    windows_lifecycle::cleanup_owned(session, &runtime, ownership_id, Some(&lock))
+                        .await?;
                 }
 
                 Err(err) => {
@@ -943,9 +1048,16 @@ async fn establish_windows(
     let token = mint_token();
     let spawn_nonce = mint_nonce();
 
-    let spawned =
-        windows_lifecycle::spawn_backend(session, &runtime, ownership_id, &spawn_nonce, profile, &token, reporter)
-            .await?;
+    let spawned = windows_lifecycle::spawn_backend(
+        session,
+        &runtime,
+        ownership_id,
+        &spawn_nonce,
+        profile,
+        &token,
+        reporter,
+    )
+    .await?;
 
     let mut lock = windows_lifecycle::WindowsLock {
         schema_version: remote_paths::LOCKFILE_SCHEMA_VERSION,
@@ -963,8 +1075,16 @@ async fn establish_windows(
         started_at: clock::now_iso8601(),
     };
 
-    let attached =
-        attach_windows(session, &runtime, ownership_id, &mut lock, &token, client, reporter).await;
+    let attached = attach_windows(
+        session,
+        &runtime,
+        ownership_id,
+        &mut lock,
+        &token,
+        client,
+        reporter,
+    )
+    .await;
 
     match attached {
         Ok((remote_port, forward)) => Ok((
@@ -987,7 +1107,8 @@ async fn establish_windows(
         )),
 
         Err(err) => {
-            let _ = windows_lifecycle::cleanup_owned(session, &runtime, ownership_id, Some(&lock)).await;
+            let _ = windows_lifecycle::cleanup_owned(session, &runtime, ownership_id, Some(&lock))
+                .await;
 
             Err(err)
         }
@@ -1075,7 +1196,16 @@ async fn spawn_and_attach(
         started_at: clock::now_iso8601(),
     };
 
-    let attached = attach_spawned(session, ownership_id, &spawned, &mut context, &spawn_token, client, reporter).await;
+    let attached = attach_spawned(
+        session,
+        ownership_id,
+        &spawned,
+        &mut context,
+        &spawn_token,
+        client,
+        reporter,
+    )
+    .await;
 
     match attached {
         Ok((remote_port, forward, token)) => Ok((
@@ -1102,7 +1232,8 @@ async fn spawn_and_attach(
             // started, or it is stranded on the remote with nothing pointing at it.
             println!("[ssh probe] spawn_and_attach: attach failed after spawning pid={}, reaping it: {err}", spawned.pid);
             posix_lifecycle::remove_token_file(session, &spawned.token_file_path).await;
-            let _ = posix_lifecycle::cleanup_stale(session, ownership_id, &context.to_lock(), true).await;
+            let _ = posix_lifecycle::cleanup_stale(session, ownership_id, &context.to_lock(), true)
+                .await;
 
             Err(err)
         }
@@ -1120,7 +1251,13 @@ async fn attach_spawned(
     reporter: &ProgressReporter,
 ) -> Result<(u16, forward::PortForward, String), SshError> {
     // First, before anything can go wrong: see the ordering note on `ssh_connect`.
-    posix_lifecycle::write_lockfile(session, ownership_id, &context.to_lock(), &spawned.spawn_nonce).await?;
+    posix_lifecycle::write_lockfile(
+        session,
+        ownership_id,
+        &context.to_lock(),
+        &spawned.spawn_nonce,
+    )
+    .await?;
 
     reporter.step(SshStep::WaitingReady);
     let remote_port = posix_lifecycle::wait_for_ready_port(
@@ -1145,7 +1282,13 @@ async fn attach_spawned(
     // Now that the port and the real token are known, complete the record.
     context.port = remote_port;
     context.token_fingerprint = ownership::fingerprint_token(&token);
-    posix_lifecycle::write_lockfile(session, ownership_id, &context.to_lock(), &spawned.spawn_nonce).await?;
+    posix_lifecycle::write_lockfile(
+        session,
+        ownership_id,
+        &context.to_lock(),
+        &spawned.spawn_nonce,
+    )
+    .await?;
 
     println!("[ssh probe] attach_spawned: done, pid={}", spawned.pid);
     Ok((remote_port, forward, token))
@@ -1197,7 +1340,10 @@ async fn adopt_token(
 /// `ws:`, not `wss:` — confidentiality comes from the SSH channel, and the
 /// remote backend serves no certificate for 127.0.0.1.
 fn ws_url_for(base_url: &str, token: &str) -> String {
-    format!("{}/api/ws?token={token}", base_url.replacen("http", "ws", 1))
+    format!(
+        "{}/api/ws?token={token}",
+        base_url.replacen("http", "ws", 1)
+    )
 }
 
 #[cfg(test)]
@@ -1263,7 +1409,11 @@ mod tests {
 
         let dto = describe_resolved(resolved);
         assert_eq!(dto.hostname.as_deref(), Some("10.0.0.5"));
-        assert!(dto.unsupported.contains(&"ProxyJump".to_string()), "{:?}", dto.unsupported);
+        assert!(
+            dto.unsupported.contains(&"ProxyJump".to_string()),
+            "{:?}",
+            dto.unsupported
+        );
     }
 
     #[test]
@@ -1330,10 +1480,18 @@ mod tests {
         // make every write unreadable on the next connect.
         let token = mint_token();
         assert_eq!(token.len(), 64);
-        assert!(token.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()), "{token}");
+        assert!(
+            token
+                .bytes()
+                .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()),
+            "{token}"
+        );
 
         let nonce = mint_nonce();
-        assert!(remote_paths::validate_spawn_nonce(&nonce).is_ok(), "{nonce}");
+        assert!(
+            remote_paths::validate_spawn_nonce(&nonce).is_ok(),
+            "{nonce}"
+        );
     }
 
     #[test]
@@ -1361,7 +1519,10 @@ mod tests {
         if cfg!(target_os = "android") || cfg!(target_os = "ios") {
             assert!(home_dir().is_none());
         } else {
-            assert!(home_dir().is_some(), "a desktop run should resolve a home directory");
+            assert!(
+                home_dir().is_some(),
+                "a desktop run should resolve a home directory"
+            );
         }
     }
 }

@@ -59,9 +59,15 @@ pub enum VoiceCmd {
 pub enum VoiceMsg {
     /// One cpal callback's worth of mono frames (native rate) + that block's
     /// normalized RMS.
-    Frames { mono: Vec<f32>, rms: f32 },
+    Frames {
+        mono: Vec<f32>,
+        rms: f32,
+    },
     Cmd(VoiceCmd),
-    TurnFinished { turn_id: u64, outcome: TurnOutcome },
+    TurnFinished {
+        turn_id: u64,
+        outcome: TurnOutcome,
+    },
     StreamError(String),
 }
 
@@ -202,7 +208,10 @@ fn capture_thread(
             Ok(VoiceMsg::StreamError(e)) => VoiceInput::StreamError(e),
             Err(RecvTimeoutError::Timeout) => {
                 // Device stall watchdog: the stream is playing but no frames.
-                if matches!(machine.kind(), VoiceStateKind::Closed | VoiceStateKind::Closing) {
+                if matches!(
+                    machine.kind(),
+                    VoiceStateKind::Closed | VoiceStateKind::Closing
+                ) {
                     break;
                 }
                 if last_frame_at.elapsed().as_millis() >= STALL_MS {
@@ -278,7 +287,13 @@ struct WakeEncoder {
 
 impl WakeEncoder {
     fn new(src_rate: u32) -> Self {
-        Self { src_rate, resampler: None, pending: Vec::new(), ready: Vec::new(), warned: false }
+        Self {
+            src_rate,
+            resampler: None,
+            pending: Vec::new(),
+            ready: Vec::new(),
+            warned: false,
+        }
     }
 
     /// Consume one batch; returns zero or more ready-to-send base64 frames.
@@ -302,8 +317,13 @@ impl WakeEncoder {
         }
 
         if self.resampler.is_none() {
-            match rubato::FftFixedIn::<f32>::new(self.src_rate as usize, WAKE_RATE as usize, 1024, 2, 1)
-            {
+            match rubato::FftFixedIn::<f32>::new(
+                self.src_rate as usize,
+                WAKE_RATE as usize,
+                1024,
+                2,
+                1,
+            ) {
                 Ok(r) => self.resampler = Some(r),
                 Err(e) => {
                     self.warn_once(format!("resampler_init: {e}"));
@@ -386,7 +406,10 @@ where
             } else {
                 (acc_sq / mono.len() as f64).sqrt() as f32 * LEVEL_GAIN
             };
-            let _ = frames_tx.send(VoiceMsg::Frames { mono, rms: rms.min(1.0) });
+            let _ = frames_tx.send(VoiceMsg::Frames {
+                mono,
+                rms: rms.min(1.0),
+            });
         },
         err_fn,
         None,

@@ -122,8 +122,12 @@ pub fn check(host: &str, port: u16, key: &PublicKey, path: &Path) -> HostKeyVerd
 pub fn learn(host: &str, port: u16, key: &PublicKey, path: &Path) -> Result<(), SshError> {
     // Reached through the module: russh re-exports the `check_*` pair at
     // `russh::keys` but not the `learn_*` pair.
-    russh::keys::known_hosts::learn_known_hosts_path(host, port, key, path)
-        .map_err(|e| SshError::new(SshErrorKind::Unknown, format!("Could not record the host key: {e}")))
+    russh::keys::known_hosts::learn_known_hosts_path(host, port, key, path).map_err(|e| {
+        SshError::new(
+            SshErrorKind::Unknown,
+            format!("Could not record the host key: {e}"),
+        )
+    })
 }
 
 /// The message shown when a key has changed. Deliberately specific about the two
@@ -149,9 +153,10 @@ pub async fn decide(
         HostKeyVerdict::Known => Ok(()),
 
         // No policy may override this. See the module docs.
-        HostKeyVerdict::Changed { line } => {
-            Err(SshError::new(SshErrorKind::HostKeyChanged, changed_key_message(host, host, line)))
-        }
+        HostKeyVerdict::Changed { line } => Err(SshError::new(
+            SshErrorKind::HostKeyChanged,
+            changed_key_message(host, host, line),
+        )),
 
         HostKeyVerdict::Unknown => match policy {
             HostKeyPolicy::AcceptNew => {
@@ -162,7 +167,10 @@ pub async fn decide(
 
             HostKeyPolicy::Strict => Err(SshError::new(
                 SshErrorKind::HostKeyChanged,
-                format!("The host key for {host} is not known ({}).", fingerprint(key)),
+                format!(
+                    "The host key for {host} is not known ({}).",
+                    fingerprint(key)
+                ),
             )),
 
             HostKeyPolicy::Ask(tx) => {
@@ -210,8 +218,10 @@ mod tests {
 
     /// A stable throwaway key pair's public halves. Not credentials — the private
     /// halves were never kept.
-    const KEY_A: &str = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOGXTILfYe9/k4y5hfEhEtghgFt9121WP+K8hBJssvoS a";
-    const KEY_B: &str = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPtLMxOJZXnO4rJ26bD4yapGzr/hYlcopvvnvm2b8htK b";
+    const KEY_A: &str =
+        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOGXTILfYe9/k4y5hfEhEtghgFt9121WP+K8hBJssvoS a";
+    const KEY_B: &str =
+        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPtLMxOJZXnO4rJ26bD4yapGzr/hYlcopvvnvm2b8htK b";
 
     fn key(openssh: &str) -> PublicKey {
         openssh.parse().expect("valid public key")
@@ -253,14 +263,20 @@ mod tests {
         // The normal state on a fresh install, and on every phone. It must not
         // surface as an error, or first-run would always fail.
         let missing = Path::new("/nonexistent/hermes/known_hosts");
-        assert_eq!(check("box.example", 22, &key(KEY_A), missing), HostKeyVerdict::Unknown);
+        assert_eq!(
+            check("box.example", 22, &key(KEY_A), missing),
+            HostKeyVerdict::Unknown
+        );
     }
 
     #[test]
     fn recognizes_a_recorded_key() {
         let scratch = Scratch::new("known");
         scratch.write(&format!("box.example {}\n", KEY_A));
-        assert_eq!(check("box.example", 22, &key(KEY_A), scratch.path()), HostKeyVerdict::Known);
+        assert_eq!(
+            check("box.example", 22, &key(KEY_A), scratch.path()),
+            HostKeyVerdict::Known
+        );
     }
 
     #[test]
@@ -270,7 +286,10 @@ mod tests {
 
         // Same host, same algorithm, different key — the MITM signal.
         assert!(
-            matches!(check("box.example", 22, &key(KEY_B), scratch.path()), HostKeyVerdict::Changed { .. }),
+            matches!(
+                check("box.example", 22, &key(KEY_B), scratch.path()),
+                HostKeyVerdict::Changed { .. }
+            ),
             "a different key for a recorded host must be Changed, not Unknown"
         );
     }
@@ -283,11 +302,15 @@ mod tests {
         let scratch = Scratch::new("comment");
         scratch.write(&format!("box.example {} someones-laptop\n", KEY_A));
 
-        let offered: PublicKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOGXTILfYe9/k4y5hfEhEtghgFt9121WP+K8hBJssvoS"
-            .parse()
-            .expect("a server key carries no comment");
+        let offered: PublicKey =
+            "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOGXTILfYe9/k4y5hfEhEtghgFt9121WP+K8hBJssvoS"
+                .parse()
+                .expect("a server key carries no comment");
 
-        assert_eq!(check("box.example", 22, &offered, scratch.path()), HostKeyVerdict::Known);
+        assert_eq!(
+            check("box.example", 22, &offered, scratch.path()),
+            HostKeyVerdict::Known
+        );
     }
 
     #[test]
@@ -298,55 +321,104 @@ mod tests {
         let scratch = Scratch::new("multi");
         scratch.write(&format!("box.example {}\nbox.example {}\n", KEY_B, KEY_A));
 
-        assert_eq!(check("box.example", 22, &key(KEY_A), scratch.path()), HostKeyVerdict::Known);
-        assert_eq!(check("box.example", 22, &key(KEY_B), scratch.path()), HostKeyVerdict::Known);
+        assert_eq!(
+            check("box.example", 22, &key(KEY_A), scratch.path()),
+            HostKeyVerdict::Known
+        );
+        assert_eq!(
+            check("box.example", 22, &key(KEY_B), scratch.path()),
+            HostKeyVerdict::Known
+        );
     }
 
     #[test]
     fn an_unrecorded_host_is_unknown_even_when_the_store_has_others() {
         let scratch = Scratch::new("other");
         scratch.write(&format!("other.example {}\n", KEY_A));
-        assert_eq!(check("box.example", 22, &key(KEY_A), scratch.path()), HostKeyVerdict::Unknown);
+        assert_eq!(
+            check("box.example", 22, &key(KEY_A), scratch.path()),
+            HostKeyVerdict::Unknown
+        );
     }
 
     #[test]
     fn a_nonstandard_port_is_a_distinct_entry() {
         let scratch = Scratch::new("port");
         scratch.write(&format!("[box.example]:2222 {}\n", KEY_A));
-        assert_eq!(check("box.example", 2222, &key(KEY_A), scratch.path()), HostKeyVerdict::Known);
-        assert_eq!(check("box.example", 22, &key(KEY_A), scratch.path()), HostKeyVerdict::Unknown);
+        assert_eq!(
+            check("box.example", 2222, &key(KEY_A), scratch.path()),
+            HostKeyVerdict::Known
+        );
+        assert_eq!(
+            check("box.example", 22, &key(KEY_A), scratch.path()),
+            HostKeyVerdict::Unknown
+        );
     }
 
     #[test]
     fn learn_then_check_round_trips() {
         let scratch = Scratch::new("learn");
-        assert_eq!(check("box.example", 22, &key(KEY_A), scratch.path()), HostKeyVerdict::Unknown);
+        assert_eq!(
+            check("box.example", 22, &key(KEY_A), scratch.path()),
+            HostKeyVerdict::Unknown
+        );
 
         learn("box.example", 22, &key(KEY_A), scratch.path()).unwrap();
 
-        assert_eq!(check("box.example", 22, &key(KEY_A), scratch.path()), HostKeyVerdict::Known);
-        assert!(scratch.contents().contains("box.example"), "{}", scratch.contents());
+        assert_eq!(
+            check("box.example", 22, &key(KEY_A), scratch.path()),
+            HostKeyVerdict::Known
+        );
+        assert!(
+            scratch.contents().contains("box.example"),
+            "{}",
+            scratch.contents()
+        );
     }
 
     #[tokio::test]
     async fn accept_new_learns_an_unknown_host() {
         let scratch = Scratch::new("tofu");
-        decide("box.example", 22, &key(KEY_A), scratch.path(), &HostKeyPolicy::AcceptNew).await.unwrap();
+        decide(
+            "box.example",
+            22,
+            &key(KEY_A),
+            scratch.path(),
+            &HostKeyPolicy::AcceptNew,
+        )
+        .await
+        .unwrap();
 
         // Learned, so a second connect is silent.
-        assert_eq!(check("box.example", 22, &key(KEY_A), scratch.path()), HostKeyVerdict::Known);
+        assert_eq!(
+            check("box.example", 22, &key(KEY_A), scratch.path()),
+            HostKeyVerdict::Known
+        );
     }
 
     #[tokio::test]
     async fn strict_refuses_an_unknown_host_without_learning() {
         let scratch = Scratch::new("strict");
-        let err = decide("box.example", 22, &key(KEY_A), scratch.path(), &HostKeyPolicy::Strict)
-            .await
-            .expect_err("strict must refuse");
+        let err = decide(
+            "box.example",
+            22,
+            &key(KEY_A),
+            scratch.path(),
+            &HostKeyPolicy::Strict,
+        )
+        .await
+        .expect_err("strict must refuse");
 
         assert_eq!(err.kind, SshErrorKind::HostKeyChanged);
-        assert!(err.message.contains("SHA256:"), "the user needs a comparable fingerprint: {}", err.message);
-        assert_eq!(check("box.example", 22, &key(KEY_A), scratch.path()), HostKeyVerdict::Unknown);
+        assert!(
+            err.message.contains("SHA256:"),
+            "the user needs a comparable fingerprint: {}",
+            err.message
+        );
+        assert_eq!(
+            check("box.example", 22, &key(KEY_A), scratch.path()),
+            HostKeyVerdict::Unknown
+        );
     }
 
     #[tokio::test]
@@ -364,7 +436,11 @@ mod tests {
             }
         });
 
-        for policy in [HostKeyPolicy::AcceptNew, HostKeyPolicy::Strict, HostKeyPolicy::Ask(tx)] {
+        for policy in [
+            HostKeyPolicy::AcceptNew,
+            HostKeyPolicy::Strict,
+            HostKeyPolicy::Ask(tx),
+        ] {
             let err = decide("box.example", 22, &key(KEY_B), scratch.path(), &policy)
                 .await
                 .expect_err("a changed key must always be refused");
@@ -372,7 +448,10 @@ mod tests {
         }
 
         // ...and the original record is left intact, not overwritten.
-        assert_eq!(check("box.example", 22, &key(KEY_A), scratch.path()), HostKeyVerdict::Known);
+        assert_eq!(
+            check("box.example", 22, &key(KEY_A), scratch.path()),
+            HostKeyVerdict::Known
+        );
     }
 
     #[tokio::test]
@@ -387,8 +466,19 @@ mod tests {
             let _ = p.respond.send(true);
         });
 
-        decide("box.example", 22, &key(KEY_A), scratch.path(), &HostKeyPolicy::Ask(tx)).await.unwrap();
-        assert_eq!(check("box.example", 22, &key(KEY_A), scratch.path()), HostKeyVerdict::Known);
+        decide(
+            "box.example",
+            22,
+            &key(KEY_A),
+            scratch.path(),
+            &HostKeyPolicy::Ask(tx),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            check("box.example", 22, &key(KEY_A), scratch.path()),
+            HostKeyVerdict::Known
+        );
 
         let scratch = Scratch::new("askno");
         let (tx, mut rx) = mpsc::channel::<HostKeyPrompt>(1);
@@ -397,11 +487,21 @@ mod tests {
             let _ = p.respond.send(false);
         });
 
-        let err = decide("box.example", 22, &key(KEY_A), scratch.path(), &HostKeyPolicy::Ask(tx))
-            .await
-            .expect_err("a no must refuse");
+        let err = decide(
+            "box.example",
+            22,
+            &key(KEY_A),
+            scratch.path(),
+            &HostKeyPolicy::Ask(tx),
+        )
+        .await
+        .expect_err("a no must refuse");
         assert_eq!(err.kind, SshErrorKind::Cancelled);
-        assert_eq!(check("box.example", 22, &key(KEY_A), scratch.path()), HostKeyVerdict::Unknown, "a no must not learn");
+        assert_eq!(
+            check("box.example", 22, &key(KEY_A), scratch.path()),
+            HostKeyVerdict::Unknown,
+            "a no must not learn"
+        );
     }
 
     #[tokio::test]
@@ -411,9 +511,15 @@ mod tests {
         let (tx, rx) = mpsc::channel::<HostKeyPrompt>(1);
         drop(rx);
 
-        let err = decide("box.example", 22, &key(KEY_A), scratch.path(), &HostKeyPolicy::Ask(tx))
-            .await
-            .expect_err("an unanswerable prompt must refuse");
+        let err = decide(
+            "box.example",
+            22,
+            &key(KEY_A),
+            scratch.path(),
+            &HostKeyPolicy::Ask(tx),
+        )
+        .await
+        .expect_err("an unanswerable prompt must refuse");
         assert_eq!(err.kind, SshErrorKind::Cancelled);
     }
 
@@ -427,9 +533,15 @@ mod tests {
             let _ = rx.recv().await;
         });
 
-        let err = decide("box.example", 22, &key(KEY_A), scratch.path(), &HostKeyPolicy::Ask(tx))
-            .await
-            .expect_err("a dismissed prompt must refuse");
+        let err = decide(
+            "box.example",
+            22,
+            &key(KEY_A),
+            scratch.path(),
+            &HostKeyPolicy::Ask(tx),
+        )
+        .await
+        .expect_err("a dismissed prompt must refuse");
         assert_eq!(err.kind, SshErrorKind::Cancelled);
     }
 
@@ -446,10 +558,16 @@ mod tests {
         // and a key we learn should be visible to their other tooling.
         let home = PathBuf::from("/home/u");
         let app = PathBuf::from("/data/app");
-        assert_eq!(store_path(Some(&home), Some(&app)).unwrap(), PathBuf::from("/home/u/.ssh/known_hosts"));
+        assert_eq!(
+            store_path(Some(&home), Some(&app)).unwrap(),
+            PathBuf::from("/home/u/.ssh/known_hosts")
+        );
 
         // Mobile: no home, so the app data directory carries it.
-        assert_eq!(store_path(None, Some(&app)).unwrap(), PathBuf::from("/data/app/known_hosts"));
+        assert_eq!(
+            store_path(None, Some(&app)).unwrap(),
+            PathBuf::from("/data/app/known_hosts")
+        );
         assert!(store_path(None, None).is_none());
     }
 
@@ -457,7 +575,10 @@ mod tests {
     fn changed_key_message_names_the_cause_and_the_fix() {
         let msg = changed_key_message("deploy@box", "box", 3);
         assert!(msg.contains("deploy@box"));
-        assert!(msg.contains("ssh-keygen -R box"), "the user needs the exact remedy: {msg}");
+        assert!(
+            msg.contains("ssh-keygen -R box"),
+            "the user needs the exact remedy: {msg}"
+        );
         assert!(msg.contains("line 3"));
     }
 }
