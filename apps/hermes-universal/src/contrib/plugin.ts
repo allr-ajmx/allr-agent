@@ -114,6 +114,9 @@ export interface HermesPlugin {
   id: string
   /** Human name for settings / about UI. */
   name?: string
+  /** One line on what the plugin does, shown under its name in Settings ▸
+   *  Plugins. Write it for a user deciding whether to switch this on. */
+  description?: string
   /** Registers on load when the user hasn't chosen (default true). Set false
    *  for opt-in plugins: they inventory in Settings ▸ Plugins, off until the
    *  user flips the switch. */
