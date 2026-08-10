@@ -91,6 +91,7 @@ export function installFpsHud(): () => void {
     'canvas',
     `width:100%;height:${SPARK_H}px;display:block;border-radius:3px;background:rgba(0,0,0,.25)`
   )
+
   const context = spark.getContext('2d')
 
   const worstRow = el('div', 'display:flex;justify-content:space-between;opacity:.65')

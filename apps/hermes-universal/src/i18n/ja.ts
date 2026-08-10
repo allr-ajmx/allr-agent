@@ -358,6 +358,9 @@ export const ja = defineLocale({
       toolViewDesc: 'プロダクト表示は生のツールペイロードを隠し、テクニカル表示は入出力をすべて表示します。',
       backdropTitle: 'チャットの背景',
       backdropDesc: '会話の背後にうっすら見える彫像の画像。',
+      reactionsTitle: 'メッセージリアクション',
+      reactionsDesc:
+        'iMessage 風の絵文字リアクション — メッセージにリアクションでき、Hermes もあなたのメッセージにリアクションできます。',
       uiScaleTitle: 'UI スケール',
       uiScaleDesc: (percent: number) =>
         `アプリ全体の文字と UI を拡大縮小します。Cmd/Ctrl と +、-、0 でも変更できます。現在: ${percent}%`,
@@ -2394,6 +2397,7 @@ export const ja = defineLocale({
       copy: 'コピー',
       refresh: '更新',
       moreActions: 'その他のアクション',
+      react: 'リアクション',
       branchNewChat: '新しいチャットでブランチ',
       dismissError: 'エラーを閉じる',
       readAloudFailed: '読み上げに失敗しました',

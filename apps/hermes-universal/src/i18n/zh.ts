@@ -444,6 +444,8 @@ export const zh: Translations = {
       toolViewDesc: '产品模式隐藏原始工具数据；技术模式显示完整输入/输出。',
       backdropTitle: '对话背景图',
       backdropDesc: '对话后方那张淡淡的雕像图。',
+      reactionsTitle: '消息回应',
+      reactionsDesc: 'iMessage 风格的表情回应 — 你可以给消息添加回应，Hermes 也能回应你的消息。',
       uiScaleTitle: '界面缩放',
       uiScaleDesc: (percent: number) =>
         `缩放整个应用的文字和界面。也可使用 Cmd/Ctrl 加 +、- 或 0 调整。当前：${percent}%`,
@@ -2785,6 +2787,7 @@ export const zh: Translations = {
       copy: '复制',
       refresh: '刷新',
       moreActions: '更多操作',
+      react: '回应',
       branchNewChat: '在新对话中分支',
       dismissError: '关闭错误',
       readAloudFailed: '朗读失败',

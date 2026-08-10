@@ -457,6 +457,8 @@ export const en: Translations = {
       toolViewDesc: 'Product hides raw tool payloads; Technical shows full input/output.',
       backdropTitle: 'Chat Backdrop',
       backdropDesc: 'The faint statue image behind the conversation.',
+      reactionsTitle: 'Message Reactions',
+      reactionsDesc: 'iMessage-style emoji tapbacks — react to messages, and Hermes can react to yours.',
       uiScaleTitle: 'UI Scale',
       uiScaleDesc: (percent: number) =>
         `Scales text and controls across the whole app. Cmd/Ctrl with +, - and 0 also works. Current: ${percent}%.`,
@@ -2638,6 +2640,7 @@ export const en: Translations = {
       copy: 'Copy',
       refresh: 'Refresh',
       moreActions: 'More actions',
+      react: 'React',
       branchNewChat: 'Branch in new chat',
       dismissError: 'Dismiss error',
       readAloudFailed: 'Read aloud failed',

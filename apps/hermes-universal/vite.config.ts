@@ -1,4 +1,6 @@
 import { execFileSync } from 'node:child_process'
+import fs from 'node:fs'
+import type { IncomingMessage, ServerResponse } from 'node:http'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -121,11 +123,52 @@ const storeNamePlugin = {
   }
 }
 
+// The emoji picker (frimousse) fetches `<emojibaseUrl>/<locale>/data.json` at
+// runtime, defaulting to a CDN. The app's CSP has no `connect-src` for one, and
+// a client that has to reach the internet to draw a picker is broken on a
+// plane — so serve the bundled `emojibase-data` at a stable local path instead:
+// middleware in dev, emitted assets in the build, only the files a locale needs.
+const emojibaseDir = dirname(require.resolve('emojibase-data/package.json'))
+
+const EMOJIBASE_PATH = /^[a-z-]+\/(data|messages|shortcodes\/emojibase)\.json$/
+
+const emojibaseAssets = () => ({
+  name: 'hermes:emojibase-assets',
+  configureServer(server: {
+    middlewares: {
+      use: (route: string, handler: (req: IncomingMessage, res: ServerResponse, next: () => void) => void) => void
+    }
+  }) {
+    server.middlewares.use('/emojibase', (req, res, next) => {
+      const rel = (req.url ?? '').split('?')[0].replace(/^\/+/, '')
+
+      if (!EMOJIBASE_PATH.test(rel)) {
+        return next()
+      }
+
+      fs.readFile(join(emojibaseDir, rel), (err, buf) => {
+        if (err) {
+          return next()
+        }
+
+        res.setHeader('Content-Type', 'application/json')
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable')
+        res.end(buf)
+      })
+    })
+  },
+  generateBundle(this: { emitFile: (asset: { fileName: string; source: Uint8Array; type: 'asset' }) => void }) {
+    for (const rel of ['en/data.json', 'en/messages.json', 'en/shortcodes/emojibase.json']) {
+      this.emitFile({ fileName: `emojibase/${rel}`, source: fs.readFileSync(join(emojibaseDir, rel)), type: 'asset' })
+    }
+  }
+})
+
 export default defineConfig({
   define: {
     __TRACE_RUN_DEFAULT__: JSON.stringify(traceRunDefault())
   },
-  plugins: [react(), tailwindcss(), ...(STORE_TRACING ? [storeNamePlugin] : [])],
+  plugins: [react(), tailwindcss(), emojibaseAssets(), ...(STORE_TRACING ? [storeNamePlugin] : [])],
   // Tailwind v4 is handled entirely by `@tailwindcss/vite`; pin an explicit
   // empty PostCSS config so Vite doesn't walk UP the filesystem and pick up a
   // stray postcss/tailwind config from the install location (see desktop

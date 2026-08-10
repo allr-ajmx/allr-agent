@@ -7,7 +7,7 @@ import {
   useMessageRuntime
 } from '@assistant-ui/react'
 import { useStore } from '@nanostores/react'
-import { type FC, useCallback, useMemo } from 'react'
+import { type FC, useCallback, useMemo, useState } from 'react'
 
 import {
   contentHasVisibleText,
@@ -15,15 +15,17 @@ import {
   pickPrimaryPreviewTarget
 } from '@/components/assistant-ui/thread/content'
 import { MESSAGE_PARTS_COMPONENTS } from '@/components/assistant-ui/thread/message-parts'
+import { ReactionPicker } from '@/components/assistant-ui/thread/message-reactions'
 import { StreamStallIndicator } from '@/components/assistant-ui/thread/status'
 import { formatMessageTimestamp } from '@/components/assistant-ui/thread/timestamp'
+import { useMessageReactions, useTapbackDoubleClick } from '@/components/assistant-ui/thread/use-message-reactions'
 import { TooltipIconButton } from '@/components/assistant-ui/tooltip-icon-button'
 import { PreviewAttachment } from '@/components/chat/preview-attachment'
 import { Codicon } from '@/components/ui/codicon'
 import { CopyButton } from '@/components/ui/copy-button'
 import { useI18n } from '@/i18n'
 import { triggerHaptic } from '@/lib/haptics'
-import { AudioLines, GitForkIcon, Loader2Icon, VolumeXIcon, XIcon } from '@/lib/icons'
+import { AudioLines, GitForkIcon, Loader2Icon, SmilePlus, VolumeXIcon, XIcon } from '@/lib/icons'
 import { extractPreviewTargets } from '@/lib/preview-targets'
 import { formatAgo } from '@/lib/time'
 import { cn } from '@/lib/utils'
@@ -81,6 +83,10 @@ export const AssistantMessage: FC<{
 
   const getMessageText = useCallback(() => messageContentText(messageRuntime.getState().content), [messageRuntime])
 
+  // Double-click the reply to heart it (iMessage). Undefined while reactions
+  // are off, so the root carries no listener at all.
+  const onDoubleClick = useTapbackDoubleClick(messageId, 'assistant')
+
   // NOTE: the desktop one-shot enter animation is deliberately omitted here to
   // avoid pulling the whole message subtree into a render key; the reasoning
   // disclosures still animate via useEnterAnimation. Not a gap — see MJX-205.
@@ -95,6 +101,7 @@ export const AssistantMessage: FC<{
       data-role="assistant"
       data-slot="aui_assistant-message-root"
       data-streaming={isRunning ? 'true' : undefined}
+      onDoubleClick={onDoubleClick}
     >
       <div
         className="wrap-anywhere min-w-0 max-w-full overflow-hidden text-pretty text-[length:var(--conversation-text-font-size)] leading-(--dt-line-height) text-foreground"
@@ -138,6 +145,16 @@ export const AssistantMessage: FC<{
 const AssistantActionBar: FC<MessageActionProps> = ({ messageId, getMessageText, onBranchInNewChat }) => {
   const { t } = useI18n()
   const copy = t.assistant.thread
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const { enabled: reactionsEnabled, react, reactions: shownReactions } = useMessageReactions(messageId, 'assistant')
+
+  const pickEmoji = useCallback(
+    (emoji: null | string) => {
+      setPickerOpen(false)
+      react(emoji)
+    },
+    [react]
+  )
 
   // Fork this message's turn into its own chat (same path as `/branch`), unless
   // the host supplied its own handler.
@@ -179,6 +196,46 @@ const AssistantActionBar: FC<MessageActionProps> = ({ messageId, getMessageText,
             useExternalStoreRuntime has no reload, so the desktop
             ActionBarPrimitive.Reload button is omitted here. */}
       </ActionBarPrimitive.Root>
+      {/* ONE slot, Slack-style: the picker trigger and the landed reaction are
+          the same element, so reacting never shifts layout. Empty → ☺, hidden
+          until hover like its action-bar neighbours. Reacted → the emoji
+          itself, always visible, and clicking it reopens the picker to switch
+          or retract. Outside ActionBarPrimitive.Root so a landed reaction
+          doesn't ride the bar's hover opacity. */}
+      {(reactionsEnabled || shownReactions.length > 0) && (
+        <ReactionPicker
+          onOpenChange={setPickerOpen}
+          onSelect={pickEmoji}
+          open={pickerOpen}
+          selected={shownReactions.find(reaction => reaction.author === 'user')?.emoji}
+        >
+          <TooltipIconButton
+            className={cn(
+              'transition-opacity',
+              shownReactions.length > 0
+                ? 'opacity-100'
+                : 'opacity-0 group-hover:opacity-100 coarse:opacity-100 focus-visible:opacity-100'
+            )}
+            data-reacted={shownReactions.length > 0 || undefined}
+            data-slot="aui_msg-reactions"
+            data-state={pickerOpen ? 'open' : undefined}
+            onClick={reactionsEnabled ? () => setPickerOpen(open => !open) : undefined}
+            tooltip={copy.react}
+          >
+            {shownReactions.length > 0 ? (
+              <span className="flex items-center gap-0.5 text-[0.8125rem] leading-none">
+                {shownReactions.map(reaction => (
+                  <span className="reaction-pop" key={`${reaction.author}-${reaction.emoji}`}>
+                    {reaction.emoji}
+                  </span>
+                ))}
+              </span>
+            ) : (
+              <SmilePlus className="size-3.5" />
+            )}
+          </TooltipIconButton>
+        </ReactionPicker>
+      )}
     </div>
   )
 }

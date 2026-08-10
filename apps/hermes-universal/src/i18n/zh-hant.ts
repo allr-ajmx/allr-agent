@@ -349,6 +349,8 @@ export const zhHant = defineLocale({
       toolViewDesc: '產品模式會隱藏原始工具 payload；技術模式會顯示完整輸入/輸出。',
       backdropTitle: '對話背景圖',
       backdropDesc: '對話後方那張淡淡的雕像圖。',
+      reactionsTitle: '訊息回應',
+      reactionsDesc: 'iMessage 風格的表情回應 — 你可以對訊息做出回應，Hermes 也能回應你的訊息。',
       uiScaleTitle: '介面縮放',
       uiScaleDesc: (percent: number) =>
         `縮放整個應用程式的文字與介面。也可使用 Cmd/Ctrl 加 +、- 或 0 調整。目前：${percent}%`,
@@ -2323,6 +2325,7 @@ export const zhHant = defineLocale({
       copy: '複製',
       refresh: '重新整理',
       moreActions: '更多動作',
+      react: '回應',
       branchNewChat: '在新聊天中分支',
       dismissError: '关闭错误',
       readAloudFailed: '朗讀失敗',

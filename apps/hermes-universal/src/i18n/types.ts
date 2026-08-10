@@ -382,6 +382,8 @@ export interface Translations {
       toolViewDesc: string
       backdropTitle: string
       backdropDesc: string
+      reactionsTitle: string
+      reactionsDesc: string
       uiScaleTitle: string
       uiScaleDesc: (percent: number) => string
       translucencyTitle: string
@@ -2250,6 +2252,7 @@ export interface Translations {
       copy: string
       refresh: string
       moreActions: string
+      react: string
       branchNewChat: string
       dismissError: string
       readAloudFailed: string

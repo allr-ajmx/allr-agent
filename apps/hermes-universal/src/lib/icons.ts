@@ -120,6 +120,8 @@ export {
   IconSettings as Settings,
   IconSettings2 as Settings2,
   IconAdjustmentsHorizontal as SlidersHorizontal,
+  IconMoodPlus as SmilePlus,
+  IconMoodPlus as SmilePlusIcon,
   IconSparkles as Sparkles,
   IconSquare as Square,
   IconSquareFilled as SquareFilled,
