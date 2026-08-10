@@ -499,6 +499,9 @@ mod tests {
         make_repo(&home.join("alpha"));
 
         // `home_dir()` reads $HOME, so point it at the scratch tree for this test.
+        // $HOME is process-global and other tests read it, so hold the crate-wide
+        // env lock across the whole swap-and-restore span.
+        let _guard = crate::test_env::env_lock();
         let previous = std::env::var("HOME").ok();
         std::env::set_var("HOME", &home);
 

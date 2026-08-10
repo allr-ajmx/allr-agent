@@ -250,15 +250,17 @@ mod tests {
         }
     }
 
-    // hermes_home() reads a process-global env var, so anything asserting on it
-    // must serialize — cargo runs tests in parallel threads within one process.
-    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    // hermes_home() reads process-global env vars (HERMES_HOME, and $HOME via the
+    // platform fallback), so anything asserting on it must serialize — cargo runs
+    // tests in parallel threads within one process. The lock is crate-wide because
+    // repo_scan's and ssh's tests touch $HOME too.
+    use crate::test_env::env_lock;
 
     #[test]
     fn honours_an_explicit_hermes_home() {
-        let _guard = ENV_LOCK.lock().unwrap();
+        let _guard = env_lock();
 
-        // SAFETY: every test that touches HERMES_HOME holds ENV_LOCK.
+        // SAFETY: every test that touches HERMES_HOME holds the env lock.
         unsafe { std::env::set_var("HERMES_HOME", "/tmp/custom-home") };
         assert_eq!(hermes_home().unwrap(), PathBuf::from("/tmp/custom-home"));
 
@@ -271,7 +273,7 @@ mod tests {
 
     #[test]
     fn listing_a_missing_root_is_empty_not_an_error() {
-        let _guard = ENV_LOCK.lock().unwrap();
+        let _guard = env_lock();
 
         unsafe { std::env::set_var("HERMES_HOME", "/tmp/hermes-does-not-exist-XYZ") };
         assert_eq!(plugins_list(None).unwrap().len(), 0);
