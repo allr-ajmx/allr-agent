@@ -1,12 +1,6 @@
 import { expect, test } from 'vitest'
 
-import {
-  authHeaders,
-  oauthGuardMayHardFail,
-  oauthSessionIsLive,
-  resolveOauthRestAuth,
-  statusSupportsNativeFlow
-} from './native-auth-decisions'
+import { oauthGuardMayHardFail, oauthSessionIsLive, statusSupportsNativeFlow } from './native-auth-decisions'
 
 // ── capability detection ─────────────────────────────────────────────────────
 
@@ -38,20 +32,10 @@ test('a completed native login is live even though it left no cookie', () => {
   expect(oauthSessionIsLive(true, false)).toBe(true)
 })
 
-// ── bearer-vs-cookie routing ─────────────────────────────────────────────────
-
-test('a present bearer wins; anything falsy falls back to the cookie jar', () => {
-  expect(resolveOauthRestAuth('at')).toEqual({ kind: 'bearer', token: 'at' })
-  expect(resolveOauthRestAuth(null)).toEqual({ kind: 'cookie' })
-  expect(resolveOauthRestAuth(undefined)).toEqual({ kind: 'cookie' })
-  // An empty string is "no session", not a bearer of length zero.
-  expect(resolveOauthRestAuth('')).toEqual({ kind: 'cookie' })
-})
-
-test('only the bearer choice contributes a header — the cookie rides in Rust', () => {
-  expect(authHeaders({ kind: 'bearer', token: 'at' })).toEqual({ Authorization: 'Bearer at' })
-  expect(authHeaders({ kind: 'cookie' })).toEqual({})
-})
+// The bearer-vs-cookie routing that used to be tested here (`resolveOauthRestAuth`
+// / `authHeaders`) is gone: choosing in JS meant holding the bearer in JS. The
+// choice and the header now live in `src-tauri/src/transport.rs`, tested there
+// (MJXHRM-354).
 
 // ── the hard-fail guard ──────────────────────────────────────────────────────
 

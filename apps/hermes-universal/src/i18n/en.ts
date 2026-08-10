@@ -766,6 +766,11 @@ export const en: Translations = {
       signOut: 'Sign out',
       signInWith: provider => `Sign in with ${provider}`,
       authTitle: 'Authentication',
+      sessionKindNative: 'System browser',
+      sessionKindNativeHint:
+        'You signed in through your system browser. The token is kept in this device’s keyring and never enters the app.',
+      sessionKindCookie: 'In-app',
+      sessionKindCookieHint: 'You signed in inside the app. The session cookie is kept by the app and refreshes itself.',
       authSignedInPassword:
         'This gateway uses a username and password. You are signed in; the session refreshes automatically.',
       authSignedInOauth: 'This gateway uses OAuth. You are signed in; the session refreshes automatically.',

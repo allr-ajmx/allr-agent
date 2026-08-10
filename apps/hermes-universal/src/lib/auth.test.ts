@@ -7,7 +7,7 @@ import { invoke } from '@tauri-apps/api/core'
 
 import { httpRequest } from '@/transport/http'
 
-import { forgetNativeBearer, mintWsTicket, oauthStatus } from './auth'
+import { $oauthSession, mintWsTicket, oauthLogout, oauthStatus } from './auth'
 
 const BASE = 'https://gw.example.com'
 
@@ -20,83 +20,99 @@ function ticketHeaders(call: number): Record<string, string> {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  forgetNativeBearer(BASE)
+  $oauthSession.set(null)
 })
 
-test('a cookie gateway mints with no Authorization header', async () => {
-  vi.mocked(invoke).mockResolvedValue({ signedIn: true })
+// ── the mint carries no credential of its own (MJXHRM-354) ───────────────────
+
+test('the mint sends no Authorization header, whichever session kind is live', async () => {
+  vi.mocked(invoke).mockResolvedValue({ signedIn: true, sessionKind: 'native' })
   vi.mocked(httpRequest).mockResolvedValue(ok())
 
   await expect(mintWsTicket(BASE)).resolves.toBe('t1')
+  // The bearer is attached by the Rust transport. A header built here could only
+  // come from a token this process was handed — which is the whole bug.
   expect(ticketHeaders(0).Authorization).toBeUndefined()
   expect(ticketHeaders(0).Origin).toBe(BASE)
 })
 
-test('a native session mints with its bearer', async () => {
-  vi.mocked(invoke).mockResolvedValue({ signedIn: true, nativeAccessToken: 'at-1' })
-  vi.mocked(httpRequest).mockResolvedValue(ok())
-
-  await expect(mintWsTicket(BASE)).resolves.toBe('t1')
-  expect(ticketHeaders(0).Authorization).toBe('Bearer at-1')
-})
-
-test('the bearer is resolved once and reused across mints', async () => {
-  vi.mocked(invoke).mockResolvedValue({ signedIn: true, nativeAccessToken: 'at-1' })
+test('minting costs no oauth_status round trip at all', async () => {
   vi.mocked(httpRequest).mockResolvedValue(ok())
 
   await mintWsTicket(BASE)
   await mintWsTicket(BASE)
 
-  // One oauth_status for the first mint; the reconnect costs no extra round trip.
-  expect(vi.mocked(invoke)).toHaveBeenCalledTimes(1)
+  // The mint used to probe Rust for a bearer to paste on; it has nothing to ask.
+  expect(vi.mocked(invoke)).not.toHaveBeenCalled()
 })
 
-test('a bearer that expired between connect and mint is rotated and retried once', async () => {
-  vi.mocked(invoke)
-    .mockResolvedValueOnce({ signedIn: true, nativeAccessToken: 'stale' })
-    .mockResolvedValueOnce({ signedIn: true, nativeAccessToken: 'fresh' })
-  vi.mocked(httpRequest).mockResolvedValueOnce(unauthorized).mockResolvedValueOnce(ok('t2'))
-
-  await expect(mintWsTicket(BASE)).resolves.toBe('t2')
-  expect(ticketHeaders(0).Authorization).toBe('Bearer stale')
-  expect(ticketHeaders(1).Authorization).toBe('Bearer fresh')
-})
-
-test('a 401 that survives the rotation surfaces as sign-in-again', async () => {
-  vi.mocked(invoke)
-    .mockResolvedValueOnce({ signedIn: true, nativeAccessToken: 'stale' })
-    .mockResolvedValueOnce({ signedIn: false, nativeAccessToken: null })
+test('a 401 surfaces as sign-in-again without a second attempt', async () => {
   vi.mocked(httpRequest).mockResolvedValue(unauthorized)
 
   await expect(mintWsTicket(BASE)).rejects.toThrow('Session expired')
-  // Nothing to retry with, so the second attempt is never made.
+  // Rust already rotated and retried behind this call; retrying here would only
+  // repeat a request the gateway has twice refused.
   expect(vi.mocked(httpRequest)).toHaveBeenCalledTimes(1)
 })
 
-test('a cookie 401 is not retried — there is no bearer to rotate', async () => {
-  vi.mocked(invoke).mockResolvedValue({ signedIn: true })
-  vi.mocked(httpRequest).mockResolvedValue(unauthorized)
+test('a non-401 failure names its status rather than blaming the session', async () => {
+  vi.mocked(httpRequest).mockResolvedValue({ status: 503, body: '', headers: {} })
 
-  await expect(mintWsTicket(BASE)).rejects.toThrow('Session expired')
-  expect(vi.mocked(httpRequest)).toHaveBeenCalledTimes(1)
+  await expect(mintWsTicket(BASE)).rejects.toThrow('HTTP 503')
 })
 
-test('an unreachable oauth_status degrades to the cookie path instead of failing the mint', async () => {
-  vi.mocked(invoke).mockRejectedValue(new Error('no tauri host'))
-  vi.mocked(httpRequest).mockResolvedValue(ok())
+test('a 200 with no ticket in it is an error, not an empty ticket', async () => {
+  vi.mocked(httpRequest).mockResolvedValue({ status: 200, body: '{}', headers: {} })
 
-  await expect(mintWsTicket(BASE)).resolves.toBe('t1')
-  expect(ticketHeaders(0).Authorization).toBeUndefined()
+  await expect(mintWsTicket(BASE)).rejects.toThrow('missing ticket')
 })
 
-test('oauthStatus caches the bearer it observed for the mint', async () => {
-  vi.mocked(invoke).mockResolvedValue({ signedIn: true, nativeAccessToken: 'at-9' })
-  vi.mocked(httpRequest).mockResolvedValue(ok())
+// ── session kind (the only thing oauth_status hands back) ────────────────────
 
+test('the status reply carries a session kind and no credential', async () => {
+  vi.mocked(invoke).mockResolvedValue({ signedIn: true, sessionKind: 'native', email: 'a@b.c' })
+
+  const status = await oauthStatus(BASE)
+
+  expect(status.sessionKind).toBe('native')
+  expect(JSON.stringify(status)).not.toMatch(/token/i)
+  expect($oauthSession.get()).toEqual({ base: BASE, kind: 'native' })
+})
+
+test('a trailing slash is the same gateway', async () => {
+  vi.mocked(invoke).mockResolvedValue({ signedIn: true, sessionKind: 'cookie' })
+
+  await oauthStatus(`${BASE}/`)
+
+  expect($oauthSession.get()).toEqual({ base: BASE, kind: 'cookie' })
+})
+
+test('a signed-out probe clears the session it spoke for', async () => {
+  vi.mocked(invoke).mockResolvedValueOnce({ signedIn: true, sessionKind: 'native' })
   await oauthStatus(BASE)
-  // A trailing slash is the same gateway — the cache must not miss on it.
-  await mintWsTicket(`${BASE}/`)
 
-  expect(vi.mocked(invoke)).toHaveBeenCalledTimes(1)
-  expect(ticketHeaders(0).Authorization).toBe('Bearer at-9')
+  vi.mocked(invoke).mockResolvedValueOnce({ signedIn: false, sessionKind: null })
+  await oauthStatus(BASE)
+
+  expect($oauthSession.get()).toBeNull()
+})
+
+test('a signed-out probe of ANOTHER gateway leaves the live session alone', async () => {
+  vi.mocked(invoke).mockResolvedValueOnce({ signedIn: true, sessionKind: 'native' })
+  await oauthStatus(BASE)
+
+  vi.mocked(invoke).mockResolvedValueOnce({ signedIn: false })
+  await oauthStatus('https://other.example.com')
+
+  expect($oauthSession.get()).toEqual({ base: BASE, kind: 'native' })
+})
+
+test('signing out drops the session kind before the round trip', async () => {
+  vi.mocked(invoke).mockResolvedValueOnce({ signedIn: true, sessionKind: 'native' })
+  await oauthStatus(BASE)
+
+  vi.mocked(invoke).mockResolvedValueOnce(undefined)
+  await oauthLogout(BASE)
+
+  expect($oauthSession.get()).toBeNull()
 })

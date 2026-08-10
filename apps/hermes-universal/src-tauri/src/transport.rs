@@ -21,7 +21,7 @@
 //! as `InvokeResponseBody::Raw`, which reaches JS as an `ArrayBuffer` — no
 //! encode, no parse, no per-element copy.
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -99,6 +99,105 @@ fn redact_error(message: String, url: &str) -> String {
     message.replace(url, &redact_url(url))
 }
 
+/// Characters an OAuth bearer is allowed to be made of (RFC 6750 §2.1's
+/// `token68`). Used to tell a real credential from the English word "bearer"
+/// followed by a noun, so [`redact_bearer`] does not mangle our own prose.
+fn is_token68(c: char) -> bool {
+    c.is_ascii_alphanumeric() || matches!(c, '-' | '.' | '_' | '~' | '+' | '/' | '=')
+}
+
+/// Replace the value of any `Bearer <token>` in a message with `***`.
+///
+/// [`redact_url`] covers a credential carried in a query string; this covers the
+/// other place one can appear — an `Authorization` header value quoted back at
+/// us by a library. Since MJXHRM-354 the gateway bearer never leaves Rust, so an
+/// error string is the last path by which it could still reach the webview, and
+/// error strings from this module are rendered directly onto the connect screen.
+///
+/// Only a run that actually looks like a credential is redacted (token68
+/// characters, at least 8 of them), so "bearer token missing" survives intact.
+pub fn redact_bearer(message: String) -> String {
+    const MARKER: &str = "bearer ";
+    const MIN_TOKEN_LEN: usize = 8;
+
+    // ASCII-lowercasing is byte-length preserving, so offsets found here index
+    // the original string; and every offset used below lands after ASCII text,
+    // hence on a char boundary.
+    let lower = message.to_ascii_lowercase();
+
+    if !lower.contains(MARKER) {
+        return message;
+    }
+
+    let mut out = String::with_capacity(message.len());
+    let mut cursor = 0;
+
+    while let Some(hit) = lower[cursor..].find(MARKER) {
+        let start = cursor + hit + MARKER.len();
+        let end = message[start..]
+            .find(|c: char| !is_token68(c))
+            .map_or(message.len(), |offset| start + offset);
+
+        out.push_str(&message[cursor..start]);
+
+        if end - start >= MIN_TOKEN_LEN {
+            out.push_str("***");
+            cursor = end;
+        } else {
+            // Not a credential — leave the words alone and keep scanning past them.
+            cursor = start;
+        }
+    }
+
+    out.push_str(&message[cursor..]);
+    out
+}
+
+/// Scrub one specific secret we are holding out of a message we did not build.
+///
+/// The complement of [`redact_bearer`]: that one recognises the header shape,
+/// this one is used where we know the exact material (a refresh token posted in
+/// a body, say) and the library is free to echo it in any shape it likes. Short
+/// values are left alone — a secret of five characters would turn every message
+/// into confetti, and is not a credential worth protecting anyway.
+pub fn redact_secret(message: String, secret: &str) -> String {
+    if secret.len() < 8 || !message.contains(secret) {
+        return message;
+    }
+
+    message.replace(secret, "***")
+}
+
+/// Which gateway bases may have their RFC 8252 bearer attached to a request, and
+/// which origins have already been checked and found to have none.
+///
+/// This registry is the whole guard against leaking the credential to a third
+/// party: a request is authenticated only when its URL sits *under* a base we
+/// know holds a native session — never because the URL "looks like" a gateway.
+/// The `checked` half only keeps the origin fallback in
+/// [`TransportState::bearer_base_for_url`] from hitting the OS keyring once per
+/// request to some unrelated host.
+#[derive(Default)]
+struct BearerBases {
+    known: BTreeSet<String>,
+    checked: BTreeSet<String>,
+}
+
+/// Is `url` at, or underneath, `base`? A prefix test alone would match
+/// `https://gw.evil.com` against a base of `https://gw.ev`, so the character
+/// after the prefix has to end the authority or start a path/query.
+fn url_is_under(url: &str, base: &str) -> bool {
+    url.strip_prefix(base)
+        .is_some_and(|rest| rest.is_empty() || rest.starts_with('/') || rest.starts_with('?'))
+}
+
+/// The path namespaces a Hermes gateway serves. Used only to decide whether an
+/// UNKNOWN origin is worth one keyring lookup — never to decide that a URL is
+/// trustworthy. A gateway behind a path prefix (`https://host/hermes`, which the
+/// settings copy explicitly supports) matches neither, and is reached the other
+/// way: `oauth_status` registers its base the first time the webview probes it.
+const GATEWAY_PATH_PREFIXES: &[&str] = &["/api/", "/auth/"];
+
 /// A live raw WebSocket: `tx` feeds the writer task; the two task handles are
 /// aborted on close.
 pub struct SocketHandle {
@@ -120,6 +219,10 @@ pub struct TransportState {
     /// explicitly (vs reqwest's private default) so OAuth can span two clients
     /// and D4 can serialize/rehydrate it across launches.
     cookies: Arc<CookieStoreMutex>,
+    /// Gateway bases whose bearer `http_request` may attach (MJXHRM-354). A
+    /// `std::sync::Mutex` on purpose: every access is a set lookup with no await
+    /// inside, so the async-aware lock would buy nothing.
+    bearer_bases: std::sync::Mutex<BearerBases>,
     sockets: Mutex<HashMap<String, SocketHandle>>,
 }
 
@@ -144,6 +247,7 @@ impl TransportState {
             http,
             http_no_redirect,
             cookies,
+            bearer_bases: std::sync::Mutex::new(BearerBases::default()),
             sockets: Mutex::new(HashMap::new()),
         }
     }
@@ -162,6 +266,81 @@ impl TransportState {
     /// D4 persistence.
     pub fn cookies(&self) -> &Arc<CookieStoreMutex> {
         &self.cookies
+    }
+
+    /// Record that `base` holds a native (bearer) session, so requests under it
+    /// are authenticated with it. Called by oauth.rs whenever a token set is
+    /// written to, or found in, the keyring.
+    pub fn register_bearer_base(&self, base: &str) {
+        if let Ok(mut bases) = self.bearer_bases.lock() {
+            bases.checked.remove(base);
+            bases.known.insert(base.to_string());
+        }
+    }
+
+    /// Record that `base` has no native session, so the origin fallback below
+    /// stops asking the keyring about it.
+    pub fn note_no_bearer_base(&self, base: &str) {
+        if let Ok(mut bases) = self.bearer_bases.lock() {
+            bases.known.remove(base);
+            bases.checked.insert(base.to_string());
+        }
+    }
+
+    /// Forget a base whose native session is gone (sign-out, or a refresh the
+    /// gateway refused). Deliberately does NOT mark it checked: the user may
+    /// sign straight back in, and a stale negative would then suppress the
+    /// bearer until the next probe.
+    pub fn forget_bearer_base(&self, base: &str) {
+        if let Ok(mut bases) = self.bearer_bases.lock() {
+            bases.known.remove(base);
+            bases.checked.remove(base);
+        }
+    }
+
+    /// The gateway base whose bearer `url` may carry, if any.
+    ///
+    /// A registered base wins — it can carry a path prefix
+    /// (`https://host/hermes`), which no amount of URL parsing would recover.
+    /// Otherwise the URL's ORIGIN is offered once, so a session left in the
+    /// keyring by a previous run is found on the first request of a new one
+    /// rather than only after the webview happens to call `oauth_status`. The
+    /// caller answers that offer by calling `register_bearer_base` or
+    /// `note_no_bearer_base`, and the origin is never offered again.
+    ///
+    /// That one-shot offer is confined to the gateway's own path namespaces —
+    /// not as a trust decision (the answer still comes from the keyring) but so
+    /// that fetching, say, a marketplace listing does not spend a Secret Service
+    /// round trip to be told what it already knew.
+    pub fn bearer_base_for_url(&self, url: &str) -> Option<String> {
+        let Ok(bases) = self.bearer_bases.lock() else {
+            return None;
+        };
+
+        // Descending order tries the longest shared prefix first, so a base of
+        // `https://host/hermes` wins over a bare `https://host`.
+        if let Some(base) = bases.known.iter().rev().find(|base| url_is_under(url, base)) {
+            return Some(base.clone());
+        }
+
+        let parsed = Url::parse(url).ok()?;
+
+        if !GATEWAY_PATH_PREFIXES
+            .iter()
+            .any(|prefix| parsed.path().starts_with(prefix))
+        {
+            return None;
+        }
+
+        let origin = parsed.origin().ascii_serialization();
+
+        // "null" is what an opaque origin (data:, file:, …) serialises to; it is
+        // not an address a gateway can live at.
+        if origin == "null" || bases.checked.contains(&origin) {
+            return None;
+        }
+
+        Some(origin)
     }
 }
 
@@ -192,17 +371,33 @@ pub struct HttpResp {
     body: String,
 }
 
-/// Generic REST proxy. Powers `/api/status` probing, session create/history,
-/// and the OAuth ws-ticket mint — all with the auth header/cookie attached here
-/// in Rust rather than in the webview.
-#[tauri::command]
-pub async fn http_request(
-    state: State<'_, TransportState>,
-    req: HttpReq,
-) -> Result<HttpResp, String> {
-    let method = reqwest::Method::from_bytes(req.method.to_uppercase().as_bytes())
-        .map_err(|e| format!("invalid method {}: {e}", req.method))?;
-    let mut builder = state.http.request(method, &req.url);
+/// Did the caller supply its own `Authorization`? The MCP and marketplace panels
+/// talk to third-party services with their own keys, and their header must win —
+/// we would otherwise overwrite it with a credential meant for somewhere else.
+fn caller_set_authorization(headers: &HashMap<String, String>) -> bool {
+    headers
+        .keys()
+        .any(|key| key.eq_ignore_ascii_case("authorization"))
+}
+
+/// Attach the gateway bearer, if we hold one. Split out so the "the header is
+/// actually on the request" invariant is testable without a network or a
+/// keyring: `RequestBuilder::build` produces the request without sending it.
+fn apply_gateway_bearer(builder: reqwest::RequestBuilder, bearer: Option<&str>) -> reqwest::RequestBuilder {
+    match bearer {
+        Some(token) => builder.bearer_auth(token),
+        None => builder,
+    }
+}
+
+/// Issue `req` once, with `bearer` attached when there is one.
+async fn send_http(
+    client: &reqwest::Client,
+    method: &reqwest::Method,
+    req: &HttpReq,
+    bearer: Option<&str>,
+) -> Result<reqwest::Response, String> {
+    let mut builder = client.request(method.clone(), &req.url);
     for (key, value) in &req.headers {
         builder = builder.header(key, value);
     }
@@ -215,11 +410,60 @@ pub async fn http_request(
 
     // reqwest puts the request URL in its transport errors; REST auth rides in a
     // header rather than the query, but a caller is free to pass either, so the
-    // scrub is unconditional.
-    let resp = builder
+    // scrub is unconditional. `redact_bearer` covers the header itself — this
+    // error string is rendered on the connect screen.
+    apply_gateway_bearer(builder, bearer)
         .send()
         .await
-        .map_err(|e| redact_error(e.to_string(), &req.url))?;
+        .map_err(|e| redact_bearer(redact_error(e.to_string(), &req.url)))
+}
+
+/// Generic REST proxy. Powers `/api/status` probing, session create/history,
+/// and the OAuth ws-ticket mint — all with the auth header/cookie attached here
+/// in Rust rather than in the webview.
+///
+/// The `Authorization: Bearer` of an RFC 8252 native session is attached HERE,
+/// read from the OS keyring at request time (MJXHRM-354). It used to be returned
+/// to JS by `oauth_status` and pasted on by the ws-ticket mint, which put a
+/// long-lived credential inside the webview — reachable by any script, and by
+/// anything that logs or serialises it. The webview now asks for a request; it
+/// never holds the credential.
+#[tauri::command]
+pub async fn http_request(
+    app: AppHandle,
+    state: State<'_, TransportState>,
+    req: HttpReq,
+) -> Result<HttpResp, String> {
+    let method = reqwest::Method::from_bytes(req.method.to_uppercase().as_bytes())
+        .map_err(|e| format!("invalid method {}: {e}", req.method))?;
+
+    let auth_base = if caller_set_authorization(&req.headers) {
+        None
+    } else {
+        state.bearer_base_for_url(&req.url)
+    };
+    let bearer = match &auth_base {
+        Some(base) => crate::oauth::gateway_bearer(&app, state.inner(), base, false).await,
+        None => None,
+    };
+
+    let mut resp = send_http(&state.http, &method, &req, bearer.as_deref()).await?;
+
+    // A bearer the gateway refuses is normally one rotated or revoked out from
+    // under us between the keyring read and the send, so force a rotation and
+    // try exactly once more — this is the retry that used to live in the JS
+    // ws-ticket mint. Replaying is safe for any method: a 401 means the gateway
+    // rejected the request before acting on it.
+    if resp.status() == reqwest::StatusCode::UNAUTHORIZED && bearer.is_some() {
+        if let Some(base) = &auth_base {
+            let rotated = crate::oauth::gateway_bearer(&app, state.inner(), base, true).await;
+
+            if rotated.is_some() && rotated != bearer {
+                resp = send_http(&state.http, &method, &req, rotated.as_deref()).await?;
+            }
+        }
+    }
+
     let status = resp.status().as_u16();
     let headers = resp
         .headers()
@@ -464,7 +708,10 @@ mod tests {
 
     use tauri::ipc::{Channel, InvokeResponseBody};
 
-    use super::{redact_error, redact_url, send_binary_frame};
+    use super::{
+        apply_gateway_bearer, caller_set_authorization, redact_bearer, redact_error, redact_secret,
+        redact_url, send_binary_frame, TransportState,
+    };
 
     /// A `Channel` that records what it was handed, standing in for the webview.
     fn recording_channel() -> (Channel<InvokeResponseBody>, Arc<Mutex<Vec<InvokeResponseBody>>>) {
@@ -564,5 +811,174 @@ mod tests {
         let message = redact_error("connection reset by peer".to_string(), "ws://h/api/ws?token=x");
 
         assert_eq!(message, "connection reset by peer");
+    }
+
+    // ── the gateway bearer (MJXHRM-354) ──────────────────────────────────────
+
+    /// The header is the entire point of the change: the credential must reach
+    /// the wire from Rust, without ever having been handed to the webview.
+    #[test]
+    fn attaches_the_gateway_bearer_to_the_outgoing_request() {
+        let client = reqwest::Client::new();
+        let request = apply_gateway_bearer(client.post("https://gw.example.com/api/auth/ws-ticket"), Some("at-1"))
+            .build()
+            .expect("request builds");
+
+        assert_eq!(
+            request
+                .headers()
+                .get(reqwest::header::AUTHORIZATION)
+                .map(|v| v.to_str().unwrap()),
+            Some("Bearer at-1")
+        );
+    }
+
+    #[test]
+    fn sends_no_authorization_at_all_when_there_is_no_native_session() {
+        let client = reqwest::Client::new();
+        let request = apply_gateway_bearer(client.get("https://gw.example.com/api/status"), None)
+            .build()
+            .expect("request builds");
+
+        // A cookie session authenticates from the shared jar; an empty bearer
+        // header would make the gated middleware answer 401 instead.
+        assert!(request.headers().get(reqwest::header::AUTHORIZATION).is_none());
+    }
+
+    #[test]
+    fn a_caller_supplied_authorization_is_detected_in_any_casing() {
+        // The MCP and marketplace panels reach third-party services with their
+        // own keys; overwriting one with the gateway bearer would both break the
+        // call and send our credential somewhere it does not belong.
+        assert!(caller_set_authorization(
+            &[("Authorization".to_string(), "Bearer theirs".to_string())].into()
+        ));
+        assert!(caller_set_authorization(
+            &[("authorization".to_string(), "Basic x".to_string())].into()
+        ));
+        assert!(!caller_set_authorization(&[("Origin".to_string(), "https://gw".to_string())].into()));
+    }
+
+    #[test]
+    fn the_bearer_is_offered_only_to_urls_under_a_known_gateway_base() {
+        let state = TransportState::new();
+        state.register_bearer_base("https://gw.example.com");
+
+        assert_eq!(
+            state.bearer_base_for_url("https://gw.example.com/api/auth/ws-ticket"),
+            Some("https://gw.example.com".to_string())
+        );
+        // A host that merely STARTS with the base is a different host, and must
+        // never be handed our gateway's base.
+        assert_ne!(
+            state.bearer_base_for_url("https://gw.example.com.evil.test/api/steal"),
+            Some("https://gw.example.com".to_string())
+        );
+        assert_eq!(state.bearer_base_for_url("https://gw.example.com.evil.test/steal"), None);
+    }
+
+    #[test]
+    fn a_path_prefixed_base_beats_the_bare_origin() {
+        // `https://host/hermes` is a legal gateway base and no amount of URL
+        // parsing recovers it — only the registry knows.
+        let state = TransportState::new();
+        state.register_bearer_base("https://host");
+        state.register_bearer_base("https://host/hermes");
+
+        assert_eq!(
+            state.bearer_base_for_url("https://host/hermes/api/status"),
+            Some("https://host/hermes".to_string())
+        );
+        assert_eq!(
+            state.bearer_base_for_url("https://host/api/status"),
+            Some("https://host".to_string())
+        );
+    }
+
+    #[test]
+    fn an_origin_is_offered_once_and_then_remembered_as_bearer_free() {
+        // The offer is how a session left in the keyring by a PREVIOUS run is
+        // found on the first request of a new one; the memo is what stops every
+        // later request paying a keyring round trip for the same answer.
+        let state = TransportState::new();
+
+        assert_eq!(
+            state.bearer_base_for_url("https://gw.example.com/api/status"),
+            Some("https://gw.example.com".to_string())
+        );
+
+        state.note_no_bearer_base("https://gw.example.com");
+
+        assert_eq!(state.bearer_base_for_url("https://gw.example.com/api/status"), None);
+    }
+
+    #[test]
+    fn a_url_outside_the_gateway_namespaces_never_reaches_the_keyring() {
+        // Not a trust boundary — the registry is. This only keeps a third-party
+        // fetch from paying a Secret Service round trip to learn nothing.
+        let state = TransportState::new();
+
+        assert_eq!(state.bearer_base_for_url("https://third-party.test/v1/models"), None);
+        assert_eq!(state.bearer_base_for_url("https://gw.example.com/"), None);
+    }
+
+    #[test]
+    fn signing_out_reopens_the_question_rather_than_answering_it_no() {
+        // A user who signs straight back in must not be stuck bearer-less until
+        // something happens to probe the gateway again.
+        let state = TransportState::new();
+        state.register_bearer_base("https://gw.example.com");
+        state.forget_bearer_base("https://gw.example.com");
+
+        assert_eq!(
+            state.bearer_base_for_url("https://gw.example.com/api/status"),
+            Some("https://gw.example.com".to_string())
+        );
+    }
+
+    #[test]
+    fn an_unparseable_or_opaque_url_is_never_authenticated() {
+        let state = TransportState::new();
+
+        assert_eq!(state.bearer_base_for_url("not a url"), None);
+        assert_eq!(state.bearer_base_for_url("data:text/plain,hi"), None);
+    }
+
+    #[test]
+    fn scrubs_a_bearer_a_library_quoted_back_at_us() {
+        let message = redact_bearer("request failed: Authorization: Bearer eyJhbGciOi.J9.sig".to_string());
+
+        assert!(!message.contains("eyJhbGciOi"), "{message}");
+        assert_eq!(message, "request failed: Authorization: Bearer ***");
+    }
+
+    #[test]
+    fn leaves_the_english_word_bearer_alone() {
+        // Redacting on the word alone would turn our own messages into noise —
+        // and noise is what stops people reading them.
+        assert_eq!(
+            redact_bearer("the bearer was refused".to_string()),
+            "the bearer was refused"
+        );
+        assert_eq!(redact_bearer("no bearer".to_string()), "no bearer");
+    }
+
+    #[test]
+    fn scrubs_every_bearer_in_a_message_not_just_the_first() {
+        let message = redact_bearer("tried Bearer aaaaaaaaaa then Bearer bbbbbbbbbb".to_string());
+
+        assert_eq!(message, "tried Bearer *** then Bearer ***");
+    }
+
+    #[test]
+    fn scrubs_a_secret_we_are_holding_but_leaves_short_strings_alone() {
+        assert_eq!(
+            redact_secret("refresh rt-0123456789 failed".to_string(), "rt-0123456789"),
+            "refresh *** failed"
+        );
+        // A short value is not a credential worth protecting, and replacing it
+        // would shred unrelated messages that happen to contain it.
+        assert_eq!(redact_secret("a b c".to_string(), "b"), "a b c");
+        assert_eq!(redact_secret("nothing to do".to_string(), "rt-0123456789"), "nothing to do");
     }
 }

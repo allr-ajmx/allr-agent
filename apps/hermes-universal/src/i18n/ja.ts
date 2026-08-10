@@ -761,6 +761,12 @@ export const ja = defineLocale({
       signOut: 'サインアウト',
       signInWith: provider => `${provider} でサインイン`,
       authTitle: '認証',
+      sessionKindNative: 'システムブラウザ',
+      sessionKindNativeHint:
+        'システムブラウザでサインインしました。トークンはこの端末のキーリングに保管され、アプリの WebView には入りません。',
+      sessionKindCookie: 'アプリ内',
+      sessionKindCookieHint:
+        'アプリ内でサインインしました。セッション Cookie はアプリが保持し、自動的に更新されます。',
       authSignedInPassword:
         'このゲートウェイはユーザー名とパスワードを使用します。サインイン済みです。セッションは自動的に更新されます。',
       authSignedInOauth:

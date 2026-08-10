@@ -548,8 +548,17 @@ fn keyring_ready(app: &AppHandle) -> bool {
         .is_ok()
 }
 
-fn store_native_tokens(app: &AppHandle, base: &str, tokens: &native::NativeTokenSet) {
+fn store_native_tokens(
+    app: &AppHandle,
+    state: &TransportState,
+    base: &str,
+    tokens: &native::NativeTokenSet,
+) {
     use tauri_plugin_keyring::{CredentialType, CredentialValue, KeyringExt};
+
+    // Registered even when the keyring write below fails: the token set is live
+    // for this run either way, and the transport has to know to attach it.
+    state.register_bearer_base(base);
 
     if !keyring_ready(app) {
         log::warn!("[oauth] keyring unavailable; native session will not survive restart");
@@ -589,8 +598,10 @@ fn load_native_tokens(app: &AppHandle, base: &str) -> Option<native::NativeToken
     serde_json::from_str(&json).ok()
 }
 
-fn clear_native_tokens(app: &AppHandle, base: &str) {
+fn clear_native_tokens(app: &AppHandle, state: &TransportState, base: &str) {
     use tauri_plugin_keyring::{CredentialType, KeyringExt};
+
+    state.forget_bearer_base(base);
 
     if keyring_ready(app) {
         let _ = app
@@ -690,6 +701,14 @@ async fn post_native_tokens(
 ) -> Result<native::NativeTokenSet, String> {
     let url = format!("{base}{path}");
     let redacted = crate::transport::redact_url(&url);
+    // The refresh token rides in the body, so it is scrubbed out of any error
+    // too — reqwest has no reason to quote a body back at us, but this error
+    // reaches a log line and the token is the session (MJXHRM-354).
+    let secret = body
+        .get("refresh_token")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string();
     let resp = state
         .client()
         .post(&url)
@@ -697,7 +716,14 @@ async fn post_native_tokens(
         .json(&body)
         .send()
         .await
-        .map_err(|e| format!("{path} request failed: {}", e.to_string().replace(&url, &redacted)))?;
+        .map_err(|e| {
+            let message = e.to_string().replace(&url, &redacted);
+
+            format!(
+                "{path} request failed: {}",
+                crate::transport::redact_secret(crate::transport::redact_bearer(message), &secret)
+            )
+        })?;
 
     let status = resp.status();
 
@@ -760,28 +786,42 @@ async fn run_native_login(
     )
     .await?;
 
-    store_native_tokens(app, base, &tokens);
+    store_native_tokens(app, state, base, &tokens);
     log::info!("[oauth] native sign-in complete for base={base}");
 
     Ok(tokens)
 }
 
-/// The bearer to authenticate this gateway with, refreshing first when the stored
-/// access token is at or inside the skew window. `None` means "no native session"
-/// — the caller falls back to the cookie jar, exactly as before.
+/// The live token set for this gateway, refreshing first when the stored access
+/// token is at or inside the skew window (or when `force_refresh` says the
+/// gateway just rejected it). `None` means "no native session" — the caller falls
+/// back to the cookie jar, exactly as before.
 ///
 /// A refusal from `/auth/native/refresh` clears the stored set: a refresh token
 /// the gateway will not rotate is dead, and keeping it would make every later call
 /// spend a doomed round trip.
-async fn ensure_native_access_token(app: &AppHandle, state: &TransportState, base: &str) -> Option<String> {
-    let tokens = load_native_tokens(app, base)?;
+async fn ensure_native_tokens(
+    app: &AppHandle,
+    state: &TransportState,
+    base: &str,
+    force_refresh: bool,
+) -> Option<native::NativeTokenSet> {
+    let Some(tokens) = load_native_tokens(app, base) else {
+        // Stops `bearer_base_for_url`'s origin fallback re-reading the keyring
+        // on every single request to a gateway that has no native session.
+        state.note_no_bearer_base(base);
 
-    if !native::needs_refresh(&tokens, now_secs()) {
-        return Some(tokens.access_token);
+        return None;
+    };
+
+    state.register_bearer_base(base);
+
+    if !force_refresh && !native::needs_refresh(&tokens, now_secs()) {
+        return Some(tokens);
     }
 
     if tokens.refresh_token.is_empty() {
-        clear_native_tokens(app, base);
+        clear_native_tokens(app, state, base);
 
         return None;
     }
@@ -795,17 +835,35 @@ async fn ensure_native_access_token(app: &AppHandle, state: &TransportState, bas
     .await
     {
         Ok(rotated) => {
-            store_native_tokens(app, base, &rotated);
+            store_native_tokens(app, state, base, &rotated);
 
-            Some(rotated.access_token)
+            Some(rotated)
         }
         Err(e) => {
             log::info!("[oauth] native refresh failed, dropping the stored session: {e}");
-            clear_native_tokens(app, base);
+            clear_native_tokens(app, state, base);
 
             None
         }
     }
+}
+
+/// The `Authorization: Bearer` value for one gateway, read from the OS keyring at
+/// request time.
+///
+/// This is the ONLY way the bearer leaves this module, and it goes to
+/// `transport.rs` — never across IPC (MJXHRM-354). `force_refresh` is how the
+/// transport turns a 401 into a rotation: the stored access token can be revoked
+/// or rotated between the keyring read and the send.
+pub(crate) async fn gateway_bearer(
+    app: &AppHandle,
+    state: &TransportState,
+    base: &str,
+    force_refresh: bool,
+) -> Option<String> {
+    ensure_native_tokens(app, state, base, force_refresh)
+        .await
+        .map(|tokens| tokens.access_token)
 }
 
 /// A completed gateway login is signalled by the presence of the access- or
@@ -1040,22 +1098,67 @@ pub async fn oauth_login(
     }
 }
 
+/// How a live gateway session authenticates.
+///
+/// This is what the webview is told *instead of* the credential: the two kinds
+/// behave differently (a native session survives a restart in the OS keyring and
+/// has no cookie at all; a cookie session is the shared reqwest jar), and the UI
+/// has to be able to say which one you have — but neither answer requires the
+/// material behind it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SessionKind {
+    /// RFC 8252 bearer, held in the OS keyring and attached by `transport.rs`.
+    Native,
+    /// Gateway session cookie, held in the shared reqwest jar.
+    Cookie,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OauthStatus {
     signed_in: bool,
     email: Option<String>,
     display_name: Option<String>,
-    /// The RFC 8252 bearer for this gateway, when a native session is live and
-    /// current (refreshed here if it was inside the skew window). `None` means the
-    /// session — if any — is a cookie one, so callers keep using the shared jar.
+    /// Which credential backs the live session, or `None` when signed out.
     ///
-    /// This is desktop's `resolveOauthRestAuth` contract expressed as data: JS
-    /// prefers the bearer and falls back to the cookie. The token crosses IPC
-    /// because a command cannot be registered from this module today (see the
-    /// module docs); the follow-up is to inject the header inside the transport so
-    /// the webview never holds it.
-    native_access_token: Option<String>,
+    /// This field replaced `native_access_token` (MJXHRM-354). The old shape
+    /// handed the bearer itself to JS, which undid the reason the cookie jar,
+    /// the ws-ticket mint and the reqwest client all live in Rust in the first
+    /// place.
+    session_kind: Option<SessionKind>,
+}
+
+impl OauthStatus {
+    fn signed_out() -> Self {
+        Self {
+            signed_in: false,
+            email: None,
+            display_name: None,
+            session_kind: None,
+        }
+    }
+
+    /// The reply for a live session.
+    ///
+    /// It takes the token set rather than a `bool` deliberately: the credential
+    /// enters this function and must not come out the other side, and
+    /// `the_status_reply_never_carries_the_bearer` below pins exactly that. A
+    /// future edit that puts the token back on the wire has to walk past a
+    /// failing test to do it.
+    fn live(body: &serde_json::Value, tokens: Option<&native::NativeTokenSet>) -> Self {
+        let string = |key: &str| body.get(key).and_then(|v| v.as_str()).map(str::to_string);
+
+        Self {
+            signed_in: true,
+            email: string("email"),
+            display_name: string("display_name"),
+            session_kind: Some(match tokens {
+                Some(_) => SessionKind::Native,
+                None => SessionKind::Cookie,
+            }),
+        }
+    }
 }
 
 /// Whether a live gateway session exists — native bearer OR cookie jar, in that
@@ -1072,51 +1175,38 @@ pub async fn oauth_status(
     base: String,
 ) -> Result<OauthStatus, String> {
     let base = normalize_base(&base);
-    let bearer = ensure_native_access_token(&app, state.inner(), &base).await;
+    let tokens = ensure_native_tokens(&app, state.inner(), &base, false).await;
 
     let mut request = state
         .client()
         .get(format!("{base}/api/auth/me"))
         .header(reqwest::header::ORIGIN, &base);
 
-    if let Some(token) = bearer.as_deref() {
-        request = request.bearer_auth(token);
+    if let Some(set) = tokens.as_ref() {
+        request = request.bearer_auth(&set.access_token);
     }
 
-    let resp = request
-        .send()
-        .await
-        .map_err(|e| format!("auth/me request failed: {e}"))?;
+    let resp = request.send().await.map_err(|e| {
+        format!(
+            "auth/me request failed: {}",
+            crate::transport::redact_bearer(e.to_string())
+        )
+    })?;
 
     if !resp.status().is_success() {
         // A bearer the gateway rejects is dead (the middleware answers a bad
         // bearer with 401 rather than falling through to the cookie), so drop it
         // instead of re-presenting it on every probe.
-        if bearer.is_some() {
-            clear_native_tokens(&app, &base);
+        if tokens.is_some() {
+            clear_native_tokens(&app, state.inner(), &base);
         }
 
-        return Ok(OauthStatus {
-            signed_in: false,
-            email: None,
-            display_name: None,
-            native_access_token: None,
-        });
+        return Ok(OauthStatus::signed_out());
     }
 
     let body: serde_json::Value = resp.json().await.unwrap_or(serde_json::Value::Null);
-    Ok(OauthStatus {
-        signed_in: true,
-        email: body
-            .get("email")
-            .and_then(|v| v.as_str())
-            .map(str::to_string),
-        display_name: body
-            .get("display_name")
-            .and_then(|v| v.as_str())
-            .map(str::to_string),
-        native_access_token: bearer,
-    })
+
+    Ok(OauthStatus::live(&body, tokens.as_ref()))
 }
 
 /// Sign out of the gateway session. `POST /auth/logout` revokes the refresh token
@@ -1134,7 +1224,7 @@ pub async fn oauth_logout(
 ) -> Result<(), String> {
     let base = normalize_base(&base);
     let bearer = load_native_tokens(&app, &base).map(|t| t.access_token);
-    clear_native_tokens(&app, &base);
+    clear_native_tokens(&app, state.inner(), &base);
 
     // redirects OFF: the logout 302 -> /login is irrelevant; we only need the
     // clearing Set-Cookie on the 302 response itself.
@@ -1149,9 +1239,73 @@ pub async fn oauth_logout(
         request = request.bearer_auth(token);
     }
 
-    request
-        .send()
-        .await
-        .map_err(|e| format!("auth/logout request failed: {e}"))?;
+    request.send().await.map_err(|e| {
+        format!(
+            "auth/logout request failed: {}",
+            crate::transport::redact_bearer(e.to_string())
+        )
+    })?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn token_set() -> native::NativeTokenSet {
+        native::NativeTokenSet {
+            access_token: "at-live-and-secret".to_string(),
+            refresh_token: "rt-live-and-secret".to_string(),
+            expires_at: 1_800_000_000,
+            provider: "nous".to_string(),
+            user_id: "u1".to_string(),
+        }
+    }
+
+    fn me_body() -> serde_json::Value {
+        serde_json::json!({ "email": "a@example.com", "display_name": "A" })
+    }
+
+    /// The regression guard this whole change exists for. `oauth_status` used to
+    /// return `native_access_token`, putting a long-lived bearer inside the
+    /// webview; the reply now carries the session KIND and nothing else.
+    #[test]
+    fn the_status_reply_never_carries_the_bearer() {
+        let tokens = token_set();
+        let json = serde_json::to_string(&OauthStatus::live(&me_body(), Some(&tokens))).unwrap();
+
+        assert!(!json.contains(&tokens.access_token), "{json}");
+        assert!(!json.contains(&tokens.refresh_token), "{json}");
+        assert!(!json.to_ascii_lowercase().contains("token"), "{json}");
+        // The useful half still crosses: who you are, and how you signed in.
+        assert!(json.contains("\"sessionKind\":\"native\""), "{json}");
+        assert!(json.contains("a@example.com"), "{json}");
+    }
+
+    #[test]
+    fn a_session_with_no_bearer_reports_the_cookie_kind() {
+        let json = serde_json::to_string(&OauthStatus::live(&me_body(), None)).unwrap();
+
+        assert!(json.contains("\"sessionKind\":\"cookie\""), "{json}");
+        assert!(json.contains("\"signedIn\":true"), "{json}");
+    }
+
+    #[test]
+    fn a_signed_out_reply_names_no_session_kind() {
+        let json = serde_json::to_string(&OauthStatus::signed_out()).unwrap();
+
+        assert!(json.contains("\"signedIn\":false"), "{json}");
+        assert!(json.contains("\"sessionKind\":null"), "{json}");
+    }
+
+    #[test]
+    fn a_missing_me_body_still_yields_a_signed_in_reply() {
+        // `/api/auth/me` bodies vary by provider; a 200 with nothing useful in it
+        // is still a live session, not a crash and not a sign-out.
+        let status = OauthStatus::live(&serde_json::Value::Null, Some(&token_set()));
+
+        assert!(status.signed_in);
+        assert_eq!(status.email, None);
+        assert_eq!(status.session_kind, Some(SessionKind::Native));
+    }
 }

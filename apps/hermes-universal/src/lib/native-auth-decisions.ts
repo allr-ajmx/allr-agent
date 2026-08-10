@@ -15,10 +15,15 @@
  *     reads readiness over the ALREADY-AUTHENTICATED websocket
  *     (`setup.status` / `setup.runtime_check`), so it has no credential-free
  *     probe to get wrong.
+ *   * `resolveOauthRestAuth` / `authHeaders` — desktop's bearer-vs-cookie choice.
+ *     It lived here briefly and was removed by MJXHRM-354: making that choice in
+ *     JS requires the bearer in JS, which is the thing universal must not do.
+ *     `src-tauri/src/transport.rs` decides and attaches, per request, from the
+ *     keyring.
  *
- * What does port is the bearer-vs-cookie choice, the liveness rule, and the
- * guard — the three that describe how a native session and a cookie session
- * coexist.
+ * What does port is the liveness rule and the hard-fail guard — the two that
+ * describe how a native session and a cookie session coexist without either
+ * side needing to hold a credential.
  */
 
 /** The capability token `/api/status` advertises in `auth_flows` when the
@@ -52,28 +57,6 @@ export function statusSupportsNativeFlow(status: null | StatusAuthFlows | undefi
  */
 export function oauthSessionIsLive(hasNativeToken: boolean, hasCookieSession: boolean): boolean {
   return hasNativeToken || hasCookieSession
-}
-
-export type OauthRestAuth = { kind: 'bearer'; token: string } | { kind: 'cookie' }
-
-/**
- * How an oauth-mode request authenticates: the native bearer when we hold one,
- * otherwise the shared cookie jar. `nativeAccessToken` is whatever the Rust side
- * last resolved — null/empty when there is no native session or its refresh
- * terminally failed.
- */
-export function resolveOauthRestAuth(nativeAccessToken: null | string | undefined): OauthRestAuth {
-  if (nativeAccessToken) {
-    return { kind: 'bearer', token: nativeAccessToken }
-  }
-
-  return { kind: 'cookie' }
-}
-
-/** The `Authorization` header for a resolved auth choice, or nothing for the
- *  cookie path (the Rust transport attaches the jar itself). */
-export function authHeaders(auth: OauthRestAuth): Record<string, string> {
-  return auth.kind === 'bearer' ? { Authorization: `Bearer ${auth.token}` } : {}
 }
 
 export interface AdvertisedAuthProvider {
