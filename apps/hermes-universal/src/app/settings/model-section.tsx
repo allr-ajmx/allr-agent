@@ -451,7 +451,9 @@ export function ModelSettings({ onMainModelChanged }: ModelSettingsProps) {
         notifyError(err, m.defaultsFailed)
       }
     },
-    [config, m.defaultsFailed]
+    // `setConfig` is a module-level import aliased above, not a state setter —
+    // naming it satisfies the rule without costing an identity change.
+    [config, m.defaultsFailed, setConfig]
   )
 
   // Paste an API key for the selected `api_key` provider, persist it, then

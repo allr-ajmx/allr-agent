@@ -387,8 +387,11 @@ export function SidebarScrollBody({
   // disappearing from the section while its pin is still stored.
   const pinnedSessions = useMemo(
     () => pinnedSessionRows(sessions, pinnedIds),
-
+    // `pinnedCache` looks unnecessary to the linter and is not: the memo body
+    // never names it, but `pinnedSessionRows` reads `$pinnedSessionCache` with
+    // `.get()`, so this is what makes the rows recompute when the cache moves —
     // in lockstep with these two by store/session.ts's subscriptions.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [sessions, pinnedIds, pinnedCache]
   )
 

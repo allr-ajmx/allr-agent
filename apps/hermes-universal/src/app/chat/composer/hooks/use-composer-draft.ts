@@ -302,7 +302,11 @@ export function useComposerDraft({
       unsubscribe()
       window.clearTimeout(draftPersistTimerRef.current)
     }
-  }, [composerRuntime, queueEditRef])
+    // `stashAt` is deliberately omitted: it is redeclared every render but reads
+    // everything through refs and the scope context, so its behaviour never
+    // changes — while depending on it would resubscribe the composer runtime on
+    // every keystroke and cancel the pending draft write each time.
+  }, [composerRuntime, queueEditRef]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const insertText = (text: string) => {
     const base = draftRef.current
@@ -395,7 +399,10 @@ export function useComposerDraft({
       window.removeEventListener('pagehide', flushPendingDraftPersist)
       flushPendingDraftPersist()
     }
-  }, [syncDraftFromEditor])
+    // `stashAt` is deliberately omitted, as above — and it matters more here,
+    // because this cleanup PERSISTS the draft. Re-running the effect on every
+    // render would stash on every keystroke rather than on the way out.
+  }, [syncDraftFromEditor]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return {
     activeQueueSessionKeyRef,
