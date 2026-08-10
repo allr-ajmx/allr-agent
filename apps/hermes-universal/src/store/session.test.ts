@@ -42,6 +42,8 @@ import {
   openSession,
   pruneSessionTombstones,
   pinnedSessionRows,
+  isMessagingSource,
+  messagingSourceLabel,
   refreshSessions,
   renameSessionLocal,
   resetSessionsPaging,
@@ -448,22 +450,49 @@ describe('loadMoreSessions', () => {
   const page = (sessions: SessionInfo[], over: Partial<PaginatedSessions> = {}): PaginatedSessions =>
     ({ limit: 30, offset: 0, sessions, total: 7, ...over }) as PaginatedSessions
 
-  it('asks for the NEXT page by offset and appends it', async () => {
+  it('asks for the NEXT page by recency depth and appends it', async () => {
     $sessions.set([row('a', 'A'), row('b', 'B')])
+    $sessionsLimit.set(2)
     vi.mocked(listAllProfileSessions).mockResolvedValue(page([row('c', 'C')]))
 
     await loadMoreSessions()
 
-    // offset = rows already loaded; the window is not re-fetched.
+    // offset = how deep into the recency window we have read; the window is not
+    // re-fetched.
     expect(listAllProfileSessions).toHaveBeenCalledWith(30, 1, 'exclude', 'recent', 'default', {}, 2)
     expect($sessions.get().map(s => s.id)).toEqual(['a', 'b', 'c'])
     expect($sessionsLimit.get()).toBe(3)
+  })
+
+  // The endpoints pass `include_pinned=True` and APPEND back-filled pins after
+  // the recency window, so a page can carry more rows than its limit — and the
+  // extras hold no window position. Counting them into the cursor skipped one
+  // real conversation per pin, permanently: never fetched, never rendered, and
+  // no visible gap to notice. (Reported by SE-H alongside `pageWindow`.)
+  it('does not let back-filled pins advance the cursor past what it read', async () => {
+    $sessions.set([row('a', 'A')])
+    $sessionsLimit.set(1)
+
+    // A full page of 30, plus two pins the server appended past the window.
+    const window30 = Array.from({ length: 30 }, (_, i) => row(`w${i}`, `W${i}`))
+    vi.mocked(listAllProfileSessions).mockResolvedValue(page([...window30, row('pin1', 'P1'), row('pin2', 'P2')]))
+
+    await loadMoreSessions()
+
+    // 1 + 30, NOT 1 + 32 — the two pins were not window positions.
+    expect($sessionsLimit.get()).toBe(31)
+
+    vi.mocked(listAllProfileSessions).mockResolvedValue(page([]))
+    await loadMoreSessions()
+
+    expect(listAllProfileSessions).toHaveBeenLastCalledWith(30, 1, 'exclude', 'recent', 'default', {}, 31)
   })
 
   // Ordering is by recency, so a session that gets a message between the two
   // fetches slides into the earlier page and would otherwise render twice.
   it('drops a row that shifted into the previous page', async () => {
     $sessions.set([row('a', 'A'), row('b', 'B')])
+    $sessionsLimit.set(2)
     vi.mocked(listAllProfileSessions).mockResolvedValue(page([row('b', 'B'), row('c', 'C')]))
 
     await loadMoreSessions()
@@ -473,6 +502,7 @@ describe('loadMoreSessions', () => {
 
   it('keeps the loaded rows when the next page comes back empty', async () => {
     $sessions.set([row('a', 'A')])
+    $sessionsLimit.set(1)
     vi.mocked(listAllProfileSessions).mockResolvedValue(page([]))
 
     await loadMoreSessions()
@@ -545,5 +575,30 @@ describe('pinned rows survive the loaded window', () => {
     $sessions.set([])
 
     expect($pinnedSessionCache.get()['stored-pin']).toBeUndefined()
+  })
+})
+
+
+// The icon table (app/messaging/platform-icon.tsx) and this source list answer
+// two halves of one question, and a platform in only one of them is invisible in
+// the other: photon and buzz shipped with icons and setup copy but no entry
+// here, so their sessions were never grouped out of recents.
+describe('messaging sources stay in sync with the icon table', () => {
+  it('recognises every platform that has an icon, case-insensitively', () => {
+    for (const source of ['photon', 'buzz', 'telegram', 'discord', 'bluebubbles']) {
+      expect(isMessagingSource(source)).toBe(true)
+      expect(isMessagingSource(source.toUpperCase())).toBe(true)
+    }
+  })
+
+  it('still excludes local sources', () => {
+    expect(isMessagingSource('cli')).toBe(false)
+    expect(isMessagingSource('cron')).toBe(false)
+    expect(isMessagingSource(null)).toBe(false)
+  })
+
+  it('labels the new platforms rather than falling back to a capitalised id', () => {
+    expect(messagingSourceLabel('photon')).toBe('Photon')
+    expect(messagingSourceLabel('buzz')).toBe('Buzz')
   })
 })

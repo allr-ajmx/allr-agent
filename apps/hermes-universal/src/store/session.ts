@@ -521,14 +521,23 @@ export function toggleSelectedPin(): void {
 }
 
 // ── Messaging-platform sessions (Discord, Telegram, …) ──────────────────────
+//
+// KEEP IN SYNC with `PLATFORM_ICONS` in app/messaging/platform-icon.tsx. The two
+// halves answer different questions — "does this session belong in the messaging
+// section" and "what does that platform look like" — and a platform present in
+// only one of them is invisible in the other: `photon` and `buzz` had icons and
+// setup copy but no entry here, so their sessions were never grouped out of
+// recents at all (reported by SE-H alongside MJXHRM-44).
 const MESSAGING_SOURCES = new Set([
   'api_server',
   'bluebubbles',
+  'buzz',
   'discord',
   'email',
   'homeassistant',
   'matrix',
   'mattermost',
+  'photon',
   'qqbot',
   'signal',
   'slack',
@@ -547,11 +556,13 @@ export function isMessagingSource(source: null | string): boolean {
 const MESSAGING_SOURCE_LABELS: Record<string, string> = {
   api_server: 'API',
   bluebubbles: 'iMessage',
+  buzz: 'Buzz',
   discord: 'Discord',
   email: 'Email',
   homeassistant: 'Home Assistant',
   matrix: 'Matrix',
   mattermost: 'Mattermost',
+  photon: 'Photon',
   qqbot: 'QQ',
   signal: 'Signal',
   slack: 'Slack',
@@ -593,19 +604,33 @@ export async function refreshMessagingSessions(): Promise<void> {
 // than paging: it runs when the list may have changed underneath us, so every
 // loaded row has to be re-read to stay correct. Paging deeper is
 // `loadMoreSessions`, which appends a single offset-addressed page.
+/**
+ * How deep into the RECENCY WINDOW a page reached.
+ *
+ * Not `page.length`. Both list endpoints pass `include_pinned=True`, which
+ * back-fills pinned conversations past the limit and APPENDS them after the
+ * recency window — so a page of `limit` can carry more than `limit` rows, and
+ * the extras are not window positions. Paging with the raw row count as the next
+ * `offset` therefore skips one real conversation per back-filled pin, and they
+ * are gone from the list entirely: never fetched, never rendered, no gap to see.
+ *
+ * Reported by SE-H, who fixed the sibling instance of this in `hermes.ts`
+ * (`pageWindow`, MJXHRM-229): that one DISCARDED the appended pins, this one
+ * MISCOUNTS them. Correct before and after that lands — today no pins are
+ * appended and `min` is just the row count.
+ */
+function recencyDepth(page: readonly SessionInfo[] | undefined, limit: number): number {
+  return Math.min(page?.length ?? 0, limit)
+}
+
 export async function refreshSessions(): Promise<void> {
   $sessionsLoading.set(true)
 
   const scope = $profileScope.get()
+  const limit = $sessionsLimit.get()
 
   try {
-    const res = await listAllProfileSessions(
-      $sessionsLimit.get(),
-      1,
-      'exclude',
-      'recent',
-      scope === ALL_PROFILES ? 'all' : scope
-    )
+    const res = await listAllProfileSessions(limit, 1, 'exclude', 'recent', scope === ALL_PROFILES ? 'all' : scope)
 
     // A refresh can race an in-flight delete/archive, and the page it returns
     // may predate it. Honouring the optimistic tombstones is what keeps the row
@@ -642,6 +667,11 @@ export function resetSessionsPaging(): void {
 export async function loadMoreSessions(): Promise<void> {
   const loaded = $sessions.get()
   const scope = $profileScope.get()
+  // The cursor is the recency DEPTH reached so far, not the number of rows on
+  // screen: back-filled pins ride along in every page without occupying a
+  // window position, so `loaded.length` overshoots by the pin count and each
+  // page silently skips that many conversations.
+  const offset = $sessionsLimit.get()
 
   $sessionsLoading.set(true)
 
@@ -653,9 +683,12 @@ export async function loadMoreSessions(): Promise<void> {
       'recent',
       scope === ALL_PROFILES ? 'all' : scope,
       {},
-      loaded.length
+      offset
     )
 
+    // De-duplicated by id: the list is recency-ordered, so a session that gets a
+    // message between the two fetches shifts toward the head and can appear in
+    // both pages — and a back-filled pin appears in EVERY page by construction.
     const seen = new Set(loaded.map(session => session.id))
     const fresh = withoutTombstoned(res.sessions ?? []).filter(session => !seen.has(session.id))
 
@@ -663,7 +696,7 @@ export async function loadMoreSessions(): Promise<void> {
       $sessions.set([...loaded, ...fresh])
     }
 
-    $sessionsLimit.set(loaded.length + fresh.length)
+    $sessionsLimit.set(offset + recencyDepth(res.sessions, PAGE))
     $sessionsTotal.set(scope === ALL_PROFILES ? res.total : (res.profile_totals?.[scope] ?? res.total))
   } catch (err) {
     notifyError(err, 'Failed to load sessions')
