@@ -134,6 +134,17 @@ class WebVoiceLease implements EngineLease {
     this.startMeter()
   }
 
+  async wakeListen(): Promise<void> {
+    // Client-side wake capture needs a 16 kHz int16 downsampler feeding
+    // `wake.feed`; this fallback engine has only MediaRecorder's opaque
+    // container. Wake still works here whenever the BACKEND owns the mic
+    // (`wake.start` answering `capture: "local"`) — which is the normal case;
+    // only a headless gateway needs client capture, and that needs the native
+    // engine. Rejecting is what lets the wake store report it rather than
+    // silently arming a detector nothing will ever feed.
+    throw new Error('wake_capture_unsupported')
+  }
+
   async suspend(): Promise<void> {
     this.stopMeter()
     this.discardRecorder()
