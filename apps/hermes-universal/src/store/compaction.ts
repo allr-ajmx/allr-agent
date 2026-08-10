@@ -89,7 +89,19 @@ export function setSessionCompacting(key: null | string | undefined, active: boo
  */
 const compactedTurns = new Set<string>()
 
-/** Did the session's current turn compact? Read-only; cleared when the turn ends. */
+/**
+ * Did the session's current turn compact? Read-only; cleared when the turn ends.
+ *
+ * Exported and tested but UNCONSUMED, deliberately. Desktop's one caller
+ * (`use-message-stream`) uses it to skip the stored-session re-hydrate it runs
+ * after a completed turn, because a compaction has already rewritten that
+ * transcript. Universal has no such re-hydrate — it streams into the session's
+ * slice and reads the REST transcript only when opening a cold session — so
+ * there is nothing here for this to gate.
+ *
+ * It stays as the hook for whoever ports that refetch. If they do, it must route
+ * through `reconcileLiveTail` rather than replacing the slice outright.
+ */
 export const turnCompacted = (key: string): boolean => compactedTurns.has(key)
 
 /** Events that prove summarizing finished and the turn is producing again.
