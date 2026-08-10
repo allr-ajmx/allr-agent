@@ -71,6 +71,28 @@ describe('isTileWindow', () => {
     // must stand down in a tile window exactly as they did in a chat pop-out.
     expect(windows.isSecondaryWindow()).toBe(true)
   })
+
+  it('stands the HUD down from owning persisted state (MJXHRM-374)', async () => {
+    atSearch('?win=hud')
+
+    const windows = await load()
+
+    // The HUD is not a tile window, which is exactly why it used to slip
+    // through: every window of this origin shares localStorage, so a HUD that
+    // believed it was primary wrote over the real window's layout tree.
+    expect(windows.isTileWindow()).toBe(false)
+    expect(windows.isSatelliteWindow()).toBe(true)
+    expect(windows.isSecondaryWindow()).toBe(true)
+  })
+
+  it('leaves the primary window owning its state', async () => {
+    atSearch('')
+
+    const windows = await load()
+
+    expect(windows.isSatelliteWindow()).toBe(false)
+    expect(windows.isSecondaryWindow()).toBe(false)
+  })
 })
 
 describe('detachedTileId', () => {
