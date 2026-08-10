@@ -471,12 +471,21 @@ export function syncPinnedSessionCache(): void {
 }
 
 /** Every pinned session, in pin order — loaded rows first, falling back to the
- *  last-known row for a pin that has fallen out of the loaded window. */
+ *  last-known row for a pin that has fallen out of the loaded window.
+ *
+ *  Tombstoned ids are dropped (MJXHRM-414). The cache fallback is what makes
+ *  this list survive pagination, and it is also what let a DELETED session go on
+ *  rendering here: the row leaves `$sessions`, the cache still has it, and the
+ *  pin was never released. Unpin-on-delete is the real fix; this is the belt to
+ *  its braces, and it also covers the in-flight window before the RPC lands. */
 export function pinnedSessionRows(sessions: readonly SessionInfo[], pinnedIds: readonly string[]): SessionInfo[] {
   const byPinId = new Map(sessions.map(session => [sessionPinId(session), session]))
   const cache = $pinnedSessionCache.get()
 
-  return pinnedIds.map(id => byPinId.get(id) ?? cache[id]).filter((s): s is SessionInfo => Boolean(s))
+  return pinnedIds
+    .filter(id => !isTombstonedSession(id))
+    .map(id => byPinId.get(id) ?? cache[id])
+    .filter((s): s is SessionInfo => Boolean(s) && !isTombstonedSession(s.id))
 }
 
 // One subscription each rather than a call at every write site: a pinned row can
@@ -1039,6 +1048,21 @@ function insertOptimisticSession(id: string, firstMessage: string): void {
   $sessions.set([stub, ...$sessions.get().filter(s => s.id !== id)])
 }
 
+/**
+ * WHERE A BRANCH OF THE OPEN CHAT LANDS.
+ *
+ * A registered hook rather than a direct call, because placement lives in
+ * `store/session-states` (a tile) and `store/chat-bubbles` (a bubble) and BOTH
+ * import this module — calling either from here is an import cycle. It follows
+ * the same shape as `setVisibleBubbleKeysProvider`: the surface that knows the
+ * platform registers the behaviour, and `app/contrib/controller` is that place.
+ */
+let openBranchedSession: ((storedSessionId: string) => void) | null = null
+
+export function setBranchedSessionOpener(open: null | ((storedSessionId: string) => void)): void {
+  openBranchedSession = open
+}
+
 /** The copyable spine of a branch: user/assistant turns that carry text.
  *  Ported from desktop's use-session-actions/utils.ts `toBranchMessages`. */
 function toBranchMessages(
@@ -1122,12 +1146,34 @@ export async function branchCurrentSession(messageId?: string): Promise<boolean>
     return false
   }
 
+  const parentStoredId = $activeStoredSessionId.get()
+
+  // The OPEN chat's owning profile, not the launch/picker one (MJXHRM-388).
+  // Every other mutation path resolves this; `branchCurrentSession` was the one
+  // that did not, so `session.create` landed the branch on whichever gateway
+  // happened to be live — the "my session jumped to another profile after
+  // branching" bug, described in `ForkBranchOptions.profile` and guarded against
+  // everywhere except here.
+  const profile = parentStoredId ? await resolveSessionProfile(parentStoredId) : undefined
+
   const storedId = await forkBranchSession({
     branchMessages,
     cwd: $currentCwd.get().trim(),
-    foreground: true,
-    parentStoredId: $activeStoredSessionId.get()
+    // A branch opens BESIDE the chat it came from, not on top of it — `true`
+    // would claim the main pane and push the parent off screen, which is the
+    // one chat the user is certainly still interested in. `false` + the opener
+    // below is what "branch in a new chat" has always meant on desktop.
+    //
+    // With no opener registered (a secondary window, a test) the branch takes
+    // main after all: unreachable is worse than displacing.
+    foreground: openBranchedSession === null,
+    parentStoredId,
+    profile
   })
+
+  if (storedId !== null) {
+    openBranchedSession?.(storedId)
+  }
 
   return storedId !== null
 }
@@ -1313,6 +1359,17 @@ export async function deleteSessionLocal(id: string): Promise<void> {
   // carries the stamp is gone and the mutation would go out unscoped.
   const owner = knownSessionProfile(id)
 
+  // DELETING UNPINS (MJXHRM-414). Nothing else ever dropped the pin, and the
+  // Pinned section falls back to `$pinnedSessionCache` once the row leaves
+  // `$sessions` — which is exactly the state a delete leaves behind. So a
+  // deleted session stayed pinned forever, as a row nothing could resolve.
+  // Pins are keyed on the DURABLE lineage root while the id passed here may be
+  // the live tip after a compression, so both have to fall.
+  const previousPinned = $pinnedSessionIds.get()
+  const removedPinId = removed ? sessionPinId(removed) : id
+
+  $pinnedSessionIds.set(previousPinned.filter(pinId => pinId !== id && pinId !== removedPinId))
+
   $sessions.set(prev.filter(s => s.id !== id))
   $sessionsTotal.set(Math.max(0, $sessionsTotal.get() - 1))
   // Pin the tombstone for as long as the RPC is in flight, so a list or project
@@ -1329,6 +1386,7 @@ export async function deleteSessionLocal(id: string): Promise<void> {
   } catch (err) {
     $sessions.set(prev)
     $sessionsTotal.set($sessionsTotal.get() + 1)
+    $pinnedSessionIds.set(previousPinned)
     untombstoneSessions(ids)
     notifyError(err, 'Delete failed')
   } finally {

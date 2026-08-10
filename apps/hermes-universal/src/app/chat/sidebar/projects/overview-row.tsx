@@ -6,6 +6,8 @@ import { DisclosureCaret } from '@/components/ui/disclosure-caret'
 import { Tip } from '@/components/ui/tooltip'
 import { useI18n } from '@/i18n'
 import { cn } from '@/lib/utils'
+import { useStore } from '@/store/atom'
+import { $removedSessionIds, withoutTombstoned } from '@/store/session'
 import type { SessionInfo } from '@/types/hermes'
 
 import {
@@ -43,7 +45,16 @@ export function ProjectOverviewRow({
   ...rest
 }: ProjectOverviewRowProps) {
   const [expanded, setExpanded] = useState(false)
-  const previews = latestProjectSessions(project, PROJECT_PREVIEW_COUNT)
+  // Tombstoned rows are dropped here the way `entered-content` and
+  // `workspace-group` already drop them (MJXHRM-414). The project tree is a
+  // backend snapshot, so a session deleted a moment ago is still in it until the
+  // next fetch — and this preview list was the one surface that never applied
+  // the filter, so a deleted chat kept appearing under its project.
+  //
+  // The `useStore` is the subscription that makes the filter LIVE: without it
+  // the row would keep its stale previews until something else re-rendered it.
+  useStore($removedSessionIds)
+  const previews = withoutTombstoned(latestProjectSessions(project, PROJECT_PREVIEW_COUNT))
   const isActive = Boolean(activeProjectId && project.id === activeProjectId && !project.isAuto)
 
   return (

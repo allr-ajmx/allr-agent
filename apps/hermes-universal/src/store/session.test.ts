@@ -48,7 +48,8 @@ import {
   refreshSessions,
   renameSessionLocal,
   resetSessionsPaging,
-  resolveSessionProfile
+  resolveSessionProfile,
+  setBranchedSessionOpener
 } from './session'
 
 const row = (id: string, title: string): SessionInfo => ({ id, title }) as unknown as SessionInfo
@@ -68,6 +69,8 @@ afterEach(() => {
   $activeProfile.set(null)
   $profiles.set([])
   $removedSessionIds.set(new Set())
+  $pinnedSessionIds.set([])
+  setBranchedSessionOpener(null)
   resetSessionsPaging()
   resetSessionStates()
   seedActiveSession('runtime-0')
@@ -483,6 +486,38 @@ describe('branchCurrentSession', () => {
     expect($sessionId.get()).toBe('runtime-1')
     expect($messages.get().map(m => m.id)).toEqual(['m1', 'm2'])
   })
+
+  // MJXHRM-388. Every other mutation path carries the parent's owning profile;
+  // this one did not, so `session.create` landed the branch on whichever gateway
+  // happened to be live and the conversation jumped databases.
+  it('creates the branch on the PARENT session owning profile', async () => {
+    seedThread()
+    $sessions.set([rowOnProfile('stored-1', 'research')])
+    vi.mocked(requestGateway).mockResolvedValue({ session_id: 'runtime-2', stored_session_id: 'stored-2' } as never)
+
+    await branchCurrentSession()
+
+    expect(requestGateway).toHaveBeenCalledWith('session.create', expect.objectContaining({ profile: 'research' }))
+  })
+
+  // MJXHRM-388. A branch opens BESIDE the chat it came from. Placement lives in
+  // the tile/bubble stores, which import this module, so it arrives as a
+  // registered opener — and registering one is what stops the branch claiming
+  // the main pane and pushing the parent off screen.
+  it('hands the branch to the registered opener instead of claiming main', async () => {
+    seedThread()
+    const opened: string[] = []
+    setBranchedSessionOpener(id => opened.push(id))
+    vi.mocked(requestGateway).mockResolvedValue({ session_id: 'runtime-2', stored_session_id: 'stored-2' } as never)
+
+    await expect(branchCurrentSession()).resolves.toBe(true)
+
+    expect(opened).toEqual(['stored-2'])
+    // The parent is still the loaded chat: nothing was displaced.
+    expect($activeStoredSessionId.get()).toBe('stored-1')
+    // ...and the branch is listed, so the tab the opener creates has a row.
+    expect($sessions.get().some(s => s.id === 'stored-2')).toBe(true)
+  })
 })
 
 describe('refreshSessions — profile scope', () => {
@@ -648,6 +683,42 @@ describe('pinned rows survive the loaded window', () => {
     $sessions.set([])
 
     expect($pinnedSessionCache.get()['stored-pin']).toBeUndefined()
+  })
+
+  // MJXHRM-414. The cache fallback above is what makes the Pinned list survive
+  // pagination — and it is exactly what let a DELETED session go on rendering
+  // there: the row leaves `$sessions`, the cache still has it, and nothing ever
+  // released the pin. The two halves of the fix are pinned separately, because
+  // either alone leaves a window where the tombstone is visible.
+  it('deleting a pinned session releases its pin', async () => {
+    $pinnedSessionIds.set(['stored-pin'])
+    $sessions.set([row('stored-pin', 'Pinned chat')])
+    vi.mocked(deleteSession).mockResolvedValue({ ok: true })
+
+    await deleteSessionLocal('stored-pin')
+
+    expect($pinnedSessionIds.get()).toEqual([])
+    expect(pinnedSessionRows($sessions.get(), $pinnedSessionIds.get())).toEqual([])
+  })
+
+  it('restores the pin when the delete RPC fails', async () => {
+    $pinnedSessionIds.set(['stored-pin'])
+    $sessions.set([row('stored-pin', 'Pinned chat')])
+    vi.mocked(deleteSession).mockRejectedValue(new Error('nope'))
+
+    await deleteSessionLocal('stored-pin')
+
+    expect($pinnedSessionIds.get()).toEqual(['stored-pin'])
+  })
+
+  it('never renders a tombstoned row, even while the delete is in flight', () => {
+    $pinnedSessionIds.set(['stored-pin'])
+    $sessions.set([row('stored-pin', 'Pinned chat')])
+    expect(pinnedSessionRows($sessions.get(), ['stored-pin'])).toHaveLength(1)
+
+    $removedSessionIds.set(new Set(['stored-pin']))
+
+    expect(pinnedSessionRows($sessions.get(), ['stored-pin'])).toEqual([])
   })
 })
 
