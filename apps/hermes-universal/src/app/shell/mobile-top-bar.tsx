@@ -51,11 +51,11 @@ export function MobileTopBar() {
               font-size) — it beats TitlebarButton's base `[&_.codicon]` rule,
               which an equal-specificity class override can't. */}
           {onPage ? (
-            <TitlebarButton className="size-4" label={t.common.back} onClick={() => navigate(NEW_CHAT_ROUTE)}>
+            <TitlebarButton density="mobile" label={t.common.back} onClick={() => navigate(NEW_CHAT_ROUTE)}>
               <Codicon name="chevron-left" size="1.4rem" />
             </TitlebarButton>
           ) : (
-            <TitlebarButton className="size-4" label={t.titlebar.showSidebar} onClick={toggleMobile}>
+            <TitlebarButton density="mobile" label={t.titlebar.showSidebar} onClick={toggleMobile}>
               <Codicon name="history" size="1.4rem" />
             </TitlebarButton>
           )}
@@ -67,7 +67,7 @@ export function MobileTopBar() {
           {/* Right-sidebar toggle → the Workspace. Uses the drawer / right-panel
               glyph (not a gear — this opens a panel, not settings). */}
           <Slot area={TITLEBAR_AREAS.right} />
-          <TitlebarButton className="size-4" label={t.titlebar.showRightSidebar} onClick={toggleMobileRight}>
+          <TitlebarButton density="mobile" label={t.titlebar.showRightSidebar} onClick={toggleMobileRight}>
             <Codicon name="layout-sidebar-right" size="1.4rem" />
           </TitlebarButton>
         </>
