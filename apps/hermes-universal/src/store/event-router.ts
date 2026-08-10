@@ -70,7 +70,7 @@ import {
   runtimeKeyForStoredSession,
   updateSession
 } from '@/store/session-state-types'
-import { upsertSubagent } from '@/store/subagents'
+import { pruneFinishedSessionSubagents, upsertSubagent } from '@/store/subagents'
 import { recordToolDiff } from '@/store/tool-diffs'
 import { routeTurnEvent, startTurnReconciler } from '@/store/turn-lifecycle'
 // Leaf import (not the `@/themes` barrel) to keep the ThemeProvider module graph
@@ -416,6 +416,13 @@ export function routeGatewayEvent(event: GatewayEvent): void {
       // A fresh turn on this session optimistically clears its billing wall; if
       // credits are still exhausted the next failure re-raises it.
       clearBillingBlock(key)
+
+      // Retire the previous turn's settled subagents from the spawn tree.
+      // Nothing else removes a row short of leaving the session, so without
+      // this a long-lived session's tree grows for every subagent it ever ran.
+      // Background subagents still running are kept — they outlive the turn
+      // that spawned them and must keep receiving progress events.
+      pruneFinishedSessionSubagents(key)
 
       break
 
