@@ -25,6 +25,9 @@ interface UseComposerTriggerOptions {
   emoji?: CompletionSource
   draftRef: MutableRefObject<string>
   editorRef: RefObject<HTMLDivElement | null>
+  /** Bank the pre-edit state before a pick rewrites the editor, so ⌘Z steps
+   *  back over a committed chip instead of past it. */
+  recordUndoPoint?: () => void
   requestMainFocus: () => void
   setComposerText: (text: string) => void
   slash: CompletionSource
@@ -44,6 +47,7 @@ export function useComposerTrigger({
   emoji,
   draftRef,
   editorRef,
+  recordUndoPoint,
   requestMainFocus,
   setComposerText,
   slash
@@ -168,6 +172,10 @@ export function useComposerTrigger({
     if (!editor || !trigger) {
       return
     }
+
+    // Bank the pre-commit state first — every path below mutates the editor,
+    // and a pick must be exactly one undo step.
+    recordUndoPoint?.()
 
     // Action items (e.g. "Browse all sessions…") run a side effect instead of
     // inserting a chip: strip the typed trigger token, then fire the action.
