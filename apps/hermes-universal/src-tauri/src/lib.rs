@@ -280,20 +280,27 @@ pub fn run() {
                 window::fill_requested_scene(app_handle);
             }
 
-            // A detached tile's window went away — tell the app so the tile goes
-            // back in its slot (MJXHRM-173). This lives here rather than in the
+            // A second window went away. Both arms live here rather than in the
             // closing webview because a torn-down WebKitGTK view is the least
             // reliable place to send a message from; tao reports the destroy
             // whether or not the page got a chance to run anything.
+            //
+            //  • a detached tile: so the tile goes back in its slot (MJXHRM-173)
+            //  • a satellite: so the main window can reclaim the gateway stream
+            //    the HUD was holding (MJXHRM-371)
             if let tauri::RunEvent::WindowEvent {
                 label,
                 event: tauri::WindowEvent::Destroyed,
                 ..
             } = &event
             {
+                use tauri::Emitter;
+
                 if window::is_tile_window_label(label) {
-                    use tauri::Emitter;
                     let _ = app_handle.emit(window::TILE_WINDOW_CLOSED_EVENT, label.clone());
+                }
+                if window::is_satellite_window_label(label) {
+                    let _ = app_handle.emit(window::SATELLITE_WINDOW_CLOSED_EVENT, label.clone());
                 }
             }
 

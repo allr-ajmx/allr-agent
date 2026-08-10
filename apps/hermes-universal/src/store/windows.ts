@@ -389,6 +389,30 @@ function satelliteLabel(surface: string): null | string {
   return /^[a-z][a-z0-9-]*$/.test(surface) ? `${SATELLITE_LABEL_PREFIX}-${surface}` : null
 }
 
+/**
+ * Emitted by Rust to every window when a satellite's native window is destroyed,
+ * carrying its LABEL (MJXHRM-371). See `src-tauri/src/window.rs`.
+ *
+ * Native-side rather than the closing webview's own `pagehide`: a torn-down
+ * WebKitGTK view is the least reliable place to send from, and this is the
+ * message the HUD handoff cannot afford to miss.
+ */
+export const SATELLITE_WINDOW_CLOSED_EVENT = 'hermes://satellite-window-closed'
+
+/**
+ * The surface a satellite label names, or null if it is not one.
+ *
+ * The inverse of `satelliteLabel`, and held to the same shape: the two must
+ * agree, since one builds what the other reads back off a native event.
+ */
+export function satelliteSurfaceFromLabel(label: string): null | string {
+  const surface = label.startsWith(`${SATELLITE_LABEL_PREFIX}-`)
+    ? label.slice(SATELLITE_LABEL_PREFIX.length + 1)
+    : null
+
+  return surface && satelliteLabel(surface) === label ? surface : null
+}
+
 export interface SatelliteWindowSpec {
   /** Surface id — the `?win=` flag AND the label suffix (e.g. `hud`). */
   surface: string

@@ -75,6 +75,25 @@ pub fn is_tile_window_label(label: &str) -> bool {
     label.starts_with("tile-")
 }
 
+/// Emitted to every window when a satellite window is destroyed, carrying its
+/// label (MJXHRM-371).
+///
+/// Native-side for the same reason as [`TILE_WINDOW_CLOSED_EVENT`], and the
+/// reason binds harder here: the HUD holds the gateway's binding for whatever
+/// session it resumed, so the main window cannot reclaim that stream until it
+/// knows the HUD is gone. Asking the closing webview to announce its own
+/// `pagehide` would put the one message that must not be missed on the least
+/// reliable signal in the app. `RunEvent::WindowEvent` fires from tao regardless
+/// of whether the page got to run anything.
+pub const SATELLITE_WINDOW_CLOSED_EVENT: &str = "hermes://satellite-window-closed";
+
+/// Whether a destroyed window was a satellite. Must agree with
+/// `SATELLITE_LABEL_PREFIX` in `src/store/windows.ts`, which builds these
+/// labels, and with the `sat-*` glob in `capabilities/default.json`.
+pub fn is_satellite_window_label(label: &str) -> bool {
+    label.starts_with("sat-")
+}
+
 /// Build a frameless window for `url` under `label`, or focus the existing one
 /// (one window per target). The gtk/WKWebView calls must run on the main thread;
 /// a oneshot carries the build result back so a failure surfaces to the caller.
