@@ -34,9 +34,12 @@ import { type GatewayToolPayload, toolIdFromPayload } from '@/lib/chat-tool-part
 import { playCompletionSound } from '@/lib/completion-sound'
 import { resolveGatewayEventSessionId } from '@/lib/gateway-events'
 import { triggerHaptic } from '@/lib/haptics'
+import { queryClient } from '@/lib/query-client'
 import { invalidateSlashCompletions } from '@/lib/slash-completion-cache'
 import { type DeltaChannel, flushDeltas, queueDelta, setStreamBatchSink } from '@/lib/stream-batch'
 import { stopSpeaking } from '@/lib/tts'
+import { type AgentNoticePayload, clearAgentNotice, nativeNoticeInput, showAgentNotice } from '@/store/agent-notices'
+import { clearBillingBlock, surfaceBillingBlock } from '@/store/billing-block'
 import { readChoices } from '@/store/clarify'
 import { routeCompactionEvent } from '@/store/compaction'
 import { addGatewayEventListener, requestGateway } from '@/store/gateway'
@@ -100,6 +103,13 @@ export function resetUnscopedStreamPin(): void {
 const GLOBAL_EVENT_TYPES = new Set([
   'cron.changed',
   'gateway.ready',
+  // Agent notices (credits usage / depleted / restored) describe the ACCOUNT, not
+  // a conversation. The gateway still stamps them with whichever session happened
+  // to trigger them, so routing them per-session would let the fail-closed
+  // unknown-session guard swallow the very notice that says the account is out of
+  // money. Handled globally, exactly as desktop shows them regardless of focus.
+  'notification.clear',
+  'notification.show',
   'pairing.changed',
   'pet.changed',
   'platforms.changed',
@@ -233,6 +243,36 @@ export function routeGatewayEvent(event: GatewayEvent): void {
       notifyPetChanged(payload as unknown as PetChangeMeta)
     } else if (event.type === 'session.title') {
       applySessionTitle(payload)
+    } else if (event.type === 'notification.show') {
+      // Driver-agnostic agent notice (credits usage / grant / depleted /
+      // restored from `agent/credits_tracker.py`). The Ink TUI renders these in
+      // its status bar; we render them as toasts. The notice key doubles as the
+      // toast id, so the escalating 50→75→90 credits line replaces in place
+      // instead of stacking.
+      const notice = payload as AgentNoticePayload
+
+      showAgentNotice(notice)
+
+      // The urgent pair (access paused / restored) also breaks through as a
+      // native OS notification when Hermes is backgrounded; dispatch is gated by
+      // the user's notification prefs + the backgrounded check.
+      const native = nativeNoticeInput(notice, translateNow('notifications.native.creditsTitle'))
+
+      if (native) {
+        dispatchNativeNotification(native)
+      }
+
+      // A credits crossing moves the account balance. Settings → Billing polls
+      // `billing.state` every 30s; nudge it so the page reflects the crossing
+      // immediately instead of up to 30s late.
+      if (notice.key?.startsWith('credits.')) {
+        void queryClient.invalidateQueries({ queryKey: ['billing', 'state'] })
+      }
+    } else if (event.type === 'notification.clear') {
+      // Key-matched dismissal (e.g. credits restored clears the depleted
+      // notice). notify() keys the toast by the notice key, so this maps
+      // straight to dismissNotification(key).
+      clearAgentNotice((payload as AgentNoticePayload).key)
     } else if (event.type === 'gateway.ready') {
       // Does this backend broadcast change events at all? Consumers drop to a
       // slow backstop poll when it does and keep the legacy cadence when it
@@ -372,8 +412,24 @@ export function routeGatewayEvent(event: GatewayEvent): void {
 
       break
 
+    case 'message.start':
+      // A fresh turn on this session optimistically clears its billing wall; if
+      // credits are still exhausted the next failure re-raises it.
+      clearBillingBlock(key)
+
+      break
+
     case 'message.complete':
       clearAllPrompts(key)
+
+      // Structured billing wall forwarded by the gateway (out of credits /
+      // payment required) — `tui_gateway/server.py` attaches the descriptor built
+      // by `agent/billing_links.py` as `payload.billing`. Cached + toasted by the
+      // store; detection stays backend-only, we never re-classify error prose.
+      if (payload.billing) {
+        surfaceBillingBlock(key, payload.billing)
+      }
+
       dispatchNativeNotification({
         kind: 'turnDone',
         title: translateNow('notifications.native.turnDoneTitle'),
