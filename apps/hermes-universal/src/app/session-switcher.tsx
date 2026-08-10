@@ -5,11 +5,9 @@ import { useNavigate } from 'react-router-dom'
 
 import { sessionTitle } from '@/lib/chat-runtime'
 import { cn } from '@/lib/utils'
-// Universal keeps these in store/session.ts rather than desktop's
-// store/session-states.ts.
-import { $attentionSessionIds, $unreadFinishedSessionIds, $workingSessionIds } from '@/store/session'
 import { $switcherIndex, $switcherOpen, $switcherSessions, closeSwitcher } from '@/store/session-switcher'
 
+import { SessionStatusDot } from './chat/session-status-dot'
 import { HUD_ITEM, HUD_POSITION, HUD_SURFACE, HUD_TEXT } from './floating-hud'
 import { sessionRoute } from './routes'
 
@@ -19,9 +17,6 @@ export function SessionSwitcher() {
   const open = useStore($switcherOpen)
   const sessions = useStore($switcherSessions)
   const index = useStore($switcherIndex)
-  const working = useStore($workingSessionIds)
-  const attention = useStore($attentionSessionIds)
-  const unread = useStore($unreadFinishedSessionIds)
   const navigate = useNavigate()
 
   const activeRef = useRef<HTMLDivElement>(null)
@@ -33,10 +28,6 @@ export function SessionSwitcher() {
   if (!open || sessions.length === 0) {
     return null
   }
-
-  const workingIds = new Set(working)
-  const attentionIds = new Set(attention)
-  const unreadIds = new Set(unread)
 
   const pick = (sessionId: string) => {
     closeSwitcher()
@@ -78,11 +69,7 @@ export function SessionSwitcher() {
               }}
               ref={selected ? activeRef : undefined}
             >
-              <SwitcherDot
-                attention={attentionIds.has(session.id)}
-                unread={unreadIds.has(session.id)}
-                working={workingIds.has(session.id)}
-              />
+              <SessionStatusDot className="shrink-0" session={session} storedSessionId={session.id} />
               <span className="min-w-0 flex-1 truncate">{sessionTitle(session)}</span>
               {i < 9 && (
                 <span
@@ -100,25 +87,5 @@ export function SessionSwitcher() {
       </div>
     </>,
     document.body
-  )
-}
-
-// Same priority order as the sidebar's `sessionDotState`: an attention cue
-// outranks a running turn, which outranks the steady green "finished while you
-// were away" marker.
-function SwitcherDot({ attention, unread, working }: { attention: boolean; unread: boolean; working: boolean }) {
-  return (
-    <span
-      className={cn(
-        'size-1 shrink-0 rounded-full',
-        attention
-          ? 'bg-amber-400'
-          : working
-            ? 'animate-pulse bg-(--ui-accent)'
-            : unread
-              ? 'bg-emerald-500'
-              : 'bg-(--ui-text-quaternary)/50'
-      )}
-    />
   )
 }

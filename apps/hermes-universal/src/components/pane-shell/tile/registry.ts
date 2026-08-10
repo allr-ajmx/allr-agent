@@ -64,6 +64,7 @@ const CHROME_KEYS = [
   'revealOnPreset',
   'revealAliases',
   'accent',
+  'tabLead',
   'dock',
   'anchor',
   'tabWrap',

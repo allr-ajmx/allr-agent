@@ -49,6 +49,11 @@ export interface PaneMirror<T> {
   /** Lead-dot color for the tile's tab (e.g. a session's project color). Re-read
    *  on every `also` change, so pass the color source in `also` to keep it live. */
   accent?: (key: string) => string | undefined
+  /** Custom lead NODE for the tile's tab, rendered before the label. Unlike
+   *  `accent` it is a SELF-SUBSCRIBING component (a session's status dot), so
+   *  the strip needn't re-sync when status or colour move — only `title` drives
+   *  re-registration. Wins over `accent` when both are given. */
+  tabLead?: (key: string) => ReactNode
   render: (key: string) => ReactNode
   /** Glyph buttons the tile contributes to its zone's strip while it is the
    *  ACTIVE tile — e.g. a preview's source/rendered/diff switch. DATA, not
@@ -119,6 +124,7 @@ export function paneMirror<T>(cfg: PaneMirror<T>): () => void {
           linkTarget: cfg.linkTarget,
           loneHeader: true,
           stripTools: cfg.stripTools ? () => cfg.stripTools!(key) : undefined,
+          tabLead: cfg.tabLead ? () => cfg.tabLead!(key) : undefined,
           tabDrag: cfg.tabDrag
             ? (event: ReactPointerEvent<HTMLElement>, onTap: () => void, double?: DoubleTapContext) =>
                 cfg.tabDrag!(key, event, onTap, double)

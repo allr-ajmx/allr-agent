@@ -29,7 +29,6 @@ import { $pinnedSessionIds, pinSession, unpinSession } from '@/store/layout'
 import { startNewSessionTab } from '@/store/new-session'
 import { sessionAwaitingInput } from '@/store/prompts'
 import { $activeStoredSessionId, $sessions, sessionMatchesStoredId, sessionPinId } from '@/store/session'
-import { $sessionColorById, sessionColorFor } from '@/store/session-color'
 import { $sessionStates } from '@/store/session-state-types'
 import {
   $confirmCloseTile,
@@ -44,6 +43,7 @@ import {
   tileRuntimeKey
 } from '@/store/session-states'
 
+import { SessionStatusDot } from './session-status-dot'
 import { SessionContextMenu } from './sidebar/session-actions-menu'
 
 const NO_MESSAGES: ChatMessage[] = []
@@ -255,10 +255,17 @@ function tileTitle(storedSessionId: string): string {
   return stored ? sessionTitle(stored) : 'Session'
 }
 
-function tileAccent(storedSessionId: string): string | undefined {
-  const stored = $sessions.get().find(s => sessionMatchesStoredId(s, storedSessionId))
+/** The tile tab's lead — the SAME primitive the sidebar row, the switcher and
+ *  the mobile bubble strip render, so a session's status can never disagree
+ *  between surfaces. It is a NODE rather than the older `accent` string because
+ *  it subscribes for itself: a turn starting repaints the dot without the pane
+ *  mirror re-registering the tile. A draft tile names no session, so it passes
+ *  the null id and gets the draft dot. */
+function TileTabLead({ storedSessionId }: { storedSessionId: string }) {
+  const draft = isDraftTileKey(storedSessionId)
+  const stored = useStore($sessions).find(s => sessionMatchesStoredId(s, storedSessionId))
 
-  return sessionColorFor(stored)
+  return <SessionStatusDot session={stored} storedSessionId={draft ? null : storedSessionId} />
 }
 
 /** The `@session` drag payload for a tile's own tab — same identity a sidebar
@@ -273,15 +280,16 @@ function tileDragPayload(storedSessionId: string): SessionDragPayload {
   }
 }
 
-/** Mirror `$sessionTiles` into layout-tree panes (title/accent live-refresh via
- *  `also`). `tabDrag` gives a tile's own tab the session drop language
- *  (stack / split / composer-link) via the shared pointer drag session — a
- *  sub-threshold release stays the tab's tap/double-tap. `tabWrap` gives the
- *  tab its right-click session menu (pin / copy / branch / rename / archive /
- *  delete + the tab close verbs). */
+/** Mirror `$sessionTiles` into layout-tree panes (title live-refresh via
+ *  `also` — the lead dot subscribes for itself, so colour and status no longer
+ *  re-register the tile). `tabDrag` gives a tile's own tab the session drop
+ *  language (stack / split / composer-link) via the shared pointer drag
+ *  session — a sub-threshold release stays the tab's tap/double-tap. `tabWrap`
+ *  gives the tab its right-click session menu (pin / copy / branch / rename /
+ *  archive / delete + the tab close verbs). */
 export const watchSessionTiles = paneMirror<SessionTile>({
   source: $sessionTiles,
-  also: [$sessions, $sessionColorById],
+  also: [$sessions],
   key: tile => tile.storedSessionId,
   kind: 'chat',
   linkTarget: true,
@@ -292,7 +300,7 @@ export const watchSessionTiles = paneMirror<SessionTile>({
   before: tile => tile.before,
   minWidth: '20rem',
   title: tileTitle,
-  accent: tileAccent,
+  tabLead: storedSessionId => <TileTabLead storedSessionId={storedSessionId} />,
   render: storedSessionId =>
     isDraftTileKey(storedSessionId) ? <DraftTilePane /> : <SessionTilePane storedSessionId={storedSessionId} />,
   // The draft has no session to pin, branch, rename, archive or delete, so its

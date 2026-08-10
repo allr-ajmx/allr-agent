@@ -16,13 +16,9 @@ import { rafCoalesce } from '@/lib/raf-coalesce'
 import { cn } from '@/lib/utils'
 import { useStore } from '@/store/atom'
 import { $chatBubbles, type ChatBubble, newChatBubble, removeBubble, switchToBubble } from '@/store/chat-bubbles'
-import {
-  $activeStoredSessionId,
-  $sessions,
-  $unreadFinishedSessionIds,
-  $workingSessionIds,
-  refreshSessions
-} from '@/store/session'
+import { $activeStoredSessionId, $sessions, refreshSessions } from '@/store/session'
+
+import { SessionStatusDot } from '../session-status-dot'
 
 import { newSessionProgress, type NewSessionSide, resolveDrag, type TrackBounds } from './bubble-drag'
 
@@ -70,8 +66,6 @@ export function BubbleRow() {
   const bubbles = useStore($chatBubbles)
   const activeId = useStore($activeStoredSessionId)
   const sessions = useStore($sessions)
-  const unread = useStore($unreadFinishedSessionIds)
-  const working = useStore($workingSessionIds)
 
   // The active id arrives a beat after the persisted bubbles do, so on a cold
   // load `findIndex` is -1 for a moment. Centre the first bubble meanwhile —
@@ -422,8 +416,7 @@ export function BubbleRow() {
           {bubbles.map((bubble, index) => {
             const isCentered = index === centeredIndex
             const armed = isCentered && preview?.closeArmed
-            const isUnread = bubble.storedSessionId !== null && unread.includes(bubble.storedSessionId)
-            const isWorking = bubble.storedSessionId !== null && working.has(bubble.storedSessionId)
+            const session = bubble.storedSessionId ? sessions.find(s => s.id === bubble.storedSessionId) : null
 
             return (
               <button
@@ -444,14 +437,17 @@ export function BubbleRow() {
                 type="button"
               >
                 <MessageCircle size={18} />
-                {(isUnread || isWorking) && (
-                  <span
-                    className={cn(
-                      'absolute top-0.5 right-0.5 size-1.5 rounded-full',
-                      isWorking ? 'bg-amber-400' : 'bg-(--ui-red)'
-                    )}
-                  />
-                )}
+                {/* The SAME status dot the sidebar row, the pane tabs and the
+                    switcher render — this badge used to paint amber for a
+                    RUNNING turn and red for an unread one, which is the amber
+                    every other surface reserves for "needs your input" and a
+                    colour nothing else uses. A bubble is a session; it says
+                    what a session says. */}
+                <SessionStatusDot
+                  className="absolute top-0.5 right-0.5"
+                  session={session}
+                  storedSessionId={bubble.storedSessionId}
+                />
               </button>
             )
           })}
