@@ -54,6 +54,13 @@ export interface StatusInfo {
   version?: string
   auth_required?: boolean
   auth_providers?: string[]
+  /** Which sign-in flows this gateway can run — `"cookie"` always when gated,
+   *  `"native_pkce"` only when a provider can broker an RFC 8252 native login
+   *  (`hermes_cli/web_server.py`). Absent on gateways older than those routes,
+   *  which is the compatibility mechanism: see `lib/native-auth-decisions.ts`.
+   *  Rust re-probes this itself before choosing a flow (`oauth.rs`); the field is
+   *  declared here so surfaces can say WHICH way the user is signed in. */
+  auth_flows?: string[]
   [key: string]: unknown
 }
 

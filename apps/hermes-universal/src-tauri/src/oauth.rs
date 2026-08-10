@@ -1,4 +1,29 @@
-//! Connection-level gateway OAuth (Track D3).
+//! Connection-level gateway OAuth (Track D3) — two flows, one command.
+//!
+//! # RFC 8252 native flow (preferred, MJXHRM-77)
+//!
+//! When `/api/status` advertises `auth_flows: [... "native_pkce"]` the gateway can
+//! broker a real native-app login: system browser + client-side PKCE + a loopback
+//! redirect, ending in bearer tokens handed to us in a JSON body with no cookie
+//! anywhere. That is strictly better than the webview flow below:
+//!
+//!   * **No second webview.** The system browser is a separate app, so Android —
+//!     which cannot open a second webview window at all — needs no navigate-away
+//!     hack and no pending-marker resume for this path.
+//!   * **No cookie plumbing.** Nothing has to be scraped out of a webview jar and
+//!     replayed into reqwest; the gated middleware accepts
+//!     `Authorization: Bearer` on every non-public route, ws-ticket included.
+//!   * **The credential is ours.** We hold and rotate the refresh token
+//!     (`/auth/native/refresh`) instead of depending on transparent cookie
+//!     rotation we cannot see.
+//!
+//! Server side: `hermes_cli/dashboard_auth/routes.py` (`/auth/native/authorize`,
+//! `/auth/native/token`, `/auth/native/refresh`) plus `native_flow.py`. The pure
+//! half of the client — PKCE, state, URL building, callback parsing, token
+//! parsing, refresh math — lives in [`native`] and is unit-tested; only the
+//! socket/browser/HTTP I/O sits out here.
+//!
+//! # Legacy webview-cookie flow (fallback)
 //!
 //! Mirrors Hermes desktop (Electron), which binds an OAuth `BrowserWindow` to a
 //! persistent session partition, runs the WHOLE login there, and polls that jar
@@ -23,6 +48,10 @@
 //!      close the window.
 //!
 //! A timeout backstops the poll so a missed / abandoned login can't hang connect().
+//!
+//! The fallback is not dead weight: a gateway with only a password provider, or
+//! any build older than the native routes, advertises no `native_pkce` and keeps
+//! working exactly as before.
 
 use serde::Serialize;
 use tauri::{AppHandle, Manager, State, Url, WebviewWindow};
@@ -53,6 +82,730 @@ const OAUTH_TIMEOUT_SECS_ANDROID: u64 = 120;
 
 fn normalize_base(raw: &str) -> String {
     raw.trim().trim_end_matches('/').to_string()
+}
+
+/// The pure half of the RFC 8252 native flow: everything that is a decision or a
+/// transformation rather than I/O. Split out precisely so it can be tested —
+/// `oauth_login` itself needs a webview, a socket and a browser, and none of the
+/// subtle parts (S256 derivation, the `state` check, single-line HTTP target
+/// parsing, refresh-window math) should be reachable only through that.
+pub mod native {
+    use base64::Engine as _;
+    use sha2::{Digest, Sha256};
+
+    /// The capability token `/api/status` advertises in `auth_flows` when the
+    /// gateway can broker a native-app login (`hermes_cli/web_server.py`).
+    pub const NATIVE_FLOW_ID: &str = "native_pkce";
+
+    /// Path our loopback listener answers on. Any path is legal (the gateway only
+    /// pins the host), but a fixed one keeps the callback parser honest.
+    pub const CALLBACK_PATH: &str = "/callback";
+
+    /// Refresh this long before the access token actually expires, so a request in
+    /// flight can't land on the far side of the boundary.
+    pub const REFRESH_SKEW_SECS: i64 = 60;
+
+    fn b64url(bytes: &[u8]) -> String {
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
+    }
+
+    /// An RFC 7636 PKCE pair. Only S256 is produced — the gateway rejects `plain`
+    /// outright (`routes.py::auth_native_authorize`), and so should we.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub struct PkcePair {
+        pub verifier: String,
+        pub challenge: String,
+    }
+
+    /// Derive a pair from caller-supplied entropy. Split from [`generate_pkce`] so
+    /// the derivation can be tested against a fixed seed rather than "it ran".
+    pub fn pkce_from_entropy(entropy: &[u8]) -> PkcePair {
+        let verifier = b64url(entropy);
+        let challenge = b64url(&Sha256::digest(verifier.as_bytes()));
+
+        PkcePair {
+            verifier,
+            challenge,
+        }
+    }
+
+    fn random_bytes(len: usize) -> Result<Vec<u8>, String> {
+        let mut buf = vec![0u8; len];
+        getrandom::getrandom(&mut buf).map_err(|e| format!("no secure randomness available: {e}"))?;
+
+        Ok(buf)
+    }
+
+    /// 32 bytes of entropy → a 43-char verifier, the RFC 7636 minimum length and
+    /// the same width desktop's `native-oauth.ts` uses.
+    pub fn generate_pkce() -> Result<PkcePair, String> {
+        Ok(pkce_from_entropy(&random_bytes(32)?))
+    }
+
+    /// CSRF `state`. Distinct from the verifier: it round-trips through the browser
+    /// in the clear, so it must carry no relationship to the PKCE secret.
+    pub fn generate_state() -> Result<String, String> {
+        Ok(b64url(&random_bytes(24)?))
+    }
+
+    /// Does this `/api/status` body advertise the native flow? Absent or malformed
+    /// ⇒ `false` ⇒ the caller falls back to the webview-cookie flow, which is how
+    /// an older gateway keeps working without a version check.
+    pub fn supports_native_flow(status: &serde_json::Value) -> bool {
+        status
+            .get("auth_flows")
+            .and_then(|v| v.as_array())
+            .is_some_and(|flows| flows.iter().any(|f| f.as_str() == Some(NATIVE_FLOW_ID)))
+    }
+
+    /// The loopback `redirect_uri` for a bound port. Deliberately the IP literal,
+    /// never `localhost`: the gateway rejects the name (RFC 8252 §8.3 — it can
+    /// resolve off-loopback via hosts file or a hostile resolver) and treats this
+    /// as a security boundary, not ergonomics.
+    pub fn loopback_redirect_uri(port: u16) -> String {
+        format!("http://127.0.0.1:{port}{CALLBACK_PATH}")
+    }
+
+    fn encode_query_value(raw: &str) -> String {
+        let mut out = String::with_capacity(raw.len());
+
+        for byte in raw.bytes() {
+            match byte {
+                b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                    out.push(byte as char)
+                }
+                _ => out.push_str(&format!("%{byte:02X}")),
+            }
+        }
+
+        out
+    }
+
+    /// Build the `/auth/native/authorize` URL opened in the system browser.
+    /// `provider` may be empty — the gateway auto-selects when exactly one session
+    /// provider is registered, so we do not have to hardcode a name.
+    pub fn build_authorize_url(base: &str, challenge: &str, redirect_uri: &str, state: &str, provider: &str) -> String {
+        let mut url = format!(
+            "{}/auth/native/authorize?code_challenge={}&code_challenge_method=S256&redirect_uri={}&state={}",
+            base.trim_end_matches('/'),
+            encode_query_value(challenge),
+            encode_query_value(redirect_uri),
+            encode_query_value(state)
+        );
+
+        if !provider.is_empty() {
+            url.push_str(&format!("&provider={}", encode_query_value(provider)));
+        }
+
+        url
+    }
+
+    fn percent_decode(raw: &str) -> String {
+        let bytes = raw.as_bytes();
+        let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
+        let mut i = 0;
+
+        while i < bytes.len() {
+            match bytes[i] {
+                b'%' if i + 2 < bytes.len() => {
+                    let hex = std::str::from_utf8(&bytes[i + 1..i + 3]).unwrap_or("");
+
+                    match u8::from_str_radix(hex, 16) {
+                        Ok(byte) => {
+                            out.push(byte);
+                            i += 3;
+                        }
+                        Err(_) => {
+                            out.push(bytes[i]);
+                            i += 1;
+                        }
+                    }
+                }
+                b'+' => {
+                    out.push(b' ');
+                    i += 1;
+                }
+                byte => {
+                    out.push(byte);
+                    i += 1;
+                }
+            }
+        }
+
+        String::from_utf8_lossy(&out).into_owned()
+    }
+
+    /// Parse the request target of the browser's callback hit
+    /// (`/callback?code=…&state=…`) and return the authorization code.
+    ///
+    /// The `state` comparison is the whole point of this function: without it any
+    /// process that can reach our loopback port could feed us a code minted for a
+    /// different login. A gateway-side `?error=` is surfaced as-is.
+    pub fn parse_callback_target(target: &str, expected_state: &str) -> Result<String, String> {
+        let query = target.split_once('?').map(|(_, q)| q).unwrap_or("");
+        let mut code = String::new();
+        let mut state = String::new();
+        let mut error = String::new();
+
+        for pair in query.split('&').filter(|p| !p.is_empty()) {
+            let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+
+            match key {
+                "code" => code = percent_decode(value),
+                "state" => state = percent_decode(value),
+                "error" => error = percent_decode(value),
+                _ => {}
+            }
+        }
+
+        if !error.is_empty() {
+            return Err(format!("sign-in was refused: {error}"));
+        }
+
+        // Constant-ish comparison is overkill here (the state is single-use and
+        // lives for one login), but an empty expected state must never match.
+        if expected_state.is_empty() || state != expected_state {
+            return Err("sign-in callback did not match this request".to_string());
+        }
+
+        if code.is_empty() {
+            return Err("sign-in callback carried no authorization code".to_string());
+        }
+
+        Ok(code)
+    }
+
+    /// Bearer credentials for one gateway, as `/auth/native/token` returns them.
+    /// Serialized into the OS keyring; `expires_at` is a UNIX timestamp in seconds.
+    #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+    pub struct NativeTokenSet {
+        pub access_token: String,
+        pub refresh_token: String,
+        pub expires_at: i64,
+        #[serde(default)]
+        pub provider: String,
+        #[serde(default)]
+        pub user_id: String,
+    }
+
+    /// Read a `/auth/native/token` (or `/auth/native/refresh`) body. Both routes
+    /// return the same shape. A response without an access token is an error
+    /// rather than a half-populated set we would later present as a live session.
+    pub fn parse_token_response(body: &serde_json::Value) -> Result<NativeTokenSet, String> {
+        let string = |key: &str| {
+            body.get(key)
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string()
+        };
+
+        let access_token = string("access_token");
+
+        if access_token.is_empty() {
+            return Err("token response carried no access_token".to_string());
+        }
+
+        Ok(NativeTokenSet {
+            access_token,
+            refresh_token: string("refresh_token"),
+            expires_at: body.get("expires_at").and_then(|v| v.as_i64()).unwrap_or(0),
+            provider: string("provider"),
+            user_id: string("user_id"),
+        })
+    }
+
+    /// Is the access token close enough to expiry to rotate first? An unknown
+    /// (`0`) expiry counts as "needs refresh" — we would rather spend a refresh
+    /// round trip than hand a dead bearer to the ws-ticket mint.
+    pub fn needs_refresh(tokens: &NativeTokenSet, now_secs: i64) -> bool {
+        tokens.expires_at <= now_secs + REFRESH_SKEW_SECS
+    }
+
+    /// Keyring account name for one gateway's tokens. Namespaced so it can never
+    /// collide with the existing `token` / `cookies` / `sshKey` entries the JS
+    /// side writes under the same service, and keyed by base URL so two gateways
+    /// keep separate sessions.
+    pub fn keyring_account(base: &str) -> String {
+        format!("nativeAuth:{}", base.trim_end_matches('/'))
+    }
+
+    /// The one-page reply the browser shows after the redirect. It must never
+    /// contain the code — the browser has it in its address bar already, but the
+    /// page itself is the thing screen-shared or left open.
+    pub fn callback_response(ok: bool) -> String {
+        let body = if ok {
+            "<h1>Signed in</h1><p>You can close this tab and return to Hermes.</p>"
+        } else {
+            "<h1>Sign-in failed</h1><p>Return to Hermes and try again.</p>"
+        };
+
+        format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            body.len(),
+            body
+        )
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn derives_the_s256_challenge_from_the_verifier() {
+            // RFC 7636 appendix B's vector: the verifier below hashes to the
+            // published challenge. Pinning it proves we hash the ASCII VERIFIER,
+            // not the raw entropy — the classic way to get PKCE subtly wrong.
+            let pair = pkce_from_entropy(&[
+                116, 24, 223, 180, 151, 153, 224, 37, 79, 250, 96, 125, 216, 173, 187, 186, 22, 212, 37, 77, 105, 214,
+                191, 240, 91, 88, 5, 88, 83, 132, 141, 121,
+            ]);
+
+            assert_eq!(pair.verifier, "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk");
+            assert_eq!(pair.challenge, "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM");
+        }
+
+        #[test]
+        fn a_generated_verifier_is_the_rfc_minimum_length_and_url_safe() {
+            let pair = generate_pkce().expect("entropy");
+
+            assert_eq!(pair.verifier.len(), 43);
+            assert!(pair
+                .verifier
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'));
+            assert_ne!(pair.verifier, pair.challenge);
+        }
+
+        #[test]
+        fn two_states_never_repeat() {
+            assert_ne!(generate_state().unwrap(), generate_state().unwrap());
+        }
+
+        #[test]
+        fn native_support_is_read_off_auth_flows() {
+            let yes = serde_json::json!({ "auth_flows": ["cookie", "native_pkce"] });
+            let cookie_only = serde_json::json!({ "auth_flows": ["cookie"] });
+            let older = serde_json::json!({ "auth_required": true });
+
+            assert!(supports_native_flow(&yes));
+            assert!(!supports_native_flow(&cookie_only));
+            // An older gateway never says native_pkce — falling back is the point.
+            assert!(!supports_native_flow(&older));
+            assert!(!supports_native_flow(&serde_json::json!({ "auth_flows": "native_pkce" })));
+        }
+
+        #[test]
+        fn the_redirect_uri_is_a_loopback_ip_literal_never_localhost() {
+            // The gateway rejects `localhost` outright (RFC 8252 §8.3).
+            assert_eq!(loopback_redirect_uri(51234), "http://127.0.0.1:51234/callback");
+        }
+
+        #[test]
+        fn the_authorize_url_pins_s256_and_escapes_its_parameters() {
+            let url = build_authorize_url(
+                "https://gw.example.com/",
+                "chal+lenge/=",
+                "http://127.0.0.1:5123/callback",
+                "st ate",
+                "nous",
+            );
+
+            assert!(url.starts_with("https://gw.example.com/auth/native/authorize?"));
+            assert!(url.contains("code_challenge_method=S256"));
+            assert!(url.contains("code_challenge=chal%2Blenge%2F%3D"));
+            assert!(url.contains("redirect_uri=http%3A%2F%2F127.0.0.1%3A5123%2Fcallback"));
+            assert!(url.contains("state=st%20ate"));
+            assert!(url.contains("provider=nous"));
+        }
+
+        #[test]
+        fn an_empty_provider_is_omitted_so_the_gateway_can_auto_select() {
+            let url = build_authorize_url("https://gw", "c", "http://127.0.0.1:1/callback", "s", "");
+
+            assert!(!url.contains("provider="));
+        }
+
+        #[test]
+        fn the_callback_yields_its_code_when_the_state_matches() {
+            let code = parse_callback_target("/callback?code=abc123&state=xyz", "xyz").unwrap();
+
+            assert_eq!(code, "abc123");
+        }
+
+        #[test]
+        fn a_mismatched_or_missing_state_is_refused() {
+            // This is the CSRF boundary: anything that can reach the loopback port
+            // could otherwise inject a code minted for someone else's login.
+            assert!(parse_callback_target("/callback?code=abc&state=other", "xyz").is_err());
+            assert!(parse_callback_target("/callback?code=abc", "xyz").is_err());
+            // An empty expected state must never match an empty callback state.
+            assert!(parse_callback_target("/callback?code=abc&state=", "").is_err());
+        }
+
+        #[test]
+        fn a_gateway_error_redirect_is_surfaced_rather_than_swallowed() {
+            let err = parse_callback_target("/callback?error=access_denied&state=xyz", "xyz").unwrap_err();
+
+            assert!(err.contains("access_denied"));
+        }
+
+        #[test]
+        fn a_state_match_with_no_code_is_still_an_error() {
+            assert!(parse_callback_target("/callback?state=xyz", "xyz").is_err());
+        }
+
+        #[test]
+        fn percent_escapes_in_the_callback_are_decoded() {
+            let code = parse_callback_target("/callback?code=a%2Fb%2Bc&state=x%20y", "x y").unwrap();
+
+            assert_eq!(code, "a/b+c");
+        }
+
+        #[test]
+        fn parses_the_token_response_the_gateway_documents() {
+            let set = parse_token_response(&serde_json::json!({
+                "access_token": "at",
+                "refresh_token": "rt",
+                "token_type": "Bearer",
+                "expires_at": 1_800_000_000i64,
+                "provider": "nous",
+                "user_id": "u1"
+            }))
+            .unwrap();
+
+            assert_eq!(set.access_token, "at");
+            assert_eq!(set.refresh_token, "rt");
+            assert_eq!(set.expires_at, 1_800_000_000);
+            assert_eq!(set.provider, "nous");
+        }
+
+        #[test]
+        fn a_token_response_without_an_access_token_is_rejected() {
+            assert!(parse_token_response(&serde_json::json!({ "refresh_token": "rt" })).is_err());
+            assert!(parse_token_response(&serde_json::Value::Null).is_err());
+        }
+
+        #[test]
+        fn refresh_fires_inside_the_skew_window_and_on_an_unknown_expiry() {
+            let set = |expires_at| NativeTokenSet {
+                access_token: "at".into(),
+                refresh_token: "rt".into(),
+                expires_at,
+                provider: String::new(),
+                user_id: String::new(),
+            };
+
+            assert!(!needs_refresh(&set(1_000 + REFRESH_SKEW_SECS + 1), 1_000));
+            assert!(needs_refresh(&set(1_000 + REFRESH_SKEW_SECS), 1_000));
+            assert!(needs_refresh(&set(500), 1_000));
+            // A response with no expires_at must not read as "valid forever".
+            assert!(needs_refresh(&set(0), 1_000));
+        }
+
+        #[test]
+        fn keyring_accounts_are_namespaced_and_per_gateway() {
+            assert_eq!(keyring_account("https://a.example/"), "nativeAuth:https://a.example");
+            assert_ne!(keyring_account("https://a.example"), keyring_account("https://b.example"));
+            // Must not collide with the JS-side entries under the same service.
+            assert_ne!(keyring_account("https://a.example"), "cookies");
+        }
+
+        #[test]
+        fn the_browser_reply_never_echoes_the_authorization_code() {
+            let page = callback_response(true);
+
+            assert!(page.contains("Content-Length:"));
+            assert!(!page.contains("code="));
+        }
+    }
+}
+
+// ── RFC 8252 native flow: the I/O half ───────────────────────────────────────
+
+/// How long the loopback listener waits for the browser redirect. The user is in
+/// a browser tab, possibly signing in with a second factor — be generous, but
+/// never wait forever: an abandoned login must not pin a socket for the session.
+const NATIVE_LOGIN_TIMEOUT_SECS: u64 = 300;
+
+/// The keyring service the JS side already uses (`src/lib/secure-store.ts`).
+/// Shared deliberately: one service, one OS credential group the user can revoke.
+const KEYRING_SERVICE: &str = "hermes";
+
+fn now_secs() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+}
+
+/// The keyring is initialized lazily by whichever side touches it first, so every
+/// Rust-side access re-asserts the service name. `initialize_service` is idempotent.
+fn keyring_ready(app: &AppHandle) -> bool {
+    use tauri_plugin_keyring::KeyringExt;
+
+    app.keyring()
+        .initialize_service(KEYRING_SERVICE.to_string())
+        .is_ok()
+}
+
+fn store_native_tokens(app: &AppHandle, base: &str, tokens: &native::NativeTokenSet) {
+    use tauri_plugin_keyring::{CredentialType, CredentialValue, KeyringExt};
+
+    if !keyring_ready(app) {
+        log::warn!("[oauth] keyring unavailable; native session will not survive restart");
+        return;
+    }
+
+    let Ok(json) = serde_json::to_string(tokens) else {
+        return;
+    };
+
+    if let Err(e) = app.keyring().set(
+        &native::keyring_account(base),
+        CredentialType::Password,
+        CredentialValue::Password(json),
+    ) {
+        // Never log the payload — it IS the session. The error alone is enough.
+        log::warn!("[oauth] could not persist native tokens: {e}");
+    }
+}
+
+fn load_native_tokens(app: &AppHandle, base: &str) -> Option<native::NativeTokenSet> {
+    use tauri_plugin_keyring::{CredentialType, CredentialValue, KeyringExt};
+
+    if !keyring_ready(app) {
+        return None;
+    }
+
+    let value = app
+        .keyring()
+        .get(&native::keyring_account(base), CredentialType::Password)
+        .ok()?;
+
+    let CredentialValue::Password(json) = value else {
+        return None;
+    };
+
+    serde_json::from_str(&json).ok()
+}
+
+fn clear_native_tokens(app: &AppHandle, base: &str) {
+    use tauri_plugin_keyring::{CredentialType, KeyringExt};
+
+    if keyring_ready(app) {
+        let _ = app
+            .keyring()
+            .delete(&native::keyring_account(base), CredentialType::Password);
+    }
+}
+
+/// Does this gateway advertise the native flow? A probe failure answers "no" —
+/// falling back to the webview flow is always safe, whereas guessing "yes" on a
+/// gateway that cannot broker would strand the user in a browser tab.
+async fn advertises_native_flow(state: &TransportState, base: &str) -> bool {
+    let Ok(resp) = state.client().get(format!("{base}/api/status")).send().await else {
+        return false;
+    };
+
+    if !resp.status().is_success() {
+        return false;
+    }
+
+    resp.json::<serde_json::Value>()
+        .await
+        .map(|body| native::supports_native_flow(&body))
+        .unwrap_or(false)
+}
+
+/// Serve exactly one loopback request and return its authorization code.
+///
+/// Only the request line is read — the code is in the target, and reading further
+/// would mean parsing a body we have no use for. The reply is a static page: the
+/// browser must never be handed anything that echoes the code back.
+async fn await_loopback_code(
+    listener: tokio::net::TcpListener,
+    expected_state: &str,
+) -> Result<String, String> {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+
+    let accept = async {
+        loop {
+            let (stream, _) = listener
+                .accept()
+                .await
+                .map_err(|e| format!("loopback listener failed: {e}"))?;
+
+            let mut reader = BufReader::new(stream);
+            let mut line = String::new();
+
+            if reader.read_line(&mut line).await.is_err() {
+                continue;
+            }
+
+            // "GET /callback?code=…&state=… HTTP/1.1"
+            let target = line.split_whitespace().nth(1).unwrap_or("").to_string();
+
+            // Browsers cheerfully probe /favicon.ico on the same origin; that is
+            // not the callback and must not consume the one-shot listener.
+            if !target.starts_with(native::CALLBACK_PATH) {
+                let _ = reader
+                    .into_inner()
+                    .write_all(native::callback_response(false).as_bytes())
+                    .await;
+                continue;
+            }
+
+            let outcome = native::parse_callback_target(&target, expected_state);
+            let _ = reader
+                .into_inner()
+                .write_all(native::callback_response(outcome.is_ok()).as_bytes())
+                .await;
+
+            return outcome;
+        }
+    };
+
+    match tokio::time::timeout(
+        std::time::Duration::from_secs(NATIVE_LOGIN_TIMEOUT_SECS),
+        accept,
+    )
+    .await
+    {
+        Ok(inner) => inner,
+        Err(_) => Err("Sign-in timed out before completing".to_string()),
+    }
+}
+
+/// POST a native-auth endpoint and parse the token set out of it.
+///
+/// The secret (code + verifier, or the refresh token) is in the BODY, which
+/// reqwest never puts in an error — but reqwest does embed the request URL, and a
+/// base URL can carry userinfo or query material, so the URL is swapped for its
+/// redacted form the way `transport.rs` does (MJXHRM-217, PR #103).
+async fn post_native_tokens(
+    state: &TransportState,
+    base: &str,
+    path: &str,
+    body: serde_json::Value,
+) -> Result<native::NativeTokenSet, String> {
+    let url = format!("{base}{path}");
+    let redacted = crate::transport::redact_url(&url);
+    let resp = state
+        .client()
+        .post(&url)
+        .header(reqwest::header::ORIGIN, base)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("{path} request failed: {}", e.to_string().replace(&url, &redacted)))?;
+
+    let status = resp.status();
+
+    if !status.is_success() {
+        // The gateway keeps these deliberately generic (no verifier oracle); pass
+        // the status through and nothing else.
+        return Err(format!("{path} rejected the request (HTTP {status})"));
+    }
+
+    let parsed: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("{path} returned an unreadable body: {e}"))?;
+
+    native::parse_token_response(&parsed)
+}
+
+/// Run the RFC 8252 login end to end: bind loopback, open the system browser,
+/// catch the redirect, exchange the code, persist the tokens.
+async fn run_native_login(
+    app: &AppHandle,
+    state: &TransportState,
+    base: &str,
+    provider: &str,
+) -> Result<native::NativeTokenSet, String> {
+    use tauri_plugin_opener::OpenerExt;
+
+    let pkce = native::generate_pkce()?;
+    let csrf_state = native::generate_state()?;
+
+    // Bind BEFORE opening the browser: the redirect_uri has to name a port we are
+    // already listening on, or a fast IDP can beat us to the callback.
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .map_err(|e| format!("could not open a loopback listener for sign-in: {e}"))?;
+    let port = listener
+        .local_addr()
+        .map_err(|e| format!("could not read the loopback port: {e}"))?
+        .port();
+    let redirect_uri = native::loopback_redirect_uri(port);
+
+    let authorize =
+        native::build_authorize_url(base, &pkce.challenge, &redirect_uri, &csrf_state, provider);
+
+    log::info!("[oauth] native sign-in: loopback on 127.0.0.1:{port}, opening system browser");
+
+    // The opener plugin's Rust API, not the JS one: a Rust-internal call is not
+    // gated by the opener ACL/scope (same reason `open_external` in lib.rs uses it).
+    app.opener()
+        .open_url(authorize, None::<&str>)
+        .map_err(|e| format!("could not open the system browser: {e}"))?;
+
+    let code = await_loopback_code(listener, &csrf_state).await?;
+
+    let tokens = post_native_tokens(
+        state,
+        base,
+        "/auth/native/token",
+        serde_json::json!({ "code": code, "code_verifier": pkce.verifier }),
+    )
+    .await?;
+
+    store_native_tokens(app, base, &tokens);
+    log::info!("[oauth] native sign-in complete for base={base}");
+
+    Ok(tokens)
+}
+
+/// The bearer to authenticate this gateway with, refreshing first when the stored
+/// access token is at or inside the skew window. `None` means "no native session"
+/// — the caller falls back to the cookie jar, exactly as before.
+///
+/// A refusal from `/auth/native/refresh` clears the stored set: a refresh token
+/// the gateway will not rotate is dead, and keeping it would make every later call
+/// spend a doomed round trip.
+async fn ensure_native_access_token(app: &AppHandle, state: &TransportState, base: &str) -> Option<String> {
+    let tokens = load_native_tokens(app, base)?;
+
+    if !native::needs_refresh(&tokens, now_secs()) {
+        return Some(tokens.access_token);
+    }
+
+    if tokens.refresh_token.is_empty() {
+        clear_native_tokens(app, base);
+
+        return None;
+    }
+
+    match post_native_tokens(
+        state,
+        base,
+        "/auth/native/refresh",
+        serde_json::json!({ "refresh_token": tokens.refresh_token, "provider": tokens.provider }),
+    )
+    .await
+    {
+        Ok(rotated) => {
+            store_native_tokens(app, base, &rotated);
+
+            Some(rotated.access_token)
+        }
+        Err(e) => {
+            log::info!("[oauth] native refresh failed, dropping the stored session: {e}");
+            clear_native_tokens(app, base);
+
+            None
+        }
+    }
 }
 
 /// A completed gateway login is signalled by the presence of the access- or
@@ -172,6 +925,22 @@ pub async fn oauth_login(
     let provider = provider.unwrap_or_else(|| "nous".to_string());
     let base_url = Url::parse(&base).map_err(|e| format!("invalid gateway URL {base:?}: {e}"))?;
 
+    // RFC 8252 first when the gateway can broker it. This is the whole point of
+    // the capability probe: a gateway that never says `native_pkce` (older build,
+    // or password-only) drops through to the webview cascade with no version check
+    // and no behaviour change.
+    if advertises_native_flow(state.inner(), &base).await {
+        log::info!("[oauth] gateway advertises {}; taking the native flow", native::NATIVE_FLOW_ID);
+
+        match run_native_login(&app, state.inner(), &base, &provider).await {
+            Ok(_) => return Ok(()),
+            // Fall through rather than fail: the cookie flow still works, and a
+            // user who cannot sign in at all is a worse outcome than one who signs
+            // in the old way. The reason is logged, never surfaced as a dead end.
+            Err(e) => log::warn!("[oauth] native sign-in failed, falling back to the webview flow: {e}"),
+        }
+    }
+
     // Load the gateway's own login entry point in the webview (not the IDP
     // directly): it sets the webview's PKCE cookie and 302s straight to the
     // provider, then runs the full cascade back to the dashboard — all inside the
@@ -277,30 +1046,61 @@ pub struct OauthStatus {
     signed_in: bool,
     email: Option<String>,
     display_name: Option<String>,
+    /// The RFC 8252 bearer for this gateway, when a native session is live and
+    /// current (refreshed here if it was inside the skew window). `None` means the
+    /// session — if any — is a cookie one, so callers keep using the shared jar.
+    ///
+    /// This is desktop's `resolveOauthRestAuth` contract expressed as data: JS
+    /// prefers the bearer and falls back to the cookie. The token crosses IPC
+    /// because a command cannot be registered from this module today (see the
+    /// module docs); the follow-up is to inject the header inside the transport so
+    /// the webview never holds it.
+    native_access_token: Option<String>,
 }
 
-/// Whether the shared jar currently holds a live gateway session, via the
-/// auth-required `GET /api/auth/me` probe (401 ⇒ signed out). Used on connect to
-/// decide between a silent reconnect and re-opening the sign-in window.
+/// Whether a live gateway session exists — native bearer OR cookie jar, in that
+/// order. Used on connect to decide between a silent reconnect and an interactive
+/// sign-in.
+///
+/// The order matters: after a native login there is no cookie at all, so a
+/// cookie-only probe would report "signed out" and loop the user back through the
+/// browser on every connect. Mirrors desktop's `oauthSessionIsLive`.
 #[tauri::command]
 pub async fn oauth_status(
+    app: AppHandle,
     state: State<'_, TransportState>,
     base: String,
 ) -> Result<OauthStatus, String> {
     let base = normalize_base(&base);
-    let resp = state
+    let bearer = ensure_native_access_token(&app, state.inner(), &base).await;
+
+    let mut request = state
         .client()
         .get(format!("{base}/api/auth/me"))
-        .header(reqwest::header::ORIGIN, &base)
+        .header(reqwest::header::ORIGIN, &base);
+
+    if let Some(token) = bearer.as_deref() {
+        request = request.bearer_auth(token);
+    }
+
+    let resp = request
         .send()
         .await
         .map_err(|e| format!("auth/me request failed: {e}"))?;
 
     if !resp.status().is_success() {
+        // A bearer the gateway rejects is dead (the middleware answers a bad
+        // bearer with 401 rather than falling through to the cookie), so drop it
+        // instead of re-presenting it on every probe.
+        if bearer.is_some() {
+            clear_native_tokens(&app, &base);
+        }
+
         return Ok(OauthStatus {
             signed_in: false,
             email: None,
             display_name: None,
+            native_access_token: None,
         });
     }
 
@@ -315,24 +1115,41 @@ pub async fn oauth_status(
             .get("display_name")
             .and_then(|v| v.as_str())
             .map(str::to_string),
+        native_access_token: bearer,
     })
 }
 
 /// Sign out of the gateway session. `POST /auth/logout` revokes the refresh token
 /// server-side and responds with max-age=0 Set-Cookie headers, which reqwest's
 /// shared cookie jar applies — clearing the local session in the same round trip.
+///
+/// The stored native token set is dropped FIRST and unconditionally: a sign-out
+/// that left a usable bearer in the keyring would silently sign the user back in
+/// on the next connect, and that is worse than a logout POST that failed.
 #[tauri::command]
 pub async fn oauth_logout(
+    app: AppHandle,
     state: State<'_, TransportState>,
     base: String,
 ) -> Result<(), String> {
     let base = normalize_base(&base);
+    let bearer = load_native_tokens(&app, &base).map(|t| t.access_token);
+    clear_native_tokens(&app, &base);
+
     // redirects OFF: the logout 302 -> /login is irrelevant; we only need the
     // clearing Set-Cookie on the 302 response itself.
-    state
+    let mut request = state
         .no_redirect_client()
         .post(format!("{base}/auth/logout"))
-        .header(reqwest::header::ORIGIN, &base)
+        .header(reqwest::header::ORIGIN, &base);
+
+    // Present the bearer so the gateway can revoke the refresh token server-side
+    // too; without it a native sign-out would only be local.
+    if let Some(token) = bearer.as_deref() {
+        request = request.bearer_auth(token);
+    }
+
+    request
         .send()
         .await
         .map_err(|e| format!("auth/logout request failed: {e}"))?;

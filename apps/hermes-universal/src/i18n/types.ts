@@ -249,7 +249,17 @@ export interface Translations {
       turnErrorTitle: string
       backgroundDoneTitle: string
       backgroundFailedTitle: string
+      creditsTitle: string
     }
+  }
+
+  billingBlock: {
+    titleNous: string
+    titleProvider: (provider: string) => string
+    fallbackMessage: string
+    openBilling: string
+    addCredits: string
+    dismiss: string
   }
 
   remoteDisplayBanner: {
@@ -359,7 +369,7 @@ export interface Translations {
       enableAllDesc: string
       focusedHint: string
       kinds: Record<
-        'approval' | 'backgroundDone' | 'input' | 'plugin' | 'turnDone' | 'turnError',
+        'approval' | 'backgroundDone' | 'credits' | 'input' | 'plugin' | 'turnDone' | 'turnError',
         { label: string; description: string }
       >
       test: string

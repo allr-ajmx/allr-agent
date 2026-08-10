@@ -20,6 +20,12 @@ export interface AppNotification {
   kind: NotificationKind
   /** Desktop codicon name; ignored by the mobile stack. */
   icon?: string
+  /** CSS color token overriding the kind icon's default tint — the credits
+   *  usage ramp (muted → orange → red) rides on this. */
+  accentColor?: string
+  /** Secondary detail line rendered below the message, muted (e.g. "$220.00 cap").
+   *  Unlike `detail` this is prose, not a monospace error dump. */
+  meta?: string
   title?: string
   message: string
   detail?: string
@@ -29,10 +35,12 @@ export interface AppNotification {
   placement?: NotificationPlacement
 }
 
-interface NotificationInput {
+export interface NotificationInput {
   id?: string
   kind?: NotificationKind
   icon?: string
+  accentColor?: string
+  meta?: string
   title?: string
   message: string
   detail?: string
@@ -127,6 +135,8 @@ export function notify(input: NotificationInput): string {
     id,
     kind,
     icon: input.icon,
+    accentColor: input.accentColor,
+    meta: input.meta,
     title: input.title,
     message: input.message,
     detail: input.detail,

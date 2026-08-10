@@ -1,6 +1,7 @@
 import { type ReactNode, useLayoutEffect, useMemo, useRef } from 'react'
 
 import { blurComposerInput } from '@/app/chat/composer/focus'
+import { BillingBanner } from '@/components/chat/billing-banner'
 import { composerDockCard } from '@/components/chat/composer-dock'
 import { StatusSection } from '@/components/chat/status-section'
 import { Codicon } from '@/components/ui/codicon'
@@ -8,6 +9,7 @@ import { useI18n } from '@/i18n'
 import { IS_MOBILE } from '@/lib/platform'
 import { cn } from '@/lib/utils'
 import { useStore } from '@/store/atom'
+import { $billingBlock } from '@/store/billing-block'
 import { $previewStatusBySession, dismissPreviewArtifact, type PreviewArtifact } from '@/store/preview-status'
 import { $subagentsBySession, type SubagentProgress } from '@/store/subagents'
 import { $threadScrolledUp } from '@/store/thread-scroll'
@@ -42,6 +44,7 @@ export function ComposerStatusStack({ queue, sessionId }: ComposerStatusStackPro
   const bySession = useStore($subagentsBySession)
   const previewBySession = useStore($previewStatusBySession)
   const scrolledUp = useStore($threadScrolledUp)
+  const billing = useStore($billingBlock)
 
   const subagents = useMemo<SubagentProgress[]>(
     () => (sessionId ? (bySession[sessionId] ?? bySession.active ?? []) : (bySession.active ?? [])),
@@ -54,6 +57,13 @@ export function ComposerStatusStack({ queue, sessionId }: ComposerStatusStackPro
   )
 
   const sections: { key: string; node: ReactNode }[] = []
+
+  // Billing wall sits at the very top of the stack — it's the most important
+  // thing above the composer when the account is out of credits. Rendered here
+  // (not as a composer-disable) so slash commands stay usable.
+  if (billing && sessionId && billing.sessionId === sessionId) {
+    sections.push({ key: 'billing', node: <BillingBanner sessionId={sessionId} /> })
+  }
 
   if (subagents.length > 0) {
     sections.push({
