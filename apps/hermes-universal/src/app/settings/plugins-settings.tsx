@@ -86,6 +86,13 @@ function PluginRow({ record, reveal }: { record: PluginRecord; reveal?: (path: s
       description={
         record.status === 'error' ? (
           <span className="text-(--ui-danger,#f87171)">{record.error}</span>
+        ) : record.description ? (
+          // What the plugin DOES, when its manifest says — the id/path below it
+          // answers "which one is this", which is a different question.
+          <span className="flex flex-col">
+            <span>{record.description}</span>
+            <span className="opacity-70">{record.file ?? record.id}</span>
+          </span>
         ) : (
           (record.file ?? record.id)
         )

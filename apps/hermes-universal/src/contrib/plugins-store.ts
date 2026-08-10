@@ -21,6 +21,9 @@ export type PluginStatus = 'disabled' | 'error' | 'loaded'
 export interface PluginRecord {
   id: string
   name: string
+  /** One line on what the plugin does, from its manifest — the inventory's
+   *  only chance to say why a row is worth enabling. */
+  description?: string
   kind: PluginKind
   status: PluginStatus
   /** Load/registration failure message (status 'error'). */

@@ -139,6 +139,28 @@ export { type RouteContribution, ROUTES_AREA, SIDEBAR_NAV_AREA, type SidebarNavC
  *  canonical one lives in the settings primitives. Same component, same look. */
 export { EmptyState } from '@/app/settings/primitives'
 
+/**
+ * THE model catalog menu — the very component the chat composer's model pill
+ * renders, so a plugin that lets the user choose a model gets the app's search,
+ * provider grouping, `-fast` family collapse and thinking-depth submenu for
+ * free, and can never drift from the composer's.
+ *
+ * It renders and navigates; a `ModelMenuController` decides what a selection
+ * MEANS. The composer's writes through to the live session; a plugin's may just
+ * hold a detached value (a per-task override) — that seam is the whole point.
+ * Mount it inside a `DropdownMenuContent` and provide `ModelMenuCloseContext`
+ * so a committed row dismisses your dropdown.
+ */
+export {
+  ModelCatalogMenu,
+  type ModelChoice,
+  ModelMenuCloseContext,
+  type ModelMenuController
+} from '@/app/shell/model-catalog-menu'
+/** The reasoning levels the app offers, and what an unset effort resolves to —
+ *  so a plugin storing a thinking depth stores one the app agrees with. */
+export { DEFAULT_REASONING_EFFORT, REASONING_EFFORTS } from '@/app/shell/model-edit-submenu'
+
 // -- ui: the design language --------------------------------------------------
 
 export type { StatusbarItem } from '@/app/shell/statusbar-controls'
@@ -253,6 +275,11 @@ export { triggerHaptic as haptic } from '@/lib/haptics'
 /** The app's icon set (RefreshCw, LayoutDashboard, Activity, …). */
 export * as icons from '@/lib/icons'
 export { type KeybindContribution, KEYBINDS_AREA } from '@/lib/keybinds/actions'
+/** Model-id presentation, shared with the composer and the status bar:
+ *  `displayModelName` for the friendly name, `modelDisplayParts` to split off a
+ *  variant tag, `reasoningEffortLabel` to render a thinking depth ('high' →
+ *  'High'). A plugin showing a model should never hand-roll these. */
+export { displayModelName, modelDisplayParts, reasoningEffortLabel } from '@/lib/model-status-label'
 
 export const PANES_AREA = 'panes'
 /** The app's deterministic identity color for a name (profiles, assignees,
