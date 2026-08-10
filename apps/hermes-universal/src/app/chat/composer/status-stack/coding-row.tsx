@@ -17,7 +17,7 @@ import { DiffCount } from '@/components/ui/diff-count'
 import type { HermesGitBranch } from '@/global'
 import { useI18n } from '@/i18n'
 import { displayPath } from '@/lib/display-path'
-import { $repoStatus, $repoWorktrees, openWorktreeDialog } from '@/store/coding-status'
+import { openWorktreeDialog, registerRepoStatusCwd, repoStatusForCwd, repoWorktreesForCwd } from '@/store/coding-status'
 import { notifyError } from '@/store/notifications'
 import { $pullRequestsByBranch, branchPrKey, refreshPullRequests } from '@/store/pull-requests'
 
@@ -67,10 +67,17 @@ export const CodingStatusRow = memo(function CodingStatusRow({
   const s = t.statusStack.coding
   const p = t.sidebar.projects
   const fileMenu = t.fileMenu
-  const status = useStore($repoStatus)
-  const worktrees = useStore($repoWorktrees)
-
   const resolvedRepoPath = repoPath?.trim() || undefined
+
+  // THIS rail's worktree, never the sidebar's. The composer mounts once per
+  // tile, so a global status painted the primary repo's branch and ± onto every
+  // rail; each one reads the cwd it was handed instead.
+  const status = useStore(repoStatusForCwd(resolvedRepoPath))
+  const worktrees = useStore(repoWorktreesForCwd(resolvedRepoPath))
+
+  // Keep this worktree in the refresh set while the rail is mounted, so its
+  // counts move when ITS agent touches the tree — not only the primary's.
+  useEffect(() => registerRepoStatusCwd(resolvedRepoPath), [resolvedRepoPath])
 
   // The branch's PR, so the rail links to it instead of leaving you to go find
   // it. One `gh` lookup for this one branch, TTL-cached in the store and shared

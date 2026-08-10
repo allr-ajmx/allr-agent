@@ -12,7 +12,7 @@ import { requestOneShot } from '@/lib/oneshot'
 import { Codecs, persistentAtom } from '@/lib/persisted'
 
 import { $busy } from './chat'
-import { $repoStatus, refreshRepoStatus } from './coding-status'
+import { refreshRepoStatus, repoStatusForCwd } from './coding-status'
 import { stampSessionPrBranch } from './pull-requests'
 import { $activeStoredSessionId, $sessions } from './session'
 import { $effectiveCwd, $workspaceChangeTick } from './workspace-events'
@@ -533,7 +533,7 @@ export async function createOrOpenPr(): Promise<void> {
     // from — otherwise a session that began on trunk badges whatever else lives
     // on trunk, or nothing.
     const session = $sessions.get().find(s => s.id === $activeStoredSessionId.get())
-    const branch = $repoStatus.get()?.branch
+    const branch = repoStatusForCwd(ctx.cwd).get()?.branch
 
     if (session?.git_repo_root && branch) {
       stampSessionPrBranch(session.id, session.git_repo_root, branch)

@@ -14,7 +14,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import type { HermesGitBaseBranch } from '@/global'
 import { useI18n } from '@/i18n'
-import { $repoStatus } from '@/store/coding-status'
+import { registerRepoStatusCwd, repoStatusForCwd } from '@/store/coding-status'
 import { listBaseBranches } from '@/store/projects'
 
 // Filterable picker for the base branch of a new worktree. Lists local +
@@ -41,13 +41,19 @@ export function BaseBranchPicker({
 }) {
   const { t } = useI18n()
   const p = t.sidebar.projects
-  const repoStatus = useStore($repoStatus)
+  // The dialog can be opened from a tile's rail, so the branch pinned to the top
+  // is the one checked out in THIS repo — not whatever the sidebar has selected.
+  const repoStatus = useStore(repoStatusForCwd(repoPath))
   const [branches, setBranches] = useState<HermesGitBaseBranch[]>([])
   const [loading, setLoading] = useState(false)
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
 
   const currentBranch = repoStatus?.detached ? null : (repoStatus?.branch ?? null)
+
+  // Nothing else guarantees this repo has been probed — the dialog can target a
+  // project root that no rail is sitting in — so ask for it while we're open.
+  useEffect(() => registerRepoStatusCwd(repoPath), [repoPath])
 
   const load = useCallback(async () => {
     if (!repoPath) {
