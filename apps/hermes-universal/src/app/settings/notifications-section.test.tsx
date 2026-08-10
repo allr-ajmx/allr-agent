@@ -9,7 +9,7 @@ import { NotificationsSection } from './notifications-section'
 
 const DEFAULTS = {
   enabled: true,
-  kinds: { approval: true, backgroundDone: true, input: true, turnDone: true, turnError: true }
+  kinds: { approval: true, backgroundDone: true, input: true, plugin: true, turnDone: true, turnError: true }
 }
 
 function renderSection() {
@@ -31,9 +31,9 @@ describe('NotificationsSection', () => {
   it('renders the master switch + a switch per kind + the haptics toggle', () => {
     renderSection()
     expect(screen.getByText('Enable notifications')).toBeInTheDocument()
-    // master + 5 kinds + haptics = 7 switches (haptics row shows off-desktop, and
+    // master + 6 kinds + haptics = 8 switches (haptics row shows off-desktop, and
     // vitest is a non-Tauri host so IS_DESKTOP is false)
-    expect(screen.getAllByRole('switch')).toHaveLength(7)
+    expect(screen.getAllByRole('switch')).toHaveLength(8)
   })
 
   it('toggles the master enabled flag through the store', () => {

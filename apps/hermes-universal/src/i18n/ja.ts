@@ -313,6 +313,10 @@ export const ja = defineLocale({
         backgroundDone: {
           label: 'バックグラウンドタスク完了',
           description: 'バックグラウンドのターミナルコマンドが完了しました。'
+        },
+        plugin: {
+          label: 'プラグイン通知',
+          description: 'Hermes がバックグラウンドのときにプラグインが通知を送信しました。'
         }
       },
       test: 'テスト通知を送信',

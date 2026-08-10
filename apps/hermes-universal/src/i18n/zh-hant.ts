@@ -306,6 +306,10 @@ export const zhHant = defineLocale({
         backgroundDone: {
           label: '背景工作完成',
           description: '背景終端機指令已完成。'
+        },
+        plugin: {
+          label: '外掛通知',
+          description: 'Hermes 位於背景時，外掛送出了通知。'
         }
       },
       test: '傳送測試通知',
