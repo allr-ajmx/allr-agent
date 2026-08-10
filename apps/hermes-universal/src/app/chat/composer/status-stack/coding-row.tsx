@@ -12,9 +12,11 @@ import {
 } from '@/components/ui/actions-menu'
 import { Button } from '@/components/ui/button'
 import { Codicon } from '@/components/ui/codicon'
+import { CopyButton } from '@/components/ui/copy-button'
 import { DiffCount } from '@/components/ui/diff-count'
 import type { HermesGitBranch } from '@/global'
 import { useI18n } from '@/i18n'
+import { displayPath } from '@/lib/display-path'
 import { $repoStatus, $repoWorktrees, openWorktreeDialog } from '@/store/coding-status'
 import { notifyError } from '@/store/notifications'
 import { $pullRequestsByBranch, branchPrKey, refreshPullRequests } from '@/store/pull-requests'
@@ -64,6 +66,7 @@ export const CodingStatusRow = memo(function CodingStatusRow({
   const { t } = useI18n()
   const s = t.statusStack.coding
   const p = t.sidebar.projects
+  const fileMenu = t.fileMenu
   const status = useStore($repoStatus)
   const worktrees = useStore($repoWorktrees)
 
@@ -210,13 +213,42 @@ export const CodingStatusRow = memo(function CodingStatusRow({
         >
           <div className="flex min-w-0 flex-1 items-center gap-1">
             <span
-              className="min-w-0 w-full truncate text-xs font-normal text-muted-foreground/92 transition-colors group-hover/status-row:text-foreground/90"
+              className="min-w-0 truncate text-xs font-normal text-muted-foreground/92 transition-colors group-hover/status-row:text-foreground/90"
               title={branchLabel}
             >
               {branchLabel}
             </span>
 
             {pr && <PrTag pr={pr} />}
+
+            {/* Worktree path + copy — plain muted text, not a chip. Always in
+                the flex so hover doesn't reflow the row; opacity alone reveals
+                the pair. The path sizes to its content (the `flex-1` lives on
+                the wrapper) so the glyph sits against the end of the text
+                instead of drifting to the far edge. `displayPath` collapses
+                home to ~; the copy still takes the real absolute path, and it's
+                the shared CopyButton so it confirms with the same inline
+                checkmark as every other copy in the app. */}
+            {resolvedRepoPath && (
+              <div className="flex min-w-0 flex-1 items-center gap-0.5 opacity-0 transition-opacity group-focus-within/status-row:opacity-100 group-hover/status-row:opacity-100">
+                <span
+                  className="min-w-0 truncate font-mono text-[0.62rem] leading-4 text-muted-foreground/50"
+                  data-slot="coding-status-cwd"
+                >
+                  {displayPath(resolvedRepoPath)}
+                </span>
+                <CopyButton
+                  appearance="icon"
+                  buttonSize="icon-xs"
+                  className="pointer-events-none size-4 shrink-0 text-muted-foreground/50 group-focus-within/status-row:pointer-events-auto group-hover/status-row:pointer-events-auto hover:text-foreground"
+                  iconClassName="size-3"
+                  label={fileMenu.copyPath}
+                  side="top"
+                  stopPropagation
+                  text={resolvedRepoPath}
+                />
+              </div>
+            )}
 
             {/* Branch actions kebab. ALWAYS laid out; only its opacity flips on
                 hover/focus/open, so revealing it never reflows the row (no layout
