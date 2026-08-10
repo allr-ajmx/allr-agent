@@ -974,9 +974,22 @@ export interface AuxiliaryModelsResponse {
   tasks: AuxiliaryTaskAssignment[]
 }
 
+/**
+ * One MoA slot — a reference model, or the aggregator.
+ *
+ * `enabled` and `reasoning_effort` are honoured by the backend
+ * (`hermes_cli/web_models.py` `MoaModelSlot`, `agent/moa_loop.py:1244` filters
+ * reference slots on `enabled`) and survive a save today because the settings
+ * page spreads the existing slot rather than rebuilding it. They were simply
+ * absent from this type, so no UI could offer them. Optional: a slot saved
+ * before either existed omits the key, and the backend reads a missing
+ * `enabled` as `true`.
+ */
 export interface MoaModelSlot {
   provider: string
   model: string
+  enabled?: boolean
+  reasoning_effort?: null | string
 }
 
 export interface MoaConfigResponse {
