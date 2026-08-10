@@ -1563,6 +1563,9 @@ export interface Translations {
       branchOpenExisting: string
       branchSwitchHome: string
       branchCreateWorktree: string
+      worktreeProjectLabel: string
+      worktreeProjectPlaceholder: string
+      worktreeProjectNone: string
       branchesLoading: string
       noBranches: string
       removeWorktree: string

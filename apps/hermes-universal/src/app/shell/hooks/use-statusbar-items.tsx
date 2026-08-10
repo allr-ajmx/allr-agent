@@ -12,19 +12,7 @@ import { StatusDot } from '@/components/status-dot'
 import { Codicon } from '@/components/ui/codicon'
 import { $pluginRecords } from '@/contrib/plugins-store'
 import { useI18n } from '@/i18n'
-import {
-  Activity,
-  AlertCircle,
-  Clock,
-  Command,
-  FolderOpen,
-  Hash,
-  Loader2,
-  Plug,
-  Sun,
-  Terminal,
-  Zap
-} from '@/lib/icons'
+import { Activity, AlertCircle, Clock, Command, FolderOpen, Hash, Loader2, Plug, Sun, Terminal, Zap } from '@/lib/icons'
 import { IS_DESKTOP, IS_MOBILE } from '@/lib/platform'
 import { revealPathInFileManager } from '@/lib/reveal-path'
 import { projectForCwd } from '@/lib/session-membership'

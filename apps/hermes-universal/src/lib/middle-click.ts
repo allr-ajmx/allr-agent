@@ -7,8 +7,7 @@ const MIDDLE_BUTTON = 1
  *  is the trackpad equivalent of middle-click-to-close. Guarded on metaKey so
  *  it never collides with left-click (activate/drag) or ⌃-click (macOS context
  *  menu). */
-export const isMetaClose = (event: { button: number; metaKey: boolean }): boolean =>
-  event.button === 0 && event.metaKey
+export const isMetaClose = (event: { button: number; metaKey: boolean }): boolean => event.button === 0 && event.metaKey
 
 /** Where the current middle press started. One pointer holds one button, so a
  *  single slot is the whole state, and it is only ever compared by identity in

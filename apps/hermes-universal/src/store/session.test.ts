@@ -548,7 +548,6 @@ describe('unread-finished tracking', () => {
   })
 })
 
-
 describe('pinned rows survive the loaded window', () => {
   it('falls back to the last-known row for a pin that scrolled out of the page', () => {
     const pinned = row('stored-pin', 'Pinned chat')
@@ -577,7 +576,6 @@ describe('pinned rows survive the loaded window', () => {
     expect($pinnedSessionCache.get()['stored-pin']).toBeUndefined()
   })
 })
-
 
 // The icon table (app/messaging/platform-icon.tsx) and this source list answer
 // two halves of one question, and a platform in only one of them is invisible in

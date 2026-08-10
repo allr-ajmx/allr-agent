@@ -1,7 +1,6 @@
 import { useStore } from '@nanostores/react'
-import { memo, useEffect, useRef, useState } from 'react'
+import { memo } from 'react'
 
-import { WorktreeDialog } from '@/app/chat/sidebar/projects/worktree-dialog'
 import { StatusRow } from '@/components/chat/status-row'
 import {
   type ActionItemSpec,
@@ -15,9 +14,8 @@ import { Codicon } from '@/components/ui/codicon'
 import { DiffCount } from '@/components/ui/diff-count'
 import type { HermesGitBranch } from '@/global'
 import { useI18n } from '@/i18n'
-import { $repoStatus, $repoWorktrees } from '@/store/coding-status'
+import { $repoStatus, $repoWorktrees, openWorktreeDialog } from '@/store/coding-status'
 import { notifyError } from '@/store/notifications'
-import { $newWorktreeRequest } from '@/store/projects'
 
 // Tiny uppercase section header, matching the composer "+" menu's labels.
 const MENU_SECTION = 'text-[0.625rem] font-semibold uppercase tracking-wider text-(--ui-text-tertiary)'
@@ -67,10 +65,6 @@ export const CodingStatusRow = memo(function CodingStatusRow({
   const status = useStore($repoStatus)
   const worktrees = useStore($repoWorktrees)
 
-  // Shared worktree dialog, opened by the dropdown menu's "branch off" items and
-  // by the global ⌘⇧B hotkey.
-  const [worktreeOpen, setWorktreeOpen] = useState(false)
-  const [worktreeBase, setWorktreeBase] = useState<string | undefined>(undefined)
   const resolvedRepoPath = repoPath?.trim() || undefined
 
   const switchToBranch = async (branch: string) => {
@@ -85,33 +79,12 @@ export const CodingStatusRow = memo(function CodingStatusRow({
     }
   }
 
-  // Global ⌘⇧B (workspace.newWorktree): open the shared worktree dialog. The
-  // coding row only renders inside a repo, so the hotkey naturally no-ops
-  // elsewhere. Guarded by a token ref so it fires on the keypress, not on mount
-  // or unrelated re-renders.
-  const worktreeReq = useStore($newWorktreeRequest)
-  const lastWorktreeReqRef = useRef(worktreeReq)
-
-  useEffect(() => {
-    if (worktreeReq === lastWorktreeReqRef.current) {
-      return
-    }
-
-    lastWorktreeReqRef.current = worktreeReq
-
-    if (!resolvedRepoPath || !onOpenWorktree) {
-      return
-    }
-
-    setWorktreeBase(undefined)
-    setWorktreeOpen(true)
-  }, [onOpenWorktree, resolvedRepoPath, worktreeReq])
-
-  // Open the worktree dialog from the dropdown menu with a pre-selected base.
-  // Deferred a tick so the menu finishes closing before the dialog mounts.
+  // ⌘⇧B is handled globally by useKeybinds, through openWorktreeDialog. ONE
+  // dialog is mounted in the sidebar, so N mounted rails can no longer each open
+  // their own copy. These menu items only publish the intent, pinning the repo of
+  // THIS rail so a tile's kebab targets that tile's worktree.
   const startBranch = (base: string | undefined) => {
-    setWorktreeBase(base)
-    setTimeout(() => setWorktreeOpen(true), 0)
+    void openWorktreeDialog({ base, repoPath: resolvedRepoPath })
   }
 
   if (!status) {
@@ -291,16 +264,6 @@ export const CodingStatusRow = memo(function CodingStatusRow({
           ) : null}
         </StatusRow>
       </ActionsContextMenu>
-
-      {resolvedRepoPath && onOpenWorktree && (
-        <WorktreeDialog
-          initialBase={worktreeBase}
-          onOpenChange={setWorktreeOpen}
-          onStarted={onOpenWorktree}
-          open={worktreeOpen}
-          repoPath={resolvedRepoPath}
-        />
-      )}
     </>
   )
 })

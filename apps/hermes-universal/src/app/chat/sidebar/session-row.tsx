@@ -217,11 +217,7 @@ function SidebarSessionRowImpl({
           }}
         >
           {reorderable ? (
-            <SidebarRowGrab
-              ariaLabel={`${r.rename} ${title}`}
-              dragging={dragging}
-              dragHandleProps={dragHandleProps}
-            >
+            <SidebarRowGrab ariaLabel={`${r.rename} ${title}`} dragging={dragging} dragHandleProps={dragHandleProps}>
               <SessionStatusDot
                 branchStem={branchStem}
                 className="transition-opacity group-hover/handle:opacity-0 group-focus-within/handle:opacity-0"

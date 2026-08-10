@@ -1,21 +1,15 @@
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { HermesRepoStatus } from '@/global'
 import { $repoStatus, $repoWorktrees } from '@/store/coding-status'
 import type * as NotificationsModule from '@/store/notifications'
 import { notifyError } from '@/store/notifications'
-import { $newWorktreeRequest } from '@/store/projects'
+import { $worktreeDialog } from '@/store/projects'
 
 vi.mock('@/store/notifications', async importOriginal => ({
   ...(await importOriginal<typeof NotificationsModule>()),
   notifyError: vi.fn()
-}))
-
-// The dialog does its own git probing on mount; the row's behaviour is what's
-// under test, so stub it down to a marker.
-vi.mock('@/app/chat/sidebar/projects/worktree-dialog', () => ({
-  WorktreeDialog: ({ open }: { open: boolean }) => (open ? <div data-testid="worktree-dialog" /> : null)
 }))
 
 import { CodingStatusRow } from './coding-row'
@@ -47,7 +41,7 @@ afterEach(() => {
   cleanup()
   $repoStatus.set(null)
   $repoWorktrees.set([])
-  $newWorktreeRequest.set(0)
+  $worktreeDialog.set(null)
   vi.mocked(notifyError).mockClear()
 })
 
@@ -102,16 +96,20 @@ describe('CodingStatusRow', () => {
     expect(screen.queryByRole('button', { name: /new branch/i })).toBeNull()
   })
 
-  it('opens the worktree dialog when the ⌘⇧B token bumps', () => {
+  // The row no longer mounts a dialog of its own (N rails = N stacked dialogs);
+  // it publishes an intent pinned to ITS repo, and the one mounted dialog
+  // renders it.
+  it('publishes a worktree intent pinned to its own repo', async () => {
     $repoStatus.set(status())
 
     render(<CodingStatusRow onBranchOff={noop} onOpenWorktree={() => undefined} repoPath="/repo" />)
 
-    expect(screen.queryByTestId('worktree-dialog')).toBeNull()
+    expect($worktreeDialog.get()).toBeNull()
 
-    act(() => $newWorktreeRequest.set($newWorktreeRequest.get() + 1))
+    openKebab()
+    fireEvent.click(await screen.findByText('New branch from main'))
 
-    expect(screen.getByTestId('worktree-dialog')).toBeInTheDocument()
+    await vi.waitFor(() => expect($worktreeDialog.get()).toEqual({ base: 'main', repoPath: '/repo' }))
   })
 
   it('toasts when switching branches fails', async () => {

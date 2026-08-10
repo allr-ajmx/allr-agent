@@ -1421,11 +1421,7 @@ export function moveTreePanes(
  * block (one pane, or a multi-tab selection). Falls back to a single-zone move
  * at `fallbackGroupId` when the set can't merge (non-rectangular selection).
  */
-export function mergeTreeZones(
-  groupIds: string[],
-  paneId: readonly string[] | string,
-  fallbackGroupId: null | string
-) {
+export function mergeTreeZones(groupIds: string[], paneId: readonly string[] | string, fallbackGroupId: null | string) {
   const tree = $layoutTree.get()
 
   if (!tree) {

@@ -94,6 +94,7 @@ import {
 } from './projects/model'
 import { ProjectBackRow } from './projects/overview-row'
 import { StartWorkButton } from './projects/workspace-header'
+import { WorktreeDialog } from './projects/worktree-dialog'
 import { SidebarPinnedEmptyState } from './section-states'
 import { SidebarSessionsSection } from './sessions-section'
 
@@ -374,7 +375,7 @@ export function SidebarScrollBody({
   // disappearing from the section while its pin is still stored.
   const pinnedSessions = useMemo(
     () => pinnedSessionRows(sessions, pinnedIds),
-     
+
     // in lockstep with these two by store/session.ts's subscriptions.
     [sessions, pinnedIds, pinnedCache]
   )
@@ -595,9 +596,7 @@ export function SidebarScrollBody({
               <div className="flex shrink-0 items-center gap-0.5">
                 {/* Inside a project: spin up a worktree off its repo root. The
                     same dialog the composer's ⌘⇧B opens. */}
-                {inProject && enteredProject?.path && (
-                  <StartWorkButton onStarted={newSessionInWorkspace} repoPath={enteredProject.path} />
-                )}
+                {inProject && enteredProject?.path && <StartWorkButton repoPath={enteredProject.path} />}
                 {grouped && !inProject && (
                   <Tip label={s.projects.newButton}>
                     <button
@@ -737,6 +736,8 @@ export function SidebarScrollBody({
       {searchPlacement === 'bottom' && searchField}
 
       <ProjectDialog />
+      {/* One mount for the whole app — see the WorktreeDialog header for why. */}
+      <WorktreeDialog />
     </div>
   )
 }

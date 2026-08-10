@@ -43,7 +43,12 @@ describe('terminalClipboardIntent — Windows/Linux', () => {
 
 describe('terminalClipboardIntent — guards', () => {
   it('ignores keyup and anything with Alt held', () => {
-    expect(terminalClipboardIntent(new KeyboardEvent('keyup', { key: 'c', metaKey: true }), { hasSelection: true, isMac: true })).toBeNull()
+    expect(
+      terminalClipboardIntent(new KeyboardEvent('keyup', { key: 'c', metaKey: true }), {
+        hasSelection: true,
+        isMac: true
+      })
+    ).toBeNull()
     expect(
       terminalClipboardIntent(keydown({ altKey: true, key: 'c', metaKey: true }), { hasSelection: true, isMac: true })
     ).toBeNull()

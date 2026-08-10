@@ -211,9 +211,10 @@ export function SidebarSessionsSection(props: SidebarSessionsSectionProps) {
   )
 
   // Static (non-draggable) rows for project previews + entered-project sessions.
-  const renderProjectRows = useCallback((items: SessionInfo[]) => items.map(session => renderRow(session, false)), [
-    renderRow
-  ])
+  const renderProjectRows = useCallback(
+    (items: SessionInfo[]) => items.map(session => renderRow(session, false)),
+    [renderRow]
+  )
 
   const showProjectsSkeleton =
     projectsLoading && !hasProjectOverview && !hasProjectContent && !projectContent && !hasGroups
