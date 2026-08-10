@@ -17,6 +17,7 @@ import {
   type ReactNode,
   type RefObject,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState
 } from 'react'
@@ -342,6 +343,47 @@ export function TreeGroup({
   const keptPanes = shown.filter(
     id => id === activeId || (everActiveRef.current.has(id) && paneFor(id)?.lifecycle !== 'unmount')
   )
+
+  // THE SIZE THE BODY FREEZES AT WHILE THE ZONE IS FOLDED (MJXHRM-373).
+  //
+  // A minimized zone shrinks to its header, so a body still in flow would be
+  // squeezed to nothing — and a terminal squeezed to nothing refits to one row
+  // and REFLOWS its scrollback, which is exactly what keeping it mounted is
+  // supposed to protect. Pinning the last laid-out size and taking the body out
+  // of flow means nothing inside it resizes at all: no refit, no PTY resize
+  // over IPC, no scroller snapping to the top.
+  //
+  // Measured in a layout effect (before paint) on every render where the zone
+  // is open, so the value is already right on the render that folds it. A ref,
+  // not state: writing it must not schedule a render, and the render that reads
+  // it is the one the tree's own store change already caused.
+  //
+  // It doubles as "this zone has been open at least once". A zone restored from
+  // a persisted layout ALREADY folded has no size to freeze at — and nothing to
+  // preserve either, since nothing ever mounted in it. Those stay lazy, which is
+  // the same reason `everActiveRef` above exists: a boot-restored stack must not
+  // resume five sessions (or spawn a shell) nobody has looked at.
+  const bodyRef = useRef<HTMLDivElement>(null)
+  const frozenBodyRef = useRef<CSSProperties | undefined>(undefined)
+
+  useLayoutEffect(() => {
+    const el = bodyRef.current
+
+    if (node.minimized || !el) {
+      return
+    }
+
+    const { height, width } = el.getBoundingClientRect()
+
+    // Zero while the zone is mid-transition, or collapsed by its parent split;
+    // freezing at zero is the reflow this whole mechanism exists to avoid.
+    if (height > 0 && width > 0) {
+      frozenBodyRef.current = { height, width }
+    }
+  })
+
+  const frozenBody = frozenBodyRef.current
+  const bodyMounted = !node.minimized || frozenBody !== undefined
 
   // ONE header style: the app's compact pane-header. DEFAULT is contextual —
   // a single pane isn't a "tab", so its header auto-hides; a stack shows its
@@ -784,9 +826,38 @@ export function TreeGroup({
 
       {/* Body: the active pane's contributed content, or the empty zone.
           `data-tree-body` is what the opt-in calm-while-resizing rule targets
-          (styles.css): one marker on the container, not a rule per surface. */}
-      {!node.minimized && (
-        <div className="relative min-h-0 min-w-0 flex-1 overflow-auto" data-tree-body>
+          (styles.css): one marker on the container, not a rule per surface.
+
+          MINIMIZE HIDES, IT DOES NOT UNMOUNT (MJXHRM-373). This used to be
+          `{!node.minimized && …}`, which tore down every tile in the zone —
+          not just the active one, the whole kept set. For a chat that lost the
+          transcript's scroll position; for a terminal on the LOCAL transport it
+          killed the shell, because `TerminalView`'s unmount cleanup invokes
+          `pty_kill`. The zone renderer was making a process-lifetime decision
+          on the terminal's behalf.
+
+          Frozen at its last size and taken OUT OF FLOW rather than
+          `display: none`d, for two reasons. A zero-height box would make xterm
+          refit to one row and REFLOW the scrollback — destroying the thing the
+          fix is meant to preserve. And `display: none` destroys the layout
+          boxes, so every scroller inside snaps back to the top on restore.
+          `visibility: hidden` at a fixed size keeps both, and keeps
+          ResizeObserver quiet: nothing inside the zone resizes at all while it
+          is folded away. */}
+      {bodyMounted && (
+        <div
+          className={cn(
+            'relative min-h-0 min-w-0 overflow-auto',
+            node.minimized ? 'pointer-events-none invisible absolute top-0 left-0' : 'flex-1'
+          )}
+          data-tree-body
+          ref={bodyRef}
+          style={node.minimized ? frozenBody : undefined}
+          // Marks the whole zone's contents as hidden, so the document-wide
+          // "which chat surface / composer / viewport" lookups skip a folded
+          // zone the way they already skip an inactive tab.
+          {...hiddenPaneProps(Boolean(node.minimized))}
+        >
           {isEmpty ? (
             <div className="grid h-full place-items-center">
               {/* Same decode primitive as the CONNECTING boot overlay. */}
@@ -821,7 +892,10 @@ export function TreeGroup({
                     // the group id identifies the ZONE it lives in, for state
                     // that is per-zone rather than per-tab.
                     <PaneGroupContext.Provider value={node.id}>
-                      <PaneVisibleContext.Provider value={isActive}>
+                      {/* A folded zone is not showing ANY of its tiles, so the
+                          active one gates its hot subscriptions off too — the
+                          same contract an inactive tab has always had. */}
+                      <PaneVisibleContext.Provider value={isActive && !node.minimized}>
                         <PaneProfiler kind={tile.kind}>
                           {/* The reload epoch keys the CONTENT, not this layer:
                               a Reload remounts the contribution (effects re-run,
