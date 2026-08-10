@@ -22,6 +22,7 @@ import { HashRouter } from 'react-router-dom'
 import { App } from './app'
 import { RootErrorBoundary } from './components/error-boundary'
 import { HapticsProvider } from './components/haptics-provider'
+import { RootTooltipProvider } from './components/ui/tooltip'
 import { I18nProvider } from './i18n'
 import { warmKatexFonts } from './lib/katex-fonts'
 import { IS_MOBILE } from './lib/platform'
@@ -77,9 +78,15 @@ createRoot(container).render(
       <ThemeProvider>
         <QueryClientProvider client={queryClient}>
           <HapticsProvider>
-            <HashRouter>
-              <App />
-            </HashRouter>
+            {/* ONE tooltip provider for the whole app. Every `Tip` used to carry
+                its own, and with ~100 call sites those subtrees dominated
+                unrelated interactions. Radix's provider holds only refs and
+                stable callbacks, so hoisting is what it is for. */}
+            <RootTooltipProvider>
+              <HashRouter>
+                <App />
+              </HashRouter>
+            </RootTooltipProvider>
           </HapticsProvider>
         </QueryClientProvider>
       </ThemeProvider>

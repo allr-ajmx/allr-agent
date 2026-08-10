@@ -29,7 +29,7 @@ import { ColorSwatches } from '@/components/ui/color-swatches'
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from '@/components/ui/context-menu'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { Tip, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { Tip, Tooltip, TooltipContent, TooltipScope, TooltipTrigger } from '@/components/ui/tooltip'
 import { getProfileSoul, updateProfileSoul } from '@/hermes'
 import { useI18n } from '@/i18n'
 import { triggerHaptic } from '@/lib/haptics'
@@ -715,7 +715,7 @@ function ProfileSquare({
   return (
     <Popover onOpenChange={setPickerOpen} open={pickerOpen}>
       <ContextMenu>
-        <TooltipProvider delayDuration={0}>
+        <TooltipScope>
           <Tooltip>
             <PopoverAnchor asChild>
               <ContextMenuTrigger asChild>
@@ -786,7 +786,7 @@ function ProfileSquare({
             </PopoverAnchor>
             <TooltipContent>{label}</TooltipContent>
           </Tooltip>
-        </TooltipProvider>
+        </TooltipScope>
 
         {/* The rail sits at the very bottom, so pad off the chrome (esp. the
             statusbar) — Radix then flips the menu up instead of squishing it. */}

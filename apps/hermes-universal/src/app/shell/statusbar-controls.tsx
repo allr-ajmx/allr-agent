@@ -12,7 +12,7 @@ import {
   ContextMenuTrigger
 } from '@/components/ui/context-menu'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import { Tip, TipKeybindLabel, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { Tip, TipKeybindLabel, Tooltip, TooltipContent, TooltipScope, TooltipTrigger } from '@/components/ui/tooltip'
 import { useI18n } from '@/i18n'
 import { useKeybindHint } from '@/lib/keybinds/use-keybind-hint'
 import { cn } from '@/lib/utils'
@@ -257,12 +257,12 @@ export function StatusbarItemView({
     return (
       <DropdownMenu onOpenChange={setMenuOpen} open={menuOpen}>
         {item.title ? (
-          <TooltipProvider delayDuration={0}>
+          <TooltipScope>
             <Tooltip>
               <TooltipTrigger asChild>{trigger}</TooltipTrigger>
               <TooltipContent>{tooltipLabel}</TooltipContent>
             </Tooltip>
-          </TooltipProvider>
+          </TooltipScope>
         ) : (
           trigger
         )}
