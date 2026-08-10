@@ -24,6 +24,8 @@ import {
   type SatelliteWindowSpec
 } from '@/store/windows'
 
+import { installHudHandoff } from './handoff'
+
 /** The HUD's surface id, and therefore its `?win=` flag and label suffix. */
 export const HUD_SURFACE = HUD_SATELLITE.surface
 
@@ -63,6 +65,12 @@ export async function canUseHud(): Promise<boolean> {
  */
 export async function openHud(sessionId: null | string = hudTargetSessionId()): Promise<boolean> {
   requestComposerDraftSync('flush')
+
+  // Arm the return trip BEFORE the window exists (MJXHRM-371). The HUD takes the
+  // gateway's binding for whatever session it resumes, so this window has to be
+  // listening for the close that hands it back — and a listener installed after
+  // the HUD is up could miss one dismissed immediately.
+  installHudHandoff()
 
   const spec: SatelliteWindowSpec = sessionId ? { ...HUD_SATELLITE, route: sessionRoute(sessionId) } : HUD_SATELLITE
 

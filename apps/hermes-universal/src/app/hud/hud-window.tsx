@@ -19,6 +19,7 @@ import { $busy, $messages } from '@/store/chat'
 import { $connectionPhase } from '@/store/connection'
 import { openSession, refreshSessions } from '@/store/session'
 
+import { reportHudSession } from './handoff'
 import { closeHud } from './hud'
 import { useHudGrant, useHudInteractiveRect, useTransparentDocument } from './use-hud-surface'
 
@@ -104,6 +105,20 @@ function HudSurface() {
       }
     })()
   }, [phase, targetId])
+
+  // Tell the window that summoned us which conversation we ended up on, so it
+  // can take the gateway stream back when we go away (MJXHRM-371).
+  //
+  // Written on every change rather than on teardown: this window is destroyed by
+  // the compositor, and the value has to be on disk while it is still alive.
+  // Deliberately NOT cleared on unmount, for the same reason — the main window
+  // consumes and clears it, and a HUD racing its own destruction to erase it is
+  // how the handoff would quietly fall back to a stale session.
+  useEffect(() => {
+    if (targetId) {
+      reportHudSession(targetId)
+    }
+  }, [targetId])
 
   // Escape is the exit that costs nothing to learn. It is deliberately handled
   // here on the window rather than on the card: with exclusive keyboard focus
