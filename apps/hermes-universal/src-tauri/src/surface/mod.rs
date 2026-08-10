@@ -429,6 +429,135 @@ fn capabilities_for_other_desktop() -> SurfaceCapabilities {
 }
 
 // ---------------------------------------------------------------------------
+// Who may reshape which window (MJXHRM-382)
+// ---------------------------------------------------------------------------
+//
+// These commands take the label of the window to act on, and the webview they
+// are called from is *not* a trusted principal: plugins run in the app's own
+// webview, so any plugin — or any XSS in a rendered message — reaches this IPC
+// surface with the same authority the app has. Without a check, a caller could
+// name `main` and hand it an overlay-layer wlr-layer-shell role with
+// `keyboardFocus: exclusive`, i.e. turn the user's ordinary window into a
+// screen-covering surface that takes every keystroke; or shape the main
+// window's input region down to nothing.
+//
+// The rule is ownership, expressed in the label namespace this app already
+// uses. Only satellites (`sat-*`, see `store/windows.ts`) are reshapeable at
+// all — never `main`, `tile-*`, `instance-*`, `session-*` or `screen` — and a
+// satellite may only be reshaped by the window that attached it, or by itself.
+
+/// Label prefix for satellite windows. Must stay in step with
+/// `SATELLITE_LABEL_PREFIX` in `store/windows.ts` and with the `sat-*` glob in
+/// `capabilities/default.json`.
+#[cfg(desktop)]
+const SATELLITE_PREFIX: &str = "sat-";
+
+/// Which satellite label was attached by which window. Keyed by the satellite,
+/// valued by its owner — the window that called [`surface_attach`] for it.
+#[cfg(desktop)]
+static SURFACE_OWNERS: std::sync::Mutex<std::collections::BTreeMap<String, String>> =
+    std::sync::Mutex::new(std::collections::BTreeMap::new());
+
+/// True for a well-formed satellite label — the same shape `satelliteLabel()`
+/// builds in `store/windows.ts`: `sat-` plus a lowercase surface id.
+///
+/// Deliberately stricter than "starts with `sat-`": the suffix also lands in a
+/// URL query and in compositor rules, and refusing anything else here means a
+/// label that looks like a satellite but is not can never reach the GTK calls.
+#[cfg(desktop)]
+fn is_satellite_label(label: &str) -> bool {
+    let Some(surface) = label.strip_prefix(SATELLITE_PREFIX) else {
+        return false;
+    };
+
+    let mut chars = surface.chars();
+
+    matches!(chars.next(), Some(c) if c.is_ascii_lowercase())
+        && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+}
+
+/// May `caller` turn `target` into a floating surface?
+///
+/// Pure so the policy is testable without a window system. `owner` is the
+/// currently recorded owner of `target`, if any.
+///
+/// A satellite is refused as a *caller*: the frontend already holds that a
+/// satellite never spawns another (`canOpenSatelliteWindow()`), and a HUD that
+/// lives over other applications is the most exposed webview in the app — it
+/// must not be able to mint further overlay surfaces if it is compromised.
+#[cfg(desktop)]
+fn may_attach(caller: &str, target: &str, owner: Option<&str>) -> Result<(), String> {
+    if !is_satellite_label(target) {
+        return Err(format!(
+            "refusing to attach a floating surface to {target}: only satellite windows \
+             ({SATELLITE_PREFIX}*) may be reshaped"
+        ));
+    }
+    if is_satellite_label(caller) {
+        return Err(format!(
+            "refusing to attach a floating surface from {caller}: a satellite may not attach \
+             another"
+        ));
+    }
+    match owner {
+        Some(owner) if owner != caller => Err(format!(
+            "refusing to attach {target}: it belongs to {owner}, not {caller}"
+        )),
+        _ => Ok(()),
+    }
+}
+
+/// May `caller` reshape `target`'s input region?
+///
+/// Unlike attaching, this one is called *by the HUD about itself* — see
+/// `app/hud/use-hud-surface.ts`, which reports the rect it wants clicks in — so
+/// a satellite acting on itself is allowed. Everyone else must be its owner.
+#[cfg(desktop)]
+fn may_reshape(caller: &str, target: &str, owner: Option<&str>) -> Result<(), String> {
+    if !is_satellite_label(target) {
+        return Err(format!(
+            "refusing to set an input region on {target}: only satellite windows \
+             ({SATELLITE_PREFIX}*) may be reshaped"
+        ));
+    }
+    if caller == target || owner == Some(caller) {
+        return Ok(());
+    }
+
+    Err(format!(
+        "refusing to set an input region on {target}: {caller} neither owns nor is it"
+    ))
+}
+
+/// Authorize `caller` to attach `target`, and record the ownership on success.
+///
+/// A record whose owner window is gone is dropped first: satellites are torn
+/// down with the window that summoned them, so a stale record could otherwise
+/// lock a label out for the rest of the process's life.
+#[cfg(desktop)]
+fn claim_surface(app: &tauri::AppHandle, caller: &str, target: &str) -> Result<(), String> {
+    let mut owners = SURFACE_OWNERS
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+    owners.retain(|_, owner| app.get_webview_window(owner).is_some());
+    may_attach(caller, target, owners.get(target).map(String::as_str))?;
+    owners.insert(target.to_string(), caller.to_string());
+
+    Ok(())
+}
+
+/// Authorize `caller` to reshape `target`'s input region.
+#[cfg(desktop)]
+fn check_reshape(caller: &str, target: &str) -> Result<(), String> {
+    let owners = SURFACE_OWNERS
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+    may_reshape(caller, target, owners.get(target).map(String::as_str))
+}
+
+// ---------------------------------------------------------------------------
 // Commands
 // ---------------------------------------------------------------------------
 
@@ -518,15 +647,24 @@ pub async fn surface_capabilities() -> Result<SurfaceCapabilities, String> {
 /// been created with `visible: false` and must not have been shown: a layer
 /// surface has to be configured before its GtkWindow is realized. The caller
 /// shows it afterwards.
+///
+/// `label` is the window to attach, and it is **authorized, not trusted** — see
+/// [`may_attach`]. Only a satellite may be attached, and only by a non-satellite
+/// window, which then owns it.
 #[cfg(desktop)]
 #[tauri::command]
 pub async fn surface_attach(
     app: tauri::AppHandle,
+    webview: tauri::WebviewWindow,
     label: String,
     request: SurfaceRequest,
 ) -> Result<SurfaceGrant, String> {
+    let caller = webview.label().to_string();
+
     tauri::async_runtime::spawn_blocking(move || {
-        on_main_thread(&app, move |app| attach_on_main(&app, &label, &request))
+        on_main_thread(&app, move |app| {
+            attach_on_main(&app, &caller, &label, &request)
+        })
     })
     .await
     .map_err(|e| format!("attach failed: {e}"))??
@@ -535,9 +673,12 @@ pub async fn surface_attach(
 #[cfg(desktop)]
 fn attach_on_main(
     app: &tauri::AppHandle,
+    caller: &str,
     label: &str,
     request: &SurfaceRequest,
 ) -> Result<SurfaceGrant, String> {
+    claim_surface(app, caller, label)?;
+
     let window = app
         .get_webview_window(label)
         .ok_or_else(|| format!("no window labelled {label}"))?;
@@ -649,13 +790,21 @@ fn attach_on_main(
 /// emulation. Where no input region exists, it degrades to Tauri's whole-window
 /// `set_ignore_cursor_events`, which is why passing a rect there makes the surface
 /// interactive everywhere rather than pretending to cut a hole.
+///
+/// `label` is authorized the same way [`surface_attach`]'s is — see
+/// [`may_reshape`]. A surface may shape itself (the HUD does), and its owner may
+/// shape it; nothing else can, because an input region is also a way to make a
+/// window swallow or ignore every click in it.
 #[cfg(desktop)]
 #[tauri::command]
 pub async fn surface_set_interactive_rect(
     app: tauri::AppHandle,
+    webview: tauri::WebviewWindow,
     label: String,
     rect: Option<Rect>,
 ) -> Result<Support, String> {
+    check_reshape(webview.label(), &label)?;
+
     tauri::async_runtime::spawn_blocking(move || {
         on_main_thread(&app, move |app| {
             let window = app
@@ -883,5 +1032,79 @@ mod tests {
         assert_eq!(request.layer, SurfaceLayer::Overlay);
         assert_eq!(request.keyboard_focus, KeyboardFocus::Exclusive);
         assert_eq!(request.margins, [0, 0, 0, 0]);
+    }
+
+    // -----------------------------------------------------------------------
+    // Ownership (MJXHRM-382)
+    // -----------------------------------------------------------------------
+
+    #[cfg(desktop)]
+    #[test]
+    fn only_satellite_labels_are_reshapeable() {
+        for label in ["sat-hud", "sat-bubble", "sat-a1-b2"] {
+            assert!(is_satellite_label(label), "{label} should be a satellite");
+        }
+        for label in [
+            "main",
+            "tile-1",
+            "instance-2",
+            "session-abc",
+            "screen",
+            "sat-",
+            "sat--x",
+            "sat-1hud",
+            "sat-HUD",
+            "sat-hud/../main",
+            "SAT-hud",
+            "",
+        ] {
+            assert!(
+                !is_satellite_label(label),
+                "{label} should not be a satellite"
+            );
+        }
+    }
+
+    #[cfg(desktop)]
+    #[test]
+    fn a_caller_cannot_attach_a_window_it_does_not_own() {
+        // The finding this ticket exists for: naming the main window and handing
+        // it an overlay role with exclusive keyboard focus.
+        assert!(may_attach("main", "main", None).is_err());
+        assert!(may_attach("main", "tile-1", None).is_err());
+        assert!(may_attach("tile-1", "instance-2", None).is_err());
+
+        // Its own satellite is fine.
+        assert!(may_attach("main", "sat-hud", None).is_ok());
+        assert!(may_attach("main", "sat-hud", Some("main")).is_ok());
+
+        // Another window's satellite is not.
+        assert!(may_attach("tile-1", "sat-hud", Some("main")).is_err());
+    }
+
+    #[cfg(desktop)]
+    #[test]
+    fn a_satellite_cannot_attach_anything() {
+        // A HUD living over other applications is the app's most exposed
+        // webview; it must not be able to mint further overlay surfaces.
+        assert!(may_attach("sat-hud", "sat-other", None).is_err());
+        assert!(may_attach("sat-hud", "sat-hud", None).is_err());
+        assert!(may_attach("sat-hud", "main", None).is_err());
+    }
+
+    #[cfg(desktop)]
+    #[test]
+    fn a_surface_may_shape_itself_or_be_shaped_by_its_owner() {
+        // The HUD reports its own interactive rect from inside itself.
+        assert!(may_reshape("sat-hud", "sat-hud", Some("main")).is_ok());
+        assert!(may_reshape("sat-hud", "sat-hud", None).is_ok());
+        // So may the window that attached it.
+        assert!(may_reshape("main", "sat-hud", Some("main")).is_ok());
+
+        // A bystander may not, and no one may shape a non-satellite — making the
+        // main window's input region empty would swallow every click in it.
+        assert!(may_reshape("tile-1", "sat-hud", Some("main")).is_err());
+        assert!(may_reshape("sat-other", "sat-hud", Some("main")).is_err());
+        assert!(may_reshape("main", "main", None).is_err());
     }
 }

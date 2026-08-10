@@ -27,6 +27,7 @@
 //! module does not enforce that; its callers marshal via `run_on_main_thread`.
 
 use std::ffi::{c_char, c_int, CString};
+use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 use gtk::glib::translate::ToGlibPtr;
@@ -124,6 +125,24 @@ pub struct LayerShell {
 /// without the unversioned `.so` symlink that a `-dev` package provides.
 const SONAME: &str = "libgtk-layer-shell.so.0";
 
+/// Absolute locations to try before falling back to the linker search path
+/// (MJXHRM-382). A bare SONAME is resolved through `LD_LIBRARY_PATH` and the
+/// rest of the search path, so whoever can set the process environment chooses
+/// which code we `dlopen`. Naming the standard prefixes first means the ordinary
+/// distribution install never consults the search path at all.
+///
+/// This is a *preference*, not an allowlist: the fallback still exists, because
+/// distributions that put the library elsewhere (Nix stores it under
+/// `/nix/store`) are the normal case on the compositors this feature targets.
+/// The fallback is verified instead — see [`resolved_library_path`].
+const PINNED_PATHS: &[&str] = &[
+    "/usr/lib/x86_64-linux-gnu/libgtk-layer-shell.so.0",
+    "/usr/lib/aarch64-linux-gnu/libgtk-layer-shell.so.0",
+    "/usr/lib64/libgtk-layer-shell.so.0",
+    "/usr/lib/libgtk-layer-shell.so.0",
+    "/usr/local/lib/libgtk-layer-shell.so.0",
+];
+
 static LOADED: OnceLock<Option<LayerShell>> = OnceLock::new();
 
 /// The library, or `None` if it is not installed. Loaded once; a failure is
@@ -132,13 +151,110 @@ pub fn get() -> Option<&'static LayerShell> {
     LOADED.get_or_init(load).as_ref()
 }
 
+/// The uid this process runs as, read from `/proc` so no libc binding is needed.
+fn self_uid() -> Option<u32> {
+    use std::os::unix::fs::MetadataExt;
+
+    std::fs::metadata("/proc/self").ok().map(|m| m.uid())
+}
+
+/// Whether `path` and every directory above it are writable only by their owner,
+/// and owned by root or by us.
+///
+/// This is the check that actually matters for a hijacked search path: planting
+/// a library requires a writable directory on it, and a directory anyone can
+/// write to is exactly what this refuses. A path we cannot stat is refused too —
+/// "could not tell" is not "safe".
+fn path_is_trusted(path: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+
+    let Some(uid) = self_uid() else {
+        // No /proc to compare against; fall back to the permission bits alone
+        // rather than refusing every path on a system without it.
+        return trusted_modes_only(path);
+    };
+
+    let mut current = Some(path);
+    while let Some(component) = current {
+        let Ok(meta) = std::fs::metadata(component) else {
+            return false;
+        };
+        if meta.mode() & 0o022 != 0 || (meta.uid() != 0 && meta.uid() != uid) {
+            log::warn!(
+                "refusing gtk-layer-shell at {}: {} is writable by others or foreign-owned",
+                path.display(),
+                component.display()
+            );
+
+            return false;
+        }
+        current = component.parent();
+    }
+
+    true
+}
+
+fn trusted_modes_only(path: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+
+    let mut current = Some(path);
+    while let Some(component) = current {
+        match std::fs::metadata(component) {
+            Ok(meta) if meta.mode() & 0o022 == 0 => current = component.parent(),
+            _ => return false,
+        }
+    }
+
+    true
+}
+
+/// Where a library the linker already resolved actually came from, read out of
+/// `/proc/self/maps`.
+///
+/// `dladdr` would answer this too, but it needs a libc binding this crate does
+/// not otherwise take, and on the only platform this module compiles for
+/// (Linux) the mapping table is authoritative and free.
+fn resolved_library_path(soname: &str) -> Option<PathBuf> {
+    let maps = std::fs::read_to_string("/proc/self/maps").ok()?;
+
+    maps.lines()
+        .filter_map(|line| line.split_once(" /").map(|(_, rest)| format!("/{rest}")))
+        .map(PathBuf::from)
+        .find(|path| path.file_name().is_some_and(|name| name == soname))
+}
+
 fn load() -> Option<LayerShell> {
-    // SAFETY: `dlopen` of a well-known system library. gtk-layer-shell runs no
-    // initialiser that can observe or alter our state; it only registers with the
-    // already-initialised GDK display.
-    let lib = unsafe { libloading::Library::new(SONAME) }
-        .map_err(|e| log::info!("gtk-layer-shell unavailable ({SONAME}): {e}"))
-        .ok()?;
+    let pinned = PINNED_PATHS
+        .iter()
+        .map(Path::new)
+        .find(|path| path.exists() && path_is_trusted(path));
+
+    let lib = match pinned {
+        // SAFETY: `dlopen` of a well-known system library at a verified absolute
+        // path. gtk-layer-shell runs no initialiser that can observe or alter our
+        // state; it only registers with the already-initialised GDK display.
+        Some(path) => unsafe { libloading::Library::new(path) }
+            .map_err(|e| log::info!("gtk-layer-shell unavailable ({}): {e}", path.display()))
+            .ok()?,
+        None => {
+            // SAFETY: as above, but resolved through the linker search path.
+            let lib = unsafe { libloading::Library::new(SONAME) }
+                .map_err(|e| log::info!("gtk-layer-shell unavailable ({SONAME}): {e}"))
+                .ok()?;
+
+            // Nothing here can un-load what dlopen already ran, so this is an
+            // audit-and-refuse, not a prevention: if the search path handed us a
+            // library out of a world-writable directory we decline to *use* it,
+            // and say where it came from either way.
+            match resolved_library_path(SONAME) {
+                Some(path) if !path_is_trusted(&path) => return None,
+                Some(path) => log::info!("gtk-layer-shell resolved to {}", path.display()),
+                None => log::info!("gtk-layer-shell loaded from an unresolvable path ({SONAME})"),
+            }
+
+            lib
+        }
+    };
 
     // SAFETY: each symbol's signature is transcribed from gtk-layer-shell.h and
     // matches the exported C ABI. A missing symbol makes the whole load fail
