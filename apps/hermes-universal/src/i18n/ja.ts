@@ -2724,5 +2724,18 @@ export const ja = defineLocale({
       description: 'モバイルサイドバーを表示します。',
       toggle: 'サイドバーを切り替え'
     }
+  },
+
+  quickEntry: {
+    label: 'クイック入力',
+    placeholder: 'Hermes に質問…',
+    notConnected: '未接続 — Hermes を開いて再接続してください',
+    sendTo: '送信先',
+    currentChat: '現在のチャット',
+    newSession: '新しいセッション',
+    targetLabel: '対象セッション',
+    settingsTitle: 'クイック入力',
+    settingsDesc: 'グローバルショートカットで小さな入力欄をどこからでも呼び出し、Hermes を開かずにプロンプトを送信します。',
+    shortcutHint: 'ショートカットは「キーボードショートカット」で割り当ててください。'
   }
 })

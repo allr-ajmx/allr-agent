@@ -3162,5 +3162,18 @@ export const zh: Translations = {
     saveApply: '保存并应用',
     notExpressible: '此排列互相咬合（风车形）——暂无法表示为嵌套拆分',
     zoneCount: count => `${count} 个区域`
+  },
+
+  quickEntry: {
+    label: '快速输入',
+    placeholder: '向 Hermes 提问…',
+    notConnected: '未连接——请打开 Hermes 重新连接',
+    sendTo: '发送到',
+    currentChat: '当前对话',
+    newSession: '新会话',
+    targetLabel: '目标会话',
+    settingsTitle: '快速输入',
+    settingsDesc: '用全局快捷键随时唤出一个小型输入框，无需打开 Hermes 即可发送提示词。',
+    shortcutHint: '请在“键盘快捷键”中为其分配快捷键。'
   }
 }
