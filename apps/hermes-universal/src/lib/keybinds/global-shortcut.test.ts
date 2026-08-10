@@ -27,8 +27,9 @@ vi.mock('@/lib/platform', async importOriginal => ({
   IS_DESKTOP: true
 }))
 
-// The one global-flagged action the app ships. It ships UNBOUND, which is what
-// makes it a clean subject: nothing is claimed until these cases bind it.
+// The one global-flagged action the app ships. It now ships WITH a default
+// chord (MJXHRM-213 gave the HUD a surface worth summoning), so the cases below
+// clear its binding when they want a quiet registry.
 const ACTION = 'view.toggleHud'
 
 // The registrar serializes its syncs, so a rebind that arrives while one is in
@@ -57,9 +58,21 @@ afterEach(() => {
 })
 
 describe('global shortcuts follow the rebindable registry', () => {
-  it('claims nothing for an action shipped unbound', async () => {
+  it('claims the shipped default at boot', async () => {
     const { mod } = await load()
 
+    await mod.syncGlobalShortcuts()
+
+    // The HUD's chord is the one thing this app takes from the whole machine
+    // without being asked, so it is worth a test that it is exactly that one.
+    expect(register).toHaveBeenCalledTimes(1)
+    expect(register).toHaveBeenCalledWith('CommandOrControl+Shift+H', expect.any(Function))
+  })
+
+  it('claims nothing once the user unbinds the action', async () => {
+    const { mod, setBinding } = await load()
+
+    setBinding(ACTION, [])
     await mod.syncGlobalShortcuts()
 
     expect(register).not.toHaveBeenCalled()

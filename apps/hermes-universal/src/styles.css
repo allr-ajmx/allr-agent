@@ -2572,3 +2572,67 @@ span[data-slot='aui_msg-reactions'] {
   animation-play-state: paused !important;
   transition: none !important;
 }
+
+/* --------------------------------------------------------------------------
+   HUD mode (MJXHRM-213) — a floating surface over other applications.
+
+   Everything here is scoped to `html[data-hud]`, which only the HUD's own
+   window sets (`app/hud/use-hud-surface.ts`). The HUD renders the REAL chat
+   screen, so these rules reposition and quieten it rather than replacing it.
+   -------------------------------------------------------------------------- */
+
+/* A transparent window needs a transparent document. The window is created
+   `transparent`, which gets tao an RGBA visual and gets wry a zero-alpha
+   WebKitWebView background — but the app's own `body` paint would still cover
+   both, and it is the last one to run. */
+html[data-hud],
+html[data-hud] body,
+html[data-hud] #root {
+  background: transparent !important;
+}
+
+/* The band: the tail of the conversation above the bar, faded back so it reads
+   as a glance rather than a window. Three states — gone, glanceable, and fully
+   legible while the composer has the caret, since asking to read it is an
+   answerable request.
+
+   `max-height` rather than `height`: a short reply should occupy a short band,
+   and animating toward a measured height would need JS to measure it. */
+html[data-hud] [data-slot='composer-bounds'] {
+  max-height: 0;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+  transition:
+    max-height 180ms cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 270ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+html[data-hud] [data-hud-engaged] [data-slot='composer-bounds'] {
+  max-height: var(--hud-band-max, 10.5rem);
+  opacity: 0.55;
+  pointer-events: auto;
+}
+
+/* Reveal is faster than the fade out: a reveal answers the user, a fade is the
+   surface getting out of the way. */
+html[data-hud] [data-hud-card]:has([data-slot='composer-rich-input']:focus) [data-slot='composer-bounds'] {
+  max-height: var(--hud-band-max, 10.5rem);
+  opacity: 1;
+  transition-duration: 110ms, 110ms;
+}
+
+/* Chrome the HUD has no room for. The window has no titlebar, the timeline is a
+   navigation aid for a transcript that is not shown, and a jump-to-bottom button
+   on a band that is always at the bottom is a button that does nothing. */
+html[data-hud] [data-slot='thread-timeline'],
+html[data-hud] .thread-jump-button {
+  display: none !important;
+}
+
+/* Tailwind's backdrop-blur utilities inside the composer tree paint as visible
+   halos on a genuinely transparent window instead of disappearing the way they
+   do over an opaque app background. */
+html[data-hud] [data-hud-card] * {
+  backdrop-filter: none !important;
+}

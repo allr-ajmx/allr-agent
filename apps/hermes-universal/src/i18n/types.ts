@@ -270,6 +270,8 @@ export interface Translations {
     openSettings: string
     openStarmap: string
     openKeybinds: string
+    enterHud: string
+    exitHud: string
     minimize: string
     maximize: string
     restore: string
