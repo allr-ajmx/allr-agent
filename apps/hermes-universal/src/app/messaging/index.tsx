@@ -20,6 +20,8 @@ import { openExternalLink } from '@/lib/external-link'
 import { ExternalLink, Save, Trash2 } from '@/lib/icons'
 import { normalize } from '@/lib/text'
 import { cn } from '@/lib/utils'
+import { useStore } from '@/store/atom'
+import { $changeEventsAvailable, $platformsChangeTick, livePollIntervalMs } from '@/store/live-sync'
 import { notify, notifyError } from '@/store/notifications'
 import { runGatewayRestart } from '@/store/system-status'
 
@@ -38,6 +40,11 @@ interface MessagingViewProps extends React.ComponentProps<'section'> {
 }
 
 type EditMap = Record<string, Record<string, string>>
+
+// Legacy cadence for a gateway with no change watcher; on one that broadcasts
+// `platforms.changed` the same fetch becomes a slow backstop.
+const PLATFORMS_POLL_MS = 6000
+const PLATFORMS_BACKSTOP_MS = 60_000
 
 const PILL_TONE: Record<StatusTone, string> = {
   good: 'bg-primary/10 text-primary',
@@ -103,6 +110,8 @@ function fieldCopy(field: MessagingEnvVarInfo, m: Translations['messaging']) {
 export function MessagingView({ setStatusbarItemGroup: _setStatusbarItemGroup, ...props }: MessagingViewProps) {
   const { t } = useI18n()
   const m = t.messaging
+  const changeEventsAvailable = useStore($changeEventsAvailable)
+  const platformsChangeTick = useStore($platformsChangeTick)
   // Both save/toggle toasts offer the same one-click restart.
   const restartGatewayAction = { label: t.commandCenter.restartGateway, onClick: () => void runGatewayRestart() }
   const [platforms, setPlatforms] = useState<MessagingPlatformInfo[] | null>(null)
@@ -143,8 +152,10 @@ export function MessagingView({ setStatusbarItemGroup: _setStatusbarItemGroup, .
     void refreshPlatforms()
   }, [refreshPlatforms])
 
-  // Auto-poll while the user is on the messaging page so connection status
-  // updates without a manual "check" click. Pause when the tab is hidden.
+  // Connection status updates without a manual "check" click. `platforms.changed`
+  // drives it — the watcher broadcasts when the gateway's platform state moves —
+  // and the old 6s poll stays as a backstop, slowed on a broadcasting gateway.
+  // Paused while the tab is hidden either way.
   useEffect(() => {
     let cancelled = false
 
@@ -156,13 +167,14 @@ export function MessagingView({ setStatusbarItemGroup: _setStatusbarItemGroup, .
       void refreshPlatforms(true)
     }
 
-    const id = window.setInterval(tick, 6000)
+    const id = window.setInterval(tick, livePollIntervalMs(PLATFORMS_POLL_MS, PLATFORMS_BACKSTOP_MS))
 
     return () => {
       cancelled = true
       window.clearInterval(id)
     }
-  }, [refreshPlatforms])
+    // platformsChangeTick: a platform connecting/dropping re-reads immediately.
+  }, [changeEventsAvailable, platformsChangeTick, refreshPlatforms])
 
   const selected = useMemo(() => {
     if (!platforms) {

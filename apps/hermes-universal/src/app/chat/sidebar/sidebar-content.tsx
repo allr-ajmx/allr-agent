@@ -36,6 +36,7 @@ import {
   unpinSession
 } from '@/store/layout'
 import { $sidebarCronOpen, setSidebarCronOpen } from '@/store/layout'
+import { $changeEventsAvailable, $cronChangeTick, $sessionsChangeTick, livePollIntervalMs } from '@/store/live-sync'
 import { startNewSession } from '@/store/new-session'
 import { $profileScope, ALL_PROFILES, normalizeProfileKey } from '@/store/profile'
 import { $profiles, setActiveProfile } from '@/store/profiles'
@@ -141,6 +142,13 @@ const SESSIONS_CONTENT_GROUPED_CLASS = SESSIONS_CONTENT_CLASS.replace('gap-px', 
 
 const SESSIONS_ROOT_CLASS = 'flex min-h-0 flex-1 flex-col p-0'
 
+// Legacy cadences, kept for a gateway that does not broadcast change events;
+// on one that does, the same fetch becomes a slow backstop behind the ticks.
+const MESSAGING_POLL_MS = 10_000
+const MESSAGING_BACKSTOP_MS = 120_000
+const CRON_POLL_MS = 30_000
+const CRON_BACKSTOP_MS = 180_000
+
 // The entered project's sessions, remembered across mounts.
 //
 // Every other list this body shows lives in a store, so closing and reopening the
@@ -168,6 +176,9 @@ export function SidebarScrollBody({
   const total = useStore($sessionsTotal)
   const sessionsLoading = useStore($sessionsLoading)
   const activeId = useStore($activeStoredSessionId)
+  const changeEventsAvailable = useStore($changeEventsAvailable)
+  const cronChangeTick = useStore($cronChangeTick)
+  const sessionsChangeTick = useStore($sessionsChangeTick)
   const working = useStore($workingSessionIds)
   const serverResults = useStore($sessionSearch)
   const searching = useStore($searchLoading)
@@ -210,24 +221,31 @@ export function SidebarScrollBody({
   const searchInputRef = useRef<HTMLInputElement>(null)
   const navigate = useNavigate()
 
-  // Messaging platform sessions poll every 10s (their own slice, so a busy
-  // platform never crowds out recents).
+  // Messaging platform sessions: refreshed when the gateway says a session row
+  // moved, with the old 10s poll kept as a backstop (slowed on a broadcasting
+  // backend). Their own slice, so a busy platform never crowds out recents.
   useEffect(() => {
     void refreshMessagingSessions()
-    const timer = setInterval(() => void refreshMessagingSessions(), 10_000)
+
+    const timer = setInterval(
+      () => void refreshMessagingSessions(),
+      livePollIntervalMs(MESSAGING_POLL_MS, MESSAGING_BACKSTOP_MS)
+    )
 
     return () => clearInterval(timer)
-  }, [])
+  }, [changeEventsAvailable, sessionsChangeTick])
 
-  // Cron jobs poll every 30s (list is small; countdowns tick client-side), scoped
-  // to the browse scope like the cron overlay is.
+  // Cron jobs: same shape. `cron.changed` fires on create/edit/pause/remove AND
+  // on the scheduler's own last_run/next_run bookkeeping, which is exactly when
+  // the countdowns need re-reading. Scoped to the browse scope like the overlay.
   useEffect(() => {
     const cronScope = profileScope === ALL_PROFILES ? 'all' : profileScope
     void refreshCronJobs(cronScope)
-    const timer = setInterval(() => void refreshCronJobs(cronScope), 30_000)
+
+    const timer = setInterval(() => void refreshCronJobs(cronScope), livePollIntervalMs(CRON_POLL_MS, CRON_BACKSTOP_MS))
 
     return () => clearInterval(timer)
-  }, [profileScope])
+  }, [changeEventsAvailable, cronChangeTick, profileScope])
 
   // A big all-profiles page must not carry over into one small profile — but only
   // on an actual switch. On a phone the sidebar is a drawer that unmounts when it

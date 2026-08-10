@@ -8,6 +8,7 @@ import { getCronJobRuns } from '@/hermes'
 import { useI18n } from '@/i18n'
 import { cn } from '@/lib/utils'
 import { useStore } from '@/store/atom'
+import { $changeEventsAvailable, $cronChangeTick, livePollIntervalMs } from '@/store/live-sync'
 import { $activeStoredSessionId } from '@/store/session'
 import type { CronJob, SessionInfo } from '@/types/hermes'
 
@@ -18,7 +19,11 @@ import { SidebarLoadMoreRow } from './load-more-row'
 // Ported/adapted from desktop `app/chat/sidebar/cron-jobs-section.tsx`.
 const INACTIVE_STATES = new Set(['completed', 'disabled', 'error', 'paused'])
 const PEEK_RUN_LIMIT = 5
+// Runs are written by the background scheduler tick. `cron.changed` reloads the
+// open peek immediately on an event-capable backend, so the poll drops to a
+// backstop there; an older gateway keeps the legacy cadence.
 const PEEK_POLL_INTERVAL_MS = 8000
+const PEEK_BACKSTOP_INTERVAL_MS = 60_000
 const INITIAL_VISIBLE_JOBS = 3
 const LOAD_MORE_STEP = 10
 
@@ -265,6 +270,8 @@ function CronJobSidebarRuns({ jobId, onOpenRun }: { jobId: string; onOpenRun: (s
   const { t } = useI18n()
   const c = t.cron
   const selectedSessionId = useStore($activeStoredSessionId)
+  const changeEventsAvailable = useStore($changeEventsAvailable)
+  const cronChangeTick = useStore($cronChangeTick)
   const [runs, setRuns] = useState<null | SessionInfo[]>(null)
 
   useEffect(() => {
@@ -285,17 +292,23 @@ function CronJobSidebarRuns({ jobId, onOpenRun }: { jobId: string; onOpenRun: (s
 
     void load()
 
-    const intervalId = window.setInterval(() => {
-      if (document.visibilityState === 'visible') {
-        void load()
-      }
-    }, PEEK_POLL_INTERVAL_MS)
+    const intervalId = window.setInterval(
+      () => {
+        if (document.visibilityState === 'visible') {
+          void load()
+        }
+      },
+      livePollIntervalMs(PEEK_POLL_INTERVAL_MS, PEEK_BACKSTOP_INTERVAL_MS)
+    )
 
     return () => {
       cancelled = true
       window.clearInterval(intervalId)
     }
-  }, [jobId])
+    // cronChangeTick in the deps IS the refresh: a run the scheduler just wrote
+    // moves cron/jobs.json, the watcher broadcasts, and this effect re-runs and
+    // reloads — instead of the peek sitting stale for up to a poll window.
+  }, [changeEventsAvailable, cronChangeTick, jobId])
 
   return (
     <div className="mb-1 ml-[1.375rem] flex flex-col gap-px">

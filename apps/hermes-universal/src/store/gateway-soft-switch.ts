@@ -7,6 +7,7 @@ import { closeGateway } from '@/store/gateway'
 import type { Connection, GatewayMode } from '@/store/gateway-config'
 import { dialSavedTarget, type GatewayTarget, loadGatewayTarget } from '@/store/gateway-restore'
 import { $gatewayMode, $gatewaySwitching } from '@/store/gateway-switch'
+import { resetLiveSync } from '@/store/live-sync'
 import { stopLocalBackend } from '@/store/local-backend'
 import { notify, notifyError } from '@/store/notifications'
 import {
@@ -54,6 +55,10 @@ export function wipeSessionListsForGatewaySwitch(): void {
   clearAllSessionStates()
   // Runtime ids belong to the old backend — tiles must re-bind against the new one.
   resetTileRuntimeBindings()
+  // The new gateway re-advertises `change_events` on its own gateway.ready. A
+  // stale `true` would leave every consumer on its slow backstop against a
+  // backend that never broadcasts (store/live-sync.ts).
+  resetLiveSync()
   resetSessionsPaging()
 
   $activeStoredSessionId.set(null)

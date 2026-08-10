@@ -42,6 +42,7 @@ import { AlertTriangle } from '@/lib/icons'
 import { requestModelOptions } from '@/lib/model-options'
 import { asText } from '@/lib/text'
 import { $cronFocusJobId, $cronJobs, setCronFocusJobId, setCronJobs, updateCronJobs } from '@/store/cron'
+import { $changeEventsAvailable, $cronChangeTick, livePollIntervalMs } from '@/store/live-sync'
 import { notify, notifyError } from '@/store/notifications'
 import { $profileScope, ALL_PROFILES } from '@/store/profile'
 
@@ -650,7 +651,11 @@ function formatRunTime(seconds?: null | number): string {
 // Runs are produced by the background scheduler tick (no UI signal), so poll
 // while the panel is open + on tab re-focus so a fired run shows up within a few
 // seconds instead of waiting for a reload.
+// The scheduler writes runs in the background. `cron.changed` reloads this
+// history the moment jobs.json moves, so on a broadcasting gateway the poll is
+// only a backstop; an older one keeps the legacy cadence.
 const RUNS_POLL_INTERVAL_MS = 8000
+const RUNS_BACKSTOP_INTERVAL_MS = 60_000
 
 function CronJobRuns({
   c,
@@ -661,6 +666,8 @@ function CronJobRuns({
   jobId: string
   onOpenSession?: (sessionId: string) => void
 }) {
+  const changeEventsAvailable = useStore($changeEventsAvailable)
+  const cronChangeTick = useStore($cronChangeTick)
   const [runs, setRuns] = useState<null | SessionInfo[]>(null)
 
   useEffect(() => {
@@ -681,11 +688,14 @@ function CronJobRuns({
 
     void load()
 
-    const intervalId = window.setInterval(() => {
-      if (document.visibilityState === 'visible') {
-        void load()
-      }
-    }, RUNS_POLL_INTERVAL_MS)
+    const intervalId = window.setInterval(
+      () => {
+        if (document.visibilityState === 'visible') {
+          void load()
+        }
+      },
+      livePollIntervalMs(RUNS_POLL_INTERVAL_MS, RUNS_BACKSTOP_INTERVAL_MS)
+    )
 
     const onVisible = () => {
       if (document.visibilityState === 'visible') {
@@ -700,7 +710,8 @@ function CronJobRuns({
       window.clearInterval(intervalId)
       document.removeEventListener('visibilitychange', onVisible)
     }
-  }, [jobId])
+    // cronChangeTick: a run the scheduler just finished reloads the history.
+  }, [changeEventsAvailable, cronChangeTick, jobId])
 
   return (
     <div>
