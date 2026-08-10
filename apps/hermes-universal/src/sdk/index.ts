@@ -24,6 +24,10 @@
  *    `render()` contribution. Same mechanism reaches the mobile top bar.
  *  - `ctx.rest` cannot upload (see `pluginRest`), and `ctx.socket` needs a
  *    token-mode connection (see `pluginSocket`).
+ *  - `ctx.os` has the same four members and the same result contract, but sits
+ *    over Tauri instead of the Electron preload bridge — so on mobile (and in a
+ *    plain-browser dev run) more of them resolve `false` than on the desktop
+ *    app. Branch on the result; never assume the door opened.
  */
 
 import { atom, type ReadableAtom } from 'nanostores'
@@ -213,6 +217,8 @@ export type {
   HermesPlugin,
   PluginContext,
   PluginContribution,
+  PluginNativeNotificationInput,
+  PluginOs,
   PluginRestOptions,
   PluginStorage,
   PluginTile
