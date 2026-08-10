@@ -4,7 +4,7 @@ import { getHermesConfig } from '@/hermes'
 import { translateNow } from '@/i18n'
 import { copyTextToClipboard, desktopDefaultCwd, selectDesktopPaths, writeDesktopFileText } from '@/lib/desktop-fs'
 import { desktopGit } from '@/lib/desktop-git'
-import { moveSessionWorkspace } from '@/lib/gateway-rpc'
+import { isMissingRpcMethod, moveSessionWorkspace } from '@/lib/gateway-rpc'
 import { isUnderPath } from '@/lib/path-compare'
 import { persistentAtom } from '@/lib/persisted'
 import { revealPathInFileManager } from '@/lib/reveal-path'
@@ -32,12 +32,6 @@ export const $projectTree = atom<SidebarProjectTree[]>([])
 export const $projectTreeLoading = atom(false)
 // False when the backend predates the projects.* surface; null until first probe.
 export const $projectsRpcAvailable = atom<boolean | null>(null)
-
-function isMissingRpcMethod(err: unknown): boolean {
-  const msg = (err instanceof Error ? err.message : String(err)).toLowerCase()
-
-  return msg.includes('method not found') || msg.includes('-32601') || msg.includes('unknown method')
-}
 
 function markRpcSuccess(): void {
   $projectsRpcAvailable.set(true)
