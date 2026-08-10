@@ -14,6 +14,18 @@ import { selectTranscriptWindow } from './transcript-window'
 // Our ChatMessage.parts ARE assistant-ui content parts, so conversion is a
 // one-liner. (The desktop's ExportedMessageRepository / incremental runtime is
 // for branching + perf — deferred; stock runtime is enough for v1.)
+/** `metadata.custom`, omitted entirely when there is nothing to carry — an
+ *  empty object per message would churn identity on every store publish. */
+function customMetadata(message: ChatMessage): Pick<ThreadMessageLike, 'metadata'> | undefined {
+  const custom = {
+    ...(message.interim ? { interim: true } : {}),
+    ...(message.reactions?.length ? { reactions: message.reactions } : {}),
+    ...(message.rowId === undefined ? {} : { rowId: message.rowId })
+  }
+
+  return Object.keys(custom).length ? { metadata: { custom } } : undefined
+}
+
 function convertMessage(message: ChatMessage): ThreadMessageLike {
   return {
     // MUST pass our own id through: `fromThreadMessageLike` falls back to a
@@ -25,8 +37,11 @@ function convertMessage(message: ChatMessage): ThreadMessageLike {
     id: message.id,
     role: message.role,
     content: message.parts as ThreadMessageLike['content'],
-    // Carries ChatMessage.interim to AssistantMessage's footer gate.
-    ...(message.interim ? { metadata: { custom: { interim: true } } } : {}),
+    // Everything the renderer needs that isn't content: the interim seal (the
+    // footer gate) and the reaction state (durable list + the row id it was
+    // persisted as). Built as ONE object — assistant-ui takes a single
+    // `metadata.custom`, so these cannot be spread independently.
+    ...customMetadata(message),
     status:
       message.role === 'assistant'
         ? message.error

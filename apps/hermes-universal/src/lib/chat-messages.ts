@@ -15,6 +15,7 @@
 // Ported from apps/desktop/src/lib/chat-messages.ts.
 
 import { renderMediaTags } from '@/lib/chat-media'
+import type { MessageReaction } from '@/types/hermes'
 
 export type Role = 'assistant' | 'system' | 'user'
 
@@ -46,6 +47,18 @@ export interface ChatMessage {
    *  action-bar footer, so a turn that narrates itself across several
    *  paragraphs doesn't grow a copy/read-aloud row under each one. */
   interim?: boolean
+  /**
+   * The DURABLE `messages.id` this row was persisted as.
+   *
+   * The ids above are ephemeral and deliberately so — a live row, the same row
+   * rehydrated from history, and an optimistic one are all shaped differently,
+   * and a resume regenerates them. Anything that has to address one specific
+   * persisted message later (reactions) needs this instead. Absent until the
+   * row has round-tripped.
+   */
+  rowId?: number
+  /** Emoji tapbacks persisted against this row, one per author. */
+  reactions?: MessageReaction[]
   error?: string
 }
 
