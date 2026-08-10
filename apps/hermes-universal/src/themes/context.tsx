@@ -32,8 +32,12 @@ export type ThemeMode = 'light' | 'dark' | 'system'
 
 // Global skin + mode. Mobile has no per-profile appearance (that's a desktop
 // multi-window concern); one persisted choice drives the whole app.
-const $skin = persistentAtom<string>('hermes.skin', DEFAULT_SKIN_NAME, Codecs.text)
-const $mode = persistentAtom<string>('hermes.mode', 'system', Codecs.text)
+//
+// Exported for non-React readers/writers — `store/profile-share` snapshots them
+// into a shared profile bundle and assigns them back on import. Everything in a
+// component should go through `useTheme()` instead.
+export const $skin = persistentAtom<string>('hermes.skin', DEFAULT_SKIN_NAME, Codecs.text)
+export const $mode = persistentAtom<string>('hermes.mode', 'system', Codecs.text)
 
 const resolveMode = (mode: ThemeMode, systemDark = matchesQuery('(prefers-color-scheme: dark)')): 'light' | 'dark' =>
   mode === 'system' ? (systemDark ? 'dark' : 'light') : mode
