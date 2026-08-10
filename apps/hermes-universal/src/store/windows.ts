@@ -404,6 +404,18 @@ const openedSatellites = new Set<string>()
 
 let teardownInstalled = false
 
+/**
+ * `?win=` values that name a window KIND rather than a satellite surface.
+ *
+ * `satelliteLabel` accepts any lowercase word, so without this every one of
+ * these read as a satellite: an activity screen and a tile window both answered
+ * `isSatelliteWindow() === true`. That silently mis-routed everything branching
+ * on satellite-ness — the teardown registry, `canOpenSatelliteWindow`, the HUD
+ * handoff — and made `isSecondaryWindow()` accidentally true for activity
+ * windows, which blanked the layout tree they legitimately need to read.
+ */
+const RESERVED_WINDOW_FLAGS = new Set([SECONDARY_WINDOW_FLAG, TILE_WINDOW_FLAG, ACTIVITY_WINDOW_FLAG])
+
 /** A surface name is part of a window label and of a URL query, so it is held to
  *  the narrow shape both accept without escaping. */
 function satelliteLabel(surface: string): null | string {
@@ -515,7 +527,11 @@ export function satelliteSurfaceGrant(surface: string): null | SurfaceGrant {
 export function satelliteSurface(): null | string {
   const flag = winFlag()
 
-  return flag && satelliteLabel(flag) ? flag : null
+  if (!flag || RESERVED_WINDOW_FLAGS.has(flag)) {
+    return null
+  }
+
+  return satelliteLabel(flag) ? flag : null
 }
 
 export function isSatelliteWindow(): boolean {
