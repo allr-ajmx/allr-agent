@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest'
 
-import { rankSkillCommands, type SkillCatalogMap } from './desktop-slash-commands'
+import {
+  desktopSlashCommandTakesArgs,
+  desktopSlashDescription,
+  desktopSlashUnavailableMessage,
+  isDesktopSlashCommand,
+  rankSkillCommands,
+  resolveDesktopCommand,
+  type SkillCatalogMap
+} from './desktop-slash-commands'
 
 const rows = [{ text: '/alpha' }, { text: '/beta' }, { text: '/gamma' }]
 
@@ -39,5 +47,35 @@ describe('rankSkillCommands', () => {
 
   it('reorders and hides nothing on an older backend with no skills map', () => {
     expect(rankSkillCommands(rows, undefined).map(row => row.text)).toEqual(['/alpha', '/beta', '/gamma'])
+  })
+})
+
+// `/diff` and `/focus` shipped in the backend registry with no client row, so
+// both fell through as unknown commands. They resolve to deliberately DIFFERENT
+// surfaces, and that difference is the point of these tests.
+describe('/diff', () => {
+  it('executes on the backend — it needs a repo this client does not have', () => {
+    expect(resolveDesktopCommand('/diff')?.surface).toEqual({ kind: 'exec' })
+    expect(isDesktopSlashCommand('/diff')).toBe(true)
+    expect(desktopSlashUnavailableMessage('/diff')).toBeNull()
+  })
+
+  it('offers its modes as an argument step rather than committing on the bare command', () => {
+    expect(desktopSlashCommandTakesArgs('/diff')).toBe(true)
+    expect(desktopSlashDescription('/diff')).toContain('staged|all|session')
+  })
+})
+
+describe('/focus', () => {
+  // The gateway answers /focus, but only by flipping `display.focus_view`,
+  // which nothing here reads — so running it would silently re-render someone's
+  // TUI and report a state this client ignores.
+  it('is a known command with no surface here, not an unknown one', () => {
+    expect(resolveDesktopCommand('/focus')?.surface).toEqual({ kind: 'unavailable', reason: 'terminal' })
+    expect(desktopSlashUnavailableMessage('/focus')).toContain('terminal')
+  })
+
+  it('is filed the same way as /verbose, the other half of the same feature', () => {
+    expect(resolveDesktopCommand('/focus')?.surface).toEqual(resolveDesktopCommand('/verbose')?.surface)
   })
 })
