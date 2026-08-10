@@ -75,3 +75,31 @@ describe('api', () => {
     )
   })
 })
+
+describe('api uploads', () => {
+  const upload = { filename: 'shot.png', contentType: 'image/png', bytes: new Uint8Array([1, 2, 3]).buffer }
+
+  it('forwards a multipart upload to the transport', async () => {
+    $connection.set({ baseUrl: 'http://host:1', authMode: 'none' })
+    mockHttp.mockResolvedValue({ status: 200, headers: {}, body: '{}' })
+
+    await api({ path: '/api/plugins/kanban/attachments', method: 'POST', upload })
+
+    expect(mockHttp).toHaveBeenCalledWith(
+      'POST',
+      'http://host:1/api/plugins/kanban/attachments',
+      expect.objectContaining({ upload })
+    )
+  })
+
+  // reqwest generates the boundary, so ours would name one the body never uses.
+  it('does not set a JSON Content-Type on an upload', async () => {
+    $connection.set({ baseUrl: 'http://host:1', authMode: 'none' })
+    mockHttp.mockResolvedValue({ status: 200, headers: {}, body: '{}' })
+
+    await api({ path: '/api/plugins/kanban/attachments', method: 'POST', body: { note: 'x' }, upload })
+
+    const opts = mockHttp.mock.calls[0][2] as { headers: Record<string, string> }
+    expect(opts.headers['Content-Type']).toBeUndefined()
+  })
+})
