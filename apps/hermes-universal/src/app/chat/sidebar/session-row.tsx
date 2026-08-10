@@ -7,10 +7,12 @@ import { type Translations, useI18n } from '@/i18n'
 import { triggerHaptic } from '@/lib/haptics'
 import { useStoreSelector } from '@/lib/use-session-slice'
 import { cn } from '@/lib/utils'
+import { $pullRequestsByBranch, sessionPrKey } from '@/store/pull-requests'
 import { $attentionSessionIds } from '@/store/session'
 import { canOpenSessionWindow, openSessionInNewWindow } from '@/store/windows'
 import type { SessionInfo } from '@/types/hermes'
 
+import { PrTag } from '../pr-tag'
 import { ProfileTag } from '../profile-tag'
 import { startSessionDrag } from '../session-drag'
 import { SessionStatusDot } from '../session-status-dot'
@@ -97,6 +99,10 @@ function SidebarSessionRowImpl({
   // changes whenever ANY session starts or stops waiting on an answer, which
   // re-rendered every row in the sidebar for one row's state.
   const needsInput = useStoreSelector($attentionSessionIds, ids => ids.includes(session.id))
+  // The session's PR. A selector, not a plain useStore: a repo's PRs land as a
+  // single map write, and only the rows on those branches should repaint.
+  const prKey = sessionPrKey(session)
+  const pr = useStoreSelector($pullRequestsByBranch, prs => (prKey ? prs[prKey] : undefined))
   // Latched by the touch tap below, cleared on the next press, so a synthetic
   // click trailing the same gesture can't resume the session twice.
   const tapped = useRef(false)
@@ -234,6 +240,9 @@ function SidebarSessionRowImpl({
           <SidebarRowLabel className="flex-1 font-normal group-hover:text-foreground group-data-[working=true]:text-foreground/90">
             {title}
           </SidebarRowLabel>
+          {/* Stays put on hover, unlike the other chips: it's a link, and the
+              kebab lives in its own column rather than over this one. */}
+          {pr && <PrTag pr={pr} />}
         </SidebarRowBody>
       </SidebarRowShell>
     </SessionContextMenu>

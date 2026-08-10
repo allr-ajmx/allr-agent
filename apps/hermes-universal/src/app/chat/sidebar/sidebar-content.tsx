@@ -57,6 +57,12 @@ import {
   scanAndRecordRepos
 } from '@/store/projects'
 import {
+  $prBranchBySession,
+  recoverSessionPullRequests,
+  refreshPullRequests,
+  sessionPrKey
+} from '@/store/pull-requests'
+import {
   $activeStoredSessionId,
   $messagingSessions,
   $pinnedSessionCache,
@@ -149,6 +155,9 @@ const SESSIONS_ROOT_CLASS = 'flex min-h-0 flex-1 flex-col p-0'
 // on one that does, the same fetch becomes a slow backstop behind the ticks.
 const MESSAGING_POLL_MS = 10_000
 const MESSAGING_BACKSTOP_MS = 120_000
+// The transcript recovery scan reads every unscanned session's state.db, so it
+// waits for the first paint rather than competing with it.
+const PR_RECOVERY_WARM_MS = 1_500
 const CRON_POLL_MS = 30_000
 const CRON_BACKSTOP_MS = 180_000
 
@@ -199,6 +208,9 @@ export function SidebarScrollBody({
   const projectsLoading = useStore($projectTreeLoading)
   const reposScanning = useStore($reposScanning)
   const activeProjectId = useStore($activeProjectId)
+  // Subscribed, not read directly: `sessionPrKey` reads it with `.get()`, so the
+  // lookup map needs a reason to rebuild when a scan stamps a new key.
+  const prBranchOverrides = useStore($prBranchBySession)
   const dismissedProjects = useStore($dismissedAutoProjectIds)
   const projectOrder = useStore($sidebarProjectOrderIds)
   const messagingSessions = useStore($messagingSessions)
@@ -478,6 +490,76 @@ export function SidebarScrollBody({
 
     return () => window.removeEventListener('focus', onFocus)
   }, [inProject])
+
+  // A session that started on trunk but did the work in a worktree recorded no
+  // usable branch, so the join below can never find its PR. Recover those from
+  // the transcripts once, off the critical path — the store remembers every id
+  // it looked at, so this settles to a no-op from the second pass on.
+  useEffect(() => {
+    if (sessions.length === 0) {
+      return
+    }
+
+    const warm = window.setTimeout(() => void recoverSessionPullRequests(sessions), PR_RECOVERY_WARM_MS)
+
+    return () => window.clearTimeout(warm)
+  }, [sessions])
+
+  // Ask about the branches ON SCREEN, not the repo at large, so a busy repo's
+  // newer PRs can't crowd out the ones these rows need.
+  const prLookupsByRepo = useMemo(() => {
+    const byRepo: Record<string, string[]> = {}
+
+    for (const session of sessions) {
+      // The row's own key, so a session stamped with a branch (or a PR number)
+      // asks about THAT, not the branch it started on.
+      const [root, lookup] = sessionPrKey(session)?.split('\n') ?? []
+
+      if (root && lookup && !byRepo[root]?.includes(lookup)) {
+        byRepo[root] = [...(byRepo[root] ?? []), lookup]
+      }
+    }
+
+    return byRepo
+    // prBranchOverrides is what `sessionPrKey` reads through — a recovered PR
+    // has to re-ask with the key it just learned.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- see above
+  }, [sessions, prBranchOverrides])
+
+  // A stable identity for "the same question as last time", so a re-render that
+  // rebuilds the map doesn't re-ask GitHub.
+  const prQueryKey = JSON.stringify(
+    Object.entries(prLookupsByRepo)
+      .map(([root, lookups]) => [root, [...lookups].sort()] as const)
+      .sort(([a], [b]) => a.localeCompare(b))
+  )
+
+  useEffect(() => {
+    if (prQueryKey === '[]') {
+      return
+    }
+
+    const byRepo = Object.fromEntries(JSON.parse(prQueryKey) as [string, string[]][])
+
+    void refreshPullRequests(byRepo)
+
+    // A PR opens, merges or gets closed on github.com, not in here — so like the
+    // project tree, re-pull when the window comes back. The store's own
+    // staleness window keeps a flurry of focus events to one call per repo.
+    const onActive = () => {
+      if (document.visibilityState !== 'hidden') {
+        void refreshPullRequests(byRepo)
+      }
+    }
+
+    window.addEventListener('focus', onActive)
+    document.addEventListener('visibilitychange', onActive)
+
+    return () => {
+      window.removeEventListener('focus', onActive)
+      document.removeEventListener('visibilitychange', onActive)
+    }
+  }, [prQueryKey])
 
   // "+" on a repo or worktree lane: open a fresh chat anchored to that path,
   // carrying no draft (unlike the composer's branch-off hand-off).
