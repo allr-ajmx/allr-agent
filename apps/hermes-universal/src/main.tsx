@@ -10,6 +10,10 @@ import './store/event-router'
 // Likewise: every WebView must be listening for another WebView's gateway switch
 // before it dials, or it keeps serving the gateway the user just moved off.
 import './store/gateway-switch-sync'
+// Likewise again: `preview.read.request` / `window.read.request` park a running
+// agent tool until the client answers, so the responder has to be listening
+// before the first turn — see store/agent-read-requests.ts.
+import './store/agent-read-requests'
 
 import { QueryClientProvider } from '@tanstack/react-query'
 import { createRoot } from 'react-dom/client'
