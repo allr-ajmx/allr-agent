@@ -12,6 +12,7 @@
 mod appearance;
 mod artifact;
 mod cloud;
+mod find_in_page;
 mod keep_awake;
 mod link_title;
 mod local_backend;
@@ -30,6 +31,7 @@ mod window;
 
 use appearance::set_window_translucency;
 use keep_awake::{set_keep_awake, KeepAwakeState};
+use find_in_page::{find_in_page, stop_find_in_page};
 use link_title::fetch_link_title;
 use marketplace::{marketplace_fetch, marketplace_search};
 use artifact::{artifact_release, artifact_stage, ArtifactState, ARTIFACT_SCHEME};
@@ -105,7 +107,18 @@ pub fn run() {
     // is idempotent — ignore the Err when something already installed one.
     let _ = rustls::crypto::ring::default_provider().install_default();
 
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+
+    // OS-level hotkeys (MJXHRM-55). Desktop only — no mobile OS lets an app claim
+    // a system-wide chord, and the crate isn't in the mobile dependency set at
+    // all, so this is a compile-time branch rather than a runtime capability
+    // check. Which chords get registered is decided by the frontend from the
+    // rebindable keybind registry (`lib/keybinds/global-shortcut.ts`); nothing is
+    // hardcoded here.
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    let builder = builder.plugin(tauri_plugin_global_shortcut::Builder::new().build());
+
+    builder
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_keyring::init())
         .plugin(tauri_plugin_mic::init())
@@ -236,7 +249,9 @@ pub fn run() {
             ssh_list_config_hosts,
             ssh_resolve_host,
             ssh_answer_prompt,
-            ssh_trust_host_key
+            ssh_trust_host_key,
+            find_in_page,
+            stop_find_in_page
         ]))
         // `.build(...).run(closure)` (rather than the terminal `.run(context)`) so
         // we can observe `RunEvent`s. On iOS this catches scenes the *system*

@@ -7,12 +7,21 @@ import {
   cycleTreeTabInFocusedZone,
   focusedTabTarget
 } from '@/components/pane-shell/tree/store'
+import { onReleaseTypingFocus } from '@/components/ui/keyboard-first'
+import { findBarClaimsCombo } from '@/lib/find-in-page'
 import { contributedKeybindHandler, PROFILE_SLOT_COUNT, SESSION_SLOT_COUNT } from '@/lib/keybinds/actions'
 import { comboAllowedInInput, comboFromEvent, isEditableTarget, isShiftPrintableCombo } from '@/lib/keybinds/combo'
 import { composerFocusKeysAllowed, isComposerFocusSoftCombo, typeToFocusChar } from '@/lib/keybinds/composer-focus-keys'
+import { setGlobalShortcutDispatch, startGlobalShortcuts } from '@/lib/keybinds/global-shortcut'
 import { storedIdFromTilePane } from '@/lib/pane-ids'
 import { openWorktreeDialog } from '@/store/coding-status'
 import { toggleCommandPalette } from '@/store/command-palette'
+import {
+  $findInPage,
+  findNext as findNextMatch,
+  findPrevious as findPreviousMatch,
+  openFindBar
+} from '@/store/find-in-page'
 import { $capture, $comboIndex, endCapture, setBinding } from '@/store/keybinds'
 import {
   $terminalOpen,
@@ -33,6 +42,7 @@ import {
   switchToDefaultProfile,
   toggleShowAllProfiles
 } from '@/store/profile'
+import { openFolderAsProject } from '@/store/projects'
 import { toggleReview } from '@/store/review'
 import { toggleSelectedPin } from '@/store/session'
 import { $sessionTiles, focusOpenSession, reopenLastClosedTile, requestCloseSessionTile } from '@/store/session-states'
@@ -49,7 +59,7 @@ import {
 } from '@/store/session-switcher'
 import { toggleStatusbarVisible } from '@/store/statusbar-prefs'
 import { closeActiveTerminal, createTerminal, cycleTerminal } from '@/store/terminals'
-import { openAppRoute, openNewWindow } from '@/store/windows'
+import { HUD_SATELLITE, openAppRoute, openNewWindow, toggleSatelliteWindow } from '@/store/windows'
 import { useTheme } from '@/themes/context'
 
 import { requestComposerFocus, requestVoiceToggle } from '../chat/composer/focus'
@@ -193,6 +203,8 @@ export function useKeybinds(deps: KeybindRuntimeDeps): void {
     // works from a detached session inside a project. With no repo in reach,
     // openWorktreeDialog does nothing.
     'workspace.newWorktree': () => void openWorktreeDialog(),
+    // ⌘O — pick a folder and adopt it as a project, then start working in it.
+    'workspace.openFolder': () => void openFolderAsProject(),
 
     // Narrow-viewport reveal is handled inside the store toggles now.
     // Both are POSITIONAL (see `store/layout.ts`): ⌘B drives whatever sits on the
@@ -204,6 +216,13 @@ export function useKeybinds(deps: KeybindRuntimeDeps): void {
     'view.toggleReview': toggleReview,
     'view.toggleStatusbar': toggleStatusbarVisible,
     'view.showFiles': showFiles,
+    // ⌘F opens the bar; ⌘G / ⌘⇧G step from anywhere once it is open (the bar
+    // owns those — see findBarClaimsCombo). These two rows exist so a user who
+    // wants dedicated step chords can bind them, and they are no-ops with the
+    // bar closed.
+    'view.findInPage': openFindBar,
+    'view.findNext': findNextMatch,
+    'view.findPrevious': findPreviousMatch,
     'view.showTerminal': () => setTerminalOpen(!$terminalOpen.get()),
     // Create first so the area's open-effect ensure sees a non-empty set and
     // doesn't also spawn one — net effect is exactly one fresh terminal.
@@ -248,6 +267,11 @@ export function useKeybinds(deps: KeybindRuntimeDeps): void {
     'view.reopenTab': reopenLastClosedTile,
 
     'appearance.toggleMode': () => setMode(resolvedMode === 'dark' ? 'light' : 'dark'),
+    // Summon/dismiss the floating HUD window. Shipped unbound (see actions.ts) —
+    // MJXHRM-213 renders the surface and gives it a default chord. The lifecycle
+    // is already whole: opening twice focuses, closing the main window takes it
+    // down with it.
+    'view.toggleHud': () => void toggleSatelliteWindow(HUD_SATELLITE),
 
     'profile.default': switchToDefaultProfile,
     ...profileSwitchHandlers,
@@ -257,6 +281,35 @@ export function useKeybinds(deps: KeybindRuntimeDeps): void {
     // The rail owns the create dialog; this just asks it to open (MJX-108).
     'profile.create': requestProfileCreate
   }
+
+  // A keyboard-first overlay (⌘K, the model picker) hands the keyboard back
+  // here when it closes — the composer bus lives on this side, so the primitive
+  // stays ignorant of what "typing" means on any given surface.
+  //
+  // Deferred one frame and skipped when something else editable has claimed
+  // focus, because a palette action can legitimately open a dialog or navigate
+  // — the release must never steal focus from the surface it just opened.
+  useEffect(
+    () =>
+      onReleaseTypingFocus(() =>
+        requestAnimationFrame(() => {
+          if (!isEditableTarget(document.activeElement)) {
+            requestComposerFocus('active')
+          }
+        })
+      ),
+    []
+  )
+
+  // OS-level hotkeys go through the same handler map as the in-app ones — an
+  // action's behaviour must not depend on which side of the window boundary the
+  // keypress came from. Only the CLAIM differs, and that lives in
+  // `lib/keybinds/global-shortcut.ts`.
+  useEffect(() => {
+    setGlobalShortcutDispatch(actionId => handlersRef.current[actionId]?.())
+
+    return startGlobalShortcuts()
+  }, [])
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -299,6 +352,16 @@ export function useKeybinds(deps: KeybindRuntimeDeps): void {
       const combo = comboFromEvent(event)
 
       if (!combo) {
+        return
+      }
+
+      // An OPEN find bar owns ⌘G / ⌘⇧G / Escape. It listens on `window` in the
+      // capture phase like this dispatcher does, and propagation control cannot
+      // suppress a sibling listener on the same target — so ownership has to be
+      // decided here, by the single owner of combo dispatch. Otherwise ⌘G would
+      // also toggle the review pane and Escape would abort a running turn while
+      // the user only meant to dismiss the bar.
+      if ($findInPage.get().active && findBarClaimsCombo(combo)) {
         return
       }
 

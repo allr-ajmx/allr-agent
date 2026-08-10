@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/dialog'
 import { ErrorBanner } from '@/components/ui/error-state'
 import { HighlightMatches } from '@/components/ui/highlight-matches'
+import { releaseTypingFocus } from '@/components/ui/keyboard-first'
 import { Skeleton } from '@/components/ui/skeleton'
 import type { HermesGateway } from '@/hermes'
 import { useI18n } from '@/i18n'
@@ -105,13 +106,22 @@ export function ModelPickerDialog({
       : String(modelOptions.error)
     : null
 
+  // Every exit from the picker goes through here. Radix returns focus to the
+  // TRIGGER on close — a composer pill or a toolbar button — so committing with
+  // Enter would otherwise leave the next keystroke going nowhere instead of into
+  // the message being written. releaseTypingFocus hands the keyboard back.
+  const close = () => {
+    onOpenChange(false)
+    releaseTypingFocus()
+  }
+
   const selectModel = (provider: ModelOptionProvider, model: string) => {
     onSelect({ model, provider: provider.slug })
-    onOpenChange(false)
+    close()
   }
 
   return (
-    <Dialog onOpenChange={onOpenChange} open={open}>
+    <Dialog onOpenChange={next => (next ? onOpenChange(true) : close())} open={open}>
       <DialogContent className={cn('max-h-[85vh] max-w-2xl gap-0 overflow-hidden p-0', contentClassName)}>
         <DialogHeader className="border-b border-border px-4 py-3">
           <DialogTitle>{copy.title}</DialogTitle>
@@ -142,7 +152,7 @@ export function ModelPickerDialog({
           <Button
             className="mr-auto text-(--ui-text-tertiary)"
             onClick={() => {
-              onOpenChange(false)
+              close()
               setModelVisibilityOpen(true)
             }}
             size="sm"
@@ -153,7 +163,7 @@ export function ModelPickerDialog({
           {onOpenProviders && (
             <Button
               onClick={() => {
-                onOpenChange(false)
+                close()
                 onOpenProviders()
               }}
               size="sm"
@@ -162,7 +172,7 @@ export function ModelPickerDialog({
               {copy.addProvider}
             </Button>
           )}
-          <Button onClick={() => onOpenChange(false)} size="sm" variant="outline">
+          <Button onClick={close} size="sm" variant="outline">
             {t.common.cancel}
           </Button>
         </DialogFooter>

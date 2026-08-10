@@ -1,14 +1,17 @@
 import { useEffect, useMemo, useState } from 'react'
 
 import { jobState, jobTitle, STATE_DOT } from '@/app/cron/job-state'
+import { ActionsContextMenu, type MenuKit, renderActionItem } from '@/components/ui/actions-menu'
 import { Codicon } from '@/components/ui/codicon'
 import { DisclosureCaret } from '@/components/ui/disclosure-caret'
 import { Tip } from '@/components/ui/tooltip'
-import { getCronJobRuns } from '@/hermes'
+import { deleteCronJob, getCronJobRuns, pauseCronJob, resumeCronJob } from '@/hermes'
 import { useI18n } from '@/i18n'
 import { cn } from '@/lib/utils'
 import { useStore } from '@/store/atom'
+import { updateCronJobs } from '@/store/cron'
 import { $changeEventsAvailable, $cronChangeTick, livePollIntervalMs } from '@/store/live-sync'
+import { notify, notifyError } from '@/store/notifications'
 import { $activeStoredSessionId } from '@/store/session'
 import type { CronJob, SessionInfo } from '@/types/hermes'
 
@@ -191,76 +194,129 @@ function CronJobSidebarRow({
   const state = jobState(job)
   const next = nextRunMs(job)
   const label = jobTitle(job)
+  const isPaused = state === 'paused'
 
   const meta = INACTIVE_STATES.has(state) ? (c.states[state] ?? state) : next !== null ? relativeTime(next, nowMs) : '—'
 
+  // Pause/resume and delete aren't threaded through the sidebar's prop chain, so
+  // drive them against the shared $cronJobs atom directly (same path the cron
+  // overlay uses) — the sidebar and overlay render from that one atom, so the
+  // row updates in place.
+  const togglePause = async () => {
+    try {
+      const updated = isPaused ? await resumeCronJob(job.id) : await pauseCronJob(job.id)
+      updateCronJobs(rows => rows.map(row => (row.id === job.id ? updated : row)))
+      notify({ kind: 'success', title: isPaused ? c.resumed : c.paused, message: label })
+    } catch (err) {
+      notifyError(err, c.failedUpdate)
+    }
+  }
+
+  const remove = async () => {
+    if (!window.confirm(`${c.deleteDescPrefix}${label}${c.deleteDescSuffix}`)) {
+      return
+    }
+
+    try {
+      await deleteCronJob(job.id)
+      updateCronJobs(rows => rows.filter(row => row.id !== job.id))
+      notify({ kind: 'success', title: c.deleted, message: label })
+    } catch (err) {
+      notifyError(err, c.failedDelete)
+    }
+  }
+
+  // One action set for both the hover buttons and the right-click menu.
+  const items = (kit: MenuKit) => (
+    <>
+      {renderActionItem(kit, { icon: 'zap', key: 'trigger', label: c.triggerNow, onSelect: onTrigger })}
+      {renderActionItem(kit, {
+        icon: isPaused ? 'play' : 'debug-pause',
+        key: 'pause',
+        label: isPaused ? c.resume : c.pause,
+        onSelect: () => void togglePause()
+      })}
+      {renderActionItem(kit, { icon: 'watch', key: 'manage', label: c.manage, onSelect: onManage })}
+      <kit.Separator />
+      {renderActionItem(kit, {
+        icon: 'trash',
+        key: 'delete',
+        label: t.common.delete,
+        onSelect: () => void remove(),
+        variant: 'destructive'
+      })}
+    </>
+  )
+
   return (
     <div>
-      <div className="group/cron relative grid min-h-[1.625rem] grid-cols-[minmax(0,1fr)_auto] items-center rounded-md hover:bg-(--chrome-action-hover)">
-        <Tip label={label}>
-          <button
-            aria-expanded={expanded}
-            aria-label={expanded ? c.hideRuns : c.showRuns}
-            className="flex min-w-0 items-center gap-1.5 bg-transparent py-0.5 pl-2 pr-1 text-left"
-            onClick={onTogglePeek}
-            type="button"
-          >
-            <span className="grid w-3.5 shrink-0 place-items-center">
-              <span
-                aria-hidden="true"
+      <ActionsContextMenu ariaLabel={c.actionsTitle} contentClassName="w-44" items={items}>
+        <div className="group/cron relative grid min-h-[1.625rem] grid-cols-[minmax(0,1fr)_auto] items-center rounded-md hover:bg-(--chrome-action-hover)">
+          <Tip label={label}>
+            <button
+              aria-expanded={expanded}
+              aria-label={expanded ? c.hideRuns : c.showRuns}
+              className="flex min-w-0 items-center gap-1.5 bg-transparent py-0.5 pl-2 pr-1 text-left"
+              onClick={onTogglePeek}
+              type="button"
+            >
+              <span className="grid w-3.5 shrink-0 place-items-center">
+                <span
+                  aria-hidden="true"
+                  className={cn(
+                    'size-1 rounded-full',
+                    STATE_DOT[state] ?? 'bg-(--ui-text-quaternary)',
+                    state === 'running' && 'size-1.5 animate-pulse'
+                  )}
+                />
+              </span>
+              <span className="min-w-0 truncate text-[0.8125rem] text-(--ui-text-secondary) group-hover/cron:text-foreground">
+                {label}
+              </span>
+              <DisclosureCaret
                 className={cn(
-                  'size-1 rounded-full',
-                  STATE_DOT[state] ?? 'bg-(--ui-text-quaternary)',
-                  state === 'running' && 'size-1.5 animate-pulse'
+                  'shrink-0 text-(--ui-text-tertiary) transition',
+                  expanded ? 'opacity-100' : 'opacity-0 group-hover/cron:opacity-100'
                 )}
+                open={expanded}
               />
+            </button>
+          </Tip>
+          <div className="flex items-center gap-0.5 justify-self-end pr-1">
+            {/* Hover swaps the next-run time out for the actions; on touch there
+                is no hover, so the buttons stay put. Inverted rather than
+                layered: the touch layout is the base and the swap is scoped to
+                `fine:`, so the two can never both claim the slot. The label
+                beside them is `min-w-0 truncate`, so it yields the width.
+                Right-click reaches the same actions (plus pause/delete). */}
+            <span className="text-[0.6875rem] text-(--ui-text-tertiary) tabular-nums fine:group-hover/cron:hidden">
+              {meta}
             </span>
-            <span className="min-w-0 truncate text-[0.8125rem] text-(--ui-text-secondary) group-hover/cron:text-foreground">
-              {label}
-            </span>
-            <DisclosureCaret
-              className={cn(
-                'shrink-0 text-(--ui-text-tertiary) transition',
-                expanded ? 'opacity-100' : 'opacity-0 group-hover/cron:opacity-100'
-              )}
-              open={expanded}
-            />
-          </button>
-        </Tip>
-        <div className="flex items-center gap-0.5 justify-self-end pr-1">
-          {/* Hover swapped the next-run time out for the actions, which on
-              touch left Trigger and Manage with no path at all — this row has
-              no context menu to fall back on. Inverted rather than layered:
-              the touch layout is the base and the swap is scoped to `fine:`,
-              so the two can never both claim the slot. The label beside them
-              is `min-w-0 truncate`, so it yields the width. */}
-          <span className="text-[0.6875rem] text-(--ui-text-tertiary) tabular-nums fine:group-hover/cron:hidden">
-            {meta}
-          </span>
-          <div className="flex items-center gap-0.5 fine:hidden fine:group-hover/cron:flex">
-            <Tip label={c.triggerNow}>
-              <button
-                aria-label={c.triggerNow}
-                className="grid size-5 place-items-center rounded-sm text-(--ui-text-tertiary) hover:bg-(--ui-control-hover-background) hover:text-foreground"
-                onClick={onTrigger}
-                type="button"
-              >
-                <Codicon name="zap" size="0.75rem" />
-              </button>
-            </Tip>
-            <Tip label={c.manage}>
-              <button
-                aria-label={c.manage}
-                className="grid size-5 place-items-center rounded-sm text-(--ui-text-tertiary) hover:bg-(--ui-control-hover-background) hover:text-foreground"
-                onClick={onManage}
-                type="button"
-              >
-                <Codicon name="watch" size="0.75rem" />
-              </button>
-            </Tip>
+            <div className="flex items-center gap-0.5 fine:hidden fine:group-hover/cron:flex">
+              <Tip label={c.triggerNow}>
+                <button
+                  aria-label={c.triggerNow}
+                  className="grid size-5 place-items-center rounded-sm text-(--ui-text-tertiary) hover:bg-(--ui-control-hover-background) hover:text-foreground"
+                  onClick={onTrigger}
+                  type="button"
+                >
+                  <Codicon name="zap" size="0.75rem" />
+                </button>
+              </Tip>
+              <Tip label={c.manage}>
+                <button
+                  aria-label={c.manage}
+                  className="grid size-5 place-items-center rounded-sm text-(--ui-text-tertiary) hover:bg-(--ui-control-hover-background) hover:text-foreground"
+                  onClick={onManage}
+                  type="button"
+                >
+                  <Codicon name="watch" size="0.75rem" />
+                </button>
+              </Tip>
+            </div>
           </div>
         </div>
-      </div>
+      </ActionsContextMenu>
       {expanded && <CronJobSidebarRuns jobId={job.id} onOpenRun={onOpenRun} />}
     </div>
   )

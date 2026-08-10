@@ -14,8 +14,10 @@ export interface PaletteItem {
   action?: string
   /** Renders a trailing check: this row IS the current setting (theme, mode). */
   active?: boolean
-  /** Muted text beside the label — state the row acts on (a version, a count). */
+  /** Short note beside the label — state the row acts on (a version, a count). */
   detail?: string
+  /** `state` when the row will CHANGE what `detail` says (a toggle's on/off). */
+  detailVariant?: 'muted' | 'state'
   icon: IconComponent
   id: string
   /** Keep the palette open after running (live-preview pickers like theme/mode). */

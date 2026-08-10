@@ -228,6 +228,12 @@ export const en: Translations = {
     close: 'Close'
   },
 
+  findInPage: {
+    title: 'Find in page',
+    next: 'Next match',
+    previous: 'Previous match'
+  },
+
   keybinds: {
     title: 'Keyboard shortcuts',
     subtitle: open => `Click a shortcut to rebind it · ${open} reopens this panel.`,
@@ -272,12 +278,17 @@ export const en: Translations = {
       'session.focusSearch': 'Search sessions',
       'session.togglePin': 'Pin / unpin current session',
       'workspace.newWorktree': 'New worktree',
+      'workspace.openFolder': 'Open folder as project',
+      'view.toggleHud': 'Toggle HUD window',
       'composer.focus': 'Focus composer',
       'composer.modelPicker': 'Open model picker',
       'composer.voice': 'Start / stop voice conversation',
       'view.toggleSidebar': 'Toggle sessions sidebar',
       'view.toggleRightSidebar': 'Toggle file browser',
       'view.toggleReview': 'Toggle review pane',
+      'view.findInPage': 'Find in page',
+      'view.findNext': 'Find next',
+      'view.findPrevious': 'Find previous',
       'view.showFiles': 'Show file browser',
       'view.showTerminal': 'Toggle terminal',
       'view.toggleStatusbar': 'Toggle status bar',
@@ -1232,6 +1243,9 @@ export const en: Translations = {
     searchPlaceholder: 'Search sessions, views, and actions',
     goTo: 'Go to',
     goToSession: 'Go to session',
+    projects: 'Projects',
+    openFolder: 'Open folder as project…',
+    openFolderAt: path => `Open folder as project — ${path}`,
     branches: 'Branches',
     startInBranch: branch => `New conversation in ${branch}`,
     commandCenter: 'Command Center',

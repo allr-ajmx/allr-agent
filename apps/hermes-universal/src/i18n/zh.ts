@@ -223,6 +223,12 @@ export const zh: Translations = {
     close: '关闭'
   },
 
+  findInPage: {
+    title: '在页面中查找',
+    next: '下一个匹配项',
+    previous: '上一个匹配项'
+  },
+
   keybinds: {
     title: '键盘快捷键',
     subtitle: open => `点击快捷键即可重新绑定 · ${open} 可重新打开此面板。`,
@@ -267,12 +273,16 @@ export const zh: Translations = {
       'session.focusSearch': '搜索会话',
       'session.togglePin': '固定/取消固定当前会话',
       'workspace.newWorktree': '新建工作树',
+      'workspace.openFolder': '将文件夹作为项目打开',
       'composer.focus': '聚焦输入框',
       'composer.modelPicker': '打开模型选择器',
       'composer.voice': '开始 / 停止语音对话',
       'view.toggleSidebar': '切换会话侧边栏',
       'view.toggleRightSidebar': '切换文件浏览器',
       'view.toggleReview': '切换审查面板',
+      'view.findInPage': '在页面中查找',
+      'view.findNext': '查找下一个',
+      'view.findPrevious': '查找上一个',
       'view.showFiles': '显示文件浏览器',
       'view.showTerminal': '显示终端',
       'view.terminalSelection': '将终端选区发送到输入框',
@@ -1402,6 +1412,9 @@ export const zh: Translations = {
     searchPlaceholder: '搜索会话、视图与操作',
     goTo: '前往',
     goToSession: '前往会话',
+    projects: '项目',
+    openFolder: '将文件夹作为项目打开…',
+    openFolderAt: path => `将文件夹作为项目打开 — ${path}`,
     branches: '分支',
     startInBranch: branch => `在 ${branch} 中开始新对话`,
     commandCenter: '命令中心',

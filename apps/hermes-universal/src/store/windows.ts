@@ -338,3 +338,264 @@ export async function openNewWindow(): Promise<void> {
 
   await runWindowOpen(() => invoke('open_instance_window'), 'Could not open a new window')
 }
+
+// --------------------------------------------------------------------------
+// Satellite windows (MJXHRM-55)
+//
+// A satellite is a SECOND SURFACE of the app in its own native window — not a
+// pop-out of something the main window already shows (that is a tile window
+// above), but a different shape of the app entirely: summoned by a global
+// hotkey, living over other applications, dismissed the moment it is done. The
+// HUD (MJXHRM-213) is the first and, today, the only one.
+//
+// This half is deliberately content-free. It owns the label, the URL flag, the
+// open/focus/close lifecycle and — the part that is easy to get wrong — the
+// teardown, so a satellite can never outlive the window that summoned it.
+// What the satellite RENDERS is the surface's own business: it reads
+// `satelliteSurface()` and takes it from there.
+//
+// Built from the frontend rather than through a Rust command (the tile/instance
+// path above) because a satellite is defined by its geometry — always-on-top,
+// frameless, sized to its content — and that is a property of the surface, not
+// of the process. `WebviewWindow`'s constructor dispatches to the main thread
+// itself, so the gtk/WKWebView constraint the Rust path exists for is met.
+// --------------------------------------------------------------------------
+
+/** Label prefix — must match the `sat-*` glob in `capabilities/default.json`,
+ *  which is what grants a satellite's webview its JS surface. */
+const SATELLITE_LABEL_PREFIX = 'sat'
+
+/** Surfaces opened BY THIS WINDOW. The authority on what to tear down; a window
+ *  the user already closed drops out of `getByLabel` on its own. */
+const openedSatellites = new Set<string>()
+
+let teardownInstalled = false
+
+/** A surface name is part of a window label and of a URL query, so it is held to
+ *  the narrow shape both accept without escaping. */
+function satelliteLabel(surface: string): null | string {
+  return /^[a-z][a-z0-9-]*$/.test(surface) ? `${SATELLITE_LABEL_PREFIX}-${surface}` : null
+}
+
+export interface SatelliteWindowSpec {
+  /** Surface id — the `?win=` flag AND the label suffix (e.g. `hud`). */
+  surface: string
+  /** Route rendered inside it, after the HashRouter `#`. Defaults to the root. */
+  route?: string
+  width?: number
+  height?: number
+  /** Default true: a summoned surface that hides behind the window you were
+   *  using is a surface you have to go find. */
+  alwaysOnTop?: boolean
+  /** Default false: satellites draw their own chrome, like every other window here. */
+  decorations?: boolean
+  resizable?: boolean
+  /** Default true: a transient surface does not belong in the window list. */
+  skipTaskbar?: boolean
+  transparent?: boolean
+}
+
+/**
+ * The satellite surface THIS window is, or null in an ordinary window. Constant
+ * for the window's life (the flag is in the URL), so a renderer can branch on it
+ * once at boot rather than re-deciding per render.
+ */
+export function satelliteSurface(): null | string {
+  const flag = winFlag()
+
+  return flag && satelliteLabel(flag) ? flag : null
+}
+
+export function isSatelliteWindow(): boolean {
+  return satelliteSurface() !== null
+}
+
+/** Satellites need a real second window, so they follow the same platform gate
+ *  as the other pop-outs — and a satellite never spawns another. */
+export function canOpenSatelliteWindow(): boolean {
+  return multiWindowSupported() && !isSatelliteWindow()
+}
+
+/**
+ * Summoning a satellite must not be able to leave one behind: if the window that
+ * opened it goes away, so do its satellites. Installed lazily on the first open
+ * (an app that never summons one pays nothing) and only once.
+ *
+ * The re-entrant `close()` is intentional. Closing the satellites is async, so
+ * the first close request is deferred; by the time we ask again the set is empty
+ * and this handler stands aside.
+ */
+async function installSatelliteTeardown(): Promise<void> {
+  if (teardownInstalled) {
+    return
+  }
+
+  teardownInstalled = true
+
+  try {
+    const { getCurrentWebviewWindow } = await import('@tauri-apps/api/webviewWindow')
+    const current = getCurrentWebviewWindow()
+
+    await current.onCloseRequested(async event => {
+      if (openedSatellites.size === 0) {
+        return
+      }
+
+      event.preventDefault()
+      await closeAllSatelliteWindows()
+      void current.close()
+    })
+  } catch {
+    // No window system here (web/mobile) — nothing to tear down.
+  }
+}
+
+/** Open the satellite, or focus it if it is already up. Returns its label, or
+ *  null when the platform has no second window or the surface name is unusable. */
+export async function openSatelliteWindow(spec: SatelliteWindowSpec): Promise<null | string> {
+  const label = satelliteLabel(spec.surface)
+
+  if (!label || !canOpenSatelliteWindow()) {
+    return null
+  }
+
+  try {
+    const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow')
+    const existing = await WebviewWindow.getByLabel(label)
+
+    if (existing) {
+      await existing.show()
+      await existing.setFocus()
+      openedSatellites.add(spec.surface)
+
+      return label
+    }
+
+    // The `?win=` flag rides BEFORE the HashRouter `#`, so it lands in
+    // `location.search` — the same contract every other window flag here uses.
+    const route = spec.route ? `#${spec.route}` : ''
+
+    const win = new WebviewWindow(label, {
+      alwaysOnTop: spec.alwaysOnTop ?? true,
+      decorations: spec.decorations ?? false,
+      focus: true,
+      height: spec.height,
+      resizable: spec.resizable ?? false,
+      skipTaskbar: spec.skipTaskbar ?? true,
+      title: 'Hermes (MJX)',
+      transparent: spec.transparent ?? false,
+      url: `index.html?win=${spec.surface}${route}`,
+      width: spec.width
+    })
+
+    // `once` rather than `then`: the event fires from the new webview, and a
+    // creation that fails has to surface rather than leave a dead label behind.
+    await new Promise<void>((resolve, reject) => {
+      void win.once('tauri://created', () => resolve())
+      void win.once('tauri://error', event => reject(new Error(String(event.payload))))
+    })
+
+    openedSatellites.add(spec.surface)
+    void installSatelliteTeardown()
+
+    return label
+  } catch (err) {
+    notifyError(err, 'Could not open that window')
+
+    return null
+  }
+}
+
+/** Bring an open satellite forward. False when it isn't up. */
+export async function focusSatelliteWindow(surface: string): Promise<boolean> {
+  const label = satelliteLabel(surface)
+
+  if (!label) {
+    return false
+  }
+
+  try {
+    const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow')
+    const win = await WebviewWindow.getByLabel(label)
+
+    if (!win) {
+      return false
+    }
+
+    await win.show()
+    await win.setFocus()
+
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** Close a satellite. A window the user already closed is not an error — the
+ *  end state is what the caller wanted. */
+export async function closeSatelliteWindow(surface: string): Promise<void> {
+  const label = satelliteLabel(surface)
+
+  openedSatellites.delete(surface)
+
+  if (!label) {
+    return
+  }
+
+  try {
+    const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow')
+    const win = await WebviewWindow.getByLabel(label)
+
+    await win?.close()
+  } catch {
+    // Already gone, or no window system here.
+  }
+}
+
+export async function closeAllSatelliteWindows(): Promise<void> {
+  await Promise.all([...openedSatellites].map(closeSatelliteWindow))
+}
+
+/** True when the satellite is currently up — asked of the window system, not of
+ *  our bookkeeping, so a window the user closed reads as gone. */
+export async function isSatelliteWindowOpen(surface: string): Promise<boolean> {
+  const label = satelliteLabel(surface)
+
+  if (!label) {
+    return false
+  }
+
+  try {
+    const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow')
+
+    return (await WebviewWindow.getByLabel(label)) !== null
+  } catch {
+    return false
+  }
+}
+
+/**
+ * The HUD's window (MJXHRM-213 renders into it) — named here so the surface id,
+ * its geometry and its chrome are changed in one place rather than at whichever
+ * call site summons it.
+ *
+ * `transparent` is deliberately OFF. On Linux universal runs WebKitGTK, where a
+ * transparent frameless toplevel behaves differently per compositor; SE-J's
+ * spike decides that, and until it does an opaque window is the honest default.
+ */
+export const HUD_SATELLITE: SatelliteWindowSpec = {
+  height: 260,
+  surface: 'hud',
+  width: 560
+}
+
+/** Summon or dismiss — the shape a hotkey wants. Returns whether it is now up. */
+export async function toggleSatelliteWindow(spec: SatelliteWindowSpec): Promise<boolean> {
+  if (await isSatelliteWindowOpen(spec.surface)) {
+    await closeSatelliteWindow(spec.surface)
+
+    return false
+  }
+
+  return (await openSatelliteWindow(spec)) !== null
+}

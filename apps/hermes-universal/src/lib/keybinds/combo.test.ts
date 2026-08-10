@@ -110,3 +110,35 @@ describe('isShiftPrintableCombo', () => {
     expect(isShiftPrintableCombo('n')).toBe(false)
   })
 })
+
+describe('acceleratorFromCombo — handing a combo to the operating system', () => {
+  it('translates the app vocabulary into the platform accelerator one', async () => {
+    const { acceleratorFromCombo } = await loadCombo('Win32')
+
+    expect(acceleratorFromCombo('mod+shift+space')).toBe('CommandOrControl+Shift+Space')
+    expect(acceleratorFromCombo('alt+b')).toBe('Alt+B')
+    expect(acceleratorFromCombo('mod+alt+enter')).toBe('CommandOrControl+Alt+Enter')
+    expect(acceleratorFromCombo('mod+f5')).toBe('CommandOrControl+F5')
+    expect(acceleratorFromCombo('mod+`')).toBe('CommandOrControl+Backquote')
+  })
+
+  it('keeps Control distinct from Cmd on macOS, and folds it elsewhere', async () => {
+    const mac = await loadCombo('MacIntel')
+    expect(mac.acceleratorFromCombo('ctrl+shift+h')).toBe('Control+Shift+H')
+    expect(mac.acceleratorFromCombo('mod+ctrl+h')).toBe('CommandOrControl+Control+H')
+
+    const win = await loadCombo('Win32')
+    // `ctrl` IS `mod` off macOS — the accelerator must not say Control twice.
+    expect(win.acceleratorFromCombo('mod+ctrl+h')).toBe('CommandOrControl+H')
+  })
+
+  it('refuses a chord no user meant to take from the whole machine', async () => {
+    const { acceleratorFromCombo } = await loadCombo('Win32')
+
+    // A bare key or a lone Shift chord would swallow that keystroke in every
+    // other application — an OS-level claim has to carry a primary modifier.
+    expect(acceleratorFromCombo('k')).toBeNull()
+    expect(acceleratorFromCombo('shift+n')).toBeNull()
+    expect(acceleratorFromCombo('')).toBeNull()
+  })
+})
