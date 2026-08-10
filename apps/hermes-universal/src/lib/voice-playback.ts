@@ -1,3 +1,4 @@
+import { sanitizeTextForSpeech } from '@/lib/speech-text'
 import { speakNow, speakUntilDone, type SpeechEnd, stopSpeaking } from '@/lib/tts'
 import { $voicePlayback, resetVoicePlayback, type VoicePlaybackSource } from '@/store/voice-playback'
 
@@ -9,6 +10,18 @@ import { $voicePlayback, resetVoicePlayback, type VoicePlaybackSource } from '@/
 // The 'preparing' → 'speaking' → 'idle' transitions are driven by the
 // `$ttsSpeaking` subscription in store/voice-playback; here we only stamp the
 // initiating source/message and clear on failure.
+//
+// Both entry points sanitize (MJXHRM-369). This is the right seam and the only
+// one: they are the whole-clip boundary — the complete text is in hand, so a
+// fenced block or a markdown link is entire and the regexes see all of it.
+// Sanitizing deeper, inside `lib/tts.ts`, would also catch the streaming
+// chunker's per-delta path, where the same markup arrives split across chunks
+// and the rules would match halves. Desktop draws the line in the same place
+// (`desktop/src/lib/voice-playback.ts:441`).
+//
+// Empty output is not special-cased: `speakNow`/`speakUntilDone` already treat
+// blank text as "nothing to play", and the 'preparing' reset below is what turns
+// that into an idle button.
 export async function playSpeechText(
   text: string,
   // messageId is optional: read-aloud passes the message being read; the ported
@@ -18,7 +31,7 @@ export async function playSpeechText(
   $voicePlayback.set({ source, messageId: messageId ?? null, status: 'preparing' })
 
   try {
-    await speakNow(text)
+    await speakNow(sanitizeTextForSpeech(text))
 
     // speakNow resolves once playback has begun (or bailed on empty/error). If
     // no audio started, the subscription never promoted us to 'speaking' — drop
@@ -44,7 +57,7 @@ export async function playSpeechTextUntilDone(
 ): Promise<SpeechEnd> {
   $voicePlayback.set({ source, messageId: messageId ?? null, status: 'preparing' })
 
-  const result = await speakUntilDone(text)
+  const result = await speakUntilDone(sanitizeTextForSpeech(text))
 
   // If nothing ever started, the $ttsSpeaking subscription never promoted us off
   // 'preparing' — drop back to idle. (On a real playback the subscription has
