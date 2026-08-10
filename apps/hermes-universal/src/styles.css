@@ -1376,7 +1376,9 @@ html {
 }
 
 [data-slot='aui_assistant-message-content'] {
-  padding-left: var(--message-text-indent);
+  /* Logical, not `padding-left`: this indent belongs to the side the text
+     STARTS on, which flips with the document's direction. */
+  padding-inline-start: var(--message-text-indent);
   font-size: var(--conversation-text-font-size);
   line-height: 1.5;
 }
@@ -2636,3 +2638,37 @@ html[data-hud] .thread-jump-button {
 html[data-hud] [data-hud-card] * {
   backdrop-filter: none !important;
 }
+
+/* ---------------------------------------------------------------------------
+   RTL (MJXHRM-71)
+
+   Direction is set once, on <html>, by the i18n provider from the active
+   locale. Everything below is the small set of surfaces that must NOT follow it.
+
+   Note the deliberate scope: this file makes an RTL document behave correctly
+   at the DOCUMENT level. Component layout is a separate, larger job — the app
+   still leans on physical Tailwind utilities (ml-/pl-/left-/text-left) in a few
+   hundred places, and each one has to be read and converted to its logical
+   equivalent (ms-/ps-/start-/text-start) by someone who can see the component.
+   Converting them blind would be worse than leaving them: a physical class that
+   was RIGHT stays right, whereas a wrongly-flipped one is a new bug.
+   --------------------------------------------------------------------------- */
+
+/* Source code, shell output and paths read left-to-right in every language.
+   An RTL document would otherwise reorder a command line, a diff hunk or a
+   stack trace into something that no longer means what it says. */
+[dir='rtl'] :where(pre, code, kbd, samp, .xterm, .cm-editor, [data-slot='code-card']) {
+  direction: ltr;
+  text-align: left;
+}
+
+/* The terminal is a grid the engine positions itself; an inherited RTL
+   direction moves the cursor and the scrollbar to the wrong edge of it. */
+[dir='rtl'] .xterm,
+[dir='rtl'] .xterm-viewport,
+[dir='rtl'] .xterm-screen {
+  direction: ltr;
+}
+
+/* A codicon/chevron is a glyph, not text: the direction-bearing ones are
+   flipped per-component where the meaning is known, never wholesale here. */
