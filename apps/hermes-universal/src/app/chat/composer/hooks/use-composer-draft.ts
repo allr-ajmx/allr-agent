@@ -2,7 +2,12 @@ import { useAui, useAuiState, useComposerRuntime } from '@assistant-ui/react'
 import { type RefObject, useCallback, useEffect, useRef, useState } from 'react'
 
 import { SLASH_COMMAND_RE } from '@/lib/chat-runtime'
-import { type ComposerAttachment, stashSessionDraft, takeSessionDraft } from '@/store/composer'
+import {
+  type ComposerAttachment,
+  onComposerDraftSyncRequest,
+  stashSessionDraft,
+  takeSessionDraft
+} from '@/store/composer'
 import { isBrowsingHistory } from '@/store/composer-input-history'
 
 import {
@@ -376,6 +381,46 @@ export function useComposerDraft({
       }
     }
   }, [activeQueueSessionKey]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // A draft moving BETWEEN WINDOWS (MJXHRM-213). The HUD and the main window are
+  // separate webviews sharing one `localStorage` draft stash, so a handoff is two
+  // moments: flush what is in this editor before the other window reads it, and
+  // repaint from the stash after the other window has written.
+  //
+  // The focus guard on `reload` is the load-bearing half: repainting an editor
+  // someone is typing in would drop their keystrokes and move their caret, and
+  // "the window you are looking at wins" is the only rule that cannot surprise
+  // anyone.
+  useEffect(() => {
+    return onComposerDraftSyncRequest(mode => {
+      const scope = draftScopeRef.current
+
+      if (isBrowsingHistory(sessionIdRef.current) || queueEditStateRef.current?.sessionKey === scope) {
+        return
+      }
+
+      if (mode === 'flush') {
+        pendingDraftPersistRef.current = null
+        stashAt(scope, syncDraftFromEditor())
+
+        return
+      }
+
+      const editor = editorRef.current
+
+      if (editor && document.activeElement === editor) {
+        return
+      }
+
+      const { attachments, text } = takeSessionDraft(scope)
+
+      if (text !== draftRef.current) {
+        loadIntoComposer(text, attachments)
+      }
+    })
+    // `stashAt` / `loadIntoComposer` are recreated every render (they close over
+    // live refs by design), so listing them would resubscribe on every keystroke.
+  }, [syncDraftFromEditor]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // pagehide is load-bearing: React skips effect cleanups on reload, so Cmd+R
   // inside the debounce/rAF window would drop trailing keystrokes without this.

@@ -250,6 +250,80 @@ export function takeSessionDraft(scope: string | null | undefined): SessionDraft
 
 export const clearSessionDraft = (scope: string | null | undefined) => stashSessionDraft(scope, '', [])
 
+// --------------------------------------------------------------------------
+// Cross-window drafts (MJXHRM-213)
+//
+// A half-typed message has to survive moving between windows: summon the HUD
+// mid-sentence and the sentence should be there; dismiss it and the main
+// composer should have whatever you added. Every window here is its own webview
+// with its own JS heap, but windows of one origin share `localStorage` — and its
+// native `storage` event fires in the OTHER windows, never in the one that
+// wrote. That is the whole transport; the functions below are the timing.
+//
+// Attachments do not travel. They are blobs and upload state held in memory,
+// and only draft TEXT is mirrored to storage.
+// --------------------------------------------------------------------------
+
+/** Merge whatever another window persisted back into this window's map. A
+ *  merge, not a replace: locally-held attachments have to survive it. */
+export function reloadPersistedDrafts(): void {
+  const persisted = new Map(loadPersistedDraftTexts())
+
+  for (const [key, draft] of persisted) {
+    const local = draftsBySession.get(key)
+
+    // Delete-then-set to keep the MRU ordering the eviction rule depends on.
+    draftsBySession.delete(key)
+    draftsBySession.set(key, { attachments: local?.attachments ?? [], text: draft.text })
+  }
+
+  // A key that vanished from storage was sent or cleared in the other window.
+  // Keep it here only while this window still holds attachments for it.
+  for (const [key, draft] of [...draftsBySession]) {
+    if (!persisted.has(key) && draft.attachments.length === 0) {
+      draftsBySession.delete(key)
+    }
+  }
+}
+
+/** `flush`: write what is in the editor to the stash NOW, before another window
+ *  reads it. `reload`: re-read the stash into a composer whose scope did not
+ *  change — otherwise the only thing that makes it re-consult the stash is a
+ *  session swap, and a handoff is not one. */
+export type ComposerDraftSyncMode = 'flush' | 'reload'
+
+const DRAFT_SYNC_EVENT = 'hermes:composer-draft-sync'
+
+export function requestComposerDraftSync(mode: ComposerDraftSyncMode): void {
+  try {
+    window.dispatchEvent(new CustomEvent(DRAFT_SYNC_EVENT, { detail: mode }))
+  } catch {
+    // No DOM — nothing is mounted to answer anyway.
+  }
+}
+
+export function onComposerDraftSyncRequest(handler: (mode: ComposerDraftSyncMode) => void): () => void {
+  const listener = (event: Event) => handler((event as CustomEvent<ComposerDraftSyncMode>).detail)
+
+  window.addEventListener(DRAFT_SYNC_EVENT, listener)
+
+  return () => window.removeEventListener(DRAFT_SYNC_EVENT, listener)
+}
+
+// A draft written by another window lands here as a `storage` event. Pick it up
+// and tell any mounted composer to repaint — without this the text only appears
+// after the next session swap, which is to say usually never.
+try {
+  window.addEventListener('storage', event => {
+    if (event.key === SESSION_DRAFTS_STORAGE_KEY) {
+      reloadPersistedDrafts()
+      requestComposerDraftSync('reload')
+    }
+  })
+} catch {
+  // No DOM — the module still imports cleanly under unit tests.
+}
+
 export function setComposerDraft(value: string) {
   $composerDraft.set(value)
 }
