@@ -49,6 +49,22 @@ describe('registerTile / findTile', () => {
     expect(findTile('files')).toBeUndefined()
   })
 
+  // MJXHRM-385. `tabLead` is a FUNCTION on the payload, and the flat-payload
+  // adapter copies chrome by an explicit key list — a key missing from that list
+  // is dropped in silence, with nothing to typecheck it. That is exactly how a
+  // session tab would lose its status dot while every other field survived.
+  it('round-trips the tabLead slot — a node, not a colour string', () => {
+    const lead = () => null
+    const dispose = registerTile(base('session-tile:abc', { chrome: { accent: '#f00', tabLead: lead } }))
+
+    expect(tileChrome(findTile('session-tile:abc')).tabLead).toBe(lead)
+    // `accent` still round-trips beside it: the two are a slot and its
+    // string-only fallback, not alternatives the registry has to choose between.
+    expect(tileChrome(findTile('session-tile:abc')).accent).toBe('#f00')
+
+    dispose()
+  })
+
   it('titles default to the id, so a tab is never blank', () => {
     const dispose = registerTile({ id: 'terminal', kind: 'terminal', title: '', render: () => null })
 

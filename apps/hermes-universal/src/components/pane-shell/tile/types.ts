@@ -98,6 +98,21 @@ export interface TileChrome {
    *  color). Generic — any tile may contribute one; the strip just renders a
    *  tinted dot before the label. Live: re-registered when the color changes. */
   accent?: string
+  /**
+   * A lead NODE for this tile's TAB, rendered before the label — the richer
+   * sibling of `accent`, and the one that wins when both are set.
+   *
+   * `accent` can only ever say "this tile has a colour", because it is a STRING
+   * captured at registration: anything that moves faster than re-registration
+   * (a session's turn starting, an approval blocking it) cannot be expressed in
+   * it, and the pane mirror's re-register-on-change is exactly what MJXHRM-45
+   * is trying to stop doing. A node is SELF-SUBSCRIBING — a session tile passes
+   * its live `SessionStatusDot` — so the tab shows status without the strip
+   * re-syncing at all.
+   *
+   * Ported from desktop `PaneChrome.tabLead` (`track-model.ts`).
+   */
+  tabLead?: () => ReactNode
   /** Where a re-adopted tile docks. */
   dock?: TileDockHint
   /** Spawn corner for `placement: 'floating'` (default `'top-right'`). A

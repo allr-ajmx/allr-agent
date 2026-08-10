@@ -763,7 +763,15 @@ export function TreeGroup({
                   selected={isSelected}
                   style={{ cursor: 'grab' }}
                 >
-                  {chrome.accent ? (
+                  {/* Lead slot. A tile that contributes a NODE owns the slot
+                      outright (a session tab's live status dot, which says
+                      colour AND turn state); `accent` is the string-only
+                      fallback for tiles that only have a colour. Both sit in
+                      the same box so a strip mixing the two keeps one left
+                      edge. */}
+                  {chrome.tabLead ? (
+                    <span className="ml-2 -mr-1 flex shrink-0 items-center">{chrome.tabLead()}</span>
+                  ) : chrome.accent ? (
                     <span
                       aria-hidden="true"
                       className="ml-2 -mr-1 size-1 shrink-0 rounded-full"
