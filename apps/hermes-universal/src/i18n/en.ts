@@ -2629,6 +2629,9 @@ export const en: Translations = {
           ? 'Will resume when the background task finishes'
           : `Will resume when ${count} background tasks finish`,
       thinking: 'Thinking',
+      thought: 'Thought',
+      thoughtBriefly: 'Thought briefly',
+      thoughtFor: duration => `Thought for ${duration}`,
       today: time => `Today, ${time}`,
       yesterday: time => `Yesterday, ${time}`,
       copy: 'Copy',
@@ -2708,6 +2711,7 @@ export const en: Translations = {
       statusError: 'Error',
       statusRecovered: 'Recovered',
       statusDone: 'Done',
+      memoryWriteNoted: 'Memory write noted',
       actions: {
         read: 'Read',
         reading: 'Reading',
@@ -2754,6 +2758,7 @@ export const en: Translations = {
         execute_code: { done: 'Ran code', pending: 'Scripting', pendingAction: 'Scripting' },
         image_generate: { done: 'Generated image', pending: 'Generating image', pendingAction: 'Generating' },
         list_files: { done: 'Listed files', pending: 'Listing files', pendingAction: 'Listing' },
+        memory: { done: 'Saved to memory', pending: 'Saving to memory', pendingAction: 'Saving' },
         patch: { done: 'Patched file', pending: 'Patching file', pendingAction: 'Patching' },
         read_file: { done: 'Read file', pending: 'Reading file', pendingAction: 'Reading' },
         search_files: { done: 'Searched files', pending: 'Searching files', pendingAction: 'Searching' },

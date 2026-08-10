@@ -2385,6 +2385,9 @@ export const ja = defineLocale({
           ? 'バックグラウンドタスクの完了後に再開します'
           : `${count} 件のバックグラウンドタスクの完了後に再開します`,
       thinking: '考え中',
+      thought: '思考済み',
+      thoughtBriefly: '少し思考',
+      thoughtFor: duration => `${duration} 思考`,
       today: time => `今日 ${time}`,
       yesterday: time => `昨日 ${time}`,
       copy: 'コピー',
@@ -2461,6 +2464,7 @@ export const ja = defineLocale({
       statusError: 'エラー',
       statusRecovered: '回復しました',
       statusDone: '完了',
+      memoryWriteNoted: 'メモリへの書き込みを記録',
       actions: {
         read: '読み取り完了',
         reading: '読み取り中',
@@ -2514,6 +2518,11 @@ export const ja = defineLocale({
           done: 'ファイルを一覧表示しました',
           pending: 'ファイルを一覧表示中',
           pendingAction: '一覧表示中'
+        },
+        memory: {
+          done: 'メモリに保存しました',
+          pending: 'メモリに保存中',
+          pendingAction: '保存中'
         },
         patch: {
           done: 'ファイルにパッチを適用しました',

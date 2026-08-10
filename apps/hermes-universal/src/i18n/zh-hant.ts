@@ -2314,6 +2314,9 @@ export const zhHant = defineLocale({
       resumeWhenBackgroundDone: count =>
         count === 1 ? '背景工作完成後將自動繼續' : `${count} 個背景工作完成後將自動繼續`,
       thinking: '思考中',
+      thought: '已思考',
+      thoughtBriefly: '思考了片刻',
+      thoughtFor: duration => `思考了 ${duration}`,
       today: time => `今天，${time}`,
       yesterday: time => `昨天，${time}`,
       copy: '複製',
@@ -2390,6 +2393,7 @@ export const zhHant = defineLocale({
       statusError: '錯誤',
       statusRecovered: '已復原',
       statusDone: '完成',
+      memoryWriteNoted: '已記下記憶寫入',
       actions: {
         read: '已讀取',
         reading: '正在讀取',
@@ -2428,6 +2432,7 @@ export const zhHant = defineLocale({
         execute_code: { done: '已執行程式碼', pending: '正在撰寫腳本', pendingAction: '正在撰寫腳本' },
         image_generate: { done: '已生成圖片', pending: '正在生成圖片', pendingAction: '正在生成' },
         list_files: { done: '已列出檔案', pending: '正在列出檔案', pendingAction: '正在列出' },
+        memory: { done: '已儲存至記憶', pending: '正在儲存至記憶', pendingAction: '正在儲存' },
         patch: { done: '已修補檔案', pending: '正在修補檔案', pendingAction: '正在修補' },
         read_file: { done: '已讀取檔案', pending: '正在讀取檔案', pendingAction: '正在讀取' },
         search_files: { done: '已搜尋檔案', pending: '正在搜尋檔案', pendingAction: '正在搜尋' },

@@ -20,6 +20,7 @@ export type ToolTitleKey =
   | 'execute_code'
   | 'image_generate'
   | 'list_files'
+  | 'memory'
   | 'patch'
   | 'read_file'
   | 'search_files'
@@ -2240,6 +2241,9 @@ export interface Translations {
       loadingResponse: string
       resumeWhenBackgroundDone: (count: number) => string
       thinking: string
+      thought: string
+      thoughtBriefly: string
+      thoughtFor: (duration: string) => string
       today: (time: string) => string
       yesterday: (time: string) => string
       copy: string
@@ -2317,6 +2321,7 @@ export interface Translations {
       statusError: string
       statusRecovered: string
       statusDone: string
+      memoryWriteNoted: string
       actions: {
         read: string
         reading: string
