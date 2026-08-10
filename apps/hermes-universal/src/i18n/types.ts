@@ -1476,6 +1476,7 @@ export interface Translations {
     promptPlaceholder: string
     frequencyLabel: string
     deliverLabel: string
+    deliverNeedsHomeChannel: string
     modelLabel: string
     modelDefault: string
     customScheduleLabel: string
