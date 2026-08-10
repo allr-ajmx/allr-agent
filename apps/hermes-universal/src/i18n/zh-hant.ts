@@ -349,6 +349,8 @@ export const zhHant = defineLocale({
       toolViewDesc: '產品模式會隱藏原始工具 payload；技術模式會顯示完整輸入/輸出。',
       backdropTitle: '對話背景圖',
       backdropDesc: '對話後方那張淡淡的雕像圖。',
+      reactionsTitle: '訊息回應',
+      reactionsDesc: 'iMessage 風格的表情回應 — 你可以對訊息做出回應，Hermes 也能回應你的訊息。',
       uiScaleTitle: '介面縮放',
       uiScaleDesc: (percent: number) =>
         `縮放整個應用程式的文字與介面。也可使用 Cmd/Ctrl 加 +、- 或 0 調整。目前：${percent}%`,
@@ -1072,6 +1074,7 @@ export const zhHant = defineLocale({
     ageSeconds: seconds => `${seconds} 秒前`,
     ageMinutes: minutes => `${minutes} 分鐘前`,
     ageHours: hours => `${hours} 小時前`,
+    ageDays: days => `${days} 天前`,
     durationSeconds: seconds => `${seconds} 秒`,
     durationMinutes: (minutes, seconds) => `${minutes} 分 ${seconds} 秒`,
     tokens: value => `${value} 詞元`
@@ -2317,11 +2320,15 @@ export const zhHant = defineLocale({
       resumeWhenBackgroundDone: count =>
         count === 1 ? '背景工作完成後將自動繼續' : `${count} 個背景工作完成後將自動繼續`,
       thinking: '思考中',
+      thought: '已思考',
+      thoughtBriefly: '思考了片刻',
+      thoughtFor: duration => `思考了 ${duration}`,
       today: time => `今天，${time}`,
       yesterday: time => `昨天，${time}`,
       copy: '複製',
       refresh: '重新整理',
       moreActions: '更多動作',
+      react: '回應',
       branchNewChat: '在新聊天中分支',
       dismissError: '关闭错误',
       readAloudFailed: '朗讀失敗',
@@ -2393,6 +2400,7 @@ export const zhHant = defineLocale({
       statusError: '錯誤',
       statusRecovered: '已復原',
       statusDone: '完成',
+      memoryWriteNoted: '已記下記憶寫入',
       actions: {
         read: '已讀取',
         reading: '正在讀取',
@@ -2431,6 +2439,7 @@ export const zhHant = defineLocale({
         execute_code: { done: '已執行程式碼', pending: '正在撰寫腳本', pendingAction: '正在撰寫腳本' },
         image_generate: { done: '已生成圖片', pending: '正在生成圖片', pendingAction: '正在生成' },
         list_files: { done: '已列出檔案', pending: '正在列出檔案', pendingAction: '正在列出' },
+        memory: { done: '已儲存至記憶', pending: '正在儲存至記憶', pendingAction: '正在儲存' },
         patch: { done: '已修補檔案', pending: '正在修補檔案', pendingAction: '正在修補' },
         read_file: { done: '已讀取檔案', pending: '正在讀取檔案', pendingAction: '正在讀取' },
         search_files: { done: '已搜尋檔案', pending: '正在搜尋檔案', pendingAction: '正在搜尋' },

@@ -21,6 +21,8 @@ interface CompletionSource {
 
 interface UseComposerTriggerOptions {
   at: CompletionSource
+  /** `:joy` emoji completions — inserts the emoji character, never a chip. */
+  emoji?: CompletionSource
   draftRef: MutableRefObject<string>
   editorRef: RefObject<HTMLDivElement | null>
   requestMainFocus: () => void
@@ -39,6 +41,7 @@ interface UseComposerTriggerOptions {
  */
 export function useComposerTrigger({
   at,
+  emoji,
   draftRef,
   editorRef,
   requestMainFocus,
@@ -103,7 +106,7 @@ export function useComposerTrigger({
   }, [editorRef, trigger])
 
   const triggerAdapter: Unstable_TriggerAdapter | null =
-    trigger?.kind === '@' ? at.adapter : trigger?.kind === '/' ? slash.adapter : null
+    trigger?.kind === '@' ? at.adapter : trigger?.kind === '/' ? slash.adapter : (emoji?.adapter ?? null)
 
   useEffect(() => {
     if (!trigger || !triggerAdapter?.search) {
@@ -115,7 +118,8 @@ export function useComposerTrigger({
     setTriggerItems(triggerAdapter.search(trigger.query))
   }, [trigger, triggerAdapter])
 
-  const triggerLoading = trigger?.kind === '@' ? at.loading : trigger?.kind === '/' ? slash.loading : false
+  const triggerLoading =
+    trigger?.kind === '@' ? at.loading : trigger?.kind === '/' ? slash.loading : (emoji?.loading ?? false)
 
   // Suppress the "No matches" empty state once a slash command is past its name:
   // a no-arg command has nothing to offer, and a fully-typed arg commits on

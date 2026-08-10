@@ -2,6 +2,7 @@ import { type ToolTitleKey, translateNow } from '@/i18n'
 import { normalizeExternalUrl } from '@/lib/external-link'
 import { summarizeShellCommand } from '@/lib/summarize-command'
 import { capitalize, normalize } from '@/lib/text'
+import { isCardTool, isFileEditTool, isSilentTool } from '@/lib/tool-render-class'
 import { extractToolErrorMessage, formatToolResultSummary } from '@/lib/tool-result-summary'
 
 import {
@@ -32,11 +33,10 @@ export * from './format'
 export * from './targets'
 export * from './types'
 
-const FILE_EDIT_TOOL_NAMES = new Set(['edit_file', 'patch', 'write_file'])
-
-export function isFileEditTool(toolName: string): boolean {
-  return FILE_EDIT_TOOL_NAMES.has(toolName)
-}
+// The transcript's render budget prices a turn by the same classification, so
+// it lives in `@/lib/tool-render-class` where both sides can reach it without
+// pulling this module's formatting/i18n weight into the cost path.
+export { isCardTool, isFileEditTool, isSilentTool }
 
 export interface DiffLineStats {
   added: number
@@ -175,6 +175,10 @@ const TOOL_META: Record<ToolTitleKey, ToolMetaSpec> = {
   list_files: {
     icon: 'files',
     tone: 'file'
+  },
+  memory: {
+    icon: 'brain',
+    tone: 'agent'
   },
   patch: { icon: 'edit', tone: 'file' },
   read_file: { icon: 'file', tone: 'file' },
@@ -503,6 +507,16 @@ function toolResultCount(
     }
   }
 
+  // Memory success payloads put the live total on `entry_count` — keep the noun
+  // as entry/entries instead of falling through the generic `*_count` path.
+  if (part.toolName === 'memory') {
+    const entryTotal = countFromUnknown(resultRecord.entry_count)
+
+    if (entryTotal !== null) {
+      return countMetric(entryTotal, 'entry')
+    }
+  }
+
   const directCount = countFromRecord(resultRecord, fallbackNounByTool)
 
   if (directCount !== null) {
@@ -685,7 +699,21 @@ function toolStatus(part: ToolPart, resultRecord: Record<string, unknown>): Tool
     return 'running'
   }
 
-  return toolErrorText(part, resultRecord) ? 'error' : 'success'
+  // Explicit success wins over isError / nested-error heuristics. Memory writes
+  // return `{ success: true }` when the batch landed; a stale outer `isError`
+  // envelope must not paint a real save amber.
+  if (resultRecord.success === true || resultRecord.ok === true) {
+    return 'success'
+  }
+
+  if (!toolErrorText(part, resultRecord)) {
+    return 'success'
+  }
+
+  // A rejected memory write is a budget negotiation, not a failure: the store
+  // refuses an over-limit batch and the agent retries smaller. Soft warning —
+  // never destructive-red beside routine bookkeeping.
+  return part.toolName === 'memory' ? 'warning' : 'error'
 }
 
 function durationLabel(resultRecord: Record<string, unknown>): string | undefined {
@@ -1006,6 +1034,13 @@ function toolSubtitle(
     return url ? hostnameOf(url) : 'Fetched webpage'
   }
 
+  if (toolName === 'memory') {
+    // The raw payload is bookkeeping the user never needs: usage counters, a
+    // note telling the model not to retry, and the full operations array. The
+    // human-readable line is the only part worth showing.
+    return firstStringField(resultRecord, ['message', 'error'])
+  }
+
   if (toolName === 'cronjob') {
     return cronjobSubtitle(argsRecord, resultRecord)
   }
@@ -1086,6 +1121,12 @@ function toolDetailText(
     if (content) {
       return content
     }
+  }
+
+  if (part.toolName === 'memory') {
+    // Same reasoning as toolSubtitle: without this the generic fallback dumps
+    // the whole args + result payload into the expanded row.
+    return firstStringField(resultRecord, ['message', 'error'])
   }
 
   if (isFileEditTool(part.toolName)) {
@@ -1356,8 +1397,18 @@ export function buildToolView(part: ToolPart, inlineDiff: string): ToolView {
   const resultRecord = parseMaybeObject(part.result)
   const meta = toolMeta(part.toolName)
   const status = toolStatus(part, resultRecord)
-  const error = toolErrorText(part, resultRecord)
-  const baseTitle = part.result === undefined ? meta.pending : meta.done
+  // Skip residual error-heuristic text once status is success (stale isError
+  // envelope over a landed memory write would otherwise foul the subtitle).
+  const error = status === 'success' ? '' : toolErrorText(part, resultRecord)
+  // Over-budget memory refusals stay amber — don't claim "Saved".
+  const memoryMissed = part.toolName === 'memory' && part.result !== undefined && status !== 'success'
+
+  const baseTitle =
+    part.result === undefined
+      ? meta.pending
+      : memoryMissed
+        ? translateNow('assistant.tool.memoryWriteNoted')
+        : meta.done
 
   const titleParts = dynamicTitle(
     part,

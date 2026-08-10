@@ -1,11 +1,14 @@
 import { AssistantRuntimeProvider, type ThreadMessageLike, useExternalStoreRuntime } from '@assistant-ui/react'
 import type { ReadableAtom } from 'nanostores'
-import { type ReactNode, useEffect, useState } from 'react'
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react'
 
 import { useSessionView } from '@/app/chat/session-view'
+import { TranscriptWindowProvider } from '@/components/assistant-ui/thread/transcript-window'
 import { usePaneVisible } from '@/components/pane-shell/pane-visibility'
 import { useStore } from '@/store/atom'
 import { type ChatMessage, submitEditedPrompt } from '@/store/chat'
+
+import { selectTranscriptWindow } from './transcript-window'
 
 // Bridges the chat store to assistant-ui via the stock external-store runtime.
 // Our ChatMessage.parts ARE assistant-ui content parts, so conversion is a
@@ -22,6 +25,8 @@ function convertMessage(message: ChatMessage): ThreadMessageLike {
     id: message.id,
     role: message.role,
     content: message.parts as ThreadMessageLike['content'],
+    // Carries ChatMessage.interim to AssistantMessage's footer gate.
+    ...(message.interim ? { metadata: { custom: { interim: true } } } : {}),
     status:
       message.role === 'assistant'
         ? message.error
@@ -67,11 +72,30 @@ export function ChatRuntimeProvider({ children }: { children: ReactNode }) {
   // default context is PRIMARY_SESSION_VIEW (whose $messages/$busy ARE the global
   // atoms), so the primary chat is unchanged.
   const view = useSessionView()
+  const runtimeId = useStore(view.$runtimeId)
   const messages = useMessagesWhileVisible(view.$messages)
   const isRunning = useStore(view.$busy)
 
+  const [windowPages, setWindowPages] = useState(1)
+  const [windowSessionKey, setWindowSessionKey] = useState(runtimeId)
+
+  // Reset the window on session swap during RENDER, so a large expand from the
+  // previous chat can't leak into the next one's first paint.
+  if (windowSessionKey !== runtimeId) {
+    setWindowSessionKey(runtimeId)
+    setWindowPages(1)
+  }
+
+  const { messages: windowedMessages, windowed } = useMemo(
+    () => selectTranscriptWindow(messages, windowPages),
+    [messages, windowPages]
+  )
+
+  const expandWindow = useCallback(() => setWindowPages(pages => pages + 1), [])
+  const transcriptWindow = useMemo(() => ({ expandWindow, olderAvailable: windowed }), [expandWindow, windowed])
+
   const runtime = useExternalStoreRuntime<ChatMessage>({
-    messages,
+    messages: windowedMessages,
     isRunning,
     convertMessage,
     // Our own Composer submits via sendPrompt; assistant-ui's composer is unused,
@@ -90,5 +114,9 @@ export function ChatRuntimeProvider({ children }: { children: ReactNode }) {
     }
   })
 
-  return <AssistantRuntimeProvider runtime={runtime}>{children}</AssistantRuntimeProvider>
+  return (
+    <TranscriptWindowProvider value={transcriptWindow}>
+      <AssistantRuntimeProvider runtime={runtime}>{children}</AssistantRuntimeProvider>
+    </TranscriptWindowProvider>
+  )
 }

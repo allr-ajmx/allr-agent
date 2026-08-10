@@ -59,6 +59,8 @@ export {
   IconFolderOpen as FolderOpen,
   IconGitBranch as GitBranch,
   IconGitBranch as GitBranchIcon,
+  IconGitFork as GitFork,
+  IconGitFork as GitForkIcon,
   // Language switcher / theme picker (Track I). Globe = IconGlobe to match the
   // desktop `@/lib/icons` alias exactly (the meridian globe, not IconWorld).
   IconGlobe as Globe,
@@ -118,6 +120,8 @@ export {
   IconSettings as Settings,
   IconSettings2 as Settings2,
   IconAdjustmentsHorizontal as SlidersHorizontal,
+  IconMoodPlus as SmilePlus,
+  IconMoodPlus as SmilePlusIcon,
   IconSparkles as Sparkles,
   IconSquare as Square,
   IconSquareFilled as SquareFilled,

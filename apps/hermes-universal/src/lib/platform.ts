@@ -55,6 +55,7 @@ function detectMobileFallback(): 'ios' | 'android' | 'generic' | null {
   if (typeof navigator === 'undefined') {
     return null
   }
+
   const width = typeof window !== 'undefined' ? window.innerWidth : 0
 
   return detectMobileDevice(navigator.userAgent || '', navigator.maxTouchPoints ?? 0, width)

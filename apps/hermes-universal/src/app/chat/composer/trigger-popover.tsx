@@ -50,7 +50,7 @@ const ROW_BASE_CLASS = [
 interface ComposerTriggerPopoverProps {
   activeIndex: number
   items: readonly Unstable_TriggerItem[]
-  kind: '@' | '/'
+  kind: ':' | '@' | '/'
   loading: boolean
   onHover: (index: number) => void
   onPick: (item: Unstable_TriggerItem) => void
@@ -69,6 +69,7 @@ export function ComposerTriggerPopover({
   const { t } = useI18n()
   const copy = t.composer
   const isSlash = kind === '/'
+  const isEmoji = kind === ':'
 
   let lastGroup: string | undefined
 
@@ -92,6 +93,10 @@ export function ComposerTriggerPopover({
               <>
                 {copy.lookupTry} <span className="font-mono text-foreground/80">@file:</span> {copy.lookupOr}{' '}
                 <span className="font-mono text-foreground/80">@folder:</span>.
+              </>
+            ) : isEmoji ? (
+              <>
+                {copy.lookupTry} <span className="font-mono text-foreground/80">:joy:</span>.
               </>
             ) : (
               <>

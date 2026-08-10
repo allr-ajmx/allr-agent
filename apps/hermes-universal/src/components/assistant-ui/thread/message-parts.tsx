@@ -8,8 +8,9 @@ import { type ComponentProps, type FC, type ReactNode, useEffect, useRef, useSta
 
 import { ClarifyTool } from '@/components/assistant-ui/clarify-tool'
 import { MarkdownText, MarkdownTextContent } from '@/components/assistant-ui/markdown-text'
+import { DelegateTool } from '@/components/assistant-ui/tool/delegate'
 import { ToolFallback, ToolGroupSlot } from '@/components/assistant-ui/tool/fallback'
-import { useElapsedSeconds } from '@/components/chat/activity-timer'
+import { formatElapsed, useElapsedSeconds, useMeasuredDuration } from '@/components/chat/activity-timer'
 import { ActivityTimerText } from '@/components/chat/activity-timer-text'
 import { DisclosureRow } from '@/components/chat/disclosure-row'
 import { GeneratedImage } from '@/components/chat/generated-image-result'
@@ -27,10 +28,24 @@ const ImageGenerateTool: FC<ToolCallMessagePartProps> = ({ args, result }) => {
   )
 }
 
+const DelegateToolPart: FC<ToolCallMessagePartProps> = props => {
+  // A call that failed outright dispatched nothing — there are no children to
+  // list, only an error. The generic row extracts and expands it properly.
+  if (props.isError) {
+    return <ToolFallback {...props} />
+  }
+
+  return <DelegateTool args={props.args} result={props.result} toolCallId={props.toolCallId} />
+}
+
 const ChainToolFallback: FC<ToolCallMessagePartProps> = props => {
   // todo parts are hoisted to a dedicated panel above the message content.
   if (props.toolName === 'todo') {
     return null
+  }
+
+  if (props.toolName === 'delegate_task') {
+    return <DelegateToolPart {...props} />
   }
 
   if (props.toolName === 'image_generate') {
@@ -48,7 +63,9 @@ const ThinkingDisclosure: FC<{
   children: ReactNode
   messageRunning?: boolean
   pending?: boolean
-  timerKey?: string
+  // Required: the block's duration is remembered against this key, so a
+  // component that mounts after the block finished can still report it.
+  timerKey: string
 }> = ({ children, messageRunning = false, pending = false, timerKey }) => {
   const { t } = useI18n()
   // `null` = no explicit user toggle yet, defer to the streaming default.
@@ -57,12 +74,30 @@ const ThinkingDisclosure: FC<{
   // explicit toggle wins from then on.
   const [userOpen, setUserOpen] = useState<boolean | null>(null)
   const elapsed = useElapsedSeconds(pending, timerKey)
+  const thoughtFor = useMeasuredDuration(pending, timerKey)
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const contentRef = useRef<HTMLDivElement | null>(null)
   const enterRef = useEnterAnimation(messageRunning, timerKey)
 
   const open = userOpen ?? pending
   const isPreview = pending && userOpen === null
+
+  // Three ways a finished block can report itself. With a measured duration it
+  // says so, unless the timer's whole seconds round it to "0s" — accurate and
+  // useless — in which case it just says it was quick. With no duration at all
+  // it still has to read as finished; a turn that ended must not go on saying
+  // "Thinking".
+  let thoughtLabel = t.assistant.thread.thinking
+
+  if (!pending) {
+    if (thoughtFor === null) {
+      thoughtLabel = t.assistant.thread.thought
+    } else if (thoughtFor < 1) {
+      thoughtLabel = t.assistant.thread.thoughtBriefly
+    } else {
+      thoughtLabel = t.assistant.thread.thoughtFor(formatElapsed(thoughtFor))
+    }
+  }
 
   // While the preview is live, pin the scroll container to the bottom on
   // every content growth so the latest tokens are always visible. Combined
@@ -107,7 +142,7 @@ const ThinkingDisclosure: FC<{
               pending && 'shimmer text-foreground/55'
             )}
           >
-            {t.assistant.thread.thinking}
+            {thoughtLabel}
           </span>
           {pending && (
             <ActivityTimerText
@@ -173,7 +208,15 @@ const ReasoningAccordionGroup: FC<{ children?: ReactNode; endIndex: number; star
   }
 
   return (
-    <ThinkingDisclosure messageRunning={messageRunning} pending={pending} timerKey={`reasoning:${messageId}`}>
+    // Keyed per block, not per message: the timer registry hands every caller
+    // of a key the same origin, so a turn that thinks three separate times used
+    // to measure the second and third blocks from the first one's start and
+    // report the running total as each block's duration.
+    <ThinkingDisclosure
+      messageRunning={messageRunning}
+      pending={pending}
+      timerKey={`reasoning:${messageId}:${startIndex}`}
+    >
       {children}
     </ThinkingDisclosure>
   )
@@ -190,6 +233,7 @@ const ReasoningTextPart: ReasoningMessagePartComponent = () => {
     <MarkdownTextContent
       containerClassName="text-xs leading-snug text-muted-foreground/85"
       containerProps={{ 'data-slot': 'aui_reasoning-text' } as ComponentProps<'div'>}
+      disableArtifacts
       isRunning={status.type === 'running' || messageRunning}
       text={text.trimStart()}
     />

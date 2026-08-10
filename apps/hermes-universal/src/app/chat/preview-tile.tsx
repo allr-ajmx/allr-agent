@@ -15,6 +15,7 @@
  * path goes through it.
  */
 
+import { ArtifactPreview } from '@/app/right-pane/preview/preview-artifact'
 import { PreviewFile } from '@/app/right-pane/preview/preview-file'
 import { previewStripTools } from '@/app/right-pane/preview/preview-strip-tools'
 import { findGroup } from '@/components/pane-shell/tree/model'
@@ -24,6 +25,7 @@ import {
   $activePreviewPath,
   $previewTabs,
   closePreviewTab,
+  isArtifactTab,
   type PreviewTarget,
   selectPreviewTab
 } from '@/store/preview'
@@ -61,6 +63,11 @@ function PreviewTilePane({ path }: { path: string }) {
   // tick later).
   if (!target) {
     return null
+  }
+
+  // An artifact tab names a registry entry rather than a file on disk.
+  if (isArtifactTab(target.path)) {
+    return <ArtifactPreview target={target} />
   }
 
   return <PreviewFile target={target} variant="tile" />

@@ -457,6 +457,8 @@ export const en: Translations = {
       toolViewDesc: 'Product hides raw tool payloads; Technical shows full input/output.',
       backdropTitle: 'Chat Backdrop',
       backdropDesc: 'The faint statue image behind the conversation.',
+      reactionsTitle: 'Message Reactions',
+      reactionsDesc: 'iMessage-style emoji tapbacks — react to messages, and Hermes can react to yours.',
       uiScaleTitle: 'UI Scale',
       uiScaleDesc: (percent: number) =>
         `Scales text and controls across the whole app. Cmd/Ctrl with +, - and 0 also works. Current: ${percent}%.`,
@@ -1213,6 +1215,7 @@ export const en: Translations = {
     ageSeconds: seconds => `${seconds}s ago`,
     ageMinutes: minutes => `${minutes}m ago`,
     ageHours: hours => `${hours}h ago`,
+    ageDays: days => `${days}d ago`,
     durationSeconds: seconds => `${seconds}s`,
     durationMinutes: (minutes, seconds) => `${minutes}m ${seconds}s`,
     tokens: value => `${value} tok`
@@ -2528,6 +2531,27 @@ export const en: Translations = {
     status: 'Status'
   },
 
+  artifactCard: {
+    kind: { code: 'Code', html: 'Interactive page', svg: 'Graphic' },
+    generating: lines => `Generating… ${lines} lines`,
+    versionBadge: count => `${count} versions`,
+    open: 'Open'
+  },
+
+  artifactPreview: {
+    versionOf: (current, total) => `v${current} of ${total}`,
+    olderVersion: 'Older version',
+    newerVersion: 'Newer version',
+    latest: 'Latest',
+    rendered: 'PREVIEW',
+    source: 'SOURCE',
+    copyContent: 'Copy content',
+    download: 'Download',
+    renderUnavailable: 'Live preview needs the desktop or mobile app.',
+    missingTitle: 'Artifact unavailable',
+    missingBody: 'This artifact is no longer in the local registry.'
+  },
+
   preview: {
     tab: 'Preview',
     closeTab: label => `Close ${label}`,
@@ -2632,11 +2656,15 @@ export const en: Translations = {
           ? 'Will resume when the background task finishes'
           : `Will resume when ${count} background tasks finish`,
       thinking: 'Thinking',
+      thought: 'Thought',
+      thoughtBriefly: 'Thought briefly',
+      thoughtFor: duration => `Thought for ${duration}`,
       today: time => `Today, ${time}`,
       yesterday: time => `Yesterday, ${time}`,
       copy: 'Copy',
       refresh: 'Refresh',
       moreActions: 'More actions',
+      react: 'React',
       branchNewChat: 'Branch in new chat',
       dismissError: 'Dismiss error',
       readAloudFailed: 'Read aloud failed',
@@ -2711,6 +2739,7 @@ export const en: Translations = {
       statusError: 'Error',
       statusRecovered: 'Recovered',
       statusDone: 'Done',
+      memoryWriteNoted: 'Memory write noted',
       actions: {
         read: 'Read',
         reading: 'Reading',
@@ -2757,6 +2786,7 @@ export const en: Translations = {
         execute_code: { done: 'Ran code', pending: 'Scripting', pendingAction: 'Scripting' },
         image_generate: { done: 'Generated image', pending: 'Generating image', pendingAction: 'Generating' },
         list_files: { done: 'Listed files', pending: 'Listing files', pendingAction: 'Listing' },
+        memory: { done: 'Saved to memory', pending: 'Saving to memory', pendingAction: 'Saving' },
         patch: { done: 'Patched file', pending: 'Patching file', pendingAction: 'Patching' },
         read_file: { done: 'Read file', pending: 'Reading file', pendingAction: 'Reading' },
         search_files: { done: 'Searched files', pending: 'Searching files', pendingAction: 'Searching' },

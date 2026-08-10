@@ -61,6 +61,7 @@ function flush(): void {
   const commits = reactCommits
   const distinct = splitIds.size
   const zones = zoneRenders
+
   // Sorted by count so the loudest pane reads first in Jaeger's tag list.
   const kinds = [...zoneKinds.entries()]
     .sort((a, b) => b[1] - a[1])

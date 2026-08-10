@@ -28,6 +28,7 @@ import {
 } from '@/lib/chat-messages'
 import { coerceThinkingText } from '@/lib/chat-runtime'
 import { type GatewayToolPayload, upsertToolPart } from '@/lib/chat-tool-parts'
+import { isLiveTailRow } from '@/lib/live-tail'
 import { type ClientSessionState } from '@/store/session-state-types'
 
 const patchLastAssistant = (state: ClientSessionState, patch: (m: ChatMessage) => ChatMessage): ClientSessionState => ({
@@ -102,7 +103,14 @@ export function reduceSessionState(
       return {
         ...state,
         interimBoundaryPending: true,
-        messages: state.messages.map(m => (m.pending ? { ...m, pending: false } : m))
+        // Which row the live tail is currently writing into is `live-tail`'s
+        // question, not this reducer's — asking it here keeps the seal and the
+        // reconciler from ever disagreeing about what "still in flight" means.
+        // The seal is also recorded on the row: a settled interim is mid-turn
+        // commentary, and the renderer hangs no action bar off one.
+        messages: state.messages.map(m =>
+          m.role === 'assistant' && isLiveTailRow(m) ? { ...m, interim: true, pending: false } : m
+        )
       }
 
     case 'reasoning.delta':

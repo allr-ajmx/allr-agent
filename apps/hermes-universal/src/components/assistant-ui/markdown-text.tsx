@@ -8,11 +8,13 @@ import {
 } from '@assistant-ui/react-streamdown'
 import { code } from '@streamdown/code'
 import type { Element as HastElement } from 'hast'
-import { type ComponentProps, memo, useEffect, useMemo, useState } from 'react'
+import { type ComponentProps, createContext, memo, useContext, useEffect, useMemo, useState } from 'react'
 
+import { ArtifactCard } from '@/components/assistant-ui/artifact-card'
 import { ExpandableBlock } from '@/components/chat/expandable-block'
 import { chunkByLines, SyntaxHighlighter } from '@/components/chat/shiki-highlighter'
 import { ZoomableImage } from '@/components/chat/zoomable-image'
+import { detectArtifact } from '@/lib/artifact-detect'
 import { normalizeExternalUrl, openExternalLink, PrettyLink } from '@/lib/external-link'
 import { createMemoizedMathPlugin, KATEX_HTML_TAG } from '@/lib/katex-memo'
 import { preprocessMarkdown } from '@/lib/markdown-preprocess'
@@ -404,6 +406,17 @@ interface MarkdownTextSurfaceProps {
   defer?: boolean
 }
 
+/**
+ * Whether fences in this subtree may be promoted to artifact cards.
+ *
+ * A CONTEXT rather than a prop threaded into the components map, because the
+ * map has to stay a module constant: streamdown's Block comparator does a
+ * per-key shallow compare of it, so rebuilding the map for a flag would
+ * re-parse and re-render every block in a message at the moment it settles.
+ * Same reasoning as the streaming flag two components down.
+ */
+const ArtifactsDisabledContext = createContext(false)
+
 // Headings shrink to chat scale rather than the prose default (h1≈xl).
 const HEADING_SIZES: Record<'h1' | 'h2' | 'h3' | 'h4', string> = {
   h1: 'text-[1rem] tracking-tight',
@@ -461,6 +474,7 @@ function HugeTextFallback({ containerClassName, text }: { containerClassName?: s
 // heaviest. Same class of bug as the `components`/`loadingIndicator` literals
 // fixed in thread.tsx.
 function MarkdownSyntaxHighlighter(props: SyntaxHighlighterProps) {
+  const artifactsDisabled = useContext(ArtifactsDisabledContext)
   // Select the BOOLEAN, not the part. `useMessagePartText()` returns `s.part`,
   // which is a fresh object every token — subscribing to it here would
   // re-render every code block on every token of a streaming message, and a
@@ -468,6 +482,15 @@ function MarkdownSyntaxHighlighter(props: SyntaxHighlighterProps) {
   // Block memo above can't stop it. Selecting a primitive means Object.is
   // compares equal until the run actually starts or ends.
   const isStreaming = useAuiState(state => state.part.status?.type === 'running')
+  // A fence big enough to be a document, a standalone graphic, or a file's
+  // worth of code stops being something to read in the flow of a reply and
+  // becomes something to open. The card stands in for it; the content itself
+  // moves to the artifact registry and the right pane.
+  const artifact = artifactsDisabled ? null : detectArtifact(props.language, props.code)
+
+  if (artifact) {
+    return <ArtifactCard code={props.code} detection={artifact} streaming={isStreaming} />
+  }
 
   return (
     <RichCodeBlock
@@ -606,16 +629,21 @@ function MarkdownTextSurface({ containerClassName, containerProps, defer }: Mark
 }
 
 interface MarkdownTextContentProps extends MarkdownTextSurfaceProps {
+  /** Reasoning is the model thinking out loud; a fence there is a draft, not a
+   *  deliverable, so it never graduates into an artifact. */
+  disableArtifacts?: boolean
   isRunning: boolean
   text: string
 }
 
 // Reasoning-text variant (no smoothing — matches the answer's plain append).
-export function MarkdownTextContent({ isRunning, text, ...surfaceProps }: MarkdownTextContentProps) {
+export function MarkdownTextContent({ disableArtifacts, isRunning, text, ...surfaceProps }: MarkdownTextContentProps) {
   return (
-    <TextMessagePartProvider isRunning={isRunning} text={text}>
-      <MarkdownTextSurface defer {...surfaceProps} />
-    </TextMessagePartProvider>
+    <ArtifactsDisabledContext.Provider value={Boolean(disableArtifacts)}>
+      <TextMessagePartProvider isRunning={isRunning} text={text}>
+        <MarkdownTextSurface defer {...surfaceProps} />
+      </TextMessagePartProvider>
+    </ArtifactsDisabledContext.Provider>
   )
 }
 

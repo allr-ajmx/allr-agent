@@ -26,6 +26,7 @@ import { useStore } from '@/store/atom'
 import { $backdrop, setBackdrop } from '@/store/backdrop'
 import { $embedAllowed, $embedMode, clearEmbedAllowed, type EmbedMode, setEmbedMode } from '@/store/embed-consent'
 import { installFromMarketplace, type MarketplaceSearchItem, searchMarketplace } from '@/store/marketplace'
+import { $reactionsEnabled, setReactionsEnabled } from '@/store/reactions-enabled'
 import { $toolViewMode, setToolViewMode, type ToolViewMode } from '@/store/tool-view'
 import { $translucency, setTranslucency } from '@/store/translucency'
 import { $zoomPercent, setZoomPercent } from '@/store/zoom'
@@ -249,6 +250,7 @@ export function AppearanceSection() {
   const { availableThemes, mode, resolvedMode, setMode, setTheme, themeName } = useTheme()
   const toolViewMode = useStore($toolViewMode)
   const backdrop = useStore($backdrop)
+  const reactionsEnabled = useStore($reactionsEnabled)
   const zoomPercent = useStore($zoomPercent)
   const embedMode = useStore($embedMode)
   const embedAllowed = useStore($embedAllowed)
@@ -473,6 +475,27 @@ export function AppearanceSection() {
             }
             description={a.backdropDesc}
             title={a.backdropTitle}
+          />
+
+          {/* Message reactions — opt-in. Off by default: it adds an affordance
+              to every message row AND gives the agent a tool that reacts to
+              yours, which is not something to switch on for someone. */}
+          <ListRow
+            action={
+              <SegmentedControl
+                onChange={id => {
+                  triggerHaptic('selection')
+                  setReactionsEnabled(id === 'on')
+                }}
+                options={[
+                  { id: 'off', label: t.common.off },
+                  { id: 'on', label: t.common.on }
+                ]}
+                value={reactionsEnabled ? 'on' : 'off'}
+              />
+            }
+            description={a.reactionsDesc}
+            title={a.reactionsTitle}
           />
 
           {/* Embeds */}

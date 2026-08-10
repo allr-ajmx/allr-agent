@@ -451,6 +451,9 @@
       var(--theme-neutral-sidebar)
     );
     --ui-bg-editor: color-mix(in srgb, var(--theme-card-seed) var(--theme-mix-card), var(--theme-neutral-card));
+    /* One fill for the transcript's inline widgets (clarify, artifact card) so
+       they cannot drift apart into three near-identical surfaces. */
+    --ui-widget-surface-background: var(--ui-bg-editor);
     --ui-bg-elevated: color-mix(
       in srgb,
       var(--theme-elevated-seed) var(--theme-mix-elevated),
@@ -1657,6 +1660,65 @@ html {
 [data-slot='aui_msg-actions'] button svg {
   width: 0.875rem;
   height: 0.875rem;
+}
+
+/* The reaction slot borrows the action bar's flat icon treatment but lives
+   OUTSIDE it, so a landed reaction doesn't ride the bar's hover opacity. */
+button[data-slot='aui_msg-reactions'] {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+  height: auto;
+  width: auto;
+  min-height: 0;
+  min-width: 0;
+  flex-shrink: 0;
+  cursor: pointer;
+  color: var(--color-muted-foreground);
+  opacity: 0.5;
+}
+
+button[data-slot='aui_msg-reactions']:hover,
+button[data-slot='aui_msg-reactions']:focus-visible,
+button[data-slot='aui_msg-reactions'][data-state='open'] {
+  background: transparent;
+  color: var(--color-foreground);
+  opacity: 1;
+}
+
+/* A landed reaction is content, not chrome: full strength, always. */
+button[data-slot='aui_msg-reactions'][data-reacted],
+[data-slot='aui_msg-reactions'] .reaction-pop,
+span[data-slot='aui_msg-reactions'] {
+  opacity: 1;
+}
+
+@keyframes reaction-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.18);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* Landing a reaction should feel like something — a small pop, scaled for an
+   inline glyph. */
+.reaction-pop {
+  animation: reaction-pop 260ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reaction-pop {
+    animation: none;
+  }
 }
 
 /* Live thinking preview window. Pairs with the ResizeObserver in

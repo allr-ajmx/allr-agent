@@ -20,6 +20,7 @@ export type ToolTitleKey =
   | 'execute_code'
   | 'image_generate'
   | 'list_files'
+  | 'memory'
   | 'patch'
   | 'read_file'
   | 'search_files'
@@ -381,6 +382,8 @@ export interface Translations {
       toolViewDesc: string
       backdropTitle: string
       backdropDesc: string
+      reactionsTitle: string
+      reactionsDesc: string
       uiScaleTitle: string
       uiScaleDesc: (percent: number) => string
       translucencyTitle: string
@@ -1078,6 +1081,7 @@ export interface Translations {
     ageSeconds: (seconds: number) => string
     ageMinutes: (minutes: number) => string
     ageHours: (hours: number) => string
+    ageDays: (days: number) => string
     durationSeconds: (seconds: string) => string
     durationMinutes: (minutes: number, seconds: number) => string
     tokens: (value: number | string) => string
@@ -2144,6 +2148,27 @@ export interface Translations {
     status: string
   }
 
+  artifactCard: {
+    kind: { code: string; html: string; svg: string }
+    generating: (lines: number) => string
+    versionBadge: (count: number) => string
+    open: string
+  }
+
+  artifactPreview: {
+    versionOf: (current: number, total: number) => string
+    olderVersion: string
+    newerVersion: string
+    latest: string
+    rendered: string
+    source: string
+    copyContent: string
+    download: string
+    renderUnavailable: string
+    missingTitle: string
+    missingBody: string
+  }
+
   preview: {
     tab: string
     closeTab: (label: string) => string
@@ -2242,11 +2267,15 @@ export interface Translations {
       loadingResponse: string
       resumeWhenBackgroundDone: (count: number) => string
       thinking: string
+      thought: string
+      thoughtBriefly: string
+      thoughtFor: (duration: string) => string
       today: (time: string) => string
       yesterday: (time: string) => string
       copy: string
       refresh: string
       moreActions: string
+      react: string
       branchNewChat: string
       dismissError: string
       readAloudFailed: string
@@ -2319,6 +2348,7 @@ export interface Translations {
       statusError: string
       statusRecovered: string
       statusDone: string
+      memoryWriteNoted: string
       actions: {
         read: string
         reading: string

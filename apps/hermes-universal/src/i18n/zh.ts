@@ -444,6 +444,8 @@ export const zh: Translations = {
       toolViewDesc: '产品模式隐藏原始工具数据；技术模式显示完整输入/输出。',
       backdropTitle: '对话背景图',
       backdropDesc: '对话后方那张淡淡的雕像图。',
+      reactionsTitle: '消息回应',
+      reactionsDesc: 'iMessage 风格的表情回应 — 你可以给消息添加回应，Hermes 也能回应你的消息。',
       uiScaleTitle: '界面缩放',
       uiScaleDesc: (percent: number) =>
         `缩放整个应用的文字和界面。也可使用 Cmd/Ctrl 加 +、- 或 0 调整。当前：${percent}%`,
@@ -1383,6 +1385,7 @@ export const zh: Translations = {
     ageSeconds: seconds => `${seconds} 秒前`,
     ageMinutes: minutes => `${minutes} 分钟前`,
     ageHours: hours => `${hours} 小时前`,
+    ageDays: days => `${days} 天前`,
     durationSeconds: seconds => `${seconds} 秒`,
     durationMinutes: (minutes, seconds) => `${minutes} 分 ${seconds} 秒`,
     tokens: value => `${value} 词元`
@@ -2679,6 +2682,27 @@ export const zh: Translations = {
     status: '状态'
   },
 
+  artifactCard: {
+    kind: { code: '代码', html: '交互页面', svg: '图形' },
+    generating: lines => `生成中… ${lines} 行`,
+    versionBadge: count => `${count} 个版本`,
+    open: '打开'
+  },
+
+  artifactPreview: {
+    versionOf: (current, total) => `第 ${current} / ${total} 版`,
+    olderVersion: '上一版',
+    newerVersion: '下一版',
+    latest: '最新',
+    rendered: '预览',
+    source: '源码',
+    copyContent: '复制内容',
+    download: '下载',
+    renderUnavailable: '实时预览需要桌面或移动应用。',
+    missingTitle: '工件不可用',
+    missingBody: '该工件已不在本地注册表中。'
+  },
+
   preview: {
     tab: '预览',
     closeTab: label => `关闭 ${label}`,
@@ -2779,11 +2803,15 @@ export const zh: Translations = {
       resumeWhenBackgroundDone: count =>
         count === 1 ? '后台任务完成后将自动继续' : `${count} 个后台任务完成后将自动继续`,
       thinking: '思考中',
+      thought: '已思考',
+      thoughtBriefly: '思考了片刻',
+      thoughtFor: duration => `思考了 ${duration}`,
       today: time => `今天，${time}`,
       yesterday: time => `昨天，${time}`,
       copy: '复制',
       refresh: '刷新',
       moreActions: '更多操作',
+      react: '回应',
       branchNewChat: '在新对话中分支',
       dismissError: '关闭错误',
       readAloudFailed: '朗读失败',
@@ -2857,6 +2885,7 @@ export const zh: Translations = {
       statusError: '错误',
       statusRecovered: '已恢复',
       statusDone: '完成',
+      memoryWriteNoted: '已记下记忆写入',
       actions: {
         read: '已读取',
         reading: '正在读取',
@@ -2895,6 +2924,7 @@ export const zh: Translations = {
         execute_code: { done: '已运行代码', pending: '正在编写脚本', pendingAction: '正在编写脚本' },
         image_generate: { done: '已生成图片', pending: '正在生成图片', pendingAction: '正在生成' },
         list_files: { done: '已列出文件', pending: '正在列出文件', pendingAction: '正在列出' },
+        memory: { done: '已保存到记忆', pending: '正在保存到记忆', pendingAction: '正在保存' },
         patch: { done: '已修补文件', pending: '正在修补文件', pendingAction: '正在修补' },
         read_file: { done: '已读取文件', pending: '正在读取文件', pendingAction: '正在读取' },
         search_files: { done: '已搜索文件', pending: '正在搜索文件', pendingAction: '正在搜索' },

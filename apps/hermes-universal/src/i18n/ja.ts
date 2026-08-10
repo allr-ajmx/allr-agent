@@ -358,6 +358,9 @@ export const ja = defineLocale({
       toolViewDesc: 'プロダクト表示は生のツールペイロードを隠し、テクニカル表示は入出力をすべて表示します。',
       backdropTitle: 'チャットの背景',
       backdropDesc: '会話の背後にうっすら見える彫像の画像。',
+      reactionsTitle: 'メッセージリアクション',
+      reactionsDesc:
+        'iMessage 風の絵文字リアクション — メッセージにリアクションでき、Hermes もあなたのメッセージにリアクションできます。',
       uiScaleTitle: 'UI スケール',
       uiScaleDesc: (percent: number) =>
         `アプリ全体の文字と UI を拡大縮小します。Cmd/Ctrl と +、-、0 でも変更できます。現在: ${percent}%`,
@@ -1101,6 +1104,7 @@ export const ja = defineLocale({
     ageSeconds: seconds => `${seconds}秒前`,
     ageMinutes: minutes => `${minutes}分前`,
     ageHours: hours => `${hours}時間前`,
+    ageDays: days => `${days}日前`,
     durationSeconds: seconds => `${seconds}秒`,
     durationMinutes: (minutes, seconds) => `${minutes}分 ${seconds}秒`,
     tokens: value => `${value} トーク`
@@ -2388,11 +2392,15 @@ export const ja = defineLocale({
           ? 'バックグラウンドタスクの完了後に再開します'
           : `${count} 件のバックグラウンドタスクの完了後に再開します`,
       thinking: '考え中',
+      thought: '思考済み',
+      thoughtBriefly: '少し思考',
+      thoughtFor: duration => `${duration} 思考`,
       today: time => `今日 ${time}`,
       yesterday: time => `昨日 ${time}`,
       copy: 'コピー',
       refresh: '更新',
       moreActions: 'その他のアクション',
+      react: 'リアクション',
       branchNewChat: '新しいチャットでブランチ',
       dismissError: 'エラーを閉じる',
       readAloudFailed: '読み上げに失敗しました',
@@ -2464,6 +2472,7 @@ export const ja = defineLocale({
       statusError: 'エラー',
       statusRecovered: '回復しました',
       statusDone: '完了',
+      memoryWriteNoted: 'メモリへの書き込みを記録',
       actions: {
         read: '読み取り完了',
         reading: '読み取り中',
@@ -2517,6 +2526,11 @@ export const ja = defineLocale({
           done: 'ファイルを一覧表示しました',
           pending: 'ファイルを一覧表示中',
           pendingAction: '一覧表示中'
+        },
+        memory: {
+          done: 'メモリに保存しました',
+          pending: 'メモリに保存中',
+          pendingAction: '保存中'
         },
         patch: {
           done: 'ファイルにパッチを適用しました',
