@@ -63,7 +63,6 @@ import {
   closeAllTreeTabs,
   closeOtherTreeTabs,
   closeTabPane,
-  closeTreePane,
   closeTreeTabsToRight,
   collapseTreePane,
   isCollapsePane,
@@ -242,7 +241,12 @@ function ZoneMenu({
             verbs that still mean something for its zone. */}
         {paneTabCloseItems(CONTEXT_KIT, {
           counts: treeTabCloseTargets(menuTarget()),
-          onClose: closable?.() === undefined ? undefined : () => closeTreePane(closable()!),
+          // `closeTabPane`, NOT `closeTreePane`: the tab close verb has to
+          // dismiss a TOOL PANEL from the tree before running its closer, or
+          // Close on the terminal only collapses the zone to a rail and reads
+          // as a no-op (see closeToolPane). Commit f3bf0b27fe fixed that for
+          // ⌘W / ⌘-click / middle-click and left this one call behind.
+          onClose: closable?.() === undefined ? undefined : () => closeTabPane(closable()!),
           onCloseAll: () => closeAllTreeTabs(menuTarget()),
           onCloseOthers: () => closeOtherTreeTabs(menuTarget()),
           onCloseToRight: () => closeTreeTabsToRight(menuTarget())

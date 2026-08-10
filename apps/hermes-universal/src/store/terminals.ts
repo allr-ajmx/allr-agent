@@ -125,6 +125,38 @@ export function closeOtherTerminals(id: string): void {
   $activeTerminalId.set(keep.length ? id : null)
 }
 
+/** The fourth verb of the shared tab close group. The rail's list is ORDERED
+ *  (the numbered `1. …` labels are that order), so "to the right" means the
+ *  same thing here as on a tab strip; the rail simply never offered it. */
+export function closeTerminalsToRight(id: string): void {
+  const terminals = $terminals.get()
+  const at = terminals.findIndex(term => term.id === id)
+
+  if (at < 0) {
+    return
+  }
+
+  const keep = terminals.slice(0, at + 1)
+
+  if (keep.length === terminals.length) {
+    return
+  }
+
+  afterRemoval(keep, !keep.some(term => term.id === $activeTerminalId.get()))
+}
+
+/** How many terminals each close verb would hit — the rail's `PaneTabCloseCounts`. */
+export function terminalCloseTargets(id: string): { all: number; others: number; right: number } {
+  const terminals = $terminals.get()
+  const at = terminals.findIndex(term => term.id === id)
+
+  return {
+    all: terminals.length,
+    others: at < 0 ? 0 : terminals.length - 1,
+    right: at < 0 ? 0 : terminals.length - 1 - at
+  }
+}
+
 // ── Keybind entry points (view.nextTerminal / prevTerminal / closeTerminal) ──
 // Desktop keeps these in right-sidebar/terminal/terminals.ts; here they sit with
 // the rest of the terminal state. Both are no-ops with nothing open, so the

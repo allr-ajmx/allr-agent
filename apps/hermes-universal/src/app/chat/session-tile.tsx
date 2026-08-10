@@ -13,8 +13,10 @@ import {
   $layoutTree,
   closeAllTreeTabs,
   closeOtherTreeTabs,
+  closeTabPane,
   closeTreeTabsToRight,
   moveTreePane,
+  reloadTreePane,
   treeTabCloseTargets
 } from '@/components/pane-shell/tree/store'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
@@ -344,22 +346,18 @@ export const watchSessionTiles = paneMirror<SessionTile>({
 // ---------------------------------------------------------------------------
 
 /** Right-click menu for a session tab — a TILE tab or the WORKSPACE tab. Both
- *  carry the session verbs (pin / copy / branch / rename / archive / delete);
- *  as a layout-tree tab they also carry the TAB close group (Close / Close
+ *  carry the session verbs (pin / copy / branch / rename / archive / delete)
+ *  and, as a layout-tree tab, Reload plus the shared close group (Close / Close
  *  others / Close to the right / Close all). `paneId` is the tab's tree pane id
- *  (a tile = `session-tile:<id>`, the workspace = `workspace`); `canClose`
- *  gates the plain Close — the uncloseable workspace omits it but keeps the
- *  "close others/right/all" verbs for its zone. */
+ *  (a tile = `session-tile:<id>`, the workspace = `workspace`). */
 export function SessionTabMenu({
   children,
   storedSessionId,
-  paneId,
-  canClose = true
+  paneId
 }: {
   children: ReactNode
   storedSessionId: string
   paneId: string
-  canClose?: boolean
 }) {
   const stored = useStore($sessions).find(s => sessionMatchesStoredId(s, storedSessionId))
   const pinned = useStore($pinnedSessionIds)
@@ -367,9 +365,10 @@ export function SessionTabMenu({
   const pinId = stored ? sessionPinId(stored) : storedSessionId
   const isPinned = pinned.includes(pinId)
 
-  // Offer only the close verbs that would actually close something, so the menu
-  // never shows "Close to the right" on the rightmost tab or "Close others" on
-  // a lone one.
+  // How many tabs each verb would hit. The shared group DISABLES a verb that
+  // would close nothing rather than dropping its row — this menu used to drop
+  // them, so the same right-click landed on a different item depending on how
+  // many tabs happened to be open.
   //
   // Read, not subscribed. This only ever renders as a tab strip's `tabWrap`,
   // i.e. inside a TreeGroup under LayoutTreeRoot — which already subscribes, so
@@ -382,14 +381,28 @@ export function SessionTabMenu({
     <SessionContextMenu
       onArchive={() => void sessionTileDelegate()?.archiveSession(storedSessionId)}
       onBranch={() => void sessionTileDelegate()?.branchSession(storedSessionId)}
-      onClose={canClose ? () => requestCloseSessionTile(storedSessionId) : undefined}
-      onCloseAll={closeTargets.all > 0 ? () => closeAllTreeTabs(paneId) : undefined}
-      onCloseOthers={closeTargets.others > 0 ? () => closeOtherTreeTabs(paneId) : undefined}
-      onCloseToRight={closeTargets.right > 0 ? () => closeTreeTabsToRight(paneId) : undefined}
       onDelete={() => void sessionTileDelegate()?.deleteSession(storedSessionId)}
       onPin={() => (isPinned ? unpinSession(pinId) : pinSession(pinId))}
       pinned={isPinned}
       sessionId={storedSessionId}
+      tab={{
+        close: {
+          counts: closeTargets,
+          // The workspace tab's Close runs the closer registered for it in
+          // contrib/controller — the same one ⌘W / ⌘-click / middle-click have
+          // always run, which EMPTIES main by promoting the next stacked
+          // session into it. Withholding the menu row only hid a verb the
+          // gestures already performed (desktop offers it).
+          onClose:
+            paneId === WORKSPACE_PANE_ID
+              ? () => closeTabPane(WORKSPACE_PANE_ID)
+              : () => requestCloseSessionTile(storedSessionId),
+          onCloseAll: () => closeAllTreeTabs(paneId),
+          onCloseOthers: () => closeOtherTreeTabs(paneId),
+          onCloseToRight: () => closeTreeTabsToRight(paneId)
+        },
+        onReload: () => reloadTreePane(paneId)
+      }}
       title={title}
     >
       {children}
@@ -397,9 +410,8 @@ export function SessionTabMenu({
   )
 }
 
-/** Right-click menu for the WORKSPACE (primary) tab — the loaded session's verbs
- *  minus Close (the workspace is the one tab the app can't lose), or a plain
- *  passthrough on a fresh draft with nothing to act on. */
+/** Right-click menu for the WORKSPACE (primary) tab — the loaded session's full
+ *  verb set, or a plain passthrough on a fresh draft with nothing to act on. */
 export function WorkspaceTabMenu({ children }: { children: React.ReactNode }) {
   const selected = useStore($activeStoredSessionId)
 
@@ -408,7 +420,7 @@ export function WorkspaceTabMenu({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <SessionTabMenu canClose={false} paneId={WORKSPACE_PANE_ID} storedSessionId={selected}>
+    <SessionTabMenu paneId={WORKSPACE_PANE_ID} storedSessionId={selected}>
       {children}
     </SessionTabMenu>
   )

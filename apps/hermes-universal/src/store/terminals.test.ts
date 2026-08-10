@@ -5,10 +5,12 @@ vi.mock('@/store/layout', () => ({ setTerminalOpen: vi.fn() }))
 import {
   $activeTerminalId,
   $terminals,
+  closeTerminalsToRight,
   createTerminal,
   noteTerminalCwd,
   selectTerminal,
-  selectTerminalForCwd
+  selectTerminalForCwd,
+  terminalCloseTargets
 } from './terminals'
 
 beforeEach(() => {
@@ -71,5 +73,60 @@ describe('selectTerminalForCwd', () => {
     selectTerminalForCwd('   ')
 
     expect($activeTerminalId.get()).toBe(b)
+  })
+})
+
+// MJXHRM-409. The rail offered Close / others / all and stopped there; the
+// fourth verb of the shared tab close group had no implementation to call.
+describe('closeTerminalsToRight', () => {
+  it('drops every terminal past the anchor', () => {
+    const a = createTerminal()
+    createTerminal()
+    createTerminal()
+
+    closeTerminalsToRight(a)
+
+    expect($terminals.get().map(term => term.id)).toEqual([a])
+  })
+
+  it('rehomes the active terminal only when it was one of the closed ones', () => {
+    const a = createTerminal()
+    const b = createTerminal()
+    createTerminal()
+
+    // Active is the last-created (`/c`), which this closes.
+    closeTerminalsToRight(b)
+    expect($activeTerminalId.get()).toBe(b)
+
+    const d = createTerminal()
+    selectTerminal(a)
+    closeTerminalsToRight(b)
+
+    // `a` survived, so the selection stays put rather than jumping to the end.
+    expect($activeTerminalId.get()).toBe(a)
+    expect($terminals.get().map(term => term.id)).toEqual([a, b])
+    expect(d).toBeTruthy()
+  })
+
+  it('is a no-op on the rightmost terminal and on an unknown id', () => {
+    const a = createTerminal()
+    const b = createTerminal()
+
+    closeTerminalsToRight(b)
+    closeTerminalsToRight('nope')
+
+    expect($terminals.get().map(term => term.id)).toEqual([a, b])
+  })
+})
+
+describe('terminalCloseTargets', () => {
+  it('counts what each verb would close, so the menu disables the dead ones', () => {
+    const a = createTerminal()
+    createTerminal()
+    const c = createTerminal()
+
+    expect(terminalCloseTargets(a)).toEqual({ all: 3, others: 2, right: 2 })
+    expect(terminalCloseTargets(c)).toEqual({ all: 3, others: 2, right: 0 })
+    expect(terminalCloseTargets('gone')).toEqual({ all: 3, others: 0, right: 0 })
   })
 })

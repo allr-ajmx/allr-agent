@@ -7,6 +7,9 @@ import {
   closeAllPreviewTabs,
   closeOtherPreviewTabs,
   closePreviewTab,
+  closePreviewTabsToRight,
+  previewCloseTargets,
+  selectPreviewTab,
   setPreviewTarget
 } from './preview'
 
@@ -47,5 +50,53 @@ describe('preview tabs store', () => {
     closeAllPreviewTabs()
     expect($previewTabs.get()).toEqual([])
     expect($activePreviewPath.get()).toBeNull()
+  })
+
+  // MJXHRM-409. The fourth verb of the shared close group — the rail offered
+  // three, and the label for the fourth had been sitting in the translations
+  // wired to nothing.
+  it('closeToRight drops everything past the given tab and rehomes the active one', () => {
+    setPreviewTarget('/a.ts')
+    setPreviewTarget('/b.ts')
+    setPreviewTarget('/c.ts')
+
+    closePreviewTabsToRight('/a.ts')
+
+    expect($previewTabs.get().map(t => t.path)).toEqual(['/a.ts'])
+    // `/c.ts` was active and is gone, so the anchor takes over rather than
+    // leaving the rail pointed at a closed file.
+    expect($activePreviewPath.get()).toBe('/a.ts')
+  })
+
+  it('closeToRight leaves the active tab alone when it survives', () => {
+    setPreviewTarget('/a.ts')
+    setPreviewTarget('/b.ts')
+    setPreviewTarget('/c.ts')
+    selectPreviewTab('/a.ts')
+
+    closePreviewTabsToRight('/b.ts')
+
+    expect($previewTabs.get().map(t => t.path)).toEqual(['/a.ts', '/b.ts'])
+    expect($activePreviewPath.get()).toBe('/a.ts')
+  })
+
+  it('closeToRight is a no-op on the rightmost tab and on an unknown one', () => {
+    setPreviewTarget('/a.ts')
+    setPreviewTarget('/b.ts')
+
+    closePreviewTabsToRight('/b.ts')
+    closePreviewTabsToRight('/nope.ts')
+
+    expect($previewTabs.get().map(t => t.path)).toEqual(['/a.ts', '/b.ts'])
+  })
+
+  it('counts what each verb would close, so the menu disables the dead ones', () => {
+    setPreviewTarget('/a.ts')
+    setPreviewTarget('/b.ts')
+    setPreviewTarget('/c.ts')
+
+    expect(previewCloseTargets('/a.ts')).toEqual({ all: 3, others: 2, right: 2 })
+    expect(previewCloseTargets('/c.ts')).toEqual({ all: 3, others: 2, right: 0 })
+    expect(previewCloseTargets('/gone.ts')).toEqual({ all: 3, others: 0, right: 0 })
   })
 })

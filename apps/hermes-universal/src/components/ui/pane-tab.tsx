@@ -1,6 +1,6 @@
 import * as React from 'react'
 
-import { type MenuKit, renderActionItem } from '@/components/ui/actions-menu'
+import { type ActionItemSpec, type MenuKit, renderActionItem } from '@/components/ui/actions-menu'
 import { Button } from '@/components/ui/button'
 import { Tip } from '@/components/ui/tooltip'
 import { translateNow } from '@/i18n'
@@ -278,7 +278,7 @@ export interface PaneTabCloseCounts {
   right: number
 }
 
-interface PaneTabCloseItemsOptions {
+export interface PaneTabCloseItemsOptions {
   counts: PaneTabCloseCounts
   /** Omit to hide Close entirely (an uncloseable tab shows no dead action). */
   onClose?: () => void
@@ -289,40 +289,45 @@ interface PaneTabCloseItemsOptions {
 
 /**
  * The four close verbs every tab menu offers — Close / others / to the right /
- * all — so a tab answers a right-click the same way wherever it lives. No ⌘W
- * hint on Close: the keybind closes the FOCUSED zone's active tab, so it would
- * be a lie on the inactive tab the user actually right-clicked.
+ * all — AS DATA, so the surfaces whose menus are assembled from specs (the
+ * session tab menu, which interleaves them with the session verbs) share the
+ * one definition with the ones assembled from JSX.
+ *
+ * The counts matter as much as the callbacks. A verb that would close nothing
+ * is DISABLED, never omitted: a menu whose rows appear and disappear with the
+ * tab count makes the same right-click land on a different item each time, and
+ * that is what the surfaces that hand-rolled this all got wrong in their own
+ * way.
  */
-export function paneTabCloseItems(
-  kit: MenuKit,
-  { counts, onClose, onCloseAll, onCloseOthers, onCloseToRight }: PaneTabCloseItemsOptions
-) {
-  return (
-    <>
-      {onClose &&
-        renderActionItem(kit, {
-          icon: 'close',
-          label: translateNow('common.close'),
-          onSelect: onClose
-        })}
-      {renderActionItem(kit, {
-        disabled: !counts.others,
-        icon: 'close-all',
-        label: translateNow('zones.closeOthers'),
-        onSelect: onCloseOthers
-      })}
-      {renderActionItem(kit, {
-        disabled: !counts.right,
-        icon: 'arrow-right',
-        label: translateNow('zones.closeToRight'),
-        onSelect: onCloseToRight
-      })}
-      {renderActionItem(kit, {
-        disabled: !counts.all,
-        icon: 'clear-all',
-        label: translateNow('zones.closeAll'),
-        onSelect: onCloseAll
-      })}
-    </>
-  )
+export function paneTabCloseSpecs({
+  counts,
+  onClose,
+  onCloseAll,
+  onCloseOthers,
+  onCloseToRight
+}: PaneTabCloseItemsOptions): ActionItemSpec[] {
+  return [
+    // No ⌘W hint on Close: the keybind closes the FOCUSED zone's active tab, so
+    // it would be a lie on the inactive tab the user actually right-clicked.
+    ...(onClose ? [{ icon: 'close', label: translateNow('common.close'), onSelect: onClose }] : []),
+    {
+      disabled: !counts.others,
+      icon: 'close-all',
+      label: translateNow('zones.closeOthers'),
+      onSelect: onCloseOthers
+    },
+    {
+      disabled: !counts.right,
+      icon: 'arrow-right',
+      label: translateNow('zones.closeToRight'),
+      onSelect: onCloseToRight
+    },
+    { disabled: !counts.all, icon: 'clear-all', label: translateNow('zones.closeAll'), onSelect: onCloseAll }
+  ]
+}
+
+/** `paneTabCloseSpecs` rendered with a menu kit — the form a JSX-assembled
+ *  menu (the zone menu, the terminal rail, the preview rail) wants. */
+export function paneTabCloseItems(kit: MenuKit, options: PaneTabCloseItemsOptions) {
+  return <>{paneTabCloseSpecs(options).map(spec => renderActionItem(kit, spec))}</>
 }
