@@ -34,6 +34,15 @@ describe('sessionDotState', () => {
   it('lets a running turn outrank an unread marker', () => {
     expect(sessionDotState({ ...base, isUnread: true, isWorking: true })).toBe('working')
   })
+
+  // MJXHRM-385. A surface with no stored id — the main tab on a fresh chat, a
+  // draft tile — has nothing for the membership atoms to be keyed by, so every
+  // other signal is vacuously false and `idle` would paint it as a settled
+  // session. Draft outranks the lot for that reason.
+  it('shows draft when there is no stored session behind the surface', () => {
+    expect(sessionDotState({ ...base, isDraft: true })).toBe('draft')
+    expect(sessionDotState({ ...base, isDraft: true, isWorking: true, needsInput: true })).toBe('draft')
+  })
 })
 
 describe('sessionShowsRunningArc', () => {

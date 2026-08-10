@@ -3,9 +3,13 @@
 // by `$backgroundRunningSessionIds`; universal has no equivalent tracking yet
 // (`store/composer-status.ts` only holds `$statusItemsBySession`), so that state
 // is left out rather than faked.
-export type SessionDotState = 'idle' | 'needs-input' | 'stalled' | 'unread' | 'working'
+export type SessionDotState = 'draft' | 'idle' | 'needs-input' | 'stalled' | 'unread' | 'working'
 
 interface SessionRowState {
+  /** No STORED session behind this surface yet — a fresh chat that has never
+   *  reached the backend. It outranks everything because there is no id for the
+   *  other signals to be keyed by; they are all vacuously false. */
+  isDraft?: boolean
   isStalled: boolean
   isUnread: boolean
   isWorking: boolean
@@ -13,7 +17,17 @@ interface SessionRowState {
 }
 
 /** Resolve the sidebar dot's mutually-exclusive display state by priority. */
-export function sessionDotState({ isStalled, isUnread, isWorking, needsInput }: SessionRowState): SessionDotState {
+export function sessionDotState({
+  isDraft,
+  isStalled,
+  isUnread,
+  isWorking,
+  needsInput
+}: SessionRowState): SessionDotState {
+  if (isDraft) {
+    return 'draft'
+  }
+
   if (needsInput) {
     return 'needs-input'
   }
