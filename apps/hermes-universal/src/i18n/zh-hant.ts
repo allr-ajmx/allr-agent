@@ -2257,17 +2257,12 @@ export const zhHant = defineLocale({
     terminalHide: '隱藏終端機',
     terminalsAria: '終端機',
     terminalNew: '新增終端機',
-    terminalCloseOthers: '關閉其他',
-    terminalCloseAll: '全部關閉',
     addToChat: '新增至聊天'
   },
 
   preview: {
     tab: '預覽',
     closeTab: label => `關閉 ${label}`,
-    closeOthers: '關閉其他',
-    closeToRight: '關閉右側',
-    closeAll: '全部關閉',
     closePane: '關閉預覽窗格',
     loading: '正在載入預覽',
     unavailable: '預覽不可用',

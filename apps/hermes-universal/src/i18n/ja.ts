@@ -2326,17 +2326,12 @@ export const ja = defineLocale({
     terminalHide: 'ターミナルを非表示',
     terminalsAria: 'ターミナル',
     terminalNew: '新しいターミナル',
-    terminalCloseOthers: '他を閉じる',
-    terminalCloseAll: 'すべて閉じる',
     addToChat: 'チャットに追加'
   },
 
   preview: {
     tab: 'プレビュー',
     closeTab: label => `${label} を閉じる`,
-    closeOthers: '他を閉じる',
-    closeToRight: '右側を閉じる',
-    closeAll: 'すべて閉じる',
     closePane: 'プレビューペインを閉じる',
     loading: 'プレビューを読み込み中',
     unavailable: 'プレビューは利用できません',

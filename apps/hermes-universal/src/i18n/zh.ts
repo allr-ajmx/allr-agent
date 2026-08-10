@@ -2696,8 +2696,6 @@ export const zh: Translations = {
     terminalEndErrorBody: 'Shell 连接失败。',
     terminalsAria: '终端',
     terminalNew: '新建终端',
-    terminalCloseOthers: '关闭其他',
-    terminalCloseAll: '关闭全部',
     addToChat: '添加到对话'
   },
 
@@ -2760,9 +2758,6 @@ export const zh: Translations = {
   preview: {
     tab: '预览',
     closeTab: label => `关闭 ${label}`,
-    closeOthers: '关闭其他',
-    closeToRight: '关闭右侧',
-    closeAll: '全部关闭',
     closePane: '关闭预览面板',
     loading: '正在加载预览',
     unavailable: '预览不可用',
