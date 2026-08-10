@@ -10,6 +10,7 @@
 //! `build.rs` to avoid a wry 0.55 crash on cookie polling — see that file.)
 
 mod appearance;
+mod artifact;
 mod cloud;
 mod keep_awake;
 mod link_title;
@@ -31,6 +32,7 @@ use appearance::set_window_translucency;
 use keep_awake::{set_keep_awake, KeepAwakeState};
 use link_title::fetch_link_title;
 use marketplace::{marketplace_fetch, marketplace_search};
+use artifact::{artifact_release, artifact_stage, ArtifactState, ARTIFACT_SCHEME};
 use media::{media_set_target, MediaState, MEDIA_SCHEME};
 use cloud::{
     portal_agent_sign_in, portal_discover_agents, portal_login, portal_logout, portal_status,
@@ -114,6 +116,7 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .manage(TransportState::new())
         .manage(MediaState::default())
+        .manage(ArtifactState::default())
         .manage(LocalBackendState::default())
         .manage(PtyState::default())
         // The one system-sleep inhibitor. It releases on drop, so quitting frees
@@ -129,6 +132,10 @@ pub fn run() {
         // on Linux, wry registers custom schemes into the WebContext when the
         // webview is created, so a later registration would never take.
         .register_asynchronous_uri_scheme_protocol(MEDIA_SCHEME, media::handle)
+        // Model-generated HTML gets an ORIGIN of its own rather than running
+        // inside the app document — see artifact.rs. Same builder-time
+        // registration for the same wry/Linux reason as above.
+        .register_asynchronous_uri_scheme_protocol(ARTIFACT_SCHEME, artifact::handle)
         .setup(|app| {
             // WebKitGTK (Linux desktop) auto-denies `getUserMedia` unless the
             // embedder answers the WebView's `permission-request` signal — wry
@@ -196,6 +203,8 @@ pub fn run() {
             set_keep_awake,
             marketplace_search,
             marketplace_fetch,
+            artifact_release,
+            artifact_stage,
             media_set_target,
             fetch_link_title,
             oauth_login,

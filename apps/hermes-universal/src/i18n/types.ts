@@ -2146,6 +2146,27 @@ export interface Translations {
     status: string
   }
 
+  artifactCard: {
+    kind: { code: string; html: string; svg: string }
+    generating: (lines: number) => string
+    versionBadge: (count: number) => string
+    open: string
+  }
+
+  artifactPreview: {
+    versionOf: (current: number, total: number) => string
+    olderVersion: string
+    newerVersion: string
+    latest: string
+    rendered: string
+    source: string
+    copyContent: string
+    download: string
+    renderUnavailable: string
+    missingTitle: string
+    missingBody: string
+  }
+
   preview: {
     tab: string
     closeTab: (label: string) => string

@@ -6,11 +6,26 @@ import { atom, computed } from '@/store/atom'
 // per-session registry — dropped here; this is files only.
 
 export interface PreviewTarget {
-  /** Absolute file path — the tab id. */
+  /** Absolute file path — the tab id. An artifact tab uses the synthetic
+   *  `artifact:<id>` form instead (see ARTIFACT_TAB_PREFIX). */
   path: string
   /** Basename, for the tab label. */
   name: string
 }
+
+/**
+ * An artifact tab is addressed by REFERENCE, not by content.
+ *
+ * The registry owns the artifact and its versions; a tab only names one. That
+ * is what lets an already-open tab pick up a new version the moment the model
+ * regenerates the same artifact — the alternative, a tab holding a copy of the
+ * HTML, would show the version it was opened at forever.
+ */
+export const ARTIFACT_TAB_PREFIX = 'artifact:'
+
+export const isArtifactTab = (path: string): boolean => path.startsWith(ARTIFACT_TAB_PREFIX)
+
+export const artifactIdFromTab = (path: string): string => path.slice(ARTIFACT_TAB_PREFIX.length)
 
 // Live preview-server restart status (verbatim from desktop store/preview.ts).
 // Universal doesn't drive preview-server restarts yet, but the ported activity
@@ -68,6 +83,32 @@ export function setCurrentSessionPreviewTarget(
 
   if (path) {
     setPreviewTarget(path)
+  }
+}
+
+/** Open (or focus) a tab for an artifact, labelled by its title. */
+export function openArtifactPreviewTab(artifactId: string, title: string): void {
+  const path = `${ARTIFACT_TAB_PREFIX}${artifactId}`
+  const tabs = $previewTabs.get()
+
+  $previewTabs.set(
+    tabs.some(tab => tab.path === path)
+      ? tabs.map(tab => (tab.path === path ? { name: title || tab.name, path } : tab))
+      : [...tabs, { name: title || 'Artifact', path }]
+  )
+
+  $activePreviewPath.set(path)
+}
+
+/** Drop every artifact tab — the registry they reference is gone. */
+export function closeArtifactPreviewTabs(): void {
+  const remaining = $previewTabs.get().filter(tab => !isArtifactTab(tab.path))
+  $previewTabs.set(remaining)
+
+  const active = $activePreviewPath.get()
+
+  if (active && isArtifactTab(active)) {
+    $activePreviewPath.set(remaining.length ? remaining[remaining.length - 1].path : null)
   }
 }
 

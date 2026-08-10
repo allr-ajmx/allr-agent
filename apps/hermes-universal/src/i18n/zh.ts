@@ -2679,6 +2679,27 @@ export const zh: Translations = {
     status: '状态'
   },
 
+  artifactCard: {
+    kind: { code: '代码', html: '交互页面', svg: '图形' },
+    generating: lines => `生成中… ${lines} 行`,
+    versionBadge: count => `${count} 个版本`,
+    open: '打开'
+  },
+
+  artifactPreview: {
+    versionOf: (current, total) => `第 ${current} / ${total} 版`,
+    olderVersion: '上一版',
+    newerVersion: '下一版',
+    latest: '最新',
+    rendered: '预览',
+    source: '源码',
+    copyContent: '复制内容',
+    download: '下载',
+    renderUnavailable: '实时预览需要桌面或移动应用。',
+    missingTitle: '工件不可用',
+    missingBody: '该工件已不在本地注册表中。'
+  },
+
   preview: {
     tab: '预览',
     closeTab: label => `关闭 ${label}`,

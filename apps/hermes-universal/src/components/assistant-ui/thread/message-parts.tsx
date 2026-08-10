@@ -233,6 +233,7 @@ const ReasoningTextPart: ReasoningMessagePartComponent = () => {
     <MarkdownTextContent
       containerClassName="text-xs leading-snug text-muted-foreground/85"
       containerProps={{ 'data-slot': 'aui_reasoning-text' } as ComponentProps<'div'>}
+      disableArtifacts
       isRunning={status.type === 'running' || messageRunning}
       text={text.trimStart()}
     />

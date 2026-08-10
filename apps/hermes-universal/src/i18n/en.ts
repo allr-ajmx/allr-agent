@@ -2528,6 +2528,27 @@ export const en: Translations = {
     status: 'Status'
   },
 
+  artifactCard: {
+    kind: { code: 'Code', html: 'Interactive page', svg: 'Graphic' },
+    generating: lines => `Generating… ${lines} lines`,
+    versionBadge: count => `${count} versions`,
+    open: 'Open'
+  },
+
+  artifactPreview: {
+    versionOf: (current, total) => `v${current} of ${total}`,
+    olderVersion: 'Older version',
+    newerVersion: 'Newer version',
+    latest: 'Latest',
+    rendered: 'PREVIEW',
+    source: 'SOURCE',
+    copyContent: 'Copy content',
+    download: 'Download',
+    renderUnavailable: 'Live preview needs the desktop or mobile app.',
+    missingTitle: 'Artifact unavailable',
+    missingBody: 'This artifact is no longer in the local registry.'
+  },
+
   preview: {
     tab: 'Preview',
     closeTab: label => `Close ${label}`,

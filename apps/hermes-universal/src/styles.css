@@ -451,6 +451,9 @@
       var(--theme-neutral-sidebar)
     );
     --ui-bg-editor: color-mix(in srgb, var(--theme-card-seed) var(--theme-mix-card), var(--theme-neutral-card));
+    /* One fill for the transcript's inline widgets (clarify, artifact card) so
+       they cannot drift apart into three near-identical surfaces. */
+    --ui-widget-surface-background: var(--ui-bg-editor);
     --ui-bg-elevated: color-mix(
       in srgb,
       var(--theme-elevated-seed) var(--theme-mix-elevated),

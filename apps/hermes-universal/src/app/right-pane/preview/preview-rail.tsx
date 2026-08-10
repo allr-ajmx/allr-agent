@@ -9,11 +9,13 @@ import {
   closeAllPreviewTabs,
   closeOtherPreviewTabs,
   closePreviewTab,
+  isArtifactTab,
   type PreviewTarget,
   selectPreviewTab
 } from '@/store/preview'
 import { $dirtyPreviewPaths } from '@/store/preview-edit'
 
+import { ArtifactPreview } from './preview-artifact'
 import { PreviewFile } from './preview-file'
 
 // The VS Code-style tabbed file viewer/editor rail — for the shells that have
@@ -42,7 +44,13 @@ export function PreviewRail() {
 
       <div className="min-h-0 flex-1 overflow-hidden">
         {active ? (
-          <PreviewFile key={active.path} target={active} />
+          // An artifact tab names a registry entry, not a file on disk — a
+          // different reader entirely, sharing only the tab strip above.
+          isArtifactTab(active.path) ? (
+            <ArtifactPreview key={active.path} target={active} />
+          ) : (
+            <PreviewFile key={active.path} target={active} />
+          )
         ) : (
           <div className="flex h-full flex-col items-center justify-center gap-2 text-muted-foreground/60">
             <Codicon name="file-code" size="1.5rem" />
