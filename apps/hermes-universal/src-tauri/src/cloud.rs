@@ -40,6 +40,21 @@ use crate::transport::TransportState;
 const PORTAL_WINDOW_LABEL: &str = "hermes-portal";
 const DEFAULT_PORTAL: &str = "https://portal.nousresearch.com";
 
+/// How long the silent SSO may stay silent before the hidden portal window is
+/// revealed anyway.
+///
+/// The cascade is *supposed* to complete without a UI, so the window is built
+/// hidden. But an expired or MFA-gated Privy session turns it into a real login
+/// — and a login nobody can see cannot be completed, so the whole 45s budget
+/// burns down behind an invisible window and reports a timeout the user has no
+/// way to act on. Revealing it converts a dead wait into a sign-in prompt.
+///
+/// Same idea as desktop's `WINDOW_REVEAL_FALLBACK_MS` (4s), and the same value:
+/// long enough that a genuinely silent cascade never flashes a window, short
+/// enough to leave most of the timeout for the person now typing into it.
+#[cfg(not(target_os = "android"))]
+const PORTAL_REVEAL_AFTER_MS: u64 = 4_000;
+
 /// How long the Android login may run before we navigate the app back. Tighter than
 /// desktop's 300s for the same reason as `oauth.rs`: the login has replaced the whole app
 /// UI, so there is no in-app cancel until this elapses.
@@ -539,8 +554,33 @@ async fn agent_sso(
     })
     .map_err(|e| format!("failed to schedule portal window: {e}"))?;
 
-    // FIXME(E4.c): no reveal-on-stall fallback — if the silent cascade needs
-    // interaction (session expired) the window stays hidden until this timeout.
+    // Reveal-on-stall: a cascade that has not produced a callback by now is not
+    // silent, it is waiting for a person. Show the window so they can finish the
+    // sign-in inside the remaining budget instead of watching it time out behind
+    // nothing. `tx` is still `Some` exactly while the flow is unresolved, so it
+    // doubles as the "did it complete?" flag — no extra state to keep in sync.
+    let app_reveal = app.clone();
+    let tx_reveal = tx.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(PORTAL_REVEAL_AFTER_MS)).await;
+
+        // Guard dropped before the hop to the main thread — never hold a std
+        // lock across a scheduling boundary.
+        let unresolved = tx_reveal.lock().map(|guard| guard.is_some()).unwrap_or(false);
+
+        if !unresolved {
+            return;
+        }
+
+        let app_show = app_reveal.clone();
+        let _ = app_reveal.run_on_main_thread(move || {
+            if let Some(win) = app_show.get_webview_window(PORTAL_WINDOW_LABEL) {
+                let _ = win.show();
+                let _ = win.set_focus();
+            }
+        });
+    });
+
     let callback_url = tokio::time::timeout(Duration::from_secs(45), rx)
         .await
         .map_err(|_| "silent SSO timed out — the portal session may have expired".to_string())?

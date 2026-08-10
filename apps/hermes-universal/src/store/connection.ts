@@ -11,6 +11,7 @@ import {
 import { errorText } from '@/lib/error-text'
 import { loadString, saveString } from '@/lib/persist'
 import { IS_ANDROID } from '@/lib/platform'
+import { reconnectBackoffDelayMs } from '@/lib/reconnect-backoff'
 import { clearSecrets, loadSecrets, loadSshSecrets, saveSecrets, type Secrets } from '@/lib/secure-store'
 import { persistSessionCookies } from '@/lib/session-persist'
 import { atom } from '@/store/atom'
@@ -533,10 +534,16 @@ async function rebootstrapSsh(profile: null | string): Promise<void> {
 // --------------------------------------------------------------------------
 // The vendored client has no reconnect logic, so a dropped socket (sleep/wake,
 // network blip, expired session) leaves the app 'closed'. This watches
-// $gatewayState and, on an UNEXPECTED close, re-dials with capped backoff:
-// connectGateway re-mints a FRESH ws-ticket each attempt, and on an expired OAuth
-// session it re-drives sign-in first. Guards against re-dialling a user-initiated
-// disconnect and against re-entrant loops (the close a reconnect itself triggers).
+// $gatewayState and, on an UNEXPECTED close, re-dials with FULL-JITTER capped
+// backoff (lib/reconnect-backoff): connectGateway re-mints a FRESH ws-ticket
+// each attempt, and on an expired OAuth session it re-drives sign-in first.
+// Guards against re-dialling a user-initiated disconnect and against re-entrant
+// loops (the close a reconnect itself triggers).
+//
+// Jitter matters because a gateway restart drops every app pointed at it in the
+// same instant; a deterministic ladder then has them all redial in the same
+// instant too, which can exhaust the gateway's descriptors while it is still
+// coming back up.
 //
 // FIXME(D7): reconnect re-opens the socket; it does not respawn a local backend
 // whose process actually died, nor replay an interrupted streaming turn.
@@ -570,7 +577,20 @@ export function endGatewaySwitch(): void {
   switching = false
 }
 
-const reconnectDelay = (attempt: number): number => Math.min(30_000, 2 ** attempt * 1000)
+/**
+ * Once the loop has been failing continuously for this long, publish the last
+ * failure on `$connectionError`. That is what reveals the embedded gateway
+ * configurator on the connecting screen (see gateway-connecting-screen.tsx), so
+ * a gateway that never comes back stops being a spinner with no way out.
+ *
+ * Time-based rather than attempt-count-based, because full jitter makes attempt
+ * counts a meaningless clock: six jittered attempts can elapse in ~9s, while
+ * the old deterministic 1→30s ladder took ~45s to reach six failures. 45s keeps
+ * that original calibration (matching desktop's RECONNECT_ESCALATE_AFTER_MS).
+ */
+const RECONNECT_ESCALATE_AFTER_MS = 45_000
+
+const reconnectDelay = (attempt: number): number => reconnectBackoffDelayMs(attempt)
 const wait = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms))
 
 // Unreachable for `ssh`: that mode is always authMode 'token', and the loop only
@@ -589,6 +609,10 @@ async function reauthForReconnect(conn: Connection): Promise<void> {
 async function runReconnectLoop(): Promise<void> {
   reconnecting = true
   let attempt = 0
+  // Wall-clock start of this disconnect episode (the first FAILED reconnect),
+  // null while we have not failed yet. Drives the escalation below. Episode-
+  // scoped by construction: the loop is re-entered fresh per episode.
+  let failingSince: null | number = null
 
   while (!intentionalClose && !switching) {
     const conn = $connection.get()
@@ -627,6 +651,7 @@ async function runReconnectLoop(): Promise<void> {
         break
       }
 
+      $connectionError.set(null)
       $connectionPhase.set('ready')
 
       break
@@ -635,12 +660,25 @@ async function runReconnectLoop(): Promise<void> {
         try {
           await reauthForReconnect(conn)
           await connectGateway(conn)
+          $connectionError.set(null)
           $connectionPhase.set('ready')
 
           break
         } catch {
           // fall through to backoff
         }
+      }
+
+      if (failingSince === null) {
+        failingSince = Date.now()
+      }
+
+      // Past the escalation window, stop swallowing the failure: publishing it
+      // reveals the configurator on the connecting screen, so a gateway that is
+      // never coming back has a way out instead of an endless spinner. The last
+      // error is used verbatim — it says WHY, which a generic string cannot.
+      if (Date.now() - failingSince >= RECONNECT_ESCALATE_AFTER_MS) {
+        $connectionError.set(errorText(err))
       }
 
       attempt++

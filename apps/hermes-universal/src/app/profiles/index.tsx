@@ -27,11 +27,13 @@ import {
 import { useI18n } from '@/i18n'
 import { AlertTriangle, Save } from '@/lib/icons'
 import { profileColorSoft, resolveProfileColor } from '@/lib/profile-color'
+import { isValidProfileName } from '@/lib/profile-name'
 import { slug } from '@/lib/sanitize'
 import { normalize } from '@/lib/text'
 import { cn } from '@/lib/utils'
 import { notify, notifyError } from '@/store/notifications'
 import { $profileColors, refreshProfiles } from '@/store/profile'
+import { runExportProfileFlow, runImportProfileFlow } from '@/store/profile-share'
 
 import { useRefreshHotkey } from '../hooks/use-refresh-hotkey'
 import type { OverlayVariant } from '../overlays/overlay-view'
@@ -50,12 +52,6 @@ import {
   PanelSectionLabel
 } from '../overlays/panel'
 
-const PROFILE_NAME_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/
-
-function isValidProfileName(name: string): boolean {
-  return PROFILE_NAME_RE.test(name.trim())
-}
-
 interface ProfilesViewProps {
   onClose: () => void
   // Fullscreen when hosted as a native activity screen (Android/iOS).
@@ -72,6 +68,9 @@ export function ProfilesView({ onClose, variant }: ProfilesViewProps) {
   const [pendingRename, setPendingRename] = useState<null | ProfileInfo>(null)
   const [pendingDelete, setPendingDelete] = useState<null | ProfileInfo>(null)
   const [deleting, setDeleting] = useState(false)
+  // The profile whose export is in flight. Archiving a large profile is tar +
+  // filesystem work on the backend and can take a while, so the row says so.
+  const [exporting, setExporting] = useState<null | string>(null)
 
   const refresh = useCallback(async () => {
     try {
@@ -114,6 +113,27 @@ export function ProfilesView({ onClose, variant }: ProfilesViewProps) {
       profile => profile.name.toLowerCase().includes(q) || (profile.model ?? '').toLowerCase().includes(q)
     )
   }, [profiles, query])
+
+  // Share doors. The store owns the toasts (and the "where did it land" path),
+  // so these only guard against a double-fire and refresh the list afterwards.
+  const exportOne = useCallback(async (name: string) => {
+    setExporting(current => current ?? name)
+
+    try {
+      await runExportProfileFlow(name)
+    } finally {
+      setExporting(null)
+    }
+  }, [])
+
+  const importOne = useCallback(async () => {
+    const name = await runImportProfileFlow()
+
+    if (name) {
+      setSelectedName(name)
+      await refresh()
+    }
+  }, [refresh])
 
   const handleCreate = useCallback(
     async (name: string, cloneFrom: null | string) => {
@@ -200,8 +220,15 @@ export function ProfilesView({ onClose, variant }: ProfilesViewProps) {
                 <ProfileRow
                   active={selected?.name === profile.name}
                   key={profile.name}
-                  menuItems={
-                    profile.is_default
+                  menuItems={[
+                    // Export is offered for the default profile too — it is
+                    // the one every single-profile user actually has.
+                    {
+                      icon: 'package',
+                      label: exporting === profile.name ? p.exporting : p.exportProfile,
+                      onSelect: () => void exportOne(profile.name)
+                    },
+                    ...(profile.is_default
                       ? []
                       : [
                           { icon: 'edit', label: p.renameMenu, onSelect: () => setPendingRename(profile) },
@@ -209,15 +236,18 @@ export function ProfilesView({ onClose, variant }: ProfilesViewProps) {
                             icon: 'trash',
                             label: t.common.delete,
                             onSelect: () => setPendingDelete(profile),
-                            tone: 'danger'
+                            tone: 'danger' as const
                           }
-                        ]
-                  }
+                        ])
+                  ]}
                   onSelect={() => setSelectedName(profile.name)}
                   profile={profile}
                 />
               ))}
               <PanelAddButton label={p.newProfile} onClick={() => setCreateOpen(true)} />
+              {/* Import lands beside create: a shared bundle is the other way a
+                  profile comes into existence. */}
+              <PanelAddButton icon="cloud-download" label={p.importProfile} onClick={() => void importOne()} />
             </PanelList>
 
             {selected ? (

@@ -1338,6 +1338,14 @@ export interface Translations {
     renameMenu: string
     editSoul: string
     copySetup: string
+    exportProfile: string
+    importProfile: string
+    exporting: string
+    exported: string
+    imported: string
+    failedExport: string
+    failedImport: string
+    shareHint: string
     copying: string
     modelLabel: string
     skillsLabel: string
