@@ -15,7 +15,6 @@ import { getSessionMessages } from '@/hermes'
 import { appendLiveSessionProjection, toChatMessages } from '@/lib/session-history'
 import { type ChatMessage, nextId } from '@/store/chat'
 import { requestGateway } from '@/store/gateway'
-import { withSessionNotFoundResume } from '@/store/session-recovery'
 import {
   $sessions,
   archiveSessionLocal,
@@ -25,6 +24,7 @@ import {
   resolveSessionProfile,
   sessionProfileIsAmbiguous
 } from '@/store/session'
+import { withSessionNotFoundResume } from '@/store/session-recovery'
 import { $sessionStates, emptySessionState, runtimeKeyForStoredSession } from '@/store/session-state-types'
 import {
   closeSessionTile,

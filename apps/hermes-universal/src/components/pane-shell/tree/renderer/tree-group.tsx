@@ -76,7 +76,6 @@ import {
   toggleTreeGroupMinimized,
   treeTabCloseTargets
 } from '../store'
-
 import {
   $tabSelection,
   clearTabSelection,
