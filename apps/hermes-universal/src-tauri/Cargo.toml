@@ -234,6 +234,12 @@ cpal = { version = "0.15", features = ["oboe-shared-stdcxx"] }
 # (appearance.rs). Version pinned to Tauri's gtk to avoid a duplicate in the tree.
 [target.'cfg(target_os = "linux")'.dependencies]
 gtk = "0.18"
+# gtk-layer-shell is loaded at RUNTIME (src/surface/layer_shell.rs), never linked:
+# it is absent as a -dev package on plenty of machines and useless on X11 and
+# GNOME-on-Wayland, so making it a build dependency would trade a capability
+# question for a packaging failure. `libloading` is the dlopen wrapper; the
+# library itself is not a dependency of this crate at all.
+libloading = "0.8"
 # WebKitGTK (Linux only) — the desktop webview auto-DENIES getUserMedia unless the
 # embedder answers WebKitWebView's `permission-request` signal. wry doesn't, so we
 # allow microphone requests ourselves (see lib.rs). Version matches wry's webkit2gtk
