@@ -54,6 +54,30 @@ these files live outside both apps' `src/` and compile in either.
 match it. The build script copies it verbatim. It exists to show exactly what
 an agent (or a compiler) writes into `$HERMES_HOME/desktop-plugins/<name>/plugin.js`.
 
+## Reaching the OS
+
+`ctx.os` is the only sanctioned way out of the app window — `notify`,
+`openExternal`, `revealPath`, `writeClipboard`. Both apps present the identical
+contract over different machinery (desktop: the Electron preload bridge;
+universal: Tauri), so a plugin written against one runs unmodified on the other.
+
+Every member is **result-shaped, never throwing**: the three async doors resolve
+`false` when the platform can't honour the call, and `notify` is fire-and-forget.
+That is what makes the same code safe on a phone, where `revealPath` has no file
+manager to reveal into and the clipboard may be refused outright. Branch on the
+result; never assume the door opened.
+
+```ts
+if (!(await ctx.os.openExternal(url))) {
+  host.notify({ kind: 'info', message: 'Copy this link: ' + url })
+}
+```
+
+`ctx.os.notify` is the native OS notification, gated by Settings ▸ Notifications
+▸ "Plugin notifications", throttled per plugin, and fires only while the user is
+away from Hermes. For anything the user should see *while looking at the app*,
+use `host.notify` — the in-app toast.
+
 kanban talks to `/api/plugins/kanban`, served by the Python dashboard plugin at
 `plugins/kanban/dashboard/plugin_api.py` in this repo — a separate plugin
 system that meets this one only at that namespace. With the backend disabled
