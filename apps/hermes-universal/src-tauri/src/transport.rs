@@ -191,6 +191,13 @@ fn url_is_under(url: &str, base: &str) -> bool {
         .is_some_and(|rest| rest.is_empty() || rest.starts_with('/') || rest.starts_with('?'))
 }
 
+/// The path namespaces a Hermes gateway serves. Used only to decide whether an
+/// UNKNOWN origin is worth one keyring lookup — never to decide that a URL is
+/// trustworthy. A gateway behind a path prefix (`https://host/hermes`, which the
+/// settings copy explicitly supports) matches neither, and is reached the other
+/// way: `oauth_status` registers its base the first time the webview probes it.
+const GATEWAY_PATH_PREFIXES: &[&str] = &["/api/", "/auth/"];
+
 /// A live raw WebSocket: `tx` feeds the writer task; the two task handles are
 /// aborted on close.
 pub struct SocketHandle {
@@ -300,6 +307,11 @@ impl TransportState {
     /// rather than only after the webview happens to call `oauth_status`. The
     /// caller answers that offer by calling `register_bearer_base` or
     /// `note_no_bearer_base`, and the origin is never offered again.
+    ///
+    /// That one-shot offer is confined to the gateway's own path namespaces —
+    /// not as a trust decision (the answer still comes from the keyring) but so
+    /// that fetching, say, a marketplace listing does not spend a Secret Service
+    /// round trip to be told what it already knew.
     pub fn bearer_base_for_url(&self, url: &str) -> Option<String> {
         let Ok(bases) = self.bearer_bases.lock() else {
             return None;
@@ -311,7 +323,16 @@ impl TransportState {
             return Some(base.clone());
         }
 
-        let origin = Url::parse(url).ok()?.origin().ascii_serialization();
+        let parsed = Url::parse(url).ok()?;
+
+        if !GATEWAY_PATH_PREFIXES
+            .iter()
+            .any(|prefix| parsed.path().starts_with(prefix))
+        {
+            return None;
+        }
+
+        let origin = parsed.origin().ascii_serialization();
 
         // "null" is what an opaque origin (data:, file:, …) serialises to; it is
         // not an address a gateway can live at.
@@ -847,15 +868,13 @@ mod tests {
             state.bearer_base_for_url("https://gw.example.com/api/auth/ws-ticket"),
             Some("https://gw.example.com".to_string())
         );
-        // A host that merely STARTS with the base is a different host.
-        assert_eq!(
-            state.bearer_base_for_url("https://gw.example.com.evil.test/steal"),
-            Some("https://gw.example.com.evil.test".to_string())
-        );
+        // A host that merely STARTS with the base is a different host, and must
+        // never be handed our gateway's base.
         assert_ne!(
-            state.bearer_base_for_url("https://gw.example.com.evil.test/steal"),
+            state.bearer_base_for_url("https://gw.example.com.evil.test/api/steal"),
             Some("https://gw.example.com".to_string())
         );
+        assert_eq!(state.bearer_base_for_url("https://gw.example.com.evil.test/steal"), None);
     }
 
     #[test]
@@ -884,13 +903,23 @@ mod tests {
         let state = TransportState::new();
 
         assert_eq!(
-            state.bearer_base_for_url("https://third-party.test/v1/models"),
-            Some("https://third-party.test".to_string())
+            state.bearer_base_for_url("https://gw.example.com/api/status"),
+            Some("https://gw.example.com".to_string())
         );
 
-        state.note_no_bearer_base("https://third-party.test");
+        state.note_no_bearer_base("https://gw.example.com");
+
+        assert_eq!(state.bearer_base_for_url("https://gw.example.com/api/status"), None);
+    }
+
+    #[test]
+    fn a_url_outside_the_gateway_namespaces_never_reaches_the_keyring() {
+        // Not a trust boundary — the registry is. This only keeps a third-party
+        // fetch from paying a Secret Service round trip to learn nothing.
+        let state = TransportState::new();
 
         assert_eq!(state.bearer_base_for_url("https://third-party.test/v1/models"), None);
+        assert_eq!(state.bearer_base_for_url("https://gw.example.com/"), None);
     }
 
     #[test]
