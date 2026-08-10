@@ -34,10 +34,11 @@ import {
   mergeZonesWithPane as mergeZonesWithPaneOp,
   mirrorTreeHorizontal,
   movePane as movePaneOp,
+  movePanes as movePanesOp,
   normalize,
   removePane,
   renamePane,
-  reorderPaneInGroup as reorderPaneInGroupOp,
+  reorderPanesInGroup as reorderPanesInGroupOp,
   type RootEdge,
   setActivePane as setActivePaneOp,
   setGroupHeaderHidden as setGroupHeaderHiddenOp,
@@ -281,9 +282,23 @@ function setDismissed(paneId: string, dismissed: boolean) {
 const paneClosers: Record<string, () => void> = {}
 const paneOpeners: Record<string, () => void> = {}
 
-/** Route a pane's Close through the app store that owns its visibility. */
-export function registerPaneCloser(paneId: string, close: () => void) {
-  paneClosers[paneId] = close
+/** Panes whose owning STORE answers Close. Read by the strip: a pane that is
+ *  `uncloseable` (it may never leave the tree) still keeps its close GESTURE
+ *  when a closer is registered — the workspace tab empties to a fresh draft
+ *  rather than being dismissed. An atom so the strip re-renders when a wiring
+ *  effect registers or tears one down. */
+export const $panesWithCloser = atom<ReadonlySet<string>>(new Set())
+
+/** Route a pane's Close through the app store that owns its visibility.
+ *  Passing no closer UNREGISTERS (a wiring effect's cleanup). */
+export function registerPaneCloser(paneId: string, close?: () => void) {
+  if (close) {
+    paneClosers[paneId] = close
+  } else {
+    delete paneClosers[paneId]
+  }
+
+  $panesWithCloser.set(new Set(Object.keys(paneClosers)))
 }
 
 /**
@@ -353,29 +368,67 @@ export function noteActiveTreeGroup(groupId: null | string) {
   }
 }
 
-/** Install the active-zone tracker (call once from the tree root). Records the
+/** The zone the pointer is currently over, or null off every zone. Transient —
+ *  it only OVERRIDES the focused zone while the mouse actually sits in one, so
+ *  moving the pointer away reverts the tab verbs to real focus rather than
+ *  stranding them on whatever the mouse last brushed past. */
+export const $hoveredTreeGroup = atom<null | string>(null)
+
+/** Record the hovered zone (pointerover / pointer leaving the window). Idempotent. */
+export function noteHoveredTreeGroup(groupId: null | string) {
+  if (groupId !== $hoveredTreeGroup.get()) {
+    $hoveredTreeGroup.set(groupId)
+  }
+}
+
+const treeGroupOfEvent = (event: Event): null | string => {
+  const el = event.target instanceof HTMLElement ? event.target : null
+
+  return el?.closest<HTMLElement>('[data-tree-group]')?.dataset.treeGroup ?? null
+}
+
+/** Install the zone trackers (call once from the tree root). Records the
  *  `[data-tree-group]` under each pointerdown / focusin so ⌘W knows which
- *  zone's tab to close even when nothing is DOM-focused. */
+ *  zone's tab to close even when nothing is DOM-focused, and the one under the
+ *  pointer so the tab verbs follow the mouse. */
 export function trackActiveTreeGroup(): () => void {
-  const track = (event: Event) => {
-    const el = event.target instanceof HTMLElement ? event.target : null
-    const groupId = el?.closest<HTMLElement>('[data-tree-group]')?.dataset.treeGroup
+  const trackActive = (event: Event) => {
+    const groupId = treeGroupOfEvent(event)
 
     if (groupId) {
       noteActiveTreeGroup(groupId)
     }
   }
 
-  window.addEventListener('pointerdown', track, true)
-  window.addEventListener('focusin', track, true)
+  // `pointerover` fires on every element boundary crossing (not every mouse
+  // move), so leaving the panes for the titlebar reports null and the override
+  // lifts on its own.
+  const trackHover = (event: Event) => noteHoveredTreeGroup(treeGroupOfEvent(event))
+  const clearHover = () => noteHoveredTreeGroup(null)
+
+  window.addEventListener('pointerdown', trackActive, true)
+  window.addEventListener('focusin', trackActive, true)
+  window.addEventListener('pointerover', trackHover, true)
+  document.documentElement.addEventListener('pointerleave', clearHover)
+  window.addEventListener('blur', clearHover)
 
   return () => {
-    window.removeEventListener('pointerdown', track, true)
-    window.removeEventListener('focusin', track, true)
+    window.removeEventListener('pointerdown', trackActive, true)
+    window.removeEventListener('focusin', trackActive, true)
+    window.removeEventListener('pointerover', trackHover, true)
+    document.documentElement.removeEventListener('pointerleave', clearHover)
+    window.removeEventListener('blur', clearHover)
   }
 }
 
 const isUncloseablePane = (paneId: string): boolean => Boolean(tileChrome(findTile(paneId)).uncloseable)
+
+/** Can this tab answer a close GESTURE (⌘W, the ✕, ⌘-click, middle-click)?
+ *  A pane whose owning store registered a Close keeps the gesture even when the
+ *  pane itself is uncloseable — the workspace tab empties to a fresh draft
+ *  rather than leaving the tree. */
+export const tabIsCloseable = (paneId: string): boolean =>
+  !isUncloseablePane(paneId) || paneClosers[paneId] !== undefined
 
 /** The renderer's on-screen rule, resolved OUTSIDE React so the tab verbs index
  *  exactly what the user can see. Reads live atoms — call it per verb, not once
@@ -389,7 +442,13 @@ const treeTileContext = (): TileContext => ({
 
 /** A zone's tiles in strip order, filtered to the ones actually on screen —
  *  the list every tab verb operates on. */
-function shownTabsOf(groupId: null | string): { active?: string; groupId: string; shown: string[] } | null {
+interface ShownTabs {
+  active?: string
+  groupId: string
+  shown: string[]
+}
+
+function shownTabsOf(groupId: null | string): null | ShownTabs {
   const tree = $layoutTree.get()
   const group = groupId && tree ? findGroup(tree, groupId) : null
 
@@ -402,44 +461,73 @@ function shownTabsOf(groupId: null | string): { active?: string; groupId: string
   return { active: group.active, groupId: group.id, shown: group.panes.filter(id => tileShown(id, ctx)) }
 }
 
-/** The zone a tab verb acts on: the one the user last interacted with, falling
- *  back to the zone holding the MAIN tile (the app's primary surface) when
- *  nothing has been focused yet — e.g. a hotkey pressed straight after boot. */
-function verbTargetGroupId(): null | string {
-  const focused = $activeTreeGroup.get()
+/** The zone every keyboard tab verb acts on, as an ELIGIBILITY LADDER: the
+ *  HOVERED zone, else the focused one, else the zone holding the MAIN tile.
+ *  Each rung must satisfy `eligible` to claim the keys, so a pointer parked
+ *  somewhere that cannot serve the verb — the sidebar, a single-tab rail —
+ *  hands off to the next rung instead of swallowing the keystroke. Hover-first
+ *  is what makes ⌘W and ⌃Tab act on the pane you are POINTING at without
+ *  clicking into it first; the rungs below are why the keys still work when the
+ *  pointer is over nothing. One resolver, so ⌥1…⌥9, ⌃Tab and ⌘W can never
+ *  disagree about which zone is "the" zone. */
+function tabTargetZone(eligible: (zone: ShownTabs) => boolean): ShownTabs | null {
+  for (const groupId of [$hoveredTreeGroup.get(), $activeTreeGroup.get()]) {
+    const zone = shownTabsOf(groupId)
 
-  if (focused) {
-    return focused
+    if (zone && eligible(zone)) {
+      return zone
+    }
   }
 
   const tree = $layoutTree.get()
   const mainId = getTiles().find(tile => tile.placement === 'main' && tileChrome(tile).uncloseable)?.id
+  const main = shownTabsOf(mainId && tree ? (findGroupOfPane(tree, mainId)?.id ?? null) : null)
 
-  return (mainId && tree ? findGroupOfPane(tree, mainId)?.id : null) ?? null
+  return main && eligible(main) ? main : null
 }
 
-/**
- * ⌘W: close the FOCUSED zone's active tab, unless it's uncloseable. Returns
- * false when there's nothing to close, so ⌘W stays a no-op — it never closes
- * the window.
- *
- * This used to be `closeWorkspaceTab`, hardcoded to the zone holding the
- * workspace pane: ⌘W with a split-out chat zone or a terminal strip focused
- * closed a tab in a zone the user wasn't looking at.
- *
- * The target is the SHOWN active tab, not `group.active` raw — a zone whose
- * active tile is hidden renders its first shown tile instead, and ⌘W has to
- * close what the user actually sees.
- */
-export function closeFocusedTabInZone(): boolean {
-  const zone = shownTabsOf(verbTargetGroupId())
-  const active = zone && (zone.active && zone.shown.includes(zone.active) ? zone.active : zone.shown[0])
+/** The zone's SHOWN active tab — what the strip actually fronts. Not
+ *  `group.active` raw: a zone whose active tile is hidden renders its first
+ *  shown tile instead, and the verbs must act on what the user sees. */
+const shownActiveTab = (zone: ShownTabs): string | undefined =>
+  zone.active && zone.shown.includes(zone.active) ? zone.active : zone.shown[0]
 
-  if (!active || isUncloseablePane(active)) {
+/**
+ * The tab ⌘W would close — the target zone's SHOWN active tab, or null when
+ * nothing in the ladder can serve the verb (so ⌘W stays a no-op and never
+ * closes the window).
+ *
+ * Named separately from the close itself because the caller may need to
+ * INTERCEPT the target: a session tile still working gets a confirmation, and
+ * that decision belongs to the session layer, not the layout engine.
+ *
+ * The ladder is hover-first (see `tabTargetZone`), so ⌘W with the pointer over
+ * a zone the user hasn't clicked into closes THAT zone's tab. The target is the
+ * shown active tab, not `group.active` raw — a zone whose active tile is hidden
+ * renders its first shown tile instead, and ⌘W has to close what is on screen.
+ */
+export function focusedTabTarget(): null | string {
+  // Eligibility is "has a tab this verb could close", so a zone whose active
+  // tab cannot close hands ⌘W down the ladder instead of eating it.
+  const zone = tabTargetZone(z => {
+    const active = shownActiveTab(z)
+
+    return Boolean(active) && tabIsCloseable(active!)
+  })
+
+  const active = zone && shownActiveTab(zone)
+
+  return active && tabIsCloseable(active) ? active : null
+}
+
+export function closeFocusedTabInZone(): boolean {
+  const target = focusedTabTarget()
+
+  if (!target) {
     return false
   }
 
-  closeTreePane(active)
+  closeTabPane(target)
 
   return true
 }
@@ -464,12 +552,52 @@ export function treeTabCloseTargets(paneId: string): { all: number; others: numb
   return { all: others.length + (isUncloseablePane(paneId) ? 0 : 1), others: others.length, right: right.length }
 }
 
+/**
+ * RELOAD — a pane's remount counter, the tab menu's Reload (browser parity:
+ * right-click a tab, reload what's in it). The zone renderer keys a pane's body
+ * layer on its epoch, so bumping it unmounts the contribution and mounts it
+ * fresh — data effects re-run, measurements are retaken — while the layout tree,
+ * the tab's position, and every other tab stay exactly as they were. Absent
+ * until a pane is first reloaded (no key churn on a normal boot).
+ */
+export const $treePaneEpochs = atom<Readonly<Record<string, number>>>({})
+
+export function reloadTreePane(paneId: string): void {
+  const epochs = $treePaneEpochs.get()
+
+  $treePaneEpochs.set({ ...epochs, [paneId]: (epochs[paneId] ?? 0) + 1 })
+}
+
+/** Close a TOOL PANEL (terminal / logs): take the tab OUT of the strip like any
+ *  other tab, then sync the owning store so its toggle (⌃` / the ⌘K row) stays
+ *  truthful and can bring the pane back.
+ *
+ *  A tool panel's closer IS its visibility store, so routing Close through
+ *  `closeTreePane` only collapsed the zone to a rail — the tab stayed put and
+ *  Close read as a no-op. Dismiss first, so the store listener's collapse lands
+ *  on an absent pane instead of minimizing a shared zone's surviving sibling. */
+export function closeToolPane(paneId: string) {
+  dismissTreePane(paneId)
+  paneClosers[paneId]?.()
+}
+
+/** Close a tab the way its kind expects: a tool panel leaves the strip (and
+ *  syncs its toggle), everything else routes through its owning Close. ONE
+ *  routing for ⌘W, the tab ✕, ⌘-click / middle-click and the zone menu. */
+export function closeTabPane(paneId: string) {
+  if (isCollapsePane(paneId)) {
+    closeToolPane(paneId)
+  } else {
+    closeTreePane(paneId)
+  }
+}
+
 export function closeOtherTreeTabs(paneId: string): void {
-  closeableTreeSiblings(paneId).others.forEach(closeTreePane)
+  closeableTreeSiblings(paneId).others.forEach(closeTabPane)
 }
 
 export function closeTreeTabsToRight(paneId: string): void {
-  closeableTreeSiblings(paneId).right.forEach(closeTreePane)
+  closeableTreeSiblings(paneId).right.forEach(closeTabPane)
 }
 
 /** Close every closeable tab in `paneId`'s group (the uncloseable workspace stays). */
@@ -477,7 +605,7 @@ export function closeAllTreeTabs(paneId: string): void {
   const tree = $layoutTree.get()
   const panes = (tree ? findGroupOfPane(tree, paneId) : null)?.panes ?? []
 
-  panes.filter(id => !isUncloseablePane(id)).forEach(closeTreePane)
+  panes.filter(id => !isUncloseablePane(id)).forEach(closeTabPane)
 }
 
 /** Pane ids in the tree under a `${prefix}:` namespace — lets a mirror prune
@@ -503,9 +631,9 @@ export function treePanesWithPrefix(prefix: string): string[] {
  * tab strip, and the keyboard now agrees with what the strip draws.
  */
 export function activateTreeTabSlot(slot: number): boolean {
-  const zone = shownTabsOf($activeTreeGroup.get())
+  const zone = tabTargetZone(z => z.shown.length >= 2)
 
-  if (!zone || zone.shown.length < 2 || slot < 1 || slot > zone.shown.length) {
+  if (!zone || slot < 1 || slot > zone.shown.length) {
     return false
   }
 
@@ -523,9 +651,9 @@ export function activateTreeTabSlot(slot: number): boolean {
  * rather than raw ones so a hidden tile can't take a turn.
  */
 export function cycleTreeTabInFocusedZone(direction: 1 | -1): boolean {
-  const zone = shownTabsOf($activeTreeGroup.get())
+  const zone = tabTargetZone(z => z.shown.length >= 2)
 
-  if (!zone || zone.shown.length < 2) {
+  if (!zone) {
     return false
   }
 
@@ -1256,25 +1384,63 @@ export function applyTree(tree: LayoutNode, presetId: string) {
 }
 
 /**
- * Shift-drag span: merge the highlighted zones into one holding `paneId`. Falls
- * back to a single-zone move at `fallbackGroupId` when the set can't merge
- * (non-rectangular selection).
+ * Move a BLOCK of panes (a multi-tab selection, in strip order) as one unit —
+ * `activeId` is the pressed tab and fronts at the destination. A one-id block
+ * is exactly `moveTreePane`, so the drag path never branches on selection size.
  */
-export function mergeTreeZones(groupIds: string[], paneId: string, fallbackGroupId: string | null) {
+export function moveTreePanes(
+  paneIds: readonly string[],
+  target: { groupId: string; pos: DropPosition; before?: null | string },
+  activeId?: string
+) {
+  if (paneIds.length <= 1) {
+    if (paneIds.length === 1) {
+      moveTreePane(paneIds[0], target)
+    }
+
+    return
+  }
+
   const tree = $layoutTree.get()
 
   if (!tree) {
     return
   }
 
-  const merged = mergeZonesWithPaneOp(tree, groupIds, paneId)
+  const next = movePanesOp(tree, paneIds, target, activeId ?? paneIds[0])
+
+  if (next !== tree) {
+    commit(next, 'move')
+    markActivePreset('custom')
+    paneIds.forEach(markPaneUserPlaced)
+  }
+}
+
+/**
+ * Shift-drag span: merge the highlighted zones into one holding the dragged
+ * block (one pane, or a multi-tab selection). Falls back to a single-zone move
+ * at `fallbackGroupId` when the set can't merge (non-rectangular selection).
+ */
+export function mergeTreeZones(
+  groupIds: string[],
+  paneId: readonly string[] | string,
+  fallbackGroupId: null | string
+) {
+  const tree = $layoutTree.get()
+
+  if (!tree) {
+    return
+  }
+
+  const paneIds = typeof paneId === 'string' ? [paneId] : [...paneId]
+  const merged = mergeZonesWithPaneOp(tree, groupIds, paneIds)
 
   if (merged) {
     commit(merged, 'merge')
     markActivePreset('custom')
-    markPaneUserPlaced(paneId)
+    paneIds.forEach(markPaneUserPlaced)
   } else if (fallbackGroupId) {
-    moveTreePane(paneId, { groupId: fallbackGroupId, pos: 'center' })
+    moveTreePanes(paneIds, { groupId: fallbackGroupId, pos: 'center' }, paneIds[0])
   }
 }
 
@@ -1286,11 +1452,13 @@ export function activateTreePane(groupId: string, paneId: string) {
   }
 }
 
-export function reorderTreePane(groupId: string, paneId: string, toIndex: number) {
+/** Reorder a block of tabs inside one strip — a single-tab drag is a one-id
+ *  block, so the drag path has one shape whatever is selected. */
+export function reorderTreePanes(groupId: string, paneIds: readonly string[], toIndex: number) {
   const tree = $layoutTree.get()
 
   if (tree) {
-    commit(reorderPaneInGroupOp(tree, groupId, paneId, toIndex), 'reorder')
+    commit(reorderPanesInGroupOp(tree, groupId, paneIds, toIndex), 'reorder')
     markActivePreset('custom')
   }
 }

@@ -4,7 +4,8 @@ import { useNavigate } from 'react-router-dom'
 import {
   activateTreeTabSlot,
   closeFocusedTabInZone,
-  cycleTreeTabInFocusedZone
+  cycleTreeTabInFocusedZone,
+  focusedTabTarget
 } from '@/components/pane-shell/tree/store'
 import { contributedKeybindHandler, PROFILE_SLOT_COUNT, SESSION_SLOT_COUNT } from '@/lib/keybinds/actions'
 import { comboAllowedInInput, comboFromEvent, isEditableTarget, isShiftPrintableCombo } from '@/lib/keybinds/combo'
@@ -23,6 +24,7 @@ import {
 } from '@/store/layout'
 import { setModelPickerOpen } from '@/store/model'
 import { startNewSession, startNewSessionTab } from '@/store/new-session'
+import { storedIdFromTilePane } from '@/lib/pane-ids'
 import { setPaneOpen } from '@/store/panes'
 import {
   cycleProfile,
@@ -35,7 +37,6 @@ import { requestNewWorktree } from '@/store/projects'
 import { toggleReview } from '@/store/review'
 import { toggleSelectedPin } from '@/store/session'
 import {
-  $focusedStoredSessionId,
   $sessionTiles,
   focusOpenSession,
   reopenLastClosedTile,
@@ -232,12 +233,17 @@ export function useKeybinds(deps: KeybindRuntimeDeps): void {
     // Fall-through chain, and it deliberately bottoms out in a no-op: ⌘W must
     // never close the window.
     'view.closeTab': () => {
-      const id = $focusedStoredSessionId.get()
+      // The TAB THE POINTER IS OVER, not the focused session: the zone ladder is
+      // hover-first, so ⌘W over a background pane closes that pane's tab rather
+      // than the one the last click happened to focus. Reading
+      // `$focusedStoredSessionId` first made the pointer irrelevant.
+      const target = focusedTabTarget()
+      const storedSessionId = target ? storedIdFromTilePane(target) : null
 
       // A tile goes through requestCloseSessionTile so a running or
       // input-blocked session still gets its confirmation.
-      if (id && $sessionTiles.get().some(t => t.storedSessionId === id)) {
-        requestCloseSessionTile(id)
+      if (storedSessionId && $sessionTiles.get().some(t => t.storedSessionId === storedSessionId)) {
+        requestCloseSessionTile(storedSessionId)
 
         return
       }

@@ -3031,6 +3031,8 @@ export const zh: Translations = {
     closeToRight: '关闭右侧',
     closeAll: '全部关闭',
     newTab: '新建对话',
+    reload: '重新加载',
+    tabCount: count => `${count} 个标签页`,
     split: dir => `向${dir}拆分`,
     move: dir => `向${dir}移动`,
     dirUp: '上',

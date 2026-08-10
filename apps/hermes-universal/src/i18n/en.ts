@@ -2900,6 +2900,8 @@ export const en: Translations = {
     closeToRight: 'Close to the right',
     closeAll: 'Close all',
     newTab: 'New chat',
+    reload: 'Reload',
+    tabCount: count => `${count} tabs`,
     split: dir => `Split ${dir}`,
     move: dir => `Move ${dir}`,
     dirUp: 'up',

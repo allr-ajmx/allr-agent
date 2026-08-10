@@ -13,7 +13,7 @@
  */
 
 import { openSession as loadSession } from '@/store/session'
-import { focusOpenSession, openSessionTile } from '@/store/session-states'
+import { focusOpenSession, openSessionTile, reuseBlankDraftTile } from '@/store/session-states'
 
 /**
  * - `in-place` — a click / Enter. Front it if it is already on screen,
@@ -47,6 +47,13 @@ export function openSessionRef(storedSessionId: string, intent: OpenSessionInten
   }
 
   if (intent === 'tab') {
+    // Nothing to jump to, but an open tab may still be an empty "New session" —
+    // that IS the tab the user would have typed into, so spend it rather than
+    // stacking a second blank one beside it.
+    if (reuseBlankDraftTile(id)) {
+      return
+    }
+
     openSessionTile(id, 'right')
 
     return

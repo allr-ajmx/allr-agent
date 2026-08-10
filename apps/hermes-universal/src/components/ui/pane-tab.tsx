@@ -28,12 +28,21 @@ const TAB_ACTIVE = 'text-foreground [--tab-bg:var(--pane-tab-active-bg,var(--ui-
 const TAB_IDLE =
   'text-(--ui-text-tertiary) [--tab-bg:var(--pane-tab-strip-bg,var(--theme-card-seed))] hover:shadow-[inset_0_0_0_100vmax_color-mix(in_srgb,var(--ui-base)_4%,transparent)] hover:text-(--ui-text-secondary)'
 
+// A tab riding a multi-tab selection: an accent wash over whatever surface the
+// tab sits on. A background-image gradient (not a shadow) so it stacks cleanly
+// over `--tab-bg` without fighting the idle hover shadow.
+const TAB_SELECTED =
+  '[background-image:linear-gradient(color-mix(in_srgb,var(--ui-accent)_14%,transparent),color-mix(in_srgb,var(--ui-accent)_14%,transparent))] text-foreground'
+
 interface PaneTabProps extends React.ComponentProps<'div'> {
   active?: boolean
   dirty?: boolean
   /** Close gesture, no hover X (too easy to hit on small tabs): middle-click,
    *  or ⌘-click as the trackpad-friendly Mac equivalent. */
   onClose?: () => void
+  /** Part of a multi-tab selection (⌥/Ctrl-click, Shift-click) — an accent
+   *  wash marks every tab that a drag would carry, Chrome-style. */
+  selected?: boolean
   /** Vertical rail form (collapsed sidebar zones). */
   vertical?: boolean
   /** Content-facing edge of a vertical rail — the strip line the active tab cuts. */
@@ -62,6 +71,7 @@ export const PaneTab = React.forwardRef<HTMLDivElement, PaneTabProps>(function P
     onMouseDown,
     onPointerDown,
     onClickCapture,
+    selected = false,
     vertical = false,
     side = 'left',
     children,
@@ -81,9 +91,11 @@ export const PaneTab = React.forwardRef<HTMLDivElement, PaneTabProps>(function P
         vertical ? TAB_VERTICAL : TAB_HORIZONTAL,
         edge,
         active ? TAB_ACTIVE : cn(TAB_IDLE, `${edge}-(--ui-stroke-tertiary)`),
+        selected && TAB_SELECTED,
         className
       )}
       data-active={active}
+      data-selected={selected || undefined}
       data-vertical={vertical || undefined}
       onAuxClick={event => {
         // Middle-click closes (browser/IDE). Swallow mousedown so Chromium
