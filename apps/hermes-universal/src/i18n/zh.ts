@@ -2034,6 +2034,7 @@ export const zh: Translations = {
       openInBubble: '在气泡中打开',
       export: '导出',
       branchFrom: '分支',
+      moveToProject: '移动到项目',
       rename: '重命名',
       archive: '归档',
       newWindow: '新窗口',

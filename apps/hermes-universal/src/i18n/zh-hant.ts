@@ -1661,6 +1661,7 @@ export const zhHant = defineLocale({
       copyId: '複製 ID',
       export: '匯出',
       branchFrom: '分支',
+      moveToProject: '移動到專案',
       rename: '重新命名',
       archive: '封存',
       newWindow: '新視窗',

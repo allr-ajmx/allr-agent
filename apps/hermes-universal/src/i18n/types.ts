@@ -1583,6 +1583,7 @@ export interface Translations {
       openInBubble: string
       export: string
       branchFrom: string
+      moveToProject: string
       rename: string
       archive: string
       newWindow: string

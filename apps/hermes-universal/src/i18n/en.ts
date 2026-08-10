@@ -1870,6 +1870,7 @@ export const en: Translations = {
       openInBubble: 'Open in bubble',
       export: 'Export',
       branchFrom: 'Branch',
+      moveToProject: 'Move to project',
       rename: 'Rename',
       archive: 'Archive',
       newWindow: 'New window',

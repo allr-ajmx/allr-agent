@@ -1712,6 +1712,7 @@ export const ja = defineLocale({
       copyId: 'ID をコピー',
       export: 'エクスポート',
       branchFrom: '分岐',
+      moveToProject: 'プロジェクトへ移動',
       rename: '名前を変更',
       archive: 'アーカイブ',
       newWindow: '新しいウィンドウ',

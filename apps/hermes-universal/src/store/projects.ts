@@ -4,6 +4,7 @@ import { getHermesConfig } from '@/hermes'
 import { translateNow } from '@/i18n'
 import { copyTextToClipboard, desktopDefaultCwd, selectDesktopPaths, writeDesktopFileText } from '@/lib/desktop-fs'
 import { desktopGit } from '@/lib/desktop-git'
+import { moveSessionWorkspace } from '@/lib/gateway-rpc'
 import { persistentAtom } from '@/lib/persisted'
 import { revealPathInFileManager } from '@/lib/reveal-path'
 import { atom } from '@/store/atom'
@@ -12,7 +13,7 @@ import { $connection } from '@/store/connection'
 import { requestGateway } from '@/store/gateway'
 import { setSidebarAgentsGrouped } from '@/store/layout'
 import { notify, notifyError } from '@/store/notifications'
-import { newSession, pruneSessionTombstones } from '@/store/session'
+import { knownSessionProfile, newSession, pruneSessionTombstones, refreshSessions, setSessions } from '@/store/session'
 import type { ProjectInfo, ProjectsPayload } from '@/types/hermes'
 
 // First-class per-profile Projects, served by the gateway `projects.*` JSON-RPC
@@ -300,6 +301,55 @@ export async function createProject(input: CreateProjectInput): Promise<ProjectI
   reconcile()
 
   return created
+}
+
+/**
+ * Re-home a stored session into another project's folder — the fix for a chat
+ * created in the wrong directory, without recreating it and losing its history.
+ *
+ * The backend REPLACES the row's git branch/root columns rather than enriching
+ * them: which project claims a session is exactly what is changing, and a stale
+ * `git_repo_root` would keep it grouped under the project it just left. A live
+ * agent bound to the row follows, so its tools re-anchor immediately; a session
+ * mid-turn is refused by the backend rather than having the workspace pulled out
+ * from under a running tool, so the error is surfaced rather than swallowed.
+ *
+ * Both list views are refreshed because they are separate reads: the flat
+ * recents come from the session list, the lanes from `projects.tree`, and a move
+ * changes which lane the row belongs to.
+ */
+export async function moveSessionToProject(sessionId: string, cwd: string): Promise<boolean> {
+  const target = cwd.trim()
+
+  if (!sessionId || !target) {
+    return false
+  }
+
+  try {
+    const moved = await moveSessionWorkspace({
+      cwd: target,
+      profile: knownSessionProfile(sessionId) ?? null,
+      sessionKey: sessionId
+    })
+
+    // Optimistic, from the backend's OWN resolution (`~` expanded, absolute) —
+    // echoing the requested path would show a `~` the row never had.
+    setSessions(prev =>
+      prev.map(session =>
+        session.id === sessionId
+          ? { ...session, cwd: moved.cwd ?? target, git_repo_root: moved.git_repo_root ?? null }
+          : session
+      )
+    )
+
+    await Promise.all([refreshSessions(), refreshProjectTree()])
+
+    return true
+  } catch (err) {
+    notifyError(err, 'Failed to move the session')
+
+    return false
+  }
 }
 
 export async function renameProject(id: string, name: string): Promise<void> {
