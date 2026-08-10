@@ -1279,3 +1279,14 @@ export interface RepoStatus {
   removed: number
   files: RepoStatusFile[]
 }
+
+/** One emoji reaction on a message. One per author, iOS-Tapback style — the
+ *  `message.react` RPC returns the authoritative list (lib/gateway-rpc.ts). */
+export interface MessageReaction {
+  emoji: string
+  author: 'agent' | 'user'
+  /** Epoch seconds. */
+  at: number
+  /** Set once the reaction has been shown; absent on a freshly written one. */
+  seen?: boolean
+}
