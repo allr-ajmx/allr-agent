@@ -17,7 +17,7 @@ import { transcribeAudio } from '@/hermes'
 import { SLASH_COMMAND_RE } from '@/lib/chat-runtime'
 import { triggerHaptic } from '@/lib/haptics'
 import { useStore } from '@/store/atom'
-import { redirectPrompt, sendPrompt } from '@/store/chat'
+import { interruptSession, redirectPrompt, sendPrompt } from '@/store/chat'
 import { type ComposerAttachment } from '@/store/composer'
 import { $gatewayState, getGatewayClient, requestGateway } from '@/store/gateway'
 import { refreshCurrentModel, selectModel } from '@/store/model'
@@ -117,8 +117,10 @@ export function ChatComposer() {
     [view]
   )
 
-  // Interrupt the running turn (Esc / Stop). Best-effort — a backend without
-  // session.interrupt simply rejects and the turn keeps running.
+  // Interrupt the running turn (Esc / Stop). Runs through `interruptSession`,
+  // which recovers a dead runtime binding and raises a toast when the interrupt
+  // genuinely fails — this used to be a bare `.catch(() => {})`, so after a
+  // sleep/wake Stop silently did nothing (MJXHRM-366).
   const onCancel = useCallback(() => {
     const sid = view.$runtimeId.get()
 
@@ -127,7 +129,7 @@ export function ChatComposer() {
     }
 
     if (scope.target === 'main') {
-      void requestGateway('session.interrupt', { session_id: sid }).catch(() => {})
+      void interruptSession(sid)
     } else {
       void sessionTileDelegate()?.interruptSession(sid)
     }
