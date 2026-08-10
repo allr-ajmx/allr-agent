@@ -1255,7 +1255,14 @@ export const en: Translations = {
     ageDays: days => `${days}d ago`,
     durationSeconds: seconds => `${seconds}s`,
     durationMinutes: (minutes, seconds) => `${minutes}m ${seconds}s`,
-    tokens: value => `${value} tok`
+    tokens: value => `${value} tok`,
+    steer: 'Steer',
+    steerPlaceholder: 'Redirect this subagent…',
+    steerSend: 'Send',
+    steerCancel: 'Cancel',
+    steerQueued: 'Queued for the next step',
+    steerRejected: 'Too late to steer — this subagent is already past its last step',
+    steerFailed: 'Could not reach the gateway'
   },
 
   commandCenter: {

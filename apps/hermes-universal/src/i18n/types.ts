@@ -1111,6 +1111,13 @@ export interface Translations {
     durationSeconds: (seconds: string) => string
     durationMinutes: (minutes: number, seconds: number) => string
     tokens: (value: number | string) => string
+    steer: string
+    steerPlaceholder: string
+    steerSend: string
+    steerCancel: string
+    steerQueued: string
+    steerRejected: string
+    steerFailed: string
   }
 
   commandCenter: {

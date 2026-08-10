@@ -8,6 +8,7 @@ import { FadeText } from '@/components/ui/fade-text'
 import { GlyphSpinner } from '@/components/ui/glyph-spinner'
 import { type Translations, useI18n } from '@/i18n'
 import { compactNumber } from '@/lib/format'
+import { steerSubagent } from '@/lib/gateway-rpc'
 import { AlertCircle, CheckCircle2 } from '@/lib/icons'
 import { useEnterAnimation } from '@/lib/use-enter-animation'
 import { cn } from '@/lib/utils'
@@ -15,6 +16,7 @@ import {
   $subagentsBySession,
   allSubagents,
   buildSubagentTree,
+  sessionOfSubagent,
   type SubagentNode,
   type SubagentStatus,
   type SubagentStreamEntry
@@ -294,6 +296,113 @@ function StreamLine({
   )
 }
 
+/**
+ * Redirect a live subagent without stopping it.
+ *
+ * `subagent.steer` answers 200 either way: `rejected` means the child is gone,
+ * is not ours, or is already past its last tool boundary. Nothing surfaced that
+ * before, so a steer that never landed looked exactly like one that did — hence
+ * the explicit outcome line rather than a fire-and-forget button.
+ */
+function SteerControl({ node }: { node: SubagentNode }) {
+  const { t } = useI18n()
+  const a = t.agents
+  const [open, setOpen] = useState(false)
+  const [text, setText] = useState('')
+  const [sending, setSending] = useState(false)
+  const [outcome, setOutcome] = useState<null | { kind: 'error' | 'ok'; message: string }>(null)
+
+  const submit = async () => {
+    const trimmed = text.trim()
+    const sessionId = sessionOfSubagent(node.id)
+
+    if (!trimmed || !sessionId) {
+      return
+    }
+
+    setSending(true)
+
+    try {
+      const result = await steerSubagent({ sessionId, subagentId: node.id, text: trimmed })
+      const queued = result.status === 'queued'
+      setOutcome({ kind: queued ? 'ok' : 'error', message: queued ? a.steerQueued : a.steerRejected })
+
+      if (queued) {
+        setText('')
+        setOpen(false)
+      }
+    } catch {
+      setOutcome({ kind: 'error', message: a.steerFailed })
+    } finally {
+      setSending(false)
+    }
+  }
+
+  return (
+    <div className="grid min-w-0 gap-1 pl-6">
+      {open ? (
+        <div className="flex min-w-0 items-center gap-1.5">
+          <input
+            autoFocus
+            className="min-w-0 flex-1 rounded-md border border-(--ui-stroke-tertiary) bg-transparent px-2 py-1 text-[0.72rem] outline-none focus:border-(--ui-stroke-secondary)"
+            disabled={sending}
+            onChange={event => setText(event.target.value)}
+            onKeyDown={event => {
+              if (event.key === 'Enter') {
+                event.preventDefault()
+                void submit()
+              } else if (event.key === 'Escape') {
+                event.preventDefault()
+                setOpen(false)
+              }
+            }}
+            placeholder={a.steerPlaceholder}
+            value={text}
+          />
+          <button
+            className="shrink-0 rounded-md px-2 py-1 text-[0.66rem] text-foreground/80 hover:text-foreground disabled:opacity-50"
+            disabled={sending || !text.trim()}
+            onClick={() => void submit()}
+            type="button"
+          >
+            {a.steerSend}
+          </button>
+          <button
+            className="shrink-0 rounded-md px-2 py-1 text-[0.66rem] text-muted-foreground/70 hover:text-foreground"
+            onClick={() => setOpen(false)}
+            type="button"
+          >
+            {a.steerCancel}
+          </button>
+        </div>
+      ) : (
+        <button
+          className="w-fit rounded-md text-[0.66rem] text-muted-foreground/70 hover:text-foreground"
+          onClick={() => {
+            setOutcome(null)
+            setOpen(true)
+          }}
+          type="button"
+        >
+          {a.steer}
+        </button>
+      )}
+
+      {outcome ? (
+        <p
+          className={cn(
+            'text-[0.62rem] leading-[0.95rem]',
+            outcome.kind === 'error' ? 'text-destructive' : 'text-muted-foreground/70'
+          )}
+          role="status"
+        >
+          {outcome.message}
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
 function SubagentRow({ node, depth = 0, nowMs }: { node: SubagentNode; depth?: number; nowMs: number }) {
   const { t } = useI18n()
   const running = node.status === 'running' || node.status === 'queued'
@@ -380,6 +489,8 @@ function SubagentRow({ node, depth = 0, nowMs }: { node: SubagentNode; depth?: n
           ) : null}
         </div>
       ) : null}
+
+      {running ? <SteerControl node={node} /> : null}
 
       {node.children.length > 0 ? (
         <div className="grid min-w-0 gap-3 pl-6">
