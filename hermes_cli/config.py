@@ -1842,6 +1842,28 @@ def check_config_version() -> Tuple[int, int]:
     return current, latest
 
 
+def config_floor_status() -> Dict[str, Any]:
+    """Support-floor state for the on-disk config, for reporting to clients.
+
+    ``/api/status`` ships this so a client can tell "your config is too old to
+    auto-migrate" without hardcoding the floor version or re-deriving the
+    predicate — both of which drift the moment the floor moves. Deliberately
+    structured rather than prose: ``support_floor_message()`` embeds the
+    HERMES_HOME path, and ``/api/status`` is a public endpoint.
+    """
+    from hermes_cli.config_migrations import SUPPORT_FLOOR_VERSION, below_support_floor
+
+    current_ver, latest_ver = check_config_version()
+
+    return {
+        "support_floor_version": SUPPORT_FLOOR_VERSION,
+        "below_floor": bool(
+            _raw_config_has_explicit_version()
+            and below_support_floor(current_ver, latest_ver)
+        ),
+    }
+
+
 # =============================================================================
 # Config structure validation
 # =============================================================================
@@ -2188,17 +2210,13 @@ def migrate_config(interactive: bool = True, quiet: bool = False) -> Dict[str, A
     # lacking the legacy keys they migrated) and a fresh version stamp —
     # the historical behavior.
     from hermes_cli.config_migrations import (
-        SUPPORT_FLOOR_VERSION,
+        below_support_floor,
         run_migrations,
         support_floor_message,
     )
 
     _explicit_version = _raw_config_has_explicit_version()
-    floor_refused = (
-        _explicit_version
-        and current_ver < SUPPORT_FLOOR_VERSION
-        and current_ver < latest_ver
-    )
+    floor_refused = _explicit_version and below_support_floor(current_ver, latest_ver)
     if floor_refused:
         msg = support_floor_message()
         results["warnings"].append(msg)

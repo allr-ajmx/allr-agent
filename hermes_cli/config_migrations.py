@@ -53,6 +53,17 @@ from typing import Any, Callable, Dict, List, Tuple
 SUPPORT_FLOOR_VERSION = 12
 
 
+def below_support_floor(current_version: int, latest_version: int) -> bool:
+    """True when a config is too old for the auto-migration ladder.
+
+    Callers must have already established that the on-disk config carries an
+    explicit ``_config_version`` key — a fresh minimal config with no stamp
+    reads as version 1 and must NOT trip the floor. Shared by the migration
+    driver and the ``/api/status`` report so the two can never disagree.
+    """
+    return current_version < SUPPORT_FLOOR_VERSION and current_version < latest_version
+
+
 def support_floor_message() -> str:
     """Human-facing explanation shown when a config is below the floor."""
     from hermes_constants import display_hermes_home

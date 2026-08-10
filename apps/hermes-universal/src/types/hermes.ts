@@ -896,8 +896,21 @@ export interface PlatformStatus {
   updated_at: string
 }
 
+/**
+ * Whether the gateway's on-disk config is too old for the auto-migration ladder.
+ * The gateway computes this because only it can tell an ancient config (an
+ * explicit old `_config_version`) from a fresh minimal one (no key at all) —
+ * both arrive over HTTP as `config_version: 0`. Absent on a gateway that
+ * predates the field; the client falls back to its own approximation then.
+ */
+export interface ConfigFloorWarning {
+  below_floor: boolean
+  support_floor_version: number
+}
+
 export interface StatusResponse {
   active_sessions: number
+  config_floor_warning?: ConfigFloorWarning | null
   config_path: string
   config_version: number
   env_path: string

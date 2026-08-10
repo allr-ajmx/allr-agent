@@ -684,6 +684,41 @@ class TestConfigSupportFloor:
         msg = support_floor_message()
         assert f"{display_hermes_home()}/config.yaml" in msg
 
+    def test_floor_status_reports_an_ancient_config(self, tmp_path):
+        """The report `/api/status` ships mirrors the migration driver's verdict.
+
+        A client cannot derive this itself: a missing `_config_version` also
+        reads as 0 over HTTP, so only the gateway can tell an ancient config
+        from a fresh minimal one.
+        """
+        from hermes_cli.config import config_floor_status
+
+        self._write_config(tmp_path, {"_config_version": 11})
+        with patch.dict(os.environ, {"HERMES_HOME": str(tmp_path)}):
+            report = config_floor_status()
+
+        assert report == {"below_floor": True, "support_floor_version": 12}
+
+    def test_floor_status_exempts_a_config_with_no_version_key(self, tmp_path):
+        from hermes_cli.config import config_floor_status
+
+        self._write_config(tmp_path, {"model": {}})
+        with patch.dict(os.environ, {"HERMES_HOME": str(tmp_path)}):
+            report = config_floor_status()
+
+        # `check_config_version()` coerces the missing key to 0 — which is
+        # exactly the case the driver exempts, so the report must too.
+        assert report["below_floor"] is False
+
+    def test_floor_status_passes_a_current_config(self, tmp_path):
+        from hermes_cli.config import config_floor_status
+
+        self._write_config(
+            tmp_path, {"_config_version": DEFAULT_CONFIG["_config_version"]}
+        )
+        with patch.dict(os.environ, {"HERMES_HOME": str(tmp_path)}):
+            assert config_floor_status()["below_floor"] is False
+
     def test_registry_has_no_targets_below_floor(self):
         from hermes_cli.config_migrations import (
             MIGRATIONS,
