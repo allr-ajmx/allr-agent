@@ -1,3 +1,5 @@
+import { memo } from 'react'
+
 import { ApprovalBar } from '@/app/chat/approval-bar'
 import { ChatComposer } from '@/app/chat/chat-composer'
 import { ChatDropOverlay } from '@/app/chat/chat-drop-overlay'
@@ -16,7 +18,16 @@ import { useStore } from '@/store/atom'
 import { $petActive } from '@/store/pet'
 import { sessionApprovalRequest, sessionSecretRequest, sessionSudoRequest } from '@/store/prompts'
 
-export function ChatScreen() {
+/**
+ * The chat surface: thread, composer, per-session prompt bars.
+ *
+ * Memoized because its callers re-render for reasons that have nothing to do
+ * with the chat — a tile shell reacting to a layout tick, a pane host to a
+ * focus change. ChatScreen takes no props and subscribes to its own session
+ * atoms, so those parents can re-render freely without dragging the whole
+ * transcript through reconciliation with them.
+ */
+export const ChatScreen = memo(function ChatScreen() {
   // The SessionView is the data surface — the session on screen by default, a
   // tile's own session when one mounts this under its view. Everything below
   // reads from it, so N sessions render from one component tree.
@@ -91,4 +102,4 @@ export function ChatScreen() {
       <ChatDropOverlay active={dragActive} />
     </div>
   )
-}
+})

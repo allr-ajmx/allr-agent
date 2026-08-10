@@ -25,6 +25,7 @@ const MAX_DISCLOSURE_STATES = 240
 
 export const $toolDisclosureStates = atom<ToolDisclosureStates>(loadToolDisclosureStates())
 const disclosureOpenCache = new Map<string, ReadableAtom<boolean | undefined>>()
+const anyDisclosureOpenCache = new Map<string, ReadableAtom<boolean>>()
 
 $toolDisclosureStates.subscribe(persistToolDisclosureStates)
 
@@ -34,6 +35,24 @@ export function $toolDisclosureOpen(id: string): ReadableAtom<boolean | undefine
   if (!cached) {
     cached = computed($toolDisclosureStates, states => states[id])
     disclosureOpenCache.set(id, cached)
+  }
+
+  return cached
+}
+
+/**
+ * Whether any of a set of disclosures is open — a run asking about its rows.
+ *
+ * Computed rather than reading the whole map so a toggle anywhere in the
+ * transcript only re-renders the runs whose own answer changed.
+ */
+export function $anyToolDisclosureOpen(ids: readonly string[]): ReadableAtom<boolean> {
+  const key = ids.join('|')
+  let cached = anyDisclosureOpenCache.get(key)
+
+  if (!cached) {
+    cached = computed($toolDisclosureStates, states => ids.some(id => Boolean(states[id])))
+    anyDisclosureOpenCache.set(key, cached)
   }
 
   return cached

@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import spinners, { type BrailleSpinnerName as SpinnerName } from 'unicode-animations'
 
 import { usePaneVisible } from '@/components/pane-shell/pane-visibility'
+import { createRendererLoopPauseController } from '@/lib/renderer-loop-pause'
 import { cn } from '@/lib/utils'
 
 export type { SpinnerName }
@@ -43,31 +44,70 @@ interface GlyphSpinnerProps {
  */
 export function GlyphSpinner({ ariaLabel = 'Loading', className, spinner = 'braille' }: GlyphSpinnerProps) {
   const spin = FRAMES_BY_NAME[spinner] ?? FRAMES_BY_NAME.braille!
-  const [frame, setFrame] = useState(0)
+  const glyphRef = useRef<HTMLSpanElement>(null)
   // Paused in a background tab. Keep-alive leaves every ever-activated chat
-  // mounted, and N of these each ticking a setInterval + setState burn CPU —
-  // and force a re-render apiece — for pixels nobody can see. Outside a tab
-  // stack `usePaneVisible` is true, so nothing else changes.
+  // mounted, and N of these each ticking a setInterval burns CPU for pixels
+  // nobody can see. Outside a tab stack `usePaneVisible` is true, so nothing
+  // else changes.
   const visible = usePaneVisible()
 
   useEffect(() => {
-    if (!visible) {
+    const glyph = glyphRef.current
+
+    if (!visible || !glyph) {
       return
     }
 
-    setFrame(0)
-    const id = window.setInterval(() => setFrame(f => (f + 1) % spin.frames.length), spin.interval)
+    // Frames are written straight to the DOM node rather than through state:
+    // a spinner beside every live tool row was committing React work at the
+    // spinner's frame rate for a single character of text.
+    let frame = 0
+    let timer: number | undefined
+    glyph.textContent = spin.frames[frame]
 
-    return () => window.clearInterval(id)
+    const stopAnimation = () => {
+      if (timer === undefined) {
+        return
+      }
+
+      window.clearInterval(timer)
+      timer = undefined
+    }
+
+    const syncAnimation = () => {
+      if (pauseController.isPaused()) {
+        stopAnimation()
+
+        return
+      }
+
+      if (timer !== undefined) {
+        return
+      }
+
+      timer = window.setInterval(() => {
+        frame = (frame + 1) % spin.frames.length
+        glyph.textContent = spin.frames[frame]
+      }, spin.interval)
+    }
+
+    const pauseController = createRendererLoopPauseController(() => syncAnimation())
+    syncAnimation()
+
+    return () => {
+      pauseController.dispose()
+      stopAnimation()
+    }
   }, [spin, visible])
 
   return (
     <span
       aria-label={ariaLabel}
       className={cn('inline-flex items-center justify-center font-mono leading-none tabular-nums', className)}
+      ref={glyphRef}
       role="status"
     >
-      {spin.frames[frame]}
+      {spin.frames[0]}
     </span>
   )
 }

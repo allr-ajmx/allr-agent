@@ -43,7 +43,7 @@ import { recordPreviewArtifact } from '@/store/preview-status'
 import { sessionApprovalRequest } from '@/store/prompts'
 import { $toolInlineDiffs } from '@/store/tool-diffs'
 import { $toolRowDismissed, dismissToolRow } from '@/store/tool-dismiss'
-import { $toolDisclosureOpen, $toolViewMode, setToolDisclosureOpen } from '@/store/tool-view'
+import { $anyToolDisclosureOpen, $toolDisclosureOpen, $toolViewMode, setToolDisclosureOpen } from '@/store/tool-view'
 
 import { PendingToolApproval } from './approval'
 import {
@@ -52,6 +52,7 @@ import {
   cleanVisibleText,
   countDiffLineStats,
   inlineDiffFromResult,
+  isCardTool,
   isFileEditTool,
   isPreviewableTarget,
   looksRedundant,
@@ -264,6 +265,17 @@ function useDisclosureOpen(disclosureId: string, fallbackOpen = false): boolean 
   return persistedOpen ?? fallbackOpen
 }
 
+/**
+ * A row's disclosure id, scoped to the message it was rendered in.
+ *
+ * Shared with the run that wraps the row: a live run has to know when one of
+ * its own rows has been opened, and both sides have to name it identically or
+ * the run never hears about it.
+ */
+function toolEntryDisclosureId(messageId: string, part: ToolPart): string {
+  return `tool-entry:${messageId}:${toolPartDisclosureId(part)}`
+}
+
 function ToolEntry({ part }: ToolEntryProps) {
   const { t } = useI18n()
   const copy = t.assistant.tool
@@ -284,7 +296,7 @@ function ToolEntry({ part }: ToolEntryProps) {
     [args, isError, result, toolCallId, toolName]
   )
 
-  const disclosureId = `tool-entry:${messageId}:${toolPartDisclosureId(stablePart)}`
+  const disclosureId = toolEntryDisclosureId(messageId, stablePart)
   const dismissed = useStore($toolRowDismissed(disclosureId))
   const isPending = messageRunning && result === undefined
   const liveDiffs = useStore($toolInlineDiffs)
@@ -611,19 +623,11 @@ function ToolEntry({ part }: ToolEntryProps) {
   )
 }
 
-// Tools that must stay ON SCREEN rather than collapse into a run summary:
-//   - a file edit renders its own diff, which is usually the point of the turn;
-//   - `clarify`, `image_generate` and `delegate_task` bypass ToolEntry to render
-//     their own markup — a question the user has to answer, an image they asked
-//     for, the several agents a fan-out is running.
-//
-// Everything else is ephemeral activity — reads, searches, commands — which is
-// what a run summarizes and what the live ticker cycles through.
-const CARD_TOOLS = new Set(['clarify', 'delegate_task', 'image_generate'])
-
-export function isCardTool(toolName: string): boolean {
-  return CARD_TOOLS.has(toolName) || isFileEditTool(toolName)
-}
+// Tools that draw their own surface and must never be folded into a run's
+// summary live in `@/lib/tool-render-class` (`isCardTool`) — the DOM render
+// budget prices a turn by the same rule, so both sides have to agree on which
+// rows collapse into a summary line and which mount their own markup.
+export { isCardTool }
 
 // A call still awaiting a result on one of these could be the one blocking on
 // an approval. Universal shows the approval in the composer's ApprovalBar
@@ -692,6 +696,8 @@ function ToolRunHeader({
 
 interface ToolRunState {
   count: number
+  /** Disclosure id of each row in the run, so the run can tell when one is open. */
+  entryIds: readonly string[]
   key: string
   live: boolean
   /** A call still awaiting a result that could be the one blocking on approval. */
@@ -730,6 +736,7 @@ function useToolRun(startIndex: number, endIndex: number): ToolRunState {
         signature,
         value: {
           count: tools.length,
+          entryIds: tools.map(tool => toolEntryDisclosureId(state.message.id, tool)),
           key: tools[0]?.toolCallId ?? '',
           live,
           pendingApprovalTool: tools.some(tool => tool.result === undefined && APPROVAL_TOOLS.has(tool.toolName)),
@@ -762,11 +769,12 @@ const ToolRun: FC<PropsWithChildren<{ endIndex: number; startIndex: number }>> =
   startIndex
 }) => {
   const messageRunning = useAuiState(selectMessageRunning)
-  const { count, key, live, pendingApprovalTool, summary } = useToolRun(startIndex, endIndex)
+  const { count, entryIds, key, live, pendingApprovalTool, summary } = useToolRun(startIndex, endIndex)
   const sessionId = useStore(useSessionView().$runtimeId) ?? ''
   const approval = useStore(useMemo(() => sessionApprovalRequest(sessionId), [sessionId]))
   const disclosureId = `tool-run:${key}`
   const persistedOpen = useStore($toolDisclosureOpen(disclosureId))
+  const rowOpen = useStore(useMemo(() => $anyToolDisclosureOpen(entryIds), [entryIds]))
   const enterRef = useEnterAnimation(messageRunning, `tool-run:${key}`)
 
   // A lone call is already its own one-line summary; heading it with a second
@@ -775,11 +783,14 @@ const ToolRun: FC<PropsWithChildren<{ endIndex: number; startIndex: number }>> =
     return <>{children}</>
   }
 
-  // An approval is a question the user has to answer, and the ticker only ever
-  // shows one line — the row carrying the command could tick straight past it.
-  // Show the whole run until it's answered.
+  // Two things a one-line window can't hold. An approval is a question the
+  // user has to answer, and expanded output is one they went looking for —
+  // both would tick straight past, or be sliced to a single line, as the run
+  // keeps going. Either one hands the run back its full height until the run
+  // settles and the row can be reached through the summary instead.
   const blocked = Boolean(approval) && pendingApprovalTool
-  const expanded = live ? blocked : (persistedOpen ?? false)
+  const unfurled = blocked || rowOpen
+  const expanded = live ? unfurled : (persistedOpen ?? false)
 
   return (
     <div
@@ -794,7 +805,7 @@ const ToolRun: FC<PropsWithChildren<{ endIndex: number; startIndex: number }>> =
         open={expanded}
         summary={summary}
       />
-      {live && !blocked && <ToolRunTicker>{children}</ToolRunTicker>}
+      {live && !unfurled && <ToolRunTicker>{children}</ToolRunTicker>}
       {expanded && <div className="grid min-w-0 max-w-full gap-(--tool-row-gap)">{children}</div>}
     </div>
   )

@@ -9,13 +9,16 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState
 } from 'react'
 import { useStickToBottom } from 'use-stick-to-bottom'
 
 import { MessageRenderBoundary } from '@/components/assistant-ui/message-render-boundary'
+import { resolveShowEarlierAction, useTranscriptWindow } from '@/components/assistant-ui/thread/transcript-window'
 import { useI18n } from '@/i18n'
+import { messagePaintWeight } from '@/lib/render-weight'
 import {
   onScrollToBottomRequest,
   onThreadEditClose,
@@ -30,20 +33,40 @@ export type MessageGroup = { id: string; weight: number } & (
   { index: number; kind: 'standalone' } | { indices: number[]; kind: 'turn' }
 )
 
-// DOM is bounded by a rendered-PART budget, not a message/turn count: a single
-// assistant message folds every tool call into a part, so heavy sessions are
-// ~40 turns / ~100 messages but ~1000 parts — and parts are what drive node
-// count. "Show earlier" prepends another page; whole turns stay intact so the
-// sticky human bubble never loses its turn. This is the long-session perf lever
+// DOM is bounded by a render-cost budget, not a message/turn count. The
+// currency is `messagePaintWeight`: what a turn actually MOUNTS, which is what
+// the grouping decides rather than what the payload weighs. A settled run of
+// twelve reads is one grey summary line, a thought is one collapsed
+// disclosure, a hoisted `todo` is nothing — while a diff, an image card or a
+// wall of markdown really does build DOM and is charged for it.
+//
+// Pricing by part count instead had the budget counting work that never
+// mounts: one tool-heavy turn is dozens of parts that paint as a handful of
+// one-line summaries, so a session spent the whole page in two or three turns
+// and offered "Show earlier" over a screen and a half of transcript.
+//
+// "Show earlier" prepends another page; whole turns stay intact so the sticky
+// human bubble never loses its turn. This is the long-session perf lever
 // WITHOUT a virtualizer — pure rendering, never touches scrollTop, so it can't
-// fight use-stick-to-bottom (the single scroll owner).
-const RENDER_BUDGET = 300
+// fight use-stick-to-bottom (the single scroll owner). What the DOM can hold is
+// bounded above by the store window regardless (TRANSCRIPT_WINDOW_BUDGET), so
+// this cannot admit more than one window's content.
+const RENDER_BUDGET = 600
+
+// Never offer "Show earlier" over fewer turns than this, however heavy they
+// are. A weight-only cut on a session of enormous turns put the button two
+// turns from the bottom, where it reads as broken rather than as paging — the
+// user has not been given enough transcript to have gone looking for more.
+const MIN_VISIBLE_GROUPS = 8
 
 // On session switch, paint a small budget first (enough for the bottom turn(s)
 // the user actually sees after scroll-to-bottom), then bump to the full budget
 // in a requestAnimationFrame — defers the heavy markdown+KaTeX render past the
-// initial commit, so the switch feels instant.
-const FIRST_PAINT_BUDGET = 60
+// initial commit, so the switch feels instant. A viewport after
+// scroll-to-bottom shows 1-2 normal turns ≈ 10-20 cost units; the transition
+// backfill fills the rest interruptibly, so a smaller budget only changes how
+// much work blocks the click-to-paint path.
+const FIRST_PAINT_BUDGET = 20
 
 interface ThreadMessageListProps {
   clampToComposer: boolean
@@ -92,10 +115,10 @@ export function buildGroups(signature: string): MessageGroup[] {
   return groups
 }
 
-// Walk turns newest-first, summing their part weights until the budget is met;
-// everything before the first kept turn is hidden. Returns the index of that
-// first visible group.
-export function firstVisibleGroupIndex(groups: readonly MessageGroup[], budget: number): number {
+// Walk turns newest-first, summing their render weights until the budget is
+// met; everything before the first kept turn is hidden. `minVisible` turns are
+// kept regardless of weight. Returns the index of that first visible group.
+export function firstVisibleGroupIndex(groups: readonly MessageGroup[], budget: number, minVisible = 0): number {
   let firstVisible = groups.length
 
   for (let i = groups.length - 1, weight = 0; i >= 0; i--) {
@@ -107,7 +130,7 @@ export function firstVisibleGroupIndex(groups: readonly MessageGroup[], budget: 
     }
   }
 
-  return firstVisible
+  return Math.min(firstVisible, Math.max(0, groups.length - minVisible))
 }
 
 const ThreadMessageListInner: FC<ThreadMessageListProps> = ({
@@ -117,15 +140,26 @@ const ThreadMessageListInner: FC<ThreadMessageListProps> = ({
   loadingIndicator,
   sessionKey
 }) => {
+  // TWO signatures, deliberately split. The STRUCTURAL one (ids/roles/count)
+  // changes only when messages are added/removed/swapped — it keys the error
+  // boundaries and the row identity. The WEIGHT one ticks while a streaming
+  // turn appends content and feeds only the render budget. Folding weights into
+  // the structural key handed every boundary a new resetKey per appended part,
+  // reconciling every turn's subtree on every tick.
   const messageSignature = useAuiState(s =>
-    s.thread.messages
-      .map((message, index) => `${index}:${message.id}:${message.role}:${message.content?.length ?? 1}`)
-      .join('\n')
+    s.thread.messages.map((message, index) => `${index}:${message.id}:${message.role}`).join('\n')
+  )
+
+  const weightSignature = useAuiState(s =>
+    s.thread.messages.map(message => messagePaintWeight(message.content)).join(',')
   )
 
   const { t } = useI18n()
-  const groups = buildGroups(messageSignature)
+  // Row structure is memoized on the STRUCTURAL signature only, so streaming
+  // part-appends can't churn group identity. Weights fold in separately below.
+  const groups = useMemo(() => buildGroups(messageSignature), [messageSignature])
   const renderEmpty = groups.length === 0 && Boolean(emptyPlaceholder)
+  const { olderAvailable, expandWindow } = useTranscriptWindow()
 
   // use-stick-to-bottom owns scrollTop (single writer): follow while locked,
   // escape on user scroll-up, re-lock at bottom. Snap instantly, not spring — a
@@ -187,7 +221,31 @@ const ThreadMessageListInner: FC<ThreadMessageListProps> = ({
     return () => cancelAnimationFrame(rafId)
   }, [renderBudget])
 
-  const hiddenCount = firstVisibleGroupIndex(groups, renderBudget)
+  // Weights fold into the BUDGET only. Group identity stays structural, so a
+  // streaming append re-runs this cheap sum — not the row JSX. Settled content
+  // hits messagePaintWeight's WeakMap.
+  const weightedGroups = useMemo(() => {
+    const weights = weightSignature.split(',').map(w => Number(w) || 1)
+
+    return groups.map(group => ({
+      ...group,
+      weight:
+        group.kind === 'turn'
+          ? group.indices.reduce((sum, index) => sum + (weights[index] ?? 1), 0)
+          : (weights[group.index] ?? 1)
+    }))
+  }, [groups, weightSignature])
+
+  // The turn floor applies to a real page only. During the first-paint budget
+  // the point is a small synchronous commit; forcing 8 turns into it would put
+  // back exactly the freeze FIRST_PAINT_BUDGET exists to avoid, and the rAF
+  // backfill a frame later fills them in anyway.
+  const hiddenCount = firstVisibleGroupIndex(
+    weightedGroups,
+    renderBudget,
+    renderBudget >= RENDER_BUDGET ? MIN_VISIBLE_GROUPS : 0
+  )
+
   const visibleGroups = hiddenCount > 0 ? groups.slice(hiddenCount) : groups
   const restoreFromBottomRef = useRef<number | null>(null)
 
@@ -280,11 +338,23 @@ const ThreadMessageListInner: FC<ThreadMessageListProps> = ({
   // scrolled up (reading history) so the stick-to-bottom lock is escaped and
   // won't fight this manual restore.
   const showEarlier = useCallback(() => {
-    const el = scrollRef.current
+    const action = resolveShowEarlierAction(hiddenCount, olderAvailable)
 
+    if (!action) {
+      return
+    }
+
+    const el = scrollRef.current
     restoreFromBottomRef.current = el ? el.scrollHeight - el.scrollTop : null
-    setRenderBudget(budget => budget + RENDER_BUDGET)
-  }, [scrollRef])
+
+    if (action === 'dom') {
+      setRenderBudget(budget => budget + RENDER_BUDGET)
+
+      return
+    }
+
+    expandWindow()
+  }, [expandWindow, hiddenCount, olderAvailable, scrollRef])
 
   useLayoutEffect(() => {
     const el = scrollRef.current
@@ -293,7 +363,10 @@ const ThreadMessageListInner: FC<ThreadMessageListProps> = ({
       el.scrollTop = el.scrollHeight - restoreFromBottomRef.current
       restoreFromBottomRef.current = null
     }
-  }, [scrollRef, renderBudget])
+    // `messageSignature` is in the deps because a WINDOW expansion prepends
+    // messages without changing the DOM budget — the anchor has to be re-applied
+    // in the commit the taller tree lands in either way.
+  }, [messageSignature, renderBudget, scrollRef])
 
   return (
     <div
@@ -319,7 +392,7 @@ const ThreadMessageListInner: FC<ThreadMessageListProps> = ({
             data-slot="aui_thread-content"
             ref={contentRef as React.RefCallback<HTMLDivElement>}
           >
-            {hiddenCount > 0 && (
+            {(hiddenCount > 0 || olderAvailable) && (
               <button
                 className="mx-auto mb-(--conversation-turn-gap) rounded-full border border-border/65 bg-(--composer-fill) px-3 py-1 text-xs text-muted-foreground hover:text-foreground"
                 onClick={showEarlier}
