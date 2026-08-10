@@ -1,0 +1,6 @@
+# Commits listed here are ignored by `git blame --ignore-revs-file .git-blame-ignore-revs`.
+# Use for large, purely mechanical reformats that would otherwise obscure
+# blame history with no behavioural content.
+
+# style(universal): run cargo fmt over src-tauri
+08ddf6bfaaa5f8561b1cd1c512ccefcd7ac7cba0
