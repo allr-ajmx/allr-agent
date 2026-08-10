@@ -2,7 +2,7 @@ import { ComposerPrimitive } from '@assistant-ui/react'
 import { useStore } from '@nanostores/react'
 import { type ClipboardEvent, type FormEvent, type KeyboardEvent, useCallback, useEffect, useRef } from 'react'
 
-import { composerFill, composerSurfaceGlass } from '@/components/chat/composer-dock'
+import { composerFill, composerFloatingStrip, composerSurfaceGlass } from '@/components/chat/composer-dock'
 import { Button } from '@/components/ui/button'
 import { Slot as ContribSlot } from '@/contrib/react/slot'
 import { useI18n } from '@/i18n'
@@ -42,27 +42,33 @@ import { useComposerPopout } from './hooks/use-composer-popout'
 import { useComposerQueue } from './hooks/use-composer-queue'
 import { useComposerSubmit } from './hooks/use-composer-submit'
 import { useComposerTrigger } from './hooks/use-composer-trigger'
+import { useComposerUndo } from './hooks/use-composer-undo'
 import { useComposerUrlDialog } from './hooks/use-composer-url-dialog'
 import { useComposerVoice } from './hooks/use-composer-voice'
 import { useEmojiCompletions } from './hooks/use-emoji-completions'
+import { useComposerMicroActions } from './hooks/use-micro-actions'
 import { useSlashCompletions } from './hooks/use-slash-completions'
 import { useSessionStatusPresence } from './hooks/use-status-presence'
+import { ActionBadges } from './micro-actions'
+import { chipTypedPathOnSpace, pathifyRefs } from './path-refs'
 import { QueuePanel } from './queue-panel'
 import {
   composerPlainText,
   deleteChipBeforeCaret,
   deleteSelectionInEditor,
-  insertPlainTextAtCaret,
+  insertComposerContentsAtCaret,
   normalizeComposerEditorDom,
   RICH_INPUT_SLOT
 } from './rich-editor'
 import { useComposerScope } from './scope'
 import { ComposerStatusStack } from './status-stack'
 import { CodingStatusRow } from './status-stack/coding-row'
-import { extractClipboardImageBlobs } from './text-utils'
+import { extractClipboardImageBlobs, openDirectiveScope } from './text-utils'
 import { ComposerTriggerPopover } from './trigger-popover'
 import type { ChatBarProps } from './types'
+import { isRedoShortcut, isUndoShortcut } from './undo-history'
 import { UrlDialog } from './url-dialog'
+import { chipTypedUrlOnSpace, linkifyUrls } from './url-refs'
 import { VoiceActivity, VoicePlaybackActivity } from './voice-activity'
 
 export function ChatBar({
@@ -179,8 +185,28 @@ export function ChatBar({
     loadIntoComposer,
     requestMainFocus,
     setComposerText,
-    stashAt
+    stashAt,
+    syncDraftFromEditor
   } = useComposerDraft({ activeQueueSessionKey, focusKey, inputDisabled, queueEditRef, sessionId })
+
+  // Undo/redo. The rich editor bypasses the webview's editing pipeline for
+  // speed, which also bypasses its undo stack — so we own the stack and every
+  // edit path below banks its pre-edit state through `recordUndoPoint`.
+  const { recordUndoPoint, redo, resetUndoHistory, undo, withUndoPoint } = useComposerUndo({
+    editorRef,
+    syncDraftFromEditor
+  })
+
+  // Prior history belongs to the draft that just left — undoing into another
+  // conversation's text is worse than having none.
+  useEffect(() => {
+    resetUndoHistory()
+  }, [activeQueueSessionKey, resetUndoHistory])
+
+  // Publish this session's micro-action badges from every registered
+  // `composer.microActions` provider. Core registers none, so the strip is
+  // empty until a plugin contributes.
+  useComposerMicroActions(statusSessionId, busy)
 
   // "Add URL" dialog — open/value state, autofocus, and submit (host onAddUrl or
   // an @url: directive into the draft).
@@ -271,6 +297,7 @@ export function ChatBar({
   // this API; keyup uses triggerKeyConsumedRef to skip its refresh.
   const {
     argStageEmpty,
+    ascendTriggerPath,
     closeTrigger,
     commitTypedSlashDirective,
     refreshTrigger,
@@ -281,7 +308,16 @@ export function ChatBar({
     triggerItems,
     triggerKeyConsumedRef,
     triggerLoading
-  } = useComposerTrigger({ at, draftRef, editorRef, emoji, requestMainFocus, setComposerText, slash })
+  } = useComposerTrigger({
+    at,
+    draftRef,
+    editorRef,
+    emoji,
+    recordUndoPoint,
+    requestMainFocus,
+    setComposerText,
+    slash
+  })
 
   // Pull the live contentEditable text into draftRef + the AUI composer state
   // (which drives `hasComposerPayload` → the send button). Shared by the input
@@ -346,6 +382,23 @@ export function ChatBar({
     scheduleFlushEditorToDraft(event.currentTarget)
   }
 
+  // Native typing/deleting mutates the DOM through the webview's editing
+  // pipeline, whose undo stack we've taken over — so bank the pre-edit state
+  // here, before the change lands. `beforeinput` is the only hook that still
+  // sees the old text. Consecutive keystrokes coalesce into one entry, so ⌘Z
+  // steps back by a burst rather than a character.
+  const handleEditorBeforeInput = (event: FormEvent<HTMLDivElement>) => {
+    const inputType = (event.nativeEvent as InputEvent).inputType
+
+    // Undo/redo are ours (handled in useComposerUndo + keydown), and IME preedit
+    // is not a committed edit — compositionend is where that text becomes real.
+    if (inputType === 'historyUndo' || inputType === 'historyRedo' || composingRef.current) {
+      return
+    }
+
+    recordUndoPoint({ coalesce: inputType === 'insertText' || inputType === 'deleteContentBackward' })
+  }
+
   const handlePaste = (event: ClipboardEvent<HTMLDivElement>) => {
     const imageBlobs = extractClipboardImageBlobs(event.clipboardData)
 
@@ -392,7 +445,19 @@ export function ChatBar({
     }
 
     event.preventDefault()
-    insertPlainTextAtCaret(event.currentTarget, pastedText)
+    recordUndoPoint()
+    // Bare links and bare `@paths` are promoted to their typed directive form
+    // on the way in, so a pasted URL lands as one `@url:` chip instead of a
+    // wall of URL text — the same shape the "+ → Add URL" dialog inserts.
+    //
+    // A paste into an open `@url:` browse scope CONSUMES that scope, rather
+    // than leaving it in front of the chip as leftover syntax
+    // (`@url:@url:\`https://…\``).
+    insertComposerContentsAtCaret(
+      event.currentTarget,
+      pathifyRefs(linkifyUrls(pastedText)),
+      openDirectiveScope(event.currentTarget)
+    )
     scheduleFlushEditorToDraft(event.currentTarget)
   }
 
@@ -406,6 +471,22 @@ export function ChatBar({
       return
     }
 
+    // Undo/redo before anything else — we own the stack (see useComposerUndo),
+    // because the Range-based edits below never reach the webview's own.
+    if (isUndoShortcut(event.nativeEvent)) {
+      event.preventDefault()
+      undo()
+
+      return
+    }
+
+    if (isRedoShortcut(event.nativeEvent)) {
+      event.preventDefault()
+      redo()
+
+      return
+    }
+
     // Plain Backspace right after a directive chip: remove the chip + its
     // auto-inserted trailing space as one unit, so deleting a directive never
     // leaves an orphaned space. (Modified backspaces stay native.)
@@ -414,7 +495,7 @@ export function ChatBar({
       !event.metaKey &&
       !event.ctrlKey &&
       !event.altKey &&
-      deleteChipBeforeCaret(event.currentTarget)
+      withUndoPoint(() => deleteChipBeforeCaret(event.currentTarget))
     ) {
       event.preventDefault()
       flushEditorToDraft(event.currentTarget)
@@ -424,7 +505,27 @@ export function ChatBar({
 
     // Non-collapsed Backspace/Delete: native selection-delete is ~O(n²) on large
     // drafts (Ctrl+A → Delete froze ~1.3s). Collapsed carets fall through.
-    if ((event.key === 'Backspace' || event.key === 'Delete') && deleteSelectionInEditor(event.currentTarget)) {
+    if (
+      (event.key === 'Backspace' || event.key === 'Delete') &&
+      withUndoPoint(() => deleteSelectionInEditor(event.currentTarget))
+    ) {
+      event.preventDefault()
+      flushEditorToDraft(event.currentTarget)
+
+      return
+    }
+
+    // A plain space finishing a typed link or a typed `@path` commits it as a
+    // chip, so a hand-typed reference chips the way a picked one does. Both
+    // bail cheaply on the editor's text before paying for a caret walk.
+    if (withUndoPoint(() => chipTypedUrlOnSpace(event))) {
+      event.preventDefault()
+      flushEditorToDraft(event.currentTarget)
+
+      return
+    }
+
+    if (withUndoPoint(() => chipTypedPathOnSpace(event))) {
       event.preventDefault()
       flushEditorToDraft(event.currentTarget)
 
@@ -474,8 +575,20 @@ export function ChatBar({
         const item = triggerItems[triggerActive]
 
         if (item) {
-          replaceTriggerWithChip(item)
+          // Tab on a folder walks INTO it; Enter commits the folder itself.
+          // Two distinct intents, so two distinct keys.
+          replaceTriggerWithChip(item, { descend: event.key === 'Tab' })
         }
+
+        return
+      }
+
+      // Backspace climbs out of an `@` path one segment at a time, mirroring
+      // Tab's one-key descent, and drops the browse scope whole rather than
+      // nibbling back through `:`, `r`, `e`, `d`.
+      if (event.key === 'Backspace' && !event.metaKey && !event.altKey && ascendTriggerPath()) {
+        event.preventDefault()
+        triggerKeyConsumedRef.current = true
 
         return
       }
@@ -763,6 +876,7 @@ export function ChatBar({
         contentEditable={!inputDisabled}
         data-placeholder={placeholder}
         data-slot={RICH_INPUT_SLOT}
+        onBeforeInput={handleEditorBeforeInput}
         onBlur={() => window.setTimeout(closeTrigger, 80)}
         onCompositionEnd={event => {
           composingRef.current = false
@@ -897,6 +1011,7 @@ export function ChatBar({
               loading={triggerLoading}
               onHover={setTriggerActive}
               onPick={replaceTriggerWithChip}
+              scope={trigger.scope}
             />
           )}
           {!poppedOut && (
@@ -923,6 +1038,15 @@ export function ChatBar({
               tracks the keyboard lift as one unit) but ABOVE the bordered surface
               box. Self-hides below 2 chats; never renders on desktop. */}
           {IS_MOBILE && <BubbleRow />}
+          {/* Micro-action pills — a chrome-free strip above the surface, filled
+              only by `composer.microActions` contributions. `relative z-4` puts
+              it in the same stacking layer as the surface, above the drag
+              region's `absolute inset-0`; without it a pill would be a grab
+              handle that floats the composer instead of a button. Collapses
+              away entirely when nothing contributes. */}
+          <div className={cn(composerFloatingStrip, 'relative z-4 pb-1.5 empty:hidden')}>
+            <ActionBadges sessionId={statusSessionId} />
+          </div>
           <div className="relative w-full rounded-[inherit]">
             {/* Session-scoped status stack (todos, subagents, background tasks,
                 preview artifacts, queue). Out of flow so it never inflates the
@@ -1044,6 +1168,12 @@ export function ChatBar({
                 <ContribSlot area={COMPOSER_AREAS.bottom} />
               </div>
             </div>
+          </div>
+          {/* Underside: chrome-free strip BELOW the composer surface. Same
+              stacking layer and inset as the micro-action strip above it, so
+              the two bracket the surface on one vertical line. */}
+          <div className={cn(composerFloatingStrip, 'relative z-4 pt-1.5 empty:hidden')}>
+            <ContribSlot area={COMPOSER_AREAS.underside} />
           </div>
         </ComposerPrimitive.Root>
       </ComposerPrimitive.Unstable_TriggerPopoverRoot>

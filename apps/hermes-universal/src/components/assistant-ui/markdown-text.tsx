@@ -202,7 +202,7 @@ function OpenMediaButton({ kind, path }: { kind: 'audio' | 'video'; path: string
   return (
     <span className="block">
       <button
-        className="mt-2 bg-transparent text-xs font-medium text-muted-foreground underline underline-offset-4 decoration-current/20 hover:text-foreground"
+        className="mt-2 ref bg-transparent text-xs font-medium text-muted-foreground hover:text-foreground"
         onClick={open}
         type="button"
       >
@@ -308,7 +308,7 @@ function MediaAttachment({ path }: { path: string }) {
   return (
     <span className="wrap-anywhere">
       <a
-        className="font-semibold text-foreground underline underline-offset-4 decoration-current/20 wrap-anywhere"
+        className="ref wrap-anywhere"
         href="#"
         onClick={event => {
           event.preventDefault()
@@ -338,10 +338,7 @@ function MarkdownLink({ children, className, href, ...props }: ComponentProps<'a
   if (!target || !/^https?:\/\//i.test(target)) {
     return (
       <a
-        className={cn(
-          'font-semibold text-foreground underline underline-offset-4 decoration-current/20 wrap-anywhere',
-          className
-        )}
+        className={cn('ref wrap-anywhere', className)}
         href={href}
         onClick={event => {
           if (href) {

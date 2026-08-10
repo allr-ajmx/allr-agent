@@ -1,12 +1,14 @@
 import type { Unstable_TriggerItem } from '@assistant-ui/core'
 import { Fragment } from 'react'
 
+import { referenceStyle } from '@/components/assistant-ui/reference-kinds'
 import { Codicon } from '@/components/ui/codicon'
 import { GlyphSpinner } from '@/components/ui/glyph-spinner'
 import { useI18n } from '@/i18n'
 import { cn } from '@/lib/utils'
 
 import { COMPLETION_DRAWER_BELOW_CLASS, COMPLETION_DRAWER_CLASS, CompletionDrawerEmpty } from './completion-drawer'
+import type { DirectiveScope } from './text-utils'
 
 const AT_ICON_BY_TYPE: Record<string, string> = {
   diff: 'diff',
@@ -47,6 +49,9 @@ const ROW_BASE_CLASS = [
   'data-[highlighted]:bg-(--ui-bg-tertiary) data-[highlighted]:text-foreground'
 ].join(' ')
 
+const GROUP_HEADER_CLASS =
+  'select-none px-2 pb-0.5 text-[0.625rem] font-semibold uppercase tracking-wider text-(--ui-text-tertiary)'
+
 interface ComposerTriggerPopoverProps {
   activeIndex: number
   items: readonly Unstable_TriggerItem[]
@@ -55,6 +60,10 @@ interface ComposerTriggerPopoverProps {
   onHover: (index: number) => void
   onPick: (item: Unstable_TriggerItem) => void
   placement?: 'bottom' | 'top'
+  /** The `@kind:` browse the list is filtered to, when there is one. Rendered
+   *  as a header so the scope reads as the mode it is — the raw `@folder:` in
+   *  the editor otherwise looks like syntax the user has to maintain. */
+  scope?: DirectiveScope
 }
 
 export function ComposerTriggerPopover({
@@ -64,7 +73,8 @@ export function ComposerTriggerPopover({
   loading,
   onHover,
   onPick,
-  placement = 'top'
+  placement = 'top',
+  scope
 }: ComposerTriggerPopoverProps) {
   const { t } = useI18n()
   const copy = t.composer
@@ -81,6 +91,7 @@ export function ComposerTriggerPopover({
       onMouseDown={event => event.preventDefault()}
       role="listbox"
     >
+      {scope && <div className={cn(GROUP_HEADER_CLASS, 'pt-0.5')}>{referenceStyle(scope).label}</div>}
       {items.length === 0 ? (
         loading ? (
           <div className="flex items-center gap-2 px-2 py-1.5 text-(--ui-text-tertiary)">
@@ -118,16 +129,7 @@ export function ComposerTriggerPopover({
 
           return (
             <Fragment key={item.id}>
-              {showHeader && (
-                <div
-                  className={cn(
-                    'select-none px-2 pb-0.5 text-[0.625rem] font-semibold uppercase tracking-wider text-(--ui-text-tertiary)',
-                    isFirstHeader ? 'pt-0.5' : 'pt-2'
-                  )}
-                >
-                  {group}
-                </div>
-              )}
+              {showHeader && <div className={cn(GROUP_HEADER_CLASS, isFirstHeader ? 'pt-0.5' : 'pt-2')}>{group}</div>}
               <button
                 className={cn(ROW_BASE_CLASS, isSlash ? 'flex-col gap-0' : 'items-center gap-2')}
                 data-highlighted={active ? '' : undefined}

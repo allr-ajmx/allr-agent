@@ -32,3 +32,27 @@ export const composerPanelCard = cn(
   'bg-[color-mix(in_srgb,var(--dt-card)_72%,transparent)]',
   composerSurfaceGlass
 )
+
+/**
+ * A quiet control floating over composer content — the micro-action pills above
+ * the surface. Full radius, hairline border, the composer's own fill behind a
+ * blur so the text underneath never shows through. Sized against the composer's
+ * control height so a pill lines up with the chrome it floats above.
+ *
+ * Skin and size only; the call site owns position, width caps, and disabled
+ * state.
+ */
+export const composerFloatingPill = cn(
+  'inline-flex h-(--composer-control-size) shrink-0 cursor-pointer items-center gap-1.5 rounded-full px-2.5',
+  'border border-border/65 bg-(--composer-fill) backdrop-blur-[0.75rem] [-webkit-backdrop-filter:blur(0.75rem)]',
+  'text-xs font-normal text-(--ui-text-secondary) transition-colors',
+  'hover:bg-(--chrome-action-hover) hover:text-foreground'
+)
+
+/**
+ * Shared grid for the chrome-free floating strips that bracket the composer —
+ * the micro-action pills above the surface and the `composer.underside` slot
+ * below it. One constant means the two share a left edge without anyone
+ * matching numbers across files; vertical spacing stays at the call site.
+ */
+export const composerFloatingStrip = 'flex flex-wrap items-center gap-1.5'

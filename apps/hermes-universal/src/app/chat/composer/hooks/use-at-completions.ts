@@ -2,6 +2,7 @@ import type { Unstable_TriggerAdapter, Unstable_TriggerItem } from '@assistant-u
 import { useCallback } from 'react'
 
 import type { HermesGateway } from '@/hermes'
+import { cachedPathCompletion, hasCachedPathCompletion } from '@/lib/slash-completion-cache'
 import { normalize } from '@/lib/text'
 
 import type { CompletionEntry, CompletionPayload } from './use-live-completion-adapter'
@@ -82,6 +83,11 @@ export function useAtCompletions(options: {
   const { gateway, sessionId, cwd } = options
   const enabled = Boolean(gateway)
 
+  // Cache key: the completion depends on the query AND the directory it's
+  // resolved against, so a cwd or session change can't serve another tree's
+  // listing.
+  const cacheKey = useCallback((query: string) => `${cwd ?? ''}|${sessionId ?? ''}|${query}`, [cwd, sessionId])
+
   const fetcher = useCallback(
     async (query: string): Promise<CompletionPayload> => {
       const starters = starterEntries(query)
@@ -102,7 +108,14 @@ export function useAtCompletions(options: {
       }
 
       try {
-        const result = await gateway.request<{ items?: CompletionEntry[] }>('complete.path', params)
+        // De-duplicated the same way `/` completions are. Walking a path is
+        // inherently repetitive — Tab into a folder, Backspace out, retype a
+        // segment — and every one of those steps was a fresh listing + rank on
+        // the backend.
+        const result = await cachedPathCompletion(cacheKey(query), () =>
+          gateway.request<{ items?: CompletionEntry[] }>('complete.path', params)
+        )
+
         const items = result.items ?? []
 
         return { items: items.length > 0 ? items : starters, query }
@@ -110,7 +123,7 @@ export function useAtCompletions(options: {
         return { items: starters, query }
       }
     },
-    [gateway, sessionId, cwd]
+    [cacheKey, gateway, sessionId, cwd]
   )
 
   const toItem = useCallback((entry: CompletionEntry, index: number): Unstable_TriggerItem => {
@@ -135,7 +148,13 @@ export function useAtCompletions(options: {
     }
   }, [])
 
-  return useLiveCompletionAdapter({ enabled, fetcher, toItem })
+  // A query already in cache skips both the debounce and the loading state.
+  // This is what makes walking a tree feel instant rather than merely fast:
+  // the 60ms debounce exists to avoid a request per keystroke, and it buys
+  // nothing when the answer is already in hand.
+  const isCached = useCallback((query: string) => hasCachedPathCompletion(cacheKey(query)), [cacheKey])
+
+  return useLiveCompletionAdapter({ enabled, fetcher, isCached, toItem })
 }
 
 /** Re-export `classify` for use by the formatter (insertion side). */

@@ -37,7 +37,11 @@ export function ExpandableBlock({ children, className }: ExpandableBlockProps) {
         <button
           aria-expanded={expanded}
           aria-label={expanded ? 'Collapse' : 'Expand'}
-          className="absolute inset-x-0 bottom-0 flex h-7 cursor-pointer items-end justify-center bg-linear-to-t from-(--ui-chat-surface-background) to-transparent pb-1 text-muted-foreground/70 transition-colors hover:text-foreground"
+          // The fade has to end in whatever the host surface is painted with,
+          // and a code card is no longer the chat background — it has its own
+          // tint. Hosts override `--expandable-fade-from`; everyone else keeps
+          // the chat surface.
+          className="absolute inset-x-0 bottom-0 flex h-7 cursor-pointer items-end justify-center bg-linear-to-t from-[var(--expandable-fade-from,var(--ui-chat-surface-background))] to-transparent pb-1 text-muted-foreground/70 transition-colors hover:text-foreground"
           onClick={() => setExpanded(v => !v)}
           type="button"
         >
