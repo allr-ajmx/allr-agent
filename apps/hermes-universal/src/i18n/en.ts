@@ -200,8 +200,18 @@ export const en: Translations = {
       turnDoneBody: 'The response is ready.',
       turnErrorTitle: 'Turn failed',
       backgroundDoneTitle: 'Background task finished',
-      backgroundFailedTitle: 'Background task failed'
+      backgroundFailedTitle: 'Background task failed',
+      creditsTitle: 'Credits'
     }
+  },
+
+  billingBlock: {
+    titleNous: 'Out of Nous credits',
+    titleProvider: provider => `Out of credits — ${provider}`,
+    fallbackMessage: 'Your account is out of credits. Add credits to keep going.',
+    openBilling: 'Open billing',
+    addCredits: 'Add credits',
+    dismiss: 'Dismiss'
   },
 
   remoteDisplayBanner: {
@@ -418,6 +428,10 @@ export const en: Translations = {
         backgroundDone: {
           label: 'Background task finished',
           description: 'A backgrounded terminal command completed.'
+        },
+        credits: {
+          label: 'Credit alerts',
+          description: 'Your account ran out of credits, or credits were restored.'
         },
         plugin: {
           label: 'Plugin notifications',

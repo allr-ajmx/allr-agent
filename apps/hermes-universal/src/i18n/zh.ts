@@ -196,8 +196,18 @@ export const zh: Translations = {
       turnDoneBody: '回复已就绪。',
       turnErrorTitle: '本轮失败',
       backgroundDoneTitle: '后台任务已完成',
-      backgroundFailedTitle: '后台任务失败'
+      backgroundFailedTitle: '后台任务失败',
+      creditsTitle: '额度'
     }
+  },
+
+  billingBlock: {
+    titleNous: 'Nous 额度已用尽',
+    titleProvider: provider => `额度已用尽 — ${provider}`,
+    fallbackMessage: '您的账户额度已用尽。请充值以继续使用。',
+    openBilling: '打开账单',
+    addCredits: '添加额度',
+    dismiss: '忽略'
   },
 
   remoteDisplayBanner: {
@@ -405,6 +415,10 @@ export const zh: Translations = {
         backgroundDone: {
           label: '后台任务完成',
           description: '后台终端命令已完成。'
+        },
+        credits: {
+          label: '额度提醒',
+          description: '账户额度已用尽，或额度已恢复。'
         },
         plugin: {
           label: '插件通知',

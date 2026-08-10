@@ -201,8 +201,18 @@ export const zhHant = defineLocale({
       turnDoneBody: '回覆已就緒。',
       turnErrorTitle: '本輪失敗',
       backgroundDoneTitle: '背景工作已完成',
-      backgroundFailedTitle: '背景工作失敗'
+      backgroundFailedTitle: '背景工作失敗',
+      creditsTitle: '額度'
     }
+  },
+
+  billingBlock: {
+    titleNous: 'Nous 額度已用盡',
+    titleProvider: provider => `額度已用盡 — ${provider}`,
+    fallbackMessage: '您的帳戶額度已用盡。請儲值以繼續使用。',
+    openBilling: '開啟帳單',
+    addCredits: '新增額度',
+    dismiss: '忽略'
   },
 
   remoteDisplayBanner: {
@@ -307,6 +317,10 @@ export const zhHant = defineLocale({
         backgroundDone: {
           label: '背景工作完成',
           description: '背景終端機指令已完成。'
+        },
+        credits: {
+          label: '額度提醒',
+          description: '帳戶額度已用盡，或額度已恢復。'
         },
         plugin: {
           label: '外掛通知',
