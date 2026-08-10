@@ -7,9 +7,19 @@
 //!
 //! This is a *thin, generic* pipe on purpose: `http_request` proxies any REST
 //! call, and `ws_open`/`ws_send`/`ws_close` proxy a raw WebSocket, forwarding
-//! every server frame to the webview as a Tauri event. The JSON-RPC framing and
+//! every server frame to the webview. The JSON-RPC framing and
 //! request/response correlation stay in the reused JS `JsonRpcGatewayClient`,
 //! which drives this via an IPC-backed `WebSocketLike`.
+//!
+//! Text/open/close/error frames ride Tauri events — they are low-rate and JSON
+//! is the right shape for them. **Binary frames do not**: a Tauri event is JSON,
+//! so a `Vec<u8>` crosses IPC as `[12,255,3,…]`, roughly 3.6 characters per
+//! byte, parsed on the webview's main thread. Streaming TTS is ~32 KB of int16
+//! PCM per second of speech, which is ~115 KB of JSON per second, continuously,
+//! for the length of every spoken reply; the remote terminal pays the same tax
+//! on every output burst. Binary therefore goes out on a `tauri::ipc::Channel`
+//! as `InvokeResponseBody::Raw`, which reaches JS as an `ArrayBuffer` — no
+//! encode, no parse, no per-element copy.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -18,7 +28,8 @@ use std::time::Duration;
 use futures_util::{SinkExt, StreamExt};
 use reqwest_cookie_store::CookieStoreMutex;
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter, State, Url};
+use tauri::ipc::{Channel, InvokeResponseBody, JavaScriptChannelId};
+use tauri::{AppHandle, Emitter, State, Url, Webview, Wry};
 use tokio::sync::{mpsc, Mutex};
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::Message;
@@ -223,20 +234,45 @@ pub async fn http_request(
     })
 }
 
+/// Hand one binary frame to the webview as raw IPC bytes.
+///
+/// `InvokeResponseBody::Raw` is delivered to JS as an `ArrayBuffer`: small
+/// frames through a direct `eval`, larger ones through Tauri's queued fetch —
+/// either way the bytes are never rendered as a JSON number array. Split out so
+/// the "forwarded unmodified" invariant is testable without a webview: a
+/// `Channel` built with `Channel::new` runs any closure the test hands it.
+fn send_binary_frame(channel: &Channel<InvokeResponseBody>, payload: &[u8]) -> tauri::Result<()> {
+    channel.send(InvokeResponseBody::Raw(payload.to_vec()))
+}
+
 /// Open a raw WebSocket. The *client* supplies `id` (a uuid) and subscribes to
 /// `ws://{id}/open|message|close|error` BEFORE calling this, so no frame is
 /// missed. `origin` is set on the upgrade to whatever the JS caller passes — the
 /// gateway client sends `Origin: null` to mirror desktop's file:// renderer (the
 /// value Hermes gateways accept for native clients). Sending the gateway's own
 /// origin instead is rejected by reverse proxies that guard /api/ws on Origin/Host.
+///
+/// `binary_channel` is optional so an OLD JS bundle — one that never passes a
+/// channel — still gets its binary frames, on the legacy `ws://{id}/binary`
+/// event. A packaged app can outlive its bundled Rust core in either direction
+/// across a JS-only update, so both halves of the seam tolerate the other being
+/// a release behind.
 #[tauri::command]
 pub async fn ws_open(
     app: AppHandle,
+    webview: Webview<Wry>,
     state: State<'_, TransportState>,
     id: String,
     url: String,
     origin: Option<String>,
+    binary_channel: Option<JavaScriptChannelId>,
 ) -> Result<(), String> {
+    // Resolved against the INVOKING webview, not an arbitrary one: this app runs
+    // many windows (session-*, tile-*, sat-*) and the frames belong to whichever
+    // one opened the socket.
+    let binary: Option<Channel<InvokeResponseBody>> =
+        binary_channel.map(|channel| channel.channel_on(webview));
+
     // The URL carries the ws auth param, so it is redacted before it can reach
     // an error string — this one bubbles all the way to $connectionError and is
     // rendered on the connecting screen.
@@ -282,12 +318,22 @@ pub async fn ws_open(
                     let _ = app_reader.emit(&format!("ws://{id_reader}/message"), text.to_string());
                 }
                 Ok(Message::Binary(payload)) => {
-                    // Raw byte frames (e.g. the /api/shell-pty terminal's PTY
-                    // output) go out on a distinct `/binary` channel as a byte
-                    // array — the JSON-RPC gateway client only listens to
-                    // `/message` (text), so this never disturbs it; the terminal
-                    // socket subscribes to `/binary` and feeds xterm directly.
-                    let _ = app_reader.emit(&format!("ws://{id_reader}/binary"), payload.to_vec());
+                    // Raw byte frames — the /api/shell-pty terminal's PTY output
+                    // and /api/audio/speak-stream's int16 PCM. They go out on
+                    // their own path, never `/message`, so the JSON-RPC gateway
+                    // client (text only) is never disturbed.
+                    match binary.as_ref() {
+                        // Preferred: raw bytes over the IPC channel.
+                        Some(channel) => {
+                            let _ = send_binary_frame(channel, &payload);
+                        }
+                        // Legacy: a JSON number array on the old event. Kept for
+                        // one release so an old JS bundle still gets its frames.
+                        None => {
+                            let _ =
+                                app_reader.emit(&format!("ws://{id_reader}/binary"), payload.to_vec());
+                        }
+                    }
                 }
                 Ok(Message::Ping(payload)) => {
                     // Split streams don't auto-respond to pings; keepalive by hand.
@@ -414,7 +460,62 @@ pub fn cookies_import(state: State<'_, TransportState>, json: String) -> Result<
 
 #[cfg(test)]
 mod tests {
-    use super::{redact_error, redact_url};
+    use std::sync::{Arc, Mutex};
+
+    use tauri::ipc::{Channel, InvokeResponseBody};
+
+    use super::{redact_error, redact_url, send_binary_frame};
+
+    /// A `Channel` that records what it was handed, standing in for the webview.
+    fn recording_channel() -> (Channel<InvokeResponseBody>, Arc<Mutex<Vec<InvokeResponseBody>>>) {
+        let seen: Arc<Mutex<Vec<InvokeResponseBody>>> = Arc::new(Mutex::new(Vec::new()));
+        let sink = seen.clone();
+
+        let channel = Channel::new(move |body| {
+            sink.lock().unwrap().push(body);
+            Ok(())
+        });
+
+        (channel, seen)
+    }
+
+    fn raw_bytes(body: &InvokeResponseBody) -> &[u8] {
+        match body {
+            InvokeResponseBody::Raw(bytes) => bytes,
+            // A `Json` body here is the whole bug back again: that is the shape
+            // that becomes `[12,255,3,…]` on the wire.
+            InvokeResponseBody::Json(json) => panic!("binary frame was sent as JSON: {json}"),
+        }
+    }
+
+    #[test]
+    fn forwards_binary_frames_as_raw_bytes_unmodified() {
+        let (channel, seen) = recording_channel();
+
+        // Every byte value, so nothing that a JSON/UTF-8 round trip would mangle
+        // (0x00, 0x7f-0xff) can survive by luck.
+        let every_byte: Vec<u8> = (0..=255u8).collect();
+        let frames: Vec<Vec<u8>> = vec![
+            // Zero-length: a real frame shape, and the one an "if empty, skip"
+            // optimisation silently swallows.
+            Vec::new(),
+            // Odd length: tts.ts carries the trailing byte into the NEXT frame,
+            // so an off-by-one here desynchronises int16 PCM for the whole reply.
+            vec![0x01],
+            vec![0x00, 0xff, 0x7f],
+            every_byte.clone(),
+        ];
+
+        for frame in &frames {
+            send_binary_frame(&channel, frame).unwrap();
+        }
+
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen.len(), frames.len(), "every frame must be forwarded");
+        for (body, frame) in seen.iter().zip(&frames) {
+            assert_eq!(raw_bytes(body), frame.as_slice());
+        }
+    }
 
     #[test]
     fn redacts_the_ws_auth_param_and_keeps_everything_else() {
