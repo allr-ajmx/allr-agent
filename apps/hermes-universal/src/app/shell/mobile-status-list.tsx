@@ -1,3 +1,4 @@
+import { cva } from 'class-variance-authority'
 import { useNavigate } from 'react-router-dom'
 
 import { useStatusbarContributions } from '@/app/contrib/surfaces'
@@ -9,6 +10,11 @@ import { useI18n } from '@/i18n'
 import { Settings, Users } from '@/lib/icons'
 import { cn } from '@/lib/utils'
 import { openProfilesScreen, openSettingsScreen } from '@/store/windows'
+
+/** MobileStatusList CVA (MJXHRM-315). */
+export const mobileStatusListVariants = cva('flex min-h-0 flex-1 flex-col overflow-y-auto px-2.5 py-2')
+export const mobileStatusSectionVariants = cva('pt-4 first:pt-2')
+export const mobileStatusRowsVariants = cva('flex flex-col gap-px')
 
 // Bar-layout class that only makes sense as a compact icon-only square; stripped
 // when re-rendering those items as full-width rows.
@@ -141,15 +147,15 @@ export function MobileStatusList() {
   ].filter(section => section.items.length > 0)
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-2.5 py-2">
+    <div className={mobileStatusListVariants()} data-slot="mobile-status-list">
       {sections.map(section => (
         // Extra top space separates a section's heading from the previous
         // section's rows; the first section keeps a smaller gap under the tab bar.
-        <div className="pt-4 first:pt-2" key={section.title}>
+        <div className={mobileStatusSectionVariants()} key={section.title}>
           <div className="flex shrink-0 items-center pb-2 pt-1.5">
             <SidebarPanelLabel>{section.title}</SidebarPanelLabel>
           </div>
-          <div className="flex flex-col gap-px">
+          <div className={mobileStatusRowsVariants()}>
             {section.items.map(item => {
               const rowItem = toRow(item)
 
