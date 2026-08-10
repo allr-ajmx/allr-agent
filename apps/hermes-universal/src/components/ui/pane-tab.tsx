@@ -4,6 +4,7 @@ import { type MenuKit, renderActionItem } from '@/components/ui/actions-menu'
 import { Button } from '@/components/ui/button'
 import { Tip } from '@/components/ui/tooltip'
 import { translateNow } from '@/i18n'
+import { isMetaClose, middleClickHandlers } from '@/lib/middle-click'
 import { cn } from '@/lib/utils'
 
 /** Inset bottom stroke for a horizontal tab strip — titlebar color, cut by the active tab. */
@@ -49,12 +50,6 @@ interface PaneTabProps extends React.ComponentProps<'div'> {
   side?: 'left' | 'right'
 }
 
-/** ⌘-click (metaKey + primary button) — the Mac has no middle button, so this
- *  is the trackpad equivalent of middle-click-to-close. Guarded on metaKey so
- *  it never collides with left-click (activate/drag) or ⌃-click (macOS context
- *  menu). */
-const isMetaClose = (event: { button: number; metaKey: boolean }) => event.button === 0 && event.metaKey
-
 /**
  * Editor tab shell — preview rail + zone headers + collapsed vertical rails.
  *
@@ -67,9 +62,9 @@ export const PaneTab = React.forwardRef<HTMLDivElement, PaneTabProps>(function P
     active = false,
     dirty = false,
     onClose,
-    onAuxClick,
     onMouseDown,
     onPointerDown,
+    onPointerUp,
     onClickCapture,
     selected = false,
     vertical = false,
@@ -83,6 +78,11 @@ export const PaneTab = React.forwardRef<HTMLDivElement, PaneTabProps>(function P
   // Content-facing edge: horizontal cuts the bottom strip line; vertical cuts
   // the side that faces the editor (left rail → right edge, right rail → left).
   const edge = vertical ? (side === 'right' ? 'border-l' : 'border-r') : 'border-b'
+  // Middle-click through the pointer-pair gesture, not `auxclick`: a tab strip
+  // is a scroller, and a middle press inside one starts the autoscroll pan on
+  // Windows/Linux — the mouseup ends the pan instead of completing a click, so
+  // `auxclick` never arrives and the gesture only worked on macOS.
+  const middle = middleClickHandlers(onClose)
 
   return (
     <div
@@ -97,16 +97,6 @@ export const PaneTab = React.forwardRef<HTMLDivElement, PaneTabProps>(function P
       data-active={active}
       data-selected={selected || undefined}
       data-vertical={vertical || undefined}
-      onAuxClick={event => {
-        // Middle-click closes (browser/IDE). Swallow mousedown so Chromium
-        // doesn't autoscroll.
-        if (onClose && event.button === 1) {
-          event.preventDefault()
-          onClose()
-        }
-
-        onAuxClick?.(event)
-      }}
       onClickCapture={event => {
         // Sites whose tab activates on the label's own onClick (the preview
         // rail) fire it AFTER our pointerdown close — swallow that stray click
@@ -119,13 +109,12 @@ export const PaneTab = React.forwardRef<HTMLDivElement, PaneTabProps>(function P
         onClickCapture?.(event)
       }}
       onMouseDown={event => {
-        if (onClose && event.button === 1) {
-          event.preventDefault()
-        }
-
+        middle.onMouseDown(event)
         onMouseDown?.(event)
       }}
       onPointerDown={event => {
+        middle.onPointerDown(event)
+
         // ⌘-click closes. Preempt here — the tab strips activate/drag on
         // pointerdown (drag-session onTap), so we must claim the press before
         // the shell's own handler starts a drag, and skip it entirely.
@@ -138,6 +127,10 @@ export const PaneTab = React.forwardRef<HTMLDivElement, PaneTabProps>(function P
         }
 
         onPointerDown?.(event)
+      }}
+      onPointerUp={event => {
+        middle.onPointerUp(event)
+        onPointerUp?.(event)
       }}
       ref={ref}
       {...props}

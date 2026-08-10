@@ -2,7 +2,8 @@ import { useEffect } from 'react'
 
 import { cn } from '@/lib/utils'
 import { useStore } from '@/store/atom'
-import { $activeTerminalId, $terminals, ensureTerminal } from '@/store/terminals'
+import { $activeTerminalId, $terminals, ensureTerminal, selectTerminalForCwd } from '@/store/terminals'
+import { $effectiveCwd } from '@/store/workspace-events'
 
 import { TerminalRail } from './terminal-rail'
 import { TerminalView } from './terminal-view'
@@ -14,11 +15,18 @@ import { TerminalView } from './terminal-view'
 export function TerminalArea() {
   const terminals = useStore($terminals)
   const activeId = useStore($activeTerminalId)
+  const cwd = useStore($effectiveCwd)
 
   // Opening the area spawns a first terminal if none exists.
   useEffect(() => {
     ensureTerminal()
   }, [])
+
+  // Following the FOCUSED chat's directory: switching to a chat in another
+  // project fronts that project's terminal, if one is already open. It never
+  // spawns one, and it leaves the current tab alone when nothing matches — a
+  // chat with no shell of its own must not yank you off the one you were using.
+  useEffect(() => selectTerminalForCwd(cwd), [cwd])
 
   return (
     <div className="flex h-full min-h-0 bg-(--ui-editor-surface-background) border-r">

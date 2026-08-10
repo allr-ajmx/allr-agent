@@ -676,16 +676,6 @@ export function TreeGroup({
                   aria-selected={isActive}
                   data-tree-tab={paneId}
                   key={paneId}
-                  onAuxClick={e => {
-                    // Middle-click closes, the way it does in every tabbed
-                    // app. Guarded on `closeable` so the workspace tab — the
-                    // one pane that must survive — ignores it.
-                    if (e.button === 1 && closeable) {
-                      e.preventDefault()
-                      e.stopPropagation()
-                      closeTab(paneId)
-                    }
-                  }}
                   onClose={closeable ? () => closeTab(paneId) : undefined}
                   onPointerDown={e => {
                     // Chrome's tab-selection grammar, ahead of activate/drag:
