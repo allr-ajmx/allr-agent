@@ -68,8 +68,11 @@ jobs:
     runs-on: ubuntu-latest
     # A cold `cargo check` builds the whole Tauri dependency tree and will not
     # finish inside the 20 minutes the JS jobs need. Subsequent runs hit
-    # rust-cache and are fast.
-    timeout-minutes: ${{ endsWith(matrix.script, ':rust') && 45 || 20 }}
+    # rust-cache and are fast. `check:rust:test` is dearer still: `cargo test`
+    # does full codegen and linking where `cargo check` stops at metadata, and
+    # `--all-features` adds the OpenTelemetry tree on top — so it gets its own,
+    # larger budget.
+    timeout-minutes: ${{ (matrix.script == 'check:rust:test' && 60) || (contains(matrix.script, ':rust') && 45) || 20 }}
     strategy:
       matrix:
         include: ${{ fromJson(needs.workspaces.outputs.checks) }}
@@ -88,12 +91,17 @@ jobs:
       - uses: ./.github/actions/retry
         with:
           command: npm ci
-      # `check:rust` shells out to cargo against a Tauri crate, which needs the
-      # Linux webview headers or it dies in pkg-config. rustup is preinstalled
-      # on the runner, so no extra third-party action is pulled in. Guarded on
-      # the script name so the JS jobs pay nothing for it.
+      # The `check:rust*` scripts shell out to cargo against a Tauri crate,
+      # which needs the Linux webview headers or it dies in pkg-config. rustup
+      # is preinstalled on the runner, so no extra third-party action is pulled
+      # in. Guarded on the script name so the JS jobs pay nothing for it.
+      #
+      # `contains`, not `endsWith`: `check:rust:test` does NOT end in `:rust`,
+      # and an `endsWith` guard would silently drop it onto a Node-only runner
+      # with no cargo toolchain. Any future `check:rust:*` sibling must keep
+      # `:rust` somewhere in its name for this to hold.
       - name: Rust prerequisites
-        if: ${{ endsWith(matrix.script, ':rust') }}
+        if: ${{ contains(matrix.script, ':rust') }}
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -105,7 +113,7 @@ jobs:
           rustup toolchain install stable --profile minimal --no-self-update
           rustup default stable
       - uses: Swatinem/rust-cache@bc2d2e71bd35c5549942babaa51a89c586b981d1 # v2.8.1
-        if: ${{ endsWith(matrix.script, ':rust') }}
+        if: ${{ contains(matrix.script, ':rust') }}
         with:
           workspaces: ${{ matrix.package }}/src-tauri
       - run: npm run --prefix ${{ matrix.package }} ${{ matrix.script }}
