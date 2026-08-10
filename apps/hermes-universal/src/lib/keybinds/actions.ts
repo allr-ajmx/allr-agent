@@ -30,6 +30,13 @@ export interface KeybindActionMeta {
   defaults: readonly string[]
   /** Display label for CONTRIBUTED actions (built-ins use i18n). */
   label?: string
+  /**
+   * Claim this action's combo from the OPERATING SYSTEM, so it fires while
+   * Hermes is in the background (`lib/keybinds/global-shortcut.ts`). Desktop
+   * only, and exclusive machine-wide — which is exactly why it goes through this
+   * registry: a chord taken from every other app has to be rebindable.
+   */
+  global?: boolean
 }
 
 // Positional switch slots for *named* profiles: ⌘1…⌘9 for profiles 1-9, then
@@ -97,6 +104,10 @@ export const KEYBIND_ACTIONS: readonly KeybindActionMeta[] = [
   { id: 'session.togglePin', category: 'session', defaults: [] },
   // ⌘⇧B — "b" for branch: spin up a new git worktree from the active repo.
   { id: 'workspace.newWorktree', category: 'session', defaults: ['mod+shift+b'] },
+  // ⌘O — the editor's universal "open" chord. Desktop reaches this from its
+  // native File menu too; universal has no menu bar, so the keybind and the ⌘K
+  // row are the two doors.
+  { id: 'workspace.openFolder', category: 'session', defaults: ['mod+o'] },
 
   // ── Navigation ───────────────────────────────────────────────────────────
   { id: 'nav.commandPalette', category: 'navigation', defaults: ['mod+k', 'mod+p'] },
@@ -118,6 +129,13 @@ export const KEYBIND_ACTIONS: readonly KeybindActionMeta[] = [
   // ⌘G — "g" for git; the review pane is the source-control view.
   { id: 'view.toggleReview', category: 'view', defaults: ['mod+g'] },
   { id: 'view.showFiles', category: 'view', defaults: [] },
+  // ⌘F — find in the rendered page (the engine's own search, not a DOM scan).
+  // ⌘G / ⌘⇧G step while the bar is open; those two are handled by the bar
+  // itself (see `findBarClaimsCombo`) rather than as registry actions, because
+  // ⌘G already belongs to the review pane when the bar is closed.
+  { id: 'view.findInPage', category: 'view', defaults: ['mod+f'] },
+  { id: 'view.findNext', category: 'view', defaults: [] },
+  { id: 'view.findPrevious', category: 'view', defaults: [] },
   // Control+` everywhere (literal `ctrl`, NOT `mod`): ⌘` is macOS-reserved for
   // cycling app windows, so VS Code/Cursor/Zed bind the terminal to Ctrl+` on
   // every platform. Off macOS `ctrl` folds to `mod` (= Ctrl), so it's unchanged.
@@ -140,6 +158,16 @@ export const KEYBIND_ACTIONS: readonly KeybindActionMeta[] = [
   { id: 'view.closeTab', category: 'view', defaults: ['mod+w'] },
   { id: 'view.reopenTab', category: 'view', defaults: ['mod+shift+t'] },
   { id: 'appearance.toggleMode', category: 'view', defaults: ['shift+x'] },
+  // Summon the HUD — the floating second surface (MJXHRM-213). `global` claims
+  // the chord from the OS so it answers from inside another application, which
+  // is the entire point of that surface.
+  //
+  // Shipped UNBOUND on purpose: this wave landed the substrate (the window
+  // lifecycle + the OS-hotkey registrar), not the surface, and a default chord
+  // taken from every other app on the machine has to buy something. SE-J gives
+  // it a default when there is a HUD to summon; until then a user can still
+  // assign one from the shortcuts panel and watch it work.
+  { id: 'view.toggleHud', category: 'view', defaults: [], global: true },
   { id: 'keybinds.openPanel', category: 'view', defaults: ['mod+/'] }
 ]
 
@@ -184,6 +212,11 @@ export function allKeybindActions(): KeybindActionMeta[] {
       label: k.label
     }))
   ]
+}
+
+/** The actions whose combos are claimed from the OS rather than the DOM. */
+export function globalKeybindActions(): KeybindActionMeta[] {
+  return allKeybindActions().filter(action => action.global)
 }
 
 export function keybindAction(id: string): KeybindActionMeta | undefined {

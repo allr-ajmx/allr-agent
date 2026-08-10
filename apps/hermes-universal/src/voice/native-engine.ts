@@ -12,7 +12,7 @@ import type {
 } from './types'
 
 // The Rust-backed session (src-tauri/src/voice). A thin IPC client: it subscribes
-// to all seven `voice://{id}/…` topics BEFORE invoking `voice_open` (the
+// to all eight `voice://{id}/…` topics BEFORE invoking `voice_open` (the
 // pty:///ws:// convention — no early event dropped) and forwards decoded
 // `VoiceEvent`s. The arm/suspend/force/close/update-auth commands are global (Rust
 // holds a single session), so only `voice_open` carries the id.
@@ -58,6 +58,7 @@ class NativeVoiceLease implements EngineLease {
         reason: ((payload ?? {}) as AnyRecord).reason as VoiceEmptyReason
       })),
       sub('idleTimeout', () => ({ type: 'idleTimeout' })),
+      sub('wakeFrame', payload => ({ type: 'wakeFrame', pcm: typeof payload === 'string' ? payload : '' })),
       sub('error', payload => {
         const o = (payload ?? {}) as AnyRecord
 
@@ -105,6 +106,10 @@ class NativeVoiceLease implements EngineLease {
 
   async arm(mode: VoiceArmMode = 'normal'): Promise<void> {
     await invoke('voice_arm', { mode })
+  }
+
+  async wakeListen(): Promise<void> {
+    await invoke('voice_wake_listen')
   }
 
   async suspend(): Promise<void> {

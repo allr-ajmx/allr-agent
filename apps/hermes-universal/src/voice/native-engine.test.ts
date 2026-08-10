@@ -22,7 +22,7 @@ describe('native voice lease handshake', () => {
     listen.mockImplementation(async () => () => undefined)
   })
 
-  it('subscribes to all seven topics before invoking voice_open', async () => {
+  it('subscribes to all eight topics before invoking voice_open', async () => {
     let listensAtOpen = -1
     invoke.mockImplementation(async (cmd: string) => {
       if (cmd === 'voice_open') {
@@ -36,14 +36,23 @@ describe('native voice lease handshake', () => {
     await lease.init(TARGET)
 
     const topics = listen.mock.calls.map(call => String(call[0]))
-    expect(topics).toHaveLength(7)
+    expect(topics).toHaveLength(8)
 
-    for (const suffix of ['state', 'level', 'speechStart', 'transcript', 'turnEmpty', 'idleTimeout', 'error']) {
+    for (const suffix of [
+      'state',
+      'level',
+      'speechStart',
+      'transcript',
+      'turnEmpty',
+      'idleTimeout',
+      'wakeFrame',
+      'error'
+    ]) {
       expect(topics.some(topic => topic.endsWith(`/${suffix}`))).toBe(true)
     }
 
     // All subscriptions were live before the device was opened.
-    expect(listensAtOpen).toBe(7)
+    expect(listensAtOpen).toBe(8)
     expect(invoke).toHaveBeenCalledWith('voice_open', expect.objectContaining({ id: expect.any(String) }))
   })
 
@@ -65,12 +74,17 @@ describe('native voice lease handshake', () => {
     subscribed.level(0.42)
     subscribed.transcript({ text: 'hello', provider: 'groq', durationMs: 1200 })
     subscribed.turnEmpty({ reason: 'noSpeech' })
+    subscribed.wakeFrame('AAECAw==')
+    // A malformed frame must not reach `wake.feed` as "undefined".
+    subscribed.wakeFrame(null)
 
     expect(events).toEqual([
       { type: 'state', state: 'recording' },
       { type: 'level', level: 0.42 },
       { type: 'transcript', text: 'hello', provider: 'groq', durationMs: 1200 },
-      { type: 'turnEmpty', reason: 'noSpeech' }
+      { type: 'turnEmpty', reason: 'noSpeech' },
+      { type: 'wakeFrame', pcm: 'AAECAw==' },
+      { type: 'wakeFrame', pcm: '' }
     ])
   })
 

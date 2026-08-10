@@ -14,6 +14,7 @@ import { ProfilesView } from '@/app/profiles'
 import { ProviderConnectOverlay } from '@/app/settings/provider-connect-overlay'
 import { SettingsView } from '@/app/settings/settings-view'
 import { StarmapView } from '@/app/starmap'
+import { FindBar } from '@/components/find-bar'
 import { NotificationStack } from '@/components/notifications'
 import { useMediaQuery } from '@/hooks/use-media-query'
 import { IS_DESKTOP, IS_MOBILE } from '@/lib/platform'
@@ -183,6 +184,9 @@ export function MobileController() {
             view not on the 4-item sidebar rail, plus sessions, settings fields,
             themes and plugin commands. */}
         <CommandPalette />
+        {/* ⌘F find-in-page bar — drives the engine's own search, so it finds
+            text the DOM doesn't currently hold (virtualized transcript rows). */}
+        <FindBar />
         {/* ⌃Tab session switcher HUD — keyboard-driven from useKeybinds. */}
         <SessionSwitcher />
         {/* Layout fork, mobile-first so a phone NEVER falls into the docked

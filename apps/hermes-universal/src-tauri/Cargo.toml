@@ -213,6 +213,11 @@ portable-pty = "0.9"
 # D-Bus. Gated for the same reason as the PTY — a phone has no such lever, and this
 # keeps the D-Bus/IOKit bindings out of the NDK build.
 keepawake = "0.6"
+# OS-level hotkeys that fire while Hermes is in the BACKGROUND (MJXHRM-55) — the
+# substrate a summonable second surface needs. Gated here rather than checked at
+# runtime because neither mobile OS lets an app claim a system-wide chord, so the
+# plugin has nothing to do there and no reason to be in the NDK build.
+tauri-plugin-global-shortcut = "2"
 
 # Route Rust `log::` output to logcat on Android. tao does not reliably install a
 # logger, so our connect/OAuth diagnostics were invisible; init it ourselves in

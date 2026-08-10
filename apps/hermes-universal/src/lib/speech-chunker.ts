@@ -13,6 +13,15 @@ export interface SpeechChunk {
 /**
  * Take the next speakable chunk from `rawBuffer`.
  *
+ * A BLANK LINE is a hard boundary, handled before everything else. It is what
+ * `collectUnspokenTurnSpeech` joins a turn's sealed bubbles on: the text before
+ * it is finished — nothing will ever be appended to it — so it is flushed even
+ * without terminal punctuation instead of being held until the next bubble
+ * happens to produce a full stop. Splitting first also keeps the boundary out of
+ * the whitespace-collapsing rules below, which would otherwise fold two bubbles
+ * into one run-on sentence AND destroy every later boundary in `rest`.
+ *
+ * Within one paragraph:
  * - A leading sentence (ending `.!?。！？`) is taken once it is at least 8 chars,
  *   or immediately when `force`.
  * - Otherwise, when not forcing and the buffer is long (>220), it is split at the
@@ -21,6 +30,20 @@ export interface SpeechChunk {
  * - Otherwise nothing is taken yet.
  */
 export function takeSpeechChunk(rawBuffer: string, force = false): SpeechChunk {
+  const sealed = rawBuffer.match(/^([\s\S]*?\S)[ \t]*\n[ \t]*\n([\s\S]*)$/)
+
+  if (sealed) {
+    // `force` on the sealed head, not the caller's: the paragraph is complete
+    // regardless of whether the turn as a whole is.
+    const { chunk, rest } = takeFromParagraph(sealed[1], true)
+
+    return { chunk, rest: rest ? `${rest}\n\n${sealed[2]}` : sealed[2] }
+  }
+
+  return takeFromParagraph(rawBuffer, force)
+}
+
+function takeFromParagraph(rawBuffer: string, force: boolean): SpeechChunk {
   const buffer = rawBuffer.replace(/\s+/g, ' ').trim()
 
   if (!buffer) {

@@ -115,6 +115,74 @@ export function canonicalizeCombo(combo: string): string {
   return IS_MAC ? combo : combo.replace(/\bctrl\b/g, 'mod')
 }
 
+// Base tokens whose name differs from the accelerator vocabulary Tauri's global
+// shortcut plugin parses. Everything else (letters, digits, F-keys, punctuation)
+// passes through as-is.
+const ACCELERATOR_KEYS: Record<string, string> = {
+  '`': 'Backquote',
+  backspace: 'Backspace',
+  down: 'Down',
+  enter: 'Enter',
+  escape: 'Escape',
+  left: 'Left',
+  right: 'Right',
+  space: 'Space',
+  tab: 'Tab',
+  up: 'Up'
+}
+
+/**
+ * A canonical combo as an OS-level accelerator (`mod+shift+space` →
+ * `CommandOrControl+Shift+Space`).
+ *
+ * This is the seam between the rebindable registry and the system: a global
+ * hotkey is claimed from the OS, not from a DOM listener, so it needs the string
+ * the platform's shortcut API understands rather than the one this app matches
+ * keydowns against. `CommandOrControl` is what `mod` already means.
+ *
+ * Returns null for a combo the OS can't take — a bare key or a lone Shift chord
+ * would swallow that keystroke system-wide, which is never what a user meant by
+ * binding it.
+ */
+export function acceleratorFromCombo(combo: string): null | string {
+  const parts = combo.split('+')
+  const base = parts.pop()
+
+  if (!base) {
+    return null
+  }
+
+  const mods = new Set(parts)
+
+  if (!mods.has('mod') && !mods.has('ctrl') && !mods.has('alt')) {
+    return null
+  }
+
+  const tokens: string[] = []
+
+  if (mods.has('mod')) {
+    tokens.push('CommandOrControl')
+  }
+
+  if (mods.has('ctrl')) {
+    // On macOS `ctrl` is physical Control alongside Cmd; elsewhere it IS `mod`,
+    // and repeating it would produce `Control+Control+…`.
+    tokens.push(IS_MAC ? 'Control' : 'CommandOrControl')
+  }
+
+  if (mods.has('alt')) {
+    tokens.push('Alt')
+  }
+
+  if (mods.has('shift')) {
+    tokens.push('Shift')
+  }
+
+  const key = ACCELERATOR_KEYS[base] ?? (/^f\d{1,2}$/.test(base) ? base.toUpperCase() : base.toUpperCase())
+
+  return [...new Set(tokens), key].join('+')
+}
+
 const TOKEN_LABELS: Record<string, string> = {
   enter: '↵',
   escape: 'Esc',

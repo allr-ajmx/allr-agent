@@ -21,7 +21,7 @@ use std::time::{Duration, Instant};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use tauri::{AppHandle, Emitter};
 
-use crate::voice::codec::ToMonoF32;
+use crate::voice::codec::{f32_to_i16, ToMonoF32};
 use crate::voice::machine::{
     ArmMode, TurnOutcome, VoiceConfig, VoiceEffect, VoiceInput, VoiceMachine, VoiceStateKind,
 };
@@ -38,9 +38,18 @@ const LEVEL_GAIN: f32 = 3.0;
 /// so a gap this large means the device dropped (unplugged, default switched).
 const STALL_MS: u128 = 1_000;
 
+/// The only rate `wake.feed` accepts (tui_gateway/server.py rejects anything else).
+const WAKE_RATE: u32 = 16_000;
+/// One `wake.feed` payload: 320 ms of 16 kHz int16 mono = 10 240 bytes, four of the
+/// detector's 80 ms frames. The backend's hard cap is 64 000 bytes.
+const WAKE_EMIT_SAMPLES: usize = 5_120;
+/// Never build a payload past the backend's cap, however far behind we fall.
+const WAKE_MAX_SAMPLES: usize = 32_000;
+
 /// One command from the Tauri command layer to the running session.
 pub enum VoiceCmd {
     Arm(ArmMode),
+    WakeListen,
     Suspend,
     ForceTurn,
     Close,
@@ -158,9 +167,10 @@ fn capture_thread(
 
     // The device is up; run the machine.
     let mut machine = VoiceMachine::new(cfg, src_rate);
+    let mut wake = WakeEncoder::new(src_rate);
     let mut effects: Vec<VoiceEffect> = Vec::new();
     machine.boot(&mut effects);
-    if apply_effects(&app, &id, &ctx, &reply_tx, &mut effects) {
+    if apply_effects(&app, &id, &ctx, &reply_tx, &mut wake, &mut effects) {
         drop(stream);
         return;
     }
@@ -174,13 +184,14 @@ fn capture_thread(
                 // so hold the Vec and pass a slice.
                 effects.clear();
                 machine.step(VoiceInput::Frames { mono: &mono, rms }, &mut effects);
-                if apply_effects(&app, &id, &ctx, &reply_tx, &mut effects) {
+                if apply_effects(&app, &id, &ctx, &reply_tx, &mut wake, &mut effects) {
                     break;
                 }
                 continue;
             }
             Ok(VoiceMsg::Cmd(cmd)) => match cmd {
                 VoiceCmd::Arm(mode) => VoiceInput::Arm(mode),
+                VoiceCmd::WakeListen => VoiceInput::WakeListen,
                 VoiceCmd::Suspend => VoiceInput::Suspend,
                 VoiceCmd::ForceTurn => VoiceInput::ForceTurn,
                 VoiceCmd::Close => VoiceInput::Close,
@@ -205,7 +216,7 @@ fn capture_thread(
 
         effects.clear();
         machine.step(input, &mut effects);
-        if apply_effects(&app, &id, &ctx, &reply_tx, &mut effects) {
+        if apply_effects(&app, &id, &ctx, &reply_tx, &mut wake, &mut effects) {
             break;
         }
     }
@@ -220,6 +231,7 @@ fn apply_effects(
     id: &str,
     ctx: &TranscribeCtx,
     reply_tx: &Sender<VoiceMsg>,
+    wake: &mut WakeEncoder,
     effects: &mut Vec<VoiceEffect>,
 ) -> bool {
     let mut shutdown = false;
@@ -231,10 +243,113 @@ fn apply_effects(
             VoiceEffect::Finalize(job) => {
                 transcribe::spawn_finalize(ctx, job, reply_tx.clone());
             }
+            VoiceEffect::WakeAudio(pcm) => {
+                // Still the single emitter: the conversion happens here, inline,
+                // and the frames leave on the same thread in the same order as
+                // every other `voice://` event.
+                for frame in wake.push(&pcm) {
+                    let _ = app.emit(&format!("voice://{id}/wakeFrame"), frame);
+                }
+            }
             VoiceEffect::Shutdown => shutdown = true,
         }
     }
     shutdown
+}
+
+/// Turns the machine's device-rate wake batches into exactly what `wake.feed`
+/// wants: base64 of 16 kHz mono int16 LITTLE-ENDIAN samples.
+///
+/// The resampler is built ONCE and fed fixed-size chunks, with whatever doesn't
+/// fill a chunk carried into the next batch. A fresh resampler per batch (~3/s)
+/// would restart its FFT window every time and stitch a discontinuity into the
+/// stream three times a second — inaudible to us, but the keyword spotter is
+/// looking at exactly that signal.
+struct WakeEncoder {
+    src_rate: u32,
+    resampler: Option<rubato::FftFixedIn<f32>>,
+    /// Device-rate samples not yet consumed by a full resampler chunk.
+    pending: Vec<f32>,
+    /// 16 kHz samples not yet packed into a frame.
+    ready: Vec<f32>,
+    /// Resampler failures are logged once, not per batch (~3/s of log spam).
+    warned: bool,
+}
+
+impl WakeEncoder {
+    fn new(src_rate: u32) -> Self {
+        Self { src_rate, resampler: None, pending: Vec::new(), ready: Vec::new(), warned: false }
+    }
+
+    /// Consume one batch; returns zero or more ready-to-send base64 frames.
+    fn push(&mut self, pcm: &[f32]) -> Vec<String> {
+        self.pending.extend_from_slice(pcm);
+        self.resample();
+
+        let mut frames = Vec::new();
+        while self.ready.len() >= WAKE_EMIT_SAMPLES {
+            let take = self.ready.len().min(WAKE_MAX_SAMPLES);
+            let batch: Vec<f32> = self.ready.drain(..take).collect();
+            frames.push(encode_wake_frame(&batch));
+        }
+        frames
+    }
+
+    fn resample(&mut self) {
+        if self.src_rate == WAKE_RATE {
+            self.ready.append(&mut self.pending);
+            return;
+        }
+
+        if self.resampler.is_none() {
+            match rubato::FftFixedIn::<f32>::new(self.src_rate as usize, WAKE_RATE as usize, 1024, 2, 1)
+            {
+                Ok(r) => self.resampler = Some(r),
+                Err(e) => {
+                    self.warn_once(format!("resampler_init: {e}"));
+                    self.pending.clear();
+                    return;
+                }
+            }
+        }
+
+        let Some(resampler) = self.resampler.as_mut() else {
+            return;
+        };
+
+        loop {
+            use rubato::Resampler;
+            let needed = resampler.input_frames_next();
+            if self.pending.len() < needed {
+                break;
+            }
+            let chunk: Vec<f32> = self.pending.drain(..needed).collect();
+            match resampler.process(&[chunk], None) {
+                Ok(res) => self.ready.extend_from_slice(&res[0]),
+                Err(e) => {
+                    // Drop this chunk rather than wedge the loop; the detector
+                    // tolerates a gap far better than the session dying.
+                    self.warn_once(format!("resample: {e}"));
+                    break;
+                }
+            }
+        }
+    }
+
+    fn warn_once(&mut self, message: String) {
+        if !self.warned {
+            self.warned = true;
+            log::warn!("voice: wake capture {message}");
+        }
+    }
+}
+
+fn encode_wake_frame(samples: &[f32]) -> String {
+    let mut bytes = Vec::with_capacity(samples.len() * 2);
+    for &s in samples {
+        bytes.extend_from_slice(&f32_to_i16(s).to_le_bytes());
+    }
+    base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &bytes)
 }
 
 /// Build a typed cpal input stream: convert each sample to f32, downmix the

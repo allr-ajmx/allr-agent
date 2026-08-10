@@ -46,9 +46,9 @@ import {
   PanelHeader,
   PanelList,
   PanelListRow,
+  type PanelMenuItem,
   PanelMeta,
   PanelPill,
-  PanelRowMenu,
   PanelSectionLabel
 } from '../overlays/panel'
 
@@ -220,30 +220,26 @@ export function ProfilesView({ onClose, variant }: ProfilesViewProps) {
                 <ProfileRow
                   active={selected?.name === profile.name}
                   key={profile.name}
-                  menu={
-                    <PanelRowMenu
-                      items={[
-                        // Export is offered for the default profile too — it is
-                        // the one every single-profile user actually has.
-                        {
-                          icon: 'package',
-                          label: exporting === profile.name ? p.exporting : p.exportProfile,
-                          onSelect: () => void exportOne(profile.name)
-                        },
-                        ...(profile.is_default
-                          ? []
-                          : [
-                              { icon: 'edit', label: p.renameMenu, onSelect: () => setPendingRename(profile) },
-                              {
-                                icon: 'trash',
-                                label: t.common.delete,
-                                onSelect: () => setPendingDelete(profile),
-                                tone: 'danger' as const
-                              }
-                            ])
-                      ]}
-                    />
-                  }
+                  menuItems={[
+                    // Export is offered for the default profile too — it is
+                    // the one every single-profile user actually has.
+                    {
+                      icon: 'package',
+                      label: exporting === profile.name ? p.exporting : p.exportProfile,
+                      onSelect: () => void exportOne(profile.name)
+                    },
+                    ...(profile.is_default
+                      ? []
+                      : [
+                          { icon: 'edit', label: p.renameMenu, onSelect: () => setPendingRename(profile) },
+                          {
+                            icon: 'trash',
+                            label: t.common.delete,
+                            onSelect: () => setPendingDelete(profile),
+                            tone: 'danger' as const
+                          }
+                        ])
+                  ]}
                   onSelect={() => setSelectedName(profile.name)}
                   profile={profile}
                 />
@@ -314,12 +310,12 @@ export function ProfilesView({ onClose, variant }: ProfilesViewProps) {
 
 function ProfileRow({
   active,
-  menu,
+  menuItems,
   onSelect,
   profile
 }: {
   active: boolean
-  menu?: React.ReactNode
+  menuItems?: PanelMenuItem[]
   onSelect: () => void
   profile: ProfileInfo
 }) {
@@ -335,7 +331,8 @@ function ProfileRow({
           name={profile.name}
         />
       }
-      menu={menu}
+      menuItems={menuItems}
+      menuLabel={profile.name}
       onSelect={onSelect}
       rowKey={profile.name}
       title={profile.name}

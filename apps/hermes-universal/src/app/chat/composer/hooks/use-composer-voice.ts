@@ -1,5 +1,5 @@
 import { useStore } from '@nanostores/react'
-import { useCallback, useEffect } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 
 import { useSessionView } from '@/app/chat/session-view'
 import { useI18n } from '@/i18n'
@@ -8,6 +8,7 @@ import { resetBrowseState } from '@/store/composer-input-history'
 import { notifyError } from '@/store/notifications'
 import { $voiceConversation } from '@/store/voice-conversation'
 import { $autoSpeakReplies, setAutoSpeakReplies } from '@/store/voice-prefs'
+import { armWakeWord, setWakeConversationStarter } from '@/store/wake-word'
 import type { ConversationBinding } from '@/voice/conversation-controller'
 
 import type { ComposerTarget } from '../focus'
@@ -85,6 +86,10 @@ export function useComposerVoice({
   }, [clearDraft, onSubmit, onTranscribeAudio, sessionId, t.notifications.voice, target, view])
 
   const conversation = useVoiceConversation({ target, getBinding })
+  // Live handle on `start` for the wake-word starter below (the render-time ref
+  // write pattern `use-auto-speak-replies` uses).
+  const startRef = useRef(conversation.start)
+  startRef.current = conversation.start
 
   // The `composer.voice` hotkey (⌥B) toggles the conversation. Starting with
   // STT unconfigured lets the conversation surface its own "configure speech-to-
@@ -105,6 +110,27 @@ export function useComposerVoice({
     () => onComposerVoiceToggleRequest(toggled => toggled === target && toggleVoiceConversation()),
     [target, toggleVoiceConversation]
   )
+
+  // Hands-free wake word, main composer only — a tile's composer must not arm a
+  // second detector or claim the "hey Hermes" turn.
+  //
+  // Arming is a RECONCILE (`wake.status` then start only when the config already
+  // says enabled), so mounting a chat never turns a microphone on by itself; only
+  // the ear button writes that preference.
+  useEffect(() => {
+    if (target !== 'main' || disabled) {
+      return
+    }
+
+    void armWakeWord()
+    // Register a starter that reads the LIVE `start` through a ref rather than
+    // the one this effect closed over. The binding is rebuilt whenever the
+    // session view or submit handler changes, and a detection minutes later must
+    // open a conversation against the current chat, not the mounted one.
+    setWakeConversationStarter(() => startRef.current())
+
+    return () => setWakeConversationStarter(null)
+  }, [disabled, target])
 
   const startConversation = useCallback(() => conversation.start(), [conversation])
   const endConversation = useCallback(() => conversation.end(), [conversation])

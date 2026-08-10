@@ -73,6 +73,81 @@ export function chatMessageText(message: ChatMessage): string {
     .join('')
 }
 
+export interface UnspokenTurnSpeech {
+  /** First unspoken assistant bubble — stable for the turn, the live speech session binds to it. */
+  id: string
+  /** Whether the newest assistant bubble is still streaming. */
+  pending: boolean
+  /** All unspoken assistant text in message order, bubbles joined on a blank line. */
+  text: string
+}
+
+/**
+ * Collect every unspoken assistant bubble after `lastSpokenId`, in order.
+ *
+ * A turn with tool calls produces several assistant bubbles — narration
+ * ("Let me check…") sealed as interims, then the final answer as a fresh
+ * bubble. The voice conversation speaks a turn through ONE growing string bound
+ * to one response id, so selecting only the newest bubble silently drops
+ * everything before it: a turn that narrated itself was heard as its last
+ * sentence only. The blank-line join is a sentence boundary for the chunker
+ * (lib/speech-chunker.ts), so a sealed bubble's tail is flushed as soon as the
+ * next bubble starts rather than waiting for the whole turn.
+ *
+ * The result is APPEND-ONLY across a turn: `id` pins to the first unspoken
+ * bubble and `text` only ever grows, which is what lets the controller feed the
+ * delta by `slice(sourceLength)`.
+ *
+ * Ported from apps/desktop/src/lib/chat-messages.ts (upstream 9859e1f7df).
+ */
+export function collectUnspokenTurnSpeech(
+  messages: ChatMessage[],
+  lastSpokenId: null | string
+): null | UnspokenTurnSpeech {
+  // `findLastIndex` is ES2023 and this project's lib target predates it; scan back.
+  let spokenIndex = -1
+
+  if (lastSpokenId) {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].id === lastSpokenId) {
+        spokenIndex = i
+
+        break
+      }
+    }
+  }
+
+  let id: null | string = null
+  let pending = false
+  const parts: string[] = []
+
+  for (const message of messages.slice(spokenIndex + 1)) {
+    // Universal's ChatMessage has no `hidden` field (desktop's does); the
+    // widening cast keeps the port honest if one is ever added.
+    if (message.role !== 'assistant' || (message as { hidden?: boolean }).hidden) {
+      continue
+    }
+
+    // Read from the NEWEST assistant bubble, text or not — an empty bubble that
+    // has only just opened is still "the turn is streaming".
+    pending = Boolean(message.pending)
+    const text = chatMessageText(message).trim()
+
+    if (!text) {
+      continue
+    }
+
+    id ??= message.id
+    parts.push(text)
+  }
+
+  if (!id) {
+    return null
+  }
+
+  return { id, pending, text: parts.join('\n\n') }
+}
+
 export function coerceText(value: unknown): string {
   if (typeof value === 'string') {
     return value

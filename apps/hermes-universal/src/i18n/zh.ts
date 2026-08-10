@@ -178,6 +178,7 @@ export const zh: Translations = {
       microphoneUnsupported: '当前运行环境不支持麦克风录音。',
       noMicrophone: '未找到麦克风。',
       noSpeechDetected: '没有检测到语音',
+      sayStopToEnd: '说“stop”即可结束语音对话。',
       playbackFailed: '语音播放失败',
       recordingFailed: '语音录制失败',
       transcriptionFailed: '语音转写失败',
@@ -221,6 +222,12 @@ export const zh: Translations = {
     maximize: '最大化',
     restore: '还原',
     close: '关闭'
+  },
+
+  findInPage: {
+    title: '在页面中查找',
+    next: '下一个匹配项',
+    previous: '上一个匹配项'
   },
 
   keybinds: {
@@ -267,12 +274,16 @@ export const zh: Translations = {
       'session.focusSearch': '搜索会话',
       'session.togglePin': '固定/取消固定当前会话',
       'workspace.newWorktree': '新建工作树',
+      'workspace.openFolder': '将文件夹作为项目打开',
       'composer.focus': '聚焦输入框',
       'composer.modelPicker': '打开模型选择器',
       'composer.voice': '开始 / 停止语音对话',
       'view.toggleSidebar': '切换会话侧边栏',
       'view.toggleRightSidebar': '切换文件浏览器',
       'view.toggleReview': '切换审查面板',
+      'view.findInPage': '在页面中查找',
+      'view.findNext': '查找下一个',
+      'view.findPrevious': '查找上一个',
       'view.showFiles': '显示文件浏览器',
       'view.showTerminal': '显示终端',
       'view.terminalSelection': '将终端选区发送到输入框',
@@ -1402,6 +1413,9 @@ export const zh: Translations = {
     searchPlaceholder: '搜索会话、视图与操作',
     goTo: '前往',
     goToSession: '前往会话',
+    projects: '项目',
+    openFolder: '将文件夹作为项目打开…',
+    openFolderAt: path => `将文件夹作为项目打开 — ${path}`,
     branches: '分支',
     startInBranch: branch => `在 ${branch} 中开始新对话`,
     commandCenter: '命令中心',
@@ -2128,6 +2142,10 @@ export const zh: Translations = {
     voiceDictation: '语音听写',
     speakReplies: '朗读回复',
     stopSpeakingReplies: '停止朗读回复',
+    wakeWordListening: (phrase: string) => `正在监听“${phrase}” — 点击停止`,
+    wakeWordOff: (phrase: string) => `唤醒词已关闭 — 点击以监听“${phrase}”`,
+    wakeWordPausedVoice: (phrase: string) => `语音对话期间已暂停“${phrase}”`,
+    wakeWordUnavailable: '此网关不支持唤醒词',
     lookupLoading: '查找中…',
     lookupNoMatches: '没有匹配项。',
     lookupTry: '试试',

@@ -63,4 +63,40 @@ describe('takeSpeechChunk', () => {
   it('returns empty for a blank buffer', () => {
     expect(takeSpeechChunk('   ')).toEqual({ chunk: null, rest: '' })
   })
+
+  // A blank line is how `collectUnspokenTurnSpeech` joins a turn's sealed
+  // bubbles. Everything before it is finished, so it must flush immediately —
+  // and the remaining boundaries must survive into `rest`.
+  describe('sealed paragraph boundary', () => {
+    it('flushes a sealed bubble with no terminal punctuation', () => {
+      expect(takeSpeechChunk('Let me check the clock\n\nIt is 9 PM.')).toEqual({
+        chunk: 'Let me check the clock',
+        rest: 'It is 9 PM.'
+      })
+    })
+
+    it('keeps later boundaries intact across successive takes', () => {
+      const first = takeSpeechChunk('A one\n\nB two\n\nC three')
+
+      expect(first).toEqual({ chunk: 'A one', rest: 'B two\n\nC three' })
+      expect(takeSpeechChunk(first.rest)).toEqual({ chunk: 'B two', rest: 'C three' })
+    })
+
+    it('still chunks a multi-sentence sealed bubble sentence by sentence', () => {
+      expect(takeSpeechChunk('One. Two.\n\nTail')).toEqual({ chunk: 'One.', rest: 'Two.\n\nTail' })
+    })
+
+    it('does not run two bubbles together into one utterance', () => {
+      // Without the boundary rule the whitespace collapse made this
+      // "Let me check It is 9 PM." — one run-on sentence.
+      expect(takeSpeechChunk('Let me check\n\nIt is 9 PM.').chunk).toBe('Let me check')
+    })
+
+    it('ignores a single newline (ordinary wrapped prose)', () => {
+      expect(takeSpeechChunk('wrapped\nline with no end')).toEqual({
+        chunk: null,
+        rest: 'wrapped line with no end'
+      })
+    })
+  })
 })

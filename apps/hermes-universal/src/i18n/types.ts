@@ -228,6 +228,7 @@ export interface Translations {
       microphoneUnsupported: string
       noMicrophone: string
       noSpeechDetected: string
+      sayStopToEnd: string
       playbackFailed: string
       recordingFailed: string
       transcriptionFailed: string
@@ -273,6 +274,13 @@ export interface Translations {
     maximize: string
     restore: string
     close: string
+  }
+
+  // The find-in-page bar (⌘F) — the engine's own search over the rendered page.
+  findInPage: {
+    title: string
+    next: string
+    previous: string
   }
 
   // The rebindable keyboard-shortcuts panel (Settings → Keyboard shortcuts).
@@ -1094,6 +1102,9 @@ export interface Translations {
     searchPlaceholder: string
     goTo: string
     goToSession: string
+    projects: string
+    openFolder: string
+    openFolderAt: (path: string) => string
     branches: string
     startInBranch: (branch: string) => string
     commandCenter: string
@@ -1657,6 +1668,10 @@ export interface Translations {
     voiceDictation: string
     speakReplies: string
     stopSpeakingReplies: string
+    wakeWordListening: (phrase: string) => string
+    wakeWordOff: (phrase: string) => string
+    wakeWordPausedVoice: (phrase: string) => string
+    wakeWordUnavailable: string
     lookupLoading: string
     lookupNoMatches: string
     lookupTry: string

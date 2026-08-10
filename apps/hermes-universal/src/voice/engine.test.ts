@@ -10,6 +10,7 @@ const h = vi.hoisted(() => {
   interface FakeLease {
     init: ReturnType<typeof vi.fn>
     arm: ReturnType<typeof vi.fn>
+    wakeListen: ReturnType<typeof vi.fn>
     suspend: ReturnType<typeof vi.fn>
     forceTurn: ReturnType<typeof vi.fn>
     close: ReturnType<typeof vi.fn>
@@ -25,6 +26,7 @@ const h = vi.hoisted(() => {
         onInit?.()
       }),
       arm: vi.fn(async () => undefined),
+      wakeListen: vi.fn(async () => undefined),
       suspend: vi.fn(async () => undefined),
       forceTurn: vi.fn(async () => undefined),
       close: vi.fn(async () => undefined),
@@ -100,6 +102,35 @@ describe('voice engine lease arbitration', () => {
     expect(dictationLease.close).toHaveBeenCalled()
 
     await conversation.close()
+  })
+
+  it('wake listening yields the device to anything the user asked for', async () => {
+    const wake = await voiceEngine.open('wake', OPTS)
+    const wakeLease = h.nativeCreated[0]
+    expect(voiceEngine.owner).toBe('wake')
+
+    // Wake is the standing background listener: a conversation preempts it
+    // outright rather than being refused.
+    const conversation = await voiceEngine.open('conversation', OPTS)
+    expect(voiceEngine.owner).toBe('conversation')
+    expect(wakeLease.close).toHaveBeenCalled()
+    expect(wake).toBeDefined()
+
+    // ...and it can never take the device back while one is live.
+    await expect(voiceEngine.open('wake', OPTS)).rejects.toBeInstanceOf(VoiceBusyError)
+
+    await conversation.close()
+  })
+
+  it('wake also yields to the momentary dictation button', async () => {
+    await voiceEngine.open('wake', OPTS)
+    const wakeLease = h.nativeCreated[0]
+
+    const dictation = await voiceEngine.open('dictation', OPTS)
+    expect(voiceEngine.owner).toBe('dictation')
+    expect(wakeLease.close).toHaveBeenCalled()
+
+    await dictation.close()
   })
 
   it('downgrades to the web engine when the native open fails', async () => {

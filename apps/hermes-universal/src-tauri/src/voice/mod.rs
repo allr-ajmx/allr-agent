@@ -174,6 +174,16 @@ pub async fn voice_arm(voice: State<'_, VoiceState>, mode: Option<String>) -> Re
     send_cmd(&voice, VoiceCmd::Arm(mode))
 }
 
+/// Enter hands-free wake listening: the device stays open and batches of 16 kHz
+/// int16 arrive as `voice://{id}/wakeFrame` (base64), which the frontend pushes at
+/// the gateway's `wake.feed`. Only meaningful from `Idle` — a live turn keeps the
+/// device. Detection is the gateway's; it comes back as a `wake.detected` event,
+/// and the frontend answers with `voice_arm`.
+#[tauri::command]
+pub async fn voice_wake_listen(voice: State<'_, VoiceState>) -> Result<(), String> {
+    send_cmd(&voice, VoiceCmd::WakeListen)
+}
+
 #[tauri::command]
 pub async fn voice_suspend(voice: State<'_, VoiceState>) -> Result<(), String> {
     send_cmd(&voice, VoiceCmd::Suspend)

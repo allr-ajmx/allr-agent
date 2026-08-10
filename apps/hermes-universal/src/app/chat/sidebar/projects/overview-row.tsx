@@ -19,7 +19,7 @@ import {
 
 import { latestProjectSessions, PROJECT_PREVIEW_COUNT, type SidebarProjectTree } from './model'
 import { ProjectIcon } from './project-icon'
-import { ProjectMenu } from './project-menu'
+import { ProjectContextMenu, ProjectMenu } from './project-menu'
 
 interface ProjectOverviewRowProps extends React.ComponentProps<'div'> {
   project: SidebarProjectTree
@@ -48,32 +48,37 @@ export function ProjectOverviewRow({
 
   return (
     <div className={className} ref={ref} {...rest}>
-      <SidebarRowShell actions={<ProjectMenu project={project} />} className="group row-hover">
-        <SidebarRowCluster>
-          <SidebarRowLead>
-            <ProjectIcon project={project} />
-          </SidebarRowLead>
-          <SidebarRowLink
-            labelClassName={cn('group-hover:text-foreground', isActive && 'text-foreground')}
-            onClick={() => onEnter?.(project.id)}
-          >
-            {project.label}
-          </SidebarRowLink>
-          {project.sessionCount > 0 && <SidebarCount>{project.sessionCount}</SidebarCount>}
-          {previews.length > 0 && (
-            <button
-              // Not a decorative caret: the row's label navigates into the
-              // project, so this button is the only way to peek at its
-              // sessions in place.
-              className="ml-auto grid size-4 shrink-0 place-items-center rounded-sm text-(--ui-text-tertiary) opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100 coarse:opacity-100"
-              onClick={() => setExpanded(v => !v)}
-              type="button"
+      {/* Right-click the row for the same actions as its kebab. The wrapper sits
+          inside this div (not around it) so the drag handle props above keep
+          their own element. */}
+      <ProjectContextMenu project={project}>
+        <SidebarRowShell actions={<ProjectMenu project={project} />} className="group row-hover">
+          <SidebarRowCluster>
+            <SidebarRowLead>
+              <ProjectIcon project={project} />
+            </SidebarRowLead>
+            <SidebarRowLink
+              labelClassName={cn('group-hover:text-foreground', isActive && 'text-foreground')}
+              onClick={() => onEnter?.(project.id)}
             >
-              <DisclosureCaret open={expanded} />
-            </button>
-          )}
-        </SidebarRowCluster>
-      </SidebarRowShell>
+              {project.label}
+            </SidebarRowLink>
+            {project.sessionCount > 0 && <SidebarCount>{project.sessionCount}</SidebarCount>}
+            {previews.length > 0 && (
+              <button
+                // Not a decorative caret: the row's label navigates into the
+                // project, so this button is the only way to peek at its
+                // sessions in place.
+                className="ml-auto grid size-4 shrink-0 place-items-center rounded-sm text-(--ui-text-tertiary) opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100 coarse:opacity-100"
+                onClick={() => setExpanded(v => !v)}
+                type="button"
+              >
+                <DisclosureCaret open={expanded} />
+              </button>
+            )}
+          </SidebarRowCluster>
+        </SidebarRowShell>
+      </ProjectContextMenu>
       {expanded && previews.length > 0 && <SidebarRowNest>{renderRows(previews)}</SidebarRowNest>}
     </div>
   )
