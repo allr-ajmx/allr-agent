@@ -35,6 +35,7 @@ import { setPetScale } from '@/store/pet-gallery'
 import { openPetGenerate } from '@/store/pet-generate'
 import { $activeGatewayProfile, normalizeProfileKey, selectProfile } from '@/store/profile'
 import {
+  $activeStoredSessionId,
   $sessions,
   $yoloActive,
   branchCurrentSession,
@@ -43,6 +44,7 @@ import {
   setSessionPickerOpen,
   setSessions
 } from '@/store/session'
+import { withSessionNotFoundResume } from '@/store/session-recovery'
 import { $activeSessionKey, updateSession } from '@/store/session-state-types'
 import { openAppRoute } from '@/store/windows'
 import { useSkinCommand } from '@/themes'
@@ -290,10 +292,20 @@ export function useSlashCommand() {
           })
 
           try {
-            const result = await requestGateway<SessionCompressResponse>(
-              'session.compress',
-              { session_id: sessionId, ...(focusTopic && { focus_topic: focusTopic }) },
-              SESSION_COMPRESS_TIMEOUT_MS
+            // A compress after sleep/wake used to surface a raw "session not
+            // found": the runtime id is dead while the STORED session is fine.
+            // One shared resolver rebinds it and retries once (MJXHRM-219).
+            // `alsoTimeout` stays off — compress is an LLM call over the whole
+            // conversation, and re-firing a slow one would double the work.
+            const { result } = await withSessionNotFoundResume(
+              sessionId,
+              $activeStoredSessionId.get(),
+              live =>
+                requestGateway<SessionCompressResponse>(
+                  'session.compress',
+                  { session_id: live, ...(focusTopic && { focus_topic: focusTopic }) },
+                  SESSION_COMPRESS_TIMEOUT_MS
+                )
             )
 
             if (Array.isArray(result?.messages)) {

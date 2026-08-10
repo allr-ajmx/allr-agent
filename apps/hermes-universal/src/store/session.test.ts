@@ -24,6 +24,7 @@ import { updateSession } from '@/store/session-state-types'
 import { resetSessionStates, seedActiveSession } from '@/test-sessions'
 import type { PaginatedSessions, SessionInfo } from '@/types/hermes'
 
+import { $pinnedSessionIds } from './layout'
 import { $profiles } from './profiles'
 import {
   $activeStoredSessionId,
@@ -40,10 +41,12 @@ import {
   loadMoreSessions,
   openSession,
   pruneSessionTombstones,
+  pinnedSessionRows,
   refreshSessions,
   renameSessionLocal,
   resetSessionsPaging,
-  resolveSessionProfile
+  resolveSessionProfile,
+  $pinnedSessionCache
 } from './session'
 
 const row = (id: string, title: string): SessionInfo => ({ id, title }) as unknown as SessionInfo
@@ -512,5 +515,35 @@ describe('unread-finished tracking', () => {
     clearUnreadFinishedSession('stored-z')
 
     expect($unreadFinishedSessionIds.get()).toBe(before)
+  })
+})
+
+
+describe('pinned rows survive the loaded window', () => {
+  it('falls back to the last-known row for a pin that scrolled out of the page', () => {
+    const pinned = row('stored-pin', 'Pinned chat')
+
+    // Seen on a page: cached.
+    $pinnedSessionIds.set(['stored-pin'])
+    $sessions.set([pinned, row('stored-other', 'Other')])
+
+    expect(pinnedSessionRows($sessions.get(), ['stored-pin'])).toEqual([pinned])
+
+    // A later page no longer reaches it — the pin is still stored, so the
+    // section must still show it rather than silently dropping the row.
+    $sessions.set([row('stored-other', 'Other')])
+
+    expect(pinnedSessionRows($sessions.get(), ['stored-pin'])).toEqual([pinned])
+  })
+
+  it('forgets a row once its pin is gone', () => {
+    $pinnedSessionIds.set(['stored-pin'])
+    $sessions.set([row('stored-pin', 'Pinned chat')])
+    expect($pinnedSessionCache.get()['stored-pin']).toBeDefined()
+
+    $pinnedSessionIds.set([])
+    $sessions.set([])
+
+    expect($pinnedSessionCache.get()['stored-pin']).toBeUndefined()
   })
 })

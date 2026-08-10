@@ -17,6 +17,7 @@ import { atom, computed } from '@/store/atom'
 import { $busy, $clarify, $currentCwd, $messages, $sessionId, type ChatMessage, resetChat } from '@/store/chat'
 import { resetUnscopedStreamPin } from '@/store/event-router'
 import { requestGateway } from '@/store/gateway'
+import { readJson, writeJson } from '@/lib/storage'
 import { $pinnedSessionIds, pinSession, unpinSession } from '@/store/layout'
 import { notify, notifyError } from '@/store/notifications'
 import { flashPetActivity } from '@/store/pet'
@@ -41,6 +42,9 @@ import type { SessionCreateResponse, SessionInfo, SessionResumeResponse, Session
 // what prompt.submit targets), bound by session.resume.
 
 const PAGE = 30
+
+/** Where the pinned-row fallback cache lives (see `$pinnedSessionCache`). */
+const PINNED_CACHE_KEY = 'hermes.pinnedSessionRows'
 
 export const $sessions = atom<SessionInfo[]>([])
 export const $sessionsLoading = atom(false)
@@ -411,6 +415,77 @@ export const $activeSessionTitle = computed([$sessions, $activeStoredSessionId],
 export function setSessions(updater: (prev: SessionInfo[]) => SessionInfo[]): void {
   $sessions.set(updater($sessions.get()))
 }
+
+/**
+ * Last-known row for every session the user has PINNED, keyed by pin id.
+ *
+ * A pinned row used to be resolved out of `$sessions` alone, so a pin whose
+ * session sat past the loaded page simply vanished from the Pinned section —
+ * pin a chat, scroll on, refresh, and it is gone even though the pin is still
+ * stored. The list is a WINDOW; the pin is not, and the section must show every
+ * pinned session regardless of how deep it has fallen.
+ *
+ * Universal's pins are client-local (`hermes.pinnedSessions`), so the backend's
+ * new "back-fill pinned rows past offset+limit" cannot help here — the server
+ * does not know which sessions this client pinned. The cache is the client-side
+ * equivalent: every page that carries a pinned row refreshes its entry, and the
+ * entry outlives the row's departure from the window.
+ *
+ * Persisted so the section survives a reload, where `$sessions` starts empty and
+ * the first page may not reach far enough back to re-cover the pins.
+ */
+export const $pinnedSessionCache = atom<Readonly<Record<string, SessionInfo>>>(
+  readJson<Record<string, SessionInfo>>(PINNED_CACHE_KEY) ?? {}
+)
+
+/** Refresh the cache from whatever rows are currently loaded, and drop entries
+ *  whose pin is gone. Called on every list write, so unpinning forgets the row
+ *  rather than leaving it to accumulate. */
+export function syncPinnedSessionCache(): void {
+  const pinned = new Set($pinnedSessionIds.get())
+  const current = $pinnedSessionCache.get()
+  const next: Record<string, SessionInfo> = {}
+  let changed = false
+
+  for (const [pinId, session] of Object.entries(current)) {
+    if (pinned.has(pinId)) {
+      next[pinId] = session
+    } else {
+      changed = true
+    }
+  }
+
+  for (const session of $sessions.get()) {
+    const pinId = sessionPinId(session)
+
+    if (pinned.has(pinId) && next[pinId] !== session) {
+      next[pinId] = session
+      changed = true
+    }
+  }
+
+  if (changed) {
+    $pinnedSessionCache.set(next)
+    writeJson(PINNED_CACHE_KEY, next)
+  }
+}
+
+/** Every pinned session, in pin order — loaded rows first, falling back to the
+ *  last-known row for a pin that has fallen out of the loaded window. */
+export function pinnedSessionRows(sessions: readonly SessionInfo[], pinnedIds: readonly string[]): SessionInfo[] {
+  const byPinId = new Map(sessions.map(session => [sessionPinId(session), session]))
+  const cache = $pinnedSessionCache.get()
+
+  return pinnedIds.map(id => byPinId.get(id) ?? cache[id]).filter((s): s is SessionInfo => Boolean(s))
+}
+
+// One subscription each rather than a call at every write site: a pinned row can
+// be refreshed by a list page, a title patch, an optimistic insert or a
+// tombstone lift, and a site that forgot to sync would silently show a stale
+// pinned row forever. Declared BELOW the atom — nanostores fires `subscribe`
+// immediately, so wiring these any earlier reads the cache before it exists.
+$sessions.subscribe(() => syncPinnedSessionCache())
+$pinnedSessionIds.subscribe(() => syncPinnedSessionCache())
 
 /** Durable pin key: the lineage-root id survives auto-compression's id rotation. */
 export function sessionPinId(session: SessionInfo): string {

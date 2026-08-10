@@ -8,6 +8,16 @@ vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn() }))
 vi.mock('@tauri-apps/plugin-fs', () => ({ readFile: vi.fn() }))
 vi.mock('@/store/chat', () => ({ ensureSession: vi.fn() }))
 vi.mock('@/store/gateway', () => ({ requestGateway: vi.fn() }))
+// Stale-runtime recovery reaches store/session -> lib/api -> store/connection,
+// which subscribes to `$gatewayState` at import. Stub the seam: these cases are
+// about ref shapes, and the wrapper has its own suite.
+vi.mock('@/store/session-recovery', () => ({
+  withSessionNotFoundResume: async (sessionId: string, _storedId: unknown, call: (id: string) => Promise<unknown>) => ({
+    recovered: false,
+    result: await call(sessionId),
+    sessionId
+  })
+}))
 vi.mock('@/lib/desktop-fs', () => ({ selectRemotePaths: vi.fn(async () => []) }))
 
 describe('remote attachment picks', () => {

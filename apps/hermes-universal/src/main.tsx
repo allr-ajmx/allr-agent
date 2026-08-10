@@ -16,7 +16,7 @@ import { createRoot } from 'react-dom/client'
 import { HashRouter } from 'react-router-dom'
 
 import { App } from './app'
-import { ErrorBoundary } from './components/error-boundary'
+import { RootErrorBoundary } from './components/error-boundary'
 import { HapticsProvider } from './components/haptics-provider'
 import { I18nProvider } from './i18n'
 import { warmKatexFonts } from './lib/katex-fonts'
@@ -68,7 +68,7 @@ if (!container) {
 }
 
 createRoot(container).render(
-  <ErrorBoundary>
+  <RootErrorBoundary>
     <I18nProvider>
       <ThemeProvider>
         <QueryClientProvider client={queryClient}>
@@ -80,5 +80,5 @@ createRoot(container).render(
         </QueryClientProvider>
       </ThemeProvider>
     </I18nProvider>
-  </ErrorBoundary>
+  </RootErrorBoundary>
 )
