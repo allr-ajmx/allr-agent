@@ -729,7 +729,26 @@ const isCurrentOpen = (generation: number): boolean => generation === openGenera
  * by the resume payload, and lost from the session that produced them. That is
  * MJX-132.
  */
-export function openSession(storedId: string): Promise<void> | void {
+export interface OpenSessionOptions {
+  /**
+   * Re-issue `session.resume` even when the slice is warm.
+   *
+   * The warm short-circuit is a UI decision — the transcript is already whole,
+   * so there is nothing to fetch. It is ALSO, incidentally, the thing that binds
+   * the gateway TRANSPORT to this webview: each webview mints its own socket,
+   * and the backend routes a session's events to whichever connection last
+   * resumed it. So a window that legitimately has nothing to re-render can still
+   * legitimately need to reclaim the stream — after a HUD window resumes a
+   * session and closes, the main window's slice is warm and nothing ever asks
+   * for the session back (MJXHRM-371).
+   *
+   * OPT-IN, never the default: resuming unconditionally on the warm path is
+   * exactly the regression MJX-132 fixed.
+   */
+  forceResume?: boolean
+}
+
+export function openSession(storedId: string, options?: OpenSessionOptions): Promise<void> | void {
   const warm = runtimeKeyForStoredSession(storedId)
 
   if (warm && $sessionStates.get()[warm]) {
@@ -738,10 +757,62 @@ export function openSession(storedId: string): Promise<void> | void {
     $activeStoredSessionId.set(storedId)
     $activeSessionKey.set(warm)
 
-    return
+    return options?.forceResume ? reclaimWarmSession(storedId, warm) : undefined
   }
 
   return hydrateColdSession(storedId)
+}
+
+/**
+ * Resume a session whose slice is already warm — a TRANSPORT-only rebind.
+ *
+ * Deliberately not a hydrate: no transcript fetch, no message replacement, no
+ * `busy` write. The slice is correct and may be mid-turn; the only thing being
+ * reclaimed is which connection the gateway routes this session's events to.
+ * Writing the resume payload's messages here would reintroduce MJX-132 through
+ * the back door, since that history is display-REDUCED (see the AUTHORITY note
+ * on `hydrateColdSession`) and would overwrite a richer transcript with it.
+ *
+ * The runtime id is re-keyed only when the backend hands back a different one —
+ * a compaction while another window held the session — and `rekeySession` moves
+ * the slice wholesale, so its messages and in-flight turn ride across unchanged.
+ */
+async function reclaimWarmSession(storedId: string, warmKey: string): Promise<void> {
+  const generation = openGeneration
+
+  const known = knownSessionProfile(storedId)
+  const profile = known ?? (sessionProfileIsAmbiguous() ? await resolveSessionProfile(storedId) : undefined)
+
+  if (!isCurrentOpen(generation)) {
+    return
+  }
+
+  try {
+    const resumed = await requestGateway<SessionResumeResponse>('session.resume', {
+      session_id: storedId,
+      cols: 96,
+      ...(profile ? { profile } : {})
+    })
+
+    if (!isCurrentOpen(generation) || (resumed.session_id ?? storedId) === warmKey) {
+      return
+    }
+
+    const runtimeId = resumed.session_id ?? storedId
+
+    rekeySession(warmKey, runtimeId, {
+      runtimeSessionId: runtimeId,
+      storedSessionId: storedId,
+      ...(resumed.info?.cwd ? { cwd: resumed.info.cwd } : {})
+    })
+
+    $activeSessionKey.set(runtimeId)
+  } catch (err) {
+    // The chat on screen is intact and still readable — only the stream binding
+    // failed — so this is a notification rather than a status-line error that
+    // would stick to a session which is otherwise fine.
+    notifyError(err, 'Failed to reconnect session')
+  }
 }
 
 /**
