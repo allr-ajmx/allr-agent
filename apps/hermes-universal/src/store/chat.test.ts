@@ -726,6 +726,35 @@ describe('stale-runtime recovery', () => {
     expect(getInflightTurn('runtime-2')).toMatchObject({ prompt: 'are you still there' })
   })
 
+  // Steering failed the same way, and QUIETLY: a false sends the words to the
+  // composer's local queue, so a dropped runtime looked like "steering just
+  // doesn't work after sleep" rather than an error.
+  it('rebinds a dropped runtime and re-sends the correction', async () => {
+    seedActiveSession('runtime-1', {
+      storedSessionId: 'stored-1',
+      busy: true,
+      messages: [
+        { id: 'u1', role: 'user', parts: [{ type: 'text', text: 'do a thing' }] },
+        { id: 'a1', role: 'assistant', parts: [{ type: 'text', text: 'partial…' }], pending: true }
+      ]
+    })
+    vi.mocked(requestGateway)
+      .mockRejectedValueOnce(new Error('session not found'))
+      .mockResolvedValueOnce({ session_id: 'runtime-2' })
+      // A resumed runtime has no live turn left to fold into, so the correction
+      // becomes the next turn's prompt — and belongs at the tail.
+      .mockResolvedValueOnce({ status: 'queued' })
+
+    expect(await redirectPrompt('actually do this', 'runtime-1')).toBe(true)
+
+    expect(vi.mocked(requestGateway).mock.calls.map(call => call[0])).toEqual([
+      'session.redirect',
+      'session.resume',
+      'session.redirect'
+    ])
+    expect(sessionMessages('runtime-2').map(messageText)).toEqual(['do a thing', 'partial…', 'actually do this'])
+  })
+
   // A draft has no stored session to resume, so there is nothing to recover to
   // and the original error stands.
   it('surfaces the error when the session cannot be resumed', async () => {

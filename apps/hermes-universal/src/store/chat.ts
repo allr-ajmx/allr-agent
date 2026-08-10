@@ -433,7 +433,8 @@ const moveMessageToEnd = (key: string, id: string): void => {
  */
 export async function redirectPrompt(rawText: string, key = $activeSessionKey.get()): Promise<boolean> {
   const text = rawText.trim()
-  const sessionId = $sessionStates.get()[key]?.runtimeSessionId
+  const slice = $sessionStates.get()[key]
+  const sessionId = slice?.runtimeSessionId
 
   if (!text || !sessionId) {
     return false
@@ -441,16 +442,36 @@ export async function redirectPrompt(rawText: string, key = $activeSessionKey.ge
 
   const messageId = insertCorrectionMessage(key, text)
 
+  // A recovery hands back a fresh runtime id and the slice moves with it, so
+  // everything below addresses the session by the key it currently lives under
+  // rather than the one it started on.
+  let liveKey = key
+
   try {
-    const result = await requestGateway<SessionRedirectResponse>('session.redirect', {
-      session_id: sessionId,
-      text
-    })
+    // Steering is the other RPC that runs against the runtime id, so it fails
+    // the same way after a sleep/wake — and it fails QUIETLY, falling back to
+    // the composer's local queue, which is why nobody noticed. Recover it like
+    // the submit above; a runtime that had to be resumed has no live turn left
+    // to fold into, so the gateway answers `queued` and the correction lands at
+    // the tail, which is the correct place for it.
+    const { withSessionNotFoundResume } = await sessionRecovery()
+
+    const { result } = await withSessionNotFoundResume(
+      sessionId,
+      slice?.storedSessionId ?? null,
+      live => requestGateway<SessionRedirectResponse>('session.redirect', { session_id: live, text }),
+      {
+        onRecovered: live => {
+          rekeySession(liveKey, live, { runtimeSessionId: live })
+          liveKey = live
+        }
+      }
+    )
 
     if (result?.status === 'redirected') {
       // Folded into the live turn — the correction belongs where it was placed,
       // above the reply it is redirecting.
-      recordTurnCorrection(key, text)
+      recordTurnCorrection(liveKey, text)
 
       return true
     }
@@ -459,17 +480,17 @@ export async function redirectPrompt(rawText: string, key = $activeSessionKey.ge
       // The turn-build window: the gateway had no agent to redirect yet, so
       // this is the NEXT turn's prompt. It has to sit at the tail, not
       // mid-transcript above a reply it had no part in.
-      moveMessageToEnd(key, messageId)
-      recordTurnCorrection(key, text)
+      moveMessageToEnd(liveKey, messageId)
+      recordTurnCorrection(liveKey, text)
 
       return true
     }
 
-    dropMessage(key, messageId)
+    dropMessage(liveKey, messageId)
 
     return false
   } catch {
-    dropMessage(key, messageId)
+    dropMessage(liveKey, messageId)
 
     return false
   }
