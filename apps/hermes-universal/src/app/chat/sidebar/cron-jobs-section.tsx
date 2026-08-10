@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 
 import { jobState, jobTitle, STATE_DOT } from '@/app/cron/job-state'
-import { ActionsContextMenu, type MenuKit, renderActionItem } from '@/components/ui/actions-menu'
+import { ActionsContextMenu, ActionsMenu, type MenuKit, renderActionItem } from '@/components/ui/actions-menu'
+import { Button } from '@/components/ui/button'
 import { Codicon } from '@/components/ui/codicon'
 import { DisclosureCaret } from '@/components/ui/disclosure-caret'
 import { Tip } from '@/components/ui/tooltip'
@@ -282,17 +283,23 @@ function CronJobSidebarRow({
               />
             </button>
           </Tip>
-          <div className="flex items-center gap-0.5 justify-self-end pr-1">
+          <div className="group/cron-actions flex items-center gap-0.5 justify-self-end pr-1">
             {/* Hover swaps the next-run time out for the actions; on touch there
                 is no hover, so the buttons stay put. Inverted rather than
                 layered: the touch layout is the base and the swap is scoped to
                 `fine:`, so the two can never both claim the slot. The label
                 beside them is `min-w-0 truncate`, so it yields the width.
-                Right-click reaches the same actions (plus pause/delete). */}
-            <span className="text-[0.6875rem] text-(--ui-text-tertiary) tabular-nums fine:group-hover/cron:hidden">
+                Right-click reaches the same actions, and so does the kebab —
+                which is the ONLY route to pause/resume/delete for a finger,
+                since a touch device has no right-click. */}
+            {/* `group-has-[[data-state=open]]` keeps the cluster up while the
+                kebab's menu is open — otherwise moving the pointer onto the
+                portalled menu unhovers the row and pulls the trigger out from
+                under it. */}
+            <span className="text-[0.6875rem] text-(--ui-text-tertiary) tabular-nums fine:group-hover/cron:hidden fine:group-has-[[data-state=open]]/cron-actions:hidden">
               {meta}
             </span>
-            <div className="flex items-center gap-0.5 fine:hidden fine:group-hover/cron:flex">
+            <div className="flex items-center gap-0.5 fine:hidden fine:group-hover/cron:flex fine:group-has-[[data-state=open]]/cron-actions:flex">
               <Tip label={c.triggerNow}>
                 <button
                   aria-label={c.triggerNow}
@@ -313,6 +320,18 @@ function CronJobSidebarRow({
                   <Codicon name="watch" size="0.75rem" />
                 </button>
               </Tip>
+              <ActionsMenu ariaLabel={c.actionsTitle} contentClassName="w-44" items={items} sideOffset={4}>
+                <Button
+                  aria-label={c.actionsTitle}
+                  // No tip: this is a DropdownMenu trigger, and a tooltip on a
+                  // menu trigger fights the open menu. `aria-label` names it.
+                  className="size-5 rounded-sm bg-transparent text-(--ui-text-tertiary) hover:bg-(--ui-control-hover-background) hover:text-foreground data-[state=open]:bg-(--ui-control-active-background) data-[state=open]:text-foreground [&_svg]:size-3!"
+                  size="icon"
+                  variant="ghost"
+                >
+                  <Codicon name="kebab-vertical" size="0.75rem" />
+                </Button>
+              </ActionsMenu>
             </div>
           </div>
         </div>
