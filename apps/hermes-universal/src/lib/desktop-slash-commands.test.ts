@@ -66,6 +66,21 @@ describe('/diff', () => {
   })
 })
 
+describe('/approvals', () => {
+  // Unregistered, it fell through to `command.dispatch`, which answers "not a
+  // quick/plugin/skill command" instead of reporting the approval mode.
+  it('executes on the backend rather than falling through as unknown', () => {
+    expect(resolveDesktopCommand('/approvals')?.surface).toEqual({ kind: 'exec' })
+    expect(isDesktopSlashCommand('/approvals')).toBe(true)
+    expect(desktopSlashUnavailableMessage('/approvals')).toBeNull()
+  })
+
+  it('offers its modes as an argument step rather than committing on the bare command', () => {
+    expect(desktopSlashCommandTakesArgs('/approvals')).toBe(true)
+    expect(desktopSlashDescription('/approvals')).toContain('manual|smart|off')
+  })
+})
+
 describe('/focus', () => {
   // The gateway answers /focus, but only by flipping `display.focus_view`,
   // which nothing here reads — so running it would silently re-render someone's
