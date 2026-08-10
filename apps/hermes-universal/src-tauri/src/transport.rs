@@ -540,7 +540,7 @@ pub async fn ws_open(
 
     let (stream, _resp) = tokio_tungstenite::connect_async(request)
         .await
-        .map_err(|e| redact_error(e.to_string(), &url))?;
+        .map_err(|e| redact_bearer(redact_error(e.to_string(), &url)))?;
     let (mut write, mut read) = stream.split();
 
     let (tx, mut rx) = mpsc::unbounded_channel::<Message>();
@@ -556,6 +556,9 @@ pub async fn ws_open(
     let app_reader = app.clone();
     let tx_pong = tx.clone();
     let id_reader = id.clone();
+    // The reader outlives this function, so it needs its own copy of the URL to
+    // scrub its errors against — see the `Err` arm below.
+    let url_reader = url.clone();
     let reader = tokio::spawn(async move {
         // Close code (e.g. 4401 auth / 4410 child-exit from /api/shell-pty) so the
         // terminal can decide whether to reconnect. `None` on error/EOF exits.
@@ -603,7 +606,16 @@ pub async fn ws_open(
                 }
                 Ok(_) => {}
                 Err(err) => {
-                    let _ = app_reader.emit(&format!("ws://{id_reader}/error"), err.to_string());
+                    // Redacted like the connect-time error above (MJXHRM-376).
+                    // It was not, and that was the gap: this error takes the
+                    // same route to the same place — `ws://{id}/error` is
+                    // broadcast to every window and rendered on the connect
+                    // screen — and tungstenite quotes the request URL, which
+                    // carries the ws auth token, into several of its variants.
+                    // A socket that fails *after* the handshake is exactly the
+                    // case where the token was accepted, so it is real.
+                    let message = redact_bearer(redact_error(err.to_string(), &url_reader));
+                    let _ = app_reader.emit(&format!("ws://{id_reader}/error"), message);
                     break;
                 }
             }
@@ -982,6 +994,25 @@ mod tests {
 
         assert!(!message.contains("eyJhbGciOi"), "{message}");
         assert_eq!(message, "request failed: Authorization: Bearer ***");
+    }
+
+    /// MJXHRM-376. The socket's read loop failing mid-session emits its error on
+    /// `ws://{id}/error`, which is broadcast to every window and rendered on the
+    /// connect screen — the same destination as the connect-time error that was
+    /// already scrubbed. Tungstenite quotes the request URL into several of its
+    /// variants, and that URL carries the ws auth token.
+    #[test]
+    fn a_reader_error_is_scrubbed_the_same_way_a_connect_error_is() {
+        let url = "wss://gw.example.com/api/ws?token=s3cr3t-ws-ticket";
+        let raw = format!("IO error on {url}: connection reset by peer");
+
+        let scrubbed = redact_bearer(redact_error(raw, url));
+
+        assert!(!scrubbed.contains("s3cr3t-ws-ticket"), "{scrubbed}");
+        assert!(scrubbed.contains("token=***"), "{scrubbed}");
+        // Still says what went wrong: a redaction that eats the diagnosis is
+        // how a user ends up with "something failed".
+        assert!(scrubbed.contains("connection reset by peer"), "{scrubbed}");
     }
 
     #[test]
