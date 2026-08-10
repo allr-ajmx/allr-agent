@@ -40,6 +40,15 @@ import { stopSpeaking } from '@/lib/tts'
 import { readChoices } from '@/store/clarify'
 import { routeCompactionEvent } from '@/store/compaction'
 import { addGatewayEventListener, requestGateway } from '@/store/gateway'
+import {
+  notifyCronChanged,
+  notifyPairingChanged,
+  notifyPetChanged,
+  notifyPlatformsChanged,
+  notifySessionsChanged,
+  type PetChangeMeta,
+  setChangeEventsAvailable
+} from '@/store/live-sync'
 import { dispatchNativeNotification } from '@/store/native-notifications'
 import { flashPetActivity, setPetActivity } from '@/store/pet'
 import {
@@ -87,7 +96,26 @@ export function resetUnscopedStreamPin(): void {
 
 /** Events that are about the app, not about one conversation — they are handled
  *  whether or not their session is known to us. */
-const GLOBAL_EVENT_TYPES = new Set(['gateway.ready', 'session.title', 'sessions.changed', 'skin.changed'])
+const GLOBAL_EVENT_TYPES = new Set([
+  'cron.changed',
+  'gateway.ready',
+  'pairing.changed',
+  'pet.changed',
+  'platforms.changed',
+  'session.title',
+  'sessions.changed',
+  'skin.changed'
+])
+
+/** The change watcher's broadcasts (`tui_gateway/server.py`
+ *  `_broadcast_watched_changes`), mapped to the live-sync tick each one bumps.
+ *  `pet.changed` is handled on its own — it is the only one with a payload. */
+const CHANGE_EVENT_NOTIFIERS: Record<string, (() => void) | undefined> = {
+  'cron.changed': notifyCronChanged,
+  'pairing.changed': notifyPairingChanged,
+  'platforms.changed': notifyPlatformsChanged,
+  'sessions.changed': notifySessionsChanged
+}
 
 /** Blocking prompts: never dropped, because the agent is parked waiting. */
 const BLOCKING_PROMPT_TYPES = new Set(['approval.request', 'clarify.request', 'secret.request', 'sudo.request'])
@@ -191,9 +219,24 @@ export function routeGatewayEvent(event: GatewayEvent): void {
   const payload = (event.payload ?? {}) as Record<string, unknown>
 
   if (GLOBAL_EVENT_TYPES.has(event.type)) {
-    if (event.type === 'session.title') {
+    const notifyChanged = CHANGE_EVENT_NOTIFIERS[event.type]
+
+    if (notifyChanged) {
+      // A watched on-disk signature moved. Bump the tick the former pollers now
+      // subscribe to (store/live-sync.ts) — the payload is empty for all of
+      // these, the event itself IS the information.
+      notifyChanged()
+    } else if (event.type === 'pet.changed') {
+      // The one change event with a payload: `pet.info.meta`-shaped, so the pet
+      // can skip the heavy spritesheet refetch when it already says enabled=false.
+      notifyPetChanged(payload as unknown as PetChangeMeta)
+    } else if (event.type === 'session.title') {
       applySessionTitle(payload)
     } else if (event.type === 'gateway.ready') {
+      // Does this backend broadcast change events at all? Consumers drop to a
+      // slow backstop poll when it does and keep the legacy cadence when it
+      // doesn't, so an older gateway never goes dark.
+      setChangeEventsAvailable((payload as { change_events?: boolean }).change_events === true)
       // Seed the active skin into the theme registry WITHOUT applying, so a fresh
       // connect never overrides the user's persisted theme. Note the shape: here
       // the skin is nested, on `skin.changed` the payload IS the skin.
@@ -415,6 +458,15 @@ export function routeGatewayEvent(event: GatewayEvent): void {
     case 'reasoning.available':
 
     case 'reasoning.delta':
+
+    // The whole MoA family is thinking, not tool work — including the two
+    // progress frames, which are the only sign of life during a fan-out that
+    // emits no reference bodies until every reference has returned.
+    case 'moa.aggregating':
+
+    case 'moa.phase':
+
+    case 'moa.progress':
 
     case 'moa.reference':
       setPetActivity({ reasoning: true }) // pet: thinking pose

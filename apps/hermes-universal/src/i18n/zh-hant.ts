@@ -736,6 +736,8 @@ export const zhHant = defineLocale({
       saveAndReconnect: '儲存並重新連線',
       diagnostics: '診斷',
       diagnosticsDesc: '連線狀態和最近的閘道日誌 — 閘道異常時很有用。',
+      configFloorWarning: (version, floor) =>
+        `設定 v${version} 早於支援下限 v${floor}，已不再自動遷移。請備份上方 Hermes 主目錄中的 config.yaml 並執行 \`hermes setup\` 重新產生，或在查閱變更日誌後設定 _config_version: ${floor}。`,
       openLogs: '開啟記錄',
       incompleteTitle: '遠端閘道設定不完整',
       incompleteSignIn: '切換至遠端前，請輸入遠端 URL 並完成登入。',

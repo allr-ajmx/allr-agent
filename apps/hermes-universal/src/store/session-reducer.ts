@@ -35,6 +35,11 @@ const patchLastAssistant = (state: ClientSessionState, patch: (m: ChatMessage) =
   messages: patchActive(state.messages, patch)
 })
 
+/** A payload counter, or undefined when the gateway omitted it. Distinct from
+ *  `coerceText`: a 0 must survive, and a missing count must not render as "0". */
+const numeric = (value: unknown): number | undefined =>
+  typeof value === 'number' && Number.isFinite(value) ? value : undefined
+
 /**
  * Route a tool event into a session's transcript. While a turn is live the parts
  * land on the pending assistant; a LATE event (one arriving after
@@ -122,11 +127,61 @@ export function reduceSessionState(
         ...m,
         parts: applySettledReasoning(m.parts, coerceThinkingText(payload.text))
       }))
+    // MoA fan-out progress. These arrive BEFORE any `moa.reference`: the loop
+    // emits one `moa.progress` per reference as it completes, but only emits the
+    // reference BODIES once the whole fan-out is done (agent/moa_loop.py). So
+    // without this the chat sits on a bare spinner for the length of the slowest
+    // reference — which, against the 900s `moa_reference` timeout, is a very
+    // long time to show nothing at all.
+    case 'moa.progress': {
+      const done = numeric(payload.refs_done)
+      const total = numeric(payload.refs_total)
+
+      if (done === undefined || total === undefined) {
+        return state
+      }
+
+      const label = coerceText(payload.label)
+      const line = `◇ MoA refs ${done}/${total}${label ? ` — ${label}` : ''}\n`
+
+      return patchLastAssistant(state, m => ({
+        ...m,
+        // The FIRST reference opens its own block rather than coalescing into
+        // whatever reasoning the model was mid-way through; the rest of the
+        // trail accumulates into that same block.
+        parts:
+          done <= 1 ? [...m.parts, { type: 'reasoning', text: line }] : appendStreamPart(m.parts, 'reasoning', line)
+      }))
+    }
+
+    // Phase transition. Only `aggregator` is meaningful here — `phase:
+    // "reference"` deliberately mirrors `moa.progress`, which is already
+    // rendered above, so replaying it would double every line.
+    //
+    // Unlike desktop, the trail is NOT cleared when the references land:
+    // desktop's reasoning is one accumulating buffer that `moa.reference`
+    // replaces wholesale, while universal makes every burst its own block
+    // (see the case below). Keeping the trail above the reference blocks is the
+    // honest analogue — it reads as a record of the fan-out, not as leftovers.
+    case 'moa.phase':
+      return payload.phase === 'aggregator'
+        ? patchLastAssistant(state, m => ({
+            ...m,
+            parts: appendStreamPart(m.parts, 'reasoning', '◇ MoA aggregating…\n')
+          }))
+        : state
     case 'moa.reference': {
       const label = coerceText(payload.label)
-      const idx = coerceText(payload.index)
-      const total = coerceText(payload.total)
-      const header = `◇ Reference ${idx}/${total}${label ? ` — ${label}` : ''}\n`
+      // The counters are NUMBERS on a key called `count` (agent/moa_loop.py).
+      // This used to read `payload.total` through `coerceText`, which returns ''
+      // for anything non-string — so both halves were always blank and every
+      // reference rendered its header as a bare "◇ Reference / — model". Drop
+      // the fraction entirely when the gateway omits it, rather than printing an
+      // empty one.
+      const idx = numeric(payload.index)
+      const count = numeric(payload.count)
+      const position = idx !== undefined && count !== undefined ? ` ${idx}/${count}` : ''
+      const header = `◇ Reference${position}${label ? ` — ${label}` : ''}\n`
 
       // A reference block is its own labelled thinking block — never merged into
       // the neighbouring one (desktop appends it as a settled burst too).

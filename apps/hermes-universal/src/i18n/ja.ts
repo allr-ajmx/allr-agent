@@ -758,6 +758,8 @@ export const ja = defineLocale({
       saveAndReconnect: '保存して再接続',
       diagnostics: '診断',
       diagnosticsDesc: '接続状態と最近のゲートウェイログ。ゲートウェイの動作がおかしいときに役立ちます。',
+      configFloorWarning: (version, floor) =>
+        `設定 v${version} はサポート下限 v${floor} より古く、自動移行されません。上記の Hermes ホームにある config.yaml をバックアップして \`hermes setup\` を実行するか、変更履歴を確認のうえ _config_version: ${floor} を設定してください。`,
       openLogs: 'ログを開く',
       incompleteTitle: 'リモートゲートウェイの設定が不完全です',
       incompleteSignIn: 'リモートに切り替える前にリモート URL を入力してサインインしてください。',

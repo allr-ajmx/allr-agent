@@ -3219,14 +3219,27 @@ TERMINAL_CONFIG_ENV_MAP = {
     "backend": "TERMINAL_ENV",
     "shell_pty": "TERMINAL_SHELL_PTY",
     # NOTE: shell_pty_backend / allow_unsandboxed_shell are deliberately NOT
-    # bridged here. A key listed in this map and written explicitly into the
-    # user's config.yaml `terminal:` section beats an already-exported env var
-    # (see apply_terminal_config_to_env), which would let a config file clobber
-    # a deployment that sets TERMINAL_SHELL_PTY_BACKEND /
-    # TERMINAL_ALLOW_UNSANDBOXED_SHELL in its container env. Both are read
-    # in-process by hermes_cli/web_server.py (env first, config second) and no
-    # child process needs them, so leaving them out of the map keeps the
-    # container env authoritative.
+    # bridged here. The reason is NOT the one this comment used to give — that
+    # argument was written against the older apply_terminal_config_to_env, where
+    # the mere PRESENCE of a `terminal:` section made every mapped key override
+    # env, so a value the user never wrote (inherited from DEFAULT_CONFIG, which
+    # supplies both of these) could clobber a container's exported vars. That
+    # blanket override is gone: only keys present in the raw config.yaml override
+    # env now, and merged defaults are backfill-only.
+    #
+    # The choice still stands for two independent reasons:
+    #   1. The bridge would buy nothing. It exists so CHILD processes (TUI,
+    #      dashboard PTY, gateway workers) inherit terminal config through env.
+    #      These two are read only in-process, by hermes_cli/web_server.py's
+    #      _resolve_shell_pty_backend / the allow_unsandboxed_shell gate, which
+    #      already consult os.environ first and the config second.
+    #   2. Bridging them would silently INVERT that precedence. Once the value is
+    #      exported into the env those readers consult first, an explicit
+    #      config.yaml entry would start beating the deployment's
+    #      TERMINAL_SHELL_PTY_BACKEND / TERMINAL_ALLOW_UNSANDBOXED_SHELL instead
+    #      of losing to it. allow_unsandboxed_shell opens an unsandboxed shell to
+    #      anyone holding a session token, so that flip is a security regression,
+    #      not a config-precedence preference.
     "modal_mode": "TERMINAL_MODAL_MODE",
     # cli.py and gateway/run.py have always bridged home_mode; this map did not,
     # so `terminal.home_mode` silently had no effect under `hermes serve` and the

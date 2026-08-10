@@ -176,6 +176,16 @@ const DESKTOP_COMMAND_SPECS: readonly DesktopCommandSpec[] = [
     args: true
   },
   { name: '/debug', description: 'Create a debug report', surface: exec() },
+  // Cross-surface git diff (tools/working_diff.py). Plain exec: the backend
+  // resolves the repo from the session's own cwd and renders the diff itself,
+  // so it works unchanged against a remote gateway where this client has no
+  // filesystem at all.
+  {
+    name: '/diff',
+    description: 'Show git changes in the working directory [staged|all|session] [--stat] [path…]',
+    surface: exec(),
+    args: true
+  },
   { name: '/goal', description: 'Manage the standing goal for this session', surface: exec() },
   { name: '/personality', description: 'Switch personality for this session', surface: exec(), args: true },
   {
@@ -218,6 +228,12 @@ const NO_DESKTOP_SURFACE: Record<DesktopUnavailableReason, readonly string[]> = 
     '/cron',
     '/details',
     '/exit',
+    // Display-only reduced-output mode. The gateway DOES answer it (config.set
+    // on `display.focus_view`), but nothing in this client reads that flag — so
+    // running it here would silently re-render someone's TUI and report a state
+    // this app ignores. Same call as its sibling `/verbose`, three lines down,
+    // which is the tool-progress half of the very same feature.
+    '/focus',
     '/footer',
     '/gateway',
     '/history',
