@@ -133,25 +133,32 @@ export function ChatComposer() {
     }
   }, [scope, view])
 
-  const addStagedToScope = (staged: StagedAttachment | null) => {
-    if (staged) {
-      scope.attachments.add(stagedToComposerAttachment(staged))
-    }
-  }
+  // Memoized so the five pickers below can NAME it as a dependency. It closes
+  // over nothing but the scope, which every one of them already depended on, so
+  // this is the same function with the same identity churn — it is just no
+  // longer an omitted dependency.
+  const addStagedToScope = useCallback(
+    (staged: StagedAttachment | null) => {
+      if (staged) {
+        scope.attachments.add(stagedToComposerAttachment(staged))
+      }
+    },
+    [scope]
+  )
 
-  const onPickFiles = useCallback(() => void pickAttachment().then(addStagedToScope), [scope])
-  const onPickImages = useCallback(() => void pickAttachment().then(addStagedToScope), [scope])
-  const onPickFolders = useCallback(() => void pickFolderAttachment().then(addStagedToScope), [scope])
+  const onPickFiles = useCallback(() => void pickAttachment().then(addStagedToScope), [addStagedToScope])
+  const onPickImages = useCallback(() => void pickAttachment().then(addStagedToScope), [addStagedToScope])
+  const onPickFolders = useCallback(() => void pickFolderAttachment().then(addStagedToScope), [addStagedToScope])
 
   // Remote picks open the backend-fs browser at the session's cwd.
   const onPickRemoteFiles = useCallback(
     () => void pickRemoteAttachment(cwd || undefined).then(addStagedToScope),
-    [cwd, scope]
+    [addStagedToScope, cwd]
   )
 
   const onPickRemoteFolders = useCallback(
     () => void pickRemoteFolderAttachment(cwd || undefined).then(addStagedToScope),
-    [cwd, scope]
+    [addStagedToScope, cwd]
   )
 
   const onRemoveAttachment = useCallback((id: string) => scope.attachments.remove(id), [scope])

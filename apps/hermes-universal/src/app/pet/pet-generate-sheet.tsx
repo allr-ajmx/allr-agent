@@ -64,12 +64,16 @@ export function PetGenerateSheet({ onOpenChange, open }: { onOpenChange: (open: 
     }
   }, [open])
 
-  // Seed the name from the prompt once drafts are ready.
+  // Seed the name from the prompt once drafts are ready. Seed-ONCE: `name` and
+  // `prompt` are read but deliberately not depended on, because this fires on
+  // the status edge. Depending on `prompt` would re-seed the name every time the
+  // user edited the prompt after clearing the field, which is the opposite of a
+  // suggestion they can overwrite.
   useEffect(() => {
     if (status === 'ready' && !name) {
       setName(cleanPetName(prompt))
     }
-  }, [status])
+  }, [status]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const close = () => {
     if (status === 'idle' || status === 'error' || status === 'stale') {

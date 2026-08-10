@@ -5,6 +5,7 @@ import { Codecs, persistentAtom } from '@/lib/persisted'
 import { $sessionId } from '@/store/chat'
 import { requestGateway } from '@/store/gateway'
 import { notifyError } from '@/store/notifications'
+import { $sessionStates, updateSession } from '@/store/session-state-types'
 
 // Composer model state (ported from desktop's session-store model atoms +
 // use-model-controls). The current model/provider drives the composer model
@@ -29,6 +30,10 @@ export const setModelPickerOpen = (value: boolean): void => $modelPickerOpen.set
 export interface ModelSelection {
   model: string
   provider: string
+  /** Target ONE surface's session — a tile, or the pane under the pointer.
+   *  Omitted means the primary chat, which is what the composer's own dropdown
+   *  wants; `null` means "no live session", i.e. pure UI state. */
+  sessionId?: null | string
 }
 
 /**
@@ -62,19 +67,37 @@ export async function refreshCurrentModel(force = false): Promise<void> {
 }
 
 /**
- * Switch the model for the ACTIVE session. Optimistic atom update, then
- * `config.set` with `--session` so only this session's model changes. With no
- * live session it's pure UI state (applied on session.create). Rolls back on
- * failure. Returns whether the switch succeeded.
+ * Switch the model for ONE session. Optimistic update, then `config.set` with
+ * `--session` so only that session's model changes. With no live session it's
+ * pure UI state (applied on session.create). Rolls back on failure. Returns
+ * whether the switch succeeded.
+ *
+ * `selection.sessionId` names the surface being switched — a tile, or the pane
+ * under the pointer when the picker was opened. Without it the target is the
+ * primary chat, which is what the composer's own dropdown means. A tile switch
+ * must NOT touch the composer's globals: they belong to the primary chat, and
+ * writing them would repaint its pill with a model it isn't running.
  */
 export async function selectModel(selection: ModelSelection): Promise<boolean> {
-  const prevModel = $currentModel.get()
-  const prevProvider = $currentProvider.get()
+  const primaryRuntimeId = $sessionId.get()
+  const sessionId = 'sessionId' in selection ? (selection.sessionId ?? null) : primaryRuntimeId
+  const touchesPrimary = !sessionId || sessionId === primaryRuntimeId
+  const slice = sessionId ? $sessionStates.get()[sessionId] : undefined
 
-  setCurrentModel(selection.model)
-  setCurrentProvider(selection.provider)
+  const prevModel = touchesPrimary ? $currentModel.get() : (slice?.model ?? '')
+  const prevProvider = touchesPrimary ? $currentProvider.get() : (slice?.provider ?? '')
 
-  const sessionId = $sessionId.get()
+  const paint = (model: string, provider: string): void => {
+    if (touchesPrimary) {
+      setCurrentModel(model)
+      setCurrentProvider(provider)
+    } else if (sessionId) {
+      // Optimistic tile paint — the agent's own `session.info` confirms it.
+      updateSession(sessionId, state => ({ ...state, model, provider }))
+    }
+  }
+
+  paint(selection.model, selection.provider)
 
   if (!sessionId) {
     return true
@@ -89,8 +112,7 @@ export async function selectModel(selection: ModelSelection): Promise<boolean> {
 
     return true
   } catch (err) {
-    setCurrentModel(prevModel)
-    setCurrentProvider(prevProvider)
+    paint(prevModel, prevProvider)
     notifyError(err, 'Failed to switch model')
 
     return false

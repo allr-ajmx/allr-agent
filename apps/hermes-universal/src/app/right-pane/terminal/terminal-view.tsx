@@ -343,6 +343,11 @@ export function TerminalView({ id }: { id: string }) {
       fitRef.current = null
       webglRef.current = null
     }
+    // MOUNT ONCE. `appTheme` / `renderedMode` are read here only to paint the
+    // terminal's INITIAL theme; the effect further down repaints it in place on
+    // every later change. Depending on them here would dispose and rebuild the
+    // xterm instance — taking the attached PTY with it — on every theme switch.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // Spawn the shell once per attempt. The cwd and the connection are SNAPSHOTTED

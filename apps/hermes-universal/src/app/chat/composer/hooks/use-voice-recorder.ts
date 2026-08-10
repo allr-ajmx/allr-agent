@@ -95,6 +95,10 @@ export function useVoiceRecorder({
     setVoiceStatus('idle')
   }
 
+  // UNMOUNT only. `teardown` is deliberately omitted: it is redeclared every
+  // render, so depending on it would run this cleanup on every render — closing
+  // the microphone lease and resetting the recorder to idle mid-recording.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => () => teardown(), [])
 
   const onEvent = (event: VoiceEvent) => {
