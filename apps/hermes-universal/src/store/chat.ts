@@ -94,6 +94,18 @@ export type ApprovalChoice = 'always' | 'deny' | 'once' | 'session'
 
 const PROMPT_SUBMIT_TIMEOUT_MS = 1_800_000
 
+/**
+ * Stale-runtime recovery, loaded on demand.
+ *
+ * `store/session-recovery` needs the session's owning profile, so it imports
+ * `store/session` — which imports THIS module and reads `$busy` / `$clarify` at
+ * module scope (`$workingSessionIds`, `$attentionSessionIds`). A static import
+ * here would close that cycle with chat.ts as a possible entry point, and
+ * session.ts would then build those computeds against a `const` still in its
+ * temporal dead zone. Deferred exactly like `registerNewSession` below.
+ */
+const sessionRecovery = () => import('@/store/session-recovery')
+
 // ---------------------------------------------------------------------------
 // THE ACTIVE SESSION'S VIEW.
 //
@@ -208,7 +220,12 @@ export async function ensureSession(): Promise<{ id: string; storedId: string }>
   const existing = $sessionId.get()
 
   if (existing) {
-    return { id: existing, storedId: existing }
+    // The slice's OWN stored id, not the runtime one. The two differ for any
+    // session that was resumed (store/session.ts keys the slice by the runtime id
+    // the resume handed back) and callers use `storedId` to recover a dead
+    // runtime — resuming the runtime id would name a session the gateway has
+    // already forgotten.
+    return { id: existing, storedId: $active.get().storedSessionId ?? existing }
   }
 
   // The draft's OWN directory wins: `startSessionInWorkspace` (store/session)
@@ -311,7 +328,34 @@ export async function sendPrompt(text: string): Promise<void> {
       void import('@/store/session').then(m => m.registerNewSession(storedId, trimmed)).catch(() => {})
     }
 
-    await requestGateway('prompt.submit', { session_id: sessionId, text: trimmed }, PROMPT_SUBMIT_TIMEOUT_MS)
+    // The last unwired recovery site (MJXHRM-219): a session whose runtime the
+    // gateway dropped while the user was away answers the first prompt back with
+    // "session not found". Rebind and retry once.
+    //
+    // `onRecovered` REKEYS rather than taking the default alias: the resume hands
+    // back a NEW runtime id, and the event router addresses slices by the id the
+    // gateway stamps on each frame — so a slice left under the dead key would
+    // stop receiving its own reply and sit busy forever. This is the same
+    // mid-flight move `ensureSession` makes for a draft, in the same order
+    // (`beginTurn` first), so the open turn follows it the same way.
+    //
+    // `alsoTimeout` stays OFF. A submit waits `PROMPT_SUBMIT_TIMEOUT_MS`, so a
+    // timeout here does not mean "starved event loop, nothing landed" — it can
+    // just as easily be a submit the gateway accepted, and retrying it would run
+    // the prompt twice.
+    const { withSessionNotFoundResume } = await sessionRecovery()
+
+    await withSessionNotFoundResume(
+      sessionId,
+      storedId,
+      live => requestGateway('prompt.submit', { session_id: live, text: trimmed }, PROMPT_SUBMIT_TIMEOUT_MS),
+      {
+        onRecovered: live => {
+          rekeySession(submitKey, live, { runtimeSessionId: live })
+          submitKey = live
+        }
+      }
+    )
   } catch (err) {
     settleTurn(submitKey, 'error')
     updateSession(submitKey, state => ({

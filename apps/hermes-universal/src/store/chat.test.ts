@@ -15,7 +15,7 @@ import { flushDeltas } from '@/lib/stream-batch'
 import { routeGatewayEvent as handleGatewayEvent } from '@/store/event-router'
 import { requestGateway } from '@/store/gateway'
 import { sessionClarifyRequest } from '@/store/prompts'
-import { newDraftKey, updateSession } from '@/store/session-state-types'
+import { $sessionStates, newDraftKey, updateSession } from '@/store/session-state-types'
 import { $subagentsBySession } from '@/store/subagents'
 import { beginTurn, getInflightTurn } from '@/store/turn-lifecycle'
 import { resetSessionStates, seedActiveSession, seedSession, sessionMessages } from '@/test-sessions'
@@ -31,6 +31,7 @@ import {
   $messages,
   $secret,
   $sessionId,
+  $statusLine,
   $sudo,
   type ChatMessage,
   ensureSession,
@@ -38,6 +39,7 @@ import {
   resetChat,
   respondClarify,
   respondSudo,
+  sendPrompt,
   submitEditedPrompt
 } from './chat'
 
@@ -669,5 +671,72 @@ describe('redirectPrompt', () => {
       prompt: 'do a thing',
       corrections: ['actually do this']
     })
+  })
+})
+
+// --- Stale-runtime recovery ------------------------------------------------
+//
+// The gateway drops a session's in-memory runtime on sleep/wake, a restart, or a
+// long idle. The STORED session survives; the runtime id the client holds does
+// not, and every session-scoped RPC then answers "session not found". One shared
+// resolver rebinds and retries once (store/session-recovery.ts).
+describe('stale-runtime recovery', () => {
+  /** A gateway that has forgotten the live runtime and resumes it as `freshId`. */
+  const forgetsTheRuntime = (freshId: string) =>
+    vi
+      .mocked(requestGateway)
+      .mockRejectedValueOnce(new Error('session not found'))
+      .mockResolvedValueOnce({ session_id: freshId })
+      .mockResolvedValueOnce({})
+
+  it('rebinds a dropped runtime and resubmits the prompt', async () => {
+    seedActiveSession('runtime-1', { storedSessionId: 'stored-1' })
+    forgetsTheRuntime('runtime-2')
+
+    await sendPrompt('are you still there')
+
+    expect(vi.mocked(requestGateway).mock.calls.map(call => call[0])).toEqual([
+      'prompt.submit',
+      'session.resume',
+      'prompt.submit'
+    ])
+    // The resume names the STORED id — the runtime one is precisely what the
+    // gateway has forgotten — and the retry goes out on the id it hands back.
+    expect(vi.mocked(requestGateway).mock.calls[1][1]).toMatchObject({ session_id: 'stored-1' })
+    expect(vi.mocked(requestGateway).mock.calls[2][1]).toMatchObject({ session_id: 'runtime-2' })
+    // Recovered, so the user sees a sent message rather than an error line.
+    expect($statusLine.get()).toBe('')
+    expect($busy.get()).toBe(true)
+  })
+
+  // The event router addresses slices by the session id the gateway stamps on
+  // each frame, so a slice left under the DEAD key would never see the reply to
+  // the prompt it just recovered — it would sit busy forever.
+  it('moves the slice onto the fresh runtime id', async () => {
+    seedActiveSession('runtime-1', { storedSessionId: 'stored-1' })
+    forgetsTheRuntime('runtime-2')
+
+    await sendPrompt('are you still there')
+
+    expect($sessionStates.get()['runtime-1']).toBeUndefined()
+    expect($sessionId.get()).toBe('runtime-2')
+    expect(sessionMessages('runtime-2').map(messageText)).toContain('are you still there')
+    // The turn opened before the recovery has to travel with it, or a reconnect
+    // has nothing to reconcile the resubmitted turn against.
+    expect(getInflightTurn('runtime-2')).toMatchObject({ prompt: 'are you still there' })
+  })
+
+  // A draft has no stored session to resume, so there is nothing to recover to
+  // and the original error stands.
+  it('surfaces the error when the session cannot be resumed', async () => {
+    seedActiveSession('runtime-1', { storedSessionId: 'stored-1' })
+    vi.mocked(requestGateway)
+      .mockRejectedValueOnce(new Error('session not found'))
+      .mockRejectedValueOnce(new Error('no such stored session'))
+
+    await sendPrompt('are you still there')
+
+    expect($statusLine.get()).toBe('session not found')
+    expect($busy.get()).toBe(false)
   })
 })
