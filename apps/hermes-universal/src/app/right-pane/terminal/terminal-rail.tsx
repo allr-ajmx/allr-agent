@@ -1,3 +1,4 @@
+import { CONTEXT_KIT } from '@/components/ui/actions-menu'
 import { Codicon } from '@/components/ui/codicon'
 import {
   ContextMenu,
@@ -6,6 +7,7 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger
 } from '@/components/ui/context-menu'
+import { paneTabCloseItems } from '@/components/ui/pane-tab'
 import { Tip } from '@/components/ui/tooltip'
 import { useI18n } from '@/i18n'
 import { isMetaClose, middleClickHandlers } from '@/lib/middle-click'
@@ -18,8 +20,10 @@ import {
   closeAllTerminals,
   closeOtherTerminals,
   closeTerminal,
+  closeTerminalsToRight,
   createTerminal,
   selectTerminal,
+  terminalCloseTargets,
   type TerminalEntry
 } from '@/store/terminals'
 
@@ -43,13 +47,7 @@ export function TerminalRail() {
         role="tablist"
       >
         {terminals.map((term, index) => (
-          <TerminalRailItem
-            active={term.id === activeId}
-            canCloseOthers={terminals.length > 1}
-            index={index}
-            key={term.id}
-            term={term}
-          />
+          <TerminalRailItem active={term.id === activeId} index={index} key={term.id} term={term} />
         ))}
         <li className="flex w-full justify-center">
           <Tip label={t.rightSidebar.terminalNew}>
@@ -81,17 +79,7 @@ export function TerminalRail() {
   )
 }
 
-function TerminalRailItem({
-  active,
-  canCloseOthers,
-  index,
-  term
-}: {
-  active: boolean
-  canCloseOthers: boolean
-  index: number
-  term: TerminalEntry
-}) {
+function TerminalRailItem({ active, index, term }: { active: boolean; index: number; term: TerminalEntry }) {
   const { t } = useI18n()
   const label = `${index + 1}. ${term.title}`
 
@@ -139,11 +127,18 @@ function TerminalRailItem({
         </li>
       </ContextMenuTrigger>
       <ContextMenuContent>
-        <ContextMenuItem onSelect={() => closeTerminal(term.id)}>{t.common.close}</ContextMenuItem>
-        <ContextMenuItem disabled={!canCloseOthers} onSelect={() => closeOtherTerminals(term.id)}>
-          {t.rightSidebar.terminalCloseOthers}
-        </ContextMenuItem>
-        <ContextMenuItem onSelect={closeAllTerminals}>{t.rightSidebar.terminalCloseAll}</ContextMenuItem>
+        {/* The SAME four close verbs, in the same order, disabled the same way,
+            as every tab strip in the app — this rail used to hand-roll three of
+            them under its own translation keys and never offered "to the
+            right" at all. Hide stays below the separator: it is a verb about
+            the RAIL, not about this terminal. */}
+        {paneTabCloseItems(CONTEXT_KIT, {
+          counts: terminalCloseTargets(term.id),
+          onClose: () => closeTerminal(term.id),
+          onCloseAll: closeAllTerminals,
+          onCloseOthers: () => closeOtherTerminals(term.id),
+          onCloseToRight: () => closeTerminalsToRight(term.id)
+        })}
         <ContextMenuSeparator />
         <ContextMenuItem onSelect={() => setTerminalOpen(false)}>{t.rightSidebar.terminalHide}</ContextMenuItem>
       </ContextMenuContent>

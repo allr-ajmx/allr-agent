@@ -141,3 +141,37 @@ export function closeAllPreviewTabs(): void {
   $previewTabs.set([])
   $activePreviewPath.set(null)
 }
+
+/** The fourth verb of the shared tab close group. The strip is ORDERED, so
+ *  "to the right" means here exactly what it means on a pane strip — the rail
+ *  simply never wired it, even though its label has been sitting in the
+ *  translations unused. */
+export function closePreviewTabsToRight(path: string): void {
+  const tabs = $previewTabs.get()
+  const at = tabs.findIndex(tab => tab.path === path)
+
+  if (at < 0 || at === tabs.length - 1) {
+    return
+  }
+
+  const keep = tabs.slice(0, at + 1)
+  $previewTabs.set(keep)
+
+  const active = $activePreviewPath.get()
+
+  if (active && !keep.some(tab => tab.path === active)) {
+    $activePreviewPath.set(path)
+  }
+}
+
+/** How many tabs each close verb would hit — the rail's `PaneTabCloseCounts`. */
+export function previewCloseTargets(path: string): { all: number; others: number; right: number } {
+  const tabs = $previewTabs.get()
+  const at = tabs.findIndex(tab => tab.path === path)
+
+  return {
+    all: tabs.length,
+    others: at < 0 ? 0 : tabs.length - 1,
+    right: at < 0 ? 0 : tabs.length - 1 - at
+  }
+}

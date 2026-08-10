@@ -1,6 +1,9 @@
+import { CONTEXT_KIT } from '@/components/ui/actions-menu'
 import { Codicon } from '@/components/ui/codicon'
-import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from '@/components/ui/context-menu'
+import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from '@/components/ui/context-menu'
+import { paneTabCloseItems } from '@/components/ui/pane-tab'
 import { useI18n } from '@/i18n'
+import { isMetaClose, middleClickHandlers } from '@/lib/middle-click'
 import { cn } from '@/lib/utils'
 import { useStore } from '@/store/atom'
 import {
@@ -9,7 +12,9 @@ import {
   closeAllPreviewTabs,
   closeOtherPreviewTabs,
   closePreviewTab,
+  closePreviewTabsToRight,
   isArtifactTab,
+  previewCloseTargets,
   type PreviewTarget,
   selectPreviewTab
 } from '@/store/preview'
@@ -75,13 +80,25 @@ function PreviewTab({ active, dirty, tab }: { active: boolean; dirty: boolean; t
               ? 'bg-(--ui-editor-surface-background) text-foreground'
               : 'text-(--ui-text-tertiary) hover:text-foreground'
           )}
-          onAuxClick={event => {
-            if (event.button === 1) {
+          // Middle-click closes — through `middleClickHandlers`, not
+          // `auxclick`. This strip is `overflow-x-auto`, and a middle press
+          // inside a scroller starts the AUTOSCROLL pan on Windows and Linux:
+          // the mouseup is spent stopping the pan, so `auxclick` never arrives
+          // and the gesture only ever worked on macOS. Every other tab surface
+          // in the app already used the shared handlers; this one was the
+          // holdout.
+          {...middleClickHandlers(() => closePreviewTab(tab.path))}
+          onClick={event => {
+            // ⌘-click closes too, the trackpad equivalent of the middle button.
+            if (isMetaClose(event)) {
               event.preventDefault()
               closePreviewTab(tab.path)
+
+              return
             }
+
+            selectPreviewTab(tab.path)
           }}
-          onClick={() => selectPreviewTab(tab.path)}
           title={tab.path}
         >
           <span className="min-w-0 flex-1 truncate">{tab.name}</span>
@@ -110,9 +127,17 @@ function PreviewTab({ active, dirty, tab }: { active: boolean; dirty: boolean; t
         </div>
       </ContextMenuTrigger>
       <ContextMenuContent className="w-44">
-        <ContextMenuItem onSelect={() => closePreviewTab(tab.path)}>{p.closeTab(tab.name)}</ContextMenuItem>
-        <ContextMenuItem onSelect={() => closeOtherPreviewTabs(tab.path)}>{p.closeOthers}</ContextMenuItem>
-        <ContextMenuItem onSelect={() => closeAllPreviewTabs()}>{p.closeAll}</ContextMenuItem>
+        {/* The SAME four close verbs as every tab strip in the app. This rail
+            used to hand-roll three of them under `preview.*` labels of its own
+            and never offered "to the right" — though `preview.closeToRight` had
+            been sitting in the translations, wired to nothing, all along. */}
+        {paneTabCloseItems(CONTEXT_KIT, {
+          counts: previewCloseTargets(tab.path),
+          onClose: () => closePreviewTab(tab.path),
+          onCloseAll: () => closeAllPreviewTabs(),
+          onCloseOthers: () => closeOtherPreviewTabs(tab.path),
+          onCloseToRight: () => closePreviewTabsToRight(tab.path)
+        })}
       </ContextMenuContent>
     </ContextMenu>
   )
