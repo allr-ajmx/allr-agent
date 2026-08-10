@@ -1,22 +1,47 @@
+import { cva, type VariantProps } from 'class-variance-authority'
 import type { ReactNode } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Tip, TipKeybindLabel } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 
+import { shellChromeControlActive, shellChromeControlIdle } from './cva/tokens'
+
+/**
+ * TitlebarButton CVA (MJXHRM-313).
+ * `desktop` = compact titlebar density; `mobile` = ≥44px touch hit for phone chrome.
+ */
+export const titlebarButtonVariants = cva(
+  cn('rounded-[4px] [&_.codicon]:text-[0.875rem]', shellChromeControlIdle),
+  {
+    variants: {
+      density: {
+        desktop: 'size-5',
+        mobile: 'size-11 min-h-11 min-w-11'
+      },
+      active: {
+        true: shellChromeControlActive,
+        false: ''
+      }
+    },
+    defaultVariants: {
+      density: 'desktop',
+      active: false
+    }
+  }
+)
+
+export type TitlebarButtonVariantProps = VariantProps<typeof titlebarButtonVariants>
+
 // Shared titlebar/window-control button. Matches desktop's `titlebarButtonClass`:
 // transparent fill, muted-foreground/85 idle icon, control-hover fill + full
-// foreground on hover. Compact (desktop titlebar density). `active` reflects a
-// toggle (aria-pressed + a persistent control-active fill).
-//
-// Tooltip, not the native `title`: the app's own Tip renders instantly, matches
-// the rest of the chrome, and — with `actionId` — carries the button's live
-// keybind, which a native tooltip can't show.
+// foreground on hover. `density="mobile"` expands the hit for phone chrome.
 export function TitlebarButton({
   actionId,
   label,
   onClick,
   active = false,
+  density = 'desktop',
   className,
   children
 }: {
@@ -27,17 +52,16 @@ export function TitlebarButton({
   active?: boolean
   className?: string
   children: ReactNode
-}) {
+} & TitlebarButtonVariantProps) {
   return (
     <Tip label={actionId ? <TipKeybindLabel actionId={actionId} text={label} /> : label}>
       <Button
         aria-label={label}
-        aria-pressed={active}
-        className={cn(
-          'size-5 rounded-[4px] bg-transparent text-muted-foreground/85 [&_.codicon]:text-[0.875rem] hover:bg-[var(--ui-control-hover-background)] hover:text-foreground',
-          active && 'bg-[var(--ui-control-active-background)] text-foreground',
-          className
-        )}
+        aria-pressed={active || undefined}
+        className={cn(titlebarButtonVariants({ density, active }), className)}
+        data-density={density}
+        data-slot="titlebar-button"
+        data-state={active ? 'active' : 'default'}
         onClick={onClick}
         type="button"
         variant="ghost"
