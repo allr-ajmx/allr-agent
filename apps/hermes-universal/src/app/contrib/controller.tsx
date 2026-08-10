@@ -520,7 +520,15 @@ bindPaneVisibility(
   closeReview
 )
 // ⌃` / statusbar toggle — the terminal COLLAPSES to a rail (tab stays), not
-// hides; PTYs stay alive while collapsed.
+// hides.
+//
+// "PTYs stay alive while collapsed" was written here as a statement of intent
+// and was FALSE until MJXHRM-373. `setPaneCollapsed` sets `minimized` on the
+// terminal's tree group, and the zone renderer used to render its body only
+// while `!minimized` — so collapsing unmounted `TerminalView`, whose cleanup
+// invokes `pty_kill`. Every ⌃` killed the shell. It is true now because the
+// renderer HIDES a folded zone's body instead of unmounting it; the guarantee
+// lives there, not here.
 bindPaneCollapse(
   'terminal',
   $terminalOpen,
