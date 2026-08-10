@@ -97,6 +97,10 @@ export const KEYBIND_ACTIONS: readonly KeybindActionMeta[] = [
   { id: 'session.togglePin', category: 'session', defaults: [] },
   // ⌘⇧B — "b" for branch: spin up a new git worktree from the active repo.
   { id: 'workspace.newWorktree', category: 'session', defaults: ['mod+shift+b'] },
+  // ⌘O — the editor's universal "open" chord. Desktop reaches this from its
+  // native File menu too; universal has no menu bar, so the keybind and the ⌘K
+  // row are the two doors.
+  { id: 'workspace.openFolder', category: 'session', defaults: ['mod+o'] },
 
   // ── Navigation ───────────────────────────────────────────────────────────
   { id: 'nav.commandPalette', category: 'navigation', defaults: ['mod+k', 'mod+p'] },

@@ -8,7 +8,7 @@ import { $commandPaletteOpen } from '@/store/command-palette'
 import type * as WindowsStore from '@/store/windows'
 import { openAppRoute } from '@/store/windows'
 
-import { PALETTE_AREA } from './contrib'
+import { PALETTE_AREA, paletteToggle } from './contrib'
 
 import { CommandPalette } from './index'
 
@@ -44,6 +44,10 @@ const openPalette = () => {
 // its own copy.
 const input = () => screen.getByRole('combobox')
 
+// A matching row's label is split across <mark>s, so getByText can't see it as
+// one string — match on the row instead.
+const rowLabels = () => screen.getAllByRole('option').map(row => row.textContent)
+
 afterEach(() => {
   cleanup()
   $commandPaletteOpen.set(false)
@@ -61,8 +65,17 @@ describe('CommandPalette', () => {
 
     fireEvent.change(input(), { target: { value: 'star' } })
 
-    expect(screen.getByText('Starmap')).toBeInTheDocument()
-    expect(screen.queryByText('Agents')).not.toBeInTheDocument()
+    expect(rowLabels()).toContain('Starmap')
+    expect(rowLabels()).not.toContain('Agents')
+  })
+
+  it('emphasizes the matched letters so a row says why it is in the list', () => {
+    openPalette()
+    fireEvent.change(input(), { target: { value: 'star' } })
+
+    const marks = screen.getAllByRole('option')[0].querySelectorAll('mark')
+
+    expect([...marks].map(mark => mark.textContent)).toEqual(['Star'])
   })
 
   it('ranks the best label match first so the auto-highlight lands on it', () => {
@@ -146,8 +159,9 @@ describe('palette contributions', () => {
     openPalette()
     fireEvent.change(input(), { target: { value: 'reindex' } })
 
+    // Matched on a keyword, so the label carries no <mark> — getByText is safe.
     expect(screen.getByText('Rebuild index')).toBeInTheDocument()
-    expect(screen.queryByText('Agents')).not.toBeInTheDocument()
+    expect(rowLabels()).not.toContain('Agents')
 
     dispose()
   })
@@ -161,6 +175,31 @@ describe('palette contributions', () => {
     fireEvent.keyDown(input(), { key: 'Enter' })
 
     expect(run).toHaveBeenCalledOnce()
+
+    dispose()
+  })
+
+  it('shows a toggle row its live state and leaves the palette open to flip again', () => {
+    let on = false
+
+    const dispose = register(
+      paletteToggle({ get: () => on, id: 'demo:flag', label: 'Toggle demo flag', set: next => (on = next) }).data,
+      'demo:flag'
+    )
+
+    openPalette()
+
+    const row = () => screen.getAllByRole('option').find(option => option.textContent?.startsWith('Toggle demo flag'))
+
+    expect(row()?.textContent).toBe('Toggle demo flagoff')
+
+    fireEvent.click(screen.getByText('Toggle demo flag'))
+
+    // Flipping is the kind of thing you do twice — the palette stays, and the
+    // note re-reads rather than reporting where the setting used to stand.
+    expect($commandPaletteOpen.get()).toBe(true)
+    expect(on).toBe(true)
+    expect(row()?.textContent).toBe('Toggle demo flagon')
 
     dispose()
   })

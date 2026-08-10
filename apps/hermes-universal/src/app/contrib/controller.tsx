@@ -6,9 +6,9 @@ import { type ReactElement, useEffect } from 'react'
 import { useLocation } from 'react-router-dom'
 
 import { composerTargetForPane, markActiveComposer } from '@/app/chat/composer/focus'
-import { PALETTE_AREA, type PaletteContribution } from '@/app/command-palette/contrib'
+import { PALETTE_AREA, type PaletteContribution, paletteToggle } from '@/app/command-palette/contrib'
 import { IdleMount } from '@/components/idle-mount'
-import { toggleLayoutEditMode } from '@/components/pane-shell/edit-mode'
+import { $layoutEditMode, toggleLayoutEditMode } from '@/components/pane-shell/edit-mode'
 import { registerTile, registerTiles } from '@/components/pane-shell/tile/registry'
 import { allPaneIds, group, split } from '@/components/pane-shell/tree/model'
 import { LAYOUTS_AREA } from '@/components/pane-shell/tree/presets'
@@ -62,7 +62,7 @@ import {
   nextSessionTileForWorkspace,
   setVisibleBubbleKeysProvider
 } from '@/store/session-states'
-import { toggleStatusbarVisible } from '@/store/statusbar-prefs'
+import { $statusbarVisible } from '@/store/statusbar-prefs'
 import { $effectiveCwd, ensureWorkspaceCwd } from '@/store/workspace-events'
 
 import { watchPreviewTiles } from '../chat/preview-tile'
@@ -282,18 +282,15 @@ registry.registerMany([
     } satisfies KeybindContribution,
     id: 'layout.editMode'
   },
-  {
-    area: PALETTE_AREA,
-    data: {
-      action: 'layout.editMode',
-      icon: LayoutDashboard,
-      id: 'layout.editMode',
-      keywords: ['layout', 'zones', 'panes', 'edit', 'rearrange'],
-      label: 'Toggle layout edit mode',
-      run: toggleLayoutEditMode
-    } satisfies PaletteContribution,
-    id: 'layout.editMode'
-  },
+  paletteToggle({
+    action: 'layout.editMode',
+    get: () => $layoutEditMode.get(),
+    icon: LayoutDashboard,
+    id: 'layout.editMode',
+    keywords: ['layout', 'zones', 'panes', 'edit', 'rearrange'],
+    label: 'Toggle layout edit mode',
+    set: enabled => $layoutEditMode.set(enabled)
+  }),
   {
     area: PALETTE_AREA,
     data: {
@@ -307,18 +304,15 @@ registry.registerMany([
   },
   // Hiding the bar removes the surface that would otherwise offer it back, so
   // the command menu is the guaranteed door in (alongside the rebindable ⌘⇧S).
-  {
-    area: PALETTE_AREA,
-    data: {
-      action: 'view.toggleStatusbar',
-      icon: PanelBottom,
-      id: 'view.toggleStatusbar',
-      keywords: ['status bar', 'statusbar', 'bottom bar', 'hide', 'show', 'chrome'],
-      label: 'Toggle status bar',
-      run: toggleStatusbarVisible
-    } satisfies PaletteContribution,
-    id: 'view.toggleStatusbar'
-  },
+  paletteToggle({
+    action: 'view.toggleStatusbar',
+    get: () => $statusbarVisible.get(),
+    icon: PanelBottom,
+    id: 'view.toggleStatusbar',
+    keywords: ['status bar', 'statusbar', 'bottom bar', 'hide', 'show', 'chrome'],
+    label: 'Toggle status bar',
+    set: enabled => $statusbarVisible.set(enabled)
+  }),
   // The manual rescan door, for when the poll's cadence isn't enough (or the
   // gateway door skipped content-diffing because the tree is large).
   {

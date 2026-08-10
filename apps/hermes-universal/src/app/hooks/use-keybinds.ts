@@ -34,6 +34,7 @@ import {
   switchToDefaultProfile,
   toggleShowAllProfiles
 } from '@/store/profile'
+import { openFolderAsProject } from '@/store/projects'
 import { toggleReview } from '@/store/review'
 import { toggleSelectedPin } from '@/store/session'
 import { $sessionTiles, focusOpenSession, reopenLastClosedTile, requestCloseSessionTile } from '@/store/session-states'
@@ -194,6 +195,8 @@ export function useKeybinds(deps: KeybindRuntimeDeps): void {
     // works from a detached session inside a project. With no repo in reach,
     // openWorktreeDialog does nothing.
     'workspace.newWorktree': () => void openWorktreeDialog(),
+    // ⌘O — pick a folder and adopt it as a project, then start working in it.
+    'workspace.openFolder': () => void openFolderAsProject(),
 
     // Narrow-viewport reveal is handled inside the store toggles now.
     // Both are POSITIONAL (see `store/layout.ts`): ⌘B drives whatever sits on the

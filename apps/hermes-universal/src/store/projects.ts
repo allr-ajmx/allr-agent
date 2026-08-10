@@ -125,6 +125,13 @@ export function exitProjectScope(): void {
   $projectScope.set(ALL_PROJECTS)
 }
 
+/** Enter a project by id (the palette's Projects rows), grouping the sidebar so
+ *  the scope switch is visible where the user is looking. */
+export function goToProject(id: string): void {
+  setSidebarAgentsGrouped(true)
+  enterProject(id)
+}
+
 /** A project's repo root: its own folder, else the first repo that has one. */
 export const projectRootCwd = (project: SidebarProjectTree | undefined): string =>
   (project?.path || project?.repos.find(repo => repo.path)?.path || '').trim()
@@ -537,6 +544,53 @@ export async function pickProjectFolder(): Promise<null | string> {
   })
 
   return dir || null
+}
+
+/**
+ * ⌘O: adopt a folder as a project and start working in it. `dir` skips the
+ * picker (a path typed straight into the palette).
+ *
+ * Desktop reaches Electron's native dialog here; universal goes through
+ * `pickProjectFolder`, which is remote-aware — a Tauri desktop opens the OS
+ * dialog, everything else browses the BACKEND filesystem, where the session is
+ * actually going to run.
+ */
+export async function openFolderAsProject(dir?: string): Promise<void> {
+  const target = (dir ?? (await pickProjectFolder()) ?? '').trim()
+
+  if (!target) {
+    return
+  }
+
+  // Refresh first so the membership check runs against live truth — a repo
+  // cloned since the last scan should enter its auto project, not double-create.
+  await refreshProjectTree()
+
+  const existing = projectIdForCwd(target)
+
+  if (existing) {
+    goToProject(existing)
+  } else {
+    const name =
+      target
+        .replace(/[/\\]+$/, '')
+        .split(/[/\\]/)
+        .pop() || target
+
+    try {
+      const created = await createProject({ folders: [target], name, primaryPath: target, use: true })
+
+      if (created) {
+        goToProject(created.id)
+      }
+    } catch (err) {
+      // Stale backend (no projects.* RPC) or a failed write: still open the
+      // folder as a plain workspace session below — the project row can wait.
+      notify({ kind: 'warning', message: err instanceof Error ? err.message : String(err) })
+    }
+  }
+
+  requestStartWorkSession(target)
 }
 
 // Reveal a project/worktree path in the OS file manager (git-GUI standard).

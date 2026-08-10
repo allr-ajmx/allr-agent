@@ -1094,6 +1094,9 @@ export interface Translations {
     searchPlaceholder: string
     goTo: string
     goToSession: string
+    projects: string
+    openFolder: string
+    openFolderAt: (path: string) => string
     branches: string
     startInBranch: (branch: string) => string
     commandCenter: string
