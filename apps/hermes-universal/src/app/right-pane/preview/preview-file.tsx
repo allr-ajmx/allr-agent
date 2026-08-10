@@ -1,5 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import ShikiHighlighter from 'react-shiki'
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { Streamdown } from 'streamdown'
 
 import { exceedsHighlightBudget } from '@/components/chat/shiki-highlighter'
@@ -18,6 +17,8 @@ import { $workspaceCwd, notifyWorkspaceChanged } from '@/store/workspace-events'
 import { useTheme } from '@/themes/context'
 
 import { MobileKeyRow } from './mobile-key-row'
+
+const PreviewShikiBlock = lazy(() => import('@/app/right-pane/preview/preview-shiki-block'))
 
 // Right-pane file viewer/editor. Adapted from desktop's chat/right-rail/
 // preview-file.tsx: read text/image, switch source (Shiki) / rendered (markdown)
@@ -419,9 +420,16 @@ export function PreviewFile({ target, variant = 'rail' }: { target: PreviewTarge
               // was the one that didn't, which is why it was the one that hung.
               <pre className="p-2 font-mono whitespace-pre">{loaded.text}</pre>
             ) : (
-              <ShikiHighlighter language={loaded.language} showLanguage={false} theme={shikiTheme}>
-                {loaded.text}
-              </ShikiHighlighter>
+              // Lazy for the same reason the transcript's fence is: this was
+              // the third static path into `react-shiki`, and one static
+              // importer anywhere is enough to keep the engine in the entry
+              // chunk (MJXHRM-380). The plain <pre> above is the fallback, so
+              // the file is readable while the engine loads.
+              <Suspense fallback={<pre className="p-2 font-mono whitespace-pre">{loaded.text}</pre>}>
+                <PreviewShikiBlock language={loaded.language} theme={shikiTheme}>
+                  {loaded.text}
+                </PreviewShikiBlock>
+              </Suspense>
             )}
           </div>
         )}

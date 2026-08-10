@@ -1,12 +1,11 @@
 'use client'
 
-import type { ReactNode } from 'react'
 import * as React from 'react'
-import { useShikiHighlighter } from 'react-shiki'
-import { type BundledLanguage, codeToTokens, type ShikiTransformer, type ThemedToken } from 'shiki'
+import type { BundledLanguage, ShikiTransformer, ThemedToken } from 'shiki'
 
 import { chunkLines, type LineChunk, useFixedRowWindow } from '@/components/chat/fixed-row-window'
-import { exceedsHighlightBudget, SHIKI_THEME } from '@/components/chat/shiki-highlighter'
+import { exceedsHighlightBudget } from '@/components/chat/shiki-highlighter'
+import { SHIKI_THEME } from '@/components/chat/shiki-theme'
 import { shikiLanguageForFilename } from '@/lib/markdown-code'
 import { cn } from '@/lib/utils'
 
@@ -387,7 +386,12 @@ function TokenizedDiffBody({
     let cancelled = false
 
     setTokens(null)
-    void codeToTokens(code, { lang: language as BundledLanguage, theme })
+    // Dynamic: `shiki` must not be reachable statically from the transcript, or
+    // the engine ships in the entry chunk however the fence highlighter is
+    // loaded (MJXHRM-380). This call was already async, so deferring the module
+    // with it costs nothing but one extra microtask on the first diff.
+    void import('shiki')
+      .then(({ codeToTokens }) => codeToTokens(code, { lang: language as BundledLanguage, theme }))
       .then(result => {
         if (!cancelled) {
           setTokens(result.tokens)
@@ -466,17 +470,23 @@ function diffLineTransformer(kinds: DiffKind[]): ShikiTransformer {
   }
 }
 
+/** `useShikiHighlighter` is a hook, so it cannot be deferred at its call site
+ *  the way `codeToTokens` can — it gets a module of its own instead. The plain
+ *  coloured diff is BOTH the Suspense fallback (while the chunk loads) and the
+ *  child's own fallback (while Shiki tokenizes), so the two waits look the same
+ *  and neither flashes. */
+const LazySyntaxDiff = React.lazy(() => import('@/components/chat/diff-lines-shiki'))
+
 function SyntaxDiff({ language, lines }: { language: string; lines: DiffLine[] }) {
   const code = React.useMemo(() => lines.map(line => line.text).join('\n'), [lines])
   const transformers = React.useMemo(() => [diffLineTransformer(lines.map(line => line.kind))], [lines])
+  const plain = <DiffBody lines={lines} />
 
-  const highlighted = useShikiHighlighter(code, language, SHIKI_THEME, {
-    defaultColor: 'light-dark()',
-    transformers
-  })
-
-  // Until Shiki resolves, show the plain colored diff so there's no flash.
-  return (highlighted as ReactNode) ?? <DiffBody lines={lines} />
+  return (
+    <React.Suspense fallback={plain}>
+      <LazySyntaxDiff code={code} fallback={plain} language={language} transformers={transformers} />
+    </React.Suspense>
+  )
 }
 
 interface DiffLinesProps extends Omit<React.ComponentProps<'pre'>, 'children'> {
