@@ -100,12 +100,16 @@ export function repoWorktreesForCwd(cwd?: null | string): ReadableAtom<HermesGit
 export type RepoChangeKind = 'added' | 'conflicted' | 'modified'
 
 // Absolute file path → its git change kind, for VS Code-style file-tree tinting.
-// Reuses the same bounded $repoStatus probe (capped file list); git reports
-// repo-root-relative paths, so we join them onto the active cwd. Deletions never
-// appear — the file is gone from disk, so there's no tree row to tint.
-export const $repoChangeByPath = computed([$repoStatus, $currentCwd], (status, cwd) => {
+// Reuses the same bounded status probe (capped file list); git reports repo-root-
+// relative paths, so we join them onto the cwd. Keyed to $effectiveCwd, not the
+// sidebar's cwd: the file tree is a singleton decorating the review pane, and
+// that pane already follows the FOCUSED chat. Deletions never appear — the file
+// is gone from disk, so there's no tree row to tint.
+export const $repoChangeByPath = computed([$repoStatusByCwd, $effectiveCwd], (byCwd, cwd) => {
   const map = new Map<string, RepoChangeKind>()
-  const root = (cwd || '').replace(/[/\\]+$/, '')
+  const key = normalizeCwd(cwd)
+  const status = key ? (byCwd[key] ?? null) : null
+  const root = (key || '').replace(/[/\\]+$/, '')
 
   if (!status || !root) {
     return map

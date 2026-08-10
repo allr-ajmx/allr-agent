@@ -47,6 +47,7 @@ const $currentCwd = $currentCwdRead as unknown as WritableAtom<string>
 const $effectiveCwd = $effectiveCwdRead as unknown as WritableAtom<string>
 
 import {
+  $repoChangeByPath,
   $repoStatus,
   $repoStatusByCwd,
   $repoStatusLoading,
@@ -375,5 +376,31 @@ describe('registerRepoStatusCwd', () => {
     expect(repoStatus.mock.calls.map(call => call[0])).toEqual(['/main'])
 
     release?.()
+  })
+})
+
+describe('$repoChangeByPath', () => {
+  const withFiles = (branch: string, path: string): HermesRepoStatus => ({
+    ...sampleStatus,
+    branch,
+    files: [{ path, untracked: true } as HermesRepoStatus['files'][number]]
+  })
+
+  it('decorates the FOCUSED chat’s worktree, not the sidebar’s', () => {
+    $repoStatusByCwd.set({ '/main': withFiles('main', 'a.ts'), '/tile': withFiles('bb/tile', 'b.ts') })
+    $currentCwd.set('/main')
+    $effectiveCwd.set('/tile')
+
+    expect([...$repoChangeByPath.get()]).toEqual([['/tile/b.ts', 'added']])
+
+    $effectiveCwd.set('/main')
+    expect([...$repoChangeByPath.get()]).toEqual([['/main/a.ts', 'added']])
+  })
+
+  it('is empty with no focused cwd', () => {
+    $repoStatusByCwd.set({ '/main': withFiles('main', 'a.ts') })
+    $effectiveCwd.set('')
+
+    expect($repoChangeByPath.get().size).toBe(0)
   })
 })
