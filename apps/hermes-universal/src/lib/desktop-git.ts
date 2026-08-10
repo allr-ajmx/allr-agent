@@ -2,12 +2,14 @@ import type {
   HermesGitBaseBranch,
   HermesGitBranch,
   HermesGitWorktree,
+  HermesRepoPullRequests,
   HermesRepoStatus,
   HermesReviewList,
   HermesReviewScope,
   HermesReviewShipInfo
 } from '@/global'
 import { api } from '@/lib/api'
+import { listRepoPullRequests } from '@/lib/gateway-rest'
 import { localRepoScanSupported, scanLocalGitRepos } from '@/store/repo-scan'
 
 // Ported from apps/desktop/src/lib/desktop-git.ts — specifically its `remoteGit`
@@ -55,6 +57,9 @@ export interface GitBridge {
     commitContext: (repoPath: string) => Promise<{ diff: string; recent: string }>
     push: (repoPath: string) => Promise<{ ok: boolean }>
     shipInfo: (repoPath: string) => Promise<HermesReviewShipInfo>
+    /** The repo's PRs for these branches (and/or explicit numbers), via `gh`.
+     *  Both lists are deduped and capped backend-side. */
+    prList: (repoPath: string, branches: string[], numbers?: number[]) => Promise<HermesRepoPullRequests>
     createPr: (repoPath: string) => Promise<{ url: string }>
   }
   scanRepos: (
@@ -125,6 +130,10 @@ const remoteGit: GitBridge = {
     push: repoPath => gitPost('review/push', { path: repoPath }),
 
     shipInfo: repoPath => gitGet<HermesReviewShipInfo>('review/ship-info', { path: repoPath }),
+
+    // The one PR client: gateway-rest owns the /api/git/review/pr-list call, and
+    // this exposes it on the same facade every other git op goes through.
+    prList: (repoPath, branches, numbers) => listRepoPullRequests(repoPath, branches, numbers),
 
     createPr: repoPath => gitPost('review/create-pr', { path: repoPath })
   },

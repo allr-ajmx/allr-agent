@@ -100,3 +100,22 @@ export interface HermesReviewShipInfo {
   ghReady: boolean
   pr: HermesReviewPr | null
 }
+
+// One repo's PRs as reported by `gh pr list`, each tied to the branch it was
+// opened from — how a session row finds its own PR.
+export interface HermesBranchPullRequest {
+  branch: string
+  draft: boolean
+  number: number
+  /** `open` | `closed` | `merged`, lowercased from gh. */
+  state: string
+  title: string
+  url: string
+}
+
+export interface HermesRepoPullRequests {
+  /** False whenever `gh` is missing, unauthenticated, or the query failed — in
+   *  which case `prs` is empty and means "unknown", not "none". */
+  ghReady: boolean
+  prs: HermesBranchPullRequest[]
+}

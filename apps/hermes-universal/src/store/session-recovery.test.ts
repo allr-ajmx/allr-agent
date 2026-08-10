@@ -20,9 +20,7 @@ vi.mock('@/store/session-state-types', () => ({
   aliasStoredSessionId: (...args: unknown[]) => aliasStoredSessionId(...args)
 }))
 
-const { isSessionNotFoundError, SessionRecoveryAborted, withSessionNotFoundResume } = await import(
-  './session-recovery'
-)
+const { isSessionNotFoundError, SessionRecoveryAborted, withSessionNotFoundResume } = await import('./session-recovery')
 
 const notFound = () => new Error('session not found: dead-runtime')
 

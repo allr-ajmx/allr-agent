@@ -5,6 +5,7 @@ import { translateNow } from '@/i18n'
 import { copyTextToClipboard, desktopDefaultCwd, selectDesktopPaths, writeDesktopFileText } from '@/lib/desktop-fs'
 import { desktopGit } from '@/lib/desktop-git'
 import { moveSessionWorkspace } from '@/lib/gateway-rpc'
+import { isUnderPath } from '@/lib/path-compare'
 import { persistentAtom } from '@/lib/persisted'
 import { revealPathInFileManager } from '@/lib/reveal-path'
 import { atom } from '@/store/atom'
@@ -122,6 +123,35 @@ export function enterProject(id: string): void {
 
 export function exitProjectScope(): void {
   $projectScope.set(ALL_PROJECTS)
+}
+
+/** A project's repo root: its own folder, else the first repo that has one. */
+export const projectRootCwd = (project: SidebarProjectTree | undefined): string =>
+  (project?.path || project?.repos.find(repo => repo.path)?.path || '').trim()
+
+// The id of the project that OWNS `cwd` (longest path match), or null when the
+// cwd sits in no project. Match project + repo roots AND each worktree-lane
+// path: a linked worktree (e.g. `<repo>/.worktrees/<branch>`, or a sibling
+// `repo-retry`) can live outside the repo root, so root-prefix matching alone
+// would miss it — but it's still part of the project.
+export function projectIdForCwd(cwd: string): null | string {
+  let best: null | string = null
+  let bestLen = -1
+
+  for (const project of $projectTree.get()) {
+    const paths = [project.path, ...project.repos.flatMap(repo => [repo.path, ...repo.groups.map(group => group.path)])]
+
+    for (const path of paths) {
+      const p = (path || '').trim()
+
+      if (p && isUnderPath(p, cwd) && p.length > bestLen) {
+        bestLen = p.length
+        best = project.id
+      }
+    }
+  }
+
+  return best
 }
 
 // ── Optimistic cache layer ──────────────────────────────────────────────────
@@ -756,15 +786,26 @@ export interface StartWorkSessionRequest {
 
 export const $startWorkSessionRequest = atom<StartWorkSessionRequest | null>(null)
 
-// Keyboard-driven "spin up a new worktree" intent. The composer's coding row
-// owns the name dialog (it has the active repo + branch context), so a global
-// hotkey just bumps this token; the row opens its branch-off dialog in response.
-// A monotonic token re-fires even on repeat presses. No-ops off a repo (the row
-// isn't mounted), which is the right "nothing to branch" outcome.
-export const $newWorktreeRequest = atom(0)
+// The "make a new worktree" intent, from the keyboard or a menu. ONE dialog is
+// mounted, in the sidebar beside ProjectDialog, and it reads this atom. This
+// mirrors $projectDialog. It used to be a monotonic token that every mounted
+// coding rail subscribed to, so N composers on screen gave N stacked dialogs
+// for one ⌘⇧B, and dismissing the top one revealed an identical empty one
+// behind it. One mount cannot double-open.
+//
+// `repoPath` is resolved when the dialog opens (see resolveWorktreeRepoPath in
+// store/coding-status.ts), not read from the rail that received the key, so the
+// dialog always targets the surface the user is looking at.
+export interface WorktreeDialogState {
+  repoPath: string
+  /** The base branch selected in a "branch off from X" menu. */
+  base?: string
+}
 
-export function requestNewWorktree(): void {
-  $newWorktreeRequest.set($newWorktreeRequest.get() + 1)
+export const $worktreeDialog = atom<null | WorktreeDialogState>(null)
+
+export function closeWorktreeDialog(): void {
+  $worktreeDialog.set(null)
 }
 
 let startWorkToken = 0

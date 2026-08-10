@@ -4,8 +4,15 @@ import type { HermesGitWorktree, HermesRepoStatus } from '@/global'
 import { desktopGit } from '@/lib/desktop-git'
 
 import { $busy, $currentCwd } from './chat'
-import { $worktreeRefreshToken } from './projects'
-import { $workspaceChangeTick } from './workspace-events'
+import {
+  $projectScope,
+  $projectTree,
+  $worktreeDialog,
+  $worktreeRefreshToken,
+  ALL_PROJECTS,
+  projectRootCwd
+} from './projects'
+import { $effectiveCwd, $workspaceChangeTick } from './workspace-events'
 
 // Live working-tree status for the active session's cwd — the data backbone of
 // the composer coding rail. It's the same "cheaply re-read git truth at the
@@ -197,4 +204,81 @@ $busy.subscribe(busy => {
 // refocus, the git-GUI standard.
 if (typeof window !== 'undefined') {
   window.addEventListener('focus', () => scheduleRepoStatusRefresh())
+}
+
+// ── New-worktree target resolution ───────────────────────────────────────────
+// This code lives here and not in projects.ts. To pick the target it must read
+// both the project state and the git truth, and coding-status already depends
+// on projects — a dependency the other way is a cycle.
+
+// `git status` answers "is this a repo?" for free, so remember the verdict per
+// path. Bounded by the folders a user actually points at in one run.
+const gitRepoByPath = new Map<string, boolean>()
+
+/**
+ * Is this path a git repo? A path sitting in a project row is not evidence that
+ * git can branch from it, so any candidate picked out of FOLDERS is validated
+ * here. False when there's no git bridge at all (nothing to probe).
+ */
+export async function isGitRepoPath(cwd: string): Promise<boolean> {
+  const key = normalizeCwd(cwd)
+  const probe = desktopGit()?.repoStatus
+
+  if (!key || !probe) {
+    return false
+  }
+
+  const cached = gitRepoByPath.get(key)
+
+  if (cached !== undefined) {
+    return cached
+  }
+
+  let isRepo = false
+
+  try {
+    isRepo = (await probe(key)) !== null
+  } catch {
+    isRepo = false
+  }
+
+  gitRepoByPath.set(key, isRepo)
+
+  return isRepo
+}
+
+// The repo a new worktree is cut from: the cwd of the FOCUSED surface, or the
+// root of the project the user entered. Both are things the user points at —
+// there is no "use some other project's repo" step, because that would branch
+// somewhere the user never selected. '' means no repo is in reach; that's a
+// no-op rather than an error, since a worktree only exists inside a repo.
+export async function resolveWorktreeRepoPath(): Promise<string> {
+  const scope = $projectScope.get()
+  const scopedProject = scope === ALL_PROJECTS ? undefined : $projectTree.get().find(node => node.id === scope)
+
+  const candidates = [$effectiveCwd.get(), projectRootCwd(scopedProject)]
+
+  for (const candidate of candidates) {
+    const path = (candidate ?? '').trim()
+
+    if (path && (await isGitRepoPath(path))) {
+      return path
+    }
+  }
+
+  return ''
+}
+
+/** Publish the "new worktree" intent. The ONE mounted WorktreeDialog renders it. */
+export async function openWorktreeDialog(options?: { base?: string; repoPath?: string }): Promise<void> {
+  const repoPath = options?.repoPath?.trim() || (await resolveWorktreeRepoPath())
+
+  if (repoPath) {
+    $worktreeDialog.set({ base: options?.base, repoPath })
+  }
+}
+
+/** Test-only: drop the repo-probe memo so cases don't leak into each other. */
+export function _resetCodingStatusForTests(): void {
+  gitRepoByPath.clear()
 }

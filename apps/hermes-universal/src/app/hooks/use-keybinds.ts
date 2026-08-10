@@ -11,7 +11,7 @@ import { contributedKeybindHandler, PROFILE_SLOT_COUNT, SESSION_SLOT_COUNT } fro
 import { comboAllowedInInput, comboFromEvent, isEditableTarget, isShiftPrintableCombo } from '@/lib/keybinds/combo'
 import { composerFocusKeysAllowed, isComposerFocusSoftCombo, typeToFocusChar } from '@/lib/keybinds/composer-focus-keys'
 import { storedIdFromTilePane } from '@/lib/pane-ids'
-import { $repoStatus } from '@/store/coding-status'
+import { openWorktreeDialog } from '@/store/coding-status'
 import { toggleCommandPalette } from '@/store/command-palette'
 import { $capture, $comboIndex, endCapture, setBinding } from '@/store/keybinds'
 import {
@@ -33,15 +33,9 @@ import {
   switchToDefaultProfile,
   toggleShowAllProfiles
 } from '@/store/profile'
-import { requestNewWorktree } from '@/store/projects'
 import { toggleReview } from '@/store/review'
 import { toggleSelectedPin } from '@/store/session'
-import {
-  $sessionTiles,
-  focusOpenSession,
-  reopenLastClosedTile,
-  requestCloseSessionTile
-} from '@/store/session-states'
+import { $sessionTiles, focusOpenSession, reopenLastClosedTile, requestCloseSessionTile } from '@/store/session-states'
 import {
   $switcherOpen,
   closeSwitcher,
@@ -193,11 +187,12 @@ export function useKeybinds(deps: KeybindRuntimeDeps): void {
     ...sessionSlotHandlers,
     'session.focusSearch': requestSessionSearchFocus,
     'session.togglePin': toggleSelectedPin,
-    // ⌘⇧B spins up a new git worktree from the active repo. Only meaningful
-    // inside one — a no-op otherwise, so the key falls through. The composer's
-    // coding row owns the dialog (it has the repo + branch context) and opens it
-    // in response to the token.
-    'workspace.newWorktree': () => void ($repoStatus.get() && requestNewWorktree()),
+    // ⌘⇧B spins up a new git worktree. openWorktreeDialog resolves the target
+    // (the focused surface's cwd, else the entered project's root) and publishes
+    // it to the ONE mounted dialog, so this no longer tests $repoStatus first and
+    // works from a detached session inside a project. With no repo in reach,
+    // openWorktreeDialog does nothing.
+    'workspace.newWorktree': () => void openWorktreeDialog(),
 
     // Narrow-viewport reveal is handled inside the store toggles now.
     // Both are POSITIONAL (see `store/layout.ts`): ⌘B drives whatever sits on the

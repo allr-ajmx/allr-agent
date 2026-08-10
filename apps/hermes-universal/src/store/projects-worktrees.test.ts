@@ -20,14 +20,14 @@ vi.mock('@/lib/desktop-fs', () => ({
 }))
 
 import {
-  $newWorktreeRequest,
   $startWorkSessionRequest,
+  $worktreeDialog,
   $worktreeRefreshToken,
+  closeWorktreeDialog,
   listBaseBranches,
   listRepoBranches,
   pickProjectFolder,
   removeWorktreePath,
-  requestNewWorktree,
   requestStartWorkSession,
   startWorkInRepo,
   switchBranchInRepo
@@ -38,7 +38,7 @@ beforeEach(() => {
   vi.mocked(desktopGit).mockReturnValue(bridge as never)
   $worktreeRefreshToken.set(0)
   $startWorkSessionRequest.set(null)
-  $newWorktreeRequest.set(0)
+  $worktreeDialog.set(null)
 })
 
 describe('projects store — worktree ops', () => {
@@ -113,10 +113,16 @@ describe('projects store — worktree ops', () => {
     expect(await pickProjectFolder()).toBeNull()
   })
 
-  it('bumps the new-worktree hotkey token', () => {
-    requestNewWorktree()
-    requestNewWorktree()
+  // One dialog is mounted for the whole app, so the "new worktree" intent is a
+  // state, not a token: a second open replaces the first instead of stacking.
+  it('holds a single new-worktree intent', () => {
+    $worktreeDialog.set({ base: 'main', repoPath: '/repo' })
+    $worktreeDialog.set({ repoPath: '/other' })
 
-    expect($newWorktreeRequest.get()).toBe(2)
+    expect($worktreeDialog.get()).toEqual({ repoPath: '/other' })
+
+    closeWorktreeDialog()
+
+    expect($worktreeDialog.get()).toBeNull()
   })
 })

@@ -297,15 +297,12 @@ export function useSlashCommand() {
             // One shared resolver rebinds it and retries once (MJXHRM-219).
             // `alsoTimeout` stays off — compress is an LLM call over the whole
             // conversation, and re-firing a slow one would double the work.
-            const { result } = await withSessionNotFoundResume(
-              sessionId,
-              $activeStoredSessionId.get(),
-              live =>
-                requestGateway<SessionCompressResponse>(
-                  'session.compress',
-                  { session_id: live, ...(focusTopic && { focus_topic: focusTopic }) },
-                  SESSION_COMPRESS_TIMEOUT_MS
-                )
+            const { result } = await withSessionNotFoundResume(sessionId, $activeStoredSessionId.get(), live =>
+              requestGateway<SessionCompressResponse>(
+                'session.compress',
+                { session_id: live, ...(focusTopic && { focus_topic: focusTopic }) },
+                SESSION_COMPRESS_TIMEOUT_MS
+              )
             )
 
             if (Array.isArray(result?.messages)) {
