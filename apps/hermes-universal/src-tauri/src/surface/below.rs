@@ -25,6 +25,8 @@
 //! change. Metadata only — this never captures pixels.
 
 use std::collections::BTreeMap;
+#[cfg(unix)]
+use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
@@ -228,20 +230,136 @@ pub fn answer_from_clients(payload: &str, self_pid: i32) -> WindowBelowAnswer {
 // Hyprland IPC
 // ---------------------------------------------------------------------------
 
+/// Whether a `HYPRLAND_INSTANCE_SIGNATURE` may be pasted into a path
+/// (MJXHRM-382).
+///
+/// The signature is an environment variable, so it is attacker-chosen the moment
+/// anyone can set the process environment, and it is interpolated into a
+/// filesystem path. Hyprland's own signatures are `<hex>_<epoch>_<rand>`; the
+/// rule here is the conservative superset of that, and it exists to stop
+/// `../../..`-style traversal from pointing the IPC client at a socket in some
+/// other session's directory.
+fn signature_is_wellformed(signature: &str) -> bool {
+    !signature.is_empty()
+        && signature.len() <= 128
+        && signature
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+}
+
+/// Whether an `XDG_RUNTIME_DIR` may be used as the socket's root.
+///
+/// Must be absolute and free of `..`: a relative or traversing value would make
+/// the socket path depend on the working directory, or escape the runtime dir
+/// entirely. The *ownership* of what it points at is checked separately, at
+/// connect time, by [`socket_is_ours`].
+fn runtime_dir_is_wellformed(dir: &str) -> bool {
+    dir.starts_with('/') && !dir.split('/').any(|part| part == "..")
+}
+
 /// `$XDG_RUNTIME_DIR/hypr/$HYPRLAND_INSTANCE_SIGNATURE/.socket.sock`, or `None`
-/// when this is not a Hyprland session. Pure so the path rule is testable
-/// off-session.
+/// when this is not a Hyprland session — or when the environment's answer is not
+/// a shape we are willing to paste into a path. Pure so the path rule is
+/// testable off-session.
 pub fn socket_path(env: &BTreeMap<String, String>, uid: u32) -> Option<String> {
     let signature = env.get("HYPRLAND_INSTANCE_SIGNATURE")?;
-    if signature.is_empty() {
+    if !signature_is_wellformed(signature) {
         return None;
     }
-    let runtime = env
-        .get("XDG_RUNTIME_DIR")
-        .filter(|d| !d.is_empty())
-        .map(|d| format!("{d}/hypr"))
-        .unwrap_or_else(|| format!("/run/user/{uid}/hypr"));
+    let runtime = match env.get("XDG_RUNTIME_DIR").filter(|d| !d.is_empty()) {
+        Some(dir) if runtime_dir_is_wellformed(dir) => format!("{dir}/hypr"),
+        // A malformed XDG_RUNTIME_DIR is ignored rather than fatal: the default
+        // location is what the variable would have named on a sane session.
+        Some(_) | None => format!("/run/user/{uid}/hypr"),
+    };
     Some(format!("{runtime}/{signature}/.socket.sock"))
+}
+
+/// Whether the socket at `path` belongs to us and sits somewhere only we can
+/// write (MJXHRM-382).
+///
+/// Checked *before* connecting, because connecting is itself the interesting
+/// act: the reply is parsed as JSON and turned into a report about the user's
+/// screen, so a socket planted by another user is a way to feed this app a story
+/// about what is on it. Refuses anything it cannot stat.
+#[cfg(unix)]
+fn socket_is_ours(path: &Path, uid: u32) -> bool {
+    use std::os::unix::fs::{FileTypeExt, MetadataExt};
+
+    let Ok(meta) = std::fs::symlink_metadata(path) else {
+        return false;
+    };
+    if !meta.file_type().is_socket() || meta.uid() != uid {
+        return false;
+    }
+
+    // Every directory above it must be ours and not writable by anyone else,
+    // otherwise the socket could be swapped between this check and the connect.
+    let mut current = path.parent();
+    while let Some(dir) = current {
+        let Ok(meta) = std::fs::metadata(dir) else {
+            return false;
+        };
+        if meta.mode() & 0o022 != 0 || (meta.uid() != 0 && meta.uid() != uid) {
+            return false;
+        }
+        current = dir.parent();
+    }
+
+    true
+}
+
+/// The kernel's word on who is on the other end, which is the one answer no
+/// filesystem race can forge.
+///
+/// Linux-only: `SO_PEERCRED` is a Linux socket option, and so is Hyprland.
+/// Everywhere else [`socket_is_ours`] is the whole check.
+#[cfg(target_os = "linux")]
+fn peer_is_ours(stream: &std::os::unix::net::UnixStream, uid: u32) -> bool {
+    use std::os::unix::io::AsRawFd;
+
+    #[repr(C)]
+    struct Ucred {
+        pid: i32,
+        uid: u32,
+        gid: u32,
+    }
+
+    const SOL_SOCKET: i32 = 1;
+    const SO_PEERCRED: i32 = 17;
+
+    let mut cred = Ucred {
+        pid: 0,
+        uid: u32::MAX,
+        gid: u32::MAX,
+    };
+    let mut len = std::mem::size_of::<Ucred>() as u32;
+
+    // SAFETY: `cred` is a correctly sized, correctly aligned `struct ucred` and
+    // `len` its size; `getsockopt` writes at most `len` bytes into it and
+    // updates `len`. The fd is owned by `stream` and outlives the call.
+    let rc = unsafe {
+        getsockopt(
+            stream.as_raw_fd(),
+            SOL_SOCKET,
+            SO_PEERCRED,
+            std::ptr::addr_of_mut!(cred).cast(),
+            &mut len,
+        )
+    };
+
+    rc == 0 && len as usize == std::mem::size_of::<Ucred>() && cred.uid == uid
+}
+
+#[cfg(target_os = "linux")]
+extern "C" {
+    fn getsockopt(
+        fd: i32,
+        level: i32,
+        name: i32,
+        value: *mut std::ffi::c_void,
+        len: *mut u32,
+    ) -> i32;
 }
 
 fn env_map() -> BTreeMap<String, String> {
@@ -283,8 +401,27 @@ fn request(path: &str, command: &str) -> Result<String, String> {
     use std::os::unix::net::UnixStream;
     use std::time::Duration;
 
+    let uid = current_uid();
+    if !socket_is_ours(Path::new(path), uid) {
+        return Err(
+            "Hyprland's IPC socket is not owned by this user, or does not sit in a directory only \
+             this user can write to; refusing to talk to it"
+                .to_string(),
+        );
+    }
+
     let mut stream = UnixStream::connect(path)
         .map_err(|e| format!("could not reach Hyprland's IPC socket: {e}"))?;
+
+    #[cfg(target_os = "linux")]
+    if !peer_is_ours(&stream, uid) {
+        return Err(
+            "the process listening on Hyprland's IPC socket runs as another user; refusing to talk \
+             to it"
+                .to_string(),
+        );
+    }
+
     let timeout = Some(Duration::from_millis(1000));
     let _ = stream.set_read_timeout(timeout);
     let _ = stream.set_write_timeout(timeout);
@@ -502,6 +639,60 @@ mod tests {
         let mut empty = BTreeMap::new();
         empty.insert("HYPRLAND_INSTANCE_SIGNATURE".into(), String::new());
         assert!(socket_path(&empty, 1000).is_none());
+    }
+
+    // -----------------------------------------------------------------------
+    // Path validation (MJXHRM-382)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn a_traversing_signature_never_reaches_the_path() {
+        for signature in [
+            "../../../tmp/evil",
+            "sig/../..",
+            "sig with spaces",
+            "sig\0",
+            "sig\n",
+            "/absolute",
+            &"x".repeat(129),
+        ] {
+            let mut env = BTreeMap::new();
+            env.insert("HYPRLAND_INSTANCE_SIGNATURE".into(), signature.into());
+            env.insert("XDG_RUNTIME_DIR".into(), "/run/user/1000".into());
+            assert!(
+                socket_path(&env, 1000).is_none(),
+                "{signature:?} should be refused"
+            );
+        }
+
+        // A real Hyprland signature still passes.
+        assert!(signature_is_wellformed("b7a1f0c2_1754800000_123456789"));
+    }
+
+    #[test]
+    fn a_traversing_runtime_dir_falls_back_to_the_default() {
+        for dir in ["/run/user/1000/../../tmp", "relative/dir", "../up"] {
+            let mut env = BTreeMap::new();
+            env.insert("HYPRLAND_INSTANCE_SIGNATURE".into(), "sig".into());
+            env.insert("XDG_RUNTIME_DIR".into(), dir.into());
+            assert_eq!(
+                socket_path(&env, 1000).as_deref(),
+                Some("/run/user/1000/hypr/sig/.socket.sock"),
+                "{dir:?} should not steer the socket path"
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_missing_or_non_socket_path_is_refused() {
+        // Neither of these is a socket owned by us, and "cannot tell" must read
+        // as "no" — this is the check that runs before we connect.
+        assert!(!socket_is_ours(
+            Path::new("/nonexistent/hypr/sig/.socket.sock"),
+            current_uid()
+        ));
+        assert!(!socket_is_ours(Path::new("/etc/hostname"), current_uid()));
     }
 
     /// The serialized shape is a contract with `tools/read_window_tool.py`, which
