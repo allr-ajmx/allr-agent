@@ -5,10 +5,14 @@ import { Button } from '@/components/ui/button'
 import { Codicon } from '@/components/ui/codicon'
 import { type Translations, useI18n } from '@/i18n'
 import { triggerHaptic } from '@/lib/haptics'
+import { middleClickHandlers } from '@/lib/middle-click'
+import { IS_MOBILE } from '@/lib/platform'
 import { useStoreSelector } from '@/lib/use-session-slice'
 import { cn } from '@/lib/utils'
+import { addBubble } from '@/store/chat-bubbles'
 import { $pullRequestsByBranch, sessionPrKey } from '@/store/pull-requests'
 import { $attentionSessionIds } from '@/store/session'
+import { openSessionTile } from '@/store/session-states'
 import { canOpenSessionWindow, openSessionInNewWindow } from '@/store/windows'
 import type { SessionInfo } from '@/types/hermes'
 
@@ -107,6 +111,18 @@ function SidebarSessionRowImpl({
   // click trailing the same gesture can't resume the session twice.
   const tapped = useRef(false)
 
+  // Split across the row's own pointer handlers rather than spread, because the
+  // press handler has to run the drag decision after arming the gesture.
+  const middle = middleClickHandlers(() => {
+    void triggerHaptic('selection')
+
+    if (IS_MOBILE) {
+      addBubble(session.id)
+    } else {
+      openSessionTile(session.id, 'right')
+    }
+  })
+
   return (
     <SessionContextMenu
       onArchive={onArchive}
@@ -196,10 +212,26 @@ function SidebarSessionRowImpl({
           // strip, split on an edge, or link into a composer). A sub-threshold
           // release stays a plain click (onClick above), so click-to-open and
           // shift-to-pin are untouched. The reorder grab keeps its own dnd-kit gesture.
+          onMouseDown={middle.onMouseDown}
+          // Middle-click opens the conversation in its own TILE — browser
+          // muscle memory ("open in a new tab"), and the gesture form of the
+          // row menu's "Open in tile". NOT close: a sidebar row is a session,
+          // not a tab, and there is nothing there to close. Through
+          // `middleClickHandlers` because the session list is a scroller, where
+          // `auxclick` is eaten by the autoscroll pan on Windows and Linux.
           onPointerDown={event => {
             tapped.current = false
 
             if ((event.target as HTMLElement).closest('[data-reorder-handle], [data-row-actions]')) {
+              return
+            }
+
+            middle.onPointerDown(event)
+
+            // The session drag is a PRIMARY-button gesture; arming it on a
+            // middle press would leave a drag session live with no button to
+            // end it.
+            if (event.button !== 0) {
               return
             }
 
@@ -221,6 +253,7 @@ function SidebarSessionRowImpl({
                   }
             )
           }}
+          onPointerUp={middle.onPointerUp}
         >
           {reorderable ? (
             <SidebarRowGrab ariaLabel={`${r.rename} ${title}`} dragging={dragging} dragHandleProps={dragHandleProps}>
