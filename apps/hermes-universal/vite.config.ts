@@ -338,6 +338,12 @@ export default defineConfig(({ command }) => ({
     environment: 'jsdom',
     globals: true,
     setupFiles: ['./src/test-setup.ts'],
+    // Vitest's default `include` is rooted at this config's directory, so it
+    // never reaches the shared sample plugins — which tsconfig and eslint DO
+    // cover. A bundled plugin ships in this app's build; its tests belong in
+    // this app's run, or the SDK's only real third-party-shaped consumer is
+    // the one thing nothing verifies.
+    include: ['src/**/*.test.{ts,tsx}', '../../packages/hermes-sample-plugins/**/*.test.{ts,tsx}'],
     // Components don't import CSS (styles.css is loaded once in main.tsx), so
     // skip stylesheet processing in tests.
     css: false
