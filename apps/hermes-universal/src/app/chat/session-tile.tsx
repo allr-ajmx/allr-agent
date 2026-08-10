@@ -30,6 +30,7 @@ import { startNewSessionTab } from '@/store/new-session'
 import { sessionAwaitingInput } from '@/store/prompts'
 import { $activeStoredSessionId, $sessions, sessionMatchesStoredId, sessionPinId } from '@/store/session'
 import { $sessionColorById, sessionColorFor } from '@/store/session-color'
+import { SESSION_ROW_SOURCES, sessionRowFor } from '@/store/session-lookup'
 import { $sessionStates } from '@/store/session-state-types'
 import {
   $confirmCloseTile,
@@ -250,26 +251,28 @@ function tileTitle(storedSessionId: string): string {
     return translateNow('sidebar.nav.new-session')
   }
 
-  const stored = $sessions.get().find(s => sessionMatchesStoredId(s, storedSessionId))
+  // The wider lookup, not `$sessions` alone: a tab can outlive the recents page
+  // it was opened from, and the bare `'Session'` this used to fall back to was
+  // an untranslated placeholder standing in for a chat that has a perfectly good
+  // name (MJXHRM-386).
+  const stored = sessionRowFor(storedSessionId)
 
-  return stored ? sessionTitle(stored) : 'Session'
+  return stored ? sessionTitle(stored) : translateNow('common.loading')
 }
 
 function tileAccent(storedSessionId: string): string | undefined {
-  const stored = $sessions.get().find(s => sessionMatchesStoredId(s, storedSessionId))
-
-  return sessionColorFor(stored)
+  return sessionColorFor(sessionRowFor(storedSessionId))
 }
 
 /** The `@session` drag payload for a tile's own tab — same identity a sidebar
  *  row drags, so a tile tab drops with the same stack/split/link language. */
 function tileDragPayload(storedSessionId: string): SessionDragPayload {
-  const stored = $sessions.get().find(s => sessionMatchesStoredId(s, storedSessionId))
+  const stored = sessionRowFor(storedSessionId)
 
   return {
     id: storedSessionId,
     profile: stored?.profile || 'default',
-    title: stored ? sessionTitle(stored) : 'Session'
+    title: stored ? sessionTitle(stored) : tileTitle(storedSessionId)
   }
 }
 
@@ -281,7 +284,10 @@ function tileDragPayload(storedSessionId: string): SessionDragPayload {
  *  delete + the tab close verbs). */
 export const watchSessionTiles = paneMirror<SessionTile>({
   source: $sessionTiles,
-  also: [$sessions, $sessionColorById],
+  // Every source `sessionRowFor` reads, so a tab titled from the pinned cache or
+  // the project tree refreshes when the real row lands — the point of the wider
+  // lookup is lost if the strip only re-syncs on `$sessions`.
+  also: [...SESSION_ROW_SOURCES, $sessionColorById],
   key: tile => tile.storedSessionId,
   kind: 'chat',
   linkTarget: true,

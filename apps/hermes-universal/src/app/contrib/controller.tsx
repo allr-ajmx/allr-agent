@@ -31,11 +31,13 @@ import {
 import { discoverBundledPlugins } from '@/contrib/plugins'
 import { registry } from '@/contrib/registry'
 import { discoverRuntimePlugins } from '@/contrib/runtime-loader'
+import { translateNow } from '@/i18n'
 import { sessionTitle as storedSessionTitle } from '@/lib/chat-runtime'
 import { LayoutDashboard, PanelBottom, Plug } from '@/lib/icons'
 import { type KeybindContribution, KEYBINDS_AREA } from '@/lib/keybinds/actions'
 import { WORKSPACE_PANE_ID } from '@/lib/pane-ids'
-import { $chatBubbles, bubbleRuntimeKey } from '@/store/chat-bubbles'
+import { IS_MOBILE } from '@/lib/platform'
+import { $chatBubbles, addBubble, bubbleRuntimeKey } from '@/store/chat-bubbles'
 import { $gatewayState } from '@/store/gateway'
 import {
   $panesFlipped,
@@ -52,14 +54,16 @@ import {
 } from '@/store/layout'
 import { startNewSession, startNewSessionTab } from '@/store/new-session'
 import { $reviewOpen, closeReview, REVIEW_PANE_ID } from '@/store/review'
-import { $activeStoredSessionId, $sessions, openSession, sessionMatchesStoredId } from '@/store/session'
+import { $activeStoredSessionId, openSession, setBranchedSessionOpener } from '@/store/session'
 import { $sessionColorById, sessionColorFor } from '@/store/session-color'
+import { SESSION_ROW_SOURCES, sessionRowFor } from '@/store/session-lookup'
 import {
   $focusedChatPane,
   closeSessionTile,
   focusWorkspaceSession,
   invalidateRuntimeBindings,
   nextSessionTileForWorkspace,
+  openSessionTile,
   setVisibleBubbleKeysProvider
 } from '@/store/session-states'
 import { $statusbarVisible } from '@/store/statusbar-prefs'
@@ -373,6 +377,20 @@ setVisibleBubbleKeysProvider(() =>
     .filter((key): key is string => Boolean(key))
 )
 
+// Branching the OPEN chat opens the branch BESIDE it and fronts it, leaving the
+// parent exactly where it was — the same placement `SessionTileDelegate`
+// already gives a branch made from a tab, now shared by the one made from an
+// assistant message. Registered here for the same reason as the provider above:
+// `store/session` cannot import tiles or bubbles without a cycle, and this is
+// the layer that knows which of the two this platform has.
+setBranchedSessionOpener(storedSessionId => {
+  if (IS_MOBILE) {
+    addBubble(storedSessionId)
+  } else {
+    openSessionTile(storedSessionId, 'center')
+  }
+})
+
 registerLayoutResetHandler(stackSessionTilesIntoMain)
 
 // The main tab reads as its SESSION (the loaded title, "New session" on a fresh
@@ -380,7 +398,10 @@ registerLayoutResetHandler(stackSessionTilesIntoMain)
 // constant above, so the pane content never remounts.
 const syncWorkspaceTitle = () => {
   const selected = $activeStoredSessionId.get()
-  const stored = selected ? $sessions.get().find(s => sessionMatchesStoredId(s, selected)) : null
+  // The wider lookup, not `$sessions` alone: a session older than the loaded
+  // recents page is not a new one, and reading "New session" over a named chat
+  // is the tab lying about what it holds (MJXHRM-386).
+  const stored = sessionRowFor(selected)
   // A page takes the tab's NAME while it shows — the strip stays up (sessions
   // are tiles now, so it is the way back to them) and a tab reading "New
   // session" over Capabilities would name the wrong thing.
@@ -389,7 +410,9 @@ const syncWorkspaceTitle = () => {
   registerTile({
     id: 'workspace',
     kind: 'chat',
-    title: page ?? (stored ? storedSessionTitle(stored) : 'New session'),
+    // "New session" only when there is genuinely no session — a draft. An id we
+    // hold but cannot resolve yet is a LOADING chat, not a new one.
+    title: page ?? (stored ? storedSessionTitle(stored) : selected ? translateNow('common.loading') : 'New session'),
     placement: 'main',
     chrome: {
       // The tab's lead dot — same shared map the sidebar row reads, so the main
@@ -406,7 +429,9 @@ const syncWorkspaceTitle = () => {
 }
 
 $activeStoredSessionId.listen(syncWorkspaceTitle)
-$sessions.listen(syncWorkspaceTitle)
+// Every source the wider lookup reads, so a tab that resolved through the
+// pinned cache or the project tree retitles when the real row arrives.
+SESSION_ROW_SOURCES.forEach(source => source.listen(syncWorkspaceTitle))
 $sessionColorById.listen(syncWorkspaceTitle)
 $workspacePage.listen(syncWorkspaceTitle)
 
