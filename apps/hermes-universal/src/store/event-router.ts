@@ -459,6 +459,15 @@ export function routeGatewayEvent(event: GatewayEvent): void {
 
     case 'reasoning.delta':
 
+    // The whole MoA family is thinking, not tool work — including the two
+    // progress frames, which are the only sign of life during a fan-out that
+    // emits no reference bodies until every reference has returned.
+    case 'moa.aggregating':
+
+    case 'moa.phase':
+
+    case 'moa.progress':
+
     case 'moa.reference':
       setPetActivity({ reasoning: true }) // pet: thinking pose
 
