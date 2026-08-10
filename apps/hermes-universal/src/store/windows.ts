@@ -4,6 +4,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { AGENTS_ROUTE, COMMAND_CENTER_ROUTE, CRON_ROUTE, PROFILES_ROUTE, SETTINGS_ROUTE } from '@/app/routes'
 import { IS_ANDROID, IS_DESKTOP, IS_IOS } from '@/lib/platform'
 import { navigateTo } from '@/lib/route-nav'
+import { attachFloatingSurface, type SurfaceGrant, type SurfaceRequest } from '@/lib/surface'
 import { notifyError } from '@/store/notifications'
 
 // Ported from desktop `store/windows.ts`. Desktop opens native windows through an
@@ -393,6 +394,61 @@ export interface SatelliteWindowSpec {
   /** Default true: a transient surface does not belong in the window list. */
   skipTaskbar?: boolean
   transparent?: boolean
+  /**
+   * Ask for a FLOATING surface — one that lives over other applications rather
+   * than merely being a second window (MJXHRM-213). Present means the window is
+   * built hidden, handed to the native capability layer, and only then shown;
+   * absent keeps the plain always-on-top window this file has always made.
+   *
+   * What the platform actually granted is stashed under the surface id and read
+   * with `satelliteSurfaceGrant()` — the request is not the outcome.
+   */
+  floating?: SurfaceRequest
+}
+
+/**
+ * What each floating satellite was granted, recorded by the window that opened
+ * it and passed to the satellite's own renderer through `sessionStorage`.
+ *
+ * It has to travel: attaching is one-shot and happens before the satellite's JS
+ * exists, so its renderer cannot ask the question itself, and the answer decides
+ * how it lays out (an output-sized layer surface positions its own content; a
+ * plain window fills itself).
+ *
+ * `localStorage`, not `sessionStorage`: every window here is its own webview
+ * with its own session store, so a session-scoped write would never reach the
+ * satellite. Windows of one origin DO share `localStorage` — the same property
+ * the composer's cross-window draft stash relies on. It is rewritten on every
+ * open and cleared on close, so a stale grant from a previous run is never read.
+ */
+const SURFACE_GRANT_KEY = 'hermes:surface-grant:'
+
+function rememberSurfaceGrant(surface: string, grant: null | SurfaceGrant): void {
+  try {
+    if (grant) {
+      window.localStorage.setItem(`${SURFACE_GRANT_KEY}${surface}`, JSON.stringify(grant))
+    } else {
+      window.localStorage.removeItem(`${SURFACE_GRANT_KEY}${surface}`)
+    }
+  } catch {
+    // Private mode / no storage: the satellite falls back to the plain layout,
+    // which is the same thing a failed attach would have produced.
+  }
+}
+
+/**
+ * The grant for a floating satellite, read from inside it (or from the window
+ * that opened it). Null means it is an ordinary window — either because the
+ * platform granted nothing, or because nobody asked.
+ */
+export function satelliteSurfaceGrant(surface: string): null | SurfaceGrant {
+  try {
+    const raw = window.localStorage.getItem(`${SURFACE_GRANT_KEY}${surface}`)
+
+    return raw ? (JSON.parse(raw) as SurfaceGrant) : null
+  } catch {
+    return null
+  }
 }
 
 /**
@@ -475,6 +531,13 @@ export async function openSatelliteWindow(spec: SatelliteWindowSpec): Promise<nu
     // `location.search` — the same contract every other window flag here uses.
     const route = spec.route ? `#${spec.route}` : ''
 
+    // A floating satellite is born HIDDEN and shown a few lines down. That
+    // ordering is a hard requirement, not tidiness: a wlr-layer-shell surface
+    // must be configured before its underlying window is realized, and showing
+    // it first spends the only chance (see `lib/surface.ts`). A satellite with
+    // no floating request keeps the old behaviour and is born visible.
+    const floating = spec.floating ?? null
+
     const win = new WebviewWindow(label, {
       alwaysOnTop: spec.alwaysOnTop ?? true,
       decorations: spec.decorations ?? false,
@@ -485,6 +548,7 @@ export async function openSatelliteWindow(spec: SatelliteWindowSpec): Promise<nu
       title: 'Hermes (MJX)',
       transparent: spec.transparent ?? false,
       url: `index.html?win=${spec.surface}${route}`,
+      visible: floating === null,
       width: spec.width
     })
 
@@ -494,6 +558,14 @@ export async function openSatelliteWindow(spec: SatelliteWindowSpec): Promise<nu
       void win.once('tauri://created', () => resolve())
       void win.once('tauri://error', event => reject(new Error(String(event.payload))))
     })
+
+    if (floating) {
+      // A failed attach still shows the window. An ordinary always-on-top window
+      // is a worse HUD; no HUD at all is worse than that.
+      rememberSurfaceGrant(spec.surface, await attachFloatingSurface(label, floating))
+      await win.show()
+      await win.setFocus()
+    }
 
     openedSatellites.add(spec.surface)
     void installSatelliteTeardown()
@@ -537,6 +609,10 @@ export async function closeSatelliteWindow(surface: string): Promise<void> {
   const label = satelliteLabel(surface)
 
   openedSatellites.delete(surface)
+  // The grant describes a window that is going away; leaving it behind would
+  // have the next open read a layout decision made for a surface that no longer
+  // exists.
+  rememberSurfaceGrant(surface, null)
 
   if (!label) {
     return
@@ -574,18 +650,42 @@ export async function isSatelliteWindowOpen(surface: string): Promise<boolean> {
   }
 }
 
+/** How far below the top of the screen the HUD bar sits on a layer surface. */
+export const HUD_TOP_MARGIN = 96
+
 /**
- * The HUD's window (MJXHRM-213 renders into it) — named here so the surface id,
+ * The HUD's window (`app/hud/` renders into it) — named here so the surface id,
  * its geometry and its chrome are changed in one place rather than at whichever
  * call site summons it.
  *
- * `transparent` is deliberately OFF. On Linux universal runs WebKitGTK, where a
- * transparent frameless toplevel behaves differently per compositor; SE-J's
- * spike decides that, and until it does an opaque window is the honest default.
+ * `transparent` is now ON. SE-J's spike settled the question the old comment
+ * here was waiting on: WebKitGTK does need its own background colour cleared and
+ * not just the window's, but wry 0.55 already does that for a window built
+ * `transparent` (`webkitgtk/mod.rs` sets the WebView's background to a zero-alpha
+ * RGBA), and tao asks GDK for an RGBA visual in the same breath. Nothing further
+ * is ours to do.
+ *
+ * The `floating` request is what makes this a surface rather than a small
+ * window: on a wlroots compositor it becomes a wlr-layer-shell overlay with
+ * exclusive keyboard focus, which is the only way a floating surface can host a
+ * composer that receives keys while the app underneath keeps focus. Everywhere
+ * else it degrades to an always-on-top window and says so in its grant.
  */
 export const HUD_SATELLITE: SatelliteWindowSpec = {
+  floating: {
+    // Exclusive because the HUD's whole purpose is to be typed into from inside
+    // another application. Downgraded, and reported, where it cannot be had.
+    keyboardFocus: 'exclusive',
+    layer: 'overlay',
+    // [left, right, top, bottom] — a layer surface is positioned by insetting its
+    // content, never by being moved.
+    margins: [0, 0, HUD_TOP_MARGIN, 0],
+    // Compositor rules can target this (blur, animation, opacity).
+    namespace: 'hermes:hud'
+  },
   height: 260,
   surface: 'hud',
+  transparent: true,
   width: 560
 }
 
