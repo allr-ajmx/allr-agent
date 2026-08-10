@@ -21,6 +21,13 @@ import './store/gateway-switch-sync'
 // before the first turn — see store/agent-read-requests.ts.
 import './store/agent-read-requests'
 
+import { installWindowBelowReader } from './store/window-below'
+
+// And the reader that gives `window.read.request` something to say. Installed at
+// boot, next to the responder it feeds, because the first turn can ask before
+// any component has mounted (MJXHRM-213).
+installWindowBelowReader()
+
 import { QueryClientProvider } from '@tanstack/react-query'
 import { createRoot } from 'react-dom/client'
 import { HashRouter } from 'react-router-dom'

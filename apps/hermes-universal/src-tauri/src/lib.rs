@@ -23,6 +23,7 @@ mod plugins;
 mod pty;
 mod repo_scan;
 mod ssh;
+mod surface;
 mod telemetry;
 mod transport;
 mod updates;
@@ -48,6 +49,8 @@ use ssh::{
     ssh_answer_prompt, ssh_cancel, ssh_connect, ssh_disconnect, ssh_list_config_hosts,
     ssh_resolve_host, ssh_test, ssh_trust_host_key, SshState,
 };
+use surface::below::read_window_below;
+use surface::{surface_attach, surface_capabilities, surface_set_interactive_rect};
 use transport::{
     cookies_export, cookies_import, http_request, ws_close, ws_open, ws_send, TransportState,
 };
@@ -252,7 +255,11 @@ pub fn run() {
             ssh_answer_prompt,
             ssh_trust_host_key,
             find_in_page,
-            stop_find_in_page
+            stop_find_in_page,
+            surface_capabilities,
+            surface_attach,
+            surface_set_interactive_rect,
+            read_window_below
         ]))
         // `.build(...).run(closure)` (rather than the terminal `.run(context)`) so
         // we can observe `RunEvent`s. On iOS this catches scenes the *system*

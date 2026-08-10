@@ -167,7 +167,7 @@ export const KEYBIND_ACTIONS: readonly KeybindActionMeta[] = [
   // taken from every other app on the machine has to buy something. SE-J gives
   // it a default when there is a HUD to summon; until then a user can still
   // assign one from the shortcuts panel and watch it work.
-  { id: 'view.toggleHud', category: 'view', defaults: [], global: true },
+  { id: 'view.toggleHud', category: 'view', defaults: ['mod+shift+h'], global: true },
   { id: 'keybinds.openPanel', category: 'view', defaults: ['mod+/'] }
 ]
 

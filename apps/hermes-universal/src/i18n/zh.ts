@@ -228,6 +228,8 @@ export const zh: Translations = {
     openSettings: '打开设置',
     openStarmap: '打开记忆图谱',
     openKeybinds: '键盘快捷键',
+    enterHud: 'HUD 模式',
+    exitHud: '退出 HUD 模式',
     minimize: '最小化',
     maximize: '最大化',
     restore: '还原',

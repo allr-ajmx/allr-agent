@@ -7,7 +7,7 @@ import { $sessionId } from '@/store/chat'
 import { $leftEdgeOpen, $panesFlipped, $terminalOpen } from '@/store/layout'
 import { $reviewOpen } from '@/store/review'
 import { $activeStoredSessionId } from '@/store/session'
-import { isSecondaryWindow } from '@/store/windows'
+import { isSatelliteWindow, isSecondaryWindow } from '@/store/windows'
 
 // The chat title header — ported from desktop's in-pane ChatHeader
 // (apps/desktop/src/app/chat/index.tsx + `titlebarHeaderBaseClass`). It's the
@@ -41,8 +41,9 @@ export function ChatHeader() {
   const leftColumnOpen = leftEdgeOpen || (panesFlipped && (reviewOpen || terminalOpen))
 
   // A secondary (pop-out) window shows the title in its own titlebar, so the
-  // in-chat header stands down (desktop parity).
-  if (isSecondaryWindow()) {
+  // in-chat header stands down (desktop parity). A satellite — the HUD — has no
+  // titlebar at all and no room for a header; it is a bar and a band.
+  if (isSecondaryWindow() || isSatelliteWindow()) {
     return null
   }
 

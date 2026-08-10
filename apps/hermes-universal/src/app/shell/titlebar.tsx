@@ -1,4 +1,5 @@
 import { TITLEBAR_AREAS } from '@/app/contrib/surfaces'
+import { toggleHud } from '@/app/hud/hud'
 import { Codicon } from '@/components/ui/codicon'
 import { Slot } from '@/contrib/react/slot'
 import { useI18n } from '@/i18n'
@@ -98,6 +99,13 @@ export function Titlebar({ connected }: { connected: boolean }) {
             onClick={() => $hapticsMuted.set(!$hapticsMuted.get())}
           >
             <Codicon name={hapticsMuted ? 'mute' : 'unmute'} />
+          </TitlebarButton>
+          {/* The HUD — the same conversation, over whatever you are working in
+              (MJXHRM-213). Sits next to the other view affordances rather than
+              in the layout menu: it is a different window, not a pane
+              arrangement. `actionId` makes the tooltip carry its live chord. */}
+          <TitlebarButton actionId="view.toggleHud" label={t.titlebar.enterHud} onClick={() => void toggleHud()}>
+            <Codicon name="comment-discussion" />
           </TitlebarButton>
           <TitlebarButton
             actionId="keybinds.openPanel"

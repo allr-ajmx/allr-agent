@@ -233,6 +233,8 @@ export const en: Translations = {
     openSettings: 'Open settings',
     openStarmap: 'Open memory graph',
     openKeybinds: 'Keyboard shortcuts',
+    enterHud: 'HUD mode',
+    exitHud: 'Exit HUD mode',
     minimize: 'Minimize',
     maximize: 'Maximize',
     restore: 'Restore',

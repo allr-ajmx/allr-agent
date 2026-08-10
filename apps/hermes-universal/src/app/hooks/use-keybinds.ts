@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 
+import { toggleHud } from '@/app/hud/hud'
 import {
   activateTreeTabSlot,
   closeFocusedTabInZone,
@@ -59,7 +60,7 @@ import {
 } from '@/store/session-switcher'
 import { toggleStatusbarVisible } from '@/store/statusbar-prefs'
 import { closeActiveTerminal, createTerminal, cycleTerminal } from '@/store/terminals'
-import { HUD_SATELLITE, openAppRoute, openNewWindow, toggleSatelliteWindow } from '@/store/windows'
+import { openAppRoute, openNewWindow } from '@/store/windows'
 import { useTheme } from '@/themes/context'
 
 import { requestComposerFocus, requestVoiceToggle } from '../chat/composer/focus'
@@ -271,7 +272,7 @@ export function useKeybinds(deps: KeybindRuntimeDeps): void {
     // MJXHRM-213 renders the surface and gives it a default chord. The lifecycle
     // is already whole: opening twice focuses, closing the main window takes it
     // down with it.
-    'view.toggleHud': () => void toggleSatelliteWindow(HUD_SATELLITE),
+    'view.toggleHud': () => void toggleHud(),
 
     'profile.default': switchToDefaultProfile,
     ...profileSwitchHandlers,

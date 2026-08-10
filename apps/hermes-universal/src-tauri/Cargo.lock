@@ -2400,6 +2400,7 @@ dependencies = [
  "hex",
  "hound",
  "keepawake",
+ "libloading 0.8.9",
  "log",
  "opentelemetry",
  "opentelemetry-otlp",
