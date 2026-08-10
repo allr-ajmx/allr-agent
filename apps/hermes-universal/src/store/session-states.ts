@@ -689,9 +689,13 @@ export function openSessionTile(
  *
  * ONE draft at a time: a second `+` on an empty draft fronts the one already
  * there rather than stacking up empty chats nobody sent a message in.
+ *
+ * `cwd` anchors the draft, so ⌘T can honour the sidebar's project scope the same
+ * way ⌘N does (MJXHRM-393). Omitted, the draft falls back to the configured
+ * default project dir inside `resetChat`, exactly as before.
  */
-export function newSessionTab(): void {
-  newSession()
+export function newSessionTab(cwd?: string): void {
+  newSession(cwd)
 
   // Anchored on the chat the user is looking at, stacked into its zone — a new
   // tab belongs in the strip you asked from, not docked to the side.
