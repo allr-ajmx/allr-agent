@@ -73,6 +73,7 @@ await import('./session-tile-delegate')
 const { $sessionStates, clearStoredIdIndex, emptySessionState, publishSessionState } = await import(
   '@/store/session-state-types'
 )
+
 const { $inflightTurns, clearAllTurns, getInflightTurn } = await import('@/store/turn-lifecycle')
 
 beforeEach(() => {
@@ -175,6 +176,38 @@ describe('submitToSession', () => {
     requestGateway.mockRejectedValue(new Error('transport is gone'))
 
     await delegate.submitToSession('runtime-1', 'hello')
+
+    expect($sessionStates.get()['runtime-1']).toMatchObject({ busy: false, turnStartedAt: null })
+    expect($inflightTurns.get()['runtime-1']?.phase).toBe('settled')
+    expect(notifyError).toHaveBeenCalled()
+  })
+})
+
+// MJXHRM-419: a slash sent straight to `prompt.submit` opened no turn, showed no
+// busy state, left no transcript record, and threw out of the delegate.
+describe('executeSlash', () => {
+  it('opens a turn and shows busy, like a typed message', async () => {
+    seed('runtime-1', { storedSessionId: 'stored-1' })
+    requestGateway.mockResolvedValue({})
+
+    await delegate.executeSlash('/compress', 'runtime-1')
+
+    expect(requestGateway).toHaveBeenCalledWith('prompt.submit', { session_id: 'runtime-1', text: '/compress' })
+    expect(getInflightTurn('runtime-1')).toMatchObject({ prompt: '/compress', origin: 'local' })
+
+    const state = $sessionStates.get()['runtime-1']
+
+    expect(state).toMatchObject({ busy: true })
+    expect(state?.turnStartedAt).not.toBeNull()
+    // The transcript keeps a record of what was actually run.
+    expect(state?.messages.at(-1)).toMatchObject({ role: 'user', parts: [{ type: 'text', text: '/compress' }] })
+  })
+
+  it('leaves the tile idle with a visible error instead of propagating', async () => {
+    seed('runtime-1', { storedSessionId: 'stored-1' })
+    requestGateway.mockRejectedValue(new Error('transport is gone'))
+
+    await expect(delegate.executeSlash('/compress', 'runtime-1')).resolves.toBeUndefined()
 
     expect($sessionStates.get()['runtime-1']).toMatchObject({ busy: false, turnStartedAt: null })
     expect($inflightTurns.get()['runtime-1']?.phase).toBe('settled')
