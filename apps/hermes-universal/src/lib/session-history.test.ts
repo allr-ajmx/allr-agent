@@ -254,3 +254,55 @@ describe('attached context', () => {
     expect(texts(out[0].parts)).toEqual(['hi'])
   })
 })
+
+describe('durable identity and reactions', () => {
+  const heart = { at: 1, author: 'user' as const, emoji: '❤️' }
+
+  it('carries the durable row id onto the hydrated message', () => {
+    const out = toChatMessages([msg({ role: 'user', content: 'hi', row_id: 41 })])
+
+    expect(out[0].rowId).toBe(41)
+  })
+
+  // Reactions ride the shared per-message JSON column rather than a side table,
+  // so they survive the row rewrites that rewind and compaction perform.
+  it('hydrates reactions out of display_metadata', () => {
+    const out = toChatMessages([
+      msg({ role: 'user', content: 'hi', row_id: 41, display_metadata: { reactions: [heart] } })
+    ])
+
+    expect(out[0].reactions).toEqual([heart])
+  })
+
+  it('ignores malformed reaction entries rather than rendering junk', () => {
+    const out = toChatMessages([
+      msg({
+        role: 'user',
+        content: 'hi',
+        display_metadata: { reactions: [heart, { emoji: 5 }, null, { author: 'bot', emoji: '🤖' }] }
+      })
+    ])
+
+    expect(out[0].reactions).toEqual([heart])
+  })
+
+  it('leaves both absent when the row carries neither', () => {
+    const out = toChatMessages([msg({ role: 'user', content: 'hi' })])
+
+    expect(out[0].rowId).toBeUndefined()
+    expect(out[0].reactions).toBeUndefined()
+  })
+
+  // Several stored rows fold into one assistant bubble. The bubble's durable
+  // identity has to be the FIRST row's — that is the row a reaction on it was
+  // written against — or a tapback would address the wrong message.
+  it('keeps the first row id when later rows fold into the same bubble', () => {
+    const out = toChatMessages([
+      msg({ role: 'assistant', content: 'working', row_id: 10, tool_calls: [{ function: { name: 'read_file' } }] }),
+      msg({ role: 'assistant', content: 'done', row_id: 11 })
+    ])
+
+    expect(out).toHaveLength(1)
+    expect(out[0].rowId).toBe(10)
+  })
+})

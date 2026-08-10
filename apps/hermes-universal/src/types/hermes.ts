@@ -406,11 +406,18 @@ export interface SessionMessage {
   codex_reasoning_items?: unknown
   content: unknown
   context?: unknown
+  /** Display-only per-message JSON the gateway forwards verbatim. Reactions
+   *  ride here rather than in a side table, so they survive the row rewrites
+   *  that rewind and compaction perform (`hermes_state.REACTIONS_METADATA_KEY`). */
+  display_metadata?: unknown
   name?: string
   reasoning?: null | string
   reasoning_content?: null | string
   reasoning_details?: unknown
   role: 'assistant' | 'system' | 'tool' | 'user'
+  /** Durable `messages.id`, stamped by the gateway's `_rows_to_conversation`.
+   *  The only stable handle on a specific persisted message. */
+  row_id?: number
   text?: unknown
   timestamp?: number
   tool_call_id?: null | string

@@ -58,6 +58,7 @@ import {
   setSessionSecret,
   setSessionSudo
 } from '@/store/prompts'
+import { applyReactionEvent } from '@/store/reactions'
 import { reduceSessionState } from '@/store/session-reducer'
 import {
   $activeSessionKey,
@@ -73,7 +74,7 @@ import { routeTurnEvent, startTurnReconciler } from '@/store/turn-lifecycle'
 // out of the gateway event hot path — same reason desktop does it.
 import { ingestBackendSkin } from '@/themes/backend-sync'
 import type { HermesSkin } from '@/themes/skin-contract'
-import type { ContextBreakdown, UsageStats } from '@/types/hermes'
+import type { ContextBreakdown, MessageReaction, UsageStats } from '@/types/hermes'
 
 // Self-register at import. Nothing else consumes the gateway's event stream, so
 // if this module is loaded but not listening the app silently receives nothing —
@@ -420,6 +421,26 @@ export function routeGatewayEvent(event: GatewayEvent): void {
       // (coding rail, review pane, file tree) to refresh. Event-driven, not
       // polled: fires exactly when the agent touches the tree.
       void notifyWorkspaceChangeFromTool(payload)
+
+      break
+    }
+
+    // The agent reacted to a message through its own `react_to_message` tool.
+    // Already persisted server-side — this only paints it now rather than at
+    // the next resume. Scoped to the session that emitted it, like every other
+    // transcript write above: a background agent's tapback belongs on ITS
+    // transcript, not on whichever chat happens to be open.
+    case 'message.reaction': {
+      const rowId = payload.row_id
+
+      if (typeof rowId === 'number') {
+        applyReactionEvent(
+          key,
+          rowId,
+          payload.role === 'assistant' ? 'assistant' : 'user',
+          Array.isArray(payload.reactions) ? (payload.reactions as MessageReaction[]) : []
+        )
+      }
 
       break
     }

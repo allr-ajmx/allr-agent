@@ -1,7 +1,7 @@
 import { renderMediaTags } from '@/lib/chat-media'
 import { shouldProjectInflightDump, userTurnAlreadyPersisted } from '@/lib/live-tail'
 import type { ChatMessage, ChatPart, ToolCallPart } from '@/store/chat'
-import type { SessionMessage, SessionResumeResponse } from '@/types/hermes'
+import type { MessageReaction, SessionMessage, SessionResumeResponse } from '@/types/hermes'
 
 // Hydrate a stored transcript (SessionMessage[]) into our lean assistant-ui parts
 // model (Hc1). Lean port of desktop apps/desktop/src/lib/chat-messages.ts
@@ -130,6 +130,40 @@ function parseStoredToolResult(content: unknown): unknown {
   } catch {
     return text
   }
+}
+
+/**
+ * The durable identity + reactions a stored row carries.
+ *
+ * Both come off the SAME row, so they are read together: a reaction addresses a
+ * message by its `row_id`, and a list without the id it belongs to cannot be
+ * toggled or matched against a live `message.reaction` event later.
+ */
+function durableFields(message: SessionMessage): Pick<ChatMessage, 'reactions' | 'rowId'> {
+  const fields: Pick<ChatMessage, 'reactions' | 'rowId'> = {}
+
+  if (typeof message.row_id === 'number') {
+    fields.rowId = message.row_id
+  }
+
+  const metadata = recordFromUnknown(message.display_metadata)
+  const stored = metadata?.reactions
+
+  if (Array.isArray(stored)) {
+    const reactions = stored.filter(
+      (entry): entry is MessageReaction =>
+        Boolean(entry) &&
+        typeof entry === 'object' &&
+        typeof (entry as MessageReaction).emoji === 'string' &&
+        ((entry as MessageReaction).author === 'agent' || (entry as MessageReaction).author === 'user')
+    )
+
+    if (reactions.length) {
+      fields.reactions = reactions
+    }
+  }
+
+  return fields
 }
 
 function argsOrUndefined(args: Record<string, unknown>): Record<string, unknown> | undefined {
@@ -377,7 +411,14 @@ export function toChatMessages(messages: SessionMessage[]): ChatMessage[] {
       const activeHasTool = Boolean(active?.parts.some(part => part.type === 'tool-call'))
 
       if (active && activeAssistantIndex !== null && (currentHasTool || activeHasTool)) {
-        result[activeAssistantIndex] = { ...active, parts: [...active.parts, ...parts] }
+        // Several stored rows can fold into one bubble. Its durable identity is
+        // the FIRST row's — that is the row a reaction on this bubble was
+        // written against — so a later fold contributes parts and nothing else.
+        result[activeAssistantIndex] = {
+          ...active,
+          parts: [...active.parts, ...parts],
+          ...(active.rowId === undefined ? durableFields(message) : {})
+        }
 
         return
       }
@@ -385,7 +426,7 @@ export function toChatMessages(messages: SessionMessage[]): ChatMessage[] {
       flushPendingTools(index)
     }
 
-    result.push({ id: `h${index}-${message.role}`, role: message.role, parts })
+    result.push({ id: `h${index}-${message.role}`, role: message.role, parts, ...durableFields(message) })
     activeAssistantIndex = message.role === 'assistant' ? result.length - 1 : null
   })
   flushPendingTools(messages.length)

@@ -44,6 +44,15 @@ const ChainToolFallback: FC<ToolCallMessagePartProps> = props => {
     return null
   }
 
+  // A reaction's UI is the emoji landing on the bubble (the `message.reaction`
+  // event) — a "React To Message" row beside it would be the agent narrating
+  // its own tapback. `isSilentTool` prices it at zero for the render budget, so
+  // this is also what keeps the renderer and the budget agreeing. Failures
+  // still render, which is a bounded error row.
+  if (props.toolName === 'react_to_message' && !props.isError) {
+    return null
+  }
+
   if (props.toolName === 'delegate_task') {
     return <DelegateToolPart {...props} />
   }
