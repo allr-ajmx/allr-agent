@@ -47,6 +47,7 @@ import { httpRequest } from '@/transport/http'
 
 import {
   $connection,
+  $connectionError,
   beginGatewaySwitch,
   connect,
   connectCloud,
@@ -221,6 +222,65 @@ describe('auto-reconnect', () => {
     $gatewayState.set('closed')
     await vi.advanceTimersByTimeAsync(1500)
     expect(connectGateway).toHaveBeenCalled()
+  })
+
+  // The schedule is full jitter (lib/reconnect-backoff), so the FIRST retry now
+  // lands inside the 300ms base ceiling rather than at the old fixed 1s floor.
+  // Pinning Math.random makes the ceiling directly observable.
+  it('re-dials on the jittered schedule, not the old fixed 1s ladder', async () => {
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0.5)
+
+    try {
+      await connectCloud('https://gw')
+      vi.mocked(connectGateway).mockClear()
+      $gatewayState.set('closed')
+
+      // 0.5 * 300ms ceiling = 150ms. The old ladder would still be waiting.
+      await vi.advanceTimersByTimeAsync(100)
+      expect(connectGateway).not.toHaveBeenCalled()
+
+      await vi.advanceTimersByTimeAsync(100)
+      expect(connectGateway).toHaveBeenCalled()
+    } finally {
+      random.mockRestore()
+    }
+  })
+
+  // A gateway that never comes back must not be an endless spinner: past the
+  // escalation window the loop publishes the failure, which is what reveals the
+  // configurator on the connecting screen.
+  it('publishes the failure once the loop has been failing for the escalation window', async () => {
+    const random = vi.spyOn(Math, 'random').mockReturnValue(1)
+
+    try {
+      await connectCloud('https://gw')
+      $connectionError.set(null)
+      vi.mocked(connectGateway).mockRejectedValue(new Error('gateway is down'))
+      $gatewayState.set('closed')
+
+      // Still inside the window: failures stay quiet so a brief blip never
+      // throws the user out of the app.
+      await vi.advanceTimersByTimeAsync(20_000)
+      expect($connectionError.get()).toBeNull()
+
+      await vi.advanceTimersByTimeAsync(45_000)
+      expect($connectionError.get()).toBe('gateway is down')
+    } finally {
+      random.mockRestore()
+      vi.mocked(connectGateway).mockReset()
+      vi.mocked(connectGateway).mockResolvedValue(undefined)
+      // Let the supervisor reach a success and exit; a loop left mid-backoff
+      // holds the re-entrancy guard shut for every test after this one.
+      await vi.advanceTimersByTimeAsync(30_000)
+    }
+  })
+
+  it('clears a published failure once a reconnect succeeds', async () => {
+    await connectCloud('https://gw')
+    $connectionError.set('stale failure')
+    $gatewayState.set('closed')
+    await vi.advanceTimersByTimeAsync(1000)
+    expect($connectionError.get()).toBeNull()
   })
 })
 
