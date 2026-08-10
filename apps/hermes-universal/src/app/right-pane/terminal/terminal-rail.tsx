@@ -8,6 +8,7 @@ import {
 } from '@/components/ui/context-menu'
 import { Tip } from '@/components/ui/tooltip'
 import { useI18n } from '@/i18n'
+import { isMetaClose, middleClickHandlers } from '@/lib/middle-click'
 import { cn } from '@/lib/utils'
 import { useStore } from '@/store/atom'
 import { setTerminalOpen } from '@/store/layout'
@@ -111,13 +112,24 @@ function TerminalRailItem({
                   ? 'bg-(--chrome-action-hover) text-foreground'
                   : 'text-(--ui-text-tertiary) hover:bg-(--chrome-action-hover) hover:text-foreground'
               )}
-              onAuxClick={event => {
-                if (event.button === 1) {
+              // Middle-click closes — through `middleClickHandlers`, not
+              // `auxclick`: the rail is a SCROLLER, and a middle press inside a
+              // scroller starts the autoscroll pan on Windows/Linux, so the
+              // mouseup is spent stopping the pan and `auxclick` never fires.
+              // The gesture only ever worked on macOS, where there is no pan.
+              {...middleClickHandlers(() => closeTerminal(term.id))}
+              onClick={event => {
+                // ⌘-click closes too — the Mac has no middle button, so this is
+                // the trackpad equivalent, matching every tab strip in the app.
+                if (isMetaClose(event)) {
                   event.preventDefault()
                   closeTerminal(term.id)
+
+                  return
                 }
+
+                selectTerminal(term.id)
               }}
-              onClick={() => selectTerminal(term.id)}
               role="tab"
               type="button"
             >

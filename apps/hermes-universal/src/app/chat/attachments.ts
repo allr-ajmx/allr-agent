@@ -5,6 +5,7 @@ import { selectRemotePaths } from '@/lib/desktop-fs'
 import { ensureSession } from '@/store/chat'
 import type { ComposerAttachment } from '@/store/composer'
 import { requestGateway } from '@/store/gateway'
+import { withSessionNotFoundResume } from '@/store/session-recovery'
 
 // Attachment staging (Gc8/R7). Pick a file → read bytes → data-URL → file.attach
 // (which stages it server-side and returns a @file:/@image: ref) → the ref is
@@ -59,14 +60,20 @@ export async function stageAttachmentFromPath(path: string): Promise<StagedAttac
     const name = basename(path)
     const bytes = await readFile(path)
     const dataUrl = toDataUrl(bytes, mimeFor(name))
-    const { id: sessionId } = await ensureSession()
+    const { id: sessionId, storedId } = await ensureSession()
 
-    const res = await requestGateway<{ ref_text?: string }>('file.attach', {
-      name,
-      path,
-      session_id: sessionId,
-      data_url: dataUrl
-    })
+    // Attach runs against the RUNTIME session id, so after a sleep/wake it hits
+    // a dead runtime and 'session not found' — while plain text silently
+    // recovered on its own, which is exactly why the bug read as "text works,
+    // images don't". One shared resolver rebinds and retries once (MJXHRM-219).
+    const { result: res } = await withSessionNotFoundResume(sessionId, storedId, live =>
+      requestGateway<{ ref_text?: string }>('file.attach', {
+        name,
+        path,
+        session_id: live,
+        data_url: dataUrl
+      })
+    )
 
     return res.ref_text ? { ref: res.ref_text, name } : null
   } catch {

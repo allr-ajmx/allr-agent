@@ -55,17 +55,20 @@ import {
   $hiddenTreePanes,
   $layoutTree,
   $narrowViewport,
+  $panesWithCloser,
   $stripToolsRevision,
   $treeDragging,
+  $treePaneEpochs,
   activateTreePane,
   closeAllTreeTabs,
   closeOtherTreeTabs,
+  closeTabPane,
   closeTreePane,
   closeTreeTabsToRight,
   collapseTreePane,
-  dismissTreePane,
   isCollapsePane,
   moveTreePane,
+  reloadTreePane,
   restoreTreePane,
   SESSION_TILE_DRAG,
   setTreeGroupHeaderHidden,
@@ -73,6 +76,15 @@ import {
   toggleTreeGroupMinimized,
   treeTabCloseTargets
 } from '../store'
+
+import {
+  $tabSelection,
+  clearTabSelection,
+  isToggleSelectClick,
+  selectionFor,
+  selectTabRange,
+  toggleTabSelected
+} from '../tab-selection'
 
 import { type DoubleTapContext, startPaneDrag } from './drag-session'
 import { forceLoneHeaderForPanes } from './lone-header'
@@ -190,6 +202,9 @@ function ZoneMenu({
     <ContextMenu>
       <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
       <ContextMenuContent>
+        {/* Reload what is IN the tab — browser parity, and the only recovery
+            for a surface that wedged without taking the whole app with it. */}
+        <ContextMenuItem onSelect={() => reloadTreePane(menuTarget())}>{t.zones.reload}</ContextMenuItem>
         {directions().map(direction => (
           <ContextMenuItem key={direction.side} onSelect={direction.run}>
             {direction.label}
@@ -275,6 +290,13 @@ export function TreeGroup({
   const hiddenPanes = useStore($hiddenTreePanes)
   const narrow = useStore($narrowViewport)
   const detached = useStore($detachedTiles)
+  const panesWithCloser = useStore($panesWithCloser)
+  // Reload epochs: only an explicit tab-menu Reload writes here, so this
+  // subscription costs nothing on a normal render.
+  const paneEpochs = useStore($treePaneEpochs)
+  // Multi-tab selection (⌥/Ctrl-click, Shift-click) — null for every zone but
+  // the one holding it, so this subscription is quiet during normal use.
+  const tabSelection = useStore($tabSelection)
   // A tile's strip tools are read during THIS render (see `stripTools` below),
   // so a glyph whose state moved without the tile re-registering needs a nudge.
   useStore($stripToolsRevision)
@@ -470,10 +492,16 @@ export function TreeGroup({
   // The chevron and the zone menu still minimize a chat zone deliberately.
   const tapCollapses = minimizable && shown.some(isCollapsePane)
 
-  // Tab ✕: a tool panel (terminal/logs) is REMOVED from the layout (comes back
-  // via its toggle); everything else routes through its Close (a session tile
-  // closes the session, a store-bound pane collapses).
-  const closeTab = (paneId: string) => (isCollapsePane(paneId) ? dismissTreePane(paneId) : closeTreePane(paneId))
+  // Middle-click / ⌘-click / the ✕ on a tab: ONE routing for every tab kind,
+  // the same one the zone menu's Close and ⌘W use — a tool panel leaves the
+  // strip and syncs its toggle, everything else routes through its own Close.
+  const closeTab = (paneId: string) => closeTabPane(paneId)
+
+  // A pane whose STORE owns Close keeps the gesture even when the pane itself
+  // is uncloseable — the workspace tab empties to a fresh draft rather than
+  // leaving the tree.
+  const closeableTab = (paneId: string) =>
+    !tileChrome(paneFor(paneId)).uncloseable || panesWithCloser.has(paneId)
 
   // Collapse/restore a tool panel (or plain minimize elsewhere) — the header
   // chevron + tap gesture, routed so ⌃`/the titlebar toggle stay truthful.
@@ -531,7 +559,7 @@ export function TreeGroup({
               role="tablist"
             >
               {shown.map(paneId => {
-                const closeable = !tileChrome(paneFor(paneId)).uncloseable
+                const closeable = closeableTab(paneId)
                 const title = paneFor(paneId)?.title ?? paneId
 
                 return (
@@ -638,8 +666,9 @@ export function TreeGroup({
             {shown.map(paneId => {
               const isActive = paneId === activeId && !node.minimized
               const chrome = tileChrome(paneFor(paneId))
-              const closeable = !chrome.uncloseable
+              const closeable = closeableTab(paneId)
               const title = paneFor(paneId)?.title ?? paneId
+              const isSelected = tabSelection?.groupId === node.id && tabSelection.ids.has(paneId)
 
               const tab = (
                 <PaneTab
@@ -647,23 +676,38 @@ export function TreeGroup({
                   aria-selected={isActive}
                   data-tree-tab={paneId}
                   key={paneId}
-                  onAuxClick={e => {
-                    // Middle-click closes, the way it does in every tabbed
-                    // app. Guarded on `closeable` so the workspace tab — the
-                    // one pane that must survive — ignores it.
-                    if (e.button === 1 && closeable) {
-                      e.preventDefault()
-                      e.stopPropagation()
-                      closeTab(paneId)
-                    }
-                  }}
                   onClose={closeable ? () => closeTab(paneId) : undefined}
                   onPointerDown={e => {
+                    // Chrome's tab-selection grammar, ahead of activate/drag:
+                    // Shift-click ranges from the anchor, ⌥-click (Ctrl-click
+                    // off-Mac) toggles. Neither activates nor starts a drag —
+                    // the press IS the selection edit. ⌘-click stays close
+                    // (PaneTab claims it first) and ⌃-click stays the macOS
+                    // context menu.
+                    if (e.button === 0 && e.shiftKey) {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      selectTabRange(node.id, shown, paneId, activeId)
+
+                      return
+                    }
+
+                    if (isToggleSelectClick(e)) {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      toggleTabSelected(node.id, paneId, activeId)
+
+                      return
+                    }
+
                     // Tabs ACTIVATE (restoring a collapsed group). Minimize
                     // lives on the chevron / single-pane label — overloading
                     // the active tab made double-click a minimize/restore/hide
-                    // lottery.
+                    // lottery. A plain click also collapses any multi-tab
+                    // selection back to the one tab (Chrome semantics).
                     const onTap = () => {
+                      clearTabSelection()
+
                       if (node.minimized) {
                         restoreTreePane(paneId)
                       }
@@ -678,6 +722,27 @@ export function TreeGroup({
                     if (e.button === 0) {
                       e.preventDefault()
                       e.stopPropagation()
+                    }
+
+                    // Dragging a SELECTED tab carries the whole selection as
+                    // one block through the generic pane move — a multi-tab
+                    // drag outranks the pane's own tab drag (the session drop
+                    // language is single-session).
+                    const dragSelection = selectionFor(node.id, shown, paneId)
+
+                    if (dragSelection) {
+                      startPaneDrag(
+                        paneId,
+                        e,
+                        onTap,
+                        stripRef.current ? { groupId: node.id, strip: stripRef.current } : undefined,
+                        hideHeaderDoubleTap,
+                        t.zones.tabCount(dragSelection.length),
+                        undefined,
+                        dragSelection
+                      )
+
+                      return
                     }
 
                     // A pane may own its tab drag (a session tab speaks the
@@ -697,6 +762,7 @@ export function TreeGroup({
                     }
                   }}
                   role="tab"
+                  selected={isSelected}
                   style={{ cursor: 'grab' }}
                 >
                   {chrome.accent ? (
@@ -759,7 +825,13 @@ export function TreeGroup({
                     <PaneGroupContext.Provider value={node.id}>
                       <PaneVisibleContext.Provider value={isActive}>
                         <PaneProfiler kind={tile.kind}>
-                          <ContribBoundary id={tile.id}>{tile.render()}</ContribBoundary>
+                          {/* The reload epoch keys the CONTENT, not this layer:
+                              a Reload remounts the contribution (effects re-run,
+                              state resets) while the layer — and every other
+                              tab — stays exactly where it was. */}
+                          <ContribBoundary id={tile.id} key={paneEpochs[paneId] ?? 0}>
+                            {tile.render()}
+                          </ContribBoundary>
                         </PaneProfiler>
                       </PaneVisibleContext.Provider>
                     </PaneGroupContext.Provider>

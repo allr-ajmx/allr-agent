@@ -1,4 +1,5 @@
 import type * as React from 'react'
+import { useCallback } from 'react'
 
 import { SidebarPanelLabel } from '@/app/shell/sidebar-label'
 import { DisclosureCaret } from '@/components/ui/disclosure-caret'
@@ -172,28 +173,47 @@ export function SidebarSessionsSection(props: SidebarSessionsSectionProps) {
     !hasGroups &&
     sessions.length >= VIRTUALIZE_THRESHOLD
 
-  const renderRow = (session: SessionInfo, draggable: boolean) => {
-    const rowProps = {
-      isPinned: pinned,
-      isSelected: session.id === activeSessionId,
-      isWorking: workingSessionIdSet.has(session.id),
-      onArchive: () => onArchiveSession(session.id),
-      onDelete: () => onDeleteSession(session.id),
-      onPin: () => onTogglePin(sessionPinId(session)),
-      onResume: () => onResumeSession(session.id),
-      session,
-      showProfile: showProfileTags
-    }
+  // MEMOIZED, not for tidiness: a fresh `renderRow` identity on every render is
+  // a new render function for the virtualizer and a new prop for every project
+  // lane, so a single unrelated store write (a status tick, a busy flag) rebuilt
+  // the whole list mid-scroll — which is what the jitter was. The dependency
+  // list is the row's real inputs; anything missing here is a stale row.
+  const renderRow = useCallback(
+    (session: SessionInfo, draggable: boolean) => {
+      const rowProps = {
+        isPinned: pinned,
+        isSelected: session.id === activeSessionId,
+        isWorking: workingSessionIdSet.has(session.id),
+        onArchive: () => onArchiveSession(session.id),
+        onDelete: () => onDeleteSession(session.id),
+        onPin: () => onTogglePin(sessionPinId(session)),
+        onResume: () => onResumeSession(session.id),
+        session,
+        showProfile: showProfileTags
+      }
 
-    return draggable ? (
-      <SortableSidebarSessionRow key={session.id} {...rowProps} />
-    ) : (
-      <SidebarSessionRow key={session.id} {...rowProps} />
-    )
-  }
+      return draggable ? (
+        <SortableSidebarSessionRow key={session.id} {...rowProps} />
+      ) : (
+        <SidebarSessionRow key={session.id} {...rowProps} />
+      )
+    },
+    [
+      activeSessionId,
+      onArchiveSession,
+      onDeleteSession,
+      onResumeSession,
+      onTogglePin,
+      pinned,
+      showProfileTags,
+      workingSessionIdSet
+    ]
+  )
 
   // Static (non-draggable) rows for project previews + entered-project sessions.
-  const renderProjectRows = (items: SessionInfo[]) => items.map(session => renderRow(session, false))
+  const renderProjectRows = useCallback((items: SessionInfo[]) => items.map(session => renderRow(session, false)), [
+    renderRow
+  ])
 
   const showProjectsSkeleton =
     projectsLoading && !hasProjectOverview && !hasProjectContent && !projectContent && !hasGroups

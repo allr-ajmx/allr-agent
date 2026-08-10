@@ -59,6 +59,7 @@ import {
 import {
   $activeStoredSessionId,
   $messagingSessions,
+  $pinnedSessionCache,
   $searchLoading,
   $sessions,
   $sessionSearch,
@@ -71,6 +72,7 @@ import {
   loadMoreSessions,
   messagingSourceLabel,
   openSession,
+  pinnedSessionRows,
   refreshMessagingSessions,
   refreshSessions,
   resetSessionsPaging,
@@ -183,6 +185,9 @@ export function SidebarScrollBody({
   const serverResults = useStore($sessionSearch)
   const searching = useStore($searchLoading)
   const pinnedIds = useStore($pinnedSessionIds)
+  // Subscribed, not read directly: `pinnedSessionRows` reads the cache with
+  // `.get()`, so the section needs a reason to re-render when it changes.
+  const pinnedCache = useStore($pinnedSessionCache)
   const pinsOpen = useStore($sidebarPinsOpen)
   const recentsOpen = useStore($sidebarRecentsOpen)
   const orderManual = useStore($sidebarSessionOrderManual)
@@ -363,12 +368,16 @@ export function SidebarScrollBody({
     return [...clientMatches, ...serverResults.filter(r => !seen.has(r.session_id)).map(searchResultToSession)]
   }, [trimmed, sessions, serverResults])
 
-  // Pinned = loaded sessions whose durable id is pinned, in the stored pin order.
-  const pinnedSessions = useMemo(() => {
-    const byPinId = new Map(sessions.map(session => [sessionPinId(session), session]))
-
-    return pinnedIds.map(id => byPinId.get(id)).filter((s): s is SessionInfo => Boolean(s))
-  }, [sessions, pinnedIds])
+  // Pinned, in the stored pin order — EVERY pin, not just the ones the current
+  // page happens to cover. A pinned chat that has fallen past the loaded window
+  // resolves from its last-known row (`$pinnedSessionCache`) instead of silently
+  // disappearing from the section while its pin is still stored.
+  const pinnedSessions = useMemo(
+    () => pinnedSessionRows(sessions, pinnedIds),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the cache is kept
+    // in lockstep with these two by store/session.ts's subscriptions.
+    [sessions, pinnedIds, pinnedCache]
+  )
 
   // Recents = loaded sessions minus pinned, newest-first (or the manual order).
   const recents = useMemo(() => {

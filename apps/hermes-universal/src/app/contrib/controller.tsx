@@ -33,6 +33,7 @@ import { registry } from '@/contrib/registry'
 import { discoverRuntimePlugins } from '@/contrib/runtime-loader'
 import { sessionTitle as storedSessionTitle } from '@/lib/chat-runtime'
 import { LayoutDashboard, PanelBottom, Plug } from '@/lib/icons'
+import { WORKSPACE_PANE_ID } from '@/lib/pane-ids'
 import { type KeybindContribution, KEYBINDS_AREA } from '@/lib/keybinds/actions'
 import { $chatBubbles, bubbleRuntimeKey } from '@/store/chat-bubbles'
 import { $gatewayState } from '@/store/gateway'
@@ -49,14 +50,16 @@ import {
   SIDEBAR_DEFAULT_WIDTH,
   SIDEBAR_MAX_WIDTH
 } from '@/store/layout'
-import { startNewSessionTab } from '@/store/new-session'
+import { startNewSession, startNewSessionTab } from '@/store/new-session'
 import { $reviewOpen, closeReview, REVIEW_PANE_ID } from '@/store/review'
-import { $activeStoredSessionId, $sessions, sessionMatchesStoredId } from '@/store/session'
+import { $activeStoredSessionId, $sessions, openSession, sessionMatchesStoredId } from '@/store/session'
 import { $sessionColorById, sessionColorFor } from '@/store/session-color'
 import {
   $focusedChatPane,
+  closeSessionTile,
   focusWorkspaceSession,
   invalidateRuntimeBindings,
+  nextSessionTileForWorkspace,
   setVisibleBubbleKeysProvider
 } from '@/store/session-states'
 import { toggleStatusbarVisible } from '@/store/statusbar-prefs'
@@ -536,6 +539,39 @@ registerPaneCloser('sessions', () =>
 registerPaneCloser('files', () =>
   paneRootSide('files') === 'right' ? $rightSidebarOpen.set(false) : dismissTreePane('files')
 )
+
+/**
+ * The MAIN tab's Close.
+ *
+ * The workspace pane can't leave the tree, so "closing" it means EMPTYING it,
+ * and what fills the hole depends on what is stacked beside it: a session tab in
+ * main's own strip shifts INTO main (its tile is dropped and the session loads as
+ * the primary — the session stays alive, no busy prompt); with nothing stacked,
+ * main drops to a fresh "New session" draft rather than an empty void.
+ *
+ * Registering a closer is also what gives the tab its close GESTURE — the strip
+ * reads `$panesWithCloser`, not the `uncloseable` flag, so the pane stays
+ * undismissable while ⌘W / ⌘-click / middle-click / the zone menu all work on it.
+ * Without this, ⌘W over a lone main tab was a dead key.
+ */
+registerPaneCloser(WORKSPACE_PANE_ID, () => {
+  const next = nextSessionTileForWorkspace()
+
+  if (next) {
+    // Order matters — close the tile FIRST so the selection homes to the
+    // workspace instead of re-fronting the tile it is being promoted out of.
+    closeSessionTile(next)
+    void openSession(next)
+
+    return
+  }
+
+  // Already a blank draft? Then this IS the post-close state; leave it alone
+  // rather than churning a fresh session out from under the composer.
+  if ($activeStoredSessionId.get() !== null) {
+    startNewSession()
+  }
+})
 
 /**
  * The workspace grid: mounts the layout tree. Publishes `$workspacePage` from

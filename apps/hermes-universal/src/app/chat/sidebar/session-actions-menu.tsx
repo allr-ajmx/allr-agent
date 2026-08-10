@@ -38,6 +38,7 @@ import { PROFILE_SWATCHES } from '@/lib/profile-color'
 import { useStore } from '@/store/atom'
 import { addBubble } from '@/store/chat-bubbles'
 import { notify, notifyError } from '@/store/notifications'
+import { $projects, moveSessionToProject } from '@/store/projects'
 import {
   $activeStoredSessionId,
   $sessions,
@@ -134,7 +135,12 @@ interface SubSpec {
   icon: string
   kind: 'sub'
   label: string
-  render: () => React.ReactNode
+  /** Padding for the submenu body — a swatch GRID wants it, a list of menu
+   *  items must not have it or the rows inset away from the trigger. */
+  contentClassName?: string
+  /** Handed the kit so a submenu can render real menu items (the project list)
+   *  rather than only custom chrome (the color swatches). */
+  render: (kit: MenuKit) => React.ReactNode
 }
 
 type MenuSpec = ItemSpec | SubSpec
@@ -157,7 +163,18 @@ function useSessionActions({
   const { t } = useI18n()
   const r = t.sidebar.row
   const activeStoredId = useStore($activeStoredSessionId)
+  const projects = useStore($projects)
   const [renameOpen, setRenameOpen] = useState(false)
+
+  // Destinations for a move: a project's primary folder, else its first. A
+  // project with no folder has no directory to adopt, so it is not offered.
+  const moveTargets = projects
+    .filter(project => !project.archived)
+    .map(project => ({
+      name: project.name,
+      path: project.primary_path ?? project.folders?.[0]?.path ?? ''
+    }))
+    .filter(target => target.path)
 
   // "Open in bubble" (mobile) / "Open in tile" (desktop) is meaningless for the
   // session already loaded in the workspace — hide it there.
@@ -232,9 +249,40 @@ function useSessionActions({
       disabled: !sessionId,
       icon: 'symbol-color',
       kind: 'sub' as const,
+      contentClassName: 'p-2',
       label: t.sidebar.projects.menuAppearance,
       render: () => <SessionColorSwatches sessionId={sessionId} />
     },
+    // Move to another project — a chat created in the wrong directory is
+    // re-homed rather than recreated, so it keeps its history. Only offered when
+    // there is somewhere to move it TO: a folderless project has no cwd to
+    // adopt, so it is not a destination.
+    ...(moveTargets.length > 0
+      ? [
+          {
+            disabled: !sessionId,
+            icon: 'folder-library',
+            kind: 'sub' as const,
+            label: t.sidebar.row.moveToProject,
+            render: (kit: MenuKit) => (
+              <>
+                {moveTargets.map(target => (
+                  <kit.Item
+                    key={target.path}
+                    onSelect={() => {
+                      void triggerHaptic('selection')
+                      void moveSessionToProject(sessionId, target.path)
+                    }}
+                  >
+                    <Codicon name="folder" size="0.875rem" />
+                    <span className="truncate">{target.name}</span>
+                  </kit.Item>
+                ))}
+              </>
+            )
+          }
+        ]
+      : []),
     // Branch — only offered where a branch handler is wired (a tile tab). A
     // plain sidebar row doesn't pass one, so its menu is unchanged.
     ...(onBranch
@@ -337,7 +385,7 @@ function useSessionActions({
               <Codicon name={spec.icon} size="0.875rem" />
               <span>{spec.label}</span>
             </kit.SubTrigger>
-            <kit.SubContent className="p-2">{spec.render()}</kit.SubContent>
+            <kit.SubContent className={spec.contentClassName}>{spec.render(kit)}</kit.SubContent>
           </kit.Sub>
         ) : (
           <kit.Item

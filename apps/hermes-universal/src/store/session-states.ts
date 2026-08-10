@@ -865,7 +865,10 @@ export function discardSessionTile(storedSessionId: string) {
   saveTiles($sessionTiles.get().filter(t => t.storedSessionId !== storedSessionId))
 }
 
-/** ⌘⇧T — reopen the most recently closed tab where it was. */
+/** ⌘⇧T — reopen the most recently closed tab where it was, then FOCUS it.
+ *  Adoption alone is silent (it must not steal the active tab), so restore has
+ *  to front the pane explicitly or the tab comes back behind whatever you were
+ *  looking at. Skips ids that are live again (reopened / now the primary). */
 export function reopenLastClosedTile(): void {
   const stack = closedStack()
 
@@ -878,10 +881,81 @@ export function reopenLastClosedTile(): void {
 
     if (!$sessionTiles.get().some(t => t.storedSessionId === storedSessionId)) {
       openSessionTile(storedSessionId, tile.dir, tile.anchor, tile.before)
+      focusOpenSession(storedSessionId)
 
       return
     }
   }
+}
+
+/** The open tab that is still an empty "New session" draft, if there is one.
+ *  That tab is the one the user would have typed into, so an open-from-nowhere
+ *  SPENDS it instead of stacking a second blank tab beside it. Most recent
+ *  wins; a tile whose runtime hasn't bound (or whose state hasn't published) is
+ *  unknown rather than empty, so it is left alone. */
+export function blankDraftTile(
+  tiles: readonly SessionTile[],
+  states: Record<string, ClientSessionState>
+): null | SessionTile {
+  // Reverse scan rather than `findLast` — this project's lib target predates it.
+  for (let i = tiles.length - 1; i >= 0; i--) {
+    const key = tileRuntimeKey(tiles[i].storedSessionId)
+    const state = key ? states[key] : undefined
+
+    if (state && !state.busy && state.messages.length === 0) {
+      return tiles[i]
+    }
+  }
+
+  return null
+}
+
+/** Hand an open blank draft tab over to `storedSessionId`, keeping its slot.
+ *  False when there is no such tab, so the caller can fall back. The spent
+ *  draft is DISCARDED rather than closed: it never held a conversation, so ⌘⇧T
+ *  resurrecting it would just restore an empty tab. */
+export function reuseBlankDraftTile(storedSessionId: string): boolean {
+  const tile = blankDraftTile($sessionTiles.get(), $sessionStates.get())
+
+  if (!tile || tile.storedSessionId === storedSessionId) {
+    return false
+  }
+
+  discardSessionTile(tile.storedSessionId)
+  openSessionTile(storedSessionId, tile.dir, tile.anchor, tile.before)
+  revealTreePane(`${TILE_PANE_PREFIX}${storedSessionId}`)
+
+  return true
+}
+
+/**
+ * The session tile that should shift INTO main when the workspace tab closes:
+ * the nearest chat tab in main's own strip, scanning right first and then left
+ * (the tab that fills the slot, then its neighbour). Null when main is the only
+ * chat in its zone — the caller then drops main to a fresh draft.
+ */
+export function nextSessionTileForWorkspace(): null | string {
+  const tree = $layoutTree.get()
+  const group = tree ? findGroupOfPane(tree, WORKSPACE_PANE_ID) : null
+
+  if (!group) {
+    return null
+  }
+
+  const tiles = $sessionTiles.get()
+  const idx = group.panes.indexOf(WORKSPACE_PANE_ID)
+  // After the workspace tab first, then the ones before it (nearest-out).
+  const ordered = [...group.panes.slice(idx + 1), ...group.panes.slice(0, idx).reverse()]
+
+  for (const paneId of ordered) {
+    const storedSessionId = storedIdFromTilePane(paneId)
+
+    if (storedSessionId && tiles.some(t => t.storedSessionId === storedSessionId)) {
+      return storedSessionId
+    }
+  }
+
+  return null
 }
 
 // ---------------------------------------------------------------------------

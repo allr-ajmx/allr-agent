@@ -224,6 +224,9 @@ export interface HermesConfig {
   }
   terminal?: {
     cwd?: string
+    /** CSS family name (or an authored stack) for the integrated terminal;
+     *  empty/absent means the bundled default. See right-pane/terminal/terminal-font. */
+    font_family?: string
   }
   stt?: {
     enabled?: boolean

@@ -1584,6 +1584,7 @@ export interface Translations {
       openInBubble: string
       export: string
       branchFrom: string
+      moveToProject: string
       rename: string
       archive: string
       newWindow: string
@@ -2472,6 +2473,9 @@ export interface Translations {
     closeToRight: string
     closeAll: string
     newTab: string
+    reload: string
+    /** Drag-ghost label for a multi-tab block. */
+    tabCount: (count: number) => string
     split: (dir: string) => string
     move: (dir: string) => string
     dirUp: string

@@ -15,6 +15,7 @@ import { getSessionMessages } from '@/hermes'
 import { appendLiveSessionProjection, toChatMessages } from '@/lib/session-history'
 import { type ChatMessage, nextId } from '@/store/chat'
 import { requestGateway } from '@/store/gateway'
+import { withSessionNotFoundResume } from '@/store/session-recovery'
 import {
   $sessions,
   archiveSessionLocal,
@@ -33,6 +34,13 @@ import {
   updateSession
 } from '@/store/session-states'
 import type { SessionResumeResponse } from '@/types/hermes'
+
+/** The DURABLE id behind a tile's live runtime id — what a stale-runtime resume
+ *  has to name. The slice carries it; without one there is nothing to recover to
+ *  and the caller's error stands. */
+function storedIdOfSession(runtimeId: string): null | string {
+  return $sessionStates.get()[runtimeId]?.storedSessionId ?? null
+}
 
 function userMessage(text: string): ChatMessage {
   return { id: nextId(), role: 'user', parts: [{ type: 'text', text }] }
@@ -115,7 +123,13 @@ setSessionTileDelegate({
       messages: [...state.messages, userMessage(text)]
     }))
 
-    await requestGateway('prompt.submit', { session_id: runtimeId, text })
+    // A backgrounded tile is exactly the session most likely to have had its
+    // runtime dropped from under it — nothing has been sent through it for a
+    // while. Rebind on a stale id rather than surfacing "session not found" on
+    // the first message back.
+    await withSessionNotFoundResume(runtimeId, storedIdOfSession(runtimeId), live =>
+      requestGateway('prompt.submit', { session_id: live, text })
+    )
   },
 
   async interruptSession(runtimeId) {
@@ -127,7 +141,9 @@ setSessionTileDelegate({
   // App-level slash on a tile's session — submit it as text; the backend
   // interprets branch/handoff/etc. (desktop routes these to the main surface).
   async executeSlash(rawCommand, sessionId) {
-    await requestGateway('prompt.submit', { session_id: sessionId, text: rawCommand })
+    await withSessionNotFoundResume(sessionId, storedIdOfSession(sessionId), live =>
+      requestGateway('prompt.submit', { session_id: live, text: rawCommand })
+    )
   },
 
   async archiveSession(storedId) {
