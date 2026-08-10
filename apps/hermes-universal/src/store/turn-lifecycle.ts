@@ -31,8 +31,11 @@
 import { atom, computed, type ReadableAtom } from 'nanostores'
 
 import type { GatewayEvent } from '@/gateway'
+import type { ChatMessage } from '@/lib/chat-messages'
+import { isLiveTailRow, reconcileLiveTail } from '@/lib/live-tail'
+import { appendLiveSessionProjection } from '@/lib/session-history'
 import { $gatewayState, requestGateway } from '@/store/gateway'
-import { $activeSessionKey, $sessionStates, addSessionKeyHooks } from '@/store/session-state-types'
+import { $activeSessionKey, $sessionStates, addSessionKeyHooks, updateSession } from '@/store/session-state-types'
 import type { SessionResumeResponse } from '@/types/hermes'
 
 // ---------------------------------------------------------------------------
@@ -625,12 +628,56 @@ export function applyTurnReconciliation(key: string, plan: TurnReconciliation): 
  *  session, not two). */
 const reconciling = new Set<string>()
 
+const sameMessages = (left: ChatMessage[], right: ChatMessage[]): boolean =>
+  left.length === right.length && left.every((message, index) => message === right[index])
+
+/**
+ * Fold the gateway's inflight snapshot into the session's LIVE tail.
+ *
+ * THIS is the path `lib/live-tail.ts` was written for and never had (MJXHRM-358).
+ * Its only other caller is the cold-open rekey in `store/turn-hydration.ts`,
+ * where by construction nothing has streamed yet — the slice was created for the
+ * open — so the reconciliation there is inert. A reconnect is the opposite case:
+ * the slice holds a turn's reasoning and tool rows that only exist locally, and
+ * the gateway is holding the authoritative record of everything that turn said
+ * while the socket was down.
+ *
+ * `omit_messages` is kept: a resume STILL returns `inflight` and `queued` with it
+ * (`_live_session_payload`), and those are the only fields that describe the
+ * running turn. Re-fetching the committed transcript would buy nothing — the turn
+ * is not committed until it ends — and would repaint the whole thread.
+ *
+ * The fold is computed INSIDE the updater, against the slice as it is at write
+ * time. The resume is a slow await and the router keeps streaming deltas into the
+ * slice while it is in the air, so a merge built from the pre-await copy would
+ * silently drop every token that arrived during the round trip.
+ */
+function reconcileSessionTail(key: string, resumed: SessionResumeResponse): void {
+  updateSession(key, state => {
+    // The committed prefix, with the live tail removed: the projection decides
+    // for itself what the running turn looks like, and feeding it our own tail
+    // would make it suppress the very rows it is there to supply.
+    const committed = state.messages.filter(message => !isLiveTailRow(message))
+    const authoritative = appendLiveSessionProjection(committed, resumed)
+
+    // The gateway had nothing to add — no inflight, no queue, no retained error.
+    if (authoritative === committed) {
+      return state
+    }
+
+    const messages = reconcileLiveTail(authoritative, state.messages)
+
+    return sameMessages(messages, state.messages) ? state : { ...state, messages }
+  })
+}
+
 /**
  * Ask the gateway what it thinks of one session's turn, and reconcile.
  *
  * `omit_messages` because this is a turn-state question, not a transcript one —
  * the transcript already lives in the slice, and re-fetching it here would race
- * whatever the router is streaming into it.
+ * whatever the router is streaming into it. The inflight SNAPSHOT still comes
+ * back, and `reconcileSessionTail` folds it into that slice.
  */
 export async function reconcileSessionTurn(key: string): Promise<TurnReconciliation | null> {
   const state = $sessionStates.get()[key]
@@ -649,7 +696,15 @@ export async function reconcileSessionTurn(key: string): Promise<TurnReconciliat
       source: 'universal'
     })
 
-    return applyTurnReconciliation(key, planTurnReconciliation(getInflightTurn(key), remoteTurnSnapshot(resumed)))
+    const plan = applyTurnReconciliation(key, planTurnReconciliation(getInflightTurn(key), remoteTurnSnapshot(resumed)))
+
+    // After the plan, not before: settling a turn the gateway has forgotten must
+    // not then re-project that turn's tail back onto the transcript.
+    if (plan.action !== 'settle') {
+      reconcileSessionTail(key, resumed)
+    }
+
+    return plan
   } catch {
     // A failed probe is not evidence the turn died — leave the record alone and
     // let the next reconnect (or a terminal frame) settle it.

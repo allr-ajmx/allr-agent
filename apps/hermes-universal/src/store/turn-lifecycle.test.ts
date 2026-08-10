@@ -382,6 +382,94 @@ describe('reconcileSessionTurn', () => {
     vi.doUnmock('@/store/gateway')
     vi.resetModules()
   })
+
+  // MJXHRM-358: `reconcileLiveTail` existed but its only caller — the cold-open
+  // rekey — has nothing streaming by construction, so live-tail reconciliation
+  // never ran against an in-progress turn. A reconnect is the case it was
+  // written for: the slice holds structure that exists nowhere else, and the
+  // gateway holds everything the turn said while the socket was down.
+  it('folds the inflight snapshot into a STREAMING tail on reconnect', async () => {
+    vi.doMock('@/store/gateway', () => ({
+      $gatewayState: { get: () => 'open', subscribe: () => () => {} },
+      requestGateway: vi.fn(async () => ({
+        message_count: 0,
+        messages: [],
+        running: true,
+        session_id: 'runtime-3',
+        inflight: { user: 'do the thing', assistant: 'partial answer, continued', streaming: true }
+      }))
+    }))
+
+    vi.resetModules()
+    const states = await import('@/store/session-state-types')
+    const lifecycle = await import('@/store/turn-lifecycle')
+
+    states.publishSessionState('runtime-3', {
+      ...emptySessionState('stored-3'),
+      runtimeSessionId: 'runtime-3',
+      busy: true,
+      messages: [
+        { id: 'u1', role: 'user', parts: [{ type: 'text', text: 'do the thing' }] },
+        {
+          id: 'a1',
+          role: 'assistant',
+          pending: true,
+          parts: [
+            { type: 'reasoning', text: 'thinking' },
+            { type: 'text', text: 'partial answer' }
+          ]
+        }
+      ]
+    })
+    lifecycle.beginTurn('runtime-3', { prompt: 'do the thing' })
+
+    await lifecycle.reconcileSessionTurn('runtime-3')
+
+    const messages = states.$sessionStates.get()['runtime-3'].messages
+    const assistants = messages.filter(message => message.role === 'assistant')
+
+    // ONE assistant row, not the local partial sandwiched beside the dump.
+    expect(assistants).toHaveLength(1)
+    // The reasoning only the local slice had survives…
+    expect(assistants[0].parts.some(part => part.type === 'reasoning')).toBe(true)
+    // …and the text the gateway saw while we were offline replaces the prefix.
+    expect(assistants[0].parts.filter(part => part.type === 'text').map(part => part.text)).toEqual([
+      'partial answer, continued'
+    ])
+    // The user turn is not rendered twice by the projection.
+    expect(messages.filter(message => message.role === 'user')).toHaveLength(1)
+
+    vi.doUnmock('@/store/gateway')
+    vi.resetModules()
+  })
+
+  it('does not re-project a tail onto a turn the gateway has forgotten', async () => {
+    vi.doMock('@/store/gateway', () => ({
+      $gatewayState: { get: () => 'open', subscribe: () => () => {} },
+      requestGateway: vi.fn(async () => ({ message_count: 0, messages: [], running: false, session_id: 'runtime-4' }))
+    }))
+
+    vi.resetModules()
+    const states = await import('@/store/session-state-types')
+    const lifecycle = await import('@/store/turn-lifecycle')
+
+    const messages = [{ id: 'u1', role: 'user' as const, parts: [{ type: 'text' as const, text: 'go' }] }]
+
+    states.publishSessionState('runtime-4', {
+      ...emptySessionState('stored-4'),
+      runtimeSessionId: 'runtime-4',
+      messages
+    })
+    lifecycle.beginTurn('runtime-4', { prompt: 'go' })
+
+    await lifecycle.reconcileSessionTurn('runtime-4')
+
+    expect(lifecycle.isTurnLive('runtime-4')).toBe(false)
+    expect(states.$sessionStates.get()['runtime-4'].messages).toBe(messages)
+
+    vi.doUnmock('@/store/gateway')
+    vi.resetModules()
+  })
 })
 
 describe('$inflightTurns', () => {

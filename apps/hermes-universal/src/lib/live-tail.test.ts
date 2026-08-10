@@ -218,6 +218,28 @@ describe('preserveLocalPendingTurnMessages', () => {
     expect(out.map(m => m.id)).toEqual(['h1', 'assistant-stream-s1'])
   })
 
+  // MJXHRM-358. The authoritative row for a STILL-RUNNING turn is a snapshot
+  // taken later than ours, so it reads as the same answer plus more of it — and
+  // `reconcileResumeMessages` has by then already carried our structure onto it.
+  // Appending the prefix we rendered would print the answer twice, once
+  // truncated: the exact sandwich this module exists to prevent.
+  it('drops a local row the authoritative one continues', () => {
+    const authoritative = [user('h1', 'go'), reply('assistant-stream-s1', 'the answer, continued', { pending: true })]
+    const previous = [user('u1', 'go'), reply('local-a1', 'the answer', { pending: true })]
+
+    expect(preserveLocalPendingTurnMessages(authoritative, previous)).toBe(authoritative)
+  })
+
+  // The continuation rule is assistant-only: one user message being a prefix of
+  // another is a coincidence, not the same message written twice.
+  it('does not treat a user row as continued by a longer one', () => {
+    const authoritative = [user('h1', 'do the thing and then some')]
+    const previous = [user('user-inflight-s1', 'do the thing')]
+    const out = preserveLocalPendingTurnMessages(authoritative, previous)
+
+    expect(out.map(m => m.id)).toEqual(['h1', 'user-inflight-s1'])
+  })
+
   it('ignores settled local history — only the live tail is carried', () => {
     const authoritative = [user('h1', 'go')]
 

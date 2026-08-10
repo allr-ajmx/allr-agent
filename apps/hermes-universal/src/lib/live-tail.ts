@@ -289,6 +289,14 @@ export function reconcileResumeMessages(authoritative: ChatMessage[], previous: 
  * blindly renders the same answer twice. So a settled local row whose body
  * already appears in the authoritative set is DROPPED, and only a row nothing
  * else holds is carried over — it is the only copy.
+ *
+ * "Already appears" has to include CONTINUES, not just equals. The authoritative
+ * assistant row for a still-running turn is a snapshot taken later than ours, so
+ * it routinely reads as the same answer plus more of it — and `reconcileResumeMessages`
+ * has by then already carried our reasoning and tool parts onto it. Re-appending
+ * the prefix we rendered would print the answer twice, once truncated, which is
+ * the exact sandwich this module exists to prevent. Restricted to assistant rows:
+ * one user message being a prefix of another is a coincidence, not a continuation.
  */
 export function preserveLocalPendingTurnMessages(authoritative: ChatMessage[], previous: ChatMessage[]): ChatMessage[] {
   const tail: ChatMessage[] = []
@@ -301,11 +309,21 @@ export function preserveLocalPendingTurnMessages(authoritative: ChatMessage[], p
 
     const body = comparableText(message)
 
-    // The finished reply already landed under its committed id — this is the
-    // stale optimistic twin, not a second answer.
+    // The finished (or continued) reply already landed under its committed id —
+    // this is the stale optimistic twin, not a second answer.
     if (
       body &&
-      authoritative.some(candidate => candidate.role === message.role && comparableText(candidate) === body)
+      authoritative.some(candidate => {
+        if (candidate.role !== message.role) {
+          return false
+        }
+
+        const candidateBody = comparableText(candidate)
+
+        return (
+          candidateBody === body || (message.role === 'assistant' && isStrictAnswerTextExtension(candidateBody, body))
+        )
+      })
     ) {
       continue
     }

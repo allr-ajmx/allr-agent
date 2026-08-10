@@ -128,6 +128,23 @@ describe('appendLiveSessionProjection', () => {
     expect(out.map(m => m.role)).toEqual(['user', 'assistant'])
   })
 
+  // MJXHRM-358: the projection now also runs on RECONNECT, against a slice that
+  // already holds the corrections the user typed in this process. Re-appending
+  // them would render every correction again on each drop / re-open.
+  it('does not re-project a correction the transcript already shows', () => {
+    const messages = [
+      { id: 'u1', role: 'user' as const, parts: [{ type: 'text' as const, text: 'do the thing' }] },
+      { id: 'u2', role: 'user' as const, parts: [{ type: 'text' as const, text: 'actually do this' }] }
+    ]
+
+    const out = appendLiveSessionProjection(messages, {
+      inflight: { corrections: ['actually do this'], streaming: true, user: 'do the thing' },
+      session_id: 's1'
+    })
+
+    expect(out.filter(m => m.role === 'user')).toHaveLength(2)
+  })
+
   it('projects an accepted queued prompt after the running turn', () => {
     const out = appendLiveSessionProjection([], {
       inflight: { streaming: true, user: 'first' },
