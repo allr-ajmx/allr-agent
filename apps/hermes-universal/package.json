@@ -29,7 +29,8 @@
     "fix": "npm run lint:fix && npm run fmt",
     "check:js": "npm run typecheck && npm run lint && npm run test && npm run build",
     "check:rust": "cargo check --manifest-path src-tauri/Cargo.toml",
-    "check": "npm run check:js && npm run check:rust"
+    "check:rust:test": "cargo test --manifest-path src-tauri/Cargo.toml --all-features",
+    "check": "npm run check:js && npm run check:rust && npm run check:rust:test"
   },
   "dependencies": {
     "@assistant-ui/core": "0.2.23",
