@@ -62,9 +62,13 @@ pub(crate) fn hermes_home() -> Option<PathBuf> {
     }
 
     if cfg!(target_os = "windows") {
-        std::env::var("LOCALAPPDATA").ok().map(|p| PathBuf::from(p).join("hermes"))
+        std::env::var("LOCALAPPDATA")
+            .ok()
+            .map(|p| PathBuf::from(p).join("hermes"))
     } else {
-        std::env::var("HOME").ok().map(|p| PathBuf::from(p).join(".hermes"))
+        std::env::var("HOME")
+            .ok()
+            .map(|p| PathBuf::from(p).join(".hermes"))
     }
 }
 
@@ -185,7 +189,8 @@ pub fn plugins_read(profile: Option<String>, name: String) -> Result<String, Str
 
     let file = root_for(profile)?.join(&name).join(PLUGIN_ENTRY);
 
-    std::fs::read_to_string(&file).map_err(|err| format!("could not read {}: {err}", file.display()))
+    std::fs::read_to_string(&file)
+        .map_err(|err| format!("could not read {}: {err}", file.display()))
 }
 
 #[cfg(test)]
@@ -229,13 +234,19 @@ mod tests {
         assert_eq!(default, explicit_default);
         assert_eq!(default, current);
         assert_eq!(default, blank);
-        assert_eq!(named, home().join("profiles").join("work").join("desktop-plugins"));
+        assert_eq!(
+            named,
+            home().join("profiles").join("work").join("desktop-plugins")
+        );
     }
 
     #[test]
     fn a_bad_profile_name_is_refused() {
         for profile in ["../escape", "a/b", "a\\b", ".hidden"] {
-            assert!(plugin_root_under(home(), Some(profile)).is_err(), "{profile} should be refused");
+            assert!(
+                plugin_root_under(home(), Some(profile)).is_err(),
+                "{profile} should be refused"
+            );
         }
     }
 

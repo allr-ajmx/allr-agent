@@ -78,13 +78,19 @@ pub struct ProgressReporter {
 
 impl ProgressReporter {
     pub fn new(app: AppHandle, attempt_id: impl Into<String>) -> Self {
-        Self { app: Some(app), attempt_id: attempt_id.into() }
+        Self {
+            app: Some(app),
+            attempt_id: attempt_id.into(),
+        }
     }
 
     /// A reporter that drops everything — for tests and for any path with no UI
     /// attached.
     pub fn silent() -> Self {
-        Self { app: None, attempt_id: String::new() }
+        Self {
+            app: None,
+            attempt_id: String::new(),
+        }
     }
 
     pub fn event_name(&self) -> String {
@@ -148,20 +154,32 @@ mod tests {
         }
 
         assert!(steps[0].fraction() > 0.0);
-        assert!(steps[steps.len() - 1].fraction() < 1.0, "completion is the caller's to signal");
+        assert!(
+            steps[steps.len() - 1].fraction() < 1.0,
+            "completion is the caller's to signal"
+        );
     }
 
     #[test]
     fn steps_serialize_as_kebab_case() {
-        assert_eq!(serde_json::to_string(&SshStep::WaitingReady).unwrap(), "\"waiting-ready\"");
-        assert_eq!(serde_json::to_string(&SshStep::ProbingPlatform).unwrap(), "\"probing-platform\"");
+        assert_eq!(
+            serde_json::to_string(&SshStep::WaitingReady).unwrap(),
+            "\"waiting-ready\""
+        );
+        assert_eq!(
+            serde_json::to_string(&SshStep::ProbingPlatform).unwrap(),
+            "\"probing-platform\""
+        );
     }
 
     #[test]
     fn the_event_name_follows_the_transport_convention() {
         // Same shape as transport.rs's ws://{id}/… events, so the JS side can
         // reuse its subscribe-before-invoke helper.
-        let reporter = ProgressReporter { app: None, attempt_id: "abc-123".into() };
+        let reporter = ProgressReporter {
+            app: None,
+            attempt_id: "abc-123".into(),
+        };
         assert_eq!(reporter.event_name(), "ssh://abc-123/progress");
     }
 
@@ -180,9 +198,14 @@ mod tests {
         let progress = SshProgress {
             step: SshStep::Spawning,
             fraction: SshStep::Spawning.fraction(),
-            detail: Some(super::super::error::redact_secrets("spawn with token=hunter2")),
+            detail: Some(super::super::error::redact_secrets(
+                "spawn with token=hunter2",
+            )),
         };
 
-        assert_eq!(progress.detail.as_deref(), Some("spawn with token=<redacted>"));
+        assert_eq!(
+            progress.detail.as_deref(),
+            Some("spawn with token=<redacted>")
+        );
     }
 }

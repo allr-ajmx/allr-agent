@@ -521,7 +521,9 @@ mod tests {
             PathBuf::from("/home/tester/code")
         );
         assert_eq!(
-            normalize_repo_scan_path("code/../work", home).unwrap().value,
+            normalize_repo_scan_path("code/../work", home)
+                .unwrap()
+                .value,
             PathBuf::from("/home/tester/work")
         );
         assert!(normalize_repo_scan_path("   ", home).is_none());

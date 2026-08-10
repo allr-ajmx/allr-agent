@@ -141,7 +141,10 @@ pub async fn voice_open(
 
     let cfg = build_config(vad, format);
     let target = Arc::new(RwLock::new(target));
-    let ctx = TranscribeCtx { client: transport.client().clone(), target: target.clone() };
+    let ctx = TranscribeCtx {
+        client: transport.client().clone(),
+        target: target.clone(),
+    };
 
     let (tx, join) = capture::open_session(app, id.clone(), cfg, ctx)?;
 
@@ -153,14 +156,22 @@ pub async fn voice_open(
         let _ = join.join();
         return Err("already_open".into());
     }
-    *guard = Some(VoiceHandle { id, tx, join, target });
+    *guard = Some(VoiceHandle {
+        id,
+        tx,
+        join,
+        target,
+    });
     Ok(())
 }
 
 fn send_cmd(voice: &State<'_, VoiceState>, cmd: VoiceCmd) -> Result<(), String> {
     let guard = voice.0.lock().map_err(|_| "voice_state_poisoned")?;
     match guard.as_ref() {
-        Some(h) => h.tx.send(VoiceMsg::Cmd(cmd)).map_err(|_| "voice_session_gone".into()),
+        Some(h) => {
+            h.tx.send(VoiceMsg::Cmd(cmd))
+                .map_err(|_| "voice_session_gone".into())
+        }
         None => Err("not_open".into()),
     }
 }

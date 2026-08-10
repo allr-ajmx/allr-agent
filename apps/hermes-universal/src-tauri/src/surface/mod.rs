@@ -284,7 +284,8 @@ pub struct LinuxSession {
 /// Map a probed Linux session onto the descriptor. Pure.
 pub fn capabilities_for_linux(session: LinuxSession) -> SurfaceCapabilities {
     let mut notes = Vec::new();
-    let layer_shell = session.wayland && session.layer_shell_library && session.layer_shell_supported;
+    let layer_shell =
+        session.wayland && session.layer_shell_library && session.layer_shell_supported;
 
     if layer_shell {
         notes.push(match session.layer_shell_protocol {
@@ -328,7 +329,11 @@ pub fn capabilities_for_linux(session: LinuxSession) -> SurfaceCapabilities {
     };
 
     let keyboard_focus = if layer_shell {
-        vec![KeyboardFocus::None, KeyboardFocus::OnDemand, KeyboardFocus::Exclusive]
+        vec![
+            KeyboardFocus::None,
+            KeyboardFocus::OnDemand,
+            KeyboardFocus::Exclusive,
+        ]
     } else {
         // A plain toplevel takes focus when focused and not otherwise; there is
         // no way to say "give me keys without moving focus".
@@ -393,7 +398,11 @@ pub fn capabilities_for_linux(session: LinuxSession) -> SurfaceCapabilities {
 /// this build — which is reported, not papered over.
 #[cfg(all(desktop, not(target_os = "linux")))]
 fn capabilities_for_other_desktop() -> SurfaceCapabilities {
-    let platform = if cfg!(target_os = "macos") { "macos" } else { "windows" };
+    let platform = if cfg!(target_os = "macos") {
+        "macos"
+    } else {
+        "windows"
+    };
     SurfaceCapabilities {
         platform: platform.to_string(),
         floating_surface: true,
@@ -486,7 +495,11 @@ pub async fn surface_capabilities(app: tauri::AppHandle) -> Result<SurfaceCapabi
 #[cfg(mobile)]
 #[tauri::command]
 pub async fn surface_capabilities() -> Result<SurfaceCapabilities, String> {
-    let platform = if cfg!(target_os = "android") { "android" } else { "ios" };
+    let platform = if cfg!(target_os = "android") {
+        "android"
+    } else {
+        "ios"
+    };
     Ok(SurfaceCapabilities::none(
         platform,
         if cfg!(target_os = "android") {
@@ -551,7 +564,13 @@ fn attach_on_main(
                 SurfaceLayer::Top => layer_shell::Layer::Top,
                 SurfaceLayer::Overlay => layer_shell::Layer::Overlay,
             };
-            shell.configure(&gtk_win, &request.namespace, layer, keyboard, request.margins);
+            shell.configure(
+                &gtk_win,
+                &request.namespace,
+                layer,
+                keyboard,
+                request.margins,
+            );
             if !shell.is_layer_window(&gtk_win) {
                 return Err("gtk-layer-shell accepted the window but did not claim it".to_string());
             }
@@ -734,7 +753,10 @@ mod tests {
         assert!(caps.keyboard_focus.contains(&KeyboardFocus::Exclusive));
         assert!(caps.can_host_input());
         assert_eq!(caps.read_window_below, Support::Supported);
-        assert_eq!(caps.read_window_below_source.as_deref(), Some("hyprland-ipc"));
+        assert_eq!(
+            caps.read_window_below_source.as_deref(),
+            Some("hyprland-ipc")
+        );
     }
 
     /// The whole reason this layer exists: on Wayland without layer-shell,
@@ -844,7 +866,10 @@ mod tests {
             serde_json::to_string(&KeyboardFocus::OnDemand).unwrap(),
             "\"on-demand\""
         );
-        assert_eq!(serde_json::to_string(&Support::Degraded).unwrap(), "\"degraded\"");
+        assert_eq!(
+            serde_json::to_string(&Support::Degraded).unwrap(),
+            "\"degraded\""
+        );
         assert_eq!(
             serde_json::to_string(&SurfaceBackend::LayerShell).unwrap(),
             "\"layer-shell\""

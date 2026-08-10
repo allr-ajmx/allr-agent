@@ -4,10 +4,10 @@ use tauri::{plugin::PluginApi, AppHandle, Runtime};
 use crate::models::{PermissionState, PermissionStatus};
 
 pub fn init<R: Runtime, C: DeserializeOwned>(
-  app: &AppHandle<R>,
-  _api: PluginApi<R, C>,
+    app: &AppHandle<R>,
+    _api: PluginApi<R, C>,
 ) -> crate::Result<Mic<R>> {
-  Ok(Mic(app.clone()))
+    Ok(Mic(app.clone()))
 }
 
 /// Access to the microphone-permission APIs (desktop).
@@ -19,17 +19,17 @@ pub fn init<R: Runtime, C: DeserializeOwned>(
 pub struct Mic<R: Runtime>(#[allow(dead_code)] AppHandle<R>);
 
 impl<R: Runtime> Mic<R> {
-  pub fn check_permission(&self) -> crate::Result<PermissionStatus> {
-    Ok(granted())
-  }
+    pub fn check_permission(&self) -> crate::Result<PermissionStatus> {
+        Ok(granted())
+    }
 
-  pub fn request_permission(&self) -> crate::Result<PermissionStatus> {
-    Ok(granted())
-  }
+    pub fn request_permission(&self) -> crate::Result<PermissionStatus> {
+        Ok(granted())
+    }
 }
 
 fn granted() -> PermissionStatus {
-  PermissionStatus {
-    microphone: PermissionState::Granted,
-  }
+    PermissionStatus {
+        microphone: PermissionState::Granted,
+    }
 }

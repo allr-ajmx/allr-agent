@@ -51,7 +51,11 @@ pub fn resolve_launcher(candidate: &str) -> String {
 ///
 /// Reads `/proc/<pid>/cmdline` and falls back to `ps` on macOS, which has no
 /// procfs.
-pub fn pid_is_our_dashboard(pid: i64, spawn_nonce: &str, hermes_path: &str) -> Result<String, SshError> {
+pub fn pid_is_our_dashboard(
+    pid: i64,
+    spawn_nonce: &str,
+    hermes_path: &str,
+) -> Result<String, SshError> {
     validate_spawn_nonce(spawn_nonce)?;
 
     let script = format!(
@@ -134,13 +138,20 @@ mod tests {
 
     /// Reverse `shq` so the embedded script can be inspected as the remote sees it.
     fn unshq(quoted: &str) -> String {
-        let inner = quoted.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')).expect("one shell word");
+        let inner = quoted
+            .strip_prefix('\'')
+            .and_then(|s| s.strip_suffix('\''))
+            .expect("one shell word");
 
         inner.replace("'\\''", "'")
     }
 
     fn script_of(command: &str) -> String {
-        unshq(command.strip_prefix("python3 -c ").expect("a python3 -c invocation"))
+        unshq(
+            command
+                .strip_prefix("python3 -c ")
+                .expect("a python3 -c invocation"),
+        )
     }
 
     #[test]
@@ -164,7 +175,10 @@ mod tests {
         let script = script_of(&resolve_launcher("/usr/local/bin/hermes"));
         assert!(script.contains("words[0]==\"exec\""), "{script}");
         assert!(script.contains("os.access(target,os.X_OK)"), "{script}");
-        assert!(script.contains("os.path.isabs(target)"), "only an absolute target is followed: {script}");
+        assert!(
+            script.contains("os.path.isabs(target)"),
+            "only an absolute target is followed: {script}"
+        );
         // Falls back to the candidate itself rather than failing.
         assert!(script.contains("out=p"), "{script}");
     }
@@ -173,10 +187,15 @@ mod tests {
     fn ownership_proof_requires_all_three_signals() {
         // Liveness is not identity: pids get reused, so a kill aimed at a
         // recycled pid destroys something unrelated. All three must hold.
-        let script = script_of(&pid_is_our_dashboard(42, "0123456789abcdef", "/usr/local/bin/hermes").unwrap());
+        let script = script_of(
+            &pid_is_our_dashboard(42, "0123456789abcdef", "/usr/local/bin/hermes").unwrap(),
+        );
 
         assert!(script.contains("args.index(\"serve\")"), "{script}");
-        assert!(script.contains("\"--isolated\" in args[serve+1:]"), "{script}");
+        assert!(
+            script.contains("\"--isolated\" in args[serve+1:]"),
+            "{script}"
+        );
         assert!(script.contains("args[owner+1]==nonce"), "{script}");
         assert!(script.contains("direct or python_entry"), "{script}");
         // macOS has no procfs.
@@ -184,15 +203,23 @@ mod tests {
         assert!(script.contains("ps\",\"-o\",\"command=\""), "{script}");
         // Anything unparseable must read as FOREIGN, never as OWNED.
         assert!(script.contains("ok=False"), "{script}");
-        assert!(script.contains("except (ValueError,IndexError):pass"), "{script}");
+        assert!(
+            script.contains("except (ValueError,IndexError):pass"),
+            "{script}"
+        );
     }
 
     #[test]
     fn ownership_proof_embeds_the_exact_pid_and_nonce() {
-        let script = script_of(&pid_is_our_dashboard(4242, "0123456789abcdef", "/usr/local/bin/hermes").unwrap());
+        let script = script_of(
+            &pid_is_our_dashboard(4242, "0123456789abcdef", "/usr/local/bin/hermes").unwrap(),
+        );
         assert!(script.contains("pid=4242"), "{script}");
         assert!(script.contains("nonce='0123456789abcdef'"), "{script}");
-        assert!(script.contains("expected=os.path.expanduser('/usr/local/bin/hermes')"), "{script}");
+        assert!(
+            script.contains("expected=os.path.expanduser('/usr/local/bin/hermes')"),
+            "{script}"
+        );
     }
 
     #[test]
@@ -205,8 +232,12 @@ mod tests {
 
     #[test]
     fn ownership_proof_quotes_a_hostile_hermes_path() {
-        let script = script_of(&pid_is_our_dashboard(42, "0123456789abcdef", "/x'; rm -rf /; #").unwrap());
-        assert!(script.contains(r#"expected=os.path.expanduser('/x'\''; rm -rf /; #')"#), "{script}");
+        let script =
+            script_of(&pid_is_our_dashboard(42, "0123456789abcdef", "/x'; rm -rf /; #").unwrap());
+        assert!(
+            script.contains(r#"expected=os.path.expanduser('/x'\''; rm -rf /; #')"#),
+            "{script}"
+        );
     }
 
     #[test]
@@ -217,7 +248,10 @@ mod tests {
 
         assert!(script.contains("os.O_CREAT|os.O_EXCL"), "{script}");
         assert!(script.contains("O_NOFOLLOW"), "{script}");
-        assert!(script.contains("0o600"), "the token must not be world-readable: {script}");
+        assert!(
+            script.contains("0o600"),
+            "the token must not be world-readable: {script}"
+        );
         assert!(script.contains("os.makedirs(d,mode=0o700"), "{script}");
         // fstat on the directory FD, not a path — that is what makes it a race.
         assert!(script.contains("s=os.fstat(dd)"), "{script}");
@@ -232,7 +266,10 @@ mod tests {
         let script = script_of(&upload_token("~/x.token"));
 
         assert!(script.contains("sys.stdin.buffer.read()"), "{script}");
-        assert!(!script.contains("HERMES_DASHBOARD_SESSION_TOKEN"), "{script}");
+        assert!(
+            !script.contains("HERMES_DASHBOARD_SESSION_TOKEN"),
+            "{script}"
+        );
     }
 
     #[test]
@@ -249,6 +286,9 @@ mod tests {
     #[test]
     fn token_upload_quotes_a_hostile_path() {
         let script = script_of(&upload_token("~/a'; rm -rf /; #.token"));
-        assert!(script.contains(r#"p=os.path.expanduser('~/a'\''; rm -rf /; #.token')"#), "{script}");
+        assert!(
+            script.contains(r#"p=os.path.expanduser('~/a'\''; rm -rf /; #.token')"#),
+            "{script}"
+        );
     }
 }

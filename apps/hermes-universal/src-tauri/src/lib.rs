@@ -31,16 +31,18 @@ mod voice;
 mod window;
 
 use appearance::set_window_translucency;
-use keep_awake::{set_keep_awake, KeepAwakeState};
-use find_in_page::{find_in_page, stop_find_in_page};
-use link_title::fetch_link_title;
-use marketplace::{marketplace_fetch, marketplace_search};
 use artifact::{artifact_release, artifact_stage, ArtifactState, ARTIFACT_SCHEME};
-use media::{media_set_target, MediaState, MEDIA_SCHEME};
 use cloud::{
     portal_agent_sign_in, portal_discover_agents, portal_login, portal_logout, portal_status,
 };
-use local_backend::{local_backend_spawn, local_backend_status, local_backend_stop, LocalBackendState};
+use find_in_page::{find_in_page, stop_find_in_page};
+use keep_awake::{set_keep_awake, KeepAwakeState};
+use link_title::fetch_link_title;
+use local_backend::{
+    local_backend_spawn, local_backend_status, local_backend_stop, LocalBackendState,
+};
+use marketplace::{marketplace_fetch, marketplace_search};
+use media::{media_set_target, MediaState, MEDIA_SCHEME};
 use oauth::{oauth_login, oauth_logout, oauth_status};
 use plugins::{plugins_list, plugins_read, plugins_root};
 use pty::{pty_kill, pty_resize, pty_spawn, pty_write, PtyState};

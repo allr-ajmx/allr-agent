@@ -73,7 +73,11 @@ const MAX_STAGED: usize = 16;
 /// re-staging the same version is idempotent and the frame's `src` stays
 /// stable, which is what stops a re-render reloading (and re-running) the page.
 #[tauri::command]
-pub fn artifact_stage(state: State<'_, ArtifactState>, id: String, html: String) -> Result<(), String> {
+pub fn artifact_stage(
+    state: State<'_, ArtifactState>,
+    id: String,
+    html: String,
+) -> Result<(), String> {
     if id.is_empty() {
         return Err("artifact_id_required".into());
     }

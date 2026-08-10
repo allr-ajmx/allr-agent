@@ -138,7 +138,10 @@ impl WindowBelowAnswer {
 ///   our bounds, so "below" is the first other window that actually overlaps us.
 /// - It is not (a layer-shell surface is not a client at all): there is nothing
 ///   to overlap, so "below" is simply the most recently focused other window.
-pub fn pick_window_below(clients: &[HyprClient], self_pid: i32) -> (Option<&HyprClient>, Option<&HyprClient>) {
+pub fn pick_window_below(
+    clients: &[HyprClient],
+    self_pid: i32,
+) -> (Option<&HyprClient>, Option<&HyprClient>) {
     let ours = clients
         .iter()
         .filter(|c| c.pid == self_pid)
@@ -280,8 +283,8 @@ fn request(path: &str, command: &str) -> Result<String, String> {
     use std::os::unix::net::UnixStream;
     use std::time::Duration;
 
-    let mut stream =
-        UnixStream::connect(path).map_err(|e| format!("could not reach Hyprland's IPC socket: {e}"))?;
+    let mut stream = UnixStream::connect(path)
+        .map_err(|e| format!("could not reach Hyprland's IPC socket: {e}"))?;
     let timeout = Some(Duration::from_millis(1000));
     let _ = stream.set_read_timeout(timeout);
     let _ = stream.set_write_timeout(timeout);
@@ -517,7 +520,8 @@ mod tests {
 
     #[test]
     fn an_unavailable_answer_carries_an_error_and_no_window_key() {
-        let json = serde_json::to_value(WindowBelowAnswer::unavailable("nope")).expect("serializes");
+        let json =
+            serde_json::to_value(WindowBelowAnswer::unavailable("nope")).expect("serializes");
         assert_eq!(json["error"], "nope");
         assert!(json.get("window").is_none());
     }

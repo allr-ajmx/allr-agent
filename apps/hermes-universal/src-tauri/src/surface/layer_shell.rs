@@ -221,7 +221,8 @@ impl LayerShell {
         let upcast: gtk::Window = window.clone().upcast();
         let stash: gtk::glib::translate::Stash<'_, GtkWindowPtr, _> = upcast.to_glib_none();
         let ptr = stash.0;
-        let ns = CString::new(namespace).unwrap_or_else(|_| CString::new("hermes").expect("literal"));
+        let ns =
+            CString::new(namespace).unwrap_or_else(|_| CString::new("hermes").expect("literal"));
 
         // SAFETY: `ptr` is a live GtkWindow* already turned into a layer surface
         // by `init_for_window`; `ns` outlives the call. Every enum is converted

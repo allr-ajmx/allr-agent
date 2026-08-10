@@ -71,9 +71,15 @@ pub enum EmptyReason {
 /// `VoiceInput::TurnFinished`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TurnOutcome {
-    Transcript { text: String, provider: Option<String> },
+    Transcript {
+        text: String,
+        provider: Option<String>,
+    },
     Empty(EmptyReason),
-    Error { code: String, message: String },
+    Error {
+        code: String,
+        message: String,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -132,14 +138,20 @@ pub enum VoiceEffect {
 pub enum VoiceInput<'a> {
     /// One cpal callback's worth of mono frames at the device's native rate, plus
     /// that block's normalized RMS.
-    Frames { mono: &'a [f32], rms: f32 },
+    Frames {
+        mono: &'a [f32],
+        rms: f32,
+    },
     Arm(ArmMode),
     /// Enter hands-free wake listening (only meaningful from `Idle`).
     WakeListen,
     Suspend,
     ForceTurn,
     Close,
-    TurnFinished { turn_id: u64, outcome: TurnOutcome },
+    TurnFinished {
+        turn_id: u64,
+        outcome: TurnOutcome,
+    },
     StreamError(String),
 }
 
@@ -215,7 +227,10 @@ struct PreRoll {
 
 impl PreRoll {
     fn new(cap: usize) -> Self {
-        Self { buf: VecDeque::with_capacity(cap + 4096), cap }
+        Self {
+            buf: VecDeque::with_capacity(cap + 4096),
+            cap,
+        }
     }
 
     fn set_cap(&mut self, cap: usize) {
@@ -359,8 +374,10 @@ impl VoiceMachine {
         let now = self.now_ms();
 
         // Throttled level meter, only while the mic is "hot" (Armed/Recording).
-        if matches!(self.state, VoiceStateKind::Armed | VoiceStateKind::Recording)
-            && now.saturating_sub(self.last_level_ms) >= LEVEL_EMIT_MS
+        if matches!(
+            self.state,
+            VoiceStateKind::Armed | VoiceStateKind::Recording
+        ) && now.saturating_sub(self.last_level_ms) >= LEVEL_EMIT_MS
         {
             self.last_level_ms = now;
             out.push(VoiceEffect::Emit("level", EmitPayload::Level(rms)));
@@ -421,7 +438,9 @@ impl VoiceMachine {
         // a turn always ends with ~silence_ms of trailing silence, so total length
         // is never short. This rejects a stray blip that tripped onset then went
         // quiet, without paying for a network round trip.
-        let voiced_samples = self.last_voice_samples.saturating_sub(self.recording_start_samples);
+        let voiced_samples = self
+            .last_voice_samples
+            .saturating_sub(self.recording_start_samples);
         let voiced_ms = self.samples_to_ms(voiced_samples as usize);
         if voiced_ms < self.cfg.min_turn_ms {
             self.turn.clear();
@@ -479,8 +498,10 @@ impl VoiceMachine {
         self.cur_speech_level = self.cfg.level_for(mode);
         self.vad
             .set_thresholds(self.cfg.level_for(mode), self.cfg.onset_for(mode));
-        self.preroll
-            .set_cap(preroll_cap(self.src_rate, self.cfg.preroll_ms + self.cfg.onset_for(mode)));
+        self.preroll.set_cap(preroll_cap(
+            self.src_rate,
+            self.cfg.preroll_ms + self.cfg.onset_for(mode),
+        ));
     }
 
     /// Enter hands-free wake listening. Only from `Idle`: a live turn (Armed /
@@ -534,12 +555,7 @@ impl VoiceMachine {
         out.push(VoiceEffect::Shutdown);
     }
 
-    fn on_turn_finished(
-        &mut self,
-        turn_id: u64,
-        outcome: TurnOutcome,
-        out: &mut Vec<VoiceEffect>,
-    ) {
+    fn on_turn_finished(&mut self, turn_id: u64, outcome: TurnOutcome, out: &mut Vec<VoiceEffect>) {
         // Drop a result for a turn that was superseded (a newer turn, or a
         // suspend/close cleared Finalizing). This is the old `id_mismatch` class,
         // now a pure branch.
@@ -577,7 +593,10 @@ impl VoiceMachine {
     fn on_stream_error(&mut self, message: String, out: &mut Vec<VoiceEffect>) {
         out.push(VoiceEffect::Emit(
             "error",
-            EmitPayload::Error { code: "device_lost".into(), message },
+            EmitPayload::Error {
+                code: "device_lost".into(),
+                message,
+            },
         ));
         self.turn.clear();
         self.preroll.clear();
@@ -595,7 +614,10 @@ impl VoiceMachine {
     /// is told to re-arm. Applies any `pending_arm` queued during Finalizing.
     fn go_idle(&mut self, out: &mut Vec<VoiceEffect>, empty: Option<EmptyReason>) {
         if let Some(reason) = empty {
-            out.push(VoiceEffect::Emit("turnEmpty", EmitPayload::TurnEmpty { reason }));
+            out.push(VoiceEffect::Emit(
+                "turnEmpty",
+                EmitPayload::TurnEmpty { reason },
+            ));
         }
         self.state = VoiceStateKind::Idle;
         out.push(emit_state(VoiceStateKind::Idle));
@@ -689,13 +711,25 @@ mod tests {
         let pre_amp = 0.01f32;
         let pre = vec![pre_amp; (RATE / 10) as usize];
         out.clear();
-        m.step(VoiceInput::Frames { mono: &pre, rms: pre_amp }, &mut out);
+        m.step(
+            VoiceInput::Frames {
+                mono: &pre,
+                rms: pre_amp,
+            },
+            &mut out,
+        );
         assert_eq!(m.kind(), VoiceStateKind::Armed);
 
         // Loud onset block.
         let loud = vec![LOUD; (RATE / 50) as usize]; // 20 ms
         out.clear();
-        m.step(VoiceInput::Frames { mono: &loud, rms: LOUD }, &mut out);
+        m.step(
+            VoiceInput::Frames {
+                mono: &loud,
+                rms: LOUD,
+            },
+            &mut out,
+        );
         assert_eq!(m.kind(), VoiceStateKind::Recording);
 
         // Drive to end-of-turn (silence) and capture the FinalizeJob.
@@ -738,7 +772,10 @@ mod tests {
         m.step(
             VoiceInput::TurnFinished {
                 turn_id: 1,
-                outcome: TurnOutcome::Transcript { text: "hi".into(), provider: None },
+                outcome: TurnOutcome::Transcript {
+                    text: "hi".into(),
+                    provider: None,
+                },
             },
             &mut out,
         );
@@ -768,7 +805,12 @@ mod tests {
         let i_empty = topics(&e).iter().position(|t| *t == "turnEmpty").unwrap();
         let i_idle = e
             .iter()
-            .position(|eff| matches!(eff, VoiceEffect::Emit("state", EmitPayload::State(VoiceStateKind::Idle))))
+            .position(|eff| {
+                matches!(
+                    eff,
+                    VoiceEffect::Emit("state", EmitPayload::State(VoiceStateKind::Idle))
+                )
+            })
             .unwrap();
         assert!(i_empty < i_idle);
         assert_eq!(m.kind(), VoiceStateKind::Idle);
@@ -785,7 +827,12 @@ mod tests {
         assert_eq!(
             out,
             vec![
-                VoiceEffect::Emit("turnEmpty", EmitPayload::TurnEmpty { reason: EmptyReason::NoSpeech }),
+                VoiceEffect::Emit(
+                    "turnEmpty",
+                    EmitPayload::TurnEmpty {
+                        reason: EmptyReason::NoSpeech
+                    }
+                ),
                 emit_state(VoiceStateKind::Idle),
             ]
         );
@@ -816,7 +863,7 @@ mod tests {
         m.step(VoiceInput::Arm(ArmMode::Normal), &mut out);
         feed(&mut m, 20, LOUD);
         drive_to_finalize(&mut m); // turn_id == 1, state Finalizing
-        // Close mid-finalize.
+                                   // Close mid-finalize.
         out.clear();
         m.step(VoiceInput::Close, &mut out);
         assert_eq!(m.kind(), VoiceStateKind::Closed);
@@ -825,7 +872,10 @@ mod tests {
         m.step(
             VoiceInput::TurnFinished {
                 turn_id: 1,
-                outcome: TurnOutcome::Transcript { text: "late".into(), provider: None },
+                outcome: TurnOutcome::Transcript {
+                    text: "late".into(),
+                    provider: None,
+                },
             },
             &mut out,
         );
@@ -843,7 +893,10 @@ mod tests {
         m.step(
             VoiceInput::TurnFinished {
                 turn_id: 1,
-                outcome: TurnOutcome::Transcript { text: "  hello  ".into(), provider: Some("groq".into()) },
+                outcome: TurnOutcome::Transcript {
+                    text: "  hello  ".into(),
+                    provider: Some("groq".into()),
+                },
             },
             &mut out,
         );
@@ -887,14 +940,22 @@ mod tests {
         m.step(
             VoiceInput::TurnFinished {
                 turn_id: 1,
-                outcome: TurnOutcome::Transcript { text: "   ".into(), provider: None },
+                outcome: TurnOutcome::Transcript {
+                    text: "   ".into(),
+                    provider: None,
+                },
             },
             &mut out,
         );
         assert_eq!(
             out,
             vec![
-                VoiceEffect::Emit("turnEmpty", EmitPayload::TurnEmpty { reason: EmptyReason::NoTranscript }),
+                VoiceEffect::Emit(
+                    "turnEmpty",
+                    EmitPayload::TurnEmpty {
+                        reason: EmptyReason::NoTranscript
+                    }
+                ),
                 emit_state(VoiceStateKind::Idle),
             ]
         );
@@ -907,7 +968,7 @@ mod tests {
         m.step(VoiceInput::Arm(ArmMode::Normal), &mut out);
         feed(&mut m, 20, LOUD);
         drive_to_finalize(&mut m); // Finalizing
-        // Arm while Finalizing → no immediate state emit.
+                                   // Arm while Finalizing → no immediate state emit.
         out.clear();
         m.step(VoiceInput::Arm(ArmMode::BargeIn), &mut out);
         assert_eq!(out, Vec::new());
@@ -916,7 +977,10 @@ mod tests {
         m.step(
             VoiceInput::TurnFinished {
                 turn_id: 1,
-                outcome: TurnOutcome::Transcript { text: "hi".into(), provider: None },
+                outcome: TurnOutcome::Transcript {
+                    text: "hi".into(),
+                    provider: None,
+                },
             },
             &mut out,
         );
@@ -1068,10 +1132,7 @@ mod tests {
         m.step(VoiceInput::Arm(ArmMode::Normal), &mut out);
         out.clear();
         m.step(VoiceInput::StreamError("alsa boom".into()), &mut out);
-        assert_eq!(
-            topics(&out),
-            vec!["error", "state", "state"]
-        );
+        assert_eq!(topics(&out), vec!["error", "state", "state"]);
         assert!(matches!(out.last(), Some(VoiceEffect::Shutdown)));
         assert_eq!(m.kind(), VoiceStateKind::Closed);
     }
