@@ -569,6 +569,9 @@ const PLATFORM_INTRO: Record<string, string> = {
     'Start the WhatsApp bridge that ships with Hermes, scan the QR code on first run, then enable the platform.',
   bluebubbles:
     'Run BlueBubbles Server on a Mac with iMessage, expose its API, then point Hermes at the URL with the server password.',
+  photon:
+    'iMessage without running your own Mac server. Run `hermes photon` once to sign in and create a Spectrum project — it writes the project id and secret for you. No public URL, webhook, or signing secret.',
+  buzz: 'Install the `buzz` CLI, then paste your community relay URL and the Nostr private key (nsec or hex) for the agent identity. Channels, allowed users, and transport are all optional.',
   homeassistant:
     'In Home Assistant, open your profile and create a long-lived access token. Paste it here along with your HA URL.',
   email:
