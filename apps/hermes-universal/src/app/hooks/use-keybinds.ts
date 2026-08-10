@@ -10,6 +10,7 @@ import {
 import { contributedKeybindHandler, PROFILE_SLOT_COUNT, SESSION_SLOT_COUNT } from '@/lib/keybinds/actions'
 import { comboAllowedInInput, comboFromEvent, isEditableTarget, isShiftPrintableCombo } from '@/lib/keybinds/combo'
 import { composerFocusKeysAllowed, isComposerFocusSoftCombo, typeToFocusChar } from '@/lib/keybinds/composer-focus-keys'
+import { storedIdFromTilePane } from '@/lib/pane-ids'
 import { $repoStatus } from '@/store/coding-status'
 import { toggleCommandPalette } from '@/store/command-palette'
 import { $capture, $comboIndex, endCapture, setBinding } from '@/store/keybinds'
@@ -24,7 +25,6 @@ import {
 } from '@/store/layout'
 import { setModelPickerOpen } from '@/store/model'
 import { startNewSession, startNewSessionTab } from '@/store/new-session'
-import { storedIdFromTilePane } from '@/lib/pane-ids'
 import { setPaneOpen } from '@/store/panes'
 import {
   cycleProfile,

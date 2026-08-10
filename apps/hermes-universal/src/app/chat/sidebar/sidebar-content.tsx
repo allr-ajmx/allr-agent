@@ -374,7 +374,7 @@ export function SidebarScrollBody({
   // disappearing from the section while its pin is still stored.
   const pinnedSessions = useMemo(
     () => pinnedSessionRows(sessions, pinnedIds),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- the cache is kept
+     
     // in lockstep with these two by store/session.ts's subscriptions.
     [sessions, pinnedIds, pinnedCache]
   )

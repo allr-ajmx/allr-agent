@@ -6,10 +6,9 @@ import { WebglAddon } from '@xterm/addon-webgl'
 import { Terminal } from '@xterm/xterm'
 import { useEffect, useRef, useState } from 'react'
 
-import { getHermesConfig } from '@/hermes'
-
 import { Button } from '@/components/ui/button'
 import { writeClipboardText } from '@/components/ui/copy-button'
+import { getHermesConfig } from '@/hermes'
 import { type Translations, useI18n } from '@/i18n'
 import { IS_MOBILE, LOCAL_MODE_SUPPORTED } from '@/lib/platform'
 import { throttleDuringResize } from '@/lib/resize-gesture'

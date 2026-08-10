@@ -28,6 +28,7 @@ import { $pinnedSessionIds } from './layout'
 import { $profiles } from './profiles'
 import {
   $activeStoredSessionId,
+  $pinnedSessionCache,
   $removedSessionIds,
   $sessions,
   $sessionsLimit,
@@ -37,18 +38,17 @@ import {
   branchCurrentSession,
   clearUnreadFinishedSession,
   deleteSessionLocal,
+  isMessagingSource,
   knownSessionProfile,
   loadMoreSessions,
-  openSession,
-  pruneSessionTombstones,
-  pinnedSessionRows,
-  isMessagingSource,
   messagingSourceLabel,
+  openSession,
+  pinnedSessionRows,
+  pruneSessionTombstones,
   refreshSessions,
   renameSessionLocal,
   resetSessionsPaging,
-  resolveSessionProfile,
-  $pinnedSessionCache
+  resolveSessionProfile
 } from './session'
 
 const row = (id: string, title: string): SessionInfo => ({ id, title }) as unknown as SessionInfo
