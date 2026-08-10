@@ -11,7 +11,7 @@ import {
   setConversationMuted,
   setConversationStatus
 } from '@/store/voice-conversation'
-import { lastReply, markReplySpoken } from '@/store/voice-reply-cursor'
+import { markReplySpoken, unspokenTurn } from '@/store/voice-reply-cursor'
 
 import { voiceEngine } from './engine'
 import { type VoiceErrorCopy, voiceErrorMessage } from './errors'
@@ -114,6 +114,11 @@ class ConversationController {
     }
 
     this.idleTimeouts = 0
+    // Consume whatever reply already sits at the bottom of this session before
+    // the first turn. Without it the cursor is unset, and the turn selector
+    // (which aggregates EVERYTHING after the cursor) would narrate the entire
+    // prior transcript the moment the first reply lands.
+    markReplySpoken(binding.view)
     beginVoiceConversation(binding.target)
     this.offEvents = this.lease.on(event => this.onEvent(event))
     // Keep the transcribe auth fresh across a token refresh / gateway switch.
@@ -296,6 +301,12 @@ class ConversationController {
    * Yield speakable chunks as the reply for `myTurn` grows, ending when the reply
    * completes. Mirrors the old driving effect's chunking, but sequenced by awaited
    * store updates instead of re-renders.
+   *
+   * The source is the whole unspoken TURN (`unspokenTurn`), not the newest
+   * bubble: a turn that calls tools narrates itself across several bubbles, and
+   * binding to one bubble spoke only a fragment of it. The aggregate is
+   * append-only and its `id` is stable for the turn, so the `slice(sourceLength)`
+   * delta feed below still holds.
    */
   private async *replyChunks(view: SessionView, myTurn: number): AsyncGenerator<string> {
     let buffer = ''
@@ -303,7 +314,7 @@ class ConversationController {
     let responseId: string | null = null
 
     while (myTurn === this.turnSeq) {
-      const reply = lastReply(view)
+      const reply = unspokenTurn(view)
       const busy = view.$busy.get()
 
       if (reply) {
