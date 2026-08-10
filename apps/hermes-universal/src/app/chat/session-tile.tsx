@@ -30,7 +30,7 @@ import { $gatewayState } from '@/store/gateway'
 import { $pinnedSessionIds, pinSession, unpinSession } from '@/store/layout'
 import { startNewSessionTab } from '@/store/new-session'
 import { sessionAwaitingInput } from '@/store/prompts'
-import { $activeStoredSessionId, $sessions, sessionMatchesStoredId, sessionPinId } from '@/store/session'
+import { $activeStoredSessionId, sessionPinId } from '@/store/session'
 import { SESSION_ROW_SOURCES, sessionRowFor, useSessionRow } from '@/store/session-lookup'
 import { $sessionStates } from '@/store/session-state-types'
 import {
@@ -375,9 +375,24 @@ export function SessionTabMenu({
   storedSessionId: string
   paneId: string
 }) {
-  const stored = useStore($sessions).find(s => sessionMatchesStoredId(s, storedSessionId))
+  // `useSessionRow`, not `$sessions` alone — the same widening `tileTitle` and
+  // `TileTabLead` already took (MJXHRM-386/MJXHRM-423). Two consequences, and
+  // only the first is cosmetic:
+  //
+  //  - the tab and its own right-click menu disagreed about the session's name,
+  //    the menu falling back to the untranslated literal `'Session'`;
+  //  - `pinId` fell back to the RAW stored id, so pinning a session that had
+  //    aged out of the recents page wrote the pin under the live tip id instead
+  //    of the durable lineage root — the id-mismatch class MJXHRM-414 had to
+  //    defend against on the delete path. The sidebar row keys pins by
+  //    `sessionPinId`, so the two surfaces would have pinned to different keys.
+  //
+  // The hook form matters: this is a component, and a tab whose zone mounts
+  // before the project tree lands must retitle itself when that source arrives
+  // rather than resolving once and staying on the fallback.
+  const stored = useSessionRow(storedSessionId)
   const pinned = useStore($pinnedSessionIds)
-  const title = stored ? sessionTitle(stored) : 'Session'
+  const title = stored ? sessionTitle(stored) : translateNow('common.loading')
   const pinId = stored ? sessionPinId(stored) : storedSessionId
   const isPinned = pinned.includes(pinId)
 
