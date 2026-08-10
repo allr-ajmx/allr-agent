@@ -2,6 +2,7 @@ import { atom, computed } from 'nanostores'
 
 import { SIDEBAR_COLLAPSE_MEDIA_QUERY } from '@/app/layout-constants'
 import { PANE_TOGGLE_REVEAL_EVENT } from '@/components/pane-shell'
+import { revealTreePane } from '@/components/pane-shell/tree/store'
 import type { HermesReviewFile, HermesReviewShipInfo } from '@/global'
 import { matchesQuery } from '@/hooks/use-media-query'
 import { desktopGit, type GitBridge } from '@/lib/desktop-git'
@@ -292,6 +293,67 @@ export function toggleReview(): void {
   } else {
     openReview()
     window.dispatchEvent(new CustomEvent(PANE_TOGGLE_REVEAL_EVENT, { detail: { id: REVIEW_PANE_ID } }))
+  }
+}
+
+/**
+ * Show the review pane, without the toggle's "close it if it's already open"
+ * half — "take me to the diff" must never be the thing that hides it.
+ *
+ * No scope argument, unlike desktop. Desktop pins the pane to one worktree
+ * (`revealReview(scopeCwd)`) because its rails can each name a different repo;
+ * universal has one review pane reading `$effectiveCwd`, which already follows
+ * the FOCUSED tile. A caller inside a tile's transcript is a caller inside the
+ * focused tile, so the pane lands on that tile's worktree with no second
+ * scoping mechanism to keep in sync.
+ */
+export function revealReview(): void {
+  const wasOpen = $reviewOpen.get()
+
+  if (!wasOpen) {
+    openReview()
+  }
+
+  if (matchesQuery(SIDEBAR_COLLAPSE_MEDIA_QUERY)) {
+    // The reveal pin is a toggle, so only fire it when the overlay isn't
+    // already slid in — otherwise "show me the diff" would hide the pane.
+    if (!wasOpen) {
+      window.dispatchEvent(new CustomEvent(PANE_TOGGLE_REVEAL_EVENT, { detail: { id: REVIEW_PANE_ID } }))
+    }
+
+    return
+  }
+
+  revealTreePane(REVIEW_PANE_ID)
+}
+
+/** The changed file matching a tool-reported path (absolute or repo-relative). */
+function matchReviewFile(files: readonly HermesReviewFile[], path: string): HermesReviewFile | undefined {
+  const target = path.replace(/\\/g, '/').replace(/\/+$/, '')
+
+  if (!target) {
+    return undefined
+  }
+
+  return files.find(file => {
+    const candidate = file.path.replace(/\\/g, '/')
+
+    return candidate === target || target.endsWith(`/${candidate}`) || candidate.endsWith(`/${target}`)
+  })
+}
+
+/**
+ * Open the review pane on one file's diff. The path comes from a tool call, so
+ * it may be absolute while git reports repo-relative — match on the tail.
+ */
+export async function openReviewForPath(path: string): Promise<void> {
+  revealReview()
+  await refreshReview()
+
+  const file = matchReviewFile($reviewFiles.get(), path)
+
+  if (file) {
+    await selectReviewFile(file)
   }
 }
 

@@ -2406,6 +2406,8 @@ export const ja = defineLocale({
       react: 'リアクション',
       branchNewChat: '新しいチャットでブランチ',
       dismissError: 'エラーを閉じる',
+      filesChanged: count => `${count} 件のファイルを変更`,
+      reviewChanges: 'レビュー',
       readAloudFailed: '読み上げに失敗しました',
       preparingAudio: '音声を準備中...',
       stopReading: '読み上げを停止',

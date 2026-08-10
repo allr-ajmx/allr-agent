@@ -2817,6 +2817,8 @@ export const zh: Translations = {
       react: '回应',
       branchNewChat: '在新对话中分支',
       dismissError: '关闭错误',
+      filesChanged: count => `${count} 个文件已更改`,
+      reviewChanges: '查看',
       readAloudFailed: '朗读失败',
       preparingAudio: '正在准备音频...',
       stopReading: '停止朗读',

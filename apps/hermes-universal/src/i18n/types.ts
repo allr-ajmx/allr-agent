@@ -2281,6 +2281,8 @@ export interface Translations {
       react: string
       branchNewChat: string
       dismissError: string
+      filesChanged: (count: number) => string
+      reviewChanges: string
       readAloudFailed: string
       preparingAudio: string
       stopReading: string

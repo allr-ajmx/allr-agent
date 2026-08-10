@@ -2334,6 +2334,8 @@ export const zhHant = defineLocale({
       react: '回應',
       branchNewChat: '在新聊天中分支',
       dismissError: '关闭错误',
+      filesChanged: count => `${count} 個檔案已變更`,
+      reviewChanges: '檢視',
       readAloudFailed: '朗讀失敗',
       preparingAudio: '正在準備音訊...',
       stopReading: '停止朗讀',
