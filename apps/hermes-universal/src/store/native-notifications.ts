@@ -9,14 +9,15 @@ import { Codecs, persistentAtom } from '@/lib/persisted'
 // mobile has a single active conversation, so "fire when the app is
 // backgrounded" is the whole rule. Per-kind toggles + throttle are kept.
 
-export type NativeNotificationKind = 'approval' | 'backgroundDone' | 'input' | 'turnDone' | 'turnError'
+export type NativeNotificationKind = 'approval' | 'backgroundDone' | 'input' | 'plugin' | 'turnDone' | 'turnError'
 
 export const NATIVE_NOTIFICATION_KINDS: readonly NativeNotificationKind[] = [
   'approval',
   'input',
   'turnDone',
   'turnError',
-  'backgroundDone'
+  'backgroundDone',
+  'plugin'
 ]
 
 export interface NativeNotificationPrefs {
@@ -26,13 +27,33 @@ export interface NativeNotificationPrefs {
 
 const DEFAULT_PREFS: NativeNotificationPrefs = {
   enabled: true,
-  kinds: { approval: true, backgroundDone: true, input: true, turnDone: true, turnError: true }
+  kinds: { approval: true, backgroundDone: true, input: true, plugin: true, turnDone: true, turnError: true }
+}
+
+// A stored blob predates every kind added after it was written (and localStorage
+// is untrusted anyway), so merge onto the defaults rather than trusting the
+// parsed shape: without this a newly added kind reads back `undefined` and is
+// silently off for everyone who has ever touched these prefs. Mirrors desktop's
+// `readPrefs`.
+function sanitizePrefs(value: unknown): NativeNotificationPrefs {
+  const parsed = (value ?? {}) as Partial<NativeNotificationPrefs>
+  const kinds = { ...DEFAULT_PREFS.kinds }
+
+  for (const kind of NATIVE_NOTIFICATION_KINDS) {
+    const stored = parsed.kinds?.[kind]
+
+    if (typeof stored === 'boolean') {
+      kinds[kind] = stored
+    }
+  }
+
+  return { enabled: typeof parsed.enabled === 'boolean' ? parsed.enabled : DEFAULT_PREFS.enabled, kinds }
 }
 
 export const $nativeNotifyPrefs = persistentAtom<NativeNotificationPrefs>(
   'hermes.native-notifications',
   DEFAULT_PREFS,
-  Codecs.json<NativeNotificationPrefs>()
+  Codecs.json<NativeNotificationPrefs>(sanitizePrefs)
 )
 
 export function setNativeNotifyEnabled(enabled: boolean) {
@@ -110,6 +131,13 @@ export interface NativeNotificationInput {
   title: string
   body?: string
   sessionId?: null | string
+  silent?: boolean
+  /**
+   * Extra throttle/dedupe discriminator for session-less notifications (e.g. the
+   * plugin id), so unrelated emitters of the same kind don't collapse into one
+   * another.
+   */
+  tag?: string
 }
 
 export function dispatchNativeNotification(input: NativeNotificationInput): void {
@@ -123,7 +151,7 @@ export function dispatchNativeNotification(input: NativeNotificationInput): void
     return
   }
 
-  if (throttled(`${input.kind}:${input.sessionId ?? ''}`, Date.now())) {
+  if (throttled(`${input.kind}:${input.sessionId ?? input.tag ?? ''}`, Date.now())) {
     return
   }
 
@@ -133,11 +161,28 @@ export function dispatchNativeNotification(input: NativeNotificationInput): void
     }
 
     try {
-      sendNotification({ title: input.title, body: input.body })
+      sendNotification({ title: input.title, body: input.body, silent: input.silent })
     } catch {
       // Best-effort: a delivery failure shouldn't surface to the user.
     }
   })
+}
+
+// -- the plugin door (`ctx.os.notify`) ----------------------------------------
+
+export interface PluginNativeNotificationInput {
+  title: string
+  body?: string
+  silent?: boolean
+}
+
+/** Native OS notification on behalf of a plugin. One "Plugin notifications"
+ *  preference gates all plugins; the plugin id keys throttling/dedupe so two
+ *  plugins can't collapse each other's notifications. Fires only while the user
+ *  is away from Hermes — the in-app toast (`host.notify`) covers the foreground
+ *  case. */
+export function dispatchPluginNativeNotification(pluginId: string, input: PluginNativeNotificationInput): void {
+  dispatchNativeNotification({ ...input, kind: 'plugin', tag: pluginId })
 }
 
 // Settings "send test" — bypasses the background/throttle gating. Returns whether

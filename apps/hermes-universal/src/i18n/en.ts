@@ -406,6 +406,10 @@ export const en: Translations = {
         backgroundDone: {
           label: 'Background task finished',
           description: 'A backgrounded terminal command completed.'
+        },
+        plugin: {
+          label: 'Plugin notifications',
+          description: 'A plugin sent a notification while Hermes was in the background.'
         }
       },
       test: 'Send test notification',

@@ -394,6 +394,10 @@ export const zh: Translations = {
         backgroundDone: {
           label: '后台任务完成',
           description: '后台终端命令已完成。'
+        },
+        plugin: {
+          label: '插件通知',
+          description: 'Hermes 处于后台时，插件发送了通知。'
         }
       },
       test: '发送测试通知',

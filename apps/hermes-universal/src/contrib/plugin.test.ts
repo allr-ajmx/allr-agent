@@ -1,8 +1,24 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('@/lib/plugin-transport', () => ({ pluginSocket: vi.fn(() => () => {}) }))
+import type * as PlatformModule from '@/lib/platform'
 
+vi.mock('@/lib/plugin-transport', () => ({ pluginSocket: vi.fn(() => () => {}) }))
+// Pretend we're inside the Tauri webview; the `ctx.os` doors are no-ops without it.
+vi.mock('@/lib/platform', async importOriginal => ({
+  ...(await importOriginal<typeof PlatformModule>()),
+  IS_TAURI: true
+}))
+vi.mock('@tauri-apps/plugin-opener', () => ({ openUrl: vi.fn(async () => {}) }))
+vi.mock('@/lib/reveal-path', () => ({ tryRevealPathInFileManager: vi.fn(async () => true) }))
+vi.mock('@/components/ui/copy-button', () => ({ writeClipboardText: vi.fn(async () => {}) }))
+vi.mock('@/store/native-notifications', () => ({ dispatchPluginNativeNotification: vi.fn() }))
+
+import { openUrl } from '@tauri-apps/plugin-opener'
+
+import { writeClipboardText } from '@/components/ui/copy-button'
 import { pluginSocket } from '@/lib/plugin-transport'
+import { tryRevealPathInFileManager } from '@/lib/reveal-path'
+import { dispatchPluginNativeNotification } from '@/store/native-notifications'
 
 import { createPluginContext } from './plugin'
 import { registry } from './registry'
@@ -118,5 +134,43 @@ describe('createPluginContext', () => {
     ctx.socket('/events', onMessage)
 
     expect(pluginSocket).toHaveBeenCalledWith('kanban', '/events', onMessage)
+  })
+})
+
+describe('ctx.os — the curated OS door', () => {
+  it('routes each door to the app capability behind it, attributed to the plugin', async () => {
+    const ctx = createPluginContext('kanban')
+
+    ctx.os.notify({ title: 'Board moved', body: 'to Done' })
+
+    expect(dispatchPluginNativeNotification).toHaveBeenCalledWith('kanban', { title: 'Board moved', body: 'to Done' })
+    await expect(ctx.os.openExternal('https://example.com')).resolves.toBe(true)
+    expect(openUrl).toHaveBeenCalledWith('https://example.com')
+    await expect(ctx.os.revealPath('/tmp/board.json')).resolves.toBe(true)
+    expect(tryRevealPathInFileManager).toHaveBeenCalledWith('/tmp/board.json')
+    await expect(ctx.os.writeClipboard('copied')).resolves.toBe(true)
+    expect(writeClipboardText).toHaveBeenCalledWith('copied')
+  })
+
+  it('resolves false instead of throwing when a capability is unavailable', async () => {
+    // What Android and a plain-browser dev run look like: the door is there, the
+    // platform underneath is not. A plugin must be able to branch, not crash.
+    vi.mocked(openUrl).mockRejectedValueOnce(new Error('no opener'))
+    vi.mocked(tryRevealPathInFileManager).mockResolvedValueOnce(false)
+    vi.mocked(writeClipboardText).mockRejectedValueOnce(new Error('clipboard refused'))
+
+    const ctx = createPluginContext('kanban')
+
+    await expect(ctx.os.openExternal('https://example.com')).resolves.toBe(false)
+    await expect(ctx.os.revealPath('/tmp/board.json')).resolves.toBe(false)
+    await expect(ctx.os.writeClipboard('copied')).resolves.toBe(false)
+  })
+
+  it('swallows a notification the host refuses rather than breaking the caller', () => {
+    vi.mocked(dispatchPluginNativeNotification).mockImplementationOnce(() => {
+      throw new Error('notification host gone')
+    })
+
+    expect(() => createPluginContext('kanban').os.notify({ title: 'boom' })).not.toThrow()
   })
 })
