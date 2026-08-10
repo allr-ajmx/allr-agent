@@ -13,8 +13,9 @@
 
 import { getSessionMessages } from '@/hermes'
 import { appendLiveSessionProjection, toChatMessages } from '@/lib/session-history'
-import { type ChatMessage, nextId } from '@/store/chat'
+import { type ChatMessage, interruptSession, nextId } from '@/store/chat'
 import { requestGateway } from '@/store/gateway'
+import { notifyError } from '@/store/notifications'
 import {
   $sessions,
   archiveSessionLocal,
@@ -25,14 +26,24 @@ import {
   sessionProfileIsAmbiguous
 } from '@/store/session'
 import { withSessionNotFoundResume } from '@/store/session-recovery'
-import { $sessionStates, emptySessionState, runtimeKeyForStoredSession } from '@/store/session-state-types'
 import {
-  closeSessionTile,
-  openSessionTile,
-  publishSessionState,
-  setSessionTileDelegate,
-  updateSession
-} from '@/store/session-states'
+  $sessionStates,
+  dropSessionState,
+  ensureSessionSlice,
+  hydratingKey,
+  isPlaceholderKey,
+  rekeySession,
+  runtimeKeyForStoredSession
+} from '@/store/session-state-types'
+import { closeSessionTile, openSessionTile, setSessionTileDelegate, updateSession } from '@/store/session-states'
+import {
+  applyTurnReconciliation,
+  beginTurn,
+  getInflightTurn,
+  planTurnReconciliation,
+  remoteTurnSnapshot,
+  settleTurn
+} from '@/store/turn-lifecycle'
 import type { SessionResumeResponse } from '@/types/hermes'
 
 /** The DURABLE id behind a tile's live runtime id — what a stale-runtime resume
@@ -61,13 +72,29 @@ function userMessage(text: string): ChatMessage {
 async function resumeSessionToState(storedId: string): Promise<string> {
   const warm = runtimeKeyForStoredSession(storedId)
 
-  if (warm && $sessionStates.get()[warm]) {
+  // A placeholder key is a hydrate still in flight (this one, or the main pane's
+  // — both reserve `hydrating:<storedId>`). It is not an id a tile can be bound
+  // to, because the rekey that follows would strand it.
+  if (warm && !isPlaceholderKey(warm) && $sessionStates.get()[warm]) {
     return warm
   }
 
   return hydrateSessionToState(storedId)
 }
 
+/**
+ * Hydrate a tile's session under the placeholder key and REKEY it onto the
+ * runtime id the resume hands back.
+ *
+ * This used to `publishSessionState(runtimeId, …)` directly, which looks
+ * equivalent and is not: the `hydrating: → runtime` rekey is the seam
+ * `store/turn-hydration.ts` hangs live-tail reconciliation and crash-journal
+ * recovery off (MJXHRM-356). Publishing straight onto the runtime id skipped
+ * both, so tiles kept WRITING crash-journal entries that nothing would ever
+ * replay, and a session opened in a tile could not recover a turn the app died
+ * mid-way through. It is also the same key the main pane uses, so a session
+ * opened in both places now converges on one slice instead of two.
+ */
 async function hydrateSessionToState(storedId: string): Promise<string> {
   // A tile can open a session from ANY profile, not just the live one. Resuming
   // (or reading the transcript) without one lets the gateway fall back to the
@@ -78,35 +105,59 @@ async function hydrateSessionToState(storedId: string): Promise<string> {
   const profile =
     knownSessionProfile(storedId) ?? (sessionProfileIsAmbiguous() ? await resolveSessionProfile(storedId) : undefined)
 
-  const transcript = await Promise.resolve()
-    .then(() => getSessionMessages(storedId, profile))
-    .catch(() => null)
-
-  const resumed = await requestGateway<SessionResumeResponse>('session.resume', {
-    session_id: storedId,
-    cols: 96,
-    ...(profile ? { profile } : {})
-  })
-
-  const restMessages = transcript?.messages?.length ? toChatMessages(transcript.messages) : null
-  const messages = appendLiveSessionProjection(restMessages ?? toChatMessages(resumed.messages ?? []), resumed)
-  const runtimeId = resumed.session_id ?? storedId
-  const stillRunning = Boolean(resumed.inflight?.streaming ?? resumed.running)
   const stored = $sessions.get().find(session => session.id === storedId)
+  const key = hydratingKey(storedId)
 
-  publishSessionState(runtimeId, {
-    ...emptySessionState(storedId),
-    // Without this the slice has no wire-facing id, so `prompt.submit` /
-    // `session.interrupt` for this tile would go out with `undefined`.
-    runtimeSessionId: runtimeId,
-    messages,
-    busy: stillRunning,
-    cwd: resumed.info?.cwd ?? stored?.cwd ?? '',
-    model: stored?.model ?? '',
-    turnStartedAt: stillRunning ? Date.now() : null
+  ensureSessionSlice(key, {
+    storedSessionId: storedId,
+    busy: true,
+    cwd: stored?.cwd ?? '',
+    model: stored?.model ?? ''
   })
 
-  return runtimeId
+  try {
+    const transcript = await Promise.resolve()
+      .then(() => getSessionMessages(storedId, profile))
+      .catch(() => null)
+
+    const resumed = await requestGateway<SessionResumeResponse>('session.resume', {
+      session_id: storedId,
+      cols: 96,
+      ...(profile ? { profile } : {})
+    })
+
+    const restMessages = transcript?.messages?.length ? toChatMessages(transcript.messages) : null
+    const messages = appendLiveSessionProjection(restMessages ?? toChatMessages(resumed.messages ?? []), resumed)
+    const runtimeId = resumed.session_id ?? storedId
+    const stillRunning = Boolean(resumed.inflight?.streaming ?? resumed.running)
+
+    rekeySession(key, runtimeId, {
+      // Without this the slice has no wire-facing id, so `prompt.submit` /
+      // `session.interrupt` for this tile would go out with `undefined`.
+      runtimeSessionId: runtimeId,
+      storedSessionId: storedId,
+      messages,
+      busy: stillRunning,
+      cwd: resumed.info?.cwd ?? stored?.cwd ?? '',
+      model: stored?.model ?? '',
+      turnStartedAt: stillRunning ? Date.now() : null
+    })
+
+    // A session resumed MID-TURN is running a turn this process never opened.
+    // Adopting it is what puts the tile into `$inflightTurns`, and therefore into
+    // the set `reconcileInflightTurns` walks on every WS re-open — without it a
+    // tile's live turn was invisible to reconnect reconciliation.
+    applyTurnReconciliation(runtimeId, planTurnReconciliation(getInflightTurn(runtimeId), remoteTurnSnapshot(resumed)))
+
+    return runtimeId
+  } catch (err) {
+    // Nothing bound. Leave no orphan placeholder behind: it holds the stored-id
+    // index entry, which would make the next `resumeTile` short-circuit onto a
+    // slice with no runtime id at all.
+    dropSessionState(key)
+
+    throw err
+  }
 }
 
 setSessionTileDelegate({
@@ -118,22 +169,59 @@ setSessionTileDelegate({
     updateSession(runtimeId, state => ({
       ...state,
       busy: true,
+      statusLine: '',
       turnStartedAt: Date.now(),
       interrupted: false,
       messages: [...state.messages, userMessage(text)]
     }))
 
-    // A backgrounded tile is exactly the session most likely to have had its
-    // runtime dropped from under it — nothing has been sent through it for a
-    // while. Rebind on a stale id rather than surfacing "session not found" on
-    // the first message back.
-    await withSessionNotFoundResume(runtimeId, storedIdOfSession(runtimeId), live =>
-      requestGateway('prompt.submit', { session_id: live, text })
-    )
+    // Open the in-flight turn BEFORE the submit leaves, exactly as `sendPrompt`
+    // does: the window between the submit going out and the gateway's
+    // `message.start` is the one a reconnect lands in, and a turn with no record
+    // there is a turn nothing can reconcile or recover (MJXHRM-356).
+    beginTurn(runtimeId, { prompt: text })
+
+    // A draft rekeys to its runtime id, so the slice moves; anything else keeps
+    // the key it started with.
+    let submitKey = runtimeId
+
+    try {
+      // A backgrounded tile is exactly the session most likely to have had its
+      // runtime dropped from under it — nothing has been sent through it for a
+      // while. Rebind on a stale id rather than surfacing "session not found" on
+      // the first message back.
+      //
+      // `onRecovered` REKEYS rather than taking the default so this closure's own
+      // `submitKey` follows too — the rollback below has to address the session
+      // the prompt actually went to.
+      await withSessionNotFoundResume(
+        runtimeId,
+        storedIdOfSession(runtimeId),
+        live => requestGateway('prompt.submit', { session_id: live, text }),
+        {
+          onRecovered: live => {
+            rekeySession(submitKey, live, { runtimeSessionId: live })
+            submitKey = live
+          }
+        }
+      )
+    } catch (err) {
+      // The submit never landed. Settling the turn and clearing busy is what
+      // stops the tile spinning forever — the failure shape MJXHRM-308 named as
+      // the worst one, because nothing surfaces and nothing retries.
+      settleTurn(submitKey, 'error')
+      updateSession(submitKey, state => ({
+        ...state,
+        busy: false,
+        turnStartedAt: null,
+        statusLine: err instanceof Error ? err.message : String(err)
+      }))
+      notifyError(err, 'Message failed to send')
+    }
   },
 
   async interruptSession(runtimeId) {
-    await requestGateway('session.interrupt', { session_id: runtimeId }).catch(() => {})
+    await interruptSession(runtimeId)
   },
 
   updateSession,
