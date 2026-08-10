@@ -9,7 +9,14 @@ import { Codecs, persistentAtom } from '@/lib/persisted'
 // mobile has a single active conversation, so "fire when the app is
 // backgrounded" is the whole rule. Per-kind toggles + throttle are kept.
 
-export type NativeNotificationKind = 'approval' | 'backgroundDone' | 'input' | 'plugin' | 'turnDone' | 'turnError'
+export type NativeNotificationKind =
+  | 'approval'
+  | 'backgroundDone'
+  | 'credits'
+  | 'input'
+  | 'plugin'
+  | 'turnDone'
+  | 'turnError'
 
 export const NATIVE_NOTIFICATION_KINDS: readonly NativeNotificationKind[] = [
   'approval',
@@ -17,6 +24,7 @@ export const NATIVE_NOTIFICATION_KINDS: readonly NativeNotificationKind[] = [
   'turnDone',
   'turnError',
   'backgroundDone',
+  'credits',
   'plugin'
 ]
 
@@ -27,7 +35,15 @@ export interface NativeNotificationPrefs {
 
 const DEFAULT_PREFS: NativeNotificationPrefs = {
   enabled: true,
-  kinds: { approval: true, backgroundDone: true, input: true, plugin: true, turnDone: true, turnError: true }
+  kinds: {
+    approval: true,
+    backgroundDone: true,
+    credits: true,
+    input: true,
+    plugin: true,
+    turnDone: true,
+    turnError: true
+  }
 }
 
 // A stored blob predates every kind added after it was written (and localStorage
