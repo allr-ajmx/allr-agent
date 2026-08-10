@@ -650,6 +650,12 @@ export interface Translations {
       signOut: string
       signInWith: (provider: string) => string
       authTitle: string
+      /** Which credential backs the live session — the two sign-in routes are
+       *  otherwise indistinguishable once you are in. */
+      sessionKindNative: string
+      sessionKindNativeHint: string
+      sessionKindCookie: string
+      sessionKindCookieHint: string
       authSignedInPassword: string
       authSignedInOauth: string
       authNeedsPassword: string

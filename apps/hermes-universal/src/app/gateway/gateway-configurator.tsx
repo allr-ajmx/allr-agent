@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Tip } from '@/components/ui/tooltip'
 import { type Translations, useI18n } from '@/i18n'
-import { type AuthProvider, fetchAuthProviders } from '@/lib/auth'
+import { $oauthSession, type AuthProvider, fetchAuthProviders } from '@/lib/auth'
 import { openExternalLink } from '@/lib/external-link'
 import { AlertCircle, Check, Cloud, Globe, HelpCircle, Loader2, LogIn, Monitor, RefreshCw, Terminal } from '@/lib/icons'
 import { LOCAL_MODE_SUPPORTED } from '@/lib/platform'
@@ -151,6 +151,7 @@ export function GatewayConfigurator({
 
   const connection = useStore($connection)
   const phase = useStore($connectionPhase)
+  const oauthSession = useStore($oauthSession)
 
   // Desktop parity: the selected mode is *pending* local state (seeded from the
   // persisted mode), not a live switch. Nothing disconnects on card select; the
@@ -348,6 +349,13 @@ export function GatewayConfigurator({
   // are leaving — and hides the Sign-in button for the one you are trying to reach.
   const oauthConnected =
     remoteReady && connection?.authMode === 'oauth' && normalizeBaseUrl(trimmedUrl) === connection.baseUrl
+
+  // WHICH way you are signed in. Two sign-in routes now exist — the system browser
+  // (RFC 8252, token in the OS keyring) and the in-app cookie cascade — and once
+  // you are through, nothing on this screen distinguished them. Gated on the same
+  // base comparison as `oauthConnected` for the same reason.
+  const sessionKind =
+    oauthConnected && oauthSession?.base === connection?.baseUrl ? oauthSession.kind : null
 
   // Which auth control the remote panel shows. Desktop parity: derive it from a
   // live probe while the user edits a URL, ELSE from the live connection, ELSE from
@@ -781,6 +789,13 @@ export function GatewayConfigurator({
                     <Pill tone="primary">
                       <Check className="size-3" /> {g.signedIn}
                     </Pill>
+                    {sessionKind ? (
+                      <Tip label={sessionKind === 'native' ? g.sessionKindNativeHint : g.sessionKindCookieHint}>
+                        <span className="cursor-help">
+                          <Pill>{sessionKind === 'native' ? g.sessionKindNative : g.sessionKindCookie}</Pill>
+                        </span>
+                      </Tip>
+                    ) : null}
                     <Button disabled={busy} onClick={() => void doSignOut()} variant="outline">
                       {busy ? <Loader2 className="animate-spin" /> : null}
                       {g.signOut}
