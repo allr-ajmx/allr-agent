@@ -149,6 +149,80 @@ describe('session store', () => {
   })
 })
 
+/**
+ * MJXHRM-371. The warm short-circuit is what makes switching mid-turn lossless
+ * (MJX-132) — and it is also what leaves the gateway TRANSPORT bound to whatever
+ * webview last resumed the session. `forceResume` separates the two: a caller
+ * that needs the stream back can ask for a resume without asking for a reload.
+ */
+describe('openSession — forceResume', () => {
+  const warmSession = () => {
+    seedActiveSession('runtime-warm', { storedSessionId: 'stored-warm', messages: [] })
+    // Leave the pointer elsewhere so the warm promotion has work to do.
+    $activeStoredSessionId.set(null)
+  }
+
+  it('issues NO resume on a warm slice by default', async () => {
+    warmSession()
+
+    await openSession('stored-warm')
+
+    expect(requestGateway).not.toHaveBeenCalled()
+    expect($activeStoredSessionId.get()).toBe('stored-warm')
+  })
+
+  it('issues exactly one resume on a warm slice when asked', async () => {
+    warmSession()
+    vi.mocked(requestGateway).mockResolvedValue({ messages: [], session_id: 'runtime-warm' })
+
+    await openSession('stored-warm', { forceResume: true })
+
+    expect(requestGateway).toHaveBeenCalledTimes(1)
+    expect(requestGateway).toHaveBeenCalledWith('session.resume', { session_id: 'stored-warm', cols: 96 })
+    expect($activeStoredSessionId.get()).toBe('stored-warm')
+  })
+
+  it('does not refetch the transcript or overwrite the warm one', async () => {
+    seedActiveSession('runtime-warm', {
+      storedSessionId: 'stored-warm',
+      messages: [{ id: 'kept', role: 'user', parts: [{ type: 'text', text: 'still here' }] }]
+    })
+    // A display-REDUCED resume payload — writing it would be the MJX-132 loss.
+    vi.mocked(requestGateway).mockResolvedValue({
+      messages: [{ role: 'assistant', content: 'reduced' }],
+      session_id: 'runtime-warm'
+    })
+
+    await openSession('stored-warm', { forceResume: true })
+
+    expect(getSessionMessages).not.toHaveBeenCalled()
+    expect($messages.get().map(m => m.id)).toEqual(['kept'])
+  })
+
+  it('re-keys the slice when the backend hands back a new runtime id', async () => {
+    warmSession()
+    vi.mocked(requestGateway).mockResolvedValue({ messages: [], session_id: 'runtime-compacted' })
+
+    await openSession('stored-warm', { forceResume: true })
+
+    expect($sessionId.get()).toBe('runtime-compacted')
+    expect($activeStoredSessionId.get()).toBe('stored-warm')
+  })
+
+  it('leaves the chat readable when the rebind fails', async () => {
+    seedActiveSession('runtime-warm', {
+      storedSessionId: 'stored-warm',
+      messages: [{ id: 'kept', role: 'user', parts: [{ type: 'text', text: 'still here' }] }]
+    })
+    vi.mocked(requestGateway).mockRejectedValue(new Error('offline'))
+
+    await openSession('stored-warm', { forceResume: true })
+
+    expect($messages.get().map(m => m.id)).toEqual(['kept'])
+    expect($activeStoredSessionId.get()).toBe('stored-warm')
+  })
+})
+
 // A session-scoped call is served by ONE profile's backend. Without the owner it
 // lands on whichever gateway is live, which resumes another profile's chat
 // against the wrong database.
