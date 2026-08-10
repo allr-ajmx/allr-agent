@@ -47,6 +47,9 @@ export {
   // Billing settings port (MJX-56)
   IconCreditCard as CreditCard,
   IconDownload as Download,
+  // Wake word ("hey Hermes") composer toggle
+  IconEar as Ear,
+  IconEarOff as EarOff,
   // Memory provider panels (config sections port)
   IconEgg as Egg,
   IconExternalLink as ExternalLink,
