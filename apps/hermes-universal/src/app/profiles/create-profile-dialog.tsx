@@ -16,14 +16,9 @@ import { Textarea } from '@/components/ui/textarea'
 import { createProfile, updateProfileSoul } from '@/hermes'
 import { useI18n } from '@/i18n'
 import { AlertTriangle } from '@/lib/icons'
+import { isValidProfileName } from '@/lib/profile-name'
 import { cn } from '@/lib/utils'
 import type { ProfileInfo } from '@/types/hermes'
-
-const PROFILE_NAME_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/
-
-export function isValidProfileName(name: string): boolean {
-  return PROFILE_NAME_RE.test(name.trim())
-}
 
 // Self-contained create flow (name + clone toggle + optional SOUL.md). Owns the
 // createProfile/updateProfileSoul calls so every caller just refreshes/selects
