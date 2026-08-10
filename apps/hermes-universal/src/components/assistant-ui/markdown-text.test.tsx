@@ -93,7 +93,10 @@ describe('MarkdownTextContent math rendering', () => {
       <MarkdownTextContent isRunning={false} text={'Here:\n\n```python\nprint("hi")\n```\n'} />
     )
 
-    await waitFor(() => expect(container.textContent).toContain('python'))
+    // Assert on the fence's CONTENT, not its language tag: the code card is
+    // background-only now (no header row, no language label), so `python`
+    // never appears as text.
+    await waitFor(() => expect(container.textContent).toContain('print("hi")'))
   })
 
   it('keeps the whole LaTeX-heavy fixture on one node per equation', async () => {
