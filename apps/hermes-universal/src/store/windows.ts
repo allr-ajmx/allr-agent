@@ -69,8 +69,19 @@ export function detachedTileId(): null | string {
  * session tiles, the chat bubbles, the composer pop-out? — and the answer for a
  * tile window is the same "no" it was for the chat pop-out. Hence one predicate
  * that widened rather than nine call sites renamed.
+ *
+ * Satellites answer "no" too (MJXHRM-374). Windows of one origin share
+ * `localStorage`, so a HUD that thinks it is primary does not merely hold a
+ * private copy of the layout tree — it writes over the real window's, and the
+ * two then fight for the rest of the session. The HUD is a summoned overlay
+ * showing one conversation; it has no layout of its own to persist.
+ *
+ * A function rather than the old alias because `isSatelliteWindow` is declared
+ * further down: the reference has to resolve at call time, not at binding time.
  */
-export const isSecondaryWindow = isTileWindow
+export function isSecondaryWindow(): boolean {
+  return isTileWindow() || isSatelliteWindow()
+}
 
 // --------------------------------------------------------------------------
 // Activity screens (MJX-141 Android / MJX-176 iOS). Windowable surfaces (Settings,
