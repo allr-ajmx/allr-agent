@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { type CSSProperties, type ReactNode, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 
 import { Button } from '@/components/ui/button'
@@ -13,7 +13,7 @@ import { $notifications, type AppNotification, dismissNotification, type Notific
 // expander UI is collapsed to a single top-center column of ≤4 cards, portaled
 // above sheets/dialogs). The store (store/notifications.ts) is shared.
 
-type IconComponent = (props: { className?: string }) => React.ReactNode
+type IconComponent = (props: { className?: string; style?: CSSProperties }) => React.ReactNode
 
 const TONE: Record<NotificationKind, { icon: IconComponent; iconClass: string }> = {
   error: { icon: AlertCircle, iconClass: 'text-destructive' },
@@ -62,15 +62,46 @@ export function NotificationStack() {
   )
 }
 
+// A money token inside an accented message is the number the user is actually
+// reading ("You've used $180.00 of your $220.00 cap"), so it takes the accent at
+// full strength while the rest of the line stays calm. Mirrors desktop.
+function renderMessage(message: string, accent?: string): ReactNode {
+  const match = accent ? /\$\d+(?:\.\d{2})?/.exec(message) : null
+
+  if (!match) {
+    return message
+  }
+
+  const start = match.index
+  const end = start + match[0].length
+
+  return (
+    <>
+      {message.slice(0, start)}
+      <span className="font-semibold" style={{ color: accent }}>
+        {match[0]}
+      </span>
+      {message.slice(end)}
+    </>
+  )
+}
+
 function NotificationItem({ dismissLabel, notification }: { dismissLabel: string; notification: AppNotification }) {
   const { icon: Icon, iconClass } = TONE[notification.kind]
+  // `accentColor` (when set) tints the icon + the money token as a severity ramp,
+  // overriding the kind's default color.
+  const accent = notification.accentColor
+  const iconStyle: CSSProperties | undefined = accent ? { color: accent } : undefined
 
   return (
     <div className="pointer-events-auto flex items-start gap-2.5 rounded-lg border border-border bg-popover/95 p-3 text-popover-foreground shadow-md backdrop-blur-md">
-      <Icon className={cn('mt-0.5 size-4 shrink-0', iconClass)} />
+      <Icon className={cn('mt-0.5 size-4 shrink-0', iconClass)} style={iconStyle} />
       <div className="min-w-0 flex-1">
         {notification.title && <div className="text-sm font-semibold">{notification.title}</div>}
-        <div className="text-sm break-words text-muted-foreground">{notification.message}</div>
+        <div className="text-sm break-words text-muted-foreground">{renderMessage(notification.message, accent)}</div>
+        {notification.meta && (
+          <div className="mt-0.5 text-xs tabular-nums break-words text-muted-foreground/80">{notification.meta}</div>
+        )}
         {notification.detail && (
           <div className="mt-1 font-mono text-xs break-words text-muted-foreground/80">{notification.detail}</div>
         )}
