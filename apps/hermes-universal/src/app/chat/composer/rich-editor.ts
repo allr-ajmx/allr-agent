@@ -198,7 +198,7 @@ export function serializeTextBefore(editor: HTMLElement, container: Node, offset
   scratch.append(probe.cloneContents())
 
   for (const chip of scratch.querySelectorAll('[data-ref-text]')) {
-    chip.replaceWith('￼')
+    chip.replaceWith('\uFFFC')
   }
 
   for (const br of scratch.querySelectorAll('br')) {
@@ -220,7 +220,7 @@ function atTokenBoundary(editor: HTMLElement, range: Range | null): boolean {
 
   const last = before.slice(-1)
 
-  return !last || /[\s￼]/.test(last)
+  return !last || /[\s\uFFFC]/.test(last)
 }
 
 /** A Range covering the `length` characters immediately before a collapsed

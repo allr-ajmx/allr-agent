@@ -63,7 +63,7 @@ import {
 import { useComposerScope } from './scope'
 import { ComposerStatusStack } from './status-stack'
 import { CodingStatusRow } from './status-stack/coding-row'
-import { extractClipboardImageBlobs } from './text-utils'
+import { extractClipboardImageBlobs, openDirectiveScope } from './text-utils'
 import { ComposerTriggerPopover } from './trigger-popover'
 import type { ChatBarProps } from './types'
 import { isRedoShortcut, isUndoShortcut } from './undo-history'
@@ -297,6 +297,7 @@ export function ChatBar({
   // this API; keyup uses triggerKeyConsumedRef to skip its refresh.
   const {
     argStageEmpty,
+    ascendTriggerPath,
     closeTrigger,
     commitTypedSlashDirective,
     refreshTrigger,
@@ -448,7 +449,15 @@ export function ChatBar({
     // Bare links and bare `@paths` are promoted to their typed directive form
     // on the way in, so a pasted URL lands as one `@url:` chip instead of a
     // wall of URL text — the same shape the "+ → Add URL" dialog inserts.
-    insertComposerContentsAtCaret(event.currentTarget, pathifyRefs(linkifyUrls(pastedText)))
+    //
+    // A paste into an open `@url:` browse scope CONSUMES that scope, rather
+    // than leaving it in front of the chip as leftover syntax
+    // (`@url:@url:\`https://…\``).
+    insertComposerContentsAtCaret(
+      event.currentTarget,
+      pathifyRefs(linkifyUrls(pastedText)),
+      openDirectiveScope(event.currentTarget)
+    )
     scheduleFlushEditorToDraft(event.currentTarget)
   }
 
@@ -566,8 +575,20 @@ export function ChatBar({
         const item = triggerItems[triggerActive]
 
         if (item) {
-          replaceTriggerWithChip(item)
+          // Tab on a folder walks INTO it; Enter commits the folder itself.
+          // Two distinct intents, so two distinct keys.
+          replaceTriggerWithChip(item, { descend: event.key === 'Tab' })
         }
+
+        return
+      }
+
+      // Backspace climbs out of an `@` path one segment at a time, mirroring
+      // Tab's one-key descent, and drops the browse scope whole rather than
+      // nibbling back through `:`, `r`, `e`, `d`.
+      if (event.key === 'Backspace' && !event.metaKey && !event.altKey && ascendTriggerPath()) {
+        event.preventDefault()
+        triggerKeyConsumedRef.current = true
 
         return
       }
@@ -990,6 +1011,7 @@ export function ChatBar({
               loading={triggerLoading}
               onHover={setTriggerActive}
               onPick={replaceTriggerWithChip}
+              scope={trigger.scope}
             />
           )}
           {!poppedOut && (
