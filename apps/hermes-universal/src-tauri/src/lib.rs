@@ -54,7 +54,7 @@ use transport::{
 use updates::{update_check, update_open_download, UpdateState};
 use voice::{
     voice_arm, voice_close, voice_force_turn, voice_open, voice_suspend, voice_update_auth,
-    VoiceState,
+    voice_wake_listen, VoiceState,
 };
 use window::{open_instance_window, open_screen_window, open_session_window, open_tile_window};
 
@@ -206,6 +206,7 @@ pub fn run() {
             repo_scan_git_repos,
             voice_open,
             voice_arm,
+            voice_wake_listen,
             voice_suspend,
             voice_force_turn,
             voice_update_auth,

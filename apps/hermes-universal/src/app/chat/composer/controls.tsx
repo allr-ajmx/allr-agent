@@ -1,13 +1,27 @@
+import { useStore } from '@nanostores/react'
+
 import { Button } from '@/components/ui/button'
 import { Codicon } from '@/components/ui/codicon'
 import { KbdCombo } from '@/components/ui/kbd'
 import { Tip, TipKeybindLabel } from '@/components/ui/tooltip'
 import { useI18n } from '@/i18n'
 import { triggerHaptic } from '@/lib/haptics'
-import { AudioLines, iconSize, Layers3, Loader2, Square, SteeringWheel, Volume2, VolumeX } from '@/lib/icons'
+import {
+  AudioLines,
+  Ear,
+  EarOff,
+  iconSize,
+  Layers3,
+  Loader2,
+  Square,
+  SteeringWheel,
+  Volume2,
+  VolumeX
+} from '@/lib/icons'
 import { formatCombo } from '@/lib/keybinds/combo'
 import { cn } from '@/lib/utils'
 import { bindingsFor } from '@/store/keybinds'
+import { $wakeWord, toggleWakeWord } from '@/store/wake-word'
 
 import type { ConversationStatus } from './hooks/use-voice-conversation'
 import { ModelPill } from './model-pill'
@@ -117,6 +131,7 @@ export function ComposerControls({
       ) : (
         <DictationButton disabled={disabled} onToggle={onDictate} state={state.voice} status={voiceStatus} />
       )}
+      <WakeWordButton disabled={disabled} />
       <AutoSpeakButton active={autoSpeak} disabled={disabled} onToggle={onToggleAutoSpeak} />
       {showVoicePrimary ? (
         <Tip label={c.startVoice}>
@@ -236,6 +251,9 @@ function ConversationPill({
           </Button>
         </Tip>
       )}
+      {/* The ear never hides: it stays reachable mid-conversation, shown paused,
+          because the conversation itself is holding the mic the detector wants. */}
+      <WakeWordButton disabled={disabled} pausedForVoice />
       <Tip label={c.endConversation}>
         <Button
           aria-label={c.endConversation}
@@ -282,6 +300,55 @@ function ConversationIndicator({
         return <span className="w-0.5 rounded-full bg-current" key={index} style={{ height: `${height * 100}%` }} />
       })}
     </span>
+  )
+}
+
+/**
+ * The wake-word ear. "The toggle IS the config": there is no separate client
+ * preference — clicking writes `wake_word.enabled` on the gateway, and the state
+ * shown here is whatever the gateway last reported.
+ *
+ * Deliberately never hidden, even when the backend refuses. A control that
+ * disappears leaves the user with no way to find out WHY the wake word isn't
+ * working; a control that stays and explains itself in its tooltip does.
+ */
+function WakeWordButton({ disabled, pausedForVoice = false }: { disabled: boolean; pausedForVoice?: boolean }) {
+  const { t } = useI18n()
+  const c = t.composer
+  const wake = useStore($wakeWord)
+  const on = wake.enabled && wake.available
+
+  const label = !wake.available
+    ? c.wakeWordUnavailable
+    : pausedForVoice || wake.pausedForVoice
+      ? c.wakeWordPausedVoice(wake.phrase)
+      : on
+        ? c.wakeWordListening(wake.phrase)
+        : c.wakeWordOff(wake.phrase)
+
+  return (
+    <Tip label={label}>
+      <Button
+        aria-label={label}
+        aria-pressed={on}
+        className={cn(
+          GHOST_ICON_BTN,
+          'p-0',
+          on && !pausedForVoice && 'bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary',
+          (pausedForVoice || wake.pausedForVoice) && 'opacity-60'
+        )}
+        disabled={disabled || wake.busy}
+        onClick={() => {
+          triggerHaptic(on ? 'close' : 'open')
+          void toggleWakeWord()
+        }}
+        size="icon"
+        type="button"
+        variant="ghost"
+      >
+        {on ? <Ear className={iconSize.sm} /> : <EarOff className={iconSize.sm} />}
+      </Button>
+    </Tip>
   )
 }
 

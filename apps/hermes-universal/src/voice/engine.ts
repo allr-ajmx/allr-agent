@@ -15,8 +15,13 @@ import { createWebLease } from './web-engine'
 //
 // Priority: a live conversation is a long-running mode and beats the momentary
 // dictation button (dictation gets `VoiceBusyError`); a conversation starting
-// while dictation is recording preempts it. Encoded once here rather than as
-// ad-hoc try/catch at each call site.
+// while dictation is recording preempts it. Wake listening sits UNDER both — it
+// is a standing background listener, so anything the user asked for directly
+// preempts it, and it is the only owner that never wins a contest. Encoded once
+// here rather than as ad-hoc try/catch at each call site.
+
+/** Lower number wins a contest for the device. */
+const PRIORITY: Record<VoiceOwner, number> = { conversation: 0, dictation: 1, wake: 2 }
 
 class VoiceEngineImpl implements VoiceEngine {
   private _owner: VoiceOwner | null = null
@@ -32,11 +37,11 @@ class VoiceEngineImpl implements VoiceEngine {
 
   async open(owner: VoiceOwner, opts: VoiceOpenOptions): Promise<VoiceLease> {
     if (this._owner) {
-      if (this._owner === 'conversation' && owner === 'dictation') {
-        throw new VoiceBusyError('conversation')
+      if (this._owner !== owner && PRIORITY[owner] > PRIORITY[this._owner]) {
+        throw new VoiceBusyError(this._owner)
       }
 
-      // Same owner re-opening, or a conversation preempting dictation: release first.
+      // Same owner re-opening, or a higher-priority owner preempting: release first.
       await this.release()
     }
 
@@ -106,6 +111,7 @@ class VoiceEngineImpl implements VoiceEngine {
 
     return {
       arm: mode => lease.arm(mode),
+      wakeListen: () => lease.wakeListen(),
       suspend: () => lease.suspend(),
       forceTurn: () => lease.forceTurn(),
       on: handler => lease.on(handler),

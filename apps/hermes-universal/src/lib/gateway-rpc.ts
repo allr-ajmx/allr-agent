@@ -152,6 +152,115 @@ export function steerSubagent(params: {
   })
 }
 
+// --- wake.start / wake.stop / wake.status / wake.pause / wake.resume -------
+
+/**
+ * WHERE the microphone lives, as decided by the backend, not by us.
+ *
+ * `"local"` — the gateway host opened its own PortAudio device and this client
+ * does nothing further; detection just arrives as a `wake.detected` event.
+ * `"client"` — the host has no usable input (a headless box, a container), so
+ * openWakeWord still runs there but the audio has to come from here, one
+ * `wake.feed` call at a time. Reading this field is not optional: streaming
+ * frames at a `"local"` detector is wasted bandwidth, and NOT streaming at a
+ * `"client"` one is a detector that will never fire.
+ */
+export type WakeCapture = 'client' | 'local'
+
+/** The surface identity we claim; the backend scopes mic ownership by it. */
+const WAKE_SURFACE = 'gui'
+
+export interface WakeStartResult {
+  started: boolean
+  /** `unavailable` | `disabled` | `disabled_for_surface` | `owned`, else absent. */
+  reason?: null | string
+  hint?: null | string
+  phrase?: string
+  provider?: string
+  owner_surface?: null | string
+  enabled_persisted?: boolean
+  capture?: WakeCapture
+  sample_rate?: number
+  /** Detector frame size in samples (1280 = 80 ms at 16 kHz). */
+  frame_length?: number
+}
+
+export interface WakeStatusResult {
+  listening: boolean
+  owned_by_caller: boolean
+  owner_surface?: null | string
+  phrase?: string
+  provider?: string
+  available: boolean
+  hint?: null | string
+  enabled: boolean
+  audio_silent?: boolean
+  capture?: WakeCapture
+  local_input_available?: boolean
+  sample_rate?: number
+  frame_length?: number
+}
+
+export interface WakeStopResult {
+  stopped: boolean
+  reason?: null | string
+  disabled_persisted?: boolean
+}
+
+export interface WakePauseResult {
+  paused: boolean
+  reason?: null | string
+}
+
+export interface WakeResumeResult {
+  resumed: boolean
+  reason?: null | string
+}
+
+/** First use lazily installs the onnxruntime detection engine, which is a big
+ *  download — nowhere near the client's default timeout. */
+const WAKE_START_TIMEOUT_MS = 180_000
+
+/**
+ * Arm the wake detector for this client.
+ *
+ * `persist: true` is the deliberate-click path and writes `wake_word.enabled` to
+ * the config — upstream's "the toggle IS the config". A passive re-arm (app
+ * start, after a voice conversation) must NOT persist, or a mic could become
+ * permanently enabled without anyone asking for it.
+ */
+export function startWakeWord(options: { persist?: boolean } = {}): Promise<WakeStartResult> {
+  return requestGateway<WakeStartResult>(
+    'wake.start',
+    {
+      surface: WAKE_SURFACE,
+      // We can supply a microphone, so a backend with none should say so rather
+      // than refuse; it answers `capture: "client"` and we stream.
+      client_capture: true,
+      ...(options.persist ? { persist: true } : {})
+    },
+    WAKE_START_TIMEOUT_MS
+  )
+}
+
+/** Disarm. `persist: true` (the toggle) also writes `wake_word.enabled: false`. */
+export function stopWakeWord(options: { persist?: boolean } = {}): Promise<WakeStopResult> {
+  return requestGateway<WakeStopResult>('wake.stop', options.persist ? { persist: true } : {})
+}
+
+export function wakeWordStatus(): Promise<WakeStatusResult> {
+  return requestGateway<WakeStatusResult>('wake.status', { surface: WAKE_SURFACE, client_capture: true })
+}
+
+/** Release the mic for a voice conversation, without touching the config. */
+export function pauseWakeWord(): Promise<WakePauseResult> {
+  return requestGateway<WakePauseResult>('wake.pause', {})
+}
+
+export function resumeWakeWord(): Promise<WakeResumeResult> {
+  return requestGateway<WakeResumeResult>('wake.resume', {})
+}
+
 // --- wake.feed -------------------------------------------------------------
 
 /** The only rate the detector accepts. `wake.start` echoes it back. */
