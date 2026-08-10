@@ -228,6 +228,12 @@ export const en: Translations = {
     close: 'Close'
   },
 
+  findInPage: {
+    title: 'Find in page',
+    next: 'Next match',
+    previous: 'Previous match'
+  },
+
   keybinds: {
     title: 'Keyboard shortcuts',
     subtitle: open => `Click a shortcut to rebind it · ${open} reopens this panel.`,
@@ -280,6 +286,9 @@ export const en: Translations = {
       'view.toggleSidebar': 'Toggle sessions sidebar',
       'view.toggleRightSidebar': 'Toggle file browser',
       'view.toggleReview': 'Toggle review pane',
+      'view.findInPage': 'Find in page',
+      'view.findNext': 'Find next',
+      'view.findPrevious': 'Find previous',
       'view.showFiles': 'Show file browser',
       'view.showTerminal': 'Toggle terminal',
       'view.toggleStatusbar': 'Toggle status bar',

@@ -129,6 +129,13 @@ export const KEYBIND_ACTIONS: readonly KeybindActionMeta[] = [
   // ⌘G — "g" for git; the review pane is the source-control view.
   { id: 'view.toggleReview', category: 'view', defaults: ['mod+g'] },
   { id: 'view.showFiles', category: 'view', defaults: [] },
+  // ⌘F — find in the rendered page (the engine's own search, not a DOM scan).
+  // ⌘G / ⌘⇧G step while the bar is open; those two are handled by the bar
+  // itself (see `findBarClaimsCombo`) rather than as registry actions, because
+  // ⌘G already belongs to the review pane when the bar is closed.
+  { id: 'view.findInPage', category: 'view', defaults: ['mod+f'] },
+  { id: 'view.findNext', category: 'view', defaults: [] },
+  { id: 'view.findPrevious', category: 'view', defaults: [] },
   // Control+` everywhere (literal `ctrl`, NOT `mod`): ⌘` is macOS-reserved for
   // cycling app windows, so VS Code/Cursor/Zed bind the terminal to Ctrl+` on
   // every platform. Off macOS `ctrl` folds to `mod` (= Ctrl), so it's unchanged.

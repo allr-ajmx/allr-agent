@@ -8,6 +8,7 @@ import {
   focusedTabTarget
 } from '@/components/pane-shell/tree/store'
 import { onReleaseTypingFocus } from '@/components/ui/keyboard-first'
+import { findBarClaimsCombo } from '@/lib/find-in-page'
 import { contributedKeybindHandler, PROFILE_SLOT_COUNT, SESSION_SLOT_COUNT } from '@/lib/keybinds/actions'
 import { comboAllowedInInput, comboFromEvent, isEditableTarget, isShiftPrintableCombo } from '@/lib/keybinds/combo'
 import { composerFocusKeysAllowed, isComposerFocusSoftCombo, typeToFocusChar } from '@/lib/keybinds/composer-focus-keys'
@@ -15,6 +16,12 @@ import { setGlobalShortcutDispatch, startGlobalShortcuts } from '@/lib/keybinds/
 import { storedIdFromTilePane } from '@/lib/pane-ids'
 import { openWorktreeDialog } from '@/store/coding-status'
 import { toggleCommandPalette } from '@/store/command-palette'
+import {
+  $findInPage,
+  findNext as findNextMatch,
+  findPrevious as findPreviousMatch,
+  openFindBar
+} from '@/store/find-in-page'
 import { $capture, $comboIndex, endCapture, setBinding } from '@/store/keybinds'
 import {
   $terminalOpen,
@@ -209,6 +216,13 @@ export function useKeybinds(deps: KeybindRuntimeDeps): void {
     'view.toggleReview': toggleReview,
     'view.toggleStatusbar': toggleStatusbarVisible,
     'view.showFiles': showFiles,
+    // ⌘F opens the bar; ⌘G / ⌘⇧G step from anywhere once it is open (the bar
+    // owns those — see findBarClaimsCombo). These two rows exist so a user who
+    // wants dedicated step chords can bind them, and they are no-ops with the
+    // bar closed.
+    'view.findInPage': openFindBar,
+    'view.findNext': findNextMatch,
+    'view.findPrevious': findPreviousMatch,
     'view.showTerminal': () => setTerminalOpen(!$terminalOpen.get()),
     // Create first so the area's open-effect ensure sees a non-empty set and
     // doesn't also spawn one — net effect is exactly one fresh terminal.
@@ -338,6 +352,16 @@ export function useKeybinds(deps: KeybindRuntimeDeps): void {
       const combo = comboFromEvent(event)
 
       if (!combo) {
+        return
+      }
+
+      // An OPEN find bar owns ⌘G / ⌘⇧G / Escape. It listens on `window` in the
+      // capture phase like this dispatcher does, and propagation control cannot
+      // suppress a sibling listener on the same target — so ownership has to be
+      // decided here, by the single owner of combo dispatch. Otherwise ⌘G would
+      // also toggle the review pane and Escape would abort a running turn while
+      // the user only meant to dismiss the bar.
+      if ($findInPage.get().active && findBarClaimsCombo(combo)) {
         return
       }
 

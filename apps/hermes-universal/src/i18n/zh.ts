@@ -223,6 +223,12 @@ export const zh: Translations = {
     close: '关闭'
   },
 
+  findInPage: {
+    title: '在页面中查找',
+    next: '下一个匹配项',
+    previous: '上一个匹配项'
+  },
+
   keybinds: {
     title: '键盘快捷键',
     subtitle: open => `点击快捷键即可重新绑定 · ${open} 可重新打开此面板。`,
@@ -274,6 +280,9 @@ export const zh: Translations = {
       'view.toggleSidebar': '切换会话侧边栏',
       'view.toggleRightSidebar': '切换文件浏览器',
       'view.toggleReview': '切换审查面板',
+      'view.findInPage': '在页面中查找',
+      'view.findNext': '查找下一个',
+      'view.findPrevious': '查找上一个',
       'view.showFiles': '显示文件浏览器',
       'view.showTerminal': '显示终端',
       'view.terminalSelection': '将终端选区发送到输入框',

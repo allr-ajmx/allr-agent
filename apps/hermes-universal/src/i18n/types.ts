@@ -275,6 +275,13 @@ export interface Translations {
     close: string
   }
 
+  // The find-in-page bar (⌘F) — the engine's own search over the rendered page.
+  findInPage: {
+    title: string
+    next: string
+    previous: string
+  }
+
   // The rebindable keyboard-shortcuts panel (Settings → Keyboard shortcuts).
   // `categories` and `actions` are keyed by the ids in lib/keybinds/actions.ts.
   keybinds: {
