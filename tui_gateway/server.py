@@ -11672,34 +11672,17 @@ def _is_session_cwd_junk(cwd: str) -> bool:
 
 
 def _repo_discovery_policy(raw: dict | None = None) -> dict:
-    """Return the effective, profile-local Desktop repository scan policy."""
-    from hermes_cli.config import DEFAULT_CONFIG
+    """Return the effective, profile-local Desktop repository scan policy.
 
-    defaults = DEFAULT_CONFIG["desktop"]
+    The normalization lives in
+    :func:`hermes_cli.web_repo_scan.resolve_repo_discovery_policy` so this RPC
+    sink and the ``GET /api/git/scan-repos`` crawl that feeds it cannot drift
+    apart on what a policy means.
+    """
+    from hermes_cli.web_repo_scan import resolve_repo_discovery_policy
+
     source = raw if isinstance(raw, dict) else (_load_cfg().get("desktop") or {})
-    if not isinstance(source, dict):
-        source = {}
-
-    enabled = source.get("enabled", source.get("repo_scan_enabled", defaults["repo_scan_enabled"]))
-    roots = source.get("roots", source.get("repo_scan_roots", defaults["repo_scan_roots"]))
-    excludes = source.get(
-        "exclude_paths",
-        source.get("repo_scan_exclude_paths", defaults["repo_scan_exclude_paths"]),
-    )
-
-    return {
-        "enabled": enabled if isinstance(enabled, bool) else defaults["repo_scan_enabled"],
-        "roots": [value.strip() for value in roots if isinstance(value, str) and value.strip()]
-        if isinstance(roots, list)
-        else list(defaults["repo_scan_roots"]),
-        "exclude_paths": [
-            value.strip()
-            for value in excludes
-            if isinstance(value, str) and value.strip()
-        ]
-        if isinstance(excludes, list)
-        else list(defaults["repo_scan_exclude_paths"]),
-    }
+    return resolve_repo_discovery_policy(source)
 
 
 def _repo_discovery_policy_key(policy: dict) -> str:
