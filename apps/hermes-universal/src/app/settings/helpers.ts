@@ -1,7 +1,7 @@
 import { asText } from '@/lib/text'
-import type { HermesConfigRecord, ToolsetInfo } from '@/types/hermes'
+import type { ConfigFieldSchema, HermesConfigRecord, ToolsetInfo } from '@/types/hermes'
 
-import { BUILTIN_PERSONALITIES, ENUM_OPTIONS, PROVIDER_GROUPS } from './constants'
+import { BUILTIN_PERSONALITIES, ENUM_OPTIONS, PROVIDER_GROUPS, SECTIONS } from './constants'
 
 // Ported from apps/desktop/src/app/settings/helpers.ts. Canonical text helpers
 // live in @/lib/text; re-exported so settings call sites keep their import path.
@@ -94,6 +94,46 @@ export function getNested(obj: HermesConfigRecord, path: string): unknown {
   }
 
   return cur
+}
+
+export function inferFieldSchema(value: unknown): ConfigFieldSchema {
+  if (typeof value === 'boolean') {
+    return { type: 'boolean' }
+  }
+
+  if (typeof value === 'number') {
+    return { type: 'number' }
+  }
+
+  if (Array.isArray(value)) {
+    return { type: 'list' }
+  }
+
+  return { type: 'string' }
+}
+
+// Backend schema omits some declared keys; config presence is the availability
+// signal. Universal talks to whatever gateway the user points it at, so a
+// schema that predates a key — or deliberately hides one, as the backend did
+// for `memory.provider` when the web dashboard's Plugins page took it over —
+// must not delete the row, its value and the extras mounted on it (the memory
+// OAuth connect affordance and the per-provider config panel). Keys an older
+// backend has never heard of stay hidden: they are absent from its config too.
+export function sectionFieldEntries(
+  schema: Record<string, ConfigFieldSchema>,
+  config: HermesConfigRecord
+): Map<string, [string, ConfigFieldSchema][]> {
+  return new Map(
+    SECTIONS.map(s => [
+      s.id,
+      s.keys.flatMap(k => {
+        const value = getNested(config, k)
+        const field = schema[k] ?? (value === undefined ? undefined : inferFieldSchema(value))
+
+        return field ? [[k, field] as [string, ConfigFieldSchema]] : []
+      })
+    ])
+  )
 }
 
 export function setNested(obj: HermesConfigRecord, path: string, value: unknown): HermesConfigRecord {

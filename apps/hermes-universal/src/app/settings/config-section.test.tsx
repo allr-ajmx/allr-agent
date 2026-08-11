@@ -27,13 +27,13 @@ import { getNested } from './helpers'
 
 const save = vi.mocked(saveHermesConfig)
 
-function renderSection() {
+function renderSection(sectionId = 'chat') {
   // Router context: the section reads ?field= for palette deep links.
   return render(
     <MemoryRouter>
       <I18nProvider>
         <QueryClientProvider client={queryClient}>
-          <ConfigSection sectionId="chat" />
+          <ConfigSection sectionId={sectionId} />
         </QueryClientProvider>
       </I18nProvider>
     </MemoryRouter>
@@ -46,7 +46,9 @@ describe('ConfigSection', () => {
     vi.mocked(getHermesConfigRecord).mockClear()
     queryClient.clear()
   })
-  afterEach(() => queryClient.clear())
+  afterEach(() => {
+    queryClient.clear()
+  })
 
   it('renders the section schema fields once config + schema load', async () => {
     renderSection()
@@ -65,5 +67,16 @@ describe('ConfigSection', () => {
     const saved = save.mock.calls[0][0]
     expect(getNested(saved, 'display.show_reasoning')).toBe(true)
     expect(getNested(saved, 'timezone')).toBe('UTC')
+  })
+
+  it('keeps a declared row the backend schema omits, inferring its type from config', async () => {
+    // `memory.provider` is the live case: the backend hides it from
+    // /api/config/schema on deployments where the web dashboard's Plugins page
+    // owns memory providers. The row (and the panel mounted under it) must stay.
+    vi.mocked(getHermesConfigRecord).mockResolvedValue({ memory: { memory_enabled: true, provider: 'honcho' } })
+
+    renderSection('memory')
+
+    expect(await screen.findByDisplayValue('honcho')).toBeInTheDocument()
   })
 })

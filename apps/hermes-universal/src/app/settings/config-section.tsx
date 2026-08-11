@@ -14,17 +14,10 @@ import { repoDiscoveryPolicyFromConfig, repoDiscoveryPolicySignature, scanAndRec
 import type { ConfigFieldSchema, HermesConfigRecord } from '@/types/hermes'
 
 import { ComboboxInput } from './combobox-input'
-import {
-  CONTROL_TEXT,
-  EMPTY_SELECT_VALUE,
-  FIELD_DESCRIPTIONS,
-  FIELD_LABELS,
-  FREE_INPUT_KEYS,
-  SECTIONS
-} from './constants'
+import { CONTROL_TEXT, EMPTY_SELECT_VALUE, FIELD_DESCRIPTIONS, FIELD_LABELS, FREE_INPUT_KEYS } from './constants'
 import { FallbackModelsField } from './fallback-models-field'
 import { fieldCopyForSchemaKey } from './field-copy'
-import { enumOptionsFor, getNested, prettyName, setNested } from './helpers'
+import { enumOptionsFor, getNested, prettyName, sectionFieldEntries, setNested } from './helpers'
 import { EmptyState, ListRow, SettingsContent, SettingsSkeleton } from './primitives'
 import { SearchableSelect } from './searchable-select'
 import { setHermesConfigCache, useHermesConfigRecord } from './use-config-record'
@@ -283,6 +276,7 @@ export function ConfigSection({
   const configSeeded = useRef(false)
 
   // Seed the local draft once, the first time the shared record lands.
+  // Background refetches thereafter must not clobber in-progress edits.
   useEffect(() => {
     if (loadedConfig && !configSeeded.current) {
       configSeeded.current = true
@@ -333,14 +327,12 @@ export function ConfigSection({
   }
 
   const sectionFields = useMemo(() => {
-    if (!schema) {
+    if (!schema || !config) {
       return [] as [string, ConfigFieldSchema][]
     }
 
-    const section = SECTIONS.find(s => s.id === sectionId)
-
-    return (section?.keys ?? []).flatMap(k => (schema[k] ? [[k, schema[k]] as [string, ConfigFieldSchema]] : []))
-  }, [schema, sectionId])
+    return sectionFieldEntries(schema, config).get(sectionId) ?? []
+  }, [schema, config, sectionId])
 
   // Deep-link target from the command palette (?field=<key>).
   const fieldReady = useCallback((key: string) => sectionFields.some(([k]) => k === key), [sectionFields])
