@@ -43,6 +43,9 @@ export {
   IconCommand as Command,
   // Chat rendering pipeline (chat-session UI port)
   IconCopy as Copy,
+  // Queue row's send-now action: the return glyph states the keybind that
+  // double-Enter uses, so the row and the shortcut say the same thing.
+  IconCornerDownLeft as CornerDownLeft,
   IconCpu as Cpu,
   // Billing settings port (MJX-56)
   IconCreditCard as CreditCard,
