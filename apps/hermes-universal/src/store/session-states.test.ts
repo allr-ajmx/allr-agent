@@ -28,6 +28,7 @@ import {
   MAX_CACHED_SESSIONS,
   pruneSessionStates
 } from '@/store/session-states'
+import { $inflightTurns, beginTurn, isTurnLive } from '@/store/turn-lifecycle'
 import { $effectiveCwd, $workspaceCwd } from '@/store/workspace-events'
 
 const seed = (key: string, patch: Partial<ReturnType<typeof emptySessionState>> = {}) =>
@@ -363,5 +364,22 @@ describe('$focusedCwd', () => {
       noteActiveTreeGroup(null)
       expect($focusedChatPane.get()).toBe(WORKSPACE_PANE_ID)
     })
+  })
+})
+
+// Both callers of the wipe — a profile switch and the soft gateway switch — are
+// moving to a backend that never issued these runtime ids, so any turn record
+// left behind is one nothing can settle, reconcile or find a slice for.
+describe('clearAllSessionStates', () => {
+  it('takes the in-flight turns with it', () => {
+    seed('runtime-1', { storedSessionId: 'stored-1' })
+    beginTurn('runtime-1', { prompt: 'still running' })
+
+    expect(isTurnLive('runtime-1')).toBe(true)
+
+    clearAllSessionStates()
+
+    expect($inflightTurns.get()).toEqual({})
+    expect(isTurnLive('runtime-1')).toBe(false)
   })
 })
