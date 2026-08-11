@@ -65,6 +65,7 @@ import {
   setSessionTransitionHook,
   updateSession
 } from '@/store/session-state-types'
+import { clearAllTurns } from '@/store/turn-lifecycle'
 import { isSecondaryWindow, ownsPersistedAppState } from '@/store/windows'
 
 export { $activeSessionKey, $sessionStates }
@@ -249,6 +250,16 @@ export function clearAllSessionStates() {
   settledExpiry.clear()
   clearStoredIdIndex()
   clearAllPrompts()
+  // Turns are keyed by the SAME session keys this wipes, and the map is not
+  // reachable through `dropSessionState` from here — the whole atom is replaced
+  // below rather than evicted key by key. Both callers (a profile switch, the
+  // soft gateway switch) are moving to a backend that never issued these runtime
+  // ids, so every record left behind is a turn nothing can settle, reconcile or
+  // find a slice for. `clearAllTurns` and not a per-key drop, deliberately: a
+  // drop settles the record, and `store/turn-hydration.ts` clears the crash
+  // journal on settle — a switch must not destroy the journal a later switch
+  // back would recover from.
+  clearAllTurns()
   disposeStreamBatch()
   $stalledSessionIds.set([])
   $sessionStates.set({})

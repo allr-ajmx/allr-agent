@@ -11,6 +11,7 @@ import {
 } from '@/store/session-state-types'
 import {
   $inflightTurns,
+  adoptResumedTurn,
   applyTurnEvent,
   applyTurnReconciliation,
   beginTurn,
@@ -23,6 +24,7 @@ import {
   recordTurnCorrection,
   remoteTurnSnapshot,
   type RemoteTurnSnapshot,
+  resumedTurnIsLive,
   routeTurnEvent,
   settleTurn,
   setTurnCompacting,
@@ -331,7 +333,9 @@ describe('reconcileSessionTurn', () => {
     const requestGateway = vi.fn(async () => {
       await Promise.resolve()
 
-      return { message_count: 0, messages: [], resumed: 'stored-1', running: false, session_id: 'r' }
+      // A WARM reconnect re-claims the SAME live record (`_claim_or_reuse_live`),
+      // so the runtime id comes back unchanged.
+      return { message_count: 0, messages: [], resumed: 'stored-1', running: false, session_id: 'runtime-1' }
     })
 
     vi.doMock('@/store/gateway', () => ({
@@ -469,6 +473,143 @@ describe('reconcileSessionTurn', () => {
 
     vi.doUnmock('@/store/gateway')
     vi.resetModules()
+  })
+})
+
+describe('reconcileSessionTurn on a RESTARTED gateway', () => {
+  // A supervised local backend that died and came back mints a fresh runtime id
+  // for the conversation, and this probe is what claims it. The router addresses
+  // slices by the id the gateway stamps on each frame, so a slice left under the
+  // dead id receives nothing — the probe would re-arm a turn whose entire stream
+  // is then dropped.
+  it('rebinds the slice onto the runtime id the resume issued', async () => {
+    vi.doMock('@/store/gateway', () => ({
+      $gatewayState: { get: () => 'open', subscribe: () => () => {} },
+      requestGateway: vi.fn(async () => ({
+        message_count: 0,
+        messages: [],
+        resumed: 'stored-5',
+        running: true,
+        session_id: 'runtime-5-new',
+        inflight: { user: 'keep going', assistant: '', streaming: true }
+      }))
+    }))
+
+    vi.resetModules()
+    const states = await import('@/store/session-state-types')
+    const lifecycle = await import('@/store/turn-lifecycle')
+
+    states.publishSessionState('runtime-5-old', {
+      ...emptySessionState('stored-5'),
+      runtimeSessionId: null,
+      busy: true
+    })
+    lifecycle.beginTurn('runtime-5-old', { prompt: 'keep going' })
+
+    await lifecycle.reconcileSessionTurn('runtime-5-old')
+
+    const map = states.$sessionStates.get()
+
+    expect(Object.keys(map)).toEqual(['runtime-5-new'])
+    expect(map['runtime-5-new'].runtimeSessionId).toBe('runtime-5-new')
+    // The turn followed its slice rather than stranding under the dead key.
+    expect(lifecycle.getInflightTurn('runtime-5-old')).toBeNull()
+    expect(lifecycle.isTurnLive('runtime-5-new')).toBe(true)
+
+    vi.doUnmock('@/store/gateway')
+    vi.resetModules()
+  })
+})
+
+describe('resumedTurnIsLive', () => {
+  const base = { message_count: 0, messages: [], resumed: 'stored', session_id: 'r' }
+
+  it('reads a streaming inflight snapshot', () => {
+    expect(
+      resumedTurnIsLive({ ...base, running: false, inflight: { user: 'x', streaming: true } } as SessionResumeResponse)
+    ).toBe(true)
+  })
+
+  // The cold branches report `running: false, status: "idle"` while the kickoff
+  // thread is still waiting on a deferred agent build (up to 120s). The turn is
+  // already owned over there.
+  it('treats a scheduled crash continuation as live', () => {
+    expect(
+      resumedTurnIsLive({
+        ...base,
+        running: false,
+        auto_continue: { attempt: 1, interrupted_at: 0 }
+      } as SessionResumeResponse)
+    ).toBe(true)
+  })
+
+  it('stays false for an idle session', () => {
+    expect(resumedTurnIsLive({ ...base, running: false } as SessionResumeResponse)).toBe(false)
+  })
+
+  // A retained failed turn is NOT live — its terminal frame was simply lost.
+  it('stays false for a retained failed turn', () => {
+    expect(
+      resumedTurnIsLive({
+        ...base,
+        running: false,
+        inflight: { user: 'x', error: 'boom', status: 'error', streaming: false }
+      } as SessionResumeResponse)
+    ).toBe(false)
+  })
+})
+
+describe('adoptResumedTurn', () => {
+  const base = { message_count: 0, messages: [], resumed: 'stored', session_id: 'r' }
+
+  it('adopts the turn a cold resume is auto-continuing, under its interrupted prompt', () => {
+    const plan = adoptResumedTurn('s1', {
+      ...base,
+      running: false,
+      auto_continue: { attempt: 2, interrupted_at: 1_000 },
+      // The cold branches fill this from the crash marker.
+      inflight: { user: 'fix the flaky test', assistant: '', streaming: true }
+    } as SessionResumeResponse)
+
+    expect(plan).toEqual({ action: 'adopt', origin: 'auto-continue', prompt: 'fix the flaky test', attempts: 2 })
+    expect(getInflightTurn('s1')).toMatchObject({
+      origin: 'auto-continue',
+      prompt: 'fix the flaky test',
+      attempts: 2,
+      phase: 'submitted'
+    })
+  })
+
+  it('adopts a turn already streaming somewhere else', () => {
+    adoptResumedTurn('s1', {
+      ...base,
+      running: true,
+      inflight: { user: 'other surface', assistant: 'partial', streaming: true }
+    } as SessionResumeResponse)
+
+    expect(getInflightTurn('s1')).toMatchObject({ origin: 'remote', prompt: 'other surface' })
+  })
+
+  it('records nothing for an idle session', () => {
+    expect(adoptResumedTurn('s1', { ...base, running: false } as SessionResumeResponse)).toEqual({ action: 'noop' })
+    expect(getInflightTurn('s1')).toBeNull()
+  })
+
+  // Two resumes in a row each return the descriptor for the SAME scheduled
+  // continuation; adopting twice must not open a second turn.
+  it('is idempotent across a repeated resume', () => {
+    const resumed = {
+      ...base,
+      running: false,
+      auto_continue: { attempt: 1, interrupted_at: 0 },
+      inflight: { user: 'go', assistant: '', streaming: true }
+    } as SessionResumeResponse
+
+    adoptResumedTurn('s1', resumed)
+    const first = getInflightTurn('s1')
+    adoptResumedTurn('s1', resumed)
+
+    expect(getInflightTurn('s1')).toBe(first)
   })
 })
 

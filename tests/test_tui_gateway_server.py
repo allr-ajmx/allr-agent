@@ -9662,6 +9662,88 @@ def test_prompt_submit_truncate_ordinal_skips_display_kind_rows(monkeypatch):
         server._sessions.pop("sid", None)
 
 
+def test_prompt_submit_truncate_ordinal_skips_a_legacy_recovery_note(monkeypatch):
+    """The ordinal space must match what `_history_to_messages` renders.
+
+    A crash-recovery note is typed two ways: by the post-turn stamp, and — for
+    every turn killed mid-run, which never reaches that stamp — by
+    ``_legacy_display_kind``'s sniff at projection time. The stored row carries
+    no ``display_kind`` at all, so a filter honouring only the field counted a
+    row no client renders as a user turn: the ordinal landed one turn early and
+    the destructive ``replace_messages`` took an extra turn with it.
+    """
+
+    seen = {}
+
+    class _Agent:
+        def run_conversation(self, prompt, conversation_history=None, stream_callback=None, **_kwargs):
+            seen["history"] = conversation_history
+            return {"final_response": "reply", "messages": list(conversation_history or [])}
+
+    class _ImmediateThread:
+        def __init__(self, target=None, daemon=None):
+            self._target = target
+
+        def start(self):
+            self._target()
+
+    # No display_kind on the note: this is exactly what a crash leaves behind.
+    original_history = [
+        {"role": "user", "content": "first"},
+        {"role": "assistant", "content": "first reply"},
+        {"role": "user", "content": server._auto_continue_note("first")},
+        {"role": "assistant", "content": "recovered reply"},
+        {"role": "user", "content": "second"},
+        {"role": "assistant", "content": "second reply"},
+    ]
+    # The projection every client renders sees two user turns, not three.
+    projected = server._history_to_messages(original_history)
+    assert [m["role"] for m in projected if m["role"] == "user" and not m.get("display_kind")] == [
+        "user",
+        "user",
+    ]
+
+    server._sessions["sid"] = _session(agent=_Agent(), history=original_history)
+
+    class _StubDb:
+        def __init__(self):
+            self.replaced = []
+
+        def replace_messages(self, session_id, messages, active_only=False):
+            self.replaced.append((session_id, list(messages)))
+
+    stub_db = _StubDb()
+
+    try:
+        monkeypatch.setattr(server.threading, "Thread", _ImmediateThread)
+        monkeypatch.setattr(server, "_get_usage", lambda _a: {})
+        monkeypatch.setattr(server, "render_message", lambda _t, _c: "")
+        monkeypatch.setattr(server, "_emit", lambda *a: None)
+        monkeypatch.setattr(server, "_get_db", lambda: stub_db)
+
+        # Ordinal 1 is the SECOND user turn a client can see: "second".
+        resp = server.handle_request(
+            {
+                "id": "1",
+                "method": "prompt.submit",
+                "params": {
+                    "session_id": "sid",
+                    "text": "edited second",
+                    "truncate_before_user_ordinal": 1,
+                    "confirm_truncate": True,
+                },
+            }
+        )
+        assert resp.get("result"), f"got error: {resp.get('error')}"
+
+        # Everything before "second" survives — including the recovered turn.
+        # Counting the note would have cut at index 2 and eaten it.
+        assert seen["history"] == original_history[:4]
+        assert stub_db.replaced == [("session-key", original_history[:4])]
+    finally:
+        server._sessions.pop("sid", None)
+
+
 # ---------------------------------------------------------------------------
 # session.interrupt must only cancel pending prompts owned by the calling
 # session — it must not blast-resolve clarify/sudo/secret prompts on

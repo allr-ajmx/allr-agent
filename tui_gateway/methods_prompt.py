@@ -193,9 +193,20 @@ def _(rid, params: dict) -> dict:
                     "an ordinary prompt.submit must not drop session history "
                     "(update your Hermes client if a rewind was intended)",
                 )
+            # The ordinal space has to be exactly the user turns a client can
+            # SEE. `_history_to_messages` types synthetic rows two ways: the
+            # stored `display_kind`, and `_legacy_display_kind`'s sniff for rows
+            # written before turn-start typing — which is EVERY crash-recovery
+            # note, because a turn killed mid-run never reaches the post-turn
+            # stamp. Honoring only the first counted a row no surface renders as
+            # a user turn, so in a session carrying one, every ordinal after it
+            # addressed the wrong turn — and this cut is a destructive
+            # replace_messages().
             user_indices = [
                 i for i, m in enumerate(history)
-                if m.get("role") == "user" and not m.get("display_kind")
+                if m.get("role") == "user"
+                and not m.get("display_kind")
+                and not _legacy_display_kind("user", _coerce_message_text(m.get("content")))
             ]
             # Reject out-of-range ordinals on BOTH ends. A negative value would
             # otherwise sail past the upper-bound check and hit Python's negative

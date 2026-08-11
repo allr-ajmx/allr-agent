@@ -295,6 +295,47 @@ function withUniqueToolCallIds(messages: ChatMessage[]): ChatMessage[] {
   })
 }
 
+/**
+ * Display-only TIMELINE rows: scaffolding the model was fed, tagged by the
+ * gateway so a surface renders the event instead of the text.
+ *
+ * All three are persisted as `role: 'user'`, and universal rendered them as the
+ * user's own words — most visibly the crash-recovery note, a five-line
+ * "[System note: Your previous turn was interrupted mid-run …]" blob sitting at
+ * the top of every reopen of a session that had ever died mid-turn. Desktop
+ * (`timelineDisplayContent`) and the Ink TUI (`ui-tui/src/domain/messages.ts`)
+ * both project them; universal was the only surface that did not.
+ *
+ * Projecting them as `system` is also what keeps a REWIND honest: the gateway
+ * leaves tagged rows out of the `truncate_before_user_ordinal` space
+ * (`methods_prompt.py`), while universal counts the user rows it RENDERS — so
+ * every ordinal after one of these addressed a different turn than the one the
+ * user clicked, and that cut is a destructive `replace_messages`.
+ *
+ * `hidden` never reaches here — the gateway drops those rows. `skill_invocation`
+ * is deliberately absent: it is the user's own `/command`, it stays a user
+ * bubble, and the gateway counts it in the ordinal space.
+ */
+function timelineEventText(message: SessionMessage): null | string {
+  if (message.display_kind === 'model_switch') {
+    return 'model changed'
+  }
+
+  if (message.display_kind === 'auto_continue') {
+    return 'resumed interrupted turn'
+  }
+
+  if (message.display_kind !== 'async_delegation_complete') {
+    return null
+  }
+
+  const count = parseMaybeJsonObject(message.display_metadata).task_count
+
+  return typeof count === 'number'
+    ? `${count} background agent${count === 1 ? '' : 's'} finished`
+    : 'background agent work finished'
+}
+
 export function toChatMessages(messages: SessionMessage[]): ChatMessage[] {
   const result: ChatMessage[] = []
   let pendingToolParts: ChatPart[] = []
@@ -346,6 +387,23 @@ export function toChatMessages(messages: SessionMessage[]): ChatMessage[] {
       }
 
       pendingToolParts = [...pendingToolParts, storedToolMessagePart(message, index)]
+
+      return
+    }
+
+    const timelineText = timelineEventText(message)
+
+    if (timelineText) {
+      // A timeline event closes whatever assistant bubble was open: it is not
+      // that turn's output, and tool parts must not drift across it.
+      flushPendingTools(index)
+      activeAssistantIndex = null
+      result.push({
+        id: `h${index}-event`,
+        role: 'system',
+        parts: [{ type: 'text', text: timelineText }],
+        ...durableFields(message)
+      })
 
       return
     }

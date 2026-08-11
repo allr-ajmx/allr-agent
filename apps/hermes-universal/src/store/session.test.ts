@@ -21,6 +21,7 @@ import { requestGateway } from '@/store/gateway'
 import { $showAllProfiles } from '@/store/profile'
 import { $activeProfile } from '@/store/profiles'
 import { updateSession } from '@/store/session-state-types'
+import { clearAllTurns, getInflightTurn } from '@/store/turn-lifecycle'
 import { resetSessionStates, seedActiveSession } from '@/test-sessions'
 import type { PaginatedSessions, SessionInfo } from '@/types/hermes'
 
@@ -72,6 +73,7 @@ afterEach(() => {
   $pinnedSessionIds.set([])
   setBranchedSessionOpener(null)
   resetSessionsPaging()
+  clearAllTurns()
   resetSessionStates()
   seedActiveSession('runtime-0')
 })
@@ -109,6 +111,56 @@ describe('session store', () => {
     expect($sessionId.get()).toBe('runtime-1')
     expect($busy.get()).toBe(false)
     expect($messages.get()).toEqual([{ id: expect.any(String), role: 'user', parts: [{ type: 'text', text: 'hi' }] }])
+  })
+
+  // The tile delegate has adopted a resumed turn since MJXHRM-356; the PRIMARY
+  // chat never did, so the surface most likely to be holding a live turn was the
+  // one `reconcileInflightTurns` could not see on a reconnect.
+  it('openSession adopts a turn already running on the gateway', async () => {
+    vi.mocked(requestGateway).mockResolvedValue({
+      messages: [],
+      session_id: 'runtime-1',
+      running: true,
+      inflight: { user: 'the running prompt', assistant: 'partial', streaming: true }
+    })
+
+    await openSession('stored-9')
+
+    expect(getInflightTurn('runtime-1')).toMatchObject({ origin: 'remote', prompt: 'the running prompt' })
+    expect($busy.get()).toBe(true)
+  })
+
+  // A cold resume after a crash reports `running: false, status: "idle"` while
+  // its kickoff thread waits on a deferred agent build; the interrupted prompt
+  // comes back on `inflight`, filled from the crash marker.
+  it('openSession adopts the crash continuation the gateway scheduled', async () => {
+    vi.mocked(requestGateway).mockResolvedValue({
+      messages: [],
+      session_id: 'runtime-1',
+      running: false,
+      auto_continue: { attempt: 1, interrupted_at: 1_000 },
+      inflight: { user: 'fix the flaky test', assistant: '', streaming: true }
+    })
+
+    await openSession('stored-9')
+
+    expect(getInflightTurn('runtime-1')).toMatchObject({
+      origin: 'auto-continue',
+      prompt: 'fix the flaky test',
+      attempts: 1
+    })
+    // Busy, so the recovered crash-journal tail stays pending instead of being
+    // sealed as a finished reply seconds before `message.start` lands.
+    expect($busy.get()).toBe(true)
+  })
+
+  it('openSession leaves an idle session with no turn record', async () => {
+    vi.mocked(requestGateway).mockResolvedValue({ messages: [], session_id: 'runtime-1', running: false })
+
+    await openSession('stored-9')
+
+    expect(getInflightTurn('runtime-1')).toBeNull()
+    expect($busy.get()).toBe(false)
   })
 
   it('openSession restores the chat cwd from the stored row', async () => {

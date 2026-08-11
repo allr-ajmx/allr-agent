@@ -597,8 +597,9 @@ def _(rid, params: dict) -> dict:
                 "started_at": record["created_at"],
                 "status": "idle",
             }
-            if auto_continue is not None:
-                payload["auto_continue"] = auto_continue
+            # A scheduled continuation makes the three fields above wrong: a turn
+            # is starting on this session and the crash marker holds its prompt.
+            _apply_auto_continue_resume_state(payload, auto_continue)
             return _ok(rid, payload)
 
         # Build the agent OUTSIDE the lock — _make_agent can block for seconds
@@ -802,8 +803,7 @@ def _(rid, params: dict) -> dict:
         "started_at": float(session.get("created_at") or time.time()),
         "status": "idle",
     }
-    if auto_continue is not None:
-        payload["auto_continue"] = auto_continue
+    _apply_auto_continue_resume_state(payload, auto_continue)
     return _ok(rid, payload)
 
 
