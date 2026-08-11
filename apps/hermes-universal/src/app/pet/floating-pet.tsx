@@ -6,8 +6,9 @@ import { triggerHaptic } from '@/lib/haptics'
 import { IS_MOBILE } from '@/lib/platform'
 import { useStore } from '@/store/atom'
 import { $busy } from '@/store/chat'
+import { $petChange } from '@/store/live-sync'
 import { $petInfo, $petRoam, $petRoamDir, $petRoamWall, flashPetActivity, type PetRoamWall } from '@/store/pet'
-import { syncPetInfo } from '@/store/pet-gallery'
+import { applyPetChange, syncPetInfo } from '@/store/pet-gallery'
 import { useTheme } from '@/themes/context'
 
 import { PetSprite, roamWalkRow } from './pet-sprite'
@@ -166,6 +167,13 @@ export function FloatingPet({ overlayOpen = false }: { overlayOpen?: boolean }) 
   useEffect(() => {
     void syncPetInfo()
     flashPetActivity({ greeting: true })
+
+    // `pet.changed` — the watcher saw the pet config move (adopted, enabled,
+    // disabled, renamed, resized) from a surface this client cannot see. This
+    // component is mounted app-shell-wide whether or not a pet is active, so it
+    // is the one place that can also make the pet APPEAR. `listen`, not
+    // `subscribe`: the current value is tick 0 and would re-sync on every mount.
+    return $petChange.listen(({ meta }) => applyPetChange(meta))
   }, [])
 
   // Keep the whole pet on-screen at its current size (shared by drag + reclamp).
