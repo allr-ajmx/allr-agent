@@ -406,14 +406,14 @@ export interface SessionMessage {
   codex_reasoning_items?: unknown
   content: unknown
   context?: unknown
-  /** How this row should be PRESENTED, when that is not what its role suggests.
+  /** How this row should be PRESENTED, when it is not what its role suggests.
    *
    * `_history_to_messages` stamps it (and back-fills untyped legacy rows via
    * `_legacy_display_kind`) so a surface renders a timeline event instead of
    * the scaffolding text the model was actually fed. `hidden` never arrives —
    * the gateway drops those rows. The tagged kinds are also OUT of the
    * `truncate_before_user_ordinal` space (`methods_prompt.py`), so anything
-   * counting user turns for a rewind has to skip them too. */
+   * counting user turns for a rewind must skip them too. */
   display_kind?: 'async_delegation_complete' | 'auto_continue' | 'model_switch' | 'skill_invocation' | string
   /** Display-only per-message JSON the gateway forwards verbatim. Reactions
    *  ride here rather than in a side table, so they survive the row rewrites
@@ -440,6 +440,17 @@ export interface SessionMessagesResponse {
 }
 
 export interface SessionResumeResponse {
+  /** The gateway found a fresh crash-interrupted turn (`turn_marker.py`) and
+   *  scheduled its continuation. The turn is ALREADY starting over there — it
+   *  arrives as a normal `message.start` stream once the deferred agent build
+   *  finishes — so a client adopts it and must never resubmit alongside it.
+   *  The interrupted prompt itself rides `inflight.user`, which the cold
+   *  branches fill from the marker for exactly this case
+   *  (`_apply_auto_continue_resume_state` in tui_gateway/server.py). */
+  auto_continue?: {
+    attempt: number
+    interrupted_at: number
+  }
   // The turn that is STILL RUNNING on the gateway. Session history is committed
   // only when a turn finishes, so on a mid-turn resume this snapshot is the only
   // record of the live user/assistant pair (`_inflight_snapshot` in

@@ -36,14 +36,7 @@ import {
   runtimeKeyForStoredSession
 } from '@/store/session-state-types'
 import { closeSessionTile, openSessionTile, setSessionTileDelegate, updateSession } from '@/store/session-states'
-import {
-  applyTurnReconciliation,
-  beginTurn,
-  getInflightTurn,
-  planTurnReconciliation,
-  remoteTurnSnapshot,
-  settleTurn
-} from '@/store/turn-lifecycle'
+import { adoptResumedTurn, beginTurn, resumedTurnIsLive, settleTurn } from '@/store/turn-lifecycle'
 import type { SessionResumeResponse } from '@/types/hermes'
 
 /** The DURABLE id behind a tile's live runtime id — what a stale-runtime resume
@@ -129,7 +122,7 @@ async function hydrateSessionToState(storedId: string): Promise<string> {
     const restMessages = transcript?.messages?.length ? toChatMessages(transcript.messages) : null
     const messages = appendLiveSessionProjection(restMessages ?? toChatMessages(resumed.messages ?? []), resumed)
     const runtimeId = resumed.session_id ?? storedId
-    const stillRunning = Boolean(resumed.inflight?.streaming ?? resumed.running)
+    const stillRunning = resumedTurnIsLive(resumed)
 
     rekeySession(key, runtimeId, {
       // Without this the slice has no wire-facing id, so `prompt.submit` /
@@ -147,7 +140,7 @@ async function hydrateSessionToState(storedId: string): Promise<string> {
     // Adopting it is what puts the tile into `$inflightTurns`, and therefore into
     // the set `reconcileInflightTurns` walks on every WS re-open — without it a
     // tile's live turn was invisible to reconnect reconciliation.
-    applyTurnReconciliation(runtimeId, planTurnReconciliation(getInflightTurn(runtimeId), remoteTurnSnapshot(resumed)))
+    adoptResumedTurn(runtimeId, resumed)
 
     return runtimeId
   } catch (err) {

@@ -11,6 +11,7 @@ import {
 } from '@/store/session-state-types'
 import {
   $inflightTurns,
+  adoptResumedTurn,
   applyTurnEvent,
   applyTurnReconciliation,
   beginTurn,
@@ -23,6 +24,7 @@ import {
   recordTurnCorrection,
   remoteTurnSnapshot,
   type RemoteTurnSnapshot,
+  resumedTurnIsLive,
   routeTurnEvent,
   settleTurn,
   setTurnCompacting,
@@ -469,6 +471,98 @@ describe('reconcileSessionTurn', () => {
 
     vi.doUnmock('@/store/gateway')
     vi.resetModules()
+  })
+})
+
+describe('resumedTurnIsLive', () => {
+  const base = { message_count: 0, messages: [], resumed: 'stored', session_id: 'r' }
+
+  it('reads a streaming inflight snapshot', () => {
+    expect(
+      resumedTurnIsLive({ ...base, running: false, inflight: { user: 'x', streaming: true } } as SessionResumeResponse)
+    ).toBe(true)
+  })
+
+  // The cold branches report `running: false, status: "idle"` while the kickoff
+  // thread is still waiting on a deferred agent build (up to 120s). The turn is
+  // already owned over there.
+  it('treats a scheduled crash continuation as live', () => {
+    expect(
+      resumedTurnIsLive({
+        ...base,
+        running: false,
+        auto_continue: { attempt: 1, interrupted_at: 0 }
+      } as SessionResumeResponse)
+    ).toBe(true)
+  })
+
+  it('stays false for an idle session', () => {
+    expect(resumedTurnIsLive({ ...base, running: false } as SessionResumeResponse)).toBe(false)
+  })
+
+  // A retained failed turn is NOT live — its terminal frame was simply lost.
+  it('stays false for a retained failed turn', () => {
+    expect(
+      resumedTurnIsLive({
+        ...base,
+        running: false,
+        inflight: { user: 'x', error: 'boom', status: 'error', streaming: false }
+      } as SessionResumeResponse)
+    ).toBe(false)
+  })
+})
+
+describe('adoptResumedTurn', () => {
+  const base = { message_count: 0, messages: [], resumed: 'stored', session_id: 'r' }
+
+  it('adopts the turn a cold resume is auto-continuing, under its interrupted prompt', () => {
+    const plan = adoptResumedTurn('s1', {
+      ...base,
+      running: false,
+      auto_continue: { attempt: 2, interrupted_at: 1_000 },
+      // The cold branches fill this from the crash marker.
+      inflight: { user: 'fix the flaky test', assistant: '', streaming: true }
+    } as SessionResumeResponse)
+
+    expect(plan).toEqual({ action: 'adopt', origin: 'auto-continue', prompt: 'fix the flaky test', attempts: 2 })
+    expect(getInflightTurn('s1')).toMatchObject({
+      origin: 'auto-continue',
+      prompt: 'fix the flaky test',
+      attempts: 2,
+      phase: 'submitted'
+    })
+  })
+
+  it('adopts a turn already streaming somewhere else', () => {
+    adoptResumedTurn('s1', {
+      ...base,
+      running: true,
+      inflight: { user: 'other surface', assistant: 'partial', streaming: true }
+    } as SessionResumeResponse)
+
+    expect(getInflightTurn('s1')).toMatchObject({ origin: 'remote', prompt: 'other surface' })
+  })
+
+  it('records nothing for an idle session', () => {
+    expect(adoptResumedTurn('s1', { ...base, running: false } as SessionResumeResponse)).toEqual({ action: 'noop' })
+    expect(getInflightTurn('s1')).toBeNull()
+  })
+
+  // Two resumes in a row each return the descriptor for the SAME scheduled
+  // continuation; adopting twice must not open a second turn.
+  it('is idempotent across a repeated resume', () => {
+    const resumed = {
+      ...base,
+      running: false,
+      auto_continue: { attempt: 1, interrupted_at: 0 },
+      inflight: { user: 'go', assistant: '', streaming: true }
+    } as SessionResumeResponse
+
+    adoptResumedTurn('s1', resumed)
+    const first = getInflightTurn('s1')
+    adoptResumedTurn('s1', resumed)
+
+    expect(getInflightTurn('s1')).toBe(first)
   })
 })
 

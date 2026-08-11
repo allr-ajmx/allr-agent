@@ -33,6 +33,7 @@ import {
   runtimeKeyForStoredSession,
   updateSession
 } from '@/store/session-state-types'
+import { adoptResumedTurn, resumedTurnIsLive } from '@/store/turn-lifecycle'
 import { openAppRoute, ownsPersistedAppState } from '@/store/windows'
 import type { SessionCreateResponse, SessionInfo, SessionResumeResponse, SessionSearchResult } from '@/types/hermes'
 
@@ -931,7 +932,7 @@ async function hydrateColdSession(storedId: string): Promise<void> {
     // The REST transcript is the authority when we have it (see AUTHORITY note).
     const messages = appendLiveSessionProjection(restMessages ?? toChatMessages(resumed.messages ?? []), resumed)
 
-    stillRunning = Boolean(resumed.inflight?.streaming ?? resumed.running)
+    stillRunning = resumedTurnIsLive(resumed)
 
     // SYNCHRONOUS, before any further await: the router drops events for unknown
     // keys, so the slice has to exist under its real runtime id before the first
@@ -946,6 +947,16 @@ async function hydrateColdSession(storedId: string): Promise<void> {
     })
 
     key = runtimeId
+
+    // A session resumed MID-TURN — or one the gateway just scheduled a crash
+    // continuation for — is running a turn this process never opened. Adopting
+    // it is what puts the chat into `$inflightTurns`, and therefore into the set
+    // `reconcileInflightTurns` walks on every WS re-open; the tile delegate has
+    // done this since MJXHRM-356, the primary chat never did, so the surface
+    // most likely to be holding a live turn was the one invisible to reconnect
+    // reconciliation. After the rekey, so the record lands under the key the
+    // router addresses.
+    adoptResumedTurn(runtimeId, resumed)
   } catch (err) {
     if (!isCurrentOpen(generation)) {
       return
