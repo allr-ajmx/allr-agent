@@ -35,7 +35,19 @@ const DelegateToolPart: FC<ToolCallMessagePartProps> = props => {
     return <ToolFallback {...props} />
   }
 
-  return <DelegateTool args={props.args} result={props.result} toolCallId={props.toolCallId} />
+  // And until the call's arguments land, there is nothing to list either: the
+  // gateway's `tool.start` sends a context string, not the `tasks` array, so a
+  // running delegation would otherwise paint nothing at all until it finished.
+  // The generic row is the honest thing to show meanwhile — "Delegating…" with
+  // a live timer — and the card takes over the moment goals exist.
+  return (
+    <DelegateTool
+      args={props.args}
+      fallback={<ToolFallback {...props} />}
+      result={props.result}
+      toolCallId={props.toolCallId}
+    />
+  )
 }
 
 const ChainToolFallback: FC<ToolCallMessagePartProps> = props => {
