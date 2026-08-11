@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
-import { cronEditorUpdates, jobIsScriptOnly, validateCronEditor } from './cron-job-model'
+import {
+  cronEditorUpdates,
+  jobIsScriptOnly,
+  parseCronDeliveryTargets,
+  toggleCronDeliveryTarget,
+  validateCronEditor
+} from './cron-job-model'
 
 describe('jobIsScriptOnly', () => {
   it('is true when no_agent is set and a script is present', () => {
@@ -89,5 +95,43 @@ describe('cronEditorUpdates', () => {
 
     expect('model' in updates).toBe(false)
     expect('provider' in updates).toBe(false)
+  })
+})
+
+describe('parseCronDeliveryTargets', () => {
+  it('splits the scheduler’s comma-separated string', () => {
+    expect(parseCronDeliveryTargets('local,telegram')).toEqual(['local', 'telegram'])
+    expect(parseCronDeliveryTargets(' local , telegram ')).toEqual(['local', 'telegram'])
+  })
+
+  it('dedupes rather than ticking a box twice', () => {
+    expect(parseCronDeliveryTargets('local,local,slack')).toEqual(['local', 'slack'])
+  })
+
+  it('falls back to local when nothing is stored', () => {
+    expect(parseCronDeliveryTargets('')).toEqual(['local'])
+    expect(parseCronDeliveryTargets(' , ')).toEqual(['local'])
+  })
+})
+
+describe('toggleCronDeliveryTarget', () => {
+  it('adds a target without disturbing the others', () => {
+    expect(toggleCronDeliveryTarget('local', 'telegram', true)).toBe('local,telegram')
+  })
+
+  it('is idempotent on an already-selected target', () => {
+    expect(toggleCronDeliveryTarget('local,telegram', 'telegram', true)).toBe('local,telegram')
+  })
+
+  it('removes a target', () => {
+    expect(toggleCronDeliveryTarget('local,telegram', 'local', false)).toBe('telegram')
+  })
+
+  it('refuses to leave a job with nowhere to deliver', () => {
+    expect(toggleCronDeliveryTarget('local', 'local', false)).toBe('local')
+  })
+
+  it('ignores an unchecked target that was never selected', () => {
+    expect(toggleCronDeliveryTarget('local,slack', 'discord', false)).toBe('local,slack')
   })
 })

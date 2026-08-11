@@ -592,20 +592,41 @@ export function SidebarScrollBody({
     startNewSession()
   }
 
-  const rowHandlers = {
-    activeSessionId: activeId,
-    onArchiveSession: (id: string) => void archiveSessionLocal(id),
-    onDeleteSession: (id: string) => void deleteSessionLocal(id),
-    onResumeSession: (id: string) => {
+  // Stable identities, because `renderRow` one layer down (`sessions-section`)
+  // is a `useCallback` that lists all three of these in its dependency array
+  // (MJXHRM-383). Fresh inline arrows made it change on EVERY render of this
+  // component — which is every write to any of the ~15 stores it subscribes to
+  // — so the memo was inert and the virtualizer got a new render function
+  // mid-scroll on a status tick. The row component itself still bails out
+  // (`rowPropsEqual` deliberately ignores handler identity); what this restores
+  // is the list-level memo above it.
+  const onArchiveSession = useCallback((id: string) => void archiveSessionLocal(id), [])
+  const onDeleteSession = useCallback((id: string) => void deleteSessionLocal(id), [])
+
+  const onResumeSession = useCallback(
+    (id: string) => {
       void openSession(id)
       // Route back to the session so a page view (Capabilities/Messaging/
       // Artifacts) unmounts and the resumed chat is actually shown.
       navigate(sessionRoute(id))
       onNavigate?.()
     },
-    onTogglePin: togglePin,
-    workingSessionIdSet: working
-  }
+    [navigate, onNavigate]
+  )
+
+  // `activeId` and `working` legitimately change what a row renders, so they
+  // are not stabilized — they are the inputs `renderRow` SHOULD re-run for.
+  const rowHandlers = useMemo(
+    () => ({
+      activeSessionId: activeId,
+      onArchiveSession,
+      onDeleteSession,
+      onResumeSession,
+      onTogglePin: togglePin,
+      workingSessionIdSet: working
+    }),
+    [activeId, onArchiveSession, onDeleteSession, onResumeSession, working]
+  )
 
   const hasMore = sessions.length < total
 

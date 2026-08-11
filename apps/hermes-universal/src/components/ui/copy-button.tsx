@@ -14,13 +14,25 @@ type CopyButtonAppearance = 'button' | 'icon' | 'inline' | 'menu-item' | 'contex
 type CopyStatus = 'copied' | 'error' | 'idle'
 const COPIED_RESET_MS = 1_500
 
-// Verbatim copy of desktop's, minus its `window.hermesDesktop.writeClipboard`
-// branch: that is the Electron preload bridge, which has no counterpart in the
-// Tauri webview. Universal goes straight to the async Clipboard API, which is
-// the same fallback desktop lands on.
+// Ported from desktop, whose `window.hermesDesktop.writeClipboard` branch is the
+// Electron preload bridge. The Tauri clipboard-manager plugin is universal's
+// counterpart to that bridge (MJXHRM-415): it writes through the OS rather than
+// the webview, so it is neither permission- nor gesture-gated — which matters on
+// WebKitGTK, where the web API is refused in cases Chromium allows. The async
+// Clipboard API stays as the fallback, the same one desktop lands on.
 export async function writeClipboardText(text: string) {
   if (!text) {
     return
+  }
+
+  try {
+    const { writeText } = await import('@tauri-apps/plugin-clipboard-manager')
+
+    await writeText(text)
+
+    return
+  } catch {
+    // Plugin unavailable or refused — fall through to the webview's own API.
   }
 
   if (navigator.clipboard?.writeText) {

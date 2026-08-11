@@ -4,6 +4,9 @@ import { $reactionsEnabled } from '@/store/reactions-enabled'
 import { serializeTextBefore } from './rich-editor'
 
 export interface TriggerState {
+  /** True for a `/` typed mid-message — an inline skill reference in prose
+   *  rather than a command invocation. Arg completion doesn't apply. */
+  inline?: boolean
   kind: ':' | '@' | '/'
   query: string
   /** The `@kind:` prefix the user scoped the browse to, when there is one. */
@@ -37,14 +40,28 @@ const AT_SCOPE_RE = new RegExp(`^(${DIRECTIVE_SCOPES.join('|')}):(.*)$`)
 // slash command name to `[a-zA-Z][\w-]*` avoids matching file paths like
 // `src/foo/bar`.
 //
-// Slash commands only execute at the beginning of a message, so the `/`
-// trigger is anchored strictly at position 0 — not after whitespace — to
-// avoid opening the popover mid-message (e.g. `hello /`).
+// A `/` fires in two shapes, because a slash means two different things
+// depending on where it sits:
+//
+//  - At position 0 it is a COMMAND invocation the app executes (the backend's
+//    own matcher is `^`-anchored too). The popover stays live past the command
+//    name so arg completion works (`/personality alic` → `alice`).
+//  - After whitespace it is an inline REFERENCE dropped into prose ("clean this
+//    up with /clean"). The text submits as an ordinary message, so there are no
+//    args to complete — the trigger is a single token ending at the next space,
+//    exactly like `@`. The completion source filters to SKILLS there: a
+//    built-in like `/new` acts on the app and means nothing mid-sentence.
+//
+// Only the FIRST slash can be an invocation, so the inline shape is tested
+// first: the command regex's argument tail (`(?:\s+\S*)*`) happily swallows a
+// later `/skill` as if it were an argument, which would kill completion for
+// every slash after a leading command (`/work /cle` → nothing).
 //
 // `\uFFFC` is the object-replacement character a chip serializes to, so a
 // trigger typed straight after a chip still detects.
 const AT_TRIGGER_RE = /(?:^|[\s\uFFFC])(@)([^\s@\uFFFC]*)$/
 const SLASH_TRIGGER_RE = /^(\/)((?:[a-zA-Z][\w-]*(?:\s+\S*)*)?)$/
+const SLASH_INLINE_TRIGGER_RE = /[\s\uFFFC](\/)([a-zA-Z][\w-]*)?$/
 // `:joy` — two characters minimum, so a bare `:` (or a `12:30`) never opens the
 // popover. `\uFFFC` is the object-replacement character a chip serializes to,
 // which is what lets `@file:x :jo` still trigger after a chip.
@@ -164,6 +181,18 @@ export function openDirectiveScope(editor: HTMLDivElement): number {
 }
 
 export function detectTrigger(textBefore: string): TriggerState | null {
+  // An inline `/skill` is a reference dropped into prose, so it carries no args
+  // and the whole match is the token the chip replaces. Checked BEFORE the
+  // anchored command shape so a second slash isn't mistaken for the first
+  // command's argument.
+  const inline = SLASH_INLINE_TRIGGER_RE.exec(textBefore)
+
+  if (inline) {
+    const query = inline[2] ?? ''
+
+    return { inline: true, kind: '/', query, tokenLength: 1 + query.length, value: query }
+  }
+
   const slash = SLASH_TRIGGER_RE.exec(textBefore)
 
   if (slash) {

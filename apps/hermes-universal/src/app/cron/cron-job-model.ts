@@ -45,6 +45,36 @@ export interface CronEditorSaveValues {
   schedule: string
 }
 
+/**
+ * `deliver` is ONE string on the wire, not a list: the scheduler splits it on
+ * commas (`cron/scheduler.py` `_normalize_deliver_value`), so "local,telegram"
+ * fans a run out to both. These two helpers are the whole multi-target model.
+ */
+export function parseCronDeliveryTargets(value: string): string[] {
+  const targets = value
+    .split(',')
+    .map(target => target.trim())
+    .filter(Boolean)
+
+  return targets.length > 0 ? [...new Set(targets)] : ['local']
+}
+
+/** Toggle one target on/off. Unchecking the last one is a no-op — a job with
+ *  nowhere to deliver is not a state the editor should be able to reach. */
+export function toggleCronDeliveryTarget(value: string, target: string, checked: boolean): string {
+  const targets = parseCronDeliveryTargets(value)
+
+  if (checked) {
+    return targets.includes(target) ? targets.join(',') : [...targets, target].join(',')
+  }
+
+  if (!targets.includes(target) || targets.length === 1) {
+    return targets.join(',')
+  }
+
+  return targets.filter(candidate => candidate !== target).join(',')
+}
+
 /** Build the API update payload, preserving an empty prompt on script-only jobs. */
 export function cronEditorUpdates(values: CronEditorSaveValues, options: { scriptOnlyJob: boolean }): CronJobUpdates {
   const updates: CronJobUpdates = {

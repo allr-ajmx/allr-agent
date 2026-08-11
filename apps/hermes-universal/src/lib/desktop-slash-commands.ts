@@ -170,6 +170,16 @@ const DESKTOP_COMMAND_SPECS: readonly DesktopCommandSpec[] = [
 
   // Backend-executed commands that render useful inline output
   {
+    // Unregistered, `/approvals` fell through to `command.dispatch`, which does
+    // not handle it inline and answers "not a quick/plugin/skill command".
+    // `slash.exec` runs the real CLI command, which both reports the current
+    // approval mode and sets it. Matches desktop's `argumentMode: 'options'`.
+    name: '/approvals',
+    description: 'Show or set approval mode [manual|smart|off]',
+    surface: exec(),
+    args: true
+  },
+  {
     name: '/agents',
     description: 'Show active desktop sessions and running tasks',
     aliases: ['/tasks'],

@@ -36,6 +36,7 @@ import type { DesktopTheme } from '@/themes/types'
 import { $marketplaceInstalls, isUserTheme, removeUserTheme } from '@/themes/user-themes'
 
 import { ListRow, SectionHeading, SettingsContent } from './primitives'
+import { TerminalFontSetting } from './terminal-font-setting'
 
 const MODE_OPTIONS = [
   { icon: Sun, id: 'light' },
@@ -441,6 +442,11 @@ export function AppearanceSection() {
               title={a.translucencyTitle}
             />
           )}
+
+          {/* Terminal font — profile config (`terminal.font_family`), not a
+              device-local pref, so it lives behind the shared config record
+              rather than a local atom. */}
+          <TerminalFontSetting />
 
           {/* Tool view */}
           <ListRow

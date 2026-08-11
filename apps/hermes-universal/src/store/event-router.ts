@@ -54,6 +54,7 @@ import {
 } from '@/store/live-sync'
 import { dispatchNativeNotification } from '@/store/native-notifications'
 import { flashPetActivity, setPetActivity } from '@/store/pet'
+import { applyRemotePinnedSessions, startPinnedSessionSync, syncPinnedSessions } from '@/store/pinned-sync'
 import {
   clearAllPrompts,
   setSessionApproval,
@@ -70,7 +71,7 @@ import {
   runtimeKeyForStoredSession,
   updateSession
 } from '@/store/session-state-types'
-import { upsertSubagent } from '@/store/subagents'
+import { pruneFinishedSessionSubagents, upsertSubagent } from '@/store/subagents'
 import { recordToolDiff } from '@/store/tool-diffs'
 import { routeTurnEvent, startTurnReconciler } from '@/store/turn-lifecycle'
 // Leaf import (not the `@/themes` barrel) to keep the ThemeProvider module graph
@@ -112,6 +113,7 @@ const GLOBAL_EVENT_TYPES = new Set([
   'notification.show',
   'pairing.changed',
   'pet.changed',
+  'pins.changed',
   'platforms.changed',
   'session.title',
   'sessions.changed',
@@ -282,6 +284,16 @@ export function routeGatewayEvent(event: GatewayEvent): void {
       // connect never overrides the user's persisted theme. Note the shape: here
       // the skin is nested, on `skin.changed` the payload IS the skin.
       ingestBackendSkin((payload as { skin?: HermesSkin }).skin, { apply: false })
+      // Pins live on the gateway. Pull first (a reconnect is exactly when this
+      // client may have missed a `pins.changed`), then start mirroring local
+      // edits up. Order matters: mirroring before the pull would race this
+      // client's cached list against the authoritative one.
+      void syncPinnedSessions(requestGateway)
+        .catch(() => undefined)
+        .finally(() => startPinnedSessionSync(requestGateway))
+    } else if (event.type === 'pins.changed') {
+      // Another client on this gateway changed the pins.
+      applyRemotePinnedSessions((payload as { value?: unknown }).value)
     } else if (event.type === 'skin.changed') {
       // A runtime switch — Hermes activating a skin it authored, or `/skin` on
       // another surface. This one repaints.
@@ -416,6 +428,13 @@ export function routeGatewayEvent(event: GatewayEvent): void {
       // A fresh turn on this session optimistically clears its billing wall; if
       // credits are still exhausted the next failure re-raises it.
       clearBillingBlock(key)
+
+      // Retire the previous turn's settled subagents from the spawn tree.
+      // Nothing else removes a row short of leaving the session, so without
+      // this a long-lived session's tree grows for every subagent it ever ran.
+      // Background subagents still running are kept — they outlive the turn
+      // that spawned them and must keep receiving progress events.
+      pruneFinishedSessionSubagents(key)
 
       break
 

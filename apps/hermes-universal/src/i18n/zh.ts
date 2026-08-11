@@ -389,7 +389,19 @@ export const zh: Translations = {
       sourceNone: '没有可用的插件文件夹',
       gatewayDoor: '从已连接的后端加载插件',
       gatewayDoorHint: '来自后端的插件代码拥有与应用本身相同的权限。',
-      gatewayDoorUnavailable: '此后端未报告插件文件夹。'
+      gatewayDoorUnavailable: '此后端未报告插件文件夹。',
+      agent: {
+        title: '智能体插件',
+        blurb:
+          '运行在 Hermes 后端——工具、技能、MCP 服务器、钩子和斜杠命令。「便携」插件是 Agent Plugins 标准包（技能 + MCP 组合，也可在其他智能体中使用）。开关在新会话中生效。',
+        empty: '尚未安装智能体插件。',
+        loadFailed: '无法加载智能体插件',
+        portable: '便携',
+        search: '搜索插件…',
+        noMatches: '没有匹配的插件。',
+        toggleFailed: (name: string) => `无法切换 ${name}`,
+        sources: { bundled: '内置', entrypoint: 'pip', git: 'git', project: '项目', user: '用户' }
+      }
     },
     notifications: {
       title: '通知',
@@ -480,6 +492,12 @@ export const zh: Translations = {
       uiScaleTitle: '界面缩放',
       uiScaleDesc: (percent: number) =>
         `缩放整个应用的文字和界面。也可使用 Cmd/Ctrl 加 +、- 或 0 调整。当前：${percent}%`,
+      terminalFontTitle: '终端字体',
+      terminalFontDesc:
+        '选择已安装的字体用于集成终端。Nerd Font 可正确显示 Powerlevel10k 和 Shell 图标；留空则使用内置的 JetBrains Mono。',
+      terminalFontPlaceholder: 'MesloLGS NF 或 CSS 字体栈',
+      terminalFontPreview: '字形预览',
+      terminalFontReset: '使用默认字体',
       translucencyTitle: '窗口透明',
       translucencyDesc: '让整个窗口透出桌面。仅支持 macOS 和 Windows。',
       embedsTitle: '内嵌预览',
@@ -1423,7 +1441,14 @@ export const zh: Translations = {
     ageDays: days => `${days} 天前`,
     durationSeconds: seconds => `${seconds} 秒`,
     durationMinutes: (minutes, seconds) => `${minutes} 分 ${seconds} 秒`,
-    tokens: value => `${value} 词元`
+    tokens: value => `${value} 词元`,
+    steer: '引导',
+    steerPlaceholder: '重新引导此子代理…',
+    steerSend: '发送',
+    steerCancel: '取消',
+    steerQueued: '已排入下一步',
+    steerRejected: '来不及引导了 — 此子代理已越过最后一步',
+    steerFailed: '无法连接网关'
   },
 
   commandCenter: {
@@ -1932,6 +1957,7 @@ export const zh: Translations = {
     promptPlaceholder: '总结我未读的 Slack 话题，并把前 5 条邮件发给我…',
     frequencyLabel: '频率',
     deliverLabel: '投递至',
+    deliverNeedsHomeChannel: '请先设置主频道',
     modelLabel: '模型',
     modelDefault: '默认（全局模型）',
     customScheduleLabel: '自定义排程',
@@ -2171,6 +2197,7 @@ export const zh: Translations = {
     lookupNoMatches: '没有匹配项。',
     lookupTry: '试试',
     lookupOr: '或',
+    openDirective: '打开',
     commonCommands: '常用命令',
     hotkeys: '快捷键',
     helpFooter: '打开完整面板 · 退格键关闭',
@@ -2696,8 +2723,6 @@ export const zh: Translations = {
     terminalEndErrorBody: 'Shell 连接失败。',
     terminalsAria: '终端',
     terminalNew: '新建终端',
-    terminalCloseOthers: '关闭其他',
-    terminalCloseAll: '关闭全部',
     addToChat: '添加到对话'
   },
 
@@ -2760,9 +2785,6 @@ export const zh: Translations = {
   preview: {
     tab: '预览',
     closeTab: label => `关闭 ${label}`,
-    closeOthers: '关闭其他',
-    closeToRight: '关闭右侧',
-    closeAll: '全部关闭',
     closePane: '关闭预览面板',
     loading: '正在加载预览',
     unavailable: '预览不可用',
@@ -3162,5 +3184,18 @@ export const zh: Translations = {
     saveApply: '保存并应用',
     notExpressible: '此排列互相咬合（风车形）——暂无法表示为嵌套拆分',
     zoneCount: count => `${count} 个区域`
+  },
+
+  quickEntry: {
+    label: '快速输入',
+    placeholder: '向 Hermes 提问…',
+    notConnected: '未连接——请打开 Hermes 重新连接',
+    sendTo: '发送到',
+    currentChat: '当前对话',
+    newSession: '新会话',
+    targetLabel: '目标会话',
+    settingsTitle: '快速输入',
+    settingsDesc: '用全局快捷键随时唤出一个小型输入框，无需打开 Hermes 即可发送提示词。',
+    shortcutHint: '请在“键盘快捷键”中为其分配快捷键。'
   }
 }

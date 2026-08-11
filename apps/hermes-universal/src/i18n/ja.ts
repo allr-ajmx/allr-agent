@@ -296,7 +296,19 @@ export const ja = defineLocale({
       sourceNone: '利用できるプラグインフォルダーがありません',
       gatewayDoor: '接続中のバックエンドからプラグインを読み込む',
       gatewayDoorHint: 'バックエンド由来のプラグインコードは、アプリ本体と同じ権限で実行されます。',
-      gatewayDoorUnavailable: 'このバックエンドはプラグインフォルダーを報告しませんでした。'
+      gatewayDoorUnavailable: 'このバックエンドはプラグインフォルダーを報告しませんでした。',
+      agent: {
+        title: 'エージェントプラグイン',
+        blurb:
+          'Hermes バックエンドで動作します — ツール、スキル、MCP サーバー、フック、スラッシュコマンド。「ポータブル」は Agent Plugins パッケージ（他のエージェントでも使えるスキル + MCP のバンドル）です。切り替えは新しいセッションから有効になります。',
+        empty: 'エージェントプラグインはまだインストールされていません。',
+        loadFailed: 'エージェントプラグインを読み込めませんでした',
+        portable: 'ポータブル',
+        search: 'プラグインを検索…',
+        noMatches: '一致するプラグインはありません。',
+        toggleFailed: (name: string) => `${name} を切り替えられませんでした`,
+        sources: { bundled: '内蔵', entrypoint: 'pip', git: 'git', project: 'プロジェクト', user: 'ユーザー' }
+      }
     },
     notifications: {
       title: '通知',
@@ -383,6 +395,12 @@ export const ja = defineLocale({
       uiScaleTitle: 'UI スケール',
       uiScaleDesc: (percent: number) =>
         `アプリ全体の文字と UI を拡大縮小します。Cmd/Ctrl と +、-、0 でも変更できます。現在: ${percent}%`,
+      terminalFontTitle: 'ターミナルフォント',
+      terminalFontDesc:
+        '統合ターミナルで使用するインストール済みフォントを選びます。Nerd Font は Powerlevel10k とシェルアイコンを表示できます。空欄では内蔵の JetBrains Mono を使用します。',
+      terminalFontPlaceholder: 'MesloLGS NF または CSS フォントスタック',
+      terminalFontPreview: 'グリフのプレビュー',
+      terminalFontReset: '既定値を使用',
       translucencyTitle: 'ウィンドウの透過',
       translucencyDesc: 'ウィンドウ全体を透過させてデスクトップを表示します。macOS と Windows のみ。',
       embedsTitle: 'インライン埋め込み',
@@ -1132,7 +1150,14 @@ export const ja = defineLocale({
     ageDays: days => `${days}日前`,
     durationSeconds: seconds => `${seconds}秒`,
     durationMinutes: (minutes, seconds) => `${minutes}分 ${seconds}秒`,
-    tokens: value => `${value} トーク`
+    tokens: value => `${value} トーク`,
+    steer: '誘導',
+    steerPlaceholder: 'このサブエージェントの方向を変える…',
+    steerSend: '送信',
+    steerCancel: 'キャンセル',
+    steerQueued: '次のステップに向けてキューに入れました',
+    steerRejected: '誘導するには遅すぎます — このサブエージェントは最後のステップを過ぎています',
+    steerFailed: 'ゲートウェイに接続できませんでした'
   },
 
   commandCenter: {
@@ -1604,6 +1629,7 @@ export const ja = defineLocale({
     promptPlaceholder: '実行ごとにエージェントが行う内容は？',
     frequencyLabel: '頻度',
     deliverLabel: '配信先',
+    deliverNeedsHomeChannel: '先にホームチャンネルを設定してください',
     modelLabel: 'モデル',
     modelDefault: 'デフォルト（グローバルモデル）',
     customScheduleLabel: 'カスタムスケジュール',
@@ -1835,6 +1861,7 @@ export const ja = defineLocale({
     lookupNoMatches: '一致なし。',
     lookupTry: '試す',
     lookupOr: 'または',
+    openDirective: '開く',
     commonCommands: '一般的なコマンド',
     hotkeys: 'ホットキー',
     helpFooter: 'フルパネルを開く · Backspace で閉じる',
@@ -2326,17 +2353,12 @@ export const ja = defineLocale({
     terminalHide: 'ターミナルを非表示',
     terminalsAria: 'ターミナル',
     terminalNew: '新しいターミナル',
-    terminalCloseOthers: '他を閉じる',
-    terminalCloseAll: 'すべて閉じる',
     addToChat: 'チャットに追加'
   },
 
   preview: {
     tab: 'プレビュー',
     closeTab: label => `${label} を閉じる`,
-    closeOthers: '他を閉じる',
-    closeToRight: '右側を閉じる',
-    closeAll: 'すべて閉じる',
     closePane: 'プレビューペインを閉じる',
     loading: 'プレビューを読み込み中',
     unavailable: 'プレビューは利用できません',
@@ -2724,5 +2746,18 @@ export const ja = defineLocale({
       description: 'モバイルサイドバーを表示します。',
       toggle: 'サイドバーを切り替え'
     }
+  },
+
+  quickEntry: {
+    label: 'クイック入力',
+    placeholder: 'Hermes に質問…',
+    notConnected: '未接続 — Hermes を開いて再接続してください',
+    sendTo: '送信先',
+    currentChat: '現在のチャット',
+    newSession: '新しいセッション',
+    targetLabel: '対象セッション',
+    settingsTitle: 'クイック入力',
+    settingsDesc: 'グローバルショートカットで小さな入力欄をどこからでも呼び出し、Hermes を開かずにプロンプトを送信します。',
+    shortcutHint: 'ショートカットは「キーボードショートカット」で割り当ててください。'
   }
 })

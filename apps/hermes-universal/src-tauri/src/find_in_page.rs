@@ -16,13 +16,17 @@
 //! everywhere else, and it highlights and scrolls without us reimplementing
 //! either.
 //!
-//! **Linux only, deliberately.** `with_webview` hands back a platform-specific
-//! handle: `WKWebView` on macOS (no public find API — `NSTextFinder` does not
-//! apply to web content), `ICoreWebView2` on Windows (its `Find` API landed only
-//! in recent runtime versions), and a `WebView` object on Android. Each is a
-//! separate implementation. This ships the Linux one, which is the platform
-//! universal is developed on, and everything else gets a clean "unsupported"
-//! rather than a panic. See MJXHRM-302 for the follow-up.
+//! **This module is the LINUX path, not the whole feature.** `with_webview`
+//! hands back a platform-specific handle: `WKWebView` on macOS (no public find
+//! API at all — `NSTextFinder` does not apply to web content), `ICoreWebView2`
+//! on Windows (its `Find` API landed only in recent runtime versions and needs a
+//! direct `webview2-com` dependency), and a `WebView` object on Android (JNI).
+//! Three separate native bindings, none of which can even be COMPILED on the
+//! Linux host this is developed on — so every other target is served instead by
+//! a portable `window.find` path in `src/lib/find-in-page-dom.ts`, and the
+//! frontend picks between the two in `src/store/find-in-page.ts`. Native
+//! bindings for the remaining engines stay open as MJXHRM-302; they would buy
+//! highlight-all and exact counts, not the feature itself.
 //!
 //! **One ordinal caveat.** WebKitGTK reports the match COUNT (`found-text`,
 //! `counted-matches`) but never which match is currently selected — there is no
@@ -163,10 +167,12 @@ pub async fn stop_find_in_page(window: tauri::WebviewWindow) -> Result<(), Strin
     linux::run(window, linux::Op::Stop)
 }
 
-// Every other platform needs its own engine binding (see the module docs). The
-// commands stay registered so a call returns a clear, catchable error instead of
-// an "unknown command" — the frontend reads exactly this string to decide
-// whether to offer the find bar at all.
+// Every other platform needs its own engine binding (see the module docs) and
+// takes the portable `window.find` path instead, so these commands are never
+// invoked there — `store/find-in-page.ts` branches on `PLATFORM === 'linux'`
+// BEFORE calling, and does not read this string. They stay registered anyway so
+// a stray call returns a clear, catchable error rather than an "unknown
+// command" that looks like a build fault.
 #[cfg(not(target_os = "linux"))]
 #[tauri::command]
 pub async fn find_in_page(

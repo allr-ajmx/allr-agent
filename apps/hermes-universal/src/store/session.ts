@@ -33,7 +33,7 @@ import {
   runtimeKeyForStoredSession,
   updateSession
 } from '@/store/session-state-types'
-import { isSecondaryWindow, openAppRoute } from '@/store/windows'
+import { openAppRoute, ownsPersistedAppState } from '@/store/windows'
 import type { SessionCreateResponse, SessionInfo, SessionResumeResponse, SessionSearchResult } from '@/types/hermes'
 
 // Session history + switching (Hc2). Lean adaptation of desktop store/session.ts —
@@ -80,7 +80,7 @@ const LAST_SESSION_KEY = 'hermes.lastSessionId.byProfile'
 
 const $lastSessionByProfile = persistentAtom<Record<string, string>>(LAST_SESSION_KEY, {}, Codecs.stringRecord)
 
-if (!isSecondaryWindow()) {
+if (ownsPersistedAppState()) {
   $activeStoredSessionId.subscribe(id => {
     if (!id) {
       return

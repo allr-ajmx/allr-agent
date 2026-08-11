@@ -1,6 +1,7 @@
 import { Link, useParams } from 'react-router-dom'
 
 import { PetSection } from '@/app/pet/pet-section'
+import { QuickEntryRow } from '@/app/quick-entry/quick-entry-row'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { useI18n } from '@/i18n'
@@ -109,10 +110,24 @@ export function SectionBody({ section }: { section: string }) {
     case 'safety':
       return <ConfigSection sectionId={group} />
 
-    // Advanced: schema fields plus the device-local keep-awake toggle, which has
-    // no config key (desktop parity — `ac9a1014a6` homes it here).
+    // Advanced: schema fields plus the device-local keep-awake and Quick Entry
+    // toggles, neither of which has a config key (desktop parity — `ac9a1014a6`
+    // homes keep-awake here and desktop's config-settings.tsx puts Quick Entry
+    // in the same block, for the same reason: this-computer-only power knobs).
     case 'advanced':
-      return <ConfigSection headerSlot={IS_DESKTOP ? <KeepAwakeRow /> : undefined} sectionId={group} />
+      return (
+        <ConfigSection
+          headerSlot={
+            IS_DESKTOP ? (
+              <>
+                <KeepAwakeRow />
+                <QuickEntryRow />
+              </>
+            ) : undefined
+          }
+          sectionId={group}
+        />
+      )
 
     // Workspace: schema fields plus the "Shell runs on" device-local override,
     // which isn't a schema key (nothing to send to the gateway).

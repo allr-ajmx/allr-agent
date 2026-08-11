@@ -28,6 +28,7 @@ import { IS_MOBILE } from '@/lib/platform'
 import { navigateTo } from '@/lib/route-nav'
 import { newChatBubble } from '@/store/chat-bubbles'
 import { NEW_SESSION_FLASH_EVENT } from '@/store/layout'
+import { resolveNewSessionCwd } from '@/store/projects'
 import { newSession, startSessionInWorkspace } from '@/store/session'
 import { focusWorkspaceSession, newSessionTab } from '@/store/session-states'
 
@@ -63,6 +64,13 @@ function landOnNewSession(surface: { composer: ComposerTarget; focusZone: () => 
  * `cwd` anchors the draft to a repo or worktree (the sidebar's `+`). An anchored
  * chat replaces the one on screen on every platform: a mobile bubble cannot
  * carry the anchor.
+ *
+ * With no explicit anchor the draft still takes the sidebar's PROJECT SCOPE
+ * (MJXHRM-393) — standing inside a project and pressing ⌘N used to open a chat
+ * detached from it. That goes through `newSession(cwd)` rather than
+ * `startSessionInWorkspace`, so it stays a scope rather than becoming an anchor:
+ * the mobile branch keeps its parallel bubble, and `resetChat` still falls back
+ * to the configured default project dir when there is no scope.
  */
 export function startNewSession({ cwd }: { cwd?: string } = {}): void {
   if (cwd?.trim()) {
@@ -72,7 +80,7 @@ export function startNewSession({ cwd }: { cwd?: string } = {}): void {
     // draft — but the caret still moves, which is the point of the ticket.
     newChatBubble()
   } else {
-    newSession()
+    newSession(resolveNewSessionCwd())
   }
 
   // The fresh chat loads in MAIN — on phones too, where the only composer scope
@@ -90,6 +98,6 @@ export function startNewSession({ cwd }: { cwd?: string } = {}): void {
  * silently lose its focus step.
  */
 export function startNewSessionTab(): void {
-  newSessionTab()
+  newSessionTab(resolveNewSessionCwd())
   landOnNewSession({ composer: `tile:${DRAFT_TILE_KEY}`, focusZone: () => undefined })
 }

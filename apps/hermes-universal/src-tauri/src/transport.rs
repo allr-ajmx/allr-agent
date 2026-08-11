@@ -355,6 +355,22 @@ impl Default for TransportState {
     }
 }
 
+/// A single-file `multipart/form-data` upload, sent under the field name
+/// `file` — the shape FastAPI's `UploadFile` parameters expect, and the one
+/// desktop's Electron bridge already assembles by hand.
+///
+/// The bytes arrive base64-encoded because the Tauri command boundary is JSON:
+/// a `Vec<u8>` would serialise as an array of numbers, roughly 4x the wire size
+/// of base64 and far more allocation on both sides.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HttpUpload {
+    filename: String,
+    #[serde(default)]
+    content_type: Option<String>,
+    bytes_base64: String,
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HttpReq {
@@ -364,6 +380,10 @@ pub struct HttpReq {
     headers: HashMap<String, String>,
     #[serde(default)]
     body: Option<serde_json::Value>,
+    /// Mutually exclusive with `body` — a multipart request has no JSON body.
+    /// When both are set the upload wins, matching desktop.
+    #[serde(default)]
+    upload: Option<HttpUpload>,
     #[serde(default)]
     timeout_ms: Option<u64>,
 }
@@ -398,6 +418,44 @@ fn apply_gateway_bearer(
     }
 }
 
+/// Build the `multipart/form-data` form for an upload.
+///
+/// Rebuilt per attempt rather than built once and reused: `multipart::Form` is
+/// a one-shot stream, so the 401-rotate retry below needs a fresh one.
+fn upload_form(upload: &HttpUpload) -> Result<reqwest::multipart::Form, String> {
+    use base64::Engine as _;
+
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(upload.bytes_base64.as_bytes())
+        .map_err(|e| format!("invalid upload payload: {e}"))?;
+
+    // Strip quotes and CRLF from the filename — they would otherwise break out
+    // of the Content-Disposition header. Same guard as desktop's bridge.
+    let filename = upload
+        .filename
+        .replace(['"', '\r', '\n'], "_")
+        .trim()
+        .to_string();
+    let filename = if filename.is_empty() {
+        "file".to_string()
+    } else {
+        filename
+    };
+
+    let mut part = reqwest::multipart::Part::bytes(bytes).file_name(filename);
+    part = part
+        .mime_str(
+            upload
+                .content_type
+                .as_deref()
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or("application/octet-stream"),
+        )
+        .map_err(|e| format!("invalid upload content type: {e}"))?;
+
+    Ok(reqwest::multipart::Form::new().part("file", part))
+}
+
 /// Issue `req` once, with `bearer` attached when there is one.
 async fn send_http(
     client: &reqwest::Client,
@@ -409,7 +467,11 @@ async fn send_http(
     for (key, value) in &req.headers {
         builder = builder.header(key, value);
     }
-    if let Some(body) = &req.body {
+    if let Some(upload) = &req.upload {
+        // `multipart` sets Content-Type itself, boundary included — a caller
+        // header would produce a boundary that does not match the body.
+        builder = builder.multipart(upload_form(upload)?);
+    } else if let Some(body) = &req.body {
         builder = builder.json(body);
     }
     if let Some(ms) = req.timeout_ms {
@@ -730,7 +792,7 @@ mod tests {
 
     use super::{
         apply_gateway_bearer, caller_set_authorization, redact_bearer, redact_error, redact_secret,
-        redact_url, send_binary_frame, TransportState,
+        redact_url, send_binary_frame, upload_form, HttpUpload, TransportState,
     };
 
     /// A `Channel` that records what it was handed, standing in for the webview.
@@ -1046,5 +1108,46 @@ mod tests {
             redact_secret("nothing to do".to_string(), "rt-0123456789"),
             "nothing to do"
         );
+    }
+
+    fn upload(filename: &str, content_type: Option<&str>, bytes_base64: &str) -> HttpUpload {
+        HttpUpload {
+            filename: filename.to_string(),
+            content_type: content_type.map(str::to_string),
+            bytes_base64: bytes_base64.to_string(),
+        }
+    }
+
+    #[test]
+    fn upload_form_accepts_a_base64_payload() {
+        // "hi" — the happy path a plugin attachment takes.
+        assert!(upload_form(&upload("a.txt", Some("text/plain"), "aGk=")).is_ok());
+    }
+
+    #[test]
+    fn upload_form_defaults_a_missing_content_type() {
+        assert!(upload_form(&upload("a.bin", None, "aGk=")).is_ok());
+        assert!(upload_form(&upload("a.bin", Some("   "), "aGk=")).is_ok());
+    }
+
+    #[test]
+    fn upload_form_rejects_a_bad_payload() {
+        let err = upload_form(&upload("a.txt", None, "not base64!!")).unwrap_err();
+        assert!(err.contains("invalid upload payload"), "got: {err}");
+    }
+
+    #[test]
+    fn upload_form_rejects_an_unparseable_content_type() {
+        let err = upload_form(&upload("a.txt", Some("not a mime"), "aGk=")).unwrap_err();
+        assert!(err.contains("invalid upload content type"), "got: {err}");
+    }
+
+    /// Quotes and CRLF in a filename would otherwise break out of the
+    /// Content-Disposition header the multipart part writes.
+    #[test]
+    fn upload_form_survives_a_hostile_filename() {
+        assert!(upload_form(&upload("a\"; x=\"\r\n.txt", None, "aGk=")).is_ok());
+        // An all-whitespace name still produces a part rather than an empty one.
+        assert!(upload_form(&upload("   ", None, "aGk=")).is_ok());
     }
 }

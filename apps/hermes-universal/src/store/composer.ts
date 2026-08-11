@@ -1,4 +1,5 @@
 import type { StagedAttachment } from '@/app/chat/attachments'
+import { deriveDraftTitle } from '@/lib/draft-title'
 import { triggerHaptic } from '@/lib/haptics'
 import { Codecs, persistentAtom } from '@/lib/persisted'
 import { atom } from '@/store/atom'
@@ -212,6 +213,53 @@ function loadPersistedDraftTexts(): [string, SessionDraft][] {
 
 const draftsBySession = new Map<string, SessionDraft>(loadPersistedDraftTexts())
 
+// --------------------------------------------------------------------------
+// Draft naming
+//
+// A draft has no session, so it has no title to look up — and a tab holding a
+// half-typed message reading "New session" says less than the message does. The
+// name lives beside the text and moves with it: every debounced stash
+// republishes it.
+//
+// An atom rather than a value threaded through the tab registration, because
+// re-registering the contribution at typing cadence would re-render the whole
+// panes area. `SessionDraftTitle` subscribes to its own key and nothing else.
+// --------------------------------------------------------------------------
+
+export const $draftTitles = atom<Record<string, string>>(
+  Object.fromEntries(
+    [...draftsBySession].map(([key, draft]) => [key, deriveDraftTitle(draft.text)]).filter(([, title]) => title)
+  )
+)
+
+/** Read one scope's draft title out of a snapshot already in hand — the shape
+ *  `useStoreSelector` wants, so another draft's rename bails out here. */
+export function draftTitleIn(titles: Record<string, string>, scope: null | string | undefined): string {
+  return titles[draftKey(scope)] ?? ''
+}
+
+export function draftTitleFor(scope: null | string | undefined): string {
+  return draftTitleIn($draftTitles.get(), scope)
+}
+
+function publishDraftTitle(key: string, title: string): void {
+  const current = $draftTitles.get()
+
+  if ((current[key] ?? '') === title) {
+    return
+  }
+
+  const next = { ...current }
+
+  if (title) {
+    next[key] = title
+  } else {
+    delete next[key]
+  }
+
+  $draftTitles.set(next)
+}
+
 function persistDraftTexts() {
   try {
     const entries = [...draftsBySession]
@@ -239,6 +287,9 @@ export function stashSessionDraft(scope: string | null | undefined, text: string
     draftsBySession.set(key, cloneDraft({ attachments, text }))
   }
 
+  // The single funnel every composer's text flows through, so it is the one
+  // place the draft's name has to be kept current.
+  publishDraftTitle(key, deriveDraftTitle(text))
   persistDraftTexts()
 }
 
@@ -275,6 +326,7 @@ export function reloadPersistedDrafts(): void {
     // Delete-then-set to keep the MRU ordering the eviction rule depends on.
     draftsBySession.delete(key)
     draftsBySession.set(key, { attachments: local?.attachments ?? [], text: draft.text })
+    publishDraftTitle(key, deriveDraftTitle(draft.text))
   }
 
   // A key that vanished from storage was sent or cleared in the other window.
@@ -282,6 +334,7 @@ export function reloadPersistedDrafts(): void {
   for (const [key, draft] of [...draftsBySession]) {
     if (!persisted.has(key) && draft.attachments.length === 0) {
       draftsBySession.delete(key)
+      publishDraftTitle(key, '')
     }
   }
 }

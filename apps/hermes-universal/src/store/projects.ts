@@ -1,10 +1,11 @@
 import type { SidebarProjectTree } from '@/app/chat/sidebar/projects/model'
+import { NO_PROJECT_ID } from '@/app/chat/sidebar/projects/workspace-groups'
 import type { HermesGitBaseBranch, HermesGitBranch } from '@/global'
 import { getHermesConfig } from '@/hermes'
 import { translateNow } from '@/i18n'
 import { copyTextToClipboard, desktopDefaultCwd, selectDesktopPaths, writeDesktopFileText } from '@/lib/desktop-fs'
 import { desktopGit } from '@/lib/desktop-git'
-import { moveSessionWorkspace } from '@/lib/gateway-rpc'
+import { isMissingRpcMethod, moveSessionWorkspace } from '@/lib/gateway-rpc'
 import { isUnderPath } from '@/lib/path-compare'
 import { persistentAtom } from '@/lib/persisted'
 import { revealPathInFileManager } from '@/lib/reveal-path'
@@ -32,12 +33,6 @@ export const $projectTree = atom<SidebarProjectTree[]>([])
 export const $projectTreeLoading = atom(false)
 // False when the backend predates the projects.* surface; null until first probe.
 export const $projectsRpcAvailable = atom<boolean | null>(null)
-
-function isMissingRpcMethod(err: unknown): boolean {
-  const msg = (err instanceof Error ? err.message : String(err)).toLowerCase()
-
-  return msg.includes('method not found') || msg.includes('-32601') || msg.includes('unknown method')
-}
 
 function markRpcSuccess(): void {
   $projectsRpcAvailable.set(true)
@@ -135,6 +130,35 @@ export function goToProject(id: string): void {
 /** A project's repo root: its own folder, else the first repo that has one. */
 export const projectRootCwd = (project: SidebarProjectTree | undefined): string =>
   (project?.path || project?.repos.find(repo => repo.path)?.path || '').trim()
+
+/**
+ * WHERE A NEW SESSION STARTS.
+ *
+ * ⌘N and ⌘T went straight to `newSession()` with no cwd, so a chat created
+ * while standing inside a project opened detached from it (MJXHRM-393) — the
+ * sidebar's own per-lane `+` was the only entry point that honoured the scope.
+ *
+ * The order is desktop's:
+ *  1. Standing in the Home / "no project" bucket means DETACHED on purpose.
+ *  2. Standing inside a project means that project's repo root.
+ *  3. Otherwise defer, and let `resetChat` apply `cwdForNewSession()` — the
+ *     configured default project dir. Universal keeps that fallback one layer
+ *     down rather than inlining it here, which is why this returns `''` rather
+ *     than desktop's `workspaceCwdForNewSession()`.
+ */
+export function resolveNewSessionCwd(): string {
+  const scope = $projectScope.get()
+
+  if (scope === NO_PROJECT_ID) {
+    return ''
+  }
+
+  if (scope !== ALL_PROJECTS) {
+    return projectRootCwd($projectTree.get().find(node => node.id === scope))
+  }
+
+  return ''
+}
 
 // The id of the project that OWNS `cwd` (longest path match), or null when the
 // cwd sits in no project. Match project + repo roots AND each worktree-lane

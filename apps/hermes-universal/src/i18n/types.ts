@@ -5,7 +5,7 @@
 // partial locales should use `defineLocale()` so missing desktop-only strings
 // fall back to English while new keys remain type-checked.
 
-export type Locale = 'en' | 'zh' | 'zh-hant' | 'ja'
+export type Locale = 'ar' | 'en' | 'ja' | 'zh' | 'zh-hant'
 
 export type ToolTitleKey =
   | 'browser_click'
@@ -363,6 +363,17 @@ export interface Translations {
       gatewayDoor: string
       gatewayDoorHint: string
       gatewayDoorUnavailable: string
+      agent: {
+        title: string
+        blurb: string
+        empty: string
+        loadFailed: string
+        portable: string
+        search: string
+        noMatches: string
+        toggleFailed: (name: string) => string
+        sources: Record<string, string>
+      }
     }
     notifications: {
       title: string
@@ -406,6 +417,11 @@ export interface Translations {
       reactionsDesc: string
       uiScaleTitle: string
       uiScaleDesc: (percent: number) => string
+      terminalFontTitle: string
+      terminalFontDesc: string
+      terminalFontPlaceholder: string
+      terminalFontPreview: string
+      terminalFontReset: string
       translucencyTitle: string
       translucencyDesc: string
       embedsTitle: string
@@ -1111,6 +1127,13 @@ export interface Translations {
     durationSeconds: (seconds: string) => string
     durationMinutes: (minutes: number, seconds: number) => string
     tokens: (value: number | string) => string
+    steer: string
+    steerPlaceholder: string
+    steerSend: string
+    steerCancel: string
+    steerQueued: string
+    steerRejected: string
+    steerFailed: string
   }
 
   commandCenter: {
@@ -1476,6 +1499,7 @@ export interface Translations {
     promptPlaceholder: string
     frequencyLabel: string
     deliverLabel: string
+    deliverNeedsHomeChannel: string
     modelLabel: string
     modelDefault: string
     customScheduleLabel: string
@@ -1695,6 +1719,8 @@ export interface Translations {
     lookupNoMatches: string
     lookupTry: string
     lookupOr: string
+    /** The hover pill over an actionable directive chip in the composer. */
+    openDirective: string
     commonCommands: string
     hotkeys: string
     helpFooter: string
@@ -2153,8 +2179,6 @@ export interface Translations {
     terminalEndErrorBody: string
     terminalsAria: string
     terminalNew: string
-    terminalCloseOthers: string
-    terminalCloseAll: string
     addToChat: string
   }
 
@@ -2217,9 +2241,6 @@ export interface Translations {
   preview: {
     tab: string
     closeTab: (label: string) => string
-    closeOthers: string
-    closeToRight: string
-    closeAll: string
     closePane: string
     loading: string
     unavailable: string
@@ -2597,5 +2618,26 @@ export interface Translations {
     saveApply: string
     notExpressible: string
     zoneCount: (count: number) => string
+  }
+
+  /** Quick Entry — the global-chord capture window (MJXHRM-384), plus its one
+   *  settings row. Kept as ONE top-level block rather than split across
+   *  `settings.*`: the window's copy and the switch that enables it are the
+   *  same feature, and the surface has no other home in the tree. */
+  quickEntry: {
+    /** Accessible name of the single-line input. */
+    label: string
+    placeholder: string
+    /** Shown in the input when the primary window reports no gateway. */
+    notConnected: string
+    sendTo: string
+    currentChat: string
+    newSession: string
+    /** Accessible name of the target picker. */
+    targetLabel: string
+    settingsTitle: string
+    settingsDesc: string
+    /** Where to bind the chord, since this port ships it unbound. */
+    shortcutHint: string
   }
 }

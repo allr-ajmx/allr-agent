@@ -114,3 +114,78 @@ describe('detachedTileId', () => {
     expect((await load()).detachedTileId()).toBeNull()
   })
 })
+
+/**
+ * MJXHRM-420: an activity window shares this origin's localStorage, so it must
+ * not write the primary window's layout/tiles/bubbles — but it still reads
+ * them, because exporting a profile from the Profiles activity bundles the
+ * layout tree and on Android that screen is the only way to do it.
+ */
+describe('ownsPersistedAppState', () => {
+  it('is true in the primary window', async () => {
+    atSearch('')
+
+    const windows = await load()
+    expect(windows.ownsPersistedAppState()).toBe(true)
+    expect(windows.isSecondaryWindow()).toBe(false)
+  })
+
+  it('is false in an activity window, which still reads as non-secondary', async () => {
+    atSearch('?win=activity')
+
+    const windows = await load()
+    expect(windows.isActivityWindow()).toBe(true)
+    // The read gate stays open — only writes are withheld.
+    expect(windows.isSecondaryWindow()).toBe(false)
+    expect(windows.ownsPersistedAppState()).toBe(false)
+  })
+
+  it('is false in a tile window', async () => {
+    atSearch('?win=tile&tile=terminal')
+
+    expect((await load()).ownsPersistedAppState()).toBe(false)
+  })
+
+  it('is false in the legacy secondary pop-out', async () => {
+    atSearch('?win=secondary')
+
+    expect((await load()).ownsPersistedAppState()).toBe(false)
+  })
+})
+
+/**
+ * `satelliteLabel` accepts any lowercase word, so every `?win=` value that
+ * names a window KIND — not a satellite surface — used to answer
+ * `isSatelliteWindow() === true`. That mis-routed the teardown registry, the
+ * HUD handoff and `canOpenSatelliteWindow`, and made `isSecondaryWindow()`
+ * accidentally true for an activity window, blanking the layout tree the
+ * Profiles screen needs to read in order to export a profile.
+ */
+describe('satelliteSurface', () => {
+  it('does not claim an activity window', async () => {
+    atSearch('?win=activity')
+
+    const windows = await load()
+    expect(windows.satelliteSurface()).toBeNull()
+    expect(windows.isSatelliteWindow()).toBe(false)
+  })
+
+  it('does not claim a tile window or the legacy pop-out', async () => {
+    atSearch('?win=tile&tile=terminal')
+    expect((await load()).isSatelliteWindow()).toBe(false)
+
+    vi.resetModules()
+    atSearch('?win=secondary')
+    expect((await load()).isSatelliteWindow()).toBe(false)
+  })
+
+  it('still claims a real satellite surface', async () => {
+    atSearch('?win=hud')
+
+    const windows = await load()
+    expect(windows.satelliteSurface()).toBe('hud')
+    expect(windows.isSatelliteWindow()).toBe(true)
+    expect(windows.isSecondaryWindow()).toBe(true)
+    expect(windows.ownsPersistedAppState()).toBe(false)
+  })
+})

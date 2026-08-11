@@ -6,9 +6,9 @@ import { WebglAddon } from '@xterm/addon-webgl'
 import { Terminal } from '@xterm/xterm'
 import { useEffect, useRef, useState } from 'react'
 
+import { useHermesConfigRecord } from '@/app/hooks/use-config-record'
 import { Button } from '@/components/ui/button'
 import { writeClipboardText } from '@/components/ui/copy-button'
-import { getHermesConfig } from '@/hermes'
 import { type Translations, useI18n } from '@/i18n'
 import { IS_MOBILE, LOCAL_MODE_SUPPORTED } from '@/lib/platform'
 import { throttleDuringResize } from '@/lib/resize-gesture'
@@ -37,7 +37,8 @@ import {
   $terminalFontFamily,
   applyTerminalFontFamily,
   resolveTerminalFontFamily,
-  syncTerminalFontFromConfig
+  setTerminalFontFamilyFromConfig,
+  terminalFontFamilyFromConfig
 } from './terminal-font'
 import { terminalTheme, withSurface } from './terminal-theme'
 
@@ -121,11 +122,18 @@ export function TerminalView({ id }: { id: string }) {
   const preference = useStore($terminalHostPreference)
   const terminalFont = useStore($terminalFontFamily)
 
-  // The configured family, pulled once per mount. The atom is app-wide, so a
-  // second pane costs one redundant fetch and no extra state.
+  // The configured family, read off the SHARED config-record query rather than
+  // fetched once per mount. That shared cache is what makes the setting live:
+  // the Settings picker writes through it, a profile switch invalidates it, and
+  // every revalidation lands here — so the font no longer waits for the pane to
+  // be torn down and rebuilt before a config change is seen.
+  const { data: hermesConfig } = useHermesConfigRecord()
+
   useEffect(() => {
-    void syncTerminalFontFromConfig(getHermesConfig)
-  }, [])
+    if (hermesConfig) {
+      setTerminalFontFamilyFromConfig(terminalFontFamilyFromConfig(hermesConfig))
+    }
+  }, [hermesConfig])
 
   const hostRef = useRef<HTMLDivElement | null>(null)
   const termRef = useRef<Terminal | null>(null)
