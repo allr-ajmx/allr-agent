@@ -19,6 +19,7 @@ import {
   isTitleFetchable,
   LinkifiedText,
   PrettyLink,
+  tryOpenExternalLink,
   urlSlugTitleLabel
 } from '@/lib/external-link'
 
@@ -104,6 +105,26 @@ describe('external link helpers', () => {
     await waitFor(() => {
       expect(invoke).toHaveBeenCalledWith('open_external', { url: 'https://example.com/path/to/resource' })
     })
+  })
+
+  // `ctx.os.openExternal` (contrib/plugin.ts) is contractually result-shaped: a
+  // plugin branches on the answer instead of sniffing the platform, so "the OS
+  // took it" and "the OS refused" must be distinguishable here.
+  it('reports whether the OS took the url', async () => {
+    invoke.mockImplementation(async command => {
+      if (command === 'open_external') {
+        throw new Error('no opener')
+      }
+
+      return ''
+    })
+
+    await expect(tryOpenExternalLink('https://example.com')).resolves.toBe(false)
+
+    invoke.mockImplementation(async () => '')
+
+    await expect(tryOpenExternalLink('https://example.com')).resolves.toBe(true)
+    expect(invoke).toHaveBeenCalledWith('open_external', { url: 'https://example.com' })
   })
 
   it('hides the trailing external-link icon by default', () => {

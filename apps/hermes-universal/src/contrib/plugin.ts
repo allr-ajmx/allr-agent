@@ -21,7 +21,7 @@ import type { Tile } from '@/components/pane-shell/tile/types'
 import { writeClipboardText } from '@/components/ui/copy-button'
 import { pluginRest, type PluginRestOptions } from '@/hermes'
 import { createPluginI18n, type PluginI18n } from '@/i18n'
-import { IS_TAURI } from '@/lib/platform'
+import { tryOpenExternalLink } from '@/lib/external-link'
 import { pluginSocket } from '@/lib/plugin-transport'
 import { tryRevealPathInFileManager } from '@/lib/reveal-path'
 import { readKey, writeKey } from '@/lib/storage'
@@ -171,17 +171,16 @@ function createPluginOs(pluginId: string): PluginOs {
         // A notification the OS won't take must not break the plugin's caller.
       }
     },
-    // The opener plugin's JS API, which the `opener:allow-open-url` capability
-    // grants. The app's own `openExternalLink` is void-shaped and falls back to
-    // window.open, so it can't tell a plugin whether the OS took the URL.
-    openExternal: url =>
-      IS_TAURI
-        ? attempt(async () => {
-            const { openUrl } = await import('@tauri-apps/plugin-opener')
-
-            await openUrl(url)
-          })
-        : Promise.resolve(false),
+    // The app's own native door (`open_external`), in its result-shaped form.
+    //
+    // NOT the opener plugin's JS `openUrl`: `opener:allow-open-url` enables that
+    // command "without any pre-configured scope", and the plugin refuses every
+    // url that no scope entry matches — with an empty allow-list that is ALL of
+    // them, on every platform. Routing a plugin through it made `openExternal`
+    // resolve `false` always, which this contract renders as "the platform can't
+    // do this" rather than as the bug it was. `lib/external-link` explains the
+    // ACL in full.
+    openExternal: url => tryOpenExternalLink(url),
     revealPath: path => tryRevealPathInFileManager(path),
     // The app's single clipboard write seam (components/ui/copy-button), which
     // throws when the engine refuses — WebKitGTK gates the async Clipboard API
