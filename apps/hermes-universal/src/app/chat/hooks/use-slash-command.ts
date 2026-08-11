@@ -19,6 +19,7 @@ import {
   resolveDesktopCommand
 } from '@/lib/desktop-slash-commands'
 import { FOCUS_USAGE, formatFocusStatus, formatFocusToggleMessage, resolveFocusArg } from '@/lib/focus-view'
+import { isMissingRpcMethod } from '@/lib/gateway-rpc'
 import { navigateTo } from '@/lib/route-nav'
 import { toChatMessages } from '@/lib/session-history'
 import { isSessionIdCandidate, renderCommandsCatalog, slashStatusText } from '@/lib/slash-utils'
@@ -64,9 +65,6 @@ const SESSION_COMPRESS_TIMEOUT_MS = 120_000
 const compressInFlight = new Set<string>()
 
 const EMPTY_USAGE: UsageStats = { calls: 0, input: 0, output: 0, total: 0 }
-
-const isMissingRpcMethod = (err: unknown): boolean =>
-  /method not found|unknown method|no such method/i.test(err instanceof Error ? err.message : String(err))
 
 /** Everything a slash handler needs about the invocation it's serving. */
 interface SlashActionCtx {
