@@ -1623,14 +1623,15 @@ html {
   background: transparent !important;
 }
 
-[data-slot='aui_assistant-message-content'] > [data-slot='aui_thinking-disclosure'],
+/* Tool rows still fade by selector; the thinking header opts in through
+   `data-conversation-scaffold` below, so it must NOT be named again here — two
+   rules setting the same opacity is two places to change it. */
 [data-slot='aui_assistant-message-content'] [data-slot='tool-block'][data-tool-row] {
   opacity: 0.67;
   transition: opacity 120ms ease-out;
 }
 
 /* Lift on hover or *keyboard* focus only. */
-[data-slot='aui_assistant-message-content'] > [data-slot='aui_thinking-disclosure']:is(:hover, :has(:focus-visible)),
 [data-slot='aui_assistant-message-content'] [data-slot='tool-block'][data-tool-row]:is(:hover, :has(:focus-visible)) {
   opacity: 1;
 }
@@ -1810,14 +1811,6 @@ span[data-slot='aui_msg-reactions'] {
   .reaction-pop {
     animation: none;
   }
-}
-
-/* Live thinking preview window. Pairs with the ResizeObserver in
-   ThinkingDisclosure that pins scrollTop to the bottom — older lines fade
-   into the top mask while the latest tokens settle in below. */
-.thinking-preview {
-  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 28%, black 100%);
-  mask-image: linear-gradient(to bottom, transparent 0%, black 28%, black 100%);
 }
 
 @keyframes code-card-stream-enter {

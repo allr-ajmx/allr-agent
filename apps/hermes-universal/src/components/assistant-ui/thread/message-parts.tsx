@@ -12,8 +12,8 @@ import { DelegateTool } from '@/components/assistant-ui/tool/delegate'
 import { ToolFallback, ToolGroupSlot } from '@/components/assistant-ui/tool/fallback'
 import { formatElapsed, useElapsedSeconds, useMeasuredDuration } from '@/components/chat/activity-timer'
 import { ActivityTimerText } from '@/components/chat/activity-timer-text'
-import { DisclosureRow } from '@/components/chat/disclosure-row'
 import { GeneratedImage } from '@/components/chat/generated-image-result'
+import { SCAFFOLD_LABEL_CLASS, SCAFFOLD_META_CLASS, ScaffoldRow } from '@/components/chat/scaffold-row'
 import { useI18n } from '@/i18n'
 import { useEnterAnimation } from '@/lib/use-enter-animation'
 import { cn } from '@/lib/utils'
@@ -109,9 +109,7 @@ const ThinkingDisclosure: FC<{
   }
 
   // While the preview is live, pin the scroll container to the bottom on
-  // every content growth so the latest tokens are always visible. Combined
-  // with the top mask in styles.css, this reads as text settling in from
-  // below while older lines fade out at the top.
+  // every content growth so the latest tokens are always visible.
   useEffect(() => {
     if (!isPreview) {
       return
@@ -157,27 +155,14 @@ const ThinkingDisclosure: FC<{
   return (
     <div
       className="text-[length:var(--conversation-tool-font-size)] text-(--ui-text-tertiary)"
+      data-conversation-scaffold=""
       data-slot="aui_thinking-disclosure"
       ref={enterRef}
     >
-      <DisclosureRow onToggle={() => setUserOpen(!open)} open={open}>
-        <span className="flex min-w-0 items-baseline gap-1.5">
-          <span
-            className={cn(
-              'text-[length:var(--conversation-tool-font-size)] font-medium leading-(--conversation-line-height) text-(--ui-text-secondary)',
-              pending && 'shimmer text-foreground/55'
-            )}
-          >
-            {thoughtLabel}
-          </span>
-          {pending && (
-            <ActivityTimerText
-              className="text-[length:var(--conversation-caption-font-size)] tabular-nums text-(--ui-text-tertiary)"
-              seconds={elapsed}
-            />
-          )}
-        </span>
-      </DisclosureRow>
+      <ScaffoldRow onToggle={() => setUserOpen(!open)} open={open}>
+        <span className={cn(SCAFFOLD_LABEL_CLASS, pending && 'shimmer')}>{thoughtLabel}</span>
+        {pending && <ActivityTimerText className={SCAFFOLD_META_CLASS} seconds={elapsed} />}
+      </ScaffoldRow>
       {open && (
         <div
           className={cn(
@@ -185,7 +170,7 @@ const ThinkingDisclosure: FC<{
             // and inherits the disclosure-level opacity fade defined in
             // styles.css (~0.67 at rest, 1 on hover/focus).
             'mt-0.5 w-full min-w-0 max-w-full overflow-hidden wrap-anywhere pb-1',
-            isPreview && 'thinking-preview max-h-40'
+            isPreview && 'max-h-40'
           )}
           ref={scrollRef}
         >
