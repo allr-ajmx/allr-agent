@@ -362,6 +362,18 @@ describe('curatedFamilies', () => {
     ])
   })
 
+  it('does not pin the active model into a search that does not match it', () => {
+    // A query is a narrowing action: 'haiku' must return the haiku row alone,
+    // not the row the surface happens to be sitting on.
+    expect(curatedFamilies(nous, { activeModel: 'google/gemini', search: 'haiku', visible }).map(f => f.id)).toEqual([
+      'anthropic/haiku'
+    ])
+  })
+
+  it('returns nothing for a search that matches nothing, active model included', () => {
+    expect(curatedFamilies(nous, { activeModel: 'google/gemini', search: 'zzz', visible })).toEqual([])
+  })
+
   it('preserves catalog order rather than match order', () => {
     // 'anthropic' matches both anthropic models; they come back in list order.
     expect(curatedFamilies(nous, { search: 'anthropic', visible }).map(f => f.id)).toEqual([

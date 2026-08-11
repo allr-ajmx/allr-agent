@@ -320,11 +320,16 @@ export function curatedFamilies(
     return families
   }
 
-  const activeId = activeModel
-    ? families.find(family => family.id === activeModel || family.fastId === activeModel)?.id
-    : undefined
-
   const q = normalize(search)
+
+  // Pin the active model's row so selecting a model can never make its own row
+  // vanish — but NOT while searching. A query means "show me matches", and a
+  // pinned non-match would sit in the results list as a row the user did not
+  // ask for (and, in the cmdk picker, as a candidate Enter can land on).
+  const activeId =
+    !q && activeModel
+      ? families.find(family => family.id === activeModel || family.fastId === activeModel)?.id
+      : undefined
 
   const shown = q
     ? new Set(families.filter(family => familyMatches(provider, family, q)).map(family => family.id))
