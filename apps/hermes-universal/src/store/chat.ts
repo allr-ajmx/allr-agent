@@ -211,7 +211,7 @@ function updateActive(updater: (state: ClientSessionState) => ClientSessionState
  * the runtime id). The sidebar row + $activeStoredSessionId must use `storedId`
  * so the chat header can resolve the session after the list refreshes.
  */
-export async function ensureSession(): Promise<{ id: string; storedId: string }> {
+export async function ensureSession(): Promise<{ created: boolean; id: string; storedId: string }> {
   const existing = $sessionId.get()
 
   if (existing) {
@@ -220,7 +220,42 @@ export async function ensureSession(): Promise<{ id: string; storedId: string }>
     // the resume handed back) and callers use `storedId` to recover a dead
     // runtime — resuming the runtime id would name a session the gateway has
     // already forgotten.
-    return { id: existing, storedId: $active.get().storedSessionId ?? existing }
+    return { created: false, id: existing, storedId: $active.get().storedSessionId ?? existing }
+  }
+
+  // A slice that already names a STORED session is NOT a new chat, whatever its
+  // runtime binding says — only a draft has never been created. Without this
+  // guard, anything that leaves a persisted conversation without a runtime id
+  // turns the next message into `session.create`: the slice rekeys onto a fresh,
+  // empty session, its `storedSessionId` is overwritten, and the user goes on
+  // typing into a chat whose agent has none of the history still on screen. The
+  // reconnect path used to do exactly that (MJXHRM-358); this is the invariant
+  // that makes it unreachable no matter who clears the field next.
+  //
+  // Rebinding is the same resume `store/session-recovery.ts` runs for a dead
+  // runtime id, and it rekeys onto the id it hands back, so the router addresses
+  // the slice by the id the gateway will stamp on the reply. A failure THROWS —
+  // the caller surfaces it and the turn rolls back, which is strictly better
+  // than silently forking the conversation.
+  const stored = $active.get().storedSessionId
+
+  if (stored) {
+    const { resumeStoredRuntimeSession } = await sessionRecovery()
+    const live = await resumeStoredRuntimeSession(stored)
+
+    if (!live) {
+      throw new Error(`Session ${stored} could not be resumed`)
+    }
+
+    const key = $activeSessionKey.get()
+
+    if (key === live) {
+      updateSession(key, state => ({ ...state, runtimeSessionId: live }))
+    } else {
+      rekeySession(key, live, { runtimeSessionId: live, storedSessionId: stored })
+    }
+
+    return { created: false, id: live, storedId: stored }
   }
 
   // The draft's OWN directory wins: `startSessionInWorkspace` (store/session)
@@ -259,7 +294,7 @@ export async function ensureSession(): Promise<{ id: string; storedId: string }>
     sessionStartedAt: Date.now()
   })
 
-  return { id, storedId }
+  return { created: true, id, storedId }
 }
 
 /**
@@ -322,11 +357,17 @@ export async function sendPrompt(text: string): Promise<void> {
   let submitKey = startKey
 
   try {
-    const wasNew = !$sessionId.get()
-    const { id: sessionId, storedId } = await ensureSession()
-    submitKey = wasNew ? sessionId : startKey
+    // Both branches of `ensureSession` that go out to the gateway REKEY the
+    // slice — a draft onto the session it just created, a persisted chat onto
+    // the runtime the rebind handed back — so the submit and its rollback have
+    // to follow. Only `created` gates the sidebar row: a rebind names a session
+    // the list already holds, and registering it again would add a second row
+    // for one conversation.
+    const moved = !$sessionId.get()
+    const { created, id: sessionId, storedId } = await ensureSession()
+    submitKey = moved ? sessionId : startKey
 
-    if (wasNew) {
+    if (created) {
       // New chat: optimistically add it to the sidebar list + mark active, keyed
       // on the STORED id (what the list refresh + session.title use), with the
       // first message as the provisional title (preview). Dynamic import —
