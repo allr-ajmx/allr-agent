@@ -1,5 +1,6 @@
-import { type ReactNode, useLayoutEffect, useRef, useState } from 'react'
+import { type ReactNode, useCallback, useRef, useState } from 'react'
 
+import { useResizeObserver } from '@/hooks/use-resize-observer'
 import { ChevronDown } from '@/lib/icons'
 import { cn } from '@/lib/utils'
 
@@ -13,20 +14,26 @@ export function ExpandableBlock({ children, className }: ExpandableBlockProps) {
   const [expanded, setExpanded] = useState(false)
   const [overflowing, setOverflowing] = useState(false)
 
-  useLayoutEffect(() => {
+  // SHARED observer, and measurement inside ResizeObserver timing only — the two
+  // halves of desktop's version of this file, neither of which came across in the
+  // port (MJXHRM-45).
+  //
+  // The private `new ResizeObserver` this replaces meant the browser delivered
+  // one callback PER MOUNTED INSTANCE whenever a common ancestor resized, and a
+  // tool-heavy transcript mounts dozens of these. The synchronous `measure()`
+  // before the first delivery was worse: it read `scrollHeight` while the
+  // commit's layout was still dirty, forcing a reflow per instance on every
+  // session switch. The observer's spec-guaranteed first delivery does the same
+  // measurement with layout already clean.
+  const measure = useCallback(() => {
     const el = innerRef.current
 
-    if (!el) {
-      return
+    if (el) {
+      setOverflowing(el.scrollHeight > 121)
     }
-
-    const measure = () => setOverflowing(el.scrollHeight > 121)
-    measure()
-    const observer = new ResizeObserver(measure)
-    observer.observe(el)
-
-    return () => observer.disconnect()
   }, [])
+
+  useResizeObserver(measure, innerRef)
 
   return (
     <div className="relative">
@@ -45,7 +52,7 @@ export function ExpandableBlock({ children, className }: ExpandableBlockProps) {
           onClick={() => setExpanded(v => !v)}
           type="button"
         >
-          <ChevronDown className={cn('size-3.5 transition-transform', expanded && 'rotate-180')} />
+          <ChevronDown className={cn('size-4 transition-transform', expanded && 'rotate-180')} />
         </button>
       )}
     </div>
