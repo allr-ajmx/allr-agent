@@ -710,6 +710,41 @@ function reconcileSessionTail(key: string, resumed: SessionResumeResponse): void
 }
 
 /**
+ * Carry the plan into the SLICE the user is looking at.
+ *
+ * `applyTurnReconciliation` writes the turn RECORD and nothing else, which is
+ * correct for the cold-open caller (`adoptResumedTurn`) — the rekey beside it
+ * already published `busy` from the resume payload. On a reconnect there is no
+ * such write, and nothing else reliably supplies one: `invalidateRuntimeBindings`
+ * clears every slice's `busy` on the same `open` edge, and the only thing that
+ * puts it back is `session.active_list`, which an older gateway does not serve
+ * and which trails a poll behind. So a reconciled turn could be live in
+ * `$inflightTurns` while its tile rendered an idle composer with no stop button,
+ * or — the worse direction — settled in the record while the tile span forever
+ * on a spinner nothing would ever clear.
+ *
+ * Only the fields the turn owns are touched. `needsInput` is a blocking prompt's
+ * to clear, and `messages` belong to `reconcileSessionTail`.
+ */
+function applyReconciledBusy(key: string, plan: TurnReconciliation): void {
+  if (plan.action === 'noop') {
+    return
+  }
+
+  const live = plan.action === 'keep' || plan.action === 'adopt'
+
+  updateSession(key, state => {
+    if (state.busy === live) {
+      return state
+    }
+
+    return live
+      ? { ...state, busy: true, turnStartedAt: state.turnStartedAt ?? Date.now() }
+      : { ...state, busy: false, awaitingResponse: false, streamId: null, turnStartedAt: null }
+  })
+}
+
+/**
  * Ask the gateway what it thinks of one session's turn, and reconcile.
  *
  * `omit_messages` because this is a turn-state question, not a transcript one —
@@ -754,6 +789,8 @@ export async function reconcileSessionTurn(key: string): Promise<TurnReconciliat
       live,
       planTurnReconciliation(getInflightTurn(live), remoteTurnSnapshot(resumed))
     )
+
+    applyReconciledBusy(live, plan)
 
     // After the plan, not before: settling a turn the gateway has forgotten must
     // not then re-project that turn's tail back onto the transcript.
