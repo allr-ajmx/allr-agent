@@ -5,6 +5,7 @@ import '@/app/contrib/controller'
 import { useEffect, useRef } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 
+import { ArtifactPreviewOverlay } from '@/app/artifact-preview-overlay'
 import { ChatScreen } from '@/app/chat/chat-screen'
 import { ChatTitle } from '@/app/chat/chat-title'
 import { ModelPickerOverlay } from '@/app/model-picker-overlay'
@@ -136,6 +137,11 @@ function ChatTileHost() {
           this window has no surface for. */}
       <ModelVisibilityOverlay />
       <ModelPickerOverlay />
+      {/* Same story one layer along: this window renders the transcript, so it
+          renders artifact cards, and "Open" on one writes a preview tab that no
+          shell in this window reads — the tile tree and both rail hosts live in
+          MobileController / AppShell. Mount the surface the click asks for. */}
+      <ArtifactPreviewOverlay />
       <NotificationStack />
     </SidebarProvider>
   )
