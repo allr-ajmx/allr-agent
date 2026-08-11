@@ -28,6 +28,7 @@ import { COMPOSER_FADE_BACKGROUND, type QueueEditState, slashArgStage } from './
 import { ContextMenu } from './context-menu'
 import { COMPOSER_AREAS, runComposerMiddleware } from './contrib'
 import { ComposerControls } from './controls'
+import { ComposerDirectiveActions } from './directive-actions'
 import { COMPOSER_DROP_ACTIVE_CLASS, COMPOSER_DROP_FADE_CLASS } from './drop-affordance'
 import { markActiveComposer } from './focus'
 import { HelpHint } from './help-hint'
@@ -544,6 +545,17 @@ export function ChatBar({
       return
     }
 
+    // The popover is open but its items are still in flight (debounce + RPC).
+    // Tab must not fall through to the browser — it would move focus out of
+    // the composer mid-completion, which reads as the popover "eating" the
+    // keypress. Swallow it; the refresh lands with the items.
+    if (trigger && triggerLoading && triggerItems.length === 0 && event.key === 'Tab') {
+      event.preventDefault()
+      triggerKeyConsumedRef.current = true
+
+      return
+    }
+
     if (trigger && triggerItems.length > 0) {
       if (event.key === 'ArrowDown') {
         event.preventDefault()
@@ -906,6 +918,7 @@ export function ChatBar({
         spellCheck={false}
         suppressContentEditableWarning
       />
+      <ComposerDirectiveActions editorRef={editorRef} />
       {/* assistant-ui requires ComposerPrimitive.Input somewhere in the tree
         so the composer-state binding (text + IME + paste + form-submit hookup)
         wires up. We render the real input UI ourselves above via the

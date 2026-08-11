@@ -1,7 +1,7 @@
 import type { Unstable_TriggerItem } from '@assistant-ui/core'
 import { Fragment } from 'react'
 
-import { referenceStyle } from '@/components/assistant-ui/reference-kinds'
+import { referenceKind, referenceStyle } from '@/components/assistant-ui/reference-kinds'
 import { Codicon } from '@/components/ui/codicon'
 import { GlyphSpinner } from '@/components/ui/glyph-spinner'
 import { useI18n } from '@/i18n'
@@ -10,41 +10,40 @@ import { cn } from '@/lib/utils'
 import { COMPLETION_DRAWER_BELOW_CLASS, COMPLETION_DRAWER_CLASS, CompletionDrawerEmpty } from './completion-drawer'
 import type { DirectiveScope } from './text-utils'
 
-const AT_ICON_BY_TYPE: Record<string, string> = {
-  diff: 'diff',
-  file: 'book',
-  folder: 'folder',
-  git: 'git-branch',
-  image: 'file-media',
-  simple: 'symbol-misc',
-  staged: 'diff-added',
-  tool: 'tools',
-  url: 'globe'
-}
-
-function atIcon(item: Unstable_TriggerItem) {
-  const meta = item.metadata as { rawText?: string } | undefined
-  const raw = meta?.rawText || item.label
-
-  if (raw.startsWith('@diff')) {
-    return AT_ICON_BY_TYPE.diff
-  }
-
-  if (raw.startsWith('@staged')) {
-    return AT_ICON_BY_TYPE.staged
-  }
-
-  return AT_ICON_BY_TYPE[item.type] || AT_ICON_BY_TYPE.simple
-}
-
 interface RowMeta {
   display?: string
   group?: string
   meta?: string
 }
 
-const ROW_BASE_CLASS = [
-  'relative flex w-full cursor-default select-none rounded-md px-2 py-1 text-left',
+/** The kind a row represents, for its icon. `@` rows carry it as the item type;
+ *  `/` rows carry it as the completion group (Skills / Themes / Commands). */
+function rowKind(item: Unstable_TriggerItem, isSlash: boolean): string {
+  const meta = item.metadata as (RowMeta & { rawText?: string }) | undefined
+
+  if (isSlash) {
+    const group = meta?.group?.trim()
+
+    return group === 'Skills' ? 'skill' : group === 'Themes' ? 'theme' : 'command'
+  }
+
+  // The gateway's simple refs (`@diff`, `@staged`) share one item type, so the
+  // glyph comes from the directive itself.
+  const raw = meta?.rawText || item.label
+
+  if (raw.startsWith('@diff')) {
+    return 'diff'
+  }
+
+  if (raw.startsWith('@staged')) {
+    return 'staged'
+  }
+
+  return item.type
+}
+
+const ROW_CLASS = [
+  'relative flex w-full cursor-default select-none items-center gap-2 rounded-md px-2 py-1 text-left',
   'outline-hidden transition-colors hover:bg-(--ui-bg-tertiary)',
   'data-[highlighted]:bg-(--ui-bg-tertiary) data-[highlighted]:text-foreground'
 ].join(' ')
@@ -66,6 +65,21 @@ interface ComposerTriggerPopoverProps {
   scope?: DirectiveScope
 }
 
+/**
+ * The composer's completion list, for every trigger.
+ *
+ * `@` and `/` render through the SAME row: icon, name, description. They used
+ * to be two layouts in one file — `@` horizontal with an icon, `/` stacked with
+ * none — which is why picking a file and picking a skill felt like features
+ * from different apps. Icons and accents come from the shared reference
+ * vocabulary (`reference-kinds`), so a row looks like the chip it will become;
+ * the local `AT_ICON_BY_TYPE` this replaced had already drifted from it (it drew
+ * a file as `book`, the chip as `file`).
+ *
+ * `:` emoji is the one exception: the emoji IS the icon, so it renders as a
+ * single display string. The old `@` branch drew it a `symbol-misc` glyph
+ * beside the emoji, because `AT_ICON_BY_TYPE` had no emoji entry to find.
+ */
 export function ComposerTriggerPopover({
   activeIndex,
   items,
@@ -126,49 +140,28 @@ export function ComposerTriggerPopover({
           const isFirstHeader = lastGroup === undefined
           lastGroup = group || lastGroup
           const active = index === activeIndex
+          const refKind = referenceKind(rowKind(item, isSlash))
 
           return (
             <Fragment key={item.id}>
               {showHeader && <div className={cn(GROUP_HEADER_CLASS, isFirstHeader ? 'pt-0.5' : 'pt-2')}>{group}</div>}
               <button
-                className={cn(ROW_BASE_CLASS, isSlash ? 'flex-col gap-0' : 'items-center gap-2')}
+                className={ROW_CLASS}
                 data-highlighted={active ? '' : undefined}
                 onClick={() => onPick(item)}
                 onMouseEnter={() => onHover(index)}
                 type="button"
               >
-                {isSlash ? (
-                  <>
-                    {/* Active row (keyboard nav or hover) un-truncates inline so
-                        long command names / descriptions stay readable without a
-                        floating tooltip. */}
-                    <span
-                      className={cn(
-                        'font-medium leading-snug text-foreground',
-                        active ? 'whitespace-normal break-words' : 'truncate'
-                      )}
-                    >
-                      {display}
-                    </span>
-                    {description && (
-                      <span
-                        className={cn(
-                          'leading-snug text-(--ui-text-tertiary)',
-                          active ? 'whitespace-normal break-words' : 'truncate'
-                        )}
-                      >
-                        {description}
-                      </span>
-                    )}
-                  </>
+                {isEmoji ? (
+                  // The emoji is its own icon — a glyph column beside it reads
+                  // as decoration.
+                  <span className="min-w-0 shrink truncate leading-5 text-foreground">{display}</span>
                 ) : (
                   <>
-                    <span className="grid size-4 shrink-0 place-items-center text-(--ui-text-tertiary)">
-                      <Codicon name={atIcon(item)} size="0.875rem" />
+                    <span className="grid size-4 shrink-0 place-items-center text-(--ref-color)" data-ref={refKind}>
+                      <Codicon name={referenceStyle(refKind).codicon} size="0.875rem" />
                     </span>
-                    <span className="min-w-0 shrink truncate font-mono font-medium leading-5 text-foreground">
-                      {display}
-                    </span>
+                    <span className="min-w-0 shrink truncate font-medium leading-5 text-foreground">{display}</span>
                     {description && (
                       <span className="min-w-0 flex-1 truncate leading-5 text-(--ui-text-tertiary)">{description}</span>
                     )}

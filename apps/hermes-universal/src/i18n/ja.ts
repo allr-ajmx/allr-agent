@@ -1861,6 +1861,7 @@ export const ja = defineLocale({
     lookupNoMatches: '一致なし。',
     lookupTry: '試す',
     lookupOr: 'または',
+    openDirective: '開く',
     commonCommands: '一般的なコマンド',
     hotkeys: 'ホットキー',
     helpFooter: 'フルパネルを開く · Backspace で閉じる',

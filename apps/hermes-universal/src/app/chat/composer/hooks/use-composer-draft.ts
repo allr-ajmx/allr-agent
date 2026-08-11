@@ -128,7 +128,11 @@ export function useComposerDraft({
       const editor = editorRef.current
 
       if (editor) {
-        renderComposerContents(editor, next)
+        // Inert by construction: this paints text the user is not mid-typing —
+        // a restore, an insert, a programmatic clear. A `/command` ending it is
+        // therefore FINISHED, so it commits to a chip rather than staying an
+        // editable trailing token the next keystroke would extend.
+        renderComposerContents(editor, next, { trailingCommitted: true })
         placeCaretEnd(editor)
       }
 
@@ -275,7 +279,9 @@ export function useComposerDraft({
       const editor = editorRef.current
 
       if (editor && document.activeElement !== editor && composerPlainText(editor) !== text) {
-        renderComposerContents(editor, text)
+        // The editor is NOT the one being typed into (that is the guard right
+        // above), so this text is finished and its trailing `/command` chips.
+        renderComposerContents(editor, text, { trailingCommitted: true })
       }
 
       if (isBrowsingHistory(sessionIdRef.current) || queueEditRef.current) {

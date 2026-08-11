@@ -1719,6 +1719,8 @@ export interface Translations {
     lookupNoMatches: string
     lookupTry: string
     lookupOr: string
+    /** The hover pill over an actionable directive chip in the composer. */
+    openDirective: string
     commonCommands: string
     hotkeys: string
     helpFooter: string
