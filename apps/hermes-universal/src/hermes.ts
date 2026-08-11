@@ -10,6 +10,7 @@ import type {
   BackendUpdateCheckResponse,
   ComputerUseStatus,
   ConfigSchemaResponse,
+  CronDeliveryTarget,
   CronJob,
   CronJobCreatePayload,
   CronJobUpdates,
@@ -110,6 +111,7 @@ export type {
   ComputerUseStatus,
   ConfigFieldSchema,
   ConfigSchemaResponse,
+  CronDeliveryTarget,
   CronJob,
   CronJobCreatePayload,
   CronJobSchedule,
@@ -964,6 +966,15 @@ export async function getCronJobRuns(jobId: string, limit = 20): Promise<Session
   })
 
   return runs ?? []
+}
+
+// The single source of truth for cron delivery targets (local + configured
+// gateways). The editor uses this rather than a hardcoded platform list so it
+// never offers a platform that isn't connected. Mirrors the dashboard.
+export async function getCronDeliveryTargets(): Promise<CronDeliveryTarget[]> {
+  const { targets } = await api<{ targets: CronDeliveryTarget[] }>({ path: '/api/cron/delivery-targets' })
+
+  return targets ?? []
 }
 
 export function createCronJob(body: CronJobCreatePayload): Promise<CronJob> {

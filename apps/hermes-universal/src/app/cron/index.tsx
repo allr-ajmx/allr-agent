@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { PageLoader } from '@/components/page-loader'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Codicon } from '@/components/ui/codicon'
 import {
   Dialog,
@@ -27,8 +28,10 @@ import {
 import { Textarea } from '@/components/ui/textarea'
 import {
   createCronJob,
+  type CronDeliveryTarget,
   type CronJob,
   deleteCronJob,
+  getCronDeliveryTargets,
   getCronJobRuns,
   getCronJobs,
   pauseCronJob,
@@ -67,16 +70,26 @@ import {
 } from '../overlays/panel'
 import type { SetStatusbarItemGroup } from '../shell/statusbar-controls'
 
-import { cronEditorUpdates, jobIsScriptOnly, validateCronEditor } from './cron-job-model'
+import {
+  cronEditorUpdates,
+  jobIsScriptOnly,
+  parseCronDeliveryTargets,
+  toggleCronDeliveryTarget,
+  validateCronEditor
+} from './cron-job-model'
 import { jobState, jobTitle, STATE_DOT } from './job-state'
 
 const DEFAULT_DELIVER = 'local'
 
+// What the field offers when the backend has no delivery-targets route (an
+// older gateway). Local always works — it is the scheduler's own default.
+const FALLBACK_DELIVERY_TARGETS: CronDeliveryTarget[] = [
+  { home_env_var: null, home_target_set: true, id: DEFAULT_DELIVER, name: DEFAULT_DELIVER }
+]
+
 // Radix <SelectItem> rejects empty-string values, so the "no override" row in
 // the model picker carries this sentinel and is mapped back to '' on save.
 const MODEL_DEFAULT_VALUE = '__default__'
-
-const DELIVERY_VALUES: readonly string[] = ['local', 'telegram', 'discord', 'slack', 'email']
 
 const SCHEDULE_OPTIONS: ReadonlyArray<ScheduleOption> = [
   { expr: '0 9 * * *', value: 'daily' },
@@ -114,6 +127,73 @@ function jobScheduleDisplay(job: CronJob): string {
 
 function jobScheduleExpr(job: CronJob): string {
   return asText(job.schedule?.expr) || asText(job.schedule_display) || ''
+}
+
+// Configured platforms → their delivery label, anything else → the backend's
+// own name. A platform with no cron home channel gets told so inline, since
+// ticking it there would otherwise silently deliver nowhere.
+function deliverTargetLabel(target: CronDeliveryTarget, c: Translations['cron']): string {
+  const base = target.id === 'local' ? c.deliveryLabels.local : (c.deliveryLabels[target.id] ?? target.name)
+
+  return target.id !== 'local' && !target.home_target_set ? `${base} — ${c.deliverNeedsHomeChannel}` : base
+}
+
+/** The stored `deliver` string rendered for reading: every target, labelled. */
+function deliverSummary(value: string, c: Translations['cron']): string {
+  return parseCronDeliveryTargets(value)
+    .map(target => c.deliveryLabels[target] ?? target)
+    .join(', ')
+}
+
+/**
+ * The delivery-target checkboxes. The scheduler accepts comma-separated
+ * targets, so a job can stay local AND post to a connected platform — a single
+ * Select made that unreachable. Targets come from the backend rather than a
+ * hardcoded platform list, so nothing is offered that isn't connected; a saved
+ * target missing from discovery is still shown, or editing an old job would
+ * silently drop a route the user never touched.
+ */
+function DeliverCheckboxes({
+  c,
+  id,
+  onChange,
+  targets,
+  value
+}: {
+  c: Translations['cron']
+  id: string
+  onChange: (next: string) => void
+  targets: CronDeliveryTarget[]
+  value: string
+}) {
+  const selected = parseCronDeliveryTargets(value)
+  const knownIds = new Set(targets.map(target => target.id))
+
+  const options = [
+    ...targets,
+    ...selected
+      .filter(target => !knownIds.has(target))
+      .map(target => ({ home_env_var: null, home_target_set: true, id: target, name: target }))
+  ]
+
+  return (
+    <div className="grid gap-2 rounded-md border border-input px-3 py-2.5" id={id} role="group">
+      {options.map((target, index) => {
+        const checkboxId = `${id}-${index}`
+
+        return (
+          <label className="flex items-center gap-2 text-sm" htmlFor={checkboxId} key={target.id}>
+            <Checkbox
+              checked={selected.includes(target.id)}
+              id={checkboxId}
+              onCheckedChange={next => onChange(toggleCronDeliveryTarget(value, target.id, next === true))}
+            />
+            <span>{deliverTargetLabel(target, c)}</span>
+          </label>
+        )
+      })}
+    </div>
+  )
 }
 
 function jobDeliver(job: CronJob): string {
@@ -613,7 +693,7 @@ function CronJobDetail({
             { label: c.frequencyLabel, value: jobScheduleDisplay(job) },
             { label: c.last.replace(/:$/, ''), value: formatTime(job.last_run_at) },
             { label: c.next.replace(/:$/, ''), value: formatTime(job.next_run_at) },
-            { label: c.deliverLabel, value: c.deliveryLabels[deliver] ?? deliver },
+            { label: c.deliverLabel, value: deliverSummary(deliver, c) },
             ...(modelOverride ? [{ label: c.modelLabel, value: modelOverride }] : [])
           ]}
         />
@@ -782,6 +862,15 @@ function CronEditorDialog({
     enabled: open && !scriptOnlyJob
   })
 
+  // Local + whatever platforms the backend actually has configured. An older
+  // gateway with no such route falls back to local-only rather than an empty
+  // group, so the field can never render as a dead box.
+  const deliveryTargets = useQuery({
+    queryKey: ['cron-delivery-targets'],
+    queryFn: getCronDeliveryTargets,
+    enabled: open
+  })
+
   useEffect(() => {
     if (!open) {
       return
@@ -926,18 +1015,13 @@ function CronEditorDialog({
             </Field>
 
             <Field htmlFor="cron-deliver" label={c.deliverLabel}>
-              <Select onValueChange={setDeliver} value={deliver}>
-                <SelectTrigger className="h-9 rounded-md" id="cron-deliver">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {DELIVERY_VALUES.map(value => (
-                    <SelectItem key={value} value={value}>
-                      {c.deliveryLabels[value]}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <DeliverCheckboxes
+                c={c}
+                id="cron-deliver"
+                onChange={setDeliver}
+                targets={deliveryTargets.data ?? FALLBACK_DELIVERY_TARGETS}
+                value={deliver}
+              />
             </Field>
           </div>
 
