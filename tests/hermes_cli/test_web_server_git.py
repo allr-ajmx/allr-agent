@@ -146,6 +146,48 @@ def test_branch_list_offers_remote_only_branches(client, cloned_repo):
     assert not any(name.endswith("/HEAD") for name in by_name)
 
 
+def test_branch_pickers_drop_the_remote_head_alias(client, cloned_repo):
+    """`refs/remotes/origin/HEAD` must not surface as a branch named "origin".
+
+    Git shortens that ref to a bare remote name, so a suffix test for "/HEAD" on
+    the SHORT name never fires. The row that leaked through resolved to a
+    commit-ish, so converting it ran `git worktree add <path> origin` and landed
+    on a detached HEAD — the failure remote-branch support exists to prevent.
+    """
+    # The alias really is set on this clone, so the assertions below are not vacuous.
+    head_alias = subprocess.run(
+        ["git", "symbolic-ref", "refs/remotes/origin/HEAD"],
+        cwd=cloned_repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    assert head_alias.startswith("refs/remotes/origin/")
+
+    convert = client.get("/api/git/branches", params={"path": str(cloned_repo)}).json()["branches"]
+    base = client.get("/api/git/base-branches", params={"path": str(cloned_repo)}).json()["branches"]
+
+    assert "origin" not in {branch["name"] for branch in convert}
+    assert "origin" not in {branch["name"] for branch in base}
+    # The real remote branch still rides both lists.
+    assert "origin/feature/remote-only" in {branch["name"] for branch in convert}
+    remote_base = next(b for b in base if b["name"] == "origin/feature/remote-only")
+    assert remote_base["isRemote"] is True
+
+
+def test_base_branch_list_flags_a_non_origin_remote(client, cloned_repo, tmp_path):
+    """`isRemote` comes from the ref namespace, not an "origin/" name prefix —
+    a repo whose remote is called anything else is no less remote."""
+    _git(cloned_repo, "remote", "rename", "origin", "upstream")
+    _git(cloned_repo, "fetch", "-q", "upstream")
+
+    base = client.get("/api/git/base-branches", params={"path": str(cloned_repo)}).json()["branches"]
+    by_name = {branch["name"]: branch for branch in base}
+
+    assert by_name["upstream/feature/remote-only"]["isRemote"] is True
+    assert "upstream" not in by_name
+
+
 def test_worktree_add_tracks_a_remote_only_branch(client, cloned_repo):
     added = client.post(
         "/api/git/worktree/add",
