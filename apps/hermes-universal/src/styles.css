@@ -2050,6 +2050,14 @@ span[data-slot='aui_msg-reactions'] {
    Both halves of the exclusion are needed because universal ships both halves
    unconditionally (see the note above `html { scrollbar-width }`: WebKitGTK
    honours only the standard props, the webkit rules only bite elsewhere). */
+/* Drag in progress (sash resize, tab drag): an iframe guest hit-tests on its
+   own and swallows the gesture the moment the pointer crosses it — the artifact
+   preview inside a preview tile, the transcript's video / social embeds. See
+   lib/guest-pointer-guard.ts. */
+body.guest-pointer-lock iframe {
+  pointer-events: none;
+}
+
 @layer components {
   .scrollbar-dt,
   .scrollbar-dt *:not(.scrollbar-overlay) {
