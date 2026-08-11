@@ -388,6 +388,41 @@ describe('registerRepoStatusCwd', () => {
   })
 })
 
+// The file tree tints from $repoChangeByPath, which is keyed to the FOCUSED cwd
+// — and that cwd is not always a mounted rail's: it falls back to the workspace
+// root for a detached chat, and the workspace pane can be on screen with no
+// composer at all. If nothing probes it, the tree shows no change decorations
+// while the review pane beside it — same cwd — lists the very same files.
+describe('the focused cwd', () => {
+  it('is probed when focus moves to a worktree no rail registered', async () => {
+    repoStatus.mockImplementation(async () => sampleStatus)
+    $currentCwd.set('/main')
+    await settle()
+    repoStatus.mockClear()
+
+    $effectiveCwd.set('/focused')
+    await vi.advanceTimersByTimeAsync(REFRESH_DEBOUNCE_MS)
+
+    expect(repoStatus.mock.calls.map(call => call[0])).toEqual(['/focused'])
+    expect(repoStatusForCwd('/focused').get()).toEqual(sampleStatus)
+  })
+
+  it('re-probes on an unscoped edge even though no rail holds it', async () => {
+    repoStatus.mockImplementation(async () => sampleStatus)
+    $currentCwd.set('/main')
+    $effectiveCwd.set('/workspace-root')
+    await settle()
+    repoStatus.mockClear()
+
+    // A tool touched the tree: the fan-out has to reach the focused cwd, or the
+    // tree's tint freezes at whatever it had when focus landed.
+    $workspaceChangeTick.set($workspaceChangeTick.get() + 1)
+    await settle()
+
+    expect([...new Set(repoStatus.mock.calls.map(call => call[0]))].sort()).toEqual(['/main', '/workspace-root'])
+  })
+})
+
 describe('$repoChangeByPath', () => {
   const withFiles = (branch: string, path: string): HermesRepoStatus => ({
     ...sampleStatus,

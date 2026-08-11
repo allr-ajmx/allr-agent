@@ -315,13 +315,24 @@ export function refreshRepoStatus(cwd?: null | string): Promise<void> {
   return repoStatusRefreshInFlight
 }
 
-/** Registered (on-screen) worktrees + the sidebar's cwd. */
+/** Registered (on-screen) worktrees + the sidebar's cwd + the FOCUSED cwd. */
 function refreshTargets(): Set<string> {
   const targets = new Set(registeredCwds.keys())
-  const primary = normalizeCwd($currentCwd.get())
 
-  if (primary) {
-    targets.add(primary)
+  // Two cwds no rail necessarily registers. `$currentCwd` backs the primary
+  // views ($repoStatus / $repoWorktrees, read by the command palette).
+  // `$effectiveCwd` backs $repoChangeByPath, which the file tree tints from —
+  // and it is NOT always one of the mounted rails': it falls back to the
+  // workspace root when the focused chat is detached, and the workspace pane can
+  // be on screen (full-width, or on a narrow viewport) with no composer mounted
+  // at all. Leaving it out meant the tree sat on a cwd nothing ever probed while
+  // the review pane beside it — same cwd — listed changes.
+  for (const cwd of [$currentCwd.get(), $effectiveCwd.get()]) {
+    const key = normalizeCwd(cwd)
+
+    if (key) {
+      targets.add(key)
+    }
   }
 
   return targets
@@ -370,6 +381,12 @@ function scheduleRepoStatusRefresh(cwd?: null | string): void {
 
 // The sidebar's cwd changed (session switch / new chat) → re-probe that repo.
 $currentCwd.subscribe(cwd => scheduleRepoStatusRefresh(cwd))
+
+// The FOCUSED surface's cwd changed (a tile took focus, the focused chat moved,
+// or the workspace root landed) → re-probe THAT repo. The file tree's change
+// tint reads this cwd, and it is not always a mounted rail's: a detached chat
+// falls back to the workspace root, which no rail ever registers.
+$effectiveCwd.subscribe(cwd => scheduleRepoStatusRefresh(cwd))
 
 // A worktree was added/removed or a branch switched through store/projects.ts →
 // re-probe, so the coding rows' branch labels and counts repaint immediately
