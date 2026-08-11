@@ -221,8 +221,25 @@ export function reduceSessionState(
         messages: applyCompletion(state.messages, (coerceText(payload.text) || coerceText(payload.rendered)).trim())
       }
 
+    /**
+     * The gateway's transient narration — `{kind, text}`, always: `_status_update`
+     * in `tui_gateway/server.py` is the only builder, and every other
+     * `_emit("status.update", …)` site hand-builds the same pair.
+     *
+     * This read `payload.status || payload.message`, neither of which the wire
+     * carries (`message` is the ERROR event's key). Every status frame therefore
+     * resolved to `''` — and because the case still assigns, each one WIPED the
+     * line instead of leaving it alone. So universal's status surface
+     * (`chat-screen.tsx`'s `busy && statusLine` row) was dead for its only
+     * producer, which is most of why a compaction reads as a hang: the backend
+     * narrates it in so many words — "🗜️ Compacting context — summarizing
+     * earlier conversation so I can continue…"
+     * (`agent/conversation_compression.py::COMPACTION_STATUS`, which the gateway
+     * re-tags `kind:'compacting'`) — and the client threw the sentence away
+     * (MJXHRM-357).
+     */
     case 'status.update':
-      return { ...state, statusLine: coerceText(payload.status) || coerceText(payload.message) || '' }
+      return { ...state, statusLine: coerceText(payload.text) }
 
     case 'session.info':
       // Truthiness-gated (desktop parity): an empty cwd means "unknown", not

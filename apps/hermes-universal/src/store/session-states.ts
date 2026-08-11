@@ -38,6 +38,7 @@ import {
 import { readJson, writeJson } from '@/lib/storage'
 import { discardDeltas, disposeStreamBatch, flushDeltas } from '@/lib/stream-batch'
 import { beginDetached, endSpan } from '@/observability'
+import { clearAllCompaction } from '@/store/compaction'
 import { resetUnscopedStreamPin } from '@/store/event-router'
 import { clearLiveSessionStatuses } from '@/store/live-session-registry'
 import { $activeGatewayProfile, normalizeProfileKey } from '@/store/profile'
@@ -229,6 +230,15 @@ export function clearAllSessionStates() {
   // journal on settle — a switch must not destroy the journal a later switch
   // back would recover from.
   clearAllTurns()
+  // The THIRD module keyed by session key, and the one this wipe forgot.
+  // `clearAllCompaction` was written for exactly this ("profile switch, gateway
+  // teardown") and had no caller at all — a compaction live at the moment of the
+  // switch was left in `$compactingSessions` under a runtime id the new backend
+  // will never issue, so nothing could ever clear it: the settle observer only
+  // fires for turns, and `clearAllTurns` above replaces the atom wholesale
+  // without emitting one. That is a permanently-set steer gate for any key that
+  // came back, and a leak for every one that didn't (MJXHRM-357).
+  clearAllCompaction()
   disposeStreamBatch()
   $stalledSessionIds.set([])
   $sessionStates.set({})

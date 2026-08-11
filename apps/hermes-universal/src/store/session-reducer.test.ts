@@ -129,3 +129,29 @@ describe('clarify.request', () => {
     }
   })
 })
+
+/**
+ * MJXHRM-357. The gateway's transient narration is `{kind, text}` — every
+ * `_emit("status.update", …)` in `tui_gateway/server.py` builds that pair, and
+ * `_status_update` is the only builder. This case read `payload.status ||
+ * payload.message` (the latter is the ERROR event's key), so every status frame
+ * resolved to `''` AND wiped the line, and universal's status row had no live
+ * producer at all. The compaction status is the one that matters most: it is the
+ * backend saying, in words, that it is summarizing.
+ */
+describe('status.update', () => {
+  const COMPACTING = '🗜️ Compacting context — summarizing earlier conversation so I can continue...'
+
+  it('shows the gateway status text', () => {
+    const next = reduce(emptySessionState('stored-1'), 'status.update', { kind: 'compacting', text: COMPACTING })
+
+    expect(next.statusLine).toBe(COMPACTING)
+  })
+
+  it('clears the line when the gateway sends an empty status', () => {
+    const busy = { ...emptySessionState('stored-1'), statusLine: COMPACTING }
+    const next = reduce(busy, 'status.update', { kind: 'status', text: '' })
+
+    expect(next.statusLine).toBe('')
+  })
+})

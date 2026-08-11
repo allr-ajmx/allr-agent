@@ -1,4 +1,5 @@
 import { render } from '@testing-library/react'
+import { atom, computed } from 'nanostores'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -13,6 +14,7 @@ vi.mock('@/store/gateway', async () => {
   }
 })
 
+import { type SessionView, SessionViewProvider } from '@/app/chat/session-view'
 import type * as ChatStoreModule from '@/store/chat'
 import { $messages, $sessionId, resetChat, sendPrompt } from '@/store/chat'
 import { $compactingSessions, sessionCompacting } from '@/store/compaction'
@@ -20,8 +22,8 @@ import { $composerDraft } from '@/store/composer'
 import { requestGateway } from '@/store/gateway'
 import { $modelPickerOpen } from '@/store/model'
 import { $sessions } from '@/store/session'
-import { $sessionStates, updateSession } from '@/store/session-state-types'
-import { seedActiveSession } from '@/test-sessions'
+import { $sessionStates, emptySessionState, publishSessionState, updateSession } from '@/store/session-state-types'
+import { resetSessionStates, seedActiveSession } from '@/test-sessions'
 import { ThemeProvider } from '@/themes/context'
 
 import { useSlashCommand } from './use-slash-command'
@@ -256,5 +258,94 @@ describe('useSlashCommand', () => {
       expect(sessionCompacting('compress-2').get()).toBe(false)
       expect($compactingSessions.get()).toEqual({})
     })
+  })
+})
+
+/**
+ * MJXHRM-357. The dispatcher used to resolve its target as the ACTIVE session,
+ * full stop — true while universal had one thread, false from the moment tiles
+ * landed. A tile's composer mounts this hook under the TILE's session view, so
+ * `/compress` typed into a tile ran `session.compress` against the main pane's
+ * session and replaced the main pane's transcript with the summary.
+ */
+describe('a slash command typed in a tile', () => {
+  function TileHarness() {
+    run = useSlashCommand()
+
+    return null
+  }
+
+  const tileView = (key: string): SessionView => ({
+    kind: 'tile',
+    $runtimeId: atom<string | null>(key),
+    $storedId: atom<string | null>(null),
+    $messages: computed($sessionStates, states => states[key]?.messages ?? []),
+    $busy: computed($sessionStates, states => Boolean(states[key]?.busy)),
+    $awaitingResponse: atom(false),
+    $messagesEmpty: atom(false),
+    $lastVisibleIsUser: atom(false),
+    $statusLine: atom(''),
+    $cwd: atom(''),
+    $model: atom(''),
+    $provider: atom(''),
+    $fast: atom(false),
+    $reasoningEffort: atom('')
+  })
+
+  beforeEach(() => {
+    // Only these two slices: `resetChat` leaves a draft behind per test, and the
+    // LRU cap would otherwise evict the very sessions under test.
+    resetSessionStates()
+    seedActiveSession('sess-1')
+    // A second, background session — the tile's — beside the active one.
+    publishSessionState('tile-1', { ...emptySessionState('stored-tile'), runtimeSessionId: 'tile-1' })
+
+    render(
+      <MemoryRouter>
+        <ThemeProvider>
+          <SessionViewProvider value={tileView('tile-1')}>
+            <TileHarness />
+          </SessionViewProvider>
+        </ThemeProvider>
+      </MemoryRouter>
+    )
+  })
+
+  it('compresses the tile session, not the chat in the foreground', async () => {
+    vi.mocked(requestGateway).mockResolvedValue({
+      messages: [{ role: 'user', content: 'the summary' }],
+      summary: { headline: 'compacted' }
+    } as never)
+
+    await run('/compress')
+
+    expect(vi.mocked(requestGateway).mock.calls[0][0]).toBe('session.compress')
+    expect(vi.mocked(requestGateway).mock.calls[0][1]).toMatchObject({ session_id: 'tile-1' })
+
+    const states = $sessionStates.get()
+
+    // The summarized transcript AND the command's own system line land on the
+    // tile; the foreground chat is untouched.
+    expect(states['tile-1'].messages[0]).toMatchObject({ role: 'user', parts: [{ type: 'text', text: 'the summary' }] })
+    expect(states['tile-1'].messages.some(m => m.role === 'system')).toBe(true)
+    expect(states['sess-1'].messages).toEqual([])
+  })
+
+  it('marks the tile as compacting while it runs, and releases it after', async () => {
+    let seenOnTile = false
+    let seenOnActive = false
+
+    vi.mocked(requestGateway).mockImplementation(async () => {
+      seenOnTile = sessionCompacting('tile-1').get()
+      seenOnActive = sessionCompacting('sess-1').get()
+
+      return { summary: { headline: 'compacted' } } as never
+    })
+
+    await run('/compress')
+
+    expect(seenOnTile).toBe(true)
+    expect(seenOnActive).toBe(false)
+    expect($compactingSessions.get()).toEqual({})
   })
 })

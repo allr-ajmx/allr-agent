@@ -203,11 +203,6 @@ function updateActive(updater: (state: ClientSessionState) => ClientSessionState
   updateSession($activeSessionKey.get(), updater)
 }
 
-/** Apply a transcript transform to the ACTIVE session's slice. */
-function update(fn: (messages: ChatMessage[]) => ChatMessage[]): void {
-  updateActive(state => ({ ...state, messages: fn(state.messages) }))
-}
-
 /**
  * Lazily create the session (needed before prompt.submit or file.attach).
  * Returns the live gateway `id` (used for prompt.submit / file.attach) AND the
@@ -268,18 +263,29 @@ export async function ensureSession(): Promise<{ id: string; storedId: string }>
 }
 
 /**
- * Append a client-side system line to the transcript. Slash output rides this
- * (wrapped by `slashStatusText` into the `slash:<cmd>` envelope the
+ * Append a client-side system line to ONE session's transcript. Slash output
+ * rides this (wrapped by `slashStatusText` into the `slash:<cmd>` envelope the
  * SystemMessage chip parses); nothing else emits system messages today.
+ *
+ * Keyed rather than active-only because a slash command belongs to the surface
+ * it was typed in, and a tile's composer is a different surface.
  */
-export function appendSystemMessage(text: string): void {
+export function appendSessionSystemMessage(key: string, text: string): void {
   const body = text.trim()
 
-  if (!body) {
+  if (!body || !key) {
     return
   }
 
-  update(messages => [...messages, { id: nextId(), role: 'system', parts: [{ type: 'text', text: body }] }])
+  updateSession(key, state => ({
+    ...state,
+    messages: [...state.messages, { id: nextId(), role: 'system', parts: [{ type: 'text', text: body }] }]
+  }))
+}
+
+/** The same, on the chat the user is looking at. */
+export function appendSystemMessage(text: string): void {
+  appendSessionSystemMessage($activeSessionKey.get(), text)
 }
 
 export async function sendPrompt(text: string): Promise<void> {
