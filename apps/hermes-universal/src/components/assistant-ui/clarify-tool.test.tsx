@@ -8,12 +8,20 @@ import { I18nProvider } from '@/i18n'
 import type * as ChatStore from '@/store/chat'
 
 // The live panel asks assistant-ui whether its message is still streaming. There
-// is no runtime in a unit test, so pin it to "running" and leave the rest of the
+// is no runtime in a unit test, so drive it from here and leave the rest of the
 // module intact (ToolFallback and friends import from it at module scope).
+//
+// MUTABLE, deliberately. This used to be pinned to `true`, which mocked away the
+// subject of the panel's own live-or-dead gate: every test ran against a
+// "running" message, so the branch that decides whether a clarify is still
+// answerable had no coverage at all — and the paths the synthetic clarify row
+// exists for are precisely the ones where the message does NOT look running.
+const aui = vi.hoisted(() => ({ messageRunning: true }))
+
 vi.mock('@assistant-ui/react', async importActual => {
   const actual = await importActual<typeof AssistantUI>()
 
-  return { ...actual, useAuiState: () => true }
+  return { ...actual, useAuiState: () => aui.messageRunning }
 })
 
 // The expired-answer path is decided by the gateway's reply, so the responder
@@ -35,6 +43,7 @@ afterEach(() => {
   cleanup()
   seedActiveSession('sess-1')
   setSessionClarify('sess-1', null)
+  aui.messageRunning = true
   vi.mocked(respondClarify).mockResolvedValue('delivered')
 })
 
@@ -416,5 +425,58 @@ describe('ClarifyTool skipped choices', () => {
     )
 
     expect(document.querySelector('[data-clarify-late-choices]')).toBeNull()
+  })
+})
+
+/**
+ * MJXHRM-362. `selectMessageRunning` is `slice.busy && row.pending`, and `busy`
+ * is written by `message.start` — an event that has ALREADY gone by on every
+ * path the synthetic clarify row exists for (a background session whose slice
+ * the request created, a mid-turn reattach, a cold open of a parked session).
+ * Gating the interactive panel on it alone meant the row the reducer went to the
+ * trouble of synthesizing rendered as a dead collapsed tool row, and the agent
+ * stayed parked in the backend's `_block` with the question on screen but
+ * unanswerable.
+ */
+describe('ClarifyTool live gate', () => {
+  it('stays answerable when the turn does not look live but the clarify is parked', async () => {
+    aui.messageRunning = false
+    setSessionClarify('sess-1', { requestId: 'c-parked', question: 'Which branch?', choices: ['main', 'dev'] })
+
+    renderClarify(<ClarifyTool {...clarifyProps({ question: 'Which branch?' }, undefined, 'req-parked')} />)
+
+    expect(screen.getByText('Which branch?')).toBeTruthy()
+
+    const choice = screen.getByRole('button', { name: /main/ })
+
+    fireEvent.click(choice)
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /continue/i }))
+    })
+
+    expect(respondClarify).toHaveBeenCalledWith('main', 'sess-1')
+  })
+
+  // The other half of the same gate: a turn that stopped mid-prompt with nothing
+  // parked must NOT leave an interactive panel offering to answer a dead
+  // request. `message.complete` / `error` clear the store entry.
+  it('falls back to a plain tool row when the turn stopped and nothing is parked', () => {
+    aui.messageRunning = false
+
+    renderClarify(<ClarifyTool {...clarifyProps({ question: 'Which branch?' }, undefined, 'req-dead')} />)
+
+    expect(screen.queryByPlaceholderText('Other (type your answer)')).toBeNull()
+    expect(document.querySelector('[data-clarify-choices]')).toBeNull()
+  })
+
+  // A stale row whose `tool.complete` was lost must not hijack the NEW question.
+  it('does not offer a stale row the request parked for a different question', () => {
+    aui.messageRunning = false
+    setSessionClarify('sess-1', { requestId: 'c-new', question: 'Which region?', choices: ['eu'] })
+
+    renderClarify(<ClarifyTool {...clarifyProps({ question: 'Which branch?' }, undefined, 'req-stale')} />)
+
+    expect(screen.queryByRole('button', { name: /eu/ })).toBeNull()
+    expect(document.querySelector('[data-clarify-choices]')).toBeNull()
   })
 })

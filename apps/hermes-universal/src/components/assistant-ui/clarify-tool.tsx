@@ -27,7 +27,7 @@ import { CircleLetterA, Loader2, MessageQuestion } from '@/lib/icons'
 import { keyOwningClarifyCard } from '@/lib/keybinds/composer-focus-keys'
 import { cn } from '@/lib/utils'
 import { respondClarify } from '@/store/chat'
-import { normalizeChoices, readChoices } from '@/store/clarify'
+import { matchClarifyRequest, normalizeChoices, readChoices } from '@/store/clarify'
 import { notify, notifyError } from '@/store/notifications'
 import { sessionClarifyRequest } from '@/store/prompts'
 
@@ -204,9 +204,21 @@ export const ClarifyTool = (props: ToolCallMessagePartProps) => {
 
 function ClarifyToolLive(props: ToolCallMessagePartProps) {
   const messageRunning = useAuiState(selectMessageRunning)
+  const sessionKey = useStore(useSessionView().$runtimeId) ?? ''
+  const request = useStore(sessionClarifyRequest(sessionKey))
+  const rowQuestion = useMemo(() => readClarifyArgs(props.args).question ?? '', [props.args])
 
   // Stopped mid-prompt with no result — don't leave a dead interactive panel.
-  if (!messageRunning) {
+  //
+  // But "running" is NOT what makes a clarify answerable, and gating on it alone
+  // is what kept the synthetic row from paying off on the very paths it exists
+  // for. `selectMessageRunning` is `slice.busy && row.pending`, and `busy` is
+  // set by `message.start` — an event that has ALREADY gone by whenever the row
+  // had to be synthesized (a background session whose slice this event created,
+  // a mid-turn reattach, a resume). The agent is parked in `_block` regardless,
+  // so the pending request in the prompt store is the honest test: it is written
+  // by `clarify.request`, and cleared on answer, `message.complete` and `error`.
+  if (!messageRunning && !matchClarifyRequest(request, rowQuestion)) {
     return <ToolFallback {...props} />
   }
 
@@ -290,17 +302,12 @@ function ClarifyToolPending({ args }: ToolCallMessagePartProps) {
   const request = useStore(sessionClarifyRequest(sessionKey))
   const fromArgs = useMemo(() => readClarifyArgs(args), [args])
 
-  const matchingRequest = useMemo(() => {
-    if (!request) {
-      return null
-    }
-
-    if (fromArgs.question && request.question && fromArgs.question !== request.question) {
-      return null
-    }
-
-    return request
-  }, [fromArgs.question, request])
+  // The same tie-break the live/dead gate above uses, from one definition: the
+  // two must never disagree about whether this row owns the pending request.
+  const matchingRequest = useMemo(
+    () => matchClarifyRequest(request, fromArgs.question ?? ''),
+    [fromArgs.question, request]
+  )
 
   // The store leads: `tool.start` ships no args, so `clarify.request` is the only
   // source for the question + choices until the tool completes.

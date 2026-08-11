@@ -473,6 +473,18 @@ export interface SessionResumeResponse {
   info?: SessionRuntimeInfo
   message_count: number
   messages: SessionMessage[]
+  /** The blocking prompt this session is parked on RIGHT NOW, shaped as the
+   *  event that raised it (`_session_pending_prompt` in tui_gateway/server.py).
+   *  The gateway emits a `clarify.request` / `sudo.request` / `secret.request`
+   *  exactly once and keeps no replay buffer, and a parked turn is not in the
+   *  committed transcript either — so on a cold open this is the ONLY record of
+   *  the question, its choices and the `request_id` an answer must carry.
+   *  Without it the agent stays in the backend's `_block` until its timeout
+   *  while the client can show nothing but a contentless "needs input" dot. */
+  pending_prompt?: null | {
+    event: string
+    payload: Record<string, unknown>
+  }
   queued?: null | {
     user?: string
   }
