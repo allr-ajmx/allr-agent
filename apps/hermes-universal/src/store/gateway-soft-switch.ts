@@ -12,6 +12,7 @@ import { resetLiveRuntimeTracking } from '@/store/live-session-status'
 import { resetLiveSync } from '@/store/live-sync'
 import { stopLocalBackend } from '@/store/local-backend'
 import { notify, notifyError } from '@/store/notifications'
+import { closeAllPreviewTabs } from '@/store/preview'
 import {
   $activeStoredSessionId,
   $messagingSessions,
@@ -77,6 +78,13 @@ export function wipeSessionListsForGatewaySwitch(): void {
   resetChat()
   // The workspace root came from the old backend's filesystem.
   resetWorkspaceCwd()
+  // …and so did every open preview tab. A preview reads and WRITES through
+  // `/api/fs/*` on whichever gateway is current, so a surviving tab shows the
+  // old backend's bytes over the new backend's path: hitting save either
+  // recreates a file that only existed over there or overwrites a same-named
+  // one here. The artifact half of this was already handled above
+  // (`clearArtifactRegistry`); file tabs were the half that wasn't.
+  closeAllPreviewTabs()
 
   // Sidebar skeletons until refreshSessions lands.
   $sessionsLoading.set(true)

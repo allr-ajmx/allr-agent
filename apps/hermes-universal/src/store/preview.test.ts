@@ -12,6 +12,8 @@ import {
   selectPreviewTab,
   setPreviewTarget
 } from './preview'
+import { $dirtyPreviewPaths, setPreviewDirty } from './preview-edit'
+import { $previewCaps, $previewModes, setPreviewCaps, setPreviewMode } from './preview-view'
 
 afterEach(() => closeAllPreviewTabs())
 
@@ -88,6 +90,27 @@ describe('preview tabs store', () => {
     closePreviewTabsToRight('/nope.ts')
 
     expect($previewTabs.get().map(t => t.path)).toEqual(['/a.ts', '/b.ts'])
+  })
+
+  // Every door out has to forget the per-path state, not just the tile's ✕ —
+  // a dirty flag left behind keeps claiming unsaved work in a tab that is gone.
+  it.each([
+    ['closePreviewTab', () => closePreviewTab('/a.ts')],
+    ['closeOtherPreviewTabs', () => closeOtherPreviewTabs('/b.ts')],
+    ['closePreviewTabsToRight', () => closePreviewTabsToRight('/b.ts')],
+    ['closeAllPreviewTabs', () => closeAllPreviewTabs()]
+  ])('%s forgets the closed tab’s view mode, caps and dirty flag', (_name, close) => {
+    setPreviewTarget('/b.ts')
+    setPreviewTarget('/a.ts')
+    setPreviewMode('/a.ts', 'diff')
+    setPreviewCaps('/a.ts', { rendered: true, source: true })
+    setPreviewDirty('/a.ts', true)
+
+    close()
+
+    expect($previewModes.get()['/a.ts']).toBeUndefined()
+    expect($previewCaps.get()['/a.ts']).toBeUndefined()
+    expect($dirtyPreviewPaths.get().has('/a.ts')).toBe(false)
   })
 
   it('counts what each verb would close, so the menu disables the dead ones', () => {

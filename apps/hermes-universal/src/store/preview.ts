@@ -1,4 +1,6 @@
 import { atom, computed } from '@/store/atom'
+import { setPreviewDirty } from '@/store/preview-edit'
+import { forgetPreviewView } from '@/store/preview-view'
 
 // The right-pane file viewer/editor's open-file state. Adapted (much simplified)
 // from desktop's store/preview.ts: a VS Code-style set of file tabs + the active
@@ -100,9 +102,27 @@ export function openArtifactPreviewTab(artifactId: string, title: string): void 
   $activePreviewPath.set(path)
 }
 
+/**
+ * Forget everything else keyed by a closed tab's path.
+ *
+ * The per-path maps (view mode, load capabilities, the unsaved-edits flag) are
+ * keyed by path and nothing else prunes them, so a long-lived window otherwise
+ * pins an entry for every file it ever opened — and a dirty flag left behind
+ * keeps claiming unsaved work in a tab that is gone. Done HERE rather than in
+ * the tile's closer because a tab has four doors out (the tile ✕ / ⌘W, the
+ * close verbs, the rail's own strip, a gateway switch) and only one of them
+ * went through the tile.
+ */
+function forgetPreviewPath(path: string): void {
+  forgetPreviewView(path)
+  setPreviewDirty(path, false)
+}
+
 /** Drop every artifact tab — the registry they reference is gone. */
 export function closeArtifactPreviewTabs(): void {
   const remaining = $previewTabs.get().filter(tab => !isArtifactTab(tab.path))
+
+  $previewTabs.get().forEach(tab => isArtifactTab(tab.path) && forgetPreviewPath(tab.path))
   $previewTabs.set(remaining)
 
   const active = $activePreviewPath.get()
@@ -125,6 +145,7 @@ function afterClose(remaining: PreviewTarget[], closed: string): void {
 }
 
 export function closePreviewTab(path: string): void {
+  forgetPreviewPath(path)
   afterClose(
     $previewTabs.get().filter(tab => tab.path !== path),
     path
@@ -133,11 +154,25 @@ export function closePreviewTab(path: string): void {
 
 export function closeOtherPreviewTabs(path: string): void {
   const keep = $previewTabs.get().filter(tab => tab.path === path)
+
+  $previewTabs.get().forEach(tab => tab.path !== path && forgetPreviewPath(tab.path))
   $previewTabs.set(keep)
   $activePreviewPath.set(keep.length ? path : null)
 }
 
+/**
+ * Close every preview tab.
+ *
+ * Also the gateway-switch verb: a tab names an absolute path on the gateway's
+ * filesystem, read and written over `/api/fs/*` (see hermes.ts), so after a
+ * soft switch every open file tab points at a machine the app is no longer
+ * talking to. Left open, the pane keeps showing the OLD backend's bytes while
+ * the editor's save path reads and writes the NEW one — which either resurrects
+ * a file that only existed over there or overwrites a same-named file that
+ * happens to exist here.
+ */
 export function closeAllPreviewTabs(): void {
+  $previewTabs.get().forEach(tab => forgetPreviewPath(tab.path))
   $previewTabs.set([])
   $activePreviewPath.set(null)
 }
@@ -155,6 +190,8 @@ export function closePreviewTabsToRight(path: string): void {
   }
 
   const keep = tabs.slice(0, at + 1)
+
+  tabs.slice(at + 1).forEach(tab => forgetPreviewPath(tab.path))
   $previewTabs.set(keep)
 
   const active = $activePreviewPath.get()

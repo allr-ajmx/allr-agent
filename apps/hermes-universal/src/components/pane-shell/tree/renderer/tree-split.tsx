@@ -9,6 +9,7 @@
 import { useStore } from '@nanostores/react'
 import { type PointerEvent as ReactPointerEvent, useCallback, useMemo, useRef, useSyncExternalStore } from 'react'
 
+import { guardGuestPointers } from '@/lib/guest-pointer-guard'
 import { rafCoalesce } from '@/lib/raf-coalesce'
 import { beginResizeGesture, endResizeGesture } from '@/lib/resize-gesture'
 import { cn } from '@/lib/utils'
@@ -246,6 +247,10 @@ export function TreeSplit({
 
       document.body.style.cursor = horizontal ? 'col-resize' : 'row-resize'
       document.body.style.userSelect = 'none'
+      // An iframe guest must not swallow the gesture: it hit-tests on its own,
+      // so the drag froze the moment the pointer crossed an artifact preview or
+      // a transcript embed and the seam could only move a few px per press.
+      const releaseGuests = guardGuestPointers()
       // Open the resize gesture: it suppresses the :root geometry-var writes
       // (geometry.ts — each restyles the whole document) and throttles every
       // ResizeObserver reaction downstream of the width change, both of which
@@ -327,13 +332,24 @@ export function TreeSplit({
       // pointermove outpaces 60fps, so coalesce to one PREVIEW per frame.
       const resize = rafCoalesce(previewShift)
       let lastShift: null | number = null
+      let done = false
 
       const onMove = (ev: PointerEvent) => {
         lastShift = Math.max(lo, Math.min(hi, (horizontal ? ev.clientX : ev.clientY) - start))
         resize.push(lastShift)
       }
 
+      // Ends through several racing paths (pointerup, pointercancel, window
+      // blur, lostpointercapture — `releasePointerCapture` below fires the
+      // latter re-entrantly), so it must run exactly once: a second pass would
+      // re-commit `lastShift` against already-committed sizes and re-publish
+      // the geometry vars the first pass just settled.
       const cleanup = () => {
+        if (done) {
+          return
+        }
+
+        done = true
         resize.finish()
 
         if (lastShift !== null) {
@@ -364,6 +380,7 @@ export function TreeSplit({
         // immediately after. Ordering is load-bearing, and it is also what makes
         // the throttle's end-of-gesture flush see the committed sizes.
         endResizeGesture()
+        releaseGuests()
         document.body.style.cursor = restoreCursor
         document.body.style.userSelect = restoreSelect
 
@@ -376,12 +393,21 @@ export function TreeSplit({
         window.removeEventListener('pointermove', onMove, true)
         window.removeEventListener('pointerup', cleanup, true)
         window.removeEventListener('pointercancel', cleanup, true)
+        window.removeEventListener('blur', cleanup)
+        handle.removeEventListener('lostpointercapture', cleanup)
         persistTree()
       }
 
       window.addEventListener('pointermove', onMove, true)
       window.addEventListener('pointerup', cleanup, true)
       window.addEventListener('pointercancel', cleanup, true)
+      // The gesture can also end without a pointerup: the window loses focus
+      // mid-drag, or capture is taken away. Without these the seam stayed glued
+      // to the cursor with `col-resize` and `user-select: none` still pinned on
+      // the body, and the resize gesture never closed — every ResizeObserver
+      // downstream stayed throttled for the rest of the session.
+      window.addEventListener('blur', cleanup)
+      handle.addEventListener('lostpointercapture', cleanup)
     },
     // trackCtx is derived state rebuilt per render; the drag captures it once.
     // eslint-disable-next-line react-hooks/exhaustive-deps
