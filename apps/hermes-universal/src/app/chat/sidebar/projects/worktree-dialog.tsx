@@ -37,11 +37,24 @@ interface BranchActionCopy {
   branchCreateWorktree: string
   branchOpenExisting: string
   branchSwitchHome: string
+  branchTrackRemote: string
 }
 
-const branchActionLabel = (branch: HermesGitBranch, copy: BranchActionCopy) => {
+/**
+ * What selecting this row will actually do. A remote-only row (`origin/foo`,
+ * no local head) does NOT just open a worktree: the gateway first creates a
+ * local `foo` tracking it, so it gets its own label rather than borrowing
+ * "create worktree".
+ *
+ * Exported for the unit test — the branching is the whole contract of the row.
+ */
+export const branchActionLabel = (branch: HermesGitBranch, copy: BranchActionCopy) => {
   if (branch.checkedOut) {
     return copy.branchOpenExisting
+  }
+
+  if (branch.isRemote) {
+    return copy.branchTrackRemote
   }
 
   return branch.isDefault ? copy.branchSwitchHome : copy.branchCreateWorktree
@@ -153,12 +166,16 @@ export function WorktreeDialog() {
 
     try {
       setBranches(await listRepoBranches(repoPath))
-    } catch {
+    } catch (err) {
+      // An empty list is a legitimate answer (a repo with no other branches), so
+      // failing silently made a dead gateway look like an empty repo — with a
+      // "no branches" placeholder and nothing to act on. Say which it was.
       setBranches([])
+      notifyError(err, p.branchesFailed)
     } finally {
       setBranchesLoading(false)
     }
-  }, [repoPath])
+  }, [p.branchesFailed, repoPath])
 
   // Give the new worktree to a fresh session, then close the dialog.
   const started = (path: string) => {
@@ -315,7 +332,13 @@ export function WorktreeDialog() {
                     key={branch.name}
                     onClick={() => void convert(branch)}
                   >
-                    <Codicon className="shrink-0 text-(--ui-text-tertiary)" name="git-branch" size="0.8rem" />
+                    {/* A remote-only row is a repo glyph, matching the base
+                        picker, so `origin/foo` reads as "not here yet". */}
+                    <Codicon
+                      className="shrink-0 text-(--ui-text-tertiary)"
+                      name={branch.isRemote ? 'repo' : 'git-branch'}
+                      size="0.8rem"
+                    />
                     <span className="truncate">{branch.name}</span>
                     <span className="ml-auto shrink-0 text-[0.625rem] text-(--ui-text-tertiary)">
                       {branchActionLabel(branch, p)}

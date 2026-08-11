@@ -2097,11 +2097,13 @@ export const zh: Translations = {
       branchOpenExisting: '打开',
       branchSwitchHome: '切回主检出',
       branchCreateWorktree: '新工作树',
+      branchTrackRemote: '跟踪远程',
       worktreeProjectLabel: '项目',
       worktreeProjectPlaceholder: '搜索项目…',
       worktreeProjectNone: '没有包含文件夹的项目',
       branchesLoading: '正在加载分支…',
       noBranches: '未找到分支',
+      branchesFailed: '无法加载分支',
       removeWorktree: '移除工作树',
       removeWorktreeFailed: '无法移除工作树（存在未提交更改？）',
       removeWorktreeConfirm:

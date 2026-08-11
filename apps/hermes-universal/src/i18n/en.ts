@@ -1936,11 +1936,13 @@ export const en: Translations = {
       branchOpenExisting: 'open',
       branchSwitchHome: 'switch home',
       branchCreateWorktree: 'new worktree',
+      branchTrackRemote: 'track remote',
       worktreeProjectLabel: 'Project',
       worktreeProjectPlaceholder: 'Search projects…',
       worktreeProjectNone: 'No projects with a folder',
       branchesLoading: 'Loading branches…',
       noBranches: 'No branches found',
+      branchesFailed: 'Could not load branches',
       removeWorktree: 'Remove worktree',
       removeWorktreeFailed: 'Could not remove worktree (uncommitted changes?)',
       removeWorktreeConfirm:
