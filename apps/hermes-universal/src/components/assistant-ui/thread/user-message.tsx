@@ -136,24 +136,6 @@ export const UserMessage: FC<{
     return null
   })
 
-  const runtimeUserOrdinal = useAuiState(s => {
-    let ordinal = 0
-
-    for (const message of s.thread.messages) {
-      if (message.role !== 'user') {
-        continue
-      }
-
-      if (message.id === s.message.id) {
-        return ordinal
-      }
-
-      ordinal += 1
-    }
-
-    return null
-  })
-
   // Sticky human bubbles clamp to ~2 lines with a soft fade so a long prompt
   // doesn't dominate the viewport while the response streams underneath; the
   // clamp lifts on hover / focus (see styles.css). We measure the *unclamped*
@@ -355,10 +337,7 @@ export const UserMessage: FC<{
                             event.preventDefault()
                             event.stopPropagation()
                             void triggerHaptic('selection')
-                            onRequestRestoreConfirm?.(messageId, {
-                              text: messageText,
-                              userOrdinal: runtimeUserOrdinal
-                            })
+                            onRequestRestoreConfirm?.(messageId, { text: messageText })
                           }}
                           onPointerDown={event => {
                             event.preventDefault()

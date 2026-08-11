@@ -73,6 +73,35 @@ export function chatMessageText(message: ChatMessage): string {
     .join('')
 }
 
+/**
+ * Which user turn a message is, counted over the WHOLE transcript.
+ *
+ * The backend truncates a rewind by user ordinal, so the number has to be
+ * counted against the session's own message list — never against what the
+ * transcript happens to be rendering. assistant-ui is fed a WINDOWED tail
+ * (`app/chat/transcript-window.ts`), so an ordinal derived from the rendered
+ * thread is short by every user turn the window dropped, and handing that to
+ * `truncate_before_user_ordinal` rewinds the session to a turn the user never
+ * pointed at. Returns null when the id names no user turn.
+ */
+export function userTurnOrdinal(messages: readonly ChatMessage[], messageId: string): null | number {
+  let ordinal = 0
+
+  for (const message of messages) {
+    if (message.role !== 'user') {
+      continue
+    }
+
+    if (message.id === messageId) {
+      return ordinal
+    }
+
+    ordinal += 1
+  }
+
+  return null
+}
+
 export interface UnspokenTurnSpeech {
   /** First unspoken assistant bubble — stable for the turn, the live speech session binds to it. */
   id: string

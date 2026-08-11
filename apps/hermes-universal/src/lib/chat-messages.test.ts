@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { type ChatMessage, collectUnspokenTurnSpeech } from './chat-messages'
+import { type ChatMessage, collectUnspokenTurnSpeech, userTurnOrdinal } from './chat-messages'
 
 const assistant = (id: string, text: string, extra: Partial<ChatMessage> = {}): ChatMessage => ({
   id,
@@ -80,5 +80,36 @@ describe('collectUnspokenTurnSpeech', () => {
     expect(collectUnspokenTurnSpeech([], null)).toBeNull()
     expect(collectUnspokenTurnSpeech([assistant('a1', 'Done.')], 'a1')).toBeNull()
     expect(collectUnspokenTurnSpeech([user('u1', 'hello'), assistant('a1', '')], null)).toBeNull()
+  })
+})
+
+describe('userTurnOrdinal', () => {
+  const transcript = [
+    user('u1', 'first'),
+    assistant('a1', 'one'),
+    user('u2', 'second'),
+    assistant('a2', 'two'),
+    user('u3', 'third')
+  ]
+
+  it('counts user turns over the WHOLE transcript, skipping assistant rows', () => {
+    expect(userTurnOrdinal(transcript, 'u1')).toBe(0)
+    expect(userTurnOrdinal(transcript, 'u2')).toBe(1)
+    expect(userTurnOrdinal(transcript, 'u3')).toBe(2)
+  })
+
+  // The number the backend truncates by. Counting it over a windowed tail (what
+  // the transcript renders) reports 0 for a turn the session calls 2 — see
+  // MJXHRM-223.
+  it('disagrees with the same count taken over a windowed tail', () => {
+    const windowed = transcript.slice(2)
+
+    expect(userTurnOrdinal(windowed, 'u3')).toBe(1)
+    expect(userTurnOrdinal(transcript, 'u3')).toBe(2)
+  })
+
+  it('answers null for an assistant row or an id it does not hold', () => {
+    expect(userTurnOrdinal(transcript, 'a1')).toBeNull()
+    expect(userTurnOrdinal(transcript, 'nope')).toBeNull()
   })
 })

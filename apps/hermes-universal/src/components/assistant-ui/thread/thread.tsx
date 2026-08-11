@@ -5,6 +5,7 @@ import { useSessionView } from '@/app/chat/session-view'
 import { Intro } from '@/components/chat/intro'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { useI18n } from '@/i18n'
+import { userTurnOrdinal } from '@/lib/chat-messages'
 import { interruptSession, restoreToMessage } from '@/store/chat'
 
 import { AssistantMessage } from './assistant-message'
@@ -68,6 +69,8 @@ const MESSAGE_COMPONENTS = {
 
 interface RestoreConfirmTarget extends RestoreMessageTarget {
   messageId: string
+  /** Locator fallback for `planRestore`, counted over the session's OWN messages. */
+  userOrdinal: null | number
 }
 
 // The chat thread. ThreadMessageList (ported from desktop) owns stick-to-bottom
@@ -86,12 +89,23 @@ interface RestoreConfirmTarget extends RestoreMessageTarget {
 export function Thread() {
   const { t } = useI18n()
   const copy = t.assistant.thread
-  const sessionKey = useSessionView().$runtimeId
+  const view = useSessionView()
+  const sessionKey = view.$runtimeId
   const [target, setTarget] = useState<null | RestoreConfirmTarget>(null)
 
-  const requestRestore = useCallback((messageId: string, restoreTarget: RestoreMessageTarget) => {
-    setTarget({ messageId, ...restoreTarget })
-  }, [])
+  // The ordinal is resolved HERE, from the session's own message list, because
+  // it is a store-global count and the bubble that asked can only see the
+  // windowed tail assistant-ui was handed. Read (never subscribed) at click
+  // time: subscribing every mounted bubble to the transcript would re-render
+  // the whole thread on each streamed token, and click time is exactly when the
+  // fallback wants to have been captured — `planRestore` uses it only if an
+  // auto-compaction re-keys the message before the confirm lands.
+  const requestRestore = useCallback(
+    (messageId: string, restoreTarget: RestoreMessageTarget) => {
+      setTarget({ messageId, ...restoreTarget, userOrdinal: userTurnOrdinal(view.$messages.get(), messageId) })
+    },
+    [view]
+  )
 
   const closeRestore = useCallback(() => setTarget(null), [])
 

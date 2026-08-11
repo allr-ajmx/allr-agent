@@ -730,15 +730,43 @@ describe('restoreToMessage', () => {
     )
   })
 
+  // MJXHRM-223: the transcript hands assistant-ui a WINDOWED tail, so a caller
+  // counting user turns in the rendered thread is short by every turn the window
+  // dropped. Taking that number as `truncate_before_user_ordinal` rewound the
+  // SESSION to an earlier turn than the one the client cut at — silent history
+  // loss on exactly the long sessions the window exists for. The id resolves the
+  // turn; the ordinal must follow it, never overrule it.
+  it('truncates by the turn the id resolved to, not by a caller ordinal counted elsewhere', async () => {
+    seedTurns()
+    vi.mocked(requestGateway).mockResolvedValue({})
+
+    await restoreToMessage('u2', { text: 'second ask', userOrdinal: 0 })
+
+    expect(requestGateway).toHaveBeenCalledWith(
+      'prompt.submit',
+      expect.objectContaining({ text: 'second ask', truncate_before_user_ordinal: 1 }),
+      expect.anything()
+    )
+    // ...and without the empty-truncate confirmation ordinal 0 would have carried.
+    expect(requestGateway).not.toHaveBeenCalledWith(
+      'prompt.submit',
+      expect.objectContaining({ confirm_empty_truncate: true }),
+      expect.anything()
+    )
+    expect($messages.get().map(m => m.id)).toEqual(['u1', 'a1', 'u2'])
+  })
+
   it('falls back to the user ordinal when the id was re-keyed under us', async () => {
     seedTurns()
     vi.mocked(requestGateway).mockResolvedValue({})
 
     await restoreToMessage('an-id-from-before-a-compaction', { text: 'second ask', userOrdinal: 1 })
 
+    // The ordinal LOCATES the turn; the truncation is still counted off the
+    // resolved index, which for this path is the same number by construction.
     expect(requestGateway).toHaveBeenCalledWith(
       'prompt.submit',
-      expect.objectContaining({ text: 'second ask' }),
+      expect.objectContaining({ text: 'second ask', truncate_before_user_ordinal: 1 }),
       expect.anything()
     )
   })

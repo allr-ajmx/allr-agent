@@ -814,6 +814,15 @@ const userOrdinalAt = (messages: ChatMessage[], end: number): number =>
  * The id is the primary key and the ordinal the fallback: the transcript can be
  * re-keyed under us between the click and the confirm (an auto-compaction
  * rewrites committed ids), and the ordinal still names the same turn.
+ *
+ * That precedence has to hold for the TRUNCATION too. `truncateOrdinal` is what
+ * the backend rewinds by, so taking the caller's ordinal verbatim let a locator
+ * hint overrule the turn the id actually resolved to — and a caller counting
+ * against anything but this array (the transcript renders a windowed tail, see
+ * `app/chat/transcript-window.ts`) silently truncated a different, earlier turn
+ * than the one the client optimistically cut at. Count it here instead: in the
+ * fallback case `sourceIndex` IS the ordinal's own index, so nothing is lost.
+ *
  * Ported from desktop's `planRestore`.
  */
 export function planRestore(
@@ -841,14 +850,7 @@ export function planRestore(
     throw new Error(translateNow('desktop.restoreEmpty'))
   }
 
-  return {
-    sourceIndex,
-    text,
-    truncateOrdinal:
-      target?.userOrdinal === null || target?.userOrdinal === undefined
-        ? userOrdinalAt(messages, sourceIndex)
-        : target.userOrdinal
-  }
+  return { sourceIndex, text, truncateOrdinal: userOrdinalAt(messages, sourceIndex) }
 }
 
 /**
