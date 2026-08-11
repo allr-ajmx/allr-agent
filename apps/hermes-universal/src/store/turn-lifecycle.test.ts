@@ -387,6 +387,83 @@ describe('reconcileSessionTurn', () => {
     vi.resetModules()
   })
 
+  // The plan used to be written to `$inflightTurns` and nowhere else, so the
+  // SURFACE — a tile, a bubble, the main chat — kept whatever `busy` it held at
+  // the drop. Settling a turn the gateway has forgotten while leaving the slice
+  // busy is the "spins forever behind a stop button that does nothing" failure;
+  // the layer exists to make a reconnect reconcile what the user sees, not a
+  // record nothing renders (MJXHRM-356).
+  it('clears the busy a settled reconnect would otherwise strand', async () => {
+    vi.doMock('@/store/gateway', () => ({
+      $gatewayState: { get: () => 'open', subscribe: () => () => {} },
+      requestGateway: vi.fn(async () => ({ message_count: 0, messages: [], running: false, session_id: 'runtime-6' }))
+    }))
+
+    vi.resetModules()
+    const states = await import('@/store/session-state-types')
+    const lifecycle = await import('@/store/turn-lifecycle')
+
+    states.publishSessionState('runtime-6', {
+      ...emptySessionState('stored-6'),
+      runtimeSessionId: 'runtime-6',
+      awaitingResponse: true,
+      busy: true,
+      streamId: 'assistant-stream-1',
+      turnStartedAt: 1
+    })
+    lifecycle.beginTurn('runtime-6', { prompt: 'go' })
+
+    await lifecycle.reconcileSessionTurn('runtime-6')
+
+    expect(states.$sessionStates.get()['runtime-6']).toMatchObject({
+      awaitingResponse: false,
+      busy: false,
+      streamId: null,
+      turnStartedAt: null
+    })
+
+    vi.doUnmock('@/store/gateway')
+    vi.resetModules()
+  })
+
+  it('re-arms the busy a reconnect cleared on a turn the gateway is still running', async () => {
+    // `invalidateRuntimeBindings` clears every slice's `busy` on the SAME `open`
+    // edge that starts this probe, and the only thing that used to put it back
+    // was `session.active_list` — which an older gateway does not serve and
+    // which trails a poll behind. The tile rendered an idle composer over a
+    // streaming turn until the next token happened to land.
+    vi.doMock('@/store/gateway', () => ({
+      $gatewayState: { get: () => 'open', subscribe: () => () => {} },
+      requestGateway: vi.fn(async () => ({
+        message_count: 0,
+        messages: [],
+        running: true,
+        session_id: 'runtime-7',
+        inflight: { user: 'keep going', assistant: '', streaming: true }
+      }))
+    }))
+
+    vi.resetModules()
+    const states = await import('@/store/session-state-types')
+    const lifecycle = await import('@/store/turn-lifecycle')
+
+    states.publishSessionState('runtime-7', {
+      ...emptySessionState('stored-7'),
+      runtimeSessionId: 'runtime-7',
+      busy: false,
+      turnStartedAt: null
+    })
+    lifecycle.beginTurn('runtime-7', { prompt: 'keep going' })
+
+    await lifecycle.reconcileSessionTurn('runtime-7')
+
+    expect(states.$sessionStates.get()['runtime-7'].busy).toBe(true)
+    expect(states.$sessionStates.get()['runtime-7'].turnStartedAt).not.toBeNull()
+
+    vi.doUnmock('@/store/gateway')
+    vi.resetModules()
+  })
+
   // MJXHRM-358: `reconcileLiveTail` existed but its only caller — the cold-open
   // rekey — has nothing streaming by construction, so live-tail reconciliation
   // never ran against an in-progress turn. A reconnect is the case it was
