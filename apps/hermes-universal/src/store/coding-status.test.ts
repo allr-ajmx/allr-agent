@@ -53,7 +53,6 @@ import {
   $repoStatusLoading,
   $repoWorktrees,
   _resetCodingStatusForTests,
-  refreshAllRepoStatuses,
   refreshRepoStatus,
   registerRepoStatusCwd,
   repoStatusForCwd,
@@ -94,10 +93,20 @@ const worktree = (path: string, branch: string): HermesGitWorktree => ({
   path
 })
 
-/** Let the debounce fire and every queued probe settle. */
+/**
+ * Let the debounce fire, then await whatever drain it started — WITHOUT
+ * provoking a probe of our own.
+ *
+ * A blank target queues nothing and just hands back the in-flight drain, which
+ * is exactly the passive wait we want. This used to call
+ * `refreshAllRepoStatuses()`, which re-probed every target itself: the trigger
+ * cases below then passed with `$workspaceChangeTick.subscribe` and the
+ * turn-settle `$busy` edge deleted outright — the helper was doing the fan-out
+ * they claimed to be asserting.
+ */
 async function settle(): Promise<void> {
   await vi.advanceTimersByTimeAsync(REFRESH_DEBOUNCE_MS)
-  await refreshAllRepoStatuses()
+  await refreshRepoStatus('   ')
 }
 
 const REFRESH_DEBOUNCE_MS = 200

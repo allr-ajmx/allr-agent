@@ -327,24 +327,6 @@ function refreshTargets(): Set<string> {
   return targets
 }
 
-/** Re-probe every on-screen worktree (and the primary). Awaits the drain. */
-export async function refreshAllRepoStatuses(): Promise<void> {
-  const targets = refreshTargets()
-
-  if (targets.size === 0) {
-    return
-  }
-
-  // Queue every target, then await the single in-flight drain once.
-  let last: Promise<void> = Promise.resolve()
-
-  for (const target of targets) {
-    last = refreshRepoStatus(target)
-  }
-
-  await last
-}
-
 // `cwd` scopes the refresh to one worktree; omit it to re-probe every on-screen
 // worktree (turn settle, window focus — the tree may have changed under any of
 // them).
