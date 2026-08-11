@@ -70,7 +70,11 @@ export const KEYBIND_ACTIONS: readonly KeybindActionMeta[] = [
   // Soft defaults: gated by `composerFocusKeysAllowed` so dialogs, menus, the
   // terminal and a live clarify card keep those keys.
   { id: 'composer.focus', category: 'composer', defaults: ['/', 'enter'] },
-  { id: 'composer.modelPicker', category: 'composer', defaults: [] },
+  // ⌘⇧M — "m" for model; the convention chat apps converged on (LibreChat,
+  // Open WebUI and Cherry Studio all ship the same chord). It shipped UNBOUND
+  // here only because universal had no picker to raise; `ModelPickerOverlay`
+  // (app/model-picker-overlay) is that surface, so the chord is live again.
+  { id: 'composer.modelPicker', category: 'composer', defaults: ['mod+shift+m'] },
   // Voice conversation toggle — ⌥B, keeping the "b" of the documented
   // `voice.record_key` but on Alt rather than Control. `ctrl+b` folds to `mod`
   // off macOS, where it IS the ⌘B/Ctrl+B sidebar chord, so it could only ever
