@@ -1,5 +1,6 @@
 import { useCallback } from 'react'
 
+import { useSessionView } from '@/app/chat/session-view'
 import { PET_SETTINGS_ROUTE, STARMAP_ROUTE } from '@/app/routes'
 import type {
   BrowserManageResponse,
@@ -24,7 +25,7 @@ import { navigateTo } from '@/lib/route-nav'
 import { toChatMessages } from '@/lib/session-history'
 import { isSessionIdCandidate, renderCommandsCatalog, slashStatusText } from '@/lib/slash-utils'
 import { setSessionYolo } from '@/lib/yolo-session'
-import { $busy, $sessionId, appendSystemMessage, ensureSession, sendPrompt } from '@/store/chat'
+import { appendSessionSystemMessage, ensureSession, sendPrompt } from '@/store/chat'
 import { setSessionCompacting } from '@/store/compaction'
 import { setComposerDraft } from '@/store/composer'
 import { $connection } from '@/store/connection'
@@ -76,23 +77,54 @@ interface SlashActionCtx {
 
 /**
  * The `/slash` command dispatcher — ported from desktop's
- * app/session/hooks/use-prompt-actions/slash.ts. Universal keeps exactly one
- * live thread, so desktop's per-session plumbing (`activeSessionIdRef`,
- * `sessionHint`, `appendSessionTextMessage(sessionId, …)`) collapses onto the
- * chat store's active session + `appendSystemMessage`.
+ * app/session/hooks/use-prompt-actions/slash.ts.
+ *
+ * The TARGET is the session of the surface this hook is mounted in, read through
+ * `useSessionView()` — the same context the composer around it, its prompt bars
+ * and its transcript already read from. It used to be the ACTIVE session
+ * unconditionally, which was true while universal had one thread and false from
+ * the moment tiles landed: a tile's composer runs this hook under the tile's
+ * view, so `/compress` typed into a tile summarized the MAIN pane's session and
+ * replaced the main pane's transcript with the result. Every other session-bound
+ * command (`/title`, `/yolo`, `/handoff`, `/browser`, `slash.exec`,
+ * `command.dispatch`) was misrouted the same way, and their output printed into
+ * the main pane too (MJXHRM-357).
+ *
+ * `store/session-tile-delegate.ts` still exposes `executeSlash` for this, from
+ * before the local dispatcher was ported; it has had no caller since. Routing
+ * through it is not the fix — it submits the raw command as PROMPT TEXT, so
+ * `/model`, `/new` and the other client-side verbs would reach the agent as
+ * words instead of running.
  */
 export function useSlashCommand() {
   const { t } = useI18n()
   const copy = t.desktop
   const handleSkinCommand = useSkinCommand()
+  const view = useSessionView()
 
   return useCallback(
     async (rawCommand: string, options?: { recordInput?: boolean }) => {
+      /** The session KEY this command acts on — the surface's own, never the
+       *  foreground one. Read per call, not captured: `ensureSession()` rekeys a
+       *  draft onto its runtime id mid-command. */
+      const targetKey = (): string => view.$runtimeId.get() || $activeSessionKey.get()
+
+      /** Its WIRE id, or null for a draft that has never been created. */
+      const targetSessionId = (): null | string => $sessionStates.get()[targetKey()]?.runtimeSessionId ?? null
+
+      const appendTargetSystemMessage = (text: string) => appendSessionSystemMessage(targetKey(), text)
+
       const ensureSessionId = async (): Promise<string | null> => {
-        const existing = $sessionId.get()
+        const existing = targetSessionId()
 
         if (existing) {
           return existing
+        }
+
+        // Only the primary surface can conjure a session: a tile is a view of one
+        // that already exists, and `ensureSession` creates against the ACTIVE key.
+        if (view.kind !== 'primary') {
+          return null
         }
 
         try {
@@ -117,7 +149,7 @@ export function useSlashCommand() {
         }
 
         const render = (text: string) =>
-          appendSystemMessage(ctx.recordInput ? slashStatusText(ctx.command, text) : text)
+          appendTargetSystemMessage(ctx.recordInput ? slashStatusText(ctx.command, text) : text)
 
         return { render, sessionId }
       }
@@ -188,7 +220,7 @@ export function useSlashCommand() {
             renderSlashOutput(`⚡ loading skill: ${dispatch.name}`)
           }
 
-          if ($busy.get()) {
+          if ($sessionStates.get()[targetKey()]?.busy) {
             renderSlashOutput('session busy — /interrupt the current turn before sending this command')
 
             return
@@ -274,7 +306,7 @@ export function useSlashCommand() {
           // transcript replacement, the usage fold, and the `finally` that
           // releases the compacting flag — has to address the session where it
           // now lives (MJXHRM-308).
-          let key = $activeSessionKey.get()
+          let key = targetKey()
           const focusTopic = ctx.arg.trim()
           const noticeId = `session-compress:${sessionId}`
 
@@ -402,7 +434,7 @@ export function useSlashCommand() {
         // Shift+Tab. With no session yet we arm it locally; the session-create
         // path applies it on the first message.
         yolo: async () => {
-          const sid = $sessionId.get()
+          const sid = targetSessionId()
           const next = !$yoloActive.get()
 
           if (!sid) {
@@ -414,7 +446,7 @@ export function useSlashCommand() {
 
           try {
             const active = await setSessionYolo(requestGateway, sid, next)
-            appendSystemMessage(copy.yoloSystem(active))
+            appendTargetSystemMessage(copy.yoloSystem(active))
           } catch {
             notify({ kind: 'error', title: copy.yoloTitle, message: copy.yoloToggleFailed })
           }
@@ -433,7 +465,7 @@ export function useSlashCommand() {
             return
           }
 
-          const sid = $sessionId.get()
+          const sid = targetSessionId()
 
           if (!sid) {
             notify({ kind: 'error', title: copy.sessionUnavailable, message: copy.createSessionFailed })
@@ -444,7 +476,7 @@ export function useSlashCommand() {
           const result = await handoffSession(platform, { sessionId: sid })
 
           if (!result.ok && result.error) {
-            appendSystemMessage(recordInput ? slashStatusText(command, result.error) : result.error)
+            appendTargetSystemMessage(recordInput ? slashStatusText(command, result.error) : result.error)
           }
         },
         // /focus is the reduced-output display mode. It runs LOCALLY (the
@@ -457,7 +489,7 @@ export function useSlashCommand() {
           // No session yet: toast it rather than spinning up a backend session
           // just to print a line about how this app renders. Same call `/skin`
           // makes, for the same reason.
-          const renderSlashOutput = $sessionId.get()
+          const renderSlashOutput = targetSessionId()
             ? ((await withSlashOutput(ctx))?.render ?? ((message: string) => notify({ kind: 'success', message })))
             : (message: string) => notify({ kind: 'success', message })
 
@@ -538,13 +570,13 @@ export function useSlashCommand() {
 
           // No session to print into yet — surface it as a toast instead of
           // spinning up a backend session just to change the theme.
-          if (!$sessionId.get()) {
+          if (!targetSessionId()) {
             notify({ kind: 'success', message })
 
             return
           }
 
-          appendSystemMessage(recordInput ? slashStatusText(command, message) : message)
+          appendTargetSystemMessage(recordInput ? slashStatusText(command, message) : message)
         },
         // /title <name> renames via the gateway's session.title RPC — the same
         // path the TUI uses, NOT REST renameSession (which 404s on runtime ids).
@@ -790,7 +822,7 @@ export function useSlashCommand() {
             setComposerDraft(command)
           }
 
-          appendSystemMessage(copy.emptySlashCommand)
+          appendTargetSystemMessage(copy.emptySlashCommand)
 
           return
         }
@@ -820,6 +852,6 @@ export function useSlashCommand() {
 
       await runSlash(rawCommand, options?.recordInput ?? true)
     },
-    [copy, handleSkinCommand]
+    [copy, handleSkinCommand, view]
   )
 }
