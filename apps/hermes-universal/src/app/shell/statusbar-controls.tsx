@@ -1,4 +1,4 @@
-import { type ComponentProps, type ReactNode, useMemo, useState } from 'react'
+import { type ComponentProps, memo, type ReactNode, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { NAV_ROW_BASE, NAV_ROW_ICON, NAV_ROW_LAYOUT } from '@/app/shell/nav-row'
@@ -198,7 +198,22 @@ function StatusbarHideHint() {
   return <span className="ml-auto pl-2 text-(--ui-text-quaternary)">{hint}</span>
 }
 
-export function StatusbarItemView({
+/**
+ * One statusbar segment.
+ *
+ * Memoized (MJXHRM-303) — and this only works because `useStatusbarItems` was
+ * restructured first to give each item a stable identity. Desktop measured
+ * 1,446 wasted renders of 2,174 here during a five-tab streaming run; before
+ * that restructure a memo on this component could not have hit once, because
+ * every item, icon element and `onSelect` closure was rebuilt per render.
+ *
+ * Reference equality on the three props is the whole comparator. No custom
+ * `propsEqual` is needed: `item` is now stable per item, `navigate` is stable
+ * from `useNavigate`, and `row` is a literal. If a future prop breaks that,
+ * `rowPropsEqual` in `app/chat/sidebar/session-row.tsx` is the local precedent
+ * for writing one — but prefer fixing the identity over widening the compare.
+ */
+function StatusbarItemViewImpl({
   item,
   navigate,
   row = false
@@ -351,3 +366,5 @@ export function StatusbarItemView({
     </Tip>
   )
 }
+
+export const StatusbarItemView = memo(StatusbarItemViewImpl)

@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useMemo } from 'react'
+import { type ReactNode, useCallback, useEffect, useMemo } from 'react'
 import { useLocation } from 'react-router-dom'
 
 import { jobState } from '@/app/cron/job-state'
@@ -34,6 +34,11 @@ import { $subagentsBySession, activeSubagentCount, failedSubagentCount } from '@
 import { $appVersion, $gatewayRestarting, $inferenceStatus, $statusSnapshot } from '@/store/system-status'
 import { openAgentsScreen, openCronScreen, openSettingsScreen, openSystemScreen } from '@/store/windows'
 import { $effectiveCwd, ensureWorkspaceCwd } from '@/store/workspace-events'
+
+// Emphasized (accent/blue) value for the rich list — the status VALUE stays
+// highlighted; the row's label uses the plain nav-row typography. Module scope
+// so it is not a fresh closure per render (MJXHRM-303).
+const accent = (node: ReactNode) => <span className="font-medium text-(--ui-accent)">{node}</span>
 
 // Copy the ABSOLUTE cwd to the clipboard, toasting on success (mirrors the
 // file-tree context menu's copy-path behavior). Deliberately not the tildified
@@ -190,73 +195,106 @@ export function useStatusbarItems(opts?: {
       ? 'text-amber-600 hover:text-amber-600'
       : 'text-destructive hover:text-destructive'
 
-  const gatewayMenuContent = (close: () => void) => (
-    <GatewayMenuPanel
-      gatewayState={gatewayState}
-      // The rich (mobile Status) list renders this panel in a cramped drawer where a
-      // connect form doesn't fit — so there "Change gateway" hands off to Settings ▸
-      // Gateway (the phone's only route to it) instead of expanding in place.
-      gatewaySwitch={rich ? 'link' : 'embedded'}
-      inferenceStatus={inferenceStatus}
-      onClose={close}
-      onOpenSystem={() => void openSystemScreen()}
-      statusSnapshot={statusSnapshot}
-    />
+  const gatewayMenuContent = useCallback(
+    (close: () => void) => (
+      <GatewayMenuPanel
+        gatewayState={gatewayState}
+        // The rich (mobile Status) list renders this panel in a cramped drawer
+        // where a connect form doesn't fit — so there "Change gateway" hands off
+        // to Settings ▸ Gateway (the phone's only route to it) instead of
+        // expanding in place.
+        gatewaySwitch={rich ? 'link' : 'embedded'}
+        inferenceStatus={inferenceStatus}
+        onClose={close}
+        onOpenSystem={() => void openSystemScreen()}
+        statusSnapshot={statusSnapshot}
+      />
+    ),
+    [gatewayState, inferenceStatus, rich, statusSnapshot]
   )
 
   const isRemoteBackend = connection?.mode === 'remote' || connection?.mode === 'cloud' || connection?.mode === 'ssh'
 
   const backendVersion = status?.version
 
-  // Emphasized (accent/blue) value for the rich list — the status VALUE stays
-  // highlighted; the row's label uses the plain nav-row typography.
-  const accent = (node: ReactNode) => <span className="font-medium text-(--ui-accent)">{node}</span>
-
   // Gateway status glyphs for the rich gateway row: a thunder (api-server
   // running = accent/blue, else orange) + up to 3 messaging platforms, painted
   // in brand color when connected and greyed otherwise. Connected first.
   const gatewayRunning = statusSnapshot?.gateway_running === true
 
-  const messagingPlatforms = Object.entries(statusSnapshot?.gateway_platforms ?? {})
-    .filter(([id]) => id !== 'api_server')
-    .sort(([, a], [, b]) => Number(b.state === 'connected') - Number(a.state === 'connected'))
-    .slice(0, 3)
+  const messagingPlatforms = useMemo(
+    () =>
+      Object.entries(statusSnapshot?.gateway_platforms ?? {})
+        .filter(([id]) => id !== 'api_server')
+        .sort(([, a], [, b]) => Number(b.state === 'connected') - Number(a.state === 'connected'))
+        .slice(0, 3),
+    [statusSnapshot]
+  )
 
-  const gatewayIcons = (
-    <span className="flex items-center gap-1.5">
-      <Zap className={cn('size-4', gatewayRunning ? 'text-(--ui-accent)' : 'text-(--ui-orange)')} />
-      {messagingPlatforms.map(([id, platform]) => (
-        <PlatformGlyph key={id} muted={platform.state !== 'connected'} platformId={id} platformName={id} />
-      ))}
-    </span>
+  const gatewayIcons = useMemo(
+    () => (
+      <span className="flex items-center gap-1.5">
+        <Zap className={cn('size-4', gatewayRunning ? 'text-(--ui-accent)' : 'text-(--ui-orange)')} />
+        {messagingPlatforms.map(([id, platform]) => (
+          <PlatformGlyph key={id} muted={platform.state !== 'connected'} platformId={id} platformName={id} />
+        ))}
+      </span>
+    ),
+    [gatewayRunning, messagingPlatforms]
   )
 
   // Inference readiness text ("Ready" / "Needs setup" / …) — accent when ready.
   const gatewayReadyText = gatewayRestarting ? copy.gatewayRestarting : gatewayDetail
 
-  const gatewayRichDetail = (
-    <span className="flex items-center gap-2">
-      {inferenceReady ? accent(gatewayReadyText) : gatewayReadyText}
-      {gatewayIcons}
-    </span>
+  const gatewayRichDetail = useMemo(
+    () => (
+      <span className="flex items-center gap-2">
+        {inferenceReady ? accent(gatewayReadyText) : gatewayReadyText}
+        {gatewayIcons}
+      </span>
+    ),
+    [gatewayIcons, gatewayReadyText, inferenceReady]
   )
 
   // Cron active/paused bullet counts for the rich cron row.
-  const cronDetail = (
-    <span className="flex items-center gap-2">
-      <span className="flex items-center gap-1">
-        <StatusDot tone="good" />
-        {cronActive}
+  const cronDetail = useMemo(
+    () => (
+      <span className="flex items-center gap-2">
+        <span className="flex items-center gap-1">
+          <StatusDot tone="good" />
+          {cronActive}
+        </span>
+        <span className="flex items-center gap-1">
+          <StatusDot tone="warn" />
+          {cronPaused}
+        </span>
       </span>
-      <span className="flex items-center gap-1">
-        <StatusDot tone="warn" />
-        {cronPaused}
-      </span>
-    </span>
+    ),
+    [cronActive, cronPaused]
   )
 
-  const leftStatusbarItems: StatusbarItem[] = [
-    {
+  // MEMOIZED (MJXHRM-303). These arrays used to be bare literals in the function
+  // body, so every item object, every JSX `icon` and every inline `onSelect` was
+  // a fresh identity on every render — and the hook re-runs on any of the 20
+  // stores subscribed above. `StatusbarItemView` could therefore never bail out;
+  // desktop measured 1,446 wasted renders of 2,174 during a five-tab streaming
+  // run at the equivalent site.
+  //
+  // The dependency lists are LONGER than desktop's, deliberately: universal has
+  // `rich` (the mobile Status list) and `hideOnMobile` gating that desktop lacks,
+  // and both change what several items render.
+  // MEMOIZED PER ITEM (MJXHRM-303), not per array — and the difference is the
+  // whole ticket. One `useMemo` around each array would still rebuild all 14
+  // items whenever any of its ~20 dependencies moved, so a terminal toggle would
+  // hand `StatusbarItemView` a fresh `running-timer` and the memo would miss on
+  // 13 of 14 items. Each item now changes only when its OWN inputs change; the
+  // arrays below are assembled from those stable references.
+  //
+  // The dependency lists are LONGER than desktop's, deliberately: universal has
+  // `rich` (the mobile Status list) and `hideOnMobile` gating that desktop lacks,
+  // and both change what several items render.
+  const commandCenterItem: StatusbarItem = useMemo(
+    () => ({
       className: cn('w-7 justify-center px-0', view === 'command-center' && 'bg-accent/55 text-foreground'),
       hidden: hideOnMobile,
       icon: <Command className="size-3.5" />,
@@ -268,8 +306,12 @@ export function useStatusbarItems(opts?: {
       title: copy.openCommandCenter,
       toggleLabel: copy.toggleCommandCenter,
       variant: 'action'
-    },
-    {
+    }),
+    [copy, hideOnMobile, view]
+  )
+
+  const gatewayItem: StatusbarItem = useMemo(
+    () => ({
       className: gatewayRestarting ? undefined : gatewayClassName,
       // Rich: readiness text (is inference ready) + status glyphs (api-server
       // thunder + messaging platforms). Bar: the plain state text.
@@ -290,8 +332,22 @@ export function useStatusbarItems(opts?: {
       menuContent: gatewayMenuContent,
       title: inferenceStatus?.reason || copy.gatewayTitle,
       variant: 'menu'
-    },
-    {
+    }),
+    [
+      copy,
+      gatewayClassName,
+      gatewayMenuContent,
+      gatewayReadyText,
+      gatewayRestarting,
+      gatewayRichDetail,
+      inferenceReady,
+      inferenceStatus,
+      rich
+    ]
+  )
+
+  const workspaceItem: StatusbarItem = useMemo(
+    () => ({
       // The rich list shows the full path as the value; the bar keeps the short
       // workspace label only.
       //
@@ -342,8 +398,12 @@ export function useStatusbarItems(opts?: {
         : undefined,
       title: displayPath(currentCwd) || undefined,
       variant: 'menu'
-    },
-    {
+    }),
+    [activeProject, copy, currentCwd, fileMenu, isRemoteBackend, rich]
+  )
+
+  const agentsItem: StatusbarItem = useMemo(
+    () => ({
       className: cn(
         view === 'agents' && 'bg-accent/55 text-foreground',
         subagentsFailed > 0 && 'text-destructive hover:text-destructive'
@@ -376,8 +436,12 @@ export function useStatusbarItems(opts?: {
       title: copy.openAgents,
       toggleLabel: copy.agents,
       variant: 'action'
-    },
-    {
+    }),
+    [copy, rich, subagentsFailed, subagentsRunning, view]
+  )
+
+  const cronItem: StatusbarItem = useMemo(
+    () => ({
       detail: rich ? cronDetail : undefined,
       hidden: hideOnMobile,
       icon: <Clock className="size-3" />,
@@ -390,11 +454,17 @@ export function useStatusbarItems(opts?: {
       title: copy.openCron,
       toggleLabel: copy.cron,
       variant: 'action'
-    }
-  ]
+    }),
+    [copy, cronDetail, hideOnMobile, rich]
+  )
 
-  const statusbarItems: StatusbarItem[] = [
-    {
+  const leftStatusbarItems: StatusbarItem[] = useMemo(
+    () => [commandCenterItem, gatewayItem, workspaceItem, agentsItem, cronItem],
+    [commandCenterItem, gatewayItem, workspaceItem, agentsItem, cronItem]
+  )
+
+  const runningTimerItem: StatusbarItem = useMemo(
+    () => ({
       detail: <LiveDuration since={turnStartedAt} />,
       hidden: !busy || !turnStartedAt,
       icon: <Loader2 className="size-3 animate-spin" />,
@@ -403,8 +473,12 @@ export function useStatusbarItems(opts?: {
       title: copy.currentTurnElapsed,
       toggleLabel: copy.toggleRunningTimer,
       variant: 'text'
-    },
-    {
+    }),
+    [busy, copy, turnStartedAt]
+  )
+
+  const contextUsageItem: StatusbarItem = useMemo(
+    () => ({
       detail: contextBar || undefined,
       hidden: !contextUsage,
       id: 'context-usage',
@@ -417,8 +491,12 @@ export function useStatusbarItems(opts?: {
       title: copy.openContextUsage,
       toggleLabel: copy.toggleContextUsage,
       variant: 'menu'
-    },
-    {
+    }),
+    [contextBar, contextUsage, copy, currentUsage, sessionId]
+  )
+
+  const sessionTimerItem: StatusbarItem = useMemo(
+    () => ({
       detail: <LiveDuration since={sessionStartedAt} />,
       hidden: !sessionStartedAt,
       id: 'session-timer',
@@ -426,16 +504,24 @@ export function useStatusbarItems(opts?: {
       title: copy.runtimeSessionElapsed,
       toggleLabel: copy.toggleSessionTimer,
       variant: 'text'
-    },
-    {
+    }),
+    [copy, sessionStartedAt]
+  )
+
+  const approvalItem: StatusbarItem = useMemo(
+    () => ({
       ...approvalModeItem,
       // Rich: a fixed "Approval" label with the mode name as a muted value; drop
       // the bar-only background className.
       ...(rich ? { className: undefined, detail: accent(approvalModeItem.label), label: 'Approval' } : {}),
       hidden: gatewayState !== 'open',
       toggleLabel: copy.toggleApprovalMode
-    },
-    {
+    }),
+    [approvalModeItem, copy, gatewayState, rich]
+  )
+
+  const terminalItem: StatusbarItem = useMemo(
+    () => ({
       actionId: 'view.showTerminal',
       className: cn('w-7 justify-center px-0', terminalOpen && 'bg-accent/55 text-foreground'),
       icon: <Terminal className="size-3.5" />,
@@ -444,8 +530,12 @@ export function useStatusbarItems(opts?: {
       title: terminalOpen ? copy.hideTerminal : copy.showTerminal,
       toggleLabel: copy.toggleTerminal,
       variant: 'action'
-    },
-    {
+    }),
+    [copy, terminalOpen]
+  )
+
+  const keepAwakeItem: StatusbarItem = useMemo(
+    () => ({
       // Quick reach for the Advanced-page toggle: a long unattended run is
       // exactly when you notice the machine is about to sleep. Lit while the
       // inhibitor is held. Desktop-only — `hidden` also keeps it out of the
@@ -458,8 +548,12 @@ export function useStatusbarItems(opts?: {
       title: keepAwake ? copy.keepAwakeOn : copy.keepAwakeOff,
       toggleLabel: copy.toggleKeepAwake,
       variant: 'action'
-    },
-    {
+    }),
+    [copy, keepAwake]
+  )
+
+  const clientVersionItem: StatusbarItem = useMemo(
+    () => ({
       // Rich: "Client" + the version as a muted value on the right; the bar shows
       // the combined "client vX" label.
       detail: rich && appVersion ? accent(`v${appVersion}`) : undefined,
@@ -473,8 +567,12 @@ export function useStatusbarItems(opts?: {
       title: appVersion ? copy.clientLabel(appVersion) : undefined,
       toggleLabel: copy.toggleVersion,
       variant: 'action'
-    },
-    {
+    }),
+    [appVersion, copy, hideOnMobile, rich]
+  )
+
+  const backendVersionItem: StatusbarItem = useMemo(
+    () => ({
       detail: rich && backendVersion ? accent(`v${backendVersion}`) : undefined,
       hidden: hideOnMobile || !isRemoteBackend || !backendVersion,
       icon: <Hash className="size-3" />,
@@ -485,8 +583,12 @@ export function useStatusbarItems(opts?: {
       title: backendVersion ? copy.backendVersion(backendVersion) : undefined,
       toggleLabel: copy.toggleBackendVersion,
       variant: 'action'
-    },
-    {
+    }),
+    [backendVersion, copy, hideOnMobile, isRemoteBackend, rich]
+  )
+
+  const pluginsItem: StatusbarItem = useMemo(
+    () => ({
       // Plugin inventory at a glance, routing to the page that manages it. The
       // phone never mounts the Statusbar, so this only ever appears in the mobile
       // Status list — `includeAll` is exactly that caller. Desktop has no such
@@ -503,16 +605,46 @@ export function useStatusbarItems(opts?: {
       onSelect: () => void openSettingsScreen(PLUGINS_SETTINGS_ROUTE),
       title: t.settings.plugins.title,
       variant: 'action'
-    }
-  ]
+    }),
+    [opts?.includeAll, pluginFailedCount, pluginLoadedCount, rich, t.settings.plugins.title]
+  )
+
+  const statusbarItems: StatusbarItem[] = useMemo(
+    () => [
+      runningTimerItem,
+      contextUsageItem,
+      sessionTimerItem,
+      approvalItem,
+      terminalItem,
+      keepAwakeItem,
+      clientVersionItem,
+      backendVersionItem,
+      pluginsItem
+    ],
+    [
+      runningTimerItem,
+      contextUsageItem,
+      sessionTimerItem,
+      approvalItem,
+      terminalItem,
+      keepAwakeItem,
+      clientVersionItem,
+      backendVersionItem,
+      pluginsItem
+    ]
+  )
 
   // Contribution ordering matches desktop (use-statusbar-items.tsx:542-548):
   // left = core then contributed; right = contributed then core, so plugin chips
   // sit inboard of the app's own right-hand cluster (terminal, versions).
-  // No useMemo: the core arrays above are fresh literals every render, so a memo
-  // keyed on them could never hit — and nothing downstream depends on identity.
-  return {
-    leftStatusbarItems: [...leftStatusbarItems, ...(opts?.extraLeftItems ?? [])],
-    statusbarItems: [...(opts?.extraRightItems ?? []), ...statusbarItems]
-  }
+  // Memoized too: `StatusbarItemView` bails on reference equality of `item`, so
+  // the concatenation must not mint a fresh array (and therefore fresh element
+  // positions) on every render either.
+  return useMemo(
+    () => ({
+      leftStatusbarItems: [...leftStatusbarItems, ...(opts?.extraLeftItems ?? [])],
+      statusbarItems: [...(opts?.extraRightItems ?? []), ...statusbarItems]
+    }),
+    [leftStatusbarItems, opts?.extraLeftItems, opts?.extraRightItems, statusbarItems]
+  )
 }
