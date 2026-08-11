@@ -2,10 +2,12 @@ import { open } from '@tauri-apps/plugin-dialog'
 import { readFile } from '@tauri-apps/plugin-fs'
 
 import { formatRefValue as refValue } from '@/components/assistant-ui/directive-text'
+import { translateNow } from '@/i18n'
 import { selectRemotePaths } from '@/lib/desktop-fs'
 import { ensureSession } from '@/store/chat'
 import type { ComposerAttachment } from '@/store/composer'
 import { requestGateway } from '@/store/gateway'
+import { notifyError } from '@/store/notifications'
 import { withSessionNotFoundResume } from '@/store/session-recovery'
 
 // Attachment staging (Gc8/R7). Pick a file → read bytes → data-URL → file.attach
@@ -63,6 +65,13 @@ export interface StagedAttachment {
  * gateway) and return its prompt ref. Shared by the picker and the OS file-drop
  * handler (a Tauri drop hands over paths directly). Returns null on failure —
  * e.g. a dropped directory, whose readFile throws, is skipped rather than fatal.
+ *
+ * Failure RAISES a notification rather than returning quietly. The caller can't
+ * tell "cancelled" from "failed" (both were null), so an unreadable file, an
+ * Android SAF content-URI `readFile` can't open, or a `file.attach` that answers
+ * without a ref all used to land as complete silence: no chip, no error, the
+ * turn sent as if nothing had been attached. Cancel never reaches here — the
+ * pickers return before calling.
  */
 export async function stageAttachmentFromPath(path: string): Promise<StagedAttachment | null> {
   try {
@@ -84,15 +93,21 @@ export async function stageAttachmentFromPath(path: string): Promise<StagedAttac
       })
     )
 
-    return res.ref_text ? { ref: res.ref_text, name } : null
-  } catch {
+    if (res.ref_text) {
+      return { ref: res.ref_text, name }
+    }
+
+    throw new Error(translateNow('composer.attachNoRef'))
+  } catch (error) {
+    notifyError(error, translateNow('composer.attachFailed', basename(path)))
+
     return null
   }
 }
 
 /** Open the picker, stage the file via file.attach, return its prompt ref. */
 export async function pickAttachment(): Promise<StagedAttachment | null> {
-  const path = await open({ multiple: false })
+  const path = await open({ multiple: false }).catch(() => null)
 
   if (typeof path !== 'string') {
     return null
@@ -109,7 +124,7 @@ export async function pickAttachment(): Promise<StagedAttachment | null> {
  * composer offers this at all.
  */
 export async function pickFolderAttachment(): Promise<StagedAttachment | null> {
-  const path = await open({ directory: true, multiple: false })
+  const path = await open({ directory: true, multiple: false }).catch(() => null)
 
   if (typeof path !== 'string') {
     return null

@@ -2264,6 +2264,8 @@ export const zh: Translations = {
     themeTryPre: '试试 ',
     themeTryPost: '。',
     attachLabel: '附加',
+    attachFailed: label => `无法附加 ${label}`,
+    attachNoRef: '网关未暂存此文件。',
     files: '文件…',
     folder: '文件夹…',
     back: '返回',

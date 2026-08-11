@@ -2104,6 +2104,8 @@ export const en: Translations = {
     themeTryPre: 'Try ',
     themeTryPost: '.',
     attachLabel: 'Attach',
+    attachFailed: label => `Could not attach ${label}`,
+    attachNoRef: 'The gateway staged nothing for this file.',
     files: 'Files…',
     folder: 'Folder…',
     back: 'Back',
