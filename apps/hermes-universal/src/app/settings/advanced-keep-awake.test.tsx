@@ -18,6 +18,13 @@ vi.mock('@/hermes', () => ({
   saveHermesConfig: vi.fn(async () => ({ ok: true }))
 }))
 
+// Rust answers with the inhibitor it actually holds, so the row has to follow
+// that answer rather than the ask — mocked here at the same IPC boundary the
+// store test uses.
+const { invoke } = vi.hoisted(() => ({ invoke: vi.fn(async (_cmd: string, args: { on: boolean }) => args.on) }))
+
+vi.mock('@tauri-apps/api/core', () => ({ invoke }))
+
 const { desktop } = vi.hoisted(() => ({ desktop: { value: true } }))
 
 vi.mock('@/lib/platform', async importActual => ({
@@ -46,6 +53,8 @@ const renderAdvanced = () =>
 
 beforeEach(() => {
   desktop.value = true
+  invoke.mockReset()
+  invoke.mockImplementation(async (_cmd: string, args: { on: boolean }) => args.on)
   $keepAwake.set(false)
   queryClient.clear()
 })
@@ -64,6 +73,23 @@ describe('Advanced → keep computer awake', () => {
 
     fireEvent.click(toggle)
     expect($keepAwake.get()).toBe(true)
+
+    await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith('set_keep_awake', { on: true }))
+    expect(toggle).toBeChecked()
+  })
+
+  // There is no logind under WSL or on a non-systemd distro: the ask really is
+  // refused in the wild, and a switch left sitting "on" over a machine free to
+  // sleep is the one outcome this row must never produce.
+  it('snaps back off when the OS refuses the inhibitor', async () => {
+    invoke.mockRejectedValueOnce(new Error('no logind'))
+    renderAdvanced()
+
+    const toggle = await screen.findByRole('switch', { name: 'Keep computer awake' })
+
+    fireEvent.click(toggle)
+    await vi.waitFor(() => expect(toggle).not.toBeChecked())
+    expect($keepAwake.get()).toBe(false)
   })
 
   it('is absent off desktop', async () => {
