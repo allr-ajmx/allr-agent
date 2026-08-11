@@ -100,6 +100,56 @@ let captureLease: VoiceLease | null = null
 let captureOff: (() => void) | null = null
 
 /**
+ * How long a `fed: false` keeps us from reconciling again.
+ *
+ * The reconcile releases the mic and re-reads the backend, and `armWakeWord`
+ * may legitimately re-arm from there — so without a floor a backend that arms
+ * successfully and then refuses every frame would spin at frame rate. One
+ * attempt per half-minute recovers a detector that genuinely died without ever
+ * becoming a loop.
+ */
+const FEED_REFUSAL_COOLDOWN_MS = 30_000
+
+/** When the last `fed: false` was acted on. Module-level, not per-lease: the
+ *  reconcile itself opens a new lease, so a per-lease latch would reset each
+ *  time round and defeat the cooldown. */
+let feedRefusedAt = 0
+
+/**
+ * `wake.feed` answered `fed: false` — the gateway is DISCARDING our audio.
+ *
+ * A refusal is a 200, not a rejection, so nothing throws and the promise the
+ * frame handler fires resolves cleanly. `feed_audio` (tools/wake_word.py) returns
+ * False in three real situations, all of which look identical from here: the
+ * detector was disarmed, another transport owns it, or it went back to capturing
+ * locally. In every one of them this client is holding the user's microphone open
+ * and streaming PCM several times a second into a function that drops it.
+ *
+ * So treat it as authoritative: let the device go, then re-read `wake.status`
+ * rather than inventing state. Recovery is the existing `armWakeWord` path — app
+ * start, the end of a voice conversation, or the composer's ear button.
+ */
+async function handleFeedRefusal(reason: null | string): Promise<void> {
+  const now = Date.now()
+
+  if (now - feedRefusedAt < FEED_REFUSAL_COOLDOWN_MS) {
+    return
+  }
+
+  feedRefusedAt = now
+
+  await stopClientCapture()
+  patch({ reason: reason ?? 'feed_refused', hint: null })
+
+  try {
+    applyStatus(await wakeWordStatus())
+  } catch {
+    // The socket went with it. `stopClientCapture` already told the truth about
+    // the half we control; the next arm reconciles the rest.
+  }
+}
+
+/**
  * Open the mic and stream 16 kHz int16 batches at `wake.feed`.
  *
  * The capture is Rust's (`voice_wake_listen`), not `getUserMedia`'s: on Tauri the
@@ -118,9 +168,14 @@ async function startClientCapture(): Promise<boolean> {
 
     captureOff = lease.on(event => {
       if (event.type === 'wakeFrame' && event.pcm) {
-        // Fire and forget: a dropped frame is a millisecond of missed audio, and
-        // awaiting here would let a slow socket stall the emitter behind it.
-        void feedWakeAudio(event.pcm).catch(() => undefined)
+        // Not awaited: a dropped frame is a millisecond of missed audio, and
+        // blocking here would let a slow socket stall the emitter behind it. The
+        // ANSWER still has to be read — `fed: false` is the gateway telling us it
+        // is throwing this audio away, and it arrives as a resolved value, never
+        // as a rejection.
+        void feedWakeAudio(event.pcm)
+          .then(result => (result.fed ? undefined : handleFeedRefusal(result.reason)))
+          .catch(() => undefined)
       }
     })
 
@@ -242,6 +297,10 @@ export async function toggleWakeWord(): Promise<void> {
     return
   }
 
+  // A deliberate click clears the refusal cooldown: the user is asking for the
+  // mic right now, so the next `fed: false` must be acted on immediately rather
+  // than sitting inside a window opened by the previous attempt.
+  feedRefusedAt = 0
   patch({ busy: true })
 
   try {

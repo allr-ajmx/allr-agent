@@ -193,6 +193,50 @@ describe('capture mode', () => {
     expect($wakeWord.get().reason).toBe('capture_failed')
   })
 
+  /**
+   * `wake.feed` answering `fed: false` is a 200, not a rejection — `feed_audio`
+   * returns False when the detector was disarmed, is owned by another transport,
+   * or went back to local capture. Dropping that answer leaves this client
+   * holding the user's microphone open and pushing PCM the gateway discards,
+   * several times a second, for as long as the app runs.
+   */
+  it('releases the mic when the gateway starts discarding the audio', async () => {
+    start.mockResolvedValue({ started: true, capture: 'client', phrase: 'hey hermes' })
+    await toggleWakeWord()
+
+    const lease = h.leases[0]
+    expect($wakeWord.get().streaming).toBe(true)
+
+    feed.mockResolvedValue({ fed: false, reason: 'not_owner' })
+    status.mockResolvedValue({ ...STATUS, enabled: true, listening: true, owned_by_caller: false })
+
+    h.emit?.({ type: 'wakeFrame', pcm: 'AAEC' })
+    await vi.waitFor(() => expect(lease.close).toHaveBeenCalled())
+
+    const state = $wakeWord.get()
+    expect(state.streaming).toBe(false)
+    expect(state.reason).toBe('not_owner')
+    // Re-read rather than guessed: the backend is the one that knows who owns it.
+    expect(state.owned).toBe(false)
+  })
+
+  it('acts on the discard once, not once per frame', async () => {
+    start.mockResolvedValue({ started: true, capture: 'client', phrase: 'hey hermes' })
+    await toggleWakeWord()
+
+    feed.mockResolvedValue({ fed: false, reason: 'not_owner' })
+    status.mockClear()
+
+    for (let i = 0; i < 5; i += 1) {
+      h.emit?.({ type: 'wakeFrame', pcm: 'AAEC' })
+    }
+
+    await vi.waitFor(() => expect(status).toHaveBeenCalled())
+    // A cooldown, not a per-frame reaction: five refusals inside the window must
+    // not become five mic-release/reconcile round trips.
+    expect(status).toHaveBeenCalledTimes(1)
+  })
+
   it('surfaces a start refusal without claiming to listen', async () => {
     start.mockResolvedValue({ started: false, reason: 'unavailable', hint: 'install onnxruntime' })
 

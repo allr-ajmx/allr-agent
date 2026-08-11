@@ -1,4 +1,5 @@
 import { PET_SETTINGS_ROUTE } from '@/app/routes'
+import { isMissingRpcMethod } from '@/lib/gateway-rpc'
 import { atom } from '@/store/atom'
 import { requestGateway, subscribeGateway } from '@/store/gateway'
 import { notifyError } from '@/store/notifications'
@@ -87,9 +88,6 @@ export const $petGenDrafts = atom<PetDraft[]>([])
 export const $petGenSelected = atom<number | null>(null)
 /** The hatched-but-unadopted pet: its renderer payload, played in the preview. */
 export const $petGenPreview = atom<PetInfo | null>(null)
-
-const isMissingMethod = (err: unknown): boolean =>
-  /method not found|-32601|unknown method|no such method/i.test(err instanceof Error ? err.message : String(err))
 
 /** Clear all generation state (before a fresh run or on close). */
 export function resetPetGen(): void {
@@ -208,7 +206,7 @@ export async function generateDrafts(prompt: string): Promise<boolean> {
       return false
     }
 
-    if (isMissingMethod(e)) {
+    if (isMissingRpcMethod(e)) {
       $petGenStatus.set('stale')
     } else {
       $petGenStatus.set('error')
