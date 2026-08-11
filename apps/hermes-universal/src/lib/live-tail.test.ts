@@ -50,6 +50,14 @@ describe('the vocabulary', () => {
     expect(isLiveTailRow(reply('h3-assistant', 'x'))).toBe(false)
   })
 
+  // MJXHRM-358: a queued prompt is a projection of gateway state exactly like an
+  // inflight one. Left out of the tail, the reconnect fold re-projected it on
+  // top of itself — the same bubble twice under one React key, and above the
+  // assistant row the projection appends after it.
+  it('counts a projected queued prompt as part of the tail', () => {
+    expect(isLiveTailRow(user('user-queued-s1', 'next please'))).toBe(true)
+  })
+
   // The gateway rewrites references on the way through, so the round-tripped
   // copy of a message would otherwise look like a different message.
   it('strips whole reference lines but keeps an inline one', () => {
@@ -156,6 +164,36 @@ describe('preserveStructuralParts', () => {
     const authoritative = structured('h2', 'x')
 
     expect(preserveStructuralParts(authoritative, structured('assistant-stream-s1', 'y'))).toBe(authoritative)
+  })
+
+  // MJXHRM-358. The reconnect fold is computed AFTER a slow `session.resume`
+  // round trip, and the router keeps streaming deltas into the slice for its
+  // whole duration — so the local row is routinely AHEAD of the snapshot it is
+  // paired with. With no structure to carry, the merge used to bail out
+  // entirely: the shorter dump stayed as the paired row, and
+  // `preserveLocalPendingTurnMessages` could no longer recognise our longer copy
+  // as the same answer, so it appended it as a second one.
+  it('keeps the local answer when the incoming live row is BEHIND it', () => {
+    const out = preserveStructuralParts(
+      reply('assistant-stream-s1', 'the answer so far', { pending: true }),
+      reply('local-a1', 'the answer so far and then some', { pending: true })
+    )
+
+    expect(out.id).toBe('assistant-stream-s1')
+    expect(out.parts.filter(p => p.type === 'text').map(p => ('text' in p ? p.text : ''))).toEqual([
+      'the answer so far and then some'
+    ])
+  })
+
+  // That carry is only safe between two rows that BOTH describe the live tail.
+  // A committed history row sharing an ordinal with an unrelated local one keeps
+  // its own prose.
+  it('never rewrites a committed row with a structure-less local one', () => {
+    const authoritative = reply('h2', 'the committed answer')
+
+    expect(preserveStructuralParts(authoritative, reply('local-a1', 'something else', { pending: true }))).toBe(
+      authoritative
+    )
   })
 })
 

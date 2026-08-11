@@ -502,6 +502,45 @@ describe('ensureSession cwd', () => {
   })
 })
 
+// MJXHRM-358. A slice that already names a STORED session is not a new chat,
+// whatever its runtime binding says. The reconnect path used to leave every
+// slice with `runtimeSessionId: null`, and this function answered the next
+// message with `session.create` — rekeying the transcript onto a brand-new empty
+// session and overwriting its stored id, so the user went on typing into a chat
+// whose agent had none of the history still on screen.
+describe('ensureSession on a persisted chat with no runtime binding', () => {
+  it('rebinds through a resume instead of forking a new session', async () => {
+    seedActiveSession('runtime-4', { runtimeSessionId: null, storedSessionId: 'stored-4' })
+    vi.mocked(requestGateway).mockResolvedValue({ session_id: 'runtime-4-new' } as never)
+
+    const out = await ensureSession()
+
+    expect(out).toEqual({ created: false, id: 'runtime-4-new', storedId: 'stored-4' })
+    expect(requestGateway).toHaveBeenCalledTimes(1)
+    expect(requestGateway).toHaveBeenCalledWith(
+      'session.resume',
+      expect.objectContaining({ session_id: 'stored-4', omit_messages: true })
+    )
+    // Rekeyed, so the router addresses the slice by the id the gateway will
+    // stamp on the reply.
+    expect($sessionStates.get()['runtime-4']).toBeUndefined()
+    expect($sessionStates.get()['runtime-4-new']).toMatchObject({
+      runtimeSessionId: 'runtime-4-new',
+      storedSessionId: 'stored-4'
+    })
+  })
+
+  // A resume that yields nothing must NOT fall through to `session.create`:
+  // surfacing the failure rolls the turn back, forking the conversation does not.
+  it('throws rather than falling through to session.create', async () => {
+    seedActiveSession('runtime-5', { runtimeSessionId: null, storedSessionId: 'stored-5' })
+    vi.mocked(requestGateway).mockResolvedValue({} as never)
+
+    await expect(ensureSession()).rejects.toThrow(/stored-5/)
+    expect(requestGateway).not.toHaveBeenCalledWith('session.create', expect.anything())
+  })
+})
+
 describe('reasoning blocks across a multi-step turn', () => {
   const reasoningTexts = () =>
     $messages

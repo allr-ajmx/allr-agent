@@ -524,6 +524,110 @@ describe('reconcileSessionTurn', () => {
     vi.resetModules()
   })
 
+  // MJXHRM-358, the other half. The fold is computed after the resume round
+  // trip precisely BECAUSE the router keeps streaming into the slice while it is
+  // in the air — so on a plain prose answer (no reasoning, no tools) the local
+  // row is regularly AHEAD of the snapshot it is paired with. The merge used to
+  // bail out with nothing to carry, leaving the gateway's shorter dump as the
+  // paired row and appending our longer copy beside it: the answer printed
+  // twice, once truncated.
+  it('does not double-print an UNSTRUCTURED tail that streamed past the snapshot', async () => {
+    vi.doMock('@/store/gateway', () => ({
+      $gatewayState: { get: () => 'open', subscribe: () => () => {} },
+      requestGateway: vi.fn(async () => ({
+        message_count: 0,
+        messages: [],
+        running: true,
+        session_id: 'runtime-8',
+        inflight: { user: 'explain it', assistant: 'Sure. First', streaming: true }
+      }))
+    }))
+
+    vi.resetModules()
+    const states = await import('@/store/session-state-types')
+    const lifecycle = await import('@/store/turn-lifecycle')
+
+    states.publishSessionState('runtime-8', {
+      ...emptySessionState('stored-8'),
+      runtimeSessionId: 'runtime-8',
+      busy: true,
+      messages: [
+        { id: 'u1', role: 'user', parts: [{ type: 'text', text: 'explain it' }] },
+        {
+          id: 'a1',
+          role: 'assistant',
+          pending: true,
+          // Ahead of the snapshot: these tokens landed during the round trip.
+          parts: [{ type: 'text', text: 'Sure. First, the socket' }]
+        }
+      ]
+    })
+    lifecycle.beginTurn('runtime-8', { prompt: 'explain it' })
+
+    await lifecycle.reconcileSessionTurn('runtime-8')
+
+    const messages = states.$sessionStates.get()['runtime-8'].messages
+    const assistants = messages.filter(message => message.role === 'assistant')
+
+    expect(assistants).toHaveLength(1)
+    // …and it is the LONGER copy that survives, not the snapshot's prefix.
+    expect(assistants[0].parts.filter(part => part.type === 'text').map(part => part.text)).toEqual([
+      'Sure. First, the socket'
+    ])
+    // The row is still the live tail, so the next delta keeps landing in it.
+    expect(assistants[0].pending).toBe(true)
+
+    vi.doUnmock('@/store/gateway')
+    vi.resetModules()
+  })
+
+  // A turn that failed while the socket was down has no terminal frame to
+  // replay: `_fail_inflight_turn`'s retained snapshot is the only copy. The plan
+  // settles the record; the tail fold is what puts the failure on screen.
+  it('surfaces a failure the gateway retained while we were offline', async () => {
+    vi.doMock('@/store/gateway', () => ({
+      $gatewayState: { get: () => 'open', subscribe: () => () => {} },
+      requestGateway: vi.fn(async () => ({
+        message_count: 0,
+        messages: [],
+        running: false,
+        session_id: 'runtime-9',
+        inflight: { user: 'do it', assistant: 'I started to', error: 'provider connection reset', streaming: false }
+      }))
+    }))
+
+    vi.resetModules()
+    const states = await import('@/store/session-state-types')
+    const lifecycle = await import('@/store/turn-lifecycle')
+
+    states.publishSessionState('runtime-9', {
+      ...emptySessionState('stored-9'),
+      runtimeSessionId: 'runtime-9',
+      busy: true,
+      messages: [
+        { id: 'u1', role: 'user', parts: [{ type: 'text', text: 'do it' }] },
+        { id: 'a1', role: 'assistant', pending: true, parts: [{ type: 'text', text: 'I started to' }] }
+      ]
+    })
+    lifecycle.beginTurn('runtime-9', { prompt: 'do it' })
+
+    const plan = await lifecycle.reconcileSessionTurn('runtime-9')
+
+    expect(plan).toEqual({ action: 'fail', error: 'provider connection reset' })
+
+    const messages = states.$sessionStates.get()['runtime-9'].messages
+    const assistants = messages.filter(message => message.role === 'assistant')
+
+    expect(assistants).toHaveLength(1)
+    expect(assistants[0].error).toBe('provider connection reset')
+    // Not left spinning behind an error nothing can clear.
+    expect(assistants[0].pending).toBe(false)
+    expect(states.$sessionStates.get()['runtime-9'].busy).toBe(false)
+
+    vi.doUnmock('@/store/gateway')
+    vi.resetModules()
+  })
+
   it('does not re-project a tail onto a turn the gateway has forgotten', async () => {
     vi.doMock('@/store/gateway', () => ({
       $gatewayState: { get: () => 'open', subscribe: () => () => {} },

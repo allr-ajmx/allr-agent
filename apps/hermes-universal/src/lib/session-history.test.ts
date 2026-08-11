@@ -228,6 +228,38 @@ describe('appendLiveSessionProjection', () => {
     expect(out.map(m => m.role)).toEqual(['user', 'assistant', 'user'])
     expect(out[2]).toMatchObject({ parts: [{ type: 'text', text: 'second' }] })
   })
+
+  // MJXHRM-358. `_fail_inflight_turn` retains a failed turn precisely because
+  // its terminal `error` frame can die with the socket, so on a reconnect this
+  // snapshot is the ONLY copy of that failure the client gets. The row it forces
+  // into existence carried no error at all, so the turn came back looking like a
+  // healthy (truncated) reply with the spinner cleared.
+  it('carries a retained failure onto the projected row', () => {
+    const out = appendLiveSessionProjection([], {
+      inflight: {
+        assistant: 'I started to',
+        error: 'provider connection reset',
+        streaming: false,
+        user: 'do the thing'
+      },
+      session_id: 's1'
+    })
+
+    expect(out.map(m => m.role)).toEqual(['user', 'assistant'])
+    expect(out[1]).toMatchObject({ error: 'provider connection reset', pending: false })
+  })
+
+  // The partial text is optional — a turn can fail before it says anything, and
+  // the failure still has to reach the transcript.
+  it('projects a failure with no partial text at all', () => {
+    const out = appendLiveSessionProjection([], {
+      inflight: { assistant: '', error: 'context length exceeded', streaming: false, user: '' },
+      session_id: 's1'
+    })
+
+    expect(out).toHaveLength(1)
+    expect(out[0]).toMatchObject({ role: 'assistant', error: 'context length exceeded' })
+  })
 })
 
 describe('restoring a multi-step turn', () => {

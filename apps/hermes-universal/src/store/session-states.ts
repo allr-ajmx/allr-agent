@@ -354,13 +354,33 @@ if (ownsPersistedAppState()) {
 }
 
 /**
- * The gateway reconnected, so every runtime id it issued before is dead.
+ * The gateway reconnected: every turn we thought was live is now unverified, and
+ * the tile bindings and stream pin that named the previous socket's runs are
+ * dead.
  *
  * Sessions are NOT wiped: their transcripts are still what the user was reading,
  * and a draft has no runtime binding to lose at all — clearing the map here
  * would throw away an unsent draft, which is the one thing that cannot be
- * re-fetched. Instead the live bindings are dropped so the surfaces that show a
- * session (the active chat, tiles, bubbles) re-resume it on their own.
+ * re-fetched.
+ *
+ * The slice's `runtimeSessionId` is NOT cleared either, and that is the whole
+ * correction (MJXHRM-358). It used to be, on the reasoning that a reconnect
+ * re-issues runtime ids — but nothing ever put it back. A soft reconnect
+ * re-claims the SAME live record (`_claim_or_reuse_live`), so the id is usually
+ * still valid; when it genuinely is dead, `store/session-recovery.ts` rebinds it
+ * on the first verb that uses it, which is exactly what that resolver exists for
+ * and what tiles have always relied on. Nulling it instead made a persisted
+ * conversation indistinguishable from a DRAFT for the rest of the process:
+ * `ensureSession` saw no session id and answered the first message after any
+ * reconnect with `session.create`, forking the chat into a brand-new empty
+ * session under the old transcript. Handoff, `/branch`, the model picker, the
+ * context-usage read and the compaction id-rotation guard all read the same
+ * atom and went dead with it.
+ *
+ * What IS cleared is the liveness: `busy` and `turnStartedAt` describe a turn on
+ * a socket that no longer exists. `store/turn-lifecycle.ts#reconcileInflightTurns`
+ * re-arms them for a turn the gateway is still running, and `session.active_list`
+ * (store/live-session-status.ts) covers the sessions that had no local record.
  */
 export function invalidateRuntimeBindings(): void {
   resetUnscopedStreamPin()
@@ -368,8 +388,8 @@ export function invalidateRuntimeBindings(): void {
   resetTileRuntimeBindings()
 
   for (const [key, state] of Object.entries($sessionStates.get())) {
-    if (state.runtimeSessionId) {
-      updateSession(key, current => ({ ...current, runtimeSessionId: null, busy: false, turnStartedAt: null }))
+    if (state.busy || state.turnStartedAt !== null) {
+      updateSession(key, current => ({ ...current, busy: false, turnStartedAt: null }))
     }
   }
 }
