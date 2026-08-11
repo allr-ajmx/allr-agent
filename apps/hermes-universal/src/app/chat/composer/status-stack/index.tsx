@@ -1,4 +1,4 @@
-import { type ReactNode, useLayoutEffect, useMemo, useRef } from 'react'
+import { type ReactNode, useCallback, useLayoutEffect, useMemo, useRef } from 'react'
 
 import { blurComposerInput } from '@/app/chat/composer/focus'
 import { BillingBanner } from '@/components/chat/billing-banner'
@@ -56,6 +56,26 @@ export function ComposerStatusStack({ queue, sessionId }: ComposerStatusStackPro
     [previewBySession, sessionId]
   )
 
+  // Stable handlers for the two memoized rows below. Built here rather than
+  // inline at the call sites, where a fresh arrow per row per render made both
+  // `memo()` boundaries inert (MJXHRM-45).
+  const dismissPreview = useCallback(
+    (id: string) => {
+      if (sessionId) {
+        dismissPreviewArtifact(sessionId, id)
+      }
+    },
+    [sessionId]
+  )
+
+  // Watch a running subagent in its own native window (desktop only, and not
+  // from a pop-out; MJX-104). Child id via `child_session_id`.
+  const canOpenSubagentWindow = canOpenSessionWindow()
+
+  const openSubagentWindow = useCallback((subagentSessionId: string) => {
+    void openSessionInNewWindow(subagentSessionId, { watch: true })
+  }, [])
+
   const sections: { key: string; node: ReactNode }[] = []
 
   // Billing wall sits at the very top of the stack — it's the most important
@@ -75,17 +95,10 @@ export function ComposerStatusStack({ queue, sessionId }: ComposerStatusStackPro
           label={t.statusStack.subagents(subagents.length)}
         >
           {subagents.map(item => (
-            <StatusItemRow
-              item={item}
-              key={item.id}
-              // Watch a running subagent in its own native window (desktop only,
-              // and not from a pop-out; MJX-104). Child id via `child_session_id`.
-              onOpen={
-                canOpenSessionWindow() && item.sessionId
-                  ? () => void openSessionInNewWindow(item.sessionId!, { watch: true })
-                  : undefined
-              }
-            />
+            // `onOpen` / `canOpen` are hoisted and stable, so the row's memo
+            // can actually bail (MJXHRM-45). They used to be a fresh arrow per
+            // row per render, which made the memo inert.
+            <StatusItemRow canOpen={canOpenSubagentWindow} item={item} key={item.id} onOpen={openSubagentWindow} />
           ))}
         </StatusSection>
       )
@@ -100,7 +113,7 @@ export function ComposerStatusStack({ queue, sessionId }: ComposerStatusStackPro
       node: (
         <div className="px-1 py-0.5">
           {previews.map(item => (
-            <PreviewStatusRow item={item} key={item.id} onDismiss={id => dismissPreviewArtifact(sessionId, id)} />
+            <PreviewStatusRow item={item} key={item.id} onDismiss={dismissPreview} />
           ))}
         </div>
       )
