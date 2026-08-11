@@ -153,8 +153,8 @@ export function SectionBody({ section }: { section: string }) {
       return <MemorySection />
 
     // Model (Jc7): default-model picker, the model schema fields, MoA and
-    // auxiliary. FIXME(MJX-105): local-endpoint onboarding is still missing —
-    // desktop's `startManualLocalEndpoint` has no universal counterpart.
+    // auxiliary. "Set up <provider>" routes per provider kind (custom endpoint /
+    // OAuth / picker) — see `resolveProviderSetup` in store/onboarding.ts.
     case 'model':
       return <ModelSection />
 
@@ -171,7 +171,7 @@ export function SectionBody({ section }: { section: string }) {
     case 'keys':
       return <KeysSection view={sub === 'settings' ? 'settings' : 'tools'} />
 
-    // Billing (MJX-56): balance / plan / usage overview, the in-app plans
+    // Billing (MJXHRM-126): balance / plan / usage overview, the in-app plans
     // catalog (`?bview=plans`), top-up, auto-refill and the downgrade → undo
     // flow. Ported from apps/desktop/src/app/settings/billing.
     case 'billing':
@@ -182,6 +182,11 @@ export function SectionBody({ section }: { section: string }) {
       return <GatewaySection />
 
     // Keyboard shortcuts — the full rebindable panel, ported from desktop.
+    // Desktop's nav id for this page is `keybinds`; universal spells it
+    // `shortcuts`. Both resolve so a desktop-shaped deep link (or a plugin
+    // contribution copied from desktop) doesn't land on the empty state.
+    case 'keybinds':
+
     case 'shortcuts':
       return <KeybindSettings />
 
@@ -189,7 +194,7 @@ export function SectionBody({ section }: { section: string }) {
     case 'pet':
       return <PetSection />
 
-    // Plugins (MJX-53): the runtime plugin inventory + the disk-door switch.
+    // Plugins (MJXHRM-129): the runtime plugin inventory + the disk-door switch.
     case 'plugins':
       return <PluginsSettings />
 
@@ -205,9 +210,8 @@ export function SectionBody({ section }: { section: string }) {
       return <AboutSection />
 
     default:
-      // Unknown / deep-linked-only ids land here. Reachable today only for
-      // desktop's `keybinds` nav id, which this switch spells `shortcuts` —
-      // FIXME(MJX-105).
+      // Genuinely unknown ids land here (a stale deep link, a typo'd route).
+      // Every id either nav surface can produce is handled above.
       return (
         <SettingsContent>
           <EmptyState description={t.settings.config.emptyDesc} title={t.settings.config.emptyTitle} />

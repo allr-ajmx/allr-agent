@@ -7,8 +7,9 @@ import { SECTIONS } from './constants'
 
 // The drill-in list model: the schema-driven config sections (from SECTIONS,
 // includes appearance) followed by the custom, non-schema tabs. Each id maps to
-// a `/settings/:id` detail route. Deferred tabs (gateway/providers/pet) are not
-// listed until their gating tracks land.
+// a `/settings/:id` detail route. `providers` is absent here on purpose — the
+// drill-in reaches provider accounts/keys through `keys`; the overlay's nav
+// groups below carry the full Providers group with its sub-tabs.
 export interface SettingsNavEntry {
   id: string
   label: string
@@ -57,9 +58,10 @@ export interface SettingsNavGroupModel {
 }
 
 // Desktop-parity nav groups for the settings overlay side menu: the 8 schema
-// config sections, then notifications / providers / gateway / keys / sessions /
-// about — matching apps/desktop's order + gapBefore breaks. `providers` is a
-// placeholder until its page lands; `sessions` renders the archived list for now.
+// config sections, then notifications / billing / providers / gateway /
+// shortcuts / keys / sessions / plugins / about — matching apps/desktop's order
+// + gapBefore breaks (desktop names the shortcuts entry `keybinds`; the route
+// switch accepts both). `sessions` renders the archived list for now.
 export function useSettingsNavGroups(): SettingsNavGroupModel[] {
   const { t } = useI18n()
   const sectionLabels = t.settings.sections as Record<string, string>
@@ -85,6 +87,7 @@ export function useSettingsNavGroups(): SettingsNavGroupModel[] {
       ]
     },
     { id: 'gateway', icon: Globe, label: t.settings.nav.gateway },
+    { id: 'shortcuts', icon: Keyboard, label: t.keybinds.title },
     {
       id: 'keys',
       icon: Key,
