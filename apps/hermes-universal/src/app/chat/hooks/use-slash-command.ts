@@ -48,7 +48,7 @@ import {
   setSessions
 } from '@/store/session'
 import { withSessionNotFoundResume } from '@/store/session-recovery'
-import { $activeSessionKey, updateSession } from '@/store/session-state-types'
+import { $activeSessionKey, $sessionStates, updateSession } from '@/store/session-state-types'
 import { openAppRoute } from '@/store/windows'
 import { useSkinCommand } from '@/themes'
 import type { UsageStats } from '@/types/hermes'
@@ -269,7 +269,12 @@ export function useSlashCommand() {
           }
 
           const { render: renderSlashOutput, sessionId } = resolved
-          const key = $activeSessionKey.get()
+          // MUTABLE: a stale-runtime recovery below rekeys the slice onto the
+          // recovered runtime id, and everything after the await — the
+          // transcript replacement, the usage fold, and the `finally` that
+          // releases the compacting flag — has to address the session where it
+          // now lives (MJXHRM-308).
+          let key = $activeSessionKey.get()
           const focusTopic = ctx.arg.trim()
           const noticeId = `session-compress:${sessionId}`
 
@@ -297,13 +302,34 @@ export function useSlashCommand() {
             // One shared resolver rebinds it and retries once (MJXHRM-219).
             // `alsoTimeout` stays off — compress is an LLM call over the whole
             // conversation, and re-firing a slow one would double the work.
-            const { result } = await withSessionNotFoundResume(sessionId, $activeStoredSessionId.get(), live =>
-              requestGateway<SessionCompressResponse>(
-                'session.compress',
-                { session_id: live, ...(focusTopic && { focus_topic: focusTopic }) },
-                SESSION_COMPRESS_TIMEOUT_MS
-              )
+            //
+            // The stored id comes from the SUBMITTING slice, not from
+            // `$activeStoredSessionId`: they differ for anything resumed (the
+            // sidebar selection is not the slice's own durable id), and this
+            // value is what the recovery resumes FROM — the same latent bug
+            // PR #102 fixed for `ensureSession()`.
+            const {
+              recovered,
+              result,
+              sessionId: recoveredId
+            } = await withSessionNotFoundResume(
+              sessionId,
+              $sessionStates.get()[key]?.storedSessionId ?? $activeStoredSessionId.get(),
+              live =>
+                requestGateway<SessionCompressResponse>(
+                  'session.compress',
+                  { session_id: live, ...(focusTopic && { focus_topic: focusTopic }) },
+                  SESSION_COMPRESS_TIMEOUT_MS
+                )
             )
+
+            // The slice moved. Writing to the key we started on would resurrect
+            // an EMPTY ghost slice under a dead key (`updateSession` creates on
+            // demand) and land the summarized history there, leaving the real
+            // session showing the very bubbles the compaction just removed.
+            if (recovered) {
+              key = recoveredId
+            }
 
             if (Array.isArray(result?.messages)) {
               const messages = toChatMessages(result.messages)
