@@ -7,7 +7,9 @@ import { $modelVisibilityOpen, setModelVisibilityOpen } from '@/store/model-visi
 import { $activeGatewayProfile } from '@/store/profile'
 
 interface ModelVisibilityOverlayProps {
-  onOpenProviders: () => void
+  /** Omitted by a host with no provider-setup surface to hand off to (the
+   *  satellite chat window), which stands the "Add provider…" row down. */
+  onOpenProviders?: () => void
 }
 
 // Mount point for the "Edit models" dialog opened from the composer's model

@@ -7,6 +7,8 @@ import { useLocation, useNavigate } from 'react-router-dom'
 
 import { ChatScreen } from '@/app/chat/chat-screen'
 import { ChatTitle } from '@/app/chat/chat-title'
+import { ModelPickerOverlay } from '@/app/model-picker-overlay'
+import { ModelVisibilityOverlay } from '@/app/model-visibility-overlay'
 import { SidebarProvider } from '@/app/shell/sidebar'
 import { WindowControls } from '@/app/shell/window-controls'
 import { NotificationStack } from '@/components/notifications'
@@ -26,8 +28,9 @@ import { NEW_CHAT_ROUTE, routeSessionId } from './routes'
 
 // The CHAT host. A window whose tile is a chat surface (`workspace` or
 // `session-tile:<id>`) renders a SINGLE chat with its own frameless titlebar — no
-// sidebar, tiles, overlays, pet or statusbar (all of which live in
-// MobileController, which we bypass at `app.tsx`). The target session id rides in
+// sidebar, tiles, pet or statusbar (all of which live in MobileController, which
+// we bypass at `app.tsx`), and only the overlays the chat surface itself raises
+// (the model picker and Edit models — see below). The target session id rides in
 // the HashRouter route (`#/<id>`); once this window's own connection is live we
 // load the session list (so the header title resolves — the sidebar that usually
 // fetches it isn't mounted here) and resume the target into the global chat store,
@@ -124,6 +127,15 @@ function ChatTileHost() {
             this flex-col — no wrapper, or its height collapses to content. */}
         {phase === 'ready' || switching ? <ChatScreen /> : <div className="flex-1" />}
       </div>
+      {/* This window renders the PRIMARY chat, so its composer shows the live
+          model menu — including "Edit models" — and its `/model` command raises
+          the picker. Both write to app-wide atoms whose only mount points used
+          to live in MobileController, which this root bypasses: every one of
+          those was a dead click here. Mount the two dialogs the chat itself
+          owns. "Add provider…" is left off both: it routes to Settings, which
+          this window has no surface for. */}
+      <ModelVisibilityOverlay />
+      <ModelPickerOverlay />
       <NotificationStack />
     </SidebarProvider>
   )

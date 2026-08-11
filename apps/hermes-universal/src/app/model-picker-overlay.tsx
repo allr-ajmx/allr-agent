@@ -10,7 +10,9 @@ import { $activeSessionKey } from '@/store/session-state-types'
 import { $focusedRuntimeId, $focusedSessionState } from '@/store/session-states'
 
 interface ModelPickerOverlayProps {
-  onOpenProviders: () => void
+  /** Omitted by a host with no provider-setup surface to hand off to (the
+   *  satellite chat window), which stands the footer's "Add provider" down. */
+  onOpenProviders?: () => void
 }
 
 // Mount point for the full model picker — the ⌘⇧M surface, and the composer

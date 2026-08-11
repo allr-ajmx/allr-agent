@@ -21,8 +21,10 @@ import {
 import { useI18n } from '@/i18n'
 import { AlertTriangle, Cpu, Loader2 } from '@/lib/icons'
 import { cn } from '@/lib/utils'
+import { useStore } from '@/store/atom'
 import { notifyError } from '@/store/notifications'
 import { beginProviderConnect, openOnboarding, resolveProviderSetup } from '@/store/onboarding'
+import { $activeGatewayProfile } from '@/store/profile'
 import type {
   AuxiliaryModelsResponse,
   MoaConfigResponse,
@@ -212,6 +214,13 @@ export function ModelSettings({ onMainModelChanged }: ModelSettingsProps) {
   // provider a model lives under, while the picker is searchable across the
   // whole catalog with the same keyboard nav the composer's ⌘⇧M gives.
   const [pickerOpen, setPickerOpen] = useState(false)
+  // The catalog this page reads is profile-scoped (`getGlobalModelOptions` goes
+  // through `profileScoped()`), so the picker's cache key must name the ACTIVE
+  // profile. Left on the `'default'` fallback it filed another profile's
+  // providers under the default profile's key — an entry the composer, ⌘⇧M and
+  // Edit Models then read as their own, which is exactly what the profile
+  // segment of `modelOptionsQueryKey` exists to prevent.
+  const activeProfile = useStore($activeGatewayProfile)
 
   // Retained from the desktop port; without profile-switching it stays 0, so the
   // `epoch` guards below are inert (but harmless — keeps the port verbatim).
@@ -736,6 +745,7 @@ export function ModelSettings({ onMainModelChanged }: ModelSettingsProps) {
             setSelectedModel(selection.model)
           }}
           open={pickerOpen}
+          profile={activeProfile}
         />
         {needsSetup && !setupIsApiKey && (
           <p className="mt-2 text-xs text-muted-foreground">

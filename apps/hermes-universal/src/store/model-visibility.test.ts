@@ -269,6 +269,46 @@ describe('featured defaults', () => {
     expect(visible.has(modelVisibilityKey('ollama', 'qwen3:latest'))).toBe(true)
     expect(visible.has(modelVisibilityKey('ollama', 'llama3.2:latest'))).toBe(true)
   })
+
+  it('features a date-pinned snapshot through the rolling alias that represents it', () => {
+    // The backend features ids off the RAW catalog, where the snapshot carries
+    // the release date; `collapseModelFamilies` folds it into the alias row.
+    const nous = featuredProvider(
+      'nous',
+      ['anthropic/opus', 'anthropic/opus-20260615', 'google/gemini'],
+      ['anthropic/opus-20260615']
+    )
+
+    const visible = defaultVisibleKeys([nous])
+
+    expect(visible.has(modelVisibilityKey('nous', 'anthropic/opus'))).toBe(true)
+    // The snapshot has no row of its own, so it never becomes a key.
+    expect(visible.has(modelVisibilityKey('nous', 'anthropic/opus-20260615'))).toBe(false)
+    expect(visible.has(modelVisibilityKey('nous', 'google/gemini'))).toBe(false)
+  })
+
+  it('features a -fast sibling through its base family', () => {
+    const nous = featuredProvider(
+      'nous',
+      ['anthropic/opus', 'anthropic/opus-fast', 'google/gemini'],
+      ['anthropic/opus-fast']
+    )
+
+    const visible = defaultVisibleKeys([nous])
+
+    expect(visible.has(modelVisibilityKey('nous', 'anthropic/opus'))).toBe(true)
+    expect(visible.has(modelVisibilityKey('nous', 'google/gemini'))).toBe(false)
+  })
+
+  it('falls back to top-N when no featured id resolves to a catalog row', () => {
+    const nous = featuredProvider('nous', ['anthropic/opus', 'google/gemini'], ['retired/model'])
+
+    const visible = defaultVisibleKeys([nous])
+
+    // Better a full catalog than an empty provider the user cannot see at all.
+    expect(visible.has(modelVisibilityKey('nous', 'anthropic/opus'))).toBe(true)
+    expect(visible.has(modelVisibilityKey('nous', 'google/gemini'))).toBe(true)
+  })
 })
 
 describe('setProviderVisibility', () => {
@@ -360,6 +400,18 @@ describe('curatedFamilies', () => {
       'anthropic/opus',
       'google/gemini'
     ])
+  })
+
+  it('does not pin the active model into a search that does not match it', () => {
+    // A query is a narrowing action: 'haiku' must return the haiku row alone,
+    // not the row the surface happens to be sitting on.
+    expect(curatedFamilies(nous, { activeModel: 'google/gemini', search: 'haiku', visible }).map(f => f.id)).toEqual([
+      'anthropic/haiku'
+    ])
+  })
+
+  it('returns nothing for a search that matches nothing, active model included', () => {
+    expect(curatedFamilies(nous, { activeModel: 'google/gemini', search: 'zzz', visible })).toEqual([])
   })
 
   it('preserves catalog order rather than match order', () => {

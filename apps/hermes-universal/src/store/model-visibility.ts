@@ -147,13 +147,39 @@ function expandProviderDefaults(provider: ModelOptionProvider, target: Set<strin
 
   const featured = provider.featured_models ?? []
 
-  const defaults = featured.length
-    ? families.filter(family => featured.includes(family.id))
+  // The backend picks the shortlist from the provider's RAW model list, which
+  // still holds the ids `collapseModelFamilies` folds away — a `…-fast` sibling,
+  // or a date-pinned snapshot superseded by its rolling alias. Matching those on
+  // `family.id` alone drops them, so a lab's flagship silently goes missing from
+  // the default view (the snapshot usually carries the models.dev release date
+  // that got it featured, while the alias carries none). Resolve each featured
+  // id to the family that represents it instead.
+  const featuredFamilies = new Set(
+    featured.map(model => familyIdForModel(families, model)).filter((id): id is string => !!id)
+  )
+
+  const defaults = featuredFamilies.size
+    ? families.filter(family => featuredFamilies.has(family.id))
     : families.slice(0, DEFAULT_VISIBLE_PER_PROVIDER)
 
   for (const family of defaults) {
     target.add(modelVisibilityKey(provider.slug, family.id))
   }
+}
+
+/** The family row a raw model id renders as, or null when the catalog has no
+ *  row for it. Inverts `collapseModelFamilies`: a base id is itself, a `…-fast`
+ *  sibling is its base, and a date-pinned snapshot is its rolling alias. */
+function familyIdForModel(families: readonly ModelFamily[], model: string): null | string {
+  const direct = families.find(family => family.id === model || family.fastId === model)
+
+  if (direct) {
+    return direct.id
+  }
+
+  const rolling = model.replace(/-\d{8}$/, '')
+
+  return rolling === model ? null : (families.find(family => family.id === rolling)?.id ?? null)
 }
 
 /** Resolve the canonical working set: the user's stored keys plus the curated
@@ -320,11 +346,16 @@ export function curatedFamilies(
     return families
   }
 
-  const activeId = activeModel
-    ? families.find(family => family.id === activeModel || family.fastId === activeModel)?.id
-    : undefined
-
   const q = normalize(search)
+
+  // Pin the active model's row so selecting a model can never make its own row
+  // vanish — but NOT while searching. A query means "show me matches", and a
+  // pinned non-match would sit in the results list as a row the user did not
+  // ask for (and, in the cmdk picker, as a candidate Enter can land on).
+  const activeId =
+    !q && activeModel
+      ? families.find(family => family.id === activeModel || family.fastId === activeModel)?.id
+      : undefined
 
   const shown = q
     ? new Set(families.filter(family => familyMatches(provider, family, q)).map(family => family.id))
