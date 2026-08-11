@@ -9,7 +9,14 @@ import {
   setSessionCompacting,
   turnCompacted
 } from '@/store/compaction'
-import { $activeSessionKey } from '@/store/session-state-types'
+import {
+  $activeSessionKey,
+  $sessionStates,
+  dropSessionState,
+  emptySessionState,
+  publishSessionState,
+  rekeySession
+} from '@/store/session-state-types'
 import { beginTurn, clearAllTurns, getInflightTurn, settleTurn } from '@/store/turn-lifecycle'
 
 const status = (kind: string) => ({ kind })
@@ -17,6 +24,7 @@ const status = (kind: string) => ({ kind })
 beforeEach(() => {
   clearAllCompaction()
   clearAllTurns()
+  $sessionStates.set({})
   $activeSessionKey.set('s1')
 })
 
@@ -108,5 +116,39 @@ describe('turn settle', () => {
 
     expect(sessionCompacting('s1').get()).toBe(false)
     expect(turnCompacted('s1')).toBe(false)
+  })
+})
+
+// MJXHRM-308: compaction state is keyed by SESSION KEY, so it has to make the
+// same key moves the slice makes — the contract store/prompts.ts and
+// store/turn-lifecycle.ts already sign up to and this module never did. A
+// stale-runtime recovery rekeys on the first verb back after a sleep/wake, and
+// `reconcileSessionTurn` rekeys on any reconnect that finds a restarted gateway.
+describe('session key moves', () => {
+  it('carries the compacting flag and the turn mark onto the new key', () => {
+    routeCompactionEvent('s1', 'status.update', status('compacting'))
+
+    rekeySession('s1', 's9')
+
+    expect(sessionCompacting('s9').get()).toBe(true)
+    expect(turnCompacted('s9')).toBe(true)
+    // Stranded under the dead key the flag reads FALSE for a session that is
+    // still summarizing — so the composer sends a correction as a redirect
+    // against a turn with no live model request to redirect — and the entry
+    // never expires, because the settle observer clears the LIVE key.
+    expect(sessionCompacting('s1').get()).toBe(false)
+    expect(turnCompacted('s1')).toBe(false)
+    expect($compactingSessions.get()).toEqual({ s9: true })
+  })
+
+  it('releases both when the slice is evicted', () => {
+    publishSessionState('s1', emptySessionState('stored-1'))
+    routeCompactionEvent('s1', 'status.update', status('compacting'))
+
+    dropSessionState('s1')
+
+    expect(sessionCompacting('s1').get()).toBe(false)
+    expect(turnCompacted('s1')).toBe(false)
+    expect($compactingSessions.get()).toEqual({})
   })
 })

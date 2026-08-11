@@ -14,7 +14,7 @@ vi.mock('@/store/gateway', async () => {
 import { flushDeltas } from '@/lib/stream-batch'
 import { routeGatewayEvent as handleGatewayEvent } from '@/store/event-router'
 import { requestGateway } from '@/store/gateway'
-import { sessionClarifyRequest } from '@/store/prompts'
+import { sessionApprovalRequest, sessionClarifyRequest } from '@/store/prompts'
 import { $sessionStates, newDraftKey, updateSession } from '@/store/session-state-types'
 import { $subagentsBySession } from '@/store/subagents'
 import { beginTurn, getInflightTurn } from '@/store/turn-lifecycle'
@@ -999,6 +999,31 @@ describe('stale-runtime recovery', () => {
       'session.redirect'
     ])
     expect(sessionMessages('runtime-2').map(messageText)).toEqual(['do a thing', 'partial…', 'actually do this'])
+  })
+
+  // MJXHRM-308, one layer above the resolver that fixed it: the default
+  // `onRecovered` REKEYS the slice, and store/prompts.ts carries the approval
+  // request onto the new key with it. A responder that clears the key it
+  // captured before the await therefore clears nothing — the agent is unblocked
+  // while the bar stays on screen forever, the same no-error/no-retry shape as
+  // the tile hang this ticket is named for.
+  it('clears the approval bar on the key the recovery moved the slice to', async () => {
+    seedActiveSession('runtime-1', { storedSessionId: 'stored-1' })
+    handleGatewayEvent(ev('approval.request', { command: 'rm -rf /' }))
+    forgetsTheRuntime('runtime-2')
+
+    await respondApproval('once')
+
+    expect(vi.mocked(requestGateway).mock.calls.map(call => call[0])).toEqual([
+      'approval.respond',
+      'session.resume',
+      'approval.respond'
+    ])
+    expect(vi.mocked(requestGateway).mock.calls[2][1]).toMatchObject({ session_id: 'runtime-2' })
+    // `$approval` reads the ACTIVE key, which the rekey moved too — so this is
+    // the bar the user is looking at, not a stale projection.
+    expect($approval.get()).toBeNull()
+    expect(sessionApprovalRequest('runtime-2').get()).toBeNull()
   })
 
   // A draft has no stored session to resume, so there is nothing to recover to

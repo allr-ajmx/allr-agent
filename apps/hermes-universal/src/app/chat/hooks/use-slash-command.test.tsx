@@ -15,11 +15,12 @@ vi.mock('@/store/gateway', async () => {
 
 import type * as ChatStoreModule from '@/store/chat'
 import { $messages, $sessionId, resetChat, sendPrompt } from '@/store/chat'
+import { $compactingSessions, sessionCompacting } from '@/store/compaction'
 import { $composerDraft } from '@/store/composer'
 import { requestGateway } from '@/store/gateway'
 import { $modelPickerOpen } from '@/store/model'
 import { $sessions } from '@/store/session'
-import { updateSession } from '@/store/session-state-types'
+import { $sessionStates, updateSession } from '@/store/session-state-types'
 import { seedActiveSession } from '@/test-sessions'
 import { ThemeProvider } from '@/themes/context'
 
@@ -207,5 +208,53 @@ describe('useSlashCommand', () => {
 
     expect($composerDraft.get()).toBe('/ some text')
     expect(systemLines()).toEqual(['empty slash command'])
+  })
+  // MJXHRM-308: the recovery resolver's default `onRecovered` REKEYS the slice
+  // onto the recovered runtime id (PR #117 changed it from a no-op alias), so
+  // `/compress` — which captures the session key before its minutes-long await
+  // — was writing the summarized transcript to a key nothing reads any more.
+  // `updateSession` creates on demand, so that write RESURRECTED an empty ghost
+  // slice under the dead key and the real session kept showing the very bubbles
+  // the compaction had just removed.
+  describe('/compress after the gateway dropped the runtime', () => {
+    const forgetsTheRuntime = () =>
+      vi
+        .mocked(requestGateway)
+        .mockRejectedValueOnce(new Error('session not found'))
+        .mockResolvedValueOnce({ session_id: 'compress-2' } as never)
+        .mockResolvedValueOnce({
+          messages: [{ role: 'user', content: 'the summary' }],
+          summary: { headline: 'compacted' }
+        } as never)
+
+    it('lands the compressed transcript on the key the recovery moved the slice to', async () => {
+      seedActiveSession('sess-1', { storedSessionId: 'stored-compress' })
+      forgetsTheRuntime()
+
+      await run('/compress')
+
+      expect(vi.mocked(requestGateway).mock.calls.map(call => call[0])).toEqual([
+        'session.compress',
+        'session.resume',
+        'session.compress'
+      ])
+      // The resume names the slice's OWN stored id, not the sidebar selection —
+      // the two differ for anything resumed, and this is what it resumes FROM.
+      expect(vi.mocked(requestGateway).mock.calls[1][1]).toMatchObject({ session_id: 'stored-compress' })
+
+      const states = $sessionStates.get()
+
+      // No ghost slice resurrected under the dead key, and the POST-compress
+      // history landed on the live one (this command's own system line follows).
+      expect(states['sess-1']).toBeUndefined()
+      expect(states['compress-2']?.messages[0]).toMatchObject({
+        role: 'user',
+        parts: [{ type: 'text', text: 'the summary' }]
+      })
+      // And the compacting gate is released on the key that actually holds it,
+      // or every later correction queues instead of steering, forever.
+      expect(sessionCompacting('compress-2').get()).toBe(false)
+      expect($compactingSessions.get()).toEqual({})
+    })
   })
 })
