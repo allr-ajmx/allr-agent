@@ -37,7 +37,16 @@ export function ExpandableBlock({ children, className }: ExpandableBlockProps) {
 
   return (
     <div className="relative">
-      <div className={cn('overflow-y-auto', expanded ? 'max-h-[40dvh]' : 'max-h-[7.5rem]', className)} ref={innerRef}>
+      <div
+        className={cn(
+          // `scrollbar-overlay` opts out of the app-wide classic thin gutters so
+          // this scroller keeps platform overlay bars (no always-on track).
+          'scrollbar-overlay overflow-y-auto overflow-x-auto',
+          expanded ? 'max-h-[40dvh]' : 'max-h-[7.5rem]',
+          className
+        )}
+        ref={innerRef}
+      >
         {children}
       </div>
       {overflowing && (
