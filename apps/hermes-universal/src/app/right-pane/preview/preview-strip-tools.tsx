@@ -12,9 +12,15 @@
  * load — an image or a binary offers no source view, a `.ts` file no rendered
  * one. The strip reads these during ITS render, so both stores nudge it.
  *
- * Universal has no in-app browser (the app CSP is `default-src 'self'`, so a
- * frame cannot load a remote page), hence none of desktop's console / DevTools
- * glyphs. When that lands, its handles register here the same way.
+ * FILE tabs only. An artifact tab is read from the registry and carries its own
+ * rendered/source switch and version stepper, so it contributes no strip tools
+ * (see preview-tile.tsx) — the same gate desktop applies when it hands console /
+ * DevTools glyphs only to a `url` tab.
+ *
+ * Universal has no in-app browser and so none of those glyphs: the app CSP's
+ * `frame-src` names `hermes-artifact:` and nothing else, deliberately, so a
+ * frame cannot load a remote page at all. When that lands, its handles register
+ * here the same way.
  */
 
 import { invalidateStripTools } from '@/components/pane-shell/tree/store'
