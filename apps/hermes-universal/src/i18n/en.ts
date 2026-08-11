@@ -631,6 +631,7 @@ export const en: Translations = {
     config: {
       none: 'None',
       noneParen: '(none)',
+      builtinOnly: 'Built-in only',
       notSet: 'Not set',
       commaSeparated: 'comma-separated values',
       searchPlaceholder: 'Search…',

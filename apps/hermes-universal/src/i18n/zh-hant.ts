@@ -698,6 +698,7 @@ export const zhHant = defineLocale({
     config: {
       none: '無',
       noneParen: '(無)',
+      builtinOnly: '僅內建',
       notSet: '未設定',
       commaSeparated: '逗號分隔的值',
       searchPlaceholder: '搜尋…',

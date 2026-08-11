@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
+import { useOnProfileSwitch } from '@/app/hooks/use-on-profile-switch'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -14,17 +15,10 @@ import { repoDiscoveryPolicyFromConfig, repoDiscoveryPolicySignature, scanAndRec
 import type { ConfigFieldSchema, HermesConfigRecord } from '@/types/hermes'
 
 import { ComboboxInput } from './combobox-input'
-import {
-  CONTROL_TEXT,
-  EMPTY_SELECT_VALUE,
-  FIELD_DESCRIPTIONS,
-  FIELD_LABELS,
-  FREE_INPUT_KEYS,
-  SECTIONS
-} from './constants'
+import { CONTROL_TEXT, EMPTY_SELECT_VALUE, FIELD_DESCRIPTIONS, FIELD_LABELS, FREE_INPUT_KEYS } from './constants'
 import { FallbackModelsField } from './fallback-models-field'
 import { fieldCopyForSchemaKey } from './field-copy'
-import { enumOptionsFor, getNested, prettyName, setNested } from './helpers'
+import { enumOptionsFor, getNested, prettyName, sectionFieldEntries, setNested } from './helpers'
 import { EmptyState, ListRow, SettingsContent, SettingsSkeleton } from './primitives'
 import { SearchableSelect } from './searchable-select'
 import { setHermesConfigCache, useHermesConfigRecord } from './use-config-record'
@@ -155,7 +149,12 @@ export function ConfigField({
                 ? (optionLabels?.[option] ?? prettyName(option))
                 : schemaKey === 'display.personality'
                   ? c.none
-                  : c.noneParen}
+                  : // The empty `memory.provider` sentinel means built-in memory, not
+                    // "memory off" — built-in is not a provider plugin (#49513), so
+                    // "(none)" reads as a disabled subsystem it never was.
+                    schemaKey === 'memory.provider'
+                    ? c.builtinOnly
+                    : c.noneParen}
             </SelectItem>
           ))}
         </SelectContent>
@@ -283,6 +282,7 @@ export function ConfigSection({
   const configSeeded = useRef(false)
 
   // Seed the local draft once, the first time the shared record lands.
+  // Background refetches thereafter must not clobber in-progress edits.
   useEffect(() => {
     if (loadedConfig && !configSeeded.current) {
       configSeeded.current = true
@@ -290,6 +290,20 @@ export function ConfigSection({
       setConfig(loadedConfig)
     }
   }, [loadedConfig])
+
+  // A profile switch invalidates (but doesn't clear) the shared config query and
+  // leaves this panel mounted, so the local draft would otherwise keep profile
+  // A's data and autosave it into B — and `saveHermesConfig` REPLACES the whole
+  // record, so that is B's config overwritten wholesale, not a merge. Drop the
+  // seed + draft (re-seeds from B's refetch) and zero saveVersion so the pending
+  // debounced autosave is cancelled by its effect cleanup.
+  useOnProfileSwitch(() => {
+    configSeeded.current = false
+    savedDiscoverySignatureRef.current = undefined
+    setConfig(null)
+    saveVersionRef.current = 0
+    setSaveVersion(0)
+  })
 
   // Debounced autosave. saveHermesConfig REPLACES the whole record, so the draft
   // (a full clone edited via setNested) is what we persist.
@@ -333,14 +347,12 @@ export function ConfigSection({
   }
 
   const sectionFields = useMemo(() => {
-    if (!schema) {
+    if (!schema || !config) {
       return [] as [string, ConfigFieldSchema][]
     }
 
-    const section = SECTIONS.find(s => s.id === sectionId)
-
-    return (section?.keys ?? []).flatMap(k => (schema[k] ? [[k, schema[k]] as [string, ConfigFieldSchema]] : []))
-  }, [schema, sectionId])
+    return sectionFieldEntries(schema, config).get(sectionId) ?? []
+  }, [schema, config, sectionId])
 
   // Deep-link target from the command palette (?field=<key>).
   const fieldReady = useCallback((key: string) => sectionFields.some(([k]) => k === key), [sectionFields])
