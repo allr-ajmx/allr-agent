@@ -43,19 +43,15 @@ describe('branchActionLabel', () => {
     // different act from checking out a branch that is already here, so it must
     // not borrow the "new worktree" label.
     expect(branchActionLabel(branch({ isRemote: true, name: 'origin/feature/x' }), copy)).toBe('track remote')
-    expect(branchActionLabel(branch({ name: 'feature/x' }), copy)).toBe('new worktree')
     expect(branchActionLabel(branch({ isDefault: true, name: 'main' }), copy)).toBe('switch home')
+    // `isRemote` is optional, so an older gateway that omits it must read as a
+    // local head rather than falling into the remote branch.
+    expect(branchActionLabel(branch({ name: 'feature/x' }), copy)).toBe('new worktree')
   })
 
   it('prefers an existing checkout over the remote label', () => {
     // `checkedOut` wins: nothing needs tracking when the branch is already out.
     expect(branchActionLabel(branch({ checkedOut: true, isRemote: true, name: 'main' }), copy)).toBe('open')
-  })
-
-  it('treats a gateway that omits isRemote as local', () => {
-    // The field is optional so an older gateway (pre-remote-branch support)
-    // still renders — its rows are all local heads.
-    expect(branchActionLabel(branch({ name: 'feature/x' }), copy)).toBe('new worktree')
   })
 })
 

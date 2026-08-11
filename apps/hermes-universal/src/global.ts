@@ -30,7 +30,10 @@ export interface HermesGitBranch {
 
 // A branch the new worktree can be based on: local heads + remote-tracking
 // refs. `isRemote` distinguishes `origin/main` from a local `main`; `isDefault`
-// flags origin/HEAD so the dialog can preselect it.
+// flags the branch a remote's HEAD points at — whichever remote that is, not
+// necessarily `origin` — so the dialog can preselect it. That preselection is
+// the `base` every new worktree is cut from, so a wrong flag branches the work
+// off the wrong commit rather than merely mis-highlighting a row.
 export interface HermesGitBaseBranch {
   name: string
   isRemote: boolean

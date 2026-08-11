@@ -1,9 +1,10 @@
+import shutil
 import subprocess
 from pathlib import Path
 
 import pytest
 
-from hermes_cli import web_server
+from hermes_cli import web_git, web_server
 
 pytest.importorskip("starlette.testclient")
 from starlette.testclient import TestClient
@@ -29,6 +30,22 @@ def client():
 
 def _git(repo: Path, *args: str) -> None:
     subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True)
+
+
+def _git_out(repo: Path, *args: str) -> str:
+    return subprocess.run(
+        ["git", *args], cwd=repo, check=True, capture_output=True, text=True
+    ).stdout.strip()
+
+
+def _head_of(worktree: Path) -> str:
+    """The branch checked out in `worktree` — "" when HEAD is detached."""
+    return subprocess.run(
+        ["git", "symbolic-ref", "--quiet", "--short", "HEAD"],
+        cwd=worktree,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
 
 
 @pytest.fixture
@@ -138,12 +155,15 @@ def test_branch_list_offers_remote_only_branches(client, cloned_repo):
     assert remote_only["checkedOut"] is False
     assert remote_only["worktreePath"] is None
 
-    # ...while a remote whose short name has a local head is suppressed, and
-    # `origin/HEAD` (a symref alias, not a branch) never shows up at all.
+    # ...while a remote whose branch has a local head is suppressed.
     local_default = next(branch for branch in branches if branch["isDefault"])
     assert local_default["isRemote"] is False
     assert f"origin/{local_default['name']}" not in by_name
-    assert not any(name.endswith("/HEAD") for name in by_name)
+    # NOTE: this test used to also assert no name ends in "/HEAD". That could
+    # never fail — git shortens `refs/remotes/origin/HEAD` to a bare `origin`,
+    # so the alias it claimed to catch was never spelled that way. It read as
+    # coverage while the alias leaked; `test_branch_pickers_drop_the_remote_head_alias`
+    # is the assertion that actually discriminates.
 
 
 def test_branch_pickers_drop_the_remote_head_alias(client, cloned_repo):
@@ -175,17 +195,198 @@ def test_branch_pickers_drop_the_remote_head_alias(client, cloned_repo):
     assert remote_base["isRemote"] is True
 
 
-def test_base_branch_list_flags_a_non_origin_remote(client, cloned_repo, tmp_path):
-    """`isRemote` comes from the ref namespace, not an "origin/" name prefix —
-    a repo whose remote is called anything else is no less remote."""
+def test_base_branch_list_flags_a_non_origin_remote(client, cloned_repo):
+    """`isRemote` and the default flag come from the repo's real remotes, not
+    from an "origin/" name prefix — a repo whose remote is called anything else
+    is no less remote.
+
+    The default flag is what the picker preselects, and that value becomes the
+    `base` every new worktree is cut from. Reading it off a literal
+    `refs/remotes/origin/HEAD` came up empty here and fell through to the LOCAL
+    trunk, so work branched off an unfetched copy instead of the remote's.
+    """
     _git(cloned_repo, "remote", "rename", "origin", "upstream")
     _git(cloned_repo, "fetch", "-q", "upstream")
+    # The rename really did leave a HEAD alias to find, so the assertions below
+    # are not passing for want of one.
+    assert subprocess.run(
+        ["git", "symbolic-ref", "refs/remotes/upstream/HEAD"],
+        cwd=cloned_repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip().startswith("refs/remotes/upstream/")
 
     base = client.get("/api/git/base-branches", params={"path": str(cloned_repo)}).json()["branches"]
     by_name = {branch["name"]: branch for branch in base}
 
     assert by_name["upstream/feature/remote-only"]["isRemote"] is True
     assert "upstream" not in by_name
+
+    trunk = _git_out(cloned_repo, "rev-parse", "--abbrev-ref", "HEAD")
+    default = next(branch for branch in base if branch["isDefault"])
+    assert default["name"] == f"upstream/{trunk}"
+    assert default["isRemote"] is True
+
+
+@pytest.fixture
+def slashy_remote_repo(cloned_repo):
+    """A clone whose remote is named with a slash in it — git allows it, and it
+    breaks every shortcut that treats a remote name as one path segment."""
+    _git(cloned_repo, "remote", "rename", "origin", "corp/mirror")
+    _git(cloned_repo, "fetch", "-q", "corp/mirror")
+    _git(cloned_repo, "remote", "set-head", "corp/mirror", "-a")
+    return cloned_repo
+
+
+def test_pickers_survive_a_remote_named_with_a_slash(client, slashy_remote_repo):
+    """`refs/remotes/corp/mirror/HEAD` is still just an alias, and
+    `corp/mirror/feature/x` is still the branch `feature/x`.
+
+    Matching the alias by ref depth (four segments) or splitting the short name
+    on its first "/" both assume a remote name is a single path segment. Neither
+    holds here: the alias leaked back in as a phantom branch called
+    `corp/mirror`, and converting a real row created a branch misnamed
+    `mirror/feature/remote-only`.
+    """
+    names = {
+        branch["name"]
+        for branch in client.get(
+            "/api/git/branches", params={"path": str(slashy_remote_repo)}
+        ).json()["branches"]
+    }
+
+    assert "corp/mirror" not in names
+    assert "corp/mirror/feature/remote-only" in names
+    # The remote copy of a branch that has a local head is still suppressed —
+    # the dedup has to split off the real remote name to see they match.
+    local = _git_out(slashy_remote_repo, "rev-parse", "--abbrev-ref", "HEAD")
+    assert local in names
+    assert f"corp/mirror/{local}" not in names
+
+    added = client.post(
+        "/api/git/worktree/add",
+        json={"path": str(slashy_remote_repo), "existingBranch": "corp/mirror/feature/remote-only"},
+    ).json()
+
+    assert added["branch"] == "feature/remote-only"
+    assert _head_of(Path(added["path"])) == "feature/remote-only"
+
+
+@pytest.mark.parametrize("kind", ["tag", "sha", "head"])
+def test_worktree_add_refuses_a_commit_ish_instead_of_detaching(client, cloned_repo, kind):
+    """`git worktree add <path> <commit-ish>` checks out a nameless HEAD.
+
+    A tag, a raw sha and "HEAD" all resolve, so passing one straight through
+    produced exactly the detached worktree this endpoint exists to prevent —
+    commits there belong to no branch and a push has no upstream. Only something
+    that is provably a branch may reach git.
+    """
+    _git(cloned_repo, "tag", "v1.0")
+    requested = {
+        "tag": "v1.0",
+        "sha": _git_out(cloned_repo, "rev-parse", "HEAD"),
+        "head": "HEAD",
+    }[kind]
+
+    response = client.post(
+        "/api/git/worktree/add", json={"path": str(cloned_repo), "existingBranch": requested}
+    )
+
+    assert response.status_code == 400
+    assert "no branch named" in response.json()["detail"].lower()
+    # Nothing was checked out anywhere, detached or otherwise.
+    assert not (cloned_repo / ".worktrees").exists()
+
+
+def test_worktree_add_converts_a_branch_whose_name_has_punctuation(client, cloned_repo):
+    """A name the picker offered must be one convert accepts.
+
+    `#`, `+` and `@` are legal in a branch name; the sanitizer meant for typed
+    input rewrote them (`fix#123` → `fix123`), so rows the gateway had just
+    listed came back "invalid reference" when clicked.
+    """
+    _git(cloned_repo, "branch", "fix#123")
+
+    listed = {
+        branch["name"]
+        for branch in client.get(
+            "/api/git/branches", params={"path": str(cloned_repo)}
+        ).json()["branches"]
+    }
+    assert "fix#123" in listed
+
+    added = client.post(
+        "/api/git/worktree/add", json={"path": str(cloned_repo), "existingBranch": "fix#123"}
+    ).json()
+
+    assert added["branch"] == "fix#123"
+    assert _head_of(Path(added["path"])) == "fix#123"
+
+
+def test_worktree_add_recovers_a_worktree_deleted_off_disk(client, cloned_repo):
+    """A worktree directory removed by hand stays registered, and git then
+    refuses that path forever — a dead end, since the dialog cannot prune."""
+    first = client.post(
+        "/api/git/worktree/add",
+        json={"path": str(cloned_repo), "existingBranch": "origin/feature/remote-only"},
+    ).json()
+    shutil.rmtree(first["path"])
+    assert "prunable" in subprocess.run(
+        ["git", "worktree", "list", "--porcelain"],
+        cwd=cloned_repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+
+    again = client.post(
+        "/api/git/worktree/add",
+        json={"path": str(cloned_repo), "existingBranch": "origin/feature/remote-only"},
+    )
+
+    assert again.status_code == 200, again.json()
+    assert again.json()["path"] == first["path"]
+    assert _head_of(Path(first["path"])) == "feature/remote-only"
+
+
+def test_branch_list_empty_never_stands_in_for_a_failed_call(repo, tmp_path):
+    """An empty list is a real answer for a repo with no branches, so it must
+    not double as a swallowed error — a vanished folder rendering as "No
+    branches found" is indistinguishable from an empty repo."""
+    unborn = tmp_path / "unborn"
+    unborn.mkdir()
+    _git(unborn, "init", "-q")
+    plain = tmp_path / "plain"
+    plain.mkdir()
+
+    # Legitimately empty: no refs yet, and a folder that is no repo at all.
+    assert web_git.branch_list(str(unborn)) == []
+    assert web_git.base_branch_list(str(plain)) == []
+
+    # Actually broken: the path is gone. That has to be audible.
+    with pytest.raises(RuntimeError, match="Could not list branches"):
+        web_git.branch_list(str(tmp_path / "vanished"))
+    with pytest.raises(RuntimeError, match="Could not list branches"):
+        web_git.base_branch_list(str(tmp_path / "vanished"))
+
+
+def test_default_branch_does_not_invent_one_from_global_config(repo):
+    """`init.defaultBranch` is a preference for *new* repos, not a claim about
+    this one. Honouring it unchecked named a trunk that is not in the repo, so
+    no row ever matched and the picker flagged no default at all."""
+    _git(repo, "checkout", "-qb", "develop")
+    for other in _git_out(repo, "for-each-ref", "--format=%(refname:short)", "refs/heads").split():
+        if other != "develop":
+            _git(repo, "branch", "-qD", other)
+    _git(repo, "config", "init.defaultBranch", "trunk-that-is-not-here")
+
+    assert web_git._default_branch(str(repo)) == ""
+
+    # …but a configured default that IS here is still honoured, so the guard is
+    # "does this branch exist", not "ignore the config".
+    _git(repo, "branch", "trunk-that-is-not-here")
+    assert web_git._default_branch(str(repo)) == "trunk-that-is-not-here"
 
 
 def test_worktree_add_tracks_a_remote_only_branch(client, cloned_repo):
