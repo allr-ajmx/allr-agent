@@ -22,6 +22,11 @@ vi.mock('@/store/chat', () => ({ resetChat: vi.fn() }))
 vi.mock('@/store/cron', () => ({ setCronJobs: vi.fn() }))
 vi.mock('@/store/workspace-events', () => ({ resetWorkspaceCwd: vi.fn() }))
 vi.mock('@/store/session-states', () => ({ clearAllSessionStates: vi.fn(), resetTileRuntimeBindings: vi.fn() }))
+// Both of these key their caches by the GATEWAY's absolute repo paths. What the
+// clearing actually does is asserted in their own suites; here the question is
+// whether the wipe calls them at all.
+vi.mock('@/store/coding-status', () => ({ resetRepoStatusForBackendSwitch: vi.fn() }))
+vi.mock('@/store/pull-requests', () => ({ resetPullRequestsForBackendSwitch: vi.fn() }))
 vi.mock('@/lib/query-client', () => ({ queryClient: { invalidateQueries: vi.fn() } }))
 // NOT mocked: `@/store/artifacts` runs for real below, because "the wipe drops the
 // artifact registry" is only worth asserting against the real registry. It reaches
@@ -48,12 +53,14 @@ vi.mock('@/store/session', async () => {
   }
 })
 
+import { resetRepoStatusForBackendSwitch } from '@/store/coding-status'
 import { $connection, beginGatewaySwitch, disconnect, endGatewaySwitch } from '@/store/connection'
 import { closeGateway } from '@/store/gateway'
 import type { Connection } from '@/store/gateway-config'
 import { dialSavedTarget, type GatewayTarget, loadGatewayTarget } from '@/store/gateway-restore'
 import { stopLocalBackend } from '@/store/local-backend'
 import { notify, notifyError } from '@/store/notifications'
+import { resetPullRequestsForBackendSwitch } from '@/store/pull-requests'
 import {
   $activeStoredSessionId,
   $messagingSessions,
@@ -123,6 +130,23 @@ describe('gateway soft switch', () => {
     expect(clearAllSessionStates).toHaveBeenCalledOnce()
     // Skeletons stop once the refresh has landed.
     expect($sessionsLoading.get()).toBe(false)
+  })
+
+  // A repo path is not gateway-scoped: `/home/me/work` exists on the laptop AND
+  // on the box being switched to, and they are different repos on different
+  // branches. Carried across, the coding rails paint the previous gateway's
+  // branch and ± under the new one's paths, and the is-this-a-repo memo (no TTL)
+  // keeps answering for a repo that only ever existed over there.
+  it('drops the git + PR caches keyed by the old gateway’s paths, before dialling', async () => {
+    let clearedDuringDial = false
+
+    await softSwitchGateway('remote', async () => {
+      clearedDuringDial =
+        vi.mocked(resetRepoStatusForBackendSwitch).mock.calls.length === 1 &&
+        vi.mocked(resetPullRequestsForBackendSwitch).mock.calls.length === 1
+    })
+
+    expect(clearedDuringDial).toBe(true)
   })
 
   // Artifacts are keyed by sessions on the gateway that produced them. Carried

@@ -53,11 +53,12 @@ import {
   $repoStatusLoading,
   $repoWorktrees,
   _resetCodingStatusForTests,
-  refreshAllRepoStatuses,
+  isGitRepoPath,
   refreshRepoStatus,
   registerRepoStatusCwd,
   repoStatusForCwd,
-  repoWorktreesForCwd
+  repoWorktreesForCwd,
+  resetRepoStatusForBackendSwitch
 } from './coding-status'
 
 const sampleStatus: HermesRepoStatus = {
@@ -94,10 +95,20 @@ const worktree = (path: string, branch: string): HermesGitWorktree => ({
   path
 })
 
-/** Let the debounce fire and every queued probe settle. */
+/**
+ * Let the debounce fire, then await whatever drain it started — WITHOUT
+ * provoking a probe of our own.
+ *
+ * A blank target queues nothing and just hands back the in-flight drain, which
+ * is exactly the passive wait we want. This used to call
+ * `refreshAllRepoStatuses()`, which re-probed every target itself: the trigger
+ * cases below then passed with `$workspaceChangeTick.subscribe` and the
+ * turn-settle `$busy` edge deleted outright — the helper was doing the fan-out
+ * they claimed to be asserting.
+ */
 async function settle(): Promise<void> {
   await vi.advanceTimersByTimeAsync(REFRESH_DEBOUNCE_MS)
-  await refreshAllRepoStatuses()
+  await refreshRepoStatus('   ')
 }
 
 const REFRESH_DEBOUNCE_MS = 200
@@ -376,6 +387,108 @@ describe('registerRepoStatusCwd', () => {
     expect(repoStatus.mock.calls.map(call => call[0])).toEqual(['/main'])
 
     release?.()
+  })
+})
+
+// The file tree tints from $repoChangeByPath, which is keyed to the FOCUSED cwd
+// — and that cwd is not always a mounted rail's: it falls back to the workspace
+// root for a detached chat, and the workspace pane can be on screen with no
+// composer at all. If nothing probes it, the tree shows no change decorations
+// while the review pane beside it — same cwd — lists the very same files.
+describe('the focused cwd', () => {
+  it('is probed when focus moves to a worktree no rail registered', async () => {
+    repoStatus.mockImplementation(async () => sampleStatus)
+    $currentCwd.set('/main')
+    await settle()
+    repoStatus.mockClear()
+
+    $effectiveCwd.set('/focused')
+    await vi.advanceTimersByTimeAsync(REFRESH_DEBOUNCE_MS)
+
+    expect(repoStatus.mock.calls.map(call => call[0])).toEqual(['/focused'])
+    expect(repoStatusForCwd('/focused').get()).toEqual(sampleStatus)
+  })
+
+  it('re-probes on an unscoped edge even though no rail holds it', async () => {
+    repoStatus.mockImplementation(async () => sampleStatus)
+    $currentCwd.set('/main')
+    $effectiveCwd.set('/workspace-root')
+    await settle()
+    repoStatus.mockClear()
+
+    // A tool touched the tree: the fan-out has to reach the focused cwd, or the
+    // tree's tint freezes at whatever it had when focus landed.
+    $workspaceChangeTick.set($workspaceChangeTick.get() + 1)
+    await settle()
+
+    expect([...new Set(repoStatus.mock.calls.map(call => call[0]))].sort()).toEqual(['/main', '/workspace-root'])
+  })
+})
+
+// Absolute paths are not gateway-scoped: `/home/me/work` exists on the laptop
+// AND on the box just switched to, and they are different repos.
+describe('resetRepoStatusForBackendSwitch', () => {
+  it('drops cached status/worktrees and re-probes what is still on screen', async () => {
+    repoStatus.mockImplementation(async () => sampleStatus)
+    worktreeList.mockImplementation(async () => [worktree('/tile', 'feature/login')])
+    $currentCwd.set('/main')
+
+    const release = registerRepoStatusCwd('/tile')
+
+    await settle()
+    await vi.runAllTicks()
+    expect(repoStatusForCwd('/tile').get()).toEqual(sampleStatus)
+    expect(repoWorktreesForCwd('/tile').get()).toEqual([worktree('/tile', 'feature/login')])
+
+    repoStatus.mockClear()
+    repoStatus.mockImplementation(async () => otherStatus)
+    resetRepoStatusForBackendSwitch()
+
+    // Wiped the instant the switch happens — not left painting the old host's
+    // branch until a probe happens to come back.
+    expect($repoStatusByCwd.get()).toEqual({})
+    expect(repoWorktreesForCwd('/tile').get()).toEqual([])
+
+    // …and the still-mounted rail is re-probed against the NEW backend.
+    await settle()
+    expect([...new Set(repoStatus.mock.calls.map(call => call[0]))].sort()).toEqual(['/main', '/tile'])
+    expect(repoStatusForCwd('/tile').get()).toEqual(otherStatus)
+
+    release?.()
+  })
+
+  it('drops the is-this-a-repo memo, which has no TTL of its own', async () => {
+    repoStatus.mockImplementation(async () => sampleStatus)
+    expect(await isGitRepoPath('/repo')).toBe(true)
+
+    // Same path on the new gateway, and over there it is not a repo. Without the
+    // reset the memo keeps saying yes and ⌘⇧B opens the worktree dialog on a
+    // directory git cannot branch from.
+    repoStatus.mockImplementation(async () => null)
+    expect(await isGitRepoPath('/repo')).toBe(true)
+
+    resetRepoStatusForBackendSwitch()
+    expect(await isGitRepoPath('/repo')).toBe(false)
+  })
+
+  it('drops a probe that was already in flight against the old backend', async () => {
+    let resolveOld!: (status: HermesRepoStatus | null) => void
+
+    repoStatus.mockImplementation(
+      () =>
+        new Promise<HermesRepoStatus | null>(resolve => {
+          resolveOld = resolve
+        })
+    )
+
+    const inflight = refreshRepoStatus('/repo')
+
+    await Promise.resolve()
+    resetRepoStatusForBackendSwitch()
+    resolveOld(sampleStatus)
+    await inflight
+
+    expect(repoStatusForCwd('/repo').get()).toBeNull()
   })
 })
 

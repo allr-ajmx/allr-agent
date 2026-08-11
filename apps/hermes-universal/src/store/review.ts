@@ -361,9 +361,17 @@ export async function openReviewForPath(path: string): Promise<void> {
 
 // Run a git mutation then re-sync both the review list and the rail's +/- (the
 // working tree changed). A failure is swallowed by the caller's notify wrapper.
-async function afterMutation(): Promise<void> {
+//
+// `cwd` is the repo the mutation actually ran in, threaded through rather than
+// re-read: `refreshRepoStatus()` with no argument re-probes `$currentCwd` — the
+// SIDEBAR's selection — while this pane operates on `$effectiveCwd`, the FOCUSED
+// tile's. With the two sitting in different worktrees (the case the per-cwd
+// store exists for) a stage/unstage/discard refreshed the wrong repo and left
+// the acting tile's rail on its pre-mutation ±. Capturing it before the awaits
+// also survives focus moving mid-mutation.
+async function afterMutation(cwd: null | string): Promise<void> {
   await refreshReview()
-  void refreshRepoStatus()
+  void refreshRepoStatus(cwd)
 
   const selected = $reviewSelectedPath.get()
   const file = selected ? $reviewFiles.get().find(f => f.path === selected) : null
@@ -375,18 +383,24 @@ async function afterMutation(): Promise<void> {
 }
 
 export async function stageReviewFile(path: null | string): Promise<void> {
-  await desktopGit()?.review?.stage(repoCwd() ?? '', path)
-  await afterMutation()
+  const cwd = repoCwd()
+
+  await desktopGit()?.review?.stage(cwd ?? '', path)
+  await afterMutation(cwd)
 }
 
 export async function unstageReviewFile(path: null | string): Promise<void> {
-  await desktopGit()?.review?.unstage(repoCwd() ?? '', path)
-  await afterMutation()
+  const cwd = repoCwd()
+
+  await desktopGit()?.review?.unstage(cwd ?? '', path)
+  await afterMutation(cwd)
 }
 
 export async function revertReviewFile(path: null | string): Promise<void> {
-  await desktopGit()?.review?.revert(repoCwd() ?? '', path)
-  await afterMutation()
+  const cwd = repoCwd()
+
+  await desktopGit()?.review?.revert(cwd ?? '', path)
+  await afterMutation(cwd)
 }
 
 // Revert is destructive (discards working-tree edits with no undo), so it always
@@ -438,7 +452,10 @@ export async function commitChanges(message: string, opts: { push?: boolean } = 
   await runShip(async () => {
     await ctx.review.commit(ctx.cwd, message.trim(), Boolean(opts.push))
     await refreshReview()
-    void refreshRepoStatus()
+    // The repo we just committed in — not the sidebar's. A commit is the biggest
+    // ± move there is (everything staged drops out, `ahead` climbs), so pointing
+    // this at the wrong worktree is the most visible form of the bug.
+    void refreshRepoStatus(ctx.cwd)
     void refreshShipInfo()
   })
 }

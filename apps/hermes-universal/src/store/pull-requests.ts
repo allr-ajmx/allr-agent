@@ -196,6 +196,26 @@ export async function refreshPullRequests(lookupsByRepo: Record<string, string[]
   )
 }
 
+/**
+ * Drop the backend-bound half of this store because the gateway changed.
+ *
+ * `gh` runs on the GATEWAY, so everything here describes that host: the keys are
+ * its absolute repo paths, the TTL means "asked this backend recently", and
+ * `scanUnavailable` is a verdict about one backend's routes — latched to stop a
+ * retry storm against an older gateway, it otherwise leaves PR recovery switched
+ * off for the rest of the run on a new gateway that serves the route fine.
+ *
+ * `inFlight` is deliberately left alone: those requests still have to release
+ * their own guard, and the worst a late one does is re-add a PR the next refresh
+ * asks for anyway. `$prBranchBySession` / `$prScannedSessions` are keyed by
+ * session id, and the switch already wiped the sessions.
+ */
+export function resetPullRequestsForBackendSwitch(): void {
+  fetchedAt.clear()
+  scanUnavailable = false
+  $pullRequestsByBranch.set({})
+}
+
 /** Test-only: drop the TTL / in-flight bookkeeping so cases don't leak. */
 export function _resetPullRequestsForTests(): void {
   fetchedAt.clear()

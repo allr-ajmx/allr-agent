@@ -2,6 +2,7 @@ import { translateNow } from '@/i18n'
 import { queryClient } from '@/lib/query-client'
 import { clearArtifactRegistry } from '@/store/artifacts'
 import { resetChat } from '@/store/chat'
+import { resetRepoStatusForBackendSwitch } from '@/store/coding-status'
 import { $connection, beginGatewaySwitch, disconnect, endGatewaySwitch } from '@/store/connection'
 import { setCronJobs } from '@/store/cron'
 import { closeGateway } from '@/store/gateway'
@@ -13,6 +14,7 @@ import { resetLiveSync } from '@/store/live-sync'
 import { stopLocalBackend } from '@/store/local-backend'
 import { notify, notifyError } from '@/store/notifications'
 import { closeAllPreviewTabs } from '@/store/preview'
+import { resetPullRequestsForBackendSwitch } from '@/store/pull-requests'
 import {
   $activeStoredSessionId,
   $messagingSessions,
@@ -78,6 +80,14 @@ export function wipeSessionListsForGatewaySwitch(): void {
   resetChat()
   // The workspace root came from the old backend's filesystem.
   resetWorkspaceCwd()
+  // …and so did every cached `git status`, worktree list and is-this-a-repo
+  // verdict. Those are keyed by ABSOLUTE PATH, which is not gateway-scoped:
+  // `/home/me/work` exists on both hosts and is a different repo on each, so
+  // without this the coding rails paint the old gateway's branch and ± under the
+  // new one's paths. The `gh` PR cache is the same story — it runs on the
+  // gateway, keyed by the gateway's repo roots.
+  resetRepoStatusForBackendSwitch()
+  resetPullRequestsForBackendSwitch()
   // …and so did every open preview tab. A preview reads and WRITES through
   // `/api/fs/*` on whichever gateway is current, so a surviving tab shows the
   // old backend's bytes over the new backend's path: hitting save either

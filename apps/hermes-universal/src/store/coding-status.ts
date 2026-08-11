@@ -315,34 +315,27 @@ export function refreshRepoStatus(cwd?: null | string): Promise<void> {
   return repoStatusRefreshInFlight
 }
 
-/** Registered (on-screen) worktrees + the sidebar's cwd. */
+/** Registered (on-screen) worktrees + the sidebar's cwd + the FOCUSED cwd. */
 function refreshTargets(): Set<string> {
   const targets = new Set(registeredCwds.keys())
-  const primary = normalizeCwd($currentCwd.get())
 
-  if (primary) {
-    targets.add(primary)
+  // Two cwds no rail necessarily registers. `$currentCwd` backs the primary
+  // views ($repoStatus / $repoWorktrees, read by the command palette).
+  // `$effectiveCwd` backs $repoChangeByPath, which the file tree tints from —
+  // and it is NOT always one of the mounted rails': it falls back to the
+  // workspace root when the focused chat is detached, and the workspace pane can
+  // be on screen (full-width, or on a narrow viewport) with no composer mounted
+  // at all. Leaving it out meant the tree sat on a cwd nothing ever probed while
+  // the review pane beside it — same cwd — listed changes.
+  for (const cwd of [$currentCwd.get(), $effectiveCwd.get()]) {
+    const key = normalizeCwd(cwd)
+
+    if (key) {
+      targets.add(key)
+    }
   }
 
   return targets
-}
-
-/** Re-probe every on-screen worktree (and the primary). Awaits the drain. */
-export async function refreshAllRepoStatuses(): Promise<void> {
-  const targets = refreshTargets()
-
-  if (targets.size === 0) {
-    return
-  }
-
-  // Queue every target, then await the single in-flight drain once.
-  let last: Promise<void> = Promise.resolve()
-
-  for (const target of targets) {
-    last = refreshRepoStatus(target)
-  }
-
-  await last
 }
 
 // `cwd` scopes the refresh to one worktree; omit it to re-probe every on-screen
@@ -388,6 +381,12 @@ function scheduleRepoStatusRefresh(cwd?: null | string): void {
 
 // The sidebar's cwd changed (session switch / new chat) → re-probe that repo.
 $currentCwd.subscribe(cwd => scheduleRepoStatusRefresh(cwd))
+
+// The FOCUSED surface's cwd changed (a tile took focus, the focused chat moved,
+// or the workspace root landed) → re-probe THAT repo. The file tree's change
+// tint reads this cwd, and it is not always a mounted rail's: a detached chat
+// falls back to the workspace root, which no rail ever registers.
+$effectiveCwd.subscribe(cwd => scheduleRepoStatusRefresh(cwd))
 
 // A worktree was added/removed or a branch switched through store/projects.ts →
 // re-probe, so the coding rows' branch labels and counts repaint immediately
@@ -488,6 +487,32 @@ export async function openWorktreeDialog(options?: { base?: string; repoPath?: s
   if (repoPath) {
     $worktreeDialog.set({ base: options?.base, repoPath })
   }
+}
+
+/**
+ * Drop every cached git truth because the BACKEND changed underneath us.
+ *
+ * Every key here is an absolute path, and a path is not gateway-scoped:
+ * `/home/me/work` exists on the laptop AND on the box just switched to, and they
+ * are different repos on different branches. Without this the rails paint the
+ * previous gateway's branch and ± under the new one's paths — and worse,
+ * {@link isGitRepoPath}'s memo has no TTL, so a path that was a repo over there
+ * keeps answering "yes" here and ⌘⇧B opens the worktree dialog on a directory
+ * git cannot branch from.
+ *
+ * In-flight probes are invalidated along with the sequence numbers, so an answer
+ * from the old backend cannot land afterwards. Registrations are deliberately
+ * KEPT — those rails are still mounted and still want their cwd probed, against
+ * the new backend, which the scheduled refresh does.
+ */
+export function resetRepoStatusForBackendSwitch(): void {
+  pendingByCwd.clear()
+  seqByCwd.clear()
+  gitRepoByPath.clear()
+  $repoStatusByCwd.set({})
+  $repoWorktreesByCwd.set({})
+  $repoStatusLoading.set(false)
+  scheduleRepoStatusRefresh()
 }
 
 /** Test-only: drop the probe memo + in-flight / pending / registered state so
