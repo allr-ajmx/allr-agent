@@ -149,7 +149,12 @@ export function ConfigField({
                 ? (optionLabels?.[option] ?? prettyName(option))
                 : schemaKey === 'display.personality'
                   ? c.none
-                  : c.noneParen}
+                  : // The empty `memory.provider` sentinel means built-in memory, not
+                    // "memory off" — built-in is not a provider plugin (#49513), so
+                    // "(none)" reads as a disabled subsystem it never was.
+                    schemaKey === 'memory.provider'
+                    ? c.builtinOnly
+                    : c.noneParen}
             </SelectItem>
           ))}
         </SelectContent>

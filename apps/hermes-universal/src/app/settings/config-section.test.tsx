@@ -24,7 +24,7 @@ import { I18nProvider } from '@/i18n'
 import { queryClient } from '@/lib/query-client'
 import { setActiveProfile } from '@/store/profiles'
 
-import { ConfigSection } from './config-section'
+import { ConfigField, ConfigSection } from './config-section'
 import { getNested } from './helpers'
 
 const save = vi.mocked(saveHermesConfig)
@@ -106,5 +106,25 @@ describe('ConfigSection', () => {
     renderSection('memory')
 
     expect(await screen.findByDisplayValue('honcho')).toBeInTheDocument()
+  })
+})
+
+describe('ConfigField', () => {
+  // The backend offers "" as the first memory.provider option and it means
+  // built-in memory, not "memory disabled" — built-in is not a provider plugin
+  // (#49513), so the generic "(none)" label misreports the subsystem as off.
+  it('labels the empty memory.provider option as built-in rather than none', () => {
+    render(
+      <I18nProvider>
+        <ConfigField
+          onChange={() => {}}
+          schema={{ options: ['', 'honcho'], type: 'select' }}
+          schemaKey="memory.provider"
+          value=""
+        />
+      </I18nProvider>
+    )
+
+    expect(screen.getByRole('combobox').textContent).toContain('Built-in only')
   })
 })
