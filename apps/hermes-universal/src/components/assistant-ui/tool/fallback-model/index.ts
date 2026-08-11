@@ -683,10 +683,13 @@ function toolErrorText(part: ToolPart, result: Record<string, unknown>): string 
   // stage's code, etc. — all routinely produce useful output and aren't
   // failures. Only treat it as an error when the command produced no real
   // output to show; otherwise render the output normally (not red).
+  // `output_preview` counts as output: background-process polls report their
+  // text under that name (tools/process_registry.py builds the poll payload),
+  // so omitting it painted healthy `process` rows destructive-red.
   const exit = numberValue(result.exit_code)
 
   if (exit !== null && exit !== 0) {
-    const hasOutput = Boolean(firstStringField(result, ['output', 'stdout', 'stderr'])?.trim())
+    const hasOutput = Boolean(firstStringField(result, ['output', 'stdout', 'stderr', 'output_preview'])?.trim())
 
     return hasOutput ? '' : `Command failed with exit code ${exit}.`
   }
