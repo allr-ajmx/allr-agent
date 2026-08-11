@@ -813,7 +813,31 @@ describe('interruptSession', () => {
     await expect(interruptSession('runtime-1')).resolves.toBe(true)
 
     expect(requestGateway).toHaveBeenCalledWith('session.interrupt', { session_id: 'runtime-2' })
-    expect($sessionStates.get()['runtime-2']?.busy).toBe(true)
+    // The slice MOVED onto the recovered runtime…
+    expect($sessionStates.get()['runtime-1']).toBeUndefined()
+    // …and stopped being busy. This assertion used to read `busy: true`, which
+    // is the bug written down as the contract: the turn the chat was busy for
+    // belonged to the runtime the gateway had already dropped, so no
+    // `message.complete` was ever coming to settle it and the session (or the
+    // tile) sat spinning behind a Stop that had already done its job. A
+    // RECOVERED interrupt is the one case where the client knows for certain the
+    // old turn cannot still be running.
+    expect($sessionStates.get()['runtime-2']).toMatchObject({ busy: false, streamId: null, turnStartedAt: null })
+    expect(getInflightTurn('runtime-2')?.phase ?? 'settled').toBe('settled')
+  })
+
+  it('leaves a LIVE runtime busy until the gateway settles the turn it is cancelling', async () => {
+    // The other half of the same rule: the gateway owns this turn, so its
+    // terminal frame — not the interrupt's ack — is what ends it. Clearing busy
+    // here would drop the spinner while tokens were still arriving.
+    seedActiveSession('runtime-1', { busy: true })
+    beginTurn('runtime-1', { prompt: 'go' })
+    vi.mocked(requestGateway).mockResolvedValue({})
+
+    await expect(interruptSession('runtime-1')).resolves.toBe(true)
+
+    expect($sessionStates.get()['runtime-1']?.busy).toBe(true)
+    expect(getInflightTurn('runtime-1')?.phase).not.toBe('settled')
   })
 
   it('reports failure instead of swallowing it', async () => {
