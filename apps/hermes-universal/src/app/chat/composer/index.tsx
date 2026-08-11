@@ -263,7 +263,7 @@ export function ChatBar({
 
   // The submit engine — the orchestration seam where draft + queue meet. Owns
   // the submit decision tree, the send-with-restore primitive, and steer.
-  const { steerDraft, submitDraft } = useComposerSubmit({
+  const { queueDraft, submitDraft } = useComposerSubmit({
     activeQueueSessionKey,
     activeQueueSessionKeyRef,
     attachments,
@@ -707,12 +707,13 @@ export function ChatBar({
     // (below), so both live-turn actions stay reachable from the keyboard and
     // neither can be reached by accident. Swallowed when idle so it can't
     // surprise-send.
+    //
+    // `queueDraft` re-reads the editor first: this branch consumes the keystroke
+    // with preventDefault, so queueing the render-lagged `draftRef` would drop
+    // whatever was typed since the last input event (upstream 406d7a67f0).
     if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && !event.shiftKey) {
       event.preventDefault()
-
-      if (busy && !disabled) {
-        queueCurrentDraft()
-      }
+      queueDraft()
 
       return
     }
@@ -857,7 +858,6 @@ export function ChatBar({
       autoSpeak={autoSpeak}
       busy={busy}
       busyAction={busyAction}
-      canSteer={canSteer}
       canSubmit={canSubmit}
       compactModelPill={poppedOut || compactPill}
       conversation={{
@@ -873,7 +873,7 @@ export function ChatBar({
       disabled={disabled}
       hasComposerPayload={hasComposerPayload}
       onDictate={dictate}
-      onSteer={steerDraft}
+      onQueue={queueDraft}
       onToggleAutoSpeak={handleToggleAutoSpeak}
       state={state}
       voiceStatus={voiceStatus}

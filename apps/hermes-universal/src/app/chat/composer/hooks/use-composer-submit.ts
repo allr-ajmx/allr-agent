@@ -47,7 +47,8 @@ interface UseComposerSubmitArgs {
  * queue meet. `submitDraft` is the one decision tree (queue-edit save · slash-
  * now-while-busy · queue · drain · send · stop); `dispatchSubmit` is the shared
  * send-with-restore primitive (re-loads + re-stashes the draft if the gateway
- * rejects, so nothing is ever lost); `steerDraft` nudges the live turn. Reads
+ * rejects, so nothing is ever lost); `steerDraft` corrects the live turn and
+ * `queueDraft` lines the words up behind it. Reads
  * the draft + queue APIs; owns no state of its own beyond the stable
  * external-submit listener ref.
  */
@@ -141,6 +142,46 @@ export function useComposerSubmit({
     })
   }
 
+  /** Pull the live editor text into `draftRef` / composer state. The AUI
+   *  composer state lags the DOM by a render, so every path that acts on the
+   *  draft from a keydown has to refresh it first. */
+  const syncDraftFromEditor = () => {
+    const editor = editorRef.current
+
+    if (!editor) {
+      return
+    }
+
+    const domText = composerPlainText(editor)
+
+    if (domText !== draftRef.current) {
+      draftRef.current = domText
+      setComposerText(domText)
+    }
+  }
+
+  /**
+   * Queue the draft for the next turn — the explicit "don't interrupt, line
+   * this up" gesture (mod+Enter, and the queue button beside the steer action).
+   *
+   * `queueCurrentDraft` reads `draftRef`, which lags the DOM by an input event,
+   * so the draft is re-synced from the editor first exactly as `submitDraft`
+   * does. Without it a fast mod+Enter — or an Enter that commits a WebKitGTK
+   * IME composition — queues the text MINUS its last keystrokes.
+   */
+  const queueDraft = () => {
+    // Compaction counts as occupied for the same reason `submitDraft` treats it
+    // that way: a summarize call has no live turn to correct, so the words have
+    // to queue rather than be swallowed by a preventDefault-ed keystroke.
+    if (disabled || !(busy || compacting)) {
+      return
+    }
+
+    syncDraftFromEditor()
+    queueCurrentDraft()
+    focusInput()
+  }
+
   const submitDraft = () => {
     if (disabled) {
       return
@@ -154,16 +195,7 @@ export function useComposerSubmit({
     // extra input event forces a state sync). draftRef is updated on every
     // input event; refresh it from the editor once more to also cover an
     // in-flight keystroke that hasn't fired its input event yet.
-    const editor = editorRef.current
-
-    if (editor) {
-      const domText = composerPlainText(editor)
-
-      if (domText !== draftRef.current) {
-        draftRef.current = domText
-        setComposerText(domText)
-      }
-    }
+    syncDraftFromEditor()
 
     // A path that never got its committing space (`@apps/hermes-universal/`
     // left by a Tab descend, then Enter) is still the reference the user
@@ -239,5 +271,5 @@ export function useComposerSubmit({
     focusInput()
   }
 
-  return { dispatchSubmit, steerDraft, submitDraft }
+  return { dispatchSubmit, queueDraft, steerDraft, submitDraft }
 }
