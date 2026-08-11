@@ -1,9 +1,10 @@
 import { listen } from '@tauri-apps/api/event'
 
 import { IS_TAURI } from '@/lib/platform'
+import { WEBVIEW_ID } from '@/lib/webview-id'
 import { dialSavedTarget } from '@/store/gateway-restore'
 import { softSwitchGateway } from '@/store/gateway-soft-switch'
-import { type GatewaySwitchedPayload, SWITCH_EVENT, WEBVIEW_ID } from '@/store/gateway-switch-broadcast'
+import { type GatewaySwitchedPayload, SWITCH_EVENT } from '@/store/gateway-switch-broadcast'
 
 // Cross-WebView gateway switching.
 //
