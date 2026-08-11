@@ -27,6 +27,8 @@ import { act } from 'react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import type * as StatusbarControls from '@/app/shell/statusbar-controls'
+
 vi.mock('@/store/system-status', async () => {
   const { atom } = await import('nanostores')
 
@@ -39,13 +41,36 @@ vi.mock('@/store/system-status', async () => {
   }
 })
 
+/** Every `item` prop handed to a real `StatusbarItemView`, in render order. The
+ *  memo compares that prop by reference, so recording it is the only way to see
+ *  whether the memo can bail — the component itself renders nothing observable
+ *  when it does. */
+const painted = vi.hoisted(() => ({ items: [] as { id: string }[] }))
+
+vi.mock('@/app/shell/statusbar-controls', async importOriginal => {
+  const mod = await importOriginal<typeof StatusbarControls>()
+
+  return {
+    ...mod,
+    StatusbarItemView: ({ item }: { item: { id: string } }) => {
+      painted.items.push(item)
+
+      return null
+    }
+  }
+})
+
+import { useStatusbarContributions } from '@/app/contrib/surfaces'
 import type { StatusbarItem } from '@/app/shell/statusbar-controls'
+import { registry } from '@/contrib/registry'
 import { resetChat } from '@/store/chat'
 import { $gatewayState } from '@/store/gateway'
 import { $terminalOpen } from '@/store/layout'
 import { $statusbarHiddenIds, STATUSBAR_HIDDEN_BY_DEFAULT } from '@/store/statusbar-prefs'
+import { $subagentsBySession } from '@/store/subagents'
 
 import { useStatusbarItems } from './hooks/use-statusbar-items'
+import { MobileStatusList } from './mobile-status-list'
 
 /** Every render's returned items, so identities can be compared across them. */
 let renders: { left: readonly StatusbarItem[]; right: readonly StatusbarItem[] }[] = []
@@ -58,17 +83,33 @@ function Probe() {
   return null
 }
 
-const renderProbe = () =>
-  render(
-    <MemoryRouter>
-      <Probe />
-    </MemoryRouter>
-  )
+/** The shape the two REAL callers use: core items concatenated with the
+ *  `statusBar.*` contribution areas. `Probe` passes no `opts` at all, which is a
+ *  configuration nothing in the app ever renders. */
+function ContribProbe() {
+  const extraLeftItems = useStatusbarContributions('left')
+  const extraRightItems = useStatusbarContributions('right')
+  const { leftStatusbarItems, statusbarItems } = useStatusbarItems({ extraLeftItems, extraRightItems })
+
+  renders.push({ left: leftStatusbarItems, right: statusbarItems })
+
+  return null
+}
+
+const renderProbe = (node: React.ReactNode = <Probe />) => render(<MemoryRouter>{node}</MemoryRouter>)
 
 const byId = (items: readonly StatusbarItem[]) => new Map(items.map(item => [item.id, item]))
 
+/** A store write that changes the atom's IDENTITY without changing anything any
+ *  item reads — `$subagentsBySession` re-mints its whole map on every subagent
+ *  progress event, so this is the churn the bar really sees. It must re-render
+ *  the hook (otherwise the identity assertions below are vacuous) while leaving
+ *  every item's own inputs untouched. */
+const unrelatedChurn = () => $subagentsBySession.set({})
+
 beforeEach(() => {
   renders = []
+  painted.items = []
   $statusbarHiddenIds.set([])
 })
 
@@ -76,6 +117,7 @@ afterEach(() => {
   $gatewayState.set('idle')
   $terminalOpen.set(false)
   $statusbarHiddenIds.set([...STATUSBAR_HIDDEN_BY_DEFAULT])
+  $subagentsBySession.set({})
   resetChat()
 })
 
@@ -124,17 +166,75 @@ describe('useStatusbarItems identity (MJXHRM-303)', () => {
     renderProbe()
 
     const first = renders.at(-1)
+    const rendersBefore = renders.length
 
-    act(() => {
-      // A store the bar subscribes to, written with a value that changes nothing
-      // any item reads. The arrays themselves must survive it.
-      $gatewayState.set($gatewayState.get())
-    })
+    act(unrelatedChurn)
 
     const next = renders.at(-1)
 
+    // The hook DID re-run. The previous version of this test wrote a store its
+    // CURRENT value; nanostores' `set` early-returns on `oldValue === newValue`,
+    // so nothing re-rendered and the two assertions below compared `renders.at(-1)`
+    // with itself. It passed and proved nothing — the exact trap the header warns
+    // about, committed by the test meant to avoid it.
+    expect(renders.length).toBeGreaterThan(rendersBefore)
     expect(next?.left).toBe(first?.left)
     expect(next?.right).toBe(first?.right)
+  })
+
+  // The bar and the mobile Status list both concatenate the `statusBar.*`
+  // contribution areas onto the core groups, so the no-`opts` `Probe` above
+  // exercises a configuration the app never renders. `useStatusbarContributions`
+  // mapped its (stable) registry snapshot into a fresh array on every render,
+  // which re-minted both returned arrays unconditionally — with zero plugins
+  // installed as much as with one.
+  it('keeps the returned arrays identical when the contribution areas are wired in', () => {
+    const dispose = registry.register({
+      area: 'statusBar.left',
+      data: { detail: '3', id: 'demo:queue', label: 'Queue', variant: 'text' },
+      id: 'demo:queue',
+      source: 'plugin:demo'
+    })
+
+    renderProbe(<ContribProbe />)
+
+    const first = renders.at(-1)
+    const rendersBefore = renders.length
+
+    act(unrelatedChurn)
+
+    const next = renders.at(-1)
+
+    expect(renders.length).toBeGreaterThan(rendersBefore)
+    expect(next?.left).toBe(first?.left)
+    expect(next?.right).toBe(first?.right)
+    // …and the contributed item keeps its identity too, so its own memo bails.
+    expect(byId(next?.left ?? []).get('demo:queue')).toBe(byId(first?.left ?? []).get('demo:queue'))
+
+    dispose()
+  })
+
+  // The phone never mounts `<Statusbar/>` (MobileController gates it on
+  // !IS_MOBILE), so `MobileStatusList` is the ONLY surface these items reach on
+  // mobile — and it reshapes every descriptor into a row before painting it. A
+  // fresh object there discards the whole restructure above at the last hop.
+  it('hands MobileStatusList rows a stable item identity across unrelated churn', () => {
+    renderProbe(<MobileStatusList />)
+
+    expect(painted.items.length).toBeGreaterThan(0)
+
+    const before = new Map(painted.items.map(item => [item.id, item]))
+
+    painted.items = []
+
+    act(unrelatedChurn)
+
+    // It DID repaint — otherwise the identity assertions are vacuous.
+    expect(painted.items.length).toBeGreaterThan(0)
+
+    for (const item of painted.items) {
+      expect(item, `row "${item.id}" lost its identity`).toBe(before.get(item.id))
+    }
   })
 
   it('still rebuilds the item whose own data moved, so the bar cannot go stale', () => {
