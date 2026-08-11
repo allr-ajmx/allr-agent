@@ -7533,6 +7533,11 @@ def _maybe_schedule_auto_continue(sid: str, session: dict, session_key: str) -> 
             )
             with session["history_lock"]:
                 session["running"] = False
+                # The turn's finally never runs on this path, so nothing else
+                # would retire the flag — and _session_live_status reads it as
+                # "working". A dispatch that blew up must not leave the session
+                # reporting a turn forever.
+                session["_auto_continue_scheduled"] = False
 
     threading.Thread(target=kickoff, daemon=True).start()
     logger.info(
@@ -7541,7 +7546,50 @@ def _maybe_schedule_auto_continue(sid: str, session: dict, session_key: str) -> 
         attempt,
         age,
     )
-    return {"attempt": attempt, "interrupted_at": marker["started_at"]}
+    return {
+        "attempt": attempt,
+        "interrupted_at": marker["started_at"],
+        # The interrupted request itself. Not part of the wire descriptor (see
+        # _apply_auto_continue_resume_state) — it is the only copy of the turn's
+        # prompt a COLD resume has, because a hard crash persists nothing of the
+        # running turn to the session DB.
+        "prompt": marker["prompt"],
+    }
+
+
+def _apply_auto_continue_resume_state(payload: dict, auto_continue: dict | None) -> dict:
+    """Describe a just-scheduled continuation in a COLD ``session.resume`` payload.
+
+    A cold resume registers a brand-new live record, so ``_inflight_snapshot``
+    has nothing to report and every cold branch hardcodes ``inflight: None``.
+    That is honest right up until ``_maybe_schedule_auto_continue`` schedules a
+    continuation: from that moment a turn IS about to run on this session, and
+    the marker holds the only copy of its prompt.
+
+    Without this the payload said ``running: False, status: "idle", inflight:
+    None`` while a turn was being started underneath it, so a client resumed to
+    an idle-looking chat, sealed whatever it had recovered as a finished reply,
+    and only learned a turn existed when ``message.start`` arrived — up to the
+    120s agent-build timeout later.
+
+    ``streaming: True`` rather than ``running`` alone because that is the field
+    every client reads to decide the turn is live (the desktop and universal
+    resume paths both key off ``inflight.streaming``).
+    """
+    if not auto_continue:
+        return payload
+
+    prompt = str(auto_continue.pop("prompt", "") or "").strip()
+    payload["auto_continue"] = auto_continue
+
+    if not prompt:
+        return payload
+
+    payload["inflight"] = {"assistant": "", "streaming": True, "user": prompt}
+    payload["running"] = True
+    payload["status"] = "streaming"
+
+    return payload
 
 
 def _enqueue_prompt(
@@ -8013,6 +8061,15 @@ def _session_live_status(sid: str, session: dict) -> str:
     if ready is not None and not ready.is_set() and session.get("agent_build_started"):
         return "starting"
     if session.get("running"):
+        return "working"
+    # A scheduled auto-continue owns this session from the moment
+    # _maybe_schedule_auto_continue returns until its kickoff thread flips
+    # ``running`` — a window as long as the 120s agent build. Reporting "idle"
+    # across it makes every liveness consumer (session.active_list pollers)
+    # contradict the resume payload that just said the turn is live, and darken
+    # the row a beat after it lit up. The flag is cleared on every exit: a bail
+    # in kickoff, and the turn's own finally.
+    if session.get("_auto_continue_scheduled"):
         return "working"
     return "idle"
 
@@ -9678,7 +9735,14 @@ def _run_prompt_submit(
         # A retained failed turn (see _fail_inflight_turn) is a stale leftover
         # by the time a new turn starts — replace it, never append onto it.
         if not isinstance(inflight, dict) or inflight.get("status") == "error":
-            _start_inflight_turn(session, text)
+            # An auto-continue submits a wrapper NOTE, not the user's words
+            # (_auto_continue_note). The snapshot is what a resuming client
+            # paints as the user bubble, so record the interrupted REQUEST —
+            # otherwise a reconnect mid-continuation replaces the prompt the
+            # cold resume already projected with the note wrapped around it,
+            # and the thread shows both. ``_auto_continue_prompt`` is set by
+            # the kickoff thread and popped inside ``run`` below.
+            _start_inflight_turn(session, session.get("_auto_continue_prompt") or text)
         agent = session["agent"]
         if hasattr(agent, "clear_interrupt"):
             try:
