@@ -31,7 +31,10 @@ import type { ModelOptionProvider, ModelOptionsResponse } from '@/types/hermes'
 interface ModelVisibilityDialogProps {
   gw?: HermesGateway
   onOpenChange: (open: boolean) => void
-  onOpenProviders: () => void
+  /** Hand-off to the provider setup surface. Omit in a window that has no such
+   *  surface (a satellite chat) — the footer row then stands down rather than
+   *  offering a link with nowhere to go, exactly as the picker's does. */
+  onOpenProviders?: () => void
   open: boolean
   profile?: string
   sessionId?: null | string
@@ -179,20 +182,22 @@ export function ModelVisibilityDialog({
           )}
         </div>
 
-        <div className="px-3 py-2">
-          <Button
-            className="-ml-2 text-(--ui-text-tertiary)"
-            onClick={() => {
-              onOpenChange(false)
-              onOpenProviders()
-            }}
-            size="xs"
-            type="button"
-            variant="text"
-          >
-            {copy.addProvider}
-          </Button>
-        </div>
+        {onOpenProviders && (
+          <div className="px-3 py-2">
+            <Button
+              className="-ml-2 text-(--ui-text-tertiary)"
+              onClick={() => {
+                onOpenChange(false)
+                onOpenProviders()
+              }}
+              size="xs"
+              type="button"
+              variant="text"
+            >
+              {copy.addProvider}
+            </Button>
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   )
