@@ -1597,6 +1597,8 @@ export interface Translations {
       ideaShuffle: string
       ideaFailed: string
       ideaWriteFailed: string
+      ideaAppended: string
+      ideaKeptExisting: string
       noFolders: string
       addFolder: string
       folderPath: string

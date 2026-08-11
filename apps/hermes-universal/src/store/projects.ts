@@ -3,7 +3,14 @@ import { NO_PROJECT_ID } from '@/app/chat/sidebar/projects/workspace-groups'
 import type { HermesGitBaseBranch, HermesGitBranch } from '@/global'
 import { getHermesConfig } from '@/hermes'
 import { translateNow } from '@/i18n'
-import { copyTextToClipboard, desktopDefaultCwd, selectDesktopPaths, writeDesktopFileText } from '@/lib/desktop-fs'
+import {
+  copyTextToClipboard,
+  desktopDefaultCwd,
+  readDesktopDir,
+  readDesktopFileText,
+  selectDesktopPaths,
+  writeDesktopFileText
+} from '@/lib/desktop-fs'
 import { desktopGit } from '@/lib/desktop-git'
 import { isMissingRpcMethod, moveSessionWorkspace } from '@/lib/gateway-rpc'
 import { isUnderPath } from '@/lib/path-compare'
@@ -286,14 +293,50 @@ export async function generateProjectIdea(name: string, seed = ''): Promise<stri
   }
 }
 
-// Write IDEA.md to a project's primary folder. Ported from desktop
-// `store/projects.ts`, but the write is REPORTED rather than swallowed: every
-// universal fs write is a gateway round trip (there is no local-fs branch), so
-// it can fail for reasons the user can act on — and the create dialog promises
-// in so many words that the idea is "saved to IDEA.md". A silent failure would
-// be the same broken promise this replaced. The project is created either way.
+const IDEA_FILE = 'IDEA.md'
+
+/**
+ * The idea file already sitting in `dir`, or null when there is none.
+ *
+ * Matched case-INSENSITIVELY and answered with the entry's own path: on a
+ * case-folding filesystem (macOS, Windows) an existing `Idea.md` IS the file
+ * `IDEA.md` names, so writing the canonical spelling would overwrite it while
+ * looking like a fresh create.
+ *
+ * A directory that can't be listed (missing, unreadable, gateway down) answers
+ * null — the write that follows is what reports the real reason.
+ */
+async function existingIdeaPath(dir: string): Promise<null | string> {
+  try {
+    const listing = await readDesktopDir(dir)
+
+    return listing.entries.find(e => !e.isDirectory && e.name.toLowerCase() === IDEA_FILE.toLowerCase())?.path ?? null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Save the create-dialog's idea into the project's primary folder as IDEA.md.
+ *
+ * Ported from desktop `store/projects.ts` with two deliberate divergences:
+ *
+ * 1. The write is REPORTED rather than swallowed. Every universal fs write is a
+ *    gateway round trip (there is no local-fs branch), so it can fail for
+ *    reasons the user can act on — and the dialog promises in so many words
+ *    that the idea is "saved to IDEA.md". A silent failure would be the same
+ *    broken promise this replaced. The project is created either way.
+ * 2. An IDEA.md that is ALREADY there is never clobbered. Adopting an existing
+ *    folder as a project is the ordinary case, and IDEA.md is a hermes
+ *    convention agents read, so the odds of one already being there are high;
+ *    desktop's unconditional write destroys it with no undo (the backend does
+ *    temp + os.replace, so the old bytes are simply gone). The new idea is
+ *    appended under a rule instead. A file we could not read back WHOLE
+ *    (preview-truncated over 512 KiB, or non-UTF-8) is left strictly alone —
+ *    writing back a partial read would drop everything we never saw.
+ */
 async function writeProjectIdea(folder: null | string | undefined, idea: string): Promise<void> {
-  const dir = (folder || '').trim()
+  const dir = (folder || '').trim().replace(/[/\\]+$/, '')
   const body = idea.trim()
 
   if (!dir || !body) {
@@ -301,7 +344,33 @@ async function writeProjectIdea(folder: null | string | undefined, idea: string)
   }
 
   try {
-    await writeDesktopFileText(`${dir.replace(/[/\\]+$/, '')}/IDEA.md`, `${body}\n`)
+    const existing = await existingIdeaPath(dir)
+
+    if (!existing) {
+      await writeDesktopFileText(`${dir}/${IDEA_FILE}`, `${body}\n`)
+
+      return
+    }
+
+    const current = await readDesktopFileText(existing)
+
+    if (current.truncated || current.binary) {
+      notify({ kind: 'warning', message: translateNow('sidebar.projects.ideaKeptExisting') })
+
+      return
+    }
+
+    const kept = (current.text || '').replace(/\s+$/, '')
+
+    // An empty (or whitespace-only) file holds nothing to lose.
+    if (!kept) {
+      await writeDesktopFileText(existing, `${body}\n`)
+
+      return
+    }
+
+    await writeDesktopFileText(existing, `${kept}\n\n---\n\n${body}\n`)
+    notify({ kind: 'info', message: translateNow('sidebar.projects.ideaAppended') })
   } catch (err) {
     notifyError(err, translateNow('sidebar.projects.ideaWriteFailed'))
   }

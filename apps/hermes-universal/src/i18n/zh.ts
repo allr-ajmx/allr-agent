@@ -2058,6 +2058,8 @@ export const zh: Translations = {
       ideaShuffle: '随机模板',
       ideaFailed: '无法生成想法',
       ideaWriteFailed: '项目已创建，但无法保存 IDEA.md',
+      ideaAppended: 'IDEA.md 已存在 — 你的想法已追加到文件末尾',
+      ideaKeptExisting: '已保留原有的 IDEA.md — 它过大或不是文本文件',
       noFolders: '尚未添加文件夹。',
       addFolder: '添加文件夹',
       folderPath: '粘贴文件夹路径',

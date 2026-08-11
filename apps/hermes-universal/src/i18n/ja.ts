@@ -1730,6 +1730,8 @@ export const ja = defineLocale({
       ideaShuffle: 'テンプレートをシャッフル',
       ideaFailed: 'アイデアを生成できませんでした',
       ideaWriteFailed: 'プロジェクトは作成されましたが、IDEA.md を保存できませんでした',
+      ideaAppended: 'IDEA.md がすでにあったため、アイデアを末尾に追記しました',
+      ideaKeptExisting: 'IDEA.md はそのままにしました（サイズが大きすぎるかテキストではありません）',
       noFolders: 'まだフォルダがありません。',
       addFolder: 'フォルダを追加',
       primaryBadge: 'メイン',
