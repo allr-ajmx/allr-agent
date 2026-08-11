@@ -1929,6 +1929,8 @@ export const ja = defineLocale({
     themeTryPre: '試してみる: ',
     themeTryPost: '。',
     attachLabel: '添付',
+    attachFailed: label => `${label} を添付できませんでした`,
+    attachNoRef: 'ゲートウェイはこのファイルを保存しませんでした。',
     files: 'ファイル…',
     folder: 'フォルダー…',
     back: '戻る',

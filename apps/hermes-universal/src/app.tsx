@@ -4,10 +4,34 @@ import { HudWindowRoot } from '@/app/hud/hud-window'
 import { MobileController } from '@/app/mobile-controller'
 import { QUICK_ENTRY_SURFACE } from '@/app/quick-entry/quick-entry'
 import { QuickEntryWindowRoot } from '@/app/quick-entry/quick-entry-window'
+import { RemoteFolderPicker } from '@/app/right-pane/files/remote-picker'
 import { TileWindowRoot } from '@/app/tile-window'
 import { isActivityWindow, isTileWindow, satelliteSurface } from '@/store/windows'
 
+/**
+ * Every window root, plus the surfaces that must exist in ALL of them.
+ *
+ * `RemoteFolderPicker` is one such surface: it is not a view, it is the
+ * registration that gives `selectDesktopPaths` / `selectRemotePaths` somewhere
+ * to send a pick. Unregistered, both resolve `[]`, which every caller reads as
+ * "cancelled" — so the composer's `Files… ▸ Remote…`, Settings ▸ Archived's
+ * "choose folder" and Profiles ▸ import were dead clicks in exactly the roots
+ * that skip `ContribController`: the detached tile window, the HUD, and the
+ * Android/iOS activity screen (which IS the Settings/Profiles surface there).
+ *
+ * Mounted HERE rather than once per root so the next root cannot forget it —
+ * the failure mode is silence, which is the kind that ships.
+ */
 export function App() {
+  return (
+    <>
+      <AppRoot />
+      <RemoteFolderPicker />
+    </>
+  )
+}
+
+function AppRoot() {
   // A native screen activity (`?win=activity`, Android/iOS) renders a single
   // full-screen windowable surface — Settings / Command Center / Profiles, chosen
   // live by the current route — with its own top bar + Home, bypassing the chat

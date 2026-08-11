@@ -1875,6 +1875,8 @@ export const zhHant = defineLocale({
     themeTryPre: '試試 ',
     themeTryPost: '。',
     attachLabel: '附加',
+    attachFailed: label => `無法附加 ${label}`,
+    attachNoRef: '閘道未暫存此檔案。',
     files: '檔案…',
     folder: '資料夾…',
     back: '返回',

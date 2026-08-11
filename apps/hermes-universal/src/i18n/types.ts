@@ -1774,6 +1774,8 @@ export interface Translations {
     themeTryPre: string
     themeTryPost: string
     attachLabel: string
+    attachFailed: (label: string) => string
+    attachNoRef: string
     files: string
     folder: string
     back: string

@@ -15,10 +15,12 @@ import { useSessionView } from '@/app/chat/session-view'
 import { ModelMenuPanel } from '@/app/shell/model-menu-panel'
 import { transcribeAudio } from '@/hermes'
 import { SLASH_COMMAND_RE } from '@/lib/chat-runtime'
+import { gatewayOwnsLocalFs } from '@/lib/desktop-fs'
 import { triggerHaptic } from '@/lib/haptics'
 import { useStore } from '@/store/atom'
 import { interruptSession, redirectPrompt, sendPrompt } from '@/store/chat'
 import { type ComposerAttachment } from '@/store/composer'
+import { $connection } from '@/store/connection'
 import { $gatewayState, getGatewayClient, requestGateway } from '@/store/gateway'
 import { refreshCurrentModel, selectModel } from '@/store/model'
 import { $activeSessionKey } from '@/store/session-state-types'
@@ -54,6 +56,9 @@ export function ChatComposer() {
   const currentModel = useStore(view.$model)
   const currentProvider = useStore(view.$provider)
   const gatewayState = useStore($gatewayState)
+  // Subscribed, not read once: the attach menu's local/remote shape depends on
+  // the gateway's mode, and a soft switch changes it under a mounted composer.
+  const connection = useStore($connection)
   const executeSlashCommand = useSlashCommand()
 
   // Seed the composer's model/provider from the profile default once the gateway
@@ -152,6 +157,20 @@ export function ChatComposer() {
   const onPickImages = useCallback(() => void pickAttachment().then(addStagedToScope), [addStagedToScope])
   const onPickFolders = useCallback(() => void pickFolderAttachment().then(addStagedToScope), [addStagedToScope])
 
+  // A LOCAL folder pick has no bytes to stage: all it can produce is a raw
+  // `@folder:<path>` the GATEWAY then resolves on ITS own disk. That is only the
+  // folder the user pointed at when this window's filesystem IS the gateway's —
+  // `gatewayOwnsLocalFs`, which excludes ssh/remote/cloud and every phone. Off
+  // that, `/home/me/work` very often exists on both machines, so the pick used
+  // to succeed loudly and attach an unrelated directory (the same trap
+  // MJXHRM-32 closed in `selectDesktopPaths`). Withhold the handler and the
+  // menu offers Remote directly instead of a choice with a wrong answer in it.
+  //
+  // Local FILES stay available everywhere: those upload BYTES through
+  // `file.attach`, so which machine the path came from stops mattering the
+  // moment they are staged.
+  const localFolderPick = gatewayOwnsLocalFs(connection) ? onPickFolders : undefined
+
   // Remote picks open the backend-fs browser at the session's cwd.
   const onPickRemoteFiles = useCallback(
     () => void pickRemoteAttachment(cwd || undefined).then(addStagedToScope),
@@ -181,7 +200,7 @@ export function ChatComposer() {
       gateway={getGatewayClient()}
       onCancel={onCancel}
       onPickFiles={onPickFiles}
-      onPickFolders={onPickFolders}
+      onPickFolders={localFolderPick}
       onPickImages={onPickImages}
       onPickRemoteFiles={onPickRemoteFiles}
       onPickRemoteFolders={onPickRemoteFolders}
