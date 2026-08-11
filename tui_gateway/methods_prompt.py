@@ -131,7 +131,16 @@ def _(rid, params: dict) -> dict:
     # Re-bind to the current client transport for this request. This keeps
     # streaming events on the active websocket even if an earlier disconnect
     # or fallback moved the session transport to stdio.
-    if (t := current_transport()) is not None:
+    #
+    # Only when this client is entitled to the stream, though. A prompt that
+    # lands mid-turn does NOT take the live turn over — it is queued (see
+    # _handle_busy_submit), and rebinding here would redirect another viewer's
+    # in-flight answer to this one exactly as the unconditional rebind in
+    # _live_session_payload used to. The queued entry pins its own transport
+    # and _drain_queued_prompt rebinds when it actually runs, so nothing is
+    # lost by waiting; the branches that really do claim the live turn (steer /
+    # redirect) rebind themselves.
+    if (t := current_transport()) is not None and _resume_may_rebind_transport(session, t):
         session["transport"] = t
     while True:
         busy_transport = None
