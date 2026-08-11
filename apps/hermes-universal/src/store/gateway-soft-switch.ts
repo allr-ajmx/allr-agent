@@ -7,6 +7,7 @@ import { closeGateway } from '@/store/gateway'
 import type { Connection, GatewayMode } from '@/store/gateway-config'
 import { dialSavedTarget, type GatewayTarget, loadGatewayTarget } from '@/store/gateway-restore'
 import { $gatewayMode, $gatewaySwitching } from '@/store/gateway-switch'
+import { resetLiveRuntimeTracking } from '@/store/live-session-status'
 import { resetLiveSync } from '@/store/live-sync'
 import { stopLocalBackend } from '@/store/local-backend'
 import { notify, notifyError } from '@/store/notifications'
@@ -59,6 +60,10 @@ export function wipeSessionListsForGatewaySwitch(): void {
   // stale `true` would leave every consumer on its slow backstop against a
   // backend that never broadcasts (store/live-sync.ts).
   resetLiveSync()
+  // The live-runtime ids the rehydrate snapshot remembers belong to the old
+  // backend's registry, and `clearAllSessionStates()` just dropped the slices
+  // they point at — keeping them could only reap sessions that no longer exist.
+  resetLiveRuntimeTracking()
   resetSessionsPaging()
 
   $activeStoredSessionId.set(null)
