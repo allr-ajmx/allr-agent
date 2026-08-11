@@ -768,7 +768,7 @@ export function TreeGroup({
                     if (isToggleSelectClick(e)) {
                       e.preventDefault()
                       e.stopPropagation()
-                      toggleTabSelected(node.id, paneId, activeId)
+                      toggleTabSelected(node.id, shown, paneId, activeId)
 
                       return
                     }

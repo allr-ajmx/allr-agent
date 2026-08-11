@@ -168,15 +168,37 @@ describe('mergeZonesWithPane with a multi-tab block', () => {
 })
 
 describe('tab selection (Chrome grammar)', () => {
+  const STRIP = ['a', 'b', 'c', 'd']
+
   it('⌥-click seeds with the active tab, toggles, and dissolves at ≤1', () => {
     clearTabSelection()
-    toggleTabSelected('g', 'c', 'a')
+    toggleTabSelected('g', STRIP, 'c', 'a')
 
     expect([...$tabSelection.get()!.ids].sort()).toEqual(['a', 'c'])
 
-    toggleTabSelected('g', 'c', 'a')
+    toggleTabSelected('g', STRIP, 'c', 'a')
 
     expect($tabSelection.get()).toBeNull()
+  })
+
+  // Nothing clears the selection when a selected tab is closed or dragged into
+  // another zone, so the set it carries forward has to be pruned at use. It was
+  // not: ⌥-clicking one more tab afterwards showed "three selected" and then
+  // dragged ONE, because selectionFor validates against the live strip and
+  // dissolves anything that filters down to a single id.
+  it('prunes tabs that left the strip before folding in the next ⌥-click', () => {
+    clearTabSelection()
+    toggleTabSelected('g', STRIP, 'b', 'a')
+
+    expect([...$tabSelection.get()!.ids].sort()).toEqual(['a', 'b'])
+
+    // a and b have both closed since; the strip now holds c and d, c active.
+    toggleTabSelected('g', ['c', 'd'], 'd', 'c')
+
+    expect([...$tabSelection.get()!.ids].sort()).toEqual(['c', 'd'])
+    expect(selectionFor('g', ['c', 'd'], 'd')).toEqual(['c', 'd'])
+
+    clearTabSelection()
   })
 
   it('shift-click ranges from the anchor and re-ranges on the next shift-click', () => {
@@ -195,8 +217,8 @@ describe('tab selection (Chrome grammar)', () => {
 
   it('selectionFor answers null for an unselected pressed tab and drops stale ids', () => {
     clearTabSelection()
-    toggleTabSelected('g', 'b', 'a')
-    toggleTabSelected('g', 'c', 'a')
+    toggleTabSelected('g', STRIP, 'b', 'a')
+    toggleTabSelected('g', STRIP, 'c', 'a')
 
     // Pressed tab outside the selection = single-tab drag.
     expect(selectionFor('g', ['a', 'b', 'c', 'd'], 'd')).toBeNull()
