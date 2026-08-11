@@ -57,7 +57,6 @@ export function ComposerControls({
   autoSpeak,
   busy,
   busyAction,
-  canSteer,
   canSubmit,
   compactModelPill = false,
   conversation,
@@ -66,13 +65,12 @@ export function ComposerControls({
   state,
   voiceStatus,
   onDictate,
-  onSteer,
+  onQueue,
   onToggleAutoSpeak
 }: {
   autoSpeak: boolean
   busy: boolean
   busyAction: 'queue' | 'steer' | 'stop'
-  canSteer: boolean
   canSubmit: boolean
   compactModelPill?: boolean
   conversation: ConversationProps
@@ -81,25 +79,25 @@ export function ComposerControls({
   state: ChatBarState
   voiceStatus: VoiceStatus
   onDictate: () => void
-  onSteer: () => void
+  onQueue: () => void
   onToggleAutoSpeak: () => void
 }) {
   const { t } = useI18n()
   const c = t.composer
-  // Read from the keybind registry rather than hardcoding the chord — steer is a
+  // Read from the keybind registry rather than hardcoding the chord — queue is a
   // readonly binding today, but the registry stays the single source of truth.
-  const steerCombo = bindingsFor('composer.steer')[0] ?? 'enter'
-  const steerLabel = `${c.steer} (${formatCombo(steerCombo)})`
+  const queueCombo = bindingsFor('composer.queue')[0] ?? 'mod+enter'
+  const queueLabel = `${c.queueMessage} (${formatCombo(queueCombo)})`
 
   // The primary button has to say what the primary key does: while a turn runs,
   // Enter steers it. Only an attachment, a compacting turn or a slash command
   // demotes it to a queue.
   const busyActionLabel = busyAction === 'steer' ? c.steer : busyAction === 'queue' ? c.queueMessage : c.stop
 
-  const steerTip = (
+  const queueTip = (
     <span className="inline-flex items-center gap-1.5">
-      {c.steer}
-      <KbdCombo combo={steerCombo} size="sm" variant="inverted" />
+      {c.queueMessage}
+      <KbdCombo combo={queueCombo} size="sm" variant="inverted" />
     </span>
   )
 
@@ -112,27 +110,29 @@ export function ComposerControls({
   return (
     <div className="ml-auto flex shrink-0 items-center gap-(--composer-control-gap)">
       <ModelPill compact={compactModelPill} disabled={disabled} model={state.model} />
-      {/* While the agent runs and the user is typing, steer takes over the mic's
-          slot rather than crowding the row with an extra button. */}
-      {canSteer ? (
-        <Tip label={steerTip}>
+      {/* Dictation stays put while a correction is being typed: the mic slot is
+          not the steer slot. The primary button below already carries the steer
+          wheel, so the only action that needs its own control here is QUEUE —
+          without it "line this up next" is reachable by mod+Enter alone, which
+          does not exist on a touch keyboard. */}
+      <DictationButton disabled={disabled} onToggle={onDictate} state={state.voice} status={voiceStatus} />
+      <WakeWordButton disabled={disabled} />
+      <AutoSpeakButton active={autoSpeak} disabled={disabled} onToggle={onToggleAutoSpeak} />
+      {busyAction === 'steer' ? (
+        <Tip label={queueTip}>
           <Button
-            aria-label={steerLabel}
+            aria-label={queueLabel}
             className={GHOST_ICON_BTN}
             disabled={disabled}
-            onClick={onSteer}
+            onClick={onQueue}
             size="icon"
             type="button"
             variant="ghost"
           >
-            <SteeringWheel className={iconSize.sm} />
+            <Layers3 className={iconSize.sm} />
           </Button>
         </Tip>
-      ) : (
-        <DictationButton disabled={disabled} onToggle={onDictate} state={state.voice} status={voiceStatus} />
-      )}
-      <WakeWordButton disabled={disabled} />
-      <AutoSpeakButton active={autoSpeak} disabled={disabled} onToggle={onToggleAutoSpeak} />
+      ) : null}
       {showVoicePrimary ? (
         <Tip label={c.startVoice}>
           <Button
