@@ -68,18 +68,89 @@ const ARTIFACT_CSP: &str = "default-src 'none'; \
      form-action 'none'; \
      base-uri 'none'";
 
+/// One staged document and the number of frames that asked for it.
+///
+/// The count is not bookkeeping for its own sake: this state is per-APP, not
+/// per-window, and the same artifact can be open in the main window and in a
+/// detached chat window at once. Without it, the first of those two frames to
+/// unmount would delete the document out from under the other, and the survivor
+/// would 404 the moment anything reloaded it.
+struct Staged {
+    html: String,
+    refs: usize,
+}
+
 /// Documents the renderer has staged for the frame, by id.
 ///
 /// In memory only, and deliberately so: the transcript is the durable copy of
 /// an artifact, and writing generated HTML to disk to render it would leave a
 /// trail of stranger's pages in a temp directory the app never cleans.
 #[derive(Default)]
-pub struct ArtifactState(RwLock<HashMap<String, String>>);
+pub struct ArtifactState(RwLock<HashMap<String, Staged>>);
 
 /// Cap on staged documents. A session can iterate on an artifact many times;
 /// only the ones actually opened are staged, and an unbounded map would hold
 /// every version's full HTML for the life of the process.
 const MAX_STAGED: usize = 16;
+
+/// The store's own verbs, off the command layer so they can be exercised
+/// directly — a `State<'_, _>` needs a running app, and the ref-counting below
+/// is exactly the part worth a test.
+impl ArtifactState {
+    fn stage(&self, id: String, html: String) -> Result<(), String> {
+        if id.is_empty() {
+            return Err("artifact_id_required".into());
+        }
+
+        let mut guard = self.0.write().map_err(|_| "artifact_state_poisoned")?;
+
+        if let Some(entry) = guard.get_mut(&id) {
+            entry.refs += 1;
+            entry.html = html;
+
+            return Ok(());
+        }
+
+        if guard.len() >= MAX_STAGED {
+            // Every surviving entry backs a MOUNTED frame (an entry is dropped
+            // the moment its last frame releases it), so there is no idle
+            // candidate to prefer — any choice blanks a visible preview. At 16
+            // artifact frames open at once the cap is the smaller problem.
+            if let Some(victim) = guard.keys().next().cloned() {
+                guard.remove(&victim);
+            }
+        }
+
+        guard.insert(id, Staged { html, refs: 1 });
+
+        Ok(())
+    }
+
+    fn release(&self, id: &str) -> Result<(), String> {
+        let mut guard = self.0.write().map_err(|_| "artifact_state_poisoned")?;
+
+        let drained = match guard.get_mut(id) {
+            Some(entry) => {
+                entry.refs = entry.refs.saturating_sub(1);
+                entry.refs == 0
+            }
+            None => false,
+        };
+
+        if drained {
+            guard.remove(id);
+        }
+
+        Ok(())
+    }
+
+    fn document(&self, id: &str) -> Option<String> {
+        self.0
+            .read()
+            .ok()
+            .and_then(|map| map.get(id).map(|entry| entry.html.clone()))
+    }
+}
 
 /// Stage a document and hand back the id the frame should load.
 ///
@@ -92,30 +163,14 @@ pub fn artifact_stage(
     id: String,
     html: String,
 ) -> Result<(), String> {
-    if id.is_empty() {
-        return Err("artifact_id_required".into());
-    }
-
-    let mut guard = state.0.write().map_err(|_| "artifact_state_poisoned")?;
-
-    if guard.len() >= MAX_STAGED && !guard.contains_key(&id) {
-        // Cheapest sound eviction: the map is small and every entry is equally
-        // a candidate, so drop an arbitrary one rather than carry an LRU.
-        if let Some(victim) = guard.keys().next().cloned() {
-            guard.remove(&victim);
-        }
-    }
-
-    guard.insert(id, html);
-    Ok(())
+    state.stage(id, html)
 }
 
 /// Drop a staged document — the viewer calls this when its frame unmounts.
+/// The document only actually goes when the LAST frame holding it is gone.
 #[tauri::command]
 pub fn artifact_release(state: State<'_, ArtifactState>, id: String) -> Result<(), String> {
-    let mut guard = state.0.write().map_err(|_| "artifact_state_poisoned")?;
-    guard.remove(&id);
-    Ok(())
+    state.release(&id)
 }
 
 fn status_only(status: StatusCode) -> Response<Vec<u8>> {
@@ -160,7 +215,7 @@ pub fn handle<R: tauri::Runtime>(
 
     let html = app
         .try_state::<ArtifactState>()
-        .and_then(|state| state.0.read().ok().and_then(|map| map.get(&id).cloned()));
+        .and_then(|state| state.document(&id));
 
     let response = match html {
         Some(body) => Response::builder()
@@ -234,5 +289,61 @@ mod tests {
     #[test]
     fn the_artifact_policy_does_not_forbid_its_own_embedder() {
         assert!(!ARTIFACT_CSP.contains("frame-ancestors"));
+    }
+
+    #[test]
+    fn an_empty_id_is_refused() {
+        let state = ArtifactState::default();
+
+        assert!(state.stage(String::new(), "<p>x</p>".into()).is_err());
+    }
+
+    // Two frames, one document — the main window and a detached chat window can
+    // hold the same artifact open. The first to unmount must not take the
+    // document away from the second.
+    #[test]
+    fn a_document_survives_until_its_last_frame_releases_it() {
+        let state = ArtifactState::default();
+
+        state
+            .stage("doc".into(), "<p>v1</p>".into())
+            .expect("stage");
+        state
+            .stage("doc".into(), "<p>v1</p>".into())
+            .expect("stage");
+
+        state.release("doc").expect("release");
+
+        assert_eq!(state.document("doc").as_deref(), Some("<p>v1</p>"));
+
+        state.release("doc").expect("release");
+
+        assert_eq!(state.document("doc"), None);
+    }
+
+    #[test]
+    fn releasing_an_unknown_id_is_a_no_op() {
+        let state = ArtifactState::default();
+
+        state.release("nothing").expect("release");
+
+        assert_eq!(state.document("nothing"), None);
+    }
+
+    // A released document is gone immediately, so staging the same id N times
+    // and releasing it N times leaves nothing behind for the cap to trip over.
+    #[test]
+    fn staging_the_same_id_repeatedly_keeps_one_entry() {
+        let state = ArtifactState::default();
+
+        for _ in 0..MAX_STAGED * 2 {
+            state.stage("doc".into(), "<p>v</p>".into()).expect("stage");
+        }
+
+        for _ in 0..MAX_STAGED * 2 {
+            state.release("doc").expect("release");
+        }
+
+        assert_eq!(state.document("doc"), None);
     }
 }
