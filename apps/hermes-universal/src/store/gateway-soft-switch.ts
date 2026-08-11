@@ -1,5 +1,6 @@
 import { translateNow } from '@/i18n'
 import { queryClient } from '@/lib/query-client'
+import { clearArtifactRegistry } from '@/store/artifacts'
 import { resetChat } from '@/store/chat'
 import { $connection, beginGatewaySwitch, disconnect, endGatewaySwitch } from '@/store/connection'
 import { setCronJobs } from '@/store/cron'
@@ -65,6 +66,12 @@ export function wipeSessionListsForGatewaySwitch(): void {
   // they point at — keeping them could only reap sessions that no longer exist.
   resetLiveRuntimeTracking()
   resetSessionsPaging()
+  // Artifacts are keyed by sessions on the PREVIOUS backend, so both the
+  // registry and any preview tab pointing into it go with them. Without this an
+  // artifact tab survives the switch naming an id the new gateway has never
+  // heard of, and re-opens as "artifact unavailable" — or worse, silently
+  // collides with a same-shaped id over there.
+  clearArtifactRegistry()
 
   $activeStoredSessionId.set(null)
   resetChat()

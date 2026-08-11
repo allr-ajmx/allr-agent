@@ -2,7 +2,7 @@ import { act, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 // Type-only, so these are erased and cannot trip vi.mock's hoisting.
 import type * as RouterModule from 'react-router-dom'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type * as NotificationsModule from '@/store/notifications'
 import type * as SessionModule from '@/store/session'
@@ -31,6 +31,13 @@ vi.mock('@/store/notifications', async importActual => ({
   notify: vi.fn()
 }))
 vi.mock('@/store/gateway-soft-switch', () => ({ sessionMissingFromCurrentGateway: vi.fn() }))
+// Stubbed: the real viewer drags in shiki, DOMPurify and the copy button, none of
+// which this file is about. What IS about this file is whether an artifact surface
+// is MOUNTED here at all — the overlay wiring around the stub stays real.
+vi.mock('@/app/right-pane/preview/preview-artifact', () => ({
+  ArtifactPreview: ({ target }: { target: { path: string } }) => <div>artifact-view:{target.path}</div>
+}))
+vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(async () => undefined) }))
 // Partial: session-states/chat-bubbles reach for other exports through the import
 // graph, so replacing the whole module breaks the render.
 vi.mock('@/store/session', async importActual => ({
@@ -40,10 +47,12 @@ vi.mock('@/store/session', async importActual => ({
   refreshSessions: vi.fn().mockResolvedValue(undefined)
 }))
 
+import { clearArtifactRegistry, openArtifact, upsertArtifact } from '@/store/artifacts'
 import { $connectionPhase } from '@/store/connection'
 import { sessionMissingFromCurrentGateway } from '@/store/gateway-soft-switch'
 import { $gatewaySwitching } from '@/store/gateway-switch'
 import { notify } from '@/store/notifications'
+import { $activePreviewPath, $previewTabs, closePreviewTab, setPreviewTarget } from '@/store/preview'
 import { newSession, openSession } from '@/store/session'
 
 import { TileWindowRoot } from './tile-window'
@@ -123,5 +132,58 @@ describe('TileWindowRoot chat host — session after a re-home', () => {
     renderAt('/sess-1')
 
     expect(screen.getByText('chat')).toBeInTheDocument()
+  })
+})
+
+// This window renders the whole transcript, artifact cards included, but hosts
+// none of the three shells that show a preview — no layout tree, no rail. Opening
+// an artifact card here used to write a tab into a store nothing in the window
+// read, so "Open" was a dead click.
+describe('TileWindowRoot chat host — artifacts', () => {
+  afterEach(() => {
+    clearArtifactRegistry()
+    $previewTabs.set([])
+    $activePreviewPath.set(null)
+  })
+
+  it('shows an artifact opened from a card in the transcript', async () => {
+    renderAt('/sess-1')
+
+    const artifact = upsertArtifact('sess-1', { kind: 'html', language: 'html', title: 'Timer' }, '<html>v1</html>')!
+
+    await act(async () => {
+      openArtifact(artifact.artifactId)
+    })
+
+    expect(screen.getByText(`artifact-view:artifact:${artifact.artifactId}`)).toBeInTheDocument()
+  })
+
+  it('closes back to the chat', async () => {
+    renderAt('/sess-1')
+
+    const artifact = upsertArtifact('sess-1', { kind: 'html', language: 'html', title: 'Timer' }, '<html>v1</html>')!
+
+    await act(async () => {
+      openArtifact(artifact.artifactId)
+    })
+    await act(async () => {
+      closePreviewTab(`artifact:${artifact.artifactId}`)
+    })
+
+    expect(screen.queryByText(`artifact-view:artifact:${artifact.artifactId}`)).not.toBeInTheDocument()
+    expect(screen.getByText('chat')).toBeInTheDocument()
+  })
+
+  // A file tab is a different surface with a different lifecycle (dirty state,
+  // save path) and nothing in this window opens one — it must not be adopted by
+  // the artifact overlay just because it shares the tab store.
+  it('ignores a non-artifact preview tab', async () => {
+    renderAt('/sess-1')
+
+    await act(async () => {
+      setPreviewTarget('/repo/app.ts')
+    })
+
+    expect(screen.queryByText(/^artifact-view:/)).not.toBeInTheDocument()
   })
 })
