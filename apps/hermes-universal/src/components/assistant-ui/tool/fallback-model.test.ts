@@ -75,6 +75,18 @@ describe('buildToolView terminal exit-code status', () => {
       'error'
     )
   })
+
+  // A background-process poll reports its text under `output_preview`, never
+  // `output`/`stdout`/`stderr` (tools/process_registry.py). Omitting that name
+  // from the has-output test painted every poll of a process that exited
+  // non-zero destructive-red, with no error text to show for it.
+  it('counts output_preview as command output', () => {
+    const poll = (result: Record<string, unknown>) => buildToolView(part({ result, toolName: 'process' }), '')
+
+    expect(poll({ exit_code: 1, output_preview: 'npm warn deprecated ...' }).status).toBe('success')
+    expect(poll({ exit_code: 1, output_preview: '   ' }).status).toBe('error')
+    expect(poll({ exit_code: 1 }).status).toBe('error')
+  })
 })
 
 describe('buildToolView browser_navigate title', () => {

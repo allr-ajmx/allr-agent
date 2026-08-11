@@ -134,8 +134,21 @@ function DelegateRowView({ row }: { row: DelegateRow }) {
  * A card, never folded into a run summary: the point of the block is the live
  * list, and a ticker cycling one line across five children would show four of
  * them nothing.
+ *
+ * `fallback` is what to render when the call describes no children yet. It is
+ * not a rare edge: the gateway's `tool.start` carries only `{tool_id, name,
+ * context}` — the arguments arrive on `tool.complete` (see
+ * `tui_gateway/server.py:_on_tool_start`) — so for the whole of a live run
+ * there are no goals to list. Without a fallback the card renders `null` and a
+ * delegation is INVISIBLE for exactly as long as it is running, which is worse
+ * than the generic tool row it replaced.
  */
-export const DelegateTool: FC<Pick<ToolPart, 'args' | 'result' | 'toolCallId'>> = ({ args, result, toolCallId }) => {
+export const DelegateTool: FC<Pick<ToolPart, 'args' | 'result' | 'toolCallId'> & { fallback?: ReactNode }> = ({
+  args,
+  fallback = null,
+  result,
+  toolCallId
+}) => {
   const sessionId = useStore(useSessionView().$runtimeId)
   const live = useSessionSlice($subagentsBySession, sessionId)
 
@@ -145,7 +158,7 @@ export const DelegateTool: FC<Pick<ToolPart, 'args' | 'result' | 'toolCallId'>> 
   )
 
   if (rows.length === 0) {
-    return null
+    return <>{fallback}</>
   }
 
   return (
