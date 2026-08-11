@@ -22,7 +22,7 @@
 import { computed, type ReadableAtom } from 'nanostores'
 
 import { atom } from '@/store/atom'
-import { $activeSessionKey } from '@/store/session-state-types'
+import { $activeSessionKey, addSessionKeyHooks } from '@/store/session-state-types'
 import { observeTurnLifecycle, setTurnCompacting } from '@/store/turn-lifecycle'
 
 /** Session key → compacting. Presence is the flag; there is no other state. */
@@ -166,6 +166,43 @@ observeTurnLifecycle(({ key, turn }) => {
   if (!turn || turn.phase === 'settled') {
     compactedTurns.delete(key)
     setSessionCompacting(key, false)
+  }
+})
+
+/**
+ * Compaction state is keyed by SESSION KEY, so it has to make the same key moves
+ * the slice makes — the contract `store/session-state-types.ts` documents and
+ * that `store/prompts.ts` and `store/turn-lifecycle.ts` already sign up to. This
+ * module never did (MJXHRM-308).
+ *
+ * A rekey happens mid-compaction more often than it looks: a stale-runtime
+ * recovery rekeys on the first verb back, and `reconcileSessionTurn` rekeys on
+ * every reconnect that finds a restarted gateway. Left stranded under the dead
+ * key, the flag says "not compacting" for a session that is — so the composer
+ * lets a correction go out as a redirect against a turn with no live model
+ * request to redirect, which is exactly what this flag exists to prevent — and
+ * the entry itself never expires, because the settle observer below clears the
+ * LIVE key.
+ */
+addSessionKeyHooks({
+  drop(key) {
+    compactedTurns.delete(key)
+    setSessionCompacting(key, false)
+    perSession.delete(key)
+  },
+  rekey(fromKey, toKey) {
+    if (compactedTurns.delete(fromKey)) {
+      compactedTurns.add(toKey)
+    }
+
+    const sessions = $compactingSessions.get()
+
+    if (fromKey in sessions) {
+      const { [fromKey]: _moved, ...rest } = sessions
+      $compactingSessions.set({ ...rest, [toKey]: true })
+    }
+
+    perSession.delete(fromKey)
   }
 })
 
