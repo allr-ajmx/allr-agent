@@ -210,6 +210,14 @@ export function setApiRequestProfile(profile: null | string): void {
   _apiProfile = profile || null
 }
 
+/** The profile REST calls are currently scoped to, for the few callers that
+ *  live outside this module and must hit a profile-scoped route under the same
+ *  scope — `lib/desktop-git.ts`'s repo scan reads the gateway's config, so it
+ *  has to read the config of the profile the rest of the app is looking at. */
+export function apiRequestProfile(): null | string {
+  return _apiProfile
+}
+
 function profileScoped(): { profile?: string } {
   return _apiProfile ? { profile: _apiProfile } : {}
 }

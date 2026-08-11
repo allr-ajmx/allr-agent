@@ -6,11 +6,13 @@ reached via the late-binding seam in :mod:`hermes_cli.web_deps`, so
 ``monkeypatch.setattr(web_server, ...)`` keeps working.
 """
 
+import asyncio
 from typing import Optional
 
 from fastapi import APIRouter
 
 from hermes_cli import web_git as _web_git  # noqa: F401 — used by handlers
+from hermes_cli import web_repo_scan as _web_repo_scan  # noqa: F401 — used by handlers
 from hermes_cli.web_deps import late
 from hermes_cli.web_models import (
     GitPathBody,
@@ -28,6 +30,41 @@ router = APIRouter()
 # monkeypatch-transparent).
 _git_op = late("_git_op")
 _git_path = late("_git_path")
+_config_profile_scope = late("_config_profile_scope")
+
+
+@router.get("/api/git/scan-repos")
+async def git_scan_repos_route(profile: Optional[str] = None):
+    """Discover git repositories on the *gateway's* filesystem.
+
+    The desktop/Tauri clients crawl their own disk, which is only the gateway's
+    when the backend was spawned locally; a remote gateway owns a different
+    filesystem and a phone has none, so those clients call this instead.
+
+    The crawl takes no roots from the caller — the policy is read from this
+    gateway's own ``desktop.repo_scan_*`` config (see
+    :mod:`hermes_cli.web_repo_scan`), so a client cannot aim a server-side walk
+    at an unconfigured path.  The resolved policy is echoed back so a caller can
+    see what produced this list — an empty ``repos`` with ``enabled: false``, or
+    with roots the operator never set, is a configuration answer rather than "no
+    repos" — without a second round-trip to ``/api/config``.  The client's own
+    ``projects.record_repos`` policy comes from that same config, read under the
+    same ``profile``.
+    """
+    # The policy read resolves HERMES_HOME at call time, so it must run inside
+    # the profile scope. `asyncio.to_thread` copies the contextvar; the executor
+    # `_git_op` uses does not, which is why the crawl takes explicit arguments.
+    with _config_profile_scope(profile):
+        policy = await asyncio.to_thread(_web_repo_scan.configured_policy)
+
+    repos = await _git_op(
+        _web_repo_scan.scan_repos,
+        policy["roots"],
+        None,
+        policy["enabled"],
+        policy["exclude_paths"],
+    )
+    return {"repos": repos, "policy": policy}
 
 
 @router.get("/api/git/status")
