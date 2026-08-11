@@ -953,7 +953,15 @@ function CommandPaletteBody({ onExited }: { onExited: () => void }) {
   const visibleGroups = useMemo(() => rankGroups(unrankedGroups, search), [unrankedGroups, search])
   const placeholder = activePage ? activePage.placeholder : t.commandCenter.searchPlaceholder
 
-  const handleSelect = (item: PaletteItem) => {
+  // STABLE (MJXHRM-45). `PaletteGroups` and `PaletteRow` are both `memo()`d and
+  // both take this as a prop, so a bare function declared in the body handed
+  // every row a fresh identity on every render and neither comparator could ever
+  // bail — memoized in name only. The palette re-renders on far more than
+  // typing: `$bindings`, the theme store, the plugin registry and `selectTick`
+  // all move under it while several hundred rows are mounted. Closes over
+  // setState updaters and module-level actions only, so the dependency list is
+  // genuinely empty rather than defensively so.
+  const handleSelect = useCallback((item: PaletteItem) => {
     if (item.to) {
       setPage(item.to)
       setSearch('')
@@ -979,7 +987,7 @@ function CommandPaletteBody({ onExited }: { onExited: () => void }) {
     if (item.keepOpen) {
       setSelectTick(tick => tick + 1)
     }
-  }
+  }, [])
 
   return (
     <DialogPrimitive.Portal>
