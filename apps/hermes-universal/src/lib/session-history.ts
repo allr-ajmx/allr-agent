@@ -516,6 +516,18 @@ export function appendLiveSessionProjection(
   const inflightStreaming = Boolean(projection.inflight?.streaming)
   const queuedUser = projection.queued?.user?.trim() ?? ''
 
+  // A RETAINED FAILED TURN (`_fail_inflight_turn`). The gateway keeps this
+  // snapshot precisely because the terminal `error` frame can die with the
+  // socket, so on a reconnect it is the only copy of that failure the client
+  // will ever get. It has to ride the projected row: `shouldProjectInflightDump`
+  // already forces the row to exist for it, but the row itself carried nothing —
+  // so a turn that failed while we were offline came back as a healthy-looking
+  // truncated reply, with the spinner cleared and no indication anything went
+  // wrong (MJXHRM-358). `ChatMessage.error` is what `app/chat/runtime.tsx` turns
+  // into the assistant-ui `incomplete/error` status the live `error` event
+  // produces (store/session-reducer.ts).
+  const inflightError = (projection.inflight?.error ?? '').trim()
+
   // Mid-turn corrections the gateway accepted (`_record_inflight_correction`).
   // Carried ALONGSIDE the prompt that started the turn, never over it, so a
   // resume rebuilds every user bubble the turn produced — without this a
@@ -525,7 +537,14 @@ export function appendLiveSessionProjection(
     .map(correction => correction.trim())
     .filter(correction => correction.length > 0)
 
-  if (!inflightUser && !inflightAssistant && !inflightStreaming && !queuedUser && corrections.length === 0) {
+  if (
+    !inflightUser &&
+    !inflightAssistant &&
+    !inflightStreaming &&
+    !inflightError &&
+    !queuedUser &&
+    corrections.length === 0
+  ) {
     return messages
   }
 
@@ -572,14 +591,15 @@ export function appendLiveSessionProjection(
   // structured — unless the snapshot carries an error, which is the one thing
   // no structured row can be assumed to have surfaced.
   const wantsAssistantRow =
-    inflightAssistant || inflightStreaming || corrections.length > 0 || (inflightUser && queuedUser)
+    inflightAssistant || inflightStreaming || inflightError || corrections.length > 0 || (inflightUser && queuedUser)
 
-  if (wantsAssistantRow && shouldProjectInflightDump(messages, Boolean(projection.inflight?.error))) {
+  if (wantsAssistantRow && shouldProjectInflightDump(messages, Boolean(inflightError))) {
     projected.push({
       id: `assistant-stream-${sessionId}`,
       parts: inflightAssistant ? [{ text: renderMediaTags(inflightAssistant), type: 'text' }] : [],
       pending: inflightStreaming,
-      role: 'assistant'
+      role: 'assistant',
+      ...(inflightError ? { error: inflightError } : {})
     })
   }
 
