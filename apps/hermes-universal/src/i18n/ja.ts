@@ -1150,7 +1150,14 @@ export const ja = defineLocale({
     ageDays: days => `${days}日前`,
     durationSeconds: seconds => `${seconds}秒`,
     durationMinutes: (minutes, seconds) => `${minutes}分 ${seconds}秒`,
-    tokens: value => `${value} トーク`
+    tokens: value => `${value} トーク`,
+    steer: '誘導',
+    steerPlaceholder: 'このサブエージェントの方向を変える…',
+    steerSend: '送信',
+    steerCancel: 'キャンセル',
+    steerQueued: '次のステップに向けてキューに入れました',
+    steerRejected: '誘導するには遅すぎます — このサブエージェントは最後のステップを過ぎています',
+    steerFailed: 'ゲートウェイに接続できませんでした'
   },
 
   commandCenter: {

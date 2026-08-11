@@ -1441,7 +1441,14 @@ export const zh: Translations = {
     ageDays: days => `${days} 天前`,
     durationSeconds: seconds => `${seconds} 秒`,
     durationMinutes: (minutes, seconds) => `${minutes} 分 ${seconds} 秒`,
-    tokens: value => `${value} 词元`
+    tokens: value => `${value} 词元`,
+    steer: '引导',
+    steerPlaceholder: '重新引导此子代理…',
+    steerSend: '发送',
+    steerCancel: '取消',
+    steerQueued: '已排入下一步',
+    steerRejected: '来不及引导了 — 此子代理已越过最后一步',
+    steerFailed: '无法连接网关'
   },
 
   commandCenter: {

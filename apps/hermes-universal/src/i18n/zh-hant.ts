@@ -1118,7 +1118,14 @@ export const zhHant = defineLocale({
     ageDays: days => `${days} 天前`,
     durationSeconds: seconds => `${seconds} 秒`,
     durationMinutes: (minutes, seconds) => `${minutes} 分 ${seconds} 秒`,
-    tokens: value => `${value} 詞元`
+    tokens: value => `${value} 詞元`,
+    steer: '引導',
+    steerPlaceholder: '重新引導此子代理…',
+    steerSend: '傳送',
+    steerCancel: '取消',
+    steerQueued: '已排入下一步',
+    steerRejected: '來不及引導了 — 此子代理已越過最後一步',
+    steerFailed: '無法連線至閘道'
   },
 
   commandCenter: {

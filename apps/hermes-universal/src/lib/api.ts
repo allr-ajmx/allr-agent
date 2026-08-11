@@ -1,5 +1,5 @@
 import { $connection } from '@/store/connection'
-import { httpRequest } from '@/transport/http'
+import { httpRequest, type HttpUpload } from '@/transport/http'
 
 // REST helper scoped to the active connection. Mirrors the desktop's
 // `window.hermesDesktop.api({ path, method, body })` so ported desktop code can
@@ -10,6 +10,8 @@ export interface ApiRequest {
   path: string
   method?: string
   body?: unknown
+  /** Single-file multipart upload; mutually exclusive with `body`. */
+  upload?: HttpUpload
   timeoutMs?: number
   // Threaded into a `?profile=` query (E7.a). The ported desktop REST client
   // (src/hermes.ts) merges { profile } into every profileScoped() call; the
@@ -32,7 +34,14 @@ function withProfile(path: string, profile?: string | null): string {
   return `${path}${sep}profile=${encodeURIComponent(p)}`
 }
 
-export async function api<T = unknown>({ path, method = 'GET', body, timeoutMs, profile }: ApiRequest): Promise<T> {
+export async function api<T = unknown>({
+  path,
+  method = 'GET',
+  body,
+  upload,
+  timeoutMs,
+  profile
+}: ApiRequest): Promise<T> {
   const conn = $connection.get()
 
   if (!conn) {
@@ -41,7 +50,9 @@ export async function api<T = unknown>({ path, method = 'GET', body, timeoutMs, 
 
   const headers: Record<string, string> = {}
 
-  if (body !== undefined) {
+  // No Content-Type for an upload: reqwest sets `multipart/form-data` with the
+  // boundary it generated, and ours would name a boundary the body doesn't use.
+  if (body !== undefined && !upload) {
     headers['Content-Type'] = 'application/json'
   }
 
@@ -49,7 +60,12 @@ export async function api<T = unknown>({ path, method = 'GET', body, timeoutMs, 
     headers['X-Hermes-Session-Token'] = conn.token
   }
 
-  const res = await httpRequest(method, `${conn.baseUrl}${withProfile(path, profile)}`, { headers, body, timeoutMs })
+  const res = await httpRequest(method, `${conn.baseUrl}${withProfile(path, profile)}`, {
+    headers,
+    body,
+    upload,
+    timeoutMs
+  })
 
   if (res.status < 200 || res.status >= 300) {
     throw new Error(`${method} ${path} → HTTP ${res.status}: ${res.body.slice(0, 200)}`)

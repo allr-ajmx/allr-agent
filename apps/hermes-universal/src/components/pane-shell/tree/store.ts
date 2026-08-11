@@ -15,7 +15,7 @@ import { beginSpan, endSpan, isRecording, recordSpan, span } from '@/observabili
 import { shapeAttrs } from '@/observability/auto/layout-shape'
 import { notify } from '@/store/notifications'
 import { clearAllPaneSizeOverrides, renamePaneState } from '@/store/panes'
-import { isSecondaryWindow } from '@/store/windows'
+import { isSecondaryWindow, ownsPersistedAppState } from '@/store/windows'
 
 import { $layoutEditMode } from '../edit-mode'
 import { findTile, getTiles, tileMap } from '../tile/registry'
@@ -102,9 +102,11 @@ function loadPersisted(): LayoutNode | null {
 }
 
 function persist(tree: LayoutNode | null) {
-  // A secondary window (single-chat pop-out) shares the origin's localStorage;
-  // writing its stripped-down DEFAULT tree back would wipe the primary's layout.
-  if (isSecondaryWindow()) {
+  // Every window of this origin shares one localStorage. A secondary window
+  // (single-chat pop-out) writing its stripped-down DEFAULT tree back would
+  // wipe the primary's layout — and so would a native activity screen, which
+  // renders Settings/Command Center and has no tree of its own at all.
+  if (!ownsPersistedAppState()) {
     return
   }
 

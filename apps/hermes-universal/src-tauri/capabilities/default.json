@@ -21,6 +21,8 @@
     "fs:allow-read-file",
     "fs:allow-write-text-file",
     "notification:default",
+    "clipboard-manager:allow-read-text",
+    "clipboard-manager:allow-write-text",
     "core:window:allow-minimize",
     "core:window:allow-toggle-maximize",
     "core:window:allow-close",

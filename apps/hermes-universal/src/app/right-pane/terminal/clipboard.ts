@@ -52,19 +52,26 @@ export function terminalClipboardIntent(
 /**
  * Read the clipboard for a terminal paste.
  *
- * NOTE (MJXHRM-47): this goes through the async Clipboard API, NOT the Tauri
- * clipboard-manager plugin the ticket asks for — that plugin is not installed in
- * this app (no npm dependency, no Cargo dependency, no capability entry), and
- * adding it changes the lockfile, which this wave forbids. `writeClipboardText`
- * (components/ui/copy-button) is the app's existing write seam and has the same
- * constraint; this is its read counterpart, deliberately placed beside it in
- * shape so both move together when the plugin does land.
+ * The Tauri clipboard-manager plugin comes first (MJXHRM-415). The webview's
+ * `navigator.clipboard.readText` cannot be the primary here: it is
+ * permission-gated and user-gesture-gated, and WebKitGTK — the engine on the
+ * Linux desktop build, not Chromium — refuses it in cases Chromium allows. That
+ * made Ctrl+Shift+V a silent no-op over a shell prompt. The plugin reads through
+ * the OS, so no such gate applies.
  *
- * Returns '' rather than throwing: a paste that the engine refuses (WebKitGTK
- * gates `readText` more tightly than Chromium) must be a no-op, not an error
- * dialog over a shell prompt.
+ * The web API stays as a fallback for any target where the plugin is
+ * unavailable. Returns '' rather than throwing: a paste the platform refuses
+ * must be a no-op, not an error dialog over a shell prompt.
  */
 export async function readClipboardText(): Promise<string> {
+  try {
+    const { readText } = await import('@tauri-apps/plugin-clipboard-manager')
+
+    return (await readText()) ?? ''
+  } catch {
+    // Plugin unavailable or refused — fall through to the webview's own API.
+  }
+
   try {
     return (await navigator.clipboard?.readText?.()) ?? ''
   } catch {

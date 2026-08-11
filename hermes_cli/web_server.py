@@ -3434,6 +3434,18 @@ async def get_status(profile: Optional[str] = None):
         except Exception:
             nous_session_valid = "unknown"
 
+        # Whether this config is too old for the auto-migration ladder. Shipped
+        # so clients stop hardcoding the floor version and re-deriving the
+        # predicate — both drift the moment the floor moves. Structured rather
+        # than the prose ``support_floor_message()``, which embeds the
+        # HERMES_HOME path; this endpoint is public. Best-effort: an unreadable
+        # config must never break the liveness probe.
+        try:
+            from hermes_cli.config import config_floor_status
+            config_floor_warning = config_floor_status()
+        except Exception:
+            config_floor_warning = None
+
         # Always-public liveness + auth-gate shape. Safe for external uptime
         # probes (NAS's wildcard-subdomain liveness probe), the SPA's pre-login
         # bootstrap, and anyone who can curl the host — i.e. exactly the audience
@@ -3443,6 +3455,7 @@ async def get_status(profile: Optional[str] = None):
             "release_date": __release_date__,
             "config_version": current_ver,
             "latest_config_version": latest_ver,
+            "config_floor_warning": config_floor_warning,
             "can_update_hermes": not _dashboard_local_update_managed_externally(),
             "gateway_running": gateway_running,
             "gateway_state": gateway_state,

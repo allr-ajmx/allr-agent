@@ -908,8 +908,21 @@ export interface PlatformStatus {
   updated_at: string
 }
 
+/**
+ * Whether the gateway's on-disk config is too old for the auto-migration ladder.
+ * The gateway computes this because only it can tell an ancient config (an
+ * explicit old `_config_version`) from a fresh minimal one (no key at all) —
+ * both arrive over HTTP as `config_version: 0`. Absent on a gateway that
+ * predates the field; the client falls back to its own approximation then.
+ */
+export interface ConfigFloorWarning {
+  below_floor: boolean
+  support_floor_version: number
+}
+
 export interface StatusResponse {
   active_sessions: number
+  config_floor_warning?: ConfigFloorWarning | null
   config_path: string
   config_version: number
   env_path: string
@@ -973,9 +986,22 @@ export interface AuxiliaryModelsResponse {
   tasks: AuxiliaryTaskAssignment[]
 }
 
+/**
+ * One MoA slot — a reference model, or the aggregator.
+ *
+ * `enabled` and `reasoning_effort` are honoured by the backend
+ * (`hermes_cli/web_models.py` `MoaModelSlot`, `agent/moa_loop.py:1244` filters
+ * reference slots on `enabled`) and survive a save today because the settings
+ * page spreads the existing slot rather than rebuilding it. They were simply
+ * absent from this type, so no UI could offer them. Optional: a slot saved
+ * before either existed omits the key, and the backend reads a missing
+ * `enabled` as `true`.
+ */
 export interface MoaModelSlot {
   provider: string
   model: string
+  enabled?: boolean
+  reasoning_effort?: null | string
 }
 
 export interface MoaConfigResponse {

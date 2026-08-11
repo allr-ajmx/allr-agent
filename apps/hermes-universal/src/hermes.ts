@@ -221,8 +221,7 @@ function profileScoped(): { profile?: string } {
 export interface PluginRestOptions {
   method?: string
   body?: unknown
-  /** Single-file multipart upload. NOT supported on universal — see `pluginRest`.
-   *  Kept in the type so a plugin's types are identical across both apps. */
+  /** Single-file multipart upload, sent under the field name `file`. */
   upload?: { filename: string; contentType?: string; bytes: ArrayBuffer }
   timeoutMs?: number
 }
@@ -248,23 +247,19 @@ function pluginPathSuffix(caller: string, path: string): string {
  *  call. Broader reach (core endpoints, another namespace) is the future
  *  declared-capability seam; today the namespace IS the boundary.
  *
- *  `opts.upload` THROWS here: universal's REST runs through the Rust
- *  `http_request` command, which sends a JSON body and has no multipart path.
- *  Dropping the file silently would corrupt the plugin's POST, and removing the
- *  field from the type wouldn't protect a runtime-loaded plugin compiled
- *  elsewhere — so the failure is explicit. FIXME(MJX-53/upload): add a multipart
- *  `http_request` variant. */
+ *  `opts.upload` is a single-file `multipart/form-data` POST under the field
+ *  name `file` — the shape a FastAPI `UploadFile` parameter expects, and what
+ *  the shipped kanban sample's attachments use. It rides the same Rust
+ *  `http_request` command as every other call here; the form is assembled in
+ *  Rust, so the webview never builds a boundary by hand. */
 export async function pluginRest<T>(pluginId: string, path: string, opts: PluginRestOptions = {}): Promise<T> {
   const suffix = pluginPathSuffix('pluginRest', path)
-
-  if (opts.upload) {
-    throw new Error('pluginRest: file upload is not supported on this client')
-  }
 
   return api<T>({
     path: `/api/plugins/${pluginId}${suffix}`,
     method: opts.method,
     body: opts.body,
+    upload: opts.upload,
     timeoutMs: opts.timeoutMs,
     ...profileScoped()
   })
