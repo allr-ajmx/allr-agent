@@ -95,8 +95,10 @@ export interface PluginContext {
   rest: <T>(path: string, opts?: PluginRestOptions) => Promise<T>
   /** Live twin of `rest`: a WebSocket to this plugin's own namespace
    *  ('/events'), JSON frames to `onMessage`, auto-reconnect, disposer
-   *  returned. Resolves to a no-op unless the connection is token-mode — treat
-   *  it as an accelerator over your polling, never a replacement. */
+   *  returned. Authenticates on EVERY gateway mode (a ws-ticket where there is
+   *  no `token` — see lib/plugin-transport), but treat it as an accelerator over
+   *  your polling and never a replacement: a socket can always drop, and a
+   *  ticket mint can fail on an expired session. */
   socket: (path: string, onMessage: (data: unknown) => void) => () => void
   /** The curated OS door: native notification, open-external, reveal-in-file-
    *  manager, clipboard — attributed to this plugin, result-shaped (never throws
