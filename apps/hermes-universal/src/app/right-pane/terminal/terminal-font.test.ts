@@ -5,7 +5,7 @@ import {
   applyTerminalFontFamily,
   DEFAULT_TERMINAL_FONT_FAMILY,
   resolveTerminalFontFamily,
-  syncTerminalFontFromConfig
+  terminalFontFamilyFromConfig
 } from './terminal-font'
 
 beforeEach(() => {
@@ -38,19 +38,20 @@ describe('resolveTerminalFontFamily', () => {
   })
 })
 
-describe('syncTerminalFontFromConfig', () => {
-  it('reads terminal.font_family into the live atom', async () => {
-    await syncTerminalFontFromConfig(async () => ({ terminal: { font_family: 'Hack Nerd Font' } }))
-
-    expect($terminalFontFamily.get()).toBe('Hack Nerd Font')
+describe('terminalFontFamilyFromConfig', () => {
+  it('reads terminal.font_family off a config record', () => {
+    expect(terminalFontFamilyFromConfig({ terminal: { font_family: '  Hack Nerd Font  ' } })).toBe('Hack Nerd Font')
   })
 
-  it('leaves the default standing when config is unreachable', async () => {
-    await syncTerminalFontFromConfig(async () => {
-      throw new Error('offline')
-    })
+  it('reads empty from a record that never set the key', () => {
+    expect(terminalFontFamilyFromConfig({ terminal: {} })).toBe('')
+    expect(terminalFontFamilyFromConfig({})).toBe('')
+  })
 
-    expect($terminalFontFamily.get()).toBe('')
+  it('reads empty rather than throwing when the config never arrived', () => {
+    expect(terminalFontFamilyFromConfig(undefined)).toBe('')
+    expect(terminalFontFamilyFromConfig(null)).toBe('')
+    expect(terminalFontFamilyFromConfig({ terminal: 'not-an-object' })).toBe('')
   })
 })
 

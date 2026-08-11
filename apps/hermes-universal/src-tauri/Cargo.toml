@@ -93,6 +93,12 @@ tauri-plugin-fs = "2"
 # Native OS notifications (Ic10/R8): turn-done / approval / error while backgrounded.
 tauri-plugin-notification = "2"
 
+# Clipboard for the integrated terminal (MJXHRM-415). xterm renders to a canvas,
+# so a paste must read the clipboard explicitly — and WebKitGTK gates
+# `navigator.clipboard.readText` far more tightly than Chromium, which makes
+# Ctrl+Shift+V a silent no-op on the Linux desktop build.
+tauri-plugin-clipboard-manager = "2"
+
 # Transport core (Step 2a): all HTTP + WS traffic runs here, not in the webview,
 # so there is no CORS constraint and we can talk to any backend on the LAN.
 # `net` is for the SSH gateway's local port-forward listener (ssh/forward.rs):
@@ -127,7 +133,7 @@ futures-util = { version = "0.3", default-features = false, features = ["sink"] 
 # for its extension check without hand-rolling a decoder.
 percent-encoding = "2"
 # rustls so we don't need OpenSSL/NDK-cross OpenSSL on the Android build.
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "cookies"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "cookies", "multipart"] }
 # Enable BOTH root sources: native-roots so desktop honors the OS trust store (corporate
 # / self-signed CAs), AND webpki-roots as the fallback. Android exposes no file-based
 # native cert store, so native-roots alone fails at the wss:// handshake with "no native

@@ -308,9 +308,16 @@ export default defineConfig(({ command }) => ({
   // Every entry here is a real dependency of this package that the production build
   // proves lives outside the entry chunk: the CodeMirror and xterm specifiers do not
   // appear in `index-*.js` at all, and mermaid/katex land in chunks of their own.
-  // Deps reached statically from the entry (shiki, react-shiki, the assistant-ui
-  // stack) are deliberately absent — the scanner already finds those on cold start,
-  // and listing them would only be noise to keep in sync.
+  // Deps reached statically from the entry (the assistant-ui stack) are deliberately
+  // absent — the scanner already finds those on cold start, and listing them would
+  // only be noise to keep in sync.
+  //
+  // `shiki` and `react-shiki` MOVED into this list in MJXHRM-380. They used to be
+  // in the entry chunk, reached statically from four places; they are now behind
+  // `lazy()` / dynamic `import()` at every one of them. That is exactly the shape
+  // the reload hazard above describes, so they have to be pre-bundled: without
+  // them here, the first code fence in a conversation would re-run the optimiser
+  // and reload the page mid-reply.
   optimizeDeps: {
     include: [
       '@codemirror/commands',
@@ -325,7 +332,9 @@ export default defineConfig(({ command }) => ({
       '@xterm/addon-webgl',
       '@xterm/xterm',
       'katex',
-      'mermaid'
+      'mermaid',
+      'react-shiki',
+      'shiki'
     ]
   },
   build: {

@@ -65,7 +65,7 @@ import {
   setSessionTransitionHook,
   updateSession
 } from '@/store/session-state-types'
-import { isSecondaryWindow } from '@/store/windows'
+import { isSecondaryWindow, ownsPersistedAppState } from '@/store/windows'
 
 export { $activeSessionKey, $sessionStates }
 export type { ClientSessionState }
@@ -343,7 +343,7 @@ export function pruneSessionStates(): void {
 let pruning = false
 let lastSliceCount = 0
 
-if (!isSecondaryWindow()) {
+if (ownsPersistedAppState()) {
   $sessionStates.subscribe(states => {
     const count = Object.keys(states).length
     const grew = count > lastSliceCount
@@ -463,7 +463,7 @@ const profileKey = () => normalizeProfileKey($activeGatewayProfile.get())
 export const $sessionTiles = atom<SessionTile[]>(isSecondaryWindow() ? [] : [...(tilesByProfile[profileKey()] ?? [])])
 
 function persistTiles() {
-  if (isSecondaryWindow()) {
+  if (!ownsPersistedAppState()) {
     return
   }
 
@@ -492,7 +492,7 @@ function saveTiles(tiles: SessionTile[]) {
 // another event, and whose ids could collide with the new profile's.
 let lastProfileKey = profileKey()
 
-if (!isSecondaryWindow()) {
+if (ownsPersistedAppState()) {
   $activeGatewayProfile.subscribe(() => {
     const next = profileKey()
 
@@ -689,9 +689,13 @@ export function openSessionTile(
  *
  * ONE draft at a time: a second `+` on an empty draft fronts the one already
  * there rather than stacking up empty chats nobody sent a message in.
+ *
+ * `cwd` anchors the draft, so ⌘T can honour the sidebar's project scope the same
+ * way ⌘N does (MJXHRM-393). Omitted, the draft falls back to the configured
+ * default project dir inside `resetChat`, exactly as before.
  */
-export function newSessionTab(): void {
-  newSession()
+export function newSessionTab(cwd?: string): void {
+  newSession(cwd)
 
   // Anchored on the chat the user is looking at, stacked into its zone — a new
   // tab belongs in the strip you asked from, not docked to the side.

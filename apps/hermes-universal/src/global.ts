@@ -13,11 +13,16 @@ export interface HermesGitWorktree {
   locked: boolean
 }
 
-// A local branch as offered by the "convert a branch into a worktree" picker.
-// `checkedOut` means selecting opens that checkout; `isDefault` means selecting
-// switches the main checkout instead of creating `.worktrees/main`.
+// A branch as offered by the "convert a branch into a worktree" picker: local
+// heads plus branches that exist only on a remote. `checkedOut` means selecting
+// opens that checkout; `isDefault` means selecting switches the main checkout
+// instead of creating `.worktrees/main`. `isRemote` marks an `origin/foo` entry
+// with no local head — selecting it creates a local `foo` tracking it, so
+// `checkedOut`/`worktreePath` are never set on those. Optional because an older
+// gateway omits the field.
 export interface HermesGitBranch {
   name: string
+  isRemote?: boolean
   checkedOut: boolean
   isDefault: boolean
   worktreePath: null | string

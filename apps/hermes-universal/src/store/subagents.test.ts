@@ -5,6 +5,7 @@ import {
   allSubagents,
   buildSubagentTree,
   clearSessionSubagents,
+  pruneFinishedSessionSubagents,
   upsertSubagent
 } from './subagents'
 
@@ -50,5 +51,46 @@ describe('subagents reducer', () => {
     upsertSubagent(SID, { subagent_id: 'a', goal: 'root', status: 'running' }, true, 'subagent.start')
     clearSessionSubagents(SID)
     expect(allSubagents($subagentsBySession.get())).toHaveLength(0)
+  })
+
+  describe('pruneFinishedSessionSubagents', () => {
+    it('retires settled rows but keeps work still in flight', () => {
+      upsertSubagent(SID, { subagent_id: 'done', goal: 'a', status: 'running' }, true, 'subagent.start')
+      upsertSubagent(SID, { subagent_id: 'done', status: 'completed' }, false, 'subagent.complete')
+      upsertSubagent(SID, { subagent_id: 'failed', goal: 'b', status: 'running' }, true, 'subagent.start')
+      upsertSubagent(SID, { subagent_id: 'failed', status: 'failed' }, false, 'subagent.complete')
+      upsertSubagent(SID, { subagent_id: 'live', goal: 'c', status: 'running' }, true, 'subagent.start')
+      upsertSubagent(SID, { subagent_id: 'queued', goal: 'd', status: 'queued' }, true, 'subagent.spawn_requested')
+
+      pruneFinishedSessionSubagents(SID)
+
+      expect(
+        allSubagents($subagentsBySession.get())
+          .map(item => item.id)
+          .sort()
+      ).toEqual(['live', 'queued'])
+    })
+
+    // A background subagent outlives the turn that spawned it, and the prune
+    // runs on every `message.start` — so it must keep receiving its events.
+    it('leaves a surviving row able to complete on a later turn', () => {
+      upsertSubagent(SID, { subagent_id: 'bg', goal: 'long', status: 'running' }, true, 'subagent.start')
+      pruneFinishedSessionSubagents(SID)
+      upsertSubagent(SID, { subagent_id: 'bg', status: 'completed', summary: 'done' }, false, 'subagent.complete')
+
+      const [only] = allSubagents($subagentsBySession.get())
+      expect(only.status).toBe('completed')
+      expect(only.summary).toBe('done')
+    })
+
+    it('is a no-op for a session with nothing to prune', () => {
+      upsertSubagent(SID, { subagent_id: 'a', goal: 'root', status: 'running' }, true, 'subagent.start')
+      const before = $subagentsBySession.get()
+
+      pruneFinishedSessionSubagents(SID)
+      pruneFinishedSessionSubagents('never-seen')
+
+      expect($subagentsBySession.get()).toBe(before)
+    })
   })
 })

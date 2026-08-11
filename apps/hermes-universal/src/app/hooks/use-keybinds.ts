@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { toggleHud } from '@/app/hud/hud'
+import { toggleQuickEntry } from '@/app/quick-entry/quick-entry'
 import {
   activateTreeTabSlot,
   closeFocusedTabInZone,
@@ -273,6 +274,10 @@ export function useKeybinds(deps: KeybindRuntimeDeps): void {
     // is already whole: opening twice focuses, closing the main window takes it
     // down with it.
     'view.toggleHud': () => void toggleHud(),
+    // Summon/dismiss Quick Entry — the one-line capture window (MJXHRM-384).
+    // Ships unbound (see actions.ts): a machine-wide chord is the user's to
+    // choose, and Settings ▸ Keyboard shortcuts is where they choose it.
+    'view.toggleQuickEntry': () => void toggleQuickEntry(),
 
     'profile.default': switchToDefaultProfile,
     ...profileSwitchHandlers,

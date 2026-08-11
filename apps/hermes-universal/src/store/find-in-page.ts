@@ -2,19 +2,26 @@ import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 
 import { stepOrdinal } from '@/lib/find-in-page'
+import { clearDomFindSelection, countDomTextMatches, domFind, domFindSupported } from '@/lib/find-in-page-dom'
 import { PLATFORM } from '@/lib/platform'
 import { atom } from '@/store/atom'
 
 /**
- * Find-in-page state (MJXHRM-49).
+ * Find-in-page state (MJXHRM-49, MJXHRM-387).
  *
- * Desktop drives Electron's `webContents.findInPage`; universal invokes the Rust
- * commands in `src-tauri/src/find_in_page.rs`, which reach through to
- * WebKitGTK's own find controller. Same engine-level search, different door.
+ * Desktop drives Electron's `webContents.findInPage`. Universal has TWO doors
+ * onto the same idea and picks between them once, here:
  *
- * The ordinal is OURS. WebKitGTK reports how many matches exist and never which
- * one is selected, so "3 of 12" is counted here as the user steps — see
- * `stepOrdinal`. The count always comes from the engine.
+ *   - **Linux** invokes the Rust commands in `src-tauri/src/find_in_page.rs`,
+ *     which reach through to WebKitGTK's own find controller. Highlight-all,
+ *     engine-accurate counts.
+ *   - **Everywhere else** (macOS, Windows, Android) uses `window.find` plus a
+ *     text scan — see `lib/find-in-page-dom.ts` for why that is the trade
+ *     instead of three native engine bindings.
+ *
+ * The ordinal is OURS on both paths. WebKitGTK reports how many matches exist
+ * and never which one is selected, so "3 of 12" is counted here as the user
+ * steps — see `stepOrdinal`.
  */
 
 /** Emitted by the Rust side with the match count for the current query. */
@@ -31,25 +38,51 @@ const EMPTY: FindInPageState = { active: false, matchCount: 0, matchOrdinal: 0, 
 
 export const $findInPage = atom<FindInPageState>({ ...EMPTY })
 
-/**
- * Whether this build can search the page at all.
- *
- * The engine handle behind `with_webview` is platform-specific, and only the
- * WebKitGTK one is implemented (see the Rust module's docs). Checked here rather
- * than letting the invoke fail, so ⌘F simply does nothing on a platform that
- * can't honour it instead of flashing a bar that reports zero matches for
- * everything.
- */
-export function findInPageSupported(): boolean {
+/** True when the native (Rust/WebKitGTK) path is the one to drive. */
+function usesNativeFind(): boolean {
   return PLATFORM === 'linux'
 }
 
+/**
+ * Whether this build can search the page at all.
+ *
+ * Checked here rather than letting a call fail, so ⌘F simply does nothing on an
+ * engine that can't honour it instead of flashing a bar that reports zero
+ * matches for everything. In practice both branches are true on every target we
+ * ship; the check survives for plain-browser dev and for any engine without
+ * `window.find`.
+ */
+export function findInPageSupported(): boolean {
+  return usesNativeFind() || domFindSupported()
+}
+
 function callFind(query: string, forward: boolean, findNext: boolean): void {
-  void invoke('find_in_page', { findNext, forward, query }).catch(() => undefined)
+  if (usesNativeFind()) {
+    void invoke('find_in_page', { findNext, forward, query }).catch(() => undefined)
+
+    return
+  }
+
+  // `fromStart` on a fresh query: otherwise `window.find` resumes from wherever
+  // the previous query left the caret and silently skips everything above it.
+  domFind(query, { backwards: !forward, fromStart: !findNext })
+
+  // The engine event never fires on this path, so report the count ourselves —
+  // asynchronously, to keep the "a late result can't resurrect a cleared query"
+  // guard in `updateFindResults` on the same footing as the native path.
+  const counted = countDomTextMatches(query)
+
+  queueMicrotask(() => updateFindResults(counted))
 }
 
 function callStop(): void {
-  void invoke('stop_find_in_page').catch(() => undefined)
+  if (usesNativeFind()) {
+    void invoke('stop_find_in_page').catch(() => undefined)
+
+    return
+  }
+
+  clearDomFindSelection()
 }
 
 export function openFindBar(): void {

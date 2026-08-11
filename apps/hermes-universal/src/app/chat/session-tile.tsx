@@ -25,12 +25,12 @@ import { sessionTitle } from '@/lib/chat-runtime'
 import { DRAFT_TILE_KEY, isDraftTileKey, sessionTilePaneId, WORKSPACE_PANE_ID } from '@/lib/pane-ids'
 import { useStore } from '@/store/atom'
 import { type ChatMessage } from '@/store/chat'
-import { createComposerAttachmentScope } from '@/store/composer'
+import { $draftTitles, createComposerAttachmentScope, draftTitleFor } from '@/store/composer'
 import { $gatewayState } from '@/store/gateway'
 import { $pinnedSessionIds, pinSession, unpinSession } from '@/store/layout'
 import { startNewSessionTab } from '@/store/new-session'
 import { sessionAwaitingInput } from '@/store/prompts'
-import { $activeStoredSessionId, $sessions, sessionMatchesStoredId, sessionPinId } from '@/store/session'
+import { $activeStoredSessionId, sessionPinId } from '@/store/session'
 import { SESSION_ROW_SOURCES, sessionRowFor, useSessionRow } from '@/store/session-lookup'
 import { $sessionStates } from '@/store/session-state-types'
 import {
@@ -247,10 +247,21 @@ export function SessionTilePane({ storedSessionId }: { storedSessionId: string }
 // ---------------------------------------------------------------------------
 
 function tileTitle(storedSessionId: string): string {
-  // The draft names no session, so there is nothing to look up — it reads as the
-  // same "New session" the workspace tab shows for an unsaved chat.
+  // The draft names no session, so there is nothing to look up — it takes its
+  // name from what has been typed into it instead, falling back to the same
+  // "New session" the workspace tab shows for an unsaved chat.
+  //
+  // Universal reads the title here and re-syncs on `$draftTitles` rather than
+  // rendering desktop's self-subscribing `SessionDraftTitle` in the label slot:
+  // `paneMirror`'s `title` is a string, and widening it to a node would reshape
+  // the pane-shell tab contract for one caller. The cost is bounded — the stash
+  // is debounced, and `publishDraftTitle` writes only when the DERIVED title
+  // actually changes, which stops happening once the draft passes 48 chars.
   if (isDraftTileKey(storedSessionId)) {
-    return translateNow('sidebar.nav.new-session')
+    // The composer stashes under the tile's RUNTIME key, which for the draft is
+    // the live placeholder slice — the same resolution its view and busy state
+    // already go through.
+    return draftTitleFor(tileRuntimeKey(storedSessionId)) || translateNow('sidebar.nav.new-session')
   }
 
   // The wider lookup, not `$sessions` alone: a tab can outlive the recents page
@@ -307,7 +318,12 @@ export const watchSessionTiles = paneMirror<SessionTile>({
   //
   // No `$sessionColorById`: the lead dot resolves colour and status for itself,
   // so a recolour repaints it without re-registering the tile.
-  also: [...SESSION_ROW_SOURCES],
+  //
+  // `$draftTitles` is here so the DRAFT tab takes its name from what has been
+  // typed into it. It writes only when the derived title actually changes (see
+  // `publishDraftTitle`), on the stash's own debounce, and stops changing once
+  // the draft passes the 48-character cut.
+  also: [...SESSION_ROW_SOURCES, $draftTitles],
   key: tile => tile.storedSessionId,
   kind: 'chat',
   linkTarget: true,
@@ -375,9 +391,24 @@ export function SessionTabMenu({
   storedSessionId: string
   paneId: string
 }) {
-  const stored = useStore($sessions).find(s => sessionMatchesStoredId(s, storedSessionId))
+  // `useSessionRow`, not `$sessions` alone — the same widening `tileTitle` and
+  // `TileTabLead` already took (MJXHRM-386/MJXHRM-423). Two consequences, and
+  // only the first is cosmetic:
+  //
+  //  - the tab and its own right-click menu disagreed about the session's name,
+  //    the menu falling back to the untranslated literal `'Session'`;
+  //  - `pinId` fell back to the RAW stored id, so pinning a session that had
+  //    aged out of the recents page wrote the pin under the live tip id instead
+  //    of the durable lineage root — the id-mismatch class MJXHRM-414 had to
+  //    defend against on the delete path. The sidebar row keys pins by
+  //    `sessionPinId`, so the two surfaces would have pinned to different keys.
+  //
+  // The hook form matters: this is a component, and a tab whose zone mounts
+  // before the project tree lands must retitle itself when that source arrives
+  // rather than resolving once and staying on the fallback.
+  const stored = useSessionRow(storedSessionId)
   const pinned = useStore($pinnedSessionIds)
-  const title = stored ? sessionTitle(stored) : 'Session'
+  const title = stored ? sessionTitle(stored) : translateNow('common.loading')
   const pinId = stored ? sessionPinId(stored) : storedSessionId
   const isPinned = pinned.includes(pinId)
 

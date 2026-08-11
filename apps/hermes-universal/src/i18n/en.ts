@@ -293,6 +293,7 @@ export const en: Translations = {
       'workspace.newWorktree': 'New worktree',
       'workspace.openFolder': 'Open folder as project',
       'view.toggleHud': 'Toggle HUD window',
+      'view.toggleQuickEntry': 'Toggle Quick Entry',
       'composer.focus': 'Focus composer',
       'composer.modelPicker': 'Open model picker',
       'composer.voice': 'Start / stop voice conversation',
@@ -401,7 +402,19 @@ export const en: Translations = {
       sourceNone: 'No plugin folder available',
       gatewayDoor: 'Load plugins from the connected backend',
       gatewayDoorHint: 'Plugin code from the backend runs with the same access as the app itself.',
-      gatewayDoorUnavailable: 'This backend did not report a plugins folder.'
+      gatewayDoorUnavailable: 'This backend did not report a plugins folder.',
+      agent: {
+        title: 'Agent plugins',
+        blurb:
+          'Run in the Hermes backend — tools, skills, MCP servers, hooks, and slash commands. Portable ones are Agent Plugins packages (skills + MCP bundles that work in other agents too). Toggles apply to new sessions.',
+        empty: 'No agent plugins installed yet.',
+        loadFailed: 'Could not load agent plugins',
+        portable: 'portable',
+        search: 'Search plugins…',
+        noMatches: 'No plugins match your search.',
+        toggleFailed: (name: string) => `Could not toggle ${name}`,
+        sources: { bundled: 'bundled', entrypoint: 'pip', git: 'git', project: 'project', user: 'user' }
+      }
     },
     notifications: {
       title: 'Notifications',
@@ -494,6 +507,12 @@ export const en: Translations = {
       uiScaleTitle: 'UI Scale',
       uiScaleDesc: (percent: number) =>
         `Scales text and controls across the whole app. Cmd/Ctrl with +, - and 0 also works. Current: ${percent}%.`,
+      terminalFontTitle: 'Terminal Font',
+      terminalFontDesc:
+        'Choose an installed font for the integrated terminal. Nerd Fonts render Powerlevel10k and shell icons; leave blank to use bundled JetBrains Mono.',
+      terminalFontPlaceholder: 'MesloLGS NF or a CSS font stack',
+      terminalFontPreview: 'Glyph preview',
+      terminalFontReset: 'Use default',
       translucencyTitle: 'Window Translucency',
       translucencyDesc: 'See your desktop through the whole window. macOS and Windows only.',
       embedsTitle: 'Inline Embeds',
@@ -1255,7 +1274,14 @@ export const en: Translations = {
     ageDays: days => `${days}d ago`,
     durationSeconds: seconds => `${seconds}s`,
     durationMinutes: (minutes, seconds) => `${minutes}m ${seconds}s`,
-    tokens: value => `${value} tok`
+    tokens: value => `${value} tok`,
+    steer: 'Steer',
+    steerPlaceholder: 'Redirect this subagent…',
+    steerSend: 'Send',
+    steerCancel: 'Cancel',
+    steerQueued: 'Queued for the next step',
+    steerRejected: 'Too late to steer — this subagent is already past its last step',
+    steerFailed: 'Could not reach the gateway'
   },
 
   commandCenter: {
@@ -1768,6 +1794,7 @@ export const en: Translations = {
     promptPlaceholder: 'Summarize my unread Slack threads and email me the top 5...',
     frequencyLabel: 'Frequency',
     deliverLabel: 'Deliver to',
+    deliverNeedsHomeChannel: 'set a home channel first',
     modelLabel: 'Model',
     modelDefault: 'Default (global model)',
     customScheduleLabel: 'Custom schedule',
@@ -2017,6 +2044,7 @@ export const en: Translations = {
     lookupNoMatches: 'No matches.',
     lookupTry: 'Try',
     lookupOr: 'or',
+    openDirective: 'Open',
     commonCommands: 'Common commands',
     hotkeys: 'Hotkeys',
     helpFooter: 'opens the full panel · backspace dismisses',
@@ -2555,8 +2583,6 @@ export const en: Translations = {
     terminalEndErrorBody: 'The shell connection failed.',
     terminalsAria: 'Terminals',
     terminalNew: 'New terminal',
-    terminalCloseOthers: 'Close others',
-    terminalCloseAll: 'Close all',
     addToChat: 'Add to chat'
   },
 
@@ -2619,9 +2645,6 @@ export const en: Translations = {
   preview: {
     tab: 'Preview',
     closeTab: label => `Close ${label}`,
-    closeOthers: 'Close others',
-    closeToRight: 'Close to the right',
-    closeAll: 'Close all',
     closePane: 'Close preview pane',
     loading: 'Loading preview',
     unavailable: 'Preview unavailable',
@@ -3041,5 +3064,19 @@ export const en: Translations = {
     saveApply: 'Save & apply',
     notExpressible: 'this arrangement interlocks (pinwheel) — not expressible as nested splits yet',
     zoneCount: count => `${count} zones`
+  },
+
+  quickEntry: {
+    label: 'Quick Entry',
+    placeholder: 'Ask Hermes…',
+    notConnected: 'Not connected — open Hermes to reconnect',
+    sendTo: 'Send to',
+    currentChat: 'Current chat',
+    newSession: 'New session',
+    targetLabel: 'Target session',
+    settingsTitle: 'Quick Entry',
+    settingsDesc:
+      'Summon a small composer from anywhere with a global shortcut and fire a prompt without opening Hermes.',
+    shortcutHint: 'Assign its shortcut under Keyboard shortcuts.'
   }
 }

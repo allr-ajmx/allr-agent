@@ -27,7 +27,7 @@ import { atom, computed } from '@/store/atom'
 import { $activeGatewayProfile, normalizeProfileKey } from '@/store/profile'
 import { $activeStoredSessionId, newSession, openSession } from '@/store/session'
 import { dropSessionState, runtimeKeyForStoredSession, sessionTileDelegate } from '@/store/session-states'
-import { isSecondaryWindow } from '@/store/windows'
+import { isSecondaryWindow, ownsPersistedAppState } from '@/store/windows'
 
 /** One parallel chat. `storedSessionId === null` is the DRAFT bubble (a
  *  fresh/unsaved chat with no id yet). `runtimeId` is the live session KEY when
@@ -76,7 +76,7 @@ const hydrate = (ids: string[]): ChatBubble[] => ids.map(storedSessionId => ({ s
 export const $chatBubbles = atom<ChatBubble[]>(isSecondaryWindow() ? [] : hydrate(bubblesByProfile[profileKey()] ?? []))
 
 function persistBubbles() {
-  if (isSecondaryWindow()) {
+  if (!ownsPersistedAppState()) {
     return
   }
 
@@ -98,7 +98,7 @@ function setBubbles(bubbles: ChatBubble[]) {
 }
 
 // Profile switch: surface the new profile's bubbles with runtime ids cleared.
-if (!isSecondaryWindow()) {
+if (ownsPersistedAppState()) {
   $activeGatewayProfile.subscribe(() => {
     $chatBubbles.set(hydrate(bubblesByProfile[profileKey()] ?? []))
   })

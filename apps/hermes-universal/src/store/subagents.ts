@@ -190,6 +190,54 @@ export function clearSessionSubagents(sid: string) {
   $subagentsBySession.set(rest)
 }
 
+/**
+ * Which session owns a subagent, by its id.
+ *
+ * The Agents overlay flattens every session's rows into one tree so a
+ * background session's work is still visible, which loses the owning session —
+ * yet `subagent.steer` needs it, because the gateway checks that the invoking
+ * session actually owns the child before queueing anything.
+ */
+export function sessionOfSubagent(id: string): string | undefined {
+  for (const [sid, list] of Object.entries($subagentsBySession.get())) {
+    if (list.some(item => item.id === id)) {
+      return sid
+    }
+  }
+
+  return undefined
+}
+
+/**
+ * Drop a session's settled subagent rows, keeping only the ones still working.
+ *
+ * Called at the `message.start` boundary, so the *previous* turn's finished
+ * rows leave the spawn tree while a background subagent that outlived its
+ * spawning turn stays visible and still accepts late progress/complete events.
+ * Without it the tree only ever grew: nothing removed a row until
+ * `clearSessionSubagents` wiped the whole session on switch, so a long-lived
+ * session accumulated every subagent it had ever run.
+ *
+ * Distinct from `clearSessionSubagents`, which the Stop action uses because it
+ * genuinely cancels the running subagents too.
+ */
+export function pruneFinishedSessionSubagents(sid: string) {
+  const map = $subagentsBySession.get()
+  const list = map[sid]
+
+  if (!list?.length) {
+    return
+  }
+
+  const next = list.filter(item => item.status === 'running' || item.status === 'queued')
+
+  if (next.length === list.length) {
+    return
+  }
+
+  $subagentsBySession.set({ ...map, [sid]: next })
+}
+
 export function upsertSubagent(sid: string, payload: SubagentPayload, createIfMissing = true, eventType?: string) {
   const map = $subagentsBySession.get()
   const list = map[sid] ?? []

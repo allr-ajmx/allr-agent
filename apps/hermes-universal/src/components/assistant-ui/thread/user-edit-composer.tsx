@@ -11,6 +11,7 @@ import {
   useState
 } from 'react'
 
+import { ComposerDirectiveActions } from '@/app/chat/composer/directive-actions'
 import { focusComposerInput, markActiveComposer } from '@/app/chat/composer/focus'
 import {
   composerPlainText,
@@ -88,7 +89,11 @@ export const UserEditComposer: FC = () => {
       editor &&
       (editor.childNodes.length === 0 || (document.activeElement !== editor && composerPlainText(editor) !== draft))
     ) {
-      renderComposerContents(editor, draft)
+      // Inert by construction — this repaints on mount or when the editor
+      // isn't the one being typed into. A message opened for edit is finished
+      // text, so a `/command` ending it is committed and chips, matching how
+      // the transcript rendered that same message a moment ago.
+      renderComposerContents(editor, draft, { trailingCommitted: true })
 
       if (document.activeElement === editor) {
         placeCaretEnd(editor)
@@ -244,6 +249,7 @@ export const UserEditComposer: FC = () => {
               spellCheck={false}
               suppressContentEditableWarning
             />
+            <ComposerDirectiveActions editorRef={editorRef} />
             {/* The runtime's own composer input stays mounted (screen-reader
                 only) so ComposerPrimitive owns submit/cancel state while the
                 contenteditable above is what the user actually types into. */}

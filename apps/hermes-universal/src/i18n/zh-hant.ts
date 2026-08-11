@@ -289,7 +289,19 @@ export const zhHant = defineLocale({
       sourceNone: '沒有可用的外掛資料夾',
       gatewayDoor: '從已連線的後端載入外掛',
       gatewayDoorHint: '來自後端的外掛程式碼擁有與應用程式本身相同的權限。',
-      gatewayDoorUnavailable: '此後端未報告外掛資料夾。'
+      gatewayDoorUnavailable: '此後端未報告外掛資料夾。',
+      agent: {
+        title: '代理外掛',
+        blurb:
+          '執行於 Hermes 後端——工具、技能、MCP 伺服器、掛鉤與斜線指令。「可攜」外掛是 Agent Plugins 標準套件（技能 + MCP 組合，也可在其他代理中使用）。開關於新工作階段生效。',
+        empty: '尚未安裝代理外掛。',
+        loadFailed: '無法載入代理外掛',
+        portable: '可攜',
+        search: '搜尋外掛…',
+        noMatches: '沒有符合的外掛。',
+        toggleFailed: (name: string) => `無法切換 ${name}`,
+        sources: { bundled: '內建', entrypoint: 'pip', git: 'git', project: '專案', user: '使用者' }
+      }
     },
     notifications: {
       title: '通知',
@@ -373,6 +385,12 @@ export const zhHant = defineLocale({
       uiScaleTitle: '介面縮放',
       uiScaleDesc: (percent: number) =>
         `縮放整個應用程式的文字與介面。也可使用 Cmd/Ctrl 加 +、- 或 0 調整。目前：${percent}%`,
+      terminalFontTitle: '終端機字型',
+      terminalFontDesc:
+        '選擇已安裝的字型用於整合終端機。Nerd Font 可正確顯示 Powerlevel10k 與 Shell 圖示；留空則使用內建的 JetBrains Mono。',
+      terminalFontPlaceholder: 'MesloLGS NF 或 CSS 字型堆疊',
+      terminalFontPreview: '字形預覽',
+      terminalFontReset: '使用預設字型',
       translucencyTitle: '視窗透明',
       translucencyDesc: '讓整個視窗透出桌面。僅支援 macOS 與 Windows。',
       embedsTitle: '內嵌預覽',
@@ -1100,7 +1118,14 @@ export const zhHant = defineLocale({
     ageDays: days => `${days} 天前`,
     durationSeconds: seconds => `${seconds} 秒`,
     durationMinutes: (minutes, seconds) => `${minutes} 分 ${seconds} 秒`,
-    tokens: value => `${value} 詞元`
+    tokens: value => `${value} 詞元`,
+    steer: '引導',
+    steerPlaceholder: '重新引導此子代理…',
+    steerSend: '傳送',
+    steerCancel: '取消',
+    steerQueued: '已排入下一步',
+    steerRejected: '來不及引導了 — 此子代理已越過最後一步',
+    steerFailed: '無法連線至閘道'
   },
 
   commandCenter: {
@@ -1553,6 +1578,7 @@ export const zhHant = defineLocale({
     promptPlaceholder: '代理每次執行時應做什麼？',
     frequencyLabel: '頻率',
     deliverLabel: '傳遞至',
+    deliverNeedsHomeChannel: '請先設定主頻道',
     modelLabel: '模型',
     modelDefault: '預設（全域模型）',
     customScheduleLabel: '自訂排程',
@@ -1789,6 +1815,7 @@ export const zhHant = defineLocale({
     lookupNoMatches: '沒有相符項目。',
     lookupTry: '試試',
     lookupOr: '或',
+    openDirective: '開啟',
     commonCommands: '常用指令',
     hotkeys: '快捷鍵',
     helpFooter: '開啟完整面板 · 退格鍵關閉',
@@ -2265,17 +2292,12 @@ export const zhHant = defineLocale({
     terminalHide: '隱藏終端機',
     terminalsAria: '終端機',
     terminalNew: '新增終端機',
-    terminalCloseOthers: '關閉其他',
-    terminalCloseAll: '全部關閉',
     addToChat: '新增至聊天'
   },
 
   preview: {
     tab: '預覽',
     closeTab: label => `關閉 ${label}`,
-    closeOthers: '關閉其他',
-    closeToRight: '關閉右側',
-    closeAll: '全部關閉',
     closePane: '關閉預覽窗格',
     loading: '正在載入預覽',
     unavailable: '預覽不可用',
@@ -2626,5 +2648,18 @@ export const zhHant = defineLocale({
       description: '顯示行動裝置側邊欄。',
       toggle: '切換側邊欄'
     }
+  },
+
+  quickEntry: {
+    label: '快速輸入',
+    placeholder: '向 Hermes 提問…',
+    notConnected: '未連線——請開啟 Hermes 重新連線',
+    sendTo: '傳送到',
+    currentChat: '目前對話',
+    newSession: '新工作階段',
+    targetLabel: '目標工作階段',
+    settingsTitle: '快速輸入',
+    settingsDesc: '用全域快速鍵隨時叫出小型輸入框，不必開啟 Hermes 就能送出提示詞。',
+    shortcutHint: '請在「鍵盤快速鍵」中為其指派快速鍵。'
   }
 })

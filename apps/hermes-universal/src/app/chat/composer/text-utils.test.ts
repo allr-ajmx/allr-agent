@@ -85,10 +85,14 @@ describe('detectTrigger', () => {
     // boundaries: typing a trigger right after a chip (no space) still opens
     // the popover, and a chip inside a token ends it.
     expect(detectTrigger('\uFFFC@Desk')).toEqual({ kind: '@', query: 'Desk', tokenLength: 5, value: 'Desk' })
-    // Not position 0, so desktop reads it as an inline skill reference.
-    // Universal has no inline-slash trigger yet — see the deferral note on the
-    // mid-message case below.
-    expect(detectTrigger('\uFFFC/cle')).toBeNull()
+    // Not position 0, so it reads as an inline skill reference (MJXHRM-304).
+    expect(detectTrigger('\uFFFC/cle')).toEqual({
+      inline: true,
+      kind: '/',
+      query: 'cle',
+      tokenLength: 4,
+      value: 'cle'
+    })
     // The placeholder itself never leaks into a query.
     expect(detectTrigger('@a\uFFFCb')).toBeNull()
   })
@@ -135,24 +139,49 @@ describe('detectTrigger', () => {
     })
   })
 
-  // DEFERRED (MJXHRM-225): desktop opens a SECOND `/` trigger shape mid-message
-  // — an inline skill reference rather than a command invocation. Detection is
-  // one regex; the half that matters is the completion source, which must offer
-  // skills ALONE there (a built-in like `/new` acts on the app and means nothing
-  // mid-sentence). Universal's `/` source has no inline mode, so wiring only the
-  // regex would pop a menu of commands that can't be used where they appear.
-  // Pinned here so the gap is a decision, not a silence.
-  it('does not open a slash trigger mid-message (inline references deferred)', () => {
-    expect(detectTrigger('hello /')).toBeNull()
-    expect(detectTrigger('hello /clean')).toBeNull()
-    expect(detectTrigger('text\n/skill')).toBeNull()
+  // MJXHRM-304: the second `/` shape. A slash after whitespace is an inline
+  // skill REFERENCE dropped into prose, not a command invocation — the popover
+  // filters to skills there (use-composer-trigger), because a built-in like
+  // `/new` acts on the app and means nothing mid-sentence.
+  it('opens an inline slash trigger mid-message', () => {
+    expect(detectTrigger('hello /')).toEqual({ inline: true, kind: '/', query: '', tokenLength: 1, value: '' })
+    expect(detectTrigger('hello /clean')).toEqual({
+      inline: true,
+      kind: '/',
+      query: 'clean',
+      tokenLength: 6,
+      value: 'clean'
+    })
+    expect(detectTrigger('text\n/skill')?.inline).toBe(true)
+  })
+
+  it('keeps a position-0 slash a command invocation, not an inline reference', () => {
+    expect(detectTrigger('/personality alic')).toEqual({
+      kind: '/',
+      query: 'personality alic',
+      tokenLength: 17,
+      value: 'personality alic'
+    })
   })
 
   it('does not carry arg completion into an inline slash reference', () => {
     // Only a position-0 slash is a real invocation, so `/personality alic`
-    // mid-message is prose — the trigger ends at the command token.
+    // mid-message is prose — the inline trigger ends at the command token, and
+    // a query with a space in it can no longer match at all.
     expect(detectTrigger('hello there /personality alic')).toBeNull()
     expect(detectTrigger('run /tools enable foo')).toBeNull()
+  })
+
+  it('finds the LAST slash, so a leading command does not swallow a later skill', () => {
+    // The command regex's argument tail (`(?:\s+\S*)*`) matches `/work /cle`
+    // whole, which used to silence completion for every slash after the first.
+    expect(detectTrigger('/work /cle')).toEqual({
+      inline: true,
+      kind: '/',
+      query: 'cle',
+      tokenLength: 4,
+      value: 'cle'
+    })
   })
 
   it('still anchors at-mention triggers strictly at the token edge', () => {
