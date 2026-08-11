@@ -15,6 +15,7 @@ import {
 import type { HermesGitBaseBranch } from '@/global'
 import { useI18n } from '@/i18n'
 import { registerRepoStatusCwd, repoStatusForCwd } from '@/store/coding-status'
+import { notifyError } from '@/store/notifications'
 import { listBaseBranches } from '@/store/projects'
 
 // Filterable picker for the base branch of a new worktree. Lists local +
@@ -72,12 +73,18 @@ export function BaseBranchPicker({
       const defaultBranch = list.find(branch => branch.isDefault)
 
       onValueChange(defaultBranch?.name ?? list[0]?.name ?? '')
-    } catch {
+    } catch (err) {
+      // Swallowing this left the trigger reading "branch off " with an empty
+      // value, and submitting then sent no `base` at all — so the new worktree
+      // was cut from whatever HEAD happened to be, not the trunk. A non-repo
+      // folder answers with an empty list rather than an error, so reaching here
+      // really does mean the call failed.
       setBranches([])
+      notifyError(err, p.branchesFailed)
     } finally {
       setLoading(false)
     }
-  }, [repoPath, onValueChange])
+  }, [onValueChange, p.branchesFailed, repoPath])
 
   // Load on mount so the default branch fills in before the user opens the
   // menu — otherwise the button reads "branch off " with nothing after it.
