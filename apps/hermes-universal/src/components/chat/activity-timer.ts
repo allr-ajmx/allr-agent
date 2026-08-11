@@ -35,13 +35,24 @@ export function formatElapsed(seconds: number): string {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
 }
 
-export function useElapsedSeconds(active = true, timerKey?: string): number {
-  const start = useRef(startedAt(timerKey))
+/**
+ * Seconds since the timer's origin, reported once a second while `active`.
+ *
+ * Origin, in order: an explicit `since` timestamp, else the `timerKey`'s
+ * registry entry (which survives unmount/remount), else mount time. Pass `since`
+ * when the thing being measured started at a moment the caller knows and that
+ * moment isn't the mount — an anonymous timer reports the COMPONENT's age, and
+ * a component that is mounted permanently and merely hidden (the thread's
+ * always-rendered loading row) reports the age of the thread. Desktop's
+ * signature; universal's port had dropped the third argument.
+ */
+export function useElapsedSeconds(active = true, timerKey?: string, since?: number): number {
+  const start = useRef(since ?? startedAt(timerKey))
   const lastKey = useRef(timerKey)
   const [elapsed, setElapsed] = useState(() => Math.max(0, Math.floor((Date.now() - start.current) / 1000)))
 
   if (lastKey.current !== timerKey) {
-    start.current = startedAt(timerKey)
+    start.current = since ?? startedAt(timerKey)
     lastKey.current = timerKey
   }
 
@@ -50,7 +61,9 @@ export function useElapsedSeconds(active = true, timerKey?: string): number {
       return
     }
 
-    if (timerKey) {
+    if (since !== undefined) {
+      start.current = since
+    } else if (timerKey) {
       start.current = startedAt(timerKey)
     }
 
@@ -59,7 +72,7 @@ export function useElapsedSeconds(active = true, timerKey?: string): number {
     const id = window.setInterval(tick, 1000)
 
     return () => window.clearInterval(id)
-  }, [active, timerKey])
+  }, [active, since, timerKey])
 
   return elapsed
 }
