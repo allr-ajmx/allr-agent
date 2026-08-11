@@ -75,6 +75,104 @@ def _is_dir(cwd: str) -> bool:
         return False
 
 
+# ── remotes and refs ─────────────────────────────────────────────────────────
+#
+# A branch's *short* name is not a faithful identifier for its ref. Git shortens
+# ``refs/remotes/origin/HEAD`` to a bare ``origin`` and ``refs/remotes/origin/
+# wip/HEAD`` to ``origin/wip``, and a remote may itself be named with a slash
+# (``corp/mirror``). So nothing here re-derives a ref by string surgery on a
+# short name or by assuming a remote is called "origin": names are matched back
+# against the repo's real ref inventory and its real remote names.
+
+
+def _remote_names(cwd: str) -> list[str]:
+    """The repo's configured remotes ("origin", "upstream", …)."""
+    return [line.strip() for line in _git_out(cwd, ["remote"]).splitlines() if line.strip()]
+
+
+def _ordered_remotes(cwd: str) -> list[str]:
+    """Remotes with "origin" first when it exists.
+
+    Trunk detection has to pick *a* remote when several are configured; the
+    conventional upstream-of-record is ``origin``, and leading with it keeps the
+    answer byte-identical to the old origin-only code for every repo that has
+    one.
+    """
+    remotes = _remote_names(cwd)
+    return [*(r for r in remotes if r == "origin"), *(r for r in remotes if r != "origin")]
+
+
+def _remote_head_ref(cwd: str, remotes: list[str] | None = None) -> str:
+    """Full refname a remote's HEAD alias points at (``refs/remotes/origin/main``),
+    for the first remote that has one. Empty when no remote publishes a HEAD."""
+    for remote in remotes if remotes is not None else _ordered_remotes(cwd):
+        target = _git_out(cwd, ["symbolic-ref", "--quiet", f"refs/remotes/{remote}/HEAD"]).strip()
+        if target:
+            return target
+    return ""
+
+
+def _head_alias_refs(remotes: list[str]) -> set[str]:
+    """``refs/remotes/<remote>/HEAD`` for each configured remote — a symref alias
+    for the remote's default branch, not a branch anyone can check out.
+
+    Matched on the FULL refname against the REAL remote names. A suffix test for
+    "/HEAD" on the short name never fires (git shortens the alias to a bare
+    remote name), and a depth test misses a remote whose own name has a slash;
+    either way the alias leaked into the pickers as a phantom branch, and
+    converting it ran ``git worktree add <path> origin`` → detached HEAD. Going
+    through the remote list also spares a genuine branch called ``wip/HEAD``,
+    whose ref really is ``refs/remotes/origin/wip/HEAD``.
+    """
+    return {f"refs/remotes/{remote}/HEAD" for remote in remotes}
+
+
+def _remote_branch_of(refname: str, remotes: list[str]) -> tuple[str, str] | None:
+    """Split a full ``refs/remotes/…`` refname into (remote, branch).
+
+    Longest remote name first, so ``corp/mirror`` beats ``corp``. Splitting the
+    short name on its first "/" instead used to hand ``corp/mirror/feature/x``
+    back as a branch named ``mirror/feature/x``.
+    """
+    for remote in sorted(remotes, key=lambda name: -len(name)):
+        prefix = f"refs/remotes/{remote}/"
+        if refname.startswith(prefix):
+            return remote, refname[len(prefix) :]
+    return None
+
+
+def _ref_rows(cwd: str) -> list[tuple[str, str]]:
+    """(short name, full refname) for every local head and remote-tracking ref,
+    most recently committed first.
+
+    Raises when git fails for any reason other than "not a repository": an empty
+    list has to mean "this repo has no branches" (a fresh ``git init`` does), so
+    it must never double as a swallowed error — a vanished project folder or a
+    missing git binary would otherwise render as a picker reading "No branches
+    found", with nothing to say the call failed at all.
+    """
+    code, out, err = _git(
+        cwd,
+        [
+            "for-each-ref",
+            "--format=%(refname:short)\t%(refname)",
+            "--sort=-committerdate",
+            "refs/heads",
+            "refs/remotes",
+        ],
+    )
+    if code != 0:
+        if "not a git repository" in (err or "").lower():
+            return []
+        raise RuntimeError(f"Could not list branches: {(err or '').strip() or 'git for-each-ref failed'}")
+    rows: list[tuple[str, str]] = []
+    for line in out.split("\n"):
+        short, _, refname = line.strip().partition("\t")
+        if short.strip() and refname.strip():
+            rows.append((short.strip(), refname.strip()))
+    return rows
+
+
 # ── shared helpers ───────────────────────────────────────────────────────────
 
 
@@ -132,7 +230,7 @@ def _fill_untracked_counts(cwd: str, files: list[dict]) -> None:
 def _branch_base(cwd: str) -> str | None:
     """Merge-base with the remote default branch for "all branch changes"."""
     candidates: list[str] = []
-    head = _git_out(cwd, ["rev-parse", "--abbrev-ref", "origin/HEAD"]).strip()
+    head = _remote_head_ref(cwd)
     if head:
         candidates.append(head)
     candidates += ["origin/main", "origin/master", "main", "master"]
@@ -144,10 +242,13 @@ def _branch_base(cwd: str) -> str | None:
 
 
 def _default_branch_name(cwd: str) -> str | None:
-    """The repo's trunk name ("main"/"master"/…), preferring origin/HEAD."""
-    head = _git_out(cwd, ["rev-parse", "--abbrev-ref", "origin/HEAD"]).strip()
-    if head and head != "origin/HEAD":
-        return head.split("/", 1)[-1]
+    """The repo's trunk name ("main"/"master"/…), preferring a remote's HEAD."""
+    remotes = _ordered_remotes(cwd)
+    head = _remote_head_ref(cwd, remotes)
+    if head:
+        split = _remote_branch_of(head, remotes)
+        if split and split[1]:
+            return split[1]
     for ref in (
         "refs/heads/main",
         "refs/heads/master",
@@ -632,13 +733,18 @@ def _slugify(name: str) -> str:
 
 
 def _default_branch(cwd: str) -> str:
-    remote = _git_out(
-        cwd, ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"]
-    ).strip().replace("origin/", "", 1)
-    if remote:
-        return remote
+    remotes = _ordered_remotes(cwd)
+    head = _remote_head_ref(cwd, remotes)
+    if head:
+        split = _remote_branch_of(head, remotes)
+        if split and split[1]:
+            return split[1]
+    # `init.defaultBranch` is a global preference for *new* repos, not a claim
+    # about this one — honour it only when the branch is actually here, or a
+    # user whose config says "main" gets told a repo trunked on `develop` has a
+    # default branch that does not exist.
     configured = _git_out(cwd, ["config", "--get", "init.defaultBranch"]).strip()
-    if configured:
+    if configured and _git_out(cwd, ["show-ref", "--verify", f"refs/heads/{configured}"]).strip():
         return configured
     for branch in _TRUNK_BRANCHES:
         if _git_out(cwd, ["show-ref", "--verify", f"refs/heads/{branch}"]).strip():
@@ -682,30 +788,61 @@ def _unique_dir(base: str) -> str:
     return candidate
 
 
-def _remote_names(cwd: str) -> list[str]:
-    """The repo's configured remotes ("origin", "upstream", …)."""
-    return [line.strip() for line in _git_out(cwd, ["remote"]).splitlines() if line.strip()]
-
-
 def _resolve_branch_ref(cwd: str, name: str) -> tuple[str, str]:
-    """Map a branch name from the picker onto (local branch, remote-tracking ref).
+    """Map a row of ``branch_list`` onto (local branch, full remote-tracking ref).
 
-    ``branch_list`` offers remote-only branches as ``origin/foo``. Checking one
-    out by that name gives a *detached* HEAD, because ``origin/foo`` is a
-    commit-ish, not a branch — so resolve it back to the local branch ``foo``
-    that should track it. Returns ("foo", "origin/foo") for a remote-only
-    branch, ("foo", "") for a local one.
+    Returns ("foo", "refs/remotes/origin/foo") for a branch that lives only on a
+    remote, and ("foo", "") for one that already has a local head.
+
+    The lookup goes through the repo's real ref inventory rather than pattern
+    matching the name, because the *short* name the picker carries is lossy: it
+    cannot be split back into remote and branch without knowing the remote names,
+    and several distinct refs can share one. Anything that is not provably a
+    branch raises — ``git worktree add <path> <commit-ish>`` silently produces a
+    detached HEAD, so a tag, a raw sha, "HEAD", or a stale row must be refused
+    rather than passed through and checked out nameless.
     """
-    if _git_out(cwd, ["show-ref", "--verify", f"refs/heads/{name}"]).strip():
+    rows = _ref_rows(cwd)
+    heads = {short for short, refname in rows if refname.startswith("refs/heads/")}
+    if name in heads:
         return name, ""
-    if _git_out(cwd, ["show-ref", "--verify", f"refs/remotes/{name}"]).strip():
-        local = name.split("/", 1)[1] if "/" in name else name
-        # A local branch of the short name already exists (so the picker should
-        # not have offered the remote); prefer the local branch over detaching.
-        if local and not _git_out(cwd, ["show-ref", "--verify", f"refs/heads/{local}"]).strip():
-            return local, name
-        return local or name, ""
-    return name, ""
+
+    remotes = _remote_names(cwd)
+    aliases = _head_alias_refs(remotes)
+    for short, refname in rows:
+        if short != name or not refname.startswith("refs/remotes/") or refname in aliases:
+            continue
+        split = _remote_branch_of(refname, remotes)
+        if not split or not split[1]:
+            continue
+        local = split[1]
+        # The picker suppresses a remote whose branch already has a local head,
+        # but a concurrent checkout can outrun the list it was drawn from —
+        # prefer the local branch over creating a second one.
+        return local, "" if local in heads else refname
+
+    raise RuntimeError(f"No branch named {name!r} in this repository.")
+
+
+def _worktree_add(cwd: str, args: list[str]) -> tuple[int, str]:
+    """``git worktree add``, retried once after pruning stale registrations.
+
+    A worktree directory deleted by hand stays registered, and git then refuses
+    to reuse that path ("missing but already registered") — a dead end for the
+    dialog, which has no way to prune. ``git worktree prune`` only drops entries
+    whose directory is genuinely gone, so retrying is safe.
+    """
+    code, _, err = _git(cwd, ["worktree", "add", *args])
+    if code != 0 and "already registered" in (err or "").lower():
+        _git(cwd, ["worktree", "prune"])
+        code, _, err = _git(cwd, ["worktree", "add", *args])
+    return code, err
+
+
+def _worktree_add_ok(cwd: str, args: list[str]) -> None:
+    code, err = _worktree_add(cwd, args)
+    if code != 0:
+        raise RuntimeError((err or "").strip() or "git worktree add failed")
 
 
 def worktree_add(cwd: str, options: dict) -> dict:
@@ -713,45 +850,54 @@ def worktree_add(cwd: str, options: dict) -> dict:
     root = _main_root(cwd)
     options = options or {}
 
-    requested = _sanitize_branch(options.get("existingBranch") or "")
+    requested = str(options.get("existingBranch") or "").strip()
     if options.get("existingBranch"):
         if not requested:
             raise RuntimeError("Branch name is required.")
+        # Deliberately NOT sanitized: `_sanitize_branch` rewrites characters that
+        # are perfectly legal in a branch name (`fix#123` → `fix123`), so a row
+        # the picker itself offered became a name no ref matched. Resolving
+        # against the real inventory is the stronger check anyway — an unknown
+        # name never reaches git.
         existing, remote_ref = _resolve_branch_ref(root, requested)
         if existing == _default_branch(root):
-            # `git switch` DWIMs a missing local branch into one tracking the
-            # unique remote of the same name, so this covers the remote-only case.
-            _git_ok(root, ["switch", existing])
+            if remote_ref:
+                # Explicit rather than letting `git switch` DWIM the remote: the
+                # DWIM refuses outright when two remotes carry the branch.
+                _git_ok(root, ["switch", "--track", "-c", existing, remote_ref])
+            else:
+                _git_ok(root, ["switch", existing])
             return {"path": root, "branch": existing, "repoRoot": root}
         target = _unique_dir(os.path.join(root, ".worktrees", _slugify(existing)))
         if remote_ref:
-            _git_ok(root, ["worktree", "add", "--track", "-b", existing, target, remote_ref])
+            _worktree_add_ok(root, ["--track", "-b", existing, target, remote_ref])
         else:
-            _git_ok(root, ["worktree", "add", target, existing])
+            _worktree_add_ok(root, [target, existing])
         return {"path": target, "branch": existing, "repoRoot": root}
 
     slug = _slugify(options.get("name") or f"work-{os.urandom(4).hex()}")
     branch = _sanitize_branch(options.get("branch") or "") or f"hermes/{slug}"
     target = _unique_dir(os.path.join(root, ".worktrees", slug))
-    args = ["worktree", "add", "-b", branch, target]
+    args = ["-b", branch, target]
     if options.get("base"):
         base = str(options["base"])
         # Remote-tracking branches may be stale or missing; fetch just that
         # branch so the local ref is up to date before branching. Ignore fetch
         # failures (offline / no remote) — git will use whatever local ref
         # exists, or raise a clear error below if the ref is entirely missing.
-        # Keyed off the repo's real remotes rather than a literal "origin/", so
-        # a repo whose remote is named anything else still gets the refresh.
-        remote, _, remote_branch = base.partition("/")
-        if remote_branch and remote in _remote_names(root):
-            _git(root, ["fetch", remote, remote_branch])
+        # Keyed off the repo's real remotes rather than a literal "origin/", and
+        # longest name first so a remote called `corp/mirror` still matches.
+        for remote in sorted(_remote_names(root), key=lambda name: -len(name)):
+            if base.startswith(f"{remote}/"):
+                _git(root, ["fetch", remote, base[len(remote) + 1 :]])
+                break
         args.append(base)
-    code, _, err = _git(root, args)
+    code, err = _worktree_add(root, args)
     if code != 0:
         if "already exists" in (err or "").lower():
-            _git_ok(root, ["worktree", "add", target, branch])
+            _worktree_add_ok(root, [target, branch])
         else:
-            raise RuntimeError(err.strip() or "git worktree add failed")
+            raise RuntimeError((err or "").strip() or "git worktree add failed")
     return {"path": target, "branch": branch, "repoRoot": root}
 
 
@@ -765,19 +911,18 @@ def worktree_remove(cwd: str, worktree_path: str, force: bool) -> dict:
     return {"removed": worktree_path}
 
 
-def _is_remote_head_alias(refname: str) -> bool:
-    """``refs/remotes/<remote>/HEAD`` — the symref alias for a remote's default
-    branch, not a branch you can check out.
+def _pickable_rows(cwd: str) -> tuple[list[tuple[str, str]], set[str], list[str]]:
+    """(rows, local head names, remote names) for the branch pickers.
 
-    It has to be matched on the FULL refname: git shortens
-    ``refs/remotes/origin/HEAD`` to plain ``origin`` (the ``refs/remotes/%s/HEAD``
-    rev-parse rule), so a short-name test for a ``/HEAD`` suffix never fires and
-    the alias leaks into the picker as a phantom branch named ``origin``. Picking
-    it resolved a commit-ish, so ``git worktree add <path> origin`` produced a
-    detached HEAD — the exact failure remote-branch support was meant to remove.
+    ``rows`` is every local head plus every remote-tracking ref that names a
+    branch — the remotes' HEAD aliases are gone, because they are symrefs, not
+    branches, and every clone has one.
     """
-    parts = refname.split("/")
-    return len(parts) == 4 and parts[0] == "refs" and parts[1] == "remotes" and parts[3] == "HEAD"
+    remotes = _remote_names(cwd)
+    aliases = _head_alias_refs(remotes)
+    rows = [(short, refname) for short, refname in _ref_rows(cwd) if refname not in aliases]
+    heads = {short for short, refname in rows if refname.startswith("refs/heads/")}
+    return rows, heads, remotes
 
 
 def branch_list(cwd: str) -> list[dict]:
@@ -785,49 +930,26 @@ def branch_list(cwd: str) -> list[dict]:
 
     Remote-tracking refs are included so a branch that exists only on the
     remote can still be checked out / turned into a worktree; a remote whose
-    short name already has a local head is dropped, because the local branch is
-    always the one you want. ``<remote>/HEAD`` is a symref alias, not a branch.
+    branch already has a local head is dropped, because the local branch is
+    always the one you want.
     """
-    out = _git_out(
-        cwd,
-        [
-            "for-each-ref",
-            "--format=%(refname:short)\t%(refname)",
-            "--sort=-committerdate",
-            "refs/heads",
-            "refs/remotes",
-        ],
-    )
-    if not out:
+    rows, heads, remotes = _pickable_rows(cwd)
+    if not rows:
         return []
     trees = worktree_list(cwd)
     path_by_branch = {t["branch"]: t["path"] for t in trees if t["branch"]}
     trunk = _default_branch(cwd)
 
-    rows: list[tuple[str, bool]] = []
-    local_names: set[str] = set()
-    for line in out.split("\n"):
-        line = line.strip()
-        if not line:
-            continue
-        parts = line.split("\t")
-        name = parts[0].strip()
-        if not name:
-            continue
-        refname = parts[1].strip() if len(parts) > 1 else ""
+    result: list[dict] = []
+    for name, refname in rows:
         is_remote = refname.startswith("refs/remotes/")
         if is_remote:
-            if _is_remote_head_alias(refname):
+            split = _remote_branch_of(refname, remotes)
+            # A remote-tracking ref this repo has no remote for (a remote removed
+            # without pruning its refs) cannot be turned into a tracking branch,
+            # so it is not offered rather than checked out detached.
+            if not split or not split[1] or split[1] in heads:
                 continue
-        else:
-            local_names.add(name)
-        rows.append((name, is_remote))
-
-    result: list[dict] = []
-    for name, is_remote in rows:
-        short = name.split("/", 1)[1] if is_remote and "/" in name else name
-        if is_remote and short in local_names:
-            continue
         result.append(
             {
                 "name": name,
@@ -841,7 +963,13 @@ def branch_list(cwd: str) -> list[dict]:
 
 
 def branch_switch(cwd: str, branch: str) -> dict:
-    target = _sanitize_branch(branch)
+    requested = str(branch or "").strip()
+    # A name that already names a branch is used verbatim: `_sanitize_branch`
+    # exists to tame a name being *typed*, and applied to one that exists it
+    # rewrites legal characters (`fix#123` → `fix123`) into a ref matching
+    # nothing — so switching to a branch the UI itself listed just failed.
+    heads = {short for short, refname in _ref_rows(cwd) if refname.startswith("refs/heads/")}
+    target = requested if requested in heads else _sanitize_branch(requested)
     if not target:
         raise RuntimeError("Branch name is required.")
     _git_ok(cwd, ["switch", target])
@@ -851,49 +979,33 @@ def branch_switch(cwd: str, branch: str) -> dict:
 def base_branch_list(cwd: str) -> list[dict]:
     """Local heads + remote-tracking refs for the base-branch picker.
 
-    The remote default (origin/HEAD) is flagged so the UI can preselect it.
+    The remote's default branch is flagged so the UI can preselect it — that flag
+    decides what every new worktree is cut from, so getting it wrong bases the
+    work on a stale local branch instead of the fetched trunk.
     ``<remote>/HEAD`` itself is dropped: it is a symref alias, and it shortens to
     a bare remote name (``origin``) that reads as a branch it is not.
     """
-    out = _git_out(
-        cwd,
-        [
-            "for-each-ref",
-            "--format=%(refname:short)\t%(refname)",
-            "--sort=-committerdate",
-            "refs/heads",
-            "refs/remotes",
-        ],
-    )
-    if not out:
+    rows, _heads, _remotes = _pickable_rows(cwd)
+    if not rows:
         return []
-    remote_default = _git_out(
-        cwd, ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"]
-    ).strip()
-    local_default = _default_branch(cwd) if not remote_default else ""
-    result: list[dict] = []
-    for line in out.split("\n"):
-        line = line.strip()
-        if not line:
-            continue
-        parts = line.split("\t")
-        name = parts[0].strip()
-        refname = parts[1].strip() if len(parts) > 1 else ""
-        if not name or _is_remote_head_alias(refname):
-            continue
-        result.append(
-            {
-                "name": name,
-                # From the ref namespace, not a name prefix: a remote is not
-                # always called "origin", and `upstream/foo` is no less remote.
-                "isRemote": refname.startswith("refs/remotes/"),
-                # origin/HEAD when a remote exists; otherwise the local
-                # default (main/master/init.defaultBranch) so a no-remote
-                # repo still flags its trunk.
-                "isDefault": bool(
-                    (remote_default and name == remote_default)
-                    or (not remote_default and local_default and name == local_default)
-                ),
-            }
-        )
-    return result
+    # Taken from whichever remote publishes a HEAD, not from a literal
+    # `refs/remotes/origin/HEAD`: after `git remote rename origin upstream` the
+    # origin-only lookup came up empty and the picker preselected the LOCAL
+    # trunk, silently branching new work off an unfetched copy.
+    default_ref = _remote_head_ref(cwd)
+    local_default = "" if default_ref else _default_branch(cwd)
+    return [
+        {
+            "name": name,
+            # From the ref namespace, not a name prefix: a remote is not
+            # always called "origin", and `upstream/foo` is no less remote.
+            "isRemote": refname.startswith("refs/remotes/"),
+            # Compared as full refnames, because two different refs can share
+            # one short name.
+            "isDefault": bool(
+                (default_ref and refname == default_ref)
+                or (not default_ref and local_default and refname == f"refs/heads/{local_default}")
+            ),
+        }
+        for name, refname in rows
+    ]
