@@ -961,13 +961,22 @@ export async function respondApproval(choice: ApprovalChoice, key = $activeSessi
   // imports back into the session store (see the note on `sessionRecovery`).
   const { withSessionNotFoundResume } = await sessionRecovery()
 
-  await withSessionNotFoundResume(live, slice?.storedSessionId, id =>
+  const { recovered, sessionId: recoveredId } = await withSessionNotFoundResume(live, slice?.storedSessionId, id =>
     requestGateway('approval.respond', { choice, session_id: id })
   )
 
+  // A recovery MOVES the slice. The default `onRecovered` rekeys it onto the
+  // recovered runtime id, and `store/prompts.ts`'s rekey hook carries the
+  // approval request across with it — so clearing the key we started on is a
+  // silent no-op: the agent is unblocked, but the bar stays on screen under the
+  // new key with nothing left that will ever dismiss it, and every further
+  // choice re-answers a request the gateway has already resolved. Same failure
+  // shape as MJXHRM-308, one layer above the resolver that fixed it.
+  const liveKey = recovered ? recoveredId : key
+
   // Only drop the request once the gateway has taken the answer.
-  clearSessionApproval(key)
-  clearAwaitingInputPose(key)
+  clearSessionApproval(liveKey)
+  clearAwaitingInputPose(liveKey)
 }
 
 /** What the gateway did with a clarify answer. `gone` covers both halves of

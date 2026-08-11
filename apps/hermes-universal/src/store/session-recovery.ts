@@ -136,6 +136,16 @@ export async function resumeStoredRuntimeSession(storedSessionId: string): Promi
  * A resume that itself fails rethrows the ORIGINAL error rather than the
  * confusing secondary one — a never-persisted draft has no row to resume, and
  * "session not found" describes that better than whatever the resume said.
+ *
+ * THE KEY MOVES. `recovered: true` means the session's slice has been REKEYED
+ * onto the returned `sessionId` — by the default `republishRecoveredSession`, or
+ * by an explicit `onRecovered`, every one of which rekeys onto the same id. So
+ * the returned `sessionId` is also the slice's new MAP KEY, and any key the
+ * caller captured before the await is dead: `$sessionStates` no longer holds it,
+ * `store/prompts.ts` and `store/turn-lifecycle.ts` have moved their entries off
+ * it, and `updateSession` on it resurrects an empty ghost slice rather than
+ * failing. Callers that touch per-session state AFTER this call must address
+ * `recovered ? sessionId : <their own key>` (MJXHRM-308).
  */
 export async function withSessionNotFoundResume<T>(
   sessionId: string,
