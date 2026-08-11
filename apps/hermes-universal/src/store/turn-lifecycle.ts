@@ -35,7 +35,14 @@ import type { ChatMessage } from '@/lib/chat-messages'
 import { isLiveTailRow, reconcileLiveTail } from '@/lib/live-tail'
 import { appendLiveSessionProjection } from '@/lib/session-history'
 import { $gatewayState, requestGateway } from '@/store/gateway'
-import { $activeSessionKey, $sessionStates, addSessionKeyHooks, updateSession } from '@/store/session-state-types'
+import {
+  $activeSessionKey,
+  $sessionStates,
+  addSessionKeyHooks,
+  isPlaceholderKey,
+  rekeySession,
+  updateSession
+} from '@/store/session-state-types'
 import type { SessionResumeResponse } from '@/types/hermes'
 
 // ---------------------------------------------------------------------------
@@ -727,12 +734,31 @@ export async function reconcileSessionTurn(key: string): Promise<TurnReconciliat
       source: 'universal'
     })
 
-    const plan = applyTurnReconciliation(key, planTurnReconciliation(getInflightTurn(key), remoteTurnSnapshot(resumed)))
+    // A gateway that RESTARTED (a supervised local backend, a redeployed remote)
+    // mints a fresh runtime id for this conversation, and this resume is what
+    // claimed it. The router addresses slices by the id the gateway stamps on
+    // each frame, so a slice left under the dead id receives nothing — the
+    // probe would re-arm a turn (auto-continue included) whose entire stream we
+    // then drop on the floor. A WARM reconnect re-claims the SAME live record
+    // (`_claim_or_reuse_live`), so this is a no-op there.
+    const runtimeId = (resumed.session_id ?? '').trim()
+    const live = runtimeId && runtimeId !== key && !isPlaceholderKey(key) ? runtimeId : key
+
+    if (live !== key) {
+      // Moves the slice, its stored-id aliases and — through `rekeyTurn` — the
+      // in-flight record, so the plan below is applied to the surviving key.
+      rekeySession(key, live, { runtimeSessionId: live })
+    }
+
+    const plan = applyTurnReconciliation(
+      live,
+      planTurnReconciliation(getInflightTurn(live), remoteTurnSnapshot(resumed))
+    )
 
     // After the plan, not before: settling a turn the gateway has forgotten must
     // not then re-project that turn's tail back onto the transcript.
     if (plan.action !== 'settle') {
-      reconcileSessionTail(key, resumed)
+      reconcileSessionTail(live, resumed)
     }
 
     return plan

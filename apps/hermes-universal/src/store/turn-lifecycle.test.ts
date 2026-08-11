@@ -333,7 +333,9 @@ describe('reconcileSessionTurn', () => {
     const requestGateway = vi.fn(async () => {
       await Promise.resolve()
 
-      return { message_count: 0, messages: [], resumed: 'stored-1', running: false, session_id: 'r' }
+      // A WARM reconnect re-claims the SAME live record (`_claim_or_reuse_live`),
+      // so the runtime id comes back unchanged.
+      return { message_count: 0, messages: [], resumed: 'stored-1', running: false, session_id: 'runtime-1' }
     })
 
     vi.doMock('@/store/gateway', () => ({
@@ -468,6 +470,51 @@ describe('reconcileSessionTurn', () => {
 
     expect(lifecycle.isTurnLive('runtime-4')).toBe(false)
     expect(states.$sessionStates.get()['runtime-4'].messages).toBe(messages)
+
+    vi.doUnmock('@/store/gateway')
+    vi.resetModules()
+  })
+})
+
+describe('reconcileSessionTurn on a RESTARTED gateway', () => {
+  // A supervised local backend that died and came back mints a fresh runtime id
+  // for the conversation, and this probe is what claims it. The router addresses
+  // slices by the id the gateway stamps on each frame, so a slice left under the
+  // dead id receives nothing — the probe would re-arm a turn whose entire stream
+  // is then dropped.
+  it('rebinds the slice onto the runtime id the resume issued', async () => {
+    vi.doMock('@/store/gateway', () => ({
+      $gatewayState: { get: () => 'open', subscribe: () => () => {} },
+      requestGateway: vi.fn(async () => ({
+        message_count: 0,
+        messages: [],
+        resumed: 'stored-5',
+        running: true,
+        session_id: 'runtime-5-new',
+        inflight: { user: 'keep going', assistant: '', streaming: true }
+      }))
+    }))
+
+    vi.resetModules()
+    const states = await import('@/store/session-state-types')
+    const lifecycle = await import('@/store/turn-lifecycle')
+
+    states.publishSessionState('runtime-5-old', {
+      ...emptySessionState('stored-5'),
+      runtimeSessionId: null,
+      busy: true
+    })
+    lifecycle.beginTurn('runtime-5-old', { prompt: 'keep going' })
+
+    await lifecycle.reconcileSessionTurn('runtime-5-old')
+
+    const map = states.$sessionStates.get()
+
+    expect(Object.keys(map)).toEqual(['runtime-5-new'])
+    expect(map['runtime-5-new'].runtimeSessionId).toBe('runtime-5-new')
+    // The turn followed its slice rather than stranding under the dead key.
+    expect(lifecycle.getInflightTurn('runtime-5-old')).toBeNull()
+    expect(lifecycle.isTurnLive('runtime-5-new')).toBe(true)
 
     vi.doUnmock('@/store/gateway')
     vi.resetModules()
