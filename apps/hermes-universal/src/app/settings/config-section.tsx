@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
+import { useOnProfileSwitch } from '@/app/hooks/use-on-profile-switch'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -284,6 +285,20 @@ export function ConfigSection({
       setConfig(loadedConfig)
     }
   }, [loadedConfig])
+
+  // A profile switch invalidates (but doesn't clear) the shared config query and
+  // leaves this panel mounted, so the local draft would otherwise keep profile
+  // A's data and autosave it into B — and `saveHermesConfig` REPLACES the whole
+  // record, so that is B's config overwritten wholesale, not a merge. Drop the
+  // seed + draft (re-seeds from B's refetch) and zero saveVersion so the pending
+  // debounced autosave is cancelled by its effect cleanup.
+  useOnProfileSwitch(() => {
+    configSeeded.current = false
+    savedDiscoverySignatureRef.current = undefined
+    setConfig(null)
+    saveVersionRef.current = 0
+    setSaveVersion(0)
+  })
 
   // Debounced autosave. saveHermesConfig REPLACES the whole record, so the draft
   // (a full clone edited via setNested) is what we persist.

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
+import { useOnProfileSwitch } from '@/app/hooks/use-on-profile-switch'
 import { ModelPickerDialog } from '@/components/model-picker'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -42,9 +43,7 @@ import { invalidateHermesConfig, setHermesConfigCache, useHermesConfigRecord } f
 // Ported from apps/desktop/src/app/settings/model-settings.tsx (pixel-perfect).
 // Adaptations: types from `@/types/hermes`; config cache from `./use-config-record`;
 // "Set up provider" routes per provider kind via `resolveProviderSetup` (see
-// startProviderSetup below); desktop's profile-switch reload (`useOnProfileSwitch`)
-// is dropped (no universal equivalent) — the `profileEpoch` guards stay inert but
-// harmless.
+// startProviderSetup below).
 
 // Skeleton mirror of the Model settings DOM so the page keeps its shape while
 // the provider/model catalog loads, instead of collapsing to a centered
@@ -222,11 +221,11 @@ export function ModelSettings({ onMainModelChanged }: ModelSettingsProps) {
   // segment of `modelOptionsQueryKey` exists to prevent.
   const activeProfile = useStore($activeGatewayProfile)
 
-  // Retained from the desktop port; without profile-switching it stays 0, so the
-  // `epoch` guards below are inert (but harmless — keeps the port verbatim).
+  // Bumped on a profile switch so an in-flight request for the previous profile
+  // is discarded instead of painting its model over the new profile's.
   const profileEpoch = useRef(0)
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async ({ replaceSelection = false }: { replaceSelection?: boolean } = {}) => {
     const epoch = profileEpoch.current
     setLoading(true)
     setError('')
@@ -245,8 +244,15 @@ export function ModelSettings({ onMainModelChanged }: ModelSettingsProps) {
 
       setMainModel({ model: modelInfo.model, provider: modelInfo.provider })
       setProviders(modelOptions.providers || [])
-      setSelectedProvider(prev => prev || modelInfo.provider)
-      setSelectedModel(prev => prev || modelInfo.model)
+
+      if (replaceSelection) {
+        setSelectedProvider(modelInfo.provider)
+        setSelectedModel(modelInfo.model)
+      } else {
+        setSelectedProvider(prev => prev || modelInfo.provider)
+        setSelectedModel(prev => prev || modelInfo.model)
+      }
+
       setAuxiliary(auxiliaryModels)
       setMoa(moaModels)
 
@@ -271,6 +277,19 @@ export function ModelSettings({ onMainModelChanged }: ModelSettingsProps) {
   useEffect(() => {
     void refresh()
   }, [refresh])
+
+  // A profile switch swaps the backend under the mounted panel — reload for the
+  // new profile (bumping the epoch first so any in-flight A request is discarded).
+  useOnProfileSwitch(() => {
+    profileEpoch.current += 1
+    // The panel stays mounted across profile switches, so clear the previous
+    // profile's draft selection before loading the new profile's source of
+    // truth. Ordinary same-profile refreshes still preserve in-progress edits.
+    setSelectedProvider('')
+    setSelectedModel('')
+    setApiKeyDraft('')
+    void refresh({ replaceSelection: true })
+  })
 
   const providerOptions = providers.length ? providers : NO_PROVIDERS
 

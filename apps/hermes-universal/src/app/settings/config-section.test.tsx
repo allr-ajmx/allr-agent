@@ -16,11 +16,13 @@ vi.mock('@/hermes', () => ({
   saveHermesConfig: vi.fn(async () => ({ ok: true }))
 }))
 
+import { act } from 'react'
 import { MemoryRouter } from 'react-router-dom'
 
 import { getHermesConfigRecord, saveHermesConfig } from '@/hermes'
 import { I18nProvider } from '@/i18n'
 import { queryClient } from '@/lib/query-client'
+import { setActiveProfile } from '@/store/profiles'
 
 import { ConfigSection } from './config-section'
 import { getNested } from './helpers'
@@ -45,9 +47,11 @@ describe('ConfigSection', () => {
     save.mockClear()
     vi.mocked(getHermesConfigRecord).mockClear()
     queryClient.clear()
+    setActiveProfile(null)
   })
   afterEach(() => {
     queryClient.clear()
+    setActiveProfile(null)
   })
 
   it('renders the section schema fields once config + schema load', async () => {
@@ -67,6 +71,30 @@ describe('ConfigSection', () => {
     const saved = save.mock.calls[0][0]
     expect(getNested(saved, 'display.show_reasoning')).toBe(true)
     expect(getNested(saved, 'timezone')).toBe('UTC')
+  })
+
+  // The panel stays mounted across a profile switch and `saveHermesConfig`
+  // REPLACES the whole record, so an un-reset draft doesn't merge into the new
+  // profile — it overwrites it with the previous profile's config wholesale.
+  it('drops the draft on a profile switch instead of autosaving it into the new profile', async () => {
+    renderSection()
+    const toggle = await screen.findByRole('switch')
+
+    fireEvent.click(toggle)
+    expect(toggle).toBeChecked()
+
+    // Profile B's config: the same key, still off.
+    vi.mocked(getHermesConfigRecord).mockResolvedValue({ display: { show_reasoning: false }, timezone: 'Asia/Tokyo' })
+
+    await act(async () => {
+      setActiveProfile('b')
+    })
+
+    // Re-seeded from B, so the edit made against A is gone…
+    await waitFor(() => expect(screen.getByRole('switch')).not.toBeChecked())
+    // …and the debounced autosave it scheduled never reaches B.
+    await new Promise(resolve => setTimeout(resolve, 900))
+    expect(save).not.toHaveBeenCalled()
   })
 
   it('keeps a declared row the backend schema omits, inferring its type from config', async () => {
