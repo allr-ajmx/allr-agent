@@ -1,10 +1,11 @@
 import type * as AssistantUI from '@assistant-ui/react'
 import type { ToolCallMessagePartProps } from '@assistant-ui/react'
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { I18nProvider } from '@/i18n'
+import type * as ChatStore from '@/store/chat'
 
 // The live panel asks assistant-ui whether its message is still streaming. There
 // is no runtime in a unit test, so pin it to "running" and leave the rest of the
@@ -15,7 +16,16 @@ vi.mock('@assistant-ui/react', async importActual => {
   return { ...actual, useAuiState: () => true }
 })
 
+// The expired-answer path is decided by the gateway's reply, so the responder
+// is the seam. Everything else in the chat store stays real.
+vi.mock('@/store/chat', async importActual => {
+  const actual = await importActual<typeof ChatStore>()
+
+  return { ...actual, respondClarify: vi.fn().mockResolvedValue('delivered') }
+})
+
 import { onComposerInsertRequest } from '@/app/chat/composer/focus'
+import { respondClarify } from '@/store/chat'
 import { setSessionClarify } from '@/store/prompts'
 import { seedActiveSession } from '@/test-sessions'
 
@@ -25,6 +35,7 @@ afterEach(() => {
   cleanup()
   seedActiveSession('sess-1')
   setSessionClarify('sess-1', null)
+  vi.mocked(respondClarify).mockResolvedValue('delivered')
 })
 
 function renderClarify(ui: ReactNode) {
@@ -246,6 +257,120 @@ describe('ClarifyTool keyboard navigation', () => {
     // the first row it started on.
     expect(screen.getByRole('button', { name: /Continue/ }).hasAttribute('disabled')).toBe(true)
     expect(document.querySelector('[data-choice][aria-current]')?.textContent).toContain('staging')
+  })
+})
+
+// The card binds the DOCUMENT, but it is one surface among many: keep-alive
+// leaves an inactive tab's clarify mounted, and a split can show two at once.
+// The composer has always been visible-scoped (`clarifyCardOwnsKey`); the card
+// was not, so a background question ate the foreground's letters and Enter
+// answered it — into the wrong session.
+describe('ClarifyTool key ownership across surfaces', () => {
+  const press = (key: string) => act(() => void fireEvent.keyDown(window, { key }))
+
+  /** Where the keyboard cursor sits — `aria-current` is the card's own read of it. */
+  const cursor = (root: HTMLElement) => root.querySelector('[data-choice][aria-current]')?.textContent ?? ''
+
+  /** Continue enables only once an answer is STAGED, so it is the pick signal. */
+  const staged = (root: HTMLElement) =>
+    !within(root)
+      .getByRole('button', { name: /Continue/ })
+      .hasAttribute('disabled')
+
+  it('ignores keys while it sits in a hidden pane', () => {
+    seedActiveSession('sess-1')
+    setSessionClarify('sess-1', { requestId: 'c-hidden', question: 'Which target?', choices: ['staging', 'prod'] })
+
+    render(
+      <I18nProvider>
+        <div data-pane-hidden="" data-testid="hidden">
+          <ClarifyTool {...clarifyProps({}, undefined, 'c-hidden')} />
+        </div>
+      </I18nProvider>
+    )
+
+    const card = screen.getByTestId('hidden')
+
+    press('2')
+
+    // Nothing picked, and the cursor never left the row it mounted on.
+    expect(staged(card)).toBe(false)
+    expect(cursor(card)).toContain('staging')
+  })
+
+  // The hidden card is mounted FIRST, which is what a tab round-trip leaves
+  // behind. Its handler therefore runs first and used to `preventDefault()` the
+  // key, so the `defaultPrevented` guard then silenced the card the user was
+  // actually looking at: the keystroke landed in the background session and
+  // vanished from the foreground one.
+  it('does not let a background card take the key from the visible one', () => {
+    seedActiveSession('sess-1')
+    setSessionClarify('sess-1', { requestId: 'c-split', question: 'Which target?', choices: ['staging', 'prod'] })
+
+    render(
+      <I18nProvider>
+        <div data-pane-hidden="" data-testid="background">
+          <ClarifyTool {...clarifyProps({}, undefined, 'c-split-hidden')} />
+        </div>
+        <div data-testid="foreground">
+          <ClarifyTool {...clarifyProps({}, undefined, 'c-split-visible')} />
+        </div>
+      </I18nProvider>
+    )
+
+    const [background, foreground] = [screen.getByTestId('background'), screen.getByTestId('foreground')]
+
+    press('2')
+
+    expect(staged(foreground)).toBe(true)
+    expect(cursor(foreground)).toContain('prod')
+
+    expect(staged(background)).toBe(false)
+    expect(cursor(background)).toContain('staging')
+  })
+})
+
+// `clarify.respond` is `allow_expired`, so a question the backend's own timeout
+// already popped answers OK and delivers nothing. The panel used to treat that
+// as a normal send: the card settled, the words were gone, and the user had no
+// idea the agent never heard them.
+describe('ClarifyTool expired answer', () => {
+  it('drafts a follow-up when the answer arrives after the timeout', async () => {
+    seedActiveSession('sess-1')
+    setSessionClarify('sess-1', { requestId: 'c-expired', question: 'Which target?', choices: ['staging', 'prod'] })
+    vi.mocked(respondClarify).mockResolvedValue('expired')
+
+    const inserted: string[] = []
+    const dispose = onComposerInsertRequest(({ text }) => inserted.push(text))
+
+    renderClarify(<ClarifyTool {...clarifyProps({}, undefined, 'c-expired')} />)
+
+    // Picking stages; Continue is what sends.
+    fireEvent.click(screen.getByRole('button', { name: /prod/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Continue/ }))
+    await act(() => new Promise(resolve => setTimeout(resolve, 0)))
+    dispose()
+
+    expect(inserted).toHaveLength(1)
+    expect(inserted[0]).toContain('prod')
+    expect(inserted[0]).toContain('Which target?')
+  })
+
+  it('drafts nothing when the answer landed in time', async () => {
+    seedActiveSession('sess-1')
+    setSessionClarify('sess-1', { requestId: 'c-in-time', question: 'Which target?', choices: ['staging', 'prod'] })
+
+    const inserted: string[] = []
+    const dispose = onComposerInsertRequest(({ text }) => inserted.push(text))
+
+    renderClarify(<ClarifyTool {...clarifyProps({}, undefined, 'c-in-time')} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /prod/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Continue/ }))
+    await act(() => new Promise(resolve => setTimeout(resolve, 0)))
+    dispose()
+
+    expect(inserted).toEqual([])
   })
 })
 

@@ -784,8 +784,7 @@ export const ja = defineLocale({
       sessionKindNativeHint:
         'システムブラウザでサインインしました。トークンはこの端末のキーリングに保管され、アプリの WebView には入りません。',
       sessionKindCookie: 'アプリ内',
-      sessionKindCookieHint:
-        'アプリ内でサインインしました。セッション Cookie はアプリが保持し、自動的に更新されます。',
+      sessionKindCookieHint: 'アプリ内でサインインしました。セッション Cookie はアプリが保持し、自動的に更新されます。',
       authSignedInPassword:
         'このゲートウェイはユーザー名とパスワードを使用します。サインイン済みです。セッションは自動的に更新されます。',
       authSignedInOauth:
@@ -2527,7 +2526,8 @@ export const ja = defineLocale({
       skipped: 'スキップ',
       lateAnswer: (question, choice) => `「${question}」について — 私の回答: ${choice}`,
       lateAnswerTip: 'この回答をフォローアップメッセージとして下書きする',
-      lateAnswerHint: 'この質問はもう回答を待っていません。選択するとフォローアップメッセージとして下書きされます。'
+      lateAnswerHint: 'この質問はもう回答を待っていません。選択するとフォローアップメッセージとして下書きされます。',
+      expiredAnswer: 'この質問は回答が届く前にタイムアウトしました — フォローアップメッセージとして下書きしました。'
     },
     tool: {
       code: 'コード',
@@ -2768,7 +2768,8 @@ export const ja = defineLocale({
     newSession: '新しいセッション',
     targetLabel: '対象セッション',
     settingsTitle: 'クイック入力',
-    settingsDesc: 'グローバルショートカットで小さな入力欄をどこからでも呼び出し、Hermes を開かずにプロンプトを送信します。',
+    settingsDesc:
+      'グローバルショートカットで小さな入力欄をどこからでも呼び出し、Hermes を開かずにプロンプトを送信します。',
     shortcutHint: 'ショートカットは「キーボードショートカット」で割り当ててください。'
   }
 })

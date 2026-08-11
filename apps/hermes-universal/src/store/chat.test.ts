@@ -233,6 +233,26 @@ describe('chat reducer (parts model)', () => {
     expect($clarify.get()).toMatchObject({ requestId: 'c10' })
   })
 
+  // `clarify.respond` is `allow_expired` on the backend: a request its own
+  // 5-minute timeout already popped answers `{"status": "expired"}` — an RPC
+  // SUCCESS that delivered nothing. Reporting that as a normal send is how an
+  // answer disappears with the UI saying it went through.
+  it('reports an answer the backend had already timed out as expired', async () => {
+    handleGatewayEvent(ev('clarify.request', { request_id: 'c11', question: 'which?', choices: ['x'] }))
+    vi.mocked(requestGateway).mockResolvedValueOnce({ status: 'expired' } as never)
+
+    await expect(respondClarify('x')).resolves.toBe('expired')
+    // Nothing will ever answer it now, so the panel does not keep it alive.
+    expect($clarify.get()).toBeNull()
+  })
+
+  it('reports a live answer as delivered', async () => {
+    handleGatewayEvent(ev('clarify.request', { request_id: 'c12', question: 'which?', choices: ['x'] }))
+    vi.mocked(requestGateway).mockResolvedValueOnce({ status: 'ok' } as never)
+
+    await expect(respondClarify('x')).resolves.toBe('delivered')
+  })
+
   it('respondSudo posts sudo.respond with the request_id + password and clears the atom', async () => {
     handleGatewayEvent(ev('sudo.request', { request_id: 's9', prompt: 'pw' }))
     await respondSudo('hunter2')

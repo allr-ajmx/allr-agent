@@ -237,10 +237,13 @@ export function reduceSessionState(
      * to render the question, so the turn was unanswerable and hung forever.
      *
      * Upsert a stable pending clarify row from the request itself, keyed on the
-     * REQUEST id. A real `tool.start`/`tool.complete` carrying the same id merges
-     * into it rather than duplicating (see lib/chat-tool-parts), which is why the
-     * synthetic row resolves on its own once the user answers. Desktop does the
-     * same in `use-message-stream/gateway-event.ts`.
+     * REQUEST id. The ids deliberately do NOT line up: `tool.start` carries the
+     * model's `tool_call_id`, this event the gateway's `request_id`, so the two
+     * rows correlate on `question` instead — `tool.start` ships it as the
+     * truncated `context` preview, and `lib/chat-tool-parts` matches on it. That
+     * is what makes this an upsert in the normal path rather than a second live
+     * card, and what lets the synthetic row settle on the real `tool.complete`.
+     * Desktop does the same in `use-message-stream/gateway-event.ts`.
      */
     case 'clarify.request': {
       const requestId = coerceText(payload.request_id)

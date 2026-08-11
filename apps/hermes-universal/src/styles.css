@@ -772,6 +772,12 @@
     --ui-inline-code-background: color-mix(in srgb, #ffffff 7%, transparent);
     --ui-inline-code-foreground: color-mix(in srgb, #ffffff 88%, transparent);
     --ui-selection-background: color-mix(in srgb, #ffd24a 38%, transparent);
+    /* A dark card sits ABOVE the chrome (#161618 over #0d0d0e), so an inline
+       widget wearing the raw card fill reads as a lit panel — the brightest
+       thing in the transcript. Take it down a touch: still clearly a surface,
+       no longer glowing. Derived from the card so every skin follows its own
+       seed. Ported alongside the light value, which shipped without it. */
+    --ui-widget-surface-background: color-mix(in srgb, var(--ui-bg-editor) 88%, #000);
   }
 
   * {

@@ -52,6 +52,56 @@ describe('clarify.request', () => {
     expect(toolParts(state)[0].toolCallId).toBe('req-1')
   })
 
+  // THE NORMAL PATH, and the one the ids do NOT line up on. `tool.start` carries
+  // the model's tool_call_id and lands FIRST; `clarify.request` carries the
+  // gateway's own request_id. Correlating on id alone therefore mounts a SECOND
+  // clarify card beside the first — two live panels for one blocked question,
+  // each with its own global key handler. `question` is the only field both
+  // events share (`tool.start` ships it as the truncated `context` preview via
+  // `_tool_ctx` → `build_tool_preview`), so it is what has to correlate them.
+  it('merges into the tool.start row that arrived first under the model tool id', () => {
+    let state = reduce(base(), 'tool.start', {
+      name: 'clarify',
+      tool_id: 'call_abc123',
+      context: 'Which branch?'
+    })
+
+    state = reduce(state, 'clarify.request', {
+      request_id: 'req-1',
+      question: 'Which branch?',
+      choices: ['main', 'develop']
+    })
+
+    expect(toolParts(state)).toHaveLength(1)
+    expect(toolParts(state)[0].args).toMatchObject({ choices: ['main', 'develop'], question: 'Which branch?' })
+
+    state = reduce(state, 'tool.complete', {
+      name: 'clarify',
+      tool_id: 'call_abc123',
+      args: { question: 'Which branch?' },
+      result: 'main'
+    })
+
+    expect(toolParts(state)).toHaveLength(1)
+    expect(toolParts(state)[0].result).toBeDefined()
+  })
+
+  // `build_tool_preview` caps `context` at 80 chars, so a long question cannot
+  // match the request's full text. The rows still have to be one row.
+  it('merges even when the tool.start preview truncated the question', () => {
+    const question = `Which branch should I cut ${'the release candidate '.repeat(6)}from?`
+
+    let state = reduce(base(), 'tool.start', {
+      name: 'clarify',
+      tool_id: 'call_abc123',
+      context: question.slice(0, 80)
+    })
+
+    state = reduce(state, 'clarify.request', { request_id: 'req-1', question, choices: ['main'] })
+
+    expect(toolParts(state)).toHaveLength(1)
+  })
+
   it('still flags needs-input for a malformed request rather than inventing a row', () => {
     const next = reduce(base(), 'clarify.request', { request_id: 'req-1' })
 

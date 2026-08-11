@@ -16,6 +16,7 @@ import {
 import { requestComposerFocus, requestComposerInsert } from '@/app/chat/composer/focus'
 import { useSessionView } from '@/app/chat/session-view'
 import { ToolFallback } from '@/components/assistant-ui/tool/fallback'
+import { WIDGET_SHELL_CLASS } from '@/components/chat/widget-shell'
 import { Button } from '@/components/ui/button'
 import { Kbd } from '@/components/ui/kbd'
 import { Textarea } from '@/components/ui/textarea'
@@ -23,10 +24,11 @@ import { Tip } from '@/components/ui/tooltip'
 import { useI18n } from '@/i18n'
 import { triggerHaptic } from '@/lib/haptics'
 import { CircleLetterA, Loader2, MessageQuestion } from '@/lib/icons'
+import { keyOwningClarifyCard } from '@/lib/keybinds/composer-focus-keys'
 import { cn } from '@/lib/utils'
 import { respondClarify } from '@/store/chat'
 import { normalizeChoices, readChoices } from '@/store/clarify'
-import { notifyError } from '@/store/notifications'
+import { notify, notifyError } from '@/store/notifications'
 import { sessionClarifyRequest } from '@/store/prompts'
 
 import { selectMessageRunning } from './tool/fallback-model'
@@ -95,8 +97,7 @@ const OPTION_ROW_CLASS =
 // field-sizing on top of Textarea's shared chrome; kill min-h-16 for one-liners.
 const CLARIFY_TEXTAREA_CLASS = 'field-sizing-content max-h-40 min-h-0 resize-none'
 
-const CLARIFY_SHELL_CLASS =
-  'my-1.5 rounded-md border border-primary/20 bg-(--ui-chat-surface-background) text-[length:var(--conversation-text-font-size)] text-(--ui-text-primary)'
+const CLARIFY_SHELL_CLASS = `${WIDGET_SHELL_CLASS} text-[length:var(--conversation-text-font-size)] text-(--ui-text-primary)`
 
 const CLARIFY_ICON_CLASS = 'mt-px size-4 shrink-0 text-(--ui-text-tertiary)'
 
@@ -241,7 +242,7 @@ function ClarifyToolSettled({ args, result }: ToolCallMessagePartProps) {
   )
 
   return (
-    <ClarifyShell className="grid gap-1.5 px-2.5 py-2" data-clarify-settled="">
+    <ClarifyShell className="my-1.5 grid gap-1.5" data-clarify-settled="">
       {question ? (
         <ClarifyLine icon={MessageQuestion}>
           <span className="whitespace-pre-wrap font-medium leading-(--conversation-line-height)">{question}</span>
@@ -324,6 +325,7 @@ function ClarifyToolPending({ args }: ToolCallMessagePartProps) {
   const [activeIndex, setActiveIndex] = useState(0)
   const [otherFocused, setOtherFocused] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
+  const shellRef = useRef<HTMLFormElement | null>(null)
 
   // Race: tool.start fires a tick before clarify.request, so request_id
   // arrives slightly after the tool block mounts. Hold the whole panel on a
@@ -343,15 +345,28 @@ function ClarifyToolPending({ args }: ToolCallMessagePartProps) {
       setSubmitting(true)
 
       try {
-        await respondClarify(answer, sessionKey)
+        const outcome = await respondClarify(answer, sessionKey)
+
         void triggerHaptic('submit')
+
+        // `clarify.respond` is `allow_expired`: a question the backend's own
+        // 5-minute timeout already popped answers OK and delivers nothing. The
+        // agent has moved on, so there is no retry — but the words are still
+        // the user's intent, so route them where a skipped clarify's late pick
+        // goes: a quoted follow-up in the composer. Silently "succeeding" here
+        // is how an answer disappears with the UI saying it was sent.
+        if (outcome === 'expired' && answer.trim()) {
+          requestComposerInsert(copy.lateAnswer(question, answer.trim()), { mode: 'block' })
+          requestComposerFocus()
+          notify({ kind: 'warning', message: copy.expiredAnswer })
+        }
         // tool.complete lands next → ClarifyToolSettled.
       } catch (error) {
         notifyError(error, copy.sendFailed)
         setSubmitting(false)
       }
     },
-    [copy.notReady, copy.sendFailed, ready, sessionKey]
+    [copy, question, ready, sessionKey]
   )
 
   const trimmedDraft = draft.trim()
@@ -453,6 +468,17 @@ function ClarifyToolPending({ args }: ToolCallMessagePartProps) {
         return
       }
 
+      // This listener is on the DOCUMENT, but the card is one surface among
+      // many: keep-alive leaves an inactive tab's clarify mounted, and a split
+      // can show two at once. Only the card the composer also yields to may act
+      // — otherwise a background session's question ate the foreground's
+      // letters, and Enter answered it with whatever its cursor happened to be
+      // resting on. `keyOwningClarifyCard` is that single answer, shared with
+      // `clarifyCardOwnsKey` so the two can never pick different cards.
+      if (keyOwningClarifyCard() !== shellRef.current) {
+        return
+      }
+
       const active = document.activeElement as HTMLElement | null
 
       if (
@@ -525,11 +551,7 @@ function ClarifyToolPending({ args }: ToolCallMessagePartProps) {
 
   if (loading) {
     return (
-      <ClarifyShell
-        aria-label={copy.loadingQuestion}
-        className="grid min-h-12 place-items-center px-2.5 py-3"
-        role="status"
-      >
+      <ClarifyShell aria-label={copy.loadingQuestion} className="my-1.5 grid min-h-12 place-items-center" role="status">
         <Loader2 aria-hidden className="size-4 animate-spin text-(--ui-text-tertiary)" />
       </ClarifyShell>
     )
@@ -550,13 +572,23 @@ function ClarifyToolPending({ args }: ToolCallMessagePartProps) {
     // exactly those and lets every other printable through to the composer —
     // typing a real message instead of picking an option stays possible. The
     // value is the choice count so the check needs no store access.
-    <ClarifyShell className="grid gap-2 px-2.5 py-2" data-clarify-choices={hasChoices ? choices.length : undefined}>
-      <div className="flex items-start gap-2">
-        <span className="flex-1 whitespace-pre-wrap font-medium leading-(--conversation-line-height)">{question}</span>
-        <MessageQuestion aria-hidden className="mt-px size-4 shrink-0 text-(--ui-text-tertiary)" />
-      </div>
+    //
+    // The form is the outer element so the actions can sit OUTSIDE the card and
+    // still submit it — the panel holds the question, the buttons ride below it.
+    <form
+      className="my-1.5 grid gap-4"
+      data-clarify-choices={hasChoices ? choices.length : undefined}
+      onSubmit={handleSubmit}
+      ref={shellRef}
+    >
+      <ClarifyShell className="grid gap-2">
+        <div className="flex items-start gap-2">
+          <span className="flex-1 whitespace-pre-wrap font-medium leading-(--conversation-line-height)">
+            {question}
+          </span>
+          <MessageQuestion aria-hidden className="mt-px size-4 shrink-0 text-(--ui-text-tertiary)" />
+        </div>
 
-      <form className="grid gap-2" onSubmit={handleSubmit}>
         {hasChoices ? (
           <div className="grid gap-px" role="group">
             {choices.map((choice, index) => (
@@ -618,25 +650,25 @@ function ClarifyToolPending({ args }: ToolCallMessagePartProps) {
             value={draft}
           />
         )}
+      </ClarifyShell>
 
-        <div className="flex items-center justify-end gap-1">
-          <Button disabled={submitting} onClick={() => void respond('')} size="xs" type="button" variant="text">
-            {copy.skip}
-          </Button>
-          <Button disabled={submitting || !pendingAnswer} size="xs" type="submit">
-            {submitting ? (
-              <Loader2 className="size-3 animate-spin" />
-            ) : (
-              <>
-                {copy.continueLabel}
-                <span aria-hidden className="ml-0.5 text-[0.625rem] opacity-70">
-                  ⏎
-                </span>
-              </>
-            )}
-          </Button>
-        </div>
-      </form>
-    </ClarifyShell>
+      <div className="flex items-center justify-end gap-1">
+        <Button disabled={submitting} onClick={() => void respond('')} size="xs" type="button" variant="text">
+          {copy.skip}
+        </Button>
+        <Button disabled={submitting || !pendingAnswer} size="xs" type="submit">
+          {submitting ? (
+            <Loader2 className="size-3 animate-spin" />
+          ) : (
+            <>
+              {copy.continueLabel}
+              <span aria-hidden className="ml-0.5 text-[0.625rem] opacity-70">
+                ⏎
+              </span>
+            </>
+          )}
+        </Button>
+      </div>
+    </form>
   )
 }

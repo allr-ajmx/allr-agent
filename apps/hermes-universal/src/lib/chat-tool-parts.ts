@@ -68,9 +68,23 @@ function collectToolMatchValues(query: string, context: string, preview: string)
   return [...new Set([query, context, preview].map(value => normalize(value)).filter(Boolean))]
 }
 
+/**
+ * The arg that identifies a tool row when its id cannot.
+ *
+ * `question` is clarify's, and it is load-bearing rather than cosmetic. A
+ * clarify has TWO events that both want the same row and carry different ids:
+ * `tool.start` under the model's `tool_call_id`, and the synthetic row the
+ * reducer upserts from `clarify.request` under the gateway's `request_id`. With
+ * id-only correlation the second one appends, and the transcript grows a second
+ * live clarify card — same question, same choices, its own global key handler,
+ * answering a request the first card also owns. Desktop added the same key for
+ * the same reason (upstream `d21165c2f0`).
+ */
+const TOOL_QUERY_ARG_KEYS = ['search_term', 'query', 'question'] as const
+
 function toolPayloadMatchValues(payload: GatewayToolPayload | undefined): string[] {
   const payloadArgs = liveToolArgs(payload)
-  const query = firstStringField(payloadArgs, ['search_term', 'query'])
+  const query = firstStringField(payloadArgs, TOOL_QUERY_ARG_KEYS)
   const context = typeof payload?.context === 'string' ? payload.context.trim() : ''
   const preview = typeof payload?.preview === 'string' ? payload.preview.trim() : ''
 
@@ -83,7 +97,7 @@ function toolPartMatchValues(part: ChatPart | undefined): string[] {
   }
 
   const args = part.args as Record<string, unknown>
-  const query = firstStringField(args, ['search_term', 'query'])
+  const query = firstStringField(args, TOOL_QUERY_ARG_KEYS)
   const context = typeof args.context === 'string' ? args.context.trim() : ''
   const preview = typeof args.preview === 'string' ? args.preview.trim() : ''
 
