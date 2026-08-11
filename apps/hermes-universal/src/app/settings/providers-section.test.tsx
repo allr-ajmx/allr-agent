@@ -88,6 +88,34 @@ describe('ProvidersSection', () => {
     expect(vi.mocked(beginProviderConnect)).toHaveBeenCalledWith(expect.objectContaining({ id: 'nous' }))
   })
 
+  // Fireworks and OpenRouter are API-key providers, so they never come back from
+  // listOAuthProviders — without explicit rows this page offers no way to reach
+  // the promoted provider at all. Desktop keeps both rows here too.
+  it('accounts view: offers the promoted key providers alongside the OAuth accounts', async () => {
+    providers.mockResolvedValue({
+      providers: [
+        oauthProvider({ id: 'nous', name: 'Nous', flow: 'device_code' }),
+        oauthProvider({ id: 'anthropic', name: 'Anthropic' })
+      ]
+    })
+
+    renderProviders('accounts')
+
+    const featured = await screen.findByRole('button', { name: /Nous Portal/ })
+    const fireworks = screen.getByRole('button', { name: /Fireworks AI/ })
+
+    // Slot #2: directly after the featured Nous row.
+    expect(featured.compareDocumentPosition(fireworks) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(fireworks).toHaveTextContent('Direct model API — Fireworks-hosted frontier models')
+
+    // OpenRouter sits with the rest, behind the disclosure.
+    expect(screen.queryByRole('button', { name: /OpenRouter/ })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Other providers/ }))
+    expect(screen.getByRole('button', { name: /OpenRouter/ })).toHaveTextContent(
+      'One key, hundreds of models — a solid default'
+    )
+  })
+
   it('accounts view: disconnect calls the RPC after confirm', async () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true)
     providers.mockResolvedValue({
