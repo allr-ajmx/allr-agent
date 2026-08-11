@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
   $activeSessionCompacting,
@@ -6,6 +6,7 @@ import {
   clearAllCompaction,
   routeCompactionEvent,
   sessionCompacting,
+  sessionCompactingSince,
   setSessionCompacting,
   turnCompacted
 } from '@/store/compaction'
@@ -125,20 +126,32 @@ describe('turn settle', () => {
 // stale-runtime recovery rekeys on the first verb back after a sleep/wake, and
 // `reconcileSessionTurn` rekeys on any reconnect that finds a restarted gateway.
 describe('session key moves', () => {
-  it('carries the compacting flag and the turn mark onto the new key', () => {
-    routeCompactionEvent('s1', 'status.update', status('compacting'))
+  afterEach(() => {
+    vi.useRealTimers()
+  })
 
+  it('carries the compacting flag and the turn mark onto the new key', () => {
+    vi.useFakeTimers()
+    routeCompactionEvent('s1', 'status.update', status('compacting'))
+    const startedAt = $compactingSessions.get().s1
+
+    // Time passes before the reconnect that moves the key.
+    vi.advanceTimersByTime(90_000)
     rekeySession('s1', 's9')
 
     expect(sessionCompacting('s9').get()).toBe(true)
     expect(turnCompacted('s9')).toBe(true)
+    // The START TIME rides along. A reconnect that rekeys mid-compaction must
+    // not restart the clock the "Summarizing thread" hint is counting, or a
+    // three-minute wait reads as having just begun, twice.
+    expect(sessionCompactingSince('s9').get()).toBe(startedAt)
     // Stranded under the dead key the flag reads FALSE for a session that is
     // still summarizing — so the composer sends a correction as a redirect
     // against a turn with no live model request to redirect — and the entry
     // never expires, because the settle observer clears the LIVE key.
     expect(sessionCompacting('s1').get()).toBe(false)
     expect(turnCompacted('s1')).toBe(false)
-    expect($compactingSessions.get()).toEqual({ s9: true })
+    expect(Object.keys($compactingSessions.get())).toEqual(['s9'])
   })
 
   it('releases both when the slice is evicted', () => {

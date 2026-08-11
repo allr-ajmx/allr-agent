@@ -25,10 +25,20 @@ import { atom } from '@/store/atom'
 import { $activeSessionKey, addSessionKeyHooks } from '@/store/session-state-types'
 import { observeTurnLifecycle, setTurnCompacting } from '@/store/turn-lifecycle'
 
-/** Session key → compacting. Presence is the flag; there is no other state. */
-export const $compactingSessions = atom<Record<string, true>>({})
+/**
+ * Session key → when the compaction started (epoch ms). PRESENCE is the flag;
+ * the value exists only so the hint's timer can count from the moment
+ * summarizing began.
+ *
+ * It has to be carried here rather than read off the turn record, because the
+ * case that most needs a timer has no turn at all: a manual `/compress` runs on
+ * an idle session, and a summarize call over a large conversation is a
+ * minutes-long wait with nothing else on screen measuring it.
+ */
+export const $compactingSessions = atom<Record<string, number>>({})
 
 const perSession = new Map<string, ReadableAtom<boolean>>()
+const perSessionSince = new Map<string, ReadableAtom<number | undefined>>()
 
 /** Whether ONE session is compacting. Memoized, so a tile's composer can
  *  subscribe without the active session's state bleeding into it. */
@@ -42,6 +52,22 @@ export function sessionCompacting(key: null | string | undefined): ReadableAtom<
 
   const derived = computed($compactingSessions, sessions => id in sessions)
   perSession.set(id, derived)
+
+  return derived
+}
+
+/** When ONE session's current compaction started, or undefined if it isn't
+ *  compacting. Memoized alongside `sessionCompacting` for the same reason. */
+export function sessionCompactingSince(key: null | string | undefined): ReadableAtom<number | undefined> {
+  const id = key?.trim() || ''
+  const existing = perSessionSince.get(id)
+
+  if (existing) {
+    return existing
+  }
+
+  const derived = computed($compactingSessions, sessions => sessions[id])
+  perSessionSince.set(id, derived)
 
   return derived
 }
@@ -66,7 +92,7 @@ export function setSessionCompacting(key: null | string | undefined, active: boo
   }
 
   if (active) {
-    $compactingSessions.set({ ...current, [id]: true })
+    $compactingSessions.set({ ...current, [id]: Date.now() })
   } else {
     const { [id]: _dropped, ...rest } = current
     $compactingSessions.set(rest)
@@ -189,6 +215,7 @@ addSessionKeyHooks({
     compactedTurns.delete(key)
     setSessionCompacting(key, false)
     perSession.delete(key)
+    perSessionSince.delete(key)
   },
   rekey(fromKey, toKey) {
     if (compactedTurns.delete(fromKey)) {
@@ -198,11 +225,14 @@ addSessionKeyHooks({
     const sessions = $compactingSessions.get()
 
     if (fromKey in sessions) {
-      const { [fromKey]: _moved, ...rest } = sessions
-      $compactingSessions.set({ ...rest, [toKey]: true })
+      const { [fromKey]: since, ...rest } = sessions
+      // The START TIME rides along, not a fresh `Date.now()`: a reconnect that
+      // rekeys mid-compaction must not restart the wait the hint is counting.
+      $compactingSessions.set({ ...rest, [toKey]: since })
     }
 
     perSession.delete(fromKey)
+    perSessionSince.delete(fromKey)
   }
 })
 
