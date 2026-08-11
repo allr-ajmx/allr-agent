@@ -160,64 +160,81 @@ async function hydrateSessionToState(storedId: string): Promise<string> {
   }
 }
 
+/**
+ * The one submit path a tile has: append the turn, go busy, open the in-flight
+ * turn, send, and roll the whole thing back if the send never lands.
+ *
+ * A plain message and an app-level slash both come through here. They differ
+ * only in the copy on the failure toast — a slash is still a `prompt.submit`
+ * carrying the raw command, so it needs the same turn record and the same
+ * optimistic busy state. `executeSlash` used to skip all of it (MJXHRM-419):
+ * the tile sat visually idle from Enter until the first frame, the
+ * submit→`message.start` window had no turn for a reconnect to reconcile, the
+ * transcript kept no record of what was run, and a rejection propagated out of
+ * the delegate with no per-tile rollback.
+ */
+async function submitTextToSession(runtimeId: string, text: string, failureMessage: string): Promise<void> {
+  // Optimistic: append the user turn + go busy, then let routeTileEvent stream
+  // the reply into this session's slice.
+  updateSession(runtimeId, state => ({
+    ...state,
+    busy: true,
+    statusLine: '',
+    turnStartedAt: Date.now(),
+    interrupted: false,
+    messages: [...state.messages, userMessage(text)]
+  }))
+
+  // Open the in-flight turn BEFORE the submit leaves, exactly as `sendPrompt`
+  // does: the window between the submit going out and the gateway's
+  // `message.start` is the one a reconnect lands in, and a turn with no record
+  // there is a turn nothing can reconcile or recover (MJXHRM-356).
+  beginTurn(runtimeId, { prompt: text })
+
+  // A draft rekeys to its runtime id, so the slice moves; anything else keeps
+  // the key it started with.
+  let submitKey = runtimeId
+
+  try {
+    // A backgrounded tile is exactly the session most likely to have had its
+    // runtime dropped from under it — nothing has been sent through it for a
+    // while. Rebind on a stale id rather than surfacing "session not found" on
+    // the first message back.
+    //
+    // `onRecovered` REKEYS rather than taking the default so this closure's own
+    // `submitKey` follows too — the rollback below has to address the session
+    // the prompt actually went to.
+    await withSessionNotFoundResume(
+      runtimeId,
+      storedIdOfSession(runtimeId),
+      live => requestGateway('prompt.submit', { session_id: live, text }),
+      {
+        onRecovered: live => {
+          rekeySession(submitKey, live, { runtimeSessionId: live })
+          submitKey = live
+        }
+      }
+    )
+  } catch (err) {
+    // The submit never landed. Settling the turn and clearing busy is what
+    // stops the tile spinning forever — the failure shape MJXHRM-308 named as
+    // the worst one, because nothing surfaces and nothing retries.
+    settleTurn(submitKey, 'error')
+    updateSession(submitKey, state => ({
+      ...state,
+      busy: false,
+      turnStartedAt: null,
+      statusLine: err instanceof Error ? err.message : String(err)
+    }))
+    notifyError(err, failureMessage)
+  }
+}
+
 setSessionTileDelegate({
   resumeTile: storedId => resumeSessionToState(storedId),
 
   async submitToSession(runtimeId, text) {
-    // Optimistic: append the user turn + go busy, then let routeTileEvent stream
-    // the reply into this session's slice.
-    updateSession(runtimeId, state => ({
-      ...state,
-      busy: true,
-      statusLine: '',
-      turnStartedAt: Date.now(),
-      interrupted: false,
-      messages: [...state.messages, userMessage(text)]
-    }))
-
-    // Open the in-flight turn BEFORE the submit leaves, exactly as `sendPrompt`
-    // does: the window between the submit going out and the gateway's
-    // `message.start` is the one a reconnect lands in, and a turn with no record
-    // there is a turn nothing can reconcile or recover (MJXHRM-356).
-    beginTurn(runtimeId, { prompt: text })
-
-    // A draft rekeys to its runtime id, so the slice moves; anything else keeps
-    // the key it started with.
-    let submitKey = runtimeId
-
-    try {
-      // A backgrounded tile is exactly the session most likely to have had its
-      // runtime dropped from under it — nothing has been sent through it for a
-      // while. Rebind on a stale id rather than surfacing "session not found" on
-      // the first message back.
-      //
-      // `onRecovered` REKEYS rather than taking the default so this closure's own
-      // `submitKey` follows too — the rollback below has to address the session
-      // the prompt actually went to.
-      await withSessionNotFoundResume(
-        runtimeId,
-        storedIdOfSession(runtimeId),
-        live => requestGateway('prompt.submit', { session_id: live, text }),
-        {
-          onRecovered: live => {
-            rekeySession(submitKey, live, { runtimeSessionId: live })
-            submitKey = live
-          }
-        }
-      )
-    } catch (err) {
-      // The submit never landed. Settling the turn and clearing busy is what
-      // stops the tile spinning forever — the failure shape MJXHRM-308 named as
-      // the worst one, because nothing surfaces and nothing retries.
-      settleTurn(submitKey, 'error')
-      updateSession(submitKey, state => ({
-        ...state,
-        busy: false,
-        turnStartedAt: null,
-        statusLine: err instanceof Error ? err.message : String(err)
-      }))
-      notifyError(err, 'Message failed to send')
-    }
+    await submitTextToSession(runtimeId, text, 'Message failed to send')
   },
 
   async interruptSession(runtimeId) {
@@ -228,10 +245,12 @@ setSessionTileDelegate({
 
   // App-level slash on a tile's session — submit it as text; the backend
   // interprets branch/handoff/etc. (desktop routes these to the main surface).
+  //
+  // Goes through the same submit path as a typed message so the tile shows it is
+  // working, the turn exists before the send leaves, and a rejection rolls the
+  // tile back instead of propagating into `useSlashCommand`'s caller.
   async executeSlash(rawCommand, sessionId) {
-    await withSessionNotFoundResume(sessionId, storedIdOfSession(sessionId), live =>
-      requestGateway('prompt.submit', { session_id: live, text: rawCommand })
-    )
+    await submitTextToSession(sessionId, rawCommand, 'Command failed to run')
   },
 
   async archiveSession(storedId) {

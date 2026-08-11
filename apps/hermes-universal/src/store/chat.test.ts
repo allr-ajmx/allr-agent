@@ -45,7 +45,9 @@ import {
   interruptSession,
   redirectPrompt,
   resetChat,
+  respondApproval,
   respondClarify,
+  respondSecret,
   respondSudo,
   restoreToMessage,
   sendPrompt,
@@ -236,6 +238,40 @@ describe('chat reducer (parts model)', () => {
     await respondSudo('hunter2')
     expect(requestGateway).toHaveBeenCalledWith('sudo.respond', { request_id: 's9', password: 'hunter2' })
     expect($sudo.get()).toBeNull()
+  })
+
+  // MJXHRM-418: these three cleared the request BEFORE the send and swallowed
+  // the rejection, so a failed answer read as "accepted" while the agent stayed
+  // blocked until its timeout — with the prompt gone and no way to re-answer.
+  it('keeps the sudo request pending and throws when the send fails', async () => {
+    handleGatewayEvent(ev('sudo.request', { request_id: 's10', prompt: 'pw' }))
+    vi.mocked(requestGateway).mockRejectedValueOnce(new Error('offline'))
+    await expect(respondSudo('hunter2')).rejects.toThrow('offline')
+    expect($sudo.get()).toMatchObject({ requestId: 's10' })
+  })
+
+  it('keeps the secret request pending and throws when the send fails', async () => {
+    handleGatewayEvent(ev('secret.request', { request_id: 'x10', env_var: 'API_KEY', prompt: 'key?' }))
+    vi.mocked(requestGateway).mockRejectedValueOnce(new Error('offline'))
+    await expect(respondSecret('sk-1')).rejects.toThrow('offline')
+    expect($secret.get()).toMatchObject({ requestId: 'x10' })
+  })
+
+  it('keeps the approval request pending and throws when the send fails', async () => {
+    handleGatewayEvent(ev('approval.request', { command: 'rm -rf /' }))
+    vi.mocked(requestGateway).mockRejectedValue(new Error('offline'))
+    await expect(respondApproval('once')).rejects.toThrow('offline')
+    expect($approval.get()).toMatchObject({ command: 'rm -rf /' })
+  })
+
+  it('respondApproval names the session the slice actually holds, and clears on success', async () => {
+    handleGatewayEvent(ev('approval.request', { command: 'rm -rf /' }))
+    await respondApproval('once')
+    // It used to send `session_id: undefined` whenever the slice had no runtime
+    // id — which the gateway answers with the very "session not found" the old
+    // swallow then hid.
+    expect(requestGateway).toHaveBeenCalledWith('approval.respond', { choice: 'once', session_id: 'runtime-1' })
+    expect($approval.get()).toBeNull()
   })
 })
 

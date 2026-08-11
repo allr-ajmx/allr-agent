@@ -924,17 +924,48 @@ export async function restoreToMessage(
 // The prompt responders answer for ONE session. They default to the active one
 // (that is where the composer bars live), but take an explicit key so a tile's
 // or a background bubble's bars can answer their own session.
+//
+// None of them clears optimistically (MJXHRM-418). The backend blocks in
+// `_await_gateway_decision()` / `_block()` until the matching `*.respond` lands,
+// so a send that fails after the client has already torn the bar down parks the
+// agent until its timeout — five minutes for an approval, after which the tool
+// is BLOCKED — while the vanishing bar reads to the user as "accepted". Worse,
+// the request is gone from `store/prompts.ts`, so there is no way to answer it
+// again. `respondClarify` was the local precedent and the other three now follow
+// its shape: send first, clear only once the gateway has the answer, and throw
+// so the bar can surface the failure and stay answerable.
 
+/**
+ * `approval.respond` is the ONE responder the resume wrapper can help.
+ *
+ * It is the only one of the four the gateway resolves through `_sess()`, so it
+ * is the only one that can answer "session not found" — and a parked approval is
+ * by construction an old prompt the user has been staring at, which makes it the
+ * likeliest verb in the app to be holding a runtime id the gateway dropped under
+ * it after a sleep/wake (MJXHRM-366's failure, one method over).
+ *
+ * `clarify.respond`, `sudo.respond` and `secret.respond` are keyed on
+ * `request_id` alone and carry no session at all, so wrapping THEM would be dead
+ * code: there is no rejection for the wrapper to catch. See MJXHRM-418's
+ * correction comment.
+ */
 export async function respondApproval(choice: ApprovalChoice, key = $activeSessionKey.get()): Promise<void> {
-  const sessionId = $sessionStates.get()[key]?.runtimeSessionId
+  const slice = $sessionStates.get()[key]
+  // A slice with no runtime id has nothing the gateway can resolve — `_sess()`
+  // answers an empty `session_id` with the same "session not found" it gives a
+  // dead one, which is exactly what the old swallow was hiding.
+  const live = slice?.runtimeSessionId ?? key
+  // Lazily, like every other recovery call site here — `store/session-recovery`
+  // imports back into the session store (see the note on `sessionRecovery`).
+  const { withSessionNotFoundResume } = await sessionRecovery()
+
+  await withSessionNotFoundResume(live, slice?.storedSessionId, id =>
+    requestGateway('approval.respond', { choice, session_id: id })
+  )
+
+  // Only drop the request once the gateway has taken the answer.
   clearSessionApproval(key)
   clearAwaitingInputPose(key)
-
-  try {
-    await requestGateway('approval.respond', { choice, session_id: sessionId ?? undefined })
-  } catch {
-    /* turn may have moved on */
-  }
 }
 
 /** Answer the pending clarify. Unlike the other prompt responders this does NOT
@@ -960,33 +991,34 @@ export async function respondClarify(answer: string, key = $activeSessionKey.get
 
 export async function respondSudo(password: string, key = $activeSessionKey.get()): Promise<void> {
   const req = sessionSudoRequest(key).get()
-  clearSessionSudo(key)
-  clearAwaitingInputPose(key)
 
   if (!req) {
     return
   }
 
-  try {
-    await requestGateway('sudo.respond', { request_id: req.requestId, password })
-  } catch {
-    /* turn may have moved on */
+  await requestGateway('sudo.respond', { request_id: req.requestId, password })
+
+  // Same guard `respondClarify` uses: a `tool.complete` racing this answer may
+  // already have swapped the request out, and clearing then would drop a
+  // NEWER prompt that arrived while this one was in flight.
+  if (sessionSudoRequest(key).get()?.requestId === req.requestId) {
+    clearSessionSudo(key)
+    clearAwaitingInputPose(key)
   }
 }
 
 export async function respondSecret(value: string, key = $activeSessionKey.get()): Promise<void> {
   const req = sessionSecretRequest(key).get()
-  clearSessionSecret(key)
-  clearAwaitingInputPose(key)
 
   if (!req) {
     return
   }
 
-  try {
-    await requestGateway('secret.respond', { request_id: req.requestId, value })
-  } catch {
-    /* turn may have moved on */
+  await requestGateway('secret.respond', { request_id: req.requestId, value })
+
+  if (sessionSecretRequest(key).get()?.requestId === req.requestId) {
+    clearSessionSecret(key)
+    clearAwaitingInputPose(key)
   }
 }
 
