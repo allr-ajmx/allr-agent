@@ -24,8 +24,11 @@ const TOOL_DISCLOSURE_STORAGE_KEY = 'hermes.toolDisclosure.v1'
 const MAX_DISCLOSURE_STATES = 240
 
 export const $toolDisclosureStates = atom<ToolDisclosureStates>(loadToolDisclosureStates())
+// `$toolDisclosureOpen` is called bare in a render body, so it MUST return the
+// same atom for the same id or `useStore` resubscribes every render. Keyed by a
+// single disclosure id, so the map is bounded by the distinct rows a window has
+// rendered.
 const disclosureOpenCache = new Map<string, ReadableAtom<boolean | undefined>>()
-const anyDisclosureOpenCache = new Map<string, ReadableAtom<boolean>>()
 
 $toolDisclosureStates.subscribe(persistToolDisclosureStates)
 
@@ -45,17 +48,17 @@ export function $toolDisclosureOpen(id: string): ReadableAtom<boolean | undefine
  *
  * Computed rather than reading the whole map so a toggle anywhere in the
  * transcript only re-renders the runs whose own answer changed.
+ *
+ * NOT memoized in a module map, unlike `$toolDisclosureOpen` above. The caller
+ * scopes this to a `useMemo` on the id list, so a module cache buys no identity
+ * stability — and it would have to be keyed on the JOINED list, which grows by
+ * one id every time a run gains a tool call. A run of N calls therefore left N
+ * retained atoms behind keyed by N strings of increasing length: O(N²)
+ * characters per run, never released, in the store a render-cost budget exists
+ * to keep bounded. Detached computeds are collected when nothing listens.
  */
 export function $anyToolDisclosureOpen(ids: readonly string[]): ReadableAtom<boolean> {
-  const key = ids.join('|')
-  let cached = anyDisclosureOpenCache.get(key)
-
-  if (!cached) {
-    cached = computed($toolDisclosureStates, states => ids.some(id => Boolean(states[id])))
-    anyDisclosureOpenCache.set(key, cached)
-  }
-
-  return cached
+  return computed($toolDisclosureStates, states => ids.some(id => Boolean(states[id])))
 }
 
 function loadToolDisclosureStates(): ToolDisclosureStates {
