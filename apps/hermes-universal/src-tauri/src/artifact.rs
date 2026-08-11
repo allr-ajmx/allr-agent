@@ -4,9 +4,10 @@
 //! scripts, and where that happens decides what those scripts can reach.
 //!
 //! The obvious route — `srcdoc`, or a `blob:`/`data:` URL — is the wrong one
-//! here, and not by a little. The app's CSP has no `frame-src`, so frames fall
-//! back to `default-src 'self'`: a `blob:` or `data:` frame is refused
-//! outright, and a `srcdoc` frame renders but inherits the APP DOCUMENT's
+//! here, and not by a little. The app's `frame-src` names THIS scheme and
+//! nothing else (it shipped with no `frame-src` at all, which fell back to
+//! `default-src 'self'` and framed nothing): a `blob:` or `data:` frame is
+//! refused outright, and a `srcdoc` frame renders but inherits the APP DOCUMENT's
 //! policy, including `script-src 'self' blob:`, so the artifact's own inline
 //! scripts never run. The only way to make that route work is to widen the
 //! app's own `script-src` — which is to say, to weaken the policy protecting
