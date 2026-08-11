@@ -181,12 +181,3 @@ export function EmptyState({ title, description }: { title: string; description?
     </div>
   )
 }
-
-export function LoadingState({ label }: { label: string }) {
-  return (
-    <div className="flex flex-col items-center gap-3 px-6 py-16 text-center text-muted-foreground">
-      <span className="size-6 animate-spin rounded-full border-2 border-muted border-t-primary" />
-      <span className="text-sm">{label}</span>
-    </div>
-  )
-}
