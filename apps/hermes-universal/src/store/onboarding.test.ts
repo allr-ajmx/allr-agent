@@ -28,6 +28,7 @@ vi.mock('@/lib/external-link', () => ({ openExternalLink: vi.fn(async () => {}) 
 import { API_KEY_OPTIONS } from '@/app/onboarding/api-key-options'
 import {
   getGlobalModelOptions,
+  listOAuthProviders,
   setEnvVar,
   setModelAssignment,
   startOAuthLogin,
@@ -42,6 +43,8 @@ import {
   backToPicker,
   checkConfigured,
   confirmModel,
+  isCustomEndpointSlug,
+  resolveProviderSetup,
   saveApiKey,
   startProviderOAuth,
   submitOnboardingCode
@@ -162,5 +165,53 @@ describe('onboarding store', () => {
     expect(ok).toBe(true)
     expect($onboarding.get().step).toBe('confirm')
     expect($onboarding.get().providerSlug).toBe('anthropic')
+  })
+})
+
+describe('resolveProviderSetup', () => {
+  const listProviders = vi.mocked(listOAuthProviders)
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    listProviders.mockResolvedValue({ providers: [oauthProvider('pkce')] } as never)
+  })
+
+  it.each(['custom', 'local', 'CUSTOM', ' Custom ', 'custom:my-box'])(
+    'treats %s as a custom endpoint without consulting the OAuth catalog',
+    async slug => {
+      await expect(resolveProviderSetup(slug)).resolves.toEqual({ kind: 'custom-endpoint' })
+      expect(listProviders).not.toHaveBeenCalled()
+    }
+  )
+
+  it('resolves a known provider slug to its OAuth connect target', async () => {
+    const target = await resolveProviderSetup('Anthropic')
+    expect(target.kind).toBe('oauth')
+    expect(target.kind === 'oauth' && target.provider.id).toBe('anthropic')
+  })
+
+  it('falls back to the picker for an unknown slug', async () => {
+    await expect(resolveProviderSetup('does-not-exist')).resolves.toEqual({ kind: 'picker' })
+  })
+
+  it('falls back to the picker for an empty slug, with no catalog call', async () => {
+    await expect(resolveProviderSetup('   ')).resolves.toEqual({ kind: 'picker' })
+    expect(listProviders).not.toHaveBeenCalled()
+  })
+
+  it('falls back to the picker when the OAuth catalog call fails', async () => {
+    listProviders.mockRejectedValueOnce(new Error('gateway down'))
+    await expect(resolveProviderSetup('anthropic')).resolves.toEqual({ kind: 'picker' })
+  })
+})
+
+describe('isCustomEndpointSlug', () => {
+  it('matches the custom/local family and nothing else', () => {
+    expect(isCustomEndpointSlug('custom')).toBe(true)
+    expect(isCustomEndpointSlug('local')).toBe(true)
+    expect(isCustomEndpointSlug('custom:vllm')).toBe(true)
+    expect(isCustomEndpointSlug('localai')).toBe(false)
+    expect(isCustomEndpointSlug('openrouter')).toBe(false)
+    expect(isCustomEndpointSlug('')).toBe(false)
   })
 })

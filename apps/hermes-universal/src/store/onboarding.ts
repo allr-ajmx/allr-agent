@@ -247,6 +247,55 @@ export function beginProviderConnect(provider: OAuthProvider): void {
   void startProviderOAuth(provider)
 }
 
+/** Where a "Set up <provider>" hand-off should land.
+ *
+ *  `custom-endpoint` — an OpenAI-compatible base URL (Ollama, vLLM, llama.cpp…).
+ *  It is not an OAuth provider and has no curated env key, so the generic picker
+ *  dead-ends it (desktop hit the same "booted back to the first screen" loop and
+ *  answered it with `startManualLocalEndpoint`; universal already owns a richer
+ *  answer — the Providers → Custom endpoints editor, which does CRUD + validate
+ *  + activate in one page).
+ *  `oauth` — a provider the gateway can sign in; jump straight into its connect
+ *  overlay instead of making the user find it again in the picker.
+ *  `picker` — no trustworthy auth metadata; open the generic wizard. */
+export type ProviderSetupTarget =
+  { kind: 'custom-endpoint' } | { kind: 'oauth'; provider: OAuthProvider } | { kind: 'picker' }
+
+/** `custom`, `local`, and the `custom:<id>` rows the endpoint store synthesises. */
+export function isCustomEndpointSlug(slug: string): boolean {
+  const s = slug.trim().toLowerCase()
+
+  return s === 'custom' || s === 'local' || s.startsWith('custom:')
+}
+
+/** Resolve where a provider slug's setup flow lives. A failed provider lookup
+ *  falls back to the picker rather than throwing — setup must stay reachable
+ *  even when the OAuth catalog call fails. */
+export async function resolveProviderSetup(slug: string): Promise<ProviderSetupTarget> {
+  const wanted = slug.trim().toLowerCase()
+
+  if (!wanted) {
+    return { kind: 'picker' }
+  }
+
+  if (isCustomEndpointSlug(wanted)) {
+    return { kind: 'custom-endpoint' }
+  }
+
+  try {
+    const { providers } = await listOAuthProviders()
+    const match = providers.find(p => p.id.trim().toLowerCase() === wanted)
+
+    if (match) {
+      return { kind: 'oauth', provider: match }
+    }
+  } catch {
+    // Catalog unreachable — the generic picker still gets the user somewhere.
+  }
+
+  return { kind: 'picker' }
+}
+
 /** Dismiss the connect overlay: cancel any live session, reset flow state. */
 export function cancelProviderConnect(): void {
   stopPolling()
