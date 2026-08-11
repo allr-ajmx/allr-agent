@@ -832,7 +832,8 @@ export const zh: Translations = {
       imported: '配置已导入',
       invalidJson: '配置 JSON 无效',
       keepAwakeTitle: '保持电脑唤醒',
-      keepAwakeDesc: '阻止本机休眠，让长时间或通宵运行继续进行。屏幕仍可变暗。'
+      keepAwakeDesc: '阻止本机休眠，让长时间或通宵运行继续进行。屏幕仍可变暗。',
+      keepAwakeFailed: '无法让本机保持唤醒'
     },
     credentials: {
       pasteKey: '粘贴密钥',

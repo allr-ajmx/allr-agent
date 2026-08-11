@@ -543,6 +543,8 @@ export interface Translations {
       invalidJson: string
       keepAwakeTitle: string
       keepAwakeDesc: string
+      /** Shown when the OS refuses the inhibitor — the switch flips back off with it. */
+      keepAwakeFailed: string
     }
     credentials: {
       pasteKey: string
