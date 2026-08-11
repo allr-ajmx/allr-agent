@@ -4,12 +4,12 @@ import { atom } from 'nanostores'
  * The terminal's font family, driven by the profile config key
  * `terminal.font_family`.
  *
- * Two halves, and only one of them is here. This module owns CONSUMPTION: the
- * live value, how a friendly name becomes a CSS stack, and how a change is
- * applied to a running xterm without recreating it or its PTY. The Settings
- * picker that WRITES the key belongs to the settings pages, which SE-F owns —
- * see the note on MJXHRM-221. Until it lands the key is still honoured, it is
- * just set by editing config.yaml rather than by a picker.
+ * Two halves. This module owns CONSUMPTION: the live value, how a friendly name
+ * becomes a CSS stack, and how a change is applied to a running xterm without
+ * recreating it or its PTY. The Settings picker that WRITES the key lives in
+ * `app/settings/terminal-font-setting.tsx`; it pushes the new value into the
+ * atom on every keystroke so the open terminal re-renders before the save even
+ * round-trips.
  */
 
 export const DEFAULT_TERMINAL_FONT_FAMILY = "'JetBrains Mono', 'Cascadia Code', 'SF Mono', Menlo, Consolas, monospace"
@@ -60,25 +60,18 @@ export function setTerminalFontFamilyFromConfig(value: unknown): void {
 }
 
 /**
- * Pull `terminal.font_family` off the profile config into the live atom.
+ * Read `terminal.font_family` out of a profile config record.
  *
- * Called by the terminal pane on mount rather than from an app-wide bootstrap:
- * universal has no side-effecting config hook (desktop's `use-hermes-config`
- * has no counterpart here), and the pane is the only consumer — so the value is
- * fetched exactly when something can use it. The Settings picker, once SE-F
- * lands it, calls `setTerminalFontFamilyFromConfig` directly on save so the
- * change is live before the write round-trips.
- *
- * The fetcher is injected so a test does not drag the REST layer in.
+ * Takes the whole record rather than fetching, because both consumers already
+ * hold one: the terminal pane and the Settings picker each read the SHARED
+ * `use-config-record` query. That shared cache IS the config→atom sync — any
+ * surface that saves or revalidates it re-pushes the family into the atom, so a
+ * `config.yaml` value no longer waits for a pane remount to be seen.
  */
-export async function syncTerminalFontFromConfig(
-  load: () => Promise<{ terminal?: { font_family?: string } }>
-): Promise<void> {
-  try {
-    setTerminalFontFamilyFromConfig((await load()).terminal?.font_family)
-  } catch {
-    /* config unreachable — the bundled default stands */
-  }
+export function terminalFontFamilyFromConfig(config: unknown): string {
+  const terminal = (config as { terminal?: unknown } | null | undefined)?.terminal
+
+  return normalizeTerminalFontFamily((terminal as { font_family?: unknown } | null | undefined)?.font_family)
 }
 
 type FontFaceLoader = Pick<FontFaceSet, 'load'>

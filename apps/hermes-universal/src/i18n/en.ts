@@ -401,7 +401,19 @@ export const en: Translations = {
       sourceNone: 'No plugin folder available',
       gatewayDoor: 'Load plugins from the connected backend',
       gatewayDoorHint: 'Plugin code from the backend runs with the same access as the app itself.',
-      gatewayDoorUnavailable: 'This backend did not report a plugins folder.'
+      gatewayDoorUnavailable: 'This backend did not report a plugins folder.',
+      agent: {
+        title: 'Agent plugins',
+        blurb:
+          'Run in the Hermes backend — tools, skills, MCP servers, hooks, and slash commands. Portable ones are Agent Plugins packages (skills + MCP bundles that work in other agents too). Toggles apply to new sessions.',
+        empty: 'No agent plugins installed yet.',
+        loadFailed: 'Could not load agent plugins',
+        portable: 'portable',
+        search: 'Search plugins…',
+        noMatches: 'No plugins match your search.',
+        toggleFailed: (name: string) => `Could not toggle ${name}`,
+        sources: { bundled: 'bundled', entrypoint: 'pip', git: 'git', project: 'project', user: 'user' }
+      }
     },
     notifications: {
       title: 'Notifications',
@@ -494,6 +506,12 @@ export const en: Translations = {
       uiScaleTitle: 'UI Scale',
       uiScaleDesc: (percent: number) =>
         `Scales text and controls across the whole app. Cmd/Ctrl with +, - and 0 also works. Current: ${percent}%.`,
+      terminalFontTitle: 'Terminal Font',
+      terminalFontDesc:
+        'Choose an installed font for the integrated terminal. Nerd Fonts render Powerlevel10k and shell icons; leave blank to use bundled JetBrains Mono.',
+      terminalFontPlaceholder: 'MesloLGS NF or a CSS font stack',
+      terminalFontPreview: 'Glyph preview',
+      terminalFontReset: 'Use default',
       translucencyTitle: 'Window Translucency',
       translucencyDesc: 'See your desktop through the whole window. macOS and Windows only.',
       embedsTitle: 'Inline Embeds',

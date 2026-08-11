@@ -363,6 +363,17 @@ export interface Translations {
       gatewayDoor: string
       gatewayDoorHint: string
       gatewayDoorUnavailable: string
+      agent: {
+        title: string
+        blurb: string
+        empty: string
+        loadFailed: string
+        portable: string
+        search: string
+        noMatches: string
+        toggleFailed: (name: string) => string
+        sources: Record<string, string>
+      }
     }
     notifications: {
       title: string
@@ -406,6 +417,11 @@ export interface Translations {
       reactionsDesc: string
       uiScaleTitle: string
       uiScaleDesc: (percent: number) => string
+      terminalFontTitle: string
+      terminalFontDesc: string
+      terminalFontPlaceholder: string
+      terminalFontPreview: string
+      terminalFontReset: string
       translucencyTitle: string
       translucencyDesc: string
       embedsTitle: string

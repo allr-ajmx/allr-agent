@@ -296,7 +296,19 @@ export const ja = defineLocale({
       sourceNone: '利用できるプラグインフォルダーがありません',
       gatewayDoor: '接続中のバックエンドからプラグインを読み込む',
       gatewayDoorHint: 'バックエンド由来のプラグインコードは、アプリ本体と同じ権限で実行されます。',
-      gatewayDoorUnavailable: 'このバックエンドはプラグインフォルダーを報告しませんでした。'
+      gatewayDoorUnavailable: 'このバックエンドはプラグインフォルダーを報告しませんでした。',
+      agent: {
+        title: 'エージェントプラグイン',
+        blurb:
+          'Hermes バックエンドで動作します — ツール、スキル、MCP サーバー、フック、スラッシュコマンド。「ポータブル」は Agent Plugins パッケージ（他のエージェントでも使えるスキル + MCP のバンドル）です。切り替えは新しいセッションから有効になります。',
+        empty: 'エージェントプラグインはまだインストールされていません。',
+        loadFailed: 'エージェントプラグインを読み込めませんでした',
+        portable: 'ポータブル',
+        search: 'プラグインを検索…',
+        noMatches: '一致するプラグインはありません。',
+        toggleFailed: (name: string) => `${name} を切り替えられませんでした`,
+        sources: { bundled: '内蔵', entrypoint: 'pip', git: 'git', project: 'プロジェクト', user: 'ユーザー' }
+      }
     },
     notifications: {
       title: '通知',
@@ -383,6 +395,12 @@ export const ja = defineLocale({
       uiScaleTitle: 'UI スケール',
       uiScaleDesc: (percent: number) =>
         `アプリ全体の文字と UI を拡大縮小します。Cmd/Ctrl と +、-、0 でも変更できます。現在: ${percent}%`,
+      terminalFontTitle: 'ターミナルフォント',
+      terminalFontDesc:
+        '統合ターミナルで使用するインストール済みフォントを選びます。Nerd Font は Powerlevel10k とシェルアイコンを表示できます。空欄では内蔵の JetBrains Mono を使用します。',
+      terminalFontPlaceholder: 'MesloLGS NF または CSS フォントスタック',
+      terminalFontPreview: 'グリフのプレビュー',
+      terminalFontReset: '既定値を使用',
       translucencyTitle: 'ウィンドウの透過',
       translucencyDesc: 'ウィンドウ全体を透過させてデスクトップを表示します。macOS と Windows のみ。',
       embedsTitle: 'インライン埋め込み',
