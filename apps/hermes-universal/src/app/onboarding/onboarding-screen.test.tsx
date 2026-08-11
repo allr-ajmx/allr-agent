@@ -149,3 +149,44 @@ describe('OnboardingScreen — the promoted key provider', () => {
     expect($onboarding.get().option?.envKey).toBe('FIREWORKS_API_KEY')
   })
 })
+
+// `GET /api/model/recommended-default` returns 200 with an EMPTY model when it
+// cannot resolve one, and `confirmModel()` assigns nothing in that case — so the
+// confirm card must not name a model the user is not actually getting.
+describe('OnboardingScreen — the confirm step with no resolved model', () => {
+  const showConfirm = (recommended: null | { provider: string; model: string; free_tier: null }) =>
+    $onboarding.set({
+      step: 'confirm',
+      option: null,
+      providerSlug: 'fireworks',
+      recommended,
+      oauth: null,
+      busy: false,
+      error: null
+    })
+
+  it('says no default could be picked instead of showing a placeholder', () => {
+    showConfirm(null)
+    renderScreen()
+
+    expect(screen.getByText(/could not pick a default model/)).toBeInTheDocument()
+    expect(screen.queryByText('Recommended')).not.toBeInTheDocument()
+  })
+
+  it('treats the endpoint’s empty-model answer the same way', () => {
+    showConfirm({ provider: 'fireworks', model: '', free_tier: null })
+    renderScreen()
+
+    expect(screen.getByText(/could not pick a default model/)).toBeInTheDocument()
+    // The provider line belongs to the model card; with no model there is none.
+    expect(screen.queryByText('fireworks')).not.toBeInTheDocument()
+  })
+
+  it('shows the model card once one resolves', () => {
+    showConfirm({ provider: 'fireworks', model: 'accounts/fireworks/models/kimi-k2', free_tier: null })
+    renderScreen()
+
+    expect(screen.getByText('accounts/fireworks/models/kimi-k2')).toBeInTheDocument()
+    expect(screen.queryByText(/could not pick a default model/)).not.toBeInTheDocument()
+  })
+})

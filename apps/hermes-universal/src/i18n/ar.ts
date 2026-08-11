@@ -1963,6 +1963,8 @@ export const ar = defineLocale({
     reopenVerification: 'إعادة فتح صفحة التحقق',
     copy: 'نسخ',
     defaultModel: 'النموذج الافتراضي',
+    noDefaultModel:
+      'تعذّر على Hermes اختيار نموذج افتراضي لهذا المزوّد. تم حفظ بيانات الاعتماد — اختر نموذجًا من الإعدادات ← النموذج.',
     freeTier: 'الطبقة المجانية',
     pro: 'مدفوع',
     free: 'مجاني',

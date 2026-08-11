@@ -44,14 +44,18 @@ export function ProviderConnectOverlay() {
         <div className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
           {t.onboarding.defaultModel}
         </div>
-        <div className="mt-1 rounded-lg border border-border bg-muted/40 p-3">
-          <div className="text-sm font-medium text-foreground">
-            {state.recommended?.model ?? t.onboarding.recommended}
+        {/* Same contract as the onboarding confirm step: with no resolved model
+            `confirmModel()` assigns nothing, so don't name one. */}
+        {state.recommended?.model ? (
+          <div className="mt-1 rounded-lg border border-border bg-muted/40 p-3">
+            <div className="text-sm font-medium text-foreground">{state.recommended.model}</div>
+            {state.recommended.provider && (
+              <div className="text-xs text-muted-foreground">{state.recommended.provider}</div>
+            )}
           </div>
-          {state.recommended?.provider && (
-            <div className="text-xs text-muted-foreground">{state.recommended.provider}</div>
-          )}
-        </div>
+        ) : (
+          <p className="mt-1 text-sm text-muted-foreground">{t.onboarding.noDefaultModel}</p>
+        )}
         {state.error && <p className="mt-2 text-xs text-destructive">{state.error}</p>}
         <Button
           className="mt-4 w-full"

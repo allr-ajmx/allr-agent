@@ -2119,6 +2119,7 @@ export const zhHant = defineLocale({
     reopenVerification: '重新開啟驗證頁面',
     copy: '複製',
     defaultModel: '預設模型',
+    noDefaultModel: 'Hermes 無法為該供應商選擇預設模型。憑證已儲存 — 請在設定 → 模型中選擇一個。',
     freeTier: '免費層',
     pro: 'Pro',
     free: '免費',

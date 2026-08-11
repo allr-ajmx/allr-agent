@@ -2509,6 +2509,7 @@ export const zh: Translations = {
     reopenVerification: '重新打开验证页面',
     copy: '复制',
     defaultModel: '默认模型',
+    noDefaultModel: 'Hermes 无法为该提供方选择默认模型。凭据已保存 — 请在设置 → 模型中选择一个。',
     freeTier: '免费层',
     pro: 'Pro',
     free: '免费',
