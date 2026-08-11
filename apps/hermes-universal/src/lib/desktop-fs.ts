@@ -116,16 +116,34 @@ export async function desktopFileDiff(repoRoot: string, filePath: string): Promi
 }
 
 /**
- * Pick paths, remote-aware. A directory pick on a Tauri desktop uses the native
- * dialog; everything else browses the BACKEND filesystem through the registered
- * remote picker, since that's where sessions actually run — a locally-picked
- * path would be meaningless to a remote gateway.
+ * True when this window's OS filesystem IS the gateway's — a Tauri desktop
+ * talking to a backend it spawned itself (`mode: 'local'`).
+ *
+ * `ssh` is deliberately excluded even though it authenticates like local: the
+ * tunnel terminates on ANOTHER host's filesystem. So are `remote`/`cloud`, and
+ * so is a connection with no mode at all (treated as remote everywhere else
+ * too — see `modeIsRemoteLike` in store/gateway-config.ts).
+ */
+export function gatewayOwnsLocalFs(): boolean {
+  return IS_DESKTOP && $connection.get()?.mode === 'local'
+}
+
+/**
+ * Pick paths, remote-aware. A directory pick uses the native OS dialog only
+ * when {@link gatewayOwnsLocalFs}; everything else browses the BACKEND
+ * filesystem through the registered remote picker, since that's where sessions
+ * actually run — and where every path the app then hands the gateway (a project
+ * folder, its IDEA.md, a worktree root) is resolved.
+ *
+ * Handing a locally-picked path to a gateway on another machine is worse than a
+ * dead path: `/home/me/work` very often exists on both, so the backend silently
+ * reads and writes the WRONG directory.
  *
  * Empty when nothing is registered and there is no native dialog (plain web,
  * vitest), which callers treat the same as "cancelled".
  */
 export async function selectDesktopPaths(options?: SelectPathsOptions): Promise<string[]> {
-  if (options?.directories && IS_DESKTOP) {
+  if (options?.directories && gatewayOwnsLocalFs()) {
     try {
       const dir = await openDialog({ defaultPath: options.defaultPath, directory: true, multiple: false })
 
