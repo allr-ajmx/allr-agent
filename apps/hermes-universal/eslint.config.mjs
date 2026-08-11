@@ -69,6 +69,35 @@ export default [
     }
   },
   {
+    // `@tauri-apps/plugin-opener`'s JS commands are ACL-scoped, and this app
+    // declares NO opener scope (see `src-tauri/capabilities/default.json`, which
+    // grants `opener:allow-open-url` — "without any pre-configured scope").
+    // `open_url` then answers `Err(ForbiddenUrl)` for every url, on every
+    // platform, because nothing is on the allow-list. The failure is silent: the
+    // call rejects, callers treat that as "this platform can't open urls", and
+    // nothing looks broken. It has already cost this repo twice — once for OAuth
+    // sign-in and docs links, once for `ctx.os.openExternal`.
+    //
+    // The app's own native `open_external` / `reveal_in_file_manager` commands
+    // call the plugin's RUST api, which is not scope-checked. Use those, via
+    // `lib/external-link` and `lib/reveal-path`.
+    files: ['**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              message:
+                'ACL-scoped and always forbidden here (no opener scope is declared). Use tryOpenExternalLink/openExternalLink from @/lib/external-link, or tryRevealPathInFileManager from @/lib/reveal-path — both go through the native Rust commands.',
+              name: '@tauri-apps/plugin-opener'
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
     // The perf bench is a plain script served straight to the browser, not part
     // of the app's module graph — it has no TS build step and legitimately uses
     // script-scope globals.
