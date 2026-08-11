@@ -1895,6 +1895,8 @@ export const en: Translations = {
       ideaShuffle: 'Shuffle templates',
       ideaFailed: 'Could not generate an idea',
       ideaWriteFailed: 'Project created, but IDEA.md could not be saved',
+      ideaAppended: 'IDEA.md already existed — your idea was appended to it',
+      ideaKeptExisting: 'IDEA.md was left untouched — it is too large or not text',
       noFolders: 'No folders added yet.',
       addFolder: 'Add folder',
       folderPath: 'Paste a folder path',
