@@ -9,7 +9,10 @@ import { cn } from '@/lib/utils'
 //
 // Affordance:
 //   - No leading chevron; a caret appears to the RIGHT of the text on hover
-//     (and stays visible when the row is open).
+//     (and stays visible when the row is open). Its RESTING opacity is the
+//     `--disclosure-caret-rest` token rather than a hard `0`, so a surface can
+//     opt into a faint hint of the affordance where hover is the only thing
+//     that would otherwise reveal it — see the thinking header in styles.css.
 //   - The hover background is a tight content-shaped pill — sized to the
 //     title text, NOT the full row — and reaches just past the chevron with
 //     `-mx-1.5 px-1.5` so it reads as a soft hit-target rather than a slab
@@ -55,7 +58,7 @@ export function DisclosureRow({
               'flex h-(--conversation-line-height) shrink-0 items-center justify-center transition-opacity duration-150',
               open
                 ? 'opacity-80'
-                : 'opacity-0 group-hover/disclosure-row:opacity-80 group-focus-within/disclosure-row:opacity-80'
+                : 'opacity-(--disclosure-caret-rest) group-hover/disclosure-row:opacity-80 group-focus-within/disclosure-row:opacity-80'
             )}
           >
             <DisclosureCaret open={open} />
