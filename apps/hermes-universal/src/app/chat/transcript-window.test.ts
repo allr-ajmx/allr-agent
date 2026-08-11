@@ -3,7 +3,13 @@ import { describe, expect, it } from 'vitest'
 import type { ChatMessage } from '@/lib/chat-messages'
 import { RENDER_WEIGHT_CHARS } from '@/lib/render-weight'
 
-import { selectTranscriptWindow, TRANSCRIPT_WINDOW_BUDGET, TRANSCRIPT_WINDOW_MIN_MESSAGES } from './transcript-window'
+import {
+  advanceTranscriptWindow,
+  selectTranscriptWindow,
+  TRANSCRIPT_WINDOW_BUDGET,
+  TRANSCRIPT_WINDOW_MIN_MESSAGES,
+  TRANSCRIPT_WINDOW_SLACK
+} from './transcript-window'
 
 const message = (id: string, chars: number): ChatMessage => ({
   id,
@@ -90,5 +96,104 @@ describe('selectTranscriptWindow', () => {
     const messages: ChatMessage[] = []
 
     expect(selectTranscriptWindow(messages)).toEqual({ messages, windowed: false })
+  })
+})
+
+describe('advanceTranscriptWindow', () => {
+  /** One message ≈ 11 weight units, so a page is ~110 of them. */
+  const CHARS = RENDER_WEIGHT_CHARS * 10
+
+  /** One weight unit shy of a full slack page's worth of streamed messages. */
+  const STREAMED_UNDER_SLACK = Math.floor(TRANSCRIPT_WINDOW_SLACK / (CHARS / RENDER_WEIGHT_CHARS + 1)) - 2
+
+  it('holds the cut steady while a turn streams instead of sliding it per flush', () => {
+    const messages = transcript(200, CHARS)
+
+    let state = advanceTranscriptWindow(null, messages, 1)
+    const firstCut = state.window.messages[0].id
+
+    expect(state.window.windowed).toBe(true)
+    expect(state.anchorId).toBe(firstCut)
+
+    // Every flush of a streaming turn republishes a LONGER array. A fresh weight
+    // walk moves the cut one message per flush and re-indexes the whole window;
+    // the anchor has to survive until the tail is a real half-page heavier.
+    const streaming = [...messages]
+
+    for (let i = 1; i <= STREAMED_UNDER_SLACK; i++) {
+      streaming.push(message(`live-${i}`, CHARS))
+      state = advanceTranscriptWindow(state, streaming, 1)
+    }
+
+    expect(state.window.messages[0].id).toBe(firstCut)
+    expect(state.anchorId).toBe(firstCut)
+    // A fresh walk over the same transcript HAS moved on — which is the slide
+    // this exists to stop, so the two must disagree by now.
+    expect(selectTranscriptWindow(streaming, 1).messages[0].id).not.toBe(firstCut)
+  })
+
+  it('re-cuts once the tail has outgrown the budget by a slack page', () => {
+    const messages = transcript(200, CHARS)
+
+    const first = advanceTranscriptWindow(null, messages, 1)
+    const streaming = [...messages]
+
+    // Twice the slack: comfortably past the point where the anchor must move.
+    for (let i = 1; i <= STREAMED_UNDER_SLACK * 2 + 8; i++) {
+      streaming.push(message(`live-${i}`, CHARS))
+    }
+
+    const next = advanceTranscriptWindow(first, streaming, 1)
+
+    expect(next.window.messages[0].id).not.toBe(first.window.messages[0].id)
+    expect(next.anchorId).toBe(next.window.messages[0].id)
+    // Still exactly the cut a fresh walk would make.
+    expect(next.window.messages.map(m => m.id)).toEqual(selectTranscriptWindow(streaming, 1).messages.map(m => m.id))
+  })
+
+  it('re-walks when "Show earlier" changes the page count', () => {
+    const messages = transcript(200, CHARS)
+
+    const first = advanceTranscriptWindow(null, messages, 1)
+    const second = advanceTranscriptWindow(first, messages, 2)
+
+    expect(second.pages).toBe(2)
+    expect(second.window.messages.length).toBeGreaterThan(first.window.messages.length)
+  })
+
+  it('re-walks when the anchor is rewritten out from under it', () => {
+    const messages = transcript(200, CHARS)
+
+    const first = advanceTranscriptWindow(null, messages, 1)
+    // A compaction replaces the transcript wholesale: the anchor id is gone.
+    const rewritten = transcript(200, CHARS).map(m => ({ ...m, id: `${m.id}-v2` }))
+    const next = advanceTranscriptWindow(first, rewritten, 1)
+
+    expect(next.anchorId).toBe(next.window.messages[0].id)
+    expect(next.window.messages[0].id).toContain('-v2')
+  })
+
+  it('reports nothing earlier once a compaction leaves the anchor at the head', () => {
+    const messages = transcript(200, CHARS)
+    const first = advanceTranscriptWindow(null, messages, 1)
+    const anchorIndex = messages.findIndex(m => m.id === first.anchorId)
+
+    // The history before the cut is dropped; the anchor is now the first row, so
+    // there is no earlier page and the button must not offer one.
+    const next = advanceTranscriptWindow(first, messages.slice(anchorIndex), 1)
+
+    expect(next.window.windowed).toBe(false)
+    expect(next.window.messages[0].id).toBe(first.anchorId)
+  })
+
+  it('leaves a transcript under the budget completely uncut', () => {
+    const messages = transcript(20, 20)
+
+    const first = advanceTranscriptWindow(null, messages, 1)
+    const second = advanceTranscriptWindow(first, messages, 1)
+
+    expect(first.anchorId).toBeNull()
+    expect(second.window.windowed).toBe(false)
+    expect(second.window.messages).toBe(messages)
   })
 })

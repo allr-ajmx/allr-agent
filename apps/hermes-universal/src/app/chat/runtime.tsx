@@ -1,6 +1,6 @@
 import { AssistantRuntimeProvider, type ThreadMessageLike, useExternalStoreRuntime } from '@assistant-ui/react'
 import type { ReadableAtom } from 'nanostores'
-import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react'
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { useSessionView } from '@/app/chat/session-view'
 import { TranscriptWindowProvider } from '@/components/assistant-ui/thread/transcript-window'
@@ -8,7 +8,7 @@ import { usePaneVisible } from '@/components/pane-shell/pane-visibility'
 import { useStore } from '@/store/atom'
 import { type ChatMessage, submitEditedPrompt } from '@/store/chat'
 
-import { selectTranscriptWindow } from './transcript-window'
+import { advanceTranscriptWindow, type TranscriptWindowState } from './transcript-window'
 
 // Bridges the chat store to assistant-ui via the stock external-store runtime.
 // Our ChatMessage.parts ARE assistant-ui content parts, so conversion is a
@@ -93,18 +93,25 @@ export function ChatRuntimeProvider({ children }: { children: ReactNode }) {
 
   const [windowPages, setWindowPages] = useState(1)
   const [windowSessionKey, setWindowSessionKey] = useState(runtimeId)
+  // Sticky-cut continuity across flushes (advanceTranscriptWindow). A ref, not
+  // state: it is derived from `messages` and must never trigger a render.
+  const windowStateRef = useRef<null | TranscriptWindowState>(null)
 
   // Reset the window on session swap during RENDER, so a large expand from the
   // previous chat can't leak into the next one's first paint.
   if (windowSessionKey !== runtimeId) {
     setWindowSessionKey(runtimeId)
     setWindowPages(1)
+    windowStateRef.current = null
   }
 
-  const { messages: windowedMessages, windowed } = useMemo(
-    () => selectTranscriptWindow(messages, windowPages),
-    [messages, windowPages]
-  )
+  const { messages: windowedMessages, windowed } = useMemo(() => {
+    const next = advanceTranscriptWindow(windowStateRef.current, messages, windowPages)
+
+    windowStateRef.current = next
+
+    return next.window
+  }, [messages, windowPages])
 
   const expandWindow = useCallback(() => setWindowPages(pages => pages + 1), [])
   const transcriptWindow = useMemo(() => ({ expandWindow, olderAvailable: windowed }), [expandWindow, windowed])
