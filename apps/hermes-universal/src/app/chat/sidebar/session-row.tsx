@@ -302,27 +302,56 @@ function shallowEqual(a: object | undefined, b: object | undefined): boolean {
 }
 
 /**
- * Deliberately does NOT compare `onArchive`/`onDelete`/`onPin`/`onResume`
- * (desktop's `rowPropsEqual` makes the same call). `sessions-section` builds
- * those as fresh closures for every row on every render — comparing them would
- * mean no row ever bails out, which is the whole point of the boundary. They
- * close over nothing but the session id, which `session` already covers.
+ * Deliberately ignored: `onArchive`/`onDelete`/`onPin`/`onResume` (desktop's
+ * `rowPropsEqual` makes the same call). `sessions-section` builds those as fresh
+ * closures for every row on every render — comparing them would mean no row ever
+ * bails out, which is the whole point of the boundary. They close over nothing
+ * but the session id, which `session` already covers.
+ */
+const IGNORED_ROW_PROPS: ReadonlySet<string> = new Set(['onArchive', 'onDelete', 'onPin', 'onResume'])
+
+/** Props that arrive as a fresh WRAPPER around stable members (dnd-kit). */
+const SHALLOW_ROW_PROPS: ReadonlySet<string> = new Set(['dragHandleProps', 'style'])
+
+/**
+ * WALKS THE PROPS rather than naming them (MJXHRM-45). The hand-written list it
+ * replaces compared 12 named props — and `SidebarSessionRowProps` extends
+ * `React.ComponentProps<'div'>`, so a caller can pass anything a div takes and
+ * the comparator would silently claim equality.
+ *
+ * That was not hypothetical: `virtual-session-list.tsx` passes
+ * `data-index={virtualItem.index}`, which TanStack Virtual reads back off the
+ * DOM node in `measureElement` (`indexAttribute`, default `data-index`) to
+ * decide WHICH row a ResizeObserver measurement belongs to. Reordering the list
+ * — a drag-reorder of pins, a search narrowing, a session moving on activity —
+ * changes a row's index while its `session` object stays identical, so the memo
+ * bailed and left a stale `data-index` in the DOM. The next measurement was then
+ * filed against the wrong row, corrupting the virtualizer's size cache: wrong
+ * offsets, wrong top/bottom padding, jumpy scrolling.
+ *
+ * A key walk cannot regress that way. Anything added to the row's props is
+ * compared by default; opting out is an explicit entry in the sets above.
  */
 function rowPropsEqual(a: SidebarSessionRowProps, b: SidebarSessionRowProps): boolean {
-  return (
-    a.session === b.session &&
-    a.isPinned === b.isPinned &&
-    a.isSelected === b.isSelected &&
-    a.isWorking === b.isWorking &&
-    a.branchStem === b.branchStem &&
-    a.reorderable === b.reorderable &&
-    a.dragging === b.dragging &&
-    a.showProfile === b.showProfile &&
-    a.className === b.className &&
-    a.ref === b.ref &&
-    shallowEqual(a.style, b.style) &&
-    shallowEqual(a.dragHandleProps, b.dragHandleProps)
-  )
+  const left = a as unknown as Record<string, unknown>
+  const right = b as unknown as Record<string, unknown>
+  const keys = Object.keys(left)
+
+  if (keys.length !== Object.keys(right).length) {
+    return false
+  }
+
+  return keys.every(key => {
+    if (IGNORED_ROW_PROPS.has(key)) {
+      return true
+    }
+
+    if (SHALLOW_ROW_PROPS.has(key)) {
+      return shallowEqual(left[key] as object | undefined, right[key] as object | undefined)
+    }
+
+    return Object.is(left[key], right[key])
+  })
 }
 
 export const SidebarSessionRow = memo(SidebarSessionRowImpl, rowPropsEqual)
