@@ -70,9 +70,8 @@ vi.mock('@/store/session', async () => {
 
 await import('./session-tile-delegate')
 
-const { $sessionStates, clearStoredIdIndex, emptySessionState, publishSessionState } = await import(
-  '@/store/session-state-types'
-)
+const { $sessionStates, addSessionKeyHooks, clearStoredIdIndex, emptySessionState, hydratingKey, publishSessionState } =
+  await import('@/store/session-state-types')
 
 const { $inflightTurns, clearAllTurns, getInflightTurn } = await import('@/store/turn-lifecycle')
 
@@ -92,12 +91,32 @@ describe('resumeTile', () => {
   it('hydrates through the hydrating → runtime rekey seam, not a bare publish', async () => {
     requestGateway.mockResolvedValue({ session_id: 'runtime-1', running: false, messages: [] })
 
-    const runtimeId = await delegate.resumeTile('stored-1')
+    // The SEAM, not its outcome. This test asserted only the resulting map, and
+    // a `dropSessionState` + `publishSessionState` pair — exactly the bare
+    // publish it is named for — leaves an identical map while firing neither
+    // crash-journal recovery nor live-tail reconciliation. It therefore passed
+    // against the very regression it exists to catch (MJXHRM-308's audit).
+    // `store/turn-hydration.ts` hangs both off this key move, so the key move
+    // is the assertion.
+    const moves: Array<[string, string]> = []
 
-    expect(runtimeId).toBe('runtime-1')
-    // The placeholder is GONE, moved rather than left beside a second slice —
-    // a direct publish left both, and only the rekey runs the hydration seam
-    // (crash-journal recovery + live-tail reconciliation).
+    const stopWatching = addSessionKeyHooks({
+      drop: () => {},
+      rekey: (fromKey, toKey) => {
+        moves.push([fromKey, toKey])
+      }
+    })
+
+    try {
+      const runtimeId = await delegate.resumeTile('stored-1')
+
+      expect(runtimeId).toBe('runtime-1')
+      expect(moves).toEqual([[hydratingKey('stored-1'), 'runtime-1']])
+    } finally {
+      stopWatching()
+    }
+
+    // And the placeholder is GONE, moved rather than left beside a second slice.
     expect(Object.keys($sessionStates.get())).toEqual(['runtime-1'])
     expect($sessionStates.get()['runtime-1']).toMatchObject({
       runtimeSessionId: 'runtime-1',

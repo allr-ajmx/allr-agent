@@ -97,26 +97,27 @@ function buildTileView(storedSessionId: string): SessionView {
 /** Mounts the shared ChatScreen under the tile's view + a per-tile composer
  *  scope (its own attachment set, awaiting-input edge, and `tile:<id>` focus-bus
  *  target), so N tiled composers coexist without touching the main one. */
-function TileChat({
-  runtimeId,
-  storedSessionId,
-  view
-}: {
-  runtimeId: string
-  storedSessionId: string
-  view: SessionView
-}) {
+function TileChat({ storedSessionId, view }: { storedSessionId: string; view: SessionView }) {
   const attachments = useRef(createComposerAttachmentScope()).current
+  // The tile's LIVE key, read reactively — NOT the runtime id its tile record
+  // was bound with. A stale-runtime recovery rekeys the slice onto a fresh
+  // runtime id (store/session-recovery.ts) and `store/prompts.ts` carries the
+  // blocking prompts across with it, but nothing patches the tile record, so a
+  // captured id left this composer's awaiting-input edge subscribed to a key
+  // nothing writes any more. Esc would then interrupt a turn that is actually
+  // parked on a clarify — discarding the question instead of leaving it
+  // answerable (MJXHRM-308).
+  const runtimeKey = useStore(view.$runtimeId) ?? ''
 
   const scope: ComposerScope = useMemo(
     () => ({
-      $awaitingInput: sessionAwaitingInput(runtimeId),
+      $awaitingInput: sessionAwaitingInput(runtimeKey),
       attachments,
       popoutAllowed: false,
       readMessages: () => view.$messages.get(),
       target: `tile:${storedSessionId}`
     }),
-    [attachments, runtimeId, storedSessionId, view]
+    [attachments, runtimeKey, storedSessionId, view]
   )
 
   return (
@@ -157,7 +158,7 @@ function DraftTilePane() {
     return null
   }
 
-  return <TileChat runtimeId={runtimeId} storedSessionId={DRAFT_TILE_KEY} view={view} />
+  return <TileChat storedSessionId={DRAFT_TILE_KEY} view={view} />
 }
 
 /** A session tile pane: resumes the stored session into its own state slice on
@@ -245,7 +246,7 @@ export function SessionTilePane({ storedSessionId }: { storedSessionId: string }
     )
   }
 
-  return <TileChat runtimeId={runtimeId} storedSessionId={storedSessionId} view={view} />
+  return <TileChat storedSessionId={storedSessionId} view={view} />
 }
 
 // ---------------------------------------------------------------------------
