@@ -23,6 +23,10 @@ vi.mock('@/store/cron', () => ({ setCronJobs: vi.fn() }))
 vi.mock('@/store/workspace-events', () => ({ resetWorkspaceCwd: vi.fn() }))
 vi.mock('@/store/session-states', () => ({ clearAllSessionStates: vi.fn(), resetTileRuntimeBindings: vi.fn() }))
 vi.mock('@/lib/query-client', () => ({ queryClient: { invalidateQueries: vi.fn() } }))
+// NOT mocked: `@/store/artifacts` runs for real below, because "the wipe drops the
+// artifact registry" is only worth asserting against the real registry. It reaches
+// the native staging commands through `invoke`, which needs a stub outside Tauri.
+vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(async () => undefined) }))
 vi.mock('@/store/session', async () => {
   const { atom } = await import('@/store/atom')
 
@@ -63,8 +67,10 @@ import {
 import { clearAllSessionStates } from '@/store/session-states'
 import type { SessionInfo } from '@/types/hermes'
 
+import { artifactsForSession, openArtifact, upsertArtifact } from './artifacts'
 import { sessionMissingFromCurrentGateway, softSwitchGateway } from './gateway-soft-switch'
 import { $gatewayMode, $gatewaySwitching } from './gateway-switch'
+import { $activePreviewPath, $previewTabs } from './preview'
 
 // Only the fields the wipe / switch actually read.
 const session = { id: 's1' } as unknown as SessionInfo
@@ -116,6 +122,24 @@ describe('gateway soft switch', () => {
     expect(clearAllSessionStates).toHaveBeenCalledOnce()
     // Skeletons stop once the refresh has landed.
     expect($sessionsLoading.get()).toBe(false)
+  })
+
+  // Artifacts are keyed by sessions on the gateway that produced them. Carried
+  // across a switch, an open artifact tab names an id the new backend has never
+  // heard of — and the registry keeps the old backend's generated pages alive
+  // for the rest of the process.
+  it('drops the artifact registry and its tabs', async () => {
+    const artifact = upsertArtifact('s1', { kind: 'html', language: 'html', title: 'Dashboard' }, '<html>v1</html>')!
+
+    openArtifact(artifact.artifactId)
+
+    expect($previewTabs.get()).toHaveLength(1)
+
+    await softSwitchGateway('remote', vi.fn().mockResolvedValue(undefined))
+
+    expect(artifactsForSession('s1')).toEqual([])
+    expect($previewTabs.get()).toEqual([])
+    expect($activePreviewPath.get()).toBeNull()
   })
 
   it('holds $gatewaySwitching for the length of the dial', async () => {
