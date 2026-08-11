@@ -36,7 +36,7 @@ import {
   unpinSession
 } from '@/store/layout'
 import { $sidebarCronOpen, setSidebarCronOpen } from '@/store/layout'
-import { $changeEventsAvailable, $cronChangeTick, $sessionsChangeTick, livePollIntervalMs } from '@/store/live-sync'
+import { $changeEventsAvailable, $cronChangeTick, livePollIntervalMs } from '@/store/live-sync'
 import { startNewSession } from '@/store/new-session'
 import { $profileScope, ALL_PROFILES, normalizeProfileKey } from '@/store/profile'
 import { $profiles, setActiveProfile } from '@/store/profiles'
@@ -190,7 +190,6 @@ export function SidebarScrollBody({
   const activeId = useStore($activeStoredSessionId)
   const changeEventsAvailable = useStore($changeEventsAvailable)
   const cronChangeTick = useStore($cronChangeTick)
-  const sessionsChangeTick = useStore($sessionsChangeTick)
   const working = useStore($workingSessionIds)
   const serverResults = useStore($sessionSearch)
   const searching = useStore($searchLoading)
@@ -239,9 +238,16 @@ export function SidebarScrollBody({
   const searchInputRef = useRef<HTMLInputElement>(null)
   const navigate = useNavigate()
 
-  // Messaging platform sessions: refreshed when the gateway says a session row
-  // moved, with the old 10s poll kept as a backstop (slowed on a broadcasting
-  // backend). Their own slice, so a busy platform never crowds out recents.
+  // Messaging platform sessions: their own slice, so a busy platform never
+  // crowds out recents. Seeded on mount, then the 10s poll (slowed to a backstop
+  // on a broadcasting backend).
+  //
+  // NOT keyed on `sessionsChangeTick`. `sessions.changed` fires on every
+  // state.db write during a streaming turn — floored to 2s server-side — and
+  // this fetch asks for 100 rows, so tick-keying it turned the 10s poll it
+  // replaced into a 2s one. The tick-driven refresh is coalesced onto a 10s
+  // trailing gap in store/live-session-status instead, which also re-pulls the
+  // recents list the same broadcast can invalidate.
   useEffect(() => {
     void refreshMessagingSessions()
 
@@ -251,7 +257,7 @@ export function SidebarScrollBody({
     )
 
     return () => clearInterval(timer)
-  }, [changeEventsAvailable, sessionsChangeTick])
+  }, [changeEventsAvailable])
 
   // Cron jobs: same shape. `cron.changed` fires on create/edit/pause/remove AND
   // on the scheduler's own last_run/next_run bookkeeping, which is exactly when

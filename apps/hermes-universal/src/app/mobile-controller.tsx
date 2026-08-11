@@ -22,6 +22,7 @@ import { useStore } from '@/store/atom'
 import { $connectionPhase, $hasConnected } from '@/store/connection'
 import { $restoring } from '@/store/gateway-restore'
 import { $gatewaySwitching } from '@/store/gateway-switch'
+import { startLiveSessionSync } from '@/store/live-session-status'
 import { $onboardingActive, checkConfigured } from '@/store/onboarding'
 import { syncPetInfo } from '@/store/pet-gallery'
 import { deleteSessionLocal } from '@/store/session'
@@ -89,6 +90,14 @@ export function MobileController() {
       void syncPetInfo()
     }
   }, [phase])
+
+  // Live-session rehydration + the coalesced session-list refresh
+  // (store/live-session-status). Started HERE, not in app/contrib/controller:
+  // that module is also imported by the tile and HUD satellite windows, and a
+  // per-window poller would multiply the traffic this ticket exists to remove.
+  // The store owns its own gateway gating, so it is armed once for the window's
+  // whole life rather than per connection phase.
+  useEffect(() => startLiveSessionSync(), [])
 
   // A soft gateway switch (store/gateway-switch.ts) drops the socket for a moment
   // while it re-dials. Treat that window as live so the shell — and the surface
