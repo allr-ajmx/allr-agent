@@ -35,6 +35,25 @@ import type { ChatBarState } from './types'
 
 const SNIPPET_KEYS = ['codeReview', 'implementationPlan', 'explainThis']
 
+/** What the root `Files…` / `Folder…` row does when clicked.
+ *
+ *  Both handlers present → fan out to the `← Back / Local… / Remote…` view.
+ *  Exactly one → run it, no detour: a two-item choice with one item permanently
+ *  greyed out reads as a bug, and it is a real state — off a local-mode gateway
+ *  the composer withholds the LOCAL folder pick, because a local path is not the
+ *  folder the backend would resolve (see chat-composer.tsx). */
+export type AttachRoute = { kind: 'fan-out' } | { kind: 'none' } | { kind: 'run'; run: (event: Event) => void }
+
+export function attachRoute(local?: (event: Event) => void, remote?: (event: Event) => void): AttachRoute {
+  if (local && remote) {
+    return { kind: 'fan-out' }
+  }
+
+  const only = local ?? remote
+
+  return only ? { kind: 'run', run: only } : { kind: 'none' }
+}
+
 export function ContextMenu({
   state,
   onInsertText,
@@ -66,6 +85,15 @@ export function ContextMenu({
     event.preventDefault()
     fn()
   }
+
+  const filesRoute = attachRoute(onPickFiles, onPickRemoteFiles)
+  const folderRoute = attachRoute(onPickFolders, onPickRemoteFolders)
+
+  // The root row either steps into the Local/Remote view or runs the only pick
+  // that exists. `stay` (preventDefault) is for the step; a real pick closes the
+  // menu, exactly as `Images…`/`URL…` do.
+  const rootSelect = (route: AttachRoute, view: 'files' | 'folder') =>
+    route.kind === 'fan-out' ? stay(() => setView(view)) : route.kind === 'run' ? route.run : undefined
 
   return (
     <>
@@ -120,16 +148,16 @@ export function ContextMenu({
                 {c.attachLabel}
               </DropdownMenuLabel>
               <ContextMenuItem
-                disabled={!onPickFiles && !onPickRemoteFiles}
+                disabled={filesRoute.kind === 'none'}
                 icon={FileText}
-                onSelect={stay(() => setView('files'))}
+                onSelect={rootSelect(filesRoute, 'files')}
               >
                 {c.files}
               </ContextMenuItem>
               <ContextMenuItem
-                disabled={!onPickFolders && !onPickRemoteFolders}
+                disabled={folderRoute.kind === 'none'}
                 icon={FolderOpen}
-                onSelect={stay(() => setView('folder'))}
+                onSelect={rootSelect(folderRoute, 'folder')}
               >
                 {c.folder}
               </ContextMenuItem>

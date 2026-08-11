@@ -86,3 +86,16 @@ describe('selectDesktopPaths — directory picks', () => {
     await expect(selectDesktopPaths({ directories: true })).resolves.toEqual([])
   })
 })
+
+// The composer asks the same question from React, where it has to re-render on a
+// gateway switch — so it passes the connection it already subscribes to rather
+// than re-deriving `mode === 'local'` next door.
+describe('gatewayOwnsLocalFs — explicit connection', () => {
+  it('judges the connection it is handed, not the one in the store', () => {
+    connectedOn('local')
+
+    expect(gatewayOwnsLocalFs({ authMode: 'none', baseUrl: 'https://gw.example', mode: 'cloud' } as never)).toBe(false)
+    expect(gatewayOwnsLocalFs({ authMode: 'none', baseUrl: 'https://gw.example', mode: 'local' } as never)).toBe(true)
+    expect(gatewayOwnsLocalFs(null)).toBe(false)
+  })
+})

@@ -5,7 +5,7 @@ import { getDefaultCwd, getFileDiff, getGitRoot, readDir, readFileDataUrl, readF
 import { translateNow } from '@/i18n'
 import { IS_DESKTOP } from '@/lib/platform'
 import { $connection } from '@/store/connection'
-import { connectionCacheKey } from '@/store/gateway-config'
+import { type Connection, connectionCacheKey } from '@/store/gateway-config'
 import type { ReadDirResult, ReadFileTextResult } from '@/types/hermes'
 
 // Ported from apps/desktop/src/lib/desktop-fs.ts — its REMOTE branch only.
@@ -123,9 +123,14 @@ export async function desktopFileDiff(repoRoot: string, filePath: string): Promi
  * tunnel terminates on ANOTHER host's filesystem. So are `remote`/`cloud`, and
  * so is a connection with no mode at all (treated as remote everywhere else
  * too — see `modeIsRemoteLike` in store/gateway-config.ts).
+ *
+ * `connection` is a parameter so a React caller can hand over the value it
+ * already subscribes to (`useStore($connection)`) and re-render when the
+ * gateway switches, instead of re-deriving `mode === 'local'` on the side — a
+ * second copy of this rule is exactly how the two drift apart.
  */
-export function gatewayOwnsLocalFs(): boolean {
-  return IS_DESKTOP && $connection.get()?.mode === 'local'
+export function gatewayOwnsLocalFs(connection: Connection | null = $connection.get()): boolean {
+  return IS_DESKTOP && connection?.mode === 'local'
 }
 
 /**
