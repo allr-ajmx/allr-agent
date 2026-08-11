@@ -39,6 +39,7 @@ import { readJson, writeJson } from '@/lib/storage'
 import { discardDeltas, disposeStreamBatch, flushDeltas } from '@/lib/stream-batch'
 import { beginDetached, endSpan } from '@/observability'
 import { resetUnscopedStreamPin } from '@/store/event-router'
+import { clearLiveSessionStatuses } from '@/store/live-session-registry'
 import { $activeGatewayProfile, normalizeProfileKey } from '@/store/profile'
 import { clearAllPrompts } from '@/store/prompts'
 import {
@@ -250,6 +251,10 @@ export function clearAllSessionStates() {
   settledExpiry.clear()
   clearStoredIdIndex()
   clearAllPrompts()
+  // Liveness is scoped to the gateway that reported it: both callers are moving
+  // to a backend whose registry we have not read yet, so every row it named is
+  // as dead as the runtime ids above.
+  clearLiveSessionStatuses()
   // Turns are keyed by the SAME session keys this wipes, and the map is not
   // reachable through `dropSessionState` from here — the whole atom is replaced
   // below rather than evicted key by key. Both callers (a profile switch, the

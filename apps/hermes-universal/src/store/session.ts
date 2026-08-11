@@ -19,6 +19,7 @@ import { $busy, $clarify, $currentCwd, $messages, $sessionId, type ChatMessage, 
 import { resetUnscopedStreamPin } from '@/store/event-router'
 import { requestGateway } from '@/store/gateway'
 import { $pinnedSessionIds, pinSession, unpinSession } from '@/store/layout'
+import { $liveSessionStatuses } from '@/store/live-session-registry'
 import { notify, notifyError } from '@/store/notifications'
 import { flashPetActivity } from '@/store/pet'
 // Import direction is `session.ts → profile.ts → profiles.ts`; never the reverse.
@@ -27,6 +28,7 @@ import { $profiles } from '@/store/profiles'
 import {
   $activeSessionKey,
   $sessionStates,
+  type ClientSessionState,
   ensureSessionSlice,
   hydratingKey,
   rekeySession,
@@ -345,17 +347,39 @@ export function setActiveSessionStoredIdRotation(rotation: {
   $activeStoredSessionId.set(rotation.nextStoredSessionId)
 }
 
-// Sidebar row state — the UNION of the primary (single active chat) and every
-// open TILE. "working" = a session streaming a turn; "needs input" = a session
+// Sidebar row state — the UNION of the primary (single active chat), every open
+// TILE, and every session the gateway says is live that this client holds no
+// slice for. "working" = a session streaming a turn; "needs input" = a session
 // with a clarify prompt pending. The tile slices come from `$sessionStates`
-// (tiles only); the primary comes from the global `$busy`/`$clarify`. Guarded
-// with `stableArray` so the per-token republish of `$sessionStates` doesn't
-// re-render the sidebar unless membership actually changed.
+// (tiles only); the primary comes from the global `$busy`/`$clarify`; the rest
+// come from `$liveSessionStatuses` — a cron tick, an inbound messaging turn, the
+// TUI. That third source used to be a `$sessionStates` slice minted from the
+// liveness snapshot, which made every warm short-circuit treat an unopened
+// session as already hydrated (MJXHRM-356). Guarded with `stableArray` so the
+// per-token republish of `$sessionStates` doesn't re-render the sidebar unless
+// membership actually changed.
+//
+// A session THIS client holds a slice for answers for itself, even when the
+// snapshot also lists it: the slice settles on the terminal frame, where the
+// snapshot trails by a poll interval, so preferring it is what keeps a finished
+// turn's spinner from lingering for up to 30 seconds.
+const storedIdsWithSlices = (states: Record<string, ClientSessionState>): Set<string> => {
+  const owned = new Set<string>()
+
+  for (const state of Object.values(states)) {
+    if (state.storedSessionId) {
+      owned.add(state.storedSessionId)
+    }
+  }
+
+  return owned
+}
+
 let workingArr: readonly string[] = []
 let workingSet = new Set<string>()
 export const $workingSessionIds = computed(
-  [$busy, $activeStoredSessionId, $sessionStates],
-  (busy, activeId, states) => {
+  [$busy, $activeStoredSessionId, $sessionStates, $liveSessionStatuses],
+  (busy, activeId, states, live) => {
     const next: string[] = []
 
     if (busy && activeId) {
@@ -365,6 +389,14 @@ export const $workingSessionIds = computed(
     for (const s of Object.values(states)) {
       if (s.busy && s.storedSessionId && !next.includes(s.storedSessionId)) {
         next.push(s.storedSessionId)
+      }
+    }
+
+    const owned = storedIdsWithSlices(states)
+
+    for (const storedSessionId of Object.keys(live)) {
+      if (!owned.has(storedSessionId) && !next.includes(storedSessionId)) {
+        next.push(storedSessionId)
       }
     }
 
@@ -381,8 +413,8 @@ export const $workingSessionIds = computed(
 
 let attentionArr: readonly string[] = []
 export const $attentionSessionIds = computed(
-  [$clarify, $activeStoredSessionId, $sessionStates],
-  (clarify, activeId, states) => {
+  [$clarify, $activeStoredSessionId, $sessionStates, $liveSessionStatuses],
+  (clarify, activeId, states, live) => {
     const next: string[] = []
 
     if (clarify && activeId) {
@@ -392,6 +424,14 @@ export const $attentionSessionIds = computed(
     for (const s of Object.values(states)) {
       if (s.needsInput && s.storedSessionId && !next.includes(s.storedSessionId)) {
         next.push(s.storedSessionId)
+      }
+    }
+
+    const owned = storedIdsWithSlices(states)
+
+    for (const [storedSessionId, status] of Object.entries(live)) {
+      if (status === 'waiting' && !owned.has(storedSessionId) && !next.includes(storedSessionId)) {
+        next.push(storedSessionId)
       }
     }
 
