@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 
 import { ModelPickerDialog } from '@/components/model-picker'
 import { Button } from '@/components/ui/button'
@@ -21,7 +22,7 @@ import { useI18n } from '@/i18n'
 import { AlertTriangle, Cpu, Loader2 } from '@/lib/icons'
 import { cn } from '@/lib/utils'
 import { notifyError } from '@/store/notifications'
-import { openOnboarding } from '@/store/onboarding'
+import { beginProviderConnect, openOnboarding, resolveProviderSetup } from '@/store/onboarding'
 import type {
   AuxiliaryModelsResponse,
   MoaConfigResponse,
@@ -38,9 +39,10 @@ import { invalidateHermesConfig, setHermesConfigCache, useHermesConfigRecord } f
 
 // Ported from apps/desktop/src/app/settings/model-settings.tsx (pixel-perfect).
 // Adaptations: types from `@/types/hermes`; config cache from `./use-config-record`;
-// "Set up provider" hands off to the universal onboarding wizard (`openOnboarding`);
-// desktop's profile-switch reload (`useOnProfileSwitch`) is dropped (no universal
-// equivalent) — the `profileEpoch` guards stay inert but harmless.
+// "Set up provider" routes per provider kind via `resolveProviderSetup` (see
+// startProviderSetup below); desktop's profile-switch reload (`useOnProfileSwitch`)
+// is dropped (no universal equivalent) — the `profileEpoch` guards stay inert but
+// harmless.
 
 // Skeleton mirror of the Model settings DOM so the page keeps its shape while
 // the provider/model catalog loads, instead of collapsing to a centered
@@ -178,6 +180,9 @@ interface ModelSettingsProps {
 export function ModelSettings({ onMainModelChanged }: ModelSettingsProps) {
   const { t } = useI18n()
   const m = t.settings.model
+  // Settings is route-driven in every host (overlay, mobile drill-in, Android
+  // activity), so a sibling settings page is a navigation, not a modal.
+  const navigate = useNavigate()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [mainModel, setMainModel] = useState<{ model: string; provider: string } | null>(null)
@@ -505,11 +510,26 @@ export function ModelSettings({ onMainModelChanged }: ModelSettingsProps) {
   }, [apiKeyDraft, selectedProviderRow])
 
   // OAuth / external providers can't be activated with a pasted key — hand off
-  // to the shared onboarding wizard (universal's `startProviderOAuth` takes an
-  // OAuthProvider object, not a slug, so the picker is the clean entry point).
+  // to the surface that can actually finish the setup. The generic wizard only
+  // knows OAuth providers and the curated env-key catalog, so sending every
+  // provider there dead-ended the custom/local endpoint on a picker that never
+  // lists it. Route by kind instead: custom endpoints to their own editor, a
+  // known OAuth provider straight into its connect overlay (which floats over
+  // this page rather than replacing it), and anything unrecognised to the
+  // wizard's picker.
   const startProviderSetup = useCallback(() => {
-    openOnboarding()
-  }, [])
+    const slug = (selectedProviderRow?.slug || selectedProvider).trim()
+
+    void resolveProviderSetup(slug).then(target => {
+      if (target.kind === 'custom-endpoint') {
+        navigate('/settings/providers/custom-endpoints', { replace: true })
+      } else if (target.kind === 'oauth') {
+        beginProviderConnect(target.provider)
+      } else {
+        openOnboarding()
+      }
+    })
+  }, [navigate, selectedProvider, selectedProviderRow])
 
   const applyMainModel = useCallback(async () => {
     if (!selectedProvider || !selectedModel) {
@@ -702,12 +722,15 @@ export function ModelSettings({ onMainModelChanged }: ModelSettingsProps) {
         </div>
         {/* Sessionless: the profile default is what we are editing, so the
             picker fetches the global catalog and only stages the pick — Apply
-            still owns the write. */}
+            still owns the write. "Add provider…" goes to the sibling Providers
+            page, matching every other call site (the composer's model overlays
+            route there too); the full-screen first-run wizard would otherwise
+            tear down the settings surface the user is standing on. */}
         <ModelPickerDialog
           currentModel={selectedModel}
           currentProvider={selectedProvider}
           onOpenChange={setPickerOpen}
-          onOpenProviders={openOnboarding}
+          onOpenProviders={() => navigate('/settings/providers', { replace: true })}
           onSelect={selection => {
             setSelectedProvider(selection.provider)
             setSelectedModel(selection.model)
