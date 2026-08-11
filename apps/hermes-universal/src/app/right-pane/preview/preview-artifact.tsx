@@ -7,6 +7,7 @@ import { CopyButton } from '@/components/ui/copy-button'
 import { Tip } from '@/components/ui/tooltip'
 import { useI18n } from '@/i18n'
 import { artifactContentHash, artifactDownloadName, type ArtifactKind } from '@/lib/artifact-detect'
+import { artifactFrameUrl, composeArtifactHtml } from '@/lib/artifact-frame'
 import { ChevronLeft, ChevronRight, Download } from '@/lib/icons'
 import { IS_MOBILE, IS_TAURI } from '@/lib/platform'
 import { cn } from '@/lib/utils'
@@ -66,39 +67,6 @@ const HEADER_BUTTON_CLASS =
  * `allow-forms` (submit anywhere), `allow-downloads`, `allow-pointer-lock`.
  */
 const ARTIFACT_SANDBOX = 'allow-scripts'
-
-/** Wrap an HTML fragment in a minimal document shell; full documents pass
- *  through untouched. Keeps generated fragments (no <html>/<body>) rendering
- *  with sane defaults instead of quirks-mode soup. */
-export function composeArtifactHtml(content: string): string {
-  if (/<html[\s>]|<!doctype\s+html/i.test(content)) {
-    return content
-  }
-
-  return [
-    '<!doctype html>',
-    '<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">',
-    '<style>body{margin:0;font-family:system-ui,sans-serif}</style></head><body>',
-    content,
-    '</body></html>'
-  ].join('\n')
-}
-
-/**
- * The URL a staged artifact document loads from.
- *
- * Two spellings because the platforms disagree: WebKitGTK and WKWebView see the
- * custom scheme itself, while Windows and Android rewrite it to an http host.
- * The CSP names all three, and the Rust handler reads the id out of whichever
- * part of the URL carries it.
- */
-function artifactFrameUrl(documentId: string): string {
-  const encoded = encodeURIComponent(documentId)
-
-  return navigator.userAgent.includes('Windows') || navigator.userAgent.includes('Android')
-    ? `http://hermes-artifact.localhost/${encoded}`
-    : `hermes-artifact://${encoded}`
-}
 
 /**
  * The live view of an artifact's HTML.

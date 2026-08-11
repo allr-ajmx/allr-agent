@@ -183,8 +183,19 @@ pub fn handle<R: tauri::Runtime>(
 mod tests {
     use super::*;
 
+    /// The shape the renderer actually builds (`lib/artifact-frame.ts`): a fixed
+    /// `localhost` host with the id on the path, matching `hermes-media://`.
     #[test]
     fn reads_the_id_from_a_custom_scheme_url() {
+        let url = tauri::Url::parse("hermes-artifact://localhost/abc123").expect("url");
+
+        assert_eq!(requested_id(&url), "abc123");
+    }
+
+    /// The older host-carries-the-id spelling still resolves, so a webview that
+    /// kept a stale frame URL across a hot reload doesn't 404.
+    #[test]
+    fn reads_the_id_from_a_bare_host_url() {
         let url = tauri::Url::parse("hermes-artifact://abc123").expect("url");
 
         assert_eq!(requested_id(&url), "abc123");
