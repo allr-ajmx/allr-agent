@@ -34,13 +34,23 @@ import { embeddedImageUrls, textWithoutEmbeddedImages } from '@/lib/embedded-ima
 export const hasStructuralParts = (message: ChatMessage): boolean =>
   message.parts.some(part => part.type === 'reasoning' || part.type === 'tool-call')
 
-/** A row belonging to the turn still in flight, by either of the two things
- *  that mark one: the pending flag, or a projected/streamed id. */
+/**
+ * A row belonging to the turn still in flight, by either of the two things that
+ * mark one: the pending flag, or a projected/streamed id.
+ *
+ * `user-queued-` counts (MJXHRM-358). It is a projection of gateway-side state
+ * exactly like `user-inflight-`, and the reconnect fold rebuilds the tail by
+ * stripping these rows and re-projecting them: a queued prompt left in the
+ * "committed" prefix was re-projected ON TOP of itself, so the same bubble
+ * rendered twice under one React key — and it rendered ABOVE the assistant row
+ * the projection appends after it, which is the wrong turn order.
+ */
 export const isLiveTailRow = (message: ChatMessage): boolean =>
   message.pending === true ||
   message.id.startsWith('assistant-stream-') ||
   message.id.startsWith('inflight-assistant-') ||
-  message.id.startsWith('user-inflight-')
+  message.id.startsWith('user-inflight-') ||
+  message.id.startsWith('user-queued-')
 
 /** Reference kinds that ride INSIDE the sent text as `@kind:value`. */
 const WIRE_REFERENCE_KINDS = ['file', 'folder', 'url', 'image', 'tool', 'line', 'terminal', 'session'] as const
@@ -174,36 +184,53 @@ export function userTurnAlreadyPersisted(messages: ChatMessage[], text: string):
  * Two carries, both one-directional:
  *
  *  - structure (reasoning / tool-call parts) the authoritative row lacks;
- *  - the answer text, when the authoritative row is a flat dump that does not
- *    strictly extend what we already rendered.
+ *  - the answer text, when the authoritative row does not strictly extend what
+ *    we already rendered.
  *
- * Guarded by `isLiveTailRow(previous)`: structure-only carry is only ever
- * correct while the structure-bearing row is still the in-flight one. A settled
- * historical row can share a position with an unrelated new turn after a
- * compression, and must not lend it its tool calls.
+ * Guarded by `isLiveTailRow(previous)` throughout: a settled historical row can
+ * share a position with an unrelated new turn after a compression, and must not
+ * lend it its tool calls or its prose.
+ *
+ * The TEXT carry is deliberately NOT gated on the local row having structure
+ * (MJXHRM-358). A plain prose answer has no reasoning or tool parts at all, and
+ * on the reconnect fold the local row is routinely AHEAD of the snapshot it is
+ * being paired with — `store/turn-lifecycle.ts#reconcileSessionTail` computes
+ * the merge after a slow resume round trip, and the router keeps folding deltas
+ * into the slice for its whole duration. Bailing out there left the shorter
+ * gateway dump as the paired row while `preserveLocalPendingTurnMessages` could
+ * no longer recognise our longer copy as the same answer, so it appended it:
+ * the answer printed twice, once truncated. Requiring BOTH rows to be live-tail
+ * rows for the structure-less case is what keeps a committed history row from
+ * ever being overwritten by a local one that merely shares its ordinal.
  */
 export function preserveStructuralParts(authoritative: ChatMessage, previous: ChatMessage): ChatMessage {
-  if (
-    authoritative.role !== 'assistant' ||
-    previous.role !== 'assistant' ||
-    !hasStructuralParts(previous) ||
-    hasStructuralParts(authoritative) ||
-    !isLiveTailRow(previous)
-  ) {
+  if (authoritative.role !== 'assistant' || previous.role !== 'assistant' || !isLiveTailRow(previous)) {
     return authoritative
   }
 
   const structural = previous.parts.filter(part => part.type === 'reasoning' || part.type === 'tool-call')
+  const carriesStructure = structural.length > 0 && !hasStructuralParts(authoritative)
+
   const authoritativeText = chatMessageText(authoritative)
   const previousText = textWithoutEmbeddedImages(chatMessageText(previous))
 
-  // A dump that does not continue what we rendered is a lossier restatement of
-  // it — keep the text we have rather than replacing it with the dump.
-  const textParts = isStrictAnswerTextExtension(authoritativeText, previousText)
-    ? authoritative.parts.filter(part => part.type === 'text')
-    : previous.parts.filter(part => part.type === 'text')
+  // A row that does not continue what we rendered is either a lossier
+  // restatement of it (a flat dump beside our structured rows) or simply an
+  // older snapshot of it — keep the text we have rather than replacing it.
+  const keepsOurText =
+    previousText.trim().length > 0 &&
+    !isStrictAnswerTextExtension(authoritativeText, previousText) &&
+    (carriesStructure || isLiveTailRow(authoritative))
 
-  return { ...authoritative, parts: [...structural, ...textParts] }
+  if (!carriesStructure && !keepsOurText) {
+    return authoritative
+  }
+
+  const textParts = (keepsOurText ? previous : authoritative).parts.filter(part => part.type === 'text')
+
+  return carriesStructure
+    ? { ...authoritative, parts: [...structural, ...textParts] }
+    : { ...authoritative, parts: [...authoritative.parts.filter(part => part.type !== 'text'), ...textParts] }
 }
 
 /**
