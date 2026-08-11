@@ -28,7 +28,7 @@
  *     gateway hot path.
  */
 
-import { atom, computed, type ReadableAtom } from 'nanostores'
+import { atom } from 'nanostores'
 
 import type { GatewayEvent } from '@/gateway'
 import type { ChatMessage } from '@/lib/chat-messages'
@@ -36,7 +36,6 @@ import { isLiveTailRow, reconcileLiveTail } from '@/lib/live-tail'
 import { appendLiveSessionProjection } from '@/lib/session-history'
 import { $gatewayState, requestGateway } from '@/store/gateway'
 import {
-  $activeSessionKey,
   $sessionStates,
   addSessionKeyHooks,
   isPlaceholderKey,
@@ -102,26 +101,14 @@ const newTurnId = (): string => `turn-${Date.now().toString(36)}-${(++turnCounte
 /** Session key → its live turn. A session with no entry has no turn in flight. */
 export const $inflightTurns = atom<Record<string, InflightTurn>>({})
 
-const perSession = new Map<string, ReadableAtom<InflightTurn | null>>()
-
-/** The live turn for one session, as a memoized readable atom. */
-export function sessionInflightTurn(key: string): ReadableAtom<InflightTurn | null> {
-  const existing = perSession.get(key)
-
-  if (existing) {
-    return existing
-  }
-
-  const derived = computed($inflightTurns, turns => turns[key] ?? null)
-  perSession.set(key, derived)
-
-  return derived
-}
-
-/** The turn on the chat the user is looking at. */
-export const $activeInflightTurn = computed([$activeSessionKey, $inflightTurns], (key, turns) => turns[key] ?? null)
-
-/** Non-reactive read, for the imperative submit/steer paths. */
+// NO reactive projection of this atom is exported, and that is deliberate
+// (MJXHRM-358). `$activeInflightTurn` and a memoized `sessionInflightTurn(key)`
+// lived here through three audits with zero subscribers, because nothing renders
+// a turn RECORD: every surface renders the slice's `busy` / `awaitingResponse` /
+// `needsInput`, and `applyReconciledBusy` is what keeps those honest after a
+// reconnect. Two sources of truth for "is this chat working" is the bug that
+// layer exists to prevent, so the record stays an imperative read.
+/** Non-reactive read, for the imperative submit/steer/reconcile paths. */
 export const getInflightTurn = (key: string): InflightTurn | null => $inflightTurns.get()[key] ?? null
 
 /** Is a turn live on this session? A settled record is not live. */
@@ -382,8 +369,6 @@ export function dropTurn(key: string): void {
   if (getInflightTurn(key)) {
     write(key, null, 'settle')
   }
-
-  perSession.delete(key)
 }
 
 /** Carry a turn across a session rekey (draft → runtime id, or a resume that
@@ -401,7 +386,6 @@ export function rekeyTurn(fromKey: string, toKey: string): void {
 
   const { [fromKey]: _moved, ...rest } = $inflightTurns.get()
   $inflightTurns.set({ ...rest, [toKey]: turn })
-  perSession.delete(fromKey)
   emit({ key: toKey, previous: null, transition: 'reconciled', turn })
 }
 
@@ -444,8 +428,6 @@ export function clearAllTurns(): void {
   if (Object.keys($inflightTurns.get()).length > 0) {
     $inflightTurns.set({})
   }
-
-  perSession.clear()
 }
 
 // ---------------------------------------------------------------------------
