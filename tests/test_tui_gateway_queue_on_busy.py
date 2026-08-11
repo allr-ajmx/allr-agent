@@ -52,6 +52,107 @@ def test_enqueue_preserves_order_after_an_image_turn():
     ]
 
 
+# ── who owns the stream when a prompt lands mid-turn ───────────────────────
+#
+# `session.resume` was taught not to steal a running session's transport
+# (_resume_may_rebind_transport). `prompt.submit` had the identical steal: it
+# rebound the session transport up front, before it knew the prompt would only
+# be QUEUED — so viewer B typing while viewer A streamed redirected A's
+# in-flight answer to B, exactly the symptom the resume guard exists to stop.
+
+
+def _submit_as(viewer, rid, params):
+    """Dispatch prompt.submit with *viewer* bound as the request transport."""
+    token = server.bind_transport(viewer)
+    try:
+        return server._methods["prompt.submit"](rid, params)
+    finally:
+        server.reset_transport(token)
+
+
+def test_queued_prompt_does_not_steal_the_running_viewers_stream(monkeypatch):
+    """B queueing behind A's turn must leave A's stream where it is.
+
+    The queued entry pins B's own transport and `_drain_queued_prompt` rebinds
+    when it actually runs, so nothing is lost by waiting.
+    """
+    monkeypatch.setattr(server, "_load_busy_input_mode", lambda: "queue")
+    viewer_a = types.SimpleNamespace(_closed=False)
+    viewer_b = types.SimpleNamespace(_closed=False)
+    session = _session(running=True, transport=viewer_a)
+    server._sessions["sid"] = session
+    try:
+        resp = _submit_as(viewer_b, "r1", {"session_id": "sid", "text": "B"})
+    finally:
+        server._sessions.pop("sid", None)
+
+    assert resp["result"]["status"] == "queued"
+    assert session["transport"] is viewer_a
+    assert session["queued_prompt"] == {"text": "B", "transport": viewer_b}
+
+
+def test_queued_prompt_claims_a_running_session_whose_viewer_is_gone(monkeypatch):
+    """No live reader, so the arriving client is strictly better than nothing."""
+    monkeypatch.setattr(server, "_load_busy_input_mode", lambda: "queue")
+    viewer_b = types.SimpleNamespace(_closed=False)
+    session = _session(running=True, transport=server._detached_ws_transport)
+    server._sessions["sid"] = session
+    try:
+        _submit_as(viewer_b, "r1", {"session_id": "sid", "text": "B"})
+    finally:
+        server._sessions.pop("sid", None)
+
+    assert session["transport"] is viewer_b
+
+
+def test_prompt_claims_an_idle_sessions_stream(monkeypatch):
+    """With no turn in flight there is nothing to interrupt — the sender wins."""
+    monkeypatch.setattr(
+        server, "_run_prompt_submit",
+        lambda rid, sid, session, text, **kwargs: {"result": {"status": "started"}},
+    )
+    viewer_a = types.SimpleNamespace(_closed=False)
+    viewer_b = types.SimpleNamespace(_closed=False)
+    session = _session(running=False, transport=viewer_a)
+    server._sessions["sid"] = session
+    try:
+        _submit_as(viewer_b, "r1", {"session_id": "sid", "text": "B"})
+    finally:
+        server._sessions.pop("sid", None)
+
+    assert session["transport"] is viewer_b
+
+
+def test_steer_claims_the_stream_it_just_changed(monkeypatch):
+    """Steering rewrites what the live turn is answering, so the steerer owns it."""
+    monkeypatch.setattr(server, "_load_busy_input_mode", lambda: "steer")
+    viewer_a = types.SimpleNamespace(_closed=False)
+    viewer_b = types.SimpleNamespace(_closed=False)
+    agent = types.SimpleNamespace(steer=lambda _text: True)
+    session = _session(agent=agent, running=True, transport=viewer_a)
+
+    resp = server._handle_busy_submit("r1", "sid", session, "actually, B", viewer_b)
+
+    assert resp["result"]["status"] == "steered"
+    assert session["transport"] is viewer_b
+
+
+def test_redirect_claims_the_stream_it_just_changed(monkeypatch):
+    """Same for an in-place redirect: the turn is now answering B's prompt."""
+    monkeypatch.setattr(server, "_load_busy_input_mode", lambda: "interrupt")
+    viewer_a = types.SimpleNamespace(_closed=False)
+    viewer_b = types.SimpleNamespace(_closed=False)
+    agent = types.SimpleNamespace(
+        _supports_active_turn_redirect=True,
+        redirect=lambda _text: True,
+        interrupt=lambda: None,
+    )
+    session = _session(agent=agent, running=True, transport=viewer_a)
+
+    resp = server._handle_busy_submit("r1", "sid", session, "actually, B", viewer_b)
+
+    assert resp["result"]["status"] == "redirected"
+    assert session["transport"] is viewer_b
 
 
 # ── _handle_busy_submit (policy) ───────────────────────────────────────────

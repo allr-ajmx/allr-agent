@@ -7664,6 +7664,21 @@ def _interrupt_busy_session(sid: str, session: dict, agent: Any) -> None:
     threading.Thread(target=interrupt, daemon=True, name=f"busy-interrupt-{sid}").start()
 
 
+def _claim_live_turn_transport(session: dict, transport: Any) -> None:
+    """Point the session at *transport* because it just took the live turn over.
+
+    ``prompt.submit`` no longer rebinds up front — a mid-turn prompt is usually
+    only QUEUED, and rebinding for a queue steals the running viewer's stream
+    (see ``_resume_may_rebind_transport``). Steering and redirecting are the two
+    outcomes that genuinely change what the in-flight turn is answering, so the
+    client that caused them owns the stream from that point on.
+
+    Call with ``history_lock`` held.
+    """
+    if transport is not None:
+        session["transport"] = transport
+
+
 def _handle_busy_submit(
     rid, sid: str, session: dict, text: Any, transport: Any, queued: bool = False
 ) -> dict | None:
@@ -7707,6 +7722,7 @@ def _handle_busy_submit(
         try:
             if agent.steer(plain_text):
                 with session["history_lock"]:
+                    _claim_live_turn_transport(session, transport)
                     session["last_active"] = time.time()
                 return _ok(rid, {"status": "steered"})
         except Exception:
@@ -7725,6 +7741,7 @@ def _handle_busy_submit(
         try:
             if agent.redirect(plain_text):
                 with session["history_lock"]:
+                    _claim_live_turn_transport(session, transport)
                     _record_inflight_correction(session, plain_text)
                     session["last_active"] = time.time()
                 return _ok(rid, {"status": "redirected"})
@@ -8236,20 +8253,23 @@ def _live_visible_history(session: dict, db, in_memory_fallback: list[dict]) -> 
 
 
 def _resume_may_rebind_transport(session: dict, transport: Transport) -> bool:
-    """Whether a ``session.resume`` may point this session at *transport*.
+    """Whether a client request may point this session at *transport*.
 
-    Resume is also how a second viewer PEEKS at a session (another window, a
-    tile, a mobile bubble). Rebinding unconditionally meant that peek stole the
-    stream: a turn already running for viewer A suddenly emitted to viewer B,
-    and A watched its own answer stop mid-sentence.
+    ``session.resume`` is also how a second viewer PEEKS at a session (another
+    window, a tile, a mobile bubble), and ``prompt.submit`` reaches here too
+    when the prompt only gets QUEUED behind a live turn. Rebinding
+    unconditionally meant either one stole the stream: a turn already running
+    for viewer A suddenly emitted to viewer B, and A watched its own answer
+    stop mid-sentence.
 
     So a RUNNING session keeps the transport it is streaming to, unless that
     transport is gone — a disconnect points detached sessions at
-    ``_detached_ws_transport`` (see ``_reap_or_detach_sessions_for_transport``),
-    and a session parked there has no live reader, so the resuming client is
-    strictly better than nothing. An idle session always rebinds: with no turn
-    in flight there is nothing to interrupt, and the next prompt would rebind
-    anyway.
+    ``_detached_ws_transport`` (see ``_reap_or_detach_sessions_for_transport``)
+    and a closed WS leaves one behind until the reaper runs, so ask
+    ``_transport_is_dead`` rather than testing the sentinel by hand. A session
+    with no live reader is strictly better off with the requesting client. An
+    idle session always rebinds: with no turn in flight there is nothing to
+    interrupt, and the next prompt would rebind anyway.
     """
     current = session.get("transport")
 
@@ -8259,7 +8279,10 @@ def _resume_may_rebind_transport(session: dict, transport: Transport) -> bool:
     if not session.get("running"):
         return True
 
-    return current is _detached_ws_transport or current is _stdio_transport
+    # _stdio_transport is a REAL transport for a standalone `hermes --tui`, so
+    # _transport_is_dead deliberately excludes it — but a WS client resuming a
+    # session that fell back to stdio is still the better reader.
+    return _transport_is_dead(current) or current is _stdio_transport
 
 
 def _live_session_payload(

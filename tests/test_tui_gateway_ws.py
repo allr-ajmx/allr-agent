@@ -3,6 +3,7 @@ import concurrent.futures
 import json
 import threading
 import time
+import types
 
 from hermes_cli import mcp_startup
 from tui_gateway import server
@@ -327,6 +328,25 @@ def test_resume_is_idempotent_for_the_same_viewer():
 
     assert server._resume_may_rebind_transport(_rebind_session(True, viewer_a), viewer_a)
     assert server._resume_may_rebind_transport(_rebind_session(True, None), viewer_a)
+
+
+def test_resume_rebinds_a_running_session_whose_socket_closed_before_the_reaper():
+    """A closed WS is just as dead as the detached sentinel, and arrives first.
+
+    ``_reap_or_detach_sessions_for_transport`` swaps in ``_detached_ws_transport``
+    on disconnect, but until it runs the session still points at the client's
+    own closed transport. Testing only for the sentinel stranded a viewer that
+    resumed inside that window: nothing was reading the stream, yet the rebind
+    was refused. Ask ``_transport_is_dead`` — the gateway's existing answer to
+    "is this reader gone" — instead of re-deriving a subset of it.
+    """
+    viewer_b = object()
+
+    closed = _rebind_session(True, types.SimpleNamespace(_closed=True))
+    assert server._resume_may_rebind_transport(closed, viewer_b)
+
+    still_open = _rebind_session(True, types.SimpleNamespace(_closed=False))
+    assert not server._resume_may_rebind_transport(still_open, viewer_b)
 
 
 def test_secret_capture_callback_is_thread_local():
