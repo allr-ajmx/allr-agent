@@ -18,6 +18,7 @@ import {
   type RefObject,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState
 } from 'react'
@@ -39,6 +40,7 @@ import {
 import { Tip, TipKeybindLabel } from '@/components/ui/tooltip'
 import { ContribBoundary } from '@/contrib/react/boundary'
 import { useI18n } from '@/i18n'
+import { useStoreSelector } from '@/lib/use-session-slice'
 import { cn } from '@/lib/utils'
 import { DEV_TOOLS_ENABLED } from '@/observability/enabled'
 import { canOpenNewWindow } from '@/store/windows'
@@ -293,14 +295,41 @@ export function TreeGroup({
 
   const hiddenPanes = useStore($hiddenTreePanes)
   const narrow = useStore($narrowViewport)
-  const detached = useStore($detachedTiles)
-  const panesWithCloser = useStore($panesWithCloser)
-  // Reload epochs: only an explicit tab-menu Reload writes here, so this
-  // subscription costs nothing on a normal render.
-  const paneEpochs = useStore($treePaneEpochs)
-  // Multi-tab selection (⌥/Ctrl-click, Shift-click) — null for every zone but
-  // the one holding it, so this subscription is quiet during normal use.
-  const tabSelection = useStore($tabSelection)
+
+  // NARROWED (MJXHRM-381). These four atoms are global but every read below is
+  // about THIS zone's panes, so subscribing to the whole value meant one zone's
+  // detach, close-registration, Reload or tab-selection re-rendered every zone
+  // in the tree — headers, tab strips and the `menuDirections` walk included.
+  //
+  // `useStoreSelector` bails on `Object.is` of the SELECTED value, so each
+  // selector has to collapse to a scalar. For the three set/record reads that
+  // means a signature string over this node's pane list, rebuilt into a Set only
+  // when the signature actually moves. `node.panes` is in the dep arrays because
+  // a zone that gains a pane must re-derive its own membership.
+  const detachedKey = useStoreSelector($detachedTiles, panes => node.panes.filter(id => panes.has(id)).join('\u0000'))
+  const detached = useMemo(() => new Set(detachedKey ? detachedKey.split('\u0000') : []), [detachedKey])
+
+  const closerKey = useStoreSelector($panesWithCloser, panes => node.panes.filter(id => panes.has(id)).join('\u0000'))
+  const panesWithCloser = useMemo(() => new Set(closerKey ? closerKey.split('\u0000') : []), [closerKey])
+
+  // Reload epochs: only an explicit tab-menu Reload writes here, but that write
+  // is a whole-record replace, so an unnarrowed read remounted nothing and
+  // re-rendered everything.
+  const epochKey = useStoreSelector($treePaneEpochs, epochs => node.panes.map(id => epochs[id] ?? 0).join('\u0000'))
+
+  const paneEpochs = useMemo(
+    () => Object.fromEntries(epochKey.split('\u0000').map((value, index) => [node.panes[index], Number(value) || 0])),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `node.panes` is already folded into `epochKey`.
+    [epochKey]
+  )
+
+  // Multi-tab selection (⌥/Ctrl-click, Shift-click) lives in ONE zone at a time.
+  // Selecting to `null` for every other zone is what makes this quiet: the other
+  // zones' snapshots compare equal and never re-render.
+  const tabSelection = useStoreSelector($tabSelection, selection =>
+    selection?.groupId === node.id ? selection : null
+  )
+
   // A tile's strip tools are read during THIS render (see `stripTools` below),
   // so a glyph whose state moved without the tile re-registering needs a nudge.
   useStore($stripToolsRevision)
