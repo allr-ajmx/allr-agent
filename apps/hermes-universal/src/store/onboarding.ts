@@ -1,4 +1,4 @@
-import { API_KEY_OPTIONS, type ApiKeyOption, LOCAL_ENV_KEY } from '@/app/onboarding/api-key-options'
+import { API_KEY_OPTIONS, type ApiKeyOption, LOCAL_ENV_KEY, optionSlug } from '@/app/onboarding/api-key-options'
 import {
   cancelOAuthSession,
   getGlobalModelOptions,
@@ -84,9 +84,31 @@ function stopPolling() {
   pollSession = null
 }
 
+// `GET /api/model/recommended-default` answers 200 with `model: ""` whenever it
+// can't resolve one — a slug outside CANONICAL_PROVIDERS, a catalog that hasn't
+// warmed, a provider the freshly-written credential hasn't made "configured"
+// yet. That is a success SHAPE meaning nothing, and taking it at face value is
+// how the confirm step ends up naming no model and `confirmModel()` ends up
+// assigning none. So: treat an empty model as unresolved and fall back to the
+// provider's own curated list, the way desktop `fetchProviderDefaultModel` does.
+// Returns null when nothing can be resolved — callers must not pretend.
+async function resolveDefaultModel(slug: string): Promise<RecommendedDefaultModel | null> {
+  const recommended = await getRecommendedDefaultModel(slug).catch(() => null)
+
+  if (recommended?.model) {
+    return recommended
+  }
+
+  const options = await getGlobalModelOptions({ explicitOnly: false }).catch(() => null)
+  const row = (options?.providers ?? []).find(p => p.slug?.toLowerCase() === slug.toLowerCase())
+  const model = row?.models?.[0]
+
+  return model && row ? { provider: row.slug, model, free_tier: null } : null
+}
+
 async function onProviderConnected(provider: OAuthProvider) {
   stopPolling()
-  const recommended = await getRecommendedDefaultModel(provider.id).catch(() => null)
+  const recommended = await resolveDefaultModel(provider.id)
   patch({ step: 'confirm', providerSlug: provider.id, recommended, oauth: null, busy: false, error: null })
 }
 
@@ -414,8 +436,13 @@ export async function saveApiKey(option: ApiKeyOption, value: string, localApiKe
     }
 
     await setEnvVar(option.envKey, trimmed)
-    const recommended = await getRecommendedDefaultModel(option.id).catch(() => null)
-    patch({ busy: false, step: 'confirm', providerSlug: option.id, recommended })
+    // The key lands in `.env`; the backend only sees it once its process env is
+    // refreshed, and the model lookup below is the first thing that depends on
+    // it. Best-effort — the same reload the external-CLI recheck path runs.
+    await requestGateway('reload.env').catch(() => {})
+    const slug = optionSlug(option)
+    const recommended = await resolveDefaultModel(slug)
+    patch({ busy: false, step: 'confirm', providerSlug: slug, recommended })
 
     return true
   } catch (err) {

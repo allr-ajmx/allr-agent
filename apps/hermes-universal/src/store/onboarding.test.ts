@@ -28,6 +28,7 @@ vi.mock('@/lib/external-link', () => ({ openExternalLink: vi.fn(async () => {}) 
 import { API_KEY_OPTIONS } from '@/app/onboarding/api-key-options'
 import {
   getGlobalModelOptions,
+  getRecommendedDefaultModel,
   listOAuthProviders,
   setEnvVar,
   setModelAssignment,
@@ -67,8 +68,12 @@ const setEnv = vi.mocked(setEnvVar)
 const assign = vi.mocked(setModelAssignment)
 const validate = vi.mocked(validateProviderCredential)
 
+const recommend = vi.mocked(getRecommendedDefaultModel)
+
 const openrouter = API_KEY_OPTIONS.find(o => o.id === 'openrouter')!
 const local = API_KEY_OPTIONS.find(o => o.id === 'local')!
+const fireworks = API_KEY_OPTIONS.find(o => o.id === 'fireworks')!
+const openai = API_KEY_OPTIONS.find(o => o.id === 'openai')!
 
 describe('onboarding store', () => {
   beforeEach(() => {
@@ -122,6 +127,44 @@ describe('onboarding store', () => {
     )
     expect($onboardingSeen.get()).toBe(true)
     expect($onboardingActive.get()).toBe(false)
+  })
+
+  // `GET /api/model/recommended-default` answers 200 with `model: ""` when it
+  // cannot resolve one — it never errors — so the empty string is the shape the
+  // client actually has to survive.
+  it('falls back to the provider catalog when recommended-default answers with an empty model', async () => {
+    recommend.mockResolvedValueOnce({ provider: 'fireworks', model: '', free_tier: null })
+    options.mockResolvedValueOnce({
+      providers: [{ name: 'Fireworks AI', slug: 'fireworks', models: ['accounts/fireworks/models/kimi-k2'] }]
+    } as never)
+
+    await saveApiKey(fireworks, 'fw-test')
+
+    expect($onboarding.get().recommended).toEqual({
+      provider: 'fireworks',
+      model: 'accounts/fireworks/models/kimi-k2',
+      free_tier: null
+    })
+  })
+
+  it('recommends nothing — and assigns nothing — when no model can be resolved at all', async () => {
+    recommend.mockResolvedValueOnce({ provider: 'fireworks', model: '', free_tier: null })
+    options.mockResolvedValueOnce({ providers: [] } as never)
+
+    await saveApiKey(fireworks, 'fw-test')
+    expect($onboarding.get().recommended).toBeNull()
+
+    await confirmModel()
+    expect(assign).not.toHaveBeenCalled()
+  })
+
+  it('looks the OpenAI option up under the slug the backend actually uses', async () => {
+    recommend.mockResolvedValueOnce({ provider: 'openai-api', model: 'gpt-5', free_tier: null })
+
+    await saveApiKey(openai, 'sk-test')
+
+    expect(recommend).toHaveBeenCalledWith('openai-api')
+    expect($onboarding.get().providerSlug).toBe('openai-api')
   })
 
   it('wires a local endpoint via validate + custom assignment', async () => {
