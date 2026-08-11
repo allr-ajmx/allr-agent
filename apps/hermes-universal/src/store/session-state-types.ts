@@ -349,12 +349,30 @@ export function rekeySession(fromKey: string, toKey: string, patch?: Partial<Cli
   const prevAtTarget = states[toKey] ?? null
   const next = { ...moving, ...patch, lastTouchedAt: Date.now() }
   const { [fromKey]: _moved, ...rest } = states
-  $sessionStates.set({ ...rest, [toKey]: next })
 
-  // Carry every alias across, not just the current stored id — a session that
-  // rotated before being rekeyed still has callers holding its older ids.
+  // BEFORE the publish, not after. The reverse index is not an atom — it is a
+  // plain map that subscribers CONSULT while they react to the publish, and
+  // `$sessionStates.set` notifies synchronously. Remapping afterwards meant
+  // every `runtimeKeyForStoredSession` call made from inside that notification
+  // resolved the stored id to the OLD key, found it missing from the map it had
+  // just been handed, and took the self-healing branch — which DELETES the index
+  // entry. The remap below then had nothing left to move, and although
+  // `indexStoredId` re-seeded the entry a statement later, the damage was
+  // already done: `tileRuntimeKey` / `bubbleRuntimeKey` / `$focusedRuntimeId`
+  // are memoized computeds, so each one had already latched its fallback (a
+  // tile's cached `runtimeId`, i.e. the DEAD key) and would not recompute until
+  // some unrelated write touched the map again. A tile recovered while idle
+  // therefore went blank — the promise this function is named for, "no
+  // subscriber ever observes a frame where the session exists under neither
+  // key", held for the map and not for the index that addresses it (MJXHRM-308).
+  //
+  // Nothing observes the window between these two statements: neither writes an
+  // atom, so there is no notification to run a reader in it.
   remapStoredIdIndex(fromKey, toKey)
   indexStoredId(prevAtTarget, next, toKey)
+
+  $sessionStates.set({ ...rest, [toKey]: next })
+
   fireSessionKeyHook(hooks => hooks.rekey(fromKey, toKey, moving))
 
   if ($activeSessionKey.get() === fromKey) {
