@@ -124,11 +124,28 @@ const ThinkingDisclosure: FC<{
       return
     }
 
-    const pin = () => {
-      el.scrollTop = el.scrollHeight
+    // HEIGHT-GATED (MJXHRM-45), matching desktop's `message-parts.tsx`. The
+    // observer also fires when the container's WIDTH changes — a sidebar or
+    // right-rail sash drag resizes every message — and pinning there costs a
+    // `scrollHeight` read plus a `scrollTop` write per live preview per frame,
+    // which is a forced synchronous layout on each one. Only real content
+    // growth needs the pin, and the height rides in on the RO entry, so the
+    // gate itself is reflow-free.
+    let lastHeight = -1
+
+    const pin = (entries: readonly ResizeObserverEntry[]) => {
+      const height = entries[entries.length - 1]?.borderBoxSize?.[0]?.blockSize ?? -1
+      const grew = height < 0 || height > lastHeight
+      lastHeight = height
+
+      if (grew) {
+        el.scrollTop = el.scrollHeight
+      }
     }
 
-    pin()
+    // No synchronous pin(): ResizeObserver guarantees an initial delivery, and
+    // it runs with layout already clean (still before paint), so letting the
+    // observer do the first pin avoids a forced reflow at mount.
     const observer = new ResizeObserver(pin)
     observer.observe(content)
 
