@@ -19,8 +19,26 @@
 
 import { type ChatMessage, chatMessageText, type ChatPart } from '@/lib/chat-messages'
 
-const STORAGE_KEY = 'hermes.universal.inflightTurnJournal.v1'
-const STORE_VERSION = 1
+/**
+ * ONE localStorage key PER SESSION.
+ *
+ * v1 kept every session's tail in a single key, so each throttled write
+ * re-parsed and re-stringified EVERY busy session's snapshot. With one chat that
+ * is invisible; with a grid of tiles streaming at once it is a whole-store JSON
+ * round trip several times a second, synchronously, on the token path — the
+ * exact cost the throttle above exists to keep off it. Per-session keys make a
+ * write O(this session's tail) no matter how many others are streaming.
+ *
+ * (Universal's own shape of upstream `3139a30e52`. The other two thirds of that
+ * commit — slice eviction and lineage-alias indexing — universal already solves
+ * differently: `pruneSessionStates` caps the map, and `keyByStoredId` is already
+ * an O(1) index.)
+ */
+const STORAGE_PREFIX = 'hermes.universal.inflightTurnJournal.v2:'
+
+/** The single-key v1 store. Migrated on first touch, then removed — a crash
+ *  that happened before the upgrade must still be recoverable after it. */
+const LEGACY_STORAGE_KEY = 'hermes.universal.inflightTurnJournal.v1'
 
 /** Journals older than this are not worth restoring — the conversation has
  *  moved on, and re-injecting a week-old tail is worse than a gap. */
@@ -67,97 +85,177 @@ export interface InFlightRecoveryResult {
   turnStartedAt: null | number
 }
 
-interface JournalStore {
-  entries: Record<string, InFlightTurnSnapshot>
-  version: number
-}
-
 // --- storage ---------------------------------------------------------------
 
-const emptyStore = (): JournalStore => ({ entries: {}, version: STORE_VERSION })
-
 const isExpired = (snapshot: InFlightTurnSnapshot, now: number): boolean => now - snapshot.updatedAt > MAX_AGE_MS
+
+const entryKey = (storedSessionId: string): string => `${STORAGE_PREFIX}${storedSessionId}`
+
+function storage(): Storage | null {
+  try {
+    return typeof window === 'undefined' ? null : window.localStorage
+  } catch {
+    // A blocked-storage origin throws on ACCESS, not on use.
+    return null
+  }
+}
 
 /**
  * Which sessions have an entry — an in-memory mirror of the store's KEYS.
  *
- * `persistInFlightTurnState` is called for every session on every state
- * commit, and its dominant case by far is "this session is idle, clear it".
- * Answering that from storage means a synchronous `getItem` + `JSON.parse` of
- * the whole journal PER IDLE SESSION PER DELTA — the same blocking read the
- * write path goes to such lengths to throttle off the token path. The key set
- * answers it for free, and only a real hit pays for the parse.
+ * `persistInFlightTurnState` is called for every session on every state commit,
+ * and its dominant case by far is "this session is idle, clear it". The mirror
+ * answers that without going to storage at all; only a real hit pays for a
+ * `removeItem`.
  *
  * `null` means "not hydrated yet"; a `storage` event from another window
  * invalidates it (see below), so a second window's write is never masked.
  */
 let indexedIds: null | Set<string> = null
 
+/** Expiry/overflow pruning and the v1 migration: once per renderer, on the
+ *  first touch of the journal rather than at import, so a module that is only
+ *  imported for its pure merge helpers pays nothing. */
+let housekeepingDone = false
+
+function journalKeys(store: Storage): string[] {
+  const keys: string[] = []
+
+  for (let index = 0; index < store.length; index += 1) {
+    const key = store.key(index)
+
+    if (key?.startsWith(STORAGE_PREFIX)) {
+      keys.push(key)
+    }
+  }
+
+  return keys
+}
+
+function migrateLegacyStore(store: Storage): void {
+  const raw = store.getItem(LEGACY_STORAGE_KEY)
+
+  if (!raw) {
+    return
+  }
+
+  store.removeItem(LEGACY_STORAGE_KEY)
+
+  const parsed = JSON.parse(raw) as { entries?: Record<string, InFlightTurnSnapshot> }
+
+  for (const [storedSessionId, snapshot] of Object.entries(parsed?.entries ?? {})) {
+    if (snapshot && typeof snapshot.updatedAt === 'number' && Array.isArray(snapshot.messages)) {
+      store.setItem(entryKey(storedSessionId), JSON.stringify(snapshot))
+    }
+  }
+}
+
+function ensureHousekeeping(): void {
+  if (housekeepingDone) {
+    return
+  }
+
+  housekeepingDone = true
+
+  const store = storage()
+
+  if (!store) {
+    return
+  }
+
+  try {
+    migrateLegacyStore(store)
+
+    const now = Date.now()
+    const live: { key: string; updatedAt: number }[] = []
+
+    for (const key of journalKeys(store)) {
+      let snapshot: InFlightTurnSnapshot | null = null
+
+      try {
+        snapshot = JSON.parse(store.getItem(key) ?? '') as InFlightTurnSnapshot
+      } catch {
+        /* unparseable — pruned below */
+      }
+
+      if (!snapshot || typeof snapshot.updatedAt !== 'number' || isExpired(snapshot, now)) {
+        store.removeItem(key)
+      } else {
+        live.push({ key, updatedAt: snapshot.updatedAt })
+      }
+    }
+
+    // Bounded storage, oldest evicted first.
+    live.sort((a, b) => b.updatedAt - a.updatedAt)
+
+    for (const { key } of live.slice(MAX_ENTRIES)) {
+      store.removeItem(key)
+    }
+  } catch {
+    /* best-effort, like every other journal write */
+  }
+}
+
 function knownIds(): Set<string> {
+  ensureHousekeeping()
+
   if (!indexedIds) {
-    indexedIds = new Set(Object.keys(loadStore().entries))
+    const store = storage()
+
+    // Keys only — no `getItem`, no parse. This is the whole point of the mirror.
+    indexedIds = new Set(store ? journalKeys(store).map(key => key.slice(STORAGE_PREFIX.length)) : [])
   }
 
   return indexedIds
 }
 
 if (typeof window !== 'undefined') {
-  // Satellite windows share this origin, and therefore this key. Whoever wrote
+  // Satellite windows share this origin, and therefore these keys. Whoever wrote
   // last is authoritative; drop the mirror rather than trusting our own view of
-  // a blob someone else just rewrote.
+  // a key someone else just wrote or removed.
   window.addEventListener('storage', event => {
-    if (event.key === null || event.key === STORAGE_KEY) {
+    if (event.key === null || event.key.startsWith(STORAGE_PREFIX)) {
       indexedIds = null
     }
   })
 }
 
-function loadStore(): JournalStore {
-  if (typeof window === 'undefined') {
-    return emptyStore()
+function loadEntry(storedSessionId: string): InFlightTurnSnapshot | null {
+  ensureHousekeeping()
+
+  const store = storage()
+
+  if (!store) {
+    return null
   }
 
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY)
-    const parsed = raw ? (JSON.parse(raw) as Partial<JournalStore>) : null
+    const raw = store.getItem(entryKey(storedSessionId))
+    const parsed = raw ? (JSON.parse(raw) as InFlightTurnSnapshot) : null
 
-    if (!parsed || parsed.version !== STORE_VERSION || typeof parsed.entries !== 'object' || !parsed.entries) {
-      return emptyStore()
-    }
-
-    return { entries: parsed.entries, version: STORE_VERSION }
+    return parsed && typeof parsed.updatedAt === 'number' && Array.isArray(parsed.messages) ? parsed : null
   } catch {
-    return emptyStore()
+    return null
   }
 }
 
-function saveStore(store: JournalStore): void {
-  if (typeof window === 'undefined') {
-    return
-  }
-
-  const now = Date.now()
-
-  const kept = Object.entries(store.entries)
-    .filter(([, snapshot]) => !isExpired(snapshot, now))
-    .sort(([, a], [, b]) => b.updatedAt - a.updatedAt)
-    .slice(0, MAX_ENTRIES)
-
-  indexedIds = new Set(kept.map(([id]) => id))
+function saveEntry(storedSessionId: string, snapshot: InFlightTurnSnapshot): void {
+  knownIds().add(storedSessionId)
 
   try {
-    if (kept.length === 0) {
-      window.localStorage.removeItem(STORAGE_KEY)
-
-      return
-    }
-
-    window.localStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify({ entries: Object.fromEntries(kept), version: STORE_VERSION })
-    )
+    storage()?.setItem(entryKey(storedSessionId), JSON.stringify(snapshot))
   } catch {
     /* storage full or unavailable — the live turn is unaffected */
+  }
+}
+
+function removeEntry(storedSessionId: string): void {
+  knownIds().delete(storedSessionId)
+
+  try {
+    storage()?.removeItem(entryKey(storedSessionId))
+  } catch {
+    /* best-effort */
   }
 }
 
@@ -437,16 +535,12 @@ function writeSnapshot(storedSessionId: string, state: JournalableSessionState):
     return
   }
 
-  const store = loadStore()
-
-  store.entries[storedSessionId] = {
+  saveEntry(storedSessionId, {
     messages: JSON.parse(JSON.stringify(tail)) as ChatMessage[],
     streamId: state.streamId,
     turnStartedAt: state.turnStartedAt,
     updatedAt: Date.now()
-  }
-
-  saveStore(store)
+  })
 }
 
 /**
@@ -498,16 +592,14 @@ export function readInFlightTurnJournal(storedSessionId: null | string): InFligh
     return null
   }
 
-  const store = loadStore()
-  const snapshot = store.entries[storedSessionId]
+  const snapshot = loadEntry(storedSessionId)
 
   if (!snapshot) {
     return null
   }
 
   if (isExpired(snapshot, Date.now())) {
-    delete store.entries[storedSessionId]
-    saveStore(store)
+    removeEntry(storedSessionId)
 
     return null
   }
@@ -530,25 +622,19 @@ export function clearInFlightTurnJournal(storedSessionId: null | string): void {
   persistLatest.delete(storedSessionId)
 
   // The overwhelmingly common call: an idle session, on every state commit.
-  // Answer it from the key mirror so the hot path never parses the blob.
+  // Answer it from the key mirror so the hot path never touches storage at all.
   if (!knownIds().has(storedSessionId)) {
     return
   }
 
-  const store = loadStore()
-
-  if (storedSessionId in store.entries) {
-    delete store.entries[storedSessionId]
-    saveStore(store)
-  } else {
-    indexedIds = new Set(Object.keys(store.entries))
-  }
+  removeEntry(storedSessionId)
 }
 
 /** Test hook — drop the in-memory key mirror so a test that writes storage
  *  directly is not answered from a stale view of it. */
 export function __resetInFlightTurnJournalCache(): void {
   indexedIds = null
+  housekeepingDone = false
 
   for (const timer of persistTimers.values()) {
     clearTimeout(timer)

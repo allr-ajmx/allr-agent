@@ -246,13 +246,72 @@ describe('the persisted journal', () => {
     ) as Storage
 
     const getItem = vi.spyOn(readTarget, 'getItem')
+    const removeItem = vi.spyOn(readTarget, 'removeItem')
 
     clearInFlightTurnJournal('never-journaled')
     clearInFlightTurnJournal('never-journaled')
     clearInFlightTurnJournal('never-journaled')
 
+    // One read only, and it is the once-per-renderer v1 probe — not a per-call
+    // parse of the store. The key mirror answers the rest, so nothing reaches
+    // storage for a session that was never journaled.
     expect(getItem).toHaveBeenCalledTimes(1)
+    expect(removeItem).not.toHaveBeenCalled()
     getItem.mockRestore()
+    removeItem.mockRestore()
+  })
+
+  // The v1 store kept every session under ONE key, so each throttled write
+  // re-parsed and re-stringified every OTHER busy session's tail — a grid of
+  // streaming tiles turned the journal into a whole-store JSON round trip
+  // several times a second, on the token path (upstream 3139a30e52).
+  it('writes each session under its own key, untouched by another settling', () => {
+    vi.useFakeTimers()
+    persistInFlightTurnState(busyState)
+    persistInFlightTurnState({ ...busyState, storedSessionId: 'stored-2' })
+    vi.advanceTimersByTime(500)
+    vi.useRealTimers()
+
+    const keys = Object.keys(window.localStorage).filter(key => key.includes('inflightTurnJournal'))
+
+    expect(keys).toHaveLength(2)
+
+    // A spy that would catch a regression to the shared blob: clearing one
+    // session must not rewrite the other's storage entry at all.
+    const raw = window.localStorage.getItem(keys.find(key => key.endsWith('stored-1')) as string)
+
+    clearInFlightTurnJournal('stored-2')
+
+    expect(window.localStorage.getItem(keys.find(key => key.endsWith('stored-1')) as string)).toBe(raw)
+    expect(readInFlightTurnJournal('stored-1')).not.toBeNull()
+    expect(readInFlightTurnJournal('stored-2')).toBeNull()
+  })
+
+  it('recovers turns journaled by the single-key v1 store', () => {
+    // A crash that happened before the upgrade is exactly the crash the journal
+    // exists for; dropping v1 on migration would lose it.
+    window.localStorage.setItem(
+      'hermes.universal.inflightTurnJournal.v1',
+      JSON.stringify({
+        entries: {
+          'stored-legacy': {
+            messages: [user('u1', 'legacy prompt'), assistant('a1', 'legacy partial', { pending: true })],
+            streamId: 'a1',
+            turnStartedAt: 500,
+            updatedAt: Date.now()
+          }
+        },
+        version: 1
+      })
+    )
+    __resetInFlightTurnJournalCache()
+
+    const snapshot = readInFlightTurnJournal('stored-legacy')
+
+    expect(snapshot?.streamId).toBe('a1')
+    expect(snapshot?.messages).toHaveLength(2)
+    // …and the v1 blob is gone, so it cannot be migrated twice.
+    expect(window.localStorage.getItem('hermes.universal.inflightTurnJournal.v1')).toBeNull()
   })
 
   // Re-injecting a week-old tail is worse than the gap it fills.

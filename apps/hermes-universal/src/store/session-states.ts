@@ -39,6 +39,7 @@ import { readJson, writeJson } from '@/lib/storage'
 import { discardDeltas, disposeStreamBatch, flushDeltas } from '@/lib/stream-batch'
 import { beginDetached, endSpan } from '@/observability'
 import { resetUnscopedStreamPin } from '@/store/event-router'
+import { clearLiveSessionStatuses } from '@/store/live-session-registry'
 import { $activeGatewayProfile, normalizeProfileKey } from '@/store/profile'
 import { clearAllPrompts } from '@/store/prompts'
 import {
@@ -129,33 +130,6 @@ function clearWatchdog(runtimeId: string) {
   }
 }
 
-// --- Settle grace: keeps a just-finished session in the sidebar merge set ---
-const SESSION_SETTLE_GRACE_MS = 30 * 1000
-const settledExpiry = new Map<string, number>()
-
-function markSettled(storedId: string) {
-  settledExpiry.set(storedId, Date.now() + SESSION_SETTLE_GRACE_MS)
-}
-
-function clearSettled(storedId: string) {
-  settledExpiry.delete(storedId)
-}
-
-/** Stored ids whose turn ended within the grace window. Prunes expired. */
-export function getRecentlySettledSessionIds(now: number = Date.now()): string[] {
-  const live: string[] = []
-
-  for (const [id, expiry] of settledExpiry) {
-    if (expiry > now) {
-      live.push(id)
-    } else {
-      settledExpiry.delete(id)
-    }
-  }
-
-  return live
-}
-
 // --- Transition detection (called automatically from publishSessionState) ---
 function handleTransition(previous: ClientSessionState | null, next: ClientSessionState, key: string) {
   // Compression id rotation: signal the route-follow effect with enough
@@ -169,7 +143,6 @@ function handleTransition(previous: ClientSessionState | null, next: ClientSessi
       })
     }
 
-    clearSettled(previous.storedSessionId)
     setSessionStalled(previous.storedSessionId, false)
   }
 
@@ -198,19 +171,12 @@ function handleTransition(previous: ClientSessionState | null, next: ClientSessi
     return
   }
 
-  const wasWorking = previous?.busy ?? false
+  // The busy→idle EDGE is what marks a background session unread ("your turn").
+  if (!next.busy && (previous?.busy ?? false) && storedId !== $activeStoredSessionId.get()) {
+    const cur = $unreadFinishedSessionIds.get()
 
-  if (next.busy && !wasWorking) {
-    clearSettled(storedId)
-  } else if (!next.busy && wasWorking) {
-    markSettled(storedId)
-
-    if (storedId !== $activeStoredSessionId.get()) {
-      const cur = $unreadFinishedSessionIds.get()
-
-      if (!cur.includes(storedId)) {
-        $unreadFinishedSessionIds.set([...cur, storedId])
-      }
+    if (!cur.includes(storedId)) {
+      $unreadFinishedSessionIds.set([...cur, storedId])
     }
   }
 }
@@ -247,9 +213,12 @@ export function clearAllSessionStates() {
   }
 
   sessionWatchdogTimers.clear()
-  settledExpiry.clear()
   clearStoredIdIndex()
   clearAllPrompts()
+  // Liveness is scoped to the gateway that reported it: both callers are moving
+  // to a backend whose registry we have not read yet, so every row it named is
+  // as dead as the runtime ids above.
+  clearLiveSessionStatuses()
   // Turns are keyed by the SAME session keys this wipes, and the map is not
   // reachable through `dropSessionState` from here — the whole atom is replaced
   // below rather than evicted key by key. Both callers (a profile switch, the

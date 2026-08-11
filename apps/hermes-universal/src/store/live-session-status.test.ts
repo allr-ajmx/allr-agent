@@ -38,7 +38,12 @@ import {
   startLiveSessionSync
 } from '@/store/live-session-status'
 import { $changeEventsAvailable, $sessionsChangeTick, resetLiveSync } from '@/store/live-sync'
-import { $activeStoredSessionId, $workingSessionIds } from '@/store/session'
+import {
+  $activeStoredSessionId,
+  $attentionSessionIds,
+  $unreadFinishedSessionIds,
+  $workingSessionIds
+} from '@/store/session'
 import {
   $activeSessionKey,
   $sessionStates,
@@ -58,6 +63,7 @@ beforeEach(() => {
   resetLiveRuntimeTracking()
   $activeSessionKey.set('idle-active')
   $activeStoredSessionId.set(null)
+  $unreadFinishedSessionIds.set([])
   seed('idle-active', { runtimeSessionId: 'idle-active', storedSessionId: 'idle-active' })
 })
 
@@ -67,8 +73,51 @@ describe('rehydrateLiveSessionStatuses', () => {
     // ever told us, which is the whole point of the snapshot.
     rehydrateLiveSessionStatuses(snapshot({ id: 'rt-1', session_key: 'stored-1', status: 'working' }))
 
-    expect($sessionStates.get()['rt-1']).toMatchObject({ busy: true, needsInput: false, storedSessionId: 'stored-1' })
     expect($workingSessionIds.get().has('stored-1')).toBe(true)
+  })
+
+  it('leaves a live stranger with NOTHING a warm short-circuit could adopt', () => {
+    // The regression this split exists for (MJXHRM-356). The snapshot used to
+    // publish a `$sessionStates` slice for a session it had only HEARD about: no
+    // transcript, no `session.resume`, no transport bound to this webview — but
+    // WITH a `storedSessionId`, so `publishSessionState` indexed it.
+    //
+    // `runtimeKeyForStoredSession` returning a key IS the warm test both
+    // `store/session.ts#openSession` and the tile delegate's
+    // `resumeSessionToState` gate on, and a hit means "already whole, nothing to
+    // fetch". Opening the session therefore adopted the empty stub and skipped
+    // the `hydrating: → runtime` rekey — and with it live-tail reconciliation,
+    // crash-journal recovery, and `adoptResumedTurn` putting the session into
+    // `$inflightTurns` where a reconnect can find it. A session the gateway
+    // reports live that we hold no slice for is, by construction, the case right
+    // after a crash: exactly when that recovery is the whole point.
+    rehydrateLiveSessionStatuses(snapshot({ id: 'rt-warm', session_key: 'stored-warm', status: 'working' }))
+
+    expect(runtimeKeyForStoredSession('stored-warm')).toBeNull()
+    expect($sessionStates.get()['rt-warm']).toBeUndefined()
+    // …and the row still lights up, which is the only reason the stub existed.
+    expect($workingSessionIds.get().has('stored-warm')).toBe(true)
+  })
+
+  it('raises the attention dot for a stranger parked on a clarify', () => {
+    rehydrateLiveSessionStatuses(snapshot({ id: 'rt-wait', session_key: 'stored-wait', status: 'waiting' }))
+
+    expect($attentionSessionIds.get()).toContain('stored-wait')
+    expect($workingSessionIds.get().has('stored-wait')).toBe(true)
+  })
+
+  it('lets the SLICE answer for a session this client actually holds', () => {
+    // The snapshot trails a poll behind; the slice settles on the terminal
+    // frame. A finished turn must not keep its spinner for up to 30s just
+    // because the registry still lists it.
+    seed('rt-own', { busy: true, runtimeSessionId: 'rt-own', storedSessionId: 'stored-own' })
+    rehydrateLiveSessionStatuses(snapshot({ id: 'rt-own', session_key: 'stored-own', status: 'working' }))
+
+    expect($workingSessionIds.get().has('stored-own')).toBe(true)
+
+    publishSessionState('rt-own', { ...$sessionStates.get()['rt-own'], busy: false })
+
+    expect($workingSessionIds.get().has('stored-own')).toBe(false)
   })
 
   it('does NOT create a slice for an idle stranger', () => {
@@ -124,13 +173,28 @@ describe('rehydrateLiveSessionStatuses', () => {
 })
 
 describe('reaping runtimes that vanish between snapshots', () => {
-  it('settles a session the gateway dropped, so the spinner clears and the row goes unread', () => {
-    // The busy→idle EDGE is what marks it unread; a silent delete would not.
+  it('darkens a STRANGER the gateway dropped, and marks its row unread', () => {
+    // No slice to publish a busy→idle transition through, so the "your turn" dot
+    // has to come off the registry diff instead — otherwise a cron / messaging /
+    // TUI turn finishing while nothing local held the session went unannounced.
     rehydrateLiveSessionStatuses(snapshot({ id: 'rt-5', session_key: 'stored-5', status: 'working' }))
+
+    expect($workingSessionIds.get().has('stored-5')).toBe(true)
+
     rehydrateLiveSessionStatuses(snapshot())
 
-    expect($sessionStates.get()['rt-5']).toMatchObject({ busy: false, needsInput: false, streamId: null })
     expect($workingSessionIds.get().has('stored-5')).toBe(false)
+    expect($unreadFinishedSessionIds.get()).toContain('stored-5')
+  })
+
+  it('settles the SLICE of a session the gateway dropped, so the spinner clears', () => {
+    // The busy→idle EDGE is what marks it unread; a silent delete would not.
+    seed('rt-5b', { busy: true, runtimeSessionId: 'rt-5b', storedSessionId: 'stored-5b' })
+    rehydrateLiveSessionStatuses(snapshot({ id: 'rt-5b', session_key: 'stored-5b', status: 'working' }))
+    rehydrateLiveSessionStatuses(snapshot())
+
+    expect($sessionStates.get()['rt-5b']).toMatchObject({ busy: false, needsInput: false, streamId: null })
+    expect($workingSessionIds.get().has('stored-5b')).toBe(false)
   })
 
   it('reaps a session whose slice was rekeyed onto its runtime id in the meantime', () => {
@@ -161,6 +225,8 @@ describe('reaping runtimes that vanish between snapshots', () => {
   })
 
   it('only reaps what the SAME profile previously saw', () => {
+    seed('rt-8', { busy: true, runtimeSessionId: 'rt-8', storedSessionId: 'stored-8' })
+
     rehydrateLiveSessionStatuses(
       snapshot({ id: 'rt-8', session_key: 'stored-8', status: 'working' }),
       Date.now(),
@@ -171,6 +237,9 @@ describe('reaping runtimes that vanish between snapshots', () => {
     rehydrateLiveSessionStatuses(snapshot(), Date.now(), 'personal')
 
     expect($sessionStates.get()['rt-8'].busy).toBe(true)
+    // The registry is per profile too, or the same empty snapshot would darken
+    // the other gateway's rows.
+    expect($workingSessionIds.get().has('stored-8')).toBe(true)
   })
 
   it('forgets its bookkeeping on a gateway wipe', () => {

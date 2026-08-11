@@ -41,11 +41,14 @@
  *   `store/session-state-types.ts`). A conversation already open under a
  *   `hydrating:` / `draft:` placeholder must not get a second slice from the
  *   snapshot, so every row resolves through `runtimeKeyForStoredSession` first.
- * - **A slice is only CREATED for a session that is actually live** (working or
- *   waiting). Desktop creates one per snapshot row; universal caps the map at
- *   `MAX_CACHED_SESSIONS` and prunes idle slices on every growth, so seeding
- *   idle strangers would churn create→prune→republish on every poll and
- *   re-render the sidebar for nothing.
+ * - **No slice is ever CREATED here.** Desktop creates one per snapshot row;
+ *   universal records a stranger's liveness in `store/live-session-registry.ts`
+ *   instead. A slice minted from the snapshot alone has no transcript and no
+ *   transport, yet is indexed by stored id — so it satisfied the warm
+ *   short-circuit in `openSession` / the tile delegate's `resumeSessionToState`
+ *   and made them adopt an empty, unbound session INSTEAD of hydrating it
+ *   through the `hydrating: → runtime` rekey (MJXHRM-356). See the registry's
+ *   header for the whole shape.
  * - **The reap is identity-guarded.** Desktop can look a vanished runtime up
  *   directly because its keys ARE runtime ids; here the lookup goes through the
  *   stored id, so it must confirm the slice it lands on is the same runtime
@@ -53,10 +56,15 @@
  */
 
 import { $gatewayState, requestGateway } from '@/store/gateway'
+import { clearLiveSessionStatuses, type LiveSessionStatus, setLiveSessionStatuses } from '@/store/live-session-registry'
 import { $changeEventsAvailable, $sessionsChangeTick } from '@/store/live-sync'
 import { $activeGatewayProfile, normalizeProfileKey } from '@/store/profile'
-import { refreshMessagingSessions, refreshSessions } from '@/store/session'
-import { emptySessionState } from '@/store/session-state-types'
+import {
+  $activeStoredSessionId,
+  $unreadFinishedSessionIds,
+  refreshMessagingSessions,
+  refreshSessions
+} from '@/store/session'
 import {
   $sessionStates,
   publishSessionState,
@@ -119,6 +127,7 @@ const liveRuntimesByProfile = new Map<string, Map<string, string>>()
  *  runtimes that no longer exist. */
 export function resetLiveRuntimeTracking(): void {
   liveRuntimesByProfile.clear()
+  clearLiveSessionStatuses()
 }
 
 /**
@@ -134,6 +143,7 @@ export function rehydrateLiveSessionStatuses(
   profileKey = 'default'
 ): void {
   const seen = new Map<string, string>()
+  const live: Record<string, LiveSessionStatus> = {}
 
   for (const session of response.sessions ?? []) {
     const runtimeSessionId = session.id?.trim()
@@ -149,10 +159,10 @@ export function rehydrateLiveSessionStatuses(
     const working = session.status === 'working' || needsInput
 
     // The slice this conversation already lives in, whatever key it is under
-    // (a runtime id, or a `hydrating:` placeholder mid-resume). Falling back to
-    // the runtime id is what lets a session running somewhere else — a cron
-    // tick, an inbound messaging turn, the TUI — light up the sidebar row at
-    // all: `$workingSessionIds` reads the whole map, keyed by stored id.
+    // (a runtime id, or a `hydrating:` placeholder mid-resume). The fallback to
+    // the runtime id catches the one slice the router creates without a stored
+    // id — a blocking prompt for a session nothing had opened — and stamps the
+    // conversation onto it.
     const key = runtimeKeyForStoredSession(storedSessionId) ?? runtimeSessionId
     const existing = $sessionStates.get()[key]
 
@@ -164,27 +174,21 @@ export function rehydrateLiveSessionStatuses(
     // here a poll lands between submit and first token and darkens the row.
     const busy = working || Boolean(existing?.awaitingResponse && !existing.sawAssistantPayload)
 
-    if (!existing) {
-      // Nothing to restore for an idle stranger, and creating a slice for one
-      // would only feed the LRU: `pruneSessionStates` evicts idle unpinned
-      // slices on every map growth, so the next snapshot would recreate it and
-      // republish `$sessionStates` on a loop.
-      if (!busy && !needsInput) {
-        setSessionStalled(storedSessionId, false)
+    if (working) {
+      // A session with a slice records its liveness here too, harmlessly: the
+      // consumers prefer the slice, which is both authoritative and faster to
+      // settle. Recording it unconditionally is what makes the diff returned by
+      // `setLiveSessionStatuses` a true "this turn ended" edge.
+      live[storedSessionId] = needsInput ? 'waiting' : 'working'
+    }
 
-        continue
-      }
-
-      publishSessionState(key, {
-        ...emptySessionState(storedSessionId),
-        busy,
-        needsInput,
-        runtimeSessionId
-      })
-    } else if (
-      existing.storedSessionId !== storedSessionId ||
-      existing.busy !== busy ||
-      existing.needsInput !== needsInput
+    // NO SLICE IS CREATED for a stranger. Its liveness rides the registry above;
+    // minting a transcript-less, transport-less slice for it made every warm
+    // short-circuit adopt that instead of hydrating the session (see the header,
+    // and `store/live-session-registry.ts`).
+    if (
+      existing &&
+      (existing.storedSessionId !== storedSessionId || existing.busy !== busy || existing.needsInput !== needsInput)
     ) {
       // Avoid re-arming the watchdog on every poll: publish only when the
       // authoritative snapshot differs from the renderer mirror. Normal gateway
@@ -211,6 +215,22 @@ export function rehydrateLiveSessionStatuses(
 
   reapVanishedRuntimes(seen, profileKey)
   liveRuntimesByProfile.set(profileKey, seen)
+
+  // A stranger's turn ENDING has no slice to publish a busy→idle transition
+  // through, and that transition is what marks a row unread. Do it from the
+  // registry diff instead, or a cron / messaging / TUI turn finishing while
+  // nothing local held the session would never raise "your turn".
+  for (const storedSessionId of setLiveSessionStatuses(profileKey, live)) {
+    if (runtimeKeyForStoredSession(storedSessionId) || storedSessionId === $activeStoredSessionId.get()) {
+      continue
+    }
+
+    const unread = $unreadFinishedSessionIds.get()
+
+    if (!unread.includes(storedSessionId)) {
+      $unreadFinishedSessionIds.set([...unread, storedSessionId])
+    }
+  }
 }
 
 /**

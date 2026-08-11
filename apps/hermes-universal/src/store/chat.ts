@@ -523,7 +523,7 @@ export async function interruptSession(key = $activeSessionKey.get()): Promise<b
   try {
     const { withSessionNotFoundResume } = await sessionRecovery()
 
-    await withSessionNotFoundResume(
+    const { recovered } = await withSessionNotFoundResume(
       sessionId,
       slice.storedSessionId,
       live => requestGateway('session.interrupt', { session_id: live }),
@@ -534,6 +534,27 @@ export async function interruptSession(key = $activeSessionKey.get()): Promise<b
         }
       }
     )
+
+    // A RECOVERED interrupt landed on a runtime the gateway minted a moment ago,
+    // so the turn this session thought was live died with the runtime that owned
+    // it: there is no terminal frame coming to settle it. Without this the chat
+    // (or the tile) stayed busy forever behind a Stop button that had already
+    // done everything it could — the same shape MJXHRM-366 fixed for the silent
+    // rejection, one layer further in.
+    //
+    // The un-recovered case is deliberately left alone: the gateway is
+    // cancelling a turn it genuinely owns, and its `message.complete` is the
+    // authority on when that turn is over.
+    if (recovered) {
+      settleTurn(liveKey)
+      updateSession(liveKey, state => ({
+        ...state,
+        awaitingResponse: false,
+        busy: false,
+        streamId: null,
+        turnStartedAt: null
+      }))
+    }
 
     return true
   } catch (err) {
