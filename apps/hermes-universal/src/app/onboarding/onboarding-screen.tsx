@@ -289,14 +289,19 @@ function ConfirmModel() {
       <div className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
         {t.onboarding.defaultModel}
       </div>
-      <div className="mt-1 rounded-lg border border-border bg-card p-3">
-        <div className="text-sm font-medium text-foreground">
-          {state.recommended?.model ?? t.onboarding.recommended}
+      {/* No model resolved ⇒ `confirmModel()` assigns nothing. Say so, rather
+          than filling the card with a placeholder that reads like a model name
+          the user is about to confirm. */}
+      {state.recommended?.model ? (
+        <div className="mt-1 rounded-lg border border-border bg-card p-3">
+          <div className="text-sm font-medium text-foreground">{state.recommended.model}</div>
+          {state.recommended.provider && (
+            <div className="text-xs text-muted-foreground">{state.recommended.provider}</div>
+          )}
         </div>
-        {state.recommended?.provider && (
-          <div className="text-xs text-muted-foreground">{state.recommended.provider}</div>
-        )}
-      </div>
+      ) : (
+        <p className="mt-1 text-sm text-muted-foreground">{t.onboarding.noDefaultModel}</p>
+      )}
 
       {state.error && <p className="mt-2 text-xs text-destructive">{state.error}</p>}
 

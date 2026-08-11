@@ -2360,6 +2360,8 @@ export const en: Translations = {
     reopenVerification: 'Re-open verification page',
     copy: 'Copy',
     defaultModel: 'Default model',
+    noDefaultModel:
+      'Hermes could not pick a default model for this provider. Your credentials are saved — choose one in Settings → Model.',
     freeTier: 'Free tier',
     pro: 'Pro',
     free: 'Free',

@@ -14,7 +14,18 @@ export interface ApiKeyOption {
   envKey: string
   docsUrl?: string
   placeholder?: string
+  /** Backend provider slug, when it differs from `id`. `id` keys the i18n copy
+   *  below; the model endpoints key off `CANONICAL_PROVIDERS` slugs and match
+   *  them EXACTLY (no alias normalisation), so a curated entry whose copy id
+   *  isn't a real slug has to carry the slug too — otherwise every model lookup
+   *  for it comes back empty and onboarding lands on a confirm card with no
+   *  model. Derived entries below are built from the backend catalog, so their
+   *  id already IS the slug. */
+  slug?: string
 }
+
+/** The provider slug the backend knows this option by. */
+export const optionSlug = (option: ApiKeyOption) => option.slug ?? option.id
 
 export const LOCAL_ENV_KEY = 'OPENAI_BASE_URL'
 
@@ -28,7 +39,15 @@ export const API_KEY_OPTIONS: ApiKeyOption[] = [
     docsUrl: 'https://app.fireworks.ai/settings/users/api-keys'
   },
   { id: 'openrouter', name: 'OpenRouter', envKey: 'OPENROUTER_API_KEY', docsUrl: 'https://openrouter.ai/keys' },
-  { id: 'openai', name: 'OpenAI', envKey: 'OPENAI_API_KEY', docsUrl: 'https://platform.openai.com/api-keys' },
+  // `openai` is the copy key; the backend calls this provider `openai-api`
+  // (`openai` is not a CANONICAL_PROVIDERS slug at all).
+  {
+    id: 'openai',
+    slug: 'openai-api',
+    name: 'OpenAI',
+    envKey: 'OPENAI_API_KEY',
+    docsUrl: 'https://platform.openai.com/api-keys'
+  },
   { id: 'gemini', name: 'Google Gemini', envKey: 'GEMINI_API_KEY', docsUrl: 'https://aistudio.google.com/app/apikey' },
   { id: 'xai', name: 'xAI Grok', envKey: 'XAI_API_KEY', docsUrl: 'https://console.x.ai/' },
   {

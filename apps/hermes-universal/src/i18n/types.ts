@@ -1968,6 +1968,7 @@ export interface Translations {
     reopenVerification: string
     copy: string
     defaultModel: string
+    noDefaultModel: string
     freeTier: string
     pro: string
     free: string

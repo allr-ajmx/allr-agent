@@ -126,6 +126,23 @@ function FeaturedProviderRow({
   )
 }
 
+// Quick-key row for a promoted API-key provider. These are NOT OAuth accounts,
+// so they can't come out of `listOAuthProviders` — without an explicit row the
+// only way to reach them from this page is the "I have an API key" link, which
+// drops the user in an unsorted env-var catalog. Desktop keeps the same two
+// rows here (providers-settings.tsx) alongside the onboarding picker.
+function KeyProviderRow({ onClick, pitch, title }: { onClick: () => void; pitch: string; title: string }) {
+  return (
+    <RowButton className={PROVIDER_ROW_CLASS} onClick={onClick}>
+      <div className="min-w-0">
+        <span className="text-[length:var(--conversation-text-font-size)] font-semibold">{title}</span>
+        <p className="mt-1 text-xs leading-5 text-muted-foreground">{pitch}</p>
+      </div>
+      <ChevronRight className="size-4 text-muted-foreground transition group-hover:text-foreground" />
+    </RowButton>
+  )
+}
+
 function ProviderRow({ onSelect, provider }: { onSelect: (p: OAuthProvider) => void; provider: OAuthProvider }) {
   const { t } = useI18n()
   const Trail = provider.flow === 'external' ? Terminal : ChevronRight
@@ -245,6 +262,8 @@ function OAuthPicker({
         {p.intro}
       </p>
       {featured && <FeaturedProviderRow onSelect={select} provider={featured} />}
+      {/* Slot #2 — always visible, mirroring CANONICAL_PROVIDERS (Nous → Fireworks). */}
+      <KeyProviderRow onClick={onWantApiKey} pitch={t.onboarding.fireworksPitch} title="Fireworks AI" />
       {connected.length > 0 && (
         <>
           <GroupLabel>{p.connected}</GroupLabel>
@@ -265,6 +284,7 @@ function OAuthPicker({
           {others.map(item => (
             <ProviderRow key={item.id} onSelect={select} provider={item} />
           ))}
+          <KeyProviderRow onClick={onWantApiKey} pitch={t.onboarding.openRouterPitch} title="OpenRouter" />
         </>
       )}
       {collapsible && (

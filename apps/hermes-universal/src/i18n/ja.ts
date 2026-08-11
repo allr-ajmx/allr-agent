@@ -2187,6 +2187,8 @@ export const ja = defineLocale({
     reopenVerification: '確認ページを再度開く',
     copy: 'コピー',
     defaultModel: 'デフォルトモデル',
+    noDefaultModel:
+      'このプロバイダーのデフォルトモデルを決定できませんでした。認証情報は保存済みです — 設定 → モデルで選んでください。',
     freeTier: '無料プラン',
     pro: 'Pro',
     free: '無料',
