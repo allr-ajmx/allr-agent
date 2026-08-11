@@ -226,6 +226,18 @@ function suppressDragClick(committed: boolean) {
  * resolver owns targeting and the machinery owns everything else. Esc aborts
  * instantly: the session registers as the TOP escape layer, tears down
  * synchronously, and nothing commits.
+ *
+ * EVERY WAY A DRAG CAN END HAS TO END IT. A drag holds four global locks —
+ * `body`'s cursor and `user-select`, the guest-pointer lock that makes every
+ * iframe in the app inert, and the top escape layer — plus window-level
+ * pointer listeners, a ghost chip and whatever the spec dimmed. Ending only on
+ * pointerup / pointercancel / Esc left the whole set pinned whenever the WINDOW
+ * lost the gesture instead: Alt-Tab (or clicking another window, or a native
+ * menu taking the pointer) mid-drag delivers no pointerup here, so the app came
+ * back with `grabbing` glued to the cursor, no text selectable anywhere, every
+ * embed unclickable, Escape dead app-wide — and the next click landed as a DROP
+ * at wherever the pointer happened to be. `blur` and `lostpointercapture` close
+ * that, exactly as the sash resize already does (lib/resize-gesture).
  */
 /** Is this point outside the window's own viewport? The pointer keeps
  *  reporting through a held drag (capture is taken on engage), so it reads
@@ -258,6 +270,11 @@ export function startDragSession(e: ReactPointerEvent<HTMLElement>, spec: DragSe
   const startedAt = Date.now()
   let scrolling = false
   let engaged = false
+  // The session ends exactly ONCE. It now has five exits and two of them race
+  // each other by construction — `releasePointerCapture` below synthesizes
+  // `lostpointercapture` from inside the teardown — so without this a commit
+  // would run its spec twice.
+  let ended = false
   let releaseEscapeLayer: (() => void) | null = null
   let releaseGuests: (() => void) | null = null
   let ghost: DragGhost | null = null
@@ -363,7 +380,13 @@ export function startDragSession(e: ReactPointerEvent<HTMLElement>, spec: DragSe
     raf ||= requestAnimationFrame(flushMove)
   }
 
-  const finish = (commit: boolean) => {
+  const finish = (commit: boolean, lostPointer = false) => {
+    if (ended) {
+      return
+    }
+
+    ended = true
+
     if (raf) {
       cancelAnimationFrame(raf)
       raf = 0
@@ -395,9 +418,16 @@ export function startDragSession(e: ReactPointerEvent<HTMLElement>, spec: DragSe
     window.removeEventListener('pointerup', onUp, true)
     window.removeEventListener('pointercancel', onCancel, true)
     window.removeEventListener('keydown', onKey, true)
+    window.removeEventListener('blur', onLost)
+    handle.removeEventListener('lostpointercapture', onLost)
 
     if (engaged) {
-      suppressDragClick(commit)
+      // A gesture the window LOST synthesizes no click here — the release
+      // happened somewhere else entirely. Arming the swallow would only eat the
+      // first real click the user makes when they come back.
+      if (!lostPointer) {
+        suppressDragClick(commit)
+      }
 
       if (commit && tearingOff) {
         spec.tearOff?.()
@@ -423,6 +453,12 @@ export function startDragSession(e: ReactPointerEvent<HTMLElement>, spec: DragSe
 
   const onUp = () => finish(true)
   const onCancel = () => finish(false)
+  // The window stopped owning the gesture: focus went to another window (the
+  // pointerup will be delivered THERE, never here) or the capture was revoked —
+  // including by the handle itself leaving the DOM, which is what a source tab
+  // closing mid-drag looks like. Abort, never commit: the last hint was
+  // resolved against a pointer position that no longer means anything.
+  const onLost = () => finish(false, true)
 
   // Esc aborts the drag — the target selection vanishes and nothing moves,
   // the universal "never mind" for an in-flight drag. Capture-phase + stop so
@@ -440,6 +476,10 @@ export function startDragSession(e: ReactPointerEvent<HTMLElement>, spec: DragSe
   window.addEventListener('pointerup', onUp, true)
   window.addEventListener('pointercancel', onCancel, true)
   window.addEventListener('keydown', onKey, true)
+  // Non-capture on purpose: a bubbling-phase `blur` on `window` is the WINDOW
+  // losing focus, not an element inside it handing focus to a sibling.
+  window.addEventListener('blur', onLost)
+  handle.addEventListener('lostpointercapture', onLost)
 }
 
 // ---------------------------------------------------------------------------
