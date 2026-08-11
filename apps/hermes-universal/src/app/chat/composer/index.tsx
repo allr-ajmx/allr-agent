@@ -269,10 +269,20 @@ export function ChatBar({
   // turn instead of being dropped on the floor (MJXHRM-78).
   const canSteer = busy && !compacting && !!onSteer && attachments.length === 0 && isSteerableText
 
+  // A compacting turn OCCUPIES the composer even when the turn flag says
+  // otherwise — a manual `/compress` summarizes an IDLE session — and
+  // `useComposerSubmit` has always submitted on that basis (its own
+  // `turnOccupied`). The controls did not: they branched on `busy` alone, so
+  // during a compaction the primary button showed the Send arrow and was
+  // labelled "Send" while pressing it QUEUED the words for the next turn. The
+  // one affordance that could have told the user a compaction was under way said
+  // the opposite instead (MJXHRM-357).
+  const turnOccupied = busy || compacting
+
   // Enter is the primary action and steers a running turn, so that is what the
   // primary button must show. Attachments and a compacting turn cannot ride a
   // redirect, which is the only reason it falls back to queueing.
-  const busyAction = canSteer ? 'steer' : busy && hasComposerPayload ? 'queue' : 'stop'
+  const busyAction = canSteer ? 'steer' : turnOccupied && hasComposerPayload ? 'queue' : 'stop'
 
   // The submit engine — the orchestration seam where draft + queue meet. Owns
   // the submit decision tree, the send-with-restore primitive, and steer.
@@ -873,6 +883,7 @@ export function ChatBar({
       autoSpeak={autoSpeak}
       busy={busy}
       busyAction={busyAction}
+      busyActionActive={turnOccupied}
       canSubmit={canSubmit}
       compactModelPill={poppedOut || compactPill}
       conversation={{

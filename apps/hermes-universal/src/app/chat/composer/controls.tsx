@@ -57,6 +57,7 @@ export function ComposerControls({
   autoSpeak,
   busy,
   busyAction,
+  busyActionActive,
   canSubmit,
   compactModelPill = false,
   conversation,
@@ -71,6 +72,15 @@ export function ComposerControls({
   autoSpeak: boolean
   busy: boolean
   busyAction: 'queue' | 'steer' | 'stop'
+  /** Whether the turn is OCCUPIED — `busy`, or compacting, which occupies the
+   *  composer without a turn (a manual `/compress` on an idle session). What the
+   *  primary button says and does branches on this, not on `busy`: the two
+   *  disagree exactly while summarizing, and branching on `busy` there had the
+   *  button offer "Send" for an action that queues. `busy` still decides whether
+   *  the slot belongs to the turn controls at all, so an idle compaction with an
+   *  empty composer keeps its mic rather than growing a Stop with nothing to
+   *  stop. */
+  busyActionActive: boolean
   canSubmit: boolean
   compactModelPill?: boolean
   conversation: ConversationProps
@@ -152,7 +162,7 @@ export function ComposerControls({
       ) : (
         <Tip
           label={
-            busy ? (
+            busyActionActive ? (
               busyAction === 'steer' ? (
                 <TipKeybindLabel actionId="composer.steer" text={c.steer} />
               ) : busyAction === 'queue' ? (
@@ -166,12 +176,12 @@ export function ComposerControls({
           }
         >
           <Button
-            aria-label={busy ? busyActionLabel : c.send}
+            aria-label={busyActionActive ? busyActionLabel : c.send}
             className={PRIMARY_ICON_BTN}
             disabled={disabled || !canSubmit}
             type="submit"
           >
-            {busy ? (
+            {busyActionActive ? (
               busyAction === 'steer' ? (
                 <SteeringWheel className={iconSize.sm} />
               ) : busyAction === 'queue' ? (
