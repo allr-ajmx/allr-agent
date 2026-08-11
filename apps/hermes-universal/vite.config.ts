@@ -305,19 +305,32 @@ export default defineConfig(({ command }) => ({
   // graph over the phone link on Android — so a lazy route silently converts
   // "navigate to Skills" into "boot the app again".
   //
-  // Every entry here is a real dependency of this package that the production build
-  // proves lives outside the entry chunk: the CodeMirror and xterm specifiers do not
-  // appear in `index-*.js` at all, and mermaid/katex land in chunks of their own.
-  // Deps reached statically from the entry (the assistant-ui stack) are deliberately
-  // absent — the scanner already finds those on cold start, and listing them would
-  // only be noise to keep in sync.
+  // Every entry here is a real dependency of this package. Do NOT read the list as
+  // a claim about the production chunk graph — an earlier version of this comment
+  // did, and it was wrong on three of five entries (corrected in MJXHRM-45 against
+  // an actual `vite build`):
+  //   • `mermaid` is genuinely lazy-only (`embeds/registry.tsx`) and does land in
+  //     its own chunk;
+  //   • `@codemirror/*` is split into a chunk, but the ENTRY statically imports
+  //     that chunk (profiles / starmap / profile-switcher / preview-file all
+  //     import `CodeEditor` eagerly), so it is split without being deferred;
+  //   • `@xterm/*` and `katex` have no lazy boundary anywhere and are inlined
+  //     straight into `index-*.js`.
+  // Desktop imports all three the same way, so this is parity, not a port gap —
+  // but pre-bundling them still costs nothing and keeps dev-server behaviour
+  // stable, so the entries stay. Deps reached statically from the entry (the
+  // assistant-ui stack) are deliberately absent: the scanner already finds those
+  // on cold start.
   //
-  // `shiki` and `react-shiki` MOVED into this list in MJXHRM-380. They used to be
-  // in the entry chunk, reached statically from four places; they are now behind
-  // `lazy()` / dynamic `import()` at every one of them. That is exactly the shape
-  // the reload hazard above describes, so they have to be pre-bundled: without
-  // them here, the first code fence in a conversation would re-run the optimiser
-  // and reload the page mid-reply.
+  // `shiki` and `react-shiki` MOVED into this list in MJXHRM-380, which put a
+  // `lazy()` / dynamic `import()` in front of all four of OUR entry points to
+  // them. MJXHRM-45 then found the seam was still defeated by a fifth importer we
+  // do not own — `@streamdown/code` statically imports shiki, and
+  // `markdown-text.tsx` statically imported that — and made the plugin itself
+  // load on first markdown mount. Both halves have to hold for shiki to stay off
+  // the entry graph, and both are now dynamic, which is exactly the shape the
+  // reload hazard above describes: without these entries the first code fence in
+  // a conversation would re-run the optimiser and reload the page mid-reply.
   optimizeDeps: {
     include: [
       '@codemirror/commands',
