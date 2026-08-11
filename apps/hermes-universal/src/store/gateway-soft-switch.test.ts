@@ -70,7 +70,8 @@ import type { SessionInfo } from '@/types/hermes'
 import { artifactsForSession, openArtifact, upsertArtifact } from './artifacts'
 import { sessionMissingFromCurrentGateway, softSwitchGateway } from './gateway-soft-switch'
 import { $gatewayMode, $gatewaySwitching } from './gateway-switch'
-import { $activePreviewPath, $previewTabs } from './preview'
+import { $activePreviewPath, $previewTabs, setPreviewTarget } from './preview'
+import { $dirtyPreviewPaths, setPreviewDirty } from './preview-edit'
 
 // Only the fields the wipe / switch actually read.
 const session = { id: 's1' } as unknown as SessionInfo
@@ -140,6 +141,25 @@ describe('gateway soft switch', () => {
     expect(artifactsForSession('s1')).toEqual([])
     expect($previewTabs.get()).toEqual([])
     expect($activePreviewPath.get()).toBeNull()
+  })
+
+  // The FILE half of the same problem, and the one the artifact wipe above does
+  // NOT cover: a preview tab is an absolute path read and written over
+  // `/api/fs/*` on whichever gateway is current, so a tab that survives the
+  // switch shows the old backend's bytes over the new backend's path — and its
+  // save either recreates a file that only existed over there or overwrites a
+  // same-named one here.
+  it('closes file preview tabs, which name paths on the old gateway', async () => {
+    setPreviewTarget('/srv/project/config.ts')
+    setPreviewDirty('/srv/project/config.ts', true)
+
+    expect($previewTabs.get()).toHaveLength(1)
+
+    await softSwitchGateway('remote', vi.fn().mockResolvedValue(undefined))
+
+    expect($previewTabs.get()).toEqual([])
+    expect($activePreviewPath.get()).toBeNull()
+    expect($dirtyPreviewPaths.get().has('/srv/project/config.ts')).toBe(false)
   })
 
   it('holds $gatewaySwitching for the length of the dial', async () => {
