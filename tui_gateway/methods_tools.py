@@ -1199,7 +1199,11 @@ def _(rid, params: dict) -> dict:
                     return _err(rid, 5030, f"slash worker start failed: {e}")
 
     try:
-        output = worker.run(cmd)
+        # The session's OWN working directory, not the gateway's launch
+        # directory: /diff resolves its repository from TERMINAL_CWD, so a GUI
+        # client whose session points at another project used to get the launch
+        # directory's changes back with no indication they were the wrong ones.
+        output = worker.run(cmd, cwd=_session_cwd(session))
         warning = _mirror_slash_side_effects(params.get("session_id", ""), session, cmd)
         payload = {"output": output or "(no output)"}
         if warning:

@@ -90,12 +90,34 @@ def _start_parent_death_watchdog(original_ppid) -> None:
     threading.Thread(target=_loop, daemon=True).start()
 
 
-def _run(cli: HermesCLI, command: str) -> str:
+def _apply_command_cwd(cwd: object) -> None:
+    """Point directory-sensitive commands at the calling session's cwd.
+
+    ``TERMINAL_CWD`` is the CLI's contract for "the directory this session works
+    in" (``cli.py`` force-exports it from ``terminal.cwd``); ``/diff`` and the
+    checkpoint commands read it before falling back to ``os.getcwd()``. This
+    worker is spawned in the gateway's launch directory, so without this a
+    ``/diff`` from a GUI session pointed at another project silently rendered
+    the wrong repository's changes — a wrong answer, not an error.
+
+    Deliberately NOT ``os.chdir``: HermesCLI is built once per worker and holds
+    state resolved against the process cwd, so moving the process itself would
+    change far more than the one env var the command contract names.
+    """
+    path = str(cwd or "").strip()
+    if not path or not os.path.isdir(path):
+        return
+    os.environ["TERMINAL_CWD"] = path
+
+
+def _run(cli: HermesCLI, command: str, cwd: object = None) -> str:
     cmd = (command or "").strip()
     if not cmd:
         return ""
     if not cmd.startswith("/"):
         cmd = f"/{cmd}"
+
+    _apply_command_cwd(cwd)
 
     buf = io.StringIO()
 
@@ -167,7 +189,7 @@ def main():
         try:
             req = json.loads(line)
             rid = req.get("id")
-            out = _run(cli, req.get("command", ""))
+            out = _run(cli, req.get("command", ""), req.get("cwd"))
             sys.stdout.write(json.dumps({"id": rid, "ok": True, "output": out}) + "\n")
             sys.stdout.flush()
         except Exception as e:
