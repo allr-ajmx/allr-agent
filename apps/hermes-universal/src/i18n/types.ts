@@ -2610,4 +2610,25 @@ export interface Translations {
     notExpressible: string
     zoneCount: (count: number) => string
   }
+
+  /** Quick Entry — the global-chord capture window (MJXHRM-384), plus its one
+   *  settings row. Kept as ONE top-level block rather than split across
+   *  `settings.*`: the window's copy and the switch that enables it are the
+   *  same feature, and the surface has no other home in the tree. */
+  quickEntry: {
+    /** Accessible name of the single-line input. */
+    label: string
+    placeholder: string
+    /** Shown in the input when the primary window reports no gateway. */
+    notConnected: string
+    sendTo: string
+    currentChat: string
+    newSession: string
+    /** Accessible name of the target picker. */
+    targetLabel: string
+    settingsTitle: string
+    settingsDesc: string
+    /** Where to bind the chord, since this port ships it unbound. */
+    shortcutHint: string
+  }
 }

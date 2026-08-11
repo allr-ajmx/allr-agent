@@ -293,6 +293,7 @@ export const en: Translations = {
       'workspace.newWorktree': 'New worktree',
       'workspace.openFolder': 'Open folder as project',
       'view.toggleHud': 'Toggle HUD window',
+      'view.toggleQuickEntry': 'Toggle Quick Entry',
       'composer.focus': 'Focus composer',
       'composer.modelPicker': 'Open model picker',
       'composer.voice': 'Start / stop voice conversation',
@@ -3047,5 +3048,19 @@ export const en: Translations = {
     saveApply: 'Save & apply',
     notExpressible: 'this arrangement interlocks (pinwheel) — not expressible as nested splits yet',
     zoneCount: count => `${count} zones`
+  },
+
+  quickEntry: {
+    label: 'Quick Entry',
+    placeholder: 'Ask Hermes…',
+    notConnected: 'Not connected — open Hermes to reconnect',
+    sendTo: 'Send to',
+    currentChat: 'Current chat',
+    newSession: 'New session',
+    targetLabel: 'Target session',
+    settingsTitle: 'Quick Entry',
+    settingsDesc:
+      'Summon a small composer from anywhere with a global shortcut and fire a prompt without opening Hermes.',
+    shortcutHint: 'Assign its shortcut under Keyboard shortcuts.'
   }
 }

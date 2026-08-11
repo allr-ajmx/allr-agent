@@ -2,6 +2,8 @@ import { ActivityScreenRoot } from '@/app/activity-screen'
 import { HUD_SURFACE } from '@/app/hud/hud'
 import { HudWindowRoot } from '@/app/hud/hud-window'
 import { MobileController } from '@/app/mobile-controller'
+import { QUICK_ENTRY_SURFACE } from '@/app/quick-entry/quick-entry'
+import { QuickEntryWindowRoot } from '@/app/quick-entry/quick-entry-window'
 import { TileWindowRoot } from '@/app/tile-window'
 import { isActivityWindow, isTileWindow, satelliteSurface } from '@/store/windows'
 
@@ -21,6 +23,15 @@ export function App() {
   // negotiated before this code runs (`lib/surface.ts`).
   if (satelliteSurface() === HUD_SURFACE) {
     return <HudWindowRoot />
+  }
+
+  // Quick Entry (`?win=quick`) — a one-line capture surface summoned by a global
+  // chord (MJXHRM-384). Branched beside the HUD because it is the same KIND of
+  // thing and the opposite trade: the HUD is the whole conversation moved
+  // somewhere else, this is a single prompt with no gateway of its own, handed
+  // to the primary window to send.
+  if (satelliteSurface() === QUICK_ENTRY_SURFACE) {
+    return <QuickEntryWindowRoot />
   }
 
   // A tile window (`?win=tile`, or the legacy `?win=secondary`) hosts exactly

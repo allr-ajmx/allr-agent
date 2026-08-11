@@ -168,6 +168,18 @@ export const KEYBIND_ACTIONS: readonly KeybindActionMeta[] = [
   // it a default when there is a HUD to summon; until then a user can still
   // assign one from the shortcuts panel and watch it work.
   { id: 'view.toggleHud', category: 'view', defaults: ['mod+shift+h'], global: true },
+  // Summon Quick Entry — the one-line capture surface (MJXHRM-384). `global` for
+  // the same reason the HUD's is: a composer you can only reach from inside
+  // Hermes is the composer Hermes already has.
+  //
+  // Shipped UNBOUND. Desktop's default was CommandOrControl+Shift+Space, which
+  // on this platform set is Spotlight's neighbour, several input-method
+  // switchers, and at least one screen recorder — and unlike an in-app binding,
+  // a global claim takes the chord from every other application on the machine.
+  // Universal already has the right place to choose one: Settings ▸ Keyboard
+  // shortcuts binds this row, validates the combo and shows conflicts, which is
+  // also why this port has no bespoke shortcut field of its own.
+  { id: 'view.toggleQuickEntry', category: 'view', defaults: [], global: true },
   { id: 'keybinds.openPanel', category: 'view', defaults: ['mod+/'] }
 ]
 

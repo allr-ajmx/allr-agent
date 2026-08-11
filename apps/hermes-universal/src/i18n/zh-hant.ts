@@ -2632,5 +2632,18 @@ export const zhHant = defineLocale({
       description: '顯示行動裝置側邊欄。',
       toggle: '切換側邊欄'
     }
+  },
+
+  quickEntry: {
+    label: '快速輸入',
+    placeholder: '向 Hermes 提問…',
+    notConnected: '未連線——請開啟 Hermes 重新連線',
+    sendTo: '傳送到',
+    currentChat: '目前對話',
+    newSession: '新工作階段',
+    targetLabel: '目標工作階段',
+    settingsTitle: '快速輸入',
+    settingsDesc: '用全域快速鍵隨時叫出小型輸入框，不必開啟 Hermes 就能送出提示詞。',
+    shortcutHint: '請在「鍵盤快速鍵」中為其指派快速鍵。'
   }
 })
