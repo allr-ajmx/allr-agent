@@ -6,6 +6,7 @@ import { PlatformGlyph } from '@/app/messaging/platform-icon'
 import { appViewForPath, PLUGINS_SETTINGS_ROUTE } from '@/app/routes'
 import { useApprovalModeStatusbarItem } from '@/app/shell/approval-mode-menu'
 import { ContextUsagePanel } from '@/app/shell/context-usage-panel'
+import { useFocusViewStatusbarItem } from '@/app/shell/focus-view-item'
 import { GatewayMenuPanel } from '@/app/shell/gateway-menu-panel'
 import type { StatusbarItem } from '@/app/shell/statusbar-controls'
 import { StatusDot } from '@/components/status-dot'
@@ -116,6 +117,9 @@ export function useStatusbarItems(opts?: {
   const contextUsage = usageContextLabel(currentUsage)
   const contextBar = contextBarLabel(currentUsage)
   const approvalModeItem = useApprovalModeStatusbarItem(activeProfile ?? '', requestGateway)
+  // Null while focus view is off — the badge only exists to explain a
+  // transcript that is hiding things.
+  const focusViewItem = useFocusViewStatusbarItem(requestGateway)
 
   const { subagentsFailed, subagentsRunning } = useMemo(() => {
     const lists = Object.values(subagentsBySession)
@@ -614,6 +618,7 @@ export function useStatusbarItems(opts?: {
       runningTimerItem,
       contextUsageItem,
       sessionTimerItem,
+      ...(focusViewItem ? [focusViewItem] : []),
       approvalItem,
       terminalItem,
       keepAwakeItem,
@@ -625,6 +630,7 @@ export function useStatusbarItems(opts?: {
       runningTimerItem,
       contextUsageItem,
       sessionTimerItem,
+      focusViewItem,
       approvalItem,
       terminalItem,
       keepAwakeItem,

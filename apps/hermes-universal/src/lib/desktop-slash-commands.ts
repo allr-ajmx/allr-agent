@@ -47,6 +47,7 @@ export type DesktopActionId =
   | 'branch'
   | 'browser'
   | 'compress'
+  | 'focus'
   | 'handoff'
   | 'hatch'
   | 'help'
@@ -142,6 +143,18 @@ const DESKTOP_COMMAND_SPECS: readonly DesktopCommandSpec[] = [
     args: true
   },
   { name: '/profile', description: 'Switch the active Hermes profile', surface: action('profile') },
+  // Reduced-output mode. An ACTION, not exec: the gateway's own /focus answers
+  // by pinning tool progress off, which makes it stop SENDING tool events —
+  // right for a TUI that cannot un-print a line, wrong here, where the same
+  // events feed the todo panel and changed-files card and where "hidden" has to
+  // stay one click from shown. This client hides the rows itself and writes the
+  // shared `display.focus_view` flag display-only (store/focus-view.ts).
+  {
+    name: '/focus',
+    description: 'Reduce output to your prompt and the reply [on|off|status]',
+    surface: action('focus'),
+    args: true
+  },
   { name: '/skin', description: 'Switch desktop theme or cycle to the next one', surface: action('skin'), args: true },
   { name: '/title', description: 'Rename the current session', surface: action('title'), takesFreeText: true },
   { name: '/help', description: 'Show desktop slash commands', aliases: ['/commands'], surface: action('help') },
@@ -274,12 +287,6 @@ const NO_DESKTOP_SURFACE: Record<DesktopUnavailableReason, readonly string[]> = 
     '/cron',
     '/details',
     '/exit',
-    // Display-only reduced-output mode. The gateway DOES answer it (config.set
-    // on `display.focus_view`), but nothing in this client reads that flag — so
-    // running it here would silently re-render someone's TUI and report a state
-    // this app ignores. Same call as its sibling `/verbose`, three lines down,
-    // which is the tool-progress half of the very same feature.
-    '/focus',
     '/footer',
     '/gateway',
     '/history',

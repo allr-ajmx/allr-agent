@@ -18,6 +18,7 @@ import {
   isDesktopSlashCommand,
   resolveDesktopCommand
 } from '@/lib/desktop-slash-commands'
+import { FOCUS_USAGE, formatFocusStatus, formatFocusToggleMessage, resolveFocusArg } from '@/lib/focus-view'
 import { navigateTo } from '@/lib/route-nav'
 import { toChatMessages } from '@/lib/session-history'
 import { isSessionIdCandidate, renderCommandsCatalog, slashStatusText } from '@/lib/slash-utils'
@@ -26,6 +27,7 @@ import { $busy, $sessionId, appendSystemMessage, ensureSession, sendPrompt } fro
 import { setSessionCompacting } from '@/store/compaction'
 import { setComposerDraft } from '@/store/composer'
 import { $connection } from '@/store/connection'
+import { $focusView, pushFocusView } from '@/store/focus-view'
 import { requestGateway } from '@/store/gateway'
 import { handoffSession } from '@/store/handoff'
 import { setModelPickerOpen } from '@/store/model'
@@ -419,6 +421,58 @@ export function useSlashCommand() {
 
           if (!result.ok && result.error) {
             appendSystemMessage(recordInput ? slashStatusText(command, result.error) : result.error)
+          }
+        },
+        // /focus is the reduced-output display mode. It runs LOCALLY (the
+        // transcript hides tool rows and offers them back per run) and then
+        // records the shared `display.focus_view` flag so the mode travels to
+        // the CLI. It must never reach slash.exec: the gateway's own /focus
+        // answers by pinning tool progress off, which stops the tool events
+        // this client renders from — and needs — arriving at all.
+        focus: async ctx => {
+          // No session yet: toast it rather than spinning up a backend session
+          // just to print a line about how this app renders. Same call `/skin`
+          // makes, for the same reason.
+          const renderSlashOutput = $sessionId.get()
+            ? ((await withSlashOutput(ctx))?.render ?? ((message: string) => notify({ kind: 'success', message })))
+            : (message: string) => notify({ kind: 'success', message })
+
+          const { action, target } = resolveFocusArg(ctx.arg, $focusView.get())
+
+          if (action === 'usage') {
+            renderSlashOutput(FOCUS_USAGE)
+
+            return
+          }
+
+          if (action === 'status' || target === null) {
+            renderSlashOutput(formatFocusStatus($focusView.get()))
+
+            return
+          }
+
+          if (target === $focusView.get()) {
+            // Idempotent explicit set — report without writing config.
+            renderSlashOutput(formatFocusToggleMessage(target))
+
+            return
+          }
+
+          try {
+            const { displayOnly, enabled } = await pushFocusView(requestGateway, target)
+
+            const note = displayOnly
+              ? ''
+              : '\nThis gateway also stopped sending tool activity for this session, so new turns will have nothing to reveal.'
+
+            renderSlashOutput(`${formatFocusToggleMessage(enabled)}${note}`)
+          } catch (err) {
+            // The local half already applied — say so, and say what didn't.
+            renderSlashOutput(
+              `${formatFocusToggleMessage($focusView.get())} (this app only — the gateway did not record it: ${
+                err instanceof Error ? err.message : String(err)
+              })`
+            )
           }
         },
         // /profile switches which profile the app operates as. Desktop points

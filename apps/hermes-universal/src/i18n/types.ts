@@ -2068,6 +2068,9 @@ export interface Translations {
       hideTerminal: string
       keepAwakeOn: string
       keepAwakeOff: string
+      /** Focus-view badge: shown only while the reduced-output mode is on. */
+      focusView: string
+      focusViewTitle: string
       gateway: string
       gatewayReady: string
       gatewayNeedsSetup: string
@@ -2358,6 +2361,8 @@ export interface Translations {
       branchNewChat: string
       dismissError: string
       filesChanged: (count: number) => string
+      /** Focus view: how many tool rows this run is holding back. */
+      focusHidden: (count: number) => string
       reviewChanges: string
       readAloudFailed: string
       preparingAudio: string

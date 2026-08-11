@@ -82,15 +82,26 @@ describe('/approvals', () => {
 })
 
 describe('/focus', () => {
-  // The gateway answers /focus, but only by flipping `display.focus_view`,
-  // which nothing here reads — so running it would silently re-render someone's
-  // TUI and report a state this client ignores.
-  it('is a known command with no surface here, not an unknown one', () => {
-    expect(resolveDesktopCommand('/focus')?.surface).toEqual({ kind: 'unavailable', reason: 'terminal' })
-    expect(desktopSlashUnavailableMessage('/focus')).toContain('terminal')
+  // Registering it as `exec` would have "worked" — the gateway answers /focus —
+  // and would have been wrong: its answer is to pin tool progress off, which
+  // stops the tool events this client renders from arriving at all. It is a
+  // local action instead, and the transcript does the hiding.
+  it('is a local action, not a backend exec and not an unavailable command', () => {
+    expect(resolveDesktopCommand('/focus')?.surface).toEqual({ kind: 'action', action: 'focus' })
+    expect(isDesktopSlashCommand('/focus')).toBe(true)
+    expect(desktopSlashUnavailableMessage('/focus')).toBeNull()
   })
 
-  it('is filed the same way as /verbose, the other half of the same feature', () => {
-    expect(resolveDesktopCommand('/focus')?.surface).toEqual(resolveDesktopCommand('/verbose')?.surface)
+  it('offers on|off|status as an argument step', () => {
+    expect(desktopSlashCommandTakesArgs('/focus')).toBe(true)
+    expect(desktopSlashDescription('/focus')).toContain('on|off|status')
+  })
+
+  // /verbose stays terminal-only: it is the tool-progress CYCLE, and running it
+  // from here would write the gateway-wide display.tool_progress and take this
+  // client's tool events with it. Focus view no longer shares its surface.
+  it('no longer shares a surface with /verbose', () => {
+    expect(resolveDesktopCommand('/verbose')?.surface).toEqual({ kind: 'unavailable', reason: 'terminal' })
+    expect(resolveDesktopCommand('/focus')?.surface).not.toEqual(resolveDesktopCommand('/verbose')?.surface)
   })
 })
