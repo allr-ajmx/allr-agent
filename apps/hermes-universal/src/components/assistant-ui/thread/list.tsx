@@ -19,6 +19,7 @@ import { MessageRenderBoundary } from '@/components/assistant-ui/message-render-
 import { resolveShowEarlierAction, useTranscriptWindow } from '@/components/assistant-ui/thread/transcript-window'
 import { useI18n } from '@/i18n'
 import { messagePaintWeight } from '@/lib/render-weight'
+import { cn } from '@/lib/utils'
 import {
   onScrollToBottomRequest,
   onThreadEditClose,
@@ -131,6 +132,69 @@ export function firstVisibleGroupIndex(groups: readonly MessageGroup[], budget: 
   }
 
   return Math.min(firstVisible, Math.max(0, groups.length - minVisible))
+}
+
+// LIVE-TAIL EXEMPTION (ported from desktop `list.tsx` — MJXHRM-45). The port of
+// `content-visibility:auto` came across without desktop's gate, which is the
+// half that keeps it CORRECT rather than merely fast.
+//
+// With `contain-intrinsic-size:auto` the browser only remembers a turn's size
+// AFTER it has rendered. A turn that finishes streaming near the bottom may have
+// had its smaller mid-stream size remembered; when it scrolls just off the top
+// edge and gets skipped, it snaps back to that stale height and shifts content
+// down. With `overflow-anchor:none` the viewport cannot self-correct, so the
+// stick-to-bottom lock drifts and the view creeps up over older turns — the
+// "long session eventually shows old responses" glitch.
+//
+// Keeping the newest turns always-rendered means a turn is only ever virtualized
+// once its layout has settled at its final size (remembered == real, so skipping
+// it changes no height). Off-screen OLDER turns still skip, so the whole point of
+// the containment — a Radix overlay's whole-document style recalc staying at
+// ~100-200ms instead of ~650-730ms on a long transcript — is preserved.
+//
+// Budgeted in render-cost units, not turns, because that is what the cost scales
+// with (the same currency as the render budgets above). A turn-count tail defeats
+// itself on agent transcripts: one tool-heavy turn is 50-200 units, so a 6-turn
+// tail would exempt the entire visible transcript and nothing would virtualize.
+//
+// 40 units ≈ the 1-2 turns a viewport shows after scroll-to-bottom, doubled so a
+// turn that grows mid-stream doesn't fall out of the tail as it settles.
+export const LIVE_TAIL_PARTS = 40
+/** Floor: always exempt this many turns however heavy, so a transcript of huge
+ *  turns still keeps the streaming one unvirtualized. */
+export const LIVE_TAIL_MIN_GROUPS = 2
+/** Ceiling: never exempt more than this many turns however light, so a long
+ *  transcript of tiny turns can't walk the tail back and virtualize less. */
+export const LIVE_TAIL_MAX_GROUPS = 6
+
+/**
+ * Index of the newest group that still virtualizes — everything at or after it
+ * is the live tail and stays rendered. Walks newest-first accumulating weight so
+ * the tail covers a viewport's worth of CONTENT rather than a fixed number of
+ * turns, clamped to [min, max] turns. Computed once per render, not per row.
+ */
+export function liveTailStart(
+  groups: readonly MessageGroup[],
+  tailWeight = LIVE_TAIL_PARTS,
+  minGroups = LIVE_TAIL_MIN_GROUPS,
+  maxGroups = LIVE_TAIL_MAX_GROUPS
+): number {
+  let weight = 0
+  let start = groups.length
+
+  for (let i = groups.length - 1; i >= 0; i--) {
+    weight += groups[i]?.weight ?? 1
+    start = i
+
+    if (weight > tailWeight) {
+      break
+    }
+  }
+
+  const floor = Math.max(0, groups.length - minGroups)
+  const ceiling = Math.max(0, groups.length - maxGroups)
+
+  return Math.min(floor, Math.max(ceiling, start))
 }
 
 const ThreadMessageListInner: FC<ThreadMessageListProps> = ({
@@ -247,6 +311,15 @@ const ThreadMessageListInner: FC<ThreadMessageListProps> = ({
   )
 
   const visibleGroups = hiddenCount > 0 ? groups.slice(hiddenCount) : groups
+
+  // Where the always-rendered live tail begins. Derived from the WEIGHTED groups
+  // (render cost, not turn count) so the tail is a viewport's worth of content —
+  // see `liveTailStart`. Computed once here rather than per row.
+  const tailStart = useMemo(
+    () => liveTailStart(hiddenCount > 0 ? weightedGroups.slice(hiddenCount) : weightedGroups),
+    [hiddenCount, weightedGroups]
+  )
+
   const restoreFromBottomRef = useRef<number | null>(null)
 
   useEffect(() => setThreadAtBottom(isAtBottom), [isAtBottom])
@@ -401,7 +474,7 @@ const ThreadMessageListInner: FC<ThreadMessageListProps> = ({
                 {t.assistant.thread.showEarlier}
               </button>
             )}
-            {visibleGroups.map(group => (
+            {visibleGroups.map((group, indexInVisible) => (
               // content-visibility:auto — off-screen turns skip style recalc,
               // layout, and paint. On a long transcript this is what keeps
               // UNRELATED UI fast: any dialog/popover mount (Radix Presence
@@ -416,8 +489,16 @@ const ThreadMessageListInner: FC<ThreadMessageListProps> = ({
               // rendered), so scrollbar/anchoring stay stable. Sticky human
               // bubbles are unaffected — their turn is rendered whenever any
               // part of it intersects the viewport.
+              //
+              // The live tail (newest turns) is EXEMPT: virtualizing a turn whose
+              // final size hasn't been remembered yet snaps it to a stale height
+              // when it scrolls off, drifting stick-to-bottom up over old turns.
+              // See `liveTailStart`.
               <div
-                className="flex min-w-0 flex-col gap-(--conversation-turn-gap) pb-(--conversation-turn-gap) [contain-intrinsic-size:auto_37.5rem] [content-visibility:auto]"
+                className={cn(
+                  'flex min-w-0 flex-col gap-(--conversation-turn-gap) pb-(--conversation-turn-gap)',
+                  indexInVisible < tailStart && '[contain-intrinsic-size:auto_37.5rem] [content-visibility:auto]'
+                )}
                 key={group.id}
               >
                 <MessageRenderBoundary resetKey={messageSignature}>

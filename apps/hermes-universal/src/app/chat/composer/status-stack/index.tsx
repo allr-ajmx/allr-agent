@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback, useLayoutEffect, useMemo, useRef } from 'react'
+import { type ReactNode, useCallback, useLayoutEffect, useRef } from 'react'
 
 import { blurComposerInput } from '@/app/chat/composer/focus'
 import { BillingBanner } from '@/components/chat/billing-banner'
@@ -7,6 +7,7 @@ import { StatusSection } from '@/components/chat/status-section'
 import { Codicon } from '@/components/ui/codicon'
 import { useI18n } from '@/i18n'
 import { IS_MOBILE } from '@/lib/platform'
+import { useStoreSelector } from '@/lib/use-session-slice'
 import { cn } from '@/lib/utils'
 import { useStore } from '@/store/atom'
 import { $billingBlock } from '@/store/billing-block'
@@ -33,6 +34,12 @@ import { StatusItemRow } from './status-row'
 // on, so every recorded artifact stays until dismissed — better than hiding rows
 // on a signal that never arrives. Revisit when the background feed lands.
 
+// Shared empties so an absent slice never yields a fresh array — a fresh array
+// would defeat the snapshot bail-out below and re-render on every store write,
+// which is the exact churn the narrowing exists to remove.
+const NO_SUBAGENTS: SubagentProgress[] = []
+const NO_PREVIEWS: PreviewArtifact[] = []
+
 interface ComposerStatusStackProps {
   /** The queue chrome, built by the composer (it owns the queue callbacks). */
   queue: ReactNode
@@ -41,19 +48,29 @@ interface ComposerStatusStackProps {
 
 export function ComposerStatusStack({ queue, sessionId }: ComposerStatusStackProps) {
   const { t } = useI18n()
-  const bySession = useStore($subagentsBySession)
-  const previewBySession = useStore($previewStatusBySession)
   const scrolledUp = useStore($threadScrolledUp)
   const billing = useStore($billingBlock)
 
-  const subagents = useMemo<SubagentProgress[]>(
-    () => (sessionId ? (bySession[sessionId] ?? bySession.active ?? []) : (bySession.active ?? [])),
-    [bySession, sessionId]
+  // NARROWED TO THIS SESSION'S SLICE (MJXHRM-45). Both stores are
+  // `Record<sessionId, T[]>` written immutably per key, and this component
+  // mounts ONCE PER OPEN TILE — so reading the maps whole meant one session's
+  // subagent tick (which lands per tool/thinking chunk while an agent runs)
+  // re-rendered every other tile's status stack too. `delegate.tsx` and
+  // `micro-actions.tsx` already narrowed the identical stores with
+  // `useSessionSlice`; this file simply had not adopted it.
+  //
+  // `useStoreSelector` rather than `useSessionSlice`, deliberately: the subagent
+  // lookup falls back to the `active` bucket only when this session has NO entry
+  // at all, and an entry holding an empty list is not the same thing as a
+  // missing one. A per-key slice hook cannot tell those apart; the selector
+  // keeps the original `??` chain exactly. It returns the stored array's own
+  // reference (or a shared empty), so the snapshot comparison still bails.
+  const subagents = useStoreSelector($subagentsBySession, map =>
+    sessionId ? (map[sessionId] ?? map.active ?? NO_SUBAGENTS) : (map.active ?? NO_SUBAGENTS)
   )
 
-  const previews = useMemo<PreviewArtifact[]>(
-    () => (sessionId ? (previewBySession[sessionId] ?? []) : []),
-    [previewBySession, sessionId]
+  const previews = useStoreSelector($previewStatusBySession, map =>
+    sessionId ? (map[sessionId] ?? NO_PREVIEWS) : NO_PREVIEWS
   )
 
   // Stable handlers for the two memoized rows below. Built here rather than

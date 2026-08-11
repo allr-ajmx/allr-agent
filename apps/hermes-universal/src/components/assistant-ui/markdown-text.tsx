@@ -1,12 +1,11 @@
 import { TextMessagePartProvider, useAuiState, useMessagePartText } from '@assistant-ui/react'
 import {
-  parseMarkdownIntoBlocks,
   type StreamdownTextComponents,
   StreamdownTextPrimitive,
   type SyntaxHighlighterProps,
   tailBoundedRemend
 } from '@assistant-ui/react-streamdown'
-import { code } from '@streamdown/code'
+import type { code as streamdownCode } from '@streamdown/code'
 import type { Element as HastElement } from 'hast'
 import { type ComponentProps, createContext, memo, useContext, useEffect, useMemo, useState } from 'react'
 
@@ -17,6 +16,7 @@ import { ZoomableImage } from '@/components/chat/zoomable-image'
 import { detectArtifact } from '@/lib/artifact-detect'
 import { normalizeExternalUrl, openExternalLink, PrettyLink } from '@/lib/external-link'
 import { createMemoizedMathPlugin, KATEX_HTML_TAG } from '@/lib/katex-memo'
+import { parseMarkdownIntoBlocksCached } from '@/lib/markdown-blocks'
 import { preprocessMarkdown } from '@/lib/markdown-preprocess'
 import {
   downloadGatewayMediaFile,
@@ -47,6 +47,49 @@ import { detectEmbed, extractAlert, MarkdownAlert, RichCodeBlock, UrlEmbed } fro
 // `singleDollarTextMath: true` enables `$x^2$` inline math (the de-facto LLM
 // convention); the default only accepts `$$…$$`.
 const mathPlugin = createMemoizedMathPlugin({ singleDollarTextMath: true })
+
+// `@streamdown/code` statically imports ALL of shiki — every grammar and every
+// theme, the single largest payload in the renderer — so it must never sit on
+// the entry graph. Ported from desktop `markdown-text.tsx`, and the reason the
+// port was missing is worth recording: MJXHRM-380 put a `lazy()` boundary in
+// front of all FOUR of our own shiki entry points and measured the entry chunk
+// shrink, but this static import re-attached shiki through a third-party
+// package, so the library still loaded eagerly on every cold start. The seam is
+// only as lazy as its leakiest importer.
+//
+// Loaded on first markdown mount and swapped into the plugin table when it
+// lands. Until then a fenced block renders through the `SyntaxHighlighter`
+// override's plain path — the same output Shiki's own `delay` fallback shows —
+// so nothing flashes or reflows unexpectedly. The module-level cache means only
+// the first message in a session ever waits.
+type CodePlugin = typeof streamdownCode
+let codePluginCache: CodePlugin | null = null
+
+function useCodePlugin(): CodePlugin | null {
+  const [plugin, setPlugin] = useState(codePluginCache)
+
+  useEffect(() => {
+    if (plugin) {
+      return
+    }
+
+    let cancelled = false
+
+    void import('@streamdown/code').then(({ code }) => {
+      codePluginCache = code
+
+      if (!cancelled) {
+        setPlugin(code)
+      }
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [plugin])
+
+  return plugin
+}
 
 // Renderer for the single node katex-memo emits per equation. See that file for
 // why an equation is one node and not ~65.
@@ -159,9 +202,14 @@ const preprocessWithTailRepair = memoizeByText(
   TEXT_CACHE_LIMIT
 )
 
-// Memoized block splitter. Streamdown lexes the whole message on every REMOUNT
-// (virtualizer scroll, session switch); the LRU removes those repeat parses.
-const parseMarkdownIntoBlocksCached = memoizeByText('markdown.block-lex', parseMarkdownIntoBlocks, TEXT_CACHE_LIMIT)
+// Block splitting now lives in `lib/markdown-blocks.ts` (ported from desktop —
+// MJXHRM-45). The exact-string LRU this file used to build here only covered
+// REMOUNTS; a streaming message misses it by construction, because every flush
+// is a new string. That is precisely the case that costs: `parseMarkdownIntoBlocks`
+// is a full `marked` lex of the entire message, ~3.4-9.6ms at 64-192KB, paid
+// ~30×/s on a long reply. The ported module keeps the exact cache AND adds the
+// streaming-append cache that reuses everything before the settled boundary and
+// re-lexes only the tail, falling back to a full lex on any doubt.
 
 function childrenToText(children: unknown): string {
   if (typeof children === 'string' || typeof children === 'number') {
@@ -501,8 +549,9 @@ function MarkdownSyntaxHighlighter(props: SyntaxHighlighterProps) {
 
 // Code parsing stays enabled while streaming so incomplete fences still render
 // as code cards; the Shiki pass is deferred by SyntaxHighlighter instead.
-// Module scope, like the components map, so the prop identity never changes.
-const MARKDOWN_PLUGINS = { math: mathPlugin, code }
+// Math-only until the code plugin lands (see `useCodePlugin`); both halves are
+// module constants so the memo below only ever produces two identities.
+const MARKDOWN_PLUGINS_MATH_ONLY = { math: mathPlugin }
 
 // `StreamdownTextComponents` is unsatisfiable by any object literal: it's an
 // intersection of a `[key: string]: ComponentType<Record<string, unknown> &
@@ -604,6 +653,9 @@ const MARKDOWN_COMPONENTS = {
 
 function MarkdownTextSurface({ containerClassName, containerProps, defer }: MarkdownTextSurfaceProps) {
   const { text } = useMessagePartText()
+  const code = useCodePlugin()
+
+  const plugins = useMemo(() => (code ? { math: mathPlugin, code } : MARKDOWN_PLUGINS_MATH_ONLY), [code])
 
   if (text.length > MAX_MARKDOWN_CHARS) {
     return <HugeTextFallback containerClassName={containerClassName} text={text} />
@@ -619,7 +671,7 @@ function MarkdownTextSurface({ containerClassName, containerProps, defer }: Mark
       mode="streaming"
       parseIncompleteMarkdown={false}
       parseMarkdownIntoBlocksFn={parseMarkdownIntoBlocksCached}
-      plugins={MARKDOWN_PLUGINS}
+      plugins={plugins}
       preprocess={preprocessWithTailRepair}
     />
   )

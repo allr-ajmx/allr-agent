@@ -30,9 +30,12 @@
  * drift apart.
  */
 
+import { useCallback, useRef, useSyncExternalStore } from 'react'
+
+import { sessionTitle } from '@/lib/chat-runtime'
 import { useStore } from '@/store/atom'
 import { $projectTree } from '@/store/projects'
-import { $pinnedSessionCache, $sessions, sessionMatchesStoredId } from '@/store/session'
+import { $pinnedSessionCache, $sessions, sessionMatchesStoredId, sessionPinId } from '@/store/session'
 import type { SessionInfo } from '@/types/hermes'
 
 /** The atoms `sessionRowFor` reads. Pass these to a pane mirror's `also`, or to
@@ -109,4 +112,57 @@ export function useSessionRow(storedSessionId: null | string): null | SessionInf
   useStore(projectTree)
 
   return sessionRowFor(storedSessionId)
+}
+
+/** The three scalars a tab's context menu actually renders. */
+export interface SessionRowScalars {
+  /** DURABLE pin key — the lineage root when a row is known, the raw stored id
+   *  otherwise (matching what the sidebar row keys pins by). */
+  pinId: string
+  profile?: string
+  /** `null` until some source has seen the session, so the caller can render its
+   *  own placeholder rather than being handed a fabricated title. */
+  title: null | string
+}
+
+/**
+ * The NARROW face of `useSessionRow` (ported from desktop's `useTileMenuRow` —
+ * MJXHRM-45).
+ *
+ * `useSessionRow` subscribes to all three sources WHOLE, which is right when the
+ * caller needs the row itself. A tab's context menu does not: it renders three
+ * scalars. One of these wrappers is mounted per open tab, permanently, for a menu
+ * that is almost never open — so any recents poll, any other session's title
+ * update, any project-tree write re-rendered every one of them.
+ *
+ * Deriving through `useSyncExternalStore` with a keyed cache means the snapshot
+ * keeps its identity unless one of the three scalars actually moves, so React
+ * bails. The subscription still covers every source, so a tab whose zone mounted
+ * before the project tree landed still retitles itself when it arrives — the
+ * property `useSessionRow`'s doc comment exists to protect.
+ */
+export function useSessionRowScalars(storedSessionId: string): SessionRowScalars {
+  const cache = useRef<{ key: string; value: SessionRowScalars } | null>(null)
+
+  const subscribe = useCallback((onChange: () => void) => {
+    const offs = SESSION_ROW_SOURCES.map(source => source.listen(onChange))
+
+    return () => offs.forEach(off => off())
+  }, [])
+
+  return useSyncExternalStore(subscribe, () => {
+    const stored = sessionRowFor(storedSessionId)
+    const pinId = stored ? sessionPinId(stored) : storedSessionId
+    const title = stored ? sessionTitle(stored) : null
+    const profile = stored?.profile
+    // NUL-joined so a title containing the separator can't collide with a
+    // different (pinId, title, profile) triple.
+    const key = `${pinId}\u0000${title ?? ''}\u0000${profile ?? ''}`
+
+    if (cache.current?.key !== key) {
+      cache.current = { key, value: { pinId, profile, title } }
+    }
+
+    return cache.current.value
+  })
 }
