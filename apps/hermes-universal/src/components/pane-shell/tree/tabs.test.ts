@@ -21,6 +21,7 @@ import {
   closeFocusedTabInZone,
   cycleTreeTabInFocusedZone,
   noteActiveTreeGroup,
+  noteHoveredTreeGroup,
   setTreePaneHidden,
   treeTabCloseTargets
 } from '@/components/pane-shell/tree/store'
@@ -96,6 +97,9 @@ const panesOf = (groupId: string): string[] => groupIn(groupId)?.panes ?? []
 beforeEach(() => {
   $layoutTree.set(null)
   noteActiveTreeGroup(null)
+  // Both rungs of the ladder are module atoms; every test above this line is
+  // asserting the FOCUSED rung, which only holds while hover is clear.
+  noteHoveredTreeGroup(null)
 })
 
 afterEach(() => {
@@ -258,6 +262,80 @@ describe('closeFocusedTabInZone (⌘W)', () => {
 
     expect(closeFocusedTabInZone()).toBe(false)
     expect(panesOf(CHAT_GROUP)).toEqual([WORKSPACE_PANE_ID])
+  })
+})
+
+/**
+ * THE POINTER RUNG. Every verb above resolves its zone through one ladder —
+ * hovered, then focused, then the main tile's — and each rung has to be able to
+ * SERVE the verb before it claims the keys. Ported from upstream's
+ * `hovered-zone-tabs.test.ts` (15a55cbff1), which the original port left
+ * behind: the hover rung shipped with no coverage at all, which is how a
+ * headline feature ends up wired but dead.
+ */
+describe('the hovered zone outranks the focused one', () => {
+  it('⌥2 switches the zone under the POINTER while the other holds focus', () => {
+    seedTree([WORKSPACE_PANE_ID, tile('a'), tile('b')])
+    noteActiveTreeGroup(CHAT_GROUP)
+    noteHoveredTreeGroup(TOOL_GROUP)
+
+    expect(activateTreeTabSlot(2)).toBe(true)
+    expect(activePaneOf(TOOL_GROUP)).toBe('logs')
+    // The focused zone is untouched — the pointer won the target, not both.
+    expect(activePaneOf(CHAT_GROUP)).toBe(WORKSPACE_PANE_ID)
+
+    // Same key, pointer moved: the other zone's slot 2.
+    noteHoveredTreeGroup(CHAT_GROUP)
+    expect(activateTreeTabSlot(2)).toBe(true)
+    expect(activePaneOf(CHAT_GROUP)).toBe(tile('a'))
+  })
+
+  it('⌃Tab follows the pointer the same way', () => {
+    seedTree([WORKSPACE_PANE_ID, tile('a')])
+    noteActiveTreeGroup(CHAT_GROUP)
+    noteHoveredTreeGroup(TOOL_GROUP)
+
+    expect(cycleTreeTabInFocusedZone(1)).toBe(true)
+    expect(activePaneOf(TOOL_GROUP)).toBe('logs')
+    expect(activePaneOf(CHAT_GROUP)).toBe(WORKSPACE_PANE_ID)
+  })
+
+  it('⌘W closes the hovered zone tab, not the focused one', () => {
+    seedTree([WORKSPACE_PANE_ID, tile('a')], tile('a'))
+    noteActiveTreeGroup(CHAT_GROUP)
+    noteHoveredTreeGroup(TOOL_GROUP)
+
+    expect(closeFocusedTabInZone()).toBe(true)
+    expect(panesOf(TOOL_GROUP)).not.toContain('terminal')
+    expect(panesOf(CHAT_GROUP)).toEqual([WORKSPACE_PANE_ID, tile('a')])
+  })
+
+  // The rung has to be ELIGIBLE, not merely hovered — otherwise a pointer
+  // parked on a zone that cannot serve the verb swallows the keystroke.
+  it('hands the verb down when the hovered zone cannot serve it', () => {
+    seedTree([WORKSPACE_PANE_ID, tile('a'), tile('b')])
+    // The tool zone collapsed to one tab: nothing to cycle or index there.
+    setTreePaneHidden('logs', true)
+    noteActiveTreeGroup(CHAT_GROUP)
+    noteHoveredTreeGroup(TOOL_GROUP)
+
+    expect(activateTreeTabSlot(2)).toBe(true)
+    expect(activePaneOf(CHAT_GROUP)).toBe(tile('a'))
+
+    expect(cycleTreeTabInFocusedZone(1)).toBe(true)
+    expect(activePaneOf(CHAT_GROUP)).toBe(tile('b'))
+  })
+
+  it('reverts to the focused zone once the pointer leaves every zone', () => {
+    seedTree([WORKSPACE_PANE_ID, tile('a')])
+    noteActiveTreeGroup(CHAT_GROUP)
+    noteHoveredTreeGroup(TOOL_GROUP)
+    // pointerleave / window blur clear the override (trackActiveTreeGroup).
+    noteHoveredTreeGroup(null)
+
+    expect(activateTreeTabSlot(2)).toBe(true)
+    expect(activePaneOf(CHAT_GROUP)).toBe(tile('a'))
+    expect(activePaneOf(TOOL_GROUP)).toBe('terminal')
   })
 })
 

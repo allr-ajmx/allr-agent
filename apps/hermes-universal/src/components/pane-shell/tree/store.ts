@@ -1451,12 +1451,14 @@ export function activateTreePane(groupId: string, paneId: string) {
 }
 
 /** Reorder a block of tabs inside one strip — a single-tab drag is a one-id
- *  block, so the drag path has one shape whatever is selected. */
-export function reorderTreePanes(groupId: string, paneIds: readonly string[], toIndex: number) {
+ *  block, so the drag path has one shape whatever is selected. `before` is the
+ *  drop caret's slot as a pane ID (`null` = the end of the strip); see
+ *  `reorderPanesInGroup` for why it must not be an index. */
+export function reorderTreePanes(groupId: string, paneIds: readonly string[], before: null | string) {
   const tree = $layoutTree.get()
 
   if (tree) {
-    commit(reorderPanesInGroupOp(tree, groupId, paneIds, toIndex), 'reorder')
+    commit(reorderPanesInGroupOp(tree, groupId, paneIds, before), 'reorder')
     markActivePreset('custom')
   }
 }

@@ -339,8 +339,18 @@ export function movePane(
 ): LayoutNode {
   const from = findGroupOfPane(root, paneId)
 
+  // The pane is not in the tree. A drag outlives its source — the session
+  // behind a tab can close, a profile switch prunes the other profile's tile
+  // panes — and the commit reads the LIVE tree, so by release the id can be
+  // gone. Falling through to `insertAtGroup` would mint a tab that no tile
+  // backs: invisible (`tileVisibility` calls it `absent`), persisted with the
+  // layout, and counted by every later reorder.
+  if (!from) {
+    return root
+  }
+
   // No-op guards: dropping a pane onto its own single-pane group.
-  if (from && from.id === target.groupId && from.panes.length === 1) {
+  if (from.id === target.groupId && from.panes.length === 1) {
     return root
   }
 
@@ -369,10 +379,15 @@ export function movePane(
  */
 export function movePanes(
   root: LayoutNode,
-  paneIds: readonly string[],
+  selection: readonly string[],
   target: { groupId: string; pos: DropPosition; before?: null | string },
-  activeId: string = paneIds[0] ?? ''
+  activeId: string = selection[0] ?? ''
 ): LayoutNode {
+  // Panes that left the tree mid-drag drop out of the block (same hazard
+  // `movePane` guards, and a multi-tab selection is that much more likely to
+  // hold one). Order is preserved, so the survivors still land as they looked.
+  const paneIds = selection.filter(id => findGroupOfPane(root, id) !== null)
+
   if (paneIds.length <= 1) {
     return paneIds.length === 1 ? movePane(root, paneIds[0], target) : root
   }
@@ -547,10 +562,13 @@ export function mergeZonesWithPane(
   groupIds: string[],
   paneId: readonly string[] | string
 ): LayoutNode | null {
-  const paneIds = typeof paneId === 'string' ? [paneId] : [...paneId]
+  // Same mid-drag guard as `movePane`: an id that is no longer in the tree must
+  // not be seeded into the merged group as a pane nothing backs.
+  const paneIds = (typeof paneId === 'string' ? [paneId] : [...paneId]).filter(id => findGroupOfPane(root, id) !== null)
+
   const set = new Set(groupIds)
 
-  if (set.size <= 1 || !findCover(root, set)) {
+  if (paneIds.length === 0 || set.size <= 1 || !findCover(root, set)) {
     return null
   }
 
@@ -606,14 +624,26 @@ export function setActivePane(root: LayoutNode, groupId: string, paneId: string)
   return mapGroups(root, g => (g.id === groupId && g.panes.includes(paneId) ? { ...g, active: paneId } : g))
 }
 
-/** Reorder a block of panes within a group as one unit (browser-tab drag
- *  semantics; a single-tab drag is a one-id block): the block lands at
- *  `toIndex` among the remaining tabs, keeping its own order. */
+/**
+ * Reorder a block of panes within a group as one unit (browser-tab drag
+ * semantics; a single-tab drag is a one-id block): the block lands BEFORE
+ * `before`, keeping its own order, or at the end when `before` is null.
+ *
+ * The slot is a pane ID, never an index, and that is the whole point. The
+ * caller reads it off the STRIP, which renders only the SHOWN tabs, while
+ * `panes` also carries the ones that aren't on screen — a tile whose owning
+ * store toggled it off, and a disabled plugin's pane, which `closeTreePane`
+ * deliberately leaves in the tree so re-enabling restores it in place. An index
+ * resolved in the strip's space and applied in the tree's space slid the block
+ * by the number of unshown panes ahead of the slot, so dropping a tab at the
+ * end of a strip with one of those in it landed it second-to-last instead.
+ * `insertAtGroup` has always spoken `before` for exactly this reason.
+ */
 export function reorderPanesInGroup(
   root: LayoutNode,
   groupId: string,
   paneIds: readonly string[],
-  toIndex: number
+  before: null | string
 ): LayoutNode {
   return mapGroups(root, g => {
     if (g.id !== groupId || !paneIds.every(p => g.panes.includes(p))) {
@@ -621,10 +651,15 @@ export function reorderPanesInGroup(
     }
 
     const without = g.panes.filter(p => !paneIds.includes(p))
-    const index = Math.max(0, Math.min(without.length, toIndex))
-    const panes = [...without.slice(0, index), ...paneIds, ...without.slice(index)]
+    const index = before === null ? without.length : without.indexOf(before)
 
-    return { ...g, panes }
+    // The anchor tab left the group mid-drag: the slot no longer exists, so
+    // leave the strip alone rather than guessing at an end.
+    if (index === -1) {
+      return g
+    }
+
+    return { ...g, panes: [...without.slice(0, index), ...paneIds, ...without.slice(index)] }
   })
 }
 

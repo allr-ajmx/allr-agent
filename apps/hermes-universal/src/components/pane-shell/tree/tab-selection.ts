@@ -44,10 +44,18 @@ export function clearTabSelection() {
 
 /** ⌥/Ctrl-click: toggle `paneId`. A fresh selection seeds with the active tab
  *  (it is implicitly selected, as in Chrome); collapsing to ≤1 dissolves the
- *  selection entirely — a single "selected" tab is just a tab. */
-export function toggleTabSelected(groupId: string, paneId: string, activeId: string) {
+ *  selection entirely — a single "selected" tab is just a tab.
+ *
+ *  The carried-over set is PRUNED to the tabs the strip still holds. Nothing
+ *  clears the selection when a selected tab is closed or dragged into another
+ *  zone, so a stale set would keep seats no tab can occupy: ⌥-clicking one more
+ *  tab afterwards read as "three selected" and then dragged ONE, because
+ *  `selectionFor` validates against the live strip and dissolves anything that
+ *  filters down to a single id. */
+export function toggleTabSelected(groupId: string, orderedPanes: readonly string[], paneId: string, activeId: string) {
   const current = $tabSelection.get()
-  const ids = new Set(current?.groupId === groupId ? current.ids : [activeId])
+  const live = current?.groupId === groupId ? orderedPanes.filter(id => current.ids.has(id)) : []
+  const ids = new Set(live.length > 0 ? live : [activeId])
 
   if (ids.has(paneId)) {
     ids.delete(paneId)
