@@ -28,8 +28,33 @@ export const LOCALE_OPTIONS = [
     name: '日本語',
     englishName: 'Japanese',
     configValue: 'ja'
+  },
+  {
+    id: 'ar',
+    name: 'العربية',
+    englishName: 'Arabic',
+    configValue: 'ar'
   }
 ] as const satisfies readonly { configValue: string; englishName: string; id: Locale; name: string }[]
+
+/**
+ * Writing direction per locale.
+ *
+ * Kept as an explicit table rather than derived from the language tag: the set
+ * of locales is small and curated, and a wrong guess here flips the entire
+ * layout. Everything not listed is left-to-right.
+ */
+export const LOCALE_DIRECTION: Record<Locale, 'ltr' | 'rtl'> = {
+  ar: 'rtl',
+  en: 'ltr',
+  ja: 'ltr',
+  zh: 'ltr',
+  'zh-hant': 'ltr'
+}
+
+export function localeDirection(locale: Locale): 'ltr' | 'rtl' {
+  return LOCALE_DIRECTION[locale] ?? 'ltr'
+}
 
 // `name` is the endonym (native name) shown in the picker so users recognize
 // their language regardless of the current UI language. No country flags:
@@ -64,7 +89,33 @@ const LOCALE_ALIASES: Record<string, Locale> = {
   zh_hant_hk: 'zh-hant',
   ja: 'ja',
   'ja-jp': 'ja',
-  ja_jp: 'ja'
+  ja_jp: 'ja',
+  // Arabic is one UI locale across every region — the dialects differ in speech
+  // far more than in the written MSA these strings are in, so every ar-* tag
+  // resolves to the same catalogue rather than 20 near-identical entries.
+  ar: 'ar',
+  'ar-ae': 'ar',
+  ar_ae: 'ar',
+  'ar-dz': 'ar',
+  ar_dz: 'ar',
+  'ar-eg': 'ar',
+  ar_eg: 'ar',
+  'ar-iq': 'ar',
+  ar_iq: 'ar',
+  'ar-jo': 'ar',
+  ar_jo: 'ar',
+  'ar-kw': 'ar',
+  ar_kw: 'ar',
+  'ar-lb': 'ar',
+  ar_lb: 'ar',
+  'ar-ma': 'ar',
+  ar_ma: 'ar',
+  'ar-qa': 'ar',
+  ar_qa: 'ar',
+  'ar-sa': 'ar',
+  ar_sa: 'ar',
+  'ar-tn': 'ar',
+  ar_tn: 'ar'
 }
 
 export function isLocale(value: unknown): value is Locale {

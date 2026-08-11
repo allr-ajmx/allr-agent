@@ -4,7 +4,7 @@ import { Codecs, persistentAtom } from '@/lib/persisted'
 import { useStore } from '@/store/atom'
 
 import { TRANSLATIONS } from './catalog'
-import { DEFAULT_LOCALE, normalizeLocale } from './languages'
+import { DEFAULT_LOCALE, localeDirection, normalizeLocale } from './languages'
 import { setRuntimeI18nLocale } from './runtime'
 import type { Locale, Translations } from './types'
 
@@ -19,6 +19,8 @@ setRuntimeI18nLocale(normalizeLocale($locale.get()))
 
 export interface I18nContextValue {
   configLoadError: Error | null
+  /** Writing direction of the active locale — mirrors the document's `dir`. */
+  direction: 'ltr' | 'rtl'
   isLoadingConfig: boolean
   isSavingLocale: boolean
   locale: Locale
@@ -29,6 +31,7 @@ export interface I18nContextValue {
 
 const I18nContext = createContext<I18nContextValue>({
   configLoadError: null,
+  direction: 'ltr',
   isLoadingConfig: false,
   isSavingLocale: false,
   locale: DEFAULT_LOCALE,
@@ -44,6 +47,21 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     setRuntimeI18nLocale(locale)
   }, [locale])
 
+  // The document's `dir` and `lang` are the ONLY place RTL is switched on.
+  // Everything downstream — CSS logical properties, `text-align: start`, native
+  // caret and selection behaviour in inputs, the browser's own bidi resolution —
+  // reads the inherited direction, so setting it here is what makes an Arabic UI
+  // an Arabic UI rather than English text in Arabic glyphs. `lang` matters too:
+  // it picks the right font fallback and hyphenation.
+  useEffect(() => {
+    if (typeof document === 'undefined') {
+      return
+    }
+
+    document.documentElement.dir = localeDirection(locale)
+    document.documentElement.lang = locale
+  }, [locale])
+
   const setLocale = useCallback(async (next: Locale) => {
     $locale.set(next)
   }, [])
@@ -53,6 +71,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       configLoadError: null,
       isLoadingConfig: false,
       isSavingLocale: false,
+      direction: localeDirection(locale),
       locale,
       saveError: null,
       setLocale,
