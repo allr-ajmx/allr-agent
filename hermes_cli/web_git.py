@@ -682,20 +682,47 @@ def _unique_dir(base: str) -> str:
     return candidate
 
 
+def _resolve_branch_ref(cwd: str, name: str) -> tuple[str, str]:
+    """Map a branch name from the picker onto (local branch, remote-tracking ref).
+
+    ``branch_list`` offers remote-only branches as ``origin/foo``. Checking one
+    out by that name gives a *detached* HEAD, because ``origin/foo`` is a
+    commit-ish, not a branch — so resolve it back to the local branch ``foo``
+    that should track it. Returns ("foo", "origin/foo") for a remote-only
+    branch, ("foo", "") for a local one.
+    """
+    if _git_out(cwd, ["show-ref", "--verify", f"refs/heads/{name}"]).strip():
+        return name, ""
+    if _git_out(cwd, ["show-ref", "--verify", f"refs/remotes/{name}"]).strip():
+        local = name.split("/", 1)[1] if "/" in name else name
+        # A local branch of the short name already exists (so the picker should
+        # not have offered the remote); prefer the local branch over detaching.
+        if local and not _git_out(cwd, ["show-ref", "--verify", f"refs/heads/{local}"]).strip():
+            return local, name
+        return local or name, ""
+    return name, ""
+
+
 def worktree_add(cwd: str, options: dict) -> dict:
     _ensure_repo(cwd)
     root = _main_root(cwd)
     options = options or {}
 
-    existing = _sanitize_branch(options.get("existingBranch") or "")
+    requested = _sanitize_branch(options.get("existingBranch") or "")
     if options.get("existingBranch"):
-        if not existing:
+        if not requested:
             raise RuntimeError("Branch name is required.")
+        existing, remote_ref = _resolve_branch_ref(root, requested)
         if existing == _default_branch(root):
+            # `git switch` DWIMs a missing local branch into one tracking the
+            # unique remote of the same name, so this covers the remote-only case.
             _git_ok(root, ["switch", existing])
             return {"path": root, "branch": existing, "repoRoot": root}
         target = _unique_dir(os.path.join(root, ".worktrees", _slugify(existing)))
-        _git_ok(root, ["worktree", "add", target, existing])
+        if remote_ref:
+            _git_ok(root, ["worktree", "add", "--track", "-b", existing, target, remote_ref])
+        else:
+            _git_ok(root, ["worktree", "add", target, existing])
         return {"path": target, "branch": existing, "repoRoot": root}
 
     slug = _slugify(options.get("name") or f"work-{os.urandom(4).hex()}")
@@ -732,24 +759,62 @@ def worktree_remove(cwd: str, worktree_path: str, force: bool) -> dict:
 
 
 def branch_list(cwd: str) -> list[dict]:
+    """Local heads plus remote-only branches, newest first.
+
+    Remote-tracking refs are included so a branch that exists only on the
+    remote can still be checked out / turned into a worktree; a remote whose
+    short name already has a local head is dropped, because the local branch is
+    always the one you want. ``origin/HEAD`` is a symref alias, not a branch.
+    """
     out = _git_out(
-        cwd, ["for-each-ref", "--format=%(refname:short)", "--sort=-committerdate", "refs/heads"]
+        cwd,
+        [
+            "for-each-ref",
+            "--format=%(refname:short)\t%(refname)",
+            "--sort=-committerdate",
+            "refs/heads",
+            "refs/remotes",
+        ],
     )
     if not out:
         return []
     trees = worktree_list(cwd)
     path_by_branch = {t["branch"]: t["path"] for t in trees if t["branch"]}
     trunk = _default_branch(cwd)
-    return [
-        {
-            "name": name,
-            "checkedOut": name in path_by_branch,
-            "isDefault": bool(trunk and name == trunk),
-            "worktreePath": path_by_branch.get(name),
-        }
-        for name in (line.strip() for line in out.split("\n"))
-        if name
-    ]
+
+    rows: list[tuple[str, bool]] = []
+    local_names: set[str] = set()
+    for line in out.split("\n"):
+        line = line.strip()
+        if not line:
+            continue
+        parts = line.split("\t")
+        name = parts[0].strip()
+        if not name:
+            continue
+        is_remote = len(parts) > 1 and parts[1].startswith("refs/remotes/")
+        if is_remote:
+            if name.endswith("/HEAD"):
+                continue
+        else:
+            local_names.add(name)
+        rows.append((name, is_remote))
+
+    result: list[dict] = []
+    for name, is_remote in rows:
+        short = name.split("/", 1)[1] if is_remote and "/" in name else name
+        if is_remote and short in local_names:
+            continue
+        result.append(
+            {
+                "name": name,
+                "isRemote": is_remote,
+                "checkedOut": not is_remote and name in path_by_branch,
+                "isDefault": bool(trunk and not is_remote and name == trunk),
+                "worktreePath": None if is_remote else path_by_branch.get(name),
+            }
+        )
+    return result
 
 
 def branch_switch(cwd: str, branch: str) -> dict:

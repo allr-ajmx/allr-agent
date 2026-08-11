@@ -98,6 +98,106 @@ def test_worktree_add_initializes_plain_folder(client, tmp_path):
 
 
 
+@pytest.fixture
+def cloned_repo(tmp_path, repo):
+    """A clone of `repo` that has an extra branch only on the remote.
+
+    `repo` gains `feature/remote-only`; the clone fetches it but never checks it
+    out, so the clone sees it solely as `origin/feature/remote-only`.
+    """
+    _git(repo, "checkout", "-qb", "feature/remote-only")
+    (repo / "remote-only.txt").write_text("from the remote\n")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "remote only")
+    default = subprocess.run(
+        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    _git(repo, "checkout", "-q", "-")
+    assert default == "feature/remote-only"
+
+    clone = tmp_path / "clone"
+    subprocess.run(
+        ["git", "clone", "-q", str(repo), str(clone)], check=True, capture_output=True
+    )
+    _git(clone, "config", "user.email", "t@example.com")
+    _git(clone, "config", "user.name", "Test")
+    return clone
+
+
+def test_branch_list_offers_remote_only_branches(client, cloned_repo):
+    branches = client.get("/api/git/branches", params={"path": str(cloned_repo)}).json()["branches"]
+    by_name = {branch["name"]: branch for branch in branches}
+
+    # The remote-only branch is offered under its remote-tracking name...
+    remote_only = by_name["origin/feature/remote-only"]
+    assert remote_only["isRemote"] is True
+    assert remote_only["checkedOut"] is False
+    assert remote_only["worktreePath"] is None
+
+    # ...while a remote whose short name has a local head is suppressed, and
+    # `origin/HEAD` (a symref alias, not a branch) never shows up at all.
+    local_default = next(branch for branch in branches if branch["isDefault"])
+    assert local_default["isRemote"] is False
+    assert f"origin/{local_default['name']}" not in by_name
+    assert not any(name.endswith("/HEAD") for name in by_name)
+
+
+def test_worktree_add_tracks_a_remote_only_branch(client, cloned_repo):
+    added = client.post(
+        "/api/git/worktree/add",
+        json={"path": str(cloned_repo), "existingBranch": "origin/feature/remote-only"},
+    ).json()
+
+    # The local branch is created, not a detached HEAD on the remote ref.
+    assert added["branch"] == "feature/remote-only"
+    worktree = Path(added["path"])
+    assert worktree.is_dir()
+
+    head = subprocess.run(
+        ["git", "symbolic-ref", "--quiet", "--short", "HEAD"],
+        cwd=worktree,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    assert head == "feature/remote-only"
+
+    upstream = subprocess.run(
+        ["git", "rev-parse", "--abbrev-ref", "HEAD@{upstream}"],
+        cwd=worktree,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    assert upstream == "origin/feature/remote-only"
+
+    status = client.get("/api/git/status", params={"path": str(worktree)}).json()
+    assert status["branch"] == "feature/remote-only"
+
+
+def test_worktree_add_still_reuses_a_local_branch(client, cloned_repo):
+    _git(cloned_repo, "branch", "feature/local-only")
+
+    added = client.post(
+        "/api/git/worktree/add",
+        json={"path": str(cloned_repo), "existingBranch": "feature/local-only"},
+    ).json()
+
+    assert added["branch"] == "feature/local-only"
+    head = subprocess.run(
+        ["git", "symbolic-ref", "--quiet", "--short", "HEAD"],
+        cwd=Path(added["path"]),
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    assert head == "feature/local-only"
+
+
 def test_git_endpoints_require_auth(repo):
     unauth = TestClient(web_server.app)
 
