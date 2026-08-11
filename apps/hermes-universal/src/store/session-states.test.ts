@@ -26,6 +26,7 @@ import {
   clearAllSessionStates,
   focusOpenSession,
   focusWorkspaceSession,
+  invalidateRuntimeBindings,
   MAX_CACHED_SESSIONS,
   pruneSessionStates
 } from '@/store/session-states'
@@ -399,5 +400,37 @@ describe('clearAllSessionStates', () => {
 
     expect(sessionCompacting('runtime-1').get()).toBe(false)
     expect($compactingSessions.get()).toEqual({})
+  })
+})
+
+// MJXHRM-358. This runs on every WS re-open. It used to null every slice's
+// `runtimeSessionId` on the theory that each surface would re-resume its own
+// session — but the main pane has no such path, the tile path short-circuits on
+// a warm slice without touching the field, and nothing else ever wrote it back.
+// A persisted conversation was then indistinguishable from a DRAFT for the rest
+// of the process, and `ensureSession` answered the next message with
+// `session.create`.
+describe('invalidateRuntimeBindings', () => {
+  it('keeps the runtime binding and clears only the stale liveness', () => {
+    seed('runtime-1', { storedSessionId: 'stored-1', busy: true, turnStartedAt: 1_000 })
+
+    invalidateRuntimeBindings()
+
+    expect($sessionStates.get()['runtime-1']).toMatchObject({
+      runtimeSessionId: 'runtime-1',
+      storedSessionId: 'stored-1',
+      busy: false,
+      turnStartedAt: null
+    })
+  })
+
+  // A draft carries a turn too (`beginTurn` fires before the submit leaves), and
+  // its spinner is just as stranded by a drop as a bound session's.
+  it('clears the liveness of a slice that has no runtime id yet', () => {
+    seed('draft:9', { runtimeSessionId: null, storedSessionId: null, busy: true, turnStartedAt: 2_000 })
+
+    invalidateRuntimeBindings()
+
+    expect($sessionStates.get()['draft:9']).toMatchObject({ busy: false, turnStartedAt: null })
   })
 })
