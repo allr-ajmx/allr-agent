@@ -44,6 +44,21 @@ pub const ARTIFACT_SCHEME: &str = "hermes-artifact";
 /// The content IS the script — a generated page's code is written inline, and a
 /// nonce would only be a lock on a door whose key is printed on the door. What
 /// makes this safe is where it applies: this origin, this frame, nothing else.
+///
+/// There is deliberately NO `frame-ancestors`, and that absence is the whole
+/// reason this comment is long. `frame-ancestors` names who may embed THIS
+/// document, resolved against THIS document's origin — so `'self'` means "only
+/// `hermes-artifact://…` may frame me", and the app document
+/// (`tauri://localhost`, `http://tauri.localhost` on Windows/Android, a
+/// `http://localhost:1420` dev server under `tauri dev`) is none of those. It
+/// shipped as `frame-ancestors 'self'`, which is to say the policy forbade the
+/// only embedder the scheme has: a blank frame everywhere the directive is
+/// enforced. Naming the app's origins instead would mean hard-coding four
+/// spellings plus whatever port vite picked today, and it would buy nothing —
+/// `hermes-artifact://` is registered on this app's webview and is not reachable
+/// from anywhere else, so there is no third-party embedder to defend against.
+/// The isolation here comes from the opaque sandbox origin and from
+/// `default-src 'none'`, not from an ancestor check.
 const ARTIFACT_CSP: &str = "default-src 'none'; \
      script-src 'unsafe-inline' 'unsafe-eval'; \
      style-src 'unsafe-inline'; \
@@ -51,8 +66,7 @@ const ARTIFACT_CSP: &str = "default-src 'none'; \
      font-src data:; \
      media-src data: blob:; \
      form-action 'none'; \
-     base-uri 'none'; \
-     frame-ancestors 'self'";
+     base-uri 'none'";
 
 /// Documents the renderer has staged for the frame, by id.
 ///
@@ -200,5 +214,14 @@ mod tests {
         assert!(ARTIFACT_CSP.contains("default-src 'none'"));
         assert!(!ARTIFACT_CSP.contains("connect-src"));
         assert!(!ARTIFACT_CSP.contains("ipc:"));
+    }
+
+    /// `frame-ancestors` resolves against the ARTIFACT's origin, so any value we
+    /// could write here either forbids the app document (the one embedder there
+    /// is) or hard-codes four platform spellings plus a dev-server port. The
+    /// directive stays out; see ARTIFACT_CSP's comment.
+    #[test]
+    fn the_artifact_policy_does_not_forbid_its_own_embedder() {
+        assert!(!ARTIFACT_CSP.contains("frame-ancestors"));
     }
 }
