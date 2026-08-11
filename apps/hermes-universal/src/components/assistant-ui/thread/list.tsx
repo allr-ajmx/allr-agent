@@ -17,9 +17,11 @@ import { useStickToBottom } from 'use-stick-to-bottom'
 
 import { MessageRenderBoundary } from '@/components/assistant-ui/message-render-boundary'
 import { resolveShowEarlierAction, useTranscriptWindow } from '@/components/assistant-ui/thread/transcript-window'
+import { usePaneVisible } from '@/components/pane-shell/pane-visibility'
 import { useI18n } from '@/i18n'
 import { messagePaintWeight } from '@/lib/render-weight'
 import { cn } from '@/lib/utils'
+import { atom, useStore } from '@/store/atom'
 import {
   onScrollToBottomRequest,
   onThreadEditClose,
@@ -54,6 +56,24 @@ export type MessageGroup = { id: string; weight: number } & (
 // this cannot admit more than one window's content.
 const RENDER_BUDGET = 600
 
+// Every transcript list that is actually on screen registers here (see the
+// mount effect). The budget above is sized for ONE full-height pane; a grid
+// split shows several at once, each a fraction of the screen — yet each was
+// still mounting the full budget. Four visible panes meant 4x the mounted
+// message fibers, and every streaming flush pays selector re-runs and React
+// commit traversal over ALL of them. Sharing the budget keeps "screens of
+// scrollback" constant instead of "turns per pane": a pane a quarter the height
+// gets a quarter the page, floored at a quarter budget (MIN_VISIBLE_GROUPS
+// still floors the turn count regardless of weight). Panes that already
+// backfilled keep their mounted content when the count changes — the share only
+// caps where NEW backfills stop.
+//
+// VISIBLE panes, not mounted ones (desktop counts mounts). Keep-alive leaves
+// every ever-activated tab mounted, so counting mounts would divide a lone
+// visible pane's page by the number of tabs behind it — a budget cut paid for
+// fibers nobody is looking at.
+const $visibleTranscriptPanes = atom(0)
+
 // Never offer "Show earlier" over fewer turns than this, however heavy they
 // are. A weight-only cut on a session of enormous turns put the button two
 // turns from the bottom, where it reads as broken rather than as paging — the
@@ -68,6 +88,11 @@ const MIN_VISIBLE_GROUPS = 8
 // backfill fills the rest interruptibly, so a smaller budget only changes how
 // much work blocks the click-to-paint path.
 const FIRST_PAINT_BUDGET = 20
+
+// Units the backfill adds per committed step (see the backfill effect). ~8-15
+// ordinary turns or 1-2 tool-heavy ones per frame — big enough to fill a page
+// in ~10 frames, small enough that no single commit approaches a frame budget.
+const BACKFILL_STEP = 60
 
 interface ThreadMessageListProps {
   clampToComposer: boolean
@@ -197,6 +222,63 @@ export function liveTailStart(
   return Math.min(floor, Math.max(ceiling, start))
 }
 
+interface TurnRowProps {
+  components: ThreadMessageComponents
+  group: MessageGroup
+  resetKey: string
+  virtualized: boolean
+}
+
+// One turn (or standalone message) of the transcript. memo() is the point: the
+// rows array below is REBUILT whenever the DOM budget's cut advances
+// (hiddenCount changes its slice), and without per-row bail-out that rebuild
+// re-rendered every mounted turn — markdown, code cards, tool blocks — in one
+// synchronous frame. With memo, a rebuild re-renders only rows whose props
+// changed: the dropped head row unmounts, the virtualization boundary rows flip
+// their flag, and everything else bails on identical group/resetKey identity.
+//
+// content-visibility:auto (virtualized rows) — off-screen turns skip style
+// recalc, layout, and paint. On a long transcript this is what keeps UNRELATED
+// UI fast: any dialog/popover mount (Radix Presence reads getComputedStyle)
+// forces a whole-document style recalc, measured ~650-730ms per open on a
+// 1300-message session and ~100-200ms with this on. The same applies to any
+// width change — toggling a sidebar re-lays-out every rendered turn, which on a
+// KaTeX-heavy transcript (dozens-to-hundreds of inline-styled spans per
+// equation) froze the window until this landed. contain-intrinsic-size keeps a
+// placeholder height for never-rendered turns (auto: remembered real size once
+// rendered), so scrollbar/anchoring stay stable. Sticky human bubbles are
+// unaffected — their turn is rendered whenever any part of it intersects the
+// viewport.
+//
+// The live tail (newest turns) is EXEMPT: virtualizing a turn whose final size
+// hasn't been remembered yet snaps it to a stale height when it scrolls off,
+// drifting stick-to-bottom up over old turns. See `liveTailStart`.
+const TurnRow = memo(function TurnRow({ components, group, resetKey, virtualized }: TurnRowProps) {
+  return (
+    <div
+      className={cn(
+        'flex min-w-0 flex-col gap-(--conversation-turn-gap) pb-(--conversation-turn-gap)',
+        virtualized && '[contain-intrinsic-size:auto_37.5rem] [content-visibility:auto]'
+      )}
+    >
+      <MessageRenderBoundary resetKey={resetKey}>
+        {group.kind === 'turn' ? (
+          <div
+            className="composer-human-ai-pair-container relative flex min-w-0 flex-col gap-(--conversation-turn-gap)"
+            data-slot="aui_turn-pair"
+          >
+            {group.indices.map(index => (
+              <ThreadPrimitive.MessageByIndex components={components} index={index} key={index} />
+            ))}
+          </div>
+        ) : (
+          <ThreadPrimitive.MessageByIndex components={components} index={group.index} />
+        )}
+      </MessageRenderBoundary>
+    </div>
+  )
+})
+
 const ThreadMessageListInner: FC<ThreadMessageListProps> = ({
   clampToComposer,
   components,
@@ -235,6 +317,25 @@ const ThreadMessageListInner: FC<ThreadMessageListProps> = ({
     resize: 'instant'
   })
 
+  // Only a pane that is actually painting claims a share — see
+  // `$visibleTranscriptPanes`. An inactive keep-alive tab stays mounted with a
+  // frozen transcript and must not shrink its neighbours' page.
+  const paneVisible = usePaneVisible()
+
+  useEffect(() => {
+    if (!paneVisible) {
+      return
+    }
+
+    $visibleTranscriptPanes.set($visibleTranscriptPanes.get() + 1)
+
+    return () => $visibleTranscriptPanes.set($visibleTranscriptPanes.get() - 1)
+  }, [paneVisible])
+
+  const visiblePanes = useStore($visibleTranscriptPanes)
+  // This pane's share of the render budget — see `$visibleTranscriptPanes`.
+  const paneBudget = Math.max(Math.ceil(RENDER_BUDGET / Math.max(1, visiblePanes)), RENDER_BUDGET / 4)
+
   const [renderBudget, setRenderBudget] = useState(FIRST_PAINT_BUDGET)
 
   // Cut the budget during RENDER, not in the post-commit layout effect. An
@@ -269,9 +370,17 @@ const ThreadMessageListInner: FC<ThreadMessageListProps> = ({
   // commit painted — as a TRANSITION, so the heavy markdown + KaTeX render of
   // the older turns is interruptible instead of one long synchronous commit
   // that freezes input right after the switch. "Show earlier" pages
-  // (budget > RENDER_BUDGET) never re-enter here.
+  // (budget > paneBudget) never re-enter here.
+  //
+  // In BOUNDED STEPS, not one jump to the full budget. A transition render is
+  // interruptible but its COMMIT is not, and one 20→600 step commits every
+  // backfilled turn at once — measured upstream as a 780ms uninterruptible
+  // frame when a session was revealed while other tiles streamed (the flushes
+  // kept interrupting the transition, which finally landed whole, seconds
+  // later, mid-stream). Each step commits at most BACKFILL_STEP units; the
+  // effect re-arms off the committed budget, so steps pace one per frame.
   useEffect(() => {
-    if (renderBudget >= RENDER_BUDGET) {
+    if (renderBudget >= paneBudget) {
       return
     }
 
@@ -279,11 +388,11 @@ const ThreadMessageListInner: FC<ThreadMessageListProps> = ({
       // Functional max, not a plain set: an urgent "Show earlier" click can
       // land between scheduling and committing this transition, and a plain
       // set would rebase over it and shrink the budget back down.
-      startTransition(() => setRenderBudget(budget => Math.max(budget, RENDER_BUDGET)))
+      startTransition(() => setRenderBudget(budget => Math.max(budget, Math.min(budget + BACKFILL_STEP, paneBudget))))
     })
 
     return () => cancelAnimationFrame(rafId)
-  }, [renderBudget])
+  }, [paneBudget, renderBudget])
 
   // Weights fold into the BUDGET only. Group identity stays structural, so a
   // streaming append re-runs this cheap sum — not the row JSX. Settled content
@@ -307,10 +416,16 @@ const ThreadMessageListInner: FC<ThreadMessageListProps> = ({
   const hiddenCount = firstVisibleGroupIndex(
     weightedGroups,
     renderBudget,
-    renderBudget >= RENDER_BUDGET ? MIN_VISIBLE_GROUPS : 0
+    renderBudget >= paneBudget ? MIN_VISIBLE_GROUPS : 0
   )
 
-  const visibleGroups = hiddenCount > 0 ? groups.slice(hiddenCount) : groups
+  // Memoized for IDENTITY, not to save the slice: `rows` below keys off this
+  // array, and an inline slice handed it a fresh array every render — so the
+  // moment a transcript outgrew the render budget (hiddenCount > 0), every
+  // streamed token rebuilt every visible row's JSX and re-rendered the whole
+  // mounted transcript. Under the budget the raw `groups` identity made the
+  // memo hold; heavy sessions lost it exactly when they could least afford to.
+  const visibleGroups = useMemo(() => (hiddenCount > 0 ? groups.slice(hiddenCount) : groups), [groups, hiddenCount])
 
   // Where the always-rendered live tail begins. Derived from the WEIGHTED groups
   // (render cost, not turn count) so the tail is a viewport's worth of content —
@@ -421,13 +536,13 @@ const ThreadMessageListInner: FC<ThreadMessageListProps> = ({
     restoreFromBottomRef.current = el ? el.scrollHeight - el.scrollTop : null
 
     if (action === 'dom') {
-      setRenderBudget(budget => budget + RENDER_BUDGET)
+      setRenderBudget(budget => budget + paneBudget)
 
       return
     }
 
     expandWindow()
-  }, [expandWindow, hiddenCount, olderAvailable, scrollRef])
+  }, [expandWindow, hiddenCount, olderAvailable, paneBudget, scrollRef])
 
   useLayoutEffect(() => {
     const el = scrollRef.current
@@ -440,6 +555,27 @@ const ThreadMessageListInner: FC<ThreadMessageListProps> = ({
     // messages without changing the DOM budget — the anchor has to be re-applied
     // in the commit the taller tree lands in either way.
   }, [messageSignature, renderBudget, scrollRef])
+
+  // The row array is memoized on the inputs the rows actually read. This
+  // component re-renders on every isAtBottom flip — and use-stick-to-bottom
+  // flips it from a ResizeObserver, so a pane/sash DRAG re-renders this list
+  // per frame. Without the memo, the inline .map() rebuilt every row's JSX each
+  // time, and rebuilt children re-render their whole subtree even when nothing
+  // changed. With it, React bails out on element identity and a scroll flip
+  // re-renders nothing below.
+  const rows = useMemo(
+    () =>
+      visibleGroups.map((group, indexInVisible) => (
+        <TurnRow
+          components={components}
+          group={group}
+          key={group.id}
+          resetKey={messageSignature}
+          virtualized={indexInVisible < tailStart}
+        />
+      )),
+    [components, messageSignature, tailStart, visibleGroups]
+  )
 
   return (
     <div
@@ -474,49 +610,7 @@ const ThreadMessageListInner: FC<ThreadMessageListProps> = ({
                 {t.assistant.thread.showEarlier}
               </button>
             )}
-            {visibleGroups.map((group, indexInVisible) => (
-              // content-visibility:auto — off-screen turns skip style recalc,
-              // layout, and paint. On a long transcript this is what keeps
-              // UNRELATED UI fast: any dialog/popover mount (Radix Presence
-              // reads getComputedStyle) forces a whole-document style recalc,
-              // measured ~650-730ms per open on a 1300-message session and
-              // ~100-200ms with this on. The same applies to any width change —
-              // toggling a sidebar re-lays-out every rendered turn, which on a
-              // KaTeX-heavy transcript (dozens-to-hundreds of inline-styled
-              // spans per equation) froze the window until this landed.
-              // contain-intrinsic-size keeps a placeholder height for
-              // never-rendered turns (auto: remembered real size once
-              // rendered), so scrollbar/anchoring stay stable. Sticky human
-              // bubbles are unaffected — their turn is rendered whenever any
-              // part of it intersects the viewport.
-              //
-              // The live tail (newest turns) is EXEMPT: virtualizing a turn whose
-              // final size hasn't been remembered yet snaps it to a stale height
-              // when it scrolls off, drifting stick-to-bottom up over old turns.
-              // See `liveTailStart`.
-              <div
-                className={cn(
-                  'flex min-w-0 flex-col gap-(--conversation-turn-gap) pb-(--conversation-turn-gap)',
-                  indexInVisible < tailStart && '[contain-intrinsic-size:auto_37.5rem] [content-visibility:auto]'
-                )}
-                key={group.id}
-              >
-                <MessageRenderBoundary resetKey={messageSignature}>
-                  {group.kind === 'turn' ? (
-                    <div
-                      className="composer-human-ai-pair-container relative flex min-w-0 flex-col gap-(--conversation-turn-gap)"
-                      data-slot="aui_turn-pair"
-                    >
-                      {group.indices.map(index => (
-                        <ThreadPrimitive.MessageByIndex components={components} index={index} key={index} />
-                      ))}
-                    </div>
-                  ) : (
-                    <ThreadPrimitive.MessageByIndex components={components} index={group.index} />
-                  )}
-                </MessageRenderBoundary>
-              </div>
-            ))}
+            {rows}
             {loadingIndicator}
             {clampToComposer && (
               <div
