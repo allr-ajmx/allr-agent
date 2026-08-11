@@ -5,6 +5,7 @@ import type { Tile } from '@/components/pane-shell/tile/types'
 import { group, split } from '@/components/pane-shell/tree/model'
 import { $activeTreeGroup, $layoutTree, noteActiveTreeGroup } from '@/components/pane-shell/tree/store'
 import { isChatPaneId, sessionTilePaneId, WORKSPACE_PANE_ID } from '@/lib/pane-ids'
+import { $compactingSessions, sessionCompacting, setSessionCompacting } from '@/store/compaction'
 import { $activeStoredSessionId } from '@/store/session'
 import {
   $activeSessionKey,
@@ -381,5 +382,22 @@ describe('clearAllSessionStates', () => {
 
     expect($inflightTurns.get()).toEqual({})
     expect(isTurnLive('runtime-1')).toBe(false)
+  })
+
+  // MJXHRM-357: the THIRD keyed side-store, and the one this wipe forgot.
+  // Nothing else could ever release it — the settle observer only fires for
+  // turns, and the turn wipe above replaces its atom wholesale without emitting
+  // one — so a compaction live at the moment of a profile switch stayed set
+  // forever under a runtime id the new backend will never issue.
+  it('takes the compaction state with it', () => {
+    seed('runtime-1', { storedSessionId: 'stored-1' })
+    setSessionCompacting('runtime-1', true)
+
+    expect(sessionCompacting('runtime-1').get()).toBe(true)
+
+    clearAllSessionStates()
+
+    expect(sessionCompacting('runtime-1').get()).toBe(false)
+    expect($compactingSessions.get()).toEqual({})
   })
 })
