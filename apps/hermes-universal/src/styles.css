@@ -1558,8 +1558,12 @@ html {
 [data-slot='aui_assistant-message-content'] .aui-md [data-slot='code-card'] {
   margin-block: var(--paragraph-gap) 0;
   position: relative;
+  /* No `border-color` here (nor in the streaming rule / keyframes below): the
+     card lost its border when the header chrome came off, so the glow is
+     box-shadow only. Tailwind's preflight leaves every element at
+     `border-width: 0`, so an animated border colour painted nothing — it just
+     kept a dead property on a 1.8s infinite alternate animation. */
   transition:
-    border-color 180ms ease-out,
     box-shadow 180ms ease-out,
     background-color 180ms ease-out;
 }
@@ -1568,7 +1572,6 @@ html {
   animation:
     code-card-stream-enter 180ms cubic-bezier(0.16, 1, 0.3, 1) both,
     code-card-stream-glow 1.8s ease-in-out 180ms infinite alternate;
-  border-color: color-mix(in srgb, var(--dt-ring) 24%, var(--ui-stroke-tertiary));
   box-shadow:
     0 0 0 0.0625rem color-mix(in srgb, var(--dt-ring) 10%, transparent),
     0 0.625rem 1.75rem color-mix(in srgb, var(--dt-ring) 8%, transparent);
@@ -1820,14 +1823,12 @@ span[data-slot='aui_msg-reactions'] {
 
 @keyframes code-card-stream-glow {
   from {
-    border-color: color-mix(in srgb, var(--dt-ring) 18%, var(--ui-stroke-tertiary));
     box-shadow:
       0 0 0 0.0625rem color-mix(in srgb, var(--dt-ring) 6%, transparent),
       0 0.5rem 1.5rem color-mix(in srgb, var(--dt-ring) 5%, transparent);
   }
 
   to {
-    border-color: color-mix(in srgb, var(--dt-ring) 32%, var(--ui-stroke-tertiary));
     box-shadow:
       0 0 0 0.0625rem color-mix(in srgb, var(--dt-ring) 12%, transparent),
       0 0.75rem 2rem color-mix(in srgb, var(--dt-ring) 10%, transparent);
@@ -2027,29 +2028,40 @@ span[data-slot='aui_msg-reactions'] {
 /* Themed native scrollbars (desktop styles.css ~837), applied app-wide via
    `class="scrollbar-dt"` on #root (index.html) exactly as desktop does. Ported
    desktop components and the Radix portals in components/ui also class
-   themselves with these. */
+   themselves with these.
+
+   `.scrollbar-overlay` opts a single scroller back OUT (desktop #73670). Any
+   author rule — the standard `scrollbar-width`/`scrollbar-color` pair on
+   WebKitGTK, or `::-webkit-scrollbar` on WKWebView / WebView2 / the Android
+   Chromium webview — switches that scroller from the platform's overlay bar
+   (fades in on scroll, reserves no space) to a classic always-on gutter. In a
+   conversation code card that gutter is permanent chrome inside a slab that is
+   only a few lines tall, so the code blocks ask for the platform bar instead.
+   Both halves of the exclusion are needed because universal ships both halves
+   unconditionally (see the note above `html { scrollbar-width }`: WebKitGTK
+   honours only the standard props, the webkit rules only bite elsewhere). */
 @layer components {
   .scrollbar-dt,
-  .scrollbar-dt * {
+  .scrollbar-dt *:not(.scrollbar-overlay) {
     scrollbar-width: thin;
     scrollbar-color: color-mix(in srgb, var(--dt-midground) 18%, transparent) transparent;
   }
 
   .scrollbar-dt::-webkit-scrollbar,
-  .scrollbar-dt *::-webkit-scrollbar {
+  .scrollbar-dt *:not(.scrollbar-overlay)::-webkit-scrollbar {
     width: 0.5rem;
     height: 0.5rem;
   }
 
   .scrollbar-dt::-webkit-scrollbar-track,
   .scrollbar-dt::-webkit-scrollbar-corner,
-  .scrollbar-dt *::-webkit-scrollbar-track,
-  .scrollbar-dt *::-webkit-scrollbar-corner {
+  .scrollbar-dt *:not(.scrollbar-overlay)::-webkit-scrollbar-track,
+  .scrollbar-dt *:not(.scrollbar-overlay)::-webkit-scrollbar-corner {
     background: transparent;
   }
 
   .scrollbar-dt::-webkit-scrollbar-thumb,
-  .scrollbar-dt *::-webkit-scrollbar-thumb {
+  .scrollbar-dt *:not(.scrollbar-overlay)::-webkit-scrollbar-thumb {
     background: color-mix(in srgb, var(--dt-midground) 18%, transparent);
     border-radius: 9999rem;
     border: 0.125rem solid transparent;
@@ -2057,13 +2069,13 @@ span[data-slot='aui_msg-reactions'] {
   }
 
   .scrollbar-dt::-webkit-scrollbar-thumb:hover,
-  .scrollbar-dt *::-webkit-scrollbar-thumb:hover {
+  .scrollbar-dt *:not(.scrollbar-overlay)::-webkit-scrollbar-thumb:hover {
     background: color-mix(in srgb, var(--dt-midground) 40%, transparent);
     background-clip: padding-box;
   }
 
   .scrollbar-dt::-webkit-scrollbar-button,
-  .scrollbar-dt *::-webkit-scrollbar-button {
+  .scrollbar-dt *:not(.scrollbar-overlay)::-webkit-scrollbar-button {
     display: none;
   }
 
