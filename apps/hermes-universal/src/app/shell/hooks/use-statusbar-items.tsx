@@ -12,6 +12,7 @@ import { StatusDot } from '@/components/status-dot'
 import { Codicon } from '@/components/ui/codicon'
 import { $pluginRecords } from '@/contrib/plugins-store'
 import { useI18n } from '@/i18n'
+import { displayPath } from '@/lib/display-path'
 import { Activity, AlertCircle, Clock, Command, FolderOpen, Hash, Loader2, Plug, Sun, Terminal, Zap } from '@/lib/icons'
 import { IS_DESKTOP, IS_MOBILE } from '@/lib/platform'
 import { revealPathInFileManager } from '@/lib/reveal-path'
@@ -34,8 +35,10 @@ import { $appVersion, $gatewayRestarting, $inferenceStatus, $statusSnapshot } fr
 import { openAgentsScreen, openCronScreen, openSettingsScreen, openSystemScreen } from '@/store/windows'
 import { $effectiveCwd, ensureWorkspaceCwd } from '@/store/workspace-events'
 
-// Copy the absolute cwd to the clipboard, toasting on success (mirrors the
-// file-tree context menu's copy-path behavior).
+// Copy the ABSOLUTE cwd to the clipboard, toasting on success (mirrors the
+// file-tree context menu's copy-path behavior). Deliberately not the tildified
+// form the bar displays: a copied path is going into a terminal or an issue,
+// where `~` means the reader's home rather than this machine's.
 function copyWorkspacePath(cwd: string, copiedMsg: string): void {
   void navigator.clipboard.writeText(cwd).then(() => notify({ kind: 'success', message: copiedMsg }))
 }
@@ -291,7 +294,12 @@ export function useStatusbarItems(opts?: {
     {
       // The rich list shows the full path as the value; the bar keeps the short
       // workspace label only.
-      detail: rich && currentCwd ? currentCwd : undefined,
+      //
+      // Tildified. `lib/display-path.ts` existed for exactly this and nothing
+      // under `app/shell/` was calling it, so every full-path surface in the bar
+      // showed a raw `/home/<user>/…` — the one part of the path that is never
+      // the information the reader wants, and the widest.
+      detail: rich && currentCwd ? displayPath(currentCwd) : undefined,
       hidden: !currentCwd,
       // A project-owned cwd wears the project's own glyph, tinted by its color;
       // an unowned one keeps the neutral folder.
@@ -313,7 +321,7 @@ export function useStatusbarItems(opts?: {
               id: 'copy-workspace-path',
               label: fileMenu.copyPath,
               onSelect: () => copyWorkspacePath(currentCwd, fileMenu.pathCopied),
-              title: currentCwd
+              title: displayPath(currentCwd)
             },
             {
               // OS reveal only makes sense on a desktop app talking to a local
@@ -322,17 +330,17 @@ export function useStatusbarItems(opts?: {
               id: 'reveal-workspace-finder',
               label: fileMenu.revealFileManager,
               onSelect: () => void revealPathInFileManager(currentCwd),
-              title: currentCwd
+              title: displayPath(currentCwd)
             },
             {
               id: 'reveal-workspace-sidebar',
               label: fileMenu.revealInSidebar,
               onSelect: () => revealFileInTree(currentCwd),
-              title: currentCwd
+              title: displayPath(currentCwd)
             }
           ]
         : undefined,
-      title: currentCwd || undefined,
+      title: displayPath(currentCwd) || undefined,
       variant: 'menu'
     },
     {
