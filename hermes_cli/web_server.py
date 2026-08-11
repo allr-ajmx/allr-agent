@@ -2945,6 +2945,7 @@ from hermes_cli.web_routers import git as _git_routes  # noqa: E402
 
 app.include_router(_git_routes.router)
 from hermes_cli.web_routers.git import (  # noqa: E402,F401 — legacy re-exports; tests call these via web_server.<name>
+    git_scan_repos_route,
     git_status_route,
     git_worktrees_route,
     git_branches_route,
