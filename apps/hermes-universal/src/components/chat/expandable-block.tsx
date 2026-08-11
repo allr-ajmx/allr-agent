@@ -50,19 +50,28 @@ export function ExpandableBlock({ children, className }: ExpandableBlockProps) {
         {children}
       </div>
       {overflowing && (
-        <button
-          aria-expanded={expanded}
-          aria-label={expanded ? 'Collapse' : 'Expand'}
-          // The fade has to end in whatever the host surface is painted with,
-          // and a code card is no longer the chat background — it has its own
-          // tint. Hosts override `--expandable-fade-from`; everyone else keeps
-          // the chat surface.
-          className="absolute inset-x-0 bottom-0 flex h-7 cursor-pointer items-end justify-center bg-linear-to-t from-[var(--expandable-fade-from,var(--ui-chat-surface-background))] to-transparent pb-1 text-muted-foreground/70 transition-colors hover:text-foreground"
-          onClick={() => setExpanded(v => !v)}
-          type="button"
-        >
-          <ChevronDown className={cn('size-4 transition-transform', expanded && 'rotate-180')} />
-        </button>
+        // The fade is a pure overflow cue and must not intercept pointer events:
+        // it spans the full bottom edge (over the horizontal scrollbar of a wide
+        // code block AND the block's last line), so making it clickable killed
+        // both sideways scrolling and text selection. Keep the fade
+        // `pointer-events-none` and pin the only clickable target — a compact
+        // toggle — to the right edge, clear of the draggable scrollbar track.
+        //
+        // The fade colour has to end in whatever the host surface is painted
+        // with, and a code card is no longer the chat background — it has its
+        // own tint. Hosts override `--expandable-fade-from`; everyone else keeps
+        // the chat surface.
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 flex h-7 justify-end bg-linear-to-t from-[var(--expandable-fade-from,var(--ui-chat-surface-background))] to-transparent">
+          <button
+            aria-expanded={expanded}
+            aria-label={expanded ? 'Collapse' : 'Expand'}
+            className="pointer-events-auto flex h-7 w-9 cursor-pointer items-end justify-center pb-1 text-muted-foreground/70 transition-colors hover:text-foreground"
+            onClick={() => setExpanded(v => !v)}
+            type="button"
+          >
+            <ChevronDown className={cn('size-3.5 transition-transform', expanded && 'rotate-180')} />
+          </button>
+        </div>
       )}
     </div>
   )
