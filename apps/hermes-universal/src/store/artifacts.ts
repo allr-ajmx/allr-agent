@@ -102,6 +102,22 @@ export function artifactsForSession(sessionId: string | null | undefined): Artif
   return $artifactRegistry.get()[id] ?? []
 }
 
+/** Re-base a pinned version index after `dropped` versions fell off the front. */
+function shiftVersionPin(artifactId: string, dropped: number): void {
+  if (dropped <= 0) {
+    return
+  }
+
+  const selection = $artifactVersionSelection.get()
+  const pinned = selection[artifactId]
+
+  if (pinned === undefined) {
+    return
+  }
+
+  $artifactVersionSelection.set({ ...selection, [artifactId]: Math.max(0, pinned - dropped) })
+}
+
 interface UpsertResult {
   artifactId: string
   record: ArtifactRecord
@@ -140,9 +156,16 @@ export function upsertArtifact(
       return { artifactId: existing.id, record: existing, versionAdded: false }
     }
 
-    const versions = [...existing.versions, { content: trimmed, createdAt: now, hash }].slice(
-      -MAX_VERSIONS_PER_ARTIFACT
-    )
+    const grown = [...existing.versions, { content: trimmed, createdAt: now, hash }]
+    const versions = grown.slice(-MAX_VERSIONS_PER_ARTIFACT)
+
+    // Dropping the oldest version renumbers every remaining one, and a pinned
+    // selection is an INDEX. Left alone, the viewer someone parked on v3 would
+    // quietly start showing what used to be v4 — the content changing under an
+    // open pane with nothing on screen saying so. Shift the pin by as many as
+    // fell off the front so it keeps naming the same version, and let it clamp
+    // at the oldest survivor once the one it named is gone.
+    shiftVersionPin(existing.id, grown.length - versions.length)
 
     const next: ArtifactRecord = {
       ...existing,
