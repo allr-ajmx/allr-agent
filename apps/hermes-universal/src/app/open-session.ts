@@ -23,15 +23,6 @@ import { focusOpenSession, openSessionTile, reuseBlankDraftTile } from '@/store/
  */
 export type OpenSessionIntent = 'in-place' | 'tab'
 
-/** The intent a click's modifiers ask for. Cmd/Ctrl means "beside, not
- *  instead of" — the same convention as a link in a browser. */
-export function openSessionIntentFromModifiers(
-  event?: null | { ctrlKey?: boolean; metaKey?: boolean },
-  base: OpenSessionIntent = 'in-place'
-): OpenSessionIntent {
-  return event?.metaKey || event?.ctrlKey ? 'tab' : base
-}
-
 /** Open a stored session. No-op on an empty id. */
 export function openSessionRef(storedSessionId: string, intent: OpenSessionIntent = 'in-place'): void {
   const id = storedSessionId.trim()

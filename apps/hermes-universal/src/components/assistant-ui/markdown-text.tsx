@@ -27,9 +27,11 @@ import {
   resolveMediaDisplaySrc
 } from '@/lib/media'
 import { isMediaStreamUrl } from '@/lib/media-stream'
+import { sessionRefFromMarkdownHref } from '@/lib/session-refs'
 import { cn } from '@/lib/utils'
 import { span } from '@/observability'
 
+import { SessionRefLink } from './directive-content'
 import { detectEmbed, extractAlert, MarkdownAlert, RichCodeBlock, UrlEmbed } from './embeds'
 
 // Math rendering plugin (KaTeX). Configured once at module scope — the plugin
@@ -370,15 +372,25 @@ function MediaAttachment({ path }: { path: string }) {
   )
 }
 
-// `#media:` hrefs render as inline attachments; everything else routes through
-// rich URL embeds / PrettyLink. (The link-preview TOGGLE for a settled reply is
-// separate and lives on the message footer — see `PreviewAttachment`, wired in
-// thread/assistant-message.tsx.)
+// `#media:` hrefs render as inline attachments, `#session/` hrefs as session
+// links; everything else routes through rich URL embeds / PrettyLink. (The
+// link-preview TOGGLE for a settled reply is separate and lives on the message
+// footer — see `PreviewAttachment`, wired in thread/assistant-message.tsx.)
 function MarkdownLink({ children, className, href, ...props }: ComponentProps<'a'>) {
   const mediaPath = mediaPathFromMarkdownHref(href)
 
   if (mediaPath) {
     return <MediaAttachment path={mediaPath} />
+  }
+
+  // An `@session:` ref the agent wrote, rewritten to a fragment href by
+  // `preprocessMarkdown`. It has to be claimed BEFORE the generic branch below,
+  // which would hand a `#session/...` fragment to `openExternalLink` — asking
+  // the OS to open a URL that means nothing outside this app.
+  const sessionRef = sessionRefFromMarkdownHref(href)
+
+  if (sessionRef) {
+    return <SessionRefLink value={sessionRef} />
   }
 
   const target = href ? normalizeExternalUrl(href) : href
