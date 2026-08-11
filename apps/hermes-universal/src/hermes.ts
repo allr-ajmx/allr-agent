@@ -6,6 +6,7 @@ import type {
   AnalyticsResponse,
   AudioSpeakResponse,
   AudioTranscriptionResponse,
+  AutomationBlueprint,
   AuxiliaryModelsResponse,
   BackendUpdateCheckResponse,
   ComputerUseStatus,
@@ -104,6 +105,8 @@ export type {
   AnalyticsTotals,
   AudioSpeakResponse,
   AudioTranscriptionResponse,
+  AutomationBlueprint,
+  AutomationBlueprintField,
   AuxiliaryModelsResponse,
   BackendUpdateCheckResponse,
   ComputerUseCheck,
@@ -1013,6 +1016,40 @@ export function deleteCronJob(jobId: string): Promise<{ ok: boolean }> {
   return api<{ ok: boolean }>({
     path: `/api/cron/jobs/${encodeURIComponent(jobId)}`,
     method: 'DELETE'
+  })
+}
+
+// Automation Blueprints — parameterized cron templates the backend serves from
+// cron/blueprint_catalog.py. getAutomationBlueprints returns the gallery
+// (deliver options already rewritten to this machine's configured gateways);
+// instantiateAutomationBlueprint fills the slots and creates a real cron job via
+// the same create_job path as createCronJob.
+//
+// Profile-scoping is intentionally asymmetric: the GET catalog is global (the
+// list endpoint takes no profile — only deliver options are rewritten from the
+// configured gateways). instantiate creates a real per-profile job, so it names
+// the target profile explicitly via ?profile=.
+//
+// Seam vs desktop: desktop spreads profileScoped() into both calls for backend
+// routing; universal's api() already threads the active profile itself (see
+// setApiRequestProfile / lib/api.ts withProfile), so neither takes a profile
+// argument for routing — instantiate's ?profile= is the WRITE TARGET, which is
+// a different thing and stays an explicit parameter.
+export function getAutomationBlueprints(): Promise<{ blueprints: AutomationBlueprint[] }> {
+  return api<{ blueprints: AutomationBlueprint[] }>({
+    path: '/api/cron/blueprints',
+    timeoutMs: STARTUP_REQUEST_TIMEOUT_MS
+  })
+}
+
+export function instantiateAutomationBlueprint(
+  body: { blueprint: string; values: Record<string, string> },
+  profile: string
+): Promise<CronJob> {
+  return api<CronJob>({
+    path: `/api/cron/blueprints/instantiate?profile=${encodeURIComponent(profile)}`,
+    method: 'POST',
+    body
   })
 }
 

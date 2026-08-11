@@ -1806,7 +1806,15 @@ export const en: Translations = {
     scheduleRequired: 'Schedule is required.',
     scriptOnlyEditHint: 'Script-only job (no AI prompt). Job id:',
     saveChanges: 'Save changes',
-    createAction: 'Create cron'
+    createAction: 'Create cron',
+    blueprints: {
+      startFrom: 'Start from',
+      custom: 'Custom',
+      scheduleIt: 'Schedule it',
+      scheduling: 'Scheduling...',
+      scheduled: 'Blueprint scheduled',
+      failedLoad: 'Failed to load blueprints'
+    }
   },
 
   artifacts: {

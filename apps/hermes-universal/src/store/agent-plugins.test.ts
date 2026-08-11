@@ -68,6 +68,7 @@ describe('toggleAgentPlugin', () => {
 
   it('reloads the whole list when the RPC returns no refreshed row', async () => {
     $agentPlugins.set([row()])
+
     const request = vi
       .fn()
       .mockResolvedValueOnce({ ok: true, plugin: null })

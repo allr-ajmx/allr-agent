@@ -27,13 +27,16 @@ import {
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import {
+  type AutomationBlueprint,
   createCronJob,
   type CronDeliveryTarget,
   type CronJob,
   deleteCronJob,
+  getAutomationBlueprints,
   getCronDeliveryTargets,
   getCronJobRuns,
   getCronJobs,
+  instantiateAutomationBlueprint,
   pauseCronJob,
   resumeCronJob,
   type SessionInfo,
@@ -70,6 +73,7 @@ import {
 } from '../overlays/panel'
 import type { SetStatusbarItemGroup } from '../shell/statusbar-controls'
 
+import { BlueprintSlotControl, blueprintSlotHelp, cleanBlueprintFieldError, initialBlueprintValues } from './blueprints'
 import {
   cronEditorUpdates,
   jobIsScriptOnly,
@@ -80,6 +84,10 @@ import {
 import { jobState, jobTitle, STATE_DOT } from './job-state'
 
 const DEFAULT_DELIVER = 'local'
+
+// "Start from" sentinel: the manual editor rather than a blueprint. Any other
+// value is a blueprint key.
+const CUSTOM_TEMPLATE = 'custom'
 
 // What the field offers when the backend has no delivery-targets route (an
 // older gateway). Local always works — it is the scheduler's own default.
@@ -526,6 +534,20 @@ export function CronView({
     setEditor({ mode: 'closed' })
   }
 
+  // Blueprint instantiation is a distinct backend path (fills typed slots, then
+  // creates the job) so it can't share the raw-cron onSave contract. Merge the
+  // created job into $cronJobs like every other create path. A blueprint writes a
+  // real per-profile job, and "all" is not a writable target — collapse it to
+  // 'default', matching the manual create path in handleEditorSave.
+  async function handleBlueprintCreate(blueprint: AutomationBlueprint, values: Record<string, string>) {
+    const profile = profileScope === ALL_PROFILES ? 'default' : profileScope
+    const job = await instantiateAutomationBlueprint({ blueprint: blueprint.key, values }, profile)
+
+    updateCronJobs(rows => [...rows.filter(row => row.id !== job.id), job])
+    notify({ kind: 'success', title: c.blueprints.scheduled, message: asText(job.schedule_display) || blueprint.title })
+    setEditor({ mode: 'closed' })
+  }
+
   return (
     <Panel closeLabel={c.close} onClose={onClose} variant={variant}>
       {loading && jobs.length === 0 ? (
@@ -591,7 +613,12 @@ export function CronView({
         </>
       )}
 
-      <CronEditorDialog editor={editor} onClose={() => setEditor({ mode: 'closed' })} onSave={handleEditorSave} />
+      <CronEditorDialog
+        editor={editor}
+        onBlueprintCreate={handleBlueprintCreate}
+        onClose={() => setEditor({ mode: 'closed' })}
+        onSave={handleEditorSave}
+      />
 
       <Dialog onOpenChange={open => !open && !deleting && setPendingDelete(null)} open={pendingDelete !== null}>
         <DialogContent className="max-w-md">
@@ -828,10 +855,12 @@ function CronJobRuns({
 
 function CronEditorDialog({
   editor,
+  onBlueprintCreate,
   onClose,
   onSave
 }: {
   editor: EditorState
+  onBlueprintCreate: (blueprint: AutomationBlueprint, values: Record<string, string>) => Promise<void>
   onClose: () => void
   onSave: (values: EditorValues) => Promise<void>
 }) {
@@ -850,25 +879,38 @@ function CronEditorDialog({
   // Per-job model override, encoded as `${providerSlug}:${model}` (split on the
   // first ':' when saving). MODEL_DEFAULT_VALUE = follow the global default.
   const [modelChoice, setModelChoice] = useState(MODEL_DEFAULT_VALUE)
+  // Blueprint fills typed slots (time/enum/weekdays/text) instead of the raw
+  // cron fields; the backend renders the prompt + schedule from them.
+  const [slotValues, setSlotValues] = useState<Record<string, string>>({})
+  // Create mode can start from a ready-made blueprint instead of a blank cron.
+  // CUSTOM_TEMPLATE (default) = the manual editor; any other value is a
+  // blueprint key that swaps the form for that blueprint's typed slots.
+  const [templateChoice, setTemplateChoice] = useState(CUSTOM_TEMPLATE)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<null | string>(null)
 
+  // The blueprint catalog powers the create dialog's "Start from" dropdown; it's
+  // meaningless when editing an existing job, so skip the fetch there.
+  const blueprintsQuery = useQuery({
+    queryKey: ['cron-blueprints'],
+    queryFn: async () => (await getAutomationBlueprints()).blueprints,
+    enabled: open && !isEdit
+  })
+
+  const blueprintList = blueprintsQuery.data ?? []
+
+  const blueprint =
+    templateChoice === CUSTOM_TEMPLATE ? null : (blueprintList.find(item => item.key === templateChoice) ?? null)
+
+  const isBlueprint = blueprint !== null
+
   // Same catalog the chat model picker uses: configured providers and their
-  // actually-available models only. Script-only jobs never run an agent, so
-  // skip the fetch entirely for them.
+  // actually-available models only. Script-only + blueprint forms never pick a
+  // model here, so skip the fetch entirely for them.
   const modelOptions = useQuery({
     queryKey: ['model-options', 'global'],
     queryFn: () => requestModelOptions({}),
-    enabled: open && !scriptOnlyJob
-  })
-
-  // Local + whatever platforms the backend actually has configured. An older
-  // gateway with no such route falls back to local-only rather than an empty
-  // group, so the field can never render as a dead box.
-  const deliveryTargets = useQuery({
-    queryKey: ['cron-delivery-targets'],
-    queryFn: getCronDeliveryTargets,
-    enabled: open
+    enabled: open && !scriptOnlyJob && !isBlueprint
   })
 
   useEffect(() => {
@@ -882,9 +924,18 @@ function CronEditorDialog({
     setSchedulePreset(initial ? scheduleOptionForExpr(jobScheduleExpr(initial)).value : 'daily')
     setDeliver(initial ? jobDeliver(initial) : DEFAULT_DELIVER)
     setModelChoice(initial && jobModel(initial) ? `${jobProvider(initial)}:${jobModel(initial)}` : MODEL_DEFAULT_VALUE)
+    setSlotValues({})
+    setTemplateChoice(CUSTOM_TEMPLATE)
     setError(null)
     setSaving(false)
   }, [initial, open])
+
+  // Seed the typed slots with the blueprint's defaults whenever a blueprint is
+  // picked from "Start from" (and reset them when switching back to Custom).
+  useEffect(() => {
+    setSlotValues(blueprint ? initialBlueprintValues(blueprint) : {})
+    setError(null)
+  }, [blueprint])
 
   const selectedScheduleOption =
     SCHEDULE_OPTIONS.find(candidate => candidate.value === schedulePreset) ?? SCHEDULE_OPTIONS[0]
@@ -963,6 +1014,26 @@ function CronEditorDialog({
     }
   }
 
+  async function handleBlueprintSubmit(event: React.FormEvent) {
+    event.preventDefault()
+
+    if (!blueprint) {
+      return
+    }
+
+    setSaving(true)
+    setError(null)
+
+    try {
+      await onBlueprintCreate(blueprint, slotValues)
+    } catch (err) {
+      // 422 carries the slot-level validation message; surface it inline.
+      setError(cleanBlueprintFieldError(err instanceof Error ? err.message : String(err)))
+    } finally {
+      setSaving(false)
+    }
+  }
+
   return (
     <Dialog onOpenChange={value => !value && !saving && onClose()} open={open}>
       <DialogContent className="max-w-lg">
@@ -971,7 +1042,75 @@ function CronEditorDialog({
           <DialogDescription>{isEdit ? c.editDesc : c.createDesc}</DialogDescription>
         </DialogHeader>
 
-        <form className="grid gap-4" onSubmit={handleSubmit}>
+        {!isEdit && blueprintList.length > 0 && (
+          <Field htmlFor="cron-template" label={c.blueprints.startFrom}>
+            <Select onValueChange={setTemplateChoice} value={templateChoice}>
+              <SelectTrigger className="h-9 rounded-md" id="cron-template">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={CUSTOM_TEMPLATE}>{c.blueprints.custom}</SelectItem>
+                {blueprintList.map(item => (
+                  <SelectItem key={item.key} value={item.key}>
+                    {item.title}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {blueprint?.description && <FieldHint>{blueprint.description}</FieldHint>}
+          </Field>
+        )}
+
+        {isBlueprint && blueprint ? (
+          <form className="grid gap-4" onSubmit={handleBlueprintSubmit}>
+            {blueprint.fields.map(field => {
+              const fieldId = `blueprint-${blueprint.key}-${field.name}`
+              const help = blueprintSlotHelp(field)
+
+              return (
+                <Field htmlFor={fieldId} key={field.name} label={field.label}>
+                  {field.name === 'deliver' ? (
+                    // Route the deliver slot through the SAME control the manual
+                    // editor uses rather than the blueprint's static
+                    // field.options: the catalog's options include the
+                    // dashboard-only "origin" target, which does not exist here.
+                    <DeliverControl
+                      c={c}
+                      id={fieldId}
+                      onChange={next => setSlotValues(prev => ({ ...prev, [field.name]: next }))}
+                      value={slotValues[field.name] ?? DEFAULT_DELIVER}
+                    />
+                  ) : (
+                    <BlueprintSlotControl
+                      field={field}
+                      id={fieldId}
+                      onChange={next => setSlotValues(prev => ({ ...prev, [field.name]: next }))}
+                      value={slotValues[field.name] ?? ''}
+                    />
+                  )}
+                  {help && <FieldHint>{help}</FieldHint>}
+                </Field>
+              )
+            })}
+
+            {error && (
+              <div className="flex items-start gap-2 rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+                <span>{error}</span>
+              </div>
+            )}
+
+            <DialogFooter>
+              <Button disabled={saving} onClick={onClose} type="button" variant="outline">
+                {t.common.cancel}
+              </Button>
+              <Button disabled={saving} type="submit">
+                {saving ? c.blueprints.scheduling : c.blueprints.scheduleIt}
+              </Button>
+            </DialogFooter>
+          </form>
+        ) : (
+          <form className="grid gap-4" onSubmit={handleSubmit}>
           {scriptOnlyJob && initial && (
             <FieldHint>
               {c.scriptOnlyEditHint} <span className="font-mono">{initial.id}</span>
@@ -1015,13 +1154,7 @@ function CronEditorDialog({
             </Field>
 
             <Field htmlFor="cron-deliver" label={c.deliverLabel}>
-              <DeliverCheckboxes
-                c={c}
-                id="cron-deliver"
-                onChange={setDeliver}
-                targets={deliveryTargets.data ?? FALLBACK_DELIVERY_TARGETS}
-                value={deliver}
-              />
+              <DeliverControl c={c} id="cron-deliver" onChange={setDeliver} value={deliver} />
             </Field>
           </div>
 
@@ -1092,9 +1225,48 @@ function CronEditorDialog({
               {saving ? t.common.saving : isEdit ? c.saveChanges : c.createAction}
             </Button>
           </DialogFooter>
-        </form>
+          </form>
+        )}
       </DialogContent>
     </Dialog>
+  )
+}
+
+/**
+ * The delivery-target control, shared by the manual editor and a blueprint's
+ * `deliver` slot — one place decides what targets this app offers, so the two
+ * forms can never drift (desktop shares its DeliverSelect the same way).
+ *
+ * It owns the FETCH as well as the fallback, which is why both call sites are a
+ * bare four props. The query is keyed, so the two mounts share one request, and
+ * it is scoped by mounting rather than an `enabled` flag: the control only
+ * exists inside an open dialog, so "is the dialog open" and "does this component
+ * exist" are the same question.
+ */
+function DeliverControl({
+  c,
+  id,
+  onChange,
+  value
+}: {
+  c: Translations['cron']
+  id: string
+  onChange: (next: string) => void
+  value: string
+}) {
+  // Local + whatever platforms the backend actually has configured. An older
+  // gateway with no such route falls back to local-only rather than an empty
+  // group, so the field can never render as a dead box.
+  const targets = useQuery({ queryKey: ['cron-delivery-targets'], queryFn: getCronDeliveryTargets })
+
+  return (
+    <DeliverCheckboxes
+      c={c}
+      id={id}
+      onChange={onChange}
+      targets={targets.data ?? FALLBACK_DELIVERY_TARGETS}
+      value={value}
+    />
   )
 }
 
