@@ -789,7 +789,8 @@ export const en: Translations = {
       sessionKindNativeHint:
         'You signed in through your system browser. The token is kept in this device’s keyring and never enters the app.',
       sessionKindCookie: 'In-app',
-      sessionKindCookieHint: 'You signed in inside the app. The session cookie is kept by the app and refreshes itself.',
+      sessionKindCookieHint:
+        'You signed in inside the app. The session cookie is kept by the app and refreshes itself.',
       authSignedInPassword:
         'This gateway uses a username and password. You are signed in; the session refreshes automatically.',
       authSignedInOauth: 'This gateway uses OAuth. You are signed in; the session refreshes automatically.',
@@ -2460,6 +2461,8 @@ export const en: Translations = {
       hideTerminal: 'Hide terminal',
       keepAwakeOn: 'Keeping awake — click to allow sleep',
       keepAwakeOff: 'Keep computer awake',
+      focusView: 'focus',
+      focusViewTitle: 'Focus view — tool activity is hidden. Click to show it again.',
       gateway: 'Gateway',
       gatewayReady: 'ready',
       gatewayNeedsSetup: 'needs setup',
@@ -2758,6 +2761,7 @@ export const en: Translations = {
       branchNewChat: 'Branch in new chat',
       dismissError: 'Dismiss error',
       filesChanged: count => (count === 1 ? '1 file changed' : `${count} files changed`),
+      focusHidden: count => (count === 1 ? '⋯ 1 tool line hidden' : `⋯ ${count} tool lines hidden`),
       reviewChanges: 'Review',
       readAloudFailed: 'Read aloud failed',
       preparingAudio: 'Preparing audio...',

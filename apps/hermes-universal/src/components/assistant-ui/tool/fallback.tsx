@@ -39,6 +39,7 @@ import { normalize } from '@/lib/text'
 import { useEnterAnimation } from '@/lib/use-enter-animation'
 import { cn } from '@/lib/utils'
 import { $sessionId as $activeSessionId, $currentCwd } from '@/store/chat'
+import { $focusRevealedRuns, $focusView, isFocusRunRevealed, revealFocusRun } from '@/store/focus-view'
 import { recordPreviewArtifact } from '@/store/preview-status'
 import { sessionApprovalRequest } from '@/store/prompts'
 import { $toolInlineDiffs } from '@/store/tool-diffs'
@@ -55,6 +56,7 @@ import {
   isCardTool,
   isFileEditTool,
   isPreviewableTarget,
+  isSilentTool,
   looksRedundant,
   type SearchResultRow,
   selectMessageRunning,
@@ -635,6 +637,12 @@ export { isCardTool }
 // approved is visible next to the question.
 const APPROVAL_TOOLS = new Set(['terminal', 'execute_code'])
 
+// Ranges of parts travel through selectors as ONE joined string (see
+// ToolGroupSlot): assistant-ui compares selector results with `Object.is`, so a
+// fresh array would re-render the group on every streaming delta. NUL is the
+// separator because no tool name can contain one.
+const TOOL_KEY_SEPARATOR = String.fromCharCode(0)
+
 export type RunItem = { end: number; kind: 'run'; start: number } | { index: number; kind: 'card' }
 
 /**
@@ -839,11 +847,44 @@ export const ToolGroupSlot: FC<PropsWithChildren<{ endIndex: number; startIndex:
     state.message.parts
       .slice(Math.max(0, startIndex), endIndex + 1)
       .map(part => (part.type === 'tool-call' ? part.toolName : ''))
-      .join('\u0000')
+      .join(TOOL_KEY_SEPARATOR)
   )
 
-  const items = useMemo(() => splitRunItems(toolNameKey.split('\u0000')), [toolNameKey])
+  const toolNames = useMemo(() => toolNameKey.split(TOOL_KEY_SEPARATOR), [toolNameKey])
+  const items = useMemo(() => splitRunItems(toolNames), [toolNames])
   const rows = Children.toArray(children)
+
+  // Which of those calls FAILED, as its own short string for the same reason
+  // the names are joined into one: focus view refuses to hide an error row, and
+  // a tool name alone cannot say whether the call went wrong.
+  const toolFailedKey = useAuiState(state =>
+    state.message.parts
+      .slice(Math.max(0, startIndex), endIndex + 1)
+      .map(part => (part.type === 'tool-call' && part.isError ? '1' : '0'))
+      .join('')
+  )
+
+  const messageId = useAuiState(state => state.message.id)
+  const focusView = useStore($focusView)
+  const revealedRuns = useStore($focusRevealedRuns)
+
+  // Focus view stands one dim line in for the group's activity, expandable back
+  // into the real rows. Keyed by message + range, so revealing one run leaves
+  // the rest of the transcript hidden.
+  const runKey = `${messageId}:${startIndex}`
+
+  if (focusView && !isFocusRunRevealed(revealedRuns, runKey)) {
+    return (
+      <ToolEmbedContext.Provider value={false}>
+        <FocusHiddenRun
+          failedKey={toolFailedKey}
+          names={toolNames}
+          onReveal={() => revealFocusRun(runKey)}
+          rows={rows}
+        />
+      </ToolEmbedContext.Provider>
+    )
+  }
 
   return (
     <ToolEmbedContext.Provider value={false}>
@@ -857,6 +898,66 @@ export const ToolGroupSlot: FC<PropsWithChildren<{ endIndex: number; startIndex:
         )
       )}
     </ToolEmbedContext.Provider>
+  )
+}
+
+/**
+ * A tool group under focus view: what was hidden, said once, in the group's own
+ * place and one click from the rows themselves.
+ *
+ * Two kinds of row are never hidden, for the same reason the gateway exempts
+ * them when it suppresses tool progress for a terminal
+ * (`_tool_lifecycle_required_for_ui`): a `clarify` card is a turn waiting on an
+ * answer, and a failed call is the one thing a reduced view must not swallow —
+ * "reduce the output" is not "hide the errors".
+ *
+ * Rows that render nothing anyway (`todo`, `react_to_message`) are folded away
+ * but NOT counted, so the number is what the reader would otherwise have seen.
+ *
+ * A command awaiting approval IS folded away, and safely: universal asks for
+ * approval in the composer's ApprovalBar, which prints the command itself — so
+ * unlike a terminal, nothing here can be approved unseen.
+ */
+const FocusHiddenRun: FC<{
+  failedKey: string
+  names: readonly string[]
+  onReveal: () => void
+  rows: readonly ReactNode[]
+}> = ({ failedKey, names, onReveal, rows }) => {
+  const { t } = useI18n()
+
+  const { hidden, kept } = useMemo(() => {
+    const shown: ReactNode[] = []
+    let count = 0
+
+    names.forEach((name, index) => {
+      if (failedKey[index] === '1' || name === 'clarify') {
+        shown.push(<Fragment key={`kept:${index}`}>{rows[index]}</Fragment>)
+
+        return
+      }
+
+      if (!isSilentTool(name)) {
+        count += 1
+      }
+    })
+
+    return { hidden: count, kept: shown }
+  }, [failedKey, names, rows])
+
+  return (
+    <>
+      {kept}
+      {hidden > 0 && (
+        <div data-conversation-scaffold="" data-focus-hidden="">
+          <ScaffoldRow onToggle={onReveal} open={false}>
+            <FadeText className={cn(SCAFFOLD_LABEL_CLASS, 'truncate')}>
+              {t.assistant.thread.focusHidden(hidden)}
+            </FadeText>
+          </ScaffoldRow>
+        </div>
+      )}
+    </>
   )
 }
 

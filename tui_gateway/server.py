@@ -408,14 +408,28 @@ class _SlashWorker:
             if text := line.rstrip("\n"):
                 self.stderr_tail = (self.stderr_tail + [text])[-80:]
 
-    def run(self, command: str) -> str:
+    def run(self, command: str, cwd: str | None = None) -> str:
+        """Run one slash command in the worker, optionally in the session's cwd.
+
+        The worker is spawned with ``cwd=os.getcwd()`` — the directory ``hermes
+        serve`` was launched from — and inherits whatever ``TERMINAL_CWD`` that
+        shell had (usually none). Directory-sensitive commands (``/diff`` above
+        all) resolve their repo from that env var, so without this every GUI
+        client got the LAUNCH directory's changes rather than the ones in the
+        project its session is pointed at: wrong repo, no error. Passing the
+        session cwd per command (not once at spawn) also survives a session
+        being retargeted mid-life via ``workspace.setCwd``.
+        """
         if self.proc.poll() is not None:
             raise RuntimeError("slash worker exited")
 
         with self._lock:
             self._seq += 1
             rid = self._seq
-            self.proc.stdin.write(json.dumps({"id": rid, "command": command}) + "\n")
+            request: dict = {"id": rid, "command": command}
+            if cwd:
+                request["cwd"] = str(cwd)
+            self.proc.stdin.write(json.dumps(request) + "\n")
             self.proc.stdin.flush()
 
             while True:
@@ -10972,12 +10986,24 @@ def _(rid, params: dict) -> dict:
         # pins tool_progress to "off" (the same value /verbose off uses) after
         # stashing the configured mode, and disabling it restores that mode.
         # Nothing about the request payload changes.
+        #
+        # ``display_only`` is for clients that hide the rows THEMSELVES at
+        # render time. Pinning tool_progress makes the gateway stop emitting
+        # tool.start / tool.complete for the session (see _on_tool_start), which
+        # is right for a scrollback TUI — it cannot un-print a line — and wrong
+        # for a GUI, where those same events also feed the todo panel, the
+        # changed-files card and generated images, and where the whole point of
+        # "hidden" is that the user can click to see it again. Such a client
+        # sets display_only so the shared flag still travels cross-surface while
+        # the data keeps flowing to it; the CLI re-derives the suppression from
+        # the flag at startup either way (cli.py, focus_view init).
         from hermes_cli.focus_view import (
             FOCUS_TOOL_PROGRESS_MODE,
             normalize_tool_progress_mode,
             resolve_focus_arg,
         )
 
+        display_only = bool(params.get("display_only", False))
         cfg_f = _load_cfg()
         _display_f = cfg_f.get("display")
         d_f: dict = _display_f if isinstance(_display_f, dict) else {}
@@ -10995,21 +11021,27 @@ def _(rid, params: dict) -> dict:
                 },
             )
 
-        if target:
+        stash = d_f.get("focus_saved_tool_progress")
+        if display_only:
+            effective = _load_tool_progress_mode()
+        elif target:
             saved = normalize_tool_progress_mode(
-                (d_f.get("focus_saved_tool_progress") or _load_tool_progress_mode())
+                (stash or _load_tool_progress_mode())
                 if cur_focus
                 else _load_tool_progress_mode()
             )
             _write_config_key("display.focus_saved_tool_progress", saved)
             _write_config_key("display.tool_progress", FOCUS_TOOL_PROGRESS_MODE)
             effective = FOCUS_TOOL_PROGRESS_MODE
+        elif stash:
+            effective = normalize_tool_progress_mode(stash)
+            _write_config_key("display.tool_progress", effective)
         else:
-            saved = normalize_tool_progress_mode(
-                d_f.get("focus_saved_tool_progress") or "all"
-            )
-            _write_config_key("display.tool_progress", saved)
-            effective = saved
+            # Focus was turned on by a display-only client (or by hand in
+            # config.yaml), so no mode was ever stashed. The old code restored a
+            # hardcoded "all" here, silently overwriting a user who had chosen
+            # `new` or `verbose` — with nothing to restore, restore nothing.
+            effective = _load_tool_progress_mode()
         _write_config_key("display.focus_view", bool(target))
 
         if session:
@@ -11027,6 +11059,10 @@ def _(rid, params: dict) -> dict:
                 "key": key,
                 "value": "on" if target else "off",
                 "tool_progress": effective,
+                # Echoed so a client can tell an honouring gateway from an older
+                # one that ignored the flag and pinned tool progress anyway —
+                # capability detection without version sniffing.
+                "display_only": display_only,
             },
         )
 
