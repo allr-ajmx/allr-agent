@@ -15,7 +15,7 @@ import { cn } from '@/lib/utils'
 import { sessionCompacting } from '@/store/compaction'
 import { browseBackward, browseForward, deriveUserHistory, isBrowsingHistory } from '@/store/composer-input-history'
 import { POPOUT_WIDTH_REM } from '@/store/composer-popout'
-import { removeQueuedPrompt } from '@/store/composer-queue'
+import { parkQueuedPrompts, removeQueuedPrompt, unparkQueuedPrompts } from '@/store/composer-queue'
 import { $gatewayState } from '@/store/gateway'
 import { toggleReview } from '@/store/review'
 import { $threadScrolledUp } from '@/store/thread-scroll'
@@ -225,6 +225,7 @@ export function ChatBar({
     exitQueuedEdit,
     queueCurrentDraft,
     queueEdit,
+    queueParked,
     queuedPrompts,
     sendQueuedNow,
     stepQueuedEdit
@@ -244,6 +245,18 @@ export function ChatBar({
   })
 
   const statusStackVisible = queuedPrompts.length > 0 || statusPresent
+
+  // Halt vs. reach-the-queue: every interrupt lands on `onCancel`, but only the
+  // ones that mean "stop what you are doing" (Stop button, Esc, a spoken
+  // barge-in) park the queue. Interrupts that exist to advance the queue
+  // (send-now-while-busy) call the raw `onCancel` and keep draining on settle.
+  // Without this, a Stop pressed right after mod+Enter fires the very prompt the
+  // user just lined up (upstream a85df69c06).
+  const haltRun = useCallback(() => {
+    parkQueuedPrompts(activeQueueSessionKeyRef.current)
+
+    return onCancel()
+  }, [activeQueueSessionKeyRef, onCancel])
 
   const { compactPill, stacked } = useComposerMetrics({ composerRef, composerSurfaceRef, editorRef, poppedOut })
   const hasComposerPayload = hasText || attachments.length > 0
@@ -278,7 +291,9 @@ export function ChatBar({
     focusInput,
     inputDisabled,
     loadIntoComposer,
-    onCancel,
+    // The submit engine's only cancel call is the Stop-button branch (busy +
+    // empty composer) — an explicit halt, so it parks the queue.
+    onCancel: haltRun,
     onSteer,
     onSubmit,
     queueCurrentDraft,
@@ -778,7 +793,7 @@ export function ChatBar({
       if (busy && !awaitingInput) {
         event.preventDefault()
         triggerHaptic('cancel')
-        void Promise.resolve(onCancel())
+        void Promise.resolve(haltRun())
       }
     }
   }
@@ -815,7 +830,7 @@ export function ChatBar({
     useComposerBranch({ clearDraft, cwd, draftRef })
 
   // Global Esc-to-cancel when the chat (not the composer input) has focus.
-  useComposerEscCancel({ awaitingInput, busy, onCancel, target: scope.target })
+  useComposerEscCancel({ awaitingInput, busy, onCancel: haltRun, target: scope.target })
 
   const {
     conversation,
@@ -1097,7 +1112,17 @@ export function ChatBar({
                       }
                     }}
                     onEdit={beginQueuedEdit}
+                    onResume={() => {
+                      unparkQueuedPrompts(activeQueueSessionKey)
+
+                      // Idle → kick the head immediately; busy → the settle drain
+                      // takes over now that the park is lifted.
+                      if (!busy) {
+                        void drainNextQueued()
+                      }
+                    }}
                     onSendNow={id => void sendQueuedNow(id)}
+                    parked={queueParked}
                   />
                 ) : null
               }
