@@ -3,19 +3,18 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type * as PlatformModule from '@/lib/platform'
 
 vi.mock('@/lib/plugin-transport', () => ({ pluginSocket: vi.fn(() => () => {}) }))
-// Pretend we're inside the Tauri webview; the `ctx.os` doors are no-ops without it.
+// Pretend we're inside the Tauri webview — several modules in this graph gate on it.
 vi.mock('@/lib/platform', async importOriginal => ({
   ...(await importOriginal<typeof PlatformModule>()),
   IS_TAURI: true
 }))
-vi.mock('@tauri-apps/plugin-opener', () => ({ openUrl: vi.fn(async () => {}) }))
+vi.mock('@/lib/external-link', () => ({ tryOpenExternalLink: vi.fn(async () => true) }))
 vi.mock('@/lib/reveal-path', () => ({ tryRevealPathInFileManager: vi.fn(async () => true) }))
 vi.mock('@/components/ui/copy-button', () => ({ writeClipboardText: vi.fn(async () => {}) }))
 vi.mock('@/store/native-notifications', () => ({ dispatchPluginNativeNotification: vi.fn() }))
 
-import { openUrl } from '@tauri-apps/plugin-opener'
-
 import { writeClipboardText } from '@/components/ui/copy-button'
+import { tryOpenExternalLink } from '@/lib/external-link'
 import { pluginSocket } from '@/lib/plugin-transport'
 import { tryRevealPathInFileManager } from '@/lib/reveal-path'
 import { dispatchPluginNativeNotification } from '@/store/native-notifications'
@@ -144,8 +143,11 @@ describe('ctx.os — the curated OS door', () => {
     ctx.os.notify({ title: 'Board moved', body: 'to Done' })
 
     expect(dispatchPluginNativeNotification).toHaveBeenCalledWith('kanban', { title: 'Board moved', body: 'to Done' })
+    // The app's native `open_external` seam, NOT the opener plugin's JS `openUrl`
+    // — that command is ACL-scoped and this app declares no scope, so it refuses
+    // every url and `openExternal` could only ever have resolved false.
     await expect(ctx.os.openExternal('https://example.com')).resolves.toBe(true)
-    expect(openUrl).toHaveBeenCalledWith('https://example.com')
+    expect(tryOpenExternalLink).toHaveBeenCalledWith('https://example.com')
     await expect(ctx.os.revealPath('/tmp/board.json')).resolves.toBe(true)
     expect(tryRevealPathInFileManager).toHaveBeenCalledWith('/tmp/board.json')
     await expect(ctx.os.writeClipboard('copied')).resolves.toBe(true)
@@ -155,7 +157,7 @@ describe('ctx.os — the curated OS door', () => {
   it('resolves false instead of throwing when a capability is unavailable', async () => {
     // What Android and a plain-browser dev run look like: the door is there, the
     // platform underneath is not. A plugin must be able to branch, not crash.
-    vi.mocked(openUrl).mockRejectedValueOnce(new Error('no opener'))
+    vi.mocked(tryOpenExternalLink).mockResolvedValueOnce(false)
     vi.mocked(tryRevealPathInFileManager).mockResolvedValueOnce(false)
     vi.mocked(writeClipboardText).mockRejectedValueOnce(new Error('clipboard refused'))
 

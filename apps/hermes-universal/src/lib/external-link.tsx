@@ -26,20 +26,44 @@ const LOCAL_HOST_RE = /^(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(?::\d+)?$/
 const ERROR_TITLE_RE =
   /\b(?:access denied|attention required|captcha|error|forbidden|just a moment|not found|request blocked|too many requests)\b/i
 
-// Open a URL in the system browser. In a Tauri webview a plain <a> or
-// window.open would navigate the app away (or no-op), so links route through a
-// native Rust command (`open_external`) that calls the opener plugin's Rust API.
-// Off Tauri (plain-web dev / vitest) it falls back to window.open.
-export async function openExternalLink(url: string): Promise<void> {
-  if (IS_TAURI) {
-    try {
-      const { invoke } = await import('@tauri-apps/api/core')
-      await invoke('open_external', { url })
+// Hand a URL to the OS default handler, REPORTING whether it was taken. In a
+// Tauri webview a plain <a> or window.open would navigate the app away (or
+// no-op), so this routes through the native Rust command `open_external`, which
+// calls the opener plugin's Rust API.
+//
+// The Rust command is the only working door, not a stylistic preference. Its JS
+// counterpart (`@tauri-apps/plugin-opener`'s `openUrl`) is ACL-SCOPED: the
+// `opener:allow-open-url` permission this app grants enables the command
+// "without any pre-configured scope", and the plugin's `open_url` answers
+// `Err(ForbiddenUrl)` unless some scope entry MATCHES the url. No scope is
+// declared anywhere in `capabilities/` or `tauri.conf.json`, so the allow-list is
+// empty and every url is forbidden — the JS path fails for all of them, on every
+// platform. A Rust-internal `app.opener().open_url(..)` is not scope-checked at
+// all. See `open_external` in `src-tauri/src/lib.rs`; eslint bans the JS import
+// so this cannot be rediscovered a third time.
+//
+// False off Tauri (plain-web dev / vitest) — there is no OS door there to report on.
+export async function tryOpenExternalLink(url: string): Promise<boolean> {
+  if (!IS_TAURI) {
+    return false
+  }
 
-      return
-    } catch {
-      // Native command unavailable — fall through to window.open.
-    }
+  try {
+    const { invoke } = await import('@tauri-apps/api/core')
+    await invoke('open_external', { url })
+
+    return true
+  } catch {
+    return false
+  }
+}
+
+// Fire-and-forget twin for UI callers (links, menu items) with nothing to say
+// about a failure: off Tauri, or when the native command is unavailable, it falls
+// back to window.open rather than reporting anything.
+export async function openExternalLink(url: string): Promise<void> {
+  if (await tryOpenExternalLink(url)) {
+    return
   }
 
   try {
