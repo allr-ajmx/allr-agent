@@ -23,6 +23,7 @@ import { Tip } from '@/components/ui/tooltip'
 import { useI18n } from '@/i18n'
 import { triggerHaptic } from '@/lib/haptics'
 import { CircleLetterA, Loader2, MessageQuestion } from '@/lib/icons'
+import { keyOwningClarifyCard } from '@/lib/keybinds/composer-focus-keys'
 import { cn } from '@/lib/utils'
 import { respondClarify } from '@/store/chat'
 import { normalizeChoices, readChoices } from '@/store/clarify'
@@ -324,6 +325,7 @@ function ClarifyToolPending({ args }: ToolCallMessagePartProps) {
   const [activeIndex, setActiveIndex] = useState(0)
   const [otherFocused, setOtherFocused] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
+  const shellRef = useRef<HTMLDivElement | null>(null)
 
   // Race: tool.start fires a tick before clarify.request, so request_id
   // arrives slightly after the tool block mounts. Hold the whole panel on a
@@ -453,6 +455,17 @@ function ClarifyToolPending({ args }: ToolCallMessagePartProps) {
         return
       }
 
+      // This listener is on the DOCUMENT, but the card is one surface among
+      // many: keep-alive leaves an inactive tab's clarify mounted, and a split
+      // can show two at once. Only the card the composer also yields to may act
+      // — otherwise a background session's question ate the foreground's
+      // letters, and Enter answered it with whatever its cursor happened to be
+      // resting on. `keyOwningClarifyCard` is that single answer, shared with
+      // `clarifyCardOwnsKey` so the two can never pick different cards.
+      if (keyOwningClarifyCard() !== shellRef.current) {
+        return
+      }
+
       const active = document.activeElement as HTMLElement | null
 
       if (
@@ -550,7 +563,11 @@ function ClarifyToolPending({ args }: ToolCallMessagePartProps) {
     // exactly those and lets every other printable through to the composer —
     // typing a real message instead of picking an option stays possible. The
     // value is the choice count so the check needs no store access.
-    <ClarifyShell className="grid gap-2 px-2.5 py-2" data-clarify-choices={hasChoices ? choices.length : undefined}>
+    <ClarifyShell
+      className="grid gap-2 px-2.5 py-2"
+      data-clarify-choices={hasChoices ? choices.length : undefined}
+      ref={shellRef}
+    >
       <div className="flex items-start gap-2">
         <span className="flex-1 whitespace-pre-wrap font-medium leading-(--conversation-line-height)">{question}</span>
         <MessageQuestion aria-hidden className="mt-px size-4 shrink-0 text-(--ui-text-tertiary)" />

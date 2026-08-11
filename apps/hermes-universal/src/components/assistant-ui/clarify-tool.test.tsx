@@ -1,6 +1,6 @@
 import type * as AssistantUI from '@assistant-ui/react'
 import type { ToolCallMessagePartProps } from '@assistant-ui/react'
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -246,6 +246,76 @@ describe('ClarifyTool keyboard navigation', () => {
     // the first row it started on.
     expect(screen.getByRole('button', { name: /Continue/ }).hasAttribute('disabled')).toBe(true)
     expect(document.querySelector('[data-choice][aria-current]')?.textContent).toContain('staging')
+  })
+})
+
+// The card binds the DOCUMENT, but it is one surface among many: keep-alive
+// leaves an inactive tab's clarify mounted, and a split can show two at once.
+// The composer has always been visible-scoped (`clarifyCardOwnsKey`); the card
+// was not, so a background question ate the foreground's letters and Enter
+// answered it — into the wrong session.
+describe('ClarifyTool key ownership across surfaces', () => {
+  const press = (key: string) => act(() => void fireEvent.keyDown(window, { key }))
+
+  /** Where the keyboard cursor sits — `aria-current` is the card's own read of it. */
+  const cursor = (root: HTMLElement) => root.querySelector('[data-choice][aria-current]')?.textContent ?? ''
+
+  /** Continue enables only once an answer is STAGED, so it is the pick signal. */
+  const staged = (root: HTMLElement) =>
+    !within(root)
+      .getByRole('button', { name: /Continue/ })
+      .hasAttribute('disabled')
+
+  it('ignores keys while it sits in a hidden pane', () => {
+    seedActiveSession('sess-1')
+    setSessionClarify('sess-1', { requestId: 'c-hidden', question: 'Which target?', choices: ['staging', 'prod'] })
+
+    render(
+      <I18nProvider>
+        <div data-pane-hidden="" data-testid="hidden">
+          <ClarifyTool {...clarifyProps({}, undefined, 'c-hidden')} />
+        </div>
+      </I18nProvider>
+    )
+
+    const card = screen.getByTestId('hidden')
+
+    press('2')
+
+    // Nothing picked, and the cursor never left the row it mounted on.
+    expect(staged(card)).toBe(false)
+    expect(cursor(card)).toContain('staging')
+  })
+
+  // The hidden card is mounted FIRST, which is what a tab round-trip leaves
+  // behind. Its handler therefore runs first and used to `preventDefault()` the
+  // key, so the `defaultPrevented` guard then silenced the card the user was
+  // actually looking at: the keystroke landed in the background session and
+  // vanished from the foreground one.
+  it('does not let a background card take the key from the visible one', () => {
+    seedActiveSession('sess-1')
+    setSessionClarify('sess-1', { requestId: 'c-split', question: 'Which target?', choices: ['staging', 'prod'] })
+
+    render(
+      <I18nProvider>
+        <div data-pane-hidden="" data-testid="background">
+          <ClarifyTool {...clarifyProps({}, undefined, 'c-split-hidden')} />
+        </div>
+        <div data-testid="foreground">
+          <ClarifyTool {...clarifyProps({}, undefined, 'c-split-visible')} />
+        </div>
+      </I18nProvider>
+    )
+
+    const [background, foreground] = [screen.getByTestId('background'), screen.getByTestId('foreground')]
+
+    press('2')
+
+    expect(staged(foreground)).toBe(true)
+    expect(cursor(foreground)).toContain('prod')
+
+    expect(staged(background)).toBe(false)
+    expect(cursor(background)).toContain('staging')
   })
 })
 

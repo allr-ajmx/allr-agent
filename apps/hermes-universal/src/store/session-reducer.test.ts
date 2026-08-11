@@ -65,6 +65,7 @@ describe('clarify.request', () => {
       tool_id: 'call_abc123',
       context: 'Which branch?'
     })
+
     state = reduce(state, 'clarify.request', {
       request_id: 'req-1',
       question: 'Which branch?',
@@ -89,11 +90,13 @@ describe('clarify.request', () => {
   // match the request's full text. The rows still have to be one row.
   it('merges even when the tool.start preview truncated the question', () => {
     const question = `Which branch should I cut ${'the release candidate '.repeat(6)}from?`
+
     let state = reduce(base(), 'tool.start', {
       name: 'clarify',
       tool_id: 'call_abc123',
       context: question.slice(0, 80)
     })
+
     state = reduce(state, 'clarify.request', { request_id: 'req-1', question, choices: ['main'] })
 
     expect(toolParts(state)).toHaveLength(1)
