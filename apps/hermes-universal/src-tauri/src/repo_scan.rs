@@ -10,10 +10,12 @@
 //! `exclude_paths`) read from Hermes config; results are POSTed to the gateway's
 //! `projects.record_repos`, which caches them so later reads never re-walk disk.
 //!
-//! Gating: this walks the *Tauri host's* filesystem, so `store/projects.ts` only
+//! Gating: this walks the *Tauri host's* filesystem, so `lib/desktop-git.ts` only
 //! calls it when the backend was spawned locally (gateway mode `local`). A remote
-//! gateway owns a different disk and Android has no crawlable one — that case
-//! needs a backend-side endpoint, tracked as MJX-207.
+//! gateway owns a different disk and Android has no crawlable one; those cases go
+//! to the gateway's own copy of this walk instead — `GET /api/git/scan-repos`
+//! (`hermes_cli/web_repo_scan.py`), whose roots come from the gateway's config
+//! rather than from the client.
 
 use serde::Serialize;
 
@@ -300,8 +302,9 @@ pub mod imp {
 }
 
 // --------------------------------------------------------------------------
-// Mobile: no crawlable local filesystem. Discovery has to happen backend-side
-// (MJX-207); the TS caller gates on gateway mode and never reaches this.
+// Mobile: no crawlable local filesystem. Discovery happens backend-side over
+// `GET /api/git/scan-repos`; the TS caller gates on gateway mode and never
+// reaches this.
 // --------------------------------------------------------------------------
 #[cfg(mobile)]
 pub mod imp {

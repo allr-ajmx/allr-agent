@@ -10,7 +10,9 @@ import { $connection } from '@/store/connection'
 // It walks THIS machine's disk, so it is only meaningful when the gateway was
 // spawned locally — a remote/cloud gateway owns a different filesystem, and
 // mobile has no crawlable one (the Rust command returns `unsupported_platform`
-// there). Backend-side discovery for those cases is tracked as MJX-207.
+// there). Those cases take the gateway-side crawl instead
+// (`GET /api/git/scan-repos` → `hermes_cli/web_repo_scan.py`); `lib/desktop-git.ts`
+// picks between the two on `localRepoScanSupported()`.
 
 export interface ScannedRepo {
   root: string

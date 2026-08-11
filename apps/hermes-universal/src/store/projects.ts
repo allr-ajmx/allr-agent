@@ -642,10 +642,12 @@ export async function copyPath(path: null | string): Promise<void> {
 // caches them (`projects.record_repos`) and merges them with session-derived
 // repos, so a repo shows up in Projects before it has ever hosted a session.
 //
-// The crawl runs against the Tauri host's disk (`lib/desktop-git.ts` →
-// `store/repo-scan.ts` → Rust), so it only speaks for the gateway when the
-// backend was spawned locally; elsewhere `scanRepos` returns `[]` and the
-// backend keeps serving session-derived repos alone (FIXME(MJX-207)).
+// `scanRepos` (`lib/desktop-git.ts`) crawls wherever the repos actually live:
+// the Tauri host's disk via Rust when the backend was spawned locally, otherwise
+// the gateway's own disk via `GET /api/git/scan-repos`. That remote crawl takes
+// no roots from us and uses the gateway's configured policy — the same
+// `desktop.repo_scan_*` block resolved below, since this config IS that
+// gateway's.
 //
 // Desktop keys the throttle state per gateway (it can hold several); universal
 // has exactly one connection at a time, so module-level state plus a reset on
