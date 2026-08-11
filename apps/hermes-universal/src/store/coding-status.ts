@@ -489,6 +489,32 @@ export async function openWorktreeDialog(options?: { base?: string; repoPath?: s
   }
 }
 
+/**
+ * Drop every cached git truth because the BACKEND changed underneath us.
+ *
+ * Every key here is an absolute path, and a path is not gateway-scoped:
+ * `/home/me/work` exists on the laptop AND on the box just switched to, and they
+ * are different repos on different branches. Without this the rails paint the
+ * previous gateway's branch and ± under the new one's paths — and worse,
+ * {@link isGitRepoPath}'s memo has no TTL, so a path that was a repo over there
+ * keeps answering "yes" here and ⌘⇧B opens the worktree dialog on a directory
+ * git cannot branch from.
+ *
+ * In-flight probes are invalidated along with the sequence numbers, so an answer
+ * from the old backend cannot land afterwards. Registrations are deliberately
+ * KEPT — those rails are still mounted and still want their cwd probed, against
+ * the new backend, which the scheduled refresh does.
+ */
+export function resetRepoStatusForBackendSwitch(): void {
+  pendingByCwd.clear()
+  seqByCwd.clear()
+  gitRepoByPath.clear()
+  $repoStatusByCwd.set({})
+  $repoWorktreesByCwd.set({})
+  $repoStatusLoading.set(false)
+  scheduleRepoStatusRefresh()
+}
+
 /** Test-only: drop the probe memo + in-flight / pending / registered state so
  *  cases don't leak into each other. */
 export function _resetCodingStatusForTests(): void {

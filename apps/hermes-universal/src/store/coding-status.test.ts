@@ -53,10 +53,12 @@ import {
   $repoStatusLoading,
   $repoWorktrees,
   _resetCodingStatusForTests,
+  isGitRepoPath,
   refreshRepoStatus,
   registerRepoStatusCwd,
   repoStatusForCwd,
-  repoWorktreesForCwd
+  repoWorktreesForCwd,
+  resetRepoStatusForBackendSwitch
 } from './coding-status'
 
 const sampleStatus: HermesRepoStatus = {
@@ -420,6 +422,73 @@ describe('the focused cwd', () => {
     await settle()
 
     expect([...new Set(repoStatus.mock.calls.map(call => call[0]))].sort()).toEqual(['/main', '/workspace-root'])
+  })
+})
+
+// Absolute paths are not gateway-scoped: `/home/me/work` exists on the laptop
+// AND on the box just switched to, and they are different repos.
+describe('resetRepoStatusForBackendSwitch', () => {
+  it('drops cached status/worktrees and re-probes what is still on screen', async () => {
+    repoStatus.mockImplementation(async () => sampleStatus)
+    worktreeList.mockImplementation(async () => [worktree('/tile', 'feature/login')])
+    $currentCwd.set('/main')
+
+    const release = registerRepoStatusCwd('/tile')
+
+    await settle()
+    await vi.runAllTicks()
+    expect(repoStatusForCwd('/tile').get()).toEqual(sampleStatus)
+    expect(repoWorktreesForCwd('/tile').get()).toEqual([worktree('/tile', 'feature/login')])
+
+    repoStatus.mockClear()
+    repoStatus.mockImplementation(async () => otherStatus)
+    resetRepoStatusForBackendSwitch()
+
+    // Wiped the instant the switch happens — not left painting the old host's
+    // branch until a probe happens to come back.
+    expect($repoStatusByCwd.get()).toEqual({})
+    expect(repoWorktreesForCwd('/tile').get()).toEqual([])
+
+    // …and the still-mounted rail is re-probed against the NEW backend.
+    await settle()
+    expect([...new Set(repoStatus.mock.calls.map(call => call[0]))].sort()).toEqual(['/main', '/tile'])
+    expect(repoStatusForCwd('/tile').get()).toEqual(otherStatus)
+
+    release?.()
+  })
+
+  it('drops the is-this-a-repo memo, which has no TTL of its own', async () => {
+    repoStatus.mockImplementation(async () => sampleStatus)
+    expect(await isGitRepoPath('/repo')).toBe(true)
+
+    // Same path on the new gateway, and over there it is not a repo. Without the
+    // reset the memo keeps saying yes and ⌘⇧B opens the worktree dialog on a
+    // directory git cannot branch from.
+    repoStatus.mockImplementation(async () => null)
+    expect(await isGitRepoPath('/repo')).toBe(true)
+
+    resetRepoStatusForBackendSwitch()
+    expect(await isGitRepoPath('/repo')).toBe(false)
+  })
+
+  it('drops a probe that was already in flight against the old backend', async () => {
+    let resolveOld!: (status: HermesRepoStatus | null) => void
+
+    repoStatus.mockImplementation(
+      () =>
+        new Promise<HermesRepoStatus | null>(resolve => {
+          resolveOld = resolve
+        })
+    )
+
+    const inflight = refreshRepoStatus('/repo')
+
+    await Promise.resolve()
+    resetRepoStatusForBackendSwitch()
+    resolveOld(sampleStatus)
+    await inflight
+
+    expect(repoStatusForCwd('/repo').get()).toBeNull()
   })
 })
 
