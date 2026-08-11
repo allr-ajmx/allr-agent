@@ -659,18 +659,14 @@ export function startPaneDrag(
       }
 
       if (mode === 'reorder' && reorder && hint?.stack !== undefined) {
-        // Slot -> index among the OTHER tabs (the block re-inserts there).
-        const others = [...reorder.strip.querySelectorAll<HTMLElement>('[data-tree-tab]')]
-          .map(el => el.dataset.treeTab)
-          .filter((id): id is string => Boolean(id) && !moving.includes(id!))
-
-        const toIndex = hint.stack.before ? others.indexOf(hint.stack.before) : others.length
-
-        if (toIndex >= 0) {
-          reorderTreePanes(reorder.groupId, moving, toIndex)
-          reorderCommitHaptic()
-          spendSelection()
-        }
+        // The caret's slot goes through AS THE ANCHOR TAB'S ID. It used to be
+        // converted here into an index over the strip's DOM tabs — a different
+        // index space from `group.panes` the moment the zone holds a pane the
+        // strip doesn't draw (a store-hidden tile, or a disabled plugin's pane,
+        // which stays in the tree by design). See `reorderPanesInGroup`.
+        reorderTreePanes(reorder.groupId, moving, hint.stack.before)
+        reorderCommitHaptic()
+        spendSelection()
       }
 
       if (mode === 'zone') {
