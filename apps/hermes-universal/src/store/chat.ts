@@ -968,25 +968,46 @@ export async function respondApproval(choice: ApprovalChoice, key = $activeSessi
   clearAwaitingInputPose(key)
 }
 
-/** Answer the pending clarify. Unlike the other prompt responders this does NOT
- *  clear optimistically: the inline panel keeps the question on screen and
- *  surfaces the error if the send fails, so the user can retry instead of losing
- *  the (still-blocked) prompt. Throws on failure. */
-export async function respondClarify(answer: string, key = $activeSessionKey.get()): Promise<void> {
+/** What the gateway did with a clarify answer. `gone` covers both halves of
+ *  "nobody is waiting for this": no local request to answer, and a request the
+ *  backend already timed out. */
+export type ClarifyRespondOutcome = 'delivered' | 'expired' | 'gone'
+
+/**
+ * Answer the pending clarify.
+ *
+ * Unlike the other prompt responders this does NOT clear optimistically: the
+ * inline panel keeps the question on screen and surfaces the error if the send
+ * fails, so the user can retry instead of losing the (still-blocked) prompt.
+ * Throws on failure.
+ *
+ * `clarify.respond` is `allow_expired` on the backend (`_respond` in
+ * `tui_gateway/server.py`), which means a request the 5-minute timeout already
+ * popped answers `{"status": "expired"}` — an RPC SUCCESS that delivered
+ * nothing. Reporting that as a normal send is how an answer disappears with the
+ * UI saying it went through, so the outcome comes back to the caller.
+ */
+export async function respondClarify(answer: string, key = $activeSessionKey.get()): Promise<ClarifyRespondOutcome> {
   const req = sessionClarifyRequest(key).get()
 
   if (!req) {
-    return
+    return 'gone'
   }
 
-  await requestGateway('clarify.respond', { request_id: req.requestId, answer })
+  const result = await requestGateway<{ status?: string }>('clarify.respond', {
+    request_id: req.requestId,
+    answer
+  })
 
   // Only drop the request once the gateway has it; `tool.complete` lands next
-  // and swaps the inline panel to its settled Q&A view.
+  // and swaps the inline panel to its settled Q&A view. An expired request is
+  // equally finished — nothing will ever answer it — so it clears too.
   if (sessionClarifyRequest(key).get()?.requestId === req.requestId) {
     clearSessionClarify(key)
     clearAwaitingInputPose(key)
   }
+
+  return result?.status === 'expired' ? 'expired' : 'delivered'
 }
 
 export async function respondSudo(password: string, key = $activeSessionKey.get()): Promise<void> {

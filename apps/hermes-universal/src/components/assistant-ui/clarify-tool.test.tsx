@@ -5,6 +5,7 @@ import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { I18nProvider } from '@/i18n'
+import type * as ChatStore from '@/store/chat'
 
 // The live panel asks assistant-ui whether its message is still streaming. There
 // is no runtime in a unit test, so pin it to "running" and leave the rest of the
@@ -15,7 +16,16 @@ vi.mock('@assistant-ui/react', async importActual => {
   return { ...actual, useAuiState: () => true }
 })
 
+// The expired-answer path is decided by the gateway's reply, so the responder
+// is the seam. Everything else in the chat store stays real.
+vi.mock('@/store/chat', async importActual => {
+  const actual = await importActual<typeof ChatStore>()
+
+  return { ...actual, respondClarify: vi.fn().mockResolvedValue('delivered') }
+})
+
 import { onComposerInsertRequest } from '@/app/chat/composer/focus'
+import { respondClarify } from '@/store/chat'
 import { setSessionClarify } from '@/store/prompts'
 import { seedActiveSession } from '@/test-sessions'
 
@@ -25,6 +35,7 @@ afterEach(() => {
   cleanup()
   seedActiveSession('sess-1')
   setSessionClarify('sess-1', null)
+  vi.mocked(respondClarify).mockResolvedValue('delivered')
 })
 
 function renderClarify(ui: ReactNode) {
@@ -316,6 +327,50 @@ describe('ClarifyTool key ownership across surfaces', () => {
 
     expect(staged(background)).toBe(false)
     expect(cursor(background)).toContain('staging')
+  })
+})
+
+// `clarify.respond` is `allow_expired`, so a question the backend's own timeout
+// already popped answers OK and delivers nothing. The panel used to treat that
+// as a normal send: the card settled, the words were gone, and the user had no
+// idea the agent never heard them.
+describe('ClarifyTool expired answer', () => {
+  it('drafts a follow-up when the answer arrives after the timeout', async () => {
+    seedActiveSession('sess-1')
+    setSessionClarify('sess-1', { requestId: 'c-expired', question: 'Which target?', choices: ['staging', 'prod'] })
+    vi.mocked(respondClarify).mockResolvedValue('expired')
+
+    const inserted: string[] = []
+    const dispose = onComposerInsertRequest(({ text }) => inserted.push(text))
+
+    renderClarify(<ClarifyTool {...clarifyProps({}, undefined, 'c-expired')} />)
+
+    // Picking stages; Continue is what sends.
+    fireEvent.click(screen.getByRole('button', { name: /prod/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Continue/ }))
+    await act(() => new Promise(resolve => setTimeout(resolve, 0)))
+    dispose()
+
+    expect(inserted).toHaveLength(1)
+    expect(inserted[0]).toContain('prod')
+    expect(inserted[0]).toContain('Which target?')
+  })
+
+  it('drafts nothing when the answer landed in time', async () => {
+    seedActiveSession('sess-1')
+    setSessionClarify('sess-1', { requestId: 'c-in-time', question: 'Which target?', choices: ['staging', 'prod'] })
+
+    const inserted: string[] = []
+    const dispose = onComposerInsertRequest(({ text }) => inserted.push(text))
+
+    renderClarify(<ClarifyTool {...clarifyProps({}, undefined, 'c-in-time')} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /prod/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Continue/ }))
+    await act(() => new Promise(resolve => setTimeout(resolve, 0)))
+    dispose()
+
+    expect(inserted).toEqual([])
   })
 })
 

@@ -2453,7 +2453,8 @@ export const zhHant = defineLocale({
       skipped: '已略過',
       lateAnswer: (question, choice) => `關於「${question}」 — 我的回答：${choice}`,
       lateAnswerTip: '將此回答草擬為後續訊息',
-      lateAnswerHint: '此提問已不再等待回覆。選擇一項即可草擬為後續訊息。'
+      lateAnswerHint: '此提問已不再等待回覆。選擇一項即可草擬為後續訊息。',
+      expiredAnswer: '此提問在您的回答送達前已逾時 — 已改為草擬成後續訊息。'
     },
     tool: {
       code: '程式碼',

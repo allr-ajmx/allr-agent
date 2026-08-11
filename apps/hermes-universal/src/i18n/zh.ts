@@ -2953,7 +2953,8 @@ export const zh: Translations = {
       skipped: '已跳过',
       lateAnswer: (question, choice) => `关于“${question}” — 我的回答：${choice}`,
       lateAnswerTip: '将该回答草拟为后续消息',
-      lateAnswerHint: '该提问已不再等待回复。选择一项即可草拟为后续消息。'
+      lateAnswerHint: '该提问已不再等待回复。选择一项即可草拟为后续消息。',
+      expiredAnswer: '该提问在你的回答送达前已超时 — 已改为草拟成后续消息。'
     },
     tool: {
       code: '代码',

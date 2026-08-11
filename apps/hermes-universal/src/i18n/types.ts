@@ -2411,6 +2411,7 @@ export interface Translations {
       lateAnswer: (question: string, choice: string) => string
       lateAnswerTip: string
       lateAnswerHint: string
+      expiredAnswer: string
     }
     tool: {
       code: string

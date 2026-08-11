@@ -2811,7 +2811,8 @@ export const en: Translations = {
       skipped: 'Skipped',
       lateAnswer: (question, choice) => `Re: "${question}" — my answer: ${choice}`,
       lateAnswerTip: 'Draft this answer as a follow-up message',
-      lateAnswerHint: 'This prompt is no longer waiting. Pick an option to draft it as a follow-up message.'
+      lateAnswerHint: 'This prompt is no longer waiting. Pick an option to draft it as a follow-up message.',
+      expiredAnswer: 'This question timed out before your answer reached it — drafted as a follow-up message instead.'
     },
     tool: {
       code: 'Code',

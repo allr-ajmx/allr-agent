@@ -27,7 +27,7 @@ import { keyOwningClarifyCard } from '@/lib/keybinds/composer-focus-keys'
 import { cn } from '@/lib/utils'
 import { respondClarify } from '@/store/chat'
 import { normalizeChoices, readChoices } from '@/store/clarify'
-import { notifyError } from '@/store/notifications'
+import { notify, notifyError } from '@/store/notifications'
 import { sessionClarifyRequest } from '@/store/prompts'
 
 import { selectMessageRunning } from './tool/fallback-model'
@@ -345,15 +345,28 @@ function ClarifyToolPending({ args }: ToolCallMessagePartProps) {
       setSubmitting(true)
 
       try {
-        await respondClarify(answer, sessionKey)
+        const outcome = await respondClarify(answer, sessionKey)
+
         void triggerHaptic('submit')
+
+        // `clarify.respond` is `allow_expired`: a question the backend's own
+        // 5-minute timeout already popped answers OK and delivers nothing. The
+        // agent has moved on, so there is no retry — but the words are still
+        // the user's intent, so route them where a skipped clarify's late pick
+        // goes: a quoted follow-up in the composer. Silently "succeeding" here
+        // is how an answer disappears with the UI saying it was sent.
+        if (outcome === 'expired' && answer.trim()) {
+          requestComposerInsert(copy.lateAnswer(question, answer.trim()), { mode: 'block' })
+          requestComposerFocus()
+          notify({ kind: 'warning', message: copy.expiredAnswer })
+        }
         // tool.complete lands next → ClarifyToolSettled.
       } catch (error) {
         notifyError(error, copy.sendFailed)
         setSubmitting(false)
       }
     },
-    [copy.notReady, copy.sendFailed, ready, sessionKey]
+    [copy, question, ready, sessionKey]
   )
 
   const trimmedDraft = draft.trim()
