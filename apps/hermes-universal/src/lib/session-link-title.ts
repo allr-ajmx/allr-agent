@@ -15,6 +15,7 @@
 import { useEffect, useState } from 'react'
 
 import { getSession } from '@/hermes'
+import { parseSessionRefValue, sessionRefCacheKey, sessionRefFallbackLabel } from '@/lib/session-refs'
 import { $sessions } from '@/store/session'
 import type { SessionInfo } from '@/types/hermes'
 
@@ -22,36 +23,7 @@ const titleCache = new Map<string, string>()
 const titleInflight = new Map<string, Promise<string>>()
 const titleSubs = new Map<string, Set<(value: string) => void>>()
 
-/** Split `@session:` ref VALUE into its profile and session id. The profile
- *  half is optional: `@session:<id>` means "this profile". */
-export function parseSessionRefValue(value: string): { profile: null | string; sessionId: string } {
-  const trimmed = value.trim()
-
-  if (!trimmed) {
-    return { profile: null, sessionId: '' }
-  }
-
-  const slash = trimmed.lastIndexOf('/')
-
-  return slash < 0
-    ? { profile: null, sessionId: trimmed }
-    : { profile: trimmed.slice(0, slash) || null, sessionId: trimmed.slice(slash + 1) }
-}
-
-/** Cache key. The profile is part of it: the same id can exist in two profiles
- *  and mean two different conversations. */
-const cacheKey = (value: string): string => {
-  const { profile, sessionId } = parseSessionRefValue(value)
-
-  return sessionId ? `${profile ?? ''}/${sessionId}` : ''
-}
-
-/** The label a chip shows while (or instead of) resolving — a truncated id. */
-export function sessionRefFallbackLabel(value: string): string {
-  const { sessionId } = parseSessionRefValue(value)
-
-  return sessionId.length > 10 ? `${sessionId.slice(0, 8)}…` : sessionId
-}
+const cacheKey = sessionRefCacheKey
 
 /**
  * Deliberately NOT `sessionTitle()` from lib/chat-runtime: its "Untitled

@@ -23,7 +23,7 @@ import { composerFloatingPill } from '@/components/chat/composer-dock'
 import { Codicon } from '@/components/ui/codicon'
 import { type I18nContextValue, useI18n } from '@/i18n'
 import { openExternalLink } from '@/lib/external-link'
-import { parseSessionRefValue } from '@/lib/session-link-title'
+import { parseSessionRefValue } from '@/lib/session-refs'
 import { cn } from '@/lib/utils'
 
 /** Moving between the chip and the pill crosses a gap where neither is hovered.

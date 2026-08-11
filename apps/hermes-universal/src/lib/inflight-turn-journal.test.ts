@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { ChatMessage } from '@/lib/chat-messages'
+import { type ChatMessage, chatMessageText } from '@/lib/chat-messages'
 import {
+  __resetInFlightTurnJournalCache,
   clearInFlightTurnJournal,
   mergeInFlightMessages,
   persistInFlightTurnState,
@@ -31,6 +32,7 @@ const withTool = (id: string, patch: Partial<ChatMessage> = {}): ChatMessage => 
 
 beforeEach(() => {
   window.localStorage.clear()
+  __resetInFlightTurnJournalCache()
 })
 
 describe('recoverableTail', () => {
@@ -115,13 +117,50 @@ describe('mergeInFlightMessages', () => {
   it('does nothing for a tail with no recoverable assistant', () => {
     expect(mergeInFlightMessages([], [user('u1', 'x')])).toMatchObject({ applied: false, caughtUp: false })
   })
+
+  // A journaled row was captured mid-stream, so it carries `pending: true`. If
+  // the turn died with the app, nothing will ever complete it — leaving the
+  // flag on renders a bubble that spins forever beside an idle composer.
+  it('seals a recovered row when the turn is not still running', () => {
+    const result = mergeInFlightMessages([], tail)
+
+    expect(result.messages.at(-1)?.pending).toBe(false)
+  })
+
+  it('keeps it pending when the backend says the turn survived', () => {
+    const result = mergeInFlightMessages([], tail, { keepPending: true })
+
+    expect(result.messages.at(-1)?.pending).toBe(true)
+  })
+
+  // `appendLiveSessionProjection` seeds an EMPTY assistant boundary row before
+  // the first delta of a queued turn. Counting it as the committed reply threw
+  // the journal away and left the crashed turn as a blank bubble.
+  it('does not treat an empty assistant row as the settled reply', () => {
+    const base = [user('h1', 'do a thing'), assistant('h2', '')]
+
+    expect(mergeInFlightMessages(base, tail)).toMatchObject({ applied: true, caughtUp: false })
+  })
+
+  // The snapshot's text can be up to one throttle window newer than the
+  // journal's; taking the journal's parts wholesale rolled the answer back.
+  it('keeps the projection text when it extends what the journal recorded', () => {
+    const journaled = [user('u1', 'do a thing'), assistant('assistant-stream-1', 'the ans', { pending: true })]
+    const base = [user('u1', 'do a thing'), assistant('assistant-stream-s1', 'the answer', { pending: true })]
+    const result = mergeInFlightMessages(base, journaled)
+
+    expect(result.messages[1].id).toBe('assistant-stream-s1')
+    expect(chatMessageText(result.messages[1])).toBe('the answer')
+  })
 })
 
 describe('the persisted journal', () => {
   const busyState = {
+    awaitingResponse: false,
     busy: true,
     messages: [user('u1', 'do a thing'), withTool('assistant-stream-1', { pending: true })],
     storedSessionId: 'stored-1',
+    streamId: 'assistant-stream-1',
     turnStartedAt: 1_000
   }
 
@@ -147,11 +186,73 @@ describe('the persisted journal', () => {
 
     expect(readInFlightTurnJournal('stored-1')).not.toBeNull()
 
-    persistInFlightTurnState({ ...busyState, busy: false })
+    persistInFlightTurnState({ ...busyState, busy: false, streamId: null })
 
     expect(readInFlightTurnJournal('stored-1')).toBeNull()
 
     vi.useRealTimers()
+  })
+
+  // `busy` alone is not "the turn is over". A submit that has left but not been
+  // acknowledged, and a stream still bound to a row, are both live turns — and
+  // both are windows a crash is likely to land in.
+  it('keeps the entry while the turn is only unacknowledged or still bound', () => {
+    vi.useFakeTimers()
+    persistInFlightTurnState(busyState)
+    vi.advanceTimersByTime(500)
+
+    persistInFlightTurnState({ ...busyState, busy: false, streamId: null, awaitingResponse: true })
+    expect(readInFlightTurnJournal('stored-1')).not.toBeNull()
+
+    persistInFlightTurnState({ ...busyState, busy: false })
+    expect(readInFlightTurnJournal('stored-1')).not.toBeNull()
+
+    vi.useRealTimers()
+  })
+
+  // The rows a recovery appends are LOCAL-ONLY: the backend never persisted
+  // them, so a later cold open cannot satisfy `caughtUp` and would replay the
+  // same dead turn on every open for the whole seven-day TTL.
+  it('spends an entry it successfully folded into a settled transcript', () => {
+    vi.useFakeTimers()
+    persistInFlightTurnState(busyState)
+    vi.advanceTimersByTime(500)
+    vi.useRealTimers()
+
+    expect(recoverInFlightTurnJournal('stored-1', []).applied).toBe(true)
+    expect(readInFlightTurnJournal('stored-1')).toBeNull()
+  })
+
+  // A running turn still owns its entry — the fold is not the end of it.
+  it('keeps the entry when the backend says the turn is still running', () => {
+    vi.useFakeTimers()
+    persistInFlightTurnState(busyState)
+    vi.advanceTimersByTime(500)
+    vi.useRealTimers()
+
+    expect(recoverInFlightTurnJournal('stored-1', [], { keepPending: true }).applied).toBe(true)
+    expect(readInFlightTurnJournal('stored-1')).not.toBeNull()
+  })
+
+  // The clear path runs for every idle session on every state commit, i.e. on
+  // every token of every other session's turn. Answering it from storage meant
+  // a synchronous getItem + JSON.parse per idle session per delta.
+  it('answers a clear for an unjournaled session without touching storage', () => {
+    // jsdom's Storage is a Proxy that swallows an own-property spy, so the
+    // counter has to sit on the prototype the instance actually resolves
+    // through (the Node-26 shim in test-setup is a plain object, hence both).
+    const readTarget = (
+      typeof Storage !== 'undefined' && window.localStorage instanceof Storage ? Storage.prototype : window.localStorage
+    ) as Storage
+
+    const getItem = vi.spyOn(readTarget, 'getItem')
+
+    clearInFlightTurnJournal('never-journaled')
+    clearInFlightTurnJournal('never-journaled')
+    clearInFlightTurnJournal('never-journaled')
+
+    expect(getItem).toHaveBeenCalledTimes(1)
+    getItem.mockRestore()
   })
 
   // Re-injecting a week-old tail is worse than the gap it fills.

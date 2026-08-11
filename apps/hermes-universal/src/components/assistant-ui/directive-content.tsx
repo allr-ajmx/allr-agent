@@ -2,12 +2,13 @@ import type { TextMessagePartComponent, TextMessagePartProps } from '@assistant-
 import type { FC } from 'react'
 import { Fragment, useEffect, useMemo, useState } from 'react'
 
-import { openSessionIntentFromModifiers, openSessionRef } from '@/app/open-session'
+import { openSessionRef } from '@/app/open-session'
 import { ZoomableImage } from '@/components/chat/zoomable-image'
 import { Tip } from '@/components/ui/tooltip'
 import { extractEmbeddedImages } from '@/lib/embedded-images'
 import { gatewayMediaDataUrl } from '@/lib/media'
-import { parseSessionRefValue, useSessionLinkTitle } from '@/lib/session-link-title'
+import { useSessionLinkTitle } from '@/lib/session-link-title'
+import { parseSessionRefValue } from '@/lib/session-refs'
 
 import { DIRECTIVE_CHIP_CLASS, hermesDirectiveFormatter, iconPathsFor } from './directive-text'
 
@@ -162,13 +163,18 @@ const DirectiveChip: FC<{
 )
 
 /**
- * A `@session:` ref the agent wrote — the one directive kind that names
+ * A `@session:` ref in a SENT USER message — the one directive kind that names
  * something you can GO to.
  *
  * The chip resolves its own title (`lib/session-link-title`, which dedupes N
  * chips for one session down to one lookup) and opens the conversation on
- * click, fronting it if it is already on screen. Cmd/Ctrl-click opens it beside
- * what is there instead of taking over the main chat.
+ * click, fronting it if it is already on screen.
+ *
+ * The intent is `tab`, never `in-place`, with or without a modifier: the chip
+ * sits INSIDE a conversation the user is reading, which may itself be mid-turn.
+ * Loading the linked session into the main pane would yank that chat out from
+ * under them — the exact case `openSessionRef`'s own doc-comment reserves `tab`
+ * for. (Desktop's `SessionRefChip` hard-codes the same intent.)
  */
 const SessionChip: FC<{ id: string; label: string }> = ({ id, label }) => {
   const title = useSessionLinkTitle(id, label)
@@ -181,12 +187,51 @@ const SessionChip: FC<{ id: string; label: string }> = ({ id, label }) => {
         data-directive-id={id}
         data-directive-type="session"
         data-slot="aui_directive-chip"
-        onClick={event => openSessionRef(sessionId, openSessionIntentFromModifiers(event))}
+        onClick={() => openSessionRef(sessionId, 'tab')}
         type="button"
       >
         <DirectiveIcon type="session" />
         <span className="truncate">{title}</span>
       </button>
+    </Tip>
+  )
+}
+
+/**
+ * A `@session:` ref the AGENT wrote, inside markdown prose.
+ *
+ * This is the half the feature exists for: `session_search` hands the model a
+ * `@session:<profile>/<id>` link and instructs it to use the link as a noun
+ * mid-sentence (`tools/session_search_tool.py`). An assistant turn renders as
+ * MARKDOWN, not as directive segments, so `DirectiveContent` above never sees
+ * it — the ref arrives here as a `#session/` href that `preprocessMarkdown`
+ * rewrote (`lib/session-refs.ts#linkifySessionRefs`) and `MarkdownLink`
+ * dispatched.
+ *
+ * An inline link rather than a chip because the agent wrote it as part of a
+ * sentence; a block-ish pill mid-paragraph reads as an interruption.
+ */
+export const SessionRefLink: FC<{ label?: string; value: string }> = ({ label, value }) => {
+  const title = useSessionLinkTitle(value, label)
+  const { sessionId } = parseSessionRefValue(value)
+
+  return (
+    <Tip label={value}>
+      <a
+        className="ref wrap-anywhere inline-flex cursor-pointer items-center gap-1"
+        data-directive-id={value}
+        data-directive-type="session"
+        data-slot="aui_session-ref-link"
+        href="#"
+        onClick={event => {
+          event.preventDefault()
+          event.stopPropagation()
+          openSessionRef(sessionId, 'tab')
+        }}
+      >
+        <DirectiveIcon type="session" />
+        {title}
+      </a>
     </Tip>
   )
 }

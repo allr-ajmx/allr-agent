@@ -10,13 +10,8 @@ vi.mock('@/hermes', async importOriginal => ({
 }))
 
 import { getSession } from '@/hermes'
-import {
-  __resetSessionLinkTitleCache,
-  fetchSessionLinkTitle,
-  lookupLocalSessionTitle,
-  parseSessionRefValue,
-  sessionRefFallbackLabel
-} from '@/lib/session-link-title'
+import { __resetSessionLinkTitleCache, fetchSessionLinkTitle, lookupLocalSessionTitle } from '@/lib/session-link-title'
+import { parseSessionRefValue, sessionRefFallbackLabel } from '@/lib/session-refs'
 import { $sessions } from '@/store/session'
 import type { SessionInfo } from '@/types/hermes'
 

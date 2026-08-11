@@ -17,7 +17,7 @@
  * a live turn.
  */
 
-import { type ChatMessage, chatMessageText } from '@/lib/chat-messages'
+import { type ChatMessage, chatMessageText, type ChatPart } from '@/lib/chat-messages'
 
 const STORAGE_KEY = 'hermes.universal.inflightTurnJournal.v1'
 const STORE_VERSION = 1
@@ -38,6 +38,9 @@ const PERSIST_THROTTLE_MS = 400
 
 export interface InFlightTurnSnapshot {
   messages: ChatMessage[]
+  /** The slice's live stream id at journal time. Restoring it is what points
+   *  the next turn's deltas at the recovered row instead of a fresh bubble. */
+  streamId: null | string
   turnStartedAt: null | number
   updatedAt: number
 }
@@ -45,9 +48,11 @@ export interface InFlightTurnSnapshot {
 /** The slice fields the journal reads. Structural, so any session-shaped
  *  object can be journaled without this module importing the store. */
 export interface JournalableSessionState {
+  awaitingResponse: boolean
   busy: boolean
   messages: ChatMessage[]
   storedSessionId: null | string
+  streamId: null | string
   turnStartedAt: null | number
 }
 
@@ -57,6 +62,8 @@ export interface InFlightRecoveryResult {
   /** The base transcript already contains this turn — the entry is spent. */
   caughtUp: boolean
   messages: ChatMessage[]
+  /** The id live deltas should target after the fold, or null. */
+  streamId: null | string
   turnStartedAt: null | number
 }
 
@@ -70,6 +77,40 @@ interface JournalStore {
 const emptyStore = (): JournalStore => ({ entries: {}, version: STORE_VERSION })
 
 const isExpired = (snapshot: InFlightTurnSnapshot, now: number): boolean => now - snapshot.updatedAt > MAX_AGE_MS
+
+/**
+ * Which sessions have an entry — an in-memory mirror of the store's KEYS.
+ *
+ * `persistInFlightTurnState` is called for every session on every state
+ * commit, and its dominant case by far is "this session is idle, clear it".
+ * Answering that from storage means a synchronous `getItem` + `JSON.parse` of
+ * the whole journal PER IDLE SESSION PER DELTA — the same blocking read the
+ * write path goes to such lengths to throttle off the token path. The key set
+ * answers it for free, and only a real hit pays for the parse.
+ *
+ * `null` means "not hydrated yet"; a `storage` event from another window
+ * invalidates it (see below), so a second window's write is never masked.
+ */
+let indexedIds: null | Set<string> = null
+
+function knownIds(): Set<string> {
+  if (!indexedIds) {
+    indexedIds = new Set(Object.keys(loadStore().entries))
+  }
+
+  return indexedIds
+}
+
+if (typeof window !== 'undefined') {
+  // Satellite windows share this origin, and therefore this key. Whoever wrote
+  // last is authoritative; drop the mirror rather than trusting our own view of
+  // a blob someone else just rewrote.
+  window.addEventListener('storage', event => {
+    if (event.key === null || event.key === STORAGE_KEY) {
+      indexedIds = null
+    }
+  })
+}
 
 function loadStore(): JournalStore {
   if (typeof window === 'undefined') {
@@ -101,6 +142,8 @@ function saveStore(store: JournalStore): void {
     .filter(([, snapshot]) => !isExpired(snapshot, now))
     .sort(([, a], [, b]) => b.updatedAt - a.updatedAt)
     .slice(0, MAX_ENTRIES)
+
+  indexedIds = new Set(kept.map(([id]) => id))
 
   try {
     if (kept.length === 0) {
@@ -199,6 +242,84 @@ const withoutBaseIds = (rows: ChatMessage[], base: ChatMessage[]): ChatMessage[]
 }
 
 /**
+ * A journaled row was captured mid-stream, so it carries `pending: true`.
+ *
+ * Whether it may KEEP that flag depends on something the journal cannot know:
+ * is the turn still running? On a reconnect, yes — the row is about to receive
+ * more deltas. After a crash that took the backend with it, no — and a pending
+ * row nothing will ever complete renders as a bubble that spins forever, with
+ * no stop button beside it because the slice is idle.
+ */
+const sealTail = (tail: ChatMessage[], keepPending: boolean): ChatMessage[] =>
+  tail.map(message =>
+    message.role === 'assistant'
+      ? { ...message, pending: keepPending ? (message.pending ?? true) : false }
+      : { ...message, pending: false }
+  )
+
+const hasStructuralParts = (message: ChatMessage): boolean =>
+  message.parts.some(part => part.type === 'reasoning' || part.type === 'tool-call')
+
+/**
+ * Fold the journal's structure onto the backend's live projection row.
+ *
+ * The two carry different things: the journal has the reasoning and tool calls
+ * the text-only snapshot cannot express, while the snapshot's TEXT may be newer
+ * than the journal's last throttled write. Taking the journal's parts wholesale
+ * therefore silently rolled back up to 400ms of the answer.
+ *
+ * When the journal already carries structure, only a strict EXTENSION of its
+ * answer text is accepted: the snapshot is a flat dump that begins with the
+ * turn's thinking, and grafting that in as answer text puts the model's
+ * scratchpad in the reply.
+ */
+function overlayProjectionRow(projection: ChatMessage, journalRow: ChatMessage): ChatMessage {
+  const error = journalRow.error ?? projection.error
+
+  const merged: ChatMessage = {
+    ...journalRow,
+    id: projection.id,
+    pending: projection.pending,
+    ...(error ? { error } : {})
+  }
+
+  const projectionText = chatMessageText(projection)
+  const journalText = chatMessageText(journalRow)
+
+  if (projectionText.length <= journalText.length) {
+    return merged
+  }
+
+  // With structure in hand, only a strict EXTENSION of the answer text is
+  // accepted. No answer text yet means everything in the flat dump so far is
+  // thinking, and grafting that in would publish the model's scratchpad.
+  if (
+    hasStructuralParts(journalRow) &&
+    (!journalText.trim() || !projectionText.trim().startsWith(journalText.trim()))
+  ) {
+    return merged
+  }
+
+  const parts: ChatPart[] = []
+  let replaced = false
+
+  for (const part of journalRow.parts) {
+    if (part.type !== 'text') {
+      parts.push(part)
+    } else if (!replaced) {
+      parts.push({ ...part, text: projectionText })
+      replaced = true
+    }
+  }
+
+  if (!replaced) {
+    parts.push({ type: 'text', text: projectionText })
+  }
+
+  return { ...merged, parts }
+}
+
+/**
  * Fold a journaled tail onto a freshly-hydrated transcript.
  *
  * Three outcomes:
@@ -211,9 +332,20 @@ const withoutBaseIds = (rows: ChatMessage[], base: ChatMessage[]): ChatMessage[]
  *    journal's structure onto it, keeping the projection's id so streaming
  *    deltas keep landing on the same row.
  */
-export function mergeInFlightMessages(base: ChatMessage[], tail: ChatMessage[]): InFlightRecoveryResult {
-  const settled: InFlightRecoveryResult = { applied: false, caughtUp: false, messages: base, turnStartedAt: null }
+export function mergeInFlightMessages(
+  base: ChatMessage[],
+  journaled: ChatMessage[],
+  options: { keepPending?: boolean } = {}
+): InFlightRecoveryResult {
+  const settled: InFlightRecoveryResult = {
+    applied: false,
+    caughtUp: false,
+    messages: base,
+    streamId: null,
+    turnStartedAt: null
+  }
 
+  const tail = sealTail(journaled, Boolean(options.keepPending))
   const tailUserIndex = tail.findIndex(message => message.role === 'user')
   const tailUser = tailUserIndex >= 0 ? tail[tailUserIndex] : null
   const tailAssistants = tail.filter(message => message.role === 'assistant' && assistantHasRecoverableContent(message))
@@ -236,19 +368,29 @@ export function mergeInFlightMessages(base: ChatMessage[], tail: ChatMessage[]):
     }
   }
 
+  const journalRow = tailAssistants[tailAssistants.length - 1]
+
   if (baseUserIndex < 0) {
     // The turn never reached the backend's history at all. The journal is the
     // only copy of it.
     const rows = withoutBaseIds(tail, base)
 
     return rows.length > 0
-      ? { applied: true, caughtUp: false, messages: [...base, ...rows], turnStartedAt: null }
+      ? { applied: true, caughtUp: false, messages: [...base, ...rows], streamId: journalRow.id, turnStartedAt: null }
       : settled
   }
 
   const after = base.slice(baseUserIndex + 1)
   const projectionIndex = after.findIndex(message => message.role === 'assistant' && isLiveTailRow(message))
-  const settledReply = after.some(message => message.role === 'assistant' && !isLiveTailRow(message))
+
+  // A settled reply only counts when it SAYS something. An empty assistant
+  // boundary row — the one `appendLiveSessionProjection` seeds before the first
+  // delta of a queued turn — used to satisfy this test and throw the journal
+  // away as "already on screen", leaving the crashed turn represented by a
+  // blank bubble.
+  const settledReply = after.some(
+    message => message.role === 'assistant' && !isLiveTailRow(message) && assistantHasRecoverableContent(message)
+  )
 
   if (settledReply) {
     // The turn finished and committed while we were away. Anything the journal
@@ -256,13 +398,17 @@ export function mergeInFlightMessages(base: ChatMessage[], tail: ChatMessage[]):
     return { ...settled, caughtUp: true }
   }
 
-  const journalRow = tailAssistants[tailAssistants.length - 1]
-
   if (projectionIndex < 0) {
     const rows = withoutBaseIds(tailAssistants, base)
 
     return rows.length > 0
-      ? { applied: true, caughtUp: false, messages: [...base, ...rows], turnStartedAt: null }
+      ? {
+          applied: true,
+          caughtUp: false,
+          messages: [...base, ...rows],
+          streamId: rows[rows.length - 1].id,
+          turnStartedAt: null
+        }
       : settled
   }
 
@@ -270,11 +416,10 @@ export function mergeInFlightMessages(base: ChatMessage[], tail: ChatMessage[]):
   // reasoning and tool calls the user watched happen. Keep the journal's parts
   // but the projection's id, so live deltas keep targeting the same row.
   const at = baseIndexOfProjection(base, baseUserIndex, projectionIndex)
-  const projection = base[at]
   const merged = base.slice()
-  merged[at] = { ...projection, error: projection.error ?? journalRow.error, parts: journalRow.parts }
+  merged[at] = overlayProjectionRow(base[at], journalRow)
 
-  return { applied: true, caughtUp: false, messages: merged, turnStartedAt: null }
+  return { applied: true, caughtUp: false, messages: merged, streamId: merged[at].id, turnStartedAt: null }
 }
 
 const baseIndexOfProjection = (base: ChatMessage[], baseUserIndex: number, offset: number): number =>
@@ -296,6 +441,7 @@ function writeSnapshot(storedSessionId: string, state: JournalableSessionState):
 
   store.entries[storedSessionId] = {
     messages: JSON.parse(JSON.stringify(tail)) as ChatMessage[],
+    streamId: state.streamId,
     turnStartedAt: state.turnStartedAt,
     updatedAt: Date.now()
   }
@@ -315,7 +461,12 @@ export function persistInFlightTurnState(state: JournalableSessionState): void {
     return
   }
 
-  if (!state.busy) {
+  // `busy` alone is not "the turn is over". A submit that has left but not been
+  // acknowledged is `awaitingResponse` with `busy` still settling, and a stream
+  // still bound to a row keeps `streamId`. Clearing on `busy` alone threw the
+  // journal away in exactly those windows — which are the windows a crash is
+  // most likely to land in.
+  if (!state.busy && !state.awaitingResponse && !state.streamId) {
     clearInFlightTurnJournal(storedSessionId)
 
     return
@@ -378,33 +529,67 @@ export function clearInFlightTurnJournal(storedSessionId: null | string): void {
 
   persistLatest.delete(storedSessionId)
 
+  // The overwhelmingly common call: an idle session, on every state commit.
+  // Answer it from the key mirror so the hot path never parses the blob.
+  if (!knownIds().has(storedSessionId)) {
+    return
+  }
+
   const store = loadStore()
 
   if (storedSessionId in store.entries) {
     delete store.entries[storedSessionId]
     saveStore(store)
+  } else {
+    indexedIds = new Set(Object.keys(store.entries))
   }
 }
 
+/** Test hook — drop the in-memory key mirror so a test that writes storage
+ *  directly is not answered from a stale view of it. */
+export function __resetInFlightTurnJournalCache(): void {
+  indexedIds = null
+
+  for (const timer of persistTimers.values()) {
+    clearTimeout(timer)
+  }
+
+  persistTimers.clear()
+  persistLatest.clear()
+}
+
 /**
- * Fold a session's journal onto a freshly-hydrated transcript. The entry is
- * dropped when the base transcript has already caught up.
+ * Fold a session's journal onto a freshly-hydrated transcript.
+ *
+ * The entry is dropped once it is SPENT — either the base transcript already
+ * caught up, or the fold succeeded and there is nothing left to replay. An
+ * applied entry that survived would be re-injected on every later cold open of
+ * the same session, for the whole seven-day TTL, because the rows it appends
+ * are local-only and never come back from the backend to satisfy `caughtUp`.
+ *
+ * `keepPending` says whether the turn is still running (the backend's resume
+ * says so). Only then may a recovered assistant row stay pending.
  */
 export function recoverInFlightTurnJournal(
   storedSessionId: null | string,
-  base: ChatMessage[]
+  base: ChatMessage[],
+  options: { keepPending?: boolean } = {}
 ): InFlightRecoveryResult {
   const snapshot = readInFlightTurnJournal(storedSessionId)
 
   if (!snapshot) {
-    return { applied: false, caughtUp: false, messages: base, turnStartedAt: null }
+    return { applied: false, caughtUp: false, messages: base, streamId: null, turnStartedAt: null }
   }
 
-  const result = mergeInFlightMessages(base, snapshot.messages)
+  const result = mergeInFlightMessages(base, snapshot.messages, options)
 
-  if (result.caughtUp) {
+  if (result.caughtUp || (result.applied && !options.keepPending)) {
     clearInFlightTurnJournal(storedSessionId)
   }
 
-  return { ...result, turnStartedAt: result.applied ? snapshot.turnStartedAt : null }
+  return {
+    ...result,
+    streamId: result.applied ? (result.streamId ?? snapshot.streamId) : null,
+    turnStartedAt: result.applied ? snapshot.turnStartedAt : null
+  }
 }
