@@ -81,6 +81,79 @@ describe('toChatMessages', () => {
   })
 })
 
+// Scaffolding the model was fed, persisted as role:'user' and TAGGED by the
+// gateway so a surface renders the event rather than the text. Universal
+// rendered all three as the user's own words — and, because it counts the user
+// rows it renders to build `truncate_before_user_ordinal`, every rewind after
+// one of them cut at the wrong turn.
+describe('display-only timeline rows', () => {
+  it('renders the crash-recovery note as an event, not the user speaking', () => {
+    const out = toChatMessages([
+      msg({ role: 'user', content: 'first prompt' }),
+      msg({
+        role: 'user',
+        content: '[System note: Your previous turn was interrupted mid-run — …]\n\nfirst prompt',
+        display_kind: 'auto_continue'
+      }),
+      msg({ role: 'assistant', content: 'done' })
+    ])
+
+    expect(out.map(m => m.role)).toEqual(['user', 'system', 'assistant'])
+    expect(texts(out[1].parts)).toEqual(['resumed interrupted turn'])
+    // The ordinal space the gateway rewinds by counts one user turn here, and
+    // so does the transcript now.
+    expect(out.filter(m => m.role === 'user')).toHaveLength(1)
+  })
+
+  it('names a model switch and a delegation batch', () => {
+    const out = toChatMessages([
+      msg({ role: 'user', content: '[System: model changed to x]', display_kind: 'model_switch' }),
+      msg({
+        role: 'user',
+        content: 'background work finished',
+        display_kind: 'async_delegation_complete',
+        display_metadata: { task_count: 3 }
+      }),
+      msg({
+        role: 'user',
+        content: 'background work finished',
+        display_kind: 'async_delegation_complete'
+      })
+    ])
+
+    expect(out.map(m => m.role)).toEqual(['system', 'system', 'system'])
+    expect(out.flatMap(m => texts(m.parts))).toEqual([
+      'model changed',
+      '3 background agents finished',
+      'background agent work finished'
+    ])
+  })
+
+  // The gateway counts these in the ordinal space, so universal must keep
+  // rendering them as user turns or the two disagree again in the other
+  // direction.
+  it('leaves a skill invocation as the user turn it is', () => {
+    const out = toChatMessages([msg({ role: 'user', content: '/review', display_kind: 'skill_invocation' })])
+
+    expect(out.map(m => m.role)).toEqual(['user'])
+    expect(texts(out[0].parts)).toEqual(['/review'])
+  })
+
+  it('keeps a timeline event from swallowing the tool calls around it', () => {
+    const out = toChatMessages([
+      msg({ role: 'assistant', content: '', tool_calls: [{ id: 't1', function: { name: 'grep', arguments: {} } }] }),
+      msg({ role: 'tool', tool_call_id: 't1', content: 'ok' }),
+      msg({ role: 'user', content: '[System: model changed]', display_kind: 'model_switch' }),
+      msg({ role: 'assistant', content: 'after' })
+    ])
+
+    expect(out.map(m => m.role)).toEqual(['assistant', 'system', 'assistant'])
+    expect(tools(out[0].parts)).toHaveLength(1)
+    // The later reply must not inherit the earlier turn's tool row.
+    expect(tools(out[2].parts)).toHaveLength(0)
+  })
+})
+
 describe('appendLiveSessionProjection', () => {
   it('is a no-op when nothing is in flight', () => {
     const stored = toChatMessages([msg({ role: 'user', content: 'hi' })])
