@@ -1,6 +1,7 @@
 import { emit } from '@tauri-apps/api/event'
 
 import { IS_TAURI } from '@/lib/platform'
+import { WEBVIEW_ID } from '@/lib/webview-id'
 import type { GatewayMode } from '@/store/gateway-config'
 import type { GatewayTarget } from '@/store/gateway-restore'
 
@@ -21,17 +22,6 @@ export interface GatewaySwitchedPayload {
    *  dialSavedTarget fetches them on the receiving side. */
   target: GatewayTarget
 }
-
-// Identifies THIS WebView. Deliberately not the Tauri window label: the mobile
-// activity screens are extra webviews inside one window and can share a label,
-// which would make them discard each other's events as self-echo.
-export const WEBVIEW_ID = (() => {
-  try {
-    return crypto.randomUUID()
-  } catch {
-    return `wv-${Date.now()}-${Math.random().toString(36).slice(2)}`
-  }
-})()
 
 /**
  * Tell every other WebView that this one just moved to another gateway.

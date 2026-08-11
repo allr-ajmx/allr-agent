@@ -20,6 +20,12 @@ import './store/gateway-switch-sync'
 // agent tool until the client answers, so the responder has to be listening
 // before the first turn — see store/agent-read-requests.ts.
 import './store/agent-read-requests'
+// And the same for appearance: a skin or light/dark switch is global, but each
+// WebView holds its own copy, so without this one every OTHER surface — a
+// detached tile, the HUD, Quick Entry — keeps painting the appearance it booted
+// with. Imported here (not from themes/index) so the wiring sits with the other
+// cross-WebView listeners it mirrors.
+import './themes/appearance-sync'
 
 import { installWindowBelowReader } from './store/window-below'
 
