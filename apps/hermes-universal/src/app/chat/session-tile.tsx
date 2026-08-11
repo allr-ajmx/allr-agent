@@ -23,6 +23,7 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { translateNow, useI18n } from '@/i18n'
 import { sessionTitle } from '@/lib/chat-runtime'
 import { DRAFT_TILE_KEY, isDraftTileKey, sessionTilePaneId, WORKSPACE_PANE_ID } from '@/lib/pane-ids'
+import { useStoreSelector } from '@/lib/use-session-slice'
 import { useStore } from '@/store/atom'
 import { type ChatMessage } from '@/store/chat'
 import { $draftTitles, createComposerAttachmentScope, draftTitleFor } from '@/store/composer'
@@ -30,8 +31,8 @@ import { $gatewayState } from '@/store/gateway'
 import { $pinnedSessionIds, pinSession, unpinSession } from '@/store/layout'
 import { startNewSessionTab } from '@/store/new-session'
 import { sessionAwaitingInput } from '@/store/prompts'
-import { $activeStoredSessionId, sessionPinId } from '@/store/session'
-import { SESSION_ROW_SOURCES, sessionRowFor, useSessionRow } from '@/store/session-lookup'
+import { $activeStoredSessionId } from '@/store/session'
+import { SESSION_ROW_SOURCES, sessionRowFor, useSessionRow, useSessionRowScalars } from '@/store/session-lookup'
 import { $sessionStates } from '@/store/session-state-types'
 import {
   $confirmCloseTile,
@@ -164,8 +165,13 @@ function DraftTilePane() {
  *  terminal resume failure, or a spinner while the runtime binds. */
 export function SessionTilePane({ storedSessionId }: { storedSessionId: string }) {
   const { t } = useI18n()
-  const tiles = useStore($sessionTiles)
-  const tile = tiles.find(item => item.storedSessionId === storedSessionId)
+  // NARROWED to this tile's own entry (MJXHRM-45). One instance of this
+  // component mounts per open tile, and each one carries a whole `ChatScreen` +
+  // composer subtree — so subscribing to the `$sessionTiles` ARRAY meant tile
+  // A's resume / error / reconnect patch re-rendered tiles B, C and D too.
+  // `patchSessionTile` maps the array and replaces only the matching entry, so
+  // every unrelated tile object keeps its reference and this selector bails.
+  const tile = useStoreSelector($sessionTiles, tiles => tiles.find(item => item.storedSessionId === storedSessionId))
   const runtimeId = tile?.runtimeId
   const gatewayOpen = useStore($gatewayState) === 'open'
   const view = useMemo(() => buildTileView(storedSessionId), [storedSessionId])
@@ -406,11 +412,16 @@ export function SessionTabMenu({
   // The hook form matters: this is a component, and a tab whose zone mounts
   // before the project tree lands must retitle itself when that source arrives
   // rather than resolving once and staying on the fallback.
-  const stored = useSessionRow(storedSessionId)
-  const pinned = useStore($pinnedSessionIds)
-  const title = stored ? sessionTitle(stored) : translateNow('common.loading')
-  const pinId = stored ? sessionPinId(stored) : storedSessionId
-  const isPinned = pinned.includes(pinId)
+  //
+  // NARROWED (MJXHRM-45): the scalar face of `useSessionRow`, not the row. One
+  // of these wrappers is mounted per open tab, permanently, for a menu that is
+  // almost never open — subscribing to all three sources whole re-rendered every
+  // tab's wrapper on any recents poll or any OTHER session's title update.
+  const { pinId, title: storedTitle } = useSessionRowScalars(storedSessionId)
+  // Same reasoning one level down: the pin LIST reference changes whenever any
+  // session is pinned or unpinned; this tab only cares about its own membership.
+  const isPinned = useStoreSelector($pinnedSessionIds, ids => ids.includes(pinId))
+  const title = storedTitle ?? translateNow('common.loading')
 
   // How many tabs each verb would hit. The shared group DISABLES a verb that
   // would close nothing rather than dropping its row — this menu used to drop
