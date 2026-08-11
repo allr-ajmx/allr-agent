@@ -2153,8 +2153,6 @@ export interface Translations {
     terminalEndErrorBody: string
     terminalsAria: string
     terminalNew: string
-    terminalCloseOthers: string
-    terminalCloseAll: string
     addToChat: string
   }
 
@@ -2217,9 +2215,6 @@ export interface Translations {
   preview: {
     tab: string
     closeTab: (label: string) => string
-    closeOthers: string
-    closeToRight: string
-    closeAll: string
     closePane: string
     loading: string
     unavailable: string

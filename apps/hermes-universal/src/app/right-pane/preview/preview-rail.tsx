@@ -129,8 +129,8 @@ function PreviewTab({ active, dirty, tab }: { active: boolean; dirty: boolean; t
       <ContextMenuContent className="w-44">
         {/* The SAME four close verbs as every tab strip in the app. This rail
             used to hand-roll three of them under `preview.*` labels of its own
-            and never offered "to the right" — though `preview.closeToRight` had
-            been sitting in the translations, wired to nothing, all along. */}
+            and never offered "to the right"; those labels are gone now and the
+            group reads from `zones.*`, like every other strip. */}
         {paneTabCloseItems(CONTEXT_KIT, {
           counts: previewCloseTargets(tab.path),
           onClose: () => closePreviewTab(tab.path),
