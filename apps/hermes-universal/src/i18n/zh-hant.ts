@@ -1717,11 +1717,13 @@ export const zhHant = defineLocale({
       branchOpenExisting: '開啟',
       branchSwitchHome: '切回主簽出',
       branchCreateWorktree: '新增工作樹',
+      branchTrackRemote: '追蹤遠端',
       worktreeProjectLabel: '專案',
       worktreeProjectPlaceholder: '搜尋專案…',
       worktreeProjectNone: '沒有包含資料夾的專案',
       branchesLoading: '正在載入分支…',
       noBranches: '找不到分支',
+      branchesFailed: '無法載入分支',
       removeWorktree: '移除工作樹',
       removeWorktreeFailed: '無法移除工作樹（有未提交的變更？）',
       removeWorktreeConfirm:

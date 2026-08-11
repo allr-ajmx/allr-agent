@@ -1769,11 +1769,13 @@ export const ja = defineLocale({
       branchOpenExisting: '開く',
       branchSwitchHome: 'ホームを切替',
       branchCreateWorktree: '新しいワークツリー',
+      branchTrackRemote: 'リモートを追跡',
       worktreeProjectLabel: 'プロジェクト',
       worktreeProjectPlaceholder: 'プロジェクトを検索…',
       worktreeProjectNone: 'フォルダのあるプロジェクトがありません',
       branchesLoading: 'ブランチを読み込み中…',
       noBranches: 'ブランチが見つかりません',
+      branchesFailed: 'ブランチを読み込めませんでした',
       removeWorktree: 'ワークツリーを削除',
       removeWorktreeFailed: 'ワークツリーを削除できませんでした（コミットされていない変更？）',
       removeWorktreeConfirm:

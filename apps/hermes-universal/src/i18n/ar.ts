@@ -1581,8 +1581,10 @@ export const ar = defineLocale({
       branchOpenExisting: 'فتح',
       branchSwitchHome: 'تبديل الموطن',
       branchCreateWorktree: 'شجرة عمل جديدة',
+      branchTrackRemote: 'تتبع البعيد',
       branchesLoading: 'جار تحميل الفروع...',
       noBranches: 'لم يتم العثور على فروع',
+      branchesFailed: 'تعذر تحميل الفروع',
       removeWorktree: 'إزالة شجرة العمل',
       removeWorktreeFailed: 'تعذّر إزالة شجرة العمل (تغييرات غير مُودعة؟)',
       removeWorktreeConfirm:
