@@ -269,6 +269,46 @@ describe('featured defaults', () => {
     expect(visible.has(modelVisibilityKey('ollama', 'qwen3:latest'))).toBe(true)
     expect(visible.has(modelVisibilityKey('ollama', 'llama3.2:latest'))).toBe(true)
   })
+
+  it('features a date-pinned snapshot through the rolling alias that represents it', () => {
+    // The backend features ids off the RAW catalog, where the snapshot carries
+    // the release date; `collapseModelFamilies` folds it into the alias row.
+    const nous = featuredProvider(
+      'nous',
+      ['anthropic/opus', 'anthropic/opus-20260615', 'google/gemini'],
+      ['anthropic/opus-20260615']
+    )
+
+    const visible = defaultVisibleKeys([nous])
+
+    expect(visible.has(modelVisibilityKey('nous', 'anthropic/opus'))).toBe(true)
+    // The snapshot has no row of its own, so it never becomes a key.
+    expect(visible.has(modelVisibilityKey('nous', 'anthropic/opus-20260615'))).toBe(false)
+    expect(visible.has(modelVisibilityKey('nous', 'google/gemini'))).toBe(false)
+  })
+
+  it('features a -fast sibling through its base family', () => {
+    const nous = featuredProvider(
+      'nous',
+      ['anthropic/opus', 'anthropic/opus-fast', 'google/gemini'],
+      ['anthropic/opus-fast']
+    )
+
+    const visible = defaultVisibleKeys([nous])
+
+    expect(visible.has(modelVisibilityKey('nous', 'anthropic/opus'))).toBe(true)
+    expect(visible.has(modelVisibilityKey('nous', 'google/gemini'))).toBe(false)
+  })
+
+  it('falls back to top-N when no featured id resolves to a catalog row', () => {
+    const nous = featuredProvider('nous', ['anthropic/opus', 'google/gemini'], ['retired/model'])
+
+    const visible = defaultVisibleKeys([nous])
+
+    // Better a full catalog than an empty provider the user cannot see at all.
+    expect(visible.has(modelVisibilityKey('nous', 'anthropic/opus'))).toBe(true)
+    expect(visible.has(modelVisibilityKey('nous', 'google/gemini'))).toBe(true)
+  })
 })
 
 describe('setProviderVisibility', () => {
