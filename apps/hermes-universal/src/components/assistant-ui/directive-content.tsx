@@ -6,11 +6,12 @@ import { openSessionRef } from '@/app/open-session'
 import { ZoomableImage } from '@/components/chat/zoomable-image'
 import { Tip } from '@/components/ui/tooltip'
 import { extractEmbeddedImages } from '@/lib/embedded-images'
+import { openExternalLink } from '@/lib/external-link'
 import { gatewayMediaDataUrl } from '@/lib/media'
 import { useSessionLinkTitle } from '@/lib/session-link-title'
 import { parseSessionRefValue } from '@/lib/session-refs'
 
-import { DIRECTIVE_CHIP_CLASS, hermesDirectiveFormatter, iconPathsFor } from './directive-text'
+import { hermesDirectiveFormatter, iconPathsFor, refAttrs, type SlashChipKind } from './directive-text'
 
 // React renderer for Hermes directives in SENT user messages — the display
 // half of the composer's directive pipeline (the parser/serializer/glyphs live
@@ -18,9 +19,10 @@ import { DIRECTIVE_CHIP_CLASS, hermesDirectiveFormatter, iconPathsFor } from './
 // clash on the `directive-text` import specifier). Ported from the renderer half
 // of apps/desktop/src/components/assistant-ui/directive-text.tsx.
 
+/** The glyph for a reference kind. Size, spacing, and opacity come from the
+ *  `.ref > svg` rules — the icon only has to say which shape it is. */
 const DirectiveIcon: FC<{ type: string }> = ({ type }) => (
   <svg
-    className="size-3 shrink-0 opacity-80"
     fill="none"
     stroke="currentColor"
     strokeLinecap="round"
@@ -68,6 +70,8 @@ export function DirectiveContent({ text }: { text: string }) {
           <DirectiveImage id={segment.id} key={`img-${index}-${segment.id}`} label={segment.label} />
         ) : segment.type === 'session' ? (
           <SessionChip id={segment.id} key={`s-${index}-${segment.id}`} label={segment.label} />
+        ) : segment.type === 'skill' ? (
+          <SlashChip key={`m-${index}-${segment.id}`} kind="skill" label={segment.label} value={segment.id} />
         ) : (
           <DirectiveChip id={segment.id} key={`m-${index}-${segment.id}`} label={segment.label} type={segment.type} />
         )
@@ -145,22 +149,58 @@ const DirectiveImage: FC<{ id: string; label: string }> = ({ id, label }) => {
   )
 }
 
+/** A skill referenced inside a sent message — the rendered twin of the
+ *  composer's slash pill, so a picked skill stays a reference after send
+ *  instead of flattening back to `/work` as raw text. */
+const SlashChip: FC<{ kind: SlashChipKind; label: string; value: string }> = ({ kind, label, value }) => (
+  <span {...refAttrs(kind)} data-slot="aui_slash-chip" title={value}>
+    <DirectiveIcon type={kind} />
+    {label}
+  </span>
+)
+
+/**
+ * A directive reference in a sent message. Now that it renders as a link rather
+ * than a badge, a kind that names something openable has to actually open it —
+ * a `@url:` that reads as a link and does nothing is worse than the inert pill
+ * it replaced. `url` is the one kind here (`session` has its own chip above,
+ * which needs the async navigator); everything else is inert text.
+ *
+ * The kind → action table stays out of this file on purpose: desktop shares one
+ * with the composer's hover pill, universal keeps the composer's copy local so
+ * `directive-text.ts` — which the rich editor imports on its hot path — never
+ * drags `external-link`/`open-session` in behind it.
+ */
 const DirectiveChip: FC<{
   type: string
   label: string
   id: string
-}> = ({ type, label, id }) => (
-  <span
-    className={DIRECTIVE_CHIP_CLASS}
-    data-directive-id={id}
-    data-directive-type={type}
-    data-slot="aui_directive-chip"
-    title={id}
-  >
-    <DirectiveIcon type={type} />
-    <span className="truncate">{label}</span>
-  </span>
-)
+}> = ({ type, label, id }) => {
+  const activate = type === 'url' ? () => void openExternalLink(id) : undefined
+
+  const props = {
+    ...refAttrs(type, activate ? 'wrap-anywhere cursor-pointer' : 'wrap-anywhere'),
+    'data-directive-id': id,
+    'data-directive-type': type,
+    'data-slot': 'aui_directive-chip',
+    title: id
+  }
+
+  const body = (
+    <>
+      <DirectiveIcon type={type} />
+      {label}
+    </>
+  )
+
+  return activate ? (
+    <button {...props} onClick={activate} type="button">
+      {body}
+    </button>
+  ) : (
+    <span {...props}>{body}</span>
+  )
+}
 
 /**
  * A `@session:` ref in a SENT USER message — the one directive kind that names
@@ -183,7 +223,7 @@ const SessionChip: FC<{ id: string; label: string }> = ({ id, label }) => {
   return (
     <Tip label={id}>
       <button
-        className={`${DIRECTIVE_CHIP_CLASS} cursor-pointer hover:bg-(--chrome-action-hover)`}
+        {...refAttrs('session', 'wrap-anywhere cursor-pointer')}
         data-directive-id={id}
         data-directive-type="session"
         data-slot="aui_directive-chip"
@@ -191,7 +231,7 @@ const SessionChip: FC<{ id: string; label: string }> = ({ id, label }) => {
         type="button"
       >
         <DirectiveIcon type="session" />
-        <span className="truncate">{title}</span>
+        {title}
       </button>
     </Tip>
   )
@@ -218,7 +258,7 @@ export const SessionRefLink: FC<{ label?: string; value: string }> = ({ label, v
   return (
     <Tip label={value}>
       <a
-        className="ref wrap-anywhere inline-flex cursor-pointer items-center gap-1"
+        {...refAttrs('session', 'wrap-anywhere cursor-pointer')}
         data-directive-id={value}
         data-directive-type="session"
         data-slot="aui_session-ref-link"

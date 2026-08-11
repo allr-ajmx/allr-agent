@@ -7,20 +7,23 @@
  * plain-text round-trip.
  */
 import {
-  DIRECTIVE_CHIP_CLASS,
   directiveIconElement,
   directiveIconSvg,
   formatRefValue,
-  slashChipClass,
+  refAttrsHtml,
+  refChipLabel,
   type SlashChipKind,
   slashIconElement
 } from '@/components/assistant-ui/directive-text'
+import { referenceKind, referenceRe } from '@/components/assistant-ui/reference-kinds'
 
 import { slashCommandMatches, type SlashCommandScanOptions } from './slash-refs'
 
 export const RICH_INPUT_SLOT = 'composer-rich-input'
 
-export const REF_RE = /@(file|folder|url|image|tool|line|terminal|session):(`[^`\n]+`|"[^"\n]+"|'[^'\n]+'|\S+)/g
+/** @see referenceRe — the shared pattern every surface recognises a reference
+ *  with. Module-level `/g` regexes carry `lastIndex`, so call sites reset it. */
+export const REF_RE = referenceRe()
 
 const ESC: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }
 
@@ -34,10 +37,6 @@ export function unquoteRef(raw: string) {
   const quoted = (head === '`' && tail === '`') || (head === '"' && tail === '"') || (head === "'" && tail === "'")
 
   return quoted ? raw.slice(1, -1) : raw.replace(/[,.;!?]+$/, '')
-}
-
-export function refLabel(id: string) {
-  return id.split(/[\\/]/).filter(Boolean).pop() || id
 }
 
 /** Always-quote variant of formatRefValue — chips need a fence even for safe values. */
@@ -60,42 +59,40 @@ export function quoteRefValue(value: string) {
 export function refChipHtml(kind: string, rawValue: string, displayLabel?: string) {
   const id = unquoteRef(rawValue)
   const text = `@${kind}:${quoteRefValue(id)}`
+  const label = displayLabel || refChipLabel(kind, id)
 
-  return `<span contenteditable="false" data-ref-text="${escapeHtml(text)}" data-ref-id="${escapeHtml(id)}" data-ref-kind="${escapeHtml(kind)}" class="${DIRECTIVE_CHIP_CLASS}">${directiveIconSvg(kind)}<span class="truncate">${escapeHtml(displayLabel || refLabel(id))}</span></span>`
+  return `<span contenteditable="false" title="${escapeHtml(id)}" data-ref-text="${escapeHtml(text)}" data-ref-id="${escapeHtml(id)}" data-ref-kind="${escapeHtml(kind)}" ${refAttrsHtml(kind)}>${directiveIconSvg(kind)}${escapeHtml(label)}</span>`
 }
 
 export function refChipElement(kind: string, rawValue: string, displayLabel?: string) {
   const id = unquoteRef(rawValue)
   const text = `@${kind}:${quoteRefValue(id)}`
   const chip = document.createElement('span')
-  const label = document.createElement('span')
 
   chip.contentEditable = 'false'
+  chip.title = id
   chip.dataset.refText = text
   chip.dataset.refId = id
   chip.dataset.refKind = kind
-  chip.className = DIRECTIVE_CHIP_CLASS
-  label.className = 'truncate'
-  label.textContent = displayLabel || refLabel(id)
-  chip.append(directiveIconElement(kind), label)
+  chip.className = 'ref'
+  chip.dataset.ref = referenceKind(kind)
+  chip.append(directiveIconElement(kind), document.createTextNode(displayLabel || refChipLabel(kind, id)))
 
   return chip
 }
 
-/** A non-editable pill for a picked slash command (`/skin nous`, `/tropes`).
+/** A non-editable reference for a picked slash command (`/skin nous`, `/tropes`).
  *  `data-ref-text` carries the literal command so `composerPlainText` round-trips
  *  it back to the exact text that gets submitted. */
 export function slashChipElement(command: string, kind: SlashChipKind, label?: string) {
   const chip = document.createElement('span')
-  const text = document.createElement('span')
 
   chip.contentEditable = 'false'
   chip.dataset.refText = command
   chip.dataset.slashKind = kind
-  chip.className = slashChipClass(kind)
-  text.className = 'truncate'
-  text.textContent = label || command
-  chip.append(slashIconElement(kind), text)
+  chip.className = 'ref'
+  chip.dataset.ref = kind
+  chip.append(slashIconElement(kind), document.createTextNode(label || command))
 
   return chip
 }
