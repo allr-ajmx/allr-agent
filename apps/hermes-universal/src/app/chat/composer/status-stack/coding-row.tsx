@@ -17,6 +17,7 @@ import { DiffCount } from '@/components/ui/diff-count'
 import type { HermesGitBranch } from '@/global'
 import { useI18n } from '@/i18n'
 import { displayPath } from '@/lib/display-path'
+import { useStoreSelector } from '@/lib/use-session-slice'
 import { openWorktreeDialog, registerRepoStatusCwd, repoStatusForCwd, repoWorktreesForCwd } from '@/store/coding-status'
 import { notifyError } from '@/store/notifications'
 import { $pullRequestsByBranch, branchPrKey, refreshPullRequests } from '@/store/pull-requests'
@@ -90,8 +91,16 @@ export const CodingStatusRow = memo(function CodingStatusRow({
     }
   }, [resolvedRepoPath, prBranch])
 
-  const pr =
-    useStore($pullRequestsByBranch)[resolvedRepoPath && prBranch ? branchPrKey(resolvedRepoPath, prBranch) : '']
+  // A selector, not a plain `useStore` (MJXHRM-45) — the same call the sidebar's
+  // `session-row.tsx` already makes for this atom, with the same reasoning. A
+  // repo's PRs land as a single whole-map write and are polled on EVERY window
+  // focus, so reading the map whole re-rendered every open tile's coding rail on
+  // a refocus, including tiles on unrelated repos. The `memo()` on this
+  // component cannot help: the re-render comes from its own subscription, not
+  // from a prop.
+  const pr = useStoreSelector($pullRequestsByBranch, prs =>
+    resolvedRepoPath && prBranch ? prs[branchPrKey(resolvedRepoPath, prBranch)] : undefined
+  )
 
   const switchToBranch = async (branch: string) => {
     if (!onSwitchBranch) {
