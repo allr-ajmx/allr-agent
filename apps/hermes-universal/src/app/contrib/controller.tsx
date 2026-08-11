@@ -78,7 +78,6 @@ import {
   WorkspaceTabMenu
 } from '../chat/session-tile'
 import { ChatSidebar } from '../chat/sidebar'
-import { RemoteFolderPicker } from '../right-pane/files/remote-picker'
 import { $workspacePage, isWorkspacePagePath, syncWorkspacePage } from '../routes'
 
 import { FilesPane, ReviewPaneContent, TerminalPane, WorkspaceRoutes } from './panes'
@@ -633,11 +632,11 @@ export function ContribController() {
       <LayoutTreeRoot />
       {/* "Close running tab?" — the busy/input-blocked tile close gate. */}
       <SessionTileCloseConfirm />
-      {/* Registers the browsable backend-FS directory picker that
-          `selectDesktopPaths` routes to when there's no native dialog. Mounted
-          at shell level because the folder picker is reachable from the sidebar
-          AND from Settings, neither of which owns the other. */}
-      <RemoteFolderPicker />
+      {/* The backend-FS picker `selectDesktopPaths` / `selectRemotePaths` route
+          to used to be mounted here. It moved to `app.tsx`: shell level was
+          already too low — the sidebar and Settings both reach it, but so do the
+          detached tile window, the HUD and the Android activity screen, none of
+          which mount this controller. */}
     </div>
   )
 }
