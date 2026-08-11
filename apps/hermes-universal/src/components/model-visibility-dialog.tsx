@@ -158,14 +158,18 @@ export function ModelVisibilityDialog({
 
                       return (
                         <label
-                          className="flex cursor-pointer items-center gap-2 px-3 py-1 text-xs hover:bg-accent/50"
+                          className="flex cursor-pointer items-center gap-2 px-3 py-1 text-xs hover:bg-(--ui-control-active-background)"
                           key={key}
                         >
                           <span className="min-w-0 flex-1 truncate">
                             <HighlightMatches query={search} text={name} />
                             {tag ? <span className="text-(--ui-text-tertiary)"> {tag}</span> : null}
                           </span>
-                          <Switch checked={visible.has(key)} onCheckedChange={() => toggle(provider, family.id)} />
+                          <Switch
+                            checked={visible.has(key)}
+                            onCheckedChange={() => toggle(provider, family.id)}
+                            size="xs"
+                          />
                         </label>
                       )
                     })}
