@@ -31,6 +31,7 @@ import {
   type ClientSessionState,
   ensureSessionSlice,
   hydratingKey,
+  isPlaceholderKey,
   rekeySession,
   runtimeKeyForStoredSession,
   updateSession
@@ -829,13 +830,24 @@ export function openSession(storedId: string, options?: OpenSessionOptions): Pro
  * a compaction while another window held the session — and `rekeySession` moves
  * the slice wholesale, so its messages and in-flight turn ride across unchanged.
  */
-async function reclaimWarmSession(storedId: string, warmKey: string): Promise<void> {
+async function reclaimWarmSession(
+  storedId: string,
+  warmKey: string,
+  options?: { /** Whether this reclaim is also making the session ACTIVE. */ activate?: boolean }
+): Promise<void> {
+  // A reclaim that is NOT promoting the session (`reclaimSessionTransport`) must
+  // not be cancelled by an unrelated open: the generation counter answers "is
+  // this still the chat the user is switching to", and a background rebind is
+  // not answering that question. Cancelling it there would be the silent no-op
+  // this whole seam exists to avoid.
+  const activate = options?.activate ?? true
   const generation = openGeneration
+  const stillWanted = () => !activate || isCurrentOpen(generation)
 
   const known = knownSessionProfile(storedId)
   const profile = known ?? (sessionProfileIsAmbiguous() ? await resolveSessionProfile(storedId) : undefined)
 
-  if (!isCurrentOpen(generation)) {
+  if (!stillWanted()) {
     return
   }
 
@@ -846,7 +858,14 @@ async function reclaimWarmSession(storedId: string, warmKey: string): Promise<vo
       ...(profile ? { profile } : {})
     })
 
-    if (!isCurrentOpen(generation) || (resumed.session_id ?? storedId) === warmKey) {
+    if (!stillWanted() || (resumed.session_id ?? storedId) === warmKey) {
+      return
+    }
+
+    // The slice can be gone by now — deleted, evicted, or re-keyed by a hydrate
+    // that raced us. `rekeySession` would happily move an EMPTY state onto the
+    // new runtime id and leave a ghost session behind, so check first.
+    if (!$sessionStates.get()[warmKey]) {
       return
     }
 
@@ -858,13 +877,47 @@ async function reclaimWarmSession(storedId: string, warmKey: string): Promise<vo
       ...(resumed.info?.cwd ? { cwd: resumed.info.cwd } : {})
     })
 
-    $activeSessionKey.set(runtimeId)
+    // Only when this session IS the active one. A background reclaim that moved
+    // the active key would point the chat pane at a conversation the user is not
+    // looking at.
+    if ($activeSessionKey.get() === warmKey) {
+      $activeSessionKey.set(runtimeId)
+    }
   } catch (err) {
     // The chat on screen is intact and still readable — only the stream binding
     // failed — so this is a notification rather than a status-line error that
     // would stick to a session which is otherwise fine.
     notifyError(err, 'Failed to reconnect session')
   }
+}
+
+/**
+ * Rebind a session's gateway stream onto THIS webview without touching what the
+ * window is showing (MJXHRM-371).
+ *
+ * The counterpart to `openSession(id, { forceResume: true })`, for the case where
+ * the session must be reclaimed but the user is looking at something else: a
+ * pop-out window (a detached tile, or "open chat in a new window") took the
+ * binding for a session that is ALSO open here — as a tile, or simply parked —
+ * and has now closed. The tile reappears in its slot looking perfectly healthy
+ * and receives nothing, because the slice is warm and nothing ever asks for the
+ * session back. See `store/popout-transport.ts`.
+ *
+ * A no-op unless the session has a real live slice here:
+ *
+ * - no slice at all — nothing on screen is deaf, and the next `openSession` will
+ *   hydrate it cold, which resumes and binds properly;
+ * - a PLACEHOLDER key — a hydrate is already in flight and will issue its own
+ *   resume; forcing a second one would race its re-key and strand the slice.
+ */
+export async function reclaimSessionTransport(storedId: string): Promise<void> {
+  const warm = runtimeKeyForStoredSession(storedId)
+
+  if (!warm || isPlaceholderKey(warm) || !$sessionStates.get()[warm]) {
+    return
+  }
+
+  await reclaimWarmSession(storedId, warm, { activate: false })
 }
 
 /**
