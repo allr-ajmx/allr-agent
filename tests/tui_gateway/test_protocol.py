@@ -165,6 +165,79 @@ def test_session_interrupt_uses_explicit_stop_compatibility(server, monkeypatch,
     assert calls == ["hard" if kind == "hard-only" else "legacy"]
 
 
+def _interrupt_session(**extra):
+    return {
+        "history_lock": threading.Lock(),
+        "session_key": "session-key",
+        "_run_thread": None,
+        **extra,
+    }
+
+
+def _wire_interrupt(server, monkeypatch, session):
+    monkeypatch.setattr(server, "_tts_stream_stop", lambda: None)
+    monkeypatch.setattr(server, "_sess_nowait", lambda _params, _rid: (session, None))
+    monkeypatch.setattr(server, "_session_uses_compute_host", lambda _session: False)
+    monkeypatch.setattr(server, "_clear_pending", lambda _sid: None)
+
+
+def test_session_interrupt_does_not_wait_for_the_agent_build(server, monkeypatch):
+    """Stop must reach a turn parked on a still-building agent.
+
+    ``prompt.submit`` accepts the turn (``running: True``) and parks its run
+    thread in ``_wait_agent_for_prompt``, which polls ``_turn_cancel_requested``
+    in 5s slices — so setting that flag IS the cancel for a turn whose agent has
+    not finished building.
+
+    ``session.interrupt`` used to resolve its session through ``_sess``, which
+    waits up to 30s on ``agent_ready`` and then answers 5032 "agent
+    initialization timed out" *without ever setting the flag*: Stop hung for half
+    a minute, reported a failure, and the parked prompt ran anyway once the build
+    landed. Nothing in the suite held ``agent_ready`` unset, so every existing
+    interrupt test resolved the wait instantly and never saw it (MJXHRM-366).
+    """
+    session = _interrupt_session(
+        running=True,
+        # The build is genuinely in flight: started, not finished.
+        agent_ready=threading.Event(),
+        agent_build_started=True,
+    )
+    _wire_interrupt(server, monkeypatch, session)
+
+    started = time.monotonic()
+    response = server._methods["session.interrupt"]("stop", {"session_id": "ui-session"})
+    elapsed = time.monotonic() - started
+
+    assert response.get("result"), f"got error: {response.get('error')}"
+    assert response["result"]["status"] == "interrupted"
+    assert session["_turn_cancel_requested"] is True
+    assert elapsed < 5.0, f"Stop waited {elapsed:.1f}s on the agent build"
+
+
+def test_session_interrupt_reports_whether_a_turn_was_running(server, monkeypatch):
+    """The result must distinguish "stopped a turn" from "there was none".
+
+    Stop answered ``{"status": "interrupted"}`` whether or not anything was
+    running, so a client whose slice is busy behind a terminal frame that died
+    with the socket got a success back, kept waiting for a ``message.complete``
+    that was never coming, and sat spinning forever behind a control that had
+    already done everything it could.
+    """
+    live = _interrupt_session(running=True, agent=types.SimpleNamespace(interrupt=lambda: None))
+    _wire_interrupt(server, monkeypatch, live)
+    assert server._methods["session.interrupt"]("stop", {"session_id": "s"})["result"] == {
+        "status": "interrupted",
+        "was_running": True,
+    }
+
+    idle = _interrupt_session(running=False, agent=types.SimpleNamespace(interrupt=lambda: None))
+    _wire_interrupt(server, monkeypatch, idle)
+    assert server._methods["session.interrupt"]("stop", {"session_id": "s"})["result"] == {
+        "status": "interrupted",
+        "was_running": False,
+    }
+
+
 # ── write_json ────────────────────────────────────────────────
 
 

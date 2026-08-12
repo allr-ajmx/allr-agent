@@ -2940,9 +2940,15 @@ def _(rid, params: dict) -> dict:
     session, err = _sess_nowait(params, rid)
     if err:
         return err
+    # Whether there WAS a live turn is the only thing that separates a Stop which
+    # did something from one that did nothing, and the answer only exists here.
+    # Reported so a client can settle a turn the gateway is no longer running —
+    # its terminal frame died with a socket, and no `message.complete` is ever
+    # coming to end it (MJXHRM-366).
+    should_interrupt = bool(session.get("running"))
     if _session_uses_compute_host(session):
         sid = str(params.get("session_id") or "")
-        if session.get("running"):
+        if should_interrupt:
             try:
                 _get_compute_host_supervisor().interrupt(sid, request_id=f"interrupt-{rid}")
             except Exception as exc:
@@ -2959,29 +2965,42 @@ def _(rid, params: dict) -> dict:
             resolve_gateway_approval(session["session_key"], "deny", resolve_all=True)
         except Exception:
             pass
-        return _ok(rid, {"status": "interrupted", "turn_isolation": True})
-    session, err = _sess(params, rid)
-    if err:
-        return err
+        return _ok(
+            rid,
+            {"status": "interrupted", "turn_isolation": True, "was_running": should_interrupt},
+        )
+    # Stop NEVER waits on the agent. This used to re-resolve the session through
+    # `_sess`, which starts the deferred build and blocks up to 30s on
+    # `agent_ready` before answering 5032 — so the one moment Stop matters most,
+    # a first turn parked behind a cold build, was the one moment it hung and
+    # then failed. Worse, it returned before setting `_turn_cancel_requested`,
+    # and that flag IS the cancel for a parked turn: `_wait_agent_for_prompt`
+    # polls it in 5s slices and drops the prompt. Stopping cost the user 30s, a
+    # "Stop failed" toast, and the turn ran anyway (MJXHRM-366).
+    #
     # Safety net: if the turn's run thread is already gone but `running` stayed
     # stuck (a crash/desync that skipped the run loop's `finally`), force-clear it
     # so the session can't be permanently bricked at 4009 "session busy" — every
     # send/restore/resume would otherwise reject until a full backend restart.
-    # Always tell the agent to interrupt when the session claims a run is active:
-    # stale flags are cleared below, and fresh turns clear the interrupt flag at
-    # entry. This keeps a stale/missing thread handle from making Stop a no-op.
     run_thread = session.get("_run_thread")
     run_thread_alive = run_thread is not None and run_thread.is_alive()
-    should_interrupt = bool(session.get("running"))
     with session["history_lock"]:
         session["_turn_cancel_requested"] = True
         session["queued_prompt"] = None
         session.pop("queued_prompts", None)
         session["_queued_prompt_generation"] = int(session.get("_queued_prompt_generation", 0)) + 1
-    if should_interrupt:
+    # Always tell the agent to interrupt when the session claims a run is active:
+    # stale flags are cleared below, and fresh turns clear the interrupt flag at
+    # entry. This keeps a stale/missing thread handle from making Stop a no-op.
+    #
+    # An agent that does not exist yet cannot be holding a provider request, and
+    # the flag above already cancels the turn waiting on its build — so a missing
+    # one is a skip, not a reason to make the caller wait for it to appear.
+    agent = session.get("agent")
+    if should_interrupt and agent is not None:
         from agent.interrupt_compat import request_hard_interrupt
 
-        request_hard_interrupt(session["agent"])
+        request_hard_interrupt(agent)
     if not run_thread_alive:
         with session["history_lock"]:
             if session.get("running"):
@@ -3003,7 +3022,7 @@ def _(rid, params: dict) -> dict:
         resolve_gateway_approval(session["session_key"], "deny", resolve_all=True)
     except Exception:
         pass
-    return _ok(rid, {"status": "interrupted"})
+    return _ok(rid, {"status": "interrupted", "was_running": should_interrupt})
 
 
 @method("delegation.status")
