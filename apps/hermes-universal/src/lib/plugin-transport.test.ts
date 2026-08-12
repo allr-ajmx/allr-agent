@@ -172,6 +172,27 @@ describe('pluginSocket lifecycle', () => {
     vi.useRealTimers()
   })
 
+  // Not a cosmetic change: the fixed ladder had every client of one gateway
+  // redialling in lockstep after it restarts, each attempt costing a ws-ticket
+  // mint. With the jitter source pinned to its floor the first redial is
+  // immediate; the fixed ladder's was 2s.
+  it('spreads reconnects with jitter rather than a fixed exponential', async () => {
+    vi.useFakeTimers()
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0)
+    $connection.set(gateway('http://gw.local'))
+    open()
+    await vi.advanceTimersByTimeAsync(0)
+
+    sockets[0].listeners.get('close')?.({})
+    await vi.advanceTimersByTimeAsync(1)
+
+    expect(random).toHaveBeenCalled()
+    expect(sockets).toHaveLength(2)
+
+    random.mockRestore()
+    vi.useRealTimers()
+  })
+
   // The PR that landed this ticket claimed a failed mint "backs off into the
   // existing reconnect ladder"; nothing tested it.
   it('retries after a ticket mint fails instead of giving up on the socket', async () => {
