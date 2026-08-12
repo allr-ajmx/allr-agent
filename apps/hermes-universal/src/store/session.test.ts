@@ -729,7 +729,16 @@ describe('branchCurrentSession', () => {
   })
 
   it('refuses without a session, while busy, or with nothing to copy', async () => {
-    seedActiveSession('draft', { runtimeSessionId: null, storedSessionId: null })
+    // WITH turns painted, so this leg tests the "no session yet" refusal rather
+    // than falling through to the empty-transcript one. Not hypothetical: a
+    // slice still hydrating under a placeholder key shows its transcript before
+    // it has a wire id, and that is a chat you can try to branch. (Seeded
+    // bare, this assertion passed with the guard deleted.)
+    seedActiveSession('draft', {
+      runtimeSessionId: null,
+      storedSessionId: null,
+      messages: [{ id: 'd1', role: 'assistant', parts: [{ type: 'text', text: 'painted' }] }]
+    })
     await expect(branchCurrentSession()).resolves.toBe(false)
 
     seedThread()
