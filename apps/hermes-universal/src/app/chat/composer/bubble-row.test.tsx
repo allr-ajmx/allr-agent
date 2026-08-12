@@ -20,6 +20,8 @@ vi.mock('@/lib/touch', () => ({ triggerHaptic: () => {} }))
 const { $projectTree } = await import('@/store/projects')
 const { $sessions, $activeStoredSessionId } = await import('@/store/session')
 const { $chatBubbles } = await import('@/store/chat-bubbles')
+const { stashSessionDraft } = await import('@/store/composer')
+const { $activeSessionKey } = await import('@/store/session-state-types')
 const { BubbleRow } = await import('./bubble-row')
 
 const row = (id: string, title: string): SessionInfo => ({ id, title }) as unknown as SessionInfo
@@ -29,6 +31,7 @@ beforeEach(() => {
   $projectTree.set([])
   $activeStoredSessionId.set(null)
   $chatBubbles.set([])
+  stashSessionDraft($activeSessionKey.get(), '', [])
 })
 
 describe('BubbleRow session rows', () => {
@@ -65,5 +68,34 @@ describe('BubbleRow session rows', () => {
     rerender(<BubbleRow />)
 
     expect(screen.getByLabelText('Arrived late')).toBeTruthy()
+  })
+})
+
+/**
+ * The strip is this phone's tab bar, and a draft is a tab. Its bubble is one of
+ * two identical dots with nothing to tell them apart, so the peek label saying
+ * "New session" for the chat you have half-written into is the same gap the
+ * workspace tab had while the draft TILE named itself (MJXHRM-396).
+ */
+describe('BubbleRow draft naming', () => {
+  it('names the unsaved chat after what is typed into it', () => {
+    $chatBubbles.set([{ storedSessionId: null }, { storedSessionId: 'recent-1' }])
+    $sessions.set([row('recent-1', 'On the page')])
+    // The composer stashes under the LIVE session key, which for an unsaved chat
+    // is the draft slice `bubbleRuntimeKey(null)` resolves to.
+    stashSessionDraft($activeSessionKey.get(), 'fix the login redirect', [])
+
+    render(<BubbleRow />)
+
+    expect(screen.getByLabelText('fix the login redirect')).toBeTruthy()
+  })
+
+  it('keeps the placeholder while the draft is empty', () => {
+    $chatBubbles.set([{ storedSessionId: null }, { storedSessionId: 'recent-1' }])
+    $sessions.set([row('recent-1', 'On the page')])
+
+    render(<BubbleRow />)
+
+    expect(screen.getByLabelText('New session')).toBeTruthy()
   })
 })

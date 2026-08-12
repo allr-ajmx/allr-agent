@@ -32,6 +32,7 @@
 
 import { useCallback, useRef, useSyncExternalStore } from 'react'
 
+import { translateNow } from '@/i18n'
 import { sessionTitle } from '@/lib/chat-runtime'
 import { useStore } from '@/store/atom'
 import { $pinnedSessionIds, pinSession, unpinSession } from '@/store/layout'
@@ -94,6 +95,48 @@ export function sessionRowFor(storedSessionId: null | string): null | SessionInf
   }
 
   return null
+}
+
+/** What a chat tab has to name. `stored` is the resolved row (`sessionRowFor`),
+ *  `selected` the stored id it was resolved FROM, `page` a view that has taken
+ *  the tab over, and `draftTitle` what the user has typed into a chat that has
+ *  no session yet. */
+export interface ChatTabTitleInput {
+  draftTitle?: string
+  page?: null | string
+  selected: null | string
+  stored: null | SessionInfo
+}
+
+/**
+ * ONE answer to "what does this chat tab say", shared by the main workspace tab
+ * and every session tile's tab.
+ *
+ * The order is the whole content. A page that has taken the tab over names
+ * itself; a resolved row names the session; an id we hold but cannot resolve is
+ * a chat still LOADING, not a new one (MJXHRM-386); and only with no session at
+ * all is this a draft — which is named after what has been typed into it before
+ * it falls back to the placeholder.
+ *
+ * The draft branch is why this is shared rather than duplicated: the tile tab
+ * took it and the main tab did not, so the same half-typed message named its
+ * tab in a tile and read "New session" in the pane beside it. The literal the
+ * main tab used was not even translated.
+ */
+export function chatTabTitle({ draftTitle, page, selected, stored }: ChatTabTitleInput): string {
+  if (page) {
+    return page
+  }
+
+  if (stored) {
+    return sessionTitle(stored)
+  }
+
+  if (selected) {
+    return translateNow('common.loading')
+  }
+
+  return draftTitle?.trim() || translateNow('sidebar.nav.new-session')
 }
 
 /**

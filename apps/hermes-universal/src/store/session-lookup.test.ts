@@ -20,7 +20,7 @@ import { $pinnedSessionIds } from './layout'
 import { $projectTree } from './projects'
 import { $activeStoredSessionId, $sessions } from './session'
 import { $sessionColorOverrides, sessionColorFor, setSessionColorOverride } from './session-color'
-import { sessionRowFor, toggleSelectedPin, useSessionRowScalars } from './session-lookup'
+import { chatTabTitle, sessionRowFor, toggleSelectedPin, useSessionRowScalars } from './session-lookup'
 
 const row = (id: string, title: string, lineageRoot?: string): SessionInfo =>
   ({ id, title, ...(lineageRoot ? { _lineage_root_id: lineageRoot } : {}) }) as unknown as SessionInfo
@@ -181,5 +181,40 @@ describe('useSessionRowScalars — the durable key the colour picker writes unde
 
     expect(result.current.pinId).toBe('unknown-1')
     expect(result.current.title).toBeNull()
+  })
+})
+
+/**
+ * The ONE resolver every chat tab names itself with — the main workspace tab and
+ * every session tile's tab. It exists because the draft branch lived on the tile
+ * only: the same half-typed message named the tab in a tile and read "New
+ * session" in the pane beside it, from a literal that was not even translated.
+ */
+describe('chatTabTitle', () => {
+  it('names a draft after what has been typed into it', () => {
+    expect(chatTabTitle({ draftTitle: 'fix the login redirect', selected: null, stored: null })).toBe(
+      'fix the login redirect'
+    )
+  })
+
+  it('falls back to the translated placeholder on an empty draft', () => {
+    expect(chatTabTitle({ draftTitle: '   ', selected: null, stored: null })).toBe('New session')
+    expect(chatTabTitle({ selected: null, stored: null })).toBe('New session')
+  })
+
+  it('names the session once a row resolves, draft text or not', () => {
+    expect(chatTabTitle({ draftTitle: 'left over', selected: 'a', stored: row('a', 'Real chat') })).toBe('Real chat')
+  })
+
+  // The MJXHRM-386 distinction, kept: an id we hold but cannot resolve is a chat
+  // still loading. Calling it new is the tab lying about what it holds.
+  it('says loading — never "new" — for a held id no source has seen yet', () => {
+    expect(chatTabTitle({ draftTitle: 'not this chat', selected: 'a', stored: null })).toBe('Loading…')
+  })
+
+  it('lets a page take the tab name from everything else', () => {
+    expect(
+      chatTabTitle({ draftTitle: 'typing', page: 'Capabilities', selected: 'a', stored: row('a', 'Real chat') })
+    ).toBe('Capabilities')
   })
 })

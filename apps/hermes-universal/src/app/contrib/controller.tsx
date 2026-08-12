@@ -31,12 +31,12 @@ import { discoverBundledPlugins } from '@/contrib/plugins'
 import { registry } from '@/contrib/registry'
 import { discoverRuntimePlugins } from '@/contrib/runtime-loader'
 import { translateNow } from '@/i18n'
-import { sessionTitle as storedSessionTitle } from '@/lib/chat-runtime'
 import { LayoutDashboard, PanelBottom, Plug } from '@/lib/icons'
 import { type KeybindContribution, KEYBINDS_AREA } from '@/lib/keybinds/actions'
 import { WORKSPACE_PANE_ID } from '@/lib/pane-ids'
 import { IS_MOBILE } from '@/lib/platform'
 import { $chatBubbles, addBubble, bubbleRuntimeKey, switchToBubble } from '@/store/chat-bubbles'
+import { $draftTitles, draftTitleFor } from '@/store/composer'
 import { $gatewayState } from '@/store/gateway'
 import {
   $panesFlipped,
@@ -54,8 +54,9 @@ import {
 import { startNewSession, startNewSessionTab } from '@/store/new-session'
 import { $reviewOpen, closeReview, REVIEW_PANE_ID } from '@/store/review'
 import { $activeStoredSessionId, openSession, setBranchedSessionOpener } from '@/store/session'
-import { SESSION_ROW_SOURCES, sessionRowFor } from '@/store/session-lookup'
+import { chatTabTitle, SESSION_ROW_SOURCES, sessionRowFor } from '@/store/session-lookup'
 import { watchSessionPins } from '@/store/session-pin-sync'
+import { $activeSessionKey } from '@/store/session-state-types'
 import {
   $focusedChatPane,
   closeSessionTile,
@@ -148,8 +149,9 @@ registerTiles([
   {
     id: 'workspace',
     kind: 'chat',
-    // Live-retitled to the loaded session by syncWorkspaceTitle below.
-    title: 'New session',
+    // Live-retitled to the loaded session (or the draft's own text) by
+    // syncWorkspaceTitle below.
+    title: translateNow('sidebar.nav.new-session'),
     placement: 'main',
     chrome: { linkTarget: true, tabWrap: wrapWorkspaceTab, uncloseable: true },
     sizing: { minWidth: '22vw' },
@@ -424,9 +426,16 @@ const syncWorkspaceTitle = () => {
   registerTile({
     id: 'workspace',
     kind: 'chat',
-    // "New session" only when there is genuinely no session — a draft. An id we
-    // hold but cannot resolve yet is a LOADING chat, not a new one.
-    title: page ?? (stored ? storedSessionTitle(stored) : selected ? translateNow('common.loading') : 'New session'),
+    // Named by the SAME resolver every session tile's tab uses: a page, then the
+    // session, then "loading", and only a chat with no session at all is a draft
+    // — named after what has been typed into it. That last branch is what this
+    // tab was missing while the tile beside it had it: the main pane is where a
+    // new chat is composed, so it is the tab the draft's name matters most on.
+    //
+    // The draft's text is stashed under the composer's scope key, which for the
+    // primary chat is the live session key (`draft:N` until a session exists) —
+    // the same key `tileRuntimeKey` resolves for the draft tile.
+    title: chatTabTitle({ draftTitle: draftTitleFor($activeSessionKey.get()), page, selected, stored }),
     placement: 'main',
     chrome: {
       // The tab's lead dot — the SAME component the sidebar row, the switcher
@@ -448,6 +457,14 @@ $activeStoredSessionId.listen(syncWorkspaceTitle)
 // Every source the wider lookup reads, so a tab that resolved through the
 // pinned cache or the project tree retitles when the real row arrives.
 SESSION_ROW_SOURCES.forEach(source => source.listen(syncWorkspaceTitle))
+// The draft's name, and the key it is filed under. `$draftTitles` writes only
+// when the DERIVED title changes (`publishDraftTitle`), on the stash's 400ms
+// debounce, and stops changing past the 48-character cut — so this is a handful
+// of re-registrations per draft, not one per keystroke. `$activeSessionKey`
+// moves when a fresh draft is minted, which is a rename to the placeholder that
+// no other atom here announces: `$activeStoredSessionId` was already null.
+$draftTitles.listen(syncWorkspaceTitle)
+$activeSessionKey.listen(syncWorkspaceTitle)
 // No `$sessionColorById` listener: the lead dot resolves colour AND status for
 // itself, so a project recolour repaints the dot without re-registering the
 // tile (which invalidates the whole tree).
