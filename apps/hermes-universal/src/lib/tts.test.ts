@@ -50,7 +50,7 @@ vi.mock('@/lib/auth', () => ({ mintWsTicket }))
 vi.mock('@/store/connection', () => ({ $connection: { get: () => connectionRef.value } }))
 vi.mock('@/transport/terminal-socket', () => ({ TerminalSocket: FakeSocket }))
 
-import { $ttsSpeaking, speakUntilDone, stopSpeaking } from './tts'
+import { $ttsSpeaking, speakNow, speakUntilDone, stopSpeaking } from './tts'
 
 // jsdom's HTMLMediaElement.play throws "Not implemented"; stub Audio with a fake
 // whose end/error we can trigger, and that captures the latest instance.
@@ -109,9 +109,51 @@ describe('speakUntilDone', () => {
     expect(speakText).not.toHaveBeenCalled()
   })
 
-  it("resolves 'skipped' when the TTS backend returns no audio", async () => {
+  // 'error', not 'skipped' (MJXHRM-369): the two are not interchangeable to the
+  // caller. 'skipped' means there was nothing to play and is ignored; 'error'
+  // means synthesis is broken, and the voice-conversation loop reports that
+  // rather than re-arming the microphone against a reply nobody heard.
+  it("resolves 'error' when the TTS backend returns no audio", async () => {
     speakText.mockResolvedValueOnce({ ok: false })
-    await expect(speakUntilDone('hello')).resolves.toBe('skipped')
+    await expect(speakUntilDone('hello')).resolves.toBe('error')
+  })
+
+  it("resolves 'error' when the speak request itself fails", async () => {
+    speakText.mockRejectedValueOnce(new Error('HTTP 500'))
+    await expect(speakUntilDone('hello')).resolves.toBe('error')
+  })
+})
+
+describe('speakNow', () => {
+  beforeEach(() => {
+    speakText.mockClear()
+    speakText.mockResolvedValue({ ok: true, data_url: 'data:audio/mp3;base64,AAAA' })
+    FakeAudio.last = null
+    vi.stubGlobal('Audio', FakeAudio)
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('rejects when synthesis produced no audio, instead of resolving like a success', async () => {
+    speakText.mockResolvedValueOnce({ ok: false })
+    await expect(speakNow('hello')).rejects.toThrow(/no audio/)
+  })
+
+  it('rejects when the speak request fails', async () => {
+    speakText.mockRejectedValueOnce(new Error('HTTP 500'))
+    await expect(speakNow('hello')).rejects.toThrow('HTTP 500')
+  })
+
+  it('resolves for empty text — nothing to play is not a failure', async () => {
+    await expect(speakNow('   ')).resolves.toBeUndefined()
+    expect(speakText).not.toHaveBeenCalled()
+  })
+
+  it('resolves once playback has begun', async () => {
+    await expect(speakNow('hello there')).resolves.toBeUndefined()
+    expect(FakeAudio.last).not.toBeNull()
   })
 })
 
