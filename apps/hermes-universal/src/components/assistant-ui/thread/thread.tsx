@@ -6,6 +6,7 @@ import { Intro } from '@/components/chat/intro'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { useI18n } from '@/i18n'
 import { userTurnOrdinal } from '@/lib/chat-messages'
+import { useStore } from '@/store/atom'
 import { interruptSession, restoreToMessage } from '@/store/chat'
 
 import { AssistantMessage } from './assistant-message'
@@ -91,6 +92,14 @@ export function Thread() {
   const copy = t.assistant.thread
   const view = useSessionView()
   const sessionKey = view.$runtimeId
+  // Subscribed, unlike the atom above (which the dialog reads at confirm time):
+  // the list needs the key as a PROP so its render-budget cut and its pin-to-
+  // bottom settle loop re-arm on a session switch, and so its scroll state lands
+  // under the right session (`store/thread-scroll.ts`). It was never passed —
+  // desktop's `thread/index.tsx` passes it, this port dropped it — so
+  // `sessionKey` was permanently `undefined` inside the memo'd list and both of
+  // those switch-triggered paths were dead (MJXHRM-381).
+  const mountedSessionKey = useStore(view.$runtimeId)
   const [target, setTarget] = useState<null | RestoreConfirmTarget>(null)
 
   // The ordinal is resolved HERE, from the session's own message list, because
@@ -161,6 +170,7 @@ export function Thread() {
           components={MESSAGE_COMPONENTS}
           emptyPlaceholder={EmptyPlaceholder}
           loadingIndicator={LOADING_INDICATOR}
+          sessionKey={mountedSessionKey}
         />
         <ThreadTimeline />
         {restoreDialog}

@@ -1,12 +1,13 @@
 import { useRef } from 'react'
 
+import { useSessionView } from '@/app/chat/session-view'
 import { Codicon } from '@/components/ui/codicon'
 import { useI18n } from '@/i18n'
 import { triggerHaptic } from '@/lib/haptics'
 import { cn } from '@/lib/utils'
 import { useStore } from '@/store/atom'
-import { $approval } from '@/store/chat'
-import { $threadJumpButtonVisible, requestScrollToBottom } from '@/store/thread-scroll'
+import { sessionApprovalRequest } from '@/store/prompts'
+import { requestScrollToBottom, sessionThreadJumpVisible } from '@/store/thread-scroll'
 
 /**
  * Floating "jump to bottom" control. Sits centered just above the composer,
@@ -28,8 +29,15 @@ import { $threadJumpButtonVisible, requestScrollToBottom } from '@/store/thread-
  */
 export function ScrollToBottomButton() {
   const { t } = useI18n()
-  const visible = useStore($threadJumpButtonVisible)
-  const request = useStore($approval)
+  // Both reads are THIS session's (MJXHRM-381). One button renders per mounted
+  // ChatScreen, i.e. per tile; on the global atoms every tile's button appeared
+  // because ONE thread was scrolled up, every one of them said "Approval needed"
+  // because the ACTIVE session had a pending approval, and clicking any of them
+  // pinned every mounted transcript. `sessionApprovalRequest` is the same
+  // per-session prompt store ChatScreen's own ApprovalBar already reads.
+  const sessionKey = useStore(useSessionView().$runtimeId) ?? ''
+  const visible = useStore(sessionThreadJumpVisible(sessionKey))
+  const request = useStore(sessionApprovalRequest(sessionKey))
   // Scrolled away while an approval is pending → the inline Run/Reject bar is
   // below the fold. Relabel so the user knows the session needs them, not just
   // that there's more to read.
@@ -57,7 +65,7 @@ export function ScrollToBottomButton() {
       data-state={state}
       onClick={() => {
         void triggerHaptic('selection')
-        requestScrollToBottom()
+        requestScrollToBottom(sessionKey)
       }}
       style={{
         bottom: 'calc(var(--composer-measured-height) + var(--status-stack-measured-height) + 0.625rem)'

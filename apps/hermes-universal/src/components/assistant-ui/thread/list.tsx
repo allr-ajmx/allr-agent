@@ -437,11 +437,16 @@ const ThreadMessageListInner: FC<ThreadMessageListProps> = ({
 
   const restoreFromBottomRef = useRef<number | null>(null)
 
-  useEffect(() => setThreadAtBottom(isAtBottom), [isAtBottom])
-  useEffect(() => () => resetThreadScroll(), [])
+  // Mirrored out under THIS transcript's session key, not globally: a tile's
+  // composer/status stack/jump button must follow its own thread, and the key
+  // also has to be released when this list unmounts or switches sessions, or a
+  // closed tile leaves a dim composer behind (MJXHRM-381).
+  useEffect(() => setThreadAtBottom(sessionKey, isAtBottom), [isAtBottom, sessionKey])
+  useEffect(() => () => resetThreadScroll(sessionKey), [sessionKey])
 
-  // Floating jump button (outside this subtree) → return to the bottom.
-  useEffect(() => onScrollToBottomRequest(() => void scrollToBottom()), [scrollToBottom])
+  // Floating jump button (outside this subtree) → return to the bottom. Keyed,
+  // so a tile's button pins ITS viewport and not every mounted transcript.
+  useEffect(() => onScrollToBottomRequest(sessionKey, () => void scrollToBottom()), [scrollToBottom, sessionKey])
 
   const endEditHold = useCallback(() => {
     scrollRef.current?.removeAttribute('data-editing')
