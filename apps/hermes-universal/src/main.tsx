@@ -26,6 +26,12 @@ import './store/agent-read-requests'
 // with. Imported here (not from themes/index) so the wiring sits with the other
 // cross-WebView listeners it mirrors.
 import './themes/appearance-sync'
+// And the terminal font, which has the same split with a sharper edge: on Android
+// the picker lives in the Settings ACTIVITY while the terminal it re-faces lives
+// in the chat one, and a detached tile window can host the terminal pane itself.
+// Without this, changing the font only repainted whichever WebView the picker
+// happened to be in.
+import './app/right-pane/terminal/terminal-font-sync'
 
 import { installWindowBelowReader } from './store/window-below'
 

@@ -4,12 +4,15 @@ import { atom } from 'nanostores'
  * The terminal's font family, driven by the profile config key
  * `terminal.font_family`.
  *
- * Two halves. This module owns CONSUMPTION: the live value, how a friendly name
- * becomes a CSS stack, and how a change is applied to a running xterm without
- * recreating it or its PTY. The Settings picker that WRITES the key lives in
+ * This module owns CONSUMPTION: the live value, how a friendly name becomes a
+ * CSS stack, and how a change is applied to a running xterm without recreating
+ * it or its PTY. The Settings picker that WRITES the key lives in
  * `app/settings/terminal-font-setting.tsx`; it pushes the new value into the
  * atom on every keystroke so the open terminal re-renders before the save even
- * round-trips.
+ * round-trips. `./use-terminal-font-config` feeds the atom from the shared
+ * config-record query, and `./terminal-font-sync` carries a change to the OTHER
+ * WebViews — the atom below is per-WebView, and the picker and the terminal it
+ * re-faces are not always in the same one.
  */
 
 export const DEFAULT_TERMINAL_FONT_FAMILY = "'JetBrains Mono', 'Cascadia Code', 'SF Mono', Menlo, Consolas, monospace"
