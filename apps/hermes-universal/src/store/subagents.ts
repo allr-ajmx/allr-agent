@@ -1,5 +1,6 @@
 import { capitalize } from '@/lib/text'
 import { atom } from '@/store/atom'
+import { addSessionKeyHooks } from '@/store/session-state-types'
 
 // Ported verbatim from apps/desktop/src/store/subagents.ts (imports swapped to
 // the mobile seams). Pure reducer over subagent.* gateway events — no native or
@@ -70,10 +71,9 @@ const strList = (v: unknown) => (Array.isArray(v) ? v.filter(isStr) : [])
  * timed-out or crashed child PERMANENTLY live to this client: never terminal, so
  * `pruneFinishedSessionSubagents` kept it forever; never counted by
  * `failedSubagentCount`, so the status bar reported it as work in flight; and
- * still spinning in the Agents overlay behind an elapsed timer that never
- * stopped. A configured subagent timeout (Settings → "Subagent Timeout") is
- * enough to reach it, so the accumulation this store exists to prevent survived
- * the prune.
+ * still spinning in the Agents overlay with an elapsed timer that never stopped.
+ * A configured subagent timeout (Settings → "Subagent Timeout") is enough to
+ * reach it, so the accumulation this store exists to prevent survived the prune.
  *
  * Both extra values are failures, so they collapse onto `failed` rather than
  * widening the union: every surface here has one failure tone, and the detail
@@ -219,6 +219,61 @@ export function clearSessionSubagents(sid: string) {
   const { [sid]: _drop, ...rest } = map
   $subagentsBySession.set(rest)
 }
+
+/**
+ * Drop every session's rows at once — the profile switch and the soft gateway
+ * switch, where every runtime id this map is keyed by belongs to a backend we
+ * are leaving.
+ *
+ * `clearAllSessionStates` wipes the slices, the prompts, the turns and the
+ * compactions keyed the same way, and forgot this map (the same shape as
+ * MJXHRM-357's compaction leak). Nothing else could reach the leftovers: a
+ * per-session clear needs a live slice to hang off, and the prune only runs at a
+ * `message.start` on a key the new backend will never issue. So the Agents
+ * overlay — which flattens EVERY session (`allSubagents`) — and the status bar
+ * counter kept reporting the previous profile's subagents, spinning, forever.
+ */
+export function clearAllSubagents() {
+  if (Object.keys($subagentsBySession.get()).length > 0) {
+    $subagentsBySession.set({})
+  }
+}
+
+/**
+ * Follow the session key.
+ *
+ * `drop`: a session's slice being evicted (closing a tile, closing a bubble,
+ * deleting/archiving a chat, abandoning a draft) leaves its rows orphaned in a
+ * map nothing else indexes by that key — permanently visible in the overlay and
+ * permanently counted by the status bar.
+ *
+ * `rekey`: draft→runtime at submit, hydrating→runtime on a cold open, and the
+ * fresh runtime id a stale-session recovery mints mid-verb (`interruptSession`
+ * rekeys from inside `onRecovered`) all move the slice. Rows left under the old
+ * key vanish from the session-scoped surfaces — the composer status stack and
+ * the delegate card both read `$subagentsBySession[runtimeKey]` — while still
+ * being counted by the flattened ones. Merging rather than replacing keeps
+ * whichever rows the destination key already collected.
+ */
+addSessionKeyHooks({
+  drop(key) {
+    clearSessionSubagents(key)
+  },
+  rekey(fromKey, toKey) {
+    const map = $subagentsBySession.get()
+    const moving = map[fromKey]
+
+    if (!moving?.length || fromKey === toKey) {
+      return
+    }
+
+    const { [fromKey]: _moved, ...rest } = map
+    const existing = map[toKey] ?? []
+    const seen = new Set(existing.map(item => item.id))
+
+    $subagentsBySession.set({ ...rest, [toKey]: [...existing, ...moving.filter(item => !seen.has(item.id))] })
+  }
+})
 
 /**
  * Which session owns a subagent, by its id.

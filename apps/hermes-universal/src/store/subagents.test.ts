@@ -1,10 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
+import { $sessionStates, dropSessionState, ensureSessionSlice, rekeySession } from './session-state-types'
 import {
   $subagentsBySession,
   activeSubagentCount,
   allSubagents,
   buildSubagentTree,
+  clearAllSubagents,
   clearSessionSubagents,
   failedSubagentCount,
   pruneFinishedSessionSubagents,
@@ -14,8 +16,14 @@ import {
 const SID = 's1'
 
 describe('subagents reducer', () => {
-  beforeEach(() => $subagentsBySession.set({}))
-  afterEach(() => $subagentsBySession.set({}))
+  beforeEach(() => {
+    $subagentsBySession.set({})
+    $sessionStates.set({})
+  })
+  afterEach(() => {
+    $subagentsBySession.set({})
+    $sessionStates.set({})
+  })
 
   it('builds a parent/child tree from spawn events', () => {
     upsertSubagent(SID, { subagent_id: 'a', parent_id: null, goal: 'root', status: 'running' }, true, 'subagent.start')
@@ -127,6 +135,52 @@ describe('subagents reducer', () => {
       const [row] = allSubagents($subagentsBySession.get())
       expect(row.currentTool).toBeUndefined()
       expect(row.stream.at(-1)).toMatchObject({ isError: true, kind: 'summary', text: 'Timed out after 300s' })
+    })
+  })
+
+  /**
+   * Scope: the map is keyed by session key and flattened across every session by
+   * `allSubagents`, so anything left under a dead key is not inert — the Agents
+   * overlay renders it and the status bar counts it.
+   */
+  describe('session scope', () => {
+    it('drops a session’s rows when its slice is evicted', () => {
+      ensureSessionSlice('runtime-1')
+      upsertSubagent('runtime-1', { subagent_id: 'a', goal: 'root', status: 'running' }, true, 'subagent.start')
+
+      dropSessionState('runtime-1')
+
+      expect(allSubagents($subagentsBySession.get())).toHaveLength(0)
+    })
+
+    it('follows the slice across a rekey', () => {
+      ensureSessionSlice('draft:1')
+      upsertSubagent('draft:1', { subagent_id: 'a', goal: 'root', status: 'running' }, true, 'subagent.start')
+
+      rekeySession('draft:1', 'runtime-1')
+
+      expect($subagentsBySession.get()['draft:1']).toBeUndefined()
+      expect($subagentsBySession.get()['runtime-1']?.map(item => item.id)).toEqual(['a'])
+    })
+
+    it('merges into rows the destination key already had, without duplicating', () => {
+      ensureSessionSlice('draft:1')
+      upsertSubagent('draft:1', { subagent_id: 'a', goal: 'moved', status: 'running' }, true, 'subagent.start')
+      upsertSubagent('runtime-1', { subagent_id: 'a', goal: 'already there', status: 'running' }, true, 'subagent.start')
+      upsertSubagent('runtime-1', { subagent_id: 'b', goal: 'kept', status: 'running' }, true, 'subagent.start')
+
+      rekeySession('draft:1', 'runtime-1')
+
+      expect($subagentsBySession.get()['runtime-1']?.map(item => item.id)).toEqual(['a', 'b'])
+    })
+
+    it('drops every session at once for a profile / gateway switch', () => {
+      upsertSubagent('runtime-1', { subagent_id: 'a', goal: 'one', status: 'running' }, true, 'subagent.start')
+      upsertSubagent('runtime-2', { subagent_id: 'b', goal: 'two', status: 'running' }, true, 'subagent.start')
+
+      clearAllSubagents()
+
+      expect($subagentsBySession.get()).toEqual({})
     })
   })
 })
