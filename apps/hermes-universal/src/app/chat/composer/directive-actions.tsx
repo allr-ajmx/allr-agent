@@ -97,6 +97,7 @@ export function ComposerDirectiveActions({ editorRef }: { editorRef: RefObject<H
   const { t } = useI18n()
   const [anchor, setAnchor] = useState<Anchor | null>(null)
   const hideTimerRef = useRef<number | undefined>(undefined)
+  const pillRef = useRef<HTMLDivElement | null>(null)
 
   const cancelHide = useCallback(() => {
     window.clearTimeout(hideTimerRef.current)
@@ -107,8 +108,30 @@ export function ComposerDirectiveActions({ editorRef }: { editorRef: RefObject<H
     hideTimerRef.current = window.setTimeout(() => setAnchor(null), HIDE_DELAY_MS)
   }, [cancelHide])
 
+  const hideNow = useCallback(() => {
+    cancelHide()
+    setAnchor(null)
+  }, [cancelHide])
+
+  /** The pill is a second hover surface, not a bystander — these listeners are
+   *  on `document`, so they see its internals too. */
+  const insidePill = useCallback(
+    (node: EventTarget | null) => node instanceof Node && !!pillRef.current?.contains(node),
+    []
+  )
+
   useEffect(() => {
     const onPointerOver = (event: PointerEvent) => {
+      // Arriving on the pill (or crossing between its own children) cancels the
+      // hide that leaving the chip queued. Without this the wrapper's
+      // `mouseenter` is the only cancel, and that fires exactly once — on the
+      // way in — so the very next boundary inside the pill dismissed it.
+      if (insidePill(event.target)) {
+        cancelHide()
+
+        return
+      }
+
       const editor = editorRef.current
       const chip = editor && actionableChipAt(event.target, editor)
 
@@ -121,6 +144,17 @@ export function ComposerDirectiveActions({ editorRef }: { editorRef: RefObject<H
     }
 
     const onPointerOut = (event: PointerEvent) => {
+      // `pointerout` fires at every element boundary, the pill's own included
+      // (wrapper → button, icon → label). Only a move that actually leaves it
+      // counts.
+      if (insidePill(event.target)) {
+        if (!insidePill(event.relatedTarget)) {
+          hideSoon()
+        }
+
+        return
+      }
+
       const editor = editorRef.current
       const chip = editor && actionableChipAt(event.target, editor)
 
@@ -129,7 +163,29 @@ export function ComposerDirectiveActions({ editorRef }: { editorRef: RefObject<H
         return
       }
 
+      // A finger does not hover: on touch these events bracket the TAP, so this
+      // is the finger lifting off the chip it just revealed the pill over.
+      // Hiding here would take the pill away 120ms later, every time, and the
+      // action would be unreachable on a phone. A touch-opened pill stays until
+      // it is used or something else is pressed (below).
+      if (event.pointerType === 'touch') {
+        return
+      }
+
       hideSoon()
+    }
+
+    // Press anywhere that is neither the pill nor an actionable chip and the
+    // pill is done — the dismissal a touch-opened pill has instead of a hover
+    // ending, and the one that clears a stale pill a mouse left behind.
+    const onPointerDown = (event: PointerEvent) => {
+      const editor = editorRef.current
+
+      if (insidePill(event.target) || (editor && actionableChipAt(event.target, editor))) {
+        return
+      }
+
+      hideNow()
     }
 
     // The chip can move or vanish under a parked pointer: the editor scrolls,
@@ -138,17 +194,19 @@ export function ComposerDirectiveActions({ editorRef }: { editorRef: RefObject<H
 
     document.addEventListener('pointerover', onPointerOver)
     document.addEventListener('pointerout', onPointerOut)
+    document.addEventListener('pointerdown', onPointerDown)
     window.addEventListener('scroll', reanchor, true)
     window.addEventListener('resize', reanchor)
 
     return () => {
       document.removeEventListener('pointerover', onPointerOver)
       document.removeEventListener('pointerout', onPointerOut)
+      document.removeEventListener('pointerdown', onPointerDown)
       window.removeEventListener('scroll', reanchor, true)
       window.removeEventListener('resize', reanchor)
       window.clearTimeout(hideTimerRef.current)
     }
-  }, [cancelHide, editorRef, hideSoon])
+  }, [cancelHide, editorRef, hideNow, hideSoon, insidePill])
 
   if (!anchor) {
     return null
@@ -159,8 +217,7 @@ export function ComposerDirectiveActions({ editorRef }: { editorRef: RefObject<H
       className="fixed z-(--z-over-modal) -translate-y-full pb-1"
       data-slot="composer-directive-action"
       data-value={anchor.value}
-      onMouseEnter={cancelHide}
-      onMouseLeave={hideSoon}
+      ref={pillRef}
       style={{ left: anchor.left, top: anchor.top }}
     >
       <button

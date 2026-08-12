@@ -31,7 +31,13 @@ import { $pinnedSessionIds, pinSession, unpinSession } from '@/store/layout'
 import { startNewSessionTab } from '@/store/new-session'
 import { sessionAwaitingInput } from '@/store/prompts'
 import { $activeStoredSessionId } from '@/store/session'
-import { SESSION_ROW_SOURCES, sessionRowFor, useSessionRow, useSessionRowScalars } from '@/store/session-lookup'
+import {
+  chatTabTitle,
+  SESSION_ROW_SOURCES,
+  sessionRowFor,
+  useSessionRow,
+  useSessionRowScalars
+} from '@/store/session-lookup'
 import { $sessionStates } from '@/store/session-state-types'
 import {
   $sessionTiles,
@@ -251,30 +257,29 @@ export function SessionTilePane({ storedSessionId }: { storedSessionId: string }
 // ---------------------------------------------------------------------------
 
 function tileTitle(storedSessionId: string): string {
-  // The draft names no session, so there is nothing to look up — it takes its
-  // name from what has been typed into it instead, falling back to the same
-  // "New session" the workspace tab shows for an unsaved chat.
+  // `chatTabTitle` is the shared resolver — the main workspace tab names itself
+  // with the same call, so a draft cannot be named in a tile and anonymous in
+  // the pane beside it. The wider row lookup goes with it: a tab can outlive the
+  // recents page it was opened from (MJXHRM-386).
   //
-  // Universal reads the title here and re-syncs on `$draftTitles` rather than
-  // rendering desktop's self-subscribing `SessionDraftTitle` in the label slot:
-  // `paneMirror`'s `title` is a string, and widening it to a node would reshape
-  // the pane-shell tab contract for one caller. The cost is bounded — the stash
-  // is debounced, and `publishDraftTitle` writes only when the DERIVED title
-  // actually changes, which stops happening once the draft passes 48 chars.
-  if (isDraftTileKey(storedSessionId)) {
+  // The draft names no session, so there is nothing to look up — it takes its
+  // name from what has been typed into it. Universal reads the title here and
+  // re-syncs on `$draftTitles` rather than rendering desktop's self-subscribing
+  // `SessionDraftTitle` in the label slot: `paneMirror`'s `title` is a string,
+  // and widening it to a node would reshape the pane-shell tab contract for one
+  // caller. The cost is bounded — the stash is debounced, and `publishDraftTitle`
+  // writes only when the DERIVED title changes, which stops happening once the
+  // draft passes 48 chars.
+  const draft = isDraftTileKey(storedSessionId)
+
+  return chatTabTitle({
     // The composer stashes under the tile's RUNTIME key, which for the draft is
     // the live placeholder slice — the same resolution its view and busy state
     // already go through.
-    return draftTitleFor(tileRuntimeKey(storedSessionId)) || translateNow('sidebar.nav.new-session')
-  }
-
-  // The wider lookup, not `$sessions` alone: a tab can outlive the recents page
-  // it was opened from, and the bare `'Session'` this used to fall back to was
-  // an untranslated placeholder standing in for a chat that has a perfectly good
-  // name (MJXHRM-386).
-  const stored = sessionRowFor(storedSessionId)
-
-  return stored ? sessionTitle(stored) : translateNow('common.loading')
+    draftTitle: draft ? draftTitleFor(tileRuntimeKey(storedSessionId)) : undefined,
+    selected: draft ? null : storedSessionId,
+    stored: draft ? null : sessionRowFor(storedSessionId)
+  })
 }
 
 /** The tile tab's lead — the SAME primitive the sidebar row, the switcher and

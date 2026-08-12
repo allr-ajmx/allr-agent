@@ -9,15 +9,22 @@ import {
 } from 'react'
 
 import { useI18n } from '@/i18n'
-import { sessionTitle } from '@/lib/chat-runtime'
 import { triggerHaptic } from '@/lib/haptics'
 import { MessageCircle, Plus } from '@/lib/icons'
 import { rafCoalesce } from '@/lib/raf-coalesce'
 import { cn } from '@/lib/utils'
 import { useStore } from '@/store/atom'
-import { $chatBubbles, type ChatBubble, newChatBubble, requestRemoveBubble, switchToBubble } from '@/store/chat-bubbles'
+import {
+  $chatBubbles,
+  bubbleRuntimeKey,
+  type ChatBubble,
+  newChatBubble,
+  requestRemoveBubble,
+  switchToBubble
+} from '@/store/chat-bubbles'
+import { $draftTitles, draftTitleIn } from '@/store/composer'
 import { $activeStoredSessionId, refreshSessions } from '@/store/session'
-import { useSessionRowLookup } from '@/store/session-lookup'
+import { chatTabTitle, useSessionRowLookup } from '@/store/session-lookup'
 
 import { SessionStatusDot } from '../session-status-dot'
 
@@ -94,20 +101,28 @@ export function BubbleRow() {
   const stateRef = useRef<GestureState | null>(null)
   activeIndexRef.current = activeIndex
 
+  // The strip IS this phone's tab bar, so it names a chat the way a tab does —
+  // including the draft, which is named after what has been typed into it (the
+  // peek label is the only place a bubble says anything at all, so an unsent
+  // message is the only thing that can tell the two blank ones apart).
+  const draftTitles = useStore($draftTitles)
+
   const titleOf = useCallback(
     (bubble: ChatBubble | undefined): string => {
       // Only a bubble with no stored id is genuinely a new chat. An id we cannot
       // resolve is a loaded chat whose title has not arrived — saying "New
       // session" for it made every bubble claim to be one on a cold start.
-      if (!bubble || bubble.storedSessionId === null) {
-        return t.sidebar.nav['new-session']
-      }
+      const storedSessionId = bubble?.storedSessionId ?? null
 
-      const session = rowFor(bubble.storedSessionId)
-
-      return session ? sessionTitle(session) : t.common.loading
+      return chatTabTitle({
+        // `bubbleRuntimeKey(null)` is the live draft slice — the key the
+        // composer stashes this chat's text under.
+        draftTitle: storedSessionId ? undefined : draftTitleIn(draftTitles, bubbleRuntimeKey(null)),
+        selected: storedSessionId,
+        stored: rowFor(storedSessionId)
+      })
     },
-    [rowFor, t]
+    [draftTitles, rowFor]
   )
 
   // Bubble titles come from the session list, and on a phone nothing else pulls
