@@ -738,7 +738,12 @@ export function usePromptActions({
         try {
           const result = await requestGateway<SessionRedirectResponse>('session.redirect', { session_id: id, text })
 
-          if (result?.status === 'redirected') {
+          // `steered` is the same acceptance with a later delivery point: a
+          // tool was running, so the gateway deferred the correction to that
+          // tool's next result rather than killing it. Without this branch it
+          // falls through to `discardOptimisticMessage`, the caller queues the
+          // words, and the same correction is delivered twice (MJXHRM-410).
+          if (result?.status === 'redirected' || result?.status === 'steered') {
             triggerHaptic('submit')
 
             return true

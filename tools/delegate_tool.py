@@ -255,13 +255,64 @@ def steer_subagent(
     Acceptance and completion are linearized by the registry lock. If
     acceptance wins but no delivery boundary remains, ``_run_single_child``
     drains the exact text into the completion entry as ``missed_steer``.
+
+    Thin wrapper over :func:`steer_subagent_reason` — a caller that has to tell
+    a USER why the steer did not land wants that one, because every refusal
+    listed above collapses into the same ``False`` here.
+    """
+    return (
+        steer_subagent_reason(
+            subagent_id,
+            text,
+            owner_session_id=owner_session_id,
+            owner_transport=owner_transport,
+            owner_session_record=owner_session_record,
+        )
+        == STEER_QUEUED
+    )
+
+
+# The subagent-steer outcome vocabulary. ``queued`` is the only acceptance;
+# every other value names a DIFFERENT refusal, and they do not mean the same
+# thing to whoever sent the text: "already past its last step" is a race they
+# lost, "not yours" is a wiring bug, "no longer running" means the work is
+# already over. ``subagent.steer`` returns the exact string as ``reason``
+# beside ``status: "rejected"`` (tui_gateway/methods_session.py).
+STEER_QUEUED = "queued"
+STEER_EMPTY_TEXT = "empty_text"
+STEER_UNKNOWN_SUBAGENT = "unknown_subagent"
+STEER_NOT_ACCEPTING = "not_accepting"
+STEER_NOT_OWNER = "not_owner"
+STEER_NO_AGENT = "no_agent"
+STEER_FAILED = "steer_failed"
+
+
+def steer_subagent_reason(
+    subagent_id: str,
+    text: str,
+    *,
+    owner_session_id: Optional[str] = None,
+    owner_transport: Any = None,
+    owner_session_record: Any = None,
+) -> str:
+    """:func:`steer_subagent`, but NAMING the outcome instead of collapsing it.
+
+    Returns ``"queued"`` on acceptance, else one of ``"empty_text"``,
+    ``"unknown_subagent"`` (never registered, or already unregistered),
+    ``"not_accepting"`` (registered but past its last delivery boundary —
+    ``_close_subagent_steering`` has already run), ``"not_owner"`` (the
+    caller's session/transport/record identity is not the one this child was
+    commissioned under), ``"no_agent"`` (a record with no live agent) or
+    ``"steer_failed"`` (the child's own ``steer()`` refused or raised).
     """
     if not text or not text.strip():
-        return False
+        return STEER_EMPTY_TEXT
     with _active_subagents_lock:
         record = _active_subagents.get(subagent_id)
-        if not record or not record.get("accepting_steer", False):
-            return False
+        if not record:
+            return STEER_UNKNOWN_SUBAGENT
+        if not record.get("accepting_steer", False):
+            return STEER_NOT_ACCEPTING
         if owner_session_id is not None:
             if (
                 record.get("owner_session_id") != owner_session_id
@@ -270,15 +321,15 @@ def steer_subagent(
                 or owner_session_record is None
                 or record.get("owner_session_record") is not owner_session_record
             ):
-                return False
+                return STEER_NOT_OWNER
         agent = record.get("agent")
         if agent is None:
-            return False
+            return STEER_NO_AGENT
         try:
-            return bool(agent.steer(text))
+            return STEER_QUEUED if agent.steer(text) else STEER_FAILED
         except Exception as exc:
             logger.debug("steer_subagent(%s) failed: %s", subagent_id, exc)
-            return False
+            return STEER_FAILED
 
 
 def _capture_gateway_steer_authority(
@@ -2402,6 +2453,15 @@ def _run_single_child(
                         status="timeout" if is_timeout else "error",
                         duration_seconds=duration,
                         summary="",
+                        # A steer that won the race with this timeout has no
+                        # boundary left to land on. The parent's tool result
+                        # names it below; a UI only ever sees this event, so it
+                        # has to carry the same fact (MJXHRM-410).
+                        **(
+                            {"missed_steer": _late_pending_steer}
+                            if _late_pending_steer
+                            else {}
+                        ),
                     )
                 except Exception:
                     pass
@@ -2776,6 +2836,14 @@ def _run_single_child(
                 complete_kwargs["cost_usd"] = float(_cost_usd)
             except (TypeError, ValueError):
                 pass
+        # The queued-but-never-delivered steer. ``entry`` (the parent MODEL's
+        # tool result) has carried it since the race was closed, but the event
+        # stream never did — and the event stream is all a UI gets, so a user
+        # who steered a child was told "queued" and then had no way to learn it
+        # never landed. Note ``summary`` here is the pre-note local, so the
+        # miss did NOT ride along in the summary text either (MJXHRM-410).
+        if isinstance(_missed_steer, str) and _missed_steer.strip():
+            complete_kwargs["missed_steer"] = _missed_steer
 
         if child_progress_cb:
             try:
@@ -2799,6 +2867,14 @@ def _run_single_child(
                     status="failed",
                     duration_seconds=duration,
                     summary=str(exc),
+                    # Same rule as the timeout path: the steer that raced this
+                    # crash is named on the event, not only on the parent's
+                    # tool result (MJXHRM-410).
+                    **(
+                        {"missed_steer": _late_pending_steer}
+                        if _late_pending_steer
+                        else {}
+                    ),
                 )
             except Exception as e:
                 logger.debug("Progress callback failure relay failed: %s", e)

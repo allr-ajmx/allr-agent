@@ -189,6 +189,59 @@ class TestActiveTurnRedirect:
         assert agent._interrupt_requested is False
 
 
+class TestRedirectOutcome:
+    """``redirect()``'s bool cannot tell a rebuilt turn from a deferred steer.
+
+    Both answer True, so every surface reported "redirected" for a correction
+    that had changed nothing yet and was still waiting on a tool boundary it
+    might never get (MJXHRM-410 / MJXHRM-80).
+    """
+
+    def test_live_model_request_is_a_real_redirect(self):
+        agent = _bare_agent()
+        agent._model_request_active.set()
+
+        assert agent.redirect_outcome("use Postgres") == "redirected"
+        assert agent._pending_redirect == "use Postgres"
+
+    def test_tool_execution_degrade_is_named_steered_not_redirected(self):
+        agent = _bare_agent()
+        agent._executing_tools = True
+
+        assert agent.redirect_outcome("also check migrations") == "steered"
+        assert agent._pending_steer == "also check migrations"
+        assert agent._pending_redirect is None
+
+    def test_no_live_turn_is_rejected(self):
+        agent = _bare_agent()
+
+        assert agent.redirect_outcome("change course") == "rejected"
+
+    def test_empty_text_is_rejected_before_any_state_moves(self):
+        agent = _bare_agent()
+        agent._executing_tools = True
+
+        assert agent.redirect_outcome("   ") == "rejected"
+        assert agent._pending_steer is None
+
+    def test_hard_interrupt_wins_over_a_deferred_correction(self):
+        agent = _bare_agent()
+        agent._model_request_active.set()
+        agent._interrupt_requested = True
+
+        assert agent.redirect_outcome("too late") == "rejected"
+        assert agent._pending_redirect is None
+
+    def test_codex_native_steer_is_a_redirect_the_running_turn_consumes(self):
+        agent = _bare_agent()
+        agent.api_mode = "codex_app_server"
+        agent._codex_session = type(
+            "_CodexSession", (), {"request_steer": lambda self, text: True}
+        )()
+
+        assert agent.redirect_outcome("use Postgres") == "redirected"
+
+
 class TestActiveTurnRedirectCheckpoint:
     def test_assistant_tail_puts_correction_last(self):
         from agent.conversation_loop import _apply_active_turn_redirect

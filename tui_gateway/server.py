@@ -1948,6 +1948,27 @@ def handle_request(req: dict) -> dict | None:
     return fn(rid, params)
 
 
+def _agent_redirect_outcome(agent, text: str) -> str:
+    """Redirect a live turn and NAME the outcome: redirected / steered / rejected.
+
+    ``AIAgent.redirect()`` answers a bare ``True`` for two very different
+    things: a real redirect (the model request is cancelled and the turn is
+    rebuilt around the correction) and the tool-execution degrade, where it
+    silently becomes ``steer()`` and rides on the next tool result instead —
+    "never kill a tool merely to deliver conversational guidance". Reporting
+    the second as ``redirected`` is what put a correction bubble above a reply
+    it had not touched, and left the surface no way to learn that the deferred
+    steer later missed its window (MJXHRM-410 / MJXHRM-80).
+
+    Falls back to the boolean for any runtime that predates
+    ``redirect_outcome`` — those answer exactly what they answered before.
+    """
+    outcome = getattr(agent, "redirect_outcome", None)
+    if callable(outcome):
+        return str(outcome(text))
+    return "redirected" if agent.redirect(text) else "rejected"
+
+
 def _current_session_steer_authority(
     session_id: str,
 ) -> tuple[Transport | None, dict | None]:
@@ -5665,6 +5686,12 @@ def _on_tool_progress(
             payload["summary"] = str(_kwargs["summary"])
         if _kwargs.get("duration_seconds") is not None:
             payload["duration_seconds"] = float(_kwargs["duration_seconds"])
+        # A steer this child ACCEPTED and then never got to deliver. The parent
+        # model learns it from its delegate tool result; this payload is the
+        # only channel a UI has, so without it the user who steered was told
+        # "queued" and never told it was missed (MJXHRM-410).
+        if _kwargs.get("missed_steer"):
+            payload["missed_steer"] = str(_kwargs["missed_steer"])
         if preview and event_type == "subagent.tool":
             payload["tool_preview"] = str(preview)
             payload["text"] = str(preview)
@@ -7727,12 +7754,16 @@ def _handle_busy_submit(
         and hasattr(agent, "redirect")
     ):
         try:
-            if agent.redirect(plain_text):
+            # "steered" is the SAME value this handler already returns for the
+            # explicit steer mode above — a correction deferred to the next tool
+            # boundary is exactly that, whichever mode asked for it.
+            _outcome = _agent_redirect_outcome(agent, plain_text)
+            if _outcome != "rejected":
                 with session["history_lock"]:
                     _claim_live_turn_transport(session, transport)
                     _record_inflight_correction(session, plain_text)
                     session["last_active"] = time.time()
-                return _ok(rid, {"status": "redirected"})
+                return _ok(rid, {"status": _outcome})
         except Exception:
             pass  # preserve the proven interrupt + queue fallback below
     # Queue before asking the live turn to stop. In particular, never call a
@@ -10490,6 +10521,13 @@ def _run_prompt_submit(
         # both texts.
         _leftover_steer = result.get("pending_steer") if isinstance(result, dict) else None
         if isinstance(_leftover_steer, str) and _leftover_steer.strip():
+            # Tell the surface BEFORE requeueing. The text is not lost, but the
+            # turn it was aimed at ended without ever seeing it — a client that
+            # painted the correction above the live reply (every one of them
+            # does, on a `steered`/`redirected` answer) is showing a correction
+            # that changed nothing, and has no other way to find out
+            # (MJXHRM-410 / MJXHRM-80).
+            _emit("steer.missed", sid, {"text": _leftover_steer})
             with session["history_lock"]:
                 _enqueue_prompt(session, _leftover_steer, session.get("transport"))
         if _drain_queued_prompt(rid, sid, session):

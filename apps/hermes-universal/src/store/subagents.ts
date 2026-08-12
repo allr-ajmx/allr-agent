@@ -37,6 +37,17 @@ export interface SubagentProgress {
   stream: SubagentStreamEntry[]
   summary?: string
   currentTool?: string
+  /**
+   * A steer this child ACCEPTED and then never delivered: it finished before
+   * another tool result could carry the text, so the gateway names it on
+   * `subagent.complete` as `missed_steer`.
+   *
+   * `subagent.steer` answering `queued` is not a delivery receipt, and this is
+   * the only signal that the difference mattered — without it the overlay's
+   * "Queued for the next step" was the last thing the user ever heard about a
+   * correction the subagent never saw.
+   */
+  missedSteer?: string
 }
 
 export interface SubagentNode extends SubagentProgress {
@@ -205,7 +216,8 @@ function toProgress(payload: SubagentPayload, prev: SubagentProgress | undefined
     filesWritten: filesWritten.length ? filesWritten : (prev?.filesWritten ?? []),
     stream,
     summary: str(payload.summary) || prev?.summary,
-    currentTool: TERMINAL.has(status) ? undefined : tool || prev?.currentTool
+    currentTool: TERMINAL.has(status) ? undefined : tool || prev?.currentTool,
+    missedSteer: str(payload.missed_steer) || prev?.missedSteer
   }
 }
 

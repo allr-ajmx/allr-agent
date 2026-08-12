@@ -1147,6 +1147,9 @@ export interface Translations {
     steerQueued: string
     steerRejected: string
     steerFailed: string
+    steerGone: string
+    steerNotOwned: string
+    steerMissed: (text: string) => string
   }
 
   commandCenter: {
@@ -2370,6 +2373,7 @@ export interface Translations {
     thread: {
       loadingSession: string
       showEarlier: string
+      steerMissed: string
       loadingResponse: string
       compacting: string
       resumeWhenBackgroundDone: (count: number) => string

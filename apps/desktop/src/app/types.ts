@@ -86,7 +86,10 @@ export interface SessionSteerResponse {
 }
 
 export interface SessionRedirectResponse {
-  status?: 'redirected' | 'queued' | 'rejected'
+  // 'steered' == a tool was running, so the gateway deferred the correction to
+  // the next tool-result boundary instead of killing it. Accepted, but the
+  // reply on screen is NOT superseded — it used to be reported as 'redirected'.
+  status?: 'redirected' | 'steered' | 'queued' | 'rejected'
   text?: string
 }
 

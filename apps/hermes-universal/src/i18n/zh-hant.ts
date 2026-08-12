@@ -1132,7 +1132,10 @@ export const zhHant = defineLocale({
     steerCancel: '取消',
     steerQueued: '已排入下一步',
     steerRejected: '來不及引導了 — 此子代理已越過最後一步',
-    steerFailed: '無法連線至閘道'
+    steerFailed: '無法連線至閘道',
+    steerGone: '該子代理已不在執行',
+    steerNotOwned: '該子代理屬於其他對話 — 請在那裡引導',
+    steerMissed: (text: string) => `引導未送達 — 該子代理先結束了：${text}`
   },
 
   commandCenter: {
@@ -2409,6 +2412,7 @@ export const zhHant = defineLocale({
     thread: {
       loadingSession: '正在載入工作階段',
       showEarlier: '顯示較早的訊息',
+      steerMissed: '引導未送達',
       loadingResponse: 'Hermes 正在載入回覆',
       compacting: '正在摘要對話',
       resumeWhenBackgroundDone: count =>

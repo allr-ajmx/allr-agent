@@ -1164,7 +1164,10 @@ export const ja = defineLocale({
     steerCancel: 'キャンセル',
     steerQueued: '次のステップに向けてキューに入れました',
     steerRejected: '誘導するには遅すぎます — このサブエージェントは最後のステップを過ぎています',
-    steerFailed: 'ゲートウェイに接続できませんでした'
+    steerFailed: 'ゲートウェイに接続できませんでした',
+    steerGone: 'このサブエージェントはもう実行されていません',
+    steerNotOwned: 'このサブエージェントは別のチャットのものです — そちらから誘導してください',
+    steerMissed: (text: string) => `誘導は届きませんでした — サブエージェントが先に終了しました: ${text}`
   },
 
   commandCenter: {
@@ -2482,6 +2485,7 @@ export const ja = defineLocale({
     thread: {
       loadingSession: 'セッションを読み込み中',
       showEarlier: '以前のメッセージを表示',
+      steerMissed: '誘導は届かず',
       loadingResponse: 'Hermes が応答を読み込み中',
       compacting: 'スレッドを要約中',
       resumeWhenBackgroundDone: count =>

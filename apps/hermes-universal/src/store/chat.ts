@@ -495,6 +495,59 @@ const moveMessageToEnd = (key: string, id: string): void => {
   })
 }
 
+/** Prefix `components/assistant-ui/thread/system-message.tsx` renders as the
+ *  "steer missed" note. Kept beside the producer so the two cannot drift. */
+export const MISSED_STEER_NOTE = 'steer-missed:'
+
+/**
+ * A correction the gateway ACCEPTED and then never delivered.
+ *
+ * `session.redirect` answering `steered` means "a tool is running, the words
+ * ride on its result". If the turn ends before another tool batch runs there is
+ * no result left to ride on: the gateway hands the text back and requeues it as
+ * a whole new turn (`server.py`, `result["pending_steer"]`). Nothing is lost —
+ * but the correction bubble is sitting ABOVE a reply it never reached, so the
+ * transcript claims an influence that did not happen.
+ *
+ * Move it to the tail, where the turn that WILL answer it begins, and say so.
+ * Matched by text because the gateway names the words, not our message id — and
+ * a steer issued from somewhere with no optimistic bubble (`/steer`, a busy
+ * submit) simply leaves the note.
+ */
+export function noteMissedSteer(key: string, rawText: string): void {
+  const text = rawText.trim()
+
+  if (!text || !key) {
+    return
+  }
+
+  updateSession(key, state => {
+    // `findLastIndex` is ES2023 and this project's lib target predates it.
+    let at = -1
+
+    for (let i = state.messages.length - 1; at < 0 && i >= 0; i -= 1) {
+      if (state.messages[i].role === 'user' && chatMessageText(state.messages[i]).trim() === text) {
+        at = i
+      }
+    }
+
+    const note: ChatMessage = {
+      id: nextId(),
+      parts: [{ type: 'text', text: `${MISSED_STEER_NOTE}${text}` }],
+      role: 'system'
+    }
+
+    if (at < 0) {
+      return { ...state, messages: [...state.messages, note] }
+    }
+
+    return {
+      ...state,
+      messages: [...state.messages.slice(0, at), ...state.messages.slice(at + 1), state.messages[at], note]
+    }
+  })
+}
+
 /**
  * Correct the live turn. Resolves true when the gateway took the words —
  * whether as an in-place redirect or as the next turn's prompt — and false when
@@ -537,9 +590,19 @@ export async function redirectPrompt(rawText: string, key = $activeSessionKey.ge
       }
     )
 
-    if (result?.status === 'redirected') {
-      // Folded into the live turn — the correction belongs where it was placed,
-      // above the reply it is redirecting.
+    if (result?.status === 'redirected' || result?.status === 'steered') {
+      // `redirected`: folded into the live turn — the correction belongs where
+      // it was placed, above the reply it is replacing.
+      //
+      // `steered`: a TOOL was running, so the gateway deferred the words to the
+      // next tool-result boundary instead of killing it. The same turn still
+      // answers them, so the bubble stays where it is — but this branch has to
+      // EXIST, because an unrecognised status falls through to `dropMessage`
+      // and hands the text back to the composer's queue, which would deliver
+      // the same correction twice: once as the deferred steer, once as a whole
+      // new turn. When a deferred steer never gets its boundary the gateway
+      // pushes `steer.missed`, and `noteMissedSteer` moves the bubble to the
+      // tail where the requeued turn will answer it.
       recordTurnCorrection(liveKey, text)
 
       return true

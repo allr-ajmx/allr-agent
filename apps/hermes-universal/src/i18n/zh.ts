@@ -1455,7 +1455,10 @@ export const zh: Translations = {
     steerCancel: '取消',
     steerQueued: '已排入下一步',
     steerRejected: '来不及引导了 — 此子代理已越过最后一步',
-    steerFailed: '无法连接网关'
+    steerFailed: '无法连接网关',
+    steerGone: '该子代理已不在运行',
+    steerNotOwned: '该子代理属于其他会话 — 请在那里引导',
+    steerMissed: (text: string) => `引导未送达 — 该子代理先结束了：${text}`
   },
 
   commandCenter: {
@@ -2906,6 +2909,7 @@ export const zh: Translations = {
     thread: {
       loadingSession: '正在加载会话',
       showEarlier: '显示更早的消息',
+      steerMissed: '引导未送达',
       loadingResponse: 'Hermes 正在加载回复',
       compacting: '正在总结对话',
       resumeWhenBackgroundDone: count =>
