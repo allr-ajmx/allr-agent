@@ -1304,6 +1304,20 @@ mod tests {
             state.bearer_base_for_url("https://gw.example.com/api/status"),
             Some("https://gw.example.com".to_string())
         );
+
+        // …and from the OTHER starting point, which is the one that actually
+        // needs the `checked` entry cleared: an origin already answered "no
+        // session here", then signed into, then signed out of. Registering
+        // alone never records a check, so a sign-out that only dropped the
+        // KNOWN half would look fine here and strand that user bearer-less.
+        state.note_no_bearer_base("https://gw.example.com");
+        state.register_bearer_base("https://gw.example.com");
+        state.forget_bearer_base("https://gw.example.com");
+
+        assert_eq!(
+            state.bearer_base_for_url("https://gw.example.com/api/status"),
+            Some("https://gw.example.com".to_string())
+        );
     }
 
     #[test]
@@ -1312,6 +1326,12 @@ mod tests {
 
         assert_eq!(state.bearer_base_for_url("not a url"), None);
         assert_eq!(state.bearer_base_for_url("data:text/plain,hi"), None);
+        // `data:` is turned away by the path check before the opaque-origin guard
+        // is ever consulted, so it proves nothing about that guard. A `file://`
+        // URL reaches it: the path DOES start with `/api/`, and its origin
+        // serialises to the string "null", which is not an address a gateway can
+        // live at — nor one worth waking the keyring for.
+        assert_eq!(state.bearer_base_for_url("file:///api/status"), None);
     }
 
     #[test]
