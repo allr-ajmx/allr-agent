@@ -12,8 +12,8 @@ import { ComposerTriggerPopover, nearestScrollTop } from './trigger-popover'
  * `trigger-popover-parity.test.tsx` was part of the very commit being ported
  * (`d83d296473`) and did not come across, so every claim the unification makes
  * — one row shape, one icon vocabulary, an icon-less emoji row — was
- * unguarded. These are those guards, plus the keyboard
- * reachability the unification never covered on either app.
+ * unguarded. These are those guards, plus the
+ * reachability ones the unification never covered on either app.
  */
 
 vi.mock('@/i18n', () => ({
@@ -210,6 +210,19 @@ describe('reachability', () => {
     const drawer = container.querySelector('[data-slot="composer-completion-drawer"]') as HTMLElement
 
     expect(fireEvent.mouseDown(drawer)).toBe(false)
+  })
+
+  it('exposes the highlight as a selected option, not just a background', () => {
+    const { container } = renderPopover('/', [slashItem('/work', 'Skills'), slashItem('/plan', 'Skills')], {
+      activeIndex: 1
+    })
+
+    const rows = [...container.querySelectorAll('button')]
+
+    expect(container.querySelector('[role="listbox"]')).toBeTruthy()
+    expect(rows.map(row => row.getAttribute('role'))).toEqual(['option', 'option'])
+    expect(rows.map(row => row.getAttribute('aria-selected'))).toEqual(['false', 'true'])
+    expect(rows[1].hasAttribute('data-highlighted')).toBe(true)
   })
 
   it('scrolls the active row into view when the keyboard walks past the fold', () => {

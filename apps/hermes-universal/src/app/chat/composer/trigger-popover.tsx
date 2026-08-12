@@ -77,6 +77,9 @@ export function nearestScrollTop(view: { height: number; scrollTop: number }, ro
   return overshoot > 0 ? (row.height > view.height ? row.top : view.scrollTop + overshoot) : view.scrollTop
 }
 
+/** Stable id per row, so the listbox can name its active option. */
+const rowId = (index: number) => `composer-completion-row-${index}`
+
 interface ComposerTriggerPopoverProps {
   activeIndex: number
   items: readonly Unstable_TriggerItem[]
@@ -106,9 +109,10 @@ interface ComposerTriggerPopoverProps {
  * single display string. The old `@` branch drew it a `symbol-misc` glyph
  * beside the emoji, because `AT_ICON_BY_TYPE` had no emoji entry to find.
  *
- * The list following the keyboard's highlight into view is deliberately NOT
- * desktop's (see MJXHRM-400) — the row unification covered how a row LOOKS on
- * both apps and never covered reaching one.
+ * Two things here are deliberately NOT desktop's (see MJXHRM-400): the list
+ * follows the keyboard's highlight into view, and each row is a real
+ * `role="option"` inside the `role="listbox"` it always claimed to be. Both are
+ * reachability, which the row unification never covered on either app.
  */
 export function ComposerTriggerPopover({
   activeIndex,
@@ -199,11 +203,14 @@ export function ComposerTriggerPopover({
             <Fragment key={item.id}>
               {showHeader && <div className={cn(GROUP_HEADER_CLASS, isFirstHeader ? 'pt-0.5' : 'pt-2')}>{group}</div>}
               <button
+                aria-selected={active}
                 className={ROW_CLASS}
                 data-highlighted={active ? '' : undefined}
+                id={rowId(index)}
                 onClick={() => onPick(item)}
                 onMouseEnter={() => onHover(index)}
                 ref={active ? activeRowRef : undefined}
+                role="option"
                 type="button"
               >
                 {isEmoji ? (
