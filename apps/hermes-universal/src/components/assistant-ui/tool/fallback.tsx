@@ -39,6 +39,7 @@ import { normalize } from '@/lib/text'
 import { useEnterAnimation } from '@/lib/use-enter-animation'
 import { cn } from '@/lib/utils'
 import { $sessionId as $activeSessionId, $currentCwd } from '@/store/chat'
+import { useDisplayPath } from '@/store/display-home'
 import { $focusRevealedRuns, $focusView, isFocusRunRevealed, revealFocusRun } from '@/store/focus-view'
 import { recordPreviewArtifact } from '@/store/preview-status'
 import { sessionApprovalRequest } from '@/store/prompts'
@@ -305,6 +306,10 @@ function ToolEntry({ part }: ToolEntryProps) {
   const sideDiff = toolCallId ? liveDiffs[toolCallId] || '' : ''
   const inlineDiff = stripInlineDiffChrome(sideDiff) || inlineDiffFromResult(result)
   const isFileEdit = isFileEditTool(toolName)
+  // A Read/Edit/Write row's tooltip is the file's path ON THE GATEWAY — the row
+  // itself shows only the basename, so this tooltip is the widest path string in
+  // the transcript (MJXHRM-394). Relative tool args pass through untouched.
+  const displayPath = useDisplayPath()
   const defaultOpen = Boolean(inlineDiff)
   const open = useDisclosureOpen(disclosureId, defaultOpen)
   const canDismiss = !isPending && !embedded
@@ -472,7 +477,7 @@ function ToolEntry({ part }: ToolEntryProps) {
         >
           <span
             className="flex min-w-0 items-center gap-1.5"
-            title={isFileEdit && view.subtitle ? view.subtitle : undefined}
+            title={isFileEdit && view.subtitle ? displayPath(view.subtitle) : undefined}
           >
             <ToolGlyph
               copy={copy}

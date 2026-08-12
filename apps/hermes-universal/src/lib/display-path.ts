@@ -67,32 +67,38 @@ function startsWithHome(path: string, home: string, caseInsensitive: boolean): b
 }
 
 /**
+ * Folders that sit exactly where a home directory sits but belong to no user.
+ * `/Users/Shared` and `C:/Users/Public` ship on every machine, so without this
+ * the heuristic turns `/Users/Shared/build` into `~/build` — a path claimed for
+ * a home it was never in.
+ */
+const NON_HOME_USER_DIRS = new Set(['all users', 'default', 'default user', 'public', 'shared'])
+
+/** `<prefix>` of `<prefix>/<name>[/...]`, or '' when `name` is not a user's. */
+function userDirPrefix(path: string, pattern: RegExp): string {
+  const match = path.match(pattern)
+
+  return match && !NON_HOME_USER_DIRS.has(match[2].toLowerCase()) ? match[1] : ''
+}
+
+/**
  * Best-effort home prefix when callers don't pass one. Matches the usual
  * single-user layouts; never collapses `/Users` or `/home` alone.
+ *
+ * A GUESS, and the wrong one whenever the path is not this user's: on a shared
+ * box `/home/bob/src` collapses to `~/src` for alice too. Callers that can name
+ * a home should pass one — `store/display-home` derives the GATEWAY's, which is
+ * whose filesystem the paths in the UI actually live on.
  */
 function inferredHomePrefix(path: string): string {
   // macOS: /Users/name[/...]
-  let match = path.match(/^(\/Users\/[^/]+)(?:\/|$)/)
-
-  if (match) {
-    return match[1]
-  }
-
-  // Linux (and most UNIX): /home/name[/...]
-  match = path.match(/^(\/home\/[^/]+)(?:\/|$)/)
-
-  if (match) {
-    return match[1]
-  }
-
-  // Windows user profile: C:/Users/name[/...] (also works after \ → /)
-  match = path.match(/^([A-Za-z]:\/Users\/[^/]+)(?:\/|$)/)
-
-  if (match) {
-    return match[1]
-  }
-
-  return ''
+  return (
+    userDirPrefix(path, /^(\/Users\/([^/]+))(?:\/|$)/) ||
+    // Linux (and most UNIX): /home/name[/...]
+    userDirPrefix(path, /^(\/home\/([^/]+))(?:\/|$)/) ||
+    // Windows user profile: C:/Users/name[/...] (also works after \ → /)
+    userDirPrefix(path, /^([A-Za-z]:\/Users\/([^/]+))(?:\/|$)/)
+  )
 }
 
 /**

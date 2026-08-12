@@ -6,6 +6,7 @@ import { useI18n } from '@/i18n'
 import { isMetaClose, middleClickHandlers } from '@/lib/middle-click'
 import { cn } from '@/lib/utils'
 import { useStore } from '@/store/atom'
+import { useDisplayPath } from '@/store/display-home'
 import {
   $activePreviewTarget,
   $previewTabs,
@@ -69,6 +70,9 @@ export function PreviewRail() {
 function PreviewTab({ active, dirty, tab }: { active: boolean; dirty: boolean; tab: PreviewTarget }) {
   const { t } = useI18n()
   const p = t.preview
+  // The tab's tooltip is the file's absolute path on the GATEWAY (MJXHRM-394).
+  // An `artifact:<id>` tab has no home prefix, so it passes through untouched.
+  const displayPath = useDisplayPath()
 
   return (
     <ContextMenu>
@@ -99,7 +103,7 @@ function PreviewTab({ active, dirty, tab }: { active: boolean; dirty: boolean; t
 
             selectPreviewTab(tab.path)
           }}
-          title={tab.path}
+          title={displayPath(tab.path)}
         >
           <span className="min-w-0 flex-1 truncate">{tab.name}</span>
           <button

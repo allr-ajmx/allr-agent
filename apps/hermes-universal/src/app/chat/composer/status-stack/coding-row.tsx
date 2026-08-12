@@ -16,9 +16,9 @@ import { CopyButton } from '@/components/ui/copy-button'
 import { DiffCount } from '@/components/ui/diff-count'
 import type { HermesGitBranch } from '@/global'
 import { useI18n } from '@/i18n'
-import { displayPath } from '@/lib/display-path'
 import { useStoreSelector } from '@/lib/use-session-slice'
 import { openWorktreeDialog, registerRepoStatusCwd, repoStatusForCwd, repoWorktreesForCwd } from '@/store/coding-status'
+import { useDisplayPath } from '@/store/display-home'
 import { notifyError } from '@/store/notifications'
 import { $pullRequestsByBranch, branchPrKey, refreshPullRequests } from '@/store/pull-requests'
 
@@ -69,6 +69,8 @@ export const CodingStatusRow = memo(function CodingStatusRow({
   const p = t.sidebar.projects
   const fileMenu = t.fileMenu
   const resolvedRepoPath = repoPath?.trim() || undefined
+  // Bound to the GATEWAY's home — the worktree lives on its filesystem.
+  const displayPath = useDisplayPath()
 
   // THIS rail's worktree, never the sidebar's. The composer mounts once per
   // tile, so a global status painted the primary repo's branch and ± onto every

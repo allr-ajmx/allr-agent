@@ -4,6 +4,7 @@ import { useState } from 'react'
 
 import { Codicon } from '@/components/ui/codicon'
 import { useI18n } from '@/i18n'
+import { useDisplayPath } from '@/store/display-home'
 import { setWorkspaceNodeOpen } from '@/store/layout'
 import { notifyError } from '@/store/notifications'
 import { switchBranchInRepo } from '@/store/projects'
@@ -49,6 +50,8 @@ export function SidebarWorkspaceGroup({ group, renderRows, onNewSession, onRemov
   const defaultOpen = sessions.length > 0
   const [open, toggleOpen] = useWorkspaceNodeOpen(group.id, defaultOpen)
   const [visibleCount, setVisibleCount] = useState(SIDEBAR_GROUP_PAGE)
+  // A lane path is a repo/worktree root on the GATEWAY's filesystem (MJXHRM-394).
+  const displayPath = useDisplayPath()
 
   const visibleSessions = sessions.slice(0, visibleCount)
   const hiddenCount = Math.max(0, sessions.length - visibleSessions.length)
@@ -110,7 +113,7 @@ export function SidebarWorkspaceGroup({ group, renderRows, onNewSession, onRemov
           label={group.label}
           onToggle={toggleOpen}
           open={open}
-          title={group.path ?? undefined}
+          title={group.path ? displayPath(group.path) : undefined}
         />
       </WorkspaceContextMenu>
       {open && (

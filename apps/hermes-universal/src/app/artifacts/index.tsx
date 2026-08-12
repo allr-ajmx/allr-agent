@@ -31,6 +31,7 @@ import { FileImage, FileText, FolderOpen, Link2, Loader2, RefreshCw } from '@/li
 import { normalize } from '@/lib/text'
 import { fmtDayTime } from '@/lib/time'
 import { cn } from '@/lib/utils'
+import { useDisplayPath } from '@/store/display-home'
 import { notifyError } from '@/store/notifications'
 
 import { useRefreshHotkey } from '../hooks/use-refresh-hotkey'
@@ -569,13 +570,17 @@ const PrimaryCell = memo(function PrimaryCell({ artifact, ctx }: { artifact: Art
 
 const LocationCell = memo(function LocationCell({ artifact }: { artifact: ArtifactRecord; ctx: CellCtx }) {
   const { t } = useI18n()
+  // A non-link artifact's location is a path on the GATEWAY's filesystem — that
+  // is where the run that produced it wrote the file (MJXHRM-394). Links keep
+  // their host/path shortening; a URL has no home to collapse.
+  const displayPath = useDisplayPath()
   const isLink = artifact.kind === 'link'
-  const value = isLink ? hostPathLabel(artifact.value) : artifact.value
+  const value = isLink ? hostPathLabel(artifact.value) : displayPath(artifact.value)
   const copyLabel = isLink ? t.artifacts.copyUrl : t.artifacts.copyPath
 
   return (
     <div className="group/location flex min-w-0 items-center gap-1.5">
-      <Tip label={artifact.value}>
+      <Tip label={value}>
         <div
           className={cn(
             'min-w-0 flex-1 truncate text-[length:var(--conversation-caption-font-size)] text-(--ui-text-tertiary)',

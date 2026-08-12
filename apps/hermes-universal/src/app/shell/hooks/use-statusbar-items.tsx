@@ -13,18 +13,18 @@ import { StatusDot } from '@/components/status-dot'
 import { Codicon } from '@/components/ui/codicon'
 import { $pluginRecords } from '@/contrib/plugins-store'
 import { useI18n } from '@/i18n'
-import { displayPath } from '@/lib/display-path'
+import { pathLeaf } from '@/lib/display-path'
 import { Activity, AlertCircle, Clock, Command, FolderOpen, Hash, Loader2, Plug, Sun, Terminal, Zap } from '@/lib/icons'
 import { IS_DESKTOP, IS_MOBILE } from '@/lib/platform'
 import { revealPathInFileManager } from '@/lib/reveal-path'
 import { projectForCwd } from '@/lib/session-membership'
 import { contextBarLabel, LiveDuration, usageContextLabel } from '@/lib/statusbar'
 import { cn } from '@/lib/utils'
-import { workspaceLabel } from '@/lib/workspace-path'
 import { useStore } from '@/store/atom'
 import { $busy, $currentUsage, $sessionId, $sessionStartedAt, $turnStartedAt } from '@/store/chat'
 import { $connection, $status } from '@/store/connection'
 import { $cronJobs, refreshCronJobs } from '@/store/cron'
+import { useDisplayPath } from '@/store/display-home'
 import { $gatewayState, requestGateway } from '@/store/gateway'
 import { $keepAwake, toggleKeepAwake } from '@/store/keep-awake'
 import { $terminalOpen, revealFileInTree, toggleTerminalOpen } from '@/store/layout'
@@ -83,6 +83,10 @@ export function useStatusbarItems(opts?: {
   const { t } = useI18n()
   const copy = t.shell.statusbar
   const view = appViewForPath(useLocation().pathname)
+
+  // Bound to the GATEWAY's home, not this client's: the cwd is a path on the
+  // machine the session runs on (MJXHRM-394).
+  const displayPath = useDisplayPath()
 
   const gatewayState = useStore($gatewayState)
   const statusSnapshot = useStore($statusSnapshot)
@@ -374,7 +378,7 @@ export function useStatusbarItems(opts?: {
       ),
       id: 'workspace-cwd',
       toggleLabel: copy.toggleWorkspace,
-      label: activeProject?.name || (currentCwd ? workspaceLabel(currentCwd) : undefined),
+      label: activeProject?.name || (currentCwd ? pathLeaf(currentCwd) : undefined),
       menuItems: currentCwd
         ? [
             {
@@ -403,7 +407,7 @@ export function useStatusbarItems(opts?: {
       title: displayPath(currentCwd) || undefined,
       variant: 'menu'
     }),
-    [activeProject, copy, currentCwd, fileMenu, isRemoteBackend, rich]
+    [activeProject, copy, currentCwd, displayPath, fileMenu, isRemoteBackend, rich]
   )
 
   const agentsItem: StatusbarItem = useMemo(

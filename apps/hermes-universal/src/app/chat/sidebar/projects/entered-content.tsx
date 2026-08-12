@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/dialog'
 import type { HermesGitWorktree } from '@/global'
 import { useI18n } from '@/i18n'
+import { useDisplayPath } from '@/store/display-home'
 import { $dismissedWorktreeIds, dismissWorktree, setWorkspaceNodeOpen } from '@/store/layout'
 import { notifyError } from '@/store/notifications'
 import { removeWorktreePath } from '@/store/projects'
@@ -96,6 +97,8 @@ function RepoFlatSection({
   const s = t.sidebar
   const [open, toggleOpen] = useWorkspaceNodeOpen(repo.id)
   const dismissedWorktrees = useStore($dismissedWorktreeIds)
+  // A repo root is a path on the GATEWAY's filesystem (MJXHRM-394).
+  const displayPath = useDisplayPath()
 
   // The repo's session lanes already come fully built from the backend; this
   // only injects empty VISUAL lanes from a live `git worktree list`.
@@ -257,7 +260,7 @@ function RepoFlatSection({
         label={repo.label}
         onToggle={toggleOpen}
         open={open}
-        title={repo.path ?? undefined}
+        title={repo.path ? displayPath(repo.path) : undefined}
       />
       {open && <SidebarRowStack className="pl-2.5">{body}</SidebarRowStack>}
       {removeDialog}

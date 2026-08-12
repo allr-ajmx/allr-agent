@@ -7,8 +7,8 @@ import { FadeScroll } from '@/components/ui/fade-scroll'
 import { FileTypeIcon } from '@/components/ui/file-type-icon'
 import { Tip } from '@/components/ui/tooltip'
 import { useI18n } from '@/i18n'
-import { displayPath } from '@/lib/display-path'
 import { cn } from '@/lib/utils'
+import { useDisplayPath } from '@/store/display-home'
 import { openReviewForPath, revealReview } from '@/store/review'
 
 // ~5 rows. A turn that rewrites twenty files should still read as one card in
@@ -31,6 +31,8 @@ export const ChangedFilesCard: FC<{ parts: readonly unknown[] }> = ({ parts }) =
   const { t } = useI18n()
   const copy = t.assistant.thread
   const files = useMemo(() => deriveChangedFiles(parts), [parts])
+  // Bound to the GATEWAY's home: the run edited these files on its machine.
+  const displayPath = useDisplayPath()
 
   if (files.length === 0) {
     return null

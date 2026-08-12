@@ -19,6 +19,7 @@ import { useI18n } from '@/i18n'
 import { isDesktopFsRemoteMode } from '@/lib/desktop-fs'
 import { normalizeOrLocalPreviewTarget } from '@/lib/local-preview'
 import { cn } from '@/lib/utils'
+import { useDisplayPath } from '@/store/display-home'
 import { $renamingPath, copyFilePath, revealFile, toRelativePath } from '@/store/file-actions'
 import { $sidebarWorkspaceNodeOpen, revealFileInTree, toggleWorkspaceNodeCollapsed } from '@/store/layout'
 import { notifyError } from '@/store/notifications'
@@ -311,6 +312,9 @@ function ReviewFileRow({ node, depth }: { node: ReviewTreeNode; depth: number })
   const glyph = STATUS_GLYPH[file.status] ?? STATUS_GLYPH.M
   const dragPath = absolutePath(file.path)
   const cwd = useStore($effectiveCwd)
+  // The row's own tooltip is the only ABSOLUTE path here (`file.path` and
+  // `node.dir` are repo-relative), and it lives on the gateway (MJXHRM-394).
+  const displayPath = useDisplayPath()
 
   // Single-click shows the inline diff; double-click opens the file in the main
   // preview pane (matching the file browser). They're mutually exclusive: defer
@@ -393,7 +397,7 @@ function ReviewFileRow({ node, depth }: { node: ReviewTreeNode; depth: number })
           event.dataTransfer.setData('text/plain', dragPath)
         }}
         style={rowStyle(depth)}
-        title={dragPath}
+        title={displayPath(dragPath)}
       >
         <Codicon className={cn('shrink-0', glyph.tone)} name={glyph.icon} size="0.8rem" />
         {/* Dir collapses first (huge shrink); the name only ellipsizes once the
