@@ -18,6 +18,7 @@ vi.mock('./preview-artifact', () => ({ ArtifactPreview: () => null }))
 
 const CLEAN = '/repo/clean.ts'
 const DIRTY = '/repo/dirty.ts'
+const THIRD = '/repo/third.ts'
 
 async function setup() {
   const preview = await import('@/store/preview')
@@ -94,5 +95,73 @@ describe('preview rail close gestures', () => {
     fireEvent.click(tab('clean.ts'))
     expect(preview.$activePreviewTarget.get()?.path).toBe(CLEAN)
     expect(preview.$previewTabs.get()).toHaveLength(2)
+  })
+})
+
+/**
+ * The rail's MENU, which nothing rendered.
+ *
+ * "Close to the right" did not exist for previews at all until #118 (its label
+ * had been sitting in the translations wired to nothing), and the whole group
+ * now reads from `zones.*` so a preview tab answers a right-click with the same
+ * words as every other tab strip. Neither fact was held anywhere.
+ */
+describe('preview rail context menu', () => {
+  const openOn = (element: Element) => {
+    fireEvent.pointerDown(element, { button: 2, pointerType: 'mouse' })
+    fireEvent.contextMenu(element, { button: 2 })
+  }
+
+  it('offers the four shared close verbs and nothing else', async () => {
+    await setup()
+
+    openOn(tab('clean.ts'))
+    expect(screen.getAllByRole('menuitem').map(row => row.textContent)).toEqual([
+      'Close',
+      'Close others',
+      'Close to the right',
+      'Close all'
+    ])
+  })
+
+  it('runs them through the GATED close, so a dirty buffer still asks', async () => {
+    const { confirm, preview } = await setup()
+
+    // `clean.ts` is left of the DIRTY tab, so "to the right" targets a buffer
+    // with unsaved edits — and must ask, exactly as a lone close does. The
+    // batch rewrites these verbs used to be swept it away silently.
+    openOn(tab('clean.ts'))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Close to the right' }))
+
+    expect(confirm.$pendingClose.get()).toMatchObject({ id: DIRTY, kind: 'file' })
+    expect(preview.$previewTabs.get().map(entry => entry.path)).toEqual([CLEAN, DIRTY])
+  })
+
+  it('scopes them to the tab the menu was opened on', async () => {
+    const { preview } = await setup()
+    preview.setPreviewTarget(THIRD)
+
+    // THREE tabs, menu on the MIDDLE one: "to the right" takes only the last,
+    // where "others" would also have taken `clean.ts`. With a pair the two
+    // verbs close the same set and either wiring passes.
+    openOn(tab('dirty.ts'))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Close to the right' }))
+
+    expect(preview.$previewTabs.get().map(entry => entry.path)).toEqual([CLEAN, DIRTY])
+  })
+
+  it('greys the verbs that would close nothing on a lone tab', async () => {
+    const { preview } = await setup()
+    preview.closePreviewTab(DIRTY)
+
+    openOn(tab('clean.ts'))
+
+    const state = Object.fromEntries(
+      screen.getAllByRole('menuitem').map(row => [row.textContent, row.getAttribute('data-disabled') !== null])
+    )
+
+    expect(state['Close others']).toBe(true)
+    expect(state['Close to the right']).toBe(true)
+    expect(state['Close all']).toBe(false)
   })
 })

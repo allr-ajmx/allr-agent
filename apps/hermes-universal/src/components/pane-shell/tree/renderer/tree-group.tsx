@@ -14,6 +14,7 @@ import {
   type CSSProperties,
   Fragment,
   Profiler,
+  type MouseEvent as ReactMouseEvent,
   type ReactNode,
   type RefObject,
   useEffect,
@@ -623,7 +624,22 @@ export function TreeGroup({
   // chevron + tap gesture, routed so ⌃`/the titlebar toggle stay truthful.
   const toggleCollapse = () => (node.minimized ? restoreTreePane(activeId) : collapseTreePane(activeId))
 
-  // Same menu on the header strip and the edit veil — one prop bag.
+  // Which chip a right-click TARGETS, resolved from the pressed element: the
+  // tab under the pointer, or none (i.e. the active pane) when the press landed
+  // on strip background or the edit veil.
+  //
+  // Every surface that mounts the zone menu has to run this, not just the
+  // header strip. `menuPane` is sticky — nothing clears it — so a surface that
+  // opened the menu without setting it served the PREVIOUS right-click's
+  // target: the collapsed vertical rail aimed all four close verbs (and
+  // Reload/Split/Detach) at whatever tab was last right-clicked in the header
+  // before the zone folded, and the edit veil did the same.
+  const trackMenuTarget = (event: ReactMouseEvent) => {
+    setMenuPane((event.target as HTMLElement).closest('[data-tree-tab]')?.getAttribute('data-tree-tab') ?? undefined)
+  }
+
+  // Same menu on the header strip, the collapsed rail and the edit veil — one
+  // prop bag.
   const zoneMenu = {
     closable,
     detachable,
@@ -668,6 +684,10 @@ export function TreeGroup({
               railSide === 'right' ? PANE_TAB_STRIP_LINE_LEFT : PANE_TAB_STRIP_LINE_RIGHT
             )}
             onClick={() => restoreTreePane(activeId)}
+            // The rail is a TAB STRIP, so its right-click names the tab it
+            // landed on exactly as the header's does — without this the menu
+            // (Close, Close others, Reload, Detach…) acted on the active pane.
+            onContextMenu={trackMenuTarget}
             title={t.zones.restore}
           >
             <div
@@ -675,16 +695,16 @@ export function TreeGroup({
               role="tablist"
             >
               {shown.map(paneId => {
+                const chrome = tileChrome(paneFor(paneId))
                 const closeable = closeableTab(paneId)
                 const title = paneFor(paneId)?.title ?? paneId
 
-                return (
+                const tab = (
                   <PaneTab
                     // Match the horizontal minimized strip: no tab is "active"
                     // while collapsed (there's no content surface to merge into).
                     aria-selected={paneId === activeId}
                     data-tree-tab={paneId}
-                    key={paneId}
                     onClick={event => {
                       event.stopPropagation()
                       restoreTreePane(paneId)
@@ -697,6 +717,12 @@ export function TreeGroup({
                     <PaneTabLabel>{title}</PaneTabLabel>
                   </PaneTab>
                 )
+
+                // Same `tabWrap` the header strip applies: a session tab keeps
+                // its own menu (pin/rename/branch/archive/delete + Reload +
+                // the shared close group) when the zone folds to a rail,
+                // instead of silently falling back to the zone's.
+                return <Fragment key={paneId}>{chrome.tabWrap ? chrome.tabWrap(tab) : tab}</Fragment>
               })}
             </div>
           </div>
@@ -712,11 +738,7 @@ export function TreeGroup({
             // data-zone-tabstrip: a drop over here STACKS (drag-session reads it).
             data-zone-tabstrip={node.id}
             listRef={tabsRef}
-            onContextMenu={e => {
-              setMenuPane(
-                (e.target as HTMLElement).closest('[data-tree-tab]')?.getAttribute('data-tree-tab') ?? undefined
-              )
-            }}
+            onContextMenu={trackMenuTarget}
             onPointerDown={e =>
               // Tap the header to collapse to it / expand back — the DetailPane
               // / sidebar-section gesture (tool zones only). Double-tap hides
@@ -1029,6 +1051,11 @@ export function TreeGroup({
             // barely-tinted wash; the light blur reads as "edit mode" the same
             // way the zone editor's backdrop does.
             className="absolute inset-x-0 bottom-0 z-50 flex cursor-grab items-center justify-center outline-1 -outline-offset-2 outline-dashed backdrop-blur-[2px]"
+            // The veil covers CONTENT, not tabs — so a right-click here names
+            // no tab and the menu falls back to the active pane. It still has
+            // to say so: `menuPane` survives the menu that set it, so without
+            // this the veil served the last tab right-clicked in the header.
+            onContextMenu={trackMenuTarget}
             onPointerDown={e => startPaneDrag(activeId, e, undefined, undefined, undefined, active?.title ?? activeId)}
             style={{
               top: headerVisible ? 28 : 0,
