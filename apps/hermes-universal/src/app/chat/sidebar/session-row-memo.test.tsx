@@ -22,12 +22,45 @@
  * boundary.
  */
 
-import { render } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { act, render } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { SessionInfo } from '@/types/hermes'
 
+import type * as SessionRowState from './session-row-state'
+
+/**
+ * Counts renders of the REAL `SidebarSessionRowImpl` (MJXHRM-383).
+ *
+ * `sessionShowsRunningArc` is a pure helper the impl calls exactly once per
+ * render, so wrapping it counts renders without touching the thing under test:
+ * the row component, its `memo()` and `rowPropsEqual` all stay real, and the
+ * wrapper delegates to the original. Mocking the row itself would make the
+ * memo untestable — the bail-out IS the behaviour.
+ */
+const mockRowRenders = { count: 0 }
+
+vi.mock('./session-row-state', async importOriginal => {
+  const actual = await importOriginal<typeof SessionRowState>()
+
+  return {
+    ...actual,
+    sessionShowsRunningArc: (...args: Parameters<typeof actual.sessionShowsRunningArc>) => {
+      mockRowRenders.count += 1
+
+      return actual.sessionShowsRunningArc(...args)
+    }
+  }
+})
+
+import { $pinnedSessionIds, $sidebarAgentsGrouped } from '@/store/layout'
+import { $showAllProfiles } from '@/store/profile'
+import { $projectScope, $projectTree, ALL_PROJECTS } from '@/store/projects'
+import { $activeStoredSessionId, $searchLoading, $sessions } from '@/store/session'
+
 import { SidebarSessionRow } from './session-row'
+import { SidebarScrollBody } from './sidebar-content'
 
 const session: SessionInfo = {
   ended_at: null,
@@ -82,5 +115,101 @@ describe('SidebarSessionRow memo comparator', () => {
 
     expect(boundary.$$typeof).toBe(Symbol.for('react.memo'))
     expect(typeof boundary.compare).toBe('function')
+  })
+})
+
+/**
+ * MJXHRM-383's actual definition of done: "verify `renderRow`'s memo actually
+ * skips re-renders for unrelated updates". It could not, because the boundary
+ * that decides this is the ROW's memo (nothing between `SidebarScrollBody` and
+ * the row is memoized — every consumer CALLS `renderRow` during its own render),
+ * and `rowPropsEqual` resolves the row down to `Object.is` on the `session`
+ * object. These render the real sidebar and count the real component.
+ */
+function listRow(id: string, title: string, startedAt: number): SessionInfo {
+  return {
+    _lineage_root_id: null,
+    ended_at: null,
+    id,
+    input_tokens: 0,
+    is_active: false,
+    last_active: startedAt,
+    message_count: 1,
+    model: null,
+    output_tokens: 0,
+    preview: null,
+    source: null,
+    started_at: startedAt,
+    title,
+    tool_call_count: 0
+  } as SessionInfo
+}
+
+describe('sidebar rows under an unrelated store write', () => {
+  afterEach(() => {
+    $sessions.set([])
+    $pinnedSessionIds.set([])
+    $sidebarAgentsGrouped.set(false)
+    $projectTree.set([])
+    $projectScope.set(ALL_PROJECTS)
+    $showAllProfiles.set(false)
+    $activeStoredSessionId.set(null)
+    $searchLoading.set(false)
+    mockRowRenders.count = 0
+  })
+
+  const mountSidebar = async () => {
+    $sessions.set([listRow('a', 'Alpha chat', 200), listRow('b', 'Beta chat', 100)])
+
+    render(
+      <MemoryRouter>
+        <SidebarScrollBody />
+      </MemoryRouter>
+    )
+
+    // Let the mount-time refresh effects settle (they fail against no gateway
+    // and leave the seeded rows alone) so the baseline count is stable.
+    await act(async () => {})
+  }
+
+  it('re-renders no row when a store the rows do not read is written', async () => {
+    await mountSidebar()
+
+    const baseline = mockRowRenders.count
+    expect(baseline).toBeGreaterThan(0)
+
+    // `$searchLoading` is read by SidebarScrollBody (it drives the search
+    // field's spinner) and by nothing below it, so the parent re-renders and
+    // rebuilds every row element — and every row must bail.
+    await act(async () => void $searchLoading.set(true))
+
+    expect(mockRowRenders.count).toBe(baseline)
+  })
+
+  it('repaints every row when the list is replaced wholesale', async () => {
+    // Pins WHY `refreshSessions` has to share identities (lib/structural-share):
+    // the comparator resolves the row down to `Object.is` on `session`, so a
+    // JSON-parsed page stored verbatim repaints the whole sidebar even when it
+    // is byte-identical. This is the failure the store-side gate prevents; if
+    // this assertion ever flips, the comparator stopped reading `session`.
+    await mountSidebar()
+
+    const baseline = mockRowRenders.count
+
+    await act(async () => void $sessions.set($sessions.get().map(session => ({ ...session }))))
+
+    expect(mockRowRenders.count).toBeGreaterThan(baseline)
+  })
+
+  it('still re-renders the row whose own state moved', async () => {
+    // The opposite failure, and the worse one: a memo that never re-renders is a
+    // list that stops updating. Selecting a session must repaint its row.
+    await mountSidebar()
+
+    const baseline = mockRowRenders.count
+
+    await act(async () => void $activeStoredSessionId.set('a'))
+
+    expect(mockRowRenders.count).toBeGreaterThan(baseline)
   })
 })

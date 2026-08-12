@@ -173,11 +173,19 @@ export function SidebarSessionsSection(props: SidebarSessionsSectionProps) {
     !hasGroups &&
     sessions.length >= VIRTUALIZE_THRESHOLD
 
-  // MEMOIZED, not for tidiness: a fresh `renderRow` identity on every render is
-  // a new render function for the virtualizer and a new prop for every project
-  // lane, so a single unrelated store write (a status tick, a busy flag) rebuilt
-  // the whole list mid-scroll — which is what the jitter was. The dependency
-  // list is the row's real inputs; anything missing here is a stale row.
+  // Memoized so the identity is stable for any future memoized consumer. It does
+  // NOT skip work today and never did (MJXHRM-383): every consumer — the flat
+  // branches below, `renderProjectRows`, `profile-group`, `overview-row`,
+  // `workspace-group`, `entered-content` — CALLS this during its own render, and
+  // none of them is a `memo()`. `VirtualSessionList` never receives it at all; it
+  // takes the raw handlers and builds its own rows.
+  //
+  // What makes an unrelated store write cheap is one layer down —
+  // `SidebarSessionRow`'s memo — and that depends on the row OBJECT surviving,
+  // not on this. See `lib/structural-share.ts`.
+  //
+  // The dependency list is still the row's real inputs; anything missing here is
+  // a stale row.
   const renderRow = useCallback(
     (session: SessionInfo, draggable: boolean) => {
       const rowProps = {

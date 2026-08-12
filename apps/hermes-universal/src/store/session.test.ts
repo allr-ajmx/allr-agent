@@ -718,6 +718,97 @@ describe('refreshSessions — profile scope', () => {
   })
 })
 
+/**
+ * MJXHRM-383. `SidebarSessionRow` is `memo(…, rowPropsEqual)` and that
+ * comparator deliberately ignores the handler props, so the ONLY thing that can
+ * make a row bail out is `Object.is(prev.session, next.session)`. Every refresh
+ * below is a JSON-parsed page, so without identity sharing every row in every
+ * lane re-renders on a poll that changed nothing — which is what made the
+ * handler stabilization above it unobservable.
+ */
+describe('refreshSessions — row identity', () => {
+  const page = (sessions: SessionInfo[]): PaginatedSessions =>
+    ({ limit: 30, offset: 0, sessions, total: sessions.length }) as PaginatedSessions
+
+  /** A fresh page object graph each call — what the transport really hands back. */
+  const serverPage = (rows: { id: string; last_active: number; title: string }[]): PaginatedSessions =>
+    page(rows.map(r => ({ ...r })) as unknown as SessionInfo[])
+
+  const ROWS = [
+    { id: 'a', last_active: 10, title: 'A' },
+    { id: 'b', last_active: 20, title: 'B' },
+    { id: 'c', last_active: 30, title: 'C' }
+  ]
+
+  it('publishes nothing when the refreshed page is content-identical', async () => {
+    vi.mocked(listAllProfileSessions).mockResolvedValue(serverPage(ROWS))
+    await refreshSessions()
+
+    const first = $sessions.get()
+    const published: unknown[] = []
+    const stop = $sessions.listen(value => published.push(value))
+
+    vi.mocked(listAllProfileSessions).mockResolvedValue(serverPage(ROWS))
+    await refreshSessions()
+    stop()
+
+    // Same array — so nanostores never notifies and the sidebar never renders.
+    expect($sessions.get()).toBe(first)
+    expect(published).toEqual([])
+  })
+
+  it('leaves the untouched rows on their old objects when one row changes', async () => {
+    vi.mocked(listAllProfileSessions).mockResolvedValue(serverPage(ROWS))
+    await refreshSessions()
+
+    const before = $sessions.get()
+
+    vi.mocked(listAllProfileSessions).mockResolvedValue(
+      serverPage([ROWS[0], { ...ROWS[1], last_active: 999 }, ROWS[2]])
+    )
+    await refreshSessions()
+
+    const after = $sessions.get()
+
+    expect(after).not.toBe(before)
+    expect(after[0]).toBe(before[0])
+    expect(after[2]).toBe(before[2])
+    expect(after[1]).not.toBe(before[1])
+    expect(after[1].last_active).toBe(999)
+  })
+
+  it('keeps row identity across the recency reorder a new message causes', async () => {
+    vi.mocked(listAllProfileSessions).mockResolvedValue(serverPage(ROWS))
+    await refreshSessions()
+
+    const before = $sessions.get()
+
+    // 'c' got a message: it jumps to the head and shifts the rest down. Nothing
+    // about a/b changed, so their rows must not repaint.
+    vi.mocked(listAllProfileSessions).mockResolvedValue(serverPage([ROWS[2], ROWS[0], ROWS[1]]))
+    await refreshSessions()
+
+    const after = $sessions.get()
+
+    expect(after.map(s => s.id)).toEqual(['c', 'a', 'b'])
+    expect(after[0]).toBe(before[2])
+    expect(after[1]).toBe(before[0])
+    expect(after[2]).toBe(before[1])
+  })
+
+  it('still evicts a tombstoned row rather than reviving it from the previous page', async () => {
+    // The identity gate must not become a way for a deleted row to survive.
+    vi.mocked(listAllProfileSessions).mockResolvedValue(serverPage(ROWS))
+    await refreshSessions()
+
+    $removedSessionIds.set(new Set(['b']))
+    vi.mocked(listAllProfileSessions).mockResolvedValue(serverPage(ROWS))
+    await refreshSessions()
+
+    expect($sessions.get().map(s => s.id)).toEqual(['a', 'c'])
+  })
+})
+
 describe('loadMoreSessions', () => {
   const page = (sessions: SessionInfo[], over: Partial<PaginatedSessions> = {}): PaginatedSessions =>
     ({ limit: 30, offset: 0, sessions, total: 7, ...over }) as PaginatedSessions
