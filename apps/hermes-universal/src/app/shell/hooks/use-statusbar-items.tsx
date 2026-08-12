@@ -13,13 +13,13 @@ import { StatusDot } from '@/components/status-dot'
 import { Codicon } from '@/components/ui/codicon'
 import { $pluginRecords } from '@/contrib/plugins-store'
 import { useI18n } from '@/i18n'
+import { pathLeaf } from '@/lib/display-path'
 import { Activity, AlertCircle, Clock, Command, FolderOpen, Hash, Loader2, Plug, Sun, Terminal, Zap } from '@/lib/icons'
 import { IS_DESKTOP, IS_MOBILE } from '@/lib/platform'
 import { revealPathInFileManager } from '@/lib/reveal-path'
 import { projectForCwd } from '@/lib/session-membership'
 import { contextBarLabel, LiveDuration, usageContextLabel } from '@/lib/statusbar'
 import { cn } from '@/lib/utils'
-import { workspaceLabel } from '@/lib/workspace-path'
 import { useStore } from '@/store/atom'
 import { $busy, $currentUsage, $sessionId, $sessionStartedAt, $turnStartedAt } from '@/store/chat'
 import { $connection, $status } from '@/store/connection'
@@ -378,7 +378,7 @@ export function useStatusbarItems(opts?: {
       ),
       id: 'workspace-cwd',
       toggleLabel: copy.toggleWorkspace,
-      label: activeProject?.name || (currentCwd ? workspaceLabel(currentCwd) : undefined),
+      label: activeProject?.name || (currentCwd ? pathLeaf(currentCwd) : undefined),
       menuItems: currentCwd
         ? [
             {

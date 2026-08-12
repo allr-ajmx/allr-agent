@@ -13,9 +13,9 @@ import {
 import { Tip } from '@/components/ui/tooltip'
 import { deleteSession, getDefaultCwd, listSessions, setSessionArchived } from '@/hermes'
 import { useI18n } from '@/i18n'
+import { pathLeaf } from '@/lib/display-path'
 import { Archive, ArchiveOff, FolderOpen, Loader2, Trash } from '@/lib/icons'
 import { IS_DESKTOP } from '@/lib/platform'
-import { workspaceLabel } from '@/lib/workspace-path'
 import { useStore } from '@/store/atom'
 import { $defaultProjectDir, setDefaultProjectDir } from '@/store/default-project-dir'
 import { useDisplayPath } from '@/store/display-home'
@@ -211,7 +211,7 @@ export function ArchivedSection() {
       ) : (
         <div className="grid gap-1">
           {list.map(session => {
-            const label = workspaceLabel(session.cwd)
+            const label = pathLeaf(session.cwd)
             const meta = label ? `${label} · ${s.messages(session.message_count)}` : s.messages(session.message_count)
 
             return (
