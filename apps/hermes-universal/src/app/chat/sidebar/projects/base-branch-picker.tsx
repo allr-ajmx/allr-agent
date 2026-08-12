@@ -154,8 +154,7 @@ export function BaseBranchPicker({
         </DropdownMenuTrigger>
         <DropdownMenuContent
           align="start"
-          // Portaled to body — must clear WorktreeDialog (--z-modal: 130).
-          className="z-(--z-modal-popover) max-h-72 w-(--radix-dropdown-menu-trigger-width) min-w-56 overflow-y-auto p-0"
+          className="max-h-72 w-(--radix-dropdown-menu-trigger-width) min-w-56 overflow-y-auto p-0"
         >
           <DropdownMenuSearch
             aria-label={p.baseBranchPlaceholder}

@@ -81,8 +81,7 @@ export function ComboboxInput({
       </PopoverAnchor>
       <PopoverContent
         align="start"
-        // Portaled to body — must clear the settings OverlayView (--z-modal: 130).
-        className="z-(--z-modal-popover) w-[var(--radix-popover-trigger-width)] p-0"
+        className="w-[var(--radix-popover-trigger-width)] p-0"
         onOpenAutoFocus={e => e.preventDefault()}
       >
         <Command shouldFilter={false}>

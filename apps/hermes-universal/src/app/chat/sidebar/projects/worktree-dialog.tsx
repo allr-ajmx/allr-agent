@@ -274,7 +274,7 @@ export function WorktreeDialog() {
                 <Codicon className="shrink-0 text-(--ui-text-tertiary)" name="chevron-down" size="0.75rem" />
               </Button>
             </PopoverTrigger>
-            <PopoverContent align="start" className="z-(--z-modal-popover) min-w-(--radix-popover-trigger-width) p-0">
+            <PopoverContent align="start" className="min-w-(--radix-popover-trigger-width) p-0">
               <SearchField
                 containerClassName="w-full px-2"
                 onChange={setProjectFilter}
