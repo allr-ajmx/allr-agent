@@ -20,9 +20,9 @@
  */
 
 import {
-  clearInFlightTurnJournal,
   persistInFlightTurnState,
-  recoverInFlightTurnJournal
+  recoverInFlightTurnJournal,
+  releaseInFlightTurnJournal
 } from '@/lib/inflight-turn-journal'
 import { reconcileLiveTail } from '@/lib/live-tail'
 import {
@@ -171,6 +171,11 @@ addSessionKeyHooks({
 // A turn that concludes — a terminal frame, a failed submit, reconciliation
 // deciding it is gone — has nothing left to recover. Clearing here rather than
 // only on the busy edge means an interrupted turn releases its entry too.
+//
+// `release`, not `clear`: this is THIS window's turn concluding, and the journal
+// keys are shared with every other window of the origin. A satellite or a second
+// app window settling its own idle slice for a session someone else is streaming
+// must not delete that window's live entry (MJXHRM-374).
 observeTurnLifecycle(({ key, turn }) => {
   if (turn && turn.phase !== 'settled') {
     return
@@ -179,6 +184,6 @@ observeTurnLifecycle(({ key, turn }) => {
   const storedSessionId = $sessionStates.get()[key]?.storedSessionId
 
   if (storedSessionId) {
-    clearInFlightTurnJournal(storedSessionId)
+    releaseInFlightTurnJournal(storedSessionId)
   }
 })

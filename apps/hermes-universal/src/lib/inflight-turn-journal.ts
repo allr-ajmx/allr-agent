@@ -239,8 +239,30 @@ function loadEntry(storedSessionId: string): InFlightTurnSnapshot | null {
   }
 }
 
+/**
+ * Sessions THIS window journaled — a subset of `knownIds()`, which is every
+ * session any window journaled (MJXHRM-374).
+ *
+ * These keys are shared by every window of the origin, but a turn is not: the
+ * gateway binds a session's stream to ONE connection, so exactly one window is
+ * ever watching a given turn run. Every other window holds a slice for that
+ * session which is, from where it sits, perfectly settled — and "settled" is the
+ * condition on which `persistInFlightTurnState` and the turn-lifecycle observer
+ * DELETE the entry. So a HUD summoned onto a conversation, a detached tile
+ * window, or a second app window could each throw away the live crash journal of
+ * a turn running in the window next to it, and the crash it was written for
+ * would then recover nothing.
+ *
+ * Hence: a window may only release what it wrote. Recovery still drops any
+ * entry it folds in (`removeEntry` below), so an entry whose window went away
+ * without settling is reclaimed the next time that session is opened rather
+ * than leaking to the 7-day TTL.
+ */
+const writtenHere = new Set<string>()
+
 function saveEntry(storedSessionId: string, snapshot: InFlightTurnSnapshot): void {
   knownIds().add(storedSessionId)
+  writtenHere.add(storedSessionId)
 
   try {
     storage()?.setItem(entryKey(storedSessionId), JSON.stringify(snapshot))
@@ -251,6 +273,7 @@ function saveEntry(storedSessionId: string, snapshot: InFlightTurnSnapshot): voi
 
 function removeEntry(storedSessionId: string): void {
   knownIds().delete(storedSessionId)
+  writtenHere.delete(storedSessionId)
 
   try {
     storage()?.removeItem(entryKey(storedSessionId))
@@ -561,7 +584,7 @@ export function persistInFlightTurnState(state: JournalableSessionState): void {
   // journal away in exactly those windows — which are the windows a crash is
   // most likely to land in.
   if (!state.busy && !state.awaitingResponse && !state.streamId) {
-    clearInFlightTurnJournal(storedSessionId)
+    releaseInFlightTurnJournal(storedSessionId)
 
     return
   }
@@ -630,6 +653,24 @@ export function clearInFlightTurnJournal(storedSessionId: null | string): void {
   removeEntry(storedSessionId)
 }
 
+/**
+ * "This window's turn for `storedSessionId` is over" — the settle path, as
+ * opposed to `clearInFlightTurnJournal`'s unconditional "this entry is spent".
+ *
+ * A session THIS window never journaled is one whose turn is running (or ran)
+ * somewhere else, and a window that never watched a turn has no standing to
+ * decide it finished. A pending throttled write counts as ours: the entry is a
+ * few hundred milliseconds from existing, and cancelling that timer is exactly
+ * what a settle before it fires has to do.
+ */
+export function releaseInFlightTurnJournal(storedSessionId: null | string): void {
+  if (!storedSessionId || (!writtenHere.has(storedSessionId) && !persistTimers.has(storedSessionId))) {
+    return
+  }
+
+  clearInFlightTurnJournal(storedSessionId)
+}
+
 /** Test hook — drop the in-memory key mirror so a test that writes storage
  *  directly is not answered from a stale view of it. */
 export function __resetInFlightTurnJournalCache(): void {
@@ -642,6 +683,7 @@ export function __resetInFlightTurnJournalCache(): void {
 
   persistTimers.clear()
   persistLatest.clear()
+  writtenHere.clear()
 }
 
 /**
