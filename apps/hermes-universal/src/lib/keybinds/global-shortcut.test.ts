@@ -21,15 +21,29 @@ vi.mock('@tauri-apps/plugin-global-shortcut', () => ({
   unregister: (accelerator: string) => unregister(accelerator)
 }))
 
+/** Rust's "a full app window was destroyed" broadcast, played by hand. */
+const windowClosedListeners: (() => void)[] = []
+
+vi.mock('@tauri-apps/api/event', () => ({
+  listen: async (event: string, handler: () => void) => {
+    if (event === 'hermes://app-window-closed') {
+      windowClosedListeners.push(handler)
+    }
+
+    return () => undefined
+  }
+}))
+
 // The registrar stands down off desktop; these cases are about the desktop path.
 vi.mock('@/lib/platform', async importOriginal => ({
   ...(await importOriginal<typeof Platform>()),
   IS_DESKTOP: true
 }))
 
-// The one global-flagged action the app ships. It now ships WITH a default
-// chord (MJXHRM-213 gave the HUD a surface worth summoning), so the cases below
-// clear its binding when they want a quiet registry.
+// The HUD's chord — the only global-flagged action that ships WITH a default
+// (MJXHRM-213 gave it a surface worth summoning). Quick Entry is the other
+// global action and ships unbound on purpose, so it contributes nothing to a
+// default sync; the cases below clear this one when they want a quiet registry.
 const ACTION = 'view.toggleHud'
 
 // The registrar serializes its syncs, so a rebind that arrives while one is in
@@ -51,6 +65,7 @@ async function load(): Promise<{ mod: typeof Registrar; setBinding: typeof Keybi
 beforeEach(() => {
   register.mockClear()
   unregister.mockClear()
+  windowClosedListeners.length = 0
 })
 
 afterEach(() => {
@@ -138,6 +153,68 @@ describe('global shortcuts follow the rebindable registry', () => {
 
     expect(unregister).toHaveBeenCalledWith('CommandOrControl+Shift+Space')
 
+    setBinding(ACTION, [])
+  })
+
+  it('takes the chord back when the window that owned it goes away', async () => {
+    const { mod, setBinding } = await load()
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+
+    // Explicit, because an earlier case may have left the action unbound in
+    // persisted storage — which `vi.resetModules` does not clear.
+    setBinding(ACTION, ['mod+shift+h'])
+
+    // Another window of THIS app claimed it first — the plugin's registry is per
+    // process, so this window is refused exactly as it would be by a foreign
+    // app, and ends up holding nothing.
+    register.mockRejectedValue(new Error('HotKey already registered'))
+
+    const stop = mod.startGlobalShortcuts()
+    await flush()
+
+    expect(register).toHaveBeenCalled()
+    register.mockImplementation(async () => undefined)
+    register.mockClear()
+    unregister.mockClear()
+
+    // That window is closed natively. Its handler channel died with it, so the
+    // chord is registered, taken from the whole machine, and answers nobody.
+    expect(windowClosedListeners).toHaveLength(1)
+    windowClosedListeners[0]?.()
+    await flush()
+
+    // Released blind, then re-claimed onto a channel that is alive.
+    expect(unregister).toHaveBeenCalledWith('CommandOrControl+Shift+H')
+    expect(register).toHaveBeenCalledWith('CommandOrControl+Shift+H', expect.any(Function))
+
+    stop()
+    warn.mockRestore()
+    setBinding(ACTION, [])
+  })
+
+  it('reclaims onto a live handler, so the chord runs the action again', async () => {
+    const { mod, setBinding } = await load()
+    const ran = vi.fn()
+
+    mod.setGlobalShortcutDispatch(ran)
+    setBinding(ACTION, ['mod+shift+h'])
+    register.mockRejectedValue(new Error('HotKey already registered'))
+
+    const stop = mod.startGlobalShortcuts()
+    await flush()
+
+    register.mockImplementation(async () => undefined)
+    register.mockClear()
+    await mod.reclaimGlobalShortcuts()
+
+    expect(register).toHaveBeenCalledWith('CommandOrControl+Shift+H', expect.any(Function))
+
+    const handler = register.mock.calls.at(-1)?.[1]
+    handler?.({ state: 'Pressed' })
+
+    expect(ran).toHaveBeenCalledWith(ACTION)
+
+    stop()
     setBinding(ACTION, [])
   })
 
