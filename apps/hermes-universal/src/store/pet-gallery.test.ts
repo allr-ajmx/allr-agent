@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/store/gateway', () => ({ requestGateway: vi.fn() }))
 
+import { GatewayRpcError } from '@/gateway/rpc-error'
 import { requestGateway } from '@/store/gateway'
 
 import {
@@ -59,6 +60,21 @@ describe('pet-gallery store', () => {
     rpc.mockRejectedValue(new Error('method not found: pet.gallery'))
     await loadPetGallery()
     expect($petGalleryStatus.get()).toBe('stale')
+  })
+
+  it('marks the backend stale on a bare -32601, whatever the gateway called it', async () => {
+    // This store carried its own copy of the missing-method predicate, so it
+    // could only ever see what the copy had been taught. It now delegates to
+    // the shared helper, which reads the JSON-RPC code.
+    rpc.mockRejectedValue(new GatewayRpcError('the requested procedure does not exist', -32601))
+    await loadPetGallery()
+    expect($petGalleryStatus.get()).toBe('stale')
+  })
+
+  it('does not call a genuine gateway failure a stale backend', async () => {
+    rpc.mockRejectedValue(new GatewayRpcError('petdex is unreachable', 5061))
+    await loadPetGallery()
+    expect($petGalleryStatus.get()).toBe('error')
   })
 
   it('adopts a pet: selects it + marks active/installed', async () => {
