@@ -729,7 +729,6 @@ async fn post_native_tokens(
     body: serde_json::Value,
 ) -> Result<native::NativeTokenSet, String> {
     let url = format!("{base}{path}");
-    let redacted = crate::transport::redact_url(&url);
     // The refresh token rides in the body, so it is scrubbed out of any error
     // too — reqwest has no reason to quote a body back at us, but this error
     // reaches a log line and the token is the session (MJXHRM-354).
@@ -746,11 +745,12 @@ async fn post_native_tokens(
         .send()
         .await
         .map_err(|e| {
-            let message = e.to_string().replace(&url, &redacted);
-
             format!(
                 "{path} request failed: {}",
-                crate::transport::redact_secret(crate::transport::redact_bearer(message), &secret)
+                crate::transport::redact_secret(
+                    crate::transport::redact_error(e.to_string(), &url),
+                    &secret
+                )
             )
         })?;
 
@@ -762,10 +762,14 @@ async fn post_native_tokens(
         return Err(format!("{path} rejected the request (HTTP {status})"));
     }
 
-    let parsed: serde_json::Value = resp
-        .json()
-        .await
-        .map_err(|e| format!("{path} returned an unreadable body: {e}"))?;
+    // reqwest appends ` for url (…)` to a decode error too, so this one carries
+    // the request URL exactly like the send failure above does.
+    let parsed: serde_json::Value = resp.json().await.map_err(|e| {
+        format!(
+            "{path} returned an unreadable body: {}",
+            crate::transport::redact_error(e.to_string(), &url)
+        )
+    })?;
 
     native::parse_token_response(&parsed)
 }
@@ -1211,19 +1215,23 @@ pub async fn oauth_status(
     let base = normalize_base(&base);
     let tokens = ensure_native_tokens(&app, state.inner(), &base, false).await;
 
+    let url = format!("{base}/api/auth/me");
     let mut request = state
         .client()
-        .get(format!("{base}/api/auth/me"))
+        .get(&url)
         .header(reqwest::header::ORIGIN, &base);
 
     if let Some(set) = tokens.as_ref() {
         request = request.bearer_auth(&set.access_token);
     }
 
+    // `redact_error` and not `redact_bearer` alone: reqwest quotes the request
+    // URL back at us, and a hand-typed base can carry a basic-auth password in
+    // its userinfo. This string is rendered on the connect screen.
     let resp = request.send().await.map_err(|e| {
         format!(
             "auth/me request failed: {}",
-            crate::transport::redact_bearer(e.to_string())
+            crate::transport::redact_error(e.to_string(), &url)
         )
     })?;
 
@@ -1262,9 +1270,10 @@ pub async fn oauth_logout(
 
     // redirects OFF: the logout 302 -> /login is irrelevant; we only need the
     // clearing Set-Cookie on the 302 response itself.
+    let url = format!("{base}/auth/logout");
     let mut request = state
         .no_redirect_client()
-        .post(format!("{base}/auth/logout"))
+        .post(&url)
         .header(reqwest::header::ORIGIN, &base);
 
     // Present the bearer so the gateway can revoke the refresh token server-side
@@ -1276,7 +1285,7 @@ pub async fn oauth_logout(
     request.send().await.map_err(|e| {
         format!(
             "auth/logout request failed: {}",
-            crate::transport::redact_bearer(e.to_string())
+            crate::transport::redact_error(e.to_string(), &url)
         )
     })?;
     Ok(())
