@@ -1842,6 +1842,30 @@ def check_config_version() -> Tuple[int, int]:
     return current, latest
 
 
+def config_floor_refused(current_version: int, latest_version: int) -> bool:
+    """THE support-floor decision for the on-disk config. One definition.
+
+    ``below_support_floor()`` is only half the rule — the other half is that the
+    on-disk file must carry an EXPLICIT ``_config_version`` key, because
+    ``check_config_version()`` coerces a missing key to 0 and a fresh minimal /
+    hand-written / cloned config is not an ancient install. Splitting those two
+    halves across callers is exactly how they drift: the Docker boot migration
+    carried its own bare ``current_ver < SUPPORT_FLOOR_VERSION`` and kept
+    refusing version-less configs for weeks after the CLI stopped (fixed by
+    routing it here).
+
+    Every caller that decides "is this config too old to migrate" — the
+    migration driver, the ``/api/status`` report, the Docker boot script —
+    calls this and nothing else.
+    """
+    from hermes_cli.config_migrations import below_support_floor
+
+    return bool(
+        _raw_config_has_explicit_version()
+        and below_support_floor(current_version, latest_version)
+    )
+
+
 def config_floor_status() -> Dict[str, Any]:
     """Support-floor state for the on-disk config, for reporting to clients.
 
@@ -1850,17 +1874,18 @@ def config_floor_status() -> Dict[str, Any]:
     predicate — both of which drift the moment the floor moves. Deliberately
     structured rather than prose: ``support_floor_message()`` embeds the
     HERMES_HOME path, and ``/api/status`` is a public endpoint.
+
+    Recomputed from disk on every call (``check_config_version()`` re-reads
+    config.yaml; nothing here is cached), so a client polling ``/api/status``
+    sees a config edit without a gateway restart.
     """
-    from hermes_cli.config_migrations import SUPPORT_FLOOR_VERSION, below_support_floor
+    from hermes_cli.config_migrations import SUPPORT_FLOOR_VERSION
 
     current_ver, latest_ver = check_config_version()
 
     return {
         "support_floor_version": SUPPORT_FLOOR_VERSION,
-        "below_floor": bool(
-            _raw_config_has_explicit_version()
-            and below_support_floor(current_ver, latest_ver)
-        ),
+        "below_floor": config_floor_refused(current_ver, latest_ver),
     }
 
 
@@ -2210,13 +2235,11 @@ def migrate_config(interactive: bool = True, quiet: bool = False) -> Dict[str, A
     # lacking the legacy keys they migrated) and a fresh version stamp —
     # the historical behavior.
     from hermes_cli.config_migrations import (
-        below_support_floor,
         run_migrations,
         support_floor_message,
     )
 
-    _explicit_version = _raw_config_has_explicit_version()
-    floor_refused = _explicit_version and below_support_floor(current_ver, latest_ver)
+    floor_refused = config_floor_refused(current_ver, latest_ver)
     if floor_refused:
         msg = support_floor_message()
         results["warnings"].append(msg)
