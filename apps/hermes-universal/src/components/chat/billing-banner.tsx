@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button'
 import { Codicon } from '@/components/ui/codicon'
 import { Tip } from '@/components/ui/tooltip'
 import { useI18n } from '@/i18n'
-import { useStore } from '@/store/atom'
+import { useStoreSelector } from '@/lib/use-session-slice'
 import { $billingBlock, billingCtaLabel, clearBillingBlock, runBillingRecovery } from '@/store/billing-block'
 
 function firstLine(text: string): string {
@@ -22,10 +22,19 @@ function firstLine(text: string): string {
  * Ported from apps/desktop/src/components/billing-banner.tsx.
  */
 export function BillingBanner({ sessionId }: { sessionId: null | string }) {
-  const active = useStore($billingBlock)
+  // Narrowed to THIS session (MJXHRM-381): the banner mounts once per tile, so a
+  // whole-atom read re-rendered every mounted banner whenever any session's wall
+  // was raised or cleared. The selector returns the store's own object or `null`,
+  // so unrelated sessions' snapshots compare equal and never re-render.
+  const active = useStoreSelector($billingBlock, block =>
+    block && sessionId && block.sessionId === sessionId ? block : null
+  )
+
   const { t } = useI18n()
 
-  if (!active || !sessionId || active.sessionId !== sessionId) {
+  // `active` is non-null only when it matched `sessionId`; the second half is
+  // for the type-checker (and for `clearBillingBlock` below, which needs a key).
+  if (!active || !sessionId) {
     return null
   }
 

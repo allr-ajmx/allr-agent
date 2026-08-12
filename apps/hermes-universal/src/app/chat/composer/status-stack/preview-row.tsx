@@ -6,8 +6,8 @@ import { Codicon } from '@/components/ui/codicon'
 import { Tip } from '@/components/ui/tooltip'
 import { useI18n } from '@/i18n'
 import { openExternalLink } from '@/lib/external-link'
+import { useStoreSelector } from '@/lib/use-session-slice'
 import { cn } from '@/lib/utils'
-import { useStore } from '@/store/atom'
 import { notifyError } from '@/store/notifications'
 import { $activePreviewPath, closePreviewTab, setPreviewTarget } from '@/store/preview'
 import { type PreviewArtifact } from '@/store/preview-status'
@@ -52,7 +52,6 @@ interface PreviewStatusRowProps {
  */
 export const PreviewStatusRow = memo(function PreviewStatusRow({ item, onDismiss }: PreviewStatusRowProps) {
   const { t } = useI18n()
-  const activePath = useStore($activePreviewPath)
   const [opening, setOpening] = useState(false)
 
   const isUrl = URL_TARGET.test(item.target.trim())
@@ -60,7 +59,15 @@ export const PreviewStatusRow = memo(function PreviewStatusRow({ item, onDismiss
   // A preview is a TILE now, so "showing" is a property of the tab list, not of
   // a pane's open flag. The old `$paneOpen(PREVIEW_PANE_ID)` conjunct named the
   // singleton rail pane that no longer exists in the layout tree.
-  const isOpen = !isUrl && activePath === path
+  //
+  // NARROWED to the BOOLEAN this row actually uses (MJXHRM-381), the same call
+  // `coding-row.tsx` makes against `$pullRequestsByBranch` and for the same
+  // reason: `$activePreviewPath` is a global that moves on every preview tab
+  // open/switch/close, and one of these rows is mounted per artifact per tile —
+  // so a whole-atom read repainted every artifact row in every tile whenever any
+  // preview tab changed. The `memo()` on this component could never help against
+  // that: the re-render came from its own subscription, not from a prop.
+  const isOpen = useStoreSelector($activePreviewPath, active => !isUrl && active === path)
 
   const activate = async () => {
     if (opening) {
