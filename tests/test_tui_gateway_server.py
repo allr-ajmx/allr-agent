@@ -11642,7 +11642,7 @@ def test_session_delete_refuses_active_session(monkeypatch):
     called: list[str] = []
 
     class _DB:
-        def delete_session(self, sid, sessions_dir=None):
+        def delete_session(self, sid, sessions_dir=None, include_compression_lineage=False):
             called.append(sid)
             return True
 
@@ -11693,7 +11693,7 @@ def test_session_delete_fails_closed_when_active_snapshot_raises(monkeypatch):
 
 def test_session_delete_returns_4007_when_missing(monkeypatch):
     class _DB:
-        def delete_session(self, sid, sessions_dir=None):
+        def delete_session(self, sid, sessions_dir=None, include_compression_lineage=False):
             return False
 
     monkeypatch.setattr(server, "_get_db", lambda: _DB())
@@ -11708,7 +11708,7 @@ def test_session_delete_returns_4007_when_missing(monkeypatch):
 
 def test_session_delete_propagates_db_exception(monkeypatch):
     class _DB:
-        def delete_session(self, sid, sessions_dir=None):
+        def delete_session(self, sid, sessions_dir=None, include_compression_lineage=False):
             raise RuntimeError("disk full")
 
     monkeypatch.setattr(server, "_get_db", lambda: _DB())
@@ -11725,13 +11725,19 @@ def test_session_delete_propagates_db_exception(monkeypatch):
 def test_session_delete_success_returns_deleted_id(monkeypatch):
     """Happy path — DB delete succeeds, response carries the deleted id
     and the on-disk sessions dir is forwarded so transcript files get
-    cleaned up alongside the row."""
+    cleaned up alongside the row.
+
+    Also pins ``include_compression_lineage=True``: the list this id was read
+    from projects a compression chain onto its live tip and shows it as ONE
+    row, so deleting only that row leaves the root behind to come back as a
+    conversation of its own (MJXHRM-414)."""
     captured: dict = {}
 
     class _DB:
-        def delete_session(self, sid, sessions_dir=None):
+        def delete_session(self, sid, sessions_dir=None, include_compression_lineage=False):
             captured["sid"] = sid
             captured["sessions_dir"] = sessions_dir
+            captured["lineage"] = include_compression_lineage
             return True
 
     monkeypatch.setattr(server, "_get_db", lambda: _DB())
@@ -11749,6 +11755,7 @@ def test_session_delete_success_returns_deleted_id(monkeypatch):
     # /sessions to it.
     assert captured["sessions_dir"] is not None
     assert str(captured["sessions_dir"]).endswith("sessions")
+    assert captured["lineage"] is True
 
 
 
@@ -11883,7 +11890,7 @@ def test_session_delete_honors_params_profile_sessions_dir(monkeypatch, tmp_path
         def __init__(self, db_path=None):
             captured["db_path"] = db_path
 
-        def delete_session(self, sid, sessions_dir=None):
+        def delete_session(self, sid, sessions_dir=None, include_compression_lineage=False):
             captured["sid"] = sid
             captured["sessions_dir"] = sessions_dir
             return True

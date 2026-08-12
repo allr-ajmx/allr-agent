@@ -1206,6 +1206,91 @@ class TestDeleteSessionOrphansChildren:
         assert grandchild["parent_session_id"] == "child"
 
 
+class TestDeleteSessionCompressionLineage:
+    """``include_compression_lineage`` — deleting the CONVERSATION, not the row.
+
+    Every list endpoint collapses a compression chain onto its live tip and
+    surfaces it as one row, so the id a client holds names the whole chain.
+    Deleting only that row left the root behind, and with no tip left to be
+    projected onto it came straight back into the list — carrying its ``pinned``
+    flag, which is how a deleted chat could return to the sidebar's Pinned
+    section (MJXHRM-414).
+    """
+
+    def _chain(self, db):
+        """root -> tip, joined by a compression edge."""
+        db.create_session("root", "cli")
+        db.append_message("root", "user", "before compression")
+        db._conn.execute(
+            "UPDATE sessions SET ended_at=?, end_reason=? WHERE id=?",
+            (100.0, "compression", "root"),
+        )
+        db.create_session("tip", "cli", parent_session_id="root")
+        db.append_message("tip", "user", "after compression")
+        db._conn.commit()
+
+    def test_deleting_the_surfaced_tip_takes_the_whole_chain(self, db):
+        self._chain(db)
+        # What the client sees: ONE row, the tip, stamped with its lineage root.
+        listed = db.list_sessions_rich(source="cli", limit=20)
+        assert [(r["id"], r["_lineage_root_id"]) for r in listed] == [("tip", "root")]
+
+        assert db.delete_session("tip", include_compression_lineage=True) is True
+
+        assert db.get_session("root") is None
+        assert db.get_session("tip") is None
+        # The whole point: nothing comes back into the list.
+        assert db.list_sessions_rich(source="cli", limit=20) == []
+        # …and the root's transcript went with it, rather than being stranded
+        # under a session id nothing references any more.
+        assert db.get_messages("root") == []
+
+    def test_deleting_from_the_root_end_takes_the_chain_too(self, db):
+        """A pin is stored on the lineage ROOT, so a client can hold either id."""
+        self._chain(db)
+
+        assert db.delete_session("root", include_compression_lineage=True) is True
+
+        assert db.get_session("root") is None
+        assert db.get_session("tip") is None
+
+    def test_pinned_chain_leaves_nothing_pinned_behind(self, db):
+        """The exact resurrection: a pin sits on every row of the chain
+        (``set_session_pinned`` flips the lineage as a unit), and the list
+        back-fills pinned rows past its LIMIT. A surviving root therefore
+        reappears in EVERY page, still pinned — so a client mirroring the server
+        flag re-adopts the pin of a session the user deleted."""
+        self._chain(db)
+        db.set_session_pinned("root", True)
+
+        db.delete_session("tip", include_compression_lineage=True)
+
+        assert db.list_sessions_rich(source="cli", limit=20, include_pinned=True) == []
+
+    def test_branch_children_are_still_only_orphaned(self, db):
+        """A branch is a separate conversation with its own list row, so it
+        must survive its parent's deletion exactly as before."""
+        self._chain(db)
+        db.create_session("branch", "cli", parent_session_id="tip")
+        db.append_message("branch", "user", "forked off")
+        db._conn.commit()
+
+        db.delete_session("tip", include_compression_lineage=True)
+
+        branch = db.get_session("branch")
+        assert branch is not None
+        assert branch["parent_session_id"] is None
+
+    def test_default_still_deletes_only_the_named_row(self, db):
+        """The flag is opt-in: admin/bulk callers addressing a raw row keep the
+        old contract."""
+        self._chain(db)
+
+        assert db.delete_session("tip") is True
+
+        assert db.get_session("root") is not None
+
+
 class TestBulkDeleteSessions:
     """``delete_sessions(ids)`` — the bulk-delete primitive backing the
     sessions-page "Delete N selected" button. Per-row contract matches
