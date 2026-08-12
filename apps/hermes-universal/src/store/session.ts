@@ -30,6 +30,7 @@ import {
   $activeSessionKey,
   $sessionStates,
   type ClientSessionState,
+  dropSessionState,
   ensureSessionSlice,
   hydratingKey,
   isPlaceholderKey,
@@ -782,6 +783,20 @@ let openGeneration = 0
 const isCurrentOpen = (generation: number): boolean => generation === openGeneration
 
 /**
+ * Stored id → the generation of the `hydrateColdSession` currently filling its
+ * `hydrating:<id>` placeholder.
+ *
+ * A box, not a number, so a re-open of the SAME session can hand the hydrate
+ * already fetching it a NEWER generation instead of cancelling it. Cancelling it
+ * is what stranded the placeholder: seeded `busy: true` with no runtime id, it
+ * is written by nothing else, refused by the LRU (`session-states.ts` never
+ * evicts a busy placeholder), and read as a running turn by every surface keyed
+ * on the stored id — the sidebar row's status dot and its running arc above all
+ * (MJXHRM-385).
+ */
+const hydrationsInFlight = new Map<string, { generation: number }>()
+
+/**
  * Open a stored session.
  *
  * WARM sessions promote SYNCHRONOUSLY. A session that already has a slice — a
@@ -821,6 +836,24 @@ export function openSession(storedId: string, options?: OpenSessionOptions): Pro
   const warm = runtimeKeyForStoredSession(storedId)
 
   if (warm && $sessionStates.get()[warm]) {
+    // A HYDRATE STILL IN FLIGHT is not a warm session — it is this same open,
+    // still running, and its slice is a placeholder with no runtime binding.
+    // Re-arm it rather than bumping past it: the generation counter is the
+    // CANCEL signal, and cancelling the hydrate that is about to bind this
+    // session leaves it busy forever (see `hydrationsInFlight`). One sidebar row
+    // clicked twice was enough — `onResumeSession` calls this on every click,
+    // with no already-active guard.
+    const hydrating = warm === hydratingKey(storedId) ? hydrationsInFlight.get(storedId) : undefined
+
+    if (hydrating) {
+      hydrating.generation = ++openGeneration
+      resetUnscopedStreamPin()
+      $activeStoredSessionId.set(storedId)
+      $activeSessionKey.set(warm)
+
+      return undefined
+    }
+
     openGeneration++ // cancel any hydrate still in flight
     resetUnscopedStreamPin()
     $activeStoredSessionId.set(storedId)
@@ -953,7 +986,10 @@ export async function reclaimSessionTransport(storedId: string): Promise<void> {
  * in-flight turn; its messages are only a fallback when REST is unavailable.
  */
 async function hydrateColdSession(storedId: string): Promise<void> {
-  const generation = ++openGeneration
+  // Boxed so `openSession` can re-arm THIS hydrate when the same session is
+  // opened again while it runs (see `hydrationsInFlight`).
+  const own = { generation: ++openGeneration }
+  hydrationsInFlight.set(storedId, own)
   resetUnscopedStreamPin()
 
   // The session gets its slice up front, under a placeholder key, so the UI has
@@ -981,6 +1017,34 @@ async function hydrateColdSession(storedId: string): Promise<void> {
   // the running turn, and `inflight` carries its tail. Settle to idle otherwise.
   let stillRunning = false
 
+  /**
+   * This open was superseded. The placeholder it seeded is `busy: true` with no
+   * runtime binding, so it cannot be left in place: nothing else writes it, the
+   * LRU refuses to evict a busy placeholder, and a later `openSession` would
+   * short-circuit onto a slice that can neither stream nor submit. Re-opening
+   * hydrates from scratch, which is the only way to get a bound session anyway.
+   *
+   * Never touches a slice that already reached its runtime id — by then it is a
+   * real session that happens to have lost the race for the foreground.
+   */
+  const abandonPlaceholder = () => {
+    if (!isPlaceholderKey(key)) {
+      return
+    }
+
+    if ($activeSessionKey.get() === key) {
+      // Unreachable while `openSession` re-arms an in-flight hydrate instead of
+      // cancelling it — but a chat yanked out from under the user is the worse
+      // failure of the two, so settle the slice rather than drop it. Its stored
+      // id IS the active one here, so this cannot raise a false "your turn".
+      updateSession(key, state => ({ ...state, busy: false }))
+
+      return
+    }
+
+    dropSessionState(key)
+  }
+
   // Resolve the OWNING profile before either call. A session can be opened from
   // any profile — a search hit, a restored tile, a deep link — and a resume or a
   // transcript read without one lands on whichever gateway is live, forking the
@@ -994,7 +1058,10 @@ async function hydrateColdSession(storedId: string): Promise<void> {
   const known = knownSessionProfile(storedId)
   const profile = known ?? (sessionProfileIsAmbiguous() ? await resolveSessionProfile(storedId) : undefined)
 
-  if (!isCurrentOpen(generation)) {
+  if (!isCurrentOpen(own.generation)) {
+    abandonPlaceholder()
+    releaseHydration(storedId, own)
+
     return
   }
 
@@ -1025,15 +1092,15 @@ async function hydrateColdSession(storedId: string): Promise<void> {
     // an empty chat.
     const restMessages = hydrated.length ? hydrated : null
 
-    if (restMessages && isCurrentOpen(generation)) {
+    if (restMessages && isCurrentOpen(own.generation)) {
       updateSession(key, state => ({ ...state, messages: restMessages }))
     }
 
     const resumed = await resumePromise
 
-    if (!isCurrentOpen(generation)) {
-      // A newer open superseded this one. The slice is still this session's, so
-      // leave it alone rather than dropping a resume the user may return to.
+    if (!isCurrentOpen(own.generation)) {
+      abandonPlaceholder()
+
       return
     }
 
@@ -1071,7 +1138,9 @@ async function hydrateColdSession(storedId: string): Promise<void> {
     // router addresses.
     adoptResumedTurn(runtimeId, resumed)
   } catch (err) {
-    if (!isCurrentOpen(generation)) {
+    if (!isCurrentOpen(own.generation)) {
+      abandonPlaceholder()
+
       return
     }
 
@@ -1093,9 +1162,20 @@ async function hydrateColdSession(storedId: string): Promise<void> {
       notifyError(err, 'Failed to open session')
     }
   } finally {
-    if (isCurrentOpen(generation)) {
+    releaseHydration(storedId, own)
+
+    if (isCurrentOpen(own.generation)) {
       updateSession(key, state => ({ ...state, busy: stillRunning }))
     }
+  }
+}
+
+/** Forget a finished hydrate — but only if it is still the one on record. An
+ *  abandoned hydrate can outlive the fresh one that replaced it, and clearing
+ *  the map blindly would make the live hydrate look cancellable again. */
+function releaseHydration(storedId: string, own: { generation: number }): void {
+  if (hydrationsInFlight.get(storedId) === own) {
+    hydrationsInFlight.delete(storedId)
   }
 }
 
