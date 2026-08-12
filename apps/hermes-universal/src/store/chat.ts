@@ -1012,6 +1012,21 @@ export async function submitEditedPrompt(
     // history). We already interrupted, so land the text as a plain resend.
     if (!plan.isFailedTurn && isStaleTargetError(err)) {
       try {
+        // Put the FULL transcript back first. The gateway refuses an
+        // out-of-range ordinal (4018) BEFORE it truncates anything, so nothing
+        // was cut — and a plain resend appends at the tail of the history the
+        // backend still holds. Leaving the optimistic truncation up would show a
+        // thread the backend does not have, with the resent turn grafted onto a
+        // cut that never happened: invisible until the next hydration, at which
+        // point the "deleted" turns all come back and the edit reads as a
+        // duplicate. The edited text goes back on as a NEW row, which is exactly
+        // where the gateway is about to persist it (fresh id — the original row
+        // is back in place under `sourceId`).
+        updateSession(target.key, state => ({
+          ...state,
+          messages: [...messages, { ...plan.editedMessage, id: nextId() }]
+        }))
+
         await runRewindSubmit(target, plan.text, undefined, false)
 
         return

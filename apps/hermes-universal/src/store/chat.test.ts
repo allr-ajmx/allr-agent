@@ -751,7 +751,13 @@ describe('submitEditedPrompt (edit + rewind)', () => {
     expect($busy.get()).toBe(false)
   })
 
-  it('falls back to a plain resend when the truncate target is stale', async () => {
+  // The gateway rejects an out-of-range ordinal (4018) BEFORE it truncates
+  // anything, so the backend still holds the whole transcript and the plain
+  // resend appends at its tail. Leaving the optimistic truncation up therefore
+  // showed a thread the backend did not have — invisible until the next
+  // hydration, when the "deleted" turns all came back and the edit read as a
+  // duplicate. Client and backend have to agree the moment the resend lands.
+  it('falls back to a plain resend when the truncate target is stale, and un-truncates to match', async () => {
     seedTurns()
     vi.mocked(requestGateway)
       .mockRejectedValueOnce(new Error('turn is no longer in session history'))
@@ -760,8 +766,16 @@ describe('submitEditedPrompt (edit + rewind)', () => {
     await submitEditedPrompt('u2', 'second ask, revised')
 
     expect(vi.mocked(requestGateway).mock.calls[1][1]).not.toHaveProperty('truncate_before_user_ordinal')
-    // The optimistic truncation stands — the resend did land.
-    expect($messages.get().map(m => m.id)).toEqual(['u1', 'a1', 'u2'])
+    expect(vi.mocked(requestGateway).mock.calls[1][1]).not.toHaveProperty('confirm_truncate')
+
+    const ids = $messages.get().map(m => m.id)
+    // The full history is back, with the edited text appended as the new turn
+    // the gateway is about to persist — not grafted onto a cut that never
+    // happened.
+    expect(ids.slice(0, 4)).toEqual(['u1', 'a1', 'u2', 'a2'])
+    expect(ids).toHaveLength(5)
+    expect(messageText($messages.get()[2])).toBe('second ask')
+    expect(messageText($messages.get()[4])).toBe('second ask, revised')
   })
 
   // MJXHRM-367: every other submit path recovers a runtime the gateway dropped;
