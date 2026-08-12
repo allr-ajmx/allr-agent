@@ -77,8 +77,12 @@ import type { SetStatusbarItemGroup } from '../shell/statusbar-controls'
 
 import { BlueprintSlotControl, blueprintSlotHelp, cleanBlueprintFieldError, initialBlueprintValues } from './blueprints'
 import {
+  cronDeliverSummary,
+  cronDeliveryOptions,
+  cronDeliveryTargetLabel,
   cronEditorUpdates,
   jobIsScriptOnly,
+  normalizeCronDeliverValue,
   parseCronDeliveryTargets,
   toggleCronDeliveryTarget,
   validateCronEditor
@@ -139,22 +143,6 @@ function jobScheduleExpr(job: CronJob): string {
   return asText(job.schedule?.expr) || asText(job.schedule_display) || ''
 }
 
-// Configured platforms → their delivery label, anything else → the backend's
-// own name. A platform with no cron home channel gets told so inline, since
-// ticking it there would otherwise silently deliver nowhere.
-function deliverTargetLabel(target: CronDeliveryTarget, c: Translations['cron']): string {
-  const base = target.id === 'local' ? c.deliveryLabels.local : (c.deliveryLabels[target.id] ?? target.name)
-
-  return target.id !== 'local' && !target.home_target_set ? `${base} — ${c.deliverNeedsHomeChannel}` : base
-}
-
-/** The stored `deliver` string rendered for reading: every target, labelled. */
-function deliverSummary(value: string, c: Translations['cron']): string {
-  return parseCronDeliveryTargets(value)
-    .map(target => c.deliveryLabels[target] ?? target)
-    .join(', ')
-}
-
 /**
  * The delivery-target checkboxes. The scheduler accepts comma-separated
  * targets, so a job can stay local AND post to a connected platform — a single
@@ -162,6 +150,10 @@ function deliverSummary(value: string, c: Translations['cron']): string {
  * hardcoded platform list, so nothing is offered that isn't connected; a saved
  * target missing from discovery is still shown, or editing an old job would
  * silently drop a route the user never touched.
+ *
+ * The row set and the labelling both live in `cron-job-model` — they carry the
+ * rules this ticket is actually about, and they are unreachable from a test
+ * while they sit inline in a component.
  */
 function DeliverCheckboxes({
   c,
@@ -177,14 +169,7 @@ function DeliverCheckboxes({
   value: string
 }) {
   const selected = parseCronDeliveryTargets(value)
-  const knownIds = new Set(targets.map(target => target.id))
-
-  const options = [
-    ...targets,
-    ...selected
-      .filter(target => !knownIds.has(target))
-      .map(target => ({ home_env_var: null, home_target_set: true, id: target, name: target }))
-  ]
+  const options = cronDeliveryOptions(targets, value)
 
   return (
     <div className="grid gap-2 rounded-md border border-input px-3 py-2.5" id={id} role="group">
@@ -198,7 +183,7 @@ function DeliverCheckboxes({
               id={checkboxId}
               onCheckedChange={next => onChange(toggleCronDeliveryTarget(value, target.id, next === true))}
             />
-            <span>{deliverTargetLabel(target, c)}</span>
+            <span>{cronDeliveryTargetLabel(target, c.deliveryLabels, c.deliverNeedsHomeChannel)}</span>
           </label>
         )
       })}
@@ -207,7 +192,7 @@ function DeliverCheckboxes({
 }
 
 function jobDeliver(job: CronJob): string {
-  return asText(job.deliver) || DEFAULT_DELIVER
+  return normalizeCronDeliverValue(job.deliver) || DEFAULT_DELIVER
 }
 
 function jobModel(job: CronJob): string {
@@ -730,7 +715,7 @@ function CronJobDetail({
             { label: c.frequencyLabel, value: jobScheduleDisplay(job) },
             { label: c.last.replace(/:$/, ''), value: formatTime(job.last_run_at) },
             { label: c.next.replace(/:$/, ''), value: formatTime(job.next_run_at) },
-            { label: c.deliverLabel, value: deliverSummary(deliver, c) },
+            { label: c.deliverLabel, value: cronDeliverSummary(deliver, c.deliveryLabels) },
             ...(modelOverride ? [{ label: c.modelLabel, value: modelOverride }] : [])
           ]}
         />

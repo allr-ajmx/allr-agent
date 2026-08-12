@@ -650,7 +650,11 @@ export interface AnalyticsTotals {
 }
 
 export interface CronJob {
-  deliver?: null | string
+  // ONE comma-separated string on the wire ("local,telegram"). `string[]` is a
+  // legacy stored shape (hand-edited jobs.json, older MCP callers) that
+  // cron/scheduler.py `_normalize_deliver_value` still flattens — the app has
+  // to read it too, or an edit writes the routes away.
+  deliver?: null | string | string[]
   enabled: boolean
   id: string
   last_error?: null | string
