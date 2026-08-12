@@ -17,6 +17,7 @@
 
 import { invoke } from '@tauri-apps/api/core'
 
+import { writeClipboardText } from '@/lib/clipboard'
 import { JAEGER_UI, tracer } from '@/observability/exporter'
 
 import { BUTTON, createHudShell, DIM, el, FIELD, ROW } from './hud-shell'
@@ -191,8 +192,10 @@ export function installTraceHud(): () => void {
 
     // Console fallback rather than a silently dead button: WebKitGTK gates
     // `navigator.clipboard` on a secure context, and the dev server is plain
-    // http on some of the setups this runs on.
-    navigator.clipboard?.writeText(json).catch(() => console.log(json)) ?? console.log(json)
+    // http on some of the setups this runs on. The seam tries the OS plugin
+    // first, which is not gated on either — so on a real desktop build the
+    // fallback stops being the usual outcome.
+    void writeClipboardText(json).catch(() => console.log(json))
   })
 
   jaegerButton.addEventListener('click', () => {

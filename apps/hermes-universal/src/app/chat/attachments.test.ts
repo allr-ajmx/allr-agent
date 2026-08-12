@@ -9,6 +9,7 @@ import {
   pickFolderAttachment,
   pickRemoteAttachment,
   pickRemoteFolderAttachment,
+  stageAttachmentFromBlob,
   stageAttachmentFromPath
 } from './attachments'
 
@@ -145,5 +146,51 @@ describe('staging failures are reported', () => {
       ref: '@file:notes.txt'
     })
     expect(notifyError).not.toHaveBeenCalled()
+  })
+})
+
+// Bytes with no path: a pasted or dropped screenshot. The composer has always
+// pulled image blobs off the paste event and always called `preventDefault()` on
+// them, but universal never passed it a handler — so the bytes were swallowed
+// and nothing appeared (MJXHRM-415). `file.attach` takes `data_url` OR `path`
+// (methods_prompt.py errors only when both are missing), which is what makes a
+// blob a first-class attachment rather than a lesser one.
+describe('staging bytes that never had a path', () => {
+  beforeEach(() => {
+    vi.mocked(notifyError).mockReset()
+    vi.mocked(ensureSession).mockResolvedValue({ id: 'live-1', storedId: 'stored-1' } as never)
+    vi.mocked(requestGateway).mockReset()
+  })
+
+  it('uploads the blob as a data URL with NO path and returns the ref', async () => {
+    vi.mocked(requestGateway).mockResolvedValue({ ref_text: '@image:shot.png' } as never)
+
+    await expect(
+      stageAttachmentFromBlob(new Blob(['\u0001\u0002'], { type: 'image/png' }), 'shot.png')
+    ).resolves.toEqual({ name: 'shot.png', ref: '@image:shot.png' })
+
+    const [method, params] = vi.mocked(requestGateway).mock.calls[0] as [string, Record<string, unknown>]
+    expect(method).toBe('file.attach')
+    expect(params.name).toBe('shot.png')
+    expect(params.path).toBeUndefined()
+    expect(String(params.data_url)).toMatch(/^data:image\/png;base64,/)
+  })
+
+  // A clipboard blob has no filename. The extension has to come off the MIME or
+  // the gateway files a screenshot as something it will not treat as an image.
+  it('names an unnamed blob from its own MIME type', async () => {
+    vi.mocked(requestGateway).mockResolvedValue({ ref_text: '@image:x' } as never)
+
+    await stageAttachmentFromBlob(new Blob(['x'], { type: 'image/jpeg' }))
+
+    const [, params] = vi.mocked(requestGateway).mock.calls[0] as [string, Record<string, unknown>]
+    expect(String(params.name)).toMatch(/^pasted-image-\d+\.jpg$/)
+  })
+
+  it('reports a gateway that stages nothing, instead of dropping the paste silently', async () => {
+    vi.mocked(requestGateway).mockResolvedValue({} as never)
+
+    await expect(stageAttachmentFromBlob(new Blob(['x'], { type: 'image/png' }), 'shot.png')).resolves.toBeNull()
+    expect(notifyError).toHaveBeenCalledWith(expect.any(Error), expect.stringContaining('shot.png'))
   })
 })

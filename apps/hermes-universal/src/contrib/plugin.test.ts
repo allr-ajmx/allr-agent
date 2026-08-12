@@ -10,10 +10,10 @@ vi.mock('@/lib/platform', async importOriginal => ({
 }))
 vi.mock('@/lib/external-link', () => ({ tryOpenExternalLink: vi.fn(async () => true) }))
 vi.mock('@/lib/reveal-path', () => ({ tryRevealPathInFileManager: vi.fn(async () => true) }))
-vi.mock('@/components/ui/copy-button', () => ({ writeClipboardText: vi.fn(async () => {}) }))
+vi.mock('@/lib/clipboard', () => ({ writeClipboardText: vi.fn(async () => {}) }))
 vi.mock('@/store/native-notifications', () => ({ dispatchPluginNativeNotification: vi.fn() }))
 
-import { writeClipboardText } from '@/components/ui/copy-button'
+import { writeClipboardText } from '@/lib/clipboard'
 import { tryOpenExternalLink } from '@/lib/external-link'
 import { pluginSocket } from '@/lib/plugin-transport'
 import { tryRevealPathInFileManager } from '@/lib/reveal-path'

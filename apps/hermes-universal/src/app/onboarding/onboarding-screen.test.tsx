@@ -25,9 +25,16 @@ vi.mock('@/hermes', () => ({
   updateEnvVars: vi.fn(async () => ({ ok: true }))
 }))
 vi.mock('@/store/gateway', () => ({ requestGateway: vi.fn(async () => ({})) }))
+// The clipboard goes through the OS seam, not `navigator.clipboard` — on
+// WebKitGTK the web API is refused in cases Chromium allows, and this command IS
+// the sign-in flow (MJXHRM-415). Asserting on the seam is also what makes the
+// assertion synchronous: the real seam only reaches the web API after a dynamic
+// import has failed, two microtasks later than the click.
+vi.mock('@/lib/clipboard', () => ({ writeClipboardText: vi.fn(async () => {}) }))
 
 import { listOAuthProviders } from '@/hermes'
 import { I18nProvider } from '@/i18n'
+import { writeClipboardText } from '@/lib/clipboard'
 import { $onboarding } from '@/store/onboarding'
 
 import { OnboardingScreen } from './onboarding-screen'
@@ -58,7 +65,7 @@ function renderScreen() {
 beforeEach(() => {
   resetOnboarding()
   vi.mocked(listOAuthProviders).mockResolvedValue({ providers: [qwen, connected] })
-  Object.assign(navigator, { clipboard: { writeText: vi.fn(async () => {}) } })
+  vi.mocked(writeClipboardText).mockClear()
 })
 afterEach(resetOnboarding)
 
@@ -87,7 +94,7 @@ describe('OnboardingScreen — CLI-terminal (external) providers', () => {
     fireEvent.click(await screen.findByRole('button', { name: /Sign in with Qwen/ }))
     fireEvent.click(screen.getByRole('button', { name: 'Copy' }))
 
-    expect(navigator.clipboard.writeText).toHaveBeenCalledWith('hermes auth add qwen-oauth')
+    expect(writeClipboardText).toHaveBeenCalledWith('hermes auth add qwen-oauth')
   })
 
   it('advances to the confirm step once the recheck finds the CLI creds', async () => {

@@ -1,3 +1,5 @@
+import { writeClipboardText } from '@/lib/clipboard'
+
 // Rasterise an SVG string to PNG and copy it to the clipboard. Self-contained
 // SVGs only (inline styles) — mermaid output qualifies. Falls back to copying
 // the SVG markup as text where image clipboard writes aren't permitted.
@@ -49,8 +51,13 @@ export async function copySvgAsPng(svg: string): Promise<void> {
   try {
     const blob = await svgToPngBlob(svg)
 
+    // The image branch has no OS seam: `clipboard-manager:allow-write-image` is
+    // deliberately NOT granted (see src-tauri/capabilities/default.json), so an
+    // image write is the web API or nothing. On WebKitGTK that is "nothing" —
+    // which is exactly why the text fallback below has to go through the seam
+    // rather than repeating the call that just failed (MJXHRM-415).
     await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })])
   } catch {
-    await navigator.clipboard.writeText(svg)
+    await writeClipboardText(svg)
   }
 }

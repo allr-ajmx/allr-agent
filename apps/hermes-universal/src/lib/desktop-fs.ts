@@ -1,8 +1,8 @@
 import { open as openDialog } from '@tauri-apps/plugin-dialog'
 
-import { writeClipboardText } from '@/components/ui/copy-button'
 import { getDefaultCwd, getFileDiff, getGitRoot, readDir, readFileDataUrl, readFileText, writeFileText } from '@/hermes'
 import { translateNow } from '@/i18n'
+import { writeClipboardText } from '@/lib/clipboard'
 import { IS_DESKTOP } from '@/lib/platform'
 import { $connection } from '@/store/connection'
 import { type Connection, connectionCacheKey } from '@/store/gateway-config'

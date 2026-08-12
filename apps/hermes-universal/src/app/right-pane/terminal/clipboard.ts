@@ -49,32 +49,9 @@ export function terminalClipboardIntent(
   return key === 'c' && hasSelection ? 'copy' : null
 }
 
-/**
- * Read the clipboard for a terminal paste.
- *
- * The Tauri clipboard-manager plugin comes first (MJXHRM-415). The webview's
- * `navigator.clipboard.readText` cannot be the primary here: it is
- * permission-gated and user-gesture-gated, and WebKitGTK — the engine on the
- * Linux desktop build, not Chromium — refuses it in cases Chromium allows. That
- * made Ctrl+Shift+V a silent no-op over a shell prompt. The plugin reads through
- * the OS, so no such gate applies.
- *
- * The web API stays as a fallback for any target where the plugin is
- * unavailable. Returns '' rather than throwing: a paste the platform refuses
- * must be a no-op, not an error dialog over a shell prompt.
- */
-export async function readClipboardText(): Promise<string> {
-  try {
-    const { readText } = await import('@tauri-apps/plugin-clipboard-manager')
-
-    return (await readText()) ?? ''
-  } catch {
-    // Plugin unavailable or refused — fall through to the webview's own API.
-  }
-
-  try {
-    return (await navigator.clipboard?.readText?.()) ?? ''
-  } catch {
-    return ''
-  }
-}
+// The read this handler performs lives in @/lib/clipboard (`readClipboardText`),
+// next to the write half. It was defined here when the terminal was the only
+// reader in the tree (MJXHRM-415) — which is part of why four other surfaces
+// went on calling `navigator.clipboard` directly and silently doing nothing on
+// WebKitGTK. Nothing about "read through the OS because the webview's own API is
+// refused" is specific to a terminal.

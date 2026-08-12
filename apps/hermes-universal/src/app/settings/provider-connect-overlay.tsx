@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useI18n } from '@/i18n'
+import { writeClipboardText } from '@/lib/clipboard'
 import { openExternalLink } from '@/lib/external-link'
 import { Loader2, X } from '@/lib/icons'
 import { useStore } from '@/store/atom'
@@ -34,7 +35,10 @@ export function ProviderConnectOverlay() {
   const title = providerTitle(provider)
   const oauth = state.oauth
 
-  const copyCode = () => void navigator.clipboard?.writeText(oauth?.userCode ?? '').catch(() => {})
+  // OS seam, not `navigator.clipboard`: WebKitGTK refuses the web API in cases
+  // Chromium allows, and the device code is the only way through this step
+  // (MJXHRM-415).
+  const copyCode = () => void writeClipboardText(oauth?.userCode ?? '').catch(() => {})
 
   let body: React.ReactNode
 
