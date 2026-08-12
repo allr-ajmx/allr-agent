@@ -2,7 +2,7 @@ import { OverlayView } from '@/app/overlays/overlay-view'
 import { ArtifactPreview } from '@/app/right-pane/preview/preview-artifact'
 import { useI18n } from '@/i18n'
 import { useStore } from '@/store/atom'
-import { $activePreviewTarget, closePreviewTab, isArtifactTab } from '@/store/preview'
+import { $activePreviewTarget, isArtifactTab, requestClosePreviewTab } from '@/store/preview'
 
 /**
  * Mount point for an artifact preview in a window that has NO preview surface.
@@ -41,7 +41,7 @@ export function ArtifactPreviewOverlay() {
       // the version stepper, copy and download on its right edge, exactly where
       // the overlay's ✕ floats.
       contentClassName="overflow-hidden pt-[calc(var(--titlebar-height)+0.1875rem)]"
-      onClose={() => closePreviewTab(target.path)}
+      onClose={() => requestClosePreviewTab(target.path)}
     >
       <ArtifactPreview key={target.path} target={target} />
     </OverlayView>

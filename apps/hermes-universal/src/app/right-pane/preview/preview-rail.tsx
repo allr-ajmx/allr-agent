@@ -9,13 +9,13 @@ import { useStore } from '@/store/atom'
 import {
   $activePreviewTarget,
   $previewTabs,
-  closeAllPreviewTabs,
-  closeOtherPreviewTabs,
-  closePreviewTab,
-  closePreviewTabsToRight,
   isArtifactTab,
   previewCloseTargets,
   type PreviewTarget,
+  requestCloseAllPreviewTabs,
+  requestCloseOtherPreviewTabs,
+  requestClosePreviewTab,
+  requestClosePreviewTabsToRight,
   selectPreviewTab
 } from '@/store/preview'
 import { $dirtyPreviewPaths } from '@/store/preview-edit'
@@ -87,12 +87,12 @@ function PreviewTab({ active, dirty, tab }: { active: boolean; dirty: boolean; t
           // and the gesture only ever worked on macOS. Every other tab surface
           // in the app already used the shared handlers; this one was the
           // holdout.
-          {...middleClickHandlers(() => closePreviewTab(tab.path))}
+          {...middleClickHandlers(() => requestClosePreviewTab(tab.path))}
           onClick={event => {
             // ⌘-click closes too, the trackpad equivalent of the middle button.
             if (isMetaClose(event)) {
               event.preventDefault()
-              closePreviewTab(tab.path)
+              requestClosePreviewTab(tab.path)
 
               return
             }
@@ -107,7 +107,7 @@ function PreviewTab({ active, dirty, tab }: { active: boolean; dirty: boolean; t
             className="inline-flex size-4 shrink-0 items-center justify-center rounded hover:bg-(--chrome-action-hover)"
             onClick={event => {
               event.stopPropagation()
-              closePreviewTab(tab.path)
+              requestClosePreviewTab(tab.path)
             }}
             type="button"
           >
@@ -133,10 +133,10 @@ function PreviewTab({ active, dirty, tab }: { active: boolean; dirty: boolean; t
             group reads from `zones.*`, like every other strip. */}
         {paneTabCloseItems(CONTEXT_KIT, {
           counts: previewCloseTargets(tab.path),
-          onClose: () => closePreviewTab(tab.path),
-          onCloseAll: () => closeAllPreviewTabs(),
-          onCloseOthers: () => closeOtherPreviewTabs(tab.path),
-          onCloseToRight: () => closePreviewTabsToRight(tab.path)
+          onClose: () => requestClosePreviewTab(tab.path),
+          onCloseAll: () => requestCloseAllPreviewTabs(),
+          onCloseOthers: () => requestCloseOtherPreviewTabs(tab.path),
+          onCloseToRight: () => requestClosePreviewTabsToRight(tab.path)
         })}
       </ContextMenuContent>
     </ContextMenu>

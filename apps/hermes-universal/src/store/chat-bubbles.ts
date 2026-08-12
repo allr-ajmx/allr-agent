@@ -24,10 +24,21 @@
 
 import { readJson, writeJson } from '@/lib/storage'
 import { atom, computed } from '@/store/atom'
+import { requestClose } from '@/store/close-confirm'
 import { $activeGatewayProfile, normalizeProfileKey } from '@/store/profile'
 import { $activeStoredSessionId, newSession, openSession } from '@/store/session'
-import { dropSessionState, runtimeKeyForStoredSession, sessionTileDelegate } from '@/store/session-states'
+import { $activeSessionKey, isDraftKey } from '@/store/session-state-types'
+import {
+  dropSessionState,
+  runtimeKeyForStoredSession,
+  sessionKeyNeedsCloseConfirm,
+  sessionTileDelegate
+} from '@/store/session-states'
 import { isSecondaryWindow, ownsPersistedAppState } from '@/store/windows'
+
+/** Prompt id for the draft bubble before it owns a slice — it has no stored id
+ *  and there is only ever one of it. */
+const DRAFT_BUBBLE_ID = 'bubble:draft'
 
 /** One parallel chat. `storedSessionId === null` is the DRAFT bubble (a
  *  fresh/unsaved chat with no id yet). `runtimeId` is the live session KEY when
@@ -133,10 +144,26 @@ function ensureBubble(storedId: null | string) {
   }
 }
 
-/** The live session key behind a bubble, following a compaction id rotation. */
+/**
+ * The live session key behind a bubble, following a compaction id rotation.
+ *
+ * The DRAFT bubble (`storedId === null`) names no session, so there is nothing
+ * to look up — but it still owns a slice, the active `draft:` one, exactly like
+ * the draft TILE does. Resolving it here is what makes the draft a bubble like
+ * any other: its busy state and its close-confirm read through this one
+ * function, so a first turn sent from a fresh chat is no longer closeable
+ * without a prompt merely because its stored id hasn't landed yet.
+ *
+ * `isDraftKey`, not `isPlaceholderKey`: a `hydrating:` key belongs to a STORED
+ * session that has a bubble of its own, and claiming it here would point the
+ * draft bubble at another chat's slice — and hand its close the other chat's
+ * eviction.
+ */
 export function bubbleRuntimeKey(storedId: null | string): null | string {
   if (!storedId) {
-    return null
+    const active = $activeSessionKey.get()
+
+    return isDraftKey(active) ? active : null
   }
 
   return runtimeKeyForStoredSession(storedId) ?? bubbleFor(storedId)?.runtimeId ?? null
@@ -209,10 +236,38 @@ export function switchToBubble(target: null | string) {
   promote(target)
 }
 
-/** Close a bubble (drag-up → red → release). NON-DESTRUCTIVE: removes it from the
- *  row only — the session stays in history. Its background slice is evicted. If it
+/**
+ * Close a bubble (drag-up → red → release) — CONFIRMING FIRST if its chat is
+ * still working, exactly as the desktop tile close does.
+ *
+ * This is the mobile half of MJXHRM-390's close verb, and it was the half that
+ * did not ask. A tile close has always run `requestCloseSessionTile`; the same
+ * session behind a bubble was evicted mid-turn on a drag-up, with no prompt and
+ * no undo (there is no ⌘⇧T on a phone). The prompt could not have appeared
+ * either way — its dialog was mounted inside `ContribController`, which the
+ * mobile shell never renders — so the fix is two-sided: the gate is shared here
+ * and the dialog is mounted per window (see app/close-confirm.tsx).
+ */
+export function requestRemoveBubble(target: null | string) {
+  if (!$chatBubbles.get().some(b => b.storedSessionId === target)) {
+    return
+  }
+
+  const runtimeKey = bubbleRuntimeKey(target)
+
+  requestClose(
+    // The DRAFT bubble has no stored id, so its prompt is keyed by the slice it
+    // owns — there is exactly one draft bubble, and `DRAFT_BUBBLE_ID` is the
+    // floor for the moment it has no slice either.
+    { close: () => removeBubble(target), id: target ?? runtimeKey ?? DRAFT_BUBBLE_ID, kind: 'session' },
+    sessionKeyNeedsCloseConfirm(runtimeKey)
+  )
+}
+
+/** Close a bubble unconditionally. NON-DESTRUCTIVE: removes it from the row
+ *  only — the session stays in history. Its background slice is evicted. If it
  *  was the active chat, a neighbor is promoted; if the row empties, a fresh chat
- *  opens. */
+ *  opens. User-facing callers want `requestRemoveBubble`. */
 export function removeBubble(target: null | string) {
   const list = $chatBubbles.get()
   const idx = list.findIndex(b => b.storedSessionId === target)

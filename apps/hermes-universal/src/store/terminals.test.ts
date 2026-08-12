@@ -2,9 +2,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/store/layout', () => ({ setTerminalOpen: vi.fn() }))
 
+import { setTerminalOpen } from '@/store/layout'
+
 import {
   $activeTerminalId,
   $terminals,
+  closeOtherTerminals,
   closeTerminalsToRight,
   createTerminal,
   noteTerminalCwd,
@@ -16,6 +19,7 @@ import {
 beforeEach(() => {
   $terminals.set([])
   $activeTerminalId.set(null)
+  vi.mocked(setTerminalOpen).mockClear()
 })
 
 describe('noteTerminalCwd', () => {
@@ -116,6 +120,37 @@ describe('closeTerminalsToRight', () => {
     closeTerminalsToRight('nope')
 
     expect($terminals.get().map(term => term.id)).toEqual([a, b])
+  })
+})
+
+// MJXHRM-390. Three of the four verbs went through `afterRemoval` — which
+// re-homes the selection and HIDES the terminal area once nothing is left —
+// and this one rewrote the list itself.
+describe('closeOtherTerminals', () => {
+  it('keeps the anchor and re-homes the selection onto it', () => {
+    const a = createTerminal()
+    const b = createTerminal()
+    createTerminal()
+
+    closeOtherTerminals(b)
+
+    expect($terminals.get().map(term => term.id)).toEqual([b])
+    expect($activeTerminalId.get()).toBe(b)
+    expect(setTerminalOpen).not.toHaveBeenCalled()
+    expect(a).toBeTruthy()
+  })
+
+  it('hides the terminal area when the anchor is not one of ours', () => {
+    createTerminal()
+    createTerminal()
+
+    closeOtherTerminals('gone')
+
+    expect($terminals.get()).toEqual([])
+    expect($activeTerminalId.get()).toBeNull()
+    // Without this the rail emptied and the AREA stayed open on nothing — ⌃`
+    // then read as "hide" while showing a blank pane.
+    expect(setTerminalOpen).toHaveBeenCalledWith(false)
   })
 })
 

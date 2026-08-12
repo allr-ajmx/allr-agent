@@ -26,9 +26,13 @@ vi.mock('@/store/session', async () => {
 // live?" questions are answerable without booting the whole session graph.
 const live = new Map<string, string>()
 
+// Which slices are "still working" — the predicate the close gate consults.
+const busyKeys = new Set<string>()
+
 vi.mock('@/store/session-states', () => ({
   dropSessionState: vi.fn(),
   runtimeKeyForStoredSession: (id: null | string) => (id ? (live.get(id) ?? null) : null),
+  sessionKeyNeedsCloseConfirm: (key: null | string) => Boolean(key && busyKeys.has(key)),
   sessionTileDelegate: () => ({
     resumeTile: (id: string) => {
       live.set(id, `rt-${id}`)
@@ -39,15 +43,30 @@ vi.mock('@/store/session-states', () => ({
 }))
 
 import { $activeStoredSessionId } from '@/store/session'
+import { $activeSessionKey } from '@/store/session-state-types'
 import { dropSessionState, sessionTileDelegate } from '@/store/session-states'
 
-import { $chatBubbles, addBubble, newChatBubble, removeBubble, switchToBubble } from './chat-bubbles'
+import {
+  $chatBubbles,
+  addBubble,
+  newChatBubble,
+  removeBubble,
+  requestRemoveBubble,
+  switchToBubble
+} from './chat-bubbles'
+import { $pendingClose, resolvePendingClose } from './close-confirm'
 
 const ids = () => $chatBubbles.get().map(b => b.storedSessionId)
 
 afterEach(() => {
+  while ($pendingClose.get()) {
+    resolvePendingClose($pendingClose.get()!.token, false)
+  }
+
   $chatBubbles.set([])
   $activeStoredSessionId.set(null)
+  $activeSessionKey.set('')
+  busyKeys.clear()
   live.clear()
   vi.clearAllMocks()
 })
@@ -101,6 +120,83 @@ describe('chat-bubbles store', () => {
 
     expect(ids()).toEqual([])
     expect($activeStoredSessionId.get()).toBeNull()
+  })
+
+  // MJXHRM-390 — the mobile half of the close verb, and the half that did not
+  // ask. A tile close has always run `requestCloseSessionTile`; the same session
+  // behind a bubble was evicted mid-turn on a drag-up with no prompt and no undo
+  // (there is no ⌘⇧T on a phone).
+  describe('requestRemoveBubble (the drag-up close)', () => {
+    it('closes a settled chat with no prompt', () => {
+      $activeStoredSessionId.set('a')
+      addBubble('b')
+      live.set('b', 'rt-b')
+
+      requestRemoveBubble('b')
+
+      expect($pendingClose.get()).toBeNull()
+      expect(ids()).toEqual(['a'])
+    })
+
+    it('asks before dropping a chat that is still working, and leaves it alone if declined', () => {
+      $activeStoredSessionId.set('a')
+      addBubble('b')
+      live.set('b', 'rt-b')
+      busyKeys.add('rt-b')
+
+      requestRemoveBubble('b')
+
+      expect($pendingClose.get()).toMatchObject({ id: 'b', kind: 'session' })
+      expect(ids()).toEqual(['a', 'b'])
+      expect(dropSessionState).not.toHaveBeenCalled()
+
+      resolvePendingClose($pendingClose.get()!.token, false)
+      expect(ids()).toEqual(['a', 'b'])
+
+      requestRemoveBubble('b')
+      resolvePendingClose($pendingClose.get()!.token, true)
+      expect(ids()).toEqual(['a'])
+      expect(dropSessionState).toHaveBeenCalledWith('rt-b')
+    })
+
+    // The DRAFT bubble names no session, so `bubbleRuntimeKey` returned null and
+    // the gate had nothing to read — a first turn sent from a fresh chat was
+    // closeable without a prompt purely because its id had not landed yet. The
+    // draft TILE has resolved its placeholder slice since `tileRuntimeKey`.
+    it('guards the draft bubble through the placeholder slice it owns', () => {
+      $activeStoredSessionId.set('a')
+      newChatBubble() // ['a', null], active = the draft
+      $activeSessionKey.set('draft:1')
+      busyKeys.add('draft:1')
+
+      requestRemoveBubble(null)
+
+      expect($pendingClose.get()).toMatchObject({ id: 'draft:1', kind: 'session' })
+      expect(ids()).toEqual(['a', null])
+    })
+
+    // `isDraftKey`, not `isPlaceholderKey`: a `hydrating:` key belongs to a
+    // STORED session with a bubble of its own, and claiming it for the draft
+    // would hand the draft's close another chat's eviction.
+    it('does not claim a hydrating session\u2019s slice for the draft', () => {
+      $activeStoredSessionId.set('a')
+      newChatBubble()
+      $activeSessionKey.set('hydrating:a')
+      busyKeys.add('hydrating:a')
+
+      requestRemoveBubble(null)
+
+      expect($pendingClose.get()).toBeNull()
+      expect(ids()).toEqual(['a'])
+    })
+
+    it('ignores a bubble that is not in the row', () => {
+      $activeStoredSessionId.set('a')
+
+      requestRemoveBubble('gone')
+
+      expect($pendingClose.get()).toBeNull()
+    })
   })
 
   it('newChatBubble on an existing session spawns a draft and keeps the current one', () => {

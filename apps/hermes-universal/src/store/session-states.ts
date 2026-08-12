@@ -38,6 +38,7 @@ import {
 import { readJson, writeJson } from '@/lib/storage'
 import { discardDeltas, disposeStreamBatch, flushDeltas } from '@/lib/stream-batch'
 import { beginDetached, endSpan } from '@/observability'
+import { requestClose } from '@/store/close-confirm'
 import { clearAllCompaction } from '@/store/compaction'
 import { resetUnscopedStreamPin } from '@/store/event-router'
 import { clearLiveSessionStatuses } from '@/store/live-session-registry'
@@ -872,27 +873,34 @@ export function closeSessionTile(storedSessionId: string) {
   saveTiles($sessionTiles.get().filter(t => t.storedSessionId !== storedSessionId))
 }
 
-// The tile whose close needs confirming (still working / waiting on input). The
-// confirm UI (SessionTileCloseConfirm) lives in app/chat/session-tile.tsx; the
-// state + trigger live here so keybinds can close a tile without importing the
-// React component graph.
-export const $confirmCloseTile = atom<null | string>(null)
+/**
+ * Would closing this SLICE drop work in flight — a running turn, a reply on the
+ * way, or a prompt waiting on the user?
+ *
+ * Exported because a session is closeable from two unrelated surfaces (a
+ * layout-tree TILE and a mobile BUBBLE) and only one of them used to ask. The
+ * predicate is the thing they have to share; what they do with the answer goes
+ * through `requestClose` (store/close-confirm). It takes a runtime KEY rather
+ * than a stored id because the two surfaces resolve that key differently — a
+ * tile through `tileRuntimeKey`, a bubble through `bubbleRuntimeKey` — and
+ * forcing one resolver on both is how a bubble would end up reading the wrong
+ * session's busy flag.
+ */
+export function sessionKeyNeedsCloseConfirm(runtimeKey: null | string): boolean {
+  const state = runtimeKey ? $sessionStates.get()[runtimeKey] : undefined
 
-/** Close a tile — but confirm first if its session is still working / waiting. */
+  return Boolean(state?.busy || state?.awaitingResponse || state?.needsInput)
+}
+
+/** Close a tile — but confirm first if its session is still working / waiting.
+ *  The key is resolved through the reverse index rather than the tile's cached
+ *  runtimeId, so a session whose stored id rotated under a background compaction
+ *  is still recognised as busy instead of closing without a prompt (MJX-133). */
 export function requestCloseSessionTile(storedSessionId: string): void {
-  // Resolved through the reverse index rather than the tile's cached runtimeId,
-  // so a session whose stored id rotated under a background compaction is still
-  // recognised as busy instead of closing without a prompt (MJX-133).
-  const key = tileRuntimeKey(storedSessionId)
-  const state = key ? $sessionStates.get()[key] : undefined
-
-  if (state?.busy || state?.awaitingResponse || state?.needsInput) {
-    $confirmCloseTile.set(storedSessionId)
-
-    return
-  }
-
-  closeSessionTile(storedSessionId)
+  requestClose(
+    { close: () => closeSessionTile(storedSessionId), id: storedSessionId, kind: 'session' },
+    sessionKeyNeedsCloseConfirm(tileRuntimeKey(storedSessionId))
+  )
 }
 
 /** Drop a DEAD tile — a persisted tile whose session no longer exists (resume

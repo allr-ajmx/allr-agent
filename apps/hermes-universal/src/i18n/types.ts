@@ -2306,6 +2306,9 @@ export interface Translations {
     diskChangedBody: string
     overwrite: string
     discardReload: string
+    closeDirtyTitle: string
+    closeDirtyBody: string
+    closeDirtyConfirm: string
     console: {
       deselect: string
       select: string

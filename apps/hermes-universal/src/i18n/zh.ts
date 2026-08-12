@@ -2841,6 +2841,9 @@ export const zh: Translations = {
     diskChangedBody: '此文件自打开以来已更改。用你的版本覆盖，还是放弃你的编辑并重新加载？',
     overwrite: '覆盖',
     discardReload: '放弃并重新加载',
+    closeDirtyTitle: '放弃未保存的更改？',
+    closeDirtyBody: '此文件有尚未保存的编辑。关闭标签会将其放弃。',
+    closeDirtyConfirm: '放弃并关闭',
     console: {
       deselect: '取消选择条目',
       select: '选择条目',

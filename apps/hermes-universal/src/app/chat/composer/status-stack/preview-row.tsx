@@ -9,7 +9,7 @@ import { openExternalLink } from '@/lib/external-link'
 import { useStoreSelector } from '@/lib/use-session-slice'
 import { cn } from '@/lib/utils'
 import { notifyError } from '@/store/notifications'
-import { $activePreviewPath, closePreviewTab, setPreviewTarget } from '@/store/preview'
+import { $activePreviewPath, requestClosePreviewTab, setPreviewTarget } from '@/store/preview'
 import { type PreviewArtifact } from '@/store/preview-status'
 
 const URL_TARGET = /^https?:\/\//i
@@ -75,7 +75,7 @@ export const PreviewStatusRow = memo(function PreviewStatusRow({ item, onDismiss
     }
 
     if (isOpen) {
-      closePreviewTab(path)
+      requestClosePreviewTab(path)
 
       return
     }

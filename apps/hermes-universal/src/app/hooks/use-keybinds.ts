@@ -6,8 +6,7 @@ import { toggleQuickEntry } from '@/app/quick-entry/quick-entry'
 import {
   activateTreeTabSlot,
   closeFocusedTabInZone,
-  cycleTreeTabInFocusedZone,
-  focusedTabTarget
+  cycleTreeTabInFocusedZone
 } from '@/components/pane-shell/tree/store'
 import { onReleaseTypingFocus } from '@/components/ui/keyboard-first'
 import { findBarClaimsCombo } from '@/lib/find-in-page'
@@ -15,7 +14,6 @@ import { contributedKeybindHandler, PROFILE_SLOT_COUNT, SESSION_SLOT_COUNT } fro
 import { comboAllowedInInput, comboFromEvent, isEditableTarget, isShiftPrintableCombo } from '@/lib/keybinds/combo'
 import { composerFocusKeysAllowed, isComposerFocusSoftCombo, typeToFocusChar } from '@/lib/keybinds/composer-focus-keys'
 import { setGlobalShortcutDispatch, startGlobalShortcuts } from '@/lib/keybinds/global-shortcut'
-import { storedIdFromTilePane } from '@/lib/pane-ids'
 import { openWorktreeDialog } from '@/store/coding-status'
 import { toggleCommandPalette } from '@/store/command-palette'
 import {
@@ -47,7 +45,7 @@ import {
 import { openFolderAsProject } from '@/store/projects'
 import { toggleReview } from '@/store/review'
 import { toggleSelectedPin } from '@/store/session-lookup'
-import { $sessionTiles, focusOpenSession, reopenLastClosedTile, requestCloseSessionTile } from '@/store/session-states'
+import { focusOpenSession, reopenLastClosedTile } from '@/store/session-states'
 import {
   $switcherOpen,
   closeSwitcher,
@@ -248,24 +246,18 @@ export function useKeybinds(deps: KeybindRuntimeDeps): void {
     'session.newTab': startNewSessionTab,
     // Fall-through chain, and it deliberately bottoms out in a no-op: ⌘W must
     // never close the window.
-    'view.closeTab': () => {
-      // The TAB THE POINTER IS OVER, not the focused session: the zone ladder is
-      // hover-first, so ⌘W over a background pane closes that pane's tab rather
-      // than the one the last click happened to focus. Reading
-      // `$focusedStoredSessionId` first made the pointer irrelevant.
-      const target = focusedTabTarget()
-      const storedSessionId = target ? storedIdFromTilePane(target) : null
-
-      // A tile goes through requestCloseSessionTile so a running or
-      // input-blocked session still gets its confirmation.
-      if (storedSessionId && $sessionTiles.get().some(t => t.storedSessionId === storedSessionId)) {
-        requestCloseSessionTile(storedSessionId)
-
-        return
-      }
-
-      closeFocusedTabInZone()
-    },
+    // Closes THE TAB THE POINTER IS OVER, not the focused session: the zone
+    // ladder inside `closeFocusedTabInZone` is hover-first, so ⌘W over a
+    // background pane closes that pane's tab rather than the one the last click
+    // happened to focus.
+    //
+    // Nothing tile-shaped here on purpose. ⌘W used to resolve the target,
+    // recognise a `session-tile:` pane and call `requestCloseSessionTile`
+    // itself — a private second copy of the routing that `closeTabPane` already
+    // performs, since a tile's registered pane closer IS
+    // `requestCloseSessionTile` (app/chat/session-tile.tsx). One close verb
+    // means the keybind names the verb and nothing else (MJXHRM-390).
+    'view.closeTab': closeFocusedTabInZone,
     'view.reopenTab': reopenLastClosedTile,
 
     'appearance.toggleMode': () => setMode(resolvedMode === 'dark' ? 'light' : 'dark'),

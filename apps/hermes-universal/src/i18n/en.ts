@@ -2697,6 +2697,9 @@ export const en: Translations = {
       'This file changed since you opened it. Overwrite it with your version, or discard your edits and reload?',
     overwrite: 'Overwrite',
     discardReload: 'Discard & reload',
+    closeDirtyTitle: 'Discard unsaved changes?',
+    closeDirtyBody: 'This file has edits that were never saved. Closing the tab discards them.',
+    closeDirtyConfirm: 'Discard & close',
     console: {
       deselect: 'Deselect entry',
       select: 'Select entry',

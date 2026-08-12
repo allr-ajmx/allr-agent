@@ -1,5 +1,6 @@
 import { atom, computed } from '@/store/atom'
-import { setPreviewDirty } from '@/store/preview-edit'
+import { requestClose } from '@/store/close-confirm'
+import { $dirtyPreviewPaths, setPreviewDirty } from '@/store/preview-edit'
 import { forgetPreviewView } from '@/store/preview-view'
 
 // The right-pane file viewer/editor's open-file state. Adapted (much simplified)
@@ -152,12 +153,35 @@ export function closePreviewTab(path: string): void {
   )
 }
 
-export function closeOtherPreviewTabs(path: string): void {
-  const keep = $previewTabs.get().filter(tab => tab.path === path)
+/**
+ * Close a file tab the way a USER closes one — asking first when it is holding
+ * edits that were never saved.
+ *
+ * The editor's buffer is component state (`preview-file.tsx`'s `draftRef`), so
+ * closing the tab unmounts it and the typing is gone; `closePreviewTab` even
+ * clears the dirty flag on the way out, so nothing was left to say work had been
+ * lost. Every door out took that path — the rail's ✕, middle-click, ⌘-click, the
+ * tab menu, the tile's closer under ⌘W, the composer's preview pill — which is
+ * the same divergence MJXHRM-390 fixed for chats, in the other direction: a
+ * busy CHAT asked, a dirty FILE never did.
+ *
+ * `closePreviewTab` stays the unconditional primitive: a gateway switch tears
+ * these tabs down because they point at a machine we have stopped talking to,
+ * and that teardown is not a question.
+ */
+export function requestClosePreviewTab(path: string): void {
+  requestClose({ close: () => closePreviewTab(path), id: path, kind: 'file' }, $dirtyPreviewPaths.get().has(path))
+}
 
-  $previewTabs.get().forEach(tab => tab.path !== path && forgetPreviewPath(tab.path))
-  $previewTabs.set(keep)
-  $activePreviewPath.set(keep.length ? path : null)
+/** "Close others" — the single close verb applied to each target, one at a
+ *  time, so a dirty tab in the batch gets the prompt a lone dirty tab gets
+ *  instead of being swept away with the clean ones. (It used to be its own
+ *  batch rewrite of `$previewTabs`, i.e. a second implementation of closing.) */
+export function requestCloseOtherPreviewTabs(path: string): void {
+  $previewTabs
+    .get()
+    .filter(tab => tab.path !== path)
+    .forEach(tab => requestClosePreviewTab(tab.path))
 }
 
 /**
@@ -177,28 +201,25 @@ export function closeAllPreviewTabs(): void {
   $activePreviewPath.set(null)
 }
 
-/** The fourth verb of the shared tab close group. The strip is ORDERED, so
- *  "to the right" means here exactly what it means on a pane strip — the rail
- *  simply never wired it, even though its label has been sitting in the
- *  translations unused. */
-export function closePreviewTabsToRight(path: string): void {
+/** "Close all" from a MENU — one prompt per unsaved tab. (`closeAllPreviewTabs`
+ *  itself stays unconditional; it is also the gateway-switch teardown.) */
+export function requestCloseAllPreviewTabs(): void {
+  $previewTabs.get().forEach(tab => requestClosePreviewTab(tab.path))
+}
+
+/** The fourth verb of the shared tab close group. The strip is ORDERED, so "to
+ *  the right" means here exactly what it means on a pane strip — and, like the
+ *  other three, it is the ONE close verb applied to each target rather than its
+ *  own rewrite of the tab list. */
+export function requestClosePreviewTabsToRight(path: string): void {
   const tabs = $previewTabs.get()
   const at = tabs.findIndex(tab => tab.path === path)
 
-  if (at < 0 || at === tabs.length - 1) {
+  if (at < 0) {
     return
   }
 
-  const keep = tabs.slice(0, at + 1)
-
-  tabs.slice(at + 1).forEach(tab => forgetPreviewPath(tab.path))
-  $previewTabs.set(keep)
-
-  const active = $activePreviewPath.get()
-
-  if (active && !keep.some(tab => tab.path === active)) {
-    $activePreviewPath.set(path)
-  }
+  tabs.slice(at + 1).forEach(tab => requestClosePreviewTab(tab.path))
 }
 
 /** How many tabs each close verb would hit — the rail's `PaneTabCloseCounts`. */

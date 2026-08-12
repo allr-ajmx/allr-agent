@@ -1,21 +1,32 @@
 import { afterEach, describe, expect, it } from 'vitest'
 
+import { $pendingClose, resolvePendingClose } from './close-confirm'
 import {
   $activePreviewPath,
   $activePreviewTarget,
   $previewTabs,
   closeAllPreviewTabs,
-  closeOtherPreviewTabs,
   closePreviewTab,
-  closePreviewTabsToRight,
   previewCloseTargets,
+  requestCloseAllPreviewTabs,
+  requestCloseOtherPreviewTabs,
+  requestClosePreviewTab,
+  requestClosePreviewTabsToRight,
   selectPreviewTab,
   setPreviewTarget
 } from './preview'
 import { $dirtyPreviewPaths, setPreviewDirty } from './preview-edit'
 import { $previewCaps, $previewModes, setPreviewCaps, setPreviewMode } from './preview-view'
 
-afterEach(() => closeAllPreviewTabs())
+afterEach(() => {
+  // Drain any prompt a test parked, so one test's unanswered question cannot
+  // de-duplicate the next test's.
+  while ($pendingClose.get()) {
+    resolvePendingClose($pendingClose.get()!.token, false)
+  }
+
+  closeAllPreviewTabs()
+})
 
 describe('preview tabs store', () => {
   it('opens a tab (basename label) and makes it active', () => {
@@ -46,7 +57,7 @@ describe('preview tabs store', () => {
     setPreviewTarget('/a.ts')
     setPreviewTarget('/b.ts')
     setPreviewTarget('/c.ts')
-    closeOtherPreviewTabs('/b.ts')
+    requestCloseOtherPreviewTabs('/b.ts')
     expect($previewTabs.get().map(t => t.path)).toEqual(['/b.ts'])
     expect($activePreviewPath.get()).toBe('/b.ts')
     closeAllPreviewTabs()
@@ -62,7 +73,7 @@ describe('preview tabs store', () => {
     setPreviewTarget('/b.ts')
     setPreviewTarget('/c.ts')
 
-    closePreviewTabsToRight('/a.ts')
+    requestClosePreviewTabsToRight('/a.ts')
 
     expect($previewTabs.get().map(t => t.path)).toEqual(['/a.ts'])
     // `/c.ts` was active and is gone, so the anchor takes over rather than
@@ -76,7 +87,7 @@ describe('preview tabs store', () => {
     setPreviewTarget('/c.ts')
     selectPreviewTab('/a.ts')
 
-    closePreviewTabsToRight('/b.ts')
+    requestClosePreviewTabsToRight('/b.ts')
 
     expect($previewTabs.get().map(t => t.path)).toEqual(['/a.ts', '/b.ts'])
     expect($activePreviewPath.get()).toBe('/a.ts')
@@ -86,8 +97,8 @@ describe('preview tabs store', () => {
     setPreviewTarget('/a.ts')
     setPreviewTarget('/b.ts')
 
-    closePreviewTabsToRight('/b.ts')
-    closePreviewTabsToRight('/nope.ts')
+    requestClosePreviewTabsToRight('/b.ts')
+    requestClosePreviewTabsToRight('/nope.ts')
 
     expect($previewTabs.get().map(t => t.path)).toEqual(['/a.ts', '/b.ts'])
   })
@@ -95,10 +106,10 @@ describe('preview tabs store', () => {
   // Every door out has to forget the per-path state, not just the tile's ✕ —
   // a dirty flag left behind keeps claiming unsaved work in a tab that is gone.
   it.each([
-    ['closePreviewTab', () => closePreviewTab('/a.ts')],
-    ['closeOtherPreviewTabs', () => closeOtherPreviewTabs('/b.ts')],
-    ['closePreviewTabsToRight', () => closePreviewTabsToRight('/b.ts')],
-    ['closeAllPreviewTabs', () => closeAllPreviewTabs()]
+    ['requestClosePreviewTab', () => requestClosePreviewTab('/a.ts')],
+    ['requestCloseOtherPreviewTabs', () => requestCloseOtherPreviewTabs('/b.ts')],
+    ['requestClosePreviewTabsToRight', () => requestClosePreviewTabsToRight('/b.ts')],
+    ['requestCloseAllPreviewTabs', () => requestCloseAllPreviewTabs()]
   ])('%s forgets the closed tab’s view mode, caps and dirty flag', (_name, close) => {
     setPreviewTarget('/b.ts')
     setPreviewTarget('/a.ts')
@@ -107,10 +118,73 @@ describe('preview tabs store', () => {
     setPreviewDirty('/a.ts', true)
 
     close()
+    // Dirty, so every one of these verbs ASKS first (MJXHRM-390) — the tab is
+    // still open until the answer lands, which is the whole point.
+    expect($previewTabs.get().some(tab => tab.path === '/a.ts')).toBe(true)
+    resolvePendingClose($pendingClose.get()!.token, true)
 
+    expect($previewTabs.get().some(tab => tab.path === '/a.ts')).toBe(false)
     expect($previewModes.get()['/a.ts']).toBeUndefined()
     expect($previewCaps.get()['/a.ts']).toBeUndefined()
     expect($dirtyPreviewPaths.get().has('/a.ts')).toBe(false)
+  })
+
+  // The hole MJXHRM-390 closed on the file side: the editor's buffer is
+  // component state, so an unmount takes the typing with it — and
+  // `closePreviewTab` cleared the dirty flag on the way out, leaving nothing to
+  // say work had been lost.
+  it('keeps a dirty tab open when the close is declined', () => {
+    setPreviewTarget('/a.ts')
+    setPreviewDirty('/a.ts', true)
+
+    requestClosePreviewTab('/a.ts')
+    expect($pendingClose.get()).toMatchObject({ id: '/a.ts', kind: 'file' })
+
+    resolvePendingClose($pendingClose.get()!.token, false)
+
+    expect($previewTabs.get().map(t => t.path)).toEqual(['/a.ts'])
+    expect($dirtyPreviewPaths.get().has('/a.ts')).toBe(true)
+  })
+
+  it('closes a CLEAN tab with no prompt at all', () => {
+    setPreviewTarget('/a.ts')
+
+    requestClosePreviewTab('/a.ts')
+
+    expect($pendingClose.get()).toBeNull()
+    expect($previewTabs.get()).toEqual([])
+  })
+
+  // The gateway-switch teardown is not a question: those tabs name files on a
+  // machine the app has stopped talking to.
+  it('closeAllPreviewTabs (the gateway teardown) never asks', () => {
+    setPreviewTarget('/a.ts')
+    setPreviewDirty('/a.ts', true)
+
+    closeAllPreviewTabs()
+
+    expect($pendingClose.get()).toBeNull()
+    expect($previewTabs.get()).toEqual([])
+  })
+
+  // "Close others" over three dirty tabs used to be one batch write; the shared
+  // gate parks one prompt PER target so none is swept away unasked.
+  it('a bulk close queues one prompt per dirty tab', () => {
+    setPreviewTarget('/a.ts')
+    setPreviewTarget('/b.ts')
+    setPreviewTarget('/c.ts')
+    setPreviewDirty('/a.ts', true)
+    setPreviewDirty('/c.ts', true)
+
+    requestCloseOtherPreviewTabs('/b.ts')
+
+    // The clean tab never existed as a question; the two dirty ones queued.
+    expect($pendingClose.get()?.id).toBe('/a.ts')
+    resolvePendingClose($pendingClose.get()!.token, true)
+    expect($pendingClose.get()?.id).toBe('/c.ts')
+    resolvePendingClose($pendingClose.get()!.token, false)
+
+    expect($previewTabs.get().map(t => t.path)).toEqual(['/b.ts', '/c.ts'])
   })
 
   it('counts what each verb would close, so the menu disables the dead ones', () => {

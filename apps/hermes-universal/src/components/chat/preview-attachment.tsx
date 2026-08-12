@@ -8,7 +8,7 @@ import { MonitorPlay } from '@/lib/icons'
 import { previewName } from '@/lib/preview-targets'
 import { useStoreSelector } from '@/lib/use-session-slice'
 import { notifyError } from '@/store/notifications'
-import { $activePreviewPath, closePreviewTab, setPreviewTarget } from '@/store/preview'
+import { $activePreviewPath, requestClosePreviewTab, setPreviewTarget } from '@/store/preview'
 
 const URL_TARGET = /^https?:\/\//i
 
@@ -68,7 +68,7 @@ export function PreviewAttachment({ target }: { target: string }) {
     }
 
     if (isActive) {
-      closePreviewTab(path)
+      requestClosePreviewTab(path)
 
       return
     }

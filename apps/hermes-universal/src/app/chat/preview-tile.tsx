@@ -33,9 +33,9 @@ import { useStore } from '@/store/atom'
 import {
   $activePreviewPath,
   $previewTabs,
-  closePreviewTab,
   isArtifactTab,
   type PreviewTarget,
+  requestClosePreviewTab,
   selectPreviewTab
 } from '@/store/preview'
 import { $dirtyPreviewPaths } from '@/store/preview-edit'
@@ -196,5 +196,8 @@ const watchPreviewTileMirror = paneMirror<PreviewTarget>({
   render: path => <PreviewTilePane path={path} />,
   // Per-path view mode, caps and dirty flag are dropped by `closePreviewTab`
   // itself, so every door out (the ✕, ⌘W, the close verbs, the rail) forgets.
-  close: closePreviewTab
+  // The REQUEST form: a tab holding unsaved edits asks before it discards them
+  // (MJXHRM-390) — the editor's buffer is component state and dies with the
+  // unmount.
+  close: requestClosePreviewTab
 })

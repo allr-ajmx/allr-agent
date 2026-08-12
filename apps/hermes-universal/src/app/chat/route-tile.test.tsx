@@ -8,6 +8,7 @@ import { render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { ROUTES_AREA } from '@/app/routes'
+import { $panesWithCloser } from '@/components/pane-shell/tree/store'
 import { registry } from '@/contrib/registry'
 import { $routeTiles, closeRouteTile, openRouteTile } from '@/store/route-tiles'
 
@@ -40,6 +41,20 @@ describe('route tiles', () => {
     closeRouteTile('/kanban')
 
     expect(paneFor('/kanban')).toBeUndefined()
+  })
+
+  // MJXHRM-390. The mirror registered a pane closer per tile and never handed it
+  // back: `paneClosers` — and `$panesWithCloser`, rebuilt from its keys — grew by
+  // one entry for every tab ever opened, each pinning a closure over a tile that
+  // is gone. Closing has to release what opening took.
+  it('hands the pane closer back when the tile goes', () => {
+    openRouteTile('/kanban')
+
+    expect($panesWithCloser.get().has('route-tile:/kanban')).toBe(true)
+
+    closeRouteTile('/kanban')
+
+    expect($panesWithCloser.get().has('route-tile:/kanban')).toBe(false)
   })
 
   it('titles the tab from the page contribution, humanizing an untitled path', () => {
