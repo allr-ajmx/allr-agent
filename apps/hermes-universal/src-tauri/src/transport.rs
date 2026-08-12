@@ -542,6 +542,28 @@ fn apply_gateway_bearer(
     }
 }
 
+/// The response headers the webview is allowed to see.
+///
+/// `Set-Cookie` is dropped rather than forwarded: the shared jar has already
+/// taken it by the time this runs — that is what the cookie store is for — so
+/// passing it on would only put the gateway session, the credential MJXHRM-354
+/// moved OUT of the webview, back into a JS object on every login response.
+/// Nothing in the app reads `HttpResp.headers` at all, let alone for that.
+///
+/// `set-cookie2` is RFC 2965 and long dead, but a gateway behind an old proxy can
+/// still emit it and it holds the same value.
+fn visible_response_headers(headers: &reqwest::header::HeaderMap) -> HashMap<String, String> {
+    headers
+        .iter()
+        .filter(|(name, _)| {
+            let name = name.as_str();
+
+            !name.eq_ignore_ascii_case("set-cookie") && !name.eq_ignore_ascii_case("set-cookie2")
+        })
+        .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or_default().to_string()))
+        .collect()
+}
+
 /// Build the `multipart/form-data` form for an upload.
 ///
 /// Rebuilt per attempt rather than built once and reused: `multipart::Form` is
@@ -659,11 +681,7 @@ pub async fn http_request(
     }
 
     let status = resp.status().as_u16();
-    let headers = resp
-        .headers()
-        .iter()
-        .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or_default().to_string()))
-        .collect();
+    let headers = visible_response_headers(resp.headers());
     // reqwest appends ` for url (…)` to EVERY error it builds, decode errors
     // included — so this one leaks the request URL exactly like a send failure
     // would, and takes the same scrub.
@@ -977,8 +995,8 @@ mod tests {
 
     use super::{
         apply_gateway_bearer, caller_set_authorization, pump_reader, redact_bearer, redact_error,
-        redact_message, redact_secret, redact_url, send_binary_frame, upload_form, HttpUpload,
-        Message, ReaderSink, TransportState,
+        redact_message, redact_secret, redact_url, send_binary_frame, upload_form,
+        visible_response_headers, HttpUpload, Message, ReaderSink, TransportState,
     };
 
     /// A tungstenite error of the kind the read loop actually sees after the
@@ -1504,6 +1522,34 @@ mod tests {
         assert_eq!(
             redact_bearer("bearerToken missing".to_string()),
             "bearerToken missing"
+        );
+    }
+
+    /// The gateway session cookie is the credential MJXHRM-354 took out of the
+    /// webview; handing it straight back on the response of the login that set it
+    /// would undo that on every sign-in.
+    #[test]
+    fn the_response_headers_the_webview_sees_carry_no_set_cookie() {
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert("content-type", "application/json".parse().unwrap());
+        headers.append(
+            "set-cookie",
+            "hermes_session_rt=s3cr3t; HttpOnly".parse().unwrap(),
+        );
+        headers.append("Set-Cookie", "hermes_session_at=s3cr3t2".parse().unwrap());
+        headers.append("set-cookie2", "legacy=s3cr3t3".parse().unwrap());
+
+        let visible = visible_response_headers(&headers);
+
+        assert_eq!(
+            visible.get("content-type").map(String::as_str),
+            Some("application/json")
+        );
+        assert!(
+            visible
+                .keys()
+                .all(|name| !name.to_ascii_lowercase().starts_with("set-cookie")),
+            "{visible:?}"
         );
     }
 
