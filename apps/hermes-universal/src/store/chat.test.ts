@@ -15,7 +15,7 @@ import { flushDeltas } from '@/lib/stream-batch'
 import { routeGatewayEvent as handleGatewayEvent } from '@/store/event-router'
 import { requestGateway } from '@/store/gateway'
 import { sessionApprovalRequest, sessionClarifyRequest } from '@/store/prompts'
-import { $sessionStates, newDraftKey, updateSession } from '@/store/session-state-types'
+import { $sessionStates, newDraftKey, rekeySession, updateSession } from '@/store/session-state-types'
 import { $subagentsBySession } from '@/store/subagents'
 import { beginTurn, getInflightTurn } from '@/store/turn-lifecycle'
 import { resetSessionStates, seedActiveSession, seedSession, sessionMessages } from '@/test-sessions'
@@ -887,8 +887,101 @@ describe('interruptSession', () => {
     expect(notifyError).toHaveBeenCalled()
   })
 
-  it('does nothing for a draft that has no runtime id', async () => {
-    seedActiveSession('draft:1', { runtimeSessionId: null })
+  // The gateway answers `{"status": "interrupted"}` whether or not it had a turn
+  // to stop, so its `was_running` flag is the only way to tell the two apart —
+  // and the difference decides whether a terminal frame is still coming.
+  it('settles the turn when the gateway reports there was nothing running', async () => {
+    seedActiveSession('runtime-1', { busy: true })
+    beginTurn('runtime-1', { prompt: 'go' })
+    vi.mocked(requestGateway).mockResolvedValue({ status: 'interrupted', was_running: false })
+
+    await expect(interruptSession('runtime-1')).resolves.toBe(true)
+
+    // No `message.complete` is coming for a turn the gateway is not running: the
+    // reply finished on a socket that went away. Without this the chat spun
+    // forever behind a Stop that had already done its job.
+    expect($sessionStates.get()['runtime-1']).toMatchObject({ busy: false, streamId: null, turnStartedAt: null })
+    expect(getInflightTurn('runtime-1')?.phase).toBe('settled')
+  })
+
+  // Both surfaces seed a `hydrating:<storedId>` slice BUSY and only bind a
+  // runtime id when `session.resume` returns, so opening any session shows a
+  // live Stop button for the whole transcript-fetch + resume round trip — on a
+  // session that may genuinely be mid-turn. This used to `return false` with no
+  // RPC, no recovery and no toast: iteration 31's null-binding report, still
+  // reachable after MJXHRM-358 removed the cause it named.
+  it('waits for a hydrating session to bind, then interrupts the runtime it binds', async () => {
+    seedActiveSession('hydrating:s1', { storedSessionId: 's1', runtimeSessionId: null, busy: true })
+    vi.mocked(requestGateway).mockResolvedValue({ status: 'interrupted', was_running: true })
+
+    const stop = interruptSession('hydrating:s1')
+
+    // Nothing can go out yet — there is no id to address.
+    await Promise.resolve()
+    expect(requestGateway).not.toHaveBeenCalled()
+
+    // The resume lands and the slice moves onto its runtime id.
+    rekeySession('hydrating:s1', 'runtime-9', { runtimeSessionId: 'runtime-9', storedSessionId: 's1' })
+
+    await expect(stop).resolves.toBe(true)
+    expect(requestGateway).toHaveBeenCalledWith('session.interrupt', { session_id: 'runtime-9' })
+  })
+
+  it('reports failure when a hydrating session never binds', async () => {
+    vi.useFakeTimers()
+
+    try {
+      seedActiveSession('hydrating:s2', { storedSessionId: 's2', runtimeSessionId: null, busy: true })
+
+      const stop = interruptSession('hydrating:s2')
+
+      await vi.advanceTimersByTimeAsync(21_000)
+
+      await expect(stop).resolves.toBe(false)
+      expect(requestGateway).not.toHaveBeenCalled()
+      expect(notifyError).toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  // Stop before the first token, on a brand-new chat. `sendPrompt` goes busy and
+  // opens the turn before `ensureSession` returns, so the whole `session.create`
+  // round trip offers a Stop button on a slice with no runtime id.
+  it('abandons a prompt the user stops while the session is still being created', async () => {
+    seedActiveSession('draft:9', { runtimeSessionId: null, storedSessionId: null })
+
+    let releaseCreate: (value: unknown) => void = () => {}
+
+    vi.mocked(requestGateway).mockImplementation((method: string) => {
+      if (method === 'session.create') {
+        return new Promise(resolve => {
+          releaseCreate = resolve
+        })
+      }
+
+      return Promise.resolve({})
+    })
+
+    const sent = sendPrompt('start the long job')
+    await Promise.resolve()
+
+    expect($sessionStates.get()['draft:9']?.busy).toBe(true)
+    await expect(interruptSession('draft:9')).resolves.toBe(true)
+
+    releaseCreate({ session_id: 'runtime-created', stored_session_id: 'stored-created' })
+    await sent
+
+    // The prompt never went out — the alternative is a gateway that starts
+    // streaming a reply into a chat the user has already stopped.
+    expect(vi.mocked(requestGateway).mock.calls.map(call => call[0])).toEqual(['session.create'])
+    expect($sessionStates.get()['runtime-created']?.busy).toBe(false)
+  })
+
+  it('does nothing for an idle draft, which has nothing anywhere to stop', async () => {
+    // The one honest no-op: no runtime id, no stored session, no open turn — and
+    // no surface offers Stop for it, because the control follows `busy`.
+    seedActiveSession('draft:1', { runtimeSessionId: null, storedSessionId: null })
 
     await expect(interruptSession('draft:1')).resolves.toBe(false)
     expect(requestGateway).not.toHaveBeenCalled()
