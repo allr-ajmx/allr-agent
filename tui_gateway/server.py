@@ -7160,6 +7160,50 @@ def _legacy_display_kind(role: str, text: str) -> str | None:
     return None
 
 
+def _counts_as_user_ordinal(message: dict) -> bool:
+    """Does this raw history row reach a client AS A USER TURN?
+
+    THE ordinal space for ``truncate_before_user_ordinal``. A client counts the
+    user bubbles ``_history_to_messages`` handed it and sends the index; the cut
+    that index drives is a destructive ``replace_messages()``. So the two counts
+    have to be the same count — every row counted here that no surface renders
+    shifts each later ordinal by one and silently deletes a turn the user never
+    pointed at.
+
+    That is not hypothetical: the truncation filter used to honor ``display_kind``
+    and the legacy sniff only, while the projection ALSO drops ``[System: …]``
+    bookkeeping markers (``_is_display_hidden_marker``) and rows whose content
+    renders empty. A session carrying either — a personality change writes one on
+    every switch — rewound one turn early, for good, from then on.
+
+    Kept as ONE predicate rather than an inline comprehension so the ordinal
+    space cannot drift from the projection again; ``_history_to_messages`` below
+    is its only counterpart, and each ``continue`` there that can drop a
+    ``role="user"`` row has a clause here.
+    """
+    if message.get("role") != "user":
+        return False
+
+    # Any stored display type is scaffolding the gateway typed for the timeline
+    # (``hidden`` never ships at all; ``model_switch`` / ``auto_continue`` /
+    # ``async_delegation_complete`` ship as timeline events). ``skill_invocation``
+    # is deliberately NOT among them: it is stamped by the projection, never on
+    # the stored row, because it IS the user's own ``/command`` turn.
+    if message.get("display_kind"):
+        return False
+
+    text = _coerce_message_text(message.get("content"))
+
+    if _is_display_hidden_marker("user", text):
+        return False
+
+    if _legacy_display_kind("user", text):
+        return False
+
+    # `_history_to_messages` drops a row that renders to nothing at all.
+    return bool(text.strip())
+
+
 def _history_to_messages(history: list[dict]) -> list[dict]:
     messages = []
     tool_call_args = {}
