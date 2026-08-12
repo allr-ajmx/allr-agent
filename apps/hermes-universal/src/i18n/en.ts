@@ -929,6 +929,11 @@ export const en: Translations = {
       providerDefault: '(provider default)',
       fallbackAdd: 'Add fallback',
       fallbackEmpty: 'No fallback models — the default model is used unless it fails.',
+      moaEnabled: 'Enabled',
+      moaPresetDisabledHint:
+        'This preset is disabled — the aggregator answers on its own and no reference model runs, whatever the switches below say.',
+      moaDisableReference: index => `Disable reference ${index}`,
+      moaEnableReference: index => `Enable reference ${index}`,
       tasks: {
         vision: { label: 'Vision', hint: 'Image analysis' },
         web_extract: { label: 'Web extract', hint: 'Page summarization' },

@@ -1064,6 +1064,16 @@ export interface MoaModelSlot {
   reasoning_effort?: null | string
 }
 
+/**
+ * `GET /api/model/moa`, normalized by `hermes_cli/moa_config.normalize_moa_config`.
+ *
+ * The settings editor round-trips this whole object back to `PUT`, so every
+ * key the server emits must be declared: an undeclared field survives only by
+ * accident (object spread), and the first code path that rebuilds a preset
+ * instead of spreading it would erase it. `degraded_reference_policy`,
+ * `reference_timeout`, `reference_max_tokens` and `fanout` are hand-edited
+ * knobs with no control — declared so they are carried, not offered.
+ */
 export interface MoaConfigResponse {
   default_preset: string
   active_preset: string
@@ -1072,18 +1082,26 @@ export interface MoaConfigResponse {
     {
       aggregator: MoaModelSlot
       aggregator_temperature: number
+      degraded_reference_policy: 'loud' | 'silent'
       enabled: boolean
+      /** Fan-out cadence (user_turn default | per_iteration | every_n:N) — round-tripped. */
+      fanout?: string
       max_tokens: number
+      /** Optional advisor output cap — round-tripped, not edited here. */
+      reference_max_tokens?: null | number
       reference_models: MoaModelSlot[]
       reference_temperature: number
+      reference_timeout: null | number
     }
   >
   aggregator: MoaModelSlot
   aggregator_temperature: number
+  degraded_reference_policy: 'loud' | 'silent'
   enabled: boolean
   max_tokens: number
   reference_models: MoaModelSlot[]
   reference_temperature: number
+  reference_timeout: null | number
 }
 
 export interface ModelAssignmentRequest {
