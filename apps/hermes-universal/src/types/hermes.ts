@@ -987,20 +987,30 @@ export interface ConfigFloorWarning {
   support_floor_version: number
 }
 
+/**
+ * `GET /api/status`.
+ *
+ * The fields marked optional are the absolute host paths and gateway PID that
+ * the backend only attaches on a loopback / `--insecure` bind (`if not
+ * auth_required`, `hermes_cli/web_server.py`) — deployment recon it refuses to
+ * hand an unauthenticated caller on a gated bind. Against an OAuth / cloud
+ * gateway they are simply absent, so they must not be typed as always-present:
+ * that is how a `undefined · config v34` readout got shipped.
+ */
 export interface StatusResponse {
   active_sessions: number
   config_floor_warning?: ConfigFloorWarning | null
-  config_path: string
+  config_path?: string
   config_version: number
-  env_path: string
+  env_path?: string
   gateway_exit_reason: string | null
-  gateway_health_url: string | null
-  gateway_pid: number | null
+  gateway_health_url?: string | null
+  gateway_pid?: number | null
   gateway_platforms: Record<string, PlatformStatus>
   gateway_running: boolean
   gateway_state: string | null
   gateway_updated_at: string | null
-  hermes_home: string
+  hermes_home?: string
   latest_config_version: number
   release_date: string
   version: string

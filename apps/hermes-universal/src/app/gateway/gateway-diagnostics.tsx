@@ -120,8 +120,13 @@ export function GatewayDiagnostics() {
             {cc.hermesActiveSessions(status.version, status.active_sessions)}
             {status.gateway_state ? ` · ${status.gateway_state}` : ''}
           </div>
+          {/* `hermes_home` is one of the absolute host paths /api/status only
+              surfaces on a loopback / --insecure bind — a gated (OAuth, cloud
+              portal) gateway withholds it. JSX renders the absent value as
+              nothing, so this line came out as a headless " · config v34".
+              Drop the separator with the segment. */}
           <div className="mt-1 font-mono text-[0.68rem] text-muted-foreground/60">
-            {status.hermes_home} · config v{status.config_version}
+            {status.hermes_home ? `${status.hermes_home} · ` : ''}config v{status.config_version}
           </div>
           {floor?.below ? (
             <div className="mt-2 flex items-start gap-2 rounded-md bg-(--ui-warning-bg) px-3 py-2 text-xs text-(--ui-warning-text)">
