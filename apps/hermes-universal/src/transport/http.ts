@@ -72,12 +72,28 @@ export async function httpRequest(method: string, url: string, opts: HttpRequest
   )
 }
 
+/**
+ * The part of a URL safe to name in an error the UI will render.
+ *
+ * A gateway URL's query is credential material — `?token=` (local/SSH) or a
+ * per-connect `?ticket=` — so an error that quotes the URL whole hands the
+ * credential to every sink the message reaches. The Rust side scrubs its own
+ * errors (`transport.rs::redact_error`); this is the same rule for the errors
+ * this file raises. Dropping the query outright rather than scrubbing per key:
+ * nothing here needs a query param to diagnose a failed GET.
+ */
+export function urlForError(url: string): string {
+  const [head] = url.split('?')
+
+  return head
+}
+
 /** Convenience: JSON GET that throws on non-2xx and parses the body. */
 export async function getJson<T>(url: string, opts: HttpRequestOptions = {}): Promise<T> {
   const res = await httpRequest('GET', url, opts)
 
   if (res.status < 200 || res.status >= 300) {
-    throw new Error(`GET ${url} → HTTP ${res.status}: ${res.body.slice(0, 200)}`)
+    throw new Error(`GET ${urlForError(url)} → HTTP ${res.status}: ${res.body.slice(0, 200)}`)
   }
 
   return JSON.parse(res.body) as T
