@@ -1,6 +1,7 @@
 import { ComposerPrimitive, useAui, useAuiState } from '@assistant-ui/react'
 import {
   type ClipboardEvent,
+  type CompositionEvent,
   type FC,
   type FocusEvent,
   type FormEvent,
@@ -54,6 +55,11 @@ export const UserEditComposer: FC = () => {
   // mount-time snapshot can incorrectly classify every later blur as dirty.
   const initialDraftRef = useRef<string | null>(null)
   const draftRef = useRef(draft)
+  // True while an IME preedit is open (CJK input). Same latch the docked
+  // composer keeps, and for the same two reasons: Enter must confirm rather than
+  // submit, and the input events fired DURING composition carry uncommitted
+  // preedit text that must not reach the draft.
+  const composingRef = useRef(false)
   const [submitting, setSubmitting] = useState(false)
   const expanded = draft.includes('\n')
   const canSubmit = draft.trim().length > 0
@@ -126,8 +132,27 @@ export const UserEditComposer: FC = () => {
       editor.replaceChildren()
     }
 
+    // Mid-composition input carries the preedit, not text the user has
+    // committed. `compositionend` flushes what they actually typed.
+    if (composingRef.current) {
+      return
+    }
+
     rememberInitialDraft()
     syncDraftFromEditor(editor)
+  }
+
+  const handleCompositionStart = () => {
+    composingRef.current = true
+  }
+
+  // Chromium does not reliably emit a trailing `input` after `compositionend`,
+  // so the committed text is read from the DOM here — otherwise a message edited
+  // purely in an IME would send with the pre-composition text.
+  const handleCompositionEnd = (event: CompositionEvent<HTMLDivElement>) => {
+    composingRef.current = false
+    rememberInitialDraft()
+    syncDraftFromEditor(event.currentTarget)
   }
 
   const handlePaste = (event: ClipboardEvent<HTMLDivElement>) => {
@@ -191,6 +216,21 @@ export const UserEditComposer: FC = () => {
   )
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    // IME composition: Enter CONFIRMS the preedit, it does not send. Without
+    // this the first Enter a Japanese/Korean/Chinese typist presses re-runs the
+    // turn with half-composed text in it — and this composer's Enter is
+    // destructive (it rewinds the conversation to that message), so there is no
+    // undo for it. The docked composer has carried the same guard since the
+    // port; the edit composer was ported without it.
+    //
+    // `composingRef` over `nativeEvent.isComposing` alone for the same reason it
+    // is there: WebKitGTK (which IS universal's desktop webview) does not set
+    // the flag as reliably as Chromium, and compositionstart/end are what the
+    // engines agree on.
+    if (composingRef.current || event.nativeEvent.isComposing) {
+      return
+    }
+
     if (event.key === 'Escape') {
       event.preventDefault()
       aui.composer().cancel()
@@ -240,6 +280,8 @@ export const UserEditComposer: FC = () => {
               contentEditable
               data-placeholder={copy.editMessage}
               data-slot={RICH_INPUT_SLOT}
+              onCompositionEnd={handleCompositionEnd}
+              onCompositionStart={handleCompositionStart}
               onFocus={() => markActiveComposer('edit')}
               onInput={handleInput}
               onKeyDown={handleKeyDown}
