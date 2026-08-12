@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { registry } from '@/contrib/registry'
 import { queryClient } from '@/lib/query-client'
 import { $commandPaletteOpen } from '@/store/command-palette'
+import { $findInPage, closeFindBar } from '@/store/find-in-page'
 import type * as WindowsStore from '@/store/windows'
 import { openAppRoute } from '@/store/windows'
 
@@ -94,6 +95,21 @@ describe('CommandPalette', () => {
 
     expect(openAppRoute).toHaveBeenCalledWith('/starmap')
     expect($commandPaletteOpen.get()).toBe(false)
+  })
+
+  // ⌘F is not an affordance on a phone, and the palette lists a curated set of
+  // rows rather than the keybind registry — so without this row find-in-page
+  // could not be opened at all on a touch device (MJXHRM-387).
+  it('opens find-in-page, the one surface that had no non-keyboard door', () => {
+    Object.defineProperty(window, 'find', { configurable: true, value: () => true, writable: true })
+
+    openPalette()
+    fireEvent.click(screen.getByText('Find in page'))
+
+    expect($findInPage.get().active).toBe(true)
+    expect($commandPaletteOpen.get()).toBe(false)
+
+    closeFindBar()
   })
 
   it('opens a nested page via `to` and steps back out on empty Backspace', () => {

@@ -198,12 +198,10 @@ function scanChildren(node: Node, needle: string, cap: number, state: ScanState)
       continue
     }
 
-    if (element.tagName === 'BR') {
-      flush(state, needle, cap)
-
-      continue
-    }
-
+    // `<br>` needs no case of its own: it is not in INLINE_TAGS, so it takes the
+    // block path below, which ends the run and finds no children to descend
+    // into. Neutralizing a dedicated branch changed nothing, which is how that
+    // was established rather than assumed.
     if (closedDetails(element)) {
       flush(state, needle, cap)
 
