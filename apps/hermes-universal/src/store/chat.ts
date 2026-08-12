@@ -901,6 +901,16 @@ interface RewindTarget {
  * only then edits or restores — so it is the one most likely to be holding a
  * runtime id the gateway has already dropped, and it was the only submit path
  * left unwrapped.
+ *
+ * It also opens the IN-FLIGHT TURN, which `sendPrompt` and the tile delegate
+ * both do at submit time and this path did not. The record is what a reconnect
+ * reconciles against: with no local turn, `planTurnReconciliation` answers
+ * `noop` for a gateway that reports idle, and `applyReconciledBusy` returns
+ * without touching the slice — so a rewind whose terminal frame died in the
+ * disconnect window left the session `busy: true` for good, spinning behind a
+ * transcript it had already truncated. Every failure path settles it again,
+ * for the same reason `sendPrompt` does: a live record nothing can settle is
+ * the same wedge from the other side.
  */
 async function runRewindSubmit(
   target: RewindTarget,
@@ -946,15 +956,29 @@ async function runRewindSubmit(
     await interrupt()
   }
 
-  try {
-    await submit()
-  } catch (err) {
-    if (!isSessionBusyError(err)) {
-      throw err
-    }
+  // AFTER the interrupt: the turn being interrupted is the one this rewind
+  // exists to discard, and opening the new record first would hand the old
+  // turn's terminal frame a record that outlived it.
+  beginTurn(target.key, { prompt: text })
 
-    await interrupt()
-    await withSessionBusyRetry(submit)
+  try {
+    try {
+      await submit()
+    } catch (err) {
+      if (!isSessionBusyError(err)) {
+        throw err
+      }
+
+      await interrupt()
+      await withSessionBusyRetry(submit)
+    }
+  } catch (err) {
+    // Nothing is running: the caller is about to roll its optimistic truncation
+    // back, and a record left open here would make the next reconnect adopt a
+    // turn that never started.
+    settleTurn(target.key, 'error')
+
+    throw err
   }
 }
 

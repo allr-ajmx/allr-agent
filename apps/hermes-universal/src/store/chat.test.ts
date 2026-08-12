@@ -953,6 +953,86 @@ describe('restoreToMessage', () => {
     await expect(restoreToMessage('nope', { text: '', userOrdinal: null })).rejects.toThrow(/find the message/i)
     expect(requestGateway).not.toHaveBeenCalled()
   })
+
+  // The restore affordance sits on EVERY user bubble, and a tile mounts the same
+  // thread (app/chat/session-tile.tsx) — so the confirm dialog in a tile and the
+  // one in the main pane look identical and address different sessions. Hydrated
+  // message ids are positional (`h${index}-${role}` in lib/session-history.ts),
+  // so a tile's `h2-user` RESOLVES perfectly well against the main pane's
+  // transcript: resolving against the visible chat would not merely target the
+  // wrong session, it would silently truncate one the user never pointed at and
+  // re-run someone else's prompt into it.
+  it('rewinds the session it was handed, not the one on screen', async () => {
+    const hydrated = (prefix: string): ChatMessage[] => [
+      { id: 'h0-user', role: 'user', parts: [{ type: 'text', text: `${prefix} first ask` }] },
+      { id: 'h1-assistant', role: 'assistant', parts: [{ type: 'text', text: `${prefix} answer` }] },
+      { id: 'h2-user', role: 'user', parts: [{ type: 'text', text: `${prefix} second ask` }] },
+      { id: 'h3-assistant', role: 'assistant', parts: [{ type: 'text', text: `${prefix} second answer` }] }
+    ]
+
+    seedActiveSession('runtime-main', { messages: hydrated('main') })
+    seedSession('runtime-tile', { messages: hydrated('tile') })
+    vi.mocked(requestGateway).mockResolvedValue({})
+
+    await restoreToMessage('h2-user', { text: 'tile second ask', userOrdinal: 1 }, 'runtime-tile')
+
+    expect(requestGateway).toHaveBeenCalledWith(
+      'prompt.submit',
+      expect.objectContaining({ session_id: 'runtime-tile', text: 'tile second ask' }),
+      expect.anything()
+    )
+    expect(sessionMessages('runtime-tile').map(m => m.id)).toEqual(['h0-user', 'h1-assistant', 'h2-user'])
+    // The chat on screen is untouched — no truncation, no busy, no re-run.
+    expect(sessionMessages('runtime-main').map(m => m.id)).toEqual([
+      'h0-user',
+      'h1-assistant',
+      'h2-user',
+      'h3-assistant'
+    ])
+    expect($busy.get()).toBe(false)
+  })
+
+  // `wasBusy` decides whether the rewind interrupts first, and it has to come
+  // from the target slice: read off the visible chat it answers for the wrong
+  // session in both directions — interrupting a tile that was idle, or skipping
+  // the interrupt its own live turn needed (the gateway then refuses the
+  // truncating submit with 4009 rather than folding it into the busy path).
+  it('interrupts by the target session’s own busy state, not the visible chat’s', async () => {
+    seedActiveSession('runtime-main', { busy: true, messages: [] })
+    seedSession('runtime-tile', {
+      busy: false,
+      messages: [{ id: 'h0-user', role: 'user', parts: [{ type: 'text', text: 'tile ask' }] }]
+    })
+    vi.mocked(requestGateway).mockResolvedValue({})
+
+    await restoreToMessage('h0-user', { text: 'tile ask', userOrdinal: 0 }, 'runtime-tile')
+
+    expect(vi.mocked(requestGateway).mock.calls.map(call => call[0])).toEqual(['prompt.submit'])
+  })
+
+  // The in-flight turn record is what a reconnect reconciles against. Without
+  // one, a gateway that comes back reporting idle plans `noop` and
+  // `applyReconciledBusy` leaves the slice alone — so a restore whose terminal
+  // frame died in the disconnect window spun `busy` forever, behind a transcript
+  // it had already truncated. `sendPrompt` opens the turn at submit time for
+  // exactly this reason; the rewind paths never did.
+  it('opens an in-flight turn so a reconnect has something to reconcile', async () => {
+    seedTurns()
+    vi.mocked(requestGateway).mockResolvedValue({})
+
+    await restoreToMessage('u2', { text: 'second ask', userOrdinal: 1 })
+
+    expect(getInflightTurn('runtime-1')).toMatchObject({ phase: 'submitted', prompt: 'second ask' })
+  })
+
+  it('settles that turn when the rewind fails, so nothing adopts a turn that never started', async () => {
+    seedTurns()
+    vi.mocked(requestGateway).mockRejectedValue(new Error('nope'))
+
+    await expect(restoreToMessage('u2', { text: 'second ask', userOrdinal: 1 })).rejects.toThrow('nope')
+
+    expect(getInflightTurn('runtime-1')?.phase ?? 'settled').toBe('settled')
+  })
 })
 
 // --- Stop -------------------------------------------------------------------
