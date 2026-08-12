@@ -35,7 +35,7 @@ import {
   rekeySession,
   runtimeKeyForStoredSession
 } from '@/store/session-state-types'
-import { closeSessionTile, openSessionTile, setSessionTileDelegate, updateSession } from '@/store/session-states'
+import { closeSessionTile, openBranchTile, setSessionTileDelegate, updateSession } from '@/store/session-states'
 import { adoptResumedTurn, beginTurn, resumedTurnIsLive, settleTurn } from '@/store/turn-lifecycle'
 import type { SessionResumeResponse } from '@/types/hermes'
 
@@ -266,10 +266,11 @@ setSessionTileDelegate({
     const branched = await branchStoredSession(storedId)
 
     if (branched) {
-      // Its own tab, stacked beside the parent — the parent stays exactly where
-      // it was, which is the point of branching from its tab rather than from
-      // inside it.
-      openSessionTile(branched, 'center')
+      // Its own tab in the PARENT's strip, fronted — the parent stays exactly
+      // where it was, which is the point of branching from its tab rather than
+      // from inside it. Shared with the branch made from an assistant message
+      // (`setBranchedSessionOpener`), so the two placements cannot drift.
+      openBranchTile(branched, storedId)
     }
   },
 

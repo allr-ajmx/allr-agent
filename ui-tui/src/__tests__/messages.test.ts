@@ -55,6 +55,21 @@ describe('toTranscriptMessages', () => {
     ])
   })
 
+  it('projects personality_switch as an event, not an opaque user bubble', () => {
+    const rows = [
+      { role: 'user', text: 'hello' },
+      { role: 'user', text: '[System: personality changed to hermes]', display_kind: 'personality_switch' },
+      { role: 'assistant', text: 'hi' }
+    ]
+
+    const result = toTranscriptMessages(rows)
+    expect(result.map(msg => [msg.kind, msg.role, msg.text])).toEqual([
+      [undefined, 'user', 'hello'],
+      ['event', 'system', 'personality changed'],
+      [undefined, 'assistant', 'hi']
+    ])
+  })
+
   it('projects async_delegation_complete with task_count metadata', () => {
     const rows = [
       { role: 'user', text: 'do work' },

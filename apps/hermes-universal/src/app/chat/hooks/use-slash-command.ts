@@ -1,6 +1,6 @@
 import { useCallback } from 'react'
 
-import { useSessionView } from '@/app/chat/session-view'
+import { branchSourceOf, useSessionView } from '@/app/chat/session-view'
 import { PET_SETTINGS_ROUTE, STARMAP_ROUTE } from '@/app/routes'
 import type {
   BrowserManageResponse,
@@ -290,8 +290,11 @@ export function useSlashCommand() {
         new: async () => {
           startNewSession()
         },
+        // The SURFACE's own chat, exactly like every other handler here (see
+        // `targetKey` above). `/branch` typed into a tile's composer forked the
+        // MAIN pane's conversation and left the tile untouched (MJXHRM-388).
         branch: async () => {
-          await branchCurrentSession()
+          await branchCurrentSession(undefined, branchSourceOf(view))
         },
         // /compress (alias /compact) runs the gateway's dedicated
         // `session.compress` RPC — the TUI's own path. It must NOT go through

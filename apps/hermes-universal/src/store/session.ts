@@ -1232,8 +1232,8 @@ export function startSessionInWorkspace(path: string): void {
  * async `session.title` event later patches `title` in place (see store/chat.ts),
  * superseding the first-message preview. Desktop parity (upsertOptimisticSession).
  */
-export function registerNewSession(id: string, firstMessage: string, cwd?: string): void {
-  insertOptimisticSession(id, firstMessage, cwd)
+export function registerNewSession(id: string, firstMessage: string, cwd?: string, profile?: string): void {
+  insertOptimisticSession(id, firstMessage, cwd, profile)
   $activeStoredSessionId.set(id)
 }
 
@@ -1246,8 +1246,17 @@ export function registerNewSession(id: string, firstMessage: string, cwd?: strin
  *  on screen, and the sidebar lane and inherited colour are both derived from
  *  this field (MJXHRM-386). Left out, the branch of a background session was
  *  filed under whatever project the foreground chat was in, and wore its
- *  colour, until the next list refresh corrected it. */
-function insertOptimisticSession(id: string, firstMessage: string, cwd?: string): void {
+ *  colour, until the next list refresh corrected it.
+ *
+ *  `profile` is on the STUB rather than patched in afterwards because
+ *  `registerNewSession` publishes the id the moment the row exists, and the
+ *  `$activeStoredSessionId` subscriber reads the row's owner right then to
+ *  remember this profile's place (`$lastSessionByProfile`). A row that gains
+ *  its profile one statement later is read as unowned, and the branch was
+ *  remembered against whichever gateway happened to be live — the same
+ *  cross-profile bleed the branch's own `profile` exists to close
+ *  (MJXHRM-388). */
+function insertOptimisticSession(id: string, firstMessage: string, cwd?: string, profile?: string): void {
   const now = Math.floor(Date.now() / 1000)
 
   const stub: SessionInfo = {
@@ -1264,6 +1273,7 @@ function insertOptimisticSession(id: string, firstMessage: string, cwd?: string)
     model: null,
     output_tokens: 0,
     preview: firstMessage.trim().slice(0, 200) || null,
+    ...(profile ? { profile } : {}),
     source: null,
     started_at: now,
     title: null,
@@ -1281,10 +1291,17 @@ function insertOptimisticSession(id: string, firstMessage: string, cwd?: string)
  * import this module — calling either from here is an import cycle. It follows
  * the same shape as `setVisibleBubbleKeysProvider`: the surface that knows the
  * platform registers the behaviour, and `app/contrib/controller` is that place.
+ *
+ * The PARENT rides along: a branch belongs in the tab strip its parent is in,
+ * which on this platform is not necessarily the main one — branching a chat
+ * that is itself a tile in a side zone put the branch in the workspace strip,
+ * i.e. somewhere the user was not looking.
  */
-let openBranchedSession: ((storedSessionId: string) => void) | null = null
+let openBranchedSession: ((storedSessionId: string, parentStoredId: null | string) => void) | null = null
 
-export function setBranchedSessionOpener(open: null | ((storedSessionId: string) => void)): void {
+export function setBranchedSessionOpener(
+  open: null | ((storedSessionId: string, parentStoredId: null | string) => void)
+): void {
   openBranchedSession = open
 }
 
@@ -1299,15 +1316,52 @@ function toBranchMessages(
 }
 
 /**
- * Fork the open chat off its live transcript — `/branch` (aliases `/fork`) and
- * the assistant message's "branch in new chat". Ported from desktop's
- * `branchCurrentSession` + `forkBranch`: the copied turns are handed to
- * `session.create` (which auto-names the branch from its parent's lineage), so
- * the new chat opens pre-seeded instead of empty. Without `messageId` it forks
- * from the last user/assistant turn.
+ * The chat a branch is taken FROM — the four things `branchCurrentSession`
+ * reads off it, passed in rather than read from the primary atoms.
+ *
+ * Universal renders N chats at once (tiles, mobile bubbles), and every other
+ * per-surface action already routes by the surface's own `SessionView`:
+ * `use-slash-command` says so in as many words ("the surface's own, never the
+ * foreground one"). Branching was the one that did not, and it was worse than
+ * a no-op — hydrated transcript ids are POSITIONAL (`h3-assistant`, see
+ * `lib/session-history`), so "branch in new chat" on a tile's fourth message
+ * found the main chat's fourth message and forked THAT conversation, silently
+ * and with no error to notice (MJXHRM-388).
  */
-export async function branchCurrentSession(messageId?: string): Promise<boolean> {
-  if (!$sessionId.get()) {
+export interface BranchSource {
+  busy: boolean
+  cwd: string
+  messages: ChatMessage[]
+  /** The WIRE session id, null on a draft that has never been created — the
+   *  slice key is not it (a hydrating slice has a placeholder key). */
+  runtimeId: null | string
+  storedId: null | string
+}
+
+/** The primary chat, for callers with no surface of their own. */
+function primaryBranchSource(): BranchSource {
+  return {
+    busy: $busy.get(),
+    cwd: $currentCwd.get(),
+    messages: $messages.get(),
+    runtimeId: $sessionId.get(),
+    storedId: $activeStoredSessionId.get()
+  }
+}
+
+/**
+ * Fork a chat off its live transcript — `/branch` (aliases `/fork`) and the
+ * assistant message's "branch in new chat". Ported from desktop's
+ * `branchCurrentSession` + `forkBranch`: the copied turns are handed to
+ * `session.create`, so the new chat opens pre-seeded instead of empty. Without
+ * `messageId` it forks from the last user/assistant turn.
+ *
+ * `from` names the chat being branched; omitted, it is the primary one.
+ */
+export async function branchCurrentSession(messageId?: string, from?: BranchSource): Promise<boolean> {
+  const source = from ?? primaryBranchSource()
+
+  if (!source.runtimeId) {
     notify({
       kind: 'warning',
       title: translateNow('desktop.nothingToBranch'),
@@ -1317,7 +1371,7 @@ export async function branchCurrentSession(messageId?: string): Promise<boolean>
     return false
   }
 
-  if ($busy.get()) {
+  if (source.busy) {
     notify({
       kind: 'warning',
       title: translateNow('desktop.sessionBusy'),
@@ -1327,7 +1381,7 @@ export async function branchCurrentSession(messageId?: string): Promise<boolean>
     return false
   }
 
-  const messages = $messages.get()
+  const messages = source.messages
 
   // findLastIndex is ES2023; this project's lib target predates it, so scan back.
   const lastTurnIndex = (): number => {
@@ -1357,9 +1411,15 @@ export async function branchCurrentSession(messageId?: string): Promise<boolean>
     return false
   }
 
-  const start = at >= 0 ? at : Math.max(messages.length - 1, 0)
+  // Everything UP TO the chosen turn, not the turn on its own. A branch is a
+  // conversation that shares a past with its parent and diverges from there;
+  // seeded with the single clicked message it is a new chat quoting one reply,
+  // with the question it answered — and every turn before it — gone. Desktop
+  // slices from 0 for this reason and its test says so ("only the clicked
+  // message survived instead of everything up to it"); the port narrowed it to
+  // `[at, at + 1)` and re-opened the bug on this platform (MJXHRM-388).
   const end = at >= 0 ? at + 1 : messages.length
-  const branchMessages = toBranchMessages(messages.slice(start, end))
+  const branchMessages = toBranchMessages(messages.slice(0, end))
 
   if (!branchMessages.length) {
     notify({
@@ -1371,9 +1431,16 @@ export async function branchCurrentSession(messageId?: string): Promise<boolean>
     return false
   }
 
-  const parentStoredId = $activeStoredSessionId.get()
+  // The row's LIVE tip, not the id the surface is holding. A tile's stored id is
+  // captured when the tile opens and never moves, so a session that has since
+  // rotated through a compression would nest its branch under a dead id — the
+  // same wide, alias-aware lookup `branchStoredSession` takes (MJXHRM-386), for
+  // the same reason. Dynamic because `store/session-lookup` reads `$projectTree`
+  // and `store/projects` already imports this module.
+  const { sessionRowFor } = await import('@/store/session-lookup')
+  const parentStoredId = source.storedId ? (sessionRowFor(source.storedId)?.id ?? source.storedId) : null
 
-  // The OPEN chat's owning profile, not the launch/picker one (MJXHRM-388).
+  // The BRANCHED chat's owning profile, not the launch/picker one (MJXHRM-388).
   // Every other mutation path resolves this; `branchCurrentSession` was the one
   // that did not, so `session.create` landed the branch on whichever gateway
   // happened to be live — the "my session jumped to another profile after
@@ -1383,7 +1450,7 @@ export async function branchCurrentSession(messageId?: string): Promise<boolean>
 
   const storedId = await forkBranchSession({
     branchMessages,
-    cwd: $currentCwd.get().trim(),
+    cwd: source.cwd.trim(),
     // A branch opens BESIDE the chat it came from, not on top of it — `true`
     // would claim the main pane and push the parent off screen, which is the
     // one chat the user is certainly still interested in. `false` + the opener
@@ -1397,7 +1464,7 @@ export async function branchCurrentSession(messageId?: string): Promise<boolean>
   })
 
   if (storedId !== null) {
-    openBranchedSession?.(storedId)
+    openBranchedSession?.(storedId, parentStoredId)
   }
 
   return storedId !== null
@@ -1431,7 +1498,13 @@ async function forkBranchSession({
   profile
 }: ForkBranchOptions): Promise<null | string> {
   try {
-    // No title: the backend auto-names the branch from its parent's lineage.
+    // No `title`. It is the gateway's `session.branch` that names a branch from
+    // its parent's lineage (`get_next_title_in_lineage`); `session.create` has
+    // no such rule, and `set_session_title` REJECTS a title already in use, so
+    // shipping our own generic "branch N" would take for the first branch and
+    // be dropped for the next parent's. The row is auto-titled from its first
+    // turn like any other chat; the label below is the local placeholder until
+    // then (desktop's `branchStoredSession` behaves identically).
     const branched = await requestGateway<SessionCreateResponse>('session.create', {
       cols: 96,
       ...(cwd && { cwd }),
@@ -1467,22 +1540,23 @@ async function forkBranchSession({
     // the foreground chat's project, wearing its colour (MJXHRM-386).
     const branchCwd = (branched.info?.cwd ?? cwd ?? '').trim()
 
-    if (foreground) {
-      $activeSessionKey.set(branched.session_id)
-      registerNewSession(storedId, preview, branchCwd)
-    } else {
-      insertOptimisticSession(storedId, preview, branchCwd)
-    }
-
     // The branch is created ON the parent's profile, so its row is owned by that
     // profile too — otherwise the first refresh that scopes the sidebar drops it.
+    // Seeded with the row rather than patched on after, so the id is never
+    // published as unowned (see `insertOptimisticSession`).
+    if (foreground) {
+      $activeSessionKey.set(branched.session_id)
+      registerNewSession(storedId, preview, branchCwd, profile)
+    } else {
+      insertOptimisticSession(storedId, preview, branchCwd, profile)
+    }
+
     setSessions(prev =>
       prev.map(session =>
         session.id === storedId
           ? {
               ...session,
               parent_session_id: parentStoredId ?? null,
-              ...(profile ? { profile } : {}),
               title: translateNow('desktop.branchTitle', siblings + 1).toLowerCase()
             }
           : session

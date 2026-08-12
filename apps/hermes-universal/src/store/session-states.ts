@@ -688,6 +688,34 @@ export function openSessionTile(
 }
 
 /**
+ * Where a BRANCH lands: its own tab in the strip its PARENT is in, fronted.
+ *
+ * Both halves are load-bearing, and neither came for free:
+ *
+ *  - the ANCHOR. `openSessionTile` with none docks against the workspace, so a
+ *    branch of a chat that is itself a tile in a side zone appeared in the main
+ *    strip — a tab in a zone the user was not looking at. `newSessionTab`
+ *    already anchors ⌘T "in the strip you asked from"; a branch is the same act
+ *    with a seeded transcript.
+ *  - the FOCUS. Registering a tile only CONTRIBUTES a pane, and adoption is
+ *    deliberately silent (`insertAtGroup(..., activate: false)` — a tool panel
+ *    must not steal its zone's tab on boot), so the branch was stacked into the
+ *    strip BEHIND the chat it came from and nothing on screen changed. That is
+ *    the "never foregrounds the new tab" this ticket is named for, and it
+ *    outlived PR #125, which only stopped the branch claiming the main pane.
+ *    `focusOpenSession` is the explicit reveal every other on-screen jump uses.
+ */
+export function openBranchTile(branchStoredId: string, parentStoredId: null | string): void {
+  const anchor =
+    parentStoredId && $sessionTiles.get().some(t => t.storedSessionId === parentStoredId)
+      ? `${TILE_PANE_PREFIX}${parentStoredId}`
+      : WORKSPACE_PANE_ID
+
+  openSessionTile(branchStoredId, 'center', anchor)
+  focusOpenSession(branchStoredId)
+}
+
+/**
  * "New chat tab" — ⌘T, and the `+` at the end of a chat tab strip.
  *
  * The new chat gets its OWN tile, beside whatever is already open. It used to

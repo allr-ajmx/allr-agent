@@ -353,6 +353,26 @@ describe('a slash command typed in a tile', () => {
     expect(states['sess-1'].messages).toEqual([])
   })
 
+  // MJXHRM-388: the same defect as `/compress` above, one command over.
+  // `/branch` read the primary atoms, so branching from a tile forked the MAIN
+  // pane's conversation and left the tile it was typed in untouched.
+  it('branches the tile session, not the chat in the foreground', async () => {
+    const said = (text: string) => [{ id: 'm1', role: 'assistant' as const, parts: [{ type: 'text' as const, text }] }]
+
+    updateSession('sess-1', s => ({ ...s, messages: said('foreground answer') }))
+    updateSession('tile-1', s => ({ ...s, messages: said('tile answer') }))
+    vi.mocked(requestGateway).mockResolvedValue({ session_id: 'runtime-2', stored_session_id: 'stored-2' } as never)
+
+    await run('/branch')
+
+    expect(vi.mocked(requestGateway).mock.calls[0][0]).toBe('session.create')
+    expect(vi.mocked(requestGateway).mock.calls[0][1]).toMatchObject({
+      messages: [{ content: 'tile answer', role: 'assistant' }]
+    })
+    // ...and the foreground transcript is still its own.
+    expect($sessionStates.get()['sess-1'].messages).toEqual(said('foreground answer'))
+  })
+
   it('marks the tile as compacting while it runs, and releases it after', async () => {
     let seenOnTile = false
     let seenOnActive = false

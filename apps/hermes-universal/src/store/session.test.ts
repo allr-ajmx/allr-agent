@@ -673,12 +673,16 @@ describe('branchCurrentSession', () => {
       storedSessionId: 'stored-1',
       messages: [
         { id: 'm1', role: 'user', parts: [{ type: 'text', text: 'first' }] },
-        { id: 'm2', role: 'assistant', parts: [{ type: 'text', text: 'answer' }] }
+        { id: 'm2', role: 'assistant', parts: [{ type: 'text', text: 'answer' }] },
+        { id: 'm3', role: 'user', parts: [{ type: 'text', text: 'second' }] },
+        { id: 'm4', role: 'assistant', parts: [{ type: 'text', text: 'reply' }] }
       ]
     })
   }
 
-  it('forks the last turn into a new session and opens it', async () => {
+  // The WHOLE conversation, not just the last turn: a branch shares a past with
+  // its parent and diverges from there.
+  it('forks the thread up to the last turn into a new session and opens it', async () => {
     seedThread()
     vi.mocked(requestGateway).mockResolvedValue({ session_id: 'runtime-2', stored_session_id: 'stored-2' } as never)
 
@@ -687,30 +691,54 @@ describe('branchCurrentSession', () => {
     expect(requestGateway).toHaveBeenCalledWith(
       'session.create',
       expect.objectContaining({
-        messages: [{ content: 'answer', role: 'assistant' }],
+        messages: [
+          { content: 'first', role: 'user' },
+          { content: 'answer', role: 'assistant' },
+          { content: 'second', role: 'user' },
+          { content: 'reply', role: 'assistant' }
+        ],
         parent_session_id: 'stored-1'
       })
     )
     expect($sessionId.get()).toBe('runtime-2')
     expect($activeStoredSessionId.get()).toBe('stored-2')
-    expect($messages.get().map(m => m.id)).toEqual(['m2'])
+    expect($messages.get().map(m => m.id)).toEqual(['m1', 'm2', 'm3', 'm4'])
     expect($sessions.get()[0].parent_session_id).toBe('stored-1')
   })
 
-  it('forks from a specific message when given its id', async () => {
+  // MJXHRM-388. Branching AT a message copies everything up TO it — the port
+  // sliced `[at, at + 1)`, so the branch was a new chat quoting one reply with
+  // the question it answered, and every turn before it, gone. Desktop's own
+  // test names this: "only the clicked message survived instead of everything
+  // up to it".
+  it('forks the thread up to a specific message when given its id', async () => {
     seedThread()
     vi.mocked(requestGateway).mockResolvedValue({ session_id: 'runtime-2' } as never)
 
-    await branchCurrentSession('m1')
+    await branchCurrentSession('m2')
 
     expect(requestGateway).toHaveBeenCalledWith(
       'session.create',
-      expect.objectContaining({ messages: [{ content: 'first', role: 'user' }] })
+      expect.objectContaining({
+        messages: [
+          { content: 'first', role: 'user' },
+          { content: 'answer', role: 'assistant' }
+        ]
+      })
     )
   })
 
   it('refuses without a session, while busy, or with nothing to copy', async () => {
-    seedActiveSession('draft', { runtimeSessionId: null, storedSessionId: null })
+    // WITH turns painted, so this leg tests the "no session yet" refusal rather
+    // than falling through to the empty-transcript one. Not hypothetical: a
+    // slice still hydrating under a placeholder key shows its transcript before
+    // it has a wire id, and that is a chat you can try to branch. (Seeded
+    // bare, this assertion passed with the guard deleted.)
+    seedActiveSession('draft', {
+      runtimeSessionId: null,
+      storedSessionId: null,
+      messages: [{ id: 'd1', role: 'assistant', parts: [{ type: 'text', text: 'painted' }] }]
+    })
     await expect(branchCurrentSession()).resolves.toBe(false)
 
     seedThread()
@@ -743,7 +771,7 @@ describe('branchCurrentSession', () => {
 
     await expect(branchCurrentSession()).resolves.toBe(false)
     expect($sessionId.get()).toBe('runtime-1')
-    expect($messages.get().map(m => m.id)).toEqual(['m1', 'm2'])
+    expect($messages.get().map(m => m.id)).toEqual(['m1', 'm2', 'm3', 'm4'])
   })
 
   // MJXHRM-388. Every other mutation path carries the parent's owning profile;
@@ -765,17 +793,110 @@ describe('branchCurrentSession', () => {
   // the main pane and pushing the parent off screen.
   it('hands the branch to the registered opener instead of claiming main', async () => {
     seedThread()
-    const opened: string[] = []
-    setBranchedSessionOpener(id => opened.push(id))
+    const opened: [string, null | string][] = []
+    setBranchedSessionOpener((id, parent) => opened.push([id, parent]))
     vi.mocked(requestGateway).mockResolvedValue({ session_id: 'runtime-2', stored_session_id: 'stored-2' } as never)
 
     await expect(branchCurrentSession()).resolves.toBe(true)
 
-    expect(opened).toEqual(['stored-2'])
+    // The PARENT rides along, so the opener can put the branch in its strip
+    // rather than in the workspace's.
+    expect(opened).toEqual([['stored-2', 'stored-1']])
     // The parent is still the loaded chat: nothing was displaced.
     expect($activeStoredSessionId.get()).toBe('stored-1')
     // ...and the branch is listed, so the tab the opener creates has a row.
     expect($sessions.get().some(s => s.id === 'stored-2')).toBe(true)
+  })
+
+  // MJXHRM-388. Universal renders N chats at once, and hydrated message ids are
+  // POSITIONAL (`h3-assistant`) — so "branch in new chat" on a tile's message
+  // resolved a same-numbered message in the FOREGROUND chat and forked that
+  // conversation instead, with no error to notice. Every other per-surface
+  // action already routes by the surface's own view.
+  it('branches the SURFACE it was invoked from, not the foreground chat', async () => {
+    seedThread()
+    seedSession('runtime-tile', {
+      storedSessionId: 'stored-tile',
+      runtimeSessionId: 'runtime-tile',
+      messages: [
+        { id: 'm1', role: 'user', parts: [{ type: 'text', text: 'tile question' }] },
+        { id: 'm2', role: 'assistant', parts: [{ type: 'text', text: 'tile answer' }] }
+      ]
+    })
+    vi.mocked(requestGateway).mockResolvedValue({ session_id: 'runtime-2', stored_session_id: 'stored-2' } as never)
+    // As the app always is (app/contrib/controller); without one the branch
+    // falls back to claiming main, which is the documented last resort.
+    setBranchedSessionOpener(() => undefined)
+
+    await expect(
+      branchCurrentSession('m2', {
+        busy: false,
+        cwd: '/tile/repo',
+        messages: $sessionStates.get()['runtime-tile'].messages,
+        runtimeId: 'runtime-tile',
+        storedId: 'stored-tile'
+      })
+    ).resolves.toBe(true)
+
+    expect(requestGateway).toHaveBeenCalledWith(
+      'session.create',
+      expect.objectContaining({
+        cwd: '/tile/repo',
+        messages: [
+          { content: 'tile question', role: 'user' },
+          { content: 'tile answer', role: 'assistant' }
+        ],
+        parent_session_id: 'stored-tile'
+      })
+    )
+    // The chat in main was never touched.
+    expect($activeStoredSessionId.get()).toBe('stored-1')
+    expect($messages.get().map(m => m.id)).toEqual(['m1', 'm2', 'm3', 'm4'])
+  })
+
+  // MJXHRM-386/388. A tile holds the stored id it was opened with forever, so a
+  // parent that has since rotated through a compression must be re-resolved to
+  // its live tip — otherwise the branch nests under a dead id.
+  it('nests under the parent row LIVE tip, not the id the surface holds', async () => {
+    seedThread()
+    $projectTree.set([treeWith([{ id: 'tip-1', _lineage_root_id: 'root-1' } as unknown as SessionInfo])])
+    vi.mocked(requestGateway).mockResolvedValue({ session_id: 'runtime-2', stored_session_id: 'stored-2' } as never)
+
+    await branchCurrentSession(undefined, {
+      busy: false,
+      cwd: '',
+      messages: $messages.get(),
+      runtimeId: 'runtime-1',
+      storedId: 'root-1'
+    })
+
+    expect(requestGateway).toHaveBeenCalledWith(
+      'session.create',
+      expect.objectContaining({ parent_session_id: 'tip-1' })
+    )
+  })
+
+  // MJXHRM-388. The optimistic row must be OWNED before its id is published:
+  // `$activeStoredSessionId`'s subscriber reads the owner right then to remember
+  // this profile's place, and an unowned row is remembered against whichever
+  // gateway is live — the cross-profile bleed `profile` exists to close.
+  it('stamps the branch row with its profile before the id goes active', async () => {
+    seedThread()
+    $sessions.set([rowOnProfile('stored-1', 'research')])
+    vi.mocked(requestGateway).mockResolvedValue({ session_id: 'runtime-2', stored_session_id: 'stored-2' } as never)
+
+    let ownerWhenPublished: string | undefined
+
+    const stop = $activeStoredSessionId.listen(id => {
+      if (id === 'stored-2') {
+        ownerWhenPublished = knownSessionProfile('stored-2')
+      }
+    })
+
+    await branchCurrentSession()
+    stop()
+
+    expect(ownerWhenPublished).toBe('research')
   })
 })
 
