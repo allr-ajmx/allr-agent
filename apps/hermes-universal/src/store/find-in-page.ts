@@ -65,14 +65,19 @@ function callFind(query: string, forward: boolean, findNext: boolean): void {
 
   // `fromStart` on a fresh query: otherwise `window.find` resumes from wherever
   // the previous query left the caret and silently skips everything above it.
-  domFind(query, { backwards: !forward, fromStart: !findNext })
+  const selected = domFind(query, { backwards: !forward, fromStart: !findNext })
 
   // The engine event never fires on this path, so report the count ourselves —
   // asynchronously, to keep the "a late result can't resurrect a cleared query"
   // guard in `updateFindResults` on the same footing as the native path.
-  const counted = countDomTextMatches(query)
+  //
+  // Floored at one whenever the engine DID land on something: the two halves ask
+  // different questions (`window.find` flattens frames and shadow content the
+  // scan never sees), and "0/0" over a highlighted match is the one reading the
+  // user can prove wrong just by looking at the page.
+  const counted = Math.max(countDomTextMatches(query), selected ? 1 : 0)
 
-  queueMicrotask(() => updateFindResults(counted))
+  queueMicrotask(() => updateFindResults(counted, selected))
 }
 
 function callStop(): void {
@@ -155,8 +160,15 @@ export function findPrevious(): void {
  * A count arriving for a query the user has already cleared is dropped: the
  * search is async, so a result for the previous keystroke can land after the
  * bar was emptied and would resurrect a stale counter.
+ *
+ * `selected` says whether anything is actually highlighted right now. The native
+ * path always has a selection when the count is non-zero, so it defaults true;
+ * the portable path can count text the engine refused to move to (a virtualized
+ * row the engine skipped, a frame it would not enter) and passes false, which
+ * shows `0/N` — "N are in here, none of them is where you are" — instead of
+ * `1/N` pointing at a highlight that does not exist.
  */
-export function updateFindResults(count: number): void {
+export function updateFindResults(count: number, selected = true): void {
   const prev = $findInPage.get()
 
   if (!prev.active || !prev.query) {
@@ -169,7 +181,7 @@ export function updateFindResults(count: number): void {
     ...prev,
     matchCount,
     // First result for a fresh query: the engine has selected match one.
-    matchOrdinal: matchCount === 0 ? 0 : prev.matchOrdinal || 1
+    matchOrdinal: matchCount === 0 || !selected ? 0 : prev.matchOrdinal || 1
   })
 }
 
