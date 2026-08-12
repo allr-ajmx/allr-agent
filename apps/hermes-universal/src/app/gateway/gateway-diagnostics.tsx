@@ -41,8 +41,14 @@ const CONFIG_SUPPORT_FLOOR_FALLBACK = 12
  * `config_version: 0` — so the legacy fallback treats 0 as "no explicit
  * version" and never warns. A false alarm on every hand-written config would be
  * worse than missing a literal `_config_version: 0`, which nobody writes.
+ *
+ * The fallback mirrors the backend's `below_support_floor()` in full — BOTH
+ * clauses, `current < floor` AND `current < latest`. Dropping the second one
+ * warned about a config a gateway considers current: the only gateways that
+ * reach this branch are ones predating the field, and one whose own
+ * `latest_config_version` is itself below 12 has nothing to migrate to.
  */
-function configFloorVerdict(status: StatusResponse): { below: boolean; floor: number } {
+export function configFloorVerdict(status: StatusResponse): { below: boolean; floor: number } {
   const reported = status.config_floor_warning
 
   if (reported) {
@@ -50,7 +56,10 @@ function configFloorVerdict(status: StatusResponse): { below: boolean; floor: nu
   }
 
   return {
-    below: status.config_version > 0 && status.config_version < CONFIG_SUPPORT_FLOOR_FALLBACK,
+    below:
+      status.config_version > 0 &&
+      status.config_version < CONFIG_SUPPORT_FLOOR_FALLBACK &&
+      status.config_version < status.latest_config_version,
     floor: CONFIG_SUPPORT_FLOOR_FALLBACK
   }
 }
