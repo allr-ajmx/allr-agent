@@ -4287,7 +4287,7 @@ def test_prompt_submit_rejects_negative_truncate_ordinal(monkeypatch):
     replaced = []
 
     class _FakeDB:
-        def replace_messages(self, key, messages, active_only=False):
+        def replace_messages(self, key, messages, active_only=False, archive_dropped=False):
             replaced.append((key, list(messages)))
 
     history = [
@@ -4329,6 +4329,91 @@ def test_prompt_submit_rejects_negative_truncate_ordinal(monkeypatch):
         server._sessions.pop("trunc-sid", None)
 
 
+def test_prompt_submit_refuses_boolean_ordinal(monkeypatch):
+    """A JSON `true` ordinal must return 4004, not coerce to turn 1.
+
+    bool is an int subclass, so `int(True) == 1`: a client bug that sends
+    `truncate_before_user_ordinal: true` alongside confirm_truncate would aim a
+    fully CONSENTED rewind at the SECOND user turn and drop everything after
+    the first. Every other guard on this path checks the aim of a cut the
+    client meant; this one is a cut the client never asked for at all.
+    """
+    history = [
+        {"role": "user", "content": "first"},
+        {"role": "assistant", "content": "reply 1"},
+        {"role": "user", "content": "second"},
+        {"role": "assistant", "content": "reply 2"},
+    ]
+    server._sessions["bool-trunc-sid"] = _session(history=list(history))
+    monkeypatch.setattr(
+        server, "_start_agent_build", lambda *a, **k: pytest.fail("must not start a turn")
+    )
+    monkeypatch.setattr(
+        server, "_start_inflight_turn", lambda *a, **k: pytest.fail("must not start a turn")
+    )
+
+    try:
+        resp = server.handle_request(
+            {
+                "id": "1",
+                "method": "prompt.submit",
+                "params": {
+                    "session_id": "bool-trunc-sid",
+                    "text": "new turn",
+                    "truncate_before_user_ordinal": True,
+                    "confirm_truncate": True,
+                },
+            }
+        )
+        assert resp.get("error") is not None
+        assert resp["error"]["code"] == 4004
+        assert "must be an integer" in resp["error"]["message"]
+        assert server._sessions["bool-trunc-sid"]["history"] == history
+    finally:
+        server._sessions.pop("bool-trunc-sid", None)
+
+
+def test_prompt_submit_refuses_confirm_truncate_without_target(monkeypatch):
+    """confirm_truncate with no ordinal is leaked rewind state — fail fast.
+
+    Both clients attach confirm_truncate only when they build truncation params
+    (`truncateSubmitParams`), so a bare flag on an ordinary submit means the
+    client's rewind state has leaked onto a plain send. Refusing loudly
+    surfaces that instead of quietly ignoring the flag and waiting for the
+    matching stray ordinal to arrive with it.
+    """
+    history = [
+        {"role": "user", "content": "first"},
+        {"role": "assistant", "content": "reply 1"},
+    ]
+    server._sessions["bare-confirm-sid"] = _session(history=list(history))
+    monkeypatch.setattr(
+        server, "_start_agent_build", lambda *a, **k: pytest.fail("must not start a turn")
+    )
+    monkeypatch.setattr(
+        server, "_start_inflight_turn", lambda *a, **k: pytest.fail("must not start a turn")
+    )
+
+    try:
+        resp = server.handle_request(
+            {
+                "id": "1",
+                "method": "prompt.submit",
+                "params": {
+                    "session_id": "bare-confirm-sid",
+                    "text": "new turn",
+                    "confirm_truncate": True,
+                },
+            }
+        )
+        assert resp.get("error") is not None
+        assert resp["error"]["code"] == 4004
+        assert "confirm_truncate requires" in resp["error"]["message"]
+        assert server._sessions["bare-confirm-sid"]["history"] == history
+    finally:
+        server._sessions.pop("bare-confirm-sid", None)
+
+
 def test_prompt_submit_refuses_unconfirmed_nonempty_truncation(monkeypatch):
     """An ordinal without confirm_truncate must not drop the session tail.
 
@@ -4341,7 +4426,7 @@ def test_prompt_submit_refuses_unconfirmed_nonempty_truncation(monkeypatch):
     replaced = []
 
     class _FakeDB:
-        def replace_messages(self, key, messages):
+        def replace_messages(self, key, messages, active_only=False, archive_dropped=False):
             replaced.append((key, list(messages)))
 
     history = [
@@ -4404,7 +4489,7 @@ def test_prompt_submit_refuses_empty_truncation_without_confirm(monkeypatch):
     replaced = []
 
     class _FakeDB:
-        def replace_messages(self, key, messages, active_only=False):
+        def replace_messages(self, key, messages, active_only=False, archive_dropped=False):
             replaced.append((key, list(messages)))
 
     history = [
@@ -4491,7 +4576,7 @@ def test_prompt_submit_empty_truncation_allowed_with_confirm(monkeypatch):
             self._target()
 
     class _FakeDB:
-        def replace_messages(self, key, messages, active_only=False):
+        def replace_messages(self, key, messages, active_only=False, archive_dropped=False):
             replaced.append((key, list(messages)))
 
     history = [
@@ -4554,7 +4639,7 @@ def test_prompt_submit_refuses_to_rewind_a_running_session(monkeypatch):
     queued = []
 
     class _FakeDB:
-        def replace_messages(self, key, messages, active_only=False):
+        def replace_messages(self, key, messages, active_only=False, archive_dropped=False):
             replaced.append((key, list(messages)))
 
     history = [
@@ -4636,7 +4721,7 @@ def test_prompt_submit_ordinal_space_matches_the_display_projection(monkeypatch)
             self._target()
 
     class _FakeDB:
-        def replace_messages(self, key, messages, active_only=False):
+        def replace_messages(self, key, messages, active_only=False, archive_dropped=False):
             replaced.append((key, list(messages)))
 
     marker = (
@@ -9635,7 +9720,7 @@ def test_prompt_submit_can_truncate_before_user_ordinal(monkeypatch):
         def __init__(self):
             self.replaced = []
 
-        def replace_messages(self, session_id, messages, active_only=False):
+        def replace_messages(self, session_id, messages, active_only=False, archive_dropped=False):
             self.replaced.append((session_id, list(messages)))
 
     stub_db = _StubDb()
@@ -9692,7 +9777,7 @@ def test_prompt_submit_refuses_turn_when_truncate_persist_fails(monkeypatch):
     server._sessions["trunc-fail-sid"] = sess
 
     class _FailDb:
-        def replace_messages(self, session_id, messages, active_only=False):
+        def replace_messages(self, session_id, messages, active_only=False, archive_dropped=False):
             raise OSError("disk full")
 
     monkeypatch.setattr(server, "_get_db", lambda: _FailDb())
@@ -9784,7 +9869,7 @@ def test_prompt_submit_truncate_ordinal_skips_display_kind_rows(monkeypatch):
         def __init__(self):
             self.replaced = []
 
-        def replace_messages(self, session_id, messages, active_only=False):
+        def replace_messages(self, session_id, messages, active_only=False, archive_dropped=False):
             self.replaced.append((session_id, list(messages)))
 
     stub_db = _StubDb()
@@ -9874,7 +9959,7 @@ def test_prompt_submit_truncate_ordinal_skips_a_legacy_recovery_note(monkeypatch
         def __init__(self):
             self.replaced = []
 
-        def replace_messages(self, session_id, messages, active_only=False):
+        def replace_messages(self, session_id, messages, active_only=False, archive_dropped=False):
             self.replaced.append((session_id, list(messages)))
 
     stub_db = _StubDb()
@@ -9907,6 +9992,89 @@ def test_prompt_submit_truncate_ordinal_skips_a_legacy_recovery_note(monkeypatch
         assert stub_db.replaced == [("session-key", original_history[:4])]
     finally:
         server._sessions.pop("sid", None)
+
+
+def test_prompt_submit_truncation_archives_instead_of_deleting(monkeypatch):
+    """The rewind write must be recoverable, not a hard DELETE.
+
+    Every guard above this line checks the AIM of a rewind: confirm_truncate,
+    the ordinal space, the range checks, the empty-transcript opt-in. They
+    still leave every OTHER way of aiming it wrong terminal, because the write
+    they gate is a `replace_messages()` that DELETEs the rows — which also
+    evicts them from the FTS index, so there is no `active=0` archive and
+    nothing to restore from. Restore-checkpoint (MJXHRM-370) is a one-click
+    destructive rewind on every user bubble in the app; it must not be the one
+    control in Hermes whose mistakes are unrecoverable.
+
+    The storage-layer contract this relies on is pinned in
+    tests/hermes_state/test_replace_messages_archive_siblings.py.
+    """
+
+    captured = {}
+
+    class _Agent:
+        def run_conversation(self, prompt, conversation_history=None, stream_callback=None, **_kwargs):
+            return {
+                "final_response": "reply",
+                "messages": [
+                    *(conversation_history or []),
+                    {"role": "user", "content": prompt},
+                    {"role": "assistant", "content": "reply"},
+                ],
+            }
+
+    class _ImmediateThread:
+        def __init__(self, target=None, daemon=None):
+            self._target = target
+
+        def start(self):
+            self._target()
+
+    class _StubDb:
+        def replace_messages(
+            self, session_id, messages, active_only=False, archive_dropped=False
+        ):
+            captured["active_only"] = active_only
+            captured["archive_dropped"] = archive_dropped
+
+    server._sessions["archive-trunc-sid"] = _session(
+        agent=_Agent(),
+        history=[
+            {"role": "user", "content": "first"},
+            {"role": "assistant", "content": "first reply"},
+            {"role": "user", "content": "second"},
+            {"role": "assistant", "content": "second reply"},
+        ],
+    )
+
+    try:
+        monkeypatch.setattr(server.threading, "Thread", _ImmediateThread)
+        monkeypatch.setattr(server, "_emit", lambda *a: None)
+        monkeypatch.setattr(server, "_get_usage", lambda _a: {})
+        monkeypatch.setattr(server, "render_message", lambda _t, _c: "")
+        monkeypatch.setattr(server, "_get_db", lambda: _StubDb())
+
+        resp = server.handle_request(
+            {
+                "id": "1",
+                "method": "prompt.submit",
+                "params": {
+                    "session_id": "archive-trunc-sid",
+                    "text": "second, reworded",
+                    "truncate_before_user_ordinal": 1,
+                    "confirm_truncate": True,
+                },
+            }
+        )
+
+        assert resp.get("result"), f"got error: {resp.get('error')}"
+        assert captured.get("archive_dropped") is True, (
+            "a rewind must soft-archive the turns it drops, not DELETE them"
+        )
+        # #80216: still must not touch rows archived by an earlier compaction.
+        assert captured.get("active_only") is True
+    finally:
+        server._sessions.pop("archive-trunc-sid", None)
 
 
 # ---------------------------------------------------------------------------
@@ -16695,6 +16863,10 @@ BRANCH_CODEX_MESSAGE_ITEMS = [
 ]
 
 
+BRANCH_MARKER_TEXT = "the delegated task finished"
+BRANCH_MARKER_METADATA = {"task_id": "t-1"}
+
+
 def _branch_history():
     return [
         {"role": "user", "content": "hello"},
@@ -16707,6 +16879,16 @@ def _branch_history():
             "codex_reasoning_items": BRANCH_CODEX_REASONING_ITEMS,
             "codex_message_items": BRANCH_CODEX_MESSAGE_ITEMS,
         },
+        # A timeline marker: role=user (strict providers reject a mid-history
+        # system message) but NOT a user turn. Its only "not a turn" signal is
+        # the display_kind tag — unlike the `[System: …]` markers, whose text
+        # `_counts_as_user_ordinal` can sniff.
+        {
+            "role": "user",
+            "content": BRANCH_MARKER_TEXT,
+            "display_kind": "async_delegation_complete",
+            "display_metadata": BRANCH_MARKER_METADATA,
+        },
     ]
 
 
@@ -16715,6 +16897,14 @@ def _branched_assistant(db, session_key):
         m
         for m in db.get_messages_as_conversation(session_key)
         if m["role"] == "assistant"
+    )
+
+
+def _branched_marker(db, session_key):
+    return next(
+        m
+        for m in db.get_messages_as_conversation(session_key)
+        if m["role"] == "user" and m["content"] == BRANCH_MARKER_TEXT
     )
 
 
@@ -16747,6 +16937,13 @@ def test_persist_branch_seed_keeps_reasoning_fields(monkeypatch, tmp_path):
         assert assistant["codex_reasoning_items"] == BRANCH_CODEX_REASONING_ITEMS
         assert assistant["codex_message_items"] == BRANCH_CODEX_MESSAGE_ITEMS
         assert session["_branch_seed_persisted"] is True
+
+        # …and the timeline tags. Dropped, the marker resumes as a bare
+        # role=user row: `_counts_as_user_ordinal` counts it and the projection
+        # paints it as a user bubble carrying a restore-checkpoint affordance.
+        marker = _branched_marker(db, "branch-key")
+        assert marker["display_kind"] == "async_delegation_complete"
+        assert marker["display_metadata"] == BRANCH_MARKER_METADATA
     finally:
         db.close()
 
@@ -16788,6 +16985,10 @@ def test_session_branch_keeps_reasoning_fields(monkeypatch, tmp_path):
         assert assistant["reasoning_details"] == BRANCH_REASONING_DETAILS
         assert assistant["codex_reasoning_items"] == BRANCH_CODEX_REASONING_ITEMS
         assert assistant["codex_message_items"] == BRANCH_CODEX_MESSAGE_ITEMS
+
+        marker = _branched_marker(db, "branch-key")
+        assert marker["display_kind"] == "async_delegation_complete"
+        assert marker["display_metadata"] == BRANCH_MARKER_METADATA
     finally:
         server._sessions.pop("sid", None)
         db.close()

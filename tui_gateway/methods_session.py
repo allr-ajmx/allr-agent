@@ -2825,6 +2825,17 @@ def _(rid, params: dict) -> dict:
                         "reasoning_details": msg.get("reasoning_details"),
                         "codex_reasoning_items": msg.get("codex_reasoning_items"),
                         "codex_message_items": msg.get("codex_message_items"),
+                        # Timeline markers (model_switch, async_delegation_complete,
+                        # auto_continue, …) ride as role=user; dropping the tag
+                        # here re-plants them as bare user turns once the branch
+                        # is resumed from disk. `_counts_as_user_ordinal` then
+                        # counts a row nobody meant as a turn, and the projection
+                        # paints a phantom user bubble carrying a restore-checkpoint
+                        # affordance — the same address-space corruption the
+                        # `[System: …]` sniff exists to prevent, entering through
+                        # the branch copy instead.
+                        "display_kind": msg.get("display_kind"),
+                        "display_metadata": msg.get("display_metadata"),
                         # Preserve the parent's original message timestamps —
                         # branch copies are history, not new activity (9d73006ad).
                         "timestamp": msg.get("timestamp"),

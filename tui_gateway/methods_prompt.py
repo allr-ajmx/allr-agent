@@ -190,7 +190,23 @@ def _(rid, params: dict) -> dict:
         # the upgrade resumes the child's transcript as a normal conversation.
         if session.get("lazy") and _child_run_active(str(session.get("session_key") or "")):
             return _err(rid, 4009, "subagent still running — wait for it to finish")
+        # confirm_truncate with no target is malformed: the flag is consent for
+        # a SPECIFIC cut, and a client that sends it bare has leaked rewind
+        # state onto an ordinary submit. Fail fast instead of quietly ignoring
+        # the flag, so the broken client state is surfaced rather than sitting
+        # one stray ordinal away from a destructive replace_messages().
+        if is_truthy_value(params.get("confirm_truncate")) and truncate_user_ordinal is None:
+            return _err(
+                rid,
+                4004,
+                "confirm_truncate requires truncate_before_user_ordinal",
+            )
         if truncate_user_ordinal is not None:
+            # bool is an int subclass: a JSON `true` would coerce via int()
+            # below to ordinal 1 and aim a CONFIRMED rewind at the second user
+            # turn — an in-range, fully consented cut nobody asked for.
+            if isinstance(truncate_user_ordinal, bool):
+                return _err(rid, 4004, "truncate_before_user_ordinal must be an integer")
             try:
                 ordinal = int(truncate_user_ordinal)
             except (TypeError, ValueError):
@@ -294,8 +310,22 @@ def _(rid, params: dict) -> dict:
                     # class #80216 fixed for /retry. On an uncompacted session
                     # all rows are active=1, so this is behaviorally identical
                     # to the full replace.
+                    # archive_dropped: a rewind — restore-checkpoint, edit,
+                    # regenerate — overwrites turns the user may not have meant
+                    # to drop, and this write is the last step before they are
+                    # gone. Guarding the AIM of a rewind (confirm_truncate, the
+                    # ordinal space, the range checks above) still leaves every
+                    # other way of aiming it wrong terminal, because a plain
+                    # DELETE also evicts the rows from the FTS index and leaves
+                    # no active=0 archive to restore from. Soft-archiving keeps
+                    # them on disk, readable via
+                    # get_messages(include_inactive=True). The live transcript
+                    # is byte-identical either way.
                     db.replace_messages(
-                        session["session_key"], truncated, active_only=True
+                        session["session_key"],
+                        truncated,
+                        active_only=True,
+                        archive_dropped=True,
                     )
                 except Exception as exc:
                     logger.error(
