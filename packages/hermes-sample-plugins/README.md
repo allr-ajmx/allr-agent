@@ -83,9 +83,16 @@ kanban talks to `/api/plugins/kanban`, served by the Python dashboard plugin at
 system that meets this one only at that namespace. With the backend disabled
 the board shows a message rather than a blank pane.
 
-`ctx.socket` carries its live updates on both apps: on universal it mints a
-ws-ticket on ticket/oauth gateways rather than requiring a `token=` query
-(`lib/plugin-transport.ts`), so it is no longer token-mode-only. It is still an
-**accelerator over your polling, never a replacement** — a socket can always
-drop, and a ticket mint can fail on an expired session, so every consumer needs
-the polling fallback anyway.
+`ctx.socket` carries its live updates on both apps, but they are not equal. On
+universal it mints a ws-ticket on ticket/oauth gateways rather than requiring a
+`token=` query, and it **follows `$connection`** (`lib/plugin-transport.ts`):
+opening it before the app has dialled is the normal case — plugins register from
+a module body, the app dials afterwards — and it re-homes itself when the user
+soft-switches gateways, so it never streams the previous backend's data into a
+plugin whose `ctx.rest` has already moved. Desktop's door is still token-mode
+only and resolves to nothing on an OAuth remote (`apps/desktop/src/hermes.ts`).
+
+Either way it is an **accelerator over your polling, never a replacement** — a
+socket can always drop, a ticket mint can fail on an expired session, and
+neither failure is reported back to the plugin, so every consumer needs the
+polling fallback anyway.

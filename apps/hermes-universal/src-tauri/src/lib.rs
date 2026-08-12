@@ -297,6 +297,11 @@ pub fn run() {
             //    unmount cleanup, and that never runs for a natively closed
             //    window — so a detached terminal tile left one orphaned shell
             //    per close, running for the rest of the app's life.
+            //  • ANY window: and so do the WebSockets it opened (MJXHRM-405).
+            //    `ws_close` has exactly the same problem — it only ever runs
+            //    from a JS disposer — while the socket itself lives in Rust and
+            //    outlives the WebView, still reading frames and emitting events
+            //    at a window that is gone.
             if let tauri::RunEvent::WindowEvent {
                 label,
                 event: tauri::WindowEvent::Destroyed,
@@ -307,6 +312,8 @@ pub fn run() {
 
                 #[cfg(desktop)]
                 pty::reap_window_ptys(app_handle, label);
+
+                transport::reap_window_sockets(app_handle, label);
 
                 if window::is_tile_window_label(label) {
                     let _ = app_handle.emit(window::TILE_WINDOW_CLOSED_EVENT, label.clone());
