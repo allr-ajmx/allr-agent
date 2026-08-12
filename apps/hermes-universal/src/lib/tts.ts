@@ -407,11 +407,11 @@ async function speakStreamed(text: string): Promise<SpeechEnd | null> {
  * wait for the clip to end (the voice-conversation loop) await `done`; callers
  * that only need playback to have begun (`speakNow`) drop it.
  */
-async function startPlayback(text: string): Promise<{ done: Promise<SpeechEnd> }> {
+async function startPlayback(text: string): Promise<{ done: Promise<SpeechEnd>; failure: unknown }> {
   const trimmed = text.trim()
 
   if (!trimmed || typeof Audio === 'undefined') {
-    return { done: Promise.resolve('skipped') }
+    return { done: Promise.resolve('skipped'), failure: null }
   }
 
   stopSpeaking()
@@ -420,7 +420,9 @@ async function startPlayback(text: string): Promise<{ done: Promise<SpeechEnd> }
     const res = await speakText(trimmed)
 
     if (!res.ok || !res.data_url) {
-      return { done: Promise.resolve('skipped') }
+      // Reached the backend and came back with no audio — an unconfigured or
+      // failing TTS provider. NOT 'skipped': see the `failure` note below.
+      return { done: Promise.resolve('error'), failure: new Error('speech synthesis returned no audio') }
     }
 
     const audio = new Audio(res.data_url)
@@ -444,20 +446,31 @@ async function startPlayback(text: string): Promise<{ done: Promise<SpeechEnd> }
     audio.onerror = () => finish('error')
     await audio.play().catch(() => finish('error'))
 
-    return { done }
-  } catch {
+    return { done, failure: null }
+  } catch (error) {
     stopSpeaking()
 
-    return { done: Promise.resolve('error') }
+    return { done: Promise.resolve('error'), failure: error }
   }
 }
 
-/** Resolves once playback has begun (or bailed). Unchanged timing — three other
- * consumers (read-aloud, auto-speak, the store's message.complete) depend on it,
- * so this deliberately stays on the whole-clip path: "begun" on the streaming
- * path would mean awaiting the first PCM chunk. */
+/** Resolves once playback has begun. Unchanged timing — three other consumers
+ * (read-aloud, auto-speak, the store's message.complete) depend on it, so this
+ * deliberately stays on the whole-clip path: "begun" on the streaming path would
+ * mean awaiting the first PCM chunk.
+ *
+ * THROWS when synthesis failed (MJXHRM-369). It used to swallow every failure
+ * and resolve exactly as it does on success, which made the read-aloud button
+ * flash "Preparing…" and go quietly idle when the gateway had no TTS provider
+ * configured — and made the `catch → notifyError` its two callers already had
+ * unreachable. Empty text and a webview with no `Audio` still resolve silently:
+ * those are "nothing to play", not a failure. */
 export async function speakNow(text: string): Promise<void> {
-  await startPlayback(text)
+  const { failure } = await startPlayback(text)
+
+  if (failure) {
+    throw failure
+  }
 }
 
 /** Resolves when the clip finishes, is interrupted (`stopSpeaking` / a newer

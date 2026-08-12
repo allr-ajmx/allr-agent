@@ -320,6 +320,21 @@ class ConversationController {
         // Interrupted (barge-in / end): the interrupting turn drives what's next.
         return
       }
+
+      if (outcome === 'error') {
+        // Synthesis is broken (no provider configured, backend down). Say so and
+        // stop narrating this turn — hands-free means the user may not be looking
+        // at the screen, and silently re-arming the mic after every failed clip is
+        // a live microphone and a lit "listening" pill attached to nothing. `break`
+        // rather than `return`: the re-arm below still has to run.
+        notifyError(new Error('speech synthesis failed'), binding.copy.playbackFailed)
+        // Consume the reply anyway: `replyChunks` only advances the cursor when it
+        // runs to completion, and leaving it unspoken makes the NEXT turn open by
+        // re-narrating this one from the top.
+        markReplySpoken(binding.view)
+
+        break
+      }
     }
 
     await this.arm(this.armMode())

@@ -56,4 +56,18 @@ describe('read-aloud sanitizes before speaking', () => {
     expect(spoken).not.toContain('const secret')
     expect(spoken).toContain('code block omitted')
   })
+
+  // The read-aloud button and `useAutoSpeakReplies` both wrap this call in a
+  // `catch → notifyError`. Until MJXHRM-369 neither was reachable: the engine
+  // swallowed a failed synthesis and resolved exactly as it does on success, so
+  // the button flashed "Preparing…" and went quietly idle.
+  it('surfaces a failed synthesis to the caller and drops back to idle', async () => {
+    const { playSpeechText } = await import('./voice-playback')
+    const { $voicePlayback } = await import('@/store/voice-playback')
+
+    speakNow.mockRejectedValueOnce(new Error('speech synthesis returned no audio'))
+
+    await expect(playSpeechText('hello', { source: 'read-aloud' })).rejects.toThrow(/no audio/)
+    expect($voicePlayback.get().status).toBe('idle')
+  })
 })

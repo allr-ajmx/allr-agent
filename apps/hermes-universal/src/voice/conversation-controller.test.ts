@@ -166,6 +166,28 @@ describe('conversation controller', () => {
     expect(armCalls('normal')).toBe(1) // only the initial arm
   })
 
+  // The failure used to be indistinguishable from a spoken reply: the outcome was
+  // dropped and the loop re-armed the microphone, so a gateway with no TTS
+  // provider left the pill lit and the ear open with nothing ever audible, and
+  // `copy.playbackFailed` — translated into five languages — was never reached.
+  it('reports a failed clip and still re-arms', async () => {
+    await voiceConversation.start(binding())
+    await flush()
+
+    h.lease.emit({ type: 'transcript', text: 'question' })
+    await flush()
+    $messages.set([assistant('r1', 'An answer.', true)])
+    await flush()
+    expect(h.playback).toHaveBeenCalled()
+    expect(h.notifyError).not.toHaveBeenCalled()
+
+    h.resolvePlayback('error')
+    await flush()
+
+    expect(h.notifyError).toHaveBeenCalled()
+    expect(armCalls('normal')).toBe(2)
+  })
+
   it('ignores a transcript that arrives after end()', async () => {
     await voiceConversation.start(binding())
     await flush()

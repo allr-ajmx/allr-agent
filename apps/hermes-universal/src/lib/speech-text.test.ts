@@ -142,6 +142,39 @@ After the table.`
     expect(sanitizeTextForSpeech(text)).toBe('Before the table. After the table.')
   })
 
+  // The line-anchored rules. These ran AFTER the line breaks had been flattened,
+  // so `^` under /m only ever matched offset 0: the first list item lost its
+  // marker and every later one kept it (MJXHRM-369).
+  describe('line-anchored markers', () => {
+    it('strips the marker from every bullet, not just the first', () => {
+      expect(sanitizeTextForSpeech('Steps:\n- first item\n- second item\n- third item')).toBe(
+        'Steps: first item second item third item'
+      )
+    })
+
+    it('strips ordered-list markers', () => {
+      // Also keeps "1." out of the chunker's sentence detector, which read it as
+      // a complete sentence and cut the list into one-word clips.
+      expect(sanitizeTextForSpeech('Steps:\n1. first item\n2. second item')).toBe('Steps: first item second item')
+    })
+
+    // Honest label: this one does NOT discriminate the ordering fix, because the
+    // catch-all `[*_~>#]` strip removes a stray hash however late it runs. It is
+    // here as a guard on the outcome, so removing that catch-all can't quietly
+    // start voicing "hash hash".
+    it('does not voice a heading marker on any line', () => {
+      expect(sanitizeTextForSpeech('Intro line\n## Second heading\nBody')).toBe('Intro line Second heading Body')
+    })
+
+    it('drops a thematic break instead of voicing three dashes', () => {
+      expect(sanitizeTextForSpeech('Before.\n\n---\n\nAfter.')).toBe('Before. After.')
+    })
+
+    it('leaves a mid-line hyphen alone (the marker rules are line-anchored)', () => {
+      expect(sanitizeTextForSpeech('A well-known 2 - 3 range.')).toBe('A well-known 2 - 3 range.')
+    })
+  })
+
   it('preserves indented code that resembles a table', () => {
     const text = `    Item | Value
     --- | ---
