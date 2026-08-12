@@ -117,11 +117,17 @@ describe('cron sidebar row actions', () => {
     expect(props.onManageJob).toHaveBeenCalledWith('alpha-job')
     expect(props.onManageJob).toHaveBeenCalledTimes(1)
 
-    // …and the row's own trigger button, which shares the same prop chain.
+    // …and trigger, which rides the same prop chain — asked of both rows so
+    // "always the first" and "always the same one" are both caught.
+    openRowMenu('Alpha backup')
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Trigger now' }))
+
+    expect(props.onTriggerJob).toHaveBeenLastCalledWith('alpha-job')
+
     openRowMenu('Zulu digest')
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Trigger now' }))
 
-    expect(props.onTriggerJob).toHaveBeenCalledWith('zulu-job')
+    expect(props.onTriggerJob).toHaveBeenLastCalledWith('zulu-job')
   })
 
   it('asks before deleting, and deletes the row it was opened on', async () => {
