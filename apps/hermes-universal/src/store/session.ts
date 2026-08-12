@@ -19,7 +19,7 @@ import { atom, computed } from '@/store/atom'
 import { $busy, $clarify, $currentCwd, $messages, $sessionId, type ChatMessage, resetChat } from '@/store/chat'
 import { resetUnscopedStreamPin } from '@/store/event-router'
 import { requestGateway } from '@/store/gateway'
-import { $pinnedSessionIds, pinSession, unpinSession } from '@/store/layout'
+import { $pinnedSessionIds } from '@/store/layout'
 import { $liveSessionStatuses } from '@/store/live-session-registry'
 import { notify, notifyError } from '@/store/notifications'
 import { flashPetActivity } from '@/store/pet'
@@ -442,18 +442,13 @@ export const $attentionSessionIds = computed(
   }
 )
 
-/** Title of the currently-viewed chat (title → first-message preview → ''),
- *  parity with desktop's `sessionTitle`. Empty for a fresh/unsaved chat — the
- *  titlebar / mobile header show their brand fallback then. Drives the topbar. */
-export const $activeSessionTitle = computed([$sessions, $activeStoredSessionId], (sessions, activeId) => {
-  if (!activeId) {
-    return ''
-  }
-
-  const session = sessions.find(s => s.id === activeId)
-
-  return session ? session.title?.trim() || session.preview?.trim() || '' : ''
-})
+// `$activeSessionTitle` used to sit here, documented as "drives the topbar".
+// Nothing had ever consumed it — the topbar's title is `ChatTitle` — and it
+// resolved the active session with `sessions.find(s => s.id === activeId)`:
+// the paginated recents page, compared by live id alone. Both halves of exactly
+// the bug MJXHRM-386 is about, sitting in the store as a ready-made trap for
+// the next caller who trusted the comment. `ChatTitle` resolves through
+// `useSessionRow` instead; a future headless caller wants `sessionRowFor`.
 
 /** Functional setter for optimistic row edits (rename dialog etc.). */
 export function setSessions(updater: (prev: SessionInfo[]) => SessionInfo[]): void {
@@ -588,25 +583,11 @@ export function sessionAliasIds(
   return ids
 }
 
-/** Pin/unpin the active session — the `session.togglePin` keybind action.
- *  Adapted from desktop `app/contrib/wiring.tsx`; pins are keyed by the durable
- *  lineage id so the pin survives auto-compression. */
-export function toggleSelectedPin(): void {
-  const sessionId = $activeStoredSessionId.get()
-
-  if (!sessionId) {
-    return
-  }
-
-  const session = $sessions.get().find(s => sessionMatchesStoredId(s, sessionId))
-  const pinId = session ? sessionPinId(session) : sessionId
-
-  if ($pinnedSessionIds.get().includes(pinId)) {
-    unpinSession(pinId)
-  } else {
-    pinSession(pinId)
-  }
-}
+// `toggleSelectedPin` (the `session.togglePin` keybind) lives in
+// `store/session-lookup`: it has to resolve the active session's DURABLE pin id
+// through the wide row lookup, and that module cannot be imported from here
+// without a cycle (it reads `$projectTree`, and `store/projects` already imports
+// this file).
 
 // ── Messaging-platform sessions (Discord, Telegram, …) ──────────────────────
 //
