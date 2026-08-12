@@ -13,14 +13,38 @@
  * build the surfaces on top of these.
  */
 
+import { gatewayRpcErrorCode, JSON_RPC_METHOD_NOT_FOUND } from '@/gateway/rpc-error'
 import { requestGateway } from '@/store/gateway'
 import type { MessageReaction } from '@/types/hermes'
 
-/** True when a JSON-RPC call failed because the backend predates the method.
- *  Ported from apps/desktop/src/lib/gateway-rpc.ts. Every method in this file
- *  is newer than some gateway a user may still be pointed at, so a caller that
- *  degrades gracefully tests the rejection with this rather than the message. */
+/**
+ * True when a JSON-RPC call failed because the backend predates the method.
+ *
+ * Every method in this file is newer than some gateway a user may still be
+ * pointed at, so a caller that degrades gracefully tests the rejection with
+ * this rather than reading the message itself.
+ *
+ * The gateway answers an unimplemented method with the JSON-RPC code -32601
+ * (`tui_gateway/server.py handle_request()`), and the transport now keeps that
+ * code (gateway/rpc-error.ts). When it is present it is the ANSWER, in both
+ * directions: a -32601 whose message we would not have recognised still counts,
+ * and a handler that genuinely failed does not stop counting merely because its
+ * message quotes a nested -32601 from something it called (an MCP server behind
+ * a tool does exactly that) — which used to latch a surface into "this backend
+ * is old" permanently.
+ *
+ * The prose match stays as the fallback for rejections that never came off the
+ * wire as a JSON-RPC frame: a locally constructed Error, a rejection re-thrown
+ * by a wrapper, a gateway whose error frame carries no `code`, and desktop's
+ * copy of this helper, which still only has the message to go on.
+ */
 export function isMissingRpcMethod(error: unknown): boolean {
+  const code = gatewayRpcErrorCode(error)
+
+  if (code !== null) {
+    return code === JSON_RPC_METHOD_NOT_FOUND
+  }
+
   const message = error instanceof Error ? error.message : String(error)
 
   return /method not found|-32601|unknown method|no such method/i.test(message)
