@@ -12,6 +12,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { cronJobRoute } from '@/app/routes'
 import type * as Platform from '@/lib/platform'
 
 const realLocation = window.location
@@ -281,6 +282,11 @@ describe('the windowable-surface table', () => {
     expect(activitySurfaceForPath('/command-center')).toBe('command-center')
     expect(activitySurfaceForPath('/command-center?section=system')).toBe('command-center')
     expect(activitySurfaceForPath('/cron')).toBe('cron')
+    // "Manage" on a sidebar cron row deep-links to one job. On Android that
+    // opens a SECOND WebView, so the id has to survive as a query — an atom
+    // would not cross, and a surface lookup that ignored the query would land
+    // the user on Settings.
+    expect(activitySurfaceForPath('/cron?job=nightly-digest')).toBe('cron')
     expect(activitySurfaceForPath('/profiles')).toBe('profiles')
     expect(activitySurfaceForPath('/agents')).toBe('agents')
   })
@@ -315,6 +321,14 @@ describe('the windowable-surface table', () => {
 
     expect(navigateTo).toHaveBeenCalledWith('/starmap')
     expect(invoke).toHaveBeenCalledTimes(1)
+
+    // A deep-linked cron job must reach the native screen WITH its query intact,
+    // not fall through to an in-app navigation the Android shell never shows.
+    openAppRoute(cronJobRoute('nightly digest'))
+    await Promise.resolve()
+
+    expect(invoke).toHaveBeenLastCalledWith('open_screen_window', { route: '/cron?job=nightly%20digest' })
+    expect(navigateTo).toHaveBeenCalledTimes(1)
 
     vi.doUnmock('@tauri-apps/api/core')
     vi.doUnmock('@/lib/route-nav')

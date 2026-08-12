@@ -2,7 +2,16 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import { registry } from '@/contrib/registry'
 
-import { appViewForPath, contributedRoutes, isOverlayView, ROUTES_AREA, routeSessionId, sessionRoute } from './routes'
+import {
+  appViewForPath,
+  contributedRoutes,
+  cronJobRoute,
+  isOverlayView,
+  routeCronJobId,
+  ROUTES_AREA,
+  routeSessionId,
+  sessionRoute
+} from './routes'
 
 describe('routes', () => {
   it('maps reserved paths to their view, everything else to chat', () => {
@@ -27,6 +36,26 @@ describe('routes', () => {
   it('flags overlay views', () => {
     expect(isOverlayView('settings')).toBe(true)
     expect(isOverlayView('chat')).toBe(false)
+  })
+})
+
+describe('cron deep link', () => {
+  it('round-trips a job id through the route, encoded', () => {
+    const id = 'job with/slash&amp'
+    const route = cronJobRoute(id)
+
+    expect(route.startsWith('/cron?job=')).toBe(true)
+    expect(route).not.toContain('/slash')
+    expect(routeCronJobId(new URL(route, 'http://x').search)).toBe(id)
+  })
+
+  // The path has to keep resolving to the cron view with the query on it, or the
+  // deep link would open the wrong surface (and, on Android, the wrong activity).
+  it('still resolves to the cron view — the id rides in the search, not the path', () => {
+    expect(appViewForPath('/cron')).toBe('cron')
+    expect(routeCronJobId('')).toBeNull()
+    expect(routeCronJobId('?job=')).toBeNull()
+    expect(routeCronJobId('?other=1')).toBeNull()
   })
 })
 
