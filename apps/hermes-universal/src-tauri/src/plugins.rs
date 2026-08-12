@@ -24,7 +24,7 @@
 //! remote backend must not be able to point the local loader at its own files;
 //! that path exists deliberately and separately as the frontend's REST door.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
 use serde::Serialize;
@@ -53,7 +53,22 @@ pub struct PluginDirEntry {
 /// user running with a custom HERMES_HOME would have had the plugin root and the
 /// backend disagree.
 pub(crate) fn hermes_home() -> Option<PathBuf> {
-    if let Ok(explicit) = std::env::var("HERMES_HOME") {
+    resolve_hermes_home(std::env::var("HERMES_HOME").ok(), platform_hermes_home)
+}
+
+/// Apply the override rule to a HERMES_HOME value already read out of the
+/// environment: a set-but-blank value is not an override.
+///
+/// Split out from `hermes_home` for the same reason `plugin_root_under` is split
+/// out of `root_for` — so the rule is testable WITHOUT mutating the process
+/// environment. `cargo test` runs a crate's tests as threads in one process, and
+/// on glibc a `setenv` can reallocate `environ` under a concurrent `getenv`,
+/// which is a data race regardless of what the assertions expect.
+fn resolve_hermes_home(
+    explicit: Option<String>,
+    platform: impl FnOnce() -> Option<PathBuf>,
+) -> Option<PathBuf> {
+    if let Some(explicit) = explicit {
         let trimmed = explicit.trim();
 
         if !trimmed.is_empty() {
@@ -61,6 +76,11 @@ pub(crate) fn hermes_home() -> Option<PathBuf> {
         }
     }
 
+    platform()
+}
+
+/// The platform default desktop uses, with no override applied.
+fn platform_hermes_home() -> Option<PathBuf> {
     if cfg!(target_os = "windows") {
         std::env::var("LOCALAPPDATA")
             .ok()
@@ -129,9 +149,13 @@ pub fn plugins_root(profile: Option<String>) -> Result<String, String> {
 /// is a user-writable drop point, so stray files are expected, not errors.
 #[tauri::command]
 pub fn plugins_list(profile: Option<String>) -> Result<Vec<PluginDirEntry>, String> {
-    let root = root_for(profile)?;
+    list_plugins_under(&root_for(profile)?)
+}
 
-    let dir = match std::fs::read_dir(&root) {
+/// The inventory itself, against an explicit root — testable without resolving
+/// (and therefore without mutating) HERMES_HOME.
+fn list_plugins_under(root: &Path) -> Result<Vec<PluginDirEntry>, String> {
+    let dir = match std::fs::read_dir(root) {
         Ok(dir) => dir,
         // No root yet = no plugins yet. The scanner should see an empty list, not
         // an error it has to special-case on every poll tick.
@@ -250,33 +274,42 @@ mod tests {
         }
     }
 
-    // hermes_home() reads process-global env vars (HERMES_HOME, and $HOME via the
-    // platform fallback), so anything asserting on it must serialize — cargo runs
-    // tests in parallel threads within one process. The lock is crate-wide because
-    // repo_scan's and ssh's tests touch $HOME too.
-    use crate::test_env::env_lock;
+    // These used to set HERMES_HOME and restore it, which raced every `getenv`
+    // in every other test thread — cargo runs a crate's tests in one process.
+    // They go through the `resolve_hermes_home` / `list_plugins_under` seams
+    // instead, so nothing here writes the process environment.
 
     #[test]
     fn honours_an_explicit_hermes_home() {
-        let _guard = env_lock();
+        let platform = || Some(PathBuf::from("/platform/.hermes"));
 
-        // SAFETY: every test that touches HERMES_HOME holds the env lock.
-        unsafe { std::env::set_var("HERMES_HOME", "/tmp/custom-home") };
-        assert_eq!(hermes_home().unwrap(), PathBuf::from("/tmp/custom-home"));
-
-        // A blank value must not shadow the platform default.
-        unsafe { std::env::set_var("HERMES_HOME", "  ") };
-        assert_ne!(hermes_home(), Some(PathBuf::from("  ")));
-
-        unsafe { std::env::remove_var("HERMES_HOME") };
+        assert_eq!(
+            resolve_hermes_home(Some("/tmp/custom-home".into()), platform),
+            Some(PathBuf::from("/tmp/custom-home"))
+        );
+        // Surrounding whitespace is trimmed off a real value.
+        assert_eq!(
+            resolve_hermes_home(Some("  /tmp/custom-home  ".into()), platform),
+            Some(PathBuf::from("/tmp/custom-home"))
+        );
+        // A blank value must not shadow the platform default — it must yield the
+        // platform default, not the blank string and not `None`.
+        assert_eq!(
+            resolve_hermes_home(Some("  ".into()), platform),
+            Some(PathBuf::from("/platform/.hermes"))
+        );
+        assert_eq!(
+            resolve_hermes_home(None, platform),
+            Some(PathBuf::from("/platform/.hermes"))
+        );
+        // No override and no platform home is "unknown", not a bare root.
+        assert_eq!(resolve_hermes_home(None, || None), None);
     }
 
     #[test]
     fn listing_a_missing_root_is_empty_not_an_error() {
-        let _guard = env_lock();
+        let listed = list_plugins_under(Path::new("/tmp/hermes-does-not-exist-XYZ"));
 
-        unsafe { std::env::set_var("HERMES_HOME", "/tmp/hermes-does-not-exist-XYZ") };
-        assert_eq!(plugins_list(None).unwrap().len(), 0);
-        unsafe { std::env::remove_var("HERMES_HOME") };
+        assert_eq!(listed.unwrap().len(), 0);
     }
 }
