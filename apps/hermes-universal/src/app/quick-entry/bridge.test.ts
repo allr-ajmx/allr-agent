@@ -56,7 +56,9 @@ const startNewSession = vi.fn()
 const resumeTile = vi.fn(async (_storedId: string) => 'runtime-picked')
 const submitToSession = vi.fn(async (_runtimeId: string, _text: string) => undefined)
 const emitQuickEntryState = vi.fn(async () => undefined)
+const runSlash = vi.fn(async (_command: string) => undefined)
 
+let slashRunner: null | typeof runSlash = null
 let delegate: null | { resumeTile: typeof resumeTile; submitToSession: typeof submitToSession } = null
 let secondaryWindow = false
 
@@ -73,6 +75,7 @@ vi.mock('@/store/new-session', () => ({ startNewSession }))
 vi.mock('@/store/connection', () => ({ $connectionPhase: h.$connectionPhase }))
 vi.mock('@/store/session', () => ({ $sessions: h.$sessions }))
 vi.mock('@/store/session-states', () => ({ sessionTileDelegate: () => delegate }))
+vi.mock('@/app/chat/slash-runner', () => ({ primarySlashRunner: () => slashRunner }))
 vi.mock('./quick-entry', () => ({ QUICK_ENTRY_SURFACE: 'quick' }))
 
 vi.mock('@/store/windows', () => ({
@@ -135,9 +138,11 @@ beforeEach(() => {
   resumeTile.mockClear()
   submitToSession.mockClear()
   emitQuickEntryState.mockClear()
+  runSlash.mockClear()
   onSubmit = null
   onHello = null
   closeListeners.length = 0
+  slashRunner = null
   delegate = null
   secondaryWindow = false
   h.$busy.set(false)
@@ -240,6 +245,88 @@ describe('a captured prompt always lands somewhere', () => {
 
     expect(sendPrompt).not.toHaveBeenCalled()
     expect(enqueueQueuedPrompt).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * MJXHRM-399. The capture composer has no slash popover, but nothing stops
+ * anyone typing a command into it — and this bridge reached for `sendPrompt`,
+ * one layer BELOW the dispatcher, so `/approvals off` was delivered to the agent
+ * as prose. Desktop's three local branches all end in its slash-aware
+ * `submitText`; the port lost that half.
+ */
+describe('a captured slash command runs as a command', () => {
+  it('dispatches into the current chat instead of sending it as a message', async () => {
+    slashRunner = runSlash
+    await install()
+
+    onSubmit?.({ target: 'current', text: '/approvals off' })
+    await flush()
+
+    expect(runSlash).toHaveBeenCalledWith('/approvals off')
+    expect(sendPrompt).not.toHaveBeenCalled()
+  })
+
+  it('runs it while a turn is in flight rather than queueing it behind one', async () => {
+    slashRunner = runSlash
+    await install()
+    h.$busy.set(true)
+
+    onSubmit?.({ target: 'current', text: '/status' })
+    await flush()
+
+    // An app-level verb parked behind the very turn it was meant to inspect is
+    // the queue doing the wrong thing with it.
+    expect(runSlash).toHaveBeenCalledWith('/status')
+    expect(enqueueQueuedPrompt).not.toHaveBeenCalled()
+  })
+
+  it('runs it in the fresh chat for the New session target', async () => {
+    slashRunner = runSlash
+    await install()
+
+    onSubmit?.({ target: 'new', text: '/approvals' })
+    await flush()
+
+    expect(startNewSession).toHaveBeenCalled()
+    expect(runSlash).toHaveBeenCalledWith('/approvals')
+  })
+
+  it('still sends the text when no composer is mounted to dispatch it', async () => {
+    await install()
+
+    onSubmit?.({ target: 'current', text: '/approvals off' })
+    await flush()
+
+    // Wrong reading, but the capture surface's one promise is that nothing
+    // typed into it disappears.
+    expect(sendPrompt).toHaveBeenCalledWith('/approvals off')
+  })
+
+  it('leaves ordinary prose alone', async () => {
+    slashRunner = runSlash
+    await install()
+
+    onSubmit?.({ target: 'current', text: 'ship it' })
+    await flush()
+
+    expect(runSlash).not.toHaveBeenCalled()
+    expect(sendPrompt).toHaveBeenCalledWith('ship it')
+  })
+
+  // A picked stored session keeps going through the tile delegate as raw text —
+  // the dispatcher is bound to the PRIMARY view, and running it here is exactly
+  // the misrouting MJXHRM-357 fixed. Same as desktop.
+  it('does not dispatch against a picked background session', async () => {
+    slashRunner = runSlash
+    delegate = { resumeTile, submitToSession }
+    await install()
+
+    onSubmit?.({ target: 'stored-42', text: '/compress' })
+    await flush()
+
+    expect(runSlash).not.toHaveBeenCalled()
+    expect(submitToSession).toHaveBeenCalledWith('runtime-picked', '/compress')
   })
 })
 

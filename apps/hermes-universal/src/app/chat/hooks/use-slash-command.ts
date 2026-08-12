@@ -25,6 +25,7 @@ import { navigateTo } from '@/lib/route-nav'
 import { toChatMessages } from '@/lib/session-history'
 import { isSessionIdCandidate, renderCommandsCatalog, slashStatusText } from '@/lib/slash-utils'
 import { setSessionYolo } from '@/lib/yolo-session'
+import { syncApprovalModeForProfile } from '@/store/approval-mode'
 import { appendSessionSystemMessage, ensureSession, sendPrompt } from '@/store/chat'
 import { setSessionCompacting } from '@/store/compaction'
 import { setComposerDraft } from '@/store/composer'
@@ -289,6 +290,27 @@ export function useSlashCommand() {
         // one helper all three share (store/new-session.ts).
         new: async () => {
           startNewSession()
+        },
+        // /approvals shows or sets the PROFILE-WIDE dangerous-command approval
+        // mode. The mode itself is the backend's: `slash.exec` runs the CLI's
+        // own handler, which is the only place managed-scope policy ("this
+        // setting is managed and cannot be changed") is enforced — so this is
+        // exec plus one step, not a local reimplementation.
+        //
+        // That one step is the point. `approvals.mode` has a SECOND surface in
+        // this app — the statusbar's Zap menu — and it renders from
+        // `$approvalModes`, a cache `syncApprovalModeForProfile` fills once when
+        // the item mounts. Nothing invalidates it, so `/approvals off` moved the
+        // gateway's config while the bar kept saying Smart for the rest of the
+        // session, and the menu's next pick wrote the stale value back. Re-read
+        // after the command instead of trusting its text: `config.get` is what
+        // the menu itself trusts, so the two cannot disagree, and a REFUSED set
+        // (managed config) reconciles to the unchanged mode rather than to what
+        // was asked for. Bare `/approvals` re-reads too — it is a read, and a
+        // read is exactly when the two surfaces must not print different modes.
+        approvals: async ctx => {
+          await runExec(ctx)
+          await syncApprovalModeForProfile(requestGateway, $activeGatewayProfile.get()).catch(() => undefined)
         },
         // The SURFACE's own chat, exactly like every other handler here (see
         // `targetKey` above). `/branch` typed into a tile's composer forked the

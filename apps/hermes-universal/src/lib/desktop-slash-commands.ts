@@ -44,6 +44,7 @@ export interface DesktopThemeCommandOption {
  * keyed by the id.
  */
 export type DesktopActionId =
+  | 'approvals'
   | 'branch'
   | 'browser'
   | 'compress'
@@ -181,17 +182,22 @@ const DESKTOP_COMMAND_SPECS: readonly DesktopCommandSpec[] = [
     args: true
   },
 
-  // Backend-executed commands that render useful inline output
   {
-    // Unregistered, `/approvals` fell through to `command.dispatch`, which does
-    // not handle it inline and answers "not a quick/plugin/skill command".
-    // `slash.exec` runs the real CLI command, which both reports the current
-    // approval mode and sets it. Matches desktop's `argumentMode: 'options'`.
+    // The backend owns the write (`slash.exec` → the CLI's own /approvals,
+    // which is where managed-scope policy is enforced), so this is an exec at
+    // heart — but it is registered as an ACTION because the answer has to come
+    // back to this client too. `approvals.mode` is ALSO shown and set by the
+    // statusbar's Zap menu, which reads a cached atom (`store/approval-mode`)
+    // that only syncs when it mounts. Exec alone left the two surfaces printing
+    // different modes until a reload; the handler re-reads the mode after the
+    // command runs. Desktop's `argumentMode: 'options'` → `args: true`.
     name: '/approvals',
     description: 'Show or set approval mode [manual|smart|off]',
-    surface: exec(),
+    surface: action('approvals'),
     args: true
   },
+
+  // Backend-executed commands that render useful inline output
   {
     name: '/agents',
     description: 'Show active desktop sessions and running tasks',

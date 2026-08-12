@@ -67,10 +67,12 @@ describe('/diff', () => {
 })
 
 describe('/approvals', () => {
-  // Unregistered, it fell through to `command.dispatch`, which answers "not a
-  // quick/plugin/skill command" instead of reporting the approval mode.
-  it('executes on the backend rather than falling through as unknown', () => {
-    expect(resolveDesktopCommand('/approvals')?.surface).toEqual({ kind: 'exec' })
+  // A plain `exec` row would run the command on the backend and stop there —
+  // and this mode is ALSO shown and set by the statusbar's Zap menu, off a cache
+  // that only syncs when it mounts. The action handler is the half that re-reads
+  // it, so the two surfaces cannot end up reporting different modes.
+  it('is a local action so the client reconciles the mode the backend just wrote', () => {
+    expect(resolveDesktopCommand('/approvals')?.surface).toEqual({ kind: 'action', action: 'approvals' })
     expect(isDesktopSlashCommand('/approvals')).toBe(true)
     expect(desktopSlashUnavailableMessage('/approvals')).toBeNull()
   })

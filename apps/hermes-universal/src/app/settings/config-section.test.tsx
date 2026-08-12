@@ -22,6 +22,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { getHermesConfigRecord, saveHermesConfig } from '@/hermes'
 import { I18nProvider } from '@/i18n'
 import { queryClient } from '@/lib/query-client'
+import { $approvalModes } from '@/store/approval-mode'
 import { setActiveProfile } from '@/store/profiles'
 
 import { ConfigField, ConfigSection } from './config-section'
@@ -95,6 +96,47 @@ describe('ConfigSection', () => {
     // …and the debounced autosave it scheduled never reaches B.
     await new Promise(resolve => setTimeout(resolve, 900))
     expect(save).not.toHaveBeenCalled()
+  })
+
+  // MJXHRM-399. `approvals.mode` has three writers — this panel (Safety), the
+  // statusbar's Zap menu, and `/approvals` — and one cached reader,
+  // `$approvalModes`, which the menu fills when it mounts and nothing else ever
+  // invalidates. A mode changed here left the bar reporting the old one for the
+  // rest of the session, and the bar's next pick wrote that stale value straight
+  // back over this save.
+  describe('the approval-mode cache the statusbar renders from', () => {
+    it('reconciles from the record it just saved', async () => {
+      vi.mocked(getHermesConfigRecord).mockResolvedValue({
+        approvals: { mode: 'off' },
+        display: { show_reasoning: false },
+        timezone: 'UTC'
+      })
+      $approvalModes.set({ default: 'smart' })
+
+      renderSection()
+      fireEvent.click(await screen.findByRole('switch'))
+
+      await waitFor(() => expect(save).toHaveBeenCalledTimes(1), { timeout: 1500 })
+      await waitFor(() => expect($approvalModes.get()).toMatchObject({ default: 'off' }))
+    })
+
+    // A config with the key unset must keep whatever default the GATEWAY
+    // resolves — which is not this cache's fallback. Reconciling unconditionally
+    // would slam the bar to the normalizer's "manual" on every save of an
+    // unrelated section.
+    it('leaves the cache alone when the record carries no mode', async () => {
+      // Stated, not inherited: the suite's shared mock is a `mockResolvedValue`
+      // the test above overwrites, so relying on it would make this pass or fail
+      // on declaration order.
+      vi.mocked(getHermesConfigRecord).mockResolvedValue({ display: { show_reasoning: false }, timezone: 'UTC' })
+      $approvalModes.set({ default: 'smart' })
+
+      renderSection()
+      fireEvent.click(await screen.findByRole('switch'))
+
+      await waitFor(() => expect(save).toHaveBeenCalledTimes(1), { timeout: 1500 })
+      expect($approvalModes.get()).toMatchObject({ default: 'smart' })
+    })
   })
 
   it('keeps a declared row the backend schema omits, inferring its type from config', async () => {

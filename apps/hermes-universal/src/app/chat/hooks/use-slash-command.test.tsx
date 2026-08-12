@@ -15,6 +15,7 @@ vi.mock('@/store/gateway', async () => {
 })
 
 import { type SessionView, SessionViewProvider } from '@/app/chat/session-view'
+import { $approvalModes } from '@/store/approval-mode'
 import type * as ChatStoreModule from '@/store/chat'
 import { $messages, $sessionId, resetChat, sendPrompt } from '@/store/chat'
 import { $compactingSessions, sessionCompacting } from '@/store/compaction'
@@ -65,6 +66,15 @@ const systemLines = () =>
     .map(m => m.parts.map(p => ('text' in p ? p.text : '')).join(''))
 
 beforeEach(() => {
+  // Wipe the map first, for the reason the tile suite below already wipes it:
+  // `resetChat()` leaves a fresh DRAFT slice behind on every call, drafts are
+  // placeholder keys and so are never evictable, and once the map crosses
+  // MAX_CACHED_SESSIONS (12) the pruner takes the only evictable thing left —
+  // `sess-1`, the session every test in this file is about. That made the file
+  // silently length-limited: from the 19th test on, `/branch` and `/handoff`
+  // bailed before their first RPC because their session had been evicted, while
+  // still asserting on calls nothing had made.
+  resetSessionStates()
   resetChat()
   seedActiveSession('sess-1')
   $composerDraft.set('')
@@ -143,6 +153,61 @@ describe('useSlashCommand', () => {
 
     expect($composerDraft.get()).toBe('restored text')
     expect(sendPrompt).not.toHaveBeenCalled()
+  })
+
+  // MJXHRM-399. `/approvals` and the statusbar's Zap menu are two surfaces onto
+  // ONE setting. The menu renders from `$approvalModes`, a cache
+  // `syncApprovalModeForProfile` fills once when the item mounts and nothing
+  // invalidates — so a mode changed by the command left the bar reporting the
+  // old one for the rest of the session, and the bar's next pick wrote that
+  // stale value back over it.
+  describe('/approvals agrees with the statusbar control', () => {
+    it('re-reads the mode from the gateway after setting it', async () => {
+      vi.mocked(requestGateway).mockImplementation(async (method: string) =>
+        method === 'config.get'
+          ? ({ value: 'off' } as never)
+          : ({ output: 'Approval mode: off (persistent profile setting).' } as never)
+      )
+
+      await run('/approvals off')
+
+      expect(vi.mocked(requestGateway).mock.calls.map(call => call[0])).toEqual(['slash.exec', 'config.get'])
+      expect(vi.mocked(requestGateway).mock.calls[0][1]).toMatchObject({ command: 'approvals off' })
+      expect(vi.mocked(requestGateway).mock.calls[1][1]).toMatchObject({ key: 'approvals.mode' })
+      // The cache the Zap menu renders from, under the key it reads.
+      expect($approvalModes.get()).toMatchObject({ default: 'off' })
+      expect(systemLines().at(-1)).toContain('Approval mode: off')
+    })
+
+    // The backend refuses a managed-scope write and keeps the mode it had. The
+    // cache must land on THAT, not on the mode that was asked for — so the
+    // starting value here is deliberately the requested one, which is what an
+    // optimistic write (or a cache stale since the last session) would leave
+    // behind, and which passing this test cannot mean.
+    it('reconciles to the mode the gateway kept when the write was refused', async () => {
+      $approvalModes.set({ default: 'off' })
+      vi.mocked(requestGateway).mockImplementation(async (method: string) =>
+        method === 'config.get'
+          ? ({ value: 'smart' } as never)
+          : ({ output: 'Approval mode is managed and cannot be changed.' } as never)
+      )
+
+      await run('/approvals off')
+
+      expect($approvalModes.get()).toMatchObject({ default: 'smart' })
+    })
+
+    // A bare read is exactly when the two surfaces must not print different
+    // modes side by side, so it re-reads too.
+    it('re-reads on a bare /approvals as well', async () => {
+      vi.mocked(requestGateway).mockImplementation(async (method: string) =>
+        method === 'config.get' ? ({ value: 'manual' } as never) : ({ output: 'Approval mode: manual' } as never)
+      )
+
+      await run('/approvals')
+
+      expect($approvalModes.get()).toMatchObject({ default: 'manual' })
+    })
   })
 
   it('runs a client action (/new) without touching the gateway', async () => {
