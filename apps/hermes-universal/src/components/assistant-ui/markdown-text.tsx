@@ -5,7 +5,6 @@ import {
   type SyntaxHighlighterProps,
   tailBoundedRemend
 } from '@assistant-ui/react-streamdown'
-import type { code as streamdownCode } from '@streamdown/code'
 import type { Element as HastElement } from 'hast'
 import { type ComponentProps, createContext, memo, useContext, useEffect, useMemo, useState } from 'react'
 
@@ -50,48 +49,34 @@ import { detectEmbed, extractAlert, MarkdownAlert, RichCodeBlock, UrlEmbed } fro
 // convention); the default only accepts `$$…$$`.
 const mathPlugin = createMemoizedMathPlugin({ singleDollarTextMath: true })
 
-// `@streamdown/code` statically imports ALL of shiki — every grammar and every
-// theme, the single largest payload in the renderer — so it must never sit on
-// the entry graph. Ported from desktop `markdown-text.tsx`, and the reason the
-// port was missing is worth recording: MJXHRM-380 put a `lazy()` boundary in
-// front of all FOUR of our own shiki entry points and measured the entry chunk
-// shrink, but this static import re-attached shiki through a third-party
-// package, so the library still loaded eagerly on every cold start. The seam is
-// only as lazy as its leakiest importer.
+// NO `plugins.code` — deliberately, and the reason is not obvious enough to
+// rediscover by accident. Shiki here comes from ONE place: the
+// `SyntaxHighlighter` slot in `MARKDOWN_COMPONENTS` below, which reaches
+// `react-shiki` through `lazy(() => import('./shiki-block'))`.
 //
-// Loaded on first markdown mount and swapped into the plugin table when it
-// lands. Until then a fenced block renders through the `SyntaxHighlighter`
-// override's plain path — the same output Shiki's own `delay` fallback shows —
-// so nothing flashes or reflows unexpectedly. The module-level cache means only
-// the first message in a session ever waits.
-type CodePlugin = typeof streamdownCode
-let codePluginCache: CodePlugin | null = null
-
-function useCodePlugin(): CodePlugin | null {
-  const [plugin, setPlugin] = useState(codePluginCache)
-
-  useEffect(() => {
-    if (plugin) {
-      return
-    }
-
-    let cancelled = false
-
-    void import('@streamdown/code').then(({ code }) => {
-      codePluginCache = code
-
-      if (!cancelled) {
-        setPlugin(code)
-      }
-    })
-
-    return () => {
-      cancelled = true
-    }
-  }, [plugin])
-
-  return plugin
-}
+// Supplying a `SyntaxHighlighter` component makes
+// `@assistant-ui/react-streamdown` install its code adapter — see
+// `shouldUseCodeAdapter` / `useAdaptedComponents` in that package — which sets
+// `components.code = AdaptedCode`, REPLACING streamdown's own `code` slot for
+// every fenced block. And `plugins.code` has exactly one consumer in the whole
+// of streamdown: `useCodeHighlighter()` inside `HighlightedCodeBlockBody`,
+// which only ever renders under streamdown's own `CodeBlock` — the component
+// the adapter just replaced. So a code plugin passed here is constructed,
+// carried down the context, and read by nothing.
+//
+// That is not free. `@streamdown/code` statically imports ALL of shiki — every
+// grammar, every theme, plus its own JavaScript regex engine, a SECOND engine
+// next to the Oniguruma one `react-shiki` uses — so passing it downloaded the
+// single largest payload in the renderer to feed a dead branch. MJXHRM-380 put
+// lazy boundaries in front of all four of OUR shiki entry points; MJXHRM-45
+// then found a fifth importer defeating them and deferred it to first markdown
+// mount. Deferred was still wrong: the right amount of `@streamdown/code` is
+// none, so the dependency is gone from package.json entirely.
+//
+// If a future change removes the `SyntaxHighlighter` slot, streamdown's own
+// code block comes back — and THEN it needs a code plugin, or fences render
+// unhighlighted. Re-add both together or neither.
+const MARKDOWN_PLUGINS = { math: mathPlugin }
 
 // Renderer for the single node katex-memo emits per equation. See that file for
 // why an equation is one node and not ~65.
@@ -559,12 +544,6 @@ function MarkdownSyntaxHighlighter(props: SyntaxHighlighterProps) {
   )
 }
 
-// Code parsing stays enabled while streaming so incomplete fences still render
-// as code cards; the Shiki pass is deferred by SyntaxHighlighter instead.
-// Math-only until the code plugin lands (see `useCodePlugin`); both halves are
-// module constants so the memo below only ever produces two identities.
-const MARKDOWN_PLUGINS_MATH_ONLY = { math: mathPlugin }
-
 // `StreamdownTextComponents` is unsatisfiable by any object literal: it's an
 // intersection of a `[key: string]: ComponentType<Record<string, unknown> &
 // ExtraProps>` index signature with a `SyntaxHighlighter?:
@@ -665,9 +644,6 @@ const MARKDOWN_COMPONENTS = {
 
 function MarkdownTextSurface({ containerClassName, containerProps, defer }: MarkdownTextSurfaceProps) {
   const { text } = useMessagePartText()
-  const code = useCodePlugin()
-
-  const plugins = useMemo(() => (code ? { math: mathPlugin, code } : MARKDOWN_PLUGINS_MATH_ONLY), [code])
 
   if (text.length > MAX_MARKDOWN_CHARS) {
     return <HugeTextFallback containerClassName={containerClassName} text={text} />
@@ -683,7 +659,7 @@ function MarkdownTextSurface({ containerClassName, containerProps, defer }: Mark
       mode="streaming"
       parseIncompleteMarkdown={false}
       parseMarkdownIntoBlocksFn={parseMarkdownIntoBlocksCached}
-      plugins={plugins}
+      plugins={MARKDOWN_PLUGINS}
       preprocess={preprocessWithTailRepair}
     />
   )
