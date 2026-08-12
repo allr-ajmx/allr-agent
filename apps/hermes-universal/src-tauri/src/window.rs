@@ -766,4 +766,23 @@ mod tests {
             assert!(is_satellite_window_label(&label), "{label}");
         }
     }
+
+    /// Which windows get [`APP_WINDOW_CLOSED_EVENT`], and therefore which closes
+    /// make the survivors reclaim the OS hotkeys. Only a window that mounts the
+    /// whole shell can have been holding them; a satellite answering here would
+    /// have Quick Entry's own dismiss churn the machine-wide claim every time it
+    /// is summoned and let go.
+    #[test]
+    fn only_full_app_windows_are_app_windows() {
+        for label in ["main", "instance-2", "screen"] {
+            assert!(is_app_window_label(label), "{label} is a full app window");
+        }
+
+        for spec in SATELLITES {
+            let label = format!("sat-{}", spec.surface);
+            assert!(!is_app_window_label(&label), "{label} is a satellite");
+        }
+
+        assert!(!is_app_window_label("tile-session-tile-abc"));
+    }
 }

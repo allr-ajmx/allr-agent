@@ -115,6 +115,14 @@ describe('global shortcuts follow the rebindable registry', () => {
     const { mod, setBinding } = await load()
     const stop = mod.startGlobalShortcuts()
 
+    // Let the BOOT sync finish before rebinding. Without this the rebind lands
+    // while that first sync is still awaiting its dynamic import, so it reads
+    // the new combo on its own and the case passed with the subscription
+    // deleted outright — which is the one thing it exists to prove: a chord
+    // assigned in Settings has to take effect without a restart.
+    await flush()
+    register.mockClear()
+
     setBinding(ACTION, ['mod+shift+space'])
     await flush()
 
