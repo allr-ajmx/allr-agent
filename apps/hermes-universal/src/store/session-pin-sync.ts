@@ -134,6 +134,13 @@ function pullRemotePins(): void {
 
     // Local intent still waiting on its PATCH (row unresolved when the push
     // pass ran) is also newer than the page — never revert it.
+    //
+    // Belt to the write guard's braces, and knowingly so: no mutation of this
+    // line can fail a test, because the push pass above always lifts a loaded
+    // row's id out of `pending`, and `writePin` sets `unconfirmed`
+    // SYNCHRONOUSLY before issuing its request — so by the time the pull reads a
+    // row, its id is fenced either way. Kept rather than deleted on that
+    // reasoning alone: it is desktop's, carried over with its race fixes.
     if (pending.has(pinId) || pending.has(row.id)) {
       continue
     }
