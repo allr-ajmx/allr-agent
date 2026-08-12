@@ -1,5 +1,5 @@
 import { normalize } from '@/lib/text'
-import type { SubagentProgress, SubagentStatus } from '@/store/subagents'
+import { normalizeSubagentStatus, type SubagentProgress, type SubagentStatus } from '@/store/subagents'
 
 import { firstStringField, numberValue, parseMaybeObject } from './fallback-model'
 
@@ -52,6 +52,24 @@ function resultRows(result: unknown): Record<string, unknown>[] {
   return results.map(parseMaybeObject)
 }
 
+/**
+ * How a finished child reads from the tool RESULT, which speaks the delegate
+ * tool's own vocabulary rather than the event stream's.
+ *
+ * `tools/delegate_tool.py` writes five terminal values into each result row:
+ * `completed` / `failed` / `interrupted`, plus `timeout` and `error` for the
+ * two exits that never reach the normal accounting (line 2433 and 2807). Only
+ * `failed` used to be recognised, so a child that timed out, crashed or was
+ * interrupted rendered in the transcript as a green tick — the delegation read
+ * as a clean success. A row with no status at all is still a finished row, so
+ * it settles as completed rather than falling back to `running`.
+ */
+function resultRowStatus(raw: string): DelegateRowStatus {
+  const status = normalizeSubagentStatus(raw)
+
+  return status === 'running' || status === 'queued' ? 'completed' : status
+}
+
 function dispatchedGoals(result: unknown): string[] {
   const record = parseMaybeObject(result)
 
@@ -87,7 +105,7 @@ export function delegateRowsFromCall(args: unknown, result: unknown, toolCallId 
       goal,
       id: `${toolCallId}:${index}`,
       model: entry ? field(entry, 'model') || undefined : undefined,
-      status: entry ? (field(entry, 'status') === 'failed' ? 'failed' : 'completed') : idle
+      status: entry ? resultRowStatus(field(entry, 'status')) : idle
     }
   })
 }

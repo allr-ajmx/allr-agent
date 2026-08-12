@@ -31,6 +31,7 @@ import {
   openBranchTile,
   pruneSessionStates
 } from '@/store/session-states'
+import { $subagentsBySession, allSubagents, upsertSubagent } from '@/store/subagents'
 import { $inflightTurns, beginTurn, isTurnLive } from '@/store/turn-lifecycle'
 import { $effectiveCwd, $workspaceCwd } from '@/store/workspace-events'
 
@@ -447,6 +448,22 @@ describe('clearAllSessionStates', () => {
 
     expect(sessionCompacting('runtime-1').get()).toBe(false)
     expect($compactingSessions.get()).toEqual({})
+  })
+
+  // MJXHRM-401: the FOURTH, and the second one this wipe forgot. Worse than
+  // inert — `allSubagents` flattens the map across every session, so the Agents
+  // overlay went on rendering the previous profile's children (still spinning,
+  // since nothing can complete them any more) and the status bar went on
+  // counting them as work in flight.
+  it('takes the spawn tree with it', () => {
+    seed('runtime-1', { storedSessionId: 'stored-1' })
+    upsertSubagent('runtime-1', { subagent_id: 'a', goal: 'digging', status: 'running' }, true, 'subagent.start')
+
+    expect(allSubagents($subagentsBySession.get())).toHaveLength(1)
+
+    clearAllSessionStates()
+
+    expect($subagentsBySession.get()).toEqual({})
   })
 })
 

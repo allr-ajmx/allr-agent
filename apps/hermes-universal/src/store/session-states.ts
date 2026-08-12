@@ -68,6 +68,7 @@ import {
   setSessionTransitionHook,
   updateSession
 } from '@/store/session-state-types'
+import { clearAllSubagents } from '@/store/subagents'
 import { clearAllTurns } from '@/store/turn-lifecycle'
 import { isSecondaryWindow, ownsPersistedAppState } from '@/store/windows'
 
@@ -240,6 +241,12 @@ export function clearAllSessionStates() {
   // without emitting one. That is a permanently-set steer gate for any key that
   // came back, and a leak for every one that didn't (MJXHRM-357).
   clearAllCompaction()
+  // The FOURTH module keyed by session key, and the second one this wipe
+  // forgot (MJXHRM-401). The spawn tree is flattened across every session by
+  // `allSubagents`, so a leftover row is not merely inert: the Agents overlay
+  // renders it and the status-bar counter counts it as running work belonging
+  // to a gateway we have already left.
+  clearAllSubagents()
   disposeStreamBatch()
   $stalledSessionIds.set([])
   $sessionStates.set({})
