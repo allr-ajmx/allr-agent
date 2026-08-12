@@ -48,6 +48,16 @@ describe('terminalFontFamilyFromConfig', () => {
     expect(terminalFontFamilyFromConfig({})).toBe('')
   })
 
+  // config.yaml is hand-authored YAML, so the value is whatever the user typed:
+  // `font_family: 12` parses as a number and `font_family: [a]` as a list. Both
+  // arrive here as-is, and calling .trim() on either throws inside the render of
+  // the picker AND of the terminal pane — a bad key has to degrade, not explode.
+  it('reads empty from a value that is not a string at all', () => {
+    expect(terminalFontFamilyFromConfig({ terminal: { font_family: 12 } })).toBe('')
+    expect(terminalFontFamilyFromConfig({ terminal: { font_family: ['MesloLGS NF'] } })).toBe('')
+    expect(terminalFontFamilyFromConfig({ terminal: { font_family: { name: 'MesloLGS NF' } } })).toBe('')
+  })
+
   it('reads empty rather than throwing when the config never arrived', () => {
     expect(terminalFontFamilyFromConfig(undefined)).toBe('')
     expect(terminalFontFamilyFromConfig(null)).toBe('')
