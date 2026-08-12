@@ -4329,6 +4329,91 @@ def test_prompt_submit_rejects_negative_truncate_ordinal(monkeypatch):
         server._sessions.pop("trunc-sid", None)
 
 
+def test_prompt_submit_refuses_boolean_ordinal(monkeypatch):
+    """A JSON `true` ordinal must return 4004, not coerce to turn 1.
+
+    bool is an int subclass, so `int(True) == 1`: a client bug that sends
+    `truncate_before_user_ordinal: true` alongside confirm_truncate would aim a
+    fully CONSENTED rewind at the SECOND user turn and drop everything after
+    the first. Every other guard on this path checks the aim of a cut the
+    client meant; this one is a cut the client never asked for at all.
+    """
+    history = [
+        {"role": "user", "content": "first"},
+        {"role": "assistant", "content": "reply 1"},
+        {"role": "user", "content": "second"},
+        {"role": "assistant", "content": "reply 2"},
+    ]
+    server._sessions["bool-trunc-sid"] = _session(history=list(history))
+    monkeypatch.setattr(
+        server, "_start_agent_build", lambda *a, **k: pytest.fail("must not start a turn")
+    )
+    monkeypatch.setattr(
+        server, "_start_inflight_turn", lambda *a, **k: pytest.fail("must not start a turn")
+    )
+
+    try:
+        resp = server.handle_request(
+            {
+                "id": "1",
+                "method": "prompt.submit",
+                "params": {
+                    "session_id": "bool-trunc-sid",
+                    "text": "new turn",
+                    "truncate_before_user_ordinal": True,
+                    "confirm_truncate": True,
+                },
+            }
+        )
+        assert resp.get("error") is not None
+        assert resp["error"]["code"] == 4004
+        assert "must be an integer" in resp["error"]["message"]
+        assert server._sessions["bool-trunc-sid"]["history"] == history
+    finally:
+        server._sessions.pop("bool-trunc-sid", None)
+
+
+def test_prompt_submit_refuses_confirm_truncate_without_target(monkeypatch):
+    """confirm_truncate with no ordinal is leaked rewind state — fail fast.
+
+    Both clients attach confirm_truncate only when they build truncation params
+    (`truncateSubmitParams`), so a bare flag on an ordinary submit means the
+    client's rewind state has leaked onto a plain send. Refusing loudly
+    surfaces that instead of quietly ignoring the flag and waiting for the
+    matching stray ordinal to arrive with it.
+    """
+    history = [
+        {"role": "user", "content": "first"},
+        {"role": "assistant", "content": "reply 1"},
+    ]
+    server._sessions["bare-confirm-sid"] = _session(history=list(history))
+    monkeypatch.setattr(
+        server, "_start_agent_build", lambda *a, **k: pytest.fail("must not start a turn")
+    )
+    monkeypatch.setattr(
+        server, "_start_inflight_turn", lambda *a, **k: pytest.fail("must not start a turn")
+    )
+
+    try:
+        resp = server.handle_request(
+            {
+                "id": "1",
+                "method": "prompt.submit",
+                "params": {
+                    "session_id": "bare-confirm-sid",
+                    "text": "new turn",
+                    "confirm_truncate": True,
+                },
+            }
+        )
+        assert resp.get("error") is not None
+        assert resp["error"]["code"] == 4004
+        assert "confirm_truncate requires" in resp["error"]["message"]
+        assert server._sessions["bare-confirm-sid"]["history"] == history
+    finally:
+        server._sessions.pop("bare-confirm-sid", None)
+
+
 def test_prompt_submit_refuses_unconfirmed_nonempty_truncation(monkeypatch):
     """An ordinal without confirm_truncate must not drop the session tail.
 
