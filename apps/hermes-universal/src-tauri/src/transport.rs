@@ -564,6 +564,22 @@ fn visible_response_headers(headers: &reqwest::header::HeaderMap) -> HashMap<Str
         .collect()
 }
 
+/// A filename safe to put in a `Content-Disposition` header.
+///
+/// Quotes and CRLF would otherwise break out of the header — the same guard
+/// desktop's bridge applies. Split out from [`upload_form`] because a
+/// `multipart::Form` exposes nothing to assert against: a test can only see that
+/// it BUILT, which is equally true of one carrying an injected header.
+fn safe_upload_filename(raw: &str) -> String {
+    let cleaned = raw.replace(['"', '\r', '\n'], "_").trim().to_string();
+
+    if cleaned.is_empty() {
+        "file".to_string()
+    } else {
+        cleaned
+    }
+}
+
 /// Build the `multipart/form-data` form for an upload.
 ///
 /// Rebuilt per attempt rather than built once and reused: `multipart::Form` is
@@ -575,20 +591,8 @@ fn upload_form(upload: &HttpUpload) -> Result<reqwest::multipart::Form, String> 
         .decode(upload.bytes_base64.as_bytes())
         .map_err(|e| format!("invalid upload payload: {e}"))?;
 
-    // Strip quotes and CRLF from the filename — they would otherwise break out
-    // of the Content-Disposition header. Same guard as desktop's bridge.
-    let filename = upload
-        .filename
-        .replace(['"', '\r', '\n'], "_")
-        .trim()
-        .to_string();
-    let filename = if filename.is_empty() {
-        "file".to_string()
-    } else {
-        filename
-    };
-
-    let mut part = reqwest::multipart::Part::bytes(bytes).file_name(filename);
+    let mut part =
+        reqwest::multipart::Part::bytes(bytes).file_name(safe_upload_filename(&upload.filename));
     part = part
         .mime_str(
             upload
@@ -995,8 +999,8 @@ mod tests {
 
     use super::{
         apply_gateway_bearer, caller_set_authorization, pump_reader, redact_bearer, redact_error,
-        redact_message, redact_secret, redact_url, send_binary_frame, upload_form,
-        visible_response_headers, HttpUpload, Message, ReaderSink, TransportState,
+        redact_message, redact_secret, redact_url, safe_upload_filename, send_binary_frame,
+        upload_form, visible_response_headers, HttpUpload, Message, ReaderSink, TransportState,
     };
 
     /// A tungstenite error of the kind the read loop actually sees after the
@@ -1654,10 +1658,19 @@ mod tests {
 
     /// Quotes and CRLF in a filename would otherwise break out of the
     /// Content-Disposition header the multipart part writes.
+    ///
+    /// Asserted against the sanitised NAME, not against `is_ok()`: a form
+    /// carrying an injected header builds exactly as happily as a clean one, so
+    /// the old shape of this test passed with the guard deleted.
     #[test]
     fn upload_form_survives_a_hostile_filename() {
+        assert_eq!(safe_upload_filename("a\"; x=\"\r\n.txt"), "a_; x=___.txt");
         assert!(upload_form(&upload("a\"; x=\"\r\n.txt", None, "aGk=")).is_ok());
         // An all-whitespace name still produces a part rather than an empty one.
+        assert_eq!(safe_upload_filename("   "), "file");
+        assert_eq!(safe_upload_filename(""), "file");
         assert!(upload_form(&upload("   ", None, "aGk=")).is_ok());
+        // An ordinary name is left exactly as it was.
+        assert_eq!(safe_upload_filename("notes.txt"), "notes.txt");
     }
 }
