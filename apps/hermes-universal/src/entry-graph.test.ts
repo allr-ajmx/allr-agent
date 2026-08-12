@@ -253,10 +253,58 @@ function staticSpecifiers(file: string): string[] {
   return found
 }
 
+/**
+ * `import()` specifiers evaluated at MODULE INITIALIZATION — i.e. not inside
+ * any function body, so they run the moment the module is first evaluated.
+ *
+ * Such a call is "dynamic" to a bundler (the code lands in its own chunk) while
+ * being eager to a user (the chunk is requested during boot anyway). The
+ * reachability assertion above cannot see the difference, so this closes that
+ * gap explicitly rather than leaving it as a hole the next importer can hide in.
+ */
+function eagerDynamicSpecifiers(file: string): string[] {
+  if (file.endsWith('.json') || file.endsWith('.css')) {
+    return []
+  }
+
+  const source = ts.createSourceFile(
+    file,
+    fs.readFileSync(file, 'utf8'),
+    ts.ScriptTarget.ESNext,
+    false,
+    scriptKind(file)
+  )
+
+  const found: string[] = []
+
+  const visit = (node: ts.Node): void => {
+    // A function body defers everything inside it — stop descending.
+    if (ts.isFunctionLike(node) || ts.isClassLike(node)) {
+      return
+    }
+
+    if (
+      ts.isCallExpression(node) &&
+      node.expression.kind === ts.SyntaxKind.ImportKeyword &&
+      node.arguments[0] &&
+      ts.isStringLiteralLike(node.arguments[0])
+    ) {
+      found.push((node.arguments[0] as ts.StringLiteralLike).text)
+    }
+
+    ts.forEachChild(node, visit)
+  }
+
+  ts.forEachChild(source, visit)
+
+  return found
+}
+
 interface Graph {
   reached: Set<string>
   parent: Map<string, string>
   forbidden: { file: string; specifier: string }[]
+  eager: { file: string; specifier: string }[]
   unresolved: Set<string>
 }
 
@@ -264,6 +312,7 @@ function walkStaticGraph(): Graph {
   const reached = new Set<string>([ENTRY])
   const parent = new Map<string, string>()
   const forbidden: { file: string; specifier: string }[] = []
+  const eager: { file: string; specifier: string }[] = []
   const unresolved = new Set<string>()
   const queue = [ENTRY]
 
@@ -272,6 +321,12 @@ function walkStaticGraph(): Graph {
 
   while (queue.length > 0) {
     const file = queue.shift() as string
+
+    for (const specifier of eagerDynamicSpecifiers(file)) {
+      if (isForbidden(specifier)) {
+        eager.push({ file, specifier })
+      }
+    }
 
     for (const specifier of staticSpecifiers(file)) {
       if (isForbidden(specifier)) {
@@ -304,7 +359,7 @@ function walkStaticGraph(): Graph {
     }
   }
 
-  return { forbidden, parent, reached, unresolved }
+  return { eager, forbidden, parent, reached, unresolved }
 }
 
 function chainTo(graph: Graph, file: string): string[] {
@@ -343,6 +398,15 @@ describe('entry import graph', () => {
       .join('\n\n')
 
     expect(detail).toBe('')
+  })
+
+  it('never fires a shiki import() at module initialization', () => {
+    // A top-level `void import('shiki')` is dynamic to the bundler and eager to
+    // the user: own chunk, still fetched during boot. Reachability alone can't
+    // tell the two apart, so say so separately.
+    const detail = graph.eager.map(hit => `${hit.specifier} at module scope in ${path.relative(REPO_ROOT, hit.file)}`)
+
+    expect(detail).toEqual([])
   })
 
   it('never pulls a shiki module itself onto the entry graph', () => {
