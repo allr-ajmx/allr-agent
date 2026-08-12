@@ -39,10 +39,18 @@ mod imp {
     /// One live PTY: the master (for resize), the write half (keystrokes in), and
     /// a killer (the `Child` itself is owned by the reader thread so it can reap on
     /// EOF). All three are `Send`, so the map lives behind a `tokio::Mutex`.
+    ///
+    /// `owner` is the label of the window that asked for the shell. A PTY is a real
+    /// process and this map is the only thing holding it: if the window that was
+    /// driving it goes away without running its JS teardown — which is exactly what
+    /// a native window close does, and WebKitGTK gives no reliable page-side signal
+    /// for — nothing would ever call `pty_kill` and the shell would outlive its
+    /// terminal for the rest of the session. See `reap_window` (MJXHRM-373).
     pub struct PtyHandle {
         master: Box<dyn MasterPty + Send>,
         writer: Box<dyn Write + Send>,
         killer: Box<dyn ChildKiller + Send + Sync>,
+        owner: String,
     }
 
     #[derive(Default)]
@@ -124,6 +132,7 @@ mod imp {
         cols: u16,
         rows: u16,
         cwd: Option<String>,
+        owner: String,
     ) -> Result<PtySpawned, String> {
         let shell = resolve_shell();
         let cwd = resolve_cwd(cwd);
@@ -179,6 +188,24 @@ mod imp {
             }
             let _ = child.wait();
             let _ = app_reader.emit(&format!("pty://{id_reader}/exit"), ());
+
+            // Drop the entry with the process. A shell the USER ended (`exit`,
+            // Ctrl-D) reaches here with the pane still open, so nothing was going
+            // to call `pty_kill` for it — the map kept a dead shell's master fd
+            // and writer alive for as long as the app ran. Removal after the exit
+            // event, so a listener that reacts by killing finds either this handle
+            // or nothing, never a half-torn-down one.
+            let app_cleanup = app_reader.clone();
+            tauri::async_runtime::spawn(async move {
+                use tauri::Manager;
+
+                app_cleanup
+                    .state::<PtyState>()
+                    .0
+                    .lock()
+                    .await
+                    .remove(&id_reader);
+            });
         });
 
         state.0.lock().await.insert(
@@ -187,6 +214,7 @@ mod imp {
                 master: pair.master,
                 writer,
                 killer,
+                owner,
             },
         );
         Ok(PtySpawned { shell })
@@ -224,6 +252,48 @@ mod imp {
         }
         Ok(())
     }
+
+    /// Kill every PTY a now-destroyed window owned.
+    ///
+    /// The only thing that ends a shell is `pty_kill`, and the only caller is the
+    /// terminal component's unmount cleanup — which does not run when the window
+    /// hosting it is closed natively (a detached terminal tile in its own window,
+    /// or any secondary window at all). Those shells would otherwise stay in this
+    /// map, running, with nothing left that could ever address them: an orphan per
+    /// window close.
+    ///
+    /// Native-side for the same reason `TILE_WINDOW_CLOSED_EVENT` is (window.rs):
+    /// a torn-down WebKitGTK view is the least reliable place to send a message
+    /// from, and `RunEvent::WindowEvent` fires whether or not the page ran
+    /// anything.
+    pub async fn kill_for_window(state: &PtyState, label: &str) {
+        let mut map = state.0.lock().await;
+        let ids: Vec<String> = map
+            .iter()
+            .filter(|(_, handle)| handle.owner == label)
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in ids {
+            if let Some(mut handle) = map.remove(&id) {
+                let _ = handle.killer.kill();
+            }
+        }
+    }
+}
+
+/// Reap the PTYs owned by a destroyed window (see [`imp::kill_for_window`]).
+/// Called from the `RunEvent::WindowEvent { Destroyed }` arm in `lib.rs`, which
+/// is not an async context — hence the detached task.
+#[cfg(desktop)]
+pub fn reap_window_ptys(app: &tauri::AppHandle, label: &str) {
+    let app = app.clone();
+    let label = label.to_string();
+
+    tauri::async_runtime::spawn(async move {
+        use tauri::Manager;
+
+        imp::kill_for_window(&app.state::<PtyState>(), &label).await;
+    });
 }
 
 #[cfg(desktop)]
@@ -233,13 +303,18 @@ pub use imp::PtyState;
 #[tauri::command]
 pub async fn pty_spawn(
     app: tauri::AppHandle,
+    // Injected by Tauri — the frontend passes no such argument. It is the window
+    // whose teardown must take this shell with it (see `kill_for_window`).
+    window: tauri::Window,
     state: tauri::State<'_, imp::PtyState>,
     id: String,
     cols: u16,
     rows: u16,
     cwd: Option<String>,
 ) -> Result<PtySpawned, String> {
-    imp::spawn(app, &state, id, cols, rows, cwd).await
+    let owner = window.label().to_string();
+
+    imp::spawn(app, &state, id, cols, rows, cwd, owner).await
 }
 
 #[cfg(desktop)]
