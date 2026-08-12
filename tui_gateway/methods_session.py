@@ -3084,10 +3084,17 @@ def _(rid, params: dict) -> dict:
     to the child's last tool result at its next iteration boundary — the
     in-flight tool call is never cut. "queued" is not "delivered": a child
     already past its final tool batch has no boundary left to drain into,
-    and that race surfaces as ``missed_steer`` on the parent's completion
-    entry instead of being silently dropped.
+    and that race surfaces as ``missed_steer`` — on the parent's completion
+    entry AND on the ``subagent.complete`` event, so a UI can retract the
+    "queued" it already showed.
+
+    A refusal is a 200 with ``status: "rejected"`` and a ``reason`` naming
+    which refusal it was (see ``steer_subagent_reason``), plus this handler's
+    own ``no_session_authority`` for a caller whose session identity could not
+    be verified. They are not interchangeable: "too late" is a race the user
+    lost, "not yours" is a UI addressing the wrong session.
     """
-    from tools.delegate_tool import steer_subagent
+    from tools.delegate_tool import STEER_QUEUED, steer_subagent_reason
 
     subagent_id = str(params.get("subagent_id") or "").strip()
     if not subagent_id:
@@ -3102,23 +3109,24 @@ def _(rid, params: dict) -> dict:
     invoking_transport, invoking_session = _current_session_steer_authority(
         invoking_session_id
     )
-    queued = False
+    reason = "no_session_authority"
     if invoking_transport is not None and invoking_session is not None:
-        queued = steer_subagent(
+        reason = steer_subagent_reason(
             subagent_id,
             text,
             owner_session_id=invoking_session_id,
             owner_transport=invoking_transport,
             owner_session_record=invoking_session,
         )
-    return _ok(
-        rid,
-        {
-            "status": "queued" if queued else "rejected",
-            "subagent_id": subagent_id,
-            "text": text,
-        },
-    )
+    queued = reason == STEER_QUEUED
+    result = {
+        "status": "queued" if queued else "rejected",
+        "subagent_id": subagent_id,
+        "text": text,
+    }
+    if not queued:
+        result["reason"] = reason
+    return _ok(rid, result)
 
 
 @method("spawn_tree.save")
@@ -3274,7 +3282,17 @@ def _(rid, params: dict) -> dict:
 
 @method("session.redirect")
 def _(rid, params: dict) -> dict:
-    """Redirect the active model turn while preserving valid work/context."""
+    """Redirect the active model turn while preserving valid work/context.
+
+    Answers ``redirected`` (the model request was cancelled and the turn is
+    being rebuilt around the correction), ``steered`` (a tool was running, so
+    the correction was deferred to the next tool-result boundary — nothing on
+    screen has been superseded and the model has not seen it yet), ``queued``
+    (no agent yet — it becomes the next turn) or ``rejected``. A client that
+    paints the correction bubble must place it by THIS value; before
+    ``steered`` existed the deferred case claimed ``redirected`` and the bubble
+    sat above a reply it had not touched.
+    """
     text = (params.get("text") or "").strip()
     if not text:
         return _err(rid, 4002, "text is required")
@@ -3298,17 +3316,14 @@ def _(rid, params: dict) -> dict:
     ):
         return _err(rid, 4010, "agent does not support active-turn redirect")
     try:
-        accepted = agent.redirect(text)
+        outcome = _agent_redirect_outcome(agent, text)
     except Exception as exc:
         return _err(rid, 5000, f"redirect failed: {exc}")
-    if accepted:
+    if outcome != "rejected":
         with session["history_lock"]:
             _record_inflight_correction(session, text)
             session["last_active"] = time.time()
-    return _ok(
-        rid,
-        {"status": "redirected" if accepted else "rejected", "text": text},
-    )
+    return _ok(rid, {"status": outcome, "text": text})
 
 
 @method("terminal.resize")
