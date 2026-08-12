@@ -54,10 +54,11 @@ import {
   isDraftKey,
   newDraftKey,
   rekeySession,
+  runtimeKeyForStoredSession,
   updateSession
 } from '@/store/session-state-types'
 import { clearSessionSubagents } from '@/store/subagents'
-import { beginTurn, recordTurnCorrection, settleTurn } from '@/store/turn-lifecycle'
+import { beginTurn, getInflightTurn, recordTurnCorrection, settleTurn } from '@/store/turn-lifecycle'
 import type { SessionCreateResponse, SessionRedirectResponse, UsageStats } from '@/types/hermes'
 
 // The chat transcript model and its pure reducers now live in the LEAF module
@@ -349,7 +350,7 @@ export async function sendPrompt(text: string): Promise<void> {
   // submit leaving and the gateway acknowledging it is precisely the one a
   // reconnect lands in, and a turn with no record there is a turn nothing can
   // reconcile (store/turn-lifecycle.ts).
-  beginTurn(startKey, { prompt: trimmed })
+  const turn = beginTurn(startKey, { prompt: trimmed })
   setPetActivity({ busy: true }) // pet: start working the moment the user sends
 
   // A draft rekeys to its runtime id, so the slice moves; anything else keeps
@@ -373,6 +374,20 @@ export async function sendPrompt(text: string): Promise<void> {
       // first message as the provisional title (preview). Dynamic import —
       // store/session imports store/chat, so a static import here would cycle.
       void import('@/store/session').then(m => m.registerNewSession(storedId, trimmed)).catch(() => {})
+    }
+
+    // Stop, pressed while the session was still being created. `sendPrompt` goes
+    // busy before `ensureSession` returns, so the composer offers Stop for the
+    // whole `session.create` round trip — and a draft has no runtime id for
+    // `interruptSession` to address, which is why all it can do is settle the
+    // turn (`interruptUnboundSession`). Reading that back HERE is what makes the
+    // press mean something: the prompt is abandoned before it goes out, instead
+    // of being sent to a gateway that will then stream a reply into a chat the
+    // user has already stopped.
+    const open = getInflightTurn(submitKey)
+
+    if (!open || open.turnId !== turn.turnId || open.phase === 'settled') {
+      return
     }
 
     // The last unwired recovery site (MJXHRM-219): a session whose runtime the
@@ -561,7 +576,7 @@ export async function interruptSession(key = $activeSessionKey.get()): Promise<b
   const sessionId = slice?.runtimeSessionId
 
   if (!sessionId) {
-    return false
+    return interruptUnboundSession(key, slice)
   }
 
   // A recovery hands back a fresh runtime id and the slice moves with it.
@@ -570,10 +585,10 @@ export async function interruptSession(key = $activeSessionKey.get()): Promise<b
   try {
     const { withSessionNotFoundResume } = await sessionRecovery()
 
-    const { recovered } = await withSessionNotFoundResume(
+    const { recovered, result } = await withSessionNotFoundResume<InterruptResult>(
       sessionId,
       slice.storedSessionId,
-      live => requestGateway('session.interrupt', { session_id: live }),
+      live => requestGateway<InterruptResult>('session.interrupt', { session_id: live }),
       {
         onRecovered: live => {
           rekeySession(liveKey, live, { runtimeSessionId: live })
@@ -582,17 +597,29 @@ export async function interruptSession(key = $activeSessionKey.get()): Promise<b
       }
     )
 
-    // A RECOVERED interrupt landed on a runtime the gateway minted a moment ago,
-    // so the turn this session thought was live died with the runtime that owned
-    // it: there is no terminal frame coming to settle it. Without this the chat
-    // (or the tile) stayed busy forever behind a Stop button that had already
-    // done everything it could — the same shape MJXHRM-366 fixed for the silent
-    // rejection, one layer further in.
+    // TWO ways to learn the turn cannot still be running, and both have to
+    // settle it here — nothing else will.
     //
-    // The un-recovered case is deliberately left alone: the gateway is
-    // cancelling a turn it genuinely owns, and its `message.complete` is the
-    // authority on when that turn is over.
-    if (recovered) {
+    //  - `recovered`: the interrupt landed on a runtime the gateway minted a
+    //    moment ago, so the turn this session thought was live died with the
+    //    runtime that owned it.
+    //  - `was_running === false`: the gateway took the interrupt and told us
+    //    there was no live turn under it. That is the desync a lost terminal
+    //    frame leaves behind — the reply finished on a socket that went away.
+    //    The gateway answered `{"status": "interrupted"}` either way until
+    //    MJXHRM-366, so Stop reported success, the client kept waiting for a
+    //    `message.complete` that was never coming, and the chat (or the tile)
+    //    span forever behind a control that had already done everything it
+    //    could. An older gateway omits the field, which reads as `undefined` and
+    //    keeps the pre-existing behaviour rather than guessing.
+    //
+    // A LIVE turn is deliberately left alone: the gateway is cancelling a turn
+    // it genuinely owns, and its `message.complete` is the authority on when
+    // that turn is over. Ordering makes that safe — `prompt.submit` flips
+    // `running` inside its own handler, and both RPCs ride the same ordered
+    // socket, so a submit this client has already sent is always visible to the
+    // interrupt that follows it.
+    if (recovered || result?.was_running === false) {
       settleTurn(liveKey)
       updateSession(liveKey, state => ({
         ...state,
@@ -609,6 +636,127 @@ export async function interruptSession(key = $activeSessionKey.get()): Promise<b
 
     return false
   }
+}
+
+/** What `session.interrupt` answers. `was_running` is the gateway's own record
+ *  of whether there was a turn to stop; absent on a gateway older than
+ *  MJXHRM-366. */
+interface InterruptResult {
+  status?: string
+  was_running?: boolean
+}
+
+/** How long a Stop pressed during a hydrate waits for the binding it needs. */
+const STOP_BINDING_TIMEOUT_MS = 20_000
+
+/** Stored id → the Stop already waiting on its binding, so holding the key down
+ *  during a slow open cannot queue N interrupts (or N failure toasts). */
+const pendingUnboundStops = new Map<string, Promise<boolean>>()
+
+/**
+ * Stop on a session with no wire id yet — which is a state the user can very
+ * much see, because both of them paint `busy: true`:
+ *
+ *  - A HYDRATE in flight. `hydrateColdSession` / the tile delegate seed the
+ *    `hydrating:<storedId>` slice busy and only bind a runtime id when
+ *    `session.resume` returns, so opening any session shows a Stop button for
+ *    the whole transcript-fetch + resume round trip — and the session being
+ *    opened may genuinely be mid-turn. Wait for the binding and interrupt it.
+ *  - A DRAFT mid-`session.create`. `sendPrompt` goes busy and opens the turn
+ *    before `ensureSession` returns, so Stop between Enter and the created
+ *    session is Stop before the first token. There is no runtime to ask, but the
+ *    submit has not left either: settling the turn is what `sendPrompt` reads to
+ *    abandon it, so the prompt is never sent.
+ *
+ * Both used to `return false` here, silently — no RPC, no recovery, no toast.
+ * That is MJXHRM-366's own symptom (Stop does nothing, says nothing) entering
+ * through the door iteration 31 reported on `invalidateRuntimeBindings`, which
+ * MJXHRM-358 has since closed.
+ */
+async function interruptUnboundSession(key: string, slice: ClientSessionState | undefined): Promise<boolean> {
+  const turn = getInflightTurn(key)
+
+  if (turn && turn.phase !== 'settled') {
+    settleTurn(key)
+    updateSession(key, state => ({
+      ...state,
+      awaitingResponse: false,
+      busy: false,
+      interrupted: true,
+      streamId: null,
+      turnStartedAt: null
+    }))
+
+    return true
+  }
+
+  const storedId = slice?.storedSessionId
+
+  if (!storedId) {
+    // An idle draft: nothing exists anywhere to stop, and no surface offers Stop
+    // for it (the control follows `busy`).
+    return false
+  }
+
+  const existing = pendingUnboundStops.get(storedId)
+
+  if (existing) {
+    return existing
+  }
+
+  const pending = waitForRuntimeBinding(storedId).then(bound => {
+    if (!bound) {
+      notifyError(new Error(`Session ${storedId} never bound a runtime`), translateNow('desktop.stopFailed'))
+
+      return false
+    }
+
+    return interruptSession(bound)
+  })
+
+  pendingUnboundStops.set(storedId, pending)
+
+  return pending.finally(() => pendingUnboundStops.delete(storedId))
+}
+
+/** Resolve once `storedId`'s slice carries a runtime id, or null on timeout. */
+function waitForRuntimeBinding(storedId: string, timeoutMs = STOP_BINDING_TIMEOUT_MS): Promise<null | string> {
+  const bound = (): null | string => {
+    const key = runtimeKeyForStoredSession(storedId)
+
+    return key && $sessionStates.get()[key]?.runtimeSessionId ? key : null
+  }
+
+  const immediate = bound()
+
+  if (immediate) {
+    return Promise.resolve(immediate)
+  }
+
+  return new Promise(resolve => {
+    let settled = false
+
+    const finish = (value: null | string) => {
+      if (settled) {
+        return
+      }
+
+      settled = true
+      clearTimeout(timer)
+      unsubscribe()
+      resolve(value)
+    }
+
+    const timer = setTimeout(() => finish(null), timeoutMs)
+
+    const unsubscribe = $sessionStates.listen(() => {
+      const key = bound()
+
+      if (key) {
+        finish(key)
+      }
+    })
+  })
 }
 
 /** How the transcript should be rewound to re-run an edited prompt. */
