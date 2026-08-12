@@ -328,6 +328,11 @@ pub struct SocketHandle {
     tx: mpsc::UnboundedSender<Message>,
     reader: tokio::task::JoinHandle<()>,
     writer: tokio::task::JoinHandle<()>,
+    /// Label of the window that opened this socket. A socket is a real OS
+    /// connection owned by this process, not by the WebView — so it needs an
+    /// owner to be reaped against when that window dies natively (see
+    /// [`reap_window_sockets`]), exactly like a PTY (`pty.rs`).
+    owner: String,
 }
 
 pub struct TransportState {
@@ -893,6 +898,9 @@ pub async fn ws_open(
     // Resolved against the INVOKING webview, not an arbitrary one: this app runs
     // many windows (session-*, tile-*, sat-*) and the frames belong to whichever
     // one opened the socket.
+    // Taken before `webview` is consumed below: the socket is reaped against the
+    // WINDOW, which is what tao reports destroyed (see `reap_window_sockets`).
+    let owner = webview.window().label().to_string();
     let binary: Option<Channel<InvokeResponseBody>> =
         binary_channel.map(|channel| channel.channel_on(webview));
 
@@ -933,16 +941,104 @@ pub async fn ws_open(
     // The reader outlives this function, so it needs its own copy of the URL to
     // scrub its errors against — see `pump_reader`'s `Err` arm.
     let url_reader = url.clone();
-    let reader = tokio::spawn(async move { pump_reader(read, &url_reader, &sink).await });
+    let app_reader = app.clone();
+    let id_reader = id.clone();
+    // The reader waits for its own registry entry before pumping. A socket the
+    // server closes immediately would otherwise deregister BEFORE the insert
+    // below, leaving a dead handle in the map for the life of the process.
+    let (registered_tx, registered_rx) = tokio::sync::oneshot::channel::<()>();
+    let reader = tokio::spawn(async move {
+        let _ = registered_rx.await;
+        pump_reader(read, &url_reader, &sink).await;
+        // Drops the sink's `tx` clone, so dropping the handle below is enough to
+        // end the writer task too.
+        drop(sink);
+        deregister_socket(&app_reader, &id_reader).await;
+    });
 
-    state
-        .sockets
-        .lock()
-        .await
-        .insert(id.clone(), SocketHandle { tx, reader, writer });
+    state.sockets.lock().await.insert(
+        id.clone(),
+        SocketHandle {
+            tx,
+            reader,
+            writer,
+            owner,
+        },
+    );
+    let _ = registered_tx.send(());
 
     let _ = app.emit(&format!("ws://{id}/open"), ());
     Ok(())
+}
+
+/// Forget a socket whose read half has ended.
+///
+/// Nothing else did: `ws_close` is the only other remover, and the JS side never
+/// calls it for a socket the SERVER closed (`transport/tauri-websocket.ts` just
+/// marks itself CLOSED on the `/close` event). Every reconnect — the gateway
+/// client's, the terminal's, a plugin's — therefore left a `SocketHandle` behind
+/// holding a live writer task parked on a channel nothing would ever send to.
+async fn deregister_socket(app: &AppHandle, id: &str) {
+    use tauri::Manager;
+
+    if let Some(state) = app.try_state::<TransportState>() {
+        forget_socket(&state, id).await;
+    }
+}
+
+/// Drop a socket's handle. Dropping it drops the sender half of the writer's
+/// channel, which is what ends the writer TASK — so this frees a task, not just
+/// a map entry.
+async fn forget_socket(state: &TransportState, id: &str) {
+    state.sockets.lock().await.remove(id);
+}
+
+/// Take every socket a window owns out of the registry.
+fn take_window_sockets(
+    sockets: &mut HashMap<String, SocketHandle>,
+    label: &str,
+) -> Vec<SocketHandle> {
+    let ids: Vec<String> = sockets
+        .iter()
+        .filter(|(_, handle)| handle.owner == label)
+        .map(|(id, _)| id.clone())
+        .collect();
+
+    ids.into_iter()
+        .filter_map(|id| sockets.remove(&id))
+        .collect()
+}
+
+/// Reap the sockets owned by a destroyed window.
+///
+/// A natively closed window runs NO JS teardown, so nothing calls `ws_close` for
+/// the sockets it opened — and a WebSocket, unlike a `fetch`, survives its
+/// WebView: the reader task keeps pumping frames and emitting Tauri events at a
+/// window that no longer exists, forever. A detached tile or a satellite left
+/// one live gateway/plugin connection per close, and a plugin's `/events` stream
+/// keeps the server polling its database for it. Same shape and same reason as
+/// `pty::reap_window_ptys` (MJXHRM-373), which is called from the very same arm.
+///
+/// Called from the `RunEvent::WindowEvent { Destroyed }` arm in `lib.rs`, which
+/// is not an async context — hence the detached task.
+pub fn reap_window_sockets(app: &AppHandle, label: &str) {
+    let app = app.clone();
+    let label = label.to_string();
+
+    tauri::async_runtime::spawn(async move {
+        use tauri::Manager;
+
+        let Some(state) = app.try_state::<TransportState>() else {
+            return;
+        };
+
+        let doomed = take_window_sockets(&mut *state.sockets.lock().await, &label);
+
+        for handle in doomed {
+            handle.reader.abort();
+            handle.writer.abort();
+        }
+    });
 }
 
 #[tauri::command]
@@ -1035,11 +1131,36 @@ mod tests {
     use tauri::ipc::{Channel, InvokeResponseBody};
 
     use super::{
-        apply_gateway_bearer, caller_set_authorization, pump_reader, redact_bearer, redact_error,
-        redact_message, redact_secret, redact_url, safe_upload_filename, send_binary_frame,
-        upload_form, upload_lost_to_redirect, visible_response_headers, HashMap, HttpReq,
-        HttpUpload, Message, ReaderSink, TransportState,
+        apply_gateway_bearer, caller_set_authorization, forget_socket, pump_reader, redact_bearer,
+        redact_error, redact_message, redact_secret, redact_url, safe_upload_filename,
+        send_binary_frame, take_window_sockets, upload_form, upload_lost_to_redirect,
+        visible_response_headers, HashMap, HttpReq, HttpUpload, Message, ReaderSink, SocketHandle,
+        TransportState,
     };
+
+    /// A registry entry shaped exactly like a live one: a writer task parked on
+    /// the channel whose sender the handle owns, which is the thing that leaks
+    /// when a handle is never dropped.
+    fn socket_handle(owner: &str) -> (SocketHandle, Arc<std::sync::atomic::AtomicBool>) {
+        let (tx, mut rx) = super::mpsc::unbounded_channel::<Message>();
+        let ended = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let flag = ended.clone();
+
+        let writer = tokio::spawn(async move {
+            while rx.recv().await.is_some() {}
+            flag.store(true, std::sync::atomic::Ordering::SeqCst);
+        });
+
+        (
+            SocketHandle {
+                tx,
+                reader: tokio::spawn(async {}),
+                writer,
+                owner: owner.to_string(),
+            },
+            ended,
+        )
+    }
 
     /// A tungstenite error of the kind the read loop actually sees after the
     /// handshake — an IO failure — rather than a hand-written string.
@@ -1775,5 +1896,52 @@ mod tests {
             &req,
             &reqwest::Url::parse("http://gw.local/api/sessions/").unwrap()
         ));
+    }
+
+    /// MJXHRM-405. The read half ending is the ONLY signal for a socket the
+    /// server closed — the JS side never calls `ws_close` for one — so the
+    /// reader deregisters itself. Without that, every reconnect (gateway client,
+    /// terminal, plugin `/events`) left a handle in the map holding a writer task
+    /// parked forever on a channel nothing could ever send to.
+    #[tokio::test]
+    async fn forgetting_a_socket_ends_its_writer_task() {
+        let state = TransportState::new();
+        let (handle, writer_ended) = socket_handle("main");
+
+        state.sockets.lock().await.insert("s1".into(), handle);
+
+        forget_socket(&state, "s1").await;
+        // The writer wakes when the handle's sender is dropped.
+        tokio::task::yield_now().await;
+
+        assert!(state.sockets.lock().await.is_empty());
+        assert!(
+            writer_ended.load(std::sync::atomic::Ordering::SeqCst),
+            "dropping the handle must end the writer task, not just free a map entry"
+        );
+    }
+
+    /// MJXHRM-405. A natively closed window runs no JS teardown, so its sockets
+    /// are reaped by owner — and ONLY its own: the surviving windows' sockets
+    /// (the main window's gateway stream above all) must not go with it.
+    #[tokio::test]
+    async fn reaping_a_window_takes_only_that_window_s_sockets() {
+        let mut sockets: HashMap<String, SocketHandle> = HashMap::new();
+
+        for (id, owner) in [
+            ("gateway", "main"),
+            ("tile-ws", "tile-abc"),
+            ("tile-plugin-events", "tile-abc"),
+        ] {
+            sockets.insert(id.to_string(), socket_handle(owner).0);
+        }
+
+        let doomed = take_window_sockets(&mut sockets, "tile-abc");
+
+        assert_eq!(doomed.len(), 2);
+        assert_eq!(sockets.keys().collect::<Vec<_>>(), vec!["gateway"]);
+        // Reaping a window with nothing open is a no-op, not a wipe.
+        assert!(take_window_sockets(&mut sockets, "sat-xyz").is_empty());
+        assert_eq!(sockets.len(), 1);
     }
 }
