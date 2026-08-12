@@ -42,6 +42,18 @@ vi.mock('@/lib/surface', () => ({
   surfaceCapabilities: async () => ({ floatingSurface: true })
 }))
 
+// The return trip (MJXHRM-371). Mocked so the ORDER is observable: without it the
+// real module simply stands down off Tauri and openHud could stop calling it
+// entirely with every test here still green.
+vi.mock('./handoff', () => ({
+  installHudHandoff: () => {
+    calls.push('arm')
+  },
+  noteHudSummoned: () => {
+    calls.push('claim')
+  }
+}))
+
 const { closeHud, hudTargetSessionId, openHud, toggleHud } = await import('./hud')
 
 function atRoute(hash: string): void {
@@ -90,13 +102,32 @@ describe('which conversation the HUD opens on', () => {
   })
 })
 
+describe('the transport handoff', () => {
+  it('arms the return trip before the HUD exists, and claims it once it does', async () => {
+    await openHud('abc123')
+
+    // Armed BEFORE: a HUD dismissed the instant it appears would otherwise close
+    // before anything was listening. Claimed AFTER, and only on success: the
+    // claim says "this window put that HUD on screen", which a failed summon did
+    // not do — and a peer app window hears the same native close.
+    expect(calls).toEqual(['sync:flush', 'arm', 'open', 'claim'])
+  })
+
+  it('claims nothing when the HUD could not be opened', async () => {
+    open.mockResolvedValueOnce(null)
+
+    expect(await openHud('abc123')).toBe(false)
+    expect(calls).not.toContain('claim')
+  })
+})
+
 describe('the draft handoff', () => {
   it('flushes before the window that will read it exists', async () => {
     await openHud('abc123')
 
     // Reversed, the HUD's composer mounts, reads an empty stash, paints, and
     // only then hears about the text — by which point it has already lost.
-    expect(calls).toEqual(['sync:flush', 'open'])
+    expect(calls).toEqual(['sync:flush', 'arm', 'open', 'claim'])
   })
 
   it('flushes before tearing the HUD down', async () => {
