@@ -294,8 +294,22 @@ def _(rid, params: dict) -> dict:
                     # class #80216 fixed for /retry. On an uncompacted session
                     # all rows are active=1, so this is behaviorally identical
                     # to the full replace.
+                    # archive_dropped: a rewind — restore-checkpoint, edit,
+                    # regenerate — overwrites turns the user may not have meant
+                    # to drop, and this write is the last step before they are
+                    # gone. Guarding the AIM of a rewind (confirm_truncate, the
+                    # ordinal space, the range checks above) still leaves every
+                    # other way of aiming it wrong terminal, because a plain
+                    # DELETE also evicts the rows from the FTS index and leaves
+                    # no active=0 archive to restore from. Soft-archiving keeps
+                    # them on disk, readable via
+                    # get_messages(include_inactive=True). The live transcript
+                    # is byte-identical either way.
                     db.replace_messages(
-                        session["session_key"], truncated, active_only=True
+                        session["session_key"],
+                        truncated,
+                        active_only=True,
+                        archive_dropped=True,
                     )
                 except Exception as exc:
                     logger.error(
