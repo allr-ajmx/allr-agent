@@ -158,6 +158,20 @@ fn self_uid() -> Option<u32> {
     std::fs::metadata("/proc/self").ok().map(|m| m.uid())
 }
 
+/// The path whose parent chain is the one that actually matters: symlinks
+/// resolved, so what gets checked is where the bytes live rather than where they
+/// were named from.
+///
+/// Without this, `/usr/local/lib/libgtk-layer-shell.so.0 -> /tmp/x/evil.so`
+/// passes: the metadata calls follow the link (so the *file's* mode and owner are
+/// read) while the directories walked are `/usr/local/lib`, `/usr/local`, `/usr`
+/// — and `/tmp/x`, the one directory a planter needed to be able to write, is
+/// never looked at. A path that cannot be resolved is refused; "could not tell"
+/// is not "safe".
+fn resolve_for_trust(path: &Path) -> Option<PathBuf> {
+    std::fs::canonicalize(path).ok()
+}
+
 /// Whether `path` and every directory above it are writable only by their owner,
 /// and owned by root or by us.
 ///
@@ -167,6 +181,11 @@ fn self_uid() -> Option<u32> {
 /// "could not tell" is not "safe".
 fn path_is_trusted(path: &Path) -> bool {
     use std::os::unix::fs::MetadataExt;
+
+    let Some(path) = resolve_for_trust(path) else {
+        return false;
+    };
+    let path = path.as_path();
 
     let Some(uid) = self_uid() else {
         // No /proc to compare against; fall back to the permission bits alone
@@ -393,6 +412,34 @@ mod tests {
         assert_eq!(KeyboardMode::None.as_raw(), 0);
         assert_eq!(KeyboardMode::Exclusive.as_raw(), 1);
         assert_eq!(KeyboardMode::OnDemand.as_raw(), 2);
+    }
+
+    /// The symlink case the trust walk used to miss: what must be checked is
+    /// where the library actually lives, not the trusted-looking name it was
+    /// reached through. Everything below the resolution — the mode and owner
+    /// walk — is about directories this test cannot create.
+    #[test]
+    fn the_trust_check_looks_at_where_the_library_really_is() {
+        let base =
+            std::env::temp_dir().join(format!("hermes-layer-shell-trust-{}", std::process::id()));
+        let real_dir = base.join("elsewhere");
+        std::fs::create_dir_all(&real_dir).expect("temp dirs");
+        let real = real_dir.join("libgtk-layer-shell.so.0");
+        std::fs::write(&real, b"").expect("temp file");
+        let link = base.join("libgtk-layer-shell.so.0");
+        let _ = std::fs::remove_file(&link);
+        std::os::unix::fs::symlink(&real, &link).expect("symlink");
+
+        assert_eq!(
+            resolve_for_trust(&link).as_deref(),
+            std::fs::canonicalize(&real).ok().as_deref(),
+            "the link's own path is not what gets walked"
+        );
+        // A name that resolves to nothing is refused rather than assumed fine.
+        assert!(resolve_for_trust(&base.join("absent.so.0")).is_none());
+        assert!(!path_is_trusted(&base.join("absent.so.0")));
+
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     #[test]

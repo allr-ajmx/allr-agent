@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 
 import {
   QUICK_ENTRY_HEIGHT,
-  QUICK_ENTRY_SATELLITE,
   QUICK_ENTRY_TOP_FRACTION,
   QUICK_ENTRY_WIDTH,
   quickEntryWindowPosition
@@ -50,27 +49,5 @@ describe('quickEntryWindowPosition', () => {
     const { x } = quickEntryWindowPosition(area, { height: QUICK_ENTRY_HEIGHT * 2, width: QUICK_ENTRY_WIDTH * 2 })
 
     expect(x).toBe((3840 - QUICK_ENTRY_WIDTH * 2) / 2)
-  })
-})
-
-describe('QUICK_ENTRY_SATELLITE', () => {
-  it('describes a frameless, always-on-top capture surface off the taskbar', () => {
-    expect(QUICK_ENTRY_SATELLITE).toEqual({
-      alwaysOnTop: true,
-      decorations: false,
-      height: QUICK_ENTRY_HEIGHT,
-      resizable: false,
-      skipTaskbar: true,
-      surface: 'quick',
-      transparent: true,
-      width: QUICK_ENTRY_WIDTH
-    })
-  })
-
-  it('asks for no floating surface — an ordinary focused window is the point', () => {
-    // The HUD needs a layer-shell overlay because it types while another app
-    // keeps focus. Quick Entry takes the keyboard outright and then leaves, so
-    // requesting one would only add a platform that can degrade.
-    expect(QUICK_ENTRY_SATELLITE.floating).toBeUndefined()
   })
 })

@@ -22,7 +22,6 @@ vi.mock('@/lib/platform', async importOriginal => ({
 }))
 
 const {
-  attachFloatingSurface,
   isWindowBelowUnavailable,
   readWindowBelow,
   resetSurfaceCapabilities,
@@ -83,40 +82,6 @@ describe('asking what the platform can do', () => {
     expect(caps.alwaysOnTop).toBe('unsupported')
     expect(caps.backend).toBe('none')
     expect(caps.notes[0]).toContain('unknown command')
-  })
-})
-
-describe('attaching a surface', () => {
-  it('returns the grant, not the request', async () => {
-    invoke.mockResolvedValue({
-      alwaysOnTop: 'unsupported',
-      backend: 'toplevel',
-      degraded: ['cannot stay above other windows'],
-      interactiveRegion: 'degraded',
-      keyboardFocus: 'on-demand',
-      label: 'sat-hud',
-      outputSized: false
-    })
-
-    const grant = await attachFloatingSurface('sat-hud', {
-      keyboardFocus: 'exclusive',
-      namespace: 'hermes:hud'
-    })
-
-    // Asked for exclusive, told on-demand — and told why.
-    expect(grant?.keyboardFocus).toBe('on-demand')
-    expect(grant?.degraded).toHaveLength(1)
-  })
-
-  it('reports nothing rather than throwing when the attach fails', async () => {
-    invoke.mockRejectedValue(new Error('no window labelled sat-hud'))
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
-
-    // The caller still has a window to show; a rejection here would lose it.
-    await expect(attachFloatingSurface('sat-hud', { namespace: 'hermes:hud' })).resolves.toBeNull()
-    expect(warn).toHaveBeenCalled()
-
-    warn.mockRestore()
   })
 })
 

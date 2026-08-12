@@ -52,15 +52,15 @@ import { navigateTo } from '@/lib/route-nav'
 import { reloadPersistedDrafts, requestComposerDraftSync } from '@/store/composer'
 import { notifyError } from '@/store/notifications'
 import {
-  HUD_SATELLITE,
+  HUD_SURFACE,
   isSatelliteWindow,
   SATELLITE_WINDOW_CLOSED_EVENT,
   satelliteSurfaceFromLabel
 } from '@/store/windows'
 
-// `HUD_SATELLITE.surface` rather than `hud.ts`'s `HUD_SURFACE` re-export, which
-// is the same value: `hud.ts` imports this module, so reaching back into it
-// would close an import cycle for no gain.
+// `HUD_SURFACE` straight from the window store rather than through `hud.ts`'s
+// re-export of the same value: `hud.ts` imports this module, so reaching back
+// into it would close an import cycle for no gain.
 //
 // `@/store/session` is imported LAZILY, inside the re-home. `hud.ts` pulls this
 // module in so it can arm the listener on summon, and summoning is reached from
@@ -193,7 +193,7 @@ export function installHudHandoff(): void {
   installed = true
 
   void listen<string>(SATELLITE_WINDOW_CLOSED_EVENT, event => {
-    if (satelliteSurfaceFromLabel(event.payload ?? '') !== HUD_SATELLITE.surface || !summoned) {
+    if (satelliteSurfaceFromLabel(event.payload ?? '') !== HUD_SURFACE || !summoned) {
       return
     }
 

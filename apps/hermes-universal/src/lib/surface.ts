@@ -9,8 +9,8 @@
  * you call and hope.
  *
  * The rule for callers: read `floatingSurface` to decide whether to offer the
- * affordance at all, and read the GRANT returned by `attachFloatingSurface` to
- * decide how to render. Never infer a capability from a call that did not throw.
+ * affordance at all, and read the GRANT a satellite was opened with to decide
+ * how to render. Never infer a capability from a call that did not throw.
  */
 
 import { invoke } from '@tauri-apps/api/core'
@@ -140,29 +140,13 @@ export function resetSurfaceCapabilities(): void {
   cached = null
 }
 
-/**
- * Turn an already-built, still-HIDDEN window into a floating surface.
- *
- * The window must have been created with `visible: false` and must not have been
- * shown yet. That is not a style preference: a layer surface has to be
- * configured before its underlying window is realized, and once it is shown the
- * chance is gone. Show it after this resolves.
- */
-export async function attachFloatingSurface(label: string, request: SurfaceRequest): Promise<null | SurfaceGrant> {
-  if (!IS_DESKTOP) {
-    return null
-  }
-
-  try {
-    return await invoke<SurfaceGrant>('surface_attach', { label, request })
-  } catch (err) {
-    // A surface that could not be attached is still a window; the caller shows
-    // it and gets an ordinary one. Losing the HUD entirely would be worse.
-    console.warn('[surface] could not attach a floating surface:', err)
-
-    return null
-  }
-}
+// Attaching a floating surface is deliberately NOT reachable from here
+// (MJXHRM-382). It took the label of the window to reshape and the layer,
+// namespace and keyboard mode to give it, and every one of those was a value
+// from the webview — where any plugin runs with the app's full authority. It now
+// happens inside `open_satellite_window` (`src-tauri/src/window.rs`), between
+// building the window and showing it, out of a registry Rust owns; the grant it
+// produces comes back with the window and is stashed by `store/windows.ts`.
 
 /**
  * Restrict the surface's input to `rect`, making everything outside it

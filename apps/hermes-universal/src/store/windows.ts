@@ -4,7 +4,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { AGENTS_ROUTE, COMMAND_CENTER_ROUTE, CRON_ROUTE, PROFILES_ROUTE, SETTINGS_ROUTE } from '@/app/routes'
 import { IS_ANDROID, IS_DESKTOP, IS_IOS } from '@/lib/platform'
 import { navigateTo } from '@/lib/route-nav'
-import { attachFloatingSurface, type SurfaceGrant, type SurfaceRequest } from '@/lib/surface'
+import { type SurfaceGrant } from '@/lib/surface'
 import { notifyError } from '@/store/notifications'
 
 // Ported from desktop `store/windows.ts`. Desktop opens native windows through an
@@ -420,16 +420,28 @@ export async function openNewWindow(): Promise<void> {
 // What the satellite RENDERS is the surface's own business: it reads
 // `satelliteSurface()` and takes it from there.
 //
-// Built from the frontend rather than through a Rust command (the tile/instance
-// path above) because a satellite is defined by its geometry — always-on-top,
-// frameless, sized to its content — and that is a property of the surface, not
-// of the process. `WebviewWindow`'s constructor dispatches to the main thread
-// itself, so the gtk/WKWebView constraint the Rust path exists for is met.
+// Built by a Rust command (`open_satellite_window`, `src-tauri/src/window.rs`)
+// like every other window kind here, and NOT from the frontend — the webview no
+// longer holds `core:webview:allow-create-webview-window` at all (MJXHRM-382).
+// That is a security boundary: a satellite is the one window kind that may be
+// handed a wlr-layer-shell role (an output-sized overlay with exclusive
+// keyboard focus), and while the webview could mint windows, anything running
+// in it — a plugin has the app's full authority by design, see
+// `contrib/runtime-loader.ts` — could create its own `sat-…` and be handed that
+// role, or create `sat-hud` first and *be* the HUD the next time one was
+// summoned. Which satellites exist, their geometry, and the surface request
+// each may be attached with are now a Rust-side registry; this file passes a
+// surface id and an in-app route, and nothing else.
 // --------------------------------------------------------------------------
 
 /** Label prefix — must match the `sat-*` glob in `capabilities/default.json`,
- *  which is what grants a satellite's webview its JS surface. */
+ *  which is what grants a satellite's webview its JS surface, and the label
+ *  `open_satellite_window` builds. */
 const SATELLITE_LABEL_PREFIX = 'sat'
+
+/** The HUD's surface id. Lives here rather than in `app/hud/` because
+ *  `hud/handoff.ts` needs it without importing `hud.ts` (see the note there). */
+export const HUD_SURFACE = 'hud'
 
 /** Surfaces opened BY THIS WINDOW. The authority on what to tear down; a window
  *  the user already closed drops out of `getByLabel` on its own. */
@@ -477,32 +489,12 @@ export function satelliteSurfaceFromLabel(label: string): null | string {
   return surface && satelliteLabel(surface) === label ? surface : null
 }
 
-export interface SatelliteWindowSpec {
-  /** Surface id — the `?win=` flag AND the label suffix (e.g. `hud`). */
-  surface: string
-  /** Route rendered inside it, after the HashRouter `#`. Defaults to the root. */
-  route?: string
-  width?: number
-  height?: number
-  /** Default true: a summoned surface that hides behind the window you were
-   *  using is a surface you have to go find. */
-  alwaysOnTop?: boolean
-  /** Default false: satellites draw their own chrome, like every other window here. */
-  decorations?: boolean
-  resizable?: boolean
-  /** Default true: a transient surface does not belong in the window list. */
-  skipTaskbar?: boolean
-  transparent?: boolean
-  /**
-   * Ask for a FLOATING surface — one that lives over other applications rather
-   * than merely being a second window (MJXHRM-213). Present means the window is
-   * built hidden, handed to the native capability layer, and only then shown;
-   * absent keeps the plain always-on-top window this file has always made.
-   *
-   * What the platform actually granted is stashed under the surface id and read
-   * with `satelliteSurfaceGrant()` — the request is not the outcome.
-   */
-  floating?: SurfaceRequest
+/** What `open_satellite_window` answers with: the window's label, and what the
+ *  platform granted its surface — absent when the satellite asked for no
+ *  floating surface, or when it was already up and merely came forward. */
+interface SatelliteWindow {
+  label: string
+  grant: null | SurfaceGrant
 }
 
 /**
@@ -653,103 +645,40 @@ async function installSatelliteTeardown(): Promise<void> {
   }
 }
 
-/** Open the satellite, or focus it if it is already up. Returns its label, or
- *  null when the platform has no second window or the surface name is unusable. */
-export async function openSatelliteWindow(spec: SatelliteWindowSpec): Promise<null | string> {
-  const label = satelliteLabel(spec.surface)
-
-  if (!label || !canOpenSatelliteWindow()) {
+/**
+ * Open the satellite, or bring it forward if it is already up. Returns its
+ * label, or null when the platform has no second window, the surface is not one
+ * Rust knows, or the window could not be built.
+ *
+ * `route` is an in-app path (`/<session>`); Rust holds it to that shape and
+ * places it after the HashRouter `#`. Everything else about the window — its
+ * size, its chrome, and whether it gets a layer-shell role at all — comes from
+ * the registry in `src-tauri/src/window.rs`, not from here.
+ */
+export async function openSatelliteWindow(surface: string, route?: string): Promise<null | string> {
+  if (!satelliteLabel(surface) || !canOpenSatelliteWindow()) {
     return null
   }
 
   try {
-    const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow')
-    const existing = await WebviewWindow.getByLabel(label)
+    const opened = await invoke<SatelliteWindow>('open_satellite_window', { route: route ?? null, surface })
 
-    if (existing) {
-      await existing.show()
-      await existing.setFocus()
-      openedSatellites.add(spec.surface)
-      // Claiming a satellite this window did not build still makes this window
-      // responsible for it — and arms the close listener that forgets it again.
-      void installSatelliteTeardown()
-
-      return label
+    // Only a fresh attach answers with a grant; a satellite that merely came
+    // forward keeps the one already written down for it.
+    if (opened.grant) {
+      rememberSurfaceGrant(surface, opened.grant)
     }
 
-    // The `?win=` flag rides BEFORE the HashRouter `#`, so it lands in
-    // `location.search` — the same contract every other window flag here uses.
-    const route = spec.route ? `#${spec.route}` : ''
-
-    // A floating satellite is born HIDDEN and shown a few lines down. That
-    // ordering is a hard requirement, not tidiness: a wlr-layer-shell surface
-    // must be configured before its underlying window is realized, and showing
-    // it first spends the only chance (see `lib/surface.ts`). A satellite with
-    // no floating request keeps the old behaviour and is born visible.
-    const floating = spec.floating ?? null
-
-    const win = new WebviewWindow(label, {
-      alwaysOnTop: spec.alwaysOnTop ?? true,
-      decorations: spec.decorations ?? false,
-      focus: true,
-      height: spec.height,
-      resizable: spec.resizable ?? false,
-      skipTaskbar: spec.skipTaskbar ?? true,
-      title: 'Hermes (MJX)',
-      transparent: spec.transparent ?? false,
-      url: `index.html?win=${spec.surface}${route}`,
-      visible: floating === null,
-      width: spec.width
-    })
-
-    // `once` rather than `then`: the event fires from the new webview, and a
-    // creation that fails has to surface rather than leave a dead label behind.
-    await new Promise<void>((resolve, reject) => {
-      void win.once('tauri://created', () => resolve())
-      void win.once('tauri://error', event => reject(new Error(String(event.payload))))
-    })
-
-    if (floating) {
-      // A failed attach still shows the window. An ordinary always-on-top window
-      // is a worse HUD; no HUD at all is worse than that.
-      rememberSurfaceGrant(spec.surface, await attachFloatingSurface(label, floating))
-      await win.show()
-      await win.setFocus()
-    }
-
-    openedSatellites.add(spec.surface)
+    openedSatellites.add(surface)
+    // Claiming a satellite this window did not build still makes this window
+    // responsible for it — and arms the close listener that forgets it again.
     void installSatelliteTeardown()
 
-    return label
+    return opened.label
   } catch (err) {
     notifyError(err, 'Could not open that window')
 
     return null
-  }
-}
-
-/** Bring an open satellite forward. False when it isn't up. */
-export async function focusSatelliteWindow(surface: string): Promise<boolean> {
-  const label = satelliteLabel(surface)
-
-  if (!label) {
-    return false
-  }
-
-  try {
-    const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow')
-    const win = await WebviewWindow.getByLabel(label)
-
-    if (!win) {
-      return false
-    }
-
-    await win.show()
-    await win.setFocus()
-
-    return true
-  } catch {
-    return false
   }
 }
 
@@ -796,52 +725,13 @@ export async function isSatelliteWindowOpen(surface: string): Promise<boolean> {
   }
 }
 
-/** How far below the top of the screen the HUD bar sits on a layer surface. */
-export const HUD_TOP_MARGIN = 96
-
-/**
- * The HUD's window (`app/hud/` renders into it) — named here so the surface id,
- * its geometry and its chrome are changed in one place rather than at whichever
- * call site summons it.
- *
- * `transparent` is now ON. SE-J's spike settled the question the old comment
- * here was waiting on: WebKitGTK does need its own background colour cleared and
- * not just the window's, but wry 0.55 already does that for a window built
- * `transparent` (`webkitgtk/mod.rs` sets the WebView's background to a zero-alpha
- * RGBA), and tao asks GDK for an RGBA visual in the same breath. Nothing further
- * is ours to do.
- *
- * The `floating` request is what makes this a surface rather than a small
- * window: on a wlroots compositor it becomes a wlr-layer-shell overlay with
- * exclusive keyboard focus, which is the only way a floating surface can host a
- * composer that receives keys while the app underneath keeps focus. Everywhere
- * else it degrades to an always-on-top window and says so in its grant.
- */
-export const HUD_SATELLITE: SatelliteWindowSpec = {
-  floating: {
-    // Exclusive because the HUD's whole purpose is to be typed into from inside
-    // another application. Downgraded, and reported, where it cannot be had.
-    keyboardFocus: 'exclusive',
-    layer: 'overlay',
-    // [left, right, top, bottom] — a layer surface is positioned by insetting its
-    // content, never by being moved.
-    margins: [0, 0, HUD_TOP_MARGIN, 0],
-    // Compositor rules can target this (blur, animation, opacity).
-    namespace: 'hermes:hud'
-  },
-  height: 260,
-  surface: 'hud',
-  transparent: true,
-  width: 560
-}
-
 /** Summon or dismiss — the shape a hotkey wants. Returns whether it is now up. */
-export async function toggleSatelliteWindow(spec: SatelliteWindowSpec): Promise<boolean> {
-  if (await isSatelliteWindowOpen(spec.surface)) {
-    await closeSatelliteWindow(spec.surface)
+export async function toggleSatelliteWindow(surface: string, route?: string): Promise<boolean> {
+  if (await isSatelliteWindowOpen(surface)) {
+    await closeSatelliteWindow(surface)
 
     return false
   }
 
-  return (await openSatelliteWindow(spec)) !== null
+  return (await openSatelliteWindow(surface, route)) !== null
 }

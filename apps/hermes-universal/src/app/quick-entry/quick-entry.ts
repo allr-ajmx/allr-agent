@@ -2,26 +2,16 @@
  * Summoning and dismissing Quick Entry (MJXHRM-384).
  *
  * Everything about the WINDOW belongs to `store/windows.ts` (the satellite
- * lifecycle); what is left here is the geometry that makes this particular
- * satellite read as a capture surface rather than a second app window, and the
- * one moment of the handoff — arming the primary window's bridge before the
- * quick window exists, so a prompt typed a fraction of a second later has
- * somewhere to land.
- *
- * The spec lives here, not in `store/windows.ts` beside `HUD_SATELLITE`, on
- * purpose: `SatelliteWindowSpec` is already a complete description of this
- * window, so nothing had to be added to the satellite substrate for Quick Entry
- * to exist. A surface that needs no new machinery should not edit the machinery.
+ * lifecycle) and, since MJXHRM-382, to the Rust registry it opens through — the
+ * webview cannot create windows at all. What is left here is this surface's own
+ * business: where on the screen it lands, and the one moment of the handoff —
+ * arming the primary window's bridge before the quick window exists, so a
+ * prompt typed a fraction of a second later has somewhere to land.
  */
 
 import { IS_DESKTOP } from '@/lib/platform'
 import { $quickEntryEnabled } from '@/store/quick-entry'
-import {
-  closeSatelliteWindow,
-  isSatelliteWindowOpen,
-  openSatelliteWindow,
-  type SatelliteWindowSpec
-} from '@/store/windows'
+import { closeSatelliteWindow, isSatelliteWindowOpen, openSatelliteWindow } from '@/store/windows'
 
 /** The surface id, and therefore the `?win=` flag and the `sat-quick` label. */
 export const QUICK_ENTRY_SURFACE = 'quick'
@@ -30,39 +20,16 @@ export const QUICK_ENTRY_SURFACE = 'quick'
 // sentence, short enough to read as a HUD rather than a window. The height
 // covers the composer row plus the session-target picker row; nothing here ever
 // grows the OS window.
+//
+// These are the numbers the window is BUILT at, which is Rust's `SATELLITES`
+// registry — they are repeated here because the placement below has to know how
+// big the window is to centre it, and must stay in step with that entry.
 export const QUICK_ENTRY_WIDTH = 640
 export const QUICK_ENTRY_HEIGHT = 168
 
 /** Spotlight-ish placement: a comfortable fraction down from the top of the
  *  work area rather than dead centre, which reads as a dialog. */
 export const QUICK_ENTRY_TOP_FRACTION = 0.22
-
-/**
- * Quick Entry's window.
- *
- * Deliberately NOT a `floating` surface the way the HUD is. The HUD asks for a
- * wlr-layer-shell overlay because it needs exclusive keyboard focus while the
- * application underneath keeps its own — it is a thing you glance at and type
- * into without leaving what you were doing. Quick Entry is the opposite trade:
- * it wants the keyboard outright, for one sentence, and then to be gone. An
- * ordinary always-on-top window that opens focused is exactly that, it is what
- * desktop shipped, and it works identically on every platform instead of
- * degrading on the ones with no layer shell.
- *
- * `transparent` so the card can have rounded corners and a shadow over whatever
- * is behind it; the quick window's own document is made see-through to match
- * (`useTransparentSurface` in `quick-entry-window.tsx`).
- */
-export const QUICK_ENTRY_SATELLITE: SatelliteWindowSpec = {
-  alwaysOnTop: true,
-  decorations: false,
-  height: QUICK_ENTRY_HEIGHT,
-  resizable: false,
-  skipTaskbar: true,
-  surface: QUICK_ENTRY_SURFACE,
-  transparent: true,
-  width: QUICK_ENTRY_WIDTH
-}
 
 /** A rectangle in physical pixels — a monitor's work area, or a window. */
 export interface QuickEntryRect {
@@ -114,9 +81,8 @@ async function placeQuickEntryWindow(label: string): Promise<void> {
   try {
     const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow')
 
-    const { availableMonitors, currentMonitor, cursorPosition, monitorFromPoint, PhysicalPosition } = await import(
-      '@tauri-apps/api/window'
-    )
+    const { availableMonitors, currentMonitor, cursorPosition, monitorFromPoint, PhysicalPosition } =
+      await import('@tauri-apps/api/window')
 
     const win = await WebviewWindow.getByLabel(label)
 
@@ -183,7 +149,7 @@ export async function openQuickEntry(): Promise<boolean> {
 
   installQuickEntryBridge()
 
-  const label = await openSatelliteWindow(QUICK_ENTRY_SATELLITE)
+  const label = await openSatelliteWindow(QUICK_ENTRY_SURFACE)
 
   if (!label) {
     return false

@@ -88,10 +88,276 @@ pub fn is_tile_window_label(label: &str) -> bool {
 pub const SATELLITE_WINDOW_CLOSED_EVENT: &str = "hermes://satellite-window-closed";
 
 /// Whether a destroyed window was a satellite. Must agree with
-/// `SATELLITE_LABEL_PREFIX` in `src/store/windows.ts`, which builds these
-/// labels, and with the `sat-*` glob in `capabilities/default.json`.
+/// `SATELLITE_LABEL_PREFIX` in `src/store/windows.ts`, which reads these labels
+/// back, and with the `sat-*` glob in `capabilities/default.json`.
 pub fn is_satellite_window_label(label: &str) -> bool {
     label.starts_with("sat-")
+}
+
+// --------------------------------------------------------------------------
+// Satellites (MJXHRM-55 / MJXHRM-213 / MJXHRM-382)
+//
+// A satellite is a SECOND SURFACE of the app in its own window — summoned by a
+// hotkey, living over other applications, dismissed the moment it is done. The
+// HUD and Quick Entry are the two that exist.
+//
+// They are built HERE rather than in the frontend, and the frontend no longer
+// holds `core:webview:allow-create-webview-window` at all. That is a security
+// boundary, not tidiness (MJXHRM-382): a satellite is the one window kind that
+// may be handed a wlr-layer-shell role — an output-sized overlay with exclusive
+// keyboard focus — and while the webview could mint windows, the label space
+// that role is keyed on was writable by whoever ran code in the webview. Any
+// plugin (`contrib/runtime-loader.ts`: "a loaded plugin is evaluated as ESM in
+// the webview realm with FULL app authority") could create its own `sat-…`,
+// hand it that role, and cover the screen with content of its choosing; or
+// create `sat-hud` first and *be* the HUD when the user next summoned it.
+//
+// So the registry below is the complete set of satellites, their geometry, and
+// — the part that matters — the surface request each is allowed to be attached
+// with. Nothing about a satellite except which one, and which in-app route it
+// opens on, crosses the IPC boundary.
+// --------------------------------------------------------------------------
+
+/// A satellite's window, fixed at compile time.
+#[cfg(desktop)]
+struct SatelliteSpec {
+    /// Surface id: the `?win=` flag, and the `sat-<id>` label suffix.
+    surface: &'static str,
+    width: f64,
+    height: f64,
+    transparent: bool,
+    /// A `wlr-layer-shell` role to ask for, or `None` for a plain always-on-top
+    /// window. **Pinned here, never taken from the caller** — namespace, layer
+    /// and keyboard mode are exactly the privileges this ticket exists over.
+    floating: Option<FloatingSpec>,
+}
+
+/// The pinned half of a [`crate::surface::SurfaceRequest`].
+#[cfg(desktop)]
+struct FloatingSpec {
+    namespace: &'static str,
+    layer: crate::surface::SurfaceLayer,
+    keyboard_focus: crate::surface::KeyboardFocus,
+    /// `[left, right, top, bottom]`, logical pixels — how a layer surface is
+    /// positioned, since it is never moved.
+    margins: [i32; 4],
+}
+
+/// How far below the top of the screen the HUD's card sits on a layer surface.
+/// The card itself is centred inside the output-sized surface by CSS, so this
+/// margin is the whole of its vertical placement.
+#[cfg(desktop)]
+const HUD_TOP_MARGIN: i32 = 96;
+
+/// Every satellite the app has. A surface not in here cannot be opened, and
+/// therefore cannot be attached.
+#[cfg(desktop)]
+const SATELLITES: &[SatelliteSpec] = &[
+    // The HUD (MJXHRM-213). Exclusive keyboard focus is the whole point: it is
+    // typed into from inside another application, which keeps its own focus.
+    SatelliteSpec {
+        surface: "hud",
+        width: 560.0,
+        height: 260.0,
+        transparent: true,
+        floating: Some(FloatingSpec {
+            namespace: "hermes:hud",
+            layer: crate::surface::SurfaceLayer::Overlay,
+            keyboard_focus: crate::surface::KeyboardFocus::Exclusive,
+            margins: [0, 0, HUD_TOP_MARGIN, 0],
+        }),
+    },
+    // Quick Entry (MJXHRM-384). Deliberately NOT a layer surface: it wants the
+    // keyboard outright for one sentence and then to be gone, which an ordinary
+    // focused always-on-top window is, on every platform.
+    SatelliteSpec {
+        surface: "quick",
+        width: 640.0,
+        height: 168.0,
+        transparent: true,
+        floating: None,
+    },
+];
+
+#[cfg(desktop)]
+fn satellite_spec(surface: &str) -> Option<&'static SatelliteSpec> {
+    SATELLITES.iter().find(|spec| spec.surface == surface)
+}
+
+/// What the caller gets back: the window's label, and what the platform granted
+/// the surface (absent for a satellite that asked for nothing, or one that was
+/// already up).
+#[cfg(desktop)]
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SatelliteWindow {
+    pub label: String,
+    pub grant: Option<crate::surface::SurfaceGrant>,
+}
+
+/// The route a satellite opens on, placed verbatim after the HashRouter `#`.
+/// Accepts only an app-internal path, exactly as [`activity_route`] does for the
+/// mobile screen activity: this is the one caller-supplied part of a satellite's
+/// URL, so it may not leave the app's own document.
+#[cfg(desktop)]
+fn satellite_route(route: Option<&str>) -> String {
+    match route {
+        Some(r)
+            if r.starts_with('/')
+                // `//host` is a path the app's router can never match, and it is
+                // the shape an off-origin URL is written in. It is inert after a
+                // `#`, but a route that cannot be a route has no business here.
+                && !r.starts_with("//")
+                && !r.contains('#')
+                && !r.contains('?')
+                && !r.chars().any(char::is_whitespace) =>
+        {
+            format!("#{r}")
+        }
+        _ => String::new(),
+    }
+}
+
+/// Open (or re-focus) a satellite.
+///
+/// `surface` names one of [`SATELLITES`]; anything else is refused. The caller
+/// may not itself be a satellite — the frontend's `canOpenSatelliteWindow()`
+/// says the same thing, and a HUD living over other applications is the app's
+/// most exposed webview, so the rule is enforced where it cannot be edited out
+/// of a bundle.
+///
+/// A floating satellite is built HIDDEN, attached, and only then shown. That
+/// ordering is a hard requirement: a `wlr-layer-shell` surface has to be
+/// configured before its GtkWindow is realized, and showing it first spends the
+/// only chance. It is also why showing happens here — the webview is not granted
+/// `core:window:allow-show` and must not be, since that command takes the label
+/// of any window as an argument.
+#[cfg(desktop)]
+#[tauri::command]
+pub async fn open_satellite_window(
+    app: tauri::AppHandle,
+    webview: tauri::WebviewWindow,
+    surface: String,
+    route: Option<String>,
+) -> Result<SatelliteWindow, String> {
+    let caller = webview.label().to_string();
+    if is_satellite_window_label(&caller) {
+        return Err(format!(
+            "refusing to open a satellite from {caller}: a satellite may not summon another"
+        ));
+    }
+
+    let spec = satellite_spec(&surface).ok_or_else(|| format!("unknown surface {surface}"))?;
+    let label = format!("sat-{}", spec.surface);
+    let url = format!(
+        "index.html?win={}{}",
+        spec.surface,
+        satellite_route(route.as_deref())
+    );
+
+    let (tx, rx) = oneshot::channel::<Result<SatelliteWindow, String>>();
+    let app_main = app.clone();
+    let label_main = label.clone();
+    app.run_on_main_thread(move || {
+        let _ = tx.send(build_satellite(&app_main, &caller, &label_main, spec, url));
+    })
+    .map_err(|e| format!("failed to schedule window: {e}"))?;
+
+    rx.await.map_err(|_| "failed to open window".to_string())?
+}
+
+/// Main-thread half of [`open_satellite_window`]: build, attach, show. Every
+/// gtk call below needs this thread, and the attach must happen between the
+/// build and the show.
+#[cfg(desktop)]
+fn build_satellite(
+    app: &tauri::AppHandle,
+    caller: &str,
+    label: &str,
+    spec: &SatelliteSpec,
+    url: String,
+) -> Result<SatelliteWindow, String> {
+    if let Some(existing) = app.get_webview_window(label) {
+        // Already up: summoning it again brings it forward. The grant it was
+        // attached with is the one the frontend already wrote down.
+        let _ = existing.unminimize();
+        let _ = existing.show();
+        let _ = existing.set_focus();
+
+        return Ok(SatelliteWindow {
+            label: label.to_string(),
+            grant: None,
+        });
+    }
+
+    #[allow(unused_mut)]
+    let mut builder = WebviewWindowBuilder::new(app, label, WebviewUrl::App(url.into()))
+        .title("Hermes (MJX)")
+        .inner_size(spec.width, spec.height)
+        .decorations(false)
+        .resizable(false)
+        .always_on_top(true)
+        // A floating satellite is born hidden and shown below, once its layer
+        // role is configured. One with no role has nothing to configure.
+        .visible(spec.floating.is_none())
+        .focused(true);
+
+    // A transient surface does not belong in the window list.
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
+    {
+        builder = builder.skip_taskbar(true);
+    }
+
+    // `transparent` only exists on macOS behind `macos-private-api`, which this
+    // build does not take — so there, the card loses its rounded corners rather
+    // than the window failing to open.
+    #[cfg(not(target_os = "macos"))]
+    {
+        builder = builder.transparent(spec.transparent);
+    }
+
+    let window = builder
+        .build()
+        .map_err(|e| format!("could not open window: {e}"))?;
+
+    let Some(floating) = &spec.floating else {
+        return Ok(SatelliteWindow {
+            label: label.to_string(),
+            grant: None,
+        });
+    };
+
+    let request = crate::surface::SurfaceRequest {
+        namespace: floating.namespace.to_string(),
+        layer: floating.layer,
+        keyboard_focus: floating.keyboard_focus,
+        margins: floating.margins,
+    };
+
+    // A surface that could not be attached is still a window: an ordinary
+    // always-on-top HUD is worse than a layer-shell one, and no HUD is worse
+    // than that. The absent grant is what tells the frontend to lay itself out
+    // as a plain window.
+    let grant = crate::surface::attach_floating_surface(app, caller, label, &request)
+        .map_err(|e| log::warn!("could not attach a floating surface to {label}: {e}"))
+        .ok();
+
+    let _ = window.show();
+    let _ = window.set_focus();
+
+    Ok(SatelliteWindow {
+        label: label.to_string(),
+        grant,
+    })
+}
+
+/// Mobile stub. Satellites need a real second window; the frontend gates the
+/// affordance off there, and this keeps the command name registered so a stray
+/// call gets a clear refusal rather than "unknown command".
+#[cfg(mobile)]
+#[tauri::command]
+pub async fn open_satellite_window(_surface: String, _route: Option<String>) -> Result<(), String> {
+    Err("unsupported_platform".to_string())
 }
 
 /// Build a frameless window for `url` under `label`, or focus the existing one
@@ -384,4 +650,95 @@ pub fn fill_requested_scene(app: &tauri::AppHandle) {
             log::error!("failed to fill system-requested scene: {e}");
         }
     });
+}
+
+#[cfg(all(test, desktop))]
+mod tests {
+    use super::*;
+    use crate::surface::{KeyboardFocus, SurfaceLayer};
+
+    /// The registry IS the boundary (MJXHRM-382). A surface the webview names
+    /// that is not in here gets no window, and therefore no chance at a
+    /// layer-shell role — which is what stops a caller minting `sat-anything`
+    /// of its own and being handed one.
+    #[test]
+    fn only_registered_surfaces_can_be_opened() {
+        assert!(satellite_spec("hud").is_some());
+        assert!(satellite_spec("quick").is_some());
+
+        for surface in ["evil", "", "HUD", "hud ", "hud/../main", "sat-hud", "main"] {
+            assert!(
+                satellite_spec(surface).is_none(),
+                "{surface} must not resolve to a satellite"
+            );
+        }
+    }
+
+    /// Every privilege the ticket is about — the compositor namespace, the
+    /// layer, and exclusive keyboard focus — is a constant here rather than a
+    /// value from the caller. If this ever reads from a request again, the
+    /// ownership check on the label is decorative.
+    #[test]
+    fn the_huds_layer_shell_role_is_pinned_not_requested() {
+        let floating = satellite_spec("hud")
+            .expect("the hud is registered")
+            .floating
+            .as_ref()
+            .expect("the hud is a floating surface");
+
+        assert_eq!(floating.namespace, "hermes:hud");
+        assert_eq!(floating.layer, SurfaceLayer::Overlay);
+        assert_eq!(floating.keyboard_focus, KeyboardFocus::Exclusive);
+        assert_eq!(floating.margins, [0, 0, HUD_TOP_MARGIN, 0]);
+    }
+
+    /// A floating satellite is born hidden, because a wlr-layer-shell surface
+    /// must be configured before its GtkWindow is realized; one with no layer
+    /// role has nothing to configure and is born visible. `build_satellite`
+    /// spells that as `spec.floating.is_none()`.
+    #[test]
+    fn quick_entry_is_not_a_layer_surface() {
+        assert!(satellite_spec("quick")
+            .expect("quick entry is registered")
+            .floating
+            .is_none());
+    }
+
+    /// The one caller-supplied part of a satellite's URL. It lands after the
+    /// HashRouter `#`, so it may not carry its own `#`/`?` or whitespace, and
+    /// anything that is not an app-internal path degrades to the root rather
+    /// than to somewhere else.
+    #[test]
+    fn a_route_may_only_be_an_app_internal_path() {
+        assert_eq!(satellite_route(Some("/abc123")), "#/abc123");
+        assert_eq!(satellite_route(None), "");
+
+        for route in [
+            "abc123",
+            "//evil.example",
+            "/a#b",
+            "/a?win=main",
+            "/a b",
+            "https://evil.example",
+            "",
+        ] {
+            assert_eq!(
+                satellite_route(Some(route)),
+                "",
+                "{route} must not reach the URL"
+            );
+        }
+    }
+
+    /// The label a satellite is built under. `sat-*` is the capability glob in
+    /// `capabilities/default.json` and the namespace `surface/mod.rs` keys
+    /// ownership on; a registry entry that fell outside it would open a window
+    /// with no JS surface at all.
+    #[test]
+    fn every_registered_satellite_has_a_satellite_label() {
+        for spec in SATELLITES {
+            let label = format!("sat-{}", spec.surface);
+            assert!(is_satellite_window_label(&label), "{label}");
+        }
+    }
 }

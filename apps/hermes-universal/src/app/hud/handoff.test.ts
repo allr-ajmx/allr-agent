@@ -37,7 +37,7 @@ vi.mock('@/store/session', () => ({
   openSession
 }))
 vi.mock('@/store/windows', () => ({
-  HUD_SATELLITE: { surface: 'hud' },
+  HUD_SURFACE: 'hud',
   isSatelliteWindow: () => satellite,
   SATELLITE_WINDOW_CLOSED_EVENT: 'hermes://satellite-window-closed',
   satelliteSurfaceFromLabel: (label: string) => (label.startsWith('sat-') ? label.slice(4) : null)
