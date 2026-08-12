@@ -22,8 +22,12 @@
  *  - No `TitlebarTool`. Universal's titlebar is composed of TitlebarButton JSX,
  *    not descriptors, so `titleBar.left/center/right` are plain Slots — use a
  *    `render()` contribution. Same mechanism reaches the mobile top bar.
- *  - `ctx.rest` cannot upload (see `pluginRest`), and `ctx.socket` needs a
- *    token-mode connection (see `pluginSocket`).
+ *  - `ctx.rest` CAN upload and `ctx.socket` authenticates on every gateway mode
+ *    — both are wider here than the note that used to sit in this spot claimed.
+ *    `upload` is ONE file under the field name `file` (what a FastAPI
+ *    `UploadFile` parameter expects): no multi-file, no extra form fields, no
+ *    progress, and the whole file is held in memory. Desktop takes the same
+ *    shape but refuses an upload outright against an OAuth-gated backend.
  *  - `ctx.os` has the same four members and the same result contract, but sits
  *    over Tauri instead of the Electron preload bridge — so on mobile (and in a
  *    plain-browser dev run) more of them resolve `false` than on the desktop

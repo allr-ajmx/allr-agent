@@ -84,6 +84,38 @@ describe('pluginRest', () => {
     expect(httpRequest).not.toHaveBeenCalled()
   })
 
+  // The spellings a `..`-substring test misses. WHATWG — which is what BOTH the
+  // webview and Rust's `url` crate parse this with — also collapses `%2e%2e`
+  // (either case), `.%2e` and `%2e.` as double-dot segments, and treats `\` as
+  // a path separator on an http(s) URL. Each of these left the namespace with
+  // the app's session credentials attached, and MJXHRM-403's `upload` made that
+  // an authenticated multipart POST to any core route.
+  it('rejects traversal spelled so a substring test misses it', async () => {
+    for (const path of [
+      '/%2e%2e/%2e%2e/api/fs/read',
+      '/%2E%2E/other',
+      '/.%2e/other',
+      '/%2e./other',
+      '/..\\..\\api/fs/read',
+      '/a/%2e%2e/%2e%2e/%2e%2e/api/sessions'
+    ]) {
+      await expect(pluginRest('kanban', path)).rejects.toThrow(/illegal path traversal/)
+    }
+
+    expect(httpRequest).not.toHaveBeenCalled()
+  })
+
+  // The id is interpolated straight into `/api/plugins/<id>`, so an id that is
+  // not one plain segment relocates the namespace itself — the same escape from
+  // the other end, available to any plugin that simply declares it.
+  it('refuses a plugin id that is not one plain path segment', async () => {
+    for (const id of ['a/../..', '..', '.', 'a/b', 'a\\b', '%2e%2e', '']) {
+      await expect(pluginRest(id, '/board')).rejects.toThrow(/illegal plugin id/)
+    }
+
+    expect(httpRequest).not.toHaveBeenCalled()
+  })
+
   it('allows `..` inside a query string — only the path portion is the boundary', async () => {
     await pluginRest('kanban', '/search?q=../x')
 
@@ -137,6 +169,9 @@ describe('pluginSocket', () => {
 
   it('rejects traversal before opening anything', () => {
     expect(() => pluginSocket('kanban', '/../other', () => {})).toThrow(/illegal path traversal/)
+    expect(() => pluginSocket('kanban', '/%2e%2e/other', () => {})).toThrow(/illegal path traversal/)
+    expect(() => pluginSocket('kanban', '/..\\..\\api/ws', () => {})).toThrow(/illegal path traversal/)
+    expect(() => pluginSocket('a/../..', '/events', () => {})).toThrow(/illegal plugin id/)
     expect(sockets).toHaveLength(0)
   })
 

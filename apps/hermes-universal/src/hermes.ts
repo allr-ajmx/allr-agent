@@ -237,18 +237,59 @@ export interface PluginRestOptions {
   timeoutMs?: number
 }
 
-// Normalize `path` to a leading-slash suffix relative to `/api/plugins/<id>`.
-// The namespace is the boundary — reject `..` so a relative segment can't
-// normalize out into another plugin's API or a core route. Check the path
-// portion only (before any query/hash).
-function pluginPathSuffix(caller: string, path: string): string {
-  const suffix = path.startsWith('/') ? path : `/${path}`
+/** A plugin id may be ONE ordinary path segment. It is interpolated straight
+ *  into `/api/plugins/<id>`, so an id carrying a separator or a dot-segment
+ *  would relocate the namespace itself — and it is equally the `plugin:<id>`
+ *  source tag, the `hermes.plugin.<id>.*` storage prefix and the contribution
+ *  id prefix, none of which survive a `/` either. */
+const PLUGIN_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
 
-  if (suffix.split(/[?#]/, 1)[0].split('/').includes('..')) {
+/** The only base a plugin path is ever resolved against here. Opaque host: it
+ *  exists so `new URL` will resolve, and nothing reads it back. */
+const PLUGIN_PATH_BASE = 'http://plugin.invalid'
+
+/**
+ * The plugin namespace path — `/api/plugins/<id>` plus a caller-supplied
+ * relative `path`, and the ONE place that boundary is computed.
+ *
+ * The check is containment after URL resolution, not a substring test for
+ * `..`, because the two do not agree. WHATWG (which is what both the webview
+ * and Rust's `url` crate implement) also treats `%2e%2e`, `%2E%2E`, `.%2e`,
+ * `%2e.` as double-dot segments AND `\` as a path separator — so
+ * `/%2e%2e/%2e%2e/api/fs/read` and `/..\..\api/fs/read` each leave the
+ * namespace while containing no literal `..` path segment at all. A string
+ * test passed both; `POST`ing to a core route with the app's session
+ * credentials attached is what came out the other side, and MJXHRM-403's new
+ * `upload` extended that to an authenticated multipart POST anywhere on the
+ * gateway.
+ *
+ * Resolving here is exact rather than approximate: the string returned is
+ * parsed downstream with the same rules, so what this function accepts is
+ * literally what goes on the wire.
+ *
+ * Only the path portion is a boundary — `..` inside a query or fragment is
+ * the caller's data and passes through untouched.
+ */
+function pluginNamespacePath(caller: string, pluginId: string, path: string): string {
+  if (!PLUGIN_ID_RE.test(pluginId)) {
+    throw new Error(`${caller}: illegal plugin id "${pluginId}"`)
+  }
+
+  const base = `/api/plugins/${pluginId}`
+  const full = `${base}${path.startsWith('/') ? path : `/${path}`}`
+  let resolved: URL
+
+  try {
+    resolved = new URL(full, PLUGIN_PATH_BASE)
+  } catch {
+    throw new Error(`${caller}: unresolvable path "${path}"`)
+  }
+
+  if (resolved.pathname !== base && !resolved.pathname.startsWith(`${base}/`)) {
     throw new Error(`${caller}: illegal path traversal in "${path}"`)
   }
 
-  return suffix
+  return full
 }
 
 /** The plugin REST door. Every call is scoped BY CONSTRUCTION to the plugin's
@@ -264,10 +305,8 @@ function pluginPathSuffix(caller: string, path: string): string {
  *  `http_request` command as every other call here; the form is assembled in
  *  Rust, so the webview never builds a boundary by hand. */
 export async function pluginRest<T>(pluginId: string, path: string, opts: PluginRestOptions = {}): Promise<T> {
-  const suffix = pluginPathSuffix('pluginRest', path)
-
   return api<T>({
-    path: `/api/plugins/${pluginId}${suffix}`,
+    path: pluginNamespacePath('pluginRest', pluginId, path),
     method: opts.method,
     body: opts.body,
     upload: opts.upload,
@@ -278,7 +317,7 @@ export async function pluginRest<T>(pluginId: string, path: string, opts: Plugin
 
 /** Shared by `pluginSocket` (lib/plugin-transport.ts), which lives outside this
  *  module because it needs a store import this file deliberately avoids. */
-export { pluginPathSuffix }
+export { pluginNamespacePath }
 
 /**
  * Trim a page to its window WITHOUT discarding pinned rows.

@@ -9,7 +9,7 @@
  * both in `hermes.ts`; that is the only structural difference.
  */
 
-import { pluginPathSuffix } from '@/hermes'
+import { pluginNamespacePath } from '@/hermes'
 import { mintWsTicket } from '@/lib/auth'
 import { $connection } from '@/store/connection'
 import { type Connection } from '@/store/gateway-config'
@@ -51,7 +51,7 @@ async function pluginSocketAuthParam(conn: Connection): Promise<null | string> {
  * ticket mint can fail on an expired session.
  */
 export function pluginSocket(pluginId: string, path: string, onMessage: (data: unknown) => void): () => void {
-  const suffix = pluginPathSuffix('pluginSocket', path)
+  const namespacePath = pluginNamespacePath('pluginSocket', pluginId, path)
 
   let socket: null | TauriWebSocket = null
   let disposed = false
@@ -91,13 +91,13 @@ export function pluginSocket(pluginId: string, path: string, onMessage: (data: u
     }
 
     const base = conn.baseUrl.replace(/^http/, 'ws')
-    const join = suffix.includes('?') ? '&' : '?'
+    const join = namespacePath.includes('?') ? '&' : '?'
     const query = auth ? `${join}${auth}` : ''
 
     // The Rust-backed socket: it exposes add/removeEventListener and has NO
     // onmessage/onclose property setters, and its default origin is the `null`
     // every universal socket sends.
-    const next = new TauriWebSocket(`${base}/api/plugins/${pluginId}${suffix}${query}`)
+    const next = new TauriWebSocket(`${base}${namespacePath}${query}`)
 
     socket = next
 
