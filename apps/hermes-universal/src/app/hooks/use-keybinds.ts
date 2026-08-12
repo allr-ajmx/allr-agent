@@ -46,7 +46,7 @@ import {
 } from '@/store/profile'
 import { openFolderAsProject } from '@/store/projects'
 import { toggleReview } from '@/store/review'
-import { toggleSelectedPin } from '@/store/session'
+import { toggleSelectedPin } from '@/store/session-lookup'
 import { $sessionTiles, focusOpenSession, reopenLastClosedTile, requestCloseSessionTile } from '@/store/session-states'
 import {
   $switcherOpen,

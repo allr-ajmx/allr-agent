@@ -19,7 +19,7 @@ import { atom, computed } from '@/store/atom'
 import { $busy, $clarify, $currentCwd, $messages, $sessionId, type ChatMessage, resetChat } from '@/store/chat'
 import { resetUnscopedStreamPin } from '@/store/event-router'
 import { requestGateway } from '@/store/gateway'
-import { $pinnedSessionIds, pinSession, unpinSession } from '@/store/layout'
+import { $pinnedSessionIds } from '@/store/layout'
 import { $liveSessionStatuses } from '@/store/live-session-registry'
 import { notify, notifyError } from '@/store/notifications'
 import { flashPetActivity } from '@/store/pet'
@@ -442,18 +442,13 @@ export const $attentionSessionIds = computed(
   }
 )
 
-/** Title of the currently-viewed chat (title → first-message preview → ''),
- *  parity with desktop's `sessionTitle`. Empty for a fresh/unsaved chat — the
- *  titlebar / mobile header show their brand fallback then. Drives the topbar. */
-export const $activeSessionTitle = computed([$sessions, $activeStoredSessionId], (sessions, activeId) => {
-  if (!activeId) {
-    return ''
-  }
-
-  const session = sessions.find(s => s.id === activeId)
-
-  return session ? session.title?.trim() || session.preview?.trim() || '' : ''
-})
+// `$activeSessionTitle` used to sit here, documented as "drives the topbar".
+// Nothing had ever consumed it — the topbar's title is `ChatTitle` — and it
+// resolved the active session with `sessions.find(s => s.id === activeId)`:
+// the paginated recents page, compared by live id alone. Both halves of exactly
+// the bug MJXHRM-386 is about, sitting in the store as a ready-made trap for
+// the next caller who trusted the comment. `ChatTitle` resolves through
+// `useSessionRow` instead; a future headless caller wants `sessionRowFor`.
 
 /** Functional setter for optimistic row edits (rename dialog etc.). */
 export function setSessions(updater: (prev: SessionInfo[]) => SessionInfo[]): void {
@@ -588,25 +583,11 @@ export function sessionAliasIds(
   return ids
 }
 
-/** Pin/unpin the active session — the `session.togglePin` keybind action.
- *  Adapted from desktop `app/contrib/wiring.tsx`; pins are keyed by the durable
- *  lineage id so the pin survives auto-compression. */
-export function toggleSelectedPin(): void {
-  const sessionId = $activeStoredSessionId.get()
-
-  if (!sessionId) {
-    return
-  }
-
-  const session = $sessions.get().find(s => sessionMatchesStoredId(s, sessionId))
-  const pinId = session ? sessionPinId(session) : sessionId
-
-  if ($pinnedSessionIds.get().includes(pinId)) {
-    unpinSession(pinId)
-  } else {
-    pinSession(pinId)
-  }
-}
+// `toggleSelectedPin` (the `session.togglePin` keybind) lives in
+// `store/session-lookup`: it has to resolve the active session's DURABLE pin id
+// through the wide row lookup, and that module cannot be imported from here
+// without a cycle (it reads `$projectTree`, and `store/projects` already imports
+// this file).
 
 // ── Messaging-platform sessions (Discord, Telegram, …) ──────────────────────
 //
@@ -1251,22 +1232,29 @@ export function startSessionInWorkspace(path: string): void {
  * async `session.title` event later patches `title` in place (see store/chat.ts),
  * superseding the first-message preview. Desktop parity (upsertOptimisticSession).
  */
-export function registerNewSession(id: string, firstMessage: string): void {
-  insertOptimisticSession(id, firstMessage)
+export function registerNewSession(id: string, firstMessage: string, cwd?: string): void {
+  insertOptimisticSession(id, firstMessage, cwd)
   $activeStoredSessionId.set(id)
 }
 
 /** The row half of `registerNewSession`, without claiming the main pane — a
  *  branch opened in its own TAB must appear in the sidebar without taking the
- *  chat you branched FROM off the screen. */
-function insertOptimisticSession(id: string, firstMessage: string): void {
+ *  chat you branched FROM off the screen.
+ *
+ *  `cwd` overrides the open chat's directory. It has to, for a branch: the row
+ *  belongs to the session that was BRANCHED, which is not necessarily the one
+ *  on screen, and the sidebar lane and inherited colour are both derived from
+ *  this field (MJXHRM-386). Left out, the branch of a background session was
+ *  filed under whatever project the foreground chat was in, and wore its
+ *  colour, until the next list refresh corrected it. */
+function insertOptimisticSession(id: string, firstMessage: string, cwd?: string): void {
   const now = Math.floor(Date.now() / 1000)
 
   const stub: SessionInfo = {
     // Seed the row's project directory (ensureSession just adopted the runtime's
     // resolved cwd) so re-opening this chat later restores the same directory,
     // and the sidebar can group it by workspace right away.
-    cwd: $currentCwd.get().trim() || null,
+    cwd: (cwd ?? $currentCwd.get()).trim() || null,
     ended_at: null,
     id,
     input_tokens: 0,
@@ -1473,12 +1461,17 @@ async function forkBranchSession({
     })
 
     const preview = branchMessages.map(({ content }) => content).find(Boolean) ?? ''
+    // The BRANCH's directory — the backend's resolved one, else the parent's —
+    // not the open chat's. A branch made from a background session's tab (which
+    // is where `foreground: false` comes from) would otherwise be filed under
+    // the foreground chat's project, wearing its colour (MJXHRM-386).
+    const branchCwd = (branched.info?.cwd ?? cwd ?? '').trim()
 
     if (foreground) {
       $activeSessionKey.set(branched.session_id)
-      registerNewSession(storedId, preview)
+      registerNewSession(storedId, preview, branchCwd)
     } else {
-      insertOptimisticSession(storedId, preview)
+      insertOptimisticSession(storedId, preview, branchCwd)
     }
 
     // The branch is created ON the parent's profile, so its row is owned by that
@@ -1518,7 +1511,20 @@ async function forkBranchSession({
  */
 export async function branchStoredSession(storedSessionId: string): Promise<null | string> {
   const profile = await resolveSessionProfile(storedSessionId)
-  const stored = $sessions.get().find(session => sessionMatchesStoredId(session, storedSessionId))
+  // The WIDE lookup (MJXHRM-386). This branches a session the user is NOT
+  // looking at — a tile tab, the Command Center — which is exactly the sort
+  // that has aged out of the paginated recents page. A miss handed
+  // `session.create` an EMPTY cwd, so the branch was created in the gateway's
+  // default directory instead of its parent's: it inherited no project, and
+  // therefore no lane and no colour. `parent_session_id` also fell back to the
+  // caller's possibly pre-rotation id rather than the row's live tip.
+  //
+  // Dynamic, because `store/session-lookup` reads `$projectTree` and
+  // `store/projects` already imports this module — the same reason
+  // `event-router` imports this one lazily. Safe here: the function is async
+  // and only ever runs long after every module has initialized.
+  const { sessionRowFor } = await import('@/store/session-lookup')
+  const stored = sessionRowFor(storedSessionId)
 
   try {
     const transcript = await getSessionMessages(storedSessionId, profile)

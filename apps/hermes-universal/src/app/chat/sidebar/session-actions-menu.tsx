@@ -31,14 +31,9 @@ import { useStore } from '@/store/atom'
 import { addBubble } from '@/store/chat-bubbles'
 import { notify, notifyError } from '@/store/notifications'
 import { $projects, moveSessionToProject } from '@/store/projects'
-import {
-  $activeStoredSessionId,
-  $sessions,
-  renameSessionLocal,
-  sessionMatchesStoredId,
-  sessionPinId
-} from '@/store/session'
+import { $activeStoredSessionId, renameSessionLocal } from '@/store/session'
 import { $sessionColorOverrides, setSessionColorOverride } from '@/store/session-color'
+import { useSessionRowScalars } from '@/store/session-lookup'
 import { openSessionTile } from '@/store/session-states'
 import { canOpenSessionWindow, openSessionInNewWindow } from '@/store/windows'
 
@@ -79,8 +74,23 @@ interface SessionActions {
 function SessionColorSwatches({ sessionId }: { sessionId: string }) {
   const { t } = useI18n()
   const overrides = useStore($sessionColorOverrides)
-  const session = useStore($sessions).find(s => sessionMatchesStoredId(s, sessionId))
-  const durableId = session ? sessionPinId(session) : sessionId
+  // The WIDE lookup, not `$sessions` alone (MJXHRM-386). `$sessions` is the
+  // paginated recents page, so for a session that had aged out of it the
+  // durable id fell back to the RAW id the caller was holding — while
+  // `resolveSessionColor` reads the override under `sessionPinId(session)`, the
+  // lineage root. For a conversation that has been auto-compacted those are
+  // DIFFERENT ids, so a colour picked for an older chat landed under a key
+  // nothing reads: the swatch showed nothing selected, the colour never
+  // appeared on any dot, and the dead entry persisted to disk forever.
+  //
+  // The same widening `tileTitle`, `TileTabLead` and the tab menu already took
+  // — and it is what makes "a colour is a function of a stable identity" true
+  // on the WRITE side, not only the read side.
+  //
+  // `useSessionRowScalars`, not `useSessionRow`: this needs one string, and one
+  // of these lives inside every open session menu. `pinId` is that string
+  // already, computed by the same rule the pin verbs use.
+  const durableId = useSessionRowScalars(sessionId).pinId
 
   return (
     <ColorSwatches

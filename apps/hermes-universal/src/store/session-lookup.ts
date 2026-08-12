@@ -34,8 +34,15 @@ import { useCallback, useRef, useSyncExternalStore } from 'react'
 
 import { sessionTitle } from '@/lib/chat-runtime'
 import { useStore } from '@/store/atom'
+import { $pinnedSessionIds, pinSession, unpinSession } from '@/store/layout'
 import { $projectTree } from '@/store/projects'
-import { $pinnedSessionCache, $sessions, sessionMatchesStoredId, sessionPinId } from '@/store/session'
+import {
+  $activeStoredSessionId,
+  $pinnedSessionCache,
+  $sessions,
+  sessionMatchesStoredId,
+  sessionPinId
+} from '@/store/session'
 import type { SessionInfo } from '@/types/hermes'
 
 /** The atoms `sessionRowFor` reads. Pass these to a pane mirror's `also`, or to
@@ -87,6 +94,40 @@ export function sessionRowFor(storedSessionId: null | string): null | SessionInf
   }
 
   return null
+}
+
+/**
+ * Pin/unpin the ACTIVE session — the `session.togglePin` keybind action.
+ * Adapted from desktop `app/contrib/wiring.tsx`.
+ *
+ * Pins are keyed by the DURABLE lineage id (`sessionPinId`) so a pin survives
+ * auto-compression's id rotation, and every other pin site — the sidebar row,
+ * the tab context menu, `deleteSessionLocal`'s pin release — keys them that way
+ * too. This one resolved the row out of `$sessions` alone, so for a session
+ * that had aged out of the paginated recents page it fell back to the RAW
+ * stored id: pinning an old, previously-compacted conversation from the
+ * keyboard wrote a pin under its live tip while the sidebar looked for one
+ * under its lineage root, and the row never appeared in Pinned (MJXHRM-386).
+ *
+ * It lives HERE rather than in `store/session` because it needs the wide
+ * lookup, and `store/session` cannot import this module without a cycle — this
+ * one reads `$projectTree`, and `store/projects` already imports `store/session`.
+ */
+export function toggleSelectedPin(): void {
+  const sessionId = $activeStoredSessionId.get()
+
+  if (!sessionId) {
+    return
+  }
+
+  const session = sessionRowFor(sessionId)
+  const pinId = session ? sessionPinId(session) : sessionId
+
+  if ($pinnedSessionIds.get().includes(pinId)) {
+    unpinSession(pinId)
+  } else {
+    pinSession(pinId)
+  }
 }
 
 /**

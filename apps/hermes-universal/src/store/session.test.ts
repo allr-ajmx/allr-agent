@@ -10,10 +10,20 @@ vi.mock('@/hermes', () => ({
   searchSessions: vi.fn(),
   setApiRequestProfile: vi.fn()
 }))
-vi.mock('@/store/gateway', () => ({
-  addGatewayEventListener: () => () => {},
-  requestGateway: vi.fn()
-}))
+// `$gatewayState` and `getGatewayClient` are here only because `store/projects`
+// reaches `store/connection` through `lib/api`, and `branchStoredSession` now
+// resolves its parent through `store/session-lookup` (which reads the project
+// tree). Omitting either makes the whole suite fail to import, not one test.
+vi.mock('@/store/gateway', async () => {
+  const { atom } = await import('@/store/atom')
+
+  return {
+    $gatewayState: atom('open'),
+    addGatewayEventListener: () => () => {},
+    getGatewayClient: () => null,
+    requestGateway: vi.fn()
+  }
+})
 
 import { deleteSession, getSession, getSessionMessages, listAllProfileSessions, renameSession } from '@/hermes'
 import { $busy, $currentCwd, $messages, $sessionId } from '@/store/chat'
@@ -27,6 +37,7 @@ import type { PaginatedSessions, SessionInfo } from '@/types/hermes'
 
 import { $pinnedSessionIds } from './layout'
 import { $profiles } from './profiles'
+import { $projectTree } from './projects'
 import {
   $activeStoredSessionId,
   $pinnedSessionCache,
@@ -38,6 +49,7 @@ import {
   $workingSessionIds,
   archiveSessionLocal,
   branchCurrentSession,
+  branchStoredSession,
   clearUnreadFinishedSession,
   deleteSessionLocal,
   isMessagingSource,
@@ -56,6 +68,28 @@ import {
 } from './session'
 
 const row = (id: string, title: string): SessionInfo => ({ id, title }) as unknown as SessionInfo
+
+/** One project holding `sessions` in a single lane — the widest source
+ *  `sessionRowFor` searches, and the one a session past the recents page is
+ *  usually found in. */
+const treeWith = (sessions: SessionInfo[]) =>
+  ({
+    id: 'p1',
+    label: 'Project',
+    path: '/repo',
+    previewSessions: [],
+    repos: [
+      {
+        id: 'r1',
+        label: 'repo',
+        path: '/repo',
+        groups: [{ id: 'g1', label: 'main', path: '/repo', sessions }],
+        sessionCount: sessions.length
+      }
+    ],
+    sessionCount: sessions.length
+  }) as unknown as (typeof $projectTree.value)[number]
+
 const rowWithCwd = (id: string, cwd: null | string): SessionInfo => ({ id, cwd }) as unknown as SessionInfo
 
 const rowOnProfile = (id: string, profile: string): SessionInfo => ({ id, profile }) as unknown as SessionInfo
@@ -742,6 +776,68 @@ describe('branchCurrentSession', () => {
     expect($activeStoredSessionId.get()).toBe('stored-1')
     // ...and the branch is listed, so the tab the opener creates has a row.
     expect($sessions.get().some(s => s.id === 'stored-2')).toBe(true)
+  })
+})
+
+/**
+ * MJXHRM-386 — a branch's DIRECTORY, which is where its colour comes from.
+ *
+ * `branchStoredSession` branches a session the user is not looking at, so its
+ * parent is exactly the sort that has aged out of the recents page. It resolved
+ * that parent with a `$sessions.find(...)`, and a miss meant an empty `cwd`:
+ * the branch was created in the gateway's default directory, belonged to no
+ * project, and so inherited no lane and no colour.
+ */
+describe('branchStoredSession — the branch inherits its parent directory', () => {
+  const transcript = () =>
+    vi.mocked(getSessionMessages).mockResolvedValue({
+      messages: [{ role: 'user', content: 'first' }],
+      session_id: 'x'
+    } as never)
+
+  it('takes the cwd from a parent that is only in the project tree', async () => {
+    transcript()
+    vi.mocked(requestGateway).mockResolvedValue({ session_id: 'runtime-2', stored_session_id: 'stored-2' } as never)
+    $sessions.set([])
+    $projectTree.set([treeWith([{ cwd: '/www/app', id: 'old-1' } as unknown as SessionInfo])])
+
+    await branchStoredSession('old-1')
+
+    expect(requestGateway).toHaveBeenCalledWith('session.create', expect.objectContaining({ cwd: '/www/app' }))
+  })
+
+  it('records the parent as the row live tip, not the pre-rotation id it was given', async () => {
+    transcript()
+    vi.mocked(requestGateway).mockResolvedValue({ session_id: 'runtime-2', stored_session_id: 'stored-2' } as never)
+    $sessions.set([])
+    $projectTree.set([
+      treeWith([{ _lineage_root_id: 'root-1', cwd: '/www/app', id: 'tip-1' } as unknown as SessionInfo])
+    ])
+
+    await branchStoredSession('root-1')
+
+    expect(requestGateway).toHaveBeenCalledWith(
+      'session.create',
+      expect.objectContaining({ parent_session_id: 'tip-1' })
+    )
+  })
+
+  // The optimistic row the sidebar shows before the next refresh: its `cwd`
+  // decides the lane and the inherited colour, and it used to be seeded from
+  // whatever chat was on SCREEN — which for a background branch is a different
+  // session in, quite possibly, a different project.
+  it('seeds the optimistic row with the branch directory, not the open chat one', async () => {
+    transcript()
+    vi.mocked(requestGateway).mockResolvedValue({ session_id: 'runtime-2', stored_session_id: 'stored-2' } as never)
+    // The chat on SCREEN, in a different project entirely.
+    seedActiveSession('runtime-0', { cwd: '/somewhere/else' })
+    expect($currentCwd.get()).toBe('/somewhere/else')
+    $sessions.set([])
+    $projectTree.set([treeWith([{ cwd: '/www/app', id: 'old-1' } as unknown as SessionInfo])])
+
+    await branchStoredSession('old-1')
+
+    expect($sessions.get().find(s => s.id === 'stored-2')?.cwd).toBe('/www/app')
   })
 })
 

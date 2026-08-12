@@ -17,6 +17,8 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import type { SessionInfo } from '@/types/hermes'
 
 const { $attentionSessionIds, $sessions, $unreadFinishedSessionIds } = await import('@/store/session')
+const { $projects } = await import('@/store/projects')
+const { $sessionColorOverrides } = await import('@/store/session-color')
 const { $sessionStates } = await import('@/store/session-state-types')
 const { SessionStatusDot } = await import('./session-status-dot')
 
@@ -66,6 +68,8 @@ beforeEach(() => {
   $sessions.set([])
   $attentionSessionIds.get()
   $unreadFinishedSessionIds.set([])
+  $projects.set([])
+  $sessionColorOverrides.set({})
 })
 
 describe('SessionStatusDot — a session whose stored id rotated', () => {
@@ -97,6 +101,47 @@ describe('SessionStatusDot — a session whose stored id rotated', () => {
 
     // Idle: no `role="status"` node at all, just the colour chip.
     expect(screen.queryByRole('status')).toBeNull()
+  })
+})
+
+/**
+ * MJXHRM-386 — the colour half. An IDLE dot paints the session's colour, and
+ * `$sessionColorById` is built from the recents page alone, so the dot on a tab
+ * for an older session has no map entry to read. `sessionColorFor` falling back
+ * to the resolver is what keeps that dot coloured — and the resolver has to
+ * reach the override under the DURABLE id, since the row a compacted session
+ * resolves to carries a rotated `id`.
+ */
+describe('SessionStatusDot — colour for a session outside the recents page', () => {
+  const idleChip = (container: HTMLElement) => container.querySelector('span[aria-hidden="true"]') as HTMLElement
+
+  it('inherits the project colour with no entry in the shared map', () => {
+    const older = { cwd: '/www/app', git_repo_root: '/www/app', id: 'old-1', title: 'Old' } as unknown as SessionInfo
+
+    $sessions.set([])
+    $projects.set([
+      {
+        archived: false,
+        color: '#5865f2',
+        folders: [{ added_at: 0, is_primary: true, label: null, path: '/www/app' }],
+        id: 'p_app',
+        name: 'app'
+      } as never
+    ])
+
+    const { container } = render(<SessionStatusDot session={older} storedSessionId="old-1" />)
+
+    expect(idleChip(container).style.backgroundColor).toBe('rgb(88, 101, 242)')
+  })
+
+  it('reads an override stored under the lineage root, not the rotated tip', () => {
+    $sessionColorOverrides.set({ 'root-1': '#ff0000' })
+
+    const { container } = render(
+      <SessionStatusDot session={compressedRow('tip-1', 'root-1')} storedSessionId="root-1" />
+    )
+
+    expect(idleChip(container).style.backgroundColor).toBe('rgb(255, 0, 0)')
   })
 })
 
