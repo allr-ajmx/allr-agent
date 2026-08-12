@@ -1232,22 +1232,29 @@ export function startSessionInWorkspace(path: string): void {
  * async `session.title` event later patches `title` in place (see store/chat.ts),
  * superseding the first-message preview. Desktop parity (upsertOptimisticSession).
  */
-export function registerNewSession(id: string, firstMessage: string): void {
-  insertOptimisticSession(id, firstMessage)
+export function registerNewSession(id: string, firstMessage: string, cwd?: string): void {
+  insertOptimisticSession(id, firstMessage, cwd)
   $activeStoredSessionId.set(id)
 }
 
 /** The row half of `registerNewSession`, without claiming the main pane — a
  *  branch opened in its own TAB must appear in the sidebar without taking the
- *  chat you branched FROM off the screen. */
-function insertOptimisticSession(id: string, firstMessage: string): void {
+ *  chat you branched FROM off the screen.
+ *
+ *  `cwd` overrides the open chat's directory. It has to, for a branch: the row
+ *  belongs to the session that was BRANCHED, which is not necessarily the one
+ *  on screen, and the sidebar lane and inherited colour are both derived from
+ *  this field (MJXHRM-386). Left out, the branch of a background session was
+ *  filed under whatever project the foreground chat was in, and wore its
+ *  colour, until the next list refresh corrected it. */
+function insertOptimisticSession(id: string, firstMessage: string, cwd?: string): void {
   const now = Math.floor(Date.now() / 1000)
 
   const stub: SessionInfo = {
     // Seed the row's project directory (ensureSession just adopted the runtime's
     // resolved cwd) so re-opening this chat later restores the same directory,
     // and the sidebar can group it by workspace right away.
-    cwd: $currentCwd.get().trim() || null,
+    cwd: (cwd ?? $currentCwd.get()).trim() || null,
     ended_at: null,
     id,
     input_tokens: 0,
@@ -1454,12 +1461,17 @@ async function forkBranchSession({
     })
 
     const preview = branchMessages.map(({ content }) => content).find(Boolean) ?? ''
+    // The BRANCH's directory — the backend's resolved one, else the parent's —
+    // not the open chat's. A branch made from a background session's tab (which
+    // is where `foreground: false` comes from) would otherwise be filed under
+    // the foreground chat's project, wearing its colour (MJXHRM-386).
+    const branchCwd = (branched.info?.cwd ?? cwd ?? '').trim()
 
     if (foreground) {
       $activeSessionKey.set(branched.session_id)
-      registerNewSession(storedId, preview)
+      registerNewSession(storedId, preview, branchCwd)
     } else {
-      insertOptimisticSession(storedId, preview)
+      insertOptimisticSession(storedId, preview, branchCwd)
     }
 
     // The branch is created ON the parent's profile, so its row is owned by that
@@ -1499,7 +1511,20 @@ async function forkBranchSession({
  */
 export async function branchStoredSession(storedSessionId: string): Promise<null | string> {
   const profile = await resolveSessionProfile(storedSessionId)
-  const stored = $sessions.get().find(session => sessionMatchesStoredId(session, storedSessionId))
+  // The WIDE lookup (MJXHRM-386). This branches a session the user is NOT
+  // looking at — a tile tab, the Command Center — which is exactly the sort
+  // that has aged out of the paginated recents page. A miss handed
+  // `session.create` an EMPTY cwd, so the branch was created in the gateway's
+  // default directory instead of its parent's: it inherited no project, and
+  // therefore no lane and no colour. `parent_session_id` also fell back to the
+  // caller's possibly pre-rotation id rather than the row's live tip.
+  //
+  // Dynamic, because `store/session-lookup` reads `$projectTree` and
+  // `store/projects` already imports this module — the same reason
+  // `event-router` imports this one lazily. Safe here: the function is async
+  // and only ever runs long after every module has initialized.
+  const { sessionRowFor } = await import('@/store/session-lookup')
+  const stored = sessionRowFor(storedSessionId)
 
   try {
     const transcript = await getSessionMessages(storedSessionId, profile)
