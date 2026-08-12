@@ -4,17 +4,13 @@ import { SessionActionsMenu, SessionContextMenu } from '@/app/chat/sidebar/sessi
 import { appViewForPath } from '@/app/routes'
 import { TitleMenuTrigger } from '@/components/ui/title-menu-trigger'
 import { useI18n } from '@/i18n'
+import { sessionTitle } from '@/lib/chat-runtime'
 import { cn } from '@/lib/utils'
 import { useStore } from '@/store/atom'
 import { $liveSessionTitle, $sessionId } from '@/store/chat'
 import { $pinnedSessionIds, pinSession, unpinSession } from '@/store/layout'
-import {
-  $activeStoredSessionId,
-  $sessions,
-  archiveSessionLocal,
-  deleteSessionLocal,
-  sessionPinId
-} from '@/store/session'
+import { $activeStoredSessionId, archiveSessionLocal, deleteSessionLocal, sessionPinId } from '@/store/session'
+import { useSessionRow } from '@/store/session-lookup'
 
 // A plain (non-interactive) title span, shared by the "New session" and page-view
 // (Capabilities/Messaging/Artifacts) cases.
@@ -42,9 +38,33 @@ export function ChatTitle({ className }: { className?: string }) {
   const { pathname } = useLocation()
   const activeId = useStore($activeStoredSessionId)
   const runtimeSessionId = useStore($sessionId)
-  const sessions = useStore($sessions)
   const pinnedIds = useStore($pinnedSessionIds)
   const liveTitle = useStore($liveSessionTitle)
+
+  // Resolve by STORED id (resumed) or live RUNTIME id (a new session that has
+  // since landed in the list), so the title updates once the auto-title arrives.
+  //
+  // The WIDE lookup, not `$sessions.find(s => s.id === lookupId)` (MJXHRM-386).
+  // Two independent defects lived in that one line, on the three surfaces this
+  // component IS — the mobile top bar, the desktop chat header, and a DETACHED
+  // session window's titlebar:
+  //
+  //  - `$sessions` is the paginated RECENTS PAGE, not the set of sessions that
+  //    exist, and `openSession` never inserts the row it resumed. So opening a
+  //    session older than that window resolved to nothing and the bar read
+  //    "New session" over a named conversation. Not merely cosmetic: with no
+  //    row there is no pill, so the entire session menu (rename / pin / archive
+  //    / delete) and the right-click menu were absent on exactly those chats —
+  //    including in a detached window, whose titlebar is the ONLY place they
+  //    are reachable from.
+  //  - `s.id === lookupId` is not the lineage rule the rest of the app resolves
+  //    by (`sessionMatchesStoredId`), so an id held from before an
+  //    auto-compaction missed a row that WAS loaded.
+  //
+  // Called before every early return below, and derived from atoms rather than
+  // from anything a return could skip, because it is a hook.
+  const lookupId = activeId ?? runtimeSessionId
+  const session = useSessionRow(lookupId)
 
   // Page views win regardless of any session loaded in state behind them.
   const view = appViewForPath(pathname)
@@ -57,16 +77,21 @@ export function ChatTitle({ className }: { className?: string }) {
     return <span className={cn(PLAIN_TITLE_CLASS, className)}>{t.sidebar.nav['new-session']}</span>
   }
 
-  // Resolve by STORED id (resumed) or live RUNTIME id (a new session that has
-  // since landed in the list), so the title updates once the auto-title arrives.
-  const lookupId = activeId ?? runtimeSessionId
-  const session = lookupId ? sessions.find(s => s.id === lookupId) : null
-
-  // Until the session is in `sessions`, fall back to the live auto-title so it
-  // stops saying "New session" as soon as the title lands.
+  // Until SOME source has seen the row, fall back to the live auto-title, so
+  // the bar stops saying "New session" the moment the title lands.
+  //
+  // Failing that, the two unresolved cases are not the same chat: a STORED id
+  // we hold but cannot yet resolve is a conversation still LOADING, while a
+  // chat with only a runtime id has genuinely never been saved. The old copy
+  // called both of them new — the same lie `syncWorkspaceTitle` stopped telling
+  // for the workspace tab (MJXHRM-386).
+  //
+  // `sessionTitle` (lib/chat-runtime) rather than a local title→preview→literal
+  // chain, so this bar, the workspace tab and every tile tab name a session
+  // with one function.
   const title = session
-    ? session.title?.trim() || session.preview?.trim() || 'Untitled'
-    : liveTitle.trim() || 'New session'
+    ? sessionTitle(session)
+    : liveTitle.trim() || (activeId ? t.common.loading : t.sidebar.nav['new-session'])
 
   if (!session) {
     return <span className={cn(PLAIN_TITLE_CLASS, className)}>{title}</span>
