@@ -17,8 +17,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { CronJob } from '@/types/hermes'
 
 const jobs: CronJob[] = [
-  { enabled: true, id: 'alpha-job', name: 'Alpha backup', schedule: '0 3 * * *' },
-  { enabled: true, id: 'zulu-job', name: 'Zulu digest', schedule: '0 9 * * *' }
+  { enabled: true, id: 'alpha-job', name: 'Alpha backup' },
+  { enabled: true, id: 'zulu-job', name: 'Zulu digest' }
 ]
 
 const hermes = vi.hoisted(() => ({
