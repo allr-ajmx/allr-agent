@@ -1,8 +1,10 @@
 /**
  * The two plugin transport doors. What matters here is the BOUNDARY: `path` is
  * relative to `/api/plugins/<id>` and must not be able to normalize out of that
- * namespace, and the socket must refuse to half-work when it has no credential
- * it may use.
+ * namespace, whichever door it is asked through.
+ *
+ * The socket's LIFECYCLE — which gateway it is bound to, and when it redials —
+ * is in plugin-transport.test.ts.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -152,8 +154,23 @@ describe('pluginRest', () => {
 })
 
 describe('pluginSocket', () => {
+  // Every socket now subscribes to `$connection` for its lifetime, so one left
+  // open would redial into the NEXT test's `sockets` array when `beforeEach`
+  // re-sets the connection.
+  const disposers: Array<() => void> = []
+
+  const open = (pluginId: string, path: string, onMessage: (data: unknown) => void = () => {}) => {
+    const dispose = pluginSocket(pluginId, path, onMessage)
+
+    disposers.push(dispose)
+
+    return dispose
+  }
+
+  afterEach(() => disposers.splice(0).forEach(dispose => dispose()))
+
   it('opens a namespace-scoped ws URL carrying the session token', async () => {
-    pluginSocket('kanban', '/events', () => {})
+    open('kanban', '/events')
     await flush()
 
     expect(sockets).toHaveLength(1)
@@ -161,7 +178,7 @@ describe('pluginSocket', () => {
   })
 
   it('joins with & when the path already has a query', async () => {
-    pluginSocket('kanban', '/events?since=1', () => {})
+    open('kanban', '/events?since=1')
     await flush()
 
     expect(sockets[0].url).toContain('/events?since=1&token=tok')
@@ -180,7 +197,7 @@ describe('pluginSocket', () => {
   // its own single-use ws-ticket instead — the same credential the core uses.
   it('mints a ws ticket on a gated gateway instead of giving up', async () => {
     $connection.set({ authMode: 'oauth', baseUrl: 'http://gw.local' })
-    const dispose = pluginSocket('kanban', '/events', () => {})
+    const dispose = open('kanban', '/events')
     await flush()
 
     expect(mintWsTicket).toHaveBeenCalledWith('http://gw.local')
@@ -192,15 +209,7 @@ describe('pluginSocket', () => {
   it('opens nothing when the ticket mint fails', async () => {
     mintWsTicket.mockRejectedValue(new Error('Session expired'))
     $connection.set({ authMode: 'oauth', baseUrl: 'http://gw.local' })
-    pluginSocket('kanban', '/events', () => {})
-    await flush()
-
-    expect(sockets).toHaveLength(0)
-  })
-
-  it('no-ops with no connection at all', async () => {
-    $connection.set(null)
-    pluginSocket('kanban', '/events', () => {})
+    open('kanban', '/events')
     await flush()
 
     expect(sockets).toHaveLength(0)
@@ -208,7 +217,7 @@ describe('pluginSocket', () => {
 
   it('delivers parsed JSON frames', async () => {
     const onMessage = vi.fn()
-    pluginSocket('kanban', '/events', onMessage)
+    open('kanban', '/events', onMessage)
     await flush()
 
     sockets[0].listeners.get('message')?.({ data: '{"type":"moved"}' })
@@ -218,7 +227,7 @@ describe('pluginSocket', () => {
 
   it('skips a non-JSON frame without killing the socket', async () => {
     const onMessage = vi.fn()
-    pluginSocket('kanban', '/events', onMessage)
+    open('kanban', '/events', onMessage)
     await flush()
 
     const deliver = sockets[0].listeners.get('message')
@@ -235,7 +244,7 @@ describe('pluginSocket', () => {
 
     // `advanceTimersByTimeAsync` also drains the microtask queue, which the
     // credential resolution ahead of each connect now sits on.
-    const dispose = pluginSocket('kanban', '/events', () => {})
+    const dispose = open('kanban', '/events')
     await vi.advanceTimersByTimeAsync(0)
 
     sockets[0].listeners.get('close')?.({})
@@ -253,7 +262,7 @@ describe('pluginSocket', () => {
   })
 
   it('closes the live socket on dispose', async () => {
-    const dispose = pluginSocket('kanban', '/events', () => {})
+    const dispose = open('kanban', '/events')
     await flush()
     dispose()
 
