@@ -315,6 +315,16 @@ function withUniqueToolCallIds(messages: ChatMessage[]): ChatMessage[] {
  * `hidden` never reaches here — the gateway drops those rows. `skill_invocation`
  * is deliberately absent: it is the user's own `/command`, it stays a user
  * bubble, and the gateway counts it in the ordinal space.
+ *
+ * Which is why the tail is a DEFAULT and not one more equality test. The
+ * gateway's rule is "any STORED `display_kind` is scaffolding"
+ * (`_counts_as_user_ordinal`), and `skill_invocation` escapes it only because it
+ * is stamped by the read projection and never persisted. So a kind universal has
+ * not learned yet has to leave the user-bubble space as well: rendered as the
+ * user's own words it would put a row in OUR count that the gateway's ordinal
+ * space does not have, and every rewind after it would cut a later turn than the
+ * one clicked. Falling through was the whole of MJXHRM-207; closing it one kind
+ * at a time only re-opens it on the next kind the gateway adds.
  */
 function timelineEventText(message: SessionMessage): null | string {
   if (message.display_kind === 'model_switch') {
@@ -325,15 +335,23 @@ function timelineEventText(message: SessionMessage): null | string {
     return 'resumed interrupted turn'
   }
 
-  if (message.display_kind !== 'async_delegation_complete') {
+  if (message.display_kind === 'async_delegation_complete') {
+    const count = parseMaybeJsonObject(message.display_metadata).task_count
+
+    return typeof count === 'number'
+      ? `${count} background agent${count === 1 ? '' : 's'} finished`
+      : 'background agent work finished'
+  }
+
+  if (!message.display_kind || message.display_kind === 'skill_invocation') {
     return null
   }
 
-  const count = parseMaybeJsonObject(message.display_metadata).task_count
+  // A kind this build does not know. Show what the gateway actually sent rather
+  // than inventing a label — and show it as an event, not as a prompt.
+  const raw = message.content || message.text || message.context || message.name
 
-  return typeof count === 'number'
-    ? `${count} background agent${count === 1 ? '' : 's'} finished`
-    : 'background agent work finished'
+  return (typeof raw === 'string' ? raw.trim() : '') || String(message.display_kind)
 }
 
 export function toChatMessages(messages: SessionMessage[]): ChatMessage[] {
