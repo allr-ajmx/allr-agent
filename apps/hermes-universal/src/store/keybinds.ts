@@ -131,6 +131,40 @@ export function conflictsFor(actionId: string, combo: string): string[] {
     .filter(id => id !== actionId && bindingsFor(id, bindings).includes(combo))
 }
 
+// ── Dispatcher presence ─────────────────────────────────────────────────────
+// `useKeybinds` — the one window-wide combo dispatcher — mounts only in the main
+// shell (`app/mobile-controller.tsx`). Satellite roots (a detached tile, the
+// HUD, Quick Entry, an Android activity screen) render real content with no
+// dispatcher at all, so a surface that must stay keyboard-reachable THERE has to
+// install its own listener. Doing that is only correct while the global one is
+// absent, or one combo would be handled twice — so presence is announced here
+// rather than guessed at. It lives in this leaf store because importing
+// `use-keybinds` from a component would drag the entire dispatcher graph into
+// every satellite window.
+
+let dispatchers = 0
+
+/** Called by `useKeybinds` on mount; returns the release fn for its cleanup. */
+export function registerKeybindDispatcher(): () => void {
+  dispatchers += 1
+
+  let released = false
+
+  return () => {
+    if (released) {
+      return
+    }
+
+    released = true
+    dispatchers -= 1
+  }
+}
+
+/** True in a window whose root mounts the global combo dispatcher. */
+export function keybindDispatcherMounted(): boolean {
+  return dispatchers > 0
+}
+
 // ── Capture ─────────────────────────────────────────────────────────────────
 // `$capture` is the action currently listening for its next keypress (a panel
 // row armed for rebinding). Session-only — never persisted.
