@@ -284,7 +284,16 @@ function SidebarSessionRowImpl({
 
 /** Shallow-compares the two props that arrive as fresh objects from the sortable
  *  bindings. dnd-kit memoizes the attributes and listeners inside them, so their
- *  VALUES are stable even though the wrapper object is rebuilt each render. */
+ *  VALUES are stable even though the wrapper object is rebuilt each render.
+ *
+ *  That stability is CONDITIONAL, and it was false here until MJXHRM-383: the
+ *  synthetic `listeners` are memoized on the sensor array, which is memoized on
+ *  the option objects the list hands `useSensor`. `reorderable-list.tsx` built
+ *  those as literals inside its render, so `onPointerDown` was a new function
+ *  every render and this comparator reported `dragHandleProps` unequal every
+ *  time — no row in the sortable path (Recents, Pinned) ever bailed out. The
+ *  options are module-level now; a per-render sensor option silently kills it
+ *  again. */
 function shallowEqual(a: object | undefined, b: object | undefined): boolean {
   if (a === b) {
     return true

@@ -92,6 +92,10 @@ function profileInitial(name: string): string {
 const RAIL_TRANSITION = REORDER_RAIL_TRANSITION
 const DRAG_TRANSITION = REORDER_DRAG_TRANSITION_CSS
 
+// Sensor options, hoisted out of render — see the call site below (MJXHRM-383).
+const railPointerSensorOptions = { activationConstraint: { distance: TAP_SLOP_PX } }
+const railKeyboardSensorOptions = { coordinateGetter: sortableKeyboardCoordinates }
+
 // The rail is a single horizontal strip of fixed cells. Pin drags to the x-axis
 // (no cross-axis scrollbar), snap to whole cells so a square steps slot-to-slot
 // instead of gliding, and clamp to the occupied strip so it can't float past the
@@ -208,9 +212,15 @@ export function ProfileRail() {
   // The rail owns these rather than sharing the sidebar's `dndSensors`: the
   // activation distance differs, and the sessions list adds vertical autoScroll
   // this horizontal strip must not inherit.
+  //
+  // The option objects are module-level for the reason spelled out in
+  // `reorderable-list.tsx` (MJXHRM-383): fresh literals here defeat `useSensor`'s
+  // memo and hand every `useSortable` consumer a new `onPointerDown` per render.
+  // No rail chip is memoized today, so this is currently only wasted work rather
+  // than a broken bail-out — but it is the same latent trap, one line away.
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: TAP_SLOP_PX } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+    useSensor(PointerSensor, railPointerSensorOptions),
+    useSensor(KeyboardSensor, railKeyboardSensorOptions)
   )
 
   // Tick a haptic each time the drag crosses into a new cell, and a satisfying
