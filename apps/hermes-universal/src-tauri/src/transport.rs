@@ -52,8 +52,16 @@ const SECRET_QUERY_KEYS: &[&str] = &[
 ];
 
 /// A URL safe to put in an error or a log: every secret-bearing query value is
-/// replaced with `***`, while scheme, host, path and non-secret params (e.g.
-/// `profile`) survive so the message still diagnoses something.
+/// replaced with `***`, and so is a password carried in the userinfo, while
+/// scheme, host, path, username and non-secret params (e.g. `profile`) survive so
+/// the message still diagnoses something.
+///
+/// The userinfo half is not hypothetical. The gateway base URL is typed by hand
+/// in Settings, `normalizeBaseUrl` (store/connection.ts) keeps whatever was
+/// typed, and a gateway behind a basic-auth reverse proxy is reached exactly that
+/// way — `https://me:pw@gw.example.com`. reqwest quotes the WHOLE url, userinfo
+/// included, into every error it builds, and those errors are rendered on the
+/// connect screen.
 ///
 /// A parse failure truncates at the `?` rather than echoing the raw string — an
 /// unparseable URL is exactly the case where a credential would otherwise ride
@@ -66,37 +74,141 @@ pub fn redact_url(raw: &str) -> String {
         };
     };
 
-    if url.query().is_none() {
-        return url.to_string();
+    if url.password().is_some() {
+        // Ignorable: `set_password` only refuses on a URL that cannot have a
+        // host, and one that cannot have a host cannot have had a password.
+        let _ = url.set_password(Some("***"));
     }
 
-    let pairs: Vec<(String, String)> = url
-        .query_pairs()
-        .map(|(key, value)| {
-            let value = if SECRET_QUERY_KEYS.contains(&key.as_ref()) {
-                "***".to_string()
-            } else {
-                value.into_owned()
-            };
-            (key.into_owned(), value)
-        })
-        .collect();
+    if url.query().is_some() {
+        let pairs: Vec<(String, String)> = url
+            .query_pairs()
+            .map(|(key, value)| {
+                let value = if SECRET_QUERY_KEYS.contains(&key.as_ref()) {
+                    "***".to_string()
+                } else {
+                    value.into_owned()
+                };
+                (key.into_owned(), value)
+            })
+            .collect();
 
-    url.query_pairs_mut().clear().extend_pairs(pairs);
+        url.query_pairs_mut().clear().extend_pairs(pairs);
+    }
+
     url.to_string()
 }
 
-/// Scrub `url` out of a message some library built for us. reqwest embeds the
-/// request URL in every transport error (`error sending request for url (…)`),
-/// and tungstenite does the same for several of its URL errors, so an error we
-/// merely forward can leak the ws auth param even though we never formatted it
-/// in ourselves.
-fn redact_error(message: String, url: &str) -> String {
-    if url.is_empty() || !message.contains(url) {
-        return message;
+/// Where a query value ends. `)` and `>` matter as much as `&`: reqwest writes
+/// ` for url (…)`, so a terminator set without them would swallow the closing
+/// paren and mangle every message it touched.
+fn is_query_value_end(c: char) -> bool {
+    c.is_whitespace()
+        || matches!(
+            c,
+            '&' | '"' | '\'' | ';' | ')' | ']' | '}' | ',' | '<' | '>' | '#' | '|'
+        )
+}
+
+/// Characters that can be part of a parameter NAME, used only to require that a
+/// key match starts on a word boundary — so `token=` inside `access_token=` is
+/// left to the `access_token=` match, and a field called `mytoken=` is not
+/// mistaken for one.
+fn is_query_key_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.')
+}
+
+/// Scrub `key=value` credential material out of a message whatever shape it
+/// arrived in.
+///
+/// [`redact_error`] can only remove a URL it was handed VERBATIM — and no library
+/// hands ours back verbatim. reqwest quotes its own *normalised parse* of the
+/// URL, so a base typed as `http://LOCALHOST:5051` comes back as
+/// `http://localhost:5051` and the substring test misses entirely; the same goes
+/// for a default port reqwest drops or a path it appends a `/` to. This one keys
+/// off the parameter NAME, which survives every normalisation, so it holds
+/// exactly where the exact-string test does not.
+///
+/// Deliberately broader than a query-string match (no `[?&]` prefix required): a
+/// library is free to quote `token=…` on its own, and over-redacting a diagnostic
+/// is the cheaper mistake — the same call `ssh::error::redact_secrets` makes.
+fn redact_query_secrets(message: String) -> String {
+    let lower = message.to_ascii_lowercase();
+    let mut out = String::with_capacity(message.len());
+    let mut cursor = 0;
+
+    while cursor < message.len() {
+        // The EARLIEST key at or after the cursor, not the first one listed:
+        // scrubbing a later `token=` first would move the cursor past an
+        // `api_key=` that came before it.
+        let hit = SECRET_QUERY_KEYS
+            .iter()
+            .filter_map(|key| {
+                let marker = format!("{key}=");
+                let mut from = cursor;
+
+                loop {
+                    let at = from + lower[from..].find(&marker)?;
+
+                    if !lower[..at].ends_with(is_query_key_char) {
+                        return Some((at, marker.len()));
+                    }
+
+                    from = at + marker.len();
+                }
+            })
+            .min_by_key(|(at, _)| *at);
+
+        let Some((at, marker_len)) = hit else {
+            break;
+        };
+
+        let value_start = at + marker_len;
+        let value_end = message[value_start..]
+            .find(is_query_value_end)
+            .map_or(message.len(), |offset| value_start + offset);
+
+        out.push_str(&message[cursor..value_start]);
+
+        if value_end > value_start {
+            out.push_str("***");
+        }
+
+        cursor = value_end;
     }
 
-    message.replace(url, &redact_url(url))
+    out.push_str(&message[cursor..]);
+    out
+}
+
+/// The single exit for every error string this module hands to the webview.
+///
+/// Both halves are needed and neither subsumes the other: [`redact_bearer`]
+/// catches a credential quoted back as an `Authorization` header,
+/// [`redact_query_secrets`] catches one carried in a query parameter. A call site
+/// that remembered one and forgot the other is precisely how MJXHRM-376 happened,
+/// so there is one function to remember instead of two.
+pub fn redact_message(message: String) -> String {
+    redact_query_secrets(redact_bearer(message))
+}
+
+/// Scrub `url` out of a message some library built for us, then run the result
+/// through [`redact_message`] regardless.
+///
+/// reqwest embeds the request URL in EVERY error it builds — transport, decode
+/// and body alike (`… for url (…)`) — so an error we merely forward can leak the
+/// ws auth param even though we never formatted it in ourselves. Replacing the
+/// URL wholesale is the nicer outcome when it lands, because the host, the path
+/// and the non-secret params survive it; the funnel is what holds when the URL
+/// comes back in any shape but the one we passed in.
+pub fn redact_error(message: String, url: &str) -> String {
+    let message = if !url.is_empty() && message.contains(url) {
+        message.replace(url, &redact_url(url))
+    } else {
+        message
+    };
+
+    redact_message(message)
 }
 
 /// Characters an OAuth bearer is allowed to be made of (RFC 6750 §2.1's
@@ -117,7 +229,7 @@ fn is_token68(c: char) -> bool {
 /// Only a run that actually looks like a credential is redacted (token68
 /// characters, at least 8 of them), so "bearer token missing" survives intact.
 pub fn redact_bearer(message: String) -> String {
-    const MARKER: &str = "bearer ";
+    const MARKER: &str = "bearer";
     const MIN_TOKEN_LEN: usize = 8;
 
     // ASCII-lowercasing is byte-length preserving, so offsets found here index
@@ -133,14 +245,26 @@ pub fn redact_bearer(message: String) -> String {
     let mut cursor = 0;
 
     while let Some(hit) = lower[cursor..].find(MARKER) {
-        let start = cursor + hit + MARKER.len();
+        let after = cursor + hit + MARKER.len();
+
+        // Separator, then value. ALL of the whitespace is skipped rather than
+        // one hard-coded space: a library reflowing a header is free to use a
+        // tab or two spaces, and matching on `"bearer "` alone is how
+        // `Bearer\t<token>` used to walk straight through this function intact.
+        let mut start = after;
+        while message[start..].starts_with([' ', '\t']) {
+            start += 1;
+        }
+
         let end = message[start..]
             .find(|c: char| !is_token68(c))
             .map_or(message.len(), |offset| start + offset);
 
         out.push_str(&message[cursor..start]);
 
-        if end - start >= MIN_TOKEN_LEN {
+        // `start > after` demands the separator: without it `bearerToken` would
+        // read as the marker plus a credential.
+        if start > after && end - start >= MIN_TOKEN_LEN {
             out.push_str("***");
             cursor = end;
         } else {
@@ -418,6 +542,44 @@ fn apply_gateway_bearer(
     }
 }
 
+/// The response headers the webview is allowed to see.
+///
+/// `Set-Cookie` is dropped rather than forwarded: the shared jar has already
+/// taken it by the time this runs — that is what the cookie store is for — so
+/// passing it on would only put the gateway session, the credential MJXHRM-354
+/// moved OUT of the webview, back into a JS object on every login response.
+/// Nothing in the app reads `HttpResp.headers` at all, let alone for that.
+///
+/// `set-cookie2` is RFC 2965 and long dead, but a gateway behind an old proxy can
+/// still emit it and it holds the same value.
+fn visible_response_headers(headers: &reqwest::header::HeaderMap) -> HashMap<String, String> {
+    headers
+        .iter()
+        .filter(|(name, _)| {
+            let name = name.as_str();
+
+            !name.eq_ignore_ascii_case("set-cookie") && !name.eq_ignore_ascii_case("set-cookie2")
+        })
+        .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or_default().to_string()))
+        .collect()
+}
+
+/// A filename safe to put in a `Content-Disposition` header.
+///
+/// Quotes and CRLF would otherwise break out of the header — the same guard
+/// desktop's bridge applies. Split out from [`upload_form`] because a
+/// `multipart::Form` exposes nothing to assert against: a test can only see that
+/// it BUILT, which is equally true of one carrying an injected header.
+fn safe_upload_filename(raw: &str) -> String {
+    let cleaned = raw.replace(['"', '\r', '\n'], "_").trim().to_string();
+
+    if cleaned.is_empty() {
+        "file".to_string()
+    } else {
+        cleaned
+    }
+}
+
 /// Build the `multipart/form-data` form for an upload.
 ///
 /// Rebuilt per attempt rather than built once and reused: `multipart::Form` is
@@ -429,20 +591,8 @@ fn upload_form(upload: &HttpUpload) -> Result<reqwest::multipart::Form, String> 
         .decode(upload.bytes_base64.as_bytes())
         .map_err(|e| format!("invalid upload payload: {e}"))?;
 
-    // Strip quotes and CRLF from the filename — they would otherwise break out
-    // of the Content-Disposition header. Same guard as desktop's bridge.
-    let filename = upload
-        .filename
-        .replace(['"', '\r', '\n'], "_")
-        .trim()
-        .to_string();
-    let filename = if filename.is_empty() {
-        "file".to_string()
-    } else {
-        filename
-    };
-
-    let mut part = reqwest::multipart::Part::bytes(bytes).file_name(filename);
+    let mut part =
+        reqwest::multipart::Part::bytes(bytes).file_name(safe_upload_filename(&upload.filename));
     part = part
         .mime_str(
             upload
@@ -480,12 +630,12 @@ async fn send_http(
 
     // reqwest puts the request URL in its transport errors; REST auth rides in a
     // header rather than the query, but a caller is free to pass either, so the
-    // scrub is unconditional. `redact_bearer` covers the header itself — this
+    // scrub is unconditional. `redact_error` also covers the header itself — this
     // error string is rendered on the connect screen.
     apply_gateway_bearer(builder, bearer)
         .send()
         .await
-        .map_err(|e| redact_bearer(redact_error(e.to_string(), &req.url)))
+        .map_err(|e| redact_error(e.to_string(), &req.url))
 }
 
 /// Generic REST proxy. Powers `/api/status` probing, session create/history,
@@ -535,12 +685,14 @@ pub async fn http_request(
     }
 
     let status = resp.status().as_u16();
-    let headers = resp
-        .headers()
-        .iter()
-        .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or_default().to_string()))
-        .collect();
-    let body = resp.text().await.map_err(|e| e.to_string())?;
+    let headers = visible_response_headers(resp.headers());
+    // reqwest appends ` for url (…)` to EVERY error it builds, decode errors
+    // included — so this one leaks the request URL exactly like a send failure
+    // would, and takes the same scrub.
+    let body = resp
+        .text()
+        .await
+        .map_err(|e| redact_error(e.to_string(), &req.url))?;
     Ok(HttpResp {
         status,
         headers,
@@ -557,6 +709,126 @@ pub async fn http_request(
 /// `Channel` built with `Channel::new` runs any closure the test hands it.
 fn send_binary_frame(channel: &Channel<InvokeResponseBody>, payload: &[u8]) -> tauri::Result<()> {
     channel.send(InvokeResponseBody::Raw(payload.to_vec()))
+}
+
+/// What the reader task does with each frame it takes off the socket.
+///
+/// A trait rather than the `AppHandle` itself so [`pump_reader`] is drivable
+/// without a webview or a live server — which is what makes the invariant this
+/// ticket is about ("nothing leaves the read loop unredacted", MJXHRM-376) a
+/// testable property of the loop rather than of a helper the loop is merely
+/// expected to call.
+trait ReaderSink {
+    fn text(&self, text: String);
+    fn binary(&self, payload: &[u8]);
+    fn pong(&self, message: Message);
+    fn error(&self, message: String);
+    fn close(&self, code: Option<u16>, reason: Option<String>);
+}
+
+/// The real sink: Tauri events for text/error/close, the IPC channel for bytes.
+///
+/// `app.emit` BROADCASTS to every window — session-*, tile-*, sat-* — so anything
+/// handed to `error` below is visible app-wide, not just to the window that
+/// opened the socket. That is the reason the error arm scrubs.
+struct EventSink {
+    app: AppHandle,
+    id: String,
+    binary: Option<Channel<InvokeResponseBody>>,
+    pong: mpsc::UnboundedSender<Message>,
+}
+
+impl ReaderSink for EventSink {
+    fn text(&self, text: String) {
+        let _ = self.app.emit(&format!("ws://{}/message", self.id), text);
+    }
+
+    fn binary(&self, payload: &[u8]) {
+        match self.binary.as_ref() {
+            // Preferred: raw bytes over the IPC channel.
+            Some(channel) => {
+                let _ = send_binary_frame(channel, payload);
+            }
+            // Legacy: a JSON number array on the old event. Kept for one release
+            // so an old JS bundle still gets its frames.
+            None => {
+                let _ = self
+                    .app
+                    .emit(&format!("ws://{}/binary", self.id), payload.to_vec());
+            }
+        }
+    }
+
+    fn pong(&self, message: Message) {
+        let _ = self.pong.send(message);
+    }
+
+    fn error(&self, message: String) {
+        let _ = self.app.emit(&format!("ws://{}/error", self.id), message);
+    }
+
+    fn close(&self, code: Option<u16>, reason: Option<String>) {
+        // Payload is `{code, reason}`, both nullable. The JSON-RPC gateway socket
+        // ignores it; the terminal socket uses the code for reconnect decisions
+        // and the reason for the end banner.
+        let _ = self.app.emit(
+            &format!("ws://{}/close", self.id),
+            serde_json::json!({ "code": code, "reason": reason }),
+        );
+    }
+}
+
+/// Drive a socket's read half until it ends, feeding `sink`. Always ends with
+/// exactly one `close`, whether the socket closed, errored or hit EOF.
+///
+/// `url` is what the error arm scrubs against. A socket that fails AFTER the
+/// handshake is precisely the case where the ws ticket was accepted, so the
+/// credential in that URL is live — hence [`redact_error`], never `to_string`.
+async fn pump_reader<S>(mut read: S, url: &str, sink: &impl ReaderSink)
+where
+    S: futures_util::Stream<Item = Result<Message, tokio_tungstenite::tungstenite::Error>> + Unpin,
+{
+    // Close code (e.g. 4401 auth / 4410 child-exit from /api/shell-pty) so the
+    // terminal can decide whether to reconnect. `None` on error/EOF exits.
+    let mut close_code: Option<u16> = None;
+    // The server's close reason, when it sent one. /api/shell-pty puts its
+    // refusal sentence here (RFC 6455 caps it at 123 bytes), which is the only
+    // way the pane can say WHY a 4404 happened instead of "disabled".
+    let mut close_reason: Option<String> = None;
+
+    while let Some(item) = read.next().await {
+        match item {
+            Ok(Message::Text(text)) => sink.text(text.to_string()),
+            Ok(Message::Binary(payload)) => {
+                // Raw byte frames — the /api/shell-pty terminal's PTY output and
+                // /api/audio/speak-stream's int16 PCM. They go out on their own
+                // path, never `/message`, so the JSON-RPC gateway client (text
+                // only) is never disturbed.
+                sink.binary(&payload);
+            }
+            Ok(Message::Ping(payload)) => {
+                // Split streams don't auto-respond to pings; keepalive by hand.
+                sink.pong(Message::Pong(payload));
+            }
+            Ok(Message::Close(frame)) => {
+                if let Some(frame) = frame {
+                    close_code = Some(u16::from(frame.code));
+                    let reason = frame.reason.to_string();
+                    if !reason.is_empty() {
+                        close_reason = Some(reason);
+                    }
+                }
+                break;
+            }
+            Ok(_) => {}
+            Err(err) => {
+                sink.error(redact_error(err.to_string(), url));
+                break;
+            }
+        }
+    }
+
+    sink.close(close_code, close_reason);
 }
 
 /// Open a raw WebSocket. The *client* supplies `id` (a uuid) and subscribes to
@@ -593,7 +865,7 @@ pub async fn ws_open(
     let mut request = url
         .clone()
         .into_client_request()
-        .map_err(|e| format!("invalid ws url {}: {e}", redact_url(&url)))?;
+        .map_err(|e| redact_message(format!("invalid ws url {}: {e}", redact_url(&url))))?;
     if let Some(origin) = origin {
         if let Ok(value) = origin.parse() {
             request.headers_mut().insert("Origin", value);
@@ -602,8 +874,8 @@ pub async fn ws_open(
 
     let (stream, _resp) = tokio_tungstenite::connect_async(request)
         .await
-        .map_err(|e| redact_bearer(redact_error(e.to_string(), &url)))?;
-    let (mut write, mut read) = stream.split();
+        .map_err(|e| redact_error(e.to_string(), &url))?;
+    let (mut write, read) = stream.split();
 
     let (tx, mut rx) = mpsc::unbounded_channel::<Message>();
 
@@ -615,81 +887,16 @@ pub async fn ws_open(
         }
     });
 
-    let app_reader = app.clone();
-    let tx_pong = tx.clone();
-    let id_reader = id.clone();
+    let sink = EventSink {
+        app: app.clone(),
+        id: id.clone(),
+        binary,
+        pong: tx.clone(),
+    };
     // The reader outlives this function, so it needs its own copy of the URL to
-    // scrub its errors against — see the `Err` arm below.
+    // scrub its errors against — see `pump_reader`'s `Err` arm.
     let url_reader = url.clone();
-    let reader = tokio::spawn(async move {
-        // Close code (e.g. 4401 auth / 4410 child-exit from /api/shell-pty) so the
-        // terminal can decide whether to reconnect. `None` on error/EOF exits.
-        let mut close_code: Option<u16> = None;
-        // The server's close reason, when it sent one. /api/shell-pty puts its
-        // refusal sentence here (RFC 6455 caps it at 123 bytes), which is the
-        // only way the pane can say WHY a 4404 happened instead of "disabled".
-        let mut close_reason: Option<String> = None;
-        while let Some(item) = read.next().await {
-            match item {
-                Ok(Message::Text(text)) => {
-                    let _ = app_reader.emit(&format!("ws://{id_reader}/message"), text.to_string());
-                }
-                Ok(Message::Binary(payload)) => {
-                    // Raw byte frames — the /api/shell-pty terminal's PTY output
-                    // and /api/audio/speak-stream's int16 PCM. They go out on
-                    // their own path, never `/message`, so the JSON-RPC gateway
-                    // client (text only) is never disturbed.
-                    match binary.as_ref() {
-                        // Preferred: raw bytes over the IPC channel.
-                        Some(channel) => {
-                            let _ = send_binary_frame(channel, &payload);
-                        }
-                        // Legacy: a JSON number array on the old event. Kept for
-                        // one release so an old JS bundle still gets its frames.
-                        None => {
-                            let _ = app_reader
-                                .emit(&format!("ws://{id_reader}/binary"), payload.to_vec());
-                        }
-                    }
-                }
-                Ok(Message::Ping(payload)) => {
-                    // Split streams don't auto-respond to pings; keepalive by hand.
-                    let _ = tx_pong.send(Message::Pong(payload));
-                }
-                Ok(Message::Close(frame)) => {
-                    if let Some(frame) = frame {
-                        close_code = Some(u16::from(frame.code));
-                        let reason = frame.reason.to_string();
-                        if !reason.is_empty() {
-                            close_reason = Some(reason);
-                        }
-                    }
-                    break;
-                }
-                Ok(_) => {}
-                Err(err) => {
-                    // Redacted like the connect-time error above (MJXHRM-376).
-                    // It was not, and that was the gap: this error takes the
-                    // same route to the same place — `ws://{id}/error` is
-                    // broadcast to every window and rendered on the connect
-                    // screen — and tungstenite quotes the request URL, which
-                    // carries the ws auth token, into several of its variants.
-                    // A socket that fails *after* the handshake is exactly the
-                    // case where the token was accepted, so it is real.
-                    let message = redact_bearer(redact_error(err.to_string(), &url_reader));
-                    let _ = app_reader.emit(&format!("ws://{id_reader}/error"), message);
-                    break;
-                }
-            }
-        }
-        // Payload is `{code, reason}`, both nullable. The JSON-RPC gateway socket
-        // ignores it; the terminal socket uses the code for reconnect decisions and
-        // the reason for the end banner.
-        let _ = app_reader.emit(
-            &format!("ws://{id_reader}/close"),
-            serde_json::json!({ "code": close_code, "reason": close_reason }),
-        );
-    });
+    let reader = tokio::spawn(async move { pump_reader(read, &url_reader, &sink).await });
 
     state
         .sockets
@@ -791,9 +998,71 @@ mod tests {
     use tauri::ipc::{Channel, InvokeResponseBody};
 
     use super::{
-        apply_gateway_bearer, caller_set_authorization, redact_bearer, redact_error, redact_secret,
-        redact_url, send_binary_frame, upload_form, HttpUpload, TransportState,
+        apply_gateway_bearer, caller_set_authorization, pump_reader, redact_bearer, redact_error,
+        redact_message, redact_secret, redact_url, safe_upload_filename, send_binary_frame,
+        upload_form, visible_response_headers, HttpUpload, Message, ReaderSink, TransportState,
     };
+
+    /// A tungstenite error of the kind the read loop actually sees after the
+    /// handshake — an IO failure — rather than a hand-written string.
+    fn io_error(message: &str) -> tokio_tungstenite::tungstenite::Error {
+        tokio_tungstenite::tungstenite::Error::Io(std::io::Error::other(message.to_string()))
+    }
+
+    /// A [`ReaderSink`] that records instead of emitting, standing in for the
+    /// windows `app.emit` would broadcast to.
+    #[derive(Default)]
+    struct RecordingSink {
+        text: Mutex<Vec<String>>,
+        binary: Mutex<Vec<Vec<u8>>>,
+        pongs: Mutex<usize>,
+        errors: Mutex<Vec<String>>,
+        closes: Mutex<Vec<(Option<u16>, Option<String>)>>,
+    }
+
+    impl RecordingSink {
+        fn text(&self) -> Vec<String> {
+            self.text.lock().unwrap().clone()
+        }
+
+        fn binary(&self) -> Vec<Vec<u8>> {
+            self.binary.lock().unwrap().clone()
+        }
+
+        fn pongs(&self) -> usize {
+            *self.pongs.lock().unwrap()
+        }
+
+        fn errors(&self) -> Vec<String> {
+            self.errors.lock().unwrap().clone()
+        }
+
+        fn closes(&self) -> Vec<(Option<u16>, Option<String>)> {
+            self.closes.lock().unwrap().clone()
+        }
+    }
+
+    impl ReaderSink for RecordingSink {
+        fn text(&self, text: String) {
+            self.text.lock().unwrap().push(text);
+        }
+
+        fn binary(&self, payload: &[u8]) {
+            self.binary.lock().unwrap().push(payload.to_vec());
+        }
+
+        fn pong(&self, _message: Message) {
+            *self.pongs.lock().unwrap() += 1;
+        }
+
+        fn error(&self, message: String) {
+            self.errors.lock().unwrap().push(message);
+        }
+
+        fn close(&self, code: Option<u16>, reason: Option<String>) {
+            self.closes.lock().unwrap().push((code, reason));
+        }
+    }
 
     /// A `Channel` that records what it was handed, standing in for the webview.
     fn recording_channel() -> (
@@ -1039,6 +1308,20 @@ mod tests {
             state.bearer_base_for_url("https://gw.example.com/api/status"),
             Some("https://gw.example.com".to_string())
         );
+
+        // …and from the OTHER starting point, which is the one that actually
+        // needs the `checked` entry cleared: an origin already answered "no
+        // session here", then signed into, then signed out of. Registering
+        // alone never records a check, so a sign-out that only dropped the
+        // KNOWN half would look fine here and strand that user bearer-less.
+        state.note_no_bearer_base("https://gw.example.com");
+        state.register_bearer_base("https://gw.example.com");
+        state.forget_bearer_base("https://gw.example.com");
+
+        assert_eq!(
+            state.bearer_base_for_url("https://gw.example.com/api/status"),
+            Some("https://gw.example.com".to_string())
+        );
     }
 
     #[test]
@@ -1047,6 +1330,12 @@ mod tests {
 
         assert_eq!(state.bearer_base_for_url("not a url"), None);
         assert_eq!(state.bearer_base_for_url("data:text/plain,hi"), None);
+        // `data:` is turned away by the path check before the opaque-origin guard
+        // is ever consulted, so it proves nothing about that guard. A `file://`
+        // URL reaches it: the path DOES start with `/api/`, and its origin
+        // serialises to the string "null", which is not an address a gateway can
+        // live at — nor one worth waking the keyring for.
+        assert_eq!(state.bearer_base_for_url("file:///api/status"), None);
     }
 
     #[test]
@@ -1061,20 +1350,245 @@ mod tests {
     /// MJXHRM-376. The socket's read loop failing mid-session emits its error on
     /// `ws://{id}/error`, which is broadcast to every window and rendered on the
     /// connect screen — the same destination as the connect-time error that was
-    /// already scrubbed. Tungstenite quotes the request URL into several of its
-    /// variants, and that URL carries the ws auth token.
-    #[test]
-    fn a_reader_error_is_scrubbed_the_same_way_a_connect_error_is() {
+    /// already scrubbed. This drives the LOOP, not the helper: the helper being
+    /// correct says nothing about the loop calling it, which was the whole bug.
+    #[tokio::test]
+    async fn the_read_loop_scrubs_the_error_it_emits() {
         let url = "wss://gw.example.com/api/ws?token=s3cr3t-ws-ticket";
-        let raw = format!("IO error on {url}: connection reset by peer");
+        let sink = RecordingSink::default();
 
-        let scrubbed = redact_bearer(redact_error(raw, url));
+        pump_reader(
+            futures_util::stream::iter(vec![Err(io_error(&format!(
+                "IO error on {url}: connection reset by peer"
+            )))]),
+            url,
+            &sink,
+        )
+        .await;
 
-        assert!(!scrubbed.contains("s3cr3t-ws-ticket"), "{scrubbed}");
-        assert!(scrubbed.contains("token=***"), "{scrubbed}");
+        let errors = sink.errors();
+        assert_eq!(errors.len(), 1, "the error arm must emit exactly once");
+        assert!(!errors[0].contains("s3cr3t-ws-ticket"), "{}", errors[0]);
+        assert!(errors[0].contains("token=***"), "{}", errors[0]);
         // Still says what went wrong: a redaction that eats the diagnosis is
         // how a user ends up with "something failed".
-        assert!(scrubbed.contains("connection reset by peer"), "{scrubbed}");
+        assert!(
+            errors[0].contains("connection reset by peer"),
+            "{}",
+            errors[0]
+        );
+    }
+
+    /// The same loop, when the URL comes back in a shape the exact-string test
+    /// cannot see. This is what `redact_error` alone could not do.
+    #[tokio::test]
+    async fn the_read_loop_scrubs_a_token_even_when_the_url_is_not_verbatim() {
+        let url = "wss://GW.example.com/api/ws?ticket=s3cr3t-ws-ticket";
+        // What a library that parsed our URL hands back — host lowercased, so
+        // `message.contains(url)` is false and nothing is replaced wholesale.
+        let quoted = "wss://gw.example.com/api/ws?ticket=s3cr3t-ws-ticket";
+        let sink = RecordingSink::default();
+
+        pump_reader(
+            futures_util::stream::iter(vec![Err(io_error(&format!(
+                "Unable to connect to {quoted}"
+            )))]),
+            url,
+            &sink,
+        )
+        .await;
+
+        let errors = sink.errors();
+        assert!(!errors[0].contains("s3cr3t-ws-ticket"), "{}", errors[0]);
+        assert!(errors[0].contains("ticket=***"), "{}", errors[0]);
+    }
+
+    /// The loop must still announce the close after an error, or a pane that
+    /// only listens for `/close` hangs on "connecting" forever.
+    #[tokio::test]
+    async fn the_read_loop_closes_after_an_error_and_forwards_everything_else() {
+        let sink = RecordingSink::default();
+
+        pump_reader(
+            futures_util::stream::iter(vec![
+                Ok(Message::Text("hello".into())),
+                Ok(Message::Binary(vec![1, 2, 3])),
+                Ok(Message::Ping(vec![9])),
+                Err(io_error("connection reset by peer")),
+                // Never reached: the error arm breaks.
+                Ok(Message::Text("after".into())),
+            ]),
+            "wss://gw.example.com/api/ws?ticket=x",
+            &sink,
+        )
+        .await;
+
+        assert_eq!(sink.text(), vec!["hello".to_string()]);
+        assert_eq!(sink.binary(), vec![vec![1u8, 2, 3]]);
+        assert_eq!(sink.pongs(), 1);
+        assert_eq!(sink.errors().len(), 1);
+        assert_eq!(sink.closes(), vec![(None, None)]);
+    }
+
+    /// A server close carries the code and reason the terminal pane needs; the
+    /// error arm never fires.
+    #[tokio::test]
+    async fn the_read_loop_reports_a_server_close_code_and_reason() {
+        use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
+        use tokio_tungstenite::tungstenite::protocol::CloseFrame;
+
+        let sink = RecordingSink::default();
+
+        pump_reader(
+            futures_util::stream::iter(vec![Ok(Message::Close(Some(CloseFrame {
+                code: CloseCode::Library(4404),
+                reason: "shell-pty is disabled".into(),
+            })))]),
+            "wss://gw.example.com/api/ws?ticket=x",
+            &sink,
+        )
+        .await;
+
+        assert!(sink.errors().is_empty());
+        assert_eq!(
+            sink.closes(),
+            vec![(Some(4404), Some("shell-pty is disabled".to_string()))]
+        );
+    }
+
+    // ── the shape of the scrub, not just one string ──────────────────────────
+
+    /// A hand-typed base URL can carry basic-auth userinfo (`https://me:pw@gw`),
+    /// which is how a gateway behind a protected reverse proxy is reached — and
+    /// reqwest quotes the WHOLE url, userinfo included, into every error.
+    #[test]
+    fn redacts_a_password_carried_in_the_userinfo() {
+        assert_eq!(
+            redact_url("https://me:hunter2pw@gw.example.com/api/ws?token=s3cr3t"),
+            "https://me:***@gw.example.com/api/ws?token=***"
+        );
+        // …and with no query at all, which used to return before the userinfo
+        // was ever looked at.
+        assert_eq!(
+            redact_url("https://me:hunter2pw@gw.example.com/api/status"),
+            "https://me:***@gw.example.com/api/status"
+        );
+        // The username is not a secret and identifies which login failed.
+        assert_eq!(
+            redact_url("https://me@gw.example.com/api/status"),
+            "https://me@gw.example.com/api/status"
+        );
+    }
+
+    /// The userinfo half of a real message. Swapping the URL wholesale is the ONLY
+    /// thing that can reach a basic-auth password: it is not a `key=value` pair,
+    /// so the shape pass cannot see it.
+    #[test]
+    fn scrubs_a_basic_auth_password_a_library_quoted_back_at_us() {
+        let url = "https://me:hunter2pw@gw.example.com/api/status";
+        let message = redact_error(format!("error sending request for url ({url})"), url);
+
+        assert!(!message.contains("hunter2pw"), "{message}");
+        assert!(message.contains("me:***@gw.example.com"), "{message}");
+    }
+
+    /// The exact-string test is a strict subset of the real condition: no library
+    /// hands our URL back verbatim. reqwest quotes its own normalised parse, so
+    /// the URL the message carries differs from the one we passed in — and this
+    /// builds that parse with reqwest itself rather than assuming its shape.
+    #[test]
+    fn scrubs_a_token_the_library_normalised_out_of_recognition() {
+        let ours = "http://LOCALHOST:5051/api/x?token=s3cr3t";
+        let theirs = reqwest::Url::parse(ours).expect("parses").to_string();
+
+        assert_ne!(theirs, ours, "the premise: the parse is not the input");
+
+        let message = redact_error(format!("error sending request for url ({theirs})"), ours);
+
+        assert!(!message.contains("s3cr3t"), "{message}");
+        assert!(message.contains("token=***"), "{message}");
+        // The closing paren of reqwest's own wording survives — a terminator set
+        // that swallowed it would mangle every message this touched.
+        assert!(message.ends_with(')'), "{message}");
+    }
+
+    #[test]
+    fn scrubs_every_secret_query_key_wherever_it_appears() {
+        // No `?` or `&` in front: a library is free to quote a parameter on its
+        // own, and that is exactly the case an anchored match misses.
+        assert_eq!(
+            redact_message("refused ticket=abc123 for api_key=zzz".to_string()),
+            "refused ticket=*** for api_key=***"
+        );
+        // `token=` inside `access_token=` is left to the longer key, so the value
+        // is redacted once and the parameter name survives intact.
+        assert_eq!(
+            redact_message("?access_token=abc&profile=work".to_string()),
+            "?access_token=***&profile=work"
+        );
+    }
+
+    #[test]
+    fn leaves_a_field_that_merely_ends_in_a_secret_key_alone() {
+        // `mytoken` is not `token`, and shredding unrelated diagnostics is how a
+        // redactor stops being read.
+        assert_eq!(
+            redact_message("mytoken=visible".to_string()),
+            "mytoken=visible"
+        );
+        assert_eq!(
+            redact_message("no value here token= and on".to_string()),
+            "no value here token= and on"
+        );
+    }
+
+    #[test]
+    fn scrubs_a_bearer_however_the_library_spaced_it() {
+        // A tab, or two spaces, is still a header value. Matching on `"bearer "`
+        // alone let both through whole.
+        assert_eq!(
+            redact_bearer("Authorization: Bearer\teyJhbGciOi.J9.sig".to_string()),
+            "Authorization: Bearer\t***"
+        );
+        assert_eq!(
+            redact_bearer("Authorization: Bearer  eyJhbGciOi.J9.sig".to_string()),
+            "Authorization: Bearer  ***"
+        );
+        // No separator at all is not a credential — it is a longer word. The run
+        // after the marker is deliberately long enough to pass the length test,
+        // so only the separator requirement can save it.
+        assert_eq!(
+            redact_bearer("bearerTokenIsMissing".to_string()),
+            "bearerTokenIsMissing"
+        );
+    }
+
+    /// The gateway session cookie is the credential MJXHRM-354 took out of the
+    /// webview; handing it straight back on the response of the login that set it
+    /// would undo that on every sign-in.
+    #[test]
+    fn the_response_headers_the_webview_sees_carry_no_set_cookie() {
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert("content-type", "application/json".parse().unwrap());
+        headers.append(
+            "set-cookie",
+            "hermes_session_rt=s3cr3t; HttpOnly".parse().unwrap(),
+        );
+        headers.append("Set-Cookie", "hermes_session_at=s3cr3t2".parse().unwrap());
+        headers.append("set-cookie2", "legacy=s3cr3t3".parse().unwrap());
+
+        let visible = visible_response_headers(&headers);
+
+        assert_eq!(
+            visible.get("content-type").map(String::as_str),
+            Some("application/json")
+        );
+        assert!(
+            visible
+                .keys()
+                .all(|name| !name.to_ascii_lowercase().starts_with("set-cookie")),
+            "{visible:?}"
+        );
     }
 
     #[test]
@@ -1144,10 +1658,19 @@ mod tests {
 
     /// Quotes and CRLF in a filename would otherwise break out of the
     /// Content-Disposition header the multipart part writes.
+    ///
+    /// Asserted against the sanitised NAME, not against `is_ok()`: a form
+    /// carrying an injected header builds exactly as happily as a clean one, so
+    /// the old shape of this test passed with the guard deleted.
     #[test]
     fn upload_form_survives_a_hostile_filename() {
+        assert_eq!(safe_upload_filename("a\"; x=\"\r\n.txt"), "a_; x=___.txt");
         assert!(upload_form(&upload("a\"; x=\"\r\n.txt", None, "aGk=")).is_ok());
         // An all-whitespace name still produces a part rather than an empty one.
+        assert_eq!(safe_upload_filename("   "), "file");
+        assert_eq!(safe_upload_filename(""), "file");
         assert!(upload_form(&upload("   ", None, "aGk=")).is_ok());
+        // An ordinary name is left exactly as it was.
+        assert_eq!(safe_upload_filename("notes.txt"), "notes.txt");
     }
 }
