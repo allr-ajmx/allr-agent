@@ -314,6 +314,68 @@ def _collect_delegate_child_ids(conn, parent_ids: List[str]) -> List[str]:
     return [sid for sid in found if sid not in seeds]
 
 
+# One conversation's whole compression chain, from any id in it: ancestors
+# reached through parents that ended in 'compression', descendants through
+# children of such parents. Identical shape to the CTE in
+# :meth:`SessionDB.set_session_pinned` / ``set_session_archived``, which flip the
+# chain as a unit for exactly the same reason — see
+# :func:`_collect_compression_lineage_ids`.
+_COMPRESSION_LINEAGE_SQL = """
+WITH RECURSIVE
+  ancestors(id) AS (
+    SELECT ?
+    UNION
+    SELECT parent.id
+    FROM ancestors a
+    JOIN sessions child ON child.id = a.id
+    JOIN sessions parent ON parent.id = child.parent_session_id
+    WHERE parent.end_reason = 'compression'
+  ),
+  descendants(id) AS (
+    SELECT ?
+    UNION
+    SELECT child.id
+    FROM descendants d
+    JOIN sessions parent ON parent.id = d.id
+    JOIN sessions child ON child.parent_session_id = parent.id
+    WHERE parent.end_reason = 'compression'
+  )
+SELECT id FROM ancestors
+UNION
+SELECT id FROM descendants
+"""
+
+
+def _collect_compression_lineage_ids(conn, session_id: str) -> List[str]:
+    """Every row of the conversation *session_id* belongs to.
+
+    Auto-compression does not continue a conversation in place — it ends the row
+    with ``end_reason='compression'`` and starts a fresh one carrying the
+    summary. The chat the user sees is the whole chain, and every list endpoint
+    surfaces it as ONE row (``project_compression_tips`` collapses the chain onto
+    its live tip, stamping ``_lineage_root_id``). Pin, archive and read state all
+    already flip the chain as a unit for that reason.
+
+    Deletion did not, and that asymmetry was visible: deleting the surfaced row
+    removed only the tip, so the root — still holding the pre-compression
+    transcript — stopped being projected and came BACK into the list as a
+    conversation of its own, carrying its ``pinned`` flag with it. The chat the
+    user deleted reappeared, in the sidebar and (when the unpin had not reached
+    the backend) in the Pinned section (MJXHRM-414).
+
+    Branch children are deliberately NOT included: ``/branch`` forks a separate
+    conversation that is listed in its own right, and :meth:`delete_session`
+    keeps orphaning those.
+    """
+    rows = conn.execute(_COMPRESSION_LINEAGE_SQL, (session_id, session_id)).fetchall()
+    ids = [(row["id"] if not isinstance(row, tuple) else row[0]) for row in rows]
+    # The seed is in the CTE's base case, so it comes back even for a row with
+    # no chain — but never rely on that for correctness.
+    if session_id not in ids:
+        ids.append(session_id)
+    return ids
+
+
 def _delete_delegate_children(conn, parent_ids: List[str]) -> List[str]:
     ids = _collect_delegate_child_ids(conn, parent_ids)
     if ids:
@@ -8924,6 +8986,7 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
         session_id: str,
         sessions_dir: Optional[Path] = None,
         expected_delete_ids: Optional[List[str]] = None,
+        include_compression_lineage: bool = False,
     ) -> bool:
         """Delete a session and all its messages.
 
@@ -8940,8 +9003,18 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
         inside the write transaction on purpose (TOCTOU guard); the cost is
         accepted for correctness. Returns True if the session was found and
         deleted.
+
+        Pass ``include_compression_lineage=True`` to delete the whole
+        compression chain *session_id* belongs to, which is what "delete this
+        conversation" means for any caller that got the id out of a list: those
+        endpoints project a chain onto its live tip and show it as ONE row, so
+        deleting only that row left the root behind — and the root, no longer
+        having a tip to be projected onto, came straight back into the list as a
+        conversation of its own (MJXHRM-414). Branch children are still orphaned,
+        not deleted: a branch is a separate conversation with its own row.
         """
         removed_delegate_ids: List[str] = []
+        removed_lineage_ids: List[str] = []
         expected_ids = (
             set(expected_delete_ids) if expected_delete_ids is not None else None
         )
@@ -8952,22 +9025,34 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
             )
             if cursor.fetchone() is None:
                 return False
+            target_ids = (
+                _collect_compression_lineage_ids(conn, session_id)
+                if include_compression_lineage
+                else [session_id]
+            )
+            removed_lineage_ids.extend(tid for tid in target_ids if tid != session_id)
             if expected_ids is not None:
                 actual_ids = {
-                    session_id,
-                    *_collect_delegate_child_ids(conn, [session_id]),
+                    *target_ids,
+                    *_collect_delegate_child_ids(conn, target_ids),
                 }
                 if actual_ids != expected_ids:
                     return False
-            removed_delegate_ids.extend(_delete_delegate_children(conn, [session_id]))
+            removed_delegate_ids.extend(_delete_delegate_children(conn, target_ids))
+            placeholders = ",".join("?" * len(target_ids))
             # Orphan remaining child sessions (branches, etc.) so FK is satisfied.
             conn.execute(
-                "UPDATE sessions SET parent_session_id = NULL "
-                "WHERE parent_session_id = ?",
-                (session_id,),
+                f"UPDATE sessions SET parent_session_id = NULL "
+                f"WHERE parent_session_id IN ({placeholders})",
+                target_ids,
             )
-            conn.execute("DELETE FROM messages WHERE session_id = ?", (session_id,))
-            conn.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
+            conn.execute(
+                f"DELETE FROM messages WHERE session_id IN ({placeholders})",
+                target_ids,
+            )
+            conn.execute(
+                f"DELETE FROM sessions WHERE id IN ({placeholders})", target_ids
+            )
             self._delete_unreferenced_system_prompts(conn)
             return True
 
@@ -8975,6 +9060,8 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
         if deleted:
             for delegate_id in removed_delegate_ids:
                 self._remove_session_files(sessions_dir, delegate_id)
+            for lineage_id in removed_lineage_ids:
+                self._remove_session_files(sessions_dir, lineage_id)
             self._remove_session_files(sessions_dir, session_id)
         return bool(deleted)
 
@@ -9026,6 +9113,7 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
         self,
         session_ids: List[str],
         sessions_dir: Optional[Path] = None,
+        include_compression_lineage: bool = False,
     ) -> int:
         """Delete every session in *session_ids* in a single transaction.
 
@@ -9050,6 +9138,15 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
         Returns the count of sessions that actually existed and were
         deleted (may be less than ``len(session_ids)`` if some IDs were
         already gone).
+
+        Pass ``include_compression_lineage=True`` — as the dashboard's
+        bulk-delete endpoint does — to take each selected conversation's whole
+        compression chain, for the reason spelled out on
+        :meth:`delete_session`: the list the selection was made from shows a
+        chain as one row, so deleting only that row left the root to come back
+        as a conversation of its own (MJXHRM-414). The returned count still
+        counts SELECTED conversations, not rows, so the caller's "deleted N"
+        keeps meaning what the user picked.
         """
         if not session_ids:
             return 0
@@ -9075,6 +9172,19 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
             if not existing:
                 return 0
 
+            # Count what the USER selected; delete what those selections mean.
+            # Two picks can land in one chain, and a chain is several rows.
+            selected_count = len(existing)
+            if include_compression_lineage:
+                expanded: list[str] = []
+                seen: set[str] = set()
+                for sid in existing:
+                    for lineage_id in _collect_compression_lineage_ids(conn, sid):
+                        if lineage_id not in seen:
+                            seen.add(lineage_id)
+                            expanded.append(lineage_id)
+                existing = expanded
+
             existing_placeholders = ",".join("?" * len(existing))
             removed_delegate_ids.extend(_delete_delegate_children(conn, existing))
             # Orphan remaining children whose parent is in the kill list so the
@@ -9097,7 +9207,7 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
             )
             self._delete_unreferenced_system_prompts(conn)
             removed_ids.extend(existing)
-            return len(existing)
+            return selected_count
 
         count = self._execute_write(_do)
         for sid in removed_delegate_ids:

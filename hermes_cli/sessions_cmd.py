@@ -789,7 +789,15 @@ def cmd_sessions(args, sessions_parser=None):
                 print("Cancelled.")
                 return
         sessions_dir = get_hermes_home() / "sessions"
-        if db.delete_session(resolved_session_id, sessions_dir=sessions_dir):
+        # `hermes sessions list` surfaces a compression chain as one row (its
+        # live tip), so the id the user just read names the whole conversation.
+        # Deleting only that row left the root to reappear in the very next
+        # listing (MJXHRM-414). Branches stay: they list in their own right.
+        if db.delete_session(
+            resolved_session_id,
+            sessions_dir=sessions_dir,
+            include_compression_lineage=True,
+        ):
             print(f"Deleted session '{resolved_session_id}'.")
         else:
             print(f"Session '{args.session_id}' not found.")

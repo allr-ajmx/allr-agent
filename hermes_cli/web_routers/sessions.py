@@ -437,7 +437,11 @@ async def bulk_delete_sessions_endpoint(body: BulkDeleteSessions):
     def _delete() -> int:
         db = _open_session_db_for_profile(body.profile, read_only=False)
         try:
-            return db.delete_sessions(body.ids)
+            # Whole compression chains: the rows the user ticked came out of a
+            # list that shows a chain as ONE row, so deleting only that row left
+            # the root to reappear as a conversation of its own (MJXHRM-414).
+            # The count still reflects selected conversations, not rows.
+            return db.delete_sessions(body.ids, include_compression_lineage=True)
         finally:
             db.close()
 
@@ -672,7 +676,15 @@ async def delete_session_endpoint(session_id: str, profile: Optional[str] = None
             sid = db.resolve_session_id(session_id)
             if not sid:
                 return {"ok": True, "already_absent": True}
-            db.delete_session(sid)
+            # The whole compression chain, because that is the unit this
+            # endpoint's callers are looking at: every list endpoint projects a
+            # chain onto its live tip and shows it as ONE row. Deleting only the
+            # tip left the root holding the pre-compression transcript, and with
+            # no tip left to be projected onto it reappeared in the list as a
+            # conversation of its own — carrying its ``pinned`` flag, so a
+            # deleted chat could come back to the sidebar's Pinned section
+            # (MJXHRM-414). Branches are still orphaned, not deleted.
+            db.delete_session(sid, include_compression_lineage=True)
             return {"ok": True}
         finally:
             db.close()
