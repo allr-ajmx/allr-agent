@@ -61,7 +61,12 @@ export function LayoutMenu() {
             {isUserPreset(preset.id) && (
               <button
                 aria-label={t.zones.deletePreset(preset.title ?? preset.id)}
-                className="grid size-4 shrink-0 place-items-center rounded text-(--ui-text-quaternary) opacity-0 transition-opacity hover:text-foreground focus-visible:opacity-100 group-hover/preset:opacity-100"
+                // `coarse:` because this ✕ is the ONLY way to delete a saved
+                // layout — the picker card's ✕ is the same hover-only reveal —
+                // and a finger has no hover to reveal it with. Deleting is not
+                // decoration, so it takes the companion the house rule in
+                // styles.css asks for.
+                className="grid size-4 shrink-0 place-items-center rounded text-(--ui-text-quaternary) opacity-0 transition-opacity hover:text-foreground focus-visible:opacity-100 coarse:opacity-100 group-hover/preset:opacity-100"
                 onClick={event => {
                   // Don't let the row's onSelect apply the preset we're deleting.
                   event.preventDefault()
