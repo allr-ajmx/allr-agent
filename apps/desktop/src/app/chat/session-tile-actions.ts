@@ -337,7 +337,12 @@ export function useSessionTileActions({ runtimeId, scope, storedSessionId }: Ses
           text
         })
 
-        if (result?.status === 'redirected') {
+        // `steered` is the same acceptance with a later delivery point: a tool
+        // was running, so the gateway put the correction on that tool's next
+        // result instead of killing it. Without this branch it falls through to
+        // `discardOptimisticMessage`, the caller queues the words, and the same
+        // correction is delivered twice (MJXHRM-410).
+        if (result?.status === 'redirected' || result?.status === 'steered') {
           triggerHaptic('submit')
 
           return true
