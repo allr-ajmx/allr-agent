@@ -1456,6 +1456,18 @@ mod tests {
         );
     }
 
+    /// The userinfo half of a real message. Swapping the URL wholesale is the ONLY
+    /// thing that can reach a basic-auth password: it is not a `key=value` pair,
+    /// so the shape pass cannot see it.
+    #[test]
+    fn scrubs_a_basic_auth_password_a_library_quoted_back_at_us() {
+        let url = "https://me:hunter2pw@gw.example.com/api/status";
+        let message = redact_error(format!("error sending request for url ({url})"), url);
+
+        assert!(!message.contains("hunter2pw"), "{message}");
+        assert!(message.contains("me:***@gw.example.com"), "{message}");
+    }
+
     /// The exact-string test is a strict subset of the real condition: no library
     /// hands our URL back verbatim. reqwest quotes its own normalised parse, so
     /// the URL the message carries differs from the one we passed in — and this
@@ -1518,10 +1530,12 @@ mod tests {
             redact_bearer("Authorization: Bearer  eyJhbGciOi.J9.sig".to_string()),
             "Authorization: Bearer  ***"
         );
-        // No separator at all is not a credential — it is a longer word.
+        // No separator at all is not a credential — it is a longer word. The run
+        // after the marker is deliberately long enough to pass the length test,
+        // so only the separator requirement can save it.
         assert_eq!(
-            redact_bearer("bearerToken missing".to_string()),
-            "bearerToken missing"
+            redact_bearer("bearerTokenIsMissing".to_string()),
+            "bearerTokenIsMissing"
         );
     }
 
