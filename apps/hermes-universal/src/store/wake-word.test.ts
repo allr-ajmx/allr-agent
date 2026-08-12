@@ -13,7 +13,11 @@ const h = vi.hoisted(() => ({
   route: null as ((event: { payload?: unknown; type: string }) => void) | null,
   leases: [] as { close: ReturnType<typeof vi.fn>; wakeListen: ReturnType<typeof vi.fn> }[],
   openFails: false,
-  emit: null as ((event: unknown) => void) | null
+  emit: null as ((event: unknown) => void) | null,
+  // Whether the gateway is answering "no such method". The predicate itself is
+  // tested in lib/gateway-rpc.test.ts; what this file owns is which refusal the
+  // store reports when the answer is yes.
+  missingRpc: false
 }))
 
 vi.mock('@/store/gateway', () => ({
@@ -27,7 +31,7 @@ vi.mock('@/store/gateway', () => ({
 }))
 
 vi.mock('@/lib/gateway-rpc', () => ({
-  isMissingRpcMethod: () => false,
+  isMissingRpcMethod: () => h.missingRpc,
   feedWakeAudio: vi.fn().mockResolvedValue({ fed: true, reason: null }),
   startWakeWord: vi.fn(),
   stopWakeWord: vi.fn(),
@@ -123,6 +127,7 @@ beforeEach(async () => {
   h.leases.length = 0
   h.emit = null
   h.openFails = false
+  h.missingRpc = false
   vi.clearAllMocks()
   status.mockResolvedValue({ ...STATUS })
   start.mockResolvedValue({ started: true, capture: 'local', phrase: 'hey hermes' })
@@ -247,6 +252,33 @@ describe('capture mode', () => {
     expect(state.available).toBe(false)
     expect(state.reason).toBe('unavailable')
     expect(state.hint).toBe('install onnxruntime')
+  })
+
+  it('calls a gateway without the wake methods unsupported, not a failed toggle', async () => {
+    // `wake.*` arrived 2026-06-26 and `wake.feed` a month later, so an older
+    // gateway is a supported configuration. The ear button has to say the
+    // backend cannot do this rather than reading as a mic that broke.
+    h.missingRpc = true
+    start.mockRejectedValue(new Error('unknown method: wake.start'))
+
+    await toggleWakeWord()
+
+    const state = $wakeWord.get()
+    expect(state.reason).toBe('unsupported_backend')
+    expect(state.listening).toBe(false)
+    expect(state.busy).toBe(false)
+  })
+
+  it('arming against a gateway without the wake methods gives up quietly', async () => {
+    h.missingRpc = true
+    status.mockRejectedValue(new Error('unknown method: wake.status'))
+
+    await armWakeWord()
+
+    const state = $wakeWord.get()
+    expect(state.available).toBe(false)
+    expect(state.reason).toBe('unsupported_backend')
+    expect(start).not.toHaveBeenCalled()
   })
 })
 

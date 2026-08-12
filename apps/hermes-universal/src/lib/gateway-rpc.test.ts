@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/store/gateway', () => ({ requestGateway: vi.fn() }))
 
+import { GatewayRpcError } from '@/gateway/rpc-error'
 import { requestGateway } from '@/store/gateway'
 
 import {
@@ -169,5 +170,30 @@ describe('isMissingRpcMethod', () => {
   it('does not swallow a real failure', () => {
     expect(isMissingRpcMethod(new Error('session busy'))).toBe(false)
     expect(isMissingRpcMethod('gateway not connected')).toBe(false)
+  })
+
+  it('believes the -32601 code even when the prose is one we would not recognise', () => {
+    // The gateway says "unknown method: X" today. It is the only emitter of
+    // -32601 (tui_gateway/server.py handle_request), but the prose is not a
+    // contract and a proxy in front of it never promised our four spellings.
+    expect(isMissingRpcMethod(new GatewayRpcError('the requested procedure does not exist', -32601))).toBe(true)
+  })
+
+  it('does not read a nested -32601 in a real failure as an old backend', () => {
+    // A handler that fails because something IT called answered -32601 (an MCP
+    // server behind a tool does exactly this) comes back under the handler's
+    // own code with the nested error quoted in the message. Prose alone read
+    // that as "this backend predates the method" and latched surfaces —
+    // projects, the pet gallery — into a degraded mode for the whole session.
+    const nested = new GatewayRpcError('tool failed: McpError(-32601 Method not found)', 5061)
+
+    expect(isMissingRpcMethod(nested)).toBe(false)
+  })
+
+  it('still reads the message when the rejection carries no code', () => {
+    // Not every rejection comes off the wire: a locally constructed Error, or a
+    // frame with no `code` at all.
+    expect(isMissingRpcMethod(new GatewayRpcError('unknown method: pet.gallery', null))).toBe(true)
+    expect(isMissingRpcMethod(new GatewayRpcError('session busy', null))).toBe(false)
   })
 })

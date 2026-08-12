@@ -1,3 +1,9 @@
+// NOTE: this file is VENDORED from apps/shared/src/json-rpc-gateway.ts (see
+// ./index.ts). The GatewayRpcError below is a deliberate divergence: the shared
+// copy still flattens a JSON-RPC error to its message, and desktop is not this
+// worktree's to change.
+import { GatewayRpcError } from './rpc-error'
+
 export type GatewayEventName =
   | 'gateway.ready'
   | 'session.info'
@@ -32,7 +38,7 @@ export type ConnectionState = 'idle' | 'connecting' | 'open' | 'closed' | 'error
 export type GatewayRequestId = number | string
 
 export interface JsonRpcFrame {
-  error?: { message?: string }
+  error?: { code?: number; data?: unknown; message?: string }
   id?: GatewayRequestId | null
   method?: string
   params?: GatewayEvent
@@ -339,7 +345,16 @@ export class JsonRpcGatewayClient {
       this.clearPending(frame.id)
 
       if (frame.error) {
-        call.reject(new Error(frame.error.message || 'Hermes RPC failed'))
+        // Keep `code`: it is the only non-guessy way to tell "this backend
+        // predates the method" (-32601) from a handler that genuinely failed.
+        // The message is unchanged, so every prose-matching caller still works.
+        call.reject(
+          new GatewayRpcError(
+            frame.error.message || 'Hermes RPC failed',
+            typeof frame.error.code === 'number' ? frame.error.code : null,
+            frame.error.data ?? null
+          )
+        )
       } else {
         call.resolve(frame.result)
       }

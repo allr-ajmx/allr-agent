@@ -12,6 +12,7 @@ export {
   JsonRpcGatewayClient,
   type WebSocketLike
 } from './json-rpc-gateway'
+export { GatewayRpcError, gatewayRpcErrorCode, JSON_RPC_METHOD_NOT_FOUND } from './rpc-error'
 export {
   buildHermesWebSocketUrl,
   type GatewayAuthMode,
