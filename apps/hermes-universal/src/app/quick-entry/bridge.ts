@@ -38,9 +38,10 @@ import {
   type QuickEntrySubmitPayload
 } from '@/store/quick-entry'
 import { $sessions } from '@/store/session'
-import { isSecondaryWindow } from '@/store/windows'
+import { isSecondaryWindow, SATELLITE_WINDOW_CLOSED_EVENT, satelliteSurfaceFromLabel } from '@/store/windows'
 
 import { emitQuickEntryState, onQuickEntryHello, onQuickEntrySubmit } from './channel'
+import { QUICK_ENTRY_SURFACE } from './quick-entry'
 
 /**
  * What the quick window is told. `connected` is the gateway gate universal
@@ -138,7 +139,51 @@ async function routeQuickEntrySubmit({ target, text }: QuickEntrySubmitPayload):
 let installed = false
 let stopListening: (() => void) | null = null
 
+/**
+ * Whether a quick window is up to be pushed to.
+ *
+ * The bridge outlives the window it serves — it is armed on the first summon and
+ * deliberately never torn down, because the next summon must find it already
+ * listening. Without this flag that meant every later `$sessions` refresh and
+ * every connection-phase change broadcast a state event across the IPC bus, for
+ * the life of the app, to a window that closed minutes ago. That is the shape
+ * iteration 42 found in `installHudHandoff`: armed once, never disarmed.
+ *
+ * Set on each summon and — the half that matters — cleared from the NATIVE close
+ * event, because a satellite dismissed by the compositor, by its own Escape, or
+ * by a blur runs no teardown in THIS window. The submit listener is never
+ * removed: a submit and the dismiss that follows it race by construction
+ * (`emitQuickEntrySubmit` then `closeQuickEntry`, both fire-and-forget), and
+ * dropping the listener on the close would be dropping the prompt.
+ */
+let quickWindowUp = false
+
+/**
+ * Notice the quick window going away. Rust emits this on
+ * `WindowEvent::Destroyed` for every satellite, so it arrives for the ways the
+ * window can close without running any JS here — which is all of them.
+ */
+async function watchQuickWindowClose(): Promise<null | (() => void)> {
+  try {
+    const { listen } = await import('@tauri-apps/api/event')
+
+    return await listen<string>(SATELLITE_WINDOW_CLOSED_EVENT, event => {
+      if (satelliteSurfaceFromLabel(event.payload ?? '') === QUICK_ENTRY_SURFACE) {
+        quickWindowUp = false
+      }
+    })
+  } catch {
+    // No window system here — nothing can open, so nothing can close.
+    return null
+  }
+}
+
 export function installQuickEntryBridge(): void {
+  // Re-armed on every summon: this is the one call that knows a window is about
+  // to exist, and it is called before `openSatelliteWindow` precisely so the
+  // hello that follows is answered.
+  quickWindowUp = true
+
   if (installed || !IS_TAURI || isSecondaryWindow()) {
     return
   }
@@ -159,9 +204,20 @@ export function installQuickEntryBridge(): void {
 
   // The quick window opens long after the last state change, so it asks rather
   // than waiting for one. This is the cache Electron's main process used to hold.
-  void onQuickEntryHello(() => void emitQuickEntryState(quickEntryStatePush())).then(off => disposers.push(off))
+  // A hello can only come from a live quick window, so it also re-proves the
+  // flag — a window this process did not summon still gets answered.
+  void onQuickEntryHello(() => {
+    quickWindowUp = true
+    void emitQuickEntryState(quickEntryStatePush())
+  }).then(off => disposers.push(off))
 
-  const push = () => void emitQuickEntryState(quickEntryStatePush())
+  void watchQuickWindowClose().then(off => off && disposers.push(off))
+
+  const push = () => {
+    if (quickWindowUp) {
+      void emitQuickEntryState(quickEntryStatePush())
+    }
+  }
 
   disposers.push($connectionPhase.listen(push), $sessions.listen(push))
 
@@ -172,9 +228,16 @@ export function installQuickEntryBridge(): void {
   }
 }
 
+/** Whether the bridge currently believes a quick window is listening. Exported
+ *  for the test that pins the push gate; nothing else reads it. */
+export function quickEntryWindowIsUp(): boolean {
+  return quickWindowUp
+}
+
 /** Test seam: drop the listeners and forget that the bridge was installed. */
 export function resetQuickEntryBridge(): void {
   stopListening?.()
   stopListening = null
   installed = false
+  quickWindowUp = false
 }
