@@ -37,6 +37,16 @@ const MIME_BY_EXT: Record<string, string> = {
   webp: 'image/webp'
 }
 
+// The reverse map, for bytes that arrive with a MIME and no filename (a pasted
+// or dropped blob). Only the image types a clipboard actually produces.
+const EXT_BY_MIME: Record<string, string> = {
+  'image/gif': 'gif',
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/svg+xml': 'svg',
+  'image/webp': 'webp'
+}
+
 function basename(path: string): string {
   return path.split(/[\\/]/).pop() || path
 }
@@ -74,10 +84,41 @@ export interface StagedAttachment {
  * pickers return before calling.
  */
 export async function stageAttachmentFromPath(path: string): Promise<StagedAttachment | null> {
+  const name = basename(path)
+
+  return stageAttachment(name, async () => toDataUrl(await readFile(path), mimeFor(name)), path)
+}
+
+/**
+ * Stage BYTES that never had a path — a pasted or dropped image blob.
+ *
+ * `file.attach` takes `path` OR `data_url` (`methods_prompt.py` errors only when
+ * both are missing), and the gateway materialises the upload in the session
+ * workspace, so a blob is a first-class attachment rather than a lesser one.
+ * That matters because the clipboard is where screenshots live: on every
+ * platform the DOM paste event is what carries them, and universal had no
+ * consumer for it at all — the composer called `preventDefault()` on an image
+ * paste and then dropped the bytes (MJXHRM-415).
+ *
+ * `name` is what the chip shows and what the gateway files it under; the
+ * extension is derived from the blob's own MIME so the gateway sees a real image.
+ */
+export async function stageAttachmentFromBlob(blob: Blob, name?: string): Promise<StagedAttachment | null> {
+  const label = name || `pasted-image-${Date.now()}.${EXT_BY_MIME[blob.type] ?? 'png'}`
+
+  return stageAttachment(label, async () =>
+    toDataUrl(new Uint8Array(await blob.arrayBuffer()), blob.type || mimeFor(label))
+  )
+}
+
+/** Shared body of the two stagers above: bytes → data URL → `file.attach` → ref. */
+async function stageAttachment(
+  name: string,
+  readDataUrl: () => Promise<string>,
+  path?: string
+): Promise<StagedAttachment | null> {
   try {
-    const name = basename(path)
-    const bytes = await readFile(path)
-    const dataUrl = toDataUrl(bytes, mimeFor(name))
+    const dataUrl = await readDataUrl()
     const { id: sessionId, storedId } = await ensureSession()
 
     // Attach runs against the RUNTIME session id, so after a sleep/wake it hits
@@ -99,7 +140,7 @@ export async function stageAttachmentFromPath(path: string): Promise<StagedAttac
 
     throw new Error(translateNow('composer.attachNoRef'))
   } catch (error) {
-    notifyError(error, translateNow('composer.attachFailed', basename(path)))
+    notifyError(error, translateNow('composer.attachFailed', name))
 
     return null
   }

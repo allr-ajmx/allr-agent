@@ -1,3 +1,5 @@
+import { IS_DESKTOP } from '@/lib/platform'
+
 // The app's ONE clipboard seam. Every read and every write goes through here.
 //
 // Why a seam at all: universal renders in WebKitGTK on the Linux desktop, not
@@ -16,8 +18,8 @@
 // would not catch it.
 //
 // The capability chain behind the plugin lives in
-// `src-tauri/capabilities/default.json`: `clipboard-manager:allow-read-text`
-// and `allow-write-text`, granted to every window label the
+// `src-tauri/capabilities/default.json`: `clipboard-manager:allow-read-text`,
+// `allow-write-text` and `allow-read-image`, granted to every window label the
 // app opens (`main`, `session-*`, `instance-*`, `tile-*`, `sat-*`, `screen`). A
 // missing grant does not throw at build time on the JS side — it rejects at
 // `invoke`, which lands in the same catch as "plugin absent" and degrades to the
@@ -74,4 +76,85 @@ export async function readClipboardText(): Promise<string> {
   } catch {
     return ''
   }
+}
+
+/**
+ * Can this target read an IMAGE off the clipboard at all?
+ *
+ * Text is universal; images are not. The plugin's `read_image` is a hard
+ * "Unsupported on this platform" on Android and iOS (its `mobile.rs` returns an
+ * error without ever reaching the OS), and `navigator.clipboard.read` is a
+ * Chromium-family API that WebKitGTK does not implement. So the honest answer is
+ * desktop-with-the-plugin, or a browser that has the async read API.
+ *
+ * Exported because a control that can never succeed should not be offered: the
+ * composer withholds its "Paste image" action when this is false, which renders
+ * the menu entry disabled instead of enabled-and-always-failing.
+ */
+export function canReadClipboardImage(): boolean {
+  return IS_DESKTOP || typeof navigator.clipboard?.read === 'function'
+}
+
+// The plugin hands back raw RGBA (row-major, top to bottom) plus a size, which
+// is what the OS clipboard actually holds — not an encoded file. Re-encode to
+// PNG so the rest of the app only ever deals in blobs.
+async function rgbaToPngBlob(rgba: Uint8Array, width: number, height: number): Promise<Blob | null> {
+  if (!width || !height || rgba.length < width * height * 4) {
+    return null
+  }
+
+  const canvas = document.createElement('canvas')
+  canvas.width = width
+  canvas.height = height
+
+  const ctx = canvas.getContext('2d')
+
+  if (!ctx) {
+    return null
+  }
+
+  // `createImageData` rather than `new ImageData(...)`: the constructor will not
+  // take a view onto a SharedArrayBuffer, and a Uint8Array that arrived over IPC
+  // makes no promise about which kind of buffer backs it. Copying into the
+  // context's own buffer sidesteps that entirely.
+  const image = ctx.createImageData(width, height)
+
+  image.data.set(rgba.subarray(0, image.data.length))
+  ctx.putImageData(image, 0, 0)
+
+  return new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/png'))
+}
+
+/**
+ * Read an image off the system clipboard, or null when there isn't one.
+ *
+ * Never throws: "no image on the clipboard" and "this platform will not tell us"
+ * are the same answer to the caller, and both are ordinary.
+ */
+export async function readClipboardImage(): Promise<Blob | null> {
+  if (IS_DESKTOP) {
+    try {
+      const { readImage } = await import('@tauri-apps/plugin-clipboard-manager')
+      const image = await readImage()
+      const [{ height, width }, rgba] = await Promise.all([image.size(), image.rgba()])
+
+      return await rgbaToPngBlob(rgba, width, height)
+    } catch {
+      // Empty clipboard, text-only clipboard, or a platform that refuses.
+    }
+  }
+
+  try {
+    for (const item of (await navigator.clipboard?.read?.()) ?? []) {
+      const type = item.types.find(t => t.startsWith('image/'))
+
+      if (type) {
+        return await item.getType(type)
+      }
+    }
+  } catch {
+    // No permission, no gesture, or no such API.
+  }
+
+  return null
 }

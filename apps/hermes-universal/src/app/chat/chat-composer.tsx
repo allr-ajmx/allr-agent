@@ -5,6 +5,7 @@ import {
   pickFolderAttachment,
   pickRemoteAttachment,
   pickRemoteFolderAttachment,
+  stageAttachmentFromBlob,
   type StagedAttachment,
   stagedToComposerAttachment
 } from '@/app/chat/attachments'
@@ -15,7 +16,9 @@ import { useSessionView } from '@/app/chat/session-view'
 import { setPrimarySlashRunner } from '@/app/chat/slash-runner'
 import { ModelMenuPanel } from '@/app/shell/model-menu-panel'
 import { transcribeAudio } from '@/hermes'
+import { translateNow } from '@/i18n'
 import { SLASH_COMMAND_RE } from '@/lib/chat-runtime'
+import { canReadClipboardImage, readClipboardImage } from '@/lib/clipboard'
 import { gatewayOwnsLocalFs } from '@/lib/desktop-fs'
 import { triggerHaptic } from '@/lib/haptics'
 import { useStore } from '@/store/atom'
@@ -24,6 +27,7 @@ import { type ComposerAttachment } from '@/store/composer'
 import { $connection } from '@/store/connection'
 import { $gatewayState, getGatewayClient, requestGateway } from '@/store/gateway'
 import { refreshCurrentModel, selectModel } from '@/store/model'
+import { notify, notifyError } from '@/store/notifications'
 import { $activeSessionKey } from '@/store/session-state-types'
 import { sessionTileDelegate } from '@/store/session-states'
 
@@ -172,6 +176,58 @@ export function ChatComposer() {
   const onPickImages = useCallback(() => void pickAttachment().then(addStagedToScope), [addStagedToScope])
   const onPickFolders = useCallback(() => void pickFolderAttachment().then(addStagedToScope), [addStagedToScope])
 
+  // IMAGE PASTE / DROP. The composer has always extracted image blobs off the
+  // paste event and always called `preventDefault()` on them — but nothing ever
+  // passed it a handler, so on universal a pasted screenshot was swallowed and
+  // nothing appeared. Blobs have no path, which is why they stage through
+  // `file.attach`'s `data_url` arm (MJXHRM-415).
+  const onAttachImageBlob = useCallback(
+    async (blob: Blob) => {
+      const staged = await stageAttachmentFromBlob(blob)
+
+      addStagedToScope(staged)
+
+      return staged !== null
+    },
+    [addStagedToScope]
+  )
+
+  // The explicit "Paste image" action, and the fallback for a paste event that
+  // arrives EMPTY — which is what a WSL2/WSLg host screenshot looks like, since
+  // the Windows clipboard doesn't bridge images to the Linux clipboard the DOM
+  // event reads. Withheld entirely where no image read is possible
+  // (`canReadClipboardImage`), so the menu entry renders disabled instead of
+  // enabled-and-always-failing: the plugin's `read_image` is a hard
+  // "Unsupported on this platform" on Android and iOS.
+  const onPasteClipboardImage = useCallback(
+    async ({ silent = false }: { silent?: boolean } = {}) => {
+      try {
+        const blob = await readClipboardImage()
+
+        if (!blob) {
+          if (!silent) {
+            notify({
+              kind: 'warning',
+              message: translateNow('desktop.noClipboardImage'),
+              title: translateNow('desktop.clipboard')
+            })
+          }
+
+          return false
+        }
+
+        return await onAttachImageBlob(blob)
+      } catch (error) {
+        if (!silent) {
+          notifyError(error, translateNow('desktop.clipboardPasteFailed'))
+        }
+
+        return false
+      }
+    },
+    [onAttachImageBlob]
+  )
+
   // A LOCAL folder pick has no bytes to stage: all it can produce is a raw
   // `@folder:<path>` the GATEWAY then resolves on ITS own disk. That is only the
   // folder the user pointed at when this window's filesystem IS the gateway's —
@@ -213,7 +269,9 @@ export function ChatComposer() {
       disabled={gatewayState !== 'open'}
       focusKey={sessionId}
       gateway={getGatewayClient()}
+      onAttachImageBlob={onAttachImageBlob}
       onCancel={onCancel}
+      onPasteClipboardImage={canReadClipboardImage() ? onPasteClipboardImage : undefined}
       onPickFiles={onPickFiles}
       onPickFolders={localFolderPick}
       onPickImages={onPickImages}
