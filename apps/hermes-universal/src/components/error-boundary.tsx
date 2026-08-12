@@ -140,7 +140,7 @@ function RootErrorFallback({ error, reset }: ErrorBoundaryFallbackProps) {
   const { t } = useI18n()
 
   return (
-    <div className="fixed inset-0 z-[1500] grid place-items-center bg-background p-6">
+    <div className="fixed inset-0 z-(--z-crash) grid place-items-center bg-background p-6">
       <div className="flex w-full max-w-md flex-col items-center gap-4 text-center">
         <h1 className="text-lg font-semibold text-foreground">{t.errors.boundaryTitle}</h1>
         <p className="text-sm break-words text-muted-foreground">{error.message || t.errors.boundaryDesc}</p>
