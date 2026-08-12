@@ -2,9 +2,11 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import {
   $subagentsBySession,
+  activeSubagentCount,
   allSubagents,
   buildSubagentTree,
   clearSessionSubagents,
+  failedSubagentCount,
   pruneFinishedSessionSubagents,
   upsertSubagent
 } from './subagents'
@@ -91,6 +93,40 @@ describe('subagents reducer', () => {
       pruneFinishedSessionSubagents('never-seen')
 
       expect($subagentsBySession.get()).toBe(before)
+    })
+
+    // THE defect the prune was shipped to fix but did not: the gateway's
+    // timeout/exception exits relay `status: "timeout"` / `"error"`
+    // (tools/delegate_tool.py:2402), which the reducer read as an unknown value
+    // and settled on `running` — so the prune kept them, forever.
+    it.each(['timeout', 'error'])('retires a child the gateway ended with status %s', status => {
+      upsertSubagent(SID, { subagent_id: 'x', goal: 'slow', status: 'running' }, true, 'subagent.start')
+      upsertSubagent(SID, { subagent_id: 'x', status, summary: '' }, false, 'subagent.complete')
+
+      const [row] = allSubagents($subagentsBySession.get())
+      expect(row.status).toBe('failed')
+      expect(activeSubagentCount([row])).toBe(0)
+      expect(failedSubagentCount([row])).toBe(1)
+
+      pruneFinishedSessionSubagents(SID)
+      expect(allSubagents($subagentsBySession.get())).toHaveLength(0)
+    })
+
+    // A timed-out child stops being live, which is what clears its spinner and
+    // freezes its elapsed timer — but the reason must survive as the summary
+    // line, since the status itself no longer says "timeout".
+    it('keeps the timeout reason on the stream once the status collapses to failed', () => {
+      upsertSubagent(SID, { subagent_id: 'x', goal: 'slow', status: 'running' }, true, 'subagent.start')
+      upsertSubagent(
+        SID,
+        { subagent_id: 'x', status: 'timeout', text: 'Timed out after 300s', summary: '' },
+        false,
+        'subagent.complete'
+      )
+
+      const [row] = allSubagents($subagentsBySession.get())
+      expect(row.currentTool).toBeUndefined()
+      expect(row.stream.at(-1)).toMatchObject({ isError: true, kind: 'summary', text: 'Timed out after 300s' })
     })
   })
 })

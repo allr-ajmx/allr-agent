@@ -56,8 +56,38 @@ const str = (v: unknown) => (isStr(v) ? v : '')
 const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : undefined)
 const strList = (v: unknown) => (Array.isArray(v) ? v.filter(isStr) : [])
 
-const asStatus = (v: unknown): SubagentStatus =>
-  v === 'completed' || v === 'failed' || v === 'interrupted' || v === 'queued' ? v : 'running'
+/**
+ * The gateway's status vocabulary is WIDER than this store's.
+ *
+ * `tools/delegate_tool.py` relays five terminal values on `subagent.complete`:
+ * `completed` / `failed` / `interrupted` (the normal exits, line 2559-2566) and
+ * `timeout` / `error` (the future-timeout and orchestrator-exception exits, line
+ * 2402). `tui_gateway/server.py` forwards whatever it is given verbatim
+ * (`payload["status"] = str(_kwargs["status"])`), and the TUI declares all seven
+ * as first-class (`ui-tui/src/types.ts:21`).
+ *
+ * Anything unrecognised used to fall through to `running`, which made a
+ * timed-out or crashed child PERMANENTLY live to this client: never terminal, so
+ * `pruneFinishedSessionSubagents` kept it forever; never counted by
+ * `failedSubagentCount`, so the status bar reported it as work in flight; and
+ * still spinning in the Agents overlay behind an elapsed timer that never
+ * stopped. A configured subagent timeout (Settings → "Subagent Timeout") is
+ * enough to reach it, so the accumulation this store exists to prevent survived
+ * the prune.
+ *
+ * Both extra values are failures, so they collapse onto `failed` rather than
+ * widening the union: every surface here has one failure tone, and the detail
+ * ("Timed out after 300s") still arrives as the summary stream line.
+ */
+export const normalizeSubagentStatus = (v: unknown): SubagentStatus => {
+  if (v === 'completed' || v === 'failed' || v === 'interrupted' || v === 'queued') {
+    return v
+  }
+
+  return v === 'timeout' || v === 'error' ? 'failed' : 'running'
+}
+
+const asStatus = normalizeSubagentStatus
 
 const compact = (text: string, max = PREVIEW_MAX) => {
   const line = text.replace(/\s+/g, ' ').trim()
@@ -218,8 +248,16 @@ export function sessionOfSubagent(id: string): string | undefined {
  * `clearSessionSubagents` wiped the whole session on switch, so a long-lived
  * session accumulated every subagent it had ever run.
  *
- * Distinct from `clearSessionSubagents`, which the Stop action uses because it
- * genuinely cancels the running subagents too.
+ * Distinct from `clearSessionSubagents`, which drops the running rows too. On
+ * desktop that is what Stop calls; universal deliberately does NOT, because a
+ * `delegate_task` here can dispatch in BACKGROUND mode
+ * (`tools/delegate_tool.py` `dispatch_async_delegation_batch`) and those
+ * children keep running after the turn the user stopped. Dropping their rows
+ * would also deafen them: `upsertSubagent` refuses to recreate a row from
+ * `subagent.progress`/`subagent.complete` (`createIfMissing` is false for
+ * everything but spawn/start), so they could never come back. The gateway
+ * relays `status: "interrupted"` for the children an interrupt really kills,
+ * and this prune retires those on the next turn.
  */
 export function pruneFinishedSessionSubagents(sid: string) {
   const map = $subagentsBySession.get()
