@@ -51,7 +51,7 @@ export function NotificationStack() {
   return createPortal(
     <div
       aria-label={t.notifications.region}
-      className="pointer-events-none fixed inset-x-0 top-[max(0.75rem,env(safe-area-inset-top))] z-[200] mx-auto flex w-[min(32rem,calc(100%-1.5rem))] flex-col gap-2"
+      className="pointer-events-none fixed inset-x-0 top-[max(0.75rem,env(safe-area-inset-top))] z-(--z-over-modal) mx-auto flex w-[min(32rem,calc(100%-1.5rem))] flex-col gap-2"
       role="region"
     >
       {notifications.map(n => (

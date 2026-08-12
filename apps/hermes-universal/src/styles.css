@@ -714,7 +714,16 @@
     --z-over-modal-content: 210;
     --z-switcher-backdrop: 219;
     --z-switcher: 220;
-    /* Boot and blocking states, in the order they can stack. */
+    /* Boot and blocking states, in the order they can stack.
+
+       Universal consumes only `--z-crash` here. Desktop floats its connecting /
+       onboarding / boot-failure surfaces OVER the shell as `fixed inset-0`
+       overlays and needs the rungs; universal branches the whole tree instead
+       (`app/mobile-controller.tsx` swaps the shell for GatewayConnectingScreen /
+       ConnectScreen / OnboardingScreen), so those screens are in normal flow
+       with nothing above them to clear. The rungs stay for sync parity with
+       desktop's styles.css — an unconsumed rung is not a free slot: taking one
+       means the surface now floats, and it must clear `--z-crash` reasoning too. */
     --z-connecting: 1200;
     --z-onboarding: 1300;
     --z-onboarding-popover: 1310;
