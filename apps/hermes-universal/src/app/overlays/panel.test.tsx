@@ -42,6 +42,20 @@ describe('PanelRowMenu', () => {
 
     expect(container).toBeEmptyDOMElement()
   })
+
+  // The kebab hides until the row is hovered — and a finger never hovers, so
+  // `coarse:` is the entire reason a phone can reach a panel row's actions
+  // (cron and profiles are phone surfaces). Dropping it was invisible to every
+  // test in the repo, which is the shape of the bug MJXHRM-377 filed against the
+  // sidebar row.
+  it('stays visible on a coarse pointer, which has no hover to reveal it', () => {
+    render(<PanelRowMenu items={[{ label: 'Rename', onSelect: () => undefined }]} />)
+
+    const classes = screen.getByRole('button', { name: 'Actions' }).className.split(/\s+/)
+
+    expect(classes).toContain('opacity-0')
+    expect(classes).toContain('coarse:opacity-100')
+  })
 })
 
 describe('PanelListRow menuItems', () => {

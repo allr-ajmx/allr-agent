@@ -187,6 +187,27 @@ export function sessionRoute(sessionId: string): string {
   return `${SESSION_ROUTE_PREFIX}${encodeURIComponent(sessionId)}`
 }
 
+/**
+ * Deep link to the cron surface with ONE job selected — what "Manage" on a cron
+ * row opens.
+ *
+ * The id rides in the URL rather than in a module atom because on Android the
+ * cron surface opens as a native screen activity: a SECOND WebView with its own
+ * JS heap (`store/windows.ts` → `open_screen_window`). Nothing an atom holds
+ * crosses that boundary, so an atom-carried selection is dropped on the one
+ * platform this affordance was filed for. The route IS the carrier both WebViews
+ * read, and `activity_route` (src-tauri/src/window.rs) forwards a query string
+ * verbatim.
+ */
+export function cronJobRoute(jobId: string): string {
+  return `${CRON_ROUTE}?job=${encodeURIComponent(jobId)}`
+}
+
+/** The job a `/cron` route asks to select, read from `location.search`. */
+export function routeCronJobId(search: string): null | string {
+  return new URLSearchParams(search).get('job') || null
+}
+
 export function appViewForPath(pathname: string): AppView {
   if (isNewChatRoute(pathname) || routeSessionId(pathname)) {
     return 'chat'

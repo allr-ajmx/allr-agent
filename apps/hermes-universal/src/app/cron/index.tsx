@@ -2,7 +2,9 @@ import { useStore } from '@nanostores/react'
 import { useQuery } from '@tanstack/react-query'
 import type * as React from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 
+import { CRON_ROUTE, routeCronJobId } from '@/app/routes'
 import { PageLoader } from '@/components/page-loader'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -47,7 +49,7 @@ import { type Translations, useI18n } from '@/i18n'
 import { AlertTriangle } from '@/lib/icons'
 import { requestModelOptions } from '@/lib/model-options'
 import { asText } from '@/lib/text'
-import { $cronFocusJobId, $cronJobs, setCronFocusJobId, setCronJobs, updateCronJobs } from '@/store/cron'
+import { $cronJobs, setCronJobs, updateCronJobs } from '@/store/cron'
 import { $changeEventsAvailable, $cronChangeTick, livePollIntervalMs } from '@/store/live-sync'
 import { notify, notifyError } from '@/store/notifications'
 import { $profileScope, ALL_PROFILES } from '@/store/profile'
@@ -385,7 +387,10 @@ export function CronView({
   // Set when a job is opened from the sidebar so we scroll it into view once the
   // row exists. Cleared after the scroll fires.
   const pendingScrollRef = useRef<null | string>(null)
-  const focusJobId = useStore($cronFocusJobId)
+  // "Manage" on a sidebar cron row deep-links here as `/cron?job=<id>`; see
+  // `cronJobRoute` for why the id travels in the URL and not in an atom.
+  const navigate = useNavigate()
+  const focusJobId = routeCronJobId(useLocation().search)
 
   const [editor, setEditor] = useState<EditorState>({ mode: 'closed' })
   const [pendingDelete, setPendingDelete] = useState<CronJob | null>(null)
@@ -413,10 +418,15 @@ export function CronView({
   }, [refresh])
 
   // Sidebar → "open this job": resolve the focus id (or name) to a job, select
-  // it, queue a scroll, then clear the one-shot focus so re-opening cron
-  // normally doesn't re-trigger it.
+  // it, queue a scroll, then drop the param so re-opening cron normally doesn't
+  // re-focus a stale job — and so a later poll can't drag the selection back off
+  // whatever the user picked since.
+  //
+  // `loading` gates it: opened as an Android screen activity this view boots in
+  // a FRESH WebView with an empty `$cronJobs`, and a focus resolved against an
+  // empty list is a focus that silently never happens.
   useEffect(() => {
-    if (!focusJobId) {
+    if (!focusJobId || loading) {
       return
     }
 
@@ -427,8 +437,8 @@ export function CronView({
       pendingScrollRef.current = match.id
     }
 
-    setCronFocusJobId(null)
-  }, [focusJobId, jobs])
+    navigate(CRON_ROUTE, { replace: true })
+  }, [focusJobId, jobs, loading, navigate])
 
   const visibleJobs = useMemo(
     () => jobs.filter(job => matchesQuery(job, query.trim())).sort((a, b) => jobTitle(a).localeCompare(jobTitle(b))),
