@@ -338,6 +338,10 @@ export default defineConfig(({ command }) => ({
   // streamdown's own code block, and `plugins.code` feeds nothing else, so the
   // plugin was downloading all of shiki (plus a second regex engine) for a dead
   // branch. See the comment above `MARKDOWN_PLUGINS` in markdown-text.tsx.
+  //
+  // What keeps this honest is a test, not this comment:
+  // `src/entry-graph.test.ts` walks the static import graph from `main.tsx` and
+  // fails if anything puts shiki back on it.
   optimizeDeps: {
     include: [
       '@codemirror/commands',
