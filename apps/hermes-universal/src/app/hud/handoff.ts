@@ -146,6 +146,31 @@ async function rehomeSession(reported: null | string): Promise<void> {
 let installed = false
 
 /**
+ * Whether the HUD that is up right now was summoned by THIS window.
+ *
+ * Two full app windows can be open at once (⌘⇧N, or "New window" in the command
+ * palette), and the close arrives natively — every window hears it. A listener
+ * armed by an earlier HUD stays armed, so with no owner both windows would
+ * re-home the next HUD that anybody opens: they would race
+ * `takeReportedHudSession` (one gets the id, the other falls back to its own
+ * selection), both force a resume, and whichever landed first ends up deaf —
+ * precisely the failure this module exists to repair. Worse, the window that had
+ * nothing to do with the HUD would NAVIGATE to its conversation.
+ *
+ * So the winner is defined: the window that summoned it takes it back. Only one
+ * window can have summoned the live HUD — `toggleHud` dismisses one that is
+ * already up instead of summoning a second, and there is only ever one `sat-hud`.
+ */
+let summoned = false
+
+/** Main-window side: this window put the HUD on screen, so this window owes its
+ *  session a way home. Called from `openHud` only once the window really opened —
+ *  a failed summon leaves nothing to reclaim. */
+export function noteHudSummoned(): void {
+  summoned = true
+}
+
+/**
  * Main-window side: reclaim the session when the HUD goes away.
  *
  * Installed lazily from `openHud()` rather than wired into a component tree, for
@@ -168,9 +193,13 @@ export function installHudHandoff(): void {
   installed = true
 
   void listen<string>(SATELLITE_WINDOW_CLOSED_EVENT, event => {
-    if (satelliteSurfaceFromLabel(event.payload ?? '') !== HUD_SATELLITE.surface) {
+    if (satelliteSurfaceFromLabel(event.payload ?? '') !== HUD_SATELLITE.surface || !summoned) {
       return
     }
+
+    // Cleared before the re-home, not after: the ownership is spent on this
+    // close, and a second close with no summon in between belongs to nobody.
+    summoned = false
 
     // Consumed here, synchronously, rather than inside the async re-home: the
     // read-and-clear must happen on this event, not after an await that a second
@@ -186,8 +215,9 @@ export function installHudHandoff(): void {
   })
 }
 
-/** Test seam: forget the installed listener and any stashed session. */
+/** Test seam: forget the installed listener, the ownership and any stashed session. */
 export function resetHudHandoff(): void {
   installed = false
+  summoned = false
   reportHudSession(null)
 }

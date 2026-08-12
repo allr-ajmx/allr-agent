@@ -20,9 +20,9 @@ import { $busy, $currentCwd, $messages, $sessionId } from '@/store/chat'
 import { requestGateway } from '@/store/gateway'
 import { $showAllProfiles } from '@/store/profile'
 import { $activeProfile } from '@/store/profiles'
-import { updateSession } from '@/store/session-state-types'
+import { $sessionStates, hydratingKey, updateSession } from '@/store/session-state-types'
 import { clearAllTurns, getInflightTurn } from '@/store/turn-lifecycle'
-import { resetSessionStates, seedActiveSession } from '@/test-sessions'
+import { resetSessionStates, seedActiveSession, seedSession } from '@/test-sessions'
 import type { PaginatedSessions, SessionInfo } from '@/types/hermes'
 
 import { $pinnedSessionIds } from './layout'
@@ -46,6 +46,7 @@ import {
   openSession,
   pinnedSessionRows,
   pruneSessionTombstones,
+  reclaimSessionTransport,
   refreshSessions,
   renameSessionLocal,
   resetSessionsPaging,
@@ -275,6 +276,116 @@ describe('openSession — forceResume', () => {
 
     expect($messages.get().map(m => m.id)).toEqual(['kept'])
     expect($activeStoredSessionId.get()).toBe('stored-warm')
+  })
+})
+
+// The BACKGROUND half of the same seam (MJXHRM-371): a pop-out window closed and
+// its session has to come back onto this socket — while the user goes on looking
+// at whatever they were looking at.
+describe('reclaimSessionTransport', () => {
+  it('rebinds the stream without moving what the window is showing', async () => {
+    // Looking at one chat; a pop-out was holding a different one.
+    seedActiveSession('runtime-here', { storedSessionId: 'stored-here' })
+    $activeStoredSessionId.set('stored-here')
+    seedSession('runtime-popped', { storedSessionId: 'stored-popped' })
+    vi.mocked(requestGateway).mockResolvedValue({ messages: [], session_id: 'runtime-popped' })
+
+    await reclaimSessionTransport('stored-popped')
+
+    expect(requestGateway).toHaveBeenCalledWith('session.resume', { session_id: 'stored-popped', cols: 96 })
+    // The pane never moves. `openSession(…, { forceResume: true })` would have
+    // dragged it onto a conversation the user closed a window on.
+    expect($activeStoredSessionId.get()).toBe('stored-here')
+    expect($sessionId.get()).toBe('runtime-here')
+  })
+
+  it('re-keys the reclaimed slice without stealing the active key', async () => {
+    seedActiveSession('runtime-here', { storedSessionId: 'stored-here' })
+    $activeStoredSessionId.set('stored-here')
+    seedSession('runtime-popped', { storedSessionId: 'stored-popped' })
+    // Compacted while the other window held it.
+    vi.mocked(requestGateway).mockResolvedValue({ messages: [], session_id: 'runtime-compacted' })
+
+    await reclaimSessionTransport('stored-popped')
+
+    expect($sessionStates.get()['runtime-compacted']?.storedSessionId).toBe('stored-popped')
+    expect($sessionStates.get()['runtime-popped']).toBeUndefined()
+    // NOT the reclaimed session's new id — that is the bug this guards.
+    expect($sessionId.get()).toBe('runtime-here')
+  })
+
+  it('does nothing for a session with no live slice here', async () => {
+    // Nothing on screen is deaf, and the next open hydrates it cold — which
+    // resumes and binds properly on its own.
+    await reclaimSessionTransport('stored-never-seen')
+
+    expect(requestGateway).not.toHaveBeenCalled()
+  })
+
+  it('stands aside while a hydrate is already in flight', async () => {
+    seedSession(hydratingKey('stored-popped'), { storedSessionId: 'stored-popped' })
+
+    await reclaimSessionTransport('stored-popped')
+
+    // That hydrate issues its own resume; a second one would race its re-key and
+    // strand the slice under a dead placeholder.
+    expect(requestGateway).not.toHaveBeenCalled()
+  })
+
+  it('is not cancelled by an unrelated session being opened', async () => {
+    seedSession('runtime-popped', { storedSessionId: 'stored-popped' })
+    // Two profiles, so the owner has to be PROBED — the await that puts a real
+    // gap between entering the reclaim and issuing its resume. Without one the
+    // open cannot interleave early enough to test anything, and this passed with
+    // the generation guard still in place.
+    $profiles.set([profile('default'), profile('work')])
+
+    let resolveProbe = () => {}
+    vi.mocked(getSession).mockImplementation(
+      () =>
+        new Promise(resolve => {
+          resolveProbe = () => resolve({ id: 'stored-popped', profile: 'default' } as SessionInfo)
+        })
+    )
+    vi.mocked(requestGateway).mockResolvedValue({ messages: [], session_id: 'runtime-popped' })
+
+    const reclaiming = reclaimSessionTransport('stored-popped')
+
+    // The user switches chats mid-reclaim. The generation counter answers "is
+    // this still the chat being switched to", which a background rebind is not
+    // asking — bumping it must not silently skip the resume.
+    seedSession('runtime-other', { storedSessionId: 'stored-other' })
+    openSession('stored-other')
+    resolveProbe()
+    await reclaiming
+
+    expect(requestGateway).toHaveBeenCalledWith('session.resume', {
+      session_id: 'stored-popped',
+      cols: 96,
+      profile: 'default'
+    })
+  })
+
+  it('drops a re-key whose slice vanished while the resume was in flight', async () => {
+    seedSession('runtime-popped', { storedSessionId: 'stored-popped' })
+
+    let release = () => {}
+    vi.mocked(requestGateway).mockImplementation(
+      () =>
+        new Promise(resolve => {
+          release = () => resolve({ messages: [], session_id: 'runtime-compacted' })
+        }) as never
+    )
+
+    const reclaiming = reclaimSessionTransport('stored-popped')
+
+    // Deleted, evicted, or re-keyed by a hydrate that raced us. `rekeySession`
+    // would move an EMPTY state onto the new runtime id and leave a ghost.
+    $sessionStates.set({})
+    release()
+    await reclaiming
+
+    expect($sessionStates.get()['runtime-compacted']).toBeUndefined()
   })
 })
 

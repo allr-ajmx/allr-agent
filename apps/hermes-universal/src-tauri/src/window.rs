@@ -211,13 +211,19 @@ pub async fn open_tile_window(
 /// iOS scene). Kept as its own command because the pop-out is reachable from three
 /// call sites that know a SESSION and not a tile; it delegates to the tile window
 /// so both paths produce the same root.
+///
+/// Returns the window's LABEL, exactly as [`open_tile_window`] does. The frontend
+/// needs it: this window resumes the session and therefore takes the gateway's
+/// binding for it, and the close event that hands the stream back reports a label
+/// (MJXHRM-371). Rebuilding the slug on that side is the duplication
+/// [`slug_label`] exists to prevent.
 #[cfg(any(desktop, target_os = "ios"))]
 #[tauri::command]
 pub async fn open_session_window(
     app: tauri::AppHandle,
     session_id: String,
     watch: Option<bool>,
-) -> Result<(), String> {
+) -> Result<String, String> {
     let id = session_id.trim();
     if !url_safe(id) {
         return Err("unsupported session id".to_string());
@@ -229,7 +235,6 @@ pub async fn open_session_window(
         watch,
     )
     .await
-    .map(|_| ())
 }
 
 /// Open a full app instance in a new window / scene (desktop ⌘⇧N peer, iOS scene).
@@ -252,7 +257,7 @@ pub async fn open_session_window(
     _app: tauri::AppHandle,
     _session_id: String,
     _watch: Option<bool>,
-) -> Result<(), String> {
+) -> Result<String, String> {
     Err("unsupported_platform".to_string())
 }
 

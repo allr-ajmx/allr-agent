@@ -313,10 +313,36 @@ export async function openSessionInNewWindow(sessionId: string, opts?: { watch?:
     return
   }
 
-  await runWindowOpen(
-    () => invoke('open_session_window', { sessionId, watch: opts?.watch ?? false }),
-    'Could not open chat in a new window'
-  )
+  try {
+    // The label, not `void`: the new window is about to take this session's
+    // gateway stream, and closing it has to hand the stream back. `Result<String>`
+    // rather than recomputing the slug here — the same contract `open_tile_window`
+    // has always had, which this command delegates to.
+    const label = await invoke<string>('open_session_window', { sessionId, watch: opts?.watch ?? false })
+
+    await notePopoutSession(label, sessionId)
+  } catch (err) {
+    notifyError(err, 'Could not open chat in a new window')
+  }
+}
+
+/**
+ * Tell `store/popout-transport.ts` which conversation a new pop-out is holding,
+ * so its close re-homes the stream (MJXHRM-371).
+ *
+ * Imported lazily on purpose: the re-home reaches the session store, and this
+ * module is imported by nearly every surface in the app — a static edge would
+ * drag the whole session store into all of them for a reference used only when a
+ * pop-out window closes.
+ */
+async function notePopoutSession(label: null | string, sessionId: null | string): Promise<void> {
+  if (!label || !sessionId) {
+    return
+  }
+
+  const { notePopoutWindow } = await import('./popout-transport')
+
+  notePopoutWindow(label, sessionId)
 }
 
 /**
@@ -334,11 +360,18 @@ export async function openTileWindow(
   }
 
   try {
-    return await invoke<string>('open_tile_window', {
+    const label = await invoke<string>('open_tile_window', {
       tileId,
       sessionId: opts?.sessionId ?? null,
       watch: opts?.watch ?? false
     })
+
+    // A chat tile's window resumes the session it was handed, which moves the
+    // gateway's binding onto that window's socket. A tile with no session (files,
+    // terminal) holds no stream and is not recorded.
+    await notePopoutSession(label, opts?.sessionId ?? null)
+
+    return label
   } catch (err) {
     notifyError(err, 'Could not open the tile in a new window')
 
@@ -439,9 +472,7 @@ export const SATELLITE_WINDOW_CLOSED_EVENT = 'hermes://satellite-window-closed'
  * agree, since one builds what the other reads back off a native event.
  */
 export function satelliteSurfaceFromLabel(label: string): null | string {
-  const surface = label.startsWith(`${SATELLITE_LABEL_PREFIX}-`)
-    ? label.slice(SATELLITE_LABEL_PREFIX.length + 1)
-    : null
+  const surface = label.startsWith(`${SATELLITE_LABEL_PREFIX}-`) ? label.slice(SATELLITE_LABEL_PREFIX.length + 1) : null
 
   return surface && satelliteLabel(surface) === label ? surface : null
 }

@@ -24,7 +24,7 @@ import {
   type SatelliteWindowSpec
 } from '@/store/windows'
 
-import { installHudHandoff } from './handoff'
+import { installHudHandoff, noteHudSummoned } from './handoff'
 
 /** The HUD's surface id, and therefore its `?win=` flag and label suffix. */
 export const HUD_SURFACE = HUD_SATELLITE.surface
@@ -73,8 +73,16 @@ export async function openHud(sessionId: null | string = hudTargetSessionId()): 
   installHudHandoff()
 
   const spec: SatelliteWindowSpec = sessionId ? { ...HUD_SATELLITE, route: sessionRoute(sessionId) } : HUD_SATELLITE
+  const opened = (await openSatelliteWindow(spec)) !== null
 
-  return (await openSatelliteWindow(spec)) !== null
+  if (opened) {
+    // Claim the return trip. Armed above, OWNED here: a peer app window hears
+    // the same native close, and only the window that actually put the HUD on
+    // screen may act on it.
+    noteHudSummoned()
+  }
+
+  return opened
 }
 
 /** Dismiss it. Callable from either window — the HUD's own exit affordance and
