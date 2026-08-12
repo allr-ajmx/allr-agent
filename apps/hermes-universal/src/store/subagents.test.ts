@@ -57,6 +57,28 @@ describe('subagents reducer', () => {
     expect(node.stream.at(-1)?.text).toBe('reading files')
   })
 
+  // "Queued" was never a delivery receipt. The gateway only learns the steer
+  // missed its window at completion, so `subagent.complete` is the one and only
+  // frame that can retract the promise the Agents overlay already made.
+  it('keeps the steer a finished child never delivered', () => {
+    upsertSubagent(SID, { subagent_id: 'a', goal: 'root', status: 'running' }, true, 'subagent.start')
+    upsertSubagent(
+      SID,
+      { subagent_id: 'a', status: 'completed', summary: 'done', missed_steer: 'focus on pricing' },
+      false,
+      'subagent.complete'
+    )
+
+    expect(allSubagents($subagentsBySession.get())[0].missedSteer).toBe('focus on pricing')
+  })
+
+  it('leaves missedSteer unset for a child that delivered everything', () => {
+    upsertSubagent(SID, { subagent_id: 'a', goal: 'root', status: 'running' }, true, 'subagent.start')
+    upsertSubagent(SID, { subagent_id: 'a', status: 'completed', summary: 'done' }, false, 'subagent.complete')
+
+    expect(allSubagents($subagentsBySession.get())[0].missedSteer).toBeUndefined()
+  })
+
   it('clears one session', () => {
     upsertSubagent(SID, { subagent_id: 'a', goal: 'root', status: 'running' }, true, 'subagent.start')
     clearSessionSubagents(SID)

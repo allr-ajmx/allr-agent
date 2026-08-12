@@ -79,6 +79,41 @@ describe('event-router → subagent spawn tree', () => {
     expect(allSubagents($subagentsBySession.get())).toHaveLength(0)
   })
 
+  // The retraction half of the steer contract. `subagent.steer` answers
+  // "queued", the overlay says so, and this frame is the only thing that can
+  // ever take it back — so the router has to carry the field through.
+  it('carries a missed steer from the completion frame onto the row', () => {
+    spawn('late', 'work')
+    routeGatewayEvent(
+      event('subagent.complete', { subagent_id: 'late', status: 'completed', missed_steer: 'focus on pricing' })
+    )
+
+    expect(allSubagents($subagentsBySession.get())[0].missedSteer).toBe('focus on pricing')
+  })
+
+  it('moves a missed parent-turn steer to the tail of ITS session and says so', () => {
+    $sessionStates.set({
+      ...$sessionStates.get(),
+      s1: {
+        ...$sessionStates.get().s1,
+        messages: [
+          { id: 'u1', parts: [{ type: 'text', text: 'do the thing' }], role: 'user' },
+          { id: 'c1', parts: [{ type: 'text', text: 'use Postgres' }], role: 'user' },
+          { id: 'a1', parts: [{ type: 'text', text: 'reply that never saw it' }], role: 'assistant' }
+        ]
+      }
+    })
+
+    routeGatewayEvent(event('steer.missed', { text: 'use Postgres' }))
+
+    const messages = $sessionStates.get().s1.messages
+    expect(messages.map(message => message.id)).toEqual(['u1', 'a1', 'c1', messages[3].id])
+    expect(messages[3].role).toBe('system')
+    expect(messages[3].parts[0]).toMatchObject({ text: 'steer-missed:use Postgres' })
+    // Scoped like every other frame: the other session is untouched.
+    expect($sessionStates.get()['other-session'].messages).toEqual([])
+  })
+
   it('prunes only the session whose turn started', () => {
     spawn('mine', 'here')
     finish('mine', 'completed')

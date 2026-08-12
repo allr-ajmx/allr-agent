@@ -43,6 +43,7 @@ import {
   type ChatMessage,
   ensureSession,
   interruptSession,
+  noteMissedSteer,
   redirectPrompt,
   resetChat,
   respondApproval,
@@ -1243,6 +1244,19 @@ describe('redirectPrompt', () => {
     expect(roles()).toEqual(['user', 'assistant', 'user'])
   })
 
+  // A tool was running, so the gateway deferred the correction to that tool's
+  // next result instead of killing it. That is an ACCEPTANCE — falling through
+  // to the rejection branch would drop the row AND hand the words back to the
+  // composer's queue, delivering the same correction twice (MJXHRM-410).
+  it('keeps a STEERED correction in place and does not hand it back', async () => {
+    seedLiveTurn()
+    vi.mocked(requestGateway).mockResolvedValueOnce({ status: 'steered' })
+
+    expect(await redirectPrompt('actually do this', 'runtime-1')).toBe(true)
+    expect(roles()).toEqual(['user', 'user', 'assistant'])
+    expect(texts()[1]).toBe('actually do this')
+  })
+
   // The caller queues the words itself on false, so the optimistic row must go
   // — leaving it would show a message the agent never received.
   it('withdraws the row when the gateway rejects', async () => {
@@ -1267,6 +1281,51 @@ describe('redirectPrompt', () => {
     expect(await redirectPrompt('   ', 'runtime-1')).toBe(false)
     expect(await redirectPrompt('hi', 'no-such-session')).toBe(false)
     expect(requestGateway).not.toHaveBeenCalledWith('session.redirect', expect.anything())
+  })
+
+  // The other end of `steered`: the turn finished before any tool result could
+  // carry the deferred words, so the gateway requeues them as a fresh turn and
+  // pushes `steer.missed`. The bubble has to stop claiming it influenced the
+  // reply it is sitting above.
+  describe('noteMissedSteer', () => {
+    it('moves the correction to the tail and notes that it never landed', () => {
+      seedActiveSession('runtime-1', {
+        runtimeSessionId: 'runtime-1',
+        messages: [
+          { id: 'u1', role: 'user', parts: [{ type: 'text', text: 'do a thing' }] },
+          { id: 'c1', role: 'user', parts: [{ type: 'text', text: 'use Postgres' }] },
+          { id: 'a1', role: 'assistant', parts: [{ type: 'text', text: 'reply that never saw it' }] }
+        ]
+      })
+
+      noteMissedSteer('runtime-1', 'use Postgres')
+
+      expect(sessionMessages('runtime-1').map(m => m.id)).toEqual(['u1', 'a1', 'c1', expect.any(String)])
+      expect(roles()).toEqual(['user', 'assistant', 'user', 'system'])
+      expect(texts().at(-1)).toBe('steer-missed:use Postgres')
+    })
+
+    // `/steer` and a busy submit leave no optimistic bubble to move, and the
+    // note still has to appear — that is the only thing the user ever sees.
+    it('still notes a miss with no matching bubble to move', () => {
+      seedActiveSession('runtime-1', {
+        runtimeSessionId: 'runtime-1',
+        messages: [{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'do a thing' }] }]
+      })
+
+      noteMissedSteer('runtime-1', 'typed as a slash command')
+
+      expect(roles()).toEqual(['user', 'system'])
+      expect(texts().at(-1)).toBe('steer-missed:typed as a slash command')
+    })
+
+    it('ignores an empty text or an unknown session', () => {
+      seedActiveSession('runtime-1', { runtimeSessionId: 'runtime-1', messages: [] })
+
+      noteMissedSteer('runtime-1', '   ')
+
+      expect(sessionMessages('runtime-1')).toEqual([])
+    })
   })
 
   // The record is what a reconnect reconciles against, and what the warm-resume
