@@ -517,8 +517,11 @@ export interface SatelliteWindowSpec {
  * `localStorage`, not `sessionStorage`: every window here is its own webview
  * with its own session store, so a session-scoped write would never reach the
  * satellite. Windows of one origin DO share `localStorage` — the same property
- * the composer's cross-window draft stash relies on. It is rewritten on every
- * open and cleared on close, so a stale grant from a previous run is never read.
+ * the composer's cross-window draft stash relies on.
+ *
+ * Because it is `localStorage` it outlives the PROCESS, so "cleared on close"
+ * has to hold for every way a satellite can close, including the ones that run
+ * no JS in it — see `installSatelliteTeardown`, which is what makes that true.
  */
 const SURFACE_GRANT_KEY = 'hermes:surface-grant:'
 
@@ -576,6 +579,22 @@ export function canOpenSatelliteWindow(): boolean {
 }
 
 /**
+ * Drop every trace of a satellite that is no longer on screen: this window's
+ * claim on it, and the grant it published for it.
+ *
+ * Both halves are STATE ABOUT A WINDOW THAT NO LONGER EXISTS, and the grant half
+ * is persisted — `localStorage` outlives the process, so a grant left behind is
+ * read by the next run of the app.
+ */
+function forgetSatellite(surface: string): void {
+  openedSatellites.delete(surface)
+  // The grant describes a window that is going away; leaving it behind would
+  // have the next open read a layout decision made for a surface that no longer
+  // exists.
+  rememberSurfaceGrant(surface, null)
+}
+
+/**
  * Summoning a satellite must not be able to leave one behind: if the window that
  * opened it goes away, so do its satellites. Installed lazily on the first open
  * (an app that never summons one pays nothing) and only once.
@@ -583,6 +602,18 @@ export function canOpenSatelliteWindow(): boolean {
  * The re-entrant `close()` is intentional. Closing the satellites is async, so
  * the first close request is deferred; by the time we ask again the set is empty
  * and this handler stands aside.
+ *
+ * The second listener is the other half of the same guarantee, and the one that
+ * is easy to miss: a satellite closed NATIVELY — the compositor, the window
+ * manager, an OS close button — runs no JS teardown at all, so
+ * `closeSatelliteWindow()` never happens for it. Without this, that close leaks
+ * both halves of `forgetSatellite`: this window keeps claiming a satellite that
+ * is gone (every later app quit then pays a pointless prevented-close round trip
+ * through `closeAllSatelliteWindows`), and — the part that outlives the process —
+ * `hermes:surface-grant:<surface>` stays on disk, so the NEXT run's satellite can
+ * read a grant negotiated for a window that died in a previous one. The event is
+ * emitted from Rust (`src-tauri/src/lib.rs`, `RunEvent::WindowEvent::Destroyed`)
+ * precisely because it must arrive whether or not the dying page ran anything.
  */
 async function installSatelliteTeardown(): Promise<void> {
   if (teardownInstalled) {
@@ -595,6 +626,9 @@ async function installSatelliteTeardown(): Promise<void> {
     const { getCurrentWebviewWindow } = await import('@tauri-apps/api/webviewWindow')
     const current = getCurrentWebviewWindow()
 
+    // Installed FIRST, and deliberately: this is the guarantee that no satellite
+    // outlives its summoner. The bookkeeping listener below is a correction, not
+    // a safety net, so it must never be the reason this one did not get armed.
     await current.onCloseRequested(async event => {
       if (openedSatellites.size === 0) {
         return
@@ -603,6 +637,16 @@ async function installSatelliteTeardown(): Promise<void> {
       event.preventDefault()
       await closeAllSatelliteWindows()
       void current.close()
+    })
+
+    const { listen } = await import('@tauri-apps/api/event')
+
+    await listen<string>(SATELLITE_WINDOW_CLOSED_EVENT, event => {
+      const surface = satelliteSurfaceFromLabel(event.payload ?? '')
+
+      if (surface) {
+        forgetSatellite(surface)
+      }
     })
   } catch {
     // No window system here (web/mobile) — nothing to tear down.
@@ -626,6 +670,9 @@ export async function openSatelliteWindow(spec: SatelliteWindowSpec): Promise<nu
       await existing.show()
       await existing.setFocus()
       openedSatellites.add(spec.surface)
+      // Claiming a satellite this window did not build still makes this window
+      // responsible for it — and arms the close listener that forgets it again.
+      void installSatelliteTeardown()
 
       return label
     }
@@ -711,11 +758,7 @@ export async function focusSatelliteWindow(surface: string): Promise<boolean> {
 export async function closeSatelliteWindow(surface: string): Promise<void> {
   const label = satelliteLabel(surface)
 
-  openedSatellites.delete(surface)
-  // The grant describes a window that is going away; leaving it behind would
-  // have the next open read a layout decision made for a surface that no longer
-  // exists.
-  rememberSurfaceGrant(surface, null)
+  forgetSatellite(surface)
 
   if (!label) {
     return

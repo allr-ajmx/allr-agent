@@ -12,6 +12,8 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import type * as Platform from '@/lib/platform'
+
 const realLocation = window.location
 
 function atSearch(search: string) {
@@ -187,5 +189,135 @@ describe('satelliteSurface', () => {
     expect(windows.isSatelliteWindow()).toBe(true)
     expect(windows.isSecondaryWindow()).toBe(true)
     expect(windows.ownsPersistedAppState()).toBe(false)
+  })
+})
+
+/**
+ * The inverse of `satelliteLabel`, and the only thing standing between a native
+ * window-destroyed event and the code that acts on it: the satellite teardown
+ * registry and the HUD handoff both decide what a close BELONGS to by reading a
+ * surface back off a label. It is held to the same shape the label builder
+ * accepts — `sat-` plus a lowercase word — because the suffix also lands in a URL
+ * query and in compositor rules, and because a label that merely starts with
+ * `sat-` is not one this app ever minted.
+ */
+describe('satelliteSurfaceFromLabel', () => {
+  it('reads back a surface the label builder could have produced', async () => {
+    const windows = await load()
+
+    expect(windows.satelliteSurfaceFromLabel('sat-hud')).toBe('hud')
+    expect(windows.satelliteSurfaceFromLabel('sat-quick')).toBe('quick')
+    expect(windows.satelliteSurfaceFromLabel('sat-a1-b2')).toBe('a1-b2')
+  })
+
+  it('refuses every label this app never minted', async () => {
+    const windows = await load()
+
+    for (const label of [
+      'main',
+      'tile-terminal',
+      'screen',
+      'sat-',
+      'sat--x',
+      'sat-1hud',
+      'sat-HUD',
+      'sat-hud/../main'
+    ]) {
+      expect(windows.satelliteSurfaceFromLabel(label)).toBeNull()
+    }
+  })
+})
+
+/**
+ * A satellite never spawns another. The HUD is the most exposed webview in the
+ * app — it lives over other applications with exclusive keyboard focus — and the
+ * Rust side refuses to attach a floating surface FROM one for that reason
+ * (`may_attach` in src-tauri/src/surface/mod.rs). This is the frontend half of
+ * the same rule, which `installHudHandoff`'s guard cites as the reason a
+ * satellite can never own a handoff.
+ */
+describe('canOpenSatelliteWindow', () => {
+  // On a platform that HAS a second window. Without this the answer is false
+  // for the platform's sake and the rule under test is never reached — which is
+  // exactly how this guard went uncovered.
+  async function loadOnDesktop() {
+    const platform = await vi.importActual<typeof Platform>('@/lib/platform')
+
+    vi.doMock('@/lib/platform', () => ({ ...platform, IS_DESKTOP: true }))
+
+    return load()
+  }
+
+  afterEach(() => {
+    vi.doUnmock('@/lib/platform')
+  })
+
+  it('is offered in the window that can summon one', async () => {
+    atSearch('')
+
+    expect((await loadOnDesktop()).canOpenSatelliteWindow()).toBe(true)
+  })
+
+  it('is refused from inside a satellite', async () => {
+    atSearch('?win=hud')
+
+    expect((await loadOnDesktop()).canOpenSatelliteWindow()).toBe(false)
+  })
+})
+
+/**
+ * `openAppRoute` is the single funnel that decides whether a route becomes a
+ * native screen activity or an in-app navigation, and `activitySurfaceForPath`
+ * is what that activity then renders. Every call site's test mocks `openAppRoute`
+ * out, so the table behind both — the one thing that has to stay in step for a
+ * surface not to open as a blank Settings screen — is only exercised here.
+ */
+describe('the windowable-surface table', () => {
+  it('resolves each surface, and its deep links, to itself', async () => {
+    const { activitySurfaceForPath } = await load()
+
+    expect(activitySurfaceForPath('/settings')).toBe('settings')
+    expect(activitySurfaceForPath('/settings/providers')).toBe('settings')
+    expect(activitySurfaceForPath('/command-center')).toBe('command-center')
+    expect(activitySurfaceForPath('/command-center?section=system')).toBe('command-center')
+    expect(activitySurfaceForPath('/cron')).toBe('cron')
+    expect(activitySurfaceForPath('/profiles')).toBe('profiles')
+    expect(activitySurfaceForPath('/agents')).toBe('agents')
+  })
+
+  it('does not match a route that merely starts with one of them', async () => {
+    const { activitySurfaceForPath } = await load()
+
+    // `/cronjobs` is not `/cron`. A bare `startsWith` would render the Cron
+    // screen for it, which is the failure this boundary exists to prevent.
+    expect(activitySurfaceForPath('/cronjobs')).toBe('settings')
+    expect(activitySurfaceForPath('/settingsish')).toBe('settings')
+  })
+
+  it('launches the native screen for a windowable surface and routes everything else', async () => {
+    const invoke = vi.fn(async () => undefined)
+    const navigateTo = vi.fn()
+    const platform = await vi.importActual<typeof Platform>('@/lib/platform')
+
+    vi.doMock('@tauri-apps/api/core', () => ({ invoke }))
+    vi.doMock('@/lib/route-nav', () => ({ navigateTo }))
+    vi.doMock('@/lib/platform', () => ({ ...platform, IS_ANDROID: true }))
+
+    const { openAppRoute } = await load()
+
+    openAppRoute('/settings/providers')
+    await Promise.resolve()
+
+    expect(invoke).toHaveBeenCalledWith('open_screen_window', { route: '/settings/providers' })
+    expect(navigateTo).not.toHaveBeenCalled()
+
+    openAppRoute('/starmap')
+
+    expect(navigateTo).toHaveBeenCalledWith('/starmap')
+    expect(invoke).toHaveBeenCalledTimes(1)
+
+    vi.doUnmock('@tauri-apps/api/core')
+    vi.doUnmock('@/lib/route-nav')
+    vi.doUnmock('@/lib/platform')
   })
 })

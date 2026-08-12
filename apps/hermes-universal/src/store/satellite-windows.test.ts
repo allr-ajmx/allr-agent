@@ -70,6 +70,20 @@ vi.mock('@tauri-apps/api/webviewWindow', () => {
   }
 })
 
+// The native close announcement (`RunEvent::WindowEvent::Destroyed` in
+// src-tauri/src/lib.rs). Captured rather than stubbed away: a satellite the
+// compositor killed is the ONLY way the frontend hears about it, and what the
+// summoning window does with it is the thing under test.
+const eventListeners = new Map<string, (event: { payload: unknown }) => void>()
+
+vi.mock('@tauri-apps/api/event', () => ({
+  listen: async (event: string, handler: (event: { payload: unknown }) => void) => {
+    eventListeners.set(event, handler)
+
+    return () => eventListeners.delete(event)
+  }
+}))
+
 // A satellite needs a real second window, so the module stands down off desktop.
 vi.mock('@/lib/platform', async importOriginal => ({
   ...(await importOriginal<typeof Platform>()),
@@ -84,8 +98,20 @@ const {
   closeSatelliteWindow,
   isSatelliteWindowOpen,
   openSatelliteWindow,
+  SATELLITE_WINDOW_CLOSED_EVENT,
+  satelliteSurfaceGrant,
   toggleSatelliteWindow
 } = await import('./windows')
+
+/** The key `rememberSurfaceGrant` writes — asserted through the module's own
+ *  reader below, but written directly here because the real writer is the
+ *  native attach, which has no window system under test. */
+const GRANT_KEY = 'hermes:surface-grant:hud'
+
+/** What Rust emits when a window is DESTROYED, however it was destroyed. */
+function emitNativeClose(label: string): void {
+  eventListeners.get(SATELLITE_WINDOW_CLOSED_EVENT)?.({ payload: label })
+}
 
 // The teardown hook is installed off the first open and not awaited by it.
 async function flush(): Promise<void> {
@@ -97,6 +123,7 @@ beforeEach(async () => {
   live.clear()
   constructed.length = 0
   mainClose.mockClear()
+  window.localStorage.removeItem(GRANT_KEY)
 })
 
 describe('satellite windows', () => {
@@ -171,5 +198,62 @@ describe('satellite windows', () => {
 
     live.delete('sat-hud')
     expect(await isSatelliteWindowOpen('hud')).toBe(false)
+  })
+
+  // A satellite the COMPOSITOR closed runs no JS in it at all — no `pagehide`,
+  // no unmount, no `closeSatelliteWindow`. Everything that close is supposed to
+  // clean up therefore has to hang off the native announcement instead
+  // (MJXHRM-374).
+  describe('a satellite closed natively', () => {
+    it('stops being claimed by the window that summoned it', async () => {
+      await openSatelliteWindow({ surface: 'hud' })
+      await flush()
+
+      // The compositor takes it: gone from the window system, no JS ran.
+      live.delete('sat-hud')
+      emitNativeClose('sat-hud')
+
+      const preventDefault = vi.fn()
+      await closeRequested?.({ preventDefault })
+
+      // Still claiming a satellite that no longer exists would defer this
+      // window's own close for a teardown with nothing to tear down.
+      expect(preventDefault).not.toHaveBeenCalled()
+      expect(mainClose).not.toHaveBeenCalled()
+    })
+
+    it('clears the surface grant it left on disk', async () => {
+      await openSatelliteWindow({ surface: 'hud' })
+      await flush()
+
+      // What a successful floating attach records for the satellite to read.
+      window.localStorage.setItem(GRANT_KEY, JSON.stringify({ backend: 'layer-shell', outputSized: true }))
+      expect(satelliteSurfaceGrant('hud')).not.toBeNull()
+
+      live.delete('sat-hud')
+      emitNativeClose('sat-hud')
+
+      // localStorage outlives the process: a grant left behind here is read by
+      // the NEXT run's HUD, which lays itself out for a surface negotiated on a
+      // machine/compositor that may no longer be the one it is on.
+      expect(satelliteSurfaceGrant('hud')).toBeNull()
+      expect(window.localStorage.getItem(GRANT_KEY)).toBeNull()
+    })
+
+    it('ignores a close that is not a satellite', async () => {
+      await openSatelliteWindow({ surface: 'hud' })
+      await flush()
+      window.localStorage.setItem(GRANT_KEY, JSON.stringify({ backend: 'layer-shell', outputSized: true }))
+
+      // Every window hears this event; only `sat-*` labels are ours to act on.
+      emitNativeClose('tile-abc')
+      emitNativeClose('main')
+
+      expect(satelliteSurfaceGrant('hud')).not.toBeNull()
+
+      const preventDefault = vi.fn()
+      await closeRequested?.({ preventDefault })
+      expect(preventDefault).toHaveBeenCalled()
+    })
   })
 })
