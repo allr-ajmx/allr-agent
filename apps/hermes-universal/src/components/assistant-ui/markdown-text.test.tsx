@@ -108,6 +108,15 @@ describe('MarkdownTextContent math rendering', () => {
     // background-only now (no header row, no language label), so `python`
     // never appears as text.
     await waitFor(() => expect(container.textContent).toContain('print("hi")'))
+
+    // …and that it arrived through OUR `SyntaxHighlighter` slot. That slot is
+    // load-bearing in a way the text assertion above cannot see: supplying it is
+    // what makes assistant-ui replace streamdown's own code component, which is
+    // why this app passes no `plugins.code` at all (see `MARKDOWN_PLUGINS`).
+    // Drop the slot and streamdown renders the fence itself, with no code
+    // plugin to highlight it — every fence permanently unhighlighted, while
+    // `print("hi")` still appears and every other test still passes.
+    expect(container.querySelector('[data-slot="code-card"]')).not.toBeNull()
   })
 
   // The fence above renders through the SUSPENSE FALLBACK: `ShikiBlock` is
