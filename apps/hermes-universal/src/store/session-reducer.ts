@@ -205,9 +205,18 @@ export function reduceSessionState(
 
     case 'tool.generating':
       return applyToolEvent(state, payload as GatewayToolPayload, 'running')
+    case 'tool.complete': {
+      const settled = applyToolEvent(state, payload as GatewayToolPayload, 'complete')
 
-    case 'tool.complete':
-      return applyToolEvent(state, payload as GatewayToolPayload, 'complete')
+      // The clarify tool returning is this session's "no longer parked on the
+      // user" — the one signal shared by answering, the backend's timeout and
+      // an interrupt, and the agent cannot be blocked on two prompts at once
+      // (`_block` holds the run loop). Without it `needsInput` — set by
+      // `clarify.request` and otherwise cleared only by `message.complete` —
+      // kept the sidebar's attention dot lit, and its running arc suppressed,
+      // for the whole rest of a turn the user had already unblocked.
+      return payload.name === 'clarify' && settled.needsInput ? { ...settled, needsInput: false } : settled
+    }
 
     case 'message.complete':
       return {

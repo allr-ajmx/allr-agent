@@ -189,3 +189,42 @@ describe('status.update', () => {
     expect(next.statusLine).toBe('')
   })
 })
+
+/**
+ * The clarify tool RETURNING is this session's "no longer parked on the user".
+ * It is the one event shared by all three endings — the user answered, the
+ * backend's `_block` timed out, `session.interrupt` released it — and
+ * `needsInput` was otherwise cleared only by `message.complete`, so the sidebar
+ * kept the attention dot lit (and the running arc suppressed) for the whole rest
+ * of a turn the user had already unblocked.
+ */
+describe('clarify completion', () => {
+  it('stops flagging needs-input when the clarify tool returns', () => {
+    let state = reduce({ ...emptySessionState('stored-1'), busy: true }, 'clarify.request', {
+      request_id: 'req-1',
+      question: 'Which branch?'
+    })
+
+    expect(state.needsInput).toBe(true)
+
+    state = reduce(state, 'tool.complete', {
+      name: 'clarify',
+      tool_id: 'call_abc123',
+      args: { question: 'Which branch?' },
+      result: 'main'
+    })
+
+    expect(state.needsInput).toBe(false)
+    expect(state.busy).toBe(true)
+  })
+
+  // Another tool finishing says nothing about the prompt: an approval parked on
+  // a different tool is still parked.
+  it('leaves needs-input alone when a different tool returns', () => {
+    let state = reduce({ ...emptySessionState('stored-1'), busy: true }, 'approval.request', { command: 'rm -rf /' })
+
+    state = reduce(state, 'tool.complete', { name: 'bash', tool_id: 'call_x', result: 'ok' })
+
+    expect(state.needsInput).toBe(true)
+  })
+})
