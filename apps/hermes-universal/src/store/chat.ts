@@ -816,12 +816,20 @@ const isStaleTargetError = (error: unknown): boolean =>
   /no longer in session history|not in session history/i.test(error instanceof Error ? error.message : String(error))
 
 /**
- * Build `prompt.submit` truncation params. Ordinal 0 truncates to an EMPTY
- * transcript (restoring or editing the first user turn) — the gateway refuses
- * that edge unless `confirm_empty_truncate` is set, so a stale client cannot
- * silently wipe a session with a leftover ordinal. Ported from desktop's
- * `truncateSubmitParams`; universal omitted it, which made a rewind to the very
- * first prompt fail with a 422 that read as "restore is broken".
+ * Build `prompt.submit` truncation params.
+ *
+ * `confirm_truncate` says THIS submit really is a rewind. An ordinal alone is
+ * not consent: a client carrying a leftover ordinal into an ordinary send emits
+ * a request that is indistinguishable, field by field, from a real rewind, and
+ * the cut is a destructive `replace_messages()` — so `methods_prompt.py` refuses
+ * any ordinal that does not carry the flag (4029). Universal ported the
+ * `confirm_empty_truncate` half of desktop's `truncateSubmitParams` and dropped
+ * this one, which meant EVERY rewind — every edit-and-resend, every restore
+ * checkpoint — was refused by the gateway and rolled back under an "Edit failed"
+ * toast. The feature could not work at all.
+ *
+ * Ordinal 0 additionally truncates to an EMPTY transcript (restoring or editing
+ * the first user turn), which the gateway gates behind its own second opt-in.
  */
 function truncateSubmitParams(truncateOrdinal: number | undefined): Record<string, unknown> {
   if (truncateOrdinal === undefined) {
@@ -829,6 +837,7 @@ function truncateSubmitParams(truncateOrdinal: number | undefined): Record<strin
   }
 
   return {
+    confirm_truncate: true,
     truncate_before_user_ordinal: truncateOrdinal,
     ...(truncateOrdinal === 0 ? { confirm_empty_truncate: true } : {})
   }

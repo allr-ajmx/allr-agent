@@ -611,7 +611,15 @@ describe('submitEditedPrompt (edit + rewind)', () => {
     expect(requestGateway).toHaveBeenCalledWith(
       'prompt.submit',
       // ordinal 1 == the second user turn: it and everything after are dropped.
-      expect.objectContaining({ text: 'second ask, revised', truncate_before_user_ordinal: 1 }),
+      // `confirm_truncate` is what makes the gateway act on the ordinal at all —
+      // `methods_prompt.py` refuses an unconfirmed one with 4029, so without it
+      // EVERY rewind in the app failed and rolled back (universal ported only the
+      // `confirm_empty_truncate` half of desktop's `truncateSubmitParams`).
+      expect.objectContaining({
+        confirm_truncate: true,
+        text: 'second ask, revised',
+        truncate_before_user_ordinal: 1
+      }),
       expect.anything()
     )
     expect($messages.get().map(m => m.id)).toEqual(['u1', 'a1', 'u2'])
@@ -745,7 +753,9 @@ describe('restoreToMessage', () => {
 
     expect(requestGateway).toHaveBeenCalledWith(
       'prompt.submit',
-      expect.objectContaining({ text: 'second ask', truncate_before_user_ordinal: 1 }),
+      // `confirm_truncate` states that this submit IS a rewind; the gateway
+      // refuses a bare ordinal with 4029 (see truncateSubmitParams).
+      expect.objectContaining({ confirm_truncate: true, text: 'second ask', truncate_before_user_ordinal: 1 }),
       expect.anything()
     )
     // The prompt STAYS — it is being re-run, not withdrawn.
