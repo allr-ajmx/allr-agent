@@ -211,18 +211,33 @@ describe('pluginSocket lifecycle', () => {
     vi.useRealTimers()
   })
 
-  // Otherwise the failed connect's ladder and the switch's redial both fire and
-  // the gateway gets two sockets (and two ws-ticket mints) per attempt.
+  // A mint is a server round-trip that consumes a ticket-store entry, and the
+  // switch's own redial is already in flight behind one. Without the guard the
+  // abandoned gateway's ladder fires into the gap and mints a second.
   it('does not also run the failed connect ladder when the gateway moved under it', async () => {
     vi.useFakeTimers()
-    mintWsTicket.mockRejectedValue(new Error('Session expired'))
+
+    let releaseMint: (ticket: string) => void = () => {}
+
+    mintWsTicket
+      .mockRejectedValueOnce(new Error('Session expired'))
+      .mockReturnValue(
+        new Promise<string>(resolve => {
+          releaseMint = resolve
+        })
+      )
+
     $connection.set(gateway('http://old.local', 'oauth'))
     open()
-
-    // The switch lands while the first connect is still awaiting its mint.
-    mintWsTicket.mockResolvedValue('t3')
+    // The switch lands while the first connect is still awaiting its mint, and
+    // its own mint is still outstanding while the stale ladder would fire.
     $connection.set(gateway('http://new.local', 'oauth'))
-    await vi.advanceTimersByTimeAsync(60_000)
+    await vi.advanceTimersByTimeAsync(2_000)
+
+    expect(mintWsTicket).toHaveBeenCalledTimes(2)
+
+    releaseMint('t3')
+    await vi.advanceTimersByTimeAsync(0)
 
     expect(constructed()).toEqual(['ws://new.local/api/plugins/kanban/events?ticket=t3'])
 
