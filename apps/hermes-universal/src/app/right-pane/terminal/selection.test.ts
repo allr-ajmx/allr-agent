@@ -51,6 +51,13 @@ describe('mirrorSelection', () => {
     // NOT claimed — claiming it is what stole ⌘C from the chat.
     expect(textarea.value).toBe('terminal scrap')
     expect(document.activeElement).toBe(chatInput)
+    // `textarea.select()` is the only thing that claims, and it is what makes
+    // the range span the value. A caret parked at the end (where assigning
+    // `.value` leaves it) is the shape of NOT having claimed — and it is the
+    // only part of this jsdom models, since a textarea's range is not the
+    // document's `getSelection()` here. Asserting on `getSelection()` instead
+    // is what let both yield cases pass with their guard deleted.
+    expect(textarea.selectionStart).toBe('terminal scrap'.length)
   })
 
   it('yields to a foreign live range even while the terminal holds focus', () => {
@@ -72,6 +79,8 @@ describe('mirrorSelection', () => {
     expect(textarea.value).toBe('terminal scrap')
     // The user's chat selection survives.
     expect(window.getSelection()?.toString()).toBe('selected in the chat')
+    // …and, the falsifiable half: the mirror did not claim a range of its own.
+    expect(textarea.selectionStart).toBe('terminal scrap'.length)
   })
 
   it('is a no-op on a host with no helper textarea', () => {
