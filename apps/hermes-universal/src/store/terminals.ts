@@ -119,10 +119,14 @@ export function closeTerminal(id: string): void {
   )
 }
 
+/** Close every terminal but this one. Through `afterRemoval` like the other
+ *  three verbs: it was the one that rewrote the list itself, so with an id no
+ *  longer in the list it emptied the rail and left the terminal AREA open on
+ *  nothing — `⌃\`` then read as "hide" while showing a blank pane. */
 export function closeOtherTerminals(id: string): void {
   const keep = $terminals.get().filter(term => term.id === id)
-  $terminals.set(keep)
-  $activeTerminalId.set(keep.length ? id : null)
+
+  afterRemoval(keep, !keep.some(term => term.id === $activeTerminalId.get()))
 }
 
 /** The fourth verb of the shared tab close group. The rail's list is ORDERED

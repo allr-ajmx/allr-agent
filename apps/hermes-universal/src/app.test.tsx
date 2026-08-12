@@ -1,10 +1,13 @@
 /**
  * The surfaces that must exist in EVERY window root.
  *
- * Both were shipped mounted inside one root and silently dead in the others —
- * the folder picker (fixed earlier) and the ⌘F find bar (MJXHRM-387), which
- * searched the main shell and nothing else while a detached chat window, the HUD
- * and the Android activity screen all render real text.
+ * All three were shipped mounted inside one root and silently dead in the
+ * others — the folder picker (fixed earlier), the ⌘F find bar (MJXHRM-387),
+ * which searched the main shell and nothing else while a detached chat window,
+ * the HUD and the Android activity screen all render real text, and the close
+ * confirmation (MJXHRM-390), which lived in `ContribController` — the DOCKED
+ * TILE TREE only — so a phone could park a "this chat is still working" prompt
+ * that nothing would ever draw.
  */
 
 import { render, screen } from '@testing-library/react'
@@ -19,6 +22,7 @@ vi.mock('@/app/right-pane/files/remote-picker', () => ({
   RemoteFolderPicker: () => <div data-testid="remote-picker" />
 }))
 vi.mock('@/components/find-bar', () => ({ FindBar: () => <div data-testid="find-bar" /> }))
+vi.mock('@/app/close-confirm', () => ({ CloseConfirm: () => <div data-testid="close-confirm" /> }))
 
 let activity = false
 let tile = false
@@ -50,7 +54,7 @@ const ROOTS: [name: string, arrange: () => void, marker: string][] = [
 ]
 
 describe('App', () => {
-  it.each(ROOTS)('mounts the find bar and the folder picker in %s', (_name, arrange, marker) => {
+  it.each(ROOTS)('mounts the find bar, the folder picker and the close gate in %s', (_name, arrange, marker) => {
     arrange()
 
     render(<App />)
@@ -58,5 +62,6 @@ describe('App', () => {
     expect(screen.getByText(marker)).toBeInTheDocument()
     expect(screen.getByTestId('find-bar')).toBeInTheDocument()
     expect(screen.getByTestId('remote-picker')).toBeInTheDocument()
+    expect(screen.getByTestId('close-confirm')).toBeInTheDocument()
   })
 })

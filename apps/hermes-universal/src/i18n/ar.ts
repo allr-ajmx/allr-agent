@@ -2149,6 +2149,9 @@ export const ar = defineLocale({
     diskChangedBody: 'تغيّر هذا الملف منذ أن فتحته. هل تريد الكتابة فوقه بنسختك، أم تجاهل تعديلاتك وإعادة التحميل؟',
     overwrite: 'الكتابة فوقه',
     discardReload: 'تجاهل وإعادة التحميل',
+    closeDirtyTitle: 'تجاهل التغييرات غير المحفوظة؟',
+    closeDirtyBody: 'يحتوي هذا الملف على تعديلات لم تُحفظ. إغلاق التبويب سيتجاهلها.',
+    closeDirtyConfirm: 'تجاهل وإغلاق',
     console: {
       deselect: 'إلغاء تحديد الإدخال',
       select: 'تحديد الإدخال',

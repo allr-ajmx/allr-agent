@@ -19,7 +19,6 @@ import {
   reloadTreePane,
   treeTabCloseTargets
 } from '@/components/pane-shell/tree/store'
-import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { translateNow, useI18n } from '@/i18n'
 import { sessionTitle } from '@/lib/chat-runtime'
 import { DRAFT_TILE_KEY, isDraftTileKey, sessionTilePaneId, WORKSPACE_PANE_ID } from '@/lib/pane-ids'
@@ -35,9 +34,7 @@ import { $activeStoredSessionId } from '@/store/session'
 import { SESSION_ROW_SOURCES, sessionRowFor, useSessionRow, useSessionRowScalars } from '@/store/session-lookup'
 import { $sessionStates } from '@/store/session-state-types'
 import {
-  $confirmCloseTile,
   $sessionTiles,
-  closeSessionTile,
   discardSessionTile,
   noteSessionTileMounted,
   patchSessionTile,
@@ -485,35 +482,11 @@ export function WorkspaceTabMenu({ children }: { children: React.ReactNode }) {
   )
 }
 
-// ---------------------------------------------------------------------------
-// Close confirmation for a still-running tile ($confirmCloseTile +
-// requestCloseSessionTile live in store/session-states so keybinds can reach
-// them; the confirm UI is here).
-// ---------------------------------------------------------------------------
-
-/** Mounted once at the shell root — the "Close running tab?" gate. */
-export function SessionTileCloseConfirm() {
-  const { t } = useI18n()
-  const pending = useStore($confirmCloseTile)
-
-  return (
-    <ConfirmDialog
-      confirmLabel={t.zones.closeRunningConfirm}
-      description={t.zones.closeRunningBody}
-      dismissOnConfirm
-      onClose={() => $confirmCloseTile.set(null)}
-      onConfirm={() => {
-        if (pending) {
-          closeSessionTile(pending)
-        }
-
-        $confirmCloseTile.set(null)
-      }}
-      open={Boolean(pending)}
-      title={t.zones.closeRunningTitle}
-    />
-  )
-}
+// The "Close running tab?" gate used to live here, mounted from
+// `ContribController` — i.e. only in the docked tile tree, so the phone and the
+// narrow-window shell had no way to draw it. It is now `app/close-confirm.tsx`,
+// mounted per WINDOW from `app.tsx`, and shared with the mobile bubble strip and
+// the unsaved-file close (MJXHRM-390).
 
 /** Layout-reset handler: collapse every tile into the workspace zone as a tab
  *  (instead of re-scattering them across the fresh preset). */

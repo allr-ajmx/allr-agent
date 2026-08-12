@@ -71,12 +71,7 @@ import { $effectiveCwd, ensureWorkspaceCwd } from '@/store/workspace-events'
 import { watchPreviewTiles } from '../chat/preview-tile'
 import { watchRouteTiles } from '../chat/route-tile'
 import { SessionStatusDot } from '../chat/session-status-dot'
-import {
-  SessionTileCloseConfirm,
-  stackSessionTilesIntoMain,
-  watchSessionTiles,
-  WorkspaceTabMenu
-} from '../chat/session-tile'
+import { stackSessionTilesIntoMain, watchSessionTiles, WorkspaceTabMenu } from '../chat/session-tile'
 import { ChatSidebar } from '../chat/sidebar'
 import { $workspacePage, isWorkspacePagePath, syncWorkspacePage } from '../routes'
 
@@ -650,13 +645,13 @@ export function ContribController() {
   return (
     <div className="flex h-full min-h-0 w-full min-w-0 flex-col">
       <LayoutTreeRoot />
-      {/* "Close running tab?" — the busy/input-blocked tile close gate. */}
-      <SessionTileCloseConfirm />
       {/* The backend-FS picker `selectDesktopPaths` / `selectRemotePaths` route
-          to used to be mounted here. It moved to `app.tsx`: shell level was
-          already too low — the sidebar and Settings both reach it, but so do the
-          detached tile window, the HUD and the Android activity screen, none of
-          which mount this controller. */}
+          to used to be mounted here, and so did the "Close running tab?" gate
+          (MJXHRM-390). Both moved to `app.tsx`: shell level was already too low
+          — the sidebar and Settings both reach the picker, and the phone closes
+          chats from the bubble strip, but the detached tile window, the HUD, the
+          Android activity screen and both non-tree shells skip this controller
+          entirely. */}
     </div>
   )
 }

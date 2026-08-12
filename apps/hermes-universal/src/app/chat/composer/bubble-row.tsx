@@ -15,7 +15,7 @@ import { MessageCircle, Plus } from '@/lib/icons'
 import { rafCoalesce } from '@/lib/raf-coalesce'
 import { cn } from '@/lib/utils'
 import { useStore } from '@/store/atom'
-import { $chatBubbles, type ChatBubble, newChatBubble, removeBubble, switchToBubble } from '@/store/chat-bubbles'
+import { $chatBubbles, type ChatBubble, newChatBubble, requestRemoveBubble, switchToBubble } from '@/store/chat-bubbles'
 import { $activeStoredSessionId, refreshSessions } from '@/store/session'
 import { useSessionRowLookup } from '@/store/session-lookup'
 
@@ -288,9 +288,12 @@ export function BubbleRow() {
 
     if (st.armed) {
       // Close removes a bubble; the list shrinks and the layout effect re-homes
-      // on the new active bubble — nothing to snap to here.
+      // on the new active bubble — nothing to snap to here. The REQUEST form:
+      // a chat still working gets the same "Close running tab?" prompt the
+      // desktop tile close has always shown, so the row shrinks only once the
+      // answer is in (MJXHRM-390).
       if (target) {
-        removeBubble(target.storedSessionId)
+        requestRemoveBubble(target.storedSessionId)
       }
 
       return

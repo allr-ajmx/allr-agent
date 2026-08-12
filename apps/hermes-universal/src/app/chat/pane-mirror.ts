@@ -148,6 +148,12 @@ export function paneMirror<T>(cfg: PaneMirror<T>): () => void {
       if (!wanted.has(key)) {
         entry.dispose()
         registered.delete(key)
+        // Hand the closer back. It is registered per pane id and was never taken
+        // back, so `paneClosers` — and `$panesWithCloser`, rebuilt from its keys
+        // on every registration — grew by one entry for every tab ever opened
+        // and never shrank, each pinning a closure over a session that is gone.
+        // Closing must release what opening took (MJXHRM-390).
+        registerPaneCloser(paneId(key))
         removeTreePane(paneId(key))
         removals += 1
       }
@@ -159,6 +165,7 @@ export function paneMirror<T>(cfg: PaneMirror<T>): () => void {
     // reload, so the loop above can't catch these.)
     for (const id of treePanesWithPrefix(`${cfg.prefix}:`)) {
       if (!wanted.has(id.slice(cfg.prefix.length + 1))) {
+        registerPaneCloser(id)
         removeTreePane(id)
         removals += 1
       }

@@ -18,10 +18,16 @@ import { group, split } from '@/components/pane-shell/tree/model'
 import {
   $layoutTree,
   activateTreeTabSlot,
+  closeAllTreeTabs,
   closeFocusedTabInZone,
+  closeOtherTreeTabs,
+  closeTabPane,
+  closeTreePane,
+  closeTreeTabsToRight,
   cycleTreeTabInFocusedZone,
   noteActiveTreeGroup,
   noteHoveredTreeGroup,
+  registerPaneCloser,
   setTreePaneHidden,
   treeTabCloseTargets
 } from '@/components/pane-shell/tree/store'
@@ -262,6 +268,99 @@ describe('closeFocusedTabInZone (⌘W)', () => {
 
     expect(closeFocusedTabInZone()).toBe(false)
     expect(panesOf(CHAT_GROUP)).toEqual([WORKSPACE_PANE_ID])
+  })
+})
+
+/**
+ * ONE CLOSE VERB (MJXHRM-390).
+ *
+ * A TOOL PANEL's closer is its visibility store, so running the closer alone
+ * only collapses its zone to a rail and leaves the tab sitting in the strip —
+ * Close reads as a no-op. `closeTabPane` exists to dismiss the pane FIRST, and
+ * every trigger (the zone menu, ⌘W, ⌘-click, middle-click, the bulk verbs) has
+ * to go through it.
+ *
+ * This is the divergence the ticket was filed for, and it shipped with no test:
+ * collapsing `closeTabPane` back into `closeTreePane` — the exact bug — left
+ * every other tree test green.
+ */
+describe('closeTabPane routes by tab KIND', () => {
+  let closes: string[] = []
+  let disposeToolTiles: (() => void) | null = null
+
+  /** `terminal` as a real tool panel: `chrome.toolPanel` is what
+   *  `isCollapsePane` reads, and the closer is what its store registers. */
+  const seedToolPanel = () => {
+    disposeToolTiles = registerTiles([
+      {
+        id: WORKSPACE_PANE_ID,
+        kind: 'chat',
+        title: WORKSPACE_PANE_ID,
+        render: () => null,
+        placement: 'main',
+        chrome: { uncloseable: true }
+      },
+      {
+        id: 'terminal',
+        kind: 'tool',
+        title: 'terminal',
+        render: () => null,
+        placement: 'bottom',
+        chrome: { toolPanel: true }
+      },
+      { id: 'logs', kind: 'tool', title: 'logs', render: () => null, placement: 'bottom' }
+    ])
+
+    $layoutTree.set(
+      split('row', [
+        group([WORKSPACE_PANE_ID], { active: WORKSPACE_PANE_ID, id: CHAT_GROUP }),
+        // `terminal` sits to the RIGHT of `logs` so the fourth verb has a real
+        // target here rather than a contrived one.
+        group(['logs', 'terminal'], { active: 'terminal', id: TOOL_GROUP })
+      ])
+    )
+
+    registerPaneCloser('terminal', () => closes.push('terminal'))
+  }
+
+  beforeEach(() => {
+    closes = []
+    seedToolPanel()
+  })
+
+  afterEach(() => {
+    registerPaneCloser('terminal')
+    disposeToolTiles?.()
+    disposeToolTiles = null
+  })
+
+  it('takes a tool panel OUT of the strip and syncs its toggle', () => {
+    closeTabPane('terminal')
+
+    expect(panesOf(TOOL_GROUP)).not.toContain('terminal')
+    expect(closes).toEqual(['terminal'])
+  })
+
+  // The narrower primitive, pinned so the difference stays visible: it runs the
+  // closer and deliberately leaves the pane in the tree (that is the ⌃` toggle
+  // route). Routing a TAB verb through it is what made Close look dead.
+  it('closeTreePane alone leaves the tab where it was', () => {
+    closeTreePane('terminal')
+
+    expect(panesOf(TOOL_GROUP)).toContain('terminal')
+    expect(closes).toEqual(['terminal'])
+  })
+
+  it.each([
+    ['⌘W', () => (noteActiveTreeGroup(TOOL_GROUP), closeFocusedTabInZone())],
+    ['close others', () => closeOtherTreeTabs('logs')],
+    ['close to the right', () => closeTreeTabsToRight('logs')],
+    ['close all', () => closeAllTreeTabs('logs')]
+  ])('%s reaches a tool panel through the same routing', (_name, run) => {
+    run()
+
+    expect(panesOf(TOOL_GROUP)).not.toContain('terminal')
+    expect(closes).toEqual(['terminal'])
   })
 })
 

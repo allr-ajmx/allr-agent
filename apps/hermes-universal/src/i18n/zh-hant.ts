@@ -2344,6 +2344,9 @@ export const zhHant = defineLocale({
     diskChangedBody: '此檔案自開啟以來已變更。用你的版本覆寫，還是放棄你的編輯並重新載入？',
     overwrite: '覆寫',
     discardReload: '放棄並重新載入',
+    closeDirtyTitle: '放棄未儲存的變更？',
+    closeDirtyBody: '此檔案有尚未儲存的編輯。關閉分頁會將其放棄。',
+    closeDirtyConfirm: '放棄並關閉',
     console: {
       deselect: '取消選取項目',
       select: '選取項目',

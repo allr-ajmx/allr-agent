@@ -1,4 +1,5 @@
 import { ActivityScreenRoot } from '@/app/activity-screen'
+import { CloseConfirm } from '@/app/close-confirm'
 import { HUD_SURFACE } from '@/app/hud/hud'
 import { HudWindowRoot } from '@/app/hud/hud-window'
 import { MobileController } from '@/app/mobile-controller'
@@ -27,6 +28,13 @@ import { isActivityWindow, isTileWindow, satelliteSurface } from '@/store/window
  * nothing until opened and carries its own accelerator where no dispatcher
  * exists, so mounting it per window is free.
  *
+ * `CloseConfirm` (MJXHRM-390) is the third, and it was the same mistake one
+ * level down: the "close a working chat?" gate mounted inside
+ * `ContribController`, i.e. only in the DOCKED TILE TREE. A phone renders
+ * `MobileShell` and a narrow window renders `AppShell`, so on both the gate
+ * could park a pending close and nothing would ever draw the question — which
+ * is why the mobile bubble strip dropped a chat mid-turn without asking.
+ *
  * Mounted HERE rather than once per root so the next root cannot forget them —
  * the failure mode is silence, which is the kind that ships.
  */
@@ -36,6 +44,7 @@ export function App() {
       <AppRoot />
       <RemoteFolderPicker />
       <FindBar />
+      <CloseConfirm />
     </>
   )
 }

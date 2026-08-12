@@ -2415,6 +2415,9 @@ export const ja = defineLocale({
       'このファイルは開いてから変更されています。あなたの版で上書きするか、編集を破棄して再読み込みしますか？',
     overwrite: '上書き',
     discardReload: '破棄して再読み込み',
+    closeDirtyTitle: '未保存の変更を破棄しますか？',
+    closeDirtyBody: 'このファイルには保存されていない編集があります。タブを閉じると破棄されます。',
+    closeDirtyConfirm: '破棄して閉じる',
     console: {
       deselect: 'エントリーの選択を解除',
       select: 'エントリーを選択',
