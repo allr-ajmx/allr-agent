@@ -808,6 +808,12 @@ export interface Translations {
       providerDefault: string
       fallbackAdd: string
       fallbackEmpty: string
+      /** Label on the Mixture-of-Agents preset enable/disable switch. */
+      moaEnabled: string
+      /** Accessible name for a reference slot's switch while the slot is on. */
+      moaDisableReference: (index: number) => string
+      /** Accessible name for a reference slot's switch while the slot is off. */
+      moaEnableReference: (index: number) => string
       tasks: Record<string, AuxTaskCopy>
     }
     providers: {

@@ -873,6 +873,9 @@ export const zhHant = defineLocale({
       change: '變更',
       autoUseMain: '自動 · 使用主要模型',
       providerDefault: '(提供方預設)',
+      moaEnabled: '啟用',
+      moaDisableReference: index => `停用參考模型 ${index}`,
+      moaEnableReference: index => `啟用參考模型 ${index}`,
       tasks: {
         vision: { label: '視覺', hint: '圖片分析' },
         web_extract: { label: '網頁擷取', hint: '頁面摘要' },

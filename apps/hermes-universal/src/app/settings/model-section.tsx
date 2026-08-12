@@ -139,6 +139,24 @@ const NO_PROVIDERS: readonly ModelOptionProvider[] = [{ name: '—', slug: '', m
 export const withActive = (models: readonly string[], active: string): readonly string[] =>
   active && !models.includes(active) ? [active, ...models] : models
 
+// A slot is complete when both halves are chosen. Changing a slot's provider
+// intentionally clears its model (see updateMoaSlot), so every provider change
+// passes through an incomplete state while the user picks the new model.
+export const moaSlotComplete = (slot: MoaModelSlot): boolean => !!(slot.provider.trim() && slot.model.trim())
+
+// True when every slot in every preset is fully specified — the only state
+// that is safe to persist. The backend rejects configs with half-filled slots
+// (HTTP 422 from validate_moa_payload) instead of silently swapping the preset
+// for hardcoded defaults, so the autosave must wait for the edit to finish
+// rather than firing a payload the server will refuse.
+export const moaConfigComplete = (config: MoaConfigResponse): boolean =>
+  Object.values(config.presets).every(
+    preset =>
+      preset.reference_models.length > 0 &&
+      preset.reference_models.every(moaSlotComplete) &&
+      moaSlotComplete(preset.aggregator)
+  )
+
 interface StaleAuxWarningProps {
   applying: boolean
   onReset: () => void
@@ -343,6 +361,10 @@ export function ModelSettings({ onMainModelChanged }: ModelSettingsProps) {
   }, [moa])
 
   const moaSaveTimer = useRef<number | null>(null)
+  // Bumped by every scheduled or explicit MoA write. A response only repaints
+  // the editor if its own generation is still the newest, so a slow save can
+  // never overwrite an edit the user made while it was in flight.
+  const moaSaveGeneration = useRef(0)
 
   useEffect(
     () => () => {
@@ -357,15 +379,37 @@ export function ModelSettings({ onMainModelChanged }: ModelSettingsProps) {
   // autosave so slot/aggregator tweaks save themselves, matching the
   // preset-level ops (set default / add / delete) that already persist on
   // click. No `applying` spinner, so selecting stays responsive.
+  // A half-filled slot (provider just changed, model not picked yet) is
+  // HELD, not sent: the previous complete config stays on disk and the next
+  // edit that completes the slot flushes the whole preset. Every edit bumps
+  // the generation so an in-flight response from an older save can never
+  // repaint over the user's mid-edit state.
   const scheduleMoaSave = useCallback((next: MoaConfigResponse) => {
     if (moaSaveTimer.current) {
       window.clearTimeout(moaSaveTimer.current)
+      moaSaveTimer.current = null
+    }
+
+    const generation = moaSaveGeneration.current + 1
+
+    moaSaveGeneration.current = generation
+
+    if (!moaConfigComplete(next)) {
+      return
     }
 
     moaSaveTimer.current = window.setTimeout(() => {
       void saveMoaModels(next)
-        .then(setMoa)
-        .catch(err => setError(err instanceof Error ? err.message : String(err)))
+        .then(saved => {
+          if (moaSaveGeneration.current === generation) {
+            setMoa(saved)
+          }
+        })
+        .catch(err => {
+          if (moaSaveGeneration.current === generation) {
+            setError(err instanceof Error ? err.message : String(err))
+          }
+        })
     }, 600)
   }, [])
 
@@ -395,7 +439,10 @@ export function ModelSettings({ onMainModelChanged }: ModelSettingsProps) {
   const updateMoaSlot = useCallback((slot: MoaModelSlot, patch: Partial<MoaModelSlot>): MoaModelSlot => {
     const next = { ...slot, ...patch }
 
-    if (patch.provider) {
+    // Picking a new provider invalidates the model choice (models are
+    // per-provider). A same-provider update must not wipe the model — Radix
+    // filters same-value changes, but programmatic callers may not.
+    if (patch.provider && patch.provider !== slot.provider) {
       next.model = ''
     }
 
@@ -404,6 +451,16 @@ export function ModelSettings({ onMainModelChanged }: ModelSettingsProps) {
 
   const saveMoa = useCallback(async (next: MoaConfigResponse) => {
     const epoch = profileEpoch.current
+
+    // Explicit preset ops (set default / add / delete) supersede any pending
+    // debounced slot autosave — cancel it and invalidate in-flight responses
+    // so the two writers can't race each other's state.
+    if (moaSaveTimer.current) {
+      window.clearTimeout(moaSaveTimer.current)
+      moaSaveTimer.current = null
+    }
+
+    moaSaveGeneration.current += 1
     setApplying(true)
     setError('')
 
@@ -958,6 +1015,18 @@ export function ModelSettings({ onMainModelChanged }: ModelSettingsProps) {
                 ))}
               </SelectContent>
             </Select>
+            {/* Disabling a preset does not delete it: the fan-out is skipped and
+                the aggregator acts alone (agent/moa_loop.py), so the preset keeps
+                working as a plain single-model choice. */}
+            <label className="flex items-center gap-2 rounded-sm border border-border px-2 py-1 text-xs">
+              {m.moaEnabled}
+              <Switch
+                checked={currentMoaPreset.enabled !== false}
+                disabled={applying}
+                onCheckedChange={checked => updateMoaPreset(prev => ({ ...prev, enabled: checked }))}
+                size="xs"
+              />
+            </label>
             <Button
               disabled={applying}
               onClick={() => {
@@ -1034,6 +1103,23 @@ export function ModelSettings({ onMainModelChanged }: ModelSettingsProps) {
           <div className="grid gap-1">
             {currentMoaPreset.reference_models.map((slot, index) => (
               <ListRow
+                action={
+                  <Switch
+                    aria-label={
+                      slot.enabled !== false ? m.moaDisableReference(index + 1) : m.moaEnableReference(index + 1)
+                    }
+                    checked={slot.enabled !== false}
+                    disabled={applying}
+                    onCheckedChange={checked =>
+                      updateMoaPreset(prev => ({
+                        ...prev,
+                        reference_models: prev.reference_models.map((s, i) =>
+                          i === index ? { ...s, enabled: checked === true } : s
+                        )
+                      }))
+                    }
+                  />
+                }
                 below={
                   <div className="mt-2 flex flex-wrap items-center gap-2 pt-1">
                     <Select
@@ -1051,11 +1137,18 @@ export function ModelSettings({ onMainModelChanged }: ModelSettingsProps) {
                         <SelectValue placeholder={m.provider} />
                       </SelectTrigger>
                       <SelectContent>
-                        {moaSlotProviderOptions.map(provider => (
-                          <SelectItem key={provider.slug || 'none'} value={provider.slug || 'none'}>
-                            {provider.name}
-                          </SelectItem>
-                        ))}
+                        {withActive(
+                          moaSlotProviderOptions.map(p => p.slug || 'none'),
+                          slot.provider
+                        ).map(slug => {
+                          const provider = moaSlotProviderOptions.find(p => (p.slug || 'none') === slug)
+
+                          return (
+                            <SelectItem key={slug} value={slug}>
+                              {provider?.name || slug}
+                            </SelectItem>
+                          )
+                        })}
                       </SelectContent>
                     </Select>
                     <Select
@@ -1095,19 +1188,26 @@ export function ModelSettings({ onMainModelChanged }: ModelSettingsProps) {
                     </Button>
                   </div>
                 }
+                className={cn(slot.enabled === false && 'opacity-60')}
                 description={
                   <span className="font-mono text-[0.68rem]">
-                    {slot.provider} · {slot.model}
+                    {slot.provider} · {slot.model || m.model}
                   </span>
                 }
-                key={`${selectedMoaPreset}-${slot.provider}-${slot.model}-${index}`}
+                // Keyed by position only: keying on the slot's own
+                // provider/model remounts the row on every edit, which tears
+                // down the very <Select> the user is interacting with.
+                key={`${selectedMoaPreset}-${index}`}
                 title={`Reference ${index + 1}`}
               />
             ))}
             <Button
               disabled={applying}
               onClick={() =>
-                updateMoaPreset(prev => ({ ...prev, reference_models: [...prev.reference_models, prev.aggregator] }))
+                updateMoaPreset(prev => ({
+                  ...prev,
+                  reference_models: [...prev.reference_models, { ...prev.aggregator, enabled: true }]
+                }))
               }
               size="sm"
               variant="textStrong"
@@ -1130,11 +1230,18 @@ export function ModelSettings({ onMainModelChanged }: ModelSettingsProps) {
                       <SelectValue placeholder={m.provider} />
                     </SelectTrigger>
                     <SelectContent>
-                      {moaSlotProviderOptions.map(provider => (
-                        <SelectItem key={provider.slug || 'none'} value={provider.slug || 'none'}>
-                          {provider.name}
-                        </SelectItem>
-                      ))}
+                      {withActive(
+                        moaSlotProviderOptions.map(p => p.slug || 'none'),
+                        currentMoaPreset.aggregator.provider
+                      ).map(slug => {
+                        const provider = moaSlotProviderOptions.find(p => (p.slug || 'none') === slug)
+
+                        return (
+                          <SelectItem key={slug} value={slug}>
+                            {provider?.name || slug}
+                          </SelectItem>
+                        )
+                      })}
                     </SelectContent>
                   </Select>
                   <Select

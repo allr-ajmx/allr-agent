@@ -899,6 +899,9 @@ export const ja = defineLocale({
       change: '変更',
       autoUseMain: '自動 · メインモデルを使用',
       providerDefault: '(プロバイダーのデフォルト)',
+      moaEnabled: '有効',
+      moaDisableReference: index => `リファレンス ${index} を無効化`,
+      moaEnableReference: index => `リファレンス ${index} を有効化`,
       tasks: {
         vision: { label: 'ビジョン', hint: '画像分析' },
         web_extract: { label: 'ウェブ抽出', hint: 'ページの要約' },

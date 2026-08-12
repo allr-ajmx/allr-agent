@@ -762,6 +762,9 @@ export const ar = defineLocale({
       change: 'تغيير',
       autoUseMain: 'تلقائي · استخدام النموذج الرئيسي',
       providerDefault: '(افتراضي المزوّد)',
+      moaEnabled: 'مُفعّل',
+      moaDisableReference: index => `تعطيل المرجع ${index}`,
+      moaEnableReference: index => `تفعيل المرجع ${index}`,
       tasks: {
         vision: {
           label: 'الرؤية',

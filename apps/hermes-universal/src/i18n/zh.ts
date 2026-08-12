@@ -1104,6 +1104,9 @@ export const zh: Translations = {
       providerDefault: '(提供方默认)',
       fallbackAdd: '添加后备',
       fallbackEmpty: '没有后备模型 — 默认模型失败时才会使用。',
+      moaEnabled: '启用',
+      moaDisableReference: index => `停用参考模型 ${index}`,
+      moaEnableReference: index => `启用参考模型 ${index}`,
       tasks: {
         vision: { label: '视觉', hint: '图片分析' },
         web_extract: { label: '网页提取', hint: '页面总结' },
