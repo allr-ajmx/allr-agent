@@ -1,5 +1,5 @@
 import type { Unstable_TriggerItem } from '@assistant-ui/core'
-import { Fragment } from 'react'
+import { Fragment, useLayoutEffect, useRef } from 'react'
 
 import { referenceKind, referenceStyle } from '@/components/assistant-ui/reference-kinds'
 import { Codicon } from '@/components/ui/codicon'
@@ -51,6 +51,32 @@ const ROW_CLASS = [
 const GROUP_HEADER_CLASS =
   'select-none px-2 pb-0.5 text-[0.625rem] font-semibold uppercase tracking-wider text-(--ui-text-tertiary)'
 
+/**
+ * Where the scrollport has to sit for the active row to be inside it.
+ *
+ * The drawer caps at 22rem — about twelve rows — and a bare `/` lists every
+ * command, every skill and every theme, while `@` lists whatever the workspace
+ * has. Arrowing past the twelfth row moved the highlight out of sight and left
+ * the list motionless, so a keyboard user was navigating a menu they could no
+ * longer see. The mouse never hit this (hovering a row means it is on screen),
+ * which is why it survived the row unification unnoticed.
+ *
+ * Numbers in, number out — no DOM, so it unit-tests without layout, and the
+ * caller writes `scrollTop` only when this returns something new (a no-op write
+ * still cancels a smooth scroll in WebKit).
+ */
+export function nearestScrollTop(view: { height: number; scrollTop: number }, row: { height: number; top: number }) {
+  if (row.top < view.scrollTop) {
+    return row.top
+  }
+
+  const overshoot = row.top + row.height - (view.scrollTop + view.height)
+
+  // A row taller than the scrollport must align to its TOP, not its bottom, or
+  // its label scrolls off the top edge to reveal empty padding.
+  return overshoot > 0 ? (row.height > view.height ? row.top : view.scrollTop + overshoot) : view.scrollTop
+}
+
 interface ComposerTriggerPopoverProps {
   activeIndex: number
   items: readonly Unstable_TriggerItem[]
@@ -79,6 +105,10 @@ interface ComposerTriggerPopoverProps {
  * `:` emoji is the one exception: the emoji IS the icon, so it renders as a
  * single display string. The old `@` branch drew it a `symbol-misc` glyph
  * beside the emoji, because `AT_ICON_BY_TYPE` had no emoji entry to find.
+ *
+ * The list following the keyboard's highlight into view is deliberately NOT
+ * desktop's (see MJXHRM-400) — the row unification covered how a row LOOKS on
+ * both apps and never covered reaching one.
  */
 export function ComposerTriggerPopover({
   activeIndex,
@@ -94,6 +124,28 @@ export function ComposerTriggerPopover({
   const copy = t.composer
   const isSlash = kind === '/'
   const isEmoji = kind === ':'
+  const listRef = useRef<HTMLDivElement | null>(null)
+  const activeRowRef = useRef<HTMLButtonElement | null>(null)
+
+  // Follow the keyboard. Layout effect, not an effect: the scroll must land in
+  // the same frame the highlight moves, or the row visibly jumps.
+  useLayoutEffect(() => {
+    const list = listRef.current
+    const row = activeRowRef.current
+
+    if (!list || !row) {
+      return
+    }
+
+    const next = nearestScrollTop(
+      { height: list.clientHeight, scrollTop: list.scrollTop },
+      { height: row.offsetHeight, top: row.offsetTop }
+    )
+
+    if (next !== list.scrollTop) {
+      list.scrollTop = next
+    }
+  }, [activeIndex, items])
 
   let lastGroup: string | undefined
 
@@ -103,6 +155,7 @@ export function ComposerTriggerPopover({
       data-slot="composer-completion-drawer"
       data-state="open"
       onMouseDown={event => event.preventDefault()}
+      ref={listRef}
       role="listbox"
     >
       {scope && <div className={cn(GROUP_HEADER_CLASS, 'pt-0.5')}>{referenceStyle(scope).label}</div>}
@@ -150,6 +203,7 @@ export function ComposerTriggerPopover({
                 data-highlighted={active ? '' : undefined}
                 onClick={() => onPick(item)}
                 onMouseEnter={() => onHover(index)}
+                ref={active ? activeRowRef : undefined}
                 type="button"
               >
                 {isEmoji ? (

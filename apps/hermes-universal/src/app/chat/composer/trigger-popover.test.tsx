@@ -2,7 +2,7 @@ import type { Unstable_TriggerItem } from '@assistant-ui/core'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { ComposerTriggerPopover } from './trigger-popover'
+import { ComposerTriggerPopover, nearestScrollTop } from './trigger-popover'
 
 /**
  * The composer's completion list — the ONE row `@`, `/` and `:` all render
@@ -12,7 +12,8 @@ import { ComposerTriggerPopover } from './trigger-popover'
  * `trigger-popover-parity.test.tsx` was part of the very commit being ported
  * (`d83d296473`) and did not come across, so every claim the unification makes
  * — one row shape, one icon vocabulary, an icon-less emoji row — was
- * unguarded. These are those guards.
+ * unguarded. These are those guards, plus the keyboard
+ * reachability the unification never covered on either app.
  */
 
 vi.mock('@/i18n', () => ({
@@ -209,6 +210,59 @@ describe('reachability', () => {
     const drawer = container.querySelector('[data-slot="composer-completion-drawer"]') as HTMLElement
 
     expect(fireEvent.mouseDown(drawer)).toBe(false)
+  })
+
+  it('scrolls the active row into view when the keyboard walks past the fold', () => {
+    const items = Array.from({ length: 40 }, (_, i) => slashItem(`/cmd${i}`, 'Commands'))
+    const rendered = renderPopover('/', items)
+    const drawer = rendered.container.querySelector('[data-slot="composer-completion-drawer"]') as HTMLElement
+
+    // jsdom has no layout: give the drawer a 100px scrollport and every row a
+    // 20px box, so row N sits at 20 * N.
+    Object.defineProperty(drawer, 'clientHeight', { configurable: true, value: 100 })
+
+    for (const [index, row] of [...rendered.container.querySelectorAll('button')].entries()) {
+      Object.defineProperty(row, 'offsetHeight', { configurable: true, value: 20 })
+      Object.defineProperty(row, 'offsetTop', { configurable: true, value: index * 20 })
+    }
+
+    // Row 4 ends exactly at the fold — still nothing to do.
+    rendered.rerender(
+      <ComposerTriggerPopover activeIndex={4} items={items} kind="/" loading={false} onHover={noop} onPick={noop} />
+    )
+    expect(drawer.scrollTop).toBe(0)
+
+    // Row 7 is past it: scroll the minimum that brings its bottom edge in.
+    rendered.rerender(
+      <ComposerTriggerPopover activeIndex={7} items={items} kind="/" loading={false} onHover={noop} onPick={noop} />
+    )
+    expect(drawer.scrollTop).toBe(60)
+
+    // ArrowUp back to the top scrolls the other way.
+    rendered.rerender(
+      <ComposerTriggerPopover activeIndex={0} items={items} kind="/" loading={false} onHover={noop} onPick={noop} />
+    )
+    expect(drawer.scrollTop).toBe(0)
+  })
+})
+
+describe('nearestScrollTop', () => {
+  const view = { height: 100, scrollTop: 40 }
+
+  it('leaves a row already inside the scrollport alone', () => {
+    expect(nearestScrollTop(view, { height: 20, top: 60 })).toBe(40)
+  })
+
+  it('aligns a row above the scrollport to its top', () => {
+    expect(nearestScrollTop(view, { height: 20, top: 10 })).toBe(10)
+  })
+
+  it('scrolls the minimum for a row below the scrollport', () => {
+    expect(nearestScrollTop(view, { height: 20, top: 150 })).toBe(70)
+  })
+
+  it('aligns a row taller than the scrollport to its top, so its label stays visible', () => {
+    expect(nearestScrollTop(view, { height: 180, top: 150 })).toBe(150)
   })
 })
 
