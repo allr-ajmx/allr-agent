@@ -9,6 +9,7 @@ import {
 import { useStore } from '@nanostores/react'
 import { type FC, useCallback, useMemo, useState } from 'react'
 
+import { branchSourceOf, useSessionView } from '@/app/chat/session-view'
 import { ChangedFilesCard } from '@/components/assistant-ui/thread/changed-files-card'
 import {
   contentHasVisibleText,
@@ -178,9 +179,17 @@ const AssistantActionBar: FC<MessageActionProps> = ({ messageId, getMessageText,
     [react]
   )
 
-  // Fork this message's turn into its own chat (same path as `/branch`), unless
-  // the host supplied its own handler.
-  const branchInNewChat = onBranchInNewChat ?? ((id: string) => void branchCurrentSession(id))
+  // Fork the conversation up to this message into its own chat (same path as
+  // `/branch`), unless the host supplied its own handler.
+  //
+  // Bound to THIS thread's session, not the foreground one. Hydrated message ids
+  // are positional (`h3-assistant`, see lib/session-history), so branching by id
+  // against the primary chat's transcript found the same-numbered message in a
+  // DIFFERENT conversation and forked that one — silently, because the id
+  // resolved (MJXHRM-388).
+  const view = useSessionView()
+
+  const branchInNewChat = onBranchInNewChat ?? ((id: string) => void branchCurrentSession(id, branchSourceOf(view)))
 
   return (
     <div className="relative flex w-full shrink-0 items-center justify-end gap-1.5">
