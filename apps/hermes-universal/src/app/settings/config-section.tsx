@@ -10,7 +10,9 @@ import { Textarea } from '@/components/ui/textarea'
 import { getHermesConfigSchema, saveHermesConfig } from '@/hermes'
 import { useI18n } from '@/i18n'
 import { cn } from '@/lib/utils'
+import { reconcileApprovalModeForProfile } from '@/store/approval-mode'
 import { notifyError } from '@/store/notifications'
+import { $activeGatewayProfile } from '@/store/profile'
 import { repoDiscoveryPolicyFromConfig, repoDiscoveryPolicySignature, scanAndRecordRepos } from '@/store/projects'
 import type { ConfigFieldSchema, HermesConfigRecord } from '@/types/hermes'
 
@@ -27,6 +29,28 @@ import { useDeepLinkHighlight } from './use-deep-link-highlight'
 // Shared by the row wrapper and the deep-link lookup so a palette jump can
 // never drift from the id the row actually renders.
 const fieldElementId = (key: string) => `setting-field-${key}`
+
+/**
+ * Approval mode has three writers in this app — Settings → Safety (this file,
+ * `PUT /api/config`), the statusbar's Zap menu (`config.set`), and `/approvals`
+ * (`slash.exec`) — and exactly one cached reader, `$approvalModes`, which the
+ * menu fills once when it mounts and nothing else ever invalidates. So a mode
+ * changed here left the bar reporting the old one for the rest of the session,
+ * and the bar's next pick wrote that stale value straight back over this save.
+ *
+ * The record we just persisted IS the new truth, so reconcile from it rather
+ * than spending a round trip. Only when it actually carries a value: a config
+ * with the key unset must keep whatever default the gateway resolves (which is
+ * NOT this cache's), or every save of an unrelated section would slam the bar to
+ * the normalizer's fallback.
+ */
+function reconcileSavedApprovalMode(config: HermesConfigRecord): void {
+  const saved = getNested(config, 'approvals.mode')
+
+  if (typeof saved === 'string' && saved.trim()) {
+    reconcileApprovalModeForProfile($activeGatewayProfile.get(), saved)
+  }
+}
 
 // The schema-driven config field: renders the right control for the schema type
 // and calls onChange with the parsed value. Ported from desktop config-settings.tsx.
@@ -319,6 +343,7 @@ export function ConfigSection({
         try {
           await saveHermesConfig(config)
           setHermesConfigCache(config)
+          reconcileSavedApprovalMode(config)
 
           if (saveVersionRef.current === v) {
             const discoverySignature = repoDiscoveryPolicySignature(repoDiscoveryPolicyFromConfig(config))
