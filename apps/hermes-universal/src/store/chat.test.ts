@@ -1031,7 +1031,9 @@ describe('restoreToMessage', () => {
 
     await expect(restoreToMessage('u2', { text: 'second ask', userOrdinal: 1 })).rejects.toThrow('nope')
 
-    expect(getInflightTurn('runtime-1')?.phase ?? 'settled').toBe('settled')
+    // The record has to EXIST and be settled — "no record at all" is the other
+    // half of the same wedge, and `?? 'settled'` would read it as a pass.
+    expect(getInflightTurn('runtime-1')).toMatchObject({ phase: 'settled', prompt: 'second ask' })
   })
 })
 

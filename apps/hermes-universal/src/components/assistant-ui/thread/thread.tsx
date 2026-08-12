@@ -120,12 +120,23 @@ export function Thread() {
     const key = sessionKey.get()
     const { messageId, text, userOrdinal } = target
 
+    // No key, no rewind. `restoreToMessage` defaults an omitted key to the
+    // ACTIVE chat, which is the one thing a rewind opened from a tile or a
+    // satellite window must never resolve to: hydrated ids are positional
+    // (`h${index}-${role}`), so this surface's id resolves against the visible
+    // chat's transcript and would truncate a conversation the user never
+    // pointed at. Refusing is the only safe reading of "I don't know which
+    // session this is".
+    if (!key) {
+      throw new Error(t.desktop.restoreNoSession)
+    }
+
     // Throws on failure, which ConfirmDialog turns into an inline error and
     // keeps itself open for — the alternative (closing optimistically) leaves a
     // truncated transcript with nothing explaining it.
-    await restoreToMessage(messageId, { text, userOrdinal }, key ?? undefined)
+    await restoreToMessage(messageId, { text, userOrdinal }, key)
     setTarget(null)
-  }, [sessionKey, target])
+  }, [sessionKey, t, target])
 
   const restoreDialog = useMemo(
     () => (
