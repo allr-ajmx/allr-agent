@@ -1,12 +1,25 @@
 import { describe, expect, it } from 'vitest'
 
+import type { CronDeliveryTarget } from '@/types/hermes'
+
 import {
+  cronDeliverSummary,
+  cronDeliveryOptions,
+  cronDeliveryTargetLabel,
   cronEditorUpdates,
   jobIsScriptOnly,
+  normalizeCronDeliverValue,
   parseCronDeliveryTargets,
   toggleCronDeliveryTarget,
   validateCronEditor
 } from './cron-job-model'
+
+const target = (id: string, homeTargetSet = true): CronDeliveryTarget => ({
+  home_env_var: null,
+  home_target_set: homeTargetSet,
+  id,
+  name: id.replace(/^./, first => first.toUpperCase())
+})
 
 describe('jobIsScriptOnly', () => {
   it('is true when no_agent is set and a script is present', () => {
@@ -133,5 +146,92 @@ describe('toggleCronDeliveryTarget', () => {
 
   it('ignores an unchecked target that was never selected', () => {
     expect(toggleCronDeliveryTarget('local,slack', 'discord', false)).toBe('local,slack')
+  })
+})
+
+describe('normalizeCronDeliverValue', () => {
+  it('passes a wire-shaped string through untouched', () => {
+    expect(normalizeCronDeliverValue('local,telegram')).toBe('local,telegram')
+  })
+
+  // The scheduler's own _normalize_deliver_value flattens this shape rather
+  // than failing on it, so a job stored as a list is a live job with real
+  // routes. Reading it as "nothing" showed the editor local-only and SAVED
+  // that back, deleting routes the user never touched.
+  it('flattens the legacy list shape instead of discarding it', () => {
+    expect(normalizeCronDeliverValue(['telegram', 'discord'])).toBe('telegram,discord')
+    expect(normalizeCronDeliverValue([' telegram ', '', 'discord'])).toBe('telegram,discord')
+  })
+
+  it('is empty for a value that carries no targets at all', () => {
+    expect(normalizeCronDeliverValue(null)).toBe('')
+    expect(normalizeCronDeliverValue(undefined)).toBe('')
+    expect(normalizeCronDeliverValue(7)).toBe('')
+  })
+
+  it('feeds parseCronDeliveryTargets, so a list job ticks its real boxes', () => {
+    expect(parseCronDeliveryTargets(['telegram', 'discord'])).toEqual(['telegram', 'discord'])
+  })
+})
+
+describe('cronDeliveryOptions', () => {
+  it('offers exactly what discovery reports when the job holds nothing else', () => {
+    expect(cronDeliveryOptions([target('local'), target('telegram')], 'local').map(row => row.id)).toEqual([
+      'local',
+      'telegram'
+    ])
+  })
+
+  it('carries a stored target discovery no longer reports', () => {
+    const rows = cronDeliveryOptions([target('local')], 'local,discord')
+
+    expect(rows.map(row => row.id)).toEqual(['local', 'discord'])
+  })
+
+  it('never lists a target twice', () => {
+    expect(cronDeliveryOptions([target('local'), target('telegram')], 'local,telegram').map(row => row.id)).toEqual([
+      'local',
+      'telegram'
+    ])
+  })
+})
+
+describe('cronDeliveryTargetLabel', () => {
+  const labels = { local: 'This desktop', telegram: 'Telegram' }
+
+  it('prefers the translated label over the backend name', () => {
+    expect(cronDeliveryTargetLabel(target('telegram'), labels, 'set a home channel first')).toBe('Telegram')
+  })
+
+  it("falls back to the backend's own name for a platform with no translation", () => {
+    expect(cronDeliveryTargetLabel(target('mattermost'), labels, 'set a home channel first')).toBe('Mattermost')
+  })
+
+  it('flags a platform that would deliver nowhere', () => {
+    expect(cronDeliveryTargetLabel(target('telegram', false), labels, 'set a home channel first')).toBe(
+      'Telegram — set a home channel first'
+    )
+  })
+
+  it('never flags local, which needs no home channel', () => {
+    expect(cronDeliveryTargetLabel(target('local', false), labels, 'set a home channel first')).toBe('This desktop')
+  })
+})
+
+describe('cronDeliverSummary', () => {
+  const labels = { local: 'This desktop', telegram: 'Telegram' }
+
+  // The whole point of the ticket read back: a fanned-out job must not read as
+  // if it delivers to one place.
+  it('names every target, not just the first', () => {
+    expect(cronDeliverSummary('local,telegram', labels)).toBe('This desktop, Telegram')
+  })
+
+  it('shows an untranslated target under its raw id rather than dropping it', () => {
+    expect(cronDeliverSummary('local,mattermost', labels)).toBe('This desktop, mattermost')
+  })
+
+  it('summarizes the legacy list shape too', () => {
+    expect(cronDeliverSummary(['local', 'telegram'], labels)).toBe('This desktop, Telegram')
   })
 })

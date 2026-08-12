@@ -1,4 +1,4 @@
-import type { CronJob, CronJobUpdates } from '@/types/hermes'
+import type { CronDeliveryTarget, CronJob, CronJobUpdates } from '@/types/hermes'
 
 const asText = (value: unknown): string => (typeof value === 'string' ? value : '')
 
@@ -48,10 +48,29 @@ export interface CronEditorSaveValues {
 /**
  * `deliver` is ONE string on the wire, not a list: the scheduler splits it on
  * commas (`cron/scheduler.py` `_normalize_deliver_value`), so "local,telegram"
- * fans a run out to both. These two helpers are the whole multi-target model.
+ * fans a run out to both.
+ *
+ * A STORED value can still be a list, though — the scheduler's own normalizer
+ * documents MCP clients, hand-edited `jobs.json` and older code paths writing
+ * `["telegram"]`, and it flattens them rather than failing. Reading such a job
+ * as "not a string" showed it as local-only in the editor AND wrote that back
+ * on the next save, silently deleting a route the user never touched. Flatten
+ * the same way the backend does so a read is lossless.
  */
-export function parseCronDeliveryTargets(value: string): string[] {
-  const targets = value
+export function normalizeCronDeliverValue(value: unknown): string {
+  if (Array.isArray(value)) {
+    return value
+      .map(part => asText(part).trim())
+      .filter(Boolean)
+      .join(',')
+  }
+
+  return asText(value)
+}
+
+/** Split a stored `deliver` value into its targets; '' (or nothing) = local. */
+export function parseCronDeliveryTargets(value: unknown): string[] {
+  const targets = normalizeCronDeliverValue(value)
     .split(',')
     .map(target => target.trim())
     .filter(Boolean)
@@ -73,6 +92,47 @@ export function toggleCronDeliveryTarget(value: string, target: string, checked:
   }
 
   return targets.filter(candidate => candidate !== target).join(',')
+}
+
+/**
+ * The rows the delivery checkbox group renders: everything discovery reports,
+ * plus any target the job already stores that discovery does NOT report — a
+ * platform disconnected since the job was written, or a routing form this app
+ * never offers (`origin`, `all`, `telegram:-100:17`). Dropping those would let
+ * a plain "open and save" delete a route the user never touched, so they are
+ * carried through as their own row instead.
+ */
+export function cronDeliveryOptions(targets: CronDeliveryTarget[], value: unknown): CronDeliveryTarget[] {
+  const known = new Set(targets.map(target => target.id))
+
+  return [
+    ...targets,
+    ...parseCronDeliveryTargets(value)
+      .filter(id => !known.has(id))
+      .map(id => ({ home_env_var: null, home_target_set: true, id, name: id }))
+  ]
+}
+
+/**
+ * One row's label. A configured platform with no cron home channel is told so
+ * inline rather than hidden: the backend still offers it, and ticking it there
+ * delivers nowhere. `local` is exempt — it needs no channel.
+ */
+export function cronDeliveryTargetLabel(
+  target: CronDeliveryTarget,
+  labels: Record<string, string>,
+  needsHomeChannel: string
+): string {
+  const base = labels[target.id] ?? target.name
+
+  return target.id !== 'local' && !target.home_target_set ? `${base} — ${needsHomeChannel}` : base
+}
+
+/** The stored `deliver` value rendered for reading: EVERY target, labelled. */
+export function cronDeliverSummary(value: unknown, labels: Record<string, string>): string {
+  return parseCronDeliveryTargets(value)
+    .map(target => labels[target] ?? target)
+    .join(', ')
 }
 
 /** Build the API update payload, preserving an empty prompt on script-only jobs. */

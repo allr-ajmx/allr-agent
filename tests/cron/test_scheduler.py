@@ -1936,6 +1936,33 @@ class TestMultiTargetDeliveryContinuesOnFailure:
         assert "b@example.com" in result
         assert mock_pool.submit.call_count == 2
 
+    def test_returned_error_names_the_target_it_belongs_to(self):
+        """A send that RETURNS an error instead of raising must still say
+        which target it was.
+
+        The raising path has always carried "delivery to <platform>:<chat>";
+        the result-dict path said only "delivery error: <string>". With
+        fan-out, two targets failing the same way produce two identical
+        lines, and that joined string is the whole of last_delivery_error —
+        the one thing a UI can show. Unattributable there means the user
+        cannot tell which destination went down, or that both did.
+        """
+        job = {
+            "id": "returned-error-job",
+            "deliver": "email:a@example.com,email:b@example.com",
+        }
+
+        with patch("gateway.config.load_gateway_config", return_value=self._email_cfg()), \
+             patch("cron.scheduler.load_config", return_value={"cron": {"wrap_response": False}}), \
+             patch("asyncio.run", return_value={"error": "SMTP 550 rejected"}):
+            result = _deliver_result(job, "Report content")
+
+        assert result is not None
+        assert "a@example.com" in result
+        assert "b@example.com" in result
+        assert result.count("SMTP 550 rejected") == 2
+
+
 class TestBuildJobPromptExtraPrompt:
     """Regression: _build_job_prompt merges extra_prompt into the assembled prompt."""
 

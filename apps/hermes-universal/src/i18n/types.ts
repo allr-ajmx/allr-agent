@@ -1513,6 +1513,7 @@ export interface Translations {
     frequencyLabel: string
     deliverLabel: string
     deliverNeedsHomeChannel: string
+    deliveryFailed: string
     modelLabel: string
     modelDefault: string
     customScheduleLabel: string
