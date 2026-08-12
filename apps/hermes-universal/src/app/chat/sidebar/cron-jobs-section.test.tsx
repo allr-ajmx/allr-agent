@@ -102,18 +102,26 @@ describe('cron sidebar row actions', () => {
   it('acts on ITS OWN row, not on whichever job the list happens to sort first', async () => {
     const props = renderSection()
 
-    // 'Alpha backup' sorts LAST by next run and FIRST alphabetically — a menu
-    // wired to the section rather than the row would hit the other one.
+    // Both verbs are asked of 'Alpha backup', which the section sorts LAST (it
+    // runs later) and the cron surface sorts FIRST (alphabetically). A handler
+    // bound to "the first row" instead of its own hits 'Zulu digest' either way.
     openRowMenu('Alpha backup')
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Pause cron' }))
 
     await waitFor(() => expect(hermes.pauseCronJob).toHaveBeenCalledWith('alpha-job'))
     expect(hermes.pauseCronJob).toHaveBeenCalledTimes(1)
 
-    openRowMenu('Zulu digest')
+    openRowMenu('Alpha backup')
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Manage' }))
 
-    expect(props.onManageJob).toHaveBeenCalledWith('zulu-job')
+    expect(props.onManageJob).toHaveBeenCalledWith('alpha-job')
+    expect(props.onManageJob).toHaveBeenCalledTimes(1)
+
+    // …and the row's own trigger button, which shares the same prop chain.
+    openRowMenu('Zulu digest')
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Trigger now' }))
+
+    expect(props.onTriggerJob).toHaveBeenCalledWith('zulu-job')
   })
 
   it('asks before deleting, and deletes the row it was opened on', async () => {
