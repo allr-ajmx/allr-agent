@@ -555,6 +555,39 @@ export const sessionMatchesStoredId = (
   storedSessionId: string
 ): boolean => session.id === storedSessionId || session._lineage_root_id === storedSessionId
 
+/**
+ * EVERY id that names this conversation: the one the caller is holding, plus
+ * the resolved row's live tip and its durable lineage root.
+ *
+ * Auto-compression ROTATES a session's stored id, and universal deliberately
+ * does not rename the surfaces holding the old one — tiles, mobile bubbles,
+ * layout pane ids and the persisted `hermes.*` blobs all keep the pre-rotation
+ * id, and the stored-id index aliases them onto the live slice instead
+ * (MJX-133, `store/session-state-types.ts`). Row LOOKUP has always followed
+ * that (`sessionMatchesStoredId`), but the live-status collections are keyed by
+ * the slice's CURRENT stored id alone, so anything asking them under the old id
+ * — a tile tab's status dot, a bubble's badge — read `idle` straight through a
+ * running turn, and missed needs-input and unread with it. Ask under every
+ * alias, exactly as desktop's `$sessionDotStateById` claims under every one.
+ *
+ * Same id/root equivalence the rest of universal uses, so no caller gains an
+ * answer the row lookup would disagree with.
+ */
+export function sessionAliasIds(
+  storedSessionId: null | string,
+  session?: null | Pick<SessionInfo, '_lineage_root_id' | 'id'>
+): string[] {
+  const ids: string[] = []
+
+  for (const id of [storedSessionId, session?.id, session?._lineage_root_id]) {
+    if (id && !ids.includes(id)) {
+      ids.push(id)
+    }
+  }
+
+  return ids
+}
+
 /** Pin/unpin the active session — the `session.togglePin` keybind action.
  *  Adapted from desktop `app/contrib/wiring.tsx`; pins are keyed by the durable
  *  lineage id so the pin survives auto-compression. */
@@ -1552,7 +1585,7 @@ export async function renameSessionLocal(id: string, title: string): Promise<voi
  *  keyed on the durable lineage root rather than the live tip after a
  *  compression, so both have to fall or the row comes back under the other id. */
 function removalIds(session: SessionInfo | undefined, id: string): string[] {
-  return [id, session?.id, session?._lineage_root_id].filter((value): value is string => Boolean(value))
+  return sessionAliasIds(id, session)
 }
 
 export async function deleteSessionLocal(id: string): Promise<void> {
