@@ -6,6 +6,7 @@ import { QUICK_ENTRY_SURFACE } from '@/app/quick-entry/quick-entry'
 import { QuickEntryWindowRoot } from '@/app/quick-entry/quick-entry-window'
 import { RemoteFolderPicker } from '@/app/right-pane/files/remote-picker'
 import { TileWindowRoot } from '@/app/tile-window'
+import { FindBar } from '@/components/find-bar'
 import { isActivityWindow, isTileWindow, satelliteSurface } from '@/store/windows'
 
 /**
@@ -19,7 +20,14 @@ import { isActivityWindow, isTileWindow, satelliteSurface } from '@/store/window
  * that skip `ContribController`: the detached tile window, the HUD, and the
  * Android/iOS activity screen (which IS the Settings/Profiles surface there).
  *
- * Mounted HERE rather than once per root so the next root cannot forget it —
+ * `FindBar` (MJXHRM-387) is the second. It used to mount inside
+ * `MobileController` only, so ⌘F searched the main shell and nothing else —
+ * dead in a detached chat window showing a whole transcript, dead in the HUD
+ * holding the same conversation, dead on the Android activity screen. It renders
+ * nothing until opened and carries its own accelerator where no dispatcher
+ * exists, so mounting it per window is free.
+ *
+ * Mounted HERE rather than once per root so the next root cannot forget them —
  * the failure mode is silence, which is the kind that ships.
  */
 export function App() {
@@ -27,6 +35,7 @@ export function App() {
     <>
       <AppRoot />
       <RemoteFolderPicker />
+      <FindBar />
     </>
   )
 }

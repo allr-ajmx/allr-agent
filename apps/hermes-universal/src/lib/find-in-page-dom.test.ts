@@ -41,6 +41,28 @@ describe('countDomTextMatches', () => {
     expect(countDomTextMatches('needle')).toBe(1)
   })
 
+  it('ignores text an inline style has taken out of the render', () => {
+    mount('<p style="display:none">needle</p><p style="visibility:hidden">needle</p><p>needle</p>')
+
+    expect(countDomTextMatches('needle')).toBe(1)
+  })
+
+  // A closed <details> renders its summary and nothing else, so window.find can
+  // never land in its body. Counting it would put a number by the input that no
+  // amount of pressing "next" can reach — collapsed tool output and the
+  // user-message "output" drawer are both this shape.
+  it('counts a collapsed block’s summary but not its hidden body', () => {
+    mount('<details><summary>needle summary</summary><pre>needle body</pre></details>')
+
+    expect(countDomTextMatches('needle')).toBe(1)
+  })
+
+  it('counts a collapsed block’s body once it is open', () => {
+    mount('<details open><summary>needle summary</summary><pre>needle body</pre></details>')
+
+    expect(countDomTextMatches('needle')).toBe(2)
+  })
+
   it('stops at the cap instead of walking a huge document', () => {
     mount(`<p>${'x '.repeat(50)}</p>`)
 
@@ -54,10 +76,37 @@ describe('countDomTextMatches', () => {
     expect(countDomTextMatches('anything', null)).toBe(0)
   })
 
-  // The documented limit: a match split across elements is invisible to a
-  // per-text-node scan, even though window.find would land on it.
-  it('misses a match split across elements (known limit)', () => {
+  // The engine flattens an inline run before matching, so a query straddling
+  // element boundaries IS a match — and window.find selects it. A per-text-node
+  // scan reported 0 here, leaving the bar showing 0/0 over a highlighted hit.
+  it('counts a match split across inline elements', () => {
     mount('<p><b>He</b>rmes</p>')
+
+    expect(countDomTextMatches('hermes')).toBe(1)
+  })
+
+  // The real shape of the above: Shiki emits one span per token, so any query
+  // crossing a token boundary lands here.
+  it('counts a match split across syntax-highlighted tokens', () => {
+    mount('<pre><code><span>foo</span><span>.</span><span>bar</span></code></pre>')
+
+    expect(countDomTextMatches('foo.bar')).toBe(1)
+  })
+
+  it('does not fuse text across a block boundary into a match that is not there', () => {
+    mount('<p>her</p><p>mes</p>')
+
+    expect(countDomTextMatches('hermes')).toBe(0)
+  })
+
+  it('does not fuse text across a line break', () => {
+    mount('<p>her<br>mes</p>')
+
+    expect(countDomTextMatches('hermes')).toBe(0)
+  })
+
+  it('does not fuse text across a hidden span', () => {
+    mount('<p>her<span hidden>XXX</span>mes</p>')
 
     expect(countDomTextMatches('hermes')).toBe(0)
   })

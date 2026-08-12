@@ -24,7 +24,7 @@ import {
   findPrevious as findPreviousMatch,
   openFindBar
 } from '@/store/find-in-page'
-import { $capture, $comboIndex, endCapture, setBinding } from '@/store/keybinds'
+import { $capture, $comboIndex, endCapture, registerKeybindDispatcher, setBinding } from '@/store/keybinds'
 import {
   $terminalOpen,
   FILE_TREE_PANE_ID,
@@ -446,12 +446,18 @@ export function useKeybinds(deps: KeybindRuntimeDeps): void {
       }
     }
 
+    // Announce that THIS window has a combo dispatcher, so a surface that
+    // installs its own fallback listener for satellite roots (the find bar)
+    // stands down here instead of handling the same combo twice.
+    const releaseDispatcher = registerKeybindDispatcher()
+
     window.addEventListener('keydown', onKeyDown, { capture: true })
     window.addEventListener('keyup', onKeyUp, { capture: true })
     window.addEventListener('blur', onBlur)
     window.addEventListener('contextmenu', onContextMenu, { capture: true })
 
     return () => {
+      releaseDispatcher()
       window.removeEventListener('keydown', onKeyDown, { capture: true })
       window.removeEventListener('keyup', onKeyUp, { capture: true })
       window.removeEventListener('blur', onBlur)

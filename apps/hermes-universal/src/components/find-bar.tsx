@@ -5,6 +5,7 @@ import { Codicon } from '@/components/ui/codicon'
 import { Tip } from '@/components/ui/tooltip'
 import { useI18n } from '@/i18n'
 import { findBarKeyAction, formatMatchLabel } from '@/lib/find-in-page'
+import { comboAllowedInInput, comboFromEvent } from '@/lib/keybinds/combo'
 import { cn } from '@/lib/utils'
 import { useStore } from '@/store/atom'
 import {
@@ -13,20 +14,62 @@ import {
   findNext,
   findPrevious,
   initFindInPageListener,
+  openFindBar,
   setFindQuery
 } from '@/store/find-in-page'
+import { $comboIndex, keybindDispatcherMounted } from '@/store/keybinds'
+
+/**
+ * Opens the bar in a window that has no global combo dispatcher.
+ *
+ * `useKeybinds` mounts only in the main shell, and this component now renders in
+ * EVERY window root (see `app.tsx`) — a detached tile showing a whole transcript,
+ * the HUD, an Android activity screen. Without this, ⌘F in any of them did
+ * nothing at all.
+ *
+ * Reads the same `$comboIndex` the real dispatcher does, so a rebound
+ * `view.findInPage` works here too and a combo the user moved elsewhere does
+ * not. Stands down entirely when the global dispatcher is mounted, so the main
+ * shell keeps exactly one handler.
+ */
+function useSatelliteFindShortcut(active: boolean): void {
+  useEffect(() => {
+    if (active || keybindDispatcherMounted()) {
+      return undefined
+    }
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      const combo = comboFromEvent(event)
+
+      if (!combo || $comboIndex.get().get(combo) !== 'view.findInPage' || !comboAllowedInInput(combo)) {
+        return
+      }
+
+      event.preventDefault()
+      openFindBar()
+    }
+
+    window.addEventListener('keydown', onKeyDown, { capture: true })
+
+    return () => window.removeEventListener('keydown', onKeyDown, { capture: true })
+  }, [active])
+}
 
 /**
  * Find-in-page overlay (⌘F).
  *
- * Drives WebKitGTK's own find controller through the Rust commands in
- * `src-tauri/src/find_in_page.rs`, so the user gets the engine's incremental
- * search — highlight, step, Escape to clear — over the rendered transcript and
- * editor panels rather than a DOM scan that cannot see virtualized rows.
+ * On Linux this drives WebKitGTK's own find controller through the Rust commands
+ * in `src-tauri/src/find_in_page.rs`; everywhere else it drives `window.find`
+ * plus a text scan (`lib/find-in-page-dom.ts`). Either way the user gets an
+ * incremental search — highlight, step, Escape to clear — over the rendered
+ * transcript and editor panels. Neither path can see transcript turns the render
+ * budget has unmounted.
  *
  * Accelerators, matching the platform convention: ⌘F opens (the
  * `view.findInPage` keybind), ⌘G / ⌘⇧G step from anywhere while the bar is open,
- * Enter / ⇧Enter step from the input, Escape closes and clears the highlight.
+ * Enter / ⇧Enter step from the input, Escape closes and clears the highlight. A
+ * device with no hardware keyboard reaches it from the command palette instead —
+ * ⌘F is not an affordance on a phone.
  *
  * Key routing lives in `lib/find-in-page.ts` as a pure matcher so the
  * accelerator set is testable without a DOM.
@@ -62,6 +105,8 @@ export function FindBar() {
 
     return undefined
   }, [active])
+
+  useSatelliteFindShortcut(active)
 
   // Match counts from the engine. Refcounted in the store, so a remount can't
   // stack listeners; deliberately mount-scoped and NOT tied to `active` —

@@ -50,6 +50,7 @@ import {
   Paw,
   Plug,
   RefreshCw,
+  Search,
   Settings2,
   SlidersHorizontal,
   Sun,
@@ -67,6 +68,7 @@ import {
   closeCommandPalette,
   setCommandPaletteOpen
 } from '@/store/command-palette'
+import { findInPageSupported, openFindBar } from '@/store/find-in-page'
 import { $bindings, bindingsFor } from '@/store/keybinds'
 import { $dismissedAutoProjectIds, $terminalOpen, setTerminalOpen } from '@/store/layout'
 import { openPetGenerate } from '@/store/pet-generate'
@@ -540,6 +542,24 @@ function CommandPaletteBody({ onExited }: { onExited: () => void }) {
           ...coreRows,
           // Not destinations, so they can't be module-load registrations: both
           // depend on runtime capability rather than on a route existing.
+          // Find-in-page had exactly ONE way in: the ⌘F keybind. That is not an
+          // affordance on a phone, so the feature MJXHRM-387 shipped for Android
+          // could not be opened there at all. This row is the touch door — the
+          // palette itself is reachable from the drawer and the titlebar search
+          // button — and it doubles as the discoverable one on desktop, where
+          // `action` renders the live (rebindable) combo beside it.
+          ...(findInPageSupported()
+            ? [
+                {
+                  action: 'view.findInPage',
+                  icon: Search,
+                  id: 'view-find-in-page',
+                  keywords: ['find', 'search', 'page', 'text', 'transcript', 'highlight'],
+                  label: t.keybinds.actions['view.findInPage'],
+                  run: () => openFindBar()
+                }
+              ]
+            : []),
           ...(canOpenNewWindow()
             ? [
                 {
