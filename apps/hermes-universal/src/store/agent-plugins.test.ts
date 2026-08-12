@@ -6,6 +6,7 @@ import {
   $agentPluginsError,
   $agentPluginsStatus,
   type AgentPluginRow,
+  type GatewayRequest,
   loadAgentPlugins,
   resetAgentPlugins,
   toggleAgentPlugin
@@ -63,6 +64,25 @@ describe('toggleAgentPlugin', () => {
 
     expect(stuck).toBe(true)
     expect($agentPlugins.get()[0]?.status).toBe('disabled')
+    expect($agentPluginBusy.get()).toBeNull()
+  })
+
+  // The row's switch keys its disabled state off this, so "null at the end" is
+  // only half the contract — it has to name the row WHILE the RPC is out.
+  it('names the in-flight row for the whole round trip', async () => {
+    $agentPlugins.set([row()])
+
+    let busyDuringFlight: null | string = null
+
+    const request = vi.fn(async () => {
+      busyDuringFlight = $agentPluginBusy.get()
+
+      return { ok: true, plugin: row({ status: 'disabled' }) }
+    }) as unknown as GatewayRequest
+
+    await toggleAgentPlugin(request, 'image_gen/fal', false, 'nope')
+
+    expect(busyDuringFlight).toBe('image_gen/fal')
     expect($agentPluginBusy.get()).toBeNull()
   })
 
