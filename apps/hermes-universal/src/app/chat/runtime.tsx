@@ -126,12 +126,20 @@ export function ChatRuntimeProvider({ children }: { children: ReactNode }) {
     // Editing a past prompt IS used: the inline edit composer sends through
     // here. `sourceId` is the message being replaced (`parentId` on the first
     // edit of a turn); submitting rewinds to it and re-runs with the new text.
+    //
+    // Addressed to THIS surface's session, read at submit time. One of these
+    // runtimes is mounted per chat — the main pane and every tile — and the
+    // rewind it drives is a destructive truncation, so it must never resolve
+    // "whichever chat is active": a tile's positional message id
+    // (`h${index}-user`) resolves perfectly well against the main pane's
+    // transcript and would cut THAT conversation instead.
     onEdit: async message => {
       const sourceId = message.sourceId ?? message.parentId
       const text = message.content.map(part => ('text' in part ? part.text : '')).join('')
+      const key = view.$runtimeId.get()
 
-      if (sourceId) {
-        await submitEditedPrompt(sourceId, text)
+      if (sourceId && key) {
+        await submitEditedPrompt(sourceId, text, key)
       }
     }
   })

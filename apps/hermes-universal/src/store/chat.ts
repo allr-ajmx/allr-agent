@@ -932,13 +932,46 @@ async function runRewindSubmit(
  * the new text. Optimistically truncates everything after the edited message so
  * the abandoned replies disappear immediately, and rolls the whole transcript
  * back if the gateway rejects. Ported from desktop's `editMessage`.
+ *
+ * Addressed BY KEY, like every other session verb in this store (`interruptSession`,
+ * `redirectPrompt`, `restoreToMessage`, the four responders). Every user bubble
+ * in the app is an edit trigger — `UserMessage` sits behind an
+ * `ActionBarPrimitive.Edit`, and a session TILE mounts the same `ChatScreen`
+ * (`app/chat/session-tile.tsx`) — but this one read the ACTIVE chat's transcript
+ * and runtime id instead of the surface's own. Editing a bubble in a tile
+ * therefore rewound the main pane. Not merely the wrong target: hydrated message
+ * ids are positional (`h${index}-${role}` in `lib/session-history.ts`), so the
+ * tile's `h4-user` RESOLVES against the main pane's transcript, and the edit
+ * truncated a different conversation at that index and re-ran the tile's text
+ * there — a destructive `replace_messages()` on a session the user was not even
+ * editing. Desktop keeps the two apart by giving tiles their own action hook
+ * (`session-tile-actions.ts`); universal serves both from one component tree, so
+ * the key has to travel with the call.
  */
-export async function submitEditedPrompt(sourceId: string, rawText: string): Promise<void> {
-  const sessionId = $sessionId.get()
-  const messages = $messages.get()
+export async function submitEditedPrompt(
+  sourceId: string,
+  rawText: string,
+  editKey = $activeSessionKey.get()
+): Promise<void> {
+  const slice = $sessionStates.get()[editKey]
+  const sessionId = slice?.runtimeSessionId
+  const messages = slice?.messages ?? EMPTY_MESSAGES
   const plan = sessionId ? planEdit(messages, sourceId, rawText) : null
 
-  if (!sessionId || !plan) {
+  if (!sessionId) {
+    return
+  }
+
+  if (!plan) {
+    // A no-op edit (same text) or a non-user target is nothing to report. A
+    // source id that does not resolve is: the user typed a replacement, pressed
+    // Enter, and the words are gone with the editor. That happens when an
+    // auto-compaction re-keys the transcript under an open editor — the same
+    // drift `planRestore` carries an ordinal fallback for.
+    if (!messages.some(message => message.id === sourceId)) {
+      notifyError(new Error(translateNow('desktop.restoreMissing')), translateNow('desktop.editFailed'))
+    }
+
     return
   }
 
@@ -953,16 +986,15 @@ export async function submitEditedPrompt(sourceId: string, rawText: string): Pro
   clearNotifications()
   clearPreviewArtifacts(sessionId)
 
-  const wasBusy = $busy.get()
-  // Captured before the await: a mid-edit chat switch must not apply this
-  // truncation (or its rollback) to whichever session is on screen when the
-  // submit settles.
-  const editKey = $activeSessionKey.get()
+  // This session's busy, not the visible chat's — a tile edit read the main
+  // pane's `$busy` and either interrupted a turn nobody asked it to or skipped
+  // the interrupt its own live turn needed.
+  const wasBusy = Boolean(slice.busy)
 
   const target: RewindTarget = {
     key: editKey,
     sessionId,
-    storedId: $sessionStates.get()[editKey]?.storedSessionId ?? null
+    storedId: slice.storedSessionId
   }
 
   updateSession(editKey, state => ({

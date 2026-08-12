@@ -655,13 +655,18 @@ describe('submitEditedPrompt (edit + rewind)', () => {
   // REGRESSION: assistant-ui addresses the edit by message id. When the runtime
   // converter dropped our ids (app/chat/runtime.tsx), `sourceId` was a generated
   // id that never matched, so Enter after an edit silently did nothing.
-  it('does nothing when the source id is not in the transcript', async () => {
+  //
+  // It must still submit nothing — but it must SAY so. The user typed a
+  // replacement and pressed Enter; the words leave with the editor either way,
+  // and swallowing it is how the runtime bug above stayed invisible.
+  it('reports a source id that is not in the transcript instead of silently dropping the edit', async () => {
     seedTurns()
 
     await submitEditedPrompt('not-a-real-id', 'revised')
 
     expect(requestGateway).not.toHaveBeenCalled()
     expect($messages.get()).toHaveLength(4)
+    expect(notifyError).toHaveBeenCalled()
   })
 
   it('ignores a no-op edit and a non-user target', async () => {
@@ -672,6 +677,67 @@ describe('submitEditedPrompt (edit + rewind)', () => {
 
     expect(requestGateway).not.toHaveBeenCalled()
     expect($messages.get()).toHaveLength(4)
+    // Both targets resolved; there is simply nothing to send. Not an error.
+    expect(notifyError).not.toHaveBeenCalled()
+  })
+
+  // Every user bubble in the app is an edit trigger, and a session TILE mounts
+  // the same thread (app/chat/session-tile.tsx). This used to read the ACTIVE
+  // chat's transcript and runtime id, so a tile's edit rewound the main pane —
+  // and because hydrated ids are positional (`h${index}-${role}`), the tile's id
+  // RESOLVED there, truncating a conversation the user was not editing and
+  // re-running the tile's text into it.
+  it('rewinds the session it was handed, not the one on screen', async () => {
+    seedActiveSession('runtime-main', {
+      messages: [
+        { id: 'h0-user', role: 'user', parts: [{ type: 'text', text: 'main first ask' }] },
+        { id: 'h1-assistant', role: 'assistant', parts: [{ type: 'text', text: 'main answer' }] },
+        { id: 'h2-user', role: 'user', parts: [{ type: 'text', text: 'main second ask' }] },
+        { id: 'h3-assistant', role: 'assistant', parts: [{ type: 'text', text: 'main second answer' }] }
+      ]
+    })
+    seedSession('runtime-tile', {
+      messages: [
+        { id: 'h0-user', role: 'user', parts: [{ type: 'text', text: 'tile first ask' }] },
+        { id: 'h1-assistant', role: 'assistant', parts: [{ type: 'text', text: 'tile answer' }] },
+        { id: 'h2-user', role: 'user', parts: [{ type: 'text', text: 'tile second ask' }] },
+        { id: 'h3-assistant', role: 'assistant', parts: [{ type: 'text', text: 'tile second answer' }] }
+      ]
+    })
+    vi.mocked(requestGateway).mockResolvedValue({})
+
+    await submitEditedPrompt('h2-user', 'tile second ask, revised', 'runtime-tile')
+
+    expect(requestGateway).toHaveBeenCalledWith(
+      'prompt.submit',
+      expect.objectContaining({ session_id: 'runtime-tile', text: 'tile second ask, revised' }),
+      expect.anything()
+    )
+    expect(sessionMessages('runtime-tile').map(m => m.id)).toEqual(['h0-user', 'h1-assistant', 'h2-user'])
+    // The chat on screen is untouched — no truncation, no busy, no re-run.
+    expect(sessionMessages('runtime-main').map(m => m.id)).toEqual([
+      'h0-user',
+      'h1-assistant',
+      'h2-user',
+      'h3-assistant'
+    ])
+    expect($busy.get()).toBe(false)
+  })
+
+  // `wasBusy` decides whether the rewind interrupts first. Read off the visible
+  // chat it answered for the wrong session in both directions: interrupting a
+  // tile that was idle, or skipping the interrupt its own live turn needed.
+  it('interrupts by the target session’s own busy state, not the visible chat’s', async () => {
+    seedActiveSession('runtime-main', { busy: true, messages: [] })
+    seedSession('runtime-tile', {
+      busy: false,
+      messages: [{ id: 'h0-user', role: 'user', parts: [{ type: 'text', text: 'tile ask' }] }]
+    })
+    vi.mocked(requestGateway).mockResolvedValue({})
+
+    await submitEditedPrompt('h0-user', 'tile ask, revised', 'runtime-tile')
+
+    expect(vi.mocked(requestGateway).mock.calls.map(call => call[0])).toEqual(['prompt.submit'])
   })
 
   it('restores the original transcript when the gateway rejects', async () => {
