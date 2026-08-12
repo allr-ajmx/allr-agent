@@ -42,14 +42,9 @@ function statusOf(overrides: Partial<StatusResponse> = {}): StatusResponse {
 }
 
 describe('configFloorVerdict — the gateway decides', () => {
-  it('takes the reported verdict, floor version included', () => {
-    expect(
-      configFloorVerdict(
-        statusOf({ config_floor_warning: { below_floor: true, support_floor_version: 12 }, config_version: 11 })
-      )
-    ).toEqual({ below: true, floor: 12 })
-  })
-
+  // Every case here reports a verdict the client's own arithmetic would NOT
+  // reach. A case where the two agree proves nothing: it passes just as well
+  // against a client that ignores the field entirely, which is the bug.
   it('takes the reported floor version even when it has moved off the client literal', () => {
     // The whole point of shipping the floor: the client must not need a release
     // to follow the backend's policy.
