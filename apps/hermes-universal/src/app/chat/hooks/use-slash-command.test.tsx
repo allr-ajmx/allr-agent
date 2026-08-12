@@ -15,6 +15,7 @@ vi.mock('@/store/gateway', async () => {
 })
 
 import { type SessionView, SessionViewProvider } from '@/app/chat/session-view'
+import { GatewayRpcError } from '@/gateway/rpc-error'
 import { $approvalModes } from '@/store/approval-mode'
 import type * as ChatStoreModule from '@/store/chat'
 import { $messages, $sessionId, resetChat, sendPrompt } from '@/store/chat'
@@ -322,6 +323,36 @@ describe('useSlashCommand', () => {
       // or every later correction queues instead of steering, forever.
       expect(sessionCompacting('compress-2').get()).toBe(false)
       expect($compactingSessions.get()).toEqual({})
+    })
+  })
+
+  // `session.compress` is newer than gateways people are still pointed at, and
+  // this branch is the whole reason /compress keeps working on them. It had no
+  // test, and the copy of the missing-method predicate that used to guard it had
+  // silently lost `-32601` (MJXHRM-205) — which is exactly the failure a test
+  // here would have caught: the command printing `error: ...` instead of
+  // summarizing through the slash worker.
+  describe('/compress on a gateway that never shipped it', () => {
+    it('falls back to the slash worker instead of printing the RPC error', async () => {
+      vi.mocked(requestGateway)
+        .mockRejectedValueOnce(new GatewayRpcError('unknown method: session.compress', -32601))
+        .mockResolvedValueOnce({ output: 'compacted 4 messages' } as never)
+
+      await run('/compress')
+
+      expect(vi.mocked(requestGateway).mock.calls.map(call => call[0])).toEqual(['session.compress', 'slash.exec'])
+      expect(requestGateway).toHaveBeenLastCalledWith('slash.exec', { session_id: 'sess-1', command: 'compress' })
+      expect(systemLines().join('\n')).toContain('compacted 4 messages')
+      expect(systemLines().join('\n')).not.toContain('error:')
+    })
+
+    it('still shows a genuine compress failure rather than quietly re-running it', async () => {
+      vi.mocked(requestGateway).mockRejectedValue(new GatewayRpcError('session busy', 4009))
+
+      await run('/compress')
+
+      expect(vi.mocked(requestGateway).mock.calls.map(call => call[0])).toEqual(['session.compress'])
+      expect(systemLines().join('\n')).toContain('error: session busy')
     })
   })
 
