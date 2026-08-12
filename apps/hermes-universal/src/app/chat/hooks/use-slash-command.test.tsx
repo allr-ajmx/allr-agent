@@ -65,6 +65,15 @@ const systemLines = () =>
     .map(m => m.parts.map(p => ('text' in p ? p.text : '')).join(''))
 
 beforeEach(() => {
+  // Wipe the map first, for the reason the tile suite below already wipes it:
+  // `resetChat()` leaves a fresh DRAFT slice behind on every call, drafts are
+  // placeholder keys and so are never evictable, and once the map crosses
+  // MAX_CACHED_SESSIONS (12) the pruner takes the only evictable thing left —
+  // `sess-1`, the session every test in this file is about. That made the file
+  // silently length-limited: from the 19th test on, `/branch` and `/handoff`
+  // bailed before their first RPC because their session had been evicted, while
+  // still asserting on calls nothing had made.
+  resetSessionStates()
   resetChat()
   seedActiveSession('sess-1')
   $composerDraft.set('')
