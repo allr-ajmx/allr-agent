@@ -1804,6 +1804,7 @@ export const en: Translations = {
     frequencyLabel: 'Frequency',
     deliverLabel: 'Deliver to',
     deliverNeedsHomeChannel: 'set a home channel first',
+    deliveryFailed: 'Delivery failed',
     modelLabel: 'Model',
     modelDefault: 'Default (global model)',
     customScheduleLabel: 'Custom schedule',

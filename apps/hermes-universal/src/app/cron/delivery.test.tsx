@@ -2,8 +2,11 @@
  * The cron surface's delivery half, mounted (MJXHRM-397).
  *
  * The pure rules live in `cron-job-model.test.ts`; what this file pins is that
- * the DETAIL PANE actually renders them — every target of a fanned-out job,
- * from whichever shape the job stored them in.
+ * the DETAIL PANE actually renders them — the summary of every target, and the
+ * delivery failure the backend tracks apart from the agent error. Fan-out makes
+ * the second one load-bearing: a job that reached none of its targets still
+ * reports last_status "ok", so a pane rendering only `last_error` shows a
+ * healthy job that delivered nowhere.
  */
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -77,5 +80,27 @@ describe('cron detail delivery summary', () => {
     // Not 'This desktop': treating the list as unreadable would show the job
     // as local-only and then save that back over its real routes.
     await waitFor(async () => expect(await deliverRow()).toBe('Telegram, Discord'))
+  })
+})
+
+describe('cron detail delivery failure', () => {
+  it('surfaces a delivery error the run itself did not fail on', async () => {
+    renderCron({
+      deliver: 'local,telegram',
+      enabled: true,
+      id: 'partial',
+      last_delivery_error: "platform 'telegram' not configured/enabled",
+      name: 'Partial delivery'
+    })
+
+    expect(await screen.findByText(/platform 'telegram' not configured\/enabled/)).toBeTruthy()
+    expect(screen.getByText(/Delivery failed/)).toBeTruthy()
+  })
+
+  it('says nothing when every target was reached', async () => {
+    renderCron({ deliver: 'local,telegram', enabled: true, id: 'clean', name: 'Clean run' })
+
+    await screen.findByText('Deliver to')
+    expect(screen.queryByText(/Delivery failed/)).toBeNull()
   })
 })

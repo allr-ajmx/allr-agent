@@ -1965,6 +1965,7 @@ export const zh: Translations = {
     frequencyLabel: '频率',
     deliverLabel: '投递至',
     deliverNeedsHomeChannel: '请先设置主频道',
+    deliveryFailed: '投递失败',
     modelLabel: '模型',
     modelDefault: '默认（全局模型）',
     customScheduleLabel: '自定义排程',

@@ -689,6 +689,7 @@ function CronJobDetail({
   const state = jobState(job)
   const isPaused = state === 'paused'
   const deliver = jobDeliver(job)
+  const deliveryError = asText(job.last_delivery_error).trim()
   const prompt = jobPrompt(job)
   const modelOverride = jobModel(job)
 
@@ -724,6 +725,21 @@ function CronJobDetail({
           <div className="flex items-start gap-1.5 rounded bg-destructive/10 p-2 text-[0.7rem] text-destructive">
             <AlertTriangle className="mt-px size-3 shrink-0" />
             <span className="min-w-0 break-words">{job.last_error}</span>
+          </div>
+        ) : null}
+
+        {/* A delivery failure is NOT last_error: the backend tracks the two
+            apart (cron/jobs.py mark_job_run) because a job can run perfectly
+            and still fail to reach a target. Fan-out makes that the common
+            failure — one of several targets going down leaves last_status
+            "ok" — so a pane that only rendered last_error reported a healthy
+            job that had delivered nowhere. */}
+        {deliveryError ? (
+          <div className="flex items-start gap-1.5 rounded bg-destructive/10 p-2 text-[0.7rem] text-destructive">
+            <AlertTriangle className="mt-px size-3 shrink-0" />
+            <span className="min-w-0 break-words">
+              {c.deliveryFailed}: {deliveryError}
+            </span>
           </div>
         ) : null}
       </header>

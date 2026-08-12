@@ -657,6 +657,9 @@ export interface CronJob {
   deliver?: null | string | string[]
   enabled: boolean
   id: string
+  // Delivery failures are tracked APART from last_error (cron/jobs.py
+  // mark_job_run): a job can run fine and still reach none of its targets.
+  last_delivery_error?: null | string
   last_error?: null | string
   last_run_at?: null | string
   model?: null | string
