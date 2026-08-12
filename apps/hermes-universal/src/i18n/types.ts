@@ -372,6 +372,7 @@ export interface Translations {
         search: string
         noMatches: string
         toggleFailed: (name: string) => string
+        updateBackendToManage: string
         sources: Record<string, string>
       }
     }

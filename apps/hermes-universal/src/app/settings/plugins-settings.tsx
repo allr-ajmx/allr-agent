@@ -55,7 +55,21 @@ const SOURCE_ORDER: Record<string, number> = { bundled: 3, entrypoint: 2, git: 0
 // here is noise.
 const HIDDEN_KEY_PREFIXES = ['dashboard_auth/', 'model-providers/', 'platforms/']
 
-const isClientRelevant = (row: AgentPluginRow) => !HIDDEN_KEY_PREFIXES.some(prefix => row.key.startsWith(prefix))
+// A keyless row (pre-contract-v6 backend) cannot be categorized, so it is kept:
+// hiding it would drop a plugin the user has, and reading `.startsWith` off the
+// missing key would throw INSIDE render and take the whole page down with it.
+const isClientRelevant = (row: AgentPluginRow) => {
+  const key = row.key
+
+  return !key || !HIDDEN_KEY_PREFIXES.some(prefix => key.startsWith(prefix))
+}
+
+// React identity for a row. The canonical key is unique by construction; without
+// one, name alone collides (two `fal` rows from different category dirs), and a
+// duplicate React key makes the list render the wrong row's state. Fold in the
+// rest of the row so distinct keyless plugins stay distinct.
+const agentPluginRowKey = (row: AgentPluginRow) =>
+  row.key ?? [row.name, row.source, row.version, row.description].join('\0')
 
 // Agent plugins live under the BACKEND's hermes home (profile-aware), so the
 // path comes from the gateway — not from this device's HERMES_HOME. The caller
@@ -83,6 +97,8 @@ function AgentPluginRowView({ row }: { row: AgentPluginRow }) {
   const { t } = useI18n()
   const p = t.settings.plugins
   const busy = useStore($agentPluginBusy)
+  const key = row.key
+  const detail = row.description || (row.version ? `v${row.version}` : undefined)
 
   return (
     <ListRow
@@ -90,14 +106,33 @@ function AgentPluginRowView({ row }: { row: AgentPluginRow }) {
         <Switch
           aria-label={`${row.status === 'enabled' ? p.disable : p.enable} ${row.name}`}
           checked={row.status === 'enabled'}
-          disabled={busy === row.key}
+          // `busy === key` with both undefined is TRUE, which would grey out
+          // every keyless row at once — hence the explicit keyless branch first.
+          disabled={!key || busy === key}
           onCheckedChange={on => {
+            if (!key) {
+              return
+            }
+
             triggerHaptic('selection')
-            void toggleAgentPlugin(requestGateway, row.key, on, p.agent.toggleFailed(row.name))
+            void toggleAgentPlugin(requestGateway, key, on, p.agent.toggleFailed(row.name))
           }}
         />
       }
-      description={row.description || (row.version ? `v${row.version}` : undefined)}
+      // Desktop puts the read-only reason in a tooltip. Universal renders this
+      // page on touch surfaces too (mobile, the Android activity screen), where
+      // a hover tooltip never appears and a disabled switch would look broken
+      // with no explanation — so the reason is visible text.
+      description={
+        key ? (
+          detail
+        ) : (
+          <span className="flex flex-col">
+            {detail && <span>{detail}</span>}
+            <span className="text-(--ui-text-tertiary)">{p.agent.updateBackendToManage}</span>
+          </span>
+        )
+      }
       title={
         <span className="flex items-center gap-2">
           {row.name}
@@ -138,6 +173,8 @@ function AgentPluginsSection() {
 
   const sorted = rows
     .filter(isClientRelevant)
+    // `normalize` takes `unknown` and yields '' for a missing key, so a keyless
+    // row filters as "no key text" rather than throwing mid-render.
     .filter(
       row =>
         !needle ||
@@ -189,7 +226,7 @@ function AgentPluginsSection() {
       ) : (
         <div className="divide-y divide-(--ui-stroke-tertiary)">
           {sorted.map(row => (
-            <AgentPluginRowView key={row.key || row.name} row={row} />
+            <AgentPluginRowView key={agentPluginRowKey(row)} row={row} />
           ))}
         </div>
       )}

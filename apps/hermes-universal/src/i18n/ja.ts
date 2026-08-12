@@ -307,6 +307,7 @@ export const ja = defineLocale({
         search: 'プラグインを検索…',
         noMatches: '一致するプラグインはありません。',
         toggleFailed: (name: string) => `${name} を切り替えられませんでした`,
+        updateBackendToManage: 'ここからオン・オフを切り替えるには Hermes バックエンドを更新してください。',
         sources: { bundled: '内蔵', entrypoint: 'pip', git: 'git', project: 'プロジェクト', user: 'ユーザー' }
       }
     },
