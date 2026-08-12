@@ -16778,6 +16778,10 @@ BRANCH_CODEX_MESSAGE_ITEMS = [
 ]
 
 
+BRANCH_MARKER_TEXT = "the delegated task finished"
+BRANCH_MARKER_METADATA = {"task_id": "t-1"}
+
+
 def _branch_history():
     return [
         {"role": "user", "content": "hello"},
@@ -16790,6 +16794,16 @@ def _branch_history():
             "codex_reasoning_items": BRANCH_CODEX_REASONING_ITEMS,
             "codex_message_items": BRANCH_CODEX_MESSAGE_ITEMS,
         },
+        # A timeline marker: role=user (strict providers reject a mid-history
+        # system message) but NOT a user turn. Its only "not a turn" signal is
+        # the display_kind tag — unlike the `[System: …]` markers, whose text
+        # `_counts_as_user_ordinal` can sniff.
+        {
+            "role": "user",
+            "content": BRANCH_MARKER_TEXT,
+            "display_kind": "async_delegation_complete",
+            "display_metadata": BRANCH_MARKER_METADATA,
+        },
     ]
 
 
@@ -16798,6 +16812,14 @@ def _branched_assistant(db, session_key):
         m
         for m in db.get_messages_as_conversation(session_key)
         if m["role"] == "assistant"
+    )
+
+
+def _branched_marker(db, session_key):
+    return next(
+        m
+        for m in db.get_messages_as_conversation(session_key)
+        if m["role"] == "user" and m["content"] == BRANCH_MARKER_TEXT
     )
 
 
@@ -16830,6 +16852,13 @@ def test_persist_branch_seed_keeps_reasoning_fields(monkeypatch, tmp_path):
         assert assistant["codex_reasoning_items"] == BRANCH_CODEX_REASONING_ITEMS
         assert assistant["codex_message_items"] == BRANCH_CODEX_MESSAGE_ITEMS
         assert session["_branch_seed_persisted"] is True
+
+        # …and the timeline tags. Dropped, the marker resumes as a bare
+        # role=user row: `_counts_as_user_ordinal` counts it and the projection
+        # paints it as a user bubble carrying a restore-checkpoint affordance.
+        marker = _branched_marker(db, "branch-key")
+        assert marker["display_kind"] == "async_delegation_complete"
+        assert marker["display_metadata"] == BRANCH_MARKER_METADATA
     finally:
         db.close()
 
@@ -16871,6 +16900,10 @@ def test_session_branch_keeps_reasoning_fields(monkeypatch, tmp_path):
         assert assistant["reasoning_details"] == BRANCH_REASONING_DETAILS
         assert assistant["codex_reasoning_items"] == BRANCH_CODEX_REASONING_ITEMS
         assert assistant["codex_message_items"] == BRANCH_CODEX_MESSAGE_ITEMS
+
+        marker = _branched_marker(db, "branch-key")
+        assert marker["display_kind"] == "async_delegation_complete"
+        assert marker["display_metadata"] == BRANCH_MARKER_METADATA
     finally:
         server._sessions.pop("sid", None)
         db.close()

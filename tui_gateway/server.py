@@ -2883,6 +2883,14 @@ def _persist_branch_seed(session: dict) -> None:
                         "reasoning_details": msg.get("reasoning_details"),
                         "codex_reasoning_items": msg.get("codex_reasoning_items"),
                         "codex_message_items": msg.get("codex_message_items"),
+                        # Timeline markers (model_switch, async_delegation_complete,
+                        # auto_continue, …) ride as role=user; dropping the tag here
+                        # re-plants them as bare user turns once the branch is
+                        # resumed from disk — counted by `_counts_as_user_ordinal`
+                        # and painted as a phantom user bubble with a
+                        # restore-checkpoint affordance on it.
+                        "display_kind": msg.get("display_kind"),
+                        "display_metadata": msg.get("display_metadata"),
                         # Preserve the parent's original message timestamps —
                         # append_message would otherwise stamp time.time() and the
                         # branch's copied history would all appear authored "now".
