@@ -750,12 +750,19 @@ export function TreeGroup({
                 ))}
                 {/* New-tab affordance, chat strips only — the same thing ⌘T does.
                     A terminal or preview strip has its own create verb, so a `+`
-                    there would be ambiguous. */}
+                    there would be ambiguous.
+
+                    `coarse:opacity-100`, the house rule: `opacity-0` hides a
+                    button but does NOT stop it taking taps, so on a touch
+                    device this was an INVISIBLE control sitting in the strip —
+                    and its only other route, ⌘T, needs a keyboard. Same for the
+                    minimize chevron below (its verb is at least also in the
+                    long-press zone menu; "new tab" is not). */}
                 {onNewTab && (
                   <Tip label={<TipKeybindLabel actionId="session.newTab" text={t.zones.newTab} />}>
                     <button
                       aria-label={t.zones.newTab}
-                      className="mx-1 grid size-5 shrink-0 place-items-center self-center rounded-md text-(--ui-text-tertiary) opacity-0 transition-opacity hover:bg-(--ui-control-hover-background) hover:text-foreground focus-visible:opacity-100 group-hover/pane-header:opacity-100"
+                      className="mx-1 grid size-5 shrink-0 place-items-center self-center rounded-md text-(--ui-text-tertiary) opacity-0 transition-opacity hover:bg-(--ui-control-hover-background) hover:text-foreground coarse:opacity-100 focus-visible:opacity-100 group-hover/pane-header:opacity-100"
                       onClick={onNewTab}
                       onPointerDown={e => e.stopPropagation()}
                       type="button"
@@ -767,7 +774,7 @@ export function TreeGroup({
                 {minimizable && (
                   <button
                     aria-label={node.minimized ? t.zones.restore : t.zones.minimize}
-                    className="mx-1 grid size-5 shrink-0 place-items-center self-center rounded-md text-(--ui-text-tertiary) opacity-0 transition-opacity hover:bg-(--ui-control-hover-background) hover:text-foreground focus-visible:opacity-100 group-hover/pane-header:opacity-100"
+                    className="mx-1 grid size-5 shrink-0 place-items-center self-center rounded-md text-(--ui-text-tertiary) opacity-0 transition-opacity hover:bg-(--ui-control-hover-background) hover:text-foreground coarse:opacity-100 focus-visible:opacity-100 group-hover/pane-header:opacity-100"
                     onClick={toggleCollapse}
                     onPointerDown={e => e.stopPropagation()}
                     type="button"

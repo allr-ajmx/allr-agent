@@ -248,7 +248,13 @@ export const CodingStatusRow = memo(function CodingStatusRow({
                 the shared CopyButton so it confirms with the same inline
                 checkmark as every other copy in the app. */}
             {resolvedRepoPath && (
-              <div className="flex min-w-0 flex-1 items-center gap-0.5 opacity-0 transition-opacity group-focus-within/status-row:opacity-100 group-hover/status-row:opacity-100">
+              // The touch companion goes on the WRAPPER, not just the button:
+              // an `opacity-0` parent hides its children whatever their own
+              // classes say, so `CopyButton`'s internal `coarse:` reveal could
+              // never fire from in here. Matches the branch kebab further down
+              // this same row, which has always been permanently visible on
+              // touch.
+              <div className="flex min-w-0 flex-1 items-center gap-0.5 opacity-0 transition-opacity coarse:opacity-100 group-focus-within/status-row:opacity-100 group-hover/status-row:opacity-100">
                 <span
                   className="min-w-0 truncate font-mono text-[0.62rem] leading-4 text-muted-foreground/50"
                   data-slot="coding-status-cwd"
@@ -258,7 +264,7 @@ export const CodingStatusRow = memo(function CodingStatusRow({
                 <CopyButton
                   appearance="icon"
                   buttonSize="icon-xs"
-                  className="pointer-events-none size-4 shrink-0 text-muted-foreground/50 group-focus-within/status-row:pointer-events-auto group-hover/status-row:pointer-events-auto hover:text-foreground"
+                  className="pointer-events-none size-4 shrink-0 text-muted-foreground/50 coarse:pointer-events-auto group-focus-within/status-row:pointer-events-auto group-hover/status-row:pointer-events-auto hover:text-foreground"
                   iconClassName="size-3"
                   label={fileMenu.copyPath}
                   side="top"
