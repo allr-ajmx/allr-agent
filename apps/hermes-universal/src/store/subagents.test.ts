@@ -167,7 +167,12 @@ describe('subagents reducer', () => {
       ensureSessionSlice('draft:1')
       upsertSubagent('draft:1', { subagent_id: 'a', goal: 'moved', status: 'running' }, true, 'subagent.start')
       upsertSubagent('draft:1', { subagent_id: 'c', goal: 'also moved', status: 'running' }, true, 'subagent.start')
-      upsertSubagent('runtime-1', { subagent_id: 'a', goal: 'already there', status: 'running' }, true, 'subagent.start')
+      upsertSubagent(
+        'runtime-1',
+        { subagent_id: 'a', goal: 'already there', status: 'running' },
+        true,
+        'subagent.start'
+      )
       upsertSubagent('runtime-1', { subagent_id: 'b', goal: 'kept', status: 'running' }, true, 'subagent.start')
 
       rekeySession('draft:1', 'runtime-1')
