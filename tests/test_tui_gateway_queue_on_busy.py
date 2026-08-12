@@ -180,6 +180,34 @@ def test_busy_interrupt_mode_redirects_active_turn(monkeypatch):
     assert session.get("queued_prompt") is None
 
 
+def test_busy_interrupt_mode_reports_a_tool_boundary_degrade_as_steered(monkeypatch):
+    """A redirect that lands mid-tool becomes a steer — say so, don't claim more.
+
+    This handler already has a ``steered`` status for the explicit steer mode;
+    a deferred correction is the same thing whichever mode asked for it, and
+    calling it ``redirected`` told the client a reply had been replaced when
+    nothing on screen had changed (MJXHRM-410).
+    """
+    monkeypatch.setattr(server, "_load_busy_input_mode", lambda: "interrupt")
+    agent = types.SimpleNamespace(
+        _supports_active_turn_redirect=True,
+        redirect=lambda _text: True,
+        redirect_outcome=lambda _text: "steered",
+        interrupt=lambda *a, **k: (_ for _ in ()).throw(
+            AssertionError("a deferred steer must not hard-interrupt")
+        ),
+    )
+    session = _session(agent=agent, running=True)
+    session["inflight_turn"] = {"user": "original request", "assistant": "partial reply"}
+
+    resp = server._handle_busy_submit("r1", "sid", session, "also check migrations", "ws-1")
+
+    assert resp["result"]["status"] == "steered"
+    # Accepted, so it must NOT also be queued — that would deliver it twice.
+    assert session.get("queued_prompt") is None
+    assert session["inflight_turn"]["corrections"] == ["also check migrations"]
+
+
 
 
 

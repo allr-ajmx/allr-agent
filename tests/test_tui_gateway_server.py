@@ -9135,6 +9135,61 @@ def test_session_redirect_calls_capable_core_agent(monkeypatch):
     assert before is None or session["last_active"] >= before
 
 
+def test_session_redirect_reports_a_tool_boundary_degrade_as_steered():
+    """A redirect that became a steer must not claim the turn was rebuilt.
+
+    ``AIAgent.redirect()`` answers True for both, so this handler reported
+    ``redirected`` for a correction the model had not seen and might never see —
+    and the client left the bubble above a reply it had not touched
+    (MJXHRM-410 / MJXHRM-80).
+    """
+    agent = types.SimpleNamespace(
+        _supports_active_turn_redirect=True,
+        redirect=lambda text: True,
+        redirect_outcome=lambda text: "steered",
+    )
+    session = _session(agent=agent)
+    session["inflight_turn"] = {"user": "original request", "assistant": "partial"}
+    server._sessions["sid"] = session
+    try:
+        resp = server.handle_request(
+            {
+                "id": "1",
+                "method": "session.redirect",
+                "params": {"session_id": "sid", "text": "also check migrations"},
+            }
+        )
+    finally:
+        server._sessions.pop("sid", None)
+
+    assert resp["result"] == {"status": "steered", "text": "also check migrations"}
+    # Still an ACCEPTANCE: the correction is recorded on the live turn, so a
+    # resume rebuilds its bubble instead of dropping it.
+    assert session["inflight_turn"]["corrections"] == ["also check migrations"]
+
+
+def test_session_redirect_falls_back_to_the_bool_for_older_runtimes():
+    """A runtime without ``redirect_outcome`` answers exactly what it used to."""
+    agent = types.SimpleNamespace(
+        _supports_active_turn_redirect=True,
+        redirect=lambda text: True,
+    )
+    session = _session(agent=agent)
+    server._sessions["sid"] = session
+    try:
+        resp = server.handle_request(
+            {
+                "id": "1",
+                "method": "session.redirect",
+                "params": {"session_id": "sid", "text": "use Postgres"},
+            }
+        )
+    finally:
+        server._sessions.pop("sid", None)
+
+    assert resp["result"] == {"status": "redirected", "text": "use Postgres"}
+
+
 def test_session_redirect_records_correction_without_erasing_prompt():
     """A redirect must not overwrite the turn's original user text.
 

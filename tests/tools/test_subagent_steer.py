@@ -15,6 +15,7 @@ from tools.delegate_tool import (
     _register_subagent,
     _unregister_subagent,
     steer_subagent,
+    steer_subagent_reason,
 )
 
 
@@ -156,6 +157,86 @@ def test_status_snapshot_never_leaks_owner_or_lifecycle_metadata():
         _unregister_subagent("sid-private-metadata", agent=agent)
 
 
+class TestSteerRefusalVocabulary:
+    """Every refusal is a DIFFERENT fact; ``steer_subagent``'s bool loses it.
+
+    A surface that can only say "rejected" tells a user who addressed the wrong
+    session the same thing it tells one who lost the race by a hair.
+    """
+
+    def test_each_refusal_shape_gets_its_own_reason(self):
+        transport = object()
+        record = {"session_key": "owner"}
+        live = _StubAgent()
+        closed = _StubAgent()
+        refusing = _StubAgent(accept=False)
+        exploding = _StubAgent(boom=True)
+
+        _with_registered(
+            "sid-reason-live",
+            live,
+            owner_session_id="owner",
+            owner_transport=transport,
+            owner_session_record=record,
+        )
+        _with_registered("sid-reason-closed", closed)
+        _register_subagent({"subagent_id": "sid-reason-no-agent", "agent": None})
+        _with_registered("sid-reason-refusing", refusing)
+        _with_registered("sid-reason-exploding", exploding)
+        from tools.delegate_tool import _active_subagents, _active_subagents_lock
+
+        with _active_subagents_lock:
+            _active_subagents["sid-reason-closed"]["accepting_steer"] = False
+
+        try:
+            assert steer_subagent_reason("sid-reason-live", "   ") == "empty_text"
+            assert steer_subagent_reason("sid-nowhere", "go") == "unknown_subagent"
+            assert steer_subagent_reason("sid-reason-closed", "go") == "not_accepting"
+            assert steer_subagent_reason("sid-reason-no-agent", "go") == "no_agent"
+            assert steer_subagent_reason("sid-reason-refusing", "go") == "steer_failed"
+            assert steer_subagent_reason("sid-reason-exploding", "go") == "steer_failed"
+            assert (
+                steer_subagent_reason(
+                    "sid-reason-live",
+                    "go",
+                    owner_session_id="someone-else",
+                    owner_transport=transport,
+                    owner_session_record=record,
+                )
+                == "not_owner"
+            )
+            # ...and the acceptance is still an acceptance.
+            assert (
+                steer_subagent_reason(
+                    "sid-reason-live",
+                    "go",
+                    owner_session_id="owner",
+                    owner_transport=transport,
+                    owner_session_record=record,
+                )
+                == "queued"
+            )
+            assert live.steered == ["go"]
+        finally:
+            for sid in (
+                "sid-reason-live",
+                "sid-reason-closed",
+                "sid-reason-no-agent",
+                "sid-reason-refusing",
+                "sid-reason-exploding",
+            ):
+                _unregister_subagent(sid)
+
+    def test_bool_wrapper_still_answers_true_only_for_queued(self):
+        agent = _StubAgent()
+        _with_registered("sid-reason-bool", agent)
+        try:
+            assert steer_subagent("sid-reason-bool", "go") is True
+            assert steer_subagent("sid-nowhere-bool", "go") is False
+        finally:
+            _unregister_subagent("sid-reason-bool")
+
+
 class TestMissedSteerRetention:
     """The final-answer race: a steer with no boundary left is NAMED, not lost."""
 
@@ -195,6 +276,76 @@ class TestMissedSteerRetention:
         assert "focus on pricing instead" in entry["summary"]
         # The race must not corrupt the outcome of the work itself.
         assert entry["status"] == "completed"
+
+    def test_missed_steer_reaches_the_completion_EVENT_not_only_the_entry(self):
+        """The entry is read by the parent MODEL; the event is all a UI gets.
+
+        ``entry["summary"]`` is rewritten with the miss note, but the event's
+        ``summary`` is built from the pre-note local — so before this field
+        existed, the miss reached no client at all and the user who steered was
+        left with the "queued" the overlay had already shown them.
+        """
+        from tools.delegate_tool import _run_single_child
+
+        events: list[tuple[str, dict]] = []
+
+        def progress(event_type: str, *_args, **kwargs) -> None:
+            events.append((event_type, kwargs))
+
+        child = MagicMock()
+        child._subagent_id = "sid-missed-event"
+        child._delegate_depth = 1
+        child.model = "test-model"
+        child.session_prompt_tokens = 0
+        child.session_completion_tokens = 0
+        child.tool_progress_callback = progress
+        child.run_conversation.return_value = {
+            "final_response": "done",
+            "completed": True,
+            "interrupted": False,
+            "api_calls": 1,
+            "messages": [],
+            "pending_steer": "focus on pricing instead",
+        }
+
+        entry = _run_single_child(0, "event race", child=child, parent_agent=MagicMock())
+
+        complete = [kwargs for name, kwargs in events if name == "subagent.complete"]
+        assert complete, [name for name, _ in events]
+        assert complete[-1]["missed_steer"] == "focus on pricing instead"
+        # The event summary is NOT the annotated one, which is exactly why the
+        # dedicated field is required rather than "read it out of the summary".
+        assert "steer did not land" not in complete[-1]["summary"]
+        assert entry["missed_steer"] == "focus on pricing instead"
+
+    def test_clean_run_puts_no_missed_steer_on_the_event(self):
+        from tools.delegate_tool import _run_single_child
+
+        events: list[tuple[str, dict]] = []
+
+        def progress(event_type: str, *_args, **kwargs) -> None:
+            events.append((event_type, kwargs))
+
+        child = MagicMock()
+        child._subagent_id = "sid-clean-event"
+        child._delegate_depth = 1
+        child.model = "test-model"
+        child.session_prompt_tokens = 0
+        child.session_completion_tokens = 0
+        child.tool_progress_callback = progress
+        child.run_conversation.return_value = {
+            "final_response": "done",
+            "completed": True,
+            "interrupted": False,
+            "api_calls": 1,
+            "messages": [],
+        }
+
+        _run_single_child(0, "clean event", child=child, parent_agent=MagicMock())
+
+        complete = [kwargs for name, kwargs in events if name == "subagent.complete"]
+        assert complete
+        assert "missed_steer" not in complete[-1]
 
     def test_no_pending_steer_leaves_entry_untouched(self):
         import json
@@ -488,6 +639,81 @@ class TestSubagentSteerRPC:
             }
         )
         assert envelope["result"]["status"] == "rejected"
+
+    def test_rejection_names_which_refusal_it_was(self):
+        """One "rejected" for five causes leaves the UI guessing.
+
+        Here the caller's own session identity never resolves (no transport
+        bound to a live record), which is NOT the same as "too late" — and the
+        distinction decides whether retrying could ever work.
+        """
+        agent = _StubAgent()
+        _with_registered("sid-rpc-reason", agent, owner_session_id="owner-session")
+        try:
+            envelope = self._call(
+                {
+                    "session_id": "owner-session",
+                    "subagent_id": "sid-rpc-reason",
+                    "text": "which refusal?",
+                }
+            )
+            assert envelope["result"]["status"] == "rejected"
+            assert envelope["result"]["reason"] == "no_session_authority"
+        finally:
+            _unregister_subagent("sid-rpc-reason")
+
+    def test_unknown_child_reports_the_registry_lookup_as_the_reason(self):
+        owner_transport = self._Transport()
+        owner_record = {
+            "session_key": "owner-session",
+            "history": [],
+            "transport": owner_transport,
+        }
+        envelope = self._call(
+            {
+                "session_id": "owner-session",
+                "subagent_id": "sid-rpc-reason-gone",
+                "text": "hello",
+            },
+            transport=owner_transport,
+            session_record=owner_record,
+        )
+        assert envelope["result"]["reason"] == "unknown_subagent"
+
+    def test_acceptance_carries_no_reason_key_at_all(self):
+        """An accepted steer has nothing to explain — and older callers compare
+        the whole result dict."""
+        owner_transport = self._Transport()
+        owner_record = {
+            "session_key": "owner-session",
+            "history": [],
+            "transport": owner_transport,
+        }
+        agent = _StubAgent()
+        _with_registered(
+            "sid-rpc-no-reason",
+            agent,
+            owner_session_id="owner-session",
+            owner_transport=owner_transport,
+            owner_session_record=owner_record,
+        )
+        try:
+            envelope = self._call(
+                {
+                    "session_id": "owner-session",
+                    "subagent_id": "sid-rpc-no-reason",
+                    "text": "go",
+                },
+                transport=owner_transport,
+                session_record=owner_record,
+            )
+            assert envelope["result"] == {
+                "status": "queued",
+                "subagent_id": "sid-rpc-no-reason",
+                "text": "go",
+            }
+        finally:
+            _unregister_subagent("sid-rpc-no-reason")
 
     def test_foreign_session_cannot_steer_an_owned_child(self):
         agent = _StubAgent()
