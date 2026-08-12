@@ -900,6 +900,8 @@ export const ja = defineLocale({
       autoUseMain: '自動 · メインモデルを使用',
       providerDefault: '(プロバイダーのデフォルト)',
       moaEnabled: '有効',
+      moaPresetDisabledHint:
+        'このプリセットは無効です — 下のスイッチに関係なくアグリゲーターのみが応答し、リファレンスモデルは実行されません。',
       moaDisableReference: index => `リファレンス ${index} を無効化`,
       moaEnableReference: index => `リファレンス ${index} を有効化`,
       tasks: {

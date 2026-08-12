@@ -763,6 +763,8 @@ export const ar = defineLocale({
       autoUseMain: 'تلقائي · استخدام النموذج الرئيسي',
       providerDefault: '(افتراضي المزوّد)',
       moaEnabled: 'مُفعّل',
+      moaPresetDisabledHint:
+        'هذه الإعدادات المسبقة معطّلة — يجيب المجمّع بمفرده ولا يعمل أي نموذج مرجعي مهما كانت المفاتيح أدناه.',
       moaDisableReference: index => `تعطيل المرجع ${index}`,
       moaEnableReference: index => `تفعيل المرجع ${index}`,
       tasks: {

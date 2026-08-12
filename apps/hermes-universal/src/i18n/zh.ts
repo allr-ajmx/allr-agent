@@ -1105,6 +1105,7 @@ export const zh: Translations = {
       fallbackAdd: '添加后备',
       fallbackEmpty: '没有后备模型 — 默认模型失败时才会使用。',
       moaEnabled: '启用',
+      moaPresetDisabledHint: '此预设已停用 — 无论下方开关如何，都只由聚合器作答，不会运行任何参考模型。',
       moaDisableReference: index => `停用参考模型 ${index}`,
       moaEnableReference: index => `启用参考模型 ${index}`,
       tasks: {

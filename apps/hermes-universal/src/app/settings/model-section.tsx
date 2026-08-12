@@ -1100,6 +1100,13 @@ export function ModelSettings({ onMainModelChanged }: ModelSettingsProps) {
           <div className="mb-2 text-xs text-muted-foreground">
             Default: <span className="font-mono">{moa.default_preset}</span>
           </div>
+          {/* The two `enabled` flags are not peers: a disabled preset zeroes the
+              whole fan-out (agent/moa_loop.py) whatever the per-slot switches
+              say. Say so, rather than leaving live-looking switches that cannot
+              change what runs. */}
+          {currentMoaPreset.enabled === false && (
+            <p className="mb-2 text-xs text-amber-200">{m.moaPresetDisabledHint}</p>
+          )}
           <div className="grid gap-1">
             {currentMoaPreset.reference_models.map((slot, index) => (
               <ListRow

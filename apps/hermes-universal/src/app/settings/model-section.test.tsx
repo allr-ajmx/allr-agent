@@ -202,6 +202,19 @@ describe('ModelSettings MoA preset editor', () => {
     }
   })
 
+  it('says the preset wins over the per-slot switches while it is disabled', async () => {
+    getMoaModels.mockResolvedValue({
+      ...moaConfig(),
+      presets: { default: { ...moaPreset(), enabled: false } }
+    })
+    await openReferenceEditor()
+
+    // The two flags are not peers — a disabled preset zeroes the fan-out
+    // regardless of the per-slot switches, which stay interactive.
+    expect(screen.getByText(/no reference model runs/i)).toBeTruthy()
+    expect(screen.getByRole('switch', { name: 'Disable reference 1' })).toBeTruthy()
+  })
+
   it('holds the autosave while a slot is half-filled (provider changed, model pending)', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
 
@@ -269,6 +282,12 @@ describe('ModelSettings MoA preset editor', () => {
 
       // Radix treats re-picking the current value as a no-op (no
       // onValueChange), so nothing changes: no save, model still shown.
+      //
+      // This covers the Select staying bound to its slot — it does NOT cover
+      // `updateMoaSlot`'s `patch.provider !== slot.provider` guard, which is
+      // unreachable from here for exactly that reason. That guard is defensive
+      // against a future non-Radix caller; neutralizing it leaves this test
+      // green.
       expect(saveMoaModels).not.toHaveBeenCalled()
       expect(screen.getByText('nous · hermes-4')).toBeTruthy()
     } finally {

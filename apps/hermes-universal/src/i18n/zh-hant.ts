@@ -874,6 +874,7 @@ export const zhHant = defineLocale({
       autoUseMain: '自動 · 使用主要模型',
       providerDefault: '(提供方預設)',
       moaEnabled: '啟用',
+      moaPresetDisabledHint: '此預設已停用 — 無論下方開關如何，都只由彙整模型作答，不會執行任何參考模型。',
       moaDisableReference: index => `停用參考模型 ${index}`,
       moaEnableReference: index => `啟用參考模型 ${index}`,
       tasks: {
