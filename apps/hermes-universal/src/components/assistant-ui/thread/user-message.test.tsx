@@ -71,9 +71,10 @@ describe('UserMessage', () => {
     expect(document.querySelector('.sticky-human-clamp')?.getAttribute('data-clamped')).toBeNull()
   })
 
-  // MJXHRM-370: the restore affordance is gated on the handler being defined, and
-  // `UserMessage` was mounted with NO props at all — so the whole
-  // restore-checkpoint flow behind it was unreachable dead code.
+  // The bubble's HALF of MJXHRM-370: the affordance is gated on the handler
+  // being defined. Rendering it here WITH the prop proves the gate and nothing
+  // more — the defect was that `thread.tsx` mounted `UserMessage` with no props
+  // at all, which no test in this file can see. `thread.test.tsx` owns that.
   it('hides the restore affordance with no handler, and calls it with one', () => {
     render(<UserMessage />)
     expect(screen.queryByRole('button', { name: 'Restore checkpoint' })).toBeNull()
