@@ -10,6 +10,7 @@ import { discoverRuntimePlugins } from '@/contrib/runtime-loader'
 import { useI18n } from '@/i18n'
 import { triggerHaptic } from '@/lib/haptics'
 import { Package, Plug } from '@/lib/icons'
+import { IS_DESKTOP } from '@/lib/platform'
 import { revealPathInFileManager } from '@/lib/reveal-path'
 import { normalize } from '@/lib/text'
 import {
@@ -190,7 +191,13 @@ function AgentPluginsSection() {
         {p.agent.blurb}
       </p>
 
-      {!modeIsRemoteLike(connection?.mode) && (
+      {/* Two conditions, both necessary. `IS_DESKTOP`: revealing is an OS
+          file-manager act — `reveal_item_in_dir` has nowhere to go on Android /
+          iOS / plain-web, and the failure is silent, so the button would be a
+          dead click. (The client half above is gated the same way, through its
+          local-door `disk?.reveal`.) `!modeIsRemoteLike`: the path belongs to
+          the BACKEND's disk, which is only this device's on a local/ssh mode. */}
+      {IS_DESKTOP && !modeIsRemoteLike(connection?.mode) && (
         <div className="mb-4 flex items-center gap-2">
           <Button onClick={() => void revealAgentPluginsDir(requestGateway, p.openFolder)} size="sm" variant="outline">
             <Codicon name="folder-opened" size="0.8rem" />
