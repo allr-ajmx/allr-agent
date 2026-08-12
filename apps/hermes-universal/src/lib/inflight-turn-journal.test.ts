@@ -355,3 +355,96 @@ describe('the persisted journal', () => {
     expect(recoverInFlightTurnJournal('nothing-here', [])).toMatchObject({ applied: false })
   })
 })
+
+/**
+ * These keys are shared by every window of the origin, but a TURN is not: the
+ * gateway binds a session's stream to one connection, so the HUD, a detached
+ * tile window and a second app window all hold slices that look settled for a
+ * session that is streaming next door — and "settled" is the condition on which
+ * the journal is deleted (MJXHRM-374).
+ *
+ * A second module instance under `vi.resetModules()` is a faithful model of a
+ * second window: separate module state, one shared `localStorage`, which is
+ * exactly what a second Tauri WebView of this origin is.
+ */
+describe('the journal across windows', () => {
+  async function otherWindow() {
+    vi.resetModules()
+
+    return import('@/lib/inflight-turn-journal')
+  }
+
+  const busyState = {
+    awaitingResponse: false,
+    busy: true,
+    messages: [user('u1', 'do a thing'), withTool('assistant-stream-1', { pending: true })],
+    storedSessionId: 'stored-1',
+    streamId: 'assistant-stream-1',
+    turnStartedAt: 1_000
+  }
+
+  const settledState = { ...busyState, awaitingResponse: false, busy: false, streamId: null }
+
+  it('does not let an idle window delete the entry a live one is writing', async () => {
+    vi.useFakeTimers()
+    persistInFlightTurnState(busyState)
+    vi.advanceTimersByTime(500)
+    vi.useRealTimers()
+
+    expect(readInFlightTurnJournal('stored-1')).not.toBeNull()
+
+    // The HUD / tile / second app window: it holds a slice for this session, it
+    // is not the one streaming it, and its journal pass runs on every commit.
+    const other = await otherWindow()
+    other.persistInFlightTurnState(settledState)
+
+    expect(other.readInFlightTurnJournal('stored-1')).not.toBeNull()
+    expect(readInFlightTurnJournal('stored-1')).not.toBeNull()
+  })
+
+  it('still lets the window that wrote the entry release it', async () => {
+    vi.useFakeTimers()
+    persistInFlightTurnState(busyState)
+    vi.advanceTimersByTime(500)
+    vi.useRealTimers()
+
+    const other = await otherWindow()
+    other.persistInFlightTurnState(settledState)
+
+    // The guard is ownership, not "never clear": the window whose turn it was
+    // must still seal the entry, or every finished turn would linger to its TTL.
+    persistInFlightTurnState(settledState)
+
+    expect(readInFlightTurnJournal('stored-1')).toBeNull()
+    expect(other.readInFlightTurnJournal('stored-1')).toBeNull()
+  })
+
+  it('releases a throttled write that settles before it lands', () => {
+    vi.useFakeTimers()
+
+    // Nothing is on disk yet — the entry exists only as a pending timer, and a
+    // settle here has to cancel it or the write fires onto a finished turn.
+    persistInFlightTurnState(busyState)
+    persistInFlightTurnState(settledState)
+    vi.advanceTimersByTime(500)
+
+    expect(readInFlightTurnJournal('stored-1')).toBeNull()
+
+    vi.useRealTimers()
+  })
+
+  it('leaves a peer window’s entry for recovery to reclaim', async () => {
+    vi.useFakeTimers()
+    persistInFlightTurnState(busyState)
+    vi.advanceTimersByTime(500)
+    vi.useRealTimers()
+
+    const other = await otherWindow()
+    other.persistInFlightTurnState(settledState)
+
+    // An entry a window never got to seal is not stranded: the next window to
+    // open the session folds it in and drops it, which is the whole point of it.
+    expect(other.recoverInFlightTurnJournal('stored-1', []).applied).toBe(true)
+    expect(other.readInFlightTurnJournal('stored-1')).toBeNull()
+  })
+})
