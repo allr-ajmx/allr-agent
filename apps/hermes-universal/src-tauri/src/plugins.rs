@@ -237,8 +237,20 @@ mod tests {
 
     #[test]
     fn plugins_read_refuses_a_path_instead_of_a_name() {
-        assert!(plugins_read(None, "../../etc/passwd".into()).is_err());
-        assert!(plugins_read(None, "/etc/passwd".into()).is_err());
+        // Assert the REFUSAL, not merely an error. Both of these fail on
+        // `is_err()` even with the guard deleted — `<root>/../../etc/passwd`
+        // and `/etc/passwd` (which `Path::join` substitutes wholesale) simply
+        // have no `plugin.js`, so the read fails on its own. Only the message
+        // separates "the address space forbids this" from "that file happened
+        // not to exist", and the address space is this module's one invariant.
+        for name in ["../../etc/passwd", "/etc/passwd", "..", ".hidden", "a\0b"] {
+            let err = plugins_read(None, name.into()).unwrap_err();
+
+            assert!(
+                err.starts_with("illegal plugin name"),
+                "{name} should be refused by name, got: {err}"
+            );
+        }
     }
 
     fn home() -> PathBuf {

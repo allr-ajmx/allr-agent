@@ -563,7 +563,7 @@ mod tests {
     }
 
     #[test]
-    fn duplicate_and_nested_roots_are_deduped() {
+    fn duplicate_and_nested_roots_report_one_entry() {
         let root = scratch("dedupe");
         make_repo(&root.join("alpha"));
 
@@ -578,7 +578,13 @@ mod tests {
             &[],
         );
 
-        assert_eq!(found.len(), 1);
+        // What this pins is the OUTPUT: three overlapping config entries produce
+        // one project, not three. It deliberately does not claim to pin the
+        // root-level `seen_roots` dedupe — that is a walk-once optimization with
+        // no observable effect, since `found` is keyed by comparison path and
+        // would collapse the repeats anyway. Deleting `seen_roots` cannot make
+        // this test fail; it only makes the crawl walk the same tree twice.
+        assert_eq!(roots_of(&found), vec![root.join("alpha").to_string_lossy()]);
     }
 
     #[test]
