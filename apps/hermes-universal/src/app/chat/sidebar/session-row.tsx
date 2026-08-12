@@ -222,7 +222,13 @@ function SidebarSessionRowImpl({
           onPointerDown={event => {
             tapped.current = false
 
-            if ((event.target as HTMLElement).closest('[data-reorder-handle], [data-row-actions]')) {
+            // The reorder grab sits INSIDE this button and runs its own dnd-kit
+            // gesture, so a press on it must arm neither the middle-click nor
+            // the session drag. The kebab needs no such guard: it is a grid
+            // SIBLING of the row body (`SidebarRowShell`), so its presses never
+            // reach here at all — the `[data-row-actions]` half of this check
+            // named an attribute nothing in the app has ever set.
+            if ((event.target as HTMLElement).closest('[data-reorder-handle]')) {
               return
             }
 
