@@ -7,7 +7,6 @@ import { useLocation } from 'react-router-dom'
 
 import { composerTargetForPane, markActiveComposer } from '@/app/chat/composer/focus'
 import { PALETTE_AREA, type PaletteContribution, paletteToggle } from '@/app/command-palette/contrib'
-import { IdleMount } from '@/components/idle-mount'
 import { $layoutEditMode, toggleLayoutEditMode } from '@/components/pane-shell/edit-mode'
 import { registerTile, registerTiles } from '@/components/pane-shell/tile/registry'
 import { allPaneIds, group, split } from '@/components/pane-shell/tree/model'
@@ -121,9 +120,15 @@ const renderWorkspacePane = () => (
 // tile tab, so main + tiles read as one row of session tabs.
 const wrapWorkspaceTab = (tab: ReactElement) => <WorkspaceTabMenu>{tab}</WorkspaceTabMenu>
 
-// Boot-hidden panes mount behind display:none (instant-toggle contract) — defer
-// them to idle so they're off the first-paint path, warm before reveal.
-const idle = (node: ReactElement) => <IdleMount>{node}</IdleMount>
+// NO `IdleMount` WRAPPER ANY MORE (MJXHRM-373).
+//
+// `files` and `review` used to render through one, on the premise that a
+// boot-hidden pane mounts behind `display:none` and idle-deferring it keeps that
+// mount off the first-paint path while staying "warm before reveal". The zone
+// renderer never mounted a toggled-off pane at all, so there was nothing to
+// defer — and now that it keeps a hidden pane's body (see below), the rule is
+// LAZY UNTIL FIRST SHOWN, then kept. Which leaves idle-deferring able to do only
+// one thing: delay the frame the user pressed ⌘G for.
 
 registerTiles([
   {
@@ -187,7 +192,7 @@ registerTiles([
       minWidth: `${FILE_TREE_MIN_WIDTH}px`,
       maxWidth: `${FILE_TREE_MAX_WIDTH}px`
     },
-    render: () => idle(<FilesPane />)
+    render: () => <FilesPane />
   },
   {
     id: 'review',
@@ -202,7 +207,7 @@ registerTiles([
       minWidth: `${FILE_TREE_MIN_WIDTH}px`,
       maxWidth: `${FILE_TREE_MAX_WIDTH}px`
     },
-    render: () => idle(<ReviewPaneContent />)
+    render: () => <ReviewPaneContent />
   }
 ])
 

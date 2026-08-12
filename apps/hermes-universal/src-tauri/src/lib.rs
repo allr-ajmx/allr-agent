@@ -289,6 +289,11 @@ pub fn run() {
             //  • a detached tile: so the tile goes back in its slot (MJXHRM-173)
             //  • a satellite: so the main window can reclaim the gateway stream
             //    the HUD was holding (MJXHRM-371)
+            //  • ANY window: so the shells it spawned die with it (MJXHRM-373).
+            //    `pty_kill` is only ever called by the terminal component's
+            //    unmount cleanup, and that never runs for a natively closed
+            //    window — so a detached terminal tile left one orphaned shell
+            //    per close, running for the rest of the app's life.
             if let tauri::RunEvent::WindowEvent {
                 label,
                 event: tauri::WindowEvent::Destroyed,
@@ -296,6 +301,9 @@ pub fn run() {
             } = &event
             {
                 use tauri::Emitter;
+
+                #[cfg(desktop)]
+                pty::reap_window_ptys(app_handle, label);
 
                 if window::is_tile_window_label(label) {
                     let _ = app_handle.emit(window::TILE_WINDOW_CLOSED_EVENT, label.clone());

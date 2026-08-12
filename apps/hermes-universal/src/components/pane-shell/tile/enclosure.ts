@@ -26,6 +26,7 @@ import { rootChildSide, subtreeFolded, subtreeGone, type TrackContext } from '..
 import type { TreeSide } from '../tree/store'
 
 import type { Tile, TileId } from './types'
+import { tileVisibility } from './visibility'
 
 export interface EnclosureContext extends TrackContext {
   /** Sides of the root row the titlebar toggles (⌘B / ⌘J) have closed. */
@@ -82,8 +83,20 @@ const sideGone = (child: LayoutNode, ctx: EnclosureContext, horizontal: boolean)
  *  every structural op) — they take space in edit mode as drop targets. */
 const isEmptyZone = (child: LayoutNode): boolean => child.type === 'group' && child.panes.length === 0
 
+/** Is the BREAKPOINT the whole reason this pane isn't rendering here? True for
+ *  `enclosed` (the edge overlay holds the live instance) and for `absent`
+ *  (nothing registered it, so there is nothing to hold) — and false for a pane
+ *  that is merely `hidden` or is plainly `visible`, both of which still have
+ *  state here worth keeping. */
+const breakpointAccountsFor = (id: TileId, ctx: EnclosureContext): boolean => {
+  const visibility = tileVisibility(id, ctx)
+
+  return visibility === 'enclosed' || visibility === 'absent'
+}
+
 export function zoneEnclosure(child: LayoutNode, ctx: EnclosureContext, horizontal: boolean): ZoneEnclosure {
   const collapsed = subtreeGone(child, ctx) || (isEmptyZone(child) && !ctx.editMode) || sideGone(child, ctx, horizontal)
+  const ids = allPaneIds(child)
 
   return {
     collapsed,
@@ -94,6 +107,19 @@ export function zoneEnclosure(child: LayoutNode, ctx: EnclosureContext, horizont
     // Only for tiles the BREAKPOINT collapsed, not ones a chrome toggle hid —
     // unmounting a toggle-hidden tile would throw away state the toggle
     // promises to bring straight back.
-    narrowCollapsed: ctx.narrow && collapsed && allPaneIds(child).some(id => !ctx.hidden.has(id))
+    //
+    // WHY THE SECOND CLAUSE (MJXHRM-373). `collapsed` has three causes and only
+    // one of them is the breakpoint; `sideGone` (⌘B / ⌘J) is a chrome toggle
+    // like any other. On a narrow window the first clause alone therefore
+    // unmounted the whole closed side — including panes the breakpoint left in
+    // the grid, which have no edge overlay to move to and so simply cease to
+    // exist. For a terminal that ran `TerminalView`'s cleanup and killed the
+    // shell, which is the exact defect minimize was fixed for.
+    //
+    // So the subtree unmounts only when the breakpoint accounts for ALL of it:
+    // every pane in it is `enclosed` (the overlay owns the live instance) or
+    // `absent` (nothing registered it, nothing to keep).
+    narrowCollapsed:
+      ctx.narrow && collapsed && ids.some(id => !ctx.hidden.has(id)) && ids.every(id => breakpointAccountsFor(id, ctx))
   }
 }

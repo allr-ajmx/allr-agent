@@ -30,12 +30,15 @@ export class LocalPtySocket {
   private unlisten: UnlistenFn[] = []
   private live = false
   private closed = false
+  /** Settles when the handshake is over, either way — `close()` waits on it so a
+   *  kill can never overtake the spawn it is meant to undo. Never rejects. */
+  private readonly ready: Promise<void>
 
   constructor(
     private readonly options: LocalPtyOptions,
     private readonly handlers: LocalPtyHandlers
   ) {
-    void this.init()
+    this.ready = this.init()
   }
 
   private async init(): Promise<void> {
@@ -94,7 +97,20 @@ export class LocalPtySocket {
   close(): void {
     this.closed = true
     this.live = false
-    void invoke('pty_kill', { id: this.id })
+
+    // AFTER the handshake, always. `pty_spawn` and `pty_kill` are two separate
+    // IPC calls and the Rust side only puts the handle in its map once the spawn
+    // RESOLVES (openpty + fork/exec first) — so a kill sent while a spawn is in
+    // flight finds an empty map, does nothing, and the shell that lands a moment
+    // later is an orphan nothing can ever address again, with the pane that
+    // asked for it already gone. Unmounting a terminal within a few ms of
+    // mounting it is not exotic: a boot-restored layout, a preset applied on top
+    // of one, ⌃` pressed twice.
+    //
+    // `init` never rejects (it reports through `onError`), and it short-circuits
+    // on `closed` before spawning at all, so this is a no-op kill in that case.
+    void this.ready
+      .then(() => invoke('pty_kill', { id: this.id }))
       .catch(() => undefined)
       .finally(() => this.teardown())
   }

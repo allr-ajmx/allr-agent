@@ -25,8 +25,10 @@ import { type Tile, tileChrome, type TileId } from './types'
  *
  *  - `visible`  — in the grid, rendered.
  *  - `hidden`   — its owning store says off (⌘G closed review, the terminal
- *                 toggle). The zone collapses but the content stays mounted,
- *                 so toggling back is instant.
+ *                 toggle). The zone collapses but the content stays mounted
+ *                 once the tile has been on screen even once, so toggling back
+ *                 is instant. (It was NOT: `keptPanes` filtered `shown`, so
+ *                 hiding tore the surface down — MJXHRM-373.)
  *  - `enclosed` — it left the grid because its CONTAINER can't show it at this
  *                 width; it is still reachable, through the edge overlay.
  *  - `absent`   — nothing registered it. A runtime plugin that hasn't loaded.

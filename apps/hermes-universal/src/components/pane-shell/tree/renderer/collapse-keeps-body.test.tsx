@@ -14,13 +14,13 @@
  * (correctly) treated as "never been open" by the component.
  */
 
-import { cleanup, render } from '@testing-library/react'
+import { act, cleanup, render } from '@testing-library/react'
 import { useEffect } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { PANE_HIDDEN_ATTR } from '@/components/pane-shell/pane-visibility'
+import { PANE_HIDDEN_ATTR, usePaneVisible } from '@/components/pane-shell/pane-visibility'
 import { group } from '@/components/pane-shell/tree/model'
-import { $layoutTree } from '@/components/pane-shell/tree/store'
+import { $hiddenTreePanes, $layoutTree } from '@/components/pane-shell/tree/store'
 
 import { registerTiles } from '../../tile/registry'
 
@@ -31,16 +31,26 @@ const ZONE = 'tool-zone'
 const mounted = vi.fn()
 const unmounted = vi.fn()
 
-/** Stands in for a terminal: its unmount is the thing that used to kill a PTY. */
+/** Stands in for a terminal: its unmount is the thing that used to kill a PTY.
+ *  It also reports the visibility the zone hands it, which is the contract a
+ *  kept-alive surface gates its hot subscriptions on. */
 function LiveSurface() {
+  const visible = usePaneVisible()
+
   useEffect(() => {
     mounted()
 
     return () => unmounted()
   }, [])
 
-  return <p data-testid="live">shell</p>
+  return (
+    <p data-testid="live" data-visible={visible ? 'yes' : 'no'}>
+      shell
+    </p>
+  )
 }
+
+const visibility = () => document.querySelector('[data-testid="live"]')?.getAttribute('data-visible')
 
 let disposeTiles: (() => void) | null = null
 let rect: () => DOMRect
@@ -76,8 +86,12 @@ afterEach(() => {
   disposeTiles?.()
   disposeTiles = null
   $layoutTree.set(null)
+  $hiddenTreePanes.set(new Set())
   vi.restoreAllMocks()
 })
+
+/** The tile in `[data-tree-tab]` position — a hidden pane keeps no tab. */
+const tabs = () => [...document.querySelectorAll('[data-tree-tab]')].map(el => el.getAttribute('data-tree-tab'))
 
 describe('collapsing a zone', () => {
   it('hides the body instead of unmounting it, so a live PTY survives', () => {
@@ -103,6 +117,23 @@ describe('collapsing a zone', () => {
     expect(body()?.style.width).toBe('400px')
   })
 
+  it('tells the kept tile it is not visible, so its hot subscriptions stand down', () => {
+    // The point of keeping the body is the STATE, not the work: a folded zone
+    // shows none of its tiles, so the active one gates itself off exactly like
+    // an inactive tab. Without this a folded chat keeps re-rendering per token.
+    const view = render(<TreeGroup node={zone()} />)
+
+    expect(visibility()).toBe('yes')
+
+    view.rerender(<TreeGroup node={zone(true)} />)
+
+    expect(visibility()).toBe('no')
+
+    view.rerender(<TreeGroup node={zone()} />)
+
+    expect(visibility()).toBe('yes')
+  })
+
   it('restores the body to the flow without remounting it', () => {
     const view = render(<TreeGroup node={zone()} />)
 
@@ -124,5 +155,66 @@ describe('collapsing a zone', () => {
 
     expect(mounted).not.toHaveBeenCalled()
     expect(body()).toBeNull()
+  })
+})
+
+/**
+ * THE OTHER HIDE (MJXHRM-373 follow-on).
+ *
+ * Minimize is one of two ways a zone stops showing a pane without anyone asking
+ * for it to be destroyed. The other is the REVEAL axis: `$hiddenTreePanes`, what
+ * ⌘G / the titlebar toggles / `bindPaneVisibility` write. Three separate places
+ * document that axis as "the zone collapses but the content stays MOUNTED, so
+ * toggling back is instant" — `tree/store.ts`'s REVEAL note, `tile/visibility.ts`
+ * on the `hidden` outcome, and the `idle()` wrapper in `app/contrib/controller`.
+ * The renderer did not do it: `keptPanes` filters `shown`, and a hidden pane is
+ * not shown, so hiding tore the surface down exactly like minimize used to.
+ */
+describe('a pane its owning store hid', () => {
+  it('keeps its body mounted, so a live surface survives the toggle', () => {
+    const view = render(<TreeGroup node={zone()} />)
+
+    expect(mounted).toHaveBeenCalledTimes(1)
+
+    act(() => $hiddenTreePanes.set(new Set(['terminal'])))
+
+    expect(unmounted).not.toHaveBeenCalled()
+    expect(view.queryByTestId('live')).toBeTruthy()
+
+    // Hidden the way an inactive tab is: no tab in the strip, and the content
+    // declares itself hidden so document-wide lookups skip it.
+    expect(tabs()).toEqual([])
+    expect(view.queryByTestId('live')?.closest(`[${PANE_HIDDEN_ATTR}]`)).toBeTruthy()
+  })
+
+  it('comes back without remounting when the toggle reopens it', () => {
+    const view = render(<TreeGroup node={zone()} />)
+
+    act(() => $hiddenTreePanes.set(new Set(['terminal'])))
+    act(() => $hiddenTreePanes.set(new Set()))
+
+    expect(mounted).toHaveBeenCalledTimes(1)
+    expect(unmounted).not.toHaveBeenCalled()
+    expect(tabs()).toEqual(['terminal'])
+    expect(view.queryByTestId('live')?.closest(`[${PANE_HIDDEN_ATTR}]`)).toBeNull()
+  })
+
+  it('stays LAZY for a pane hidden before it was ever shown', () => {
+    // Boot with the pane toggled off: there is no state to preserve yet, and
+    // mounting it would spawn the shell / fetch the tree nobody has asked for.
+    $hiddenTreePanes.set(new Set(['terminal']))
+
+    const view = render(<TreeGroup node={zone()} />)
+
+    expect(mounted).not.toHaveBeenCalled()
+
+    // And it must stay lazy across later renders. `activeId` falls back to
+    // `node.active` when nothing in the zone is shown, so a keep-alive set that
+    // recorded the active tile without checking it is really on screen would
+    // mount this one on the NEXT render rather than this one — lazy in a single
+    // snapshot and eager in the app.
+    view.rerender(<TreeGroup node={zone()} />)
+
+    expect(mounted).not.toHaveBeenCalled()
   })
 })
