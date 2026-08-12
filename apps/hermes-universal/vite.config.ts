@@ -234,8 +234,10 @@ export default defineConfig(({ command }) => ({
     // second copy anywhere in the graph emits the whole set twice — measured at
     // ~19.8 MB of byte-identical chunks, a third of the release bundle. That is
     // exactly what `@streamdown/code` (`shiki: ^3.19.0`) did until the root
-    // package.json pinned it forward with an override; this line is the guard that
-    // keeps a future nested copy from silently doing it again.
+    // package.json pinned it forward with an override — that package is gone from
+    // this app now (see markdown-text.tsx), but `react-shiki` declares the same
+    // kind of range, so this line stays as the guard that keeps a future nested
+    // copy from silently doing it again.
     dedupe: ['react', 'react-dom', 'shiki']
   },
   clearScreen: false,
@@ -324,13 +326,22 @@ export default defineConfig(({ command }) => ({
   //
   // `shiki` and `react-shiki` MOVED into this list in MJXHRM-380, which put a
   // `lazy()` / dynamic `import()` in front of all four of OUR entry points to
-  // them. MJXHRM-45 then found the seam was still defeated by a fifth importer we
-  // do not own — `@streamdown/code` statically imports shiki, and
-  // `markdown-text.tsx` statically imported that — and made the plugin itself
-  // load on first markdown mount. Both halves have to hold for shiki to stay off
-  // the entry graph, and both are now dynamic, which is exactly the shape the
-  // reload hazard above describes: without these entries the first code fence in
-  // a conversation would re-run the optimiser and reload the page mid-reply.
+  // them — exactly the shape the reload hazard above describes: without these
+  // entries the first code fence in a conversation would re-run the optimiser and
+  // reload the page mid-reply.
+  //
+  // MJXHRM-45 then found the seam was still defeated by a fifth importer we do
+  // not own — `@streamdown/code` statically imports shiki, and
+  // `markdown-text.tsx` statically imported that — and deferred it to first
+  // markdown mount. MJXHRM-380's follow-up removed that dependency outright
+  // instead: supplying `components.SyntaxHighlighter` makes assistant-ui replace
+  // streamdown's own code block, and `plugins.code` feeds nothing else, so the
+  // plugin was downloading all of shiki (plus a second regex engine) for a dead
+  // branch. See the comment above `MARKDOWN_PLUGINS` in markdown-text.tsx.
+  //
+  // What keeps this honest is a test, not this comment:
+  // `src/entry-graph.test.ts` walks the static import graph from `main.tsx` and
+  // fails if anything puts shiki back on it.
   optimizeDeps: {
     include: [
       '@codemirror/commands',
