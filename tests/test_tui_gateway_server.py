@@ -4536,6 +4536,171 @@ def test_prompt_submit_empty_truncation_allowed_with_confirm(monkeypatch):
         server._sessions.pop("confirm-empty-sid", None)
 
 
+def test_prompt_submit_refuses_to_rewind_a_running_session(monkeypatch):
+    """A rewind must never be folded into the mid-turn busy path.
+
+    An ordinary prompt that lands while a turn runs is steered or queued rather
+    than rejected. A truncating submit cannot take either road: steering hands
+    the text to the very turn the rewind exists to discard, and queueing runs it
+    later with the truncation dropped — while both answer _ok, so a client that
+    already cut its transcript optimistically believes the rewind landed and only
+    finds out on the next hydration.
+
+    `session.interrupt` returns before the provider actually stops, so a client
+    that interrupts and submits straight after lands here by design. 4009 is the
+    answer it already knows how to wait out.
+    """
+    replaced = []
+    queued = []
+
+    class _FakeDB:
+        def replace_messages(self, key, messages, active_only=False):
+            replaced.append((key, list(messages)))
+
+    history = [
+        {"role": "user", "content": "first"},
+        {"role": "assistant", "content": "ok"},
+        {"role": "user", "content": "second"},
+        {"role": "assistant", "content": "done"},
+    ]
+    server._sessions["busy-rewind-sid"] = _session(history=list(history), running=True)
+    monkeypatch.setattr(server, "_get_db", lambda: _FakeDB())
+    monkeypatch.setattr(
+        server,
+        "_handle_busy_submit",
+        lambda *a, **k: queued.append(a) or pytest.fail("a rewind must not be queued or steered"),
+    )
+
+    try:
+        resp = server.handle_request(
+            {
+                "id": "1",
+                "method": "prompt.submit",
+                "params": {
+                    "session_id": "busy-rewind-sid",
+                    "text": "second, revised",
+                    "truncate_before_user_ordinal": 1,
+                    "confirm_truncate": True,
+                },
+            }
+        )
+
+        assert resp["error"]["code"] == 4009
+        assert "session busy" in resp["error"]["message"]
+        # Nothing cut, nothing queued, the live turn left alone.
+        assert replaced == []
+        assert queued == []
+        assert server._sessions["busy-rewind-sid"]["history"] == history
+        assert server._sessions["busy-rewind-sid"]["history_version"] == 0
+    finally:
+        server._sessions.pop("busy-rewind-sid", None)
+
+
+def test_prompt_submit_ordinal_space_matches_the_display_projection(monkeypatch):
+    """A rewind ordinal counts the user turns a client can SEE — and only those.
+
+    The ordinal space and `_history_to_messages` have to be the same count.
+    Rows the projection drops but the filter counted shift every later ordinal
+    by one, and the cut that follows is a destructive replace_messages() aimed
+    at a turn the user never pointed at.
+
+    Two such rows exist and neither carries a `display_kind`: the `[System: …]`
+    bookkeeping marker a personality switch appends (hidden by
+    `_is_display_hidden_marker`), and a row whose content renders empty. This
+    session has one of each between the first and second real prompts, so the
+    old filter and the new one disagree about where "the third prompt" is.
+    """
+    seen = {}
+    replaced = []
+
+    class _Agent:
+        def run_conversation(
+            self, prompt, conversation_history=None, stream_callback=None, **_kwargs
+        ):
+            seen["prompt"] = prompt
+            seen["history"] = conversation_history
+            return {
+                "final_response": "re-answered",
+                "messages": [
+                    *(conversation_history or []),
+                    {"role": "user", "content": prompt},
+                    {"role": "assistant", "content": "re-answered"},
+                ],
+            }
+
+    class _ImmediateThread:
+        def __init__(self, target=None, daemon=None):
+            self._target = target
+
+        def start(self):
+            self._target()
+
+    class _FakeDB:
+        def replace_messages(self, key, messages, active_only=False):
+            replaced.append((key, list(messages)))
+
+    marker = (
+        "[System: The user has changed the assistant's personality. "
+        "Adopt it from here on.]"
+    )
+    history = [
+        {"role": "user", "content": "first"},
+        {"role": "assistant", "content": "ok"},
+        {"role": "user", "content": marker},
+        {"role": "user", "content": ""},
+        {"role": "user", "content": "second"},
+        {"role": "assistant", "content": "done"},
+        {"role": "user", "content": "third"},
+        {"role": "assistant", "content": "sure"},
+    ]
+
+    # The client's view: three user bubbles, so "third" is ordinal 2.
+    projected = server._history_to_messages(history)
+    assert [m["text"] for m in projected if m["role"] == "user"] == [
+        "first",
+        "second",
+        "third",
+    ]
+
+    server._sessions["ordinal-space-sid"] = _session(
+        agent=_Agent(), history=list(history)
+    )
+
+    try:
+        monkeypatch.setattr(server.threading, "Thread", _ImmediateThread)
+        monkeypatch.setattr(server, "_get_usage", lambda _a: {})
+        monkeypatch.setattr(server, "render_message", lambda _t, _c: "")
+        monkeypatch.setattr(server, "_emit", lambda *a: None)
+        monkeypatch.setattr(server, "_get_db", lambda: _FakeDB())
+
+        resp = server.handle_request(
+            {
+                "id": "1",
+                "method": "prompt.submit",
+                "params": {
+                    "session_id": "ordinal-space-sid",
+                    "text": "third, revised",
+                    "truncate_before_user_ordinal": 2,
+                    "confirm_truncate": True,
+                },
+            }
+        )
+
+        assert resp.get("result"), f"got error: {resp.get('error')}"
+        # Cut at "third" — everything before it survives, marker and empty row
+        # included (they are still model-facing history). Counting them as user
+        # turns cut at index 3 instead, silently losing "second"/"done" as well.
+        assert replaced == [("session-key", history[:6])]
+        assert seen["history"] == history[:6]
+        assert server._sessions["ordinal-space-sid"]["history"] == [
+            *history[:6],
+            {"role": "user", "content": "third, revised"},
+            {"role": "assistant", "content": "re-answered"},
+        ]
+    finally:
+        server._sessions.pop("ordinal-space-sid", None)
+
+
 class _StopAfterOneNotificationPoll:
     def __init__(self):
         self._checks = 0

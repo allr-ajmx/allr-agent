@@ -259,6 +259,28 @@ describe('useSlashCommand', () => {
       expect($compactingSessions.get()).toEqual({})
     })
   })
+
+  // MJXHRM-367: `/compress` was the only exec path through this hook that
+  // recovered. `slash.exec` is the door `/undo` and `/retry` come through, and
+  // both rewrite session history destructively — so a runtime the gateway had
+  // dropped over a sleep/wake turned them into a bare "session not found" line.
+  it('resumes a dropped runtime and re-runs the slash command on the fresh id', async () => {
+    seedActiveSession('sess-1', { storedSessionId: 'stored-slash' })
+    vi.mocked(requestGateway)
+      .mockRejectedValueOnce(new Error('session not found'))
+      .mockResolvedValueOnce({ session_id: 'slash-2' } as never)
+      .mockResolvedValueOnce({ output: 'undone' } as never)
+
+    await run('/undo')
+
+    expect(vi.mocked(requestGateway).mock.calls.map(call => call[0])).toEqual([
+      'slash.exec',
+      'session.resume',
+      'slash.exec'
+    ])
+    expect(vi.mocked(requestGateway).mock.calls[1][1]).toMatchObject({ session_id: 'stored-slash' })
+    expect(vi.mocked(requestGateway).mock.calls[2][1]).toMatchObject({ command: 'undo', session_id: 'slash-2' })
+  })
 })
 
 /**

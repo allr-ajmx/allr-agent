@@ -812,16 +812,51 @@ export function planEdit(messages: ChatMessage[], sourceId: string, rawText: str
 const isSessionBusyError = (error: unknown): boolean =>
   /session busy/i.test(error instanceof Error ? error.message : String(error))
 
+// A rewind interrupts the live turn and submits straight after, but
+// `session.interrupt` returns BEFORE the provider actually stops — a
+// non-interruptible tool keeps running to its next boundary. The gateway refuses
+// to fold a truncating submit into its busy path (it would steer the text into
+// the very turn being discarded, or queue it with the truncation dropped), so
+// that window answers "session busy". Wait it out rather than failing the rewind
+// on the first bounce; bounded so a genuinely stuck turn still surfaces.
+// Desktop's `withSessionBusyRetry` (use-prompt-actions/utils.ts), same numbers.
+const SESSION_BUSY_RETRY_TIMEOUT_MS = 6_000
+const SESSION_BUSY_RETRY_INTERVAL_MS = 150
+
+async function withSessionBusyRetry<T>(call: () => Promise<T>): Promise<T> {
+  const deadline = Date.now() + SESSION_BUSY_RETRY_TIMEOUT_MS
+
+  for (;;) {
+    try {
+      return await call()
+    } catch (err) {
+      if (!isSessionBusyError(err) || Date.now() >= deadline) {
+        throw err
+      }
+
+      await new Promise(resolve => setTimeout(resolve, SESSION_BUSY_RETRY_INTERVAL_MS))
+    }
+  }
+}
+
 const isStaleTargetError = (error: unknown): boolean =>
   /no longer in session history|not in session history/i.test(error instanceof Error ? error.message : String(error))
 
 /**
- * Build `prompt.submit` truncation params. Ordinal 0 truncates to an EMPTY
- * transcript (restoring or editing the first user turn) — the gateway refuses
- * that edge unless `confirm_empty_truncate` is set, so a stale client cannot
- * silently wipe a session with a leftover ordinal. Ported from desktop's
- * `truncateSubmitParams`; universal omitted it, which made a rewind to the very
- * first prompt fail with a 422 that read as "restore is broken".
+ * Build `prompt.submit` truncation params.
+ *
+ * `confirm_truncate` says THIS submit really is a rewind. An ordinal alone is
+ * not consent: a client carrying a leftover ordinal into an ordinary send emits
+ * a request that is indistinguishable, field by field, from a real rewind, and
+ * the cut is a destructive `replace_messages()` — so `methods_prompt.py` refuses
+ * any ordinal that does not carry the flag (4029). Universal ported the
+ * `confirm_empty_truncate` half of desktop's `truncateSubmitParams` and dropped
+ * this one, which meant EVERY rewind — every edit-and-resend, every restore
+ * checkpoint — was refused by the gateway and rolled back under an "Edit failed"
+ * toast. The feature could not work at all.
+ *
+ * Ordinal 0 additionally truncates to an EMPTY transcript (restoring or editing
+ * the first user turn), which the gateway gates behind its own second opt-in.
  */
 function truncateSubmitParams(truncateOrdinal: number | undefined): Record<string, unknown> {
   if (truncateOrdinal === undefined) {
@@ -829,6 +864,7 @@ function truncateSubmitParams(truncateOrdinal: number | undefined): Record<strin
   }
 
   return {
+    confirm_truncate: true,
     truncate_before_user_ordinal: truncateOrdinal,
     ...(truncateOrdinal === 0 ? { confirm_empty_truncate: true } : {})
   }
@@ -854,7 +890,11 @@ interface RewindTarget {
  * (drops that user turn + everything after). Idle rewinds submit directly —
  * interrupting an idle agent can leave a stale interrupt flag that cancels the
  * fresh turn; live turns interrupt first, and a raced "session busy" response
- * interrupts + retries. Ported from desktop's `runRewindSubmit`.
+ * interrupts again and waits the turn out (`withSessionBusyRetry`). That wait is
+ * load-bearing rather than defensive: `session.interrupt` returns before the
+ * provider stops, and the gateway refuses to fold a truncating submit into its
+ * busy path precisely so the rewind cannot land as a steer or a queued prompt
+ * with the truncation silently dropped. Ported from desktop's `runRewindSubmit`.
  *
  * Both RPCs run through `withSessionNotFoundResume` (MJXHRM-367). A rewind is
  * the LONGEST-idle submit path in the app — the user reads a reply, thinks, and
@@ -914,7 +954,7 @@ async function runRewindSubmit(
     }
 
     await interrupt()
-    await submit()
+    await withSessionBusyRetry(submit)
   }
 }
 
@@ -923,13 +963,46 @@ async function runRewindSubmit(
  * the new text. Optimistically truncates everything after the edited message so
  * the abandoned replies disappear immediately, and rolls the whole transcript
  * back if the gateway rejects. Ported from desktop's `editMessage`.
+ *
+ * Addressed BY KEY, like every other session verb in this store (`interruptSession`,
+ * `redirectPrompt`, `restoreToMessage`, the four responders). Every user bubble
+ * in the app is an edit trigger — `UserMessage` sits behind an
+ * `ActionBarPrimitive.Edit`, and a session TILE mounts the same `ChatScreen`
+ * (`app/chat/session-tile.tsx`) — but this one read the ACTIVE chat's transcript
+ * and runtime id instead of the surface's own. Editing a bubble in a tile
+ * therefore rewound the main pane. Not merely the wrong target: hydrated message
+ * ids are positional (`h${index}-${role}` in `lib/session-history.ts`), so the
+ * tile's `h4-user` RESOLVES against the main pane's transcript, and the edit
+ * truncated a different conversation at that index and re-ran the tile's text
+ * there — a destructive `replace_messages()` on a session the user was not even
+ * editing. Desktop keeps the two apart by giving tiles their own action hook
+ * (`session-tile-actions.ts`); universal serves both from one component tree, so
+ * the key has to travel with the call.
  */
-export async function submitEditedPrompt(sourceId: string, rawText: string): Promise<void> {
-  const sessionId = $sessionId.get()
-  const messages = $messages.get()
+export async function submitEditedPrompt(
+  sourceId: string,
+  rawText: string,
+  editKey = $activeSessionKey.get()
+): Promise<void> {
+  const slice = $sessionStates.get()[editKey]
+  const sessionId = slice?.runtimeSessionId
+  const messages = slice?.messages ?? EMPTY_MESSAGES
   const plan = sessionId ? planEdit(messages, sourceId, rawText) : null
 
-  if (!sessionId || !plan) {
+  if (!sessionId) {
+    return
+  }
+
+  if (!plan) {
+    // A no-op edit (same text) or a non-user target is nothing to report. A
+    // source id that does not resolve is: the user typed a replacement, pressed
+    // Enter, and the words are gone with the editor. That happens when an
+    // auto-compaction re-keys the transcript under an open editor — the same
+    // drift `planRestore` carries an ordinal fallback for.
+    if (!messages.some(message => message.id === sourceId)) {
+      notifyError(new Error(translateNow('desktop.restoreMissing')), translateNow('desktop.editFailed'))
+    }
+
     return
   }
 
@@ -944,16 +1017,15 @@ export async function submitEditedPrompt(sourceId: string, rawText: string): Pro
   clearNotifications()
   clearPreviewArtifacts(sessionId)
 
-  const wasBusy = $busy.get()
-  // Captured before the await: a mid-edit chat switch must not apply this
-  // truncation (or its rollback) to whichever session is on screen when the
-  // submit settles.
-  const editKey = $activeSessionKey.get()
+  // This session's busy, not the visible chat's — a tile edit read the main
+  // pane's `$busy` and either interrupted a turn nobody asked it to or skipped
+  // the interrupt its own live turn needed.
+  const wasBusy = Boolean(slice.busy)
 
   const target: RewindTarget = {
     key: editKey,
     sessionId,
-    storedId: $sessionStates.get()[editKey]?.storedSessionId ?? null
+    storedId: slice.storedSessionId
   }
 
   updateSession(editKey, state => ({
@@ -971,6 +1043,21 @@ export async function submitEditedPrompt(sourceId: string, rawText: string): Pro
     // history). We already interrupted, so land the text as a plain resend.
     if (!plan.isFailedTurn && isStaleTargetError(err)) {
       try {
+        // Put the FULL transcript back first. The gateway refuses an
+        // out-of-range ordinal (4018) BEFORE it truncates anything, so nothing
+        // was cut — and a plain resend appends at the tail of the history the
+        // backend still holds. Leaving the optimistic truncation up would show a
+        // thread the backend does not have, with the resent turn grafted onto a
+        // cut that never happened: invisible until the next hydration, at which
+        // point the "deleted" turns all come back and the edit reads as a
+        // duplicate. The edited text goes back on as a NEW row, which is exactly
+        // where the gateway is about to persist it (fresh id — the original row
+        // is back in place under `sourceId`).
+        updateSession(target.key, state => ({
+          ...state,
+          messages: [...messages, { ...plan.editedMessage, id: nextId() }]
+        }))
+
         await runRewindSubmit(target, plan.text, undefined, false)
 
         return

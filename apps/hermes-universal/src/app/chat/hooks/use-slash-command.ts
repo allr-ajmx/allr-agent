@@ -230,10 +230,22 @@ export function useSlashCommand() {
         }
 
         try {
-          const result = await requestGateway<unknown>('slash.exec', {
-            session_id: sessionId,
-            command: command.replace(/^\/+/, '')
-          })
+          // Recovered like `/compress` below, and for a stronger reason: this is
+          // the door `/undo` and `/retry` come through, and both rewrite session
+          // history destructively. The gateway resolves `slash.exec` through
+          // `_sess()`, so a runtime it dropped over a sleep/wake answers "session
+          // not found" — and an exec that was REJECTED never ran, which is what
+          // makes the single retry safe. `handleDispatch` reads `targetKey()` as
+          // a function, so it already follows the slice a recovery moves.
+          const { result } = await withSessionNotFoundResume(
+            sessionId,
+            $sessionStates.get()[targetKey()]?.storedSessionId ?? $activeStoredSessionId.get(),
+            live =>
+              requestGateway<unknown>('slash.exec', {
+                session_id: live,
+                command: command.replace(/^\/+/, '')
+              })
+          )
 
           const dispatch = parseCommandDispatch(result)
 

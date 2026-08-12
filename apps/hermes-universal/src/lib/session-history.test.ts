@@ -139,6 +139,24 @@ describe('display-only timeline rows', () => {
     expect(texts(out[0].parts)).toEqual(['/review'])
   })
 
+  // The gateway's ordinal rule is "any STORED display_kind is scaffolding", so a
+  // kind this build has not learned is still outside the ordinal space. Rendered
+  // as the user's own words it would put a row in OUR count that the gateway's
+  // does not have, and every rewind after it would cut a later turn than the one
+  // clicked — MJXHRM-207 again, on the next kind the gateway ships.
+  it('keeps a display kind it does not recognise out of the user-turn space', () => {
+    const out = toChatMessages([
+      msg({ role: 'user', content: 'first prompt' }),
+      msg({ role: 'user', content: '[System: personality changed]', display_kind: 'personality_switch' }),
+      msg({ role: 'user', content: 'second prompt' })
+    ])
+
+    expect(out.map(m => m.role)).toEqual(['user', 'system', 'user'])
+    expect(texts(out[1].parts)).toEqual(['[System: personality changed]'])
+    // "second prompt" is user ordinal 1, exactly as the gateway counts it.
+    expect(out.filter(m => m.role === 'user')).toHaveLength(2)
+  })
+
   it('keeps a timeline event from swallowing the tool calls around it', () => {
     const out = toChatMessages([
       msg({ role: 'assistant', content: '', tool_calls: [{ id: 't1', function: { name: 'grep', arguments: {} } }] }),

@@ -611,7 +611,15 @@ describe('submitEditedPrompt (edit + rewind)', () => {
     expect(requestGateway).toHaveBeenCalledWith(
       'prompt.submit',
       // ordinal 1 == the second user turn: it and everything after are dropped.
-      expect.objectContaining({ text: 'second ask, revised', truncate_before_user_ordinal: 1 }),
+      // `confirm_truncate` is what makes the gateway act on the ordinal at all —
+      // `methods_prompt.py` refuses an unconfirmed one with 4029, so without it
+      // EVERY rewind in the app failed and rolled back (universal ported only the
+      // `confirm_empty_truncate` half of desktop's `truncateSubmitParams`).
+      expect.objectContaining({
+        confirm_truncate: true,
+        text: 'second ask, revised',
+        truncate_before_user_ordinal: 1
+      }),
       expect.anything()
     )
     expect($messages.get().map(m => m.id)).toEqual(['u1', 'a1', 'u2'])
@@ -628,6 +636,43 @@ describe('submitEditedPrompt (edit + rewind)', () => {
 
     expect(vi.mocked(requestGateway).mock.calls[0][0]).toBe('session.interrupt')
     expect(vi.mocked(requestGateway).mock.calls[1][0]).toBe('prompt.submit')
+  })
+
+  // `session.interrupt` returns BEFORE the provider actually stops, so the
+  // submit that follows it can still land on a running session. The gateway
+  // refuses to fold a truncating submit into its busy path — steering would hand
+  // the text to the very turn being discarded, queueing would run it later with
+  // the truncation dropped, and both answer OK — so it says "session busy" and
+  // this waits the turn out instead of failing the rewind on the first bounce.
+  it('waits out a turn that is still winding down after the interrupt', async () => {
+    seedTurns()
+    updateSession('runtime-1', state => ({ ...state, busy: true }))
+
+    let submitAttempts = 0
+
+    vi.mocked(requestGateway).mockImplementation(async (method: string) => {
+      if (method !== 'prompt.submit') {
+        return {}
+      }
+
+      submitAttempts += 1
+
+      if (submitAttempts < 3) {
+        throw new Error('session busy — interrupt the current turn before rewinding it')
+      }
+
+      return {}
+    })
+
+    await submitEditedPrompt('u2', 'second ask, revised')
+
+    expect(submitAttempts).toBe(3)
+    // The truncation stands: the rewind actually landed.
+    expect($messages.get().map(m => m.id)).toEqual(['u1', 'a1', 'u2'])
+    expect(vi.mocked(requestGateway).mock.calls.at(-1)?.[1]).toMatchObject({
+      confirm_truncate: true,
+      truncate_before_user_ordinal: 1
+    })
   })
 
   it('resubmits a failed turn plainly, with no truncate ordinal', async () => {
@@ -647,13 +692,18 @@ describe('submitEditedPrompt (edit + rewind)', () => {
   // REGRESSION: assistant-ui addresses the edit by message id. When the runtime
   // converter dropped our ids (app/chat/runtime.tsx), `sourceId` was a generated
   // id that never matched, so Enter after an edit silently did nothing.
-  it('does nothing when the source id is not in the transcript', async () => {
+  //
+  // It must still submit nothing — but it must SAY so. The user typed a
+  // replacement and pressed Enter; the words leave with the editor either way,
+  // and swallowing it is how the runtime bug above stayed invisible.
+  it('reports a source id that is not in the transcript instead of silently dropping the edit', async () => {
     seedTurns()
 
     await submitEditedPrompt('not-a-real-id', 'revised')
 
     expect(requestGateway).not.toHaveBeenCalled()
     expect($messages.get()).toHaveLength(4)
+    expect(notifyError).toHaveBeenCalled()
   })
 
   it('ignores a no-op edit and a non-user target', async () => {
@@ -664,6 +714,67 @@ describe('submitEditedPrompt (edit + rewind)', () => {
 
     expect(requestGateway).not.toHaveBeenCalled()
     expect($messages.get()).toHaveLength(4)
+    // Both targets resolved; there is simply nothing to send. Not an error.
+    expect(notifyError).not.toHaveBeenCalled()
+  })
+
+  // Every user bubble in the app is an edit trigger, and a session TILE mounts
+  // the same thread (app/chat/session-tile.tsx). This used to read the ACTIVE
+  // chat's transcript and runtime id, so a tile's edit rewound the main pane —
+  // and because hydrated ids are positional (`h${index}-${role}`), the tile's id
+  // RESOLVED there, truncating a conversation the user was not editing and
+  // re-running the tile's text into it.
+  it('rewinds the session it was handed, not the one on screen', async () => {
+    seedActiveSession('runtime-main', {
+      messages: [
+        { id: 'h0-user', role: 'user', parts: [{ type: 'text', text: 'main first ask' }] },
+        { id: 'h1-assistant', role: 'assistant', parts: [{ type: 'text', text: 'main answer' }] },
+        { id: 'h2-user', role: 'user', parts: [{ type: 'text', text: 'main second ask' }] },
+        { id: 'h3-assistant', role: 'assistant', parts: [{ type: 'text', text: 'main second answer' }] }
+      ]
+    })
+    seedSession('runtime-tile', {
+      messages: [
+        { id: 'h0-user', role: 'user', parts: [{ type: 'text', text: 'tile first ask' }] },
+        { id: 'h1-assistant', role: 'assistant', parts: [{ type: 'text', text: 'tile answer' }] },
+        { id: 'h2-user', role: 'user', parts: [{ type: 'text', text: 'tile second ask' }] },
+        { id: 'h3-assistant', role: 'assistant', parts: [{ type: 'text', text: 'tile second answer' }] }
+      ]
+    })
+    vi.mocked(requestGateway).mockResolvedValue({})
+
+    await submitEditedPrompt('h2-user', 'tile second ask, revised', 'runtime-tile')
+
+    expect(requestGateway).toHaveBeenCalledWith(
+      'prompt.submit',
+      expect.objectContaining({ session_id: 'runtime-tile', text: 'tile second ask, revised' }),
+      expect.anything()
+    )
+    expect(sessionMessages('runtime-tile').map(m => m.id)).toEqual(['h0-user', 'h1-assistant', 'h2-user'])
+    // The chat on screen is untouched — no truncation, no busy, no re-run.
+    expect(sessionMessages('runtime-main').map(m => m.id)).toEqual([
+      'h0-user',
+      'h1-assistant',
+      'h2-user',
+      'h3-assistant'
+    ])
+    expect($busy.get()).toBe(false)
+  })
+
+  // `wasBusy` decides whether the rewind interrupts first. Read off the visible
+  // chat it answered for the wrong session in both directions: interrupting a
+  // tile that was idle, or skipping the interrupt its own live turn needed.
+  it('interrupts by the target session’s own busy state, not the visible chat’s', async () => {
+    seedActiveSession('runtime-main', { busy: true, messages: [] })
+    seedSession('runtime-tile', {
+      busy: false,
+      messages: [{ id: 'h0-user', role: 'user', parts: [{ type: 'text', text: 'tile ask' }] }]
+    })
+    vi.mocked(requestGateway).mockResolvedValue({})
+
+    await submitEditedPrompt('h0-user', 'tile ask, revised', 'runtime-tile')
+
+    expect(vi.mocked(requestGateway).mock.calls.map(call => call[0])).toEqual(['prompt.submit'])
   })
 
   it('restores the original transcript when the gateway rejects', async () => {
@@ -677,7 +788,13 @@ describe('submitEditedPrompt (edit + rewind)', () => {
     expect($busy.get()).toBe(false)
   })
 
-  it('falls back to a plain resend when the truncate target is stale', async () => {
+  // The gateway rejects an out-of-range ordinal (4018) BEFORE it truncates
+  // anything, so the backend still holds the whole transcript and the plain
+  // resend appends at its tail. Leaving the optimistic truncation up therefore
+  // showed a thread the backend did not have — invisible until the next
+  // hydration, when the "deleted" turns all came back and the edit read as a
+  // duplicate. Client and backend have to agree the moment the resend lands.
+  it('falls back to a plain resend when the truncate target is stale, and un-truncates to match', async () => {
     seedTurns()
     vi.mocked(requestGateway)
       .mockRejectedValueOnce(new Error('turn is no longer in session history'))
@@ -686,8 +803,16 @@ describe('submitEditedPrompt (edit + rewind)', () => {
     await submitEditedPrompt('u2', 'second ask, revised')
 
     expect(vi.mocked(requestGateway).mock.calls[1][1]).not.toHaveProperty('truncate_before_user_ordinal')
-    // The optimistic truncation stands — the resend did land.
-    expect($messages.get().map(m => m.id)).toEqual(['u1', 'a1', 'u2'])
+    expect(vi.mocked(requestGateway).mock.calls[1][1]).not.toHaveProperty('confirm_truncate')
+
+    const ids = $messages.get().map(m => m.id)
+    // The full history is back, with the edited text appended as the new turn
+    // the gateway is about to persist — not grafted onto a cut that never
+    // happened.
+    expect(ids.slice(0, 4)).toEqual(['u1', 'a1', 'u2', 'a2'])
+    expect(ids).toHaveLength(5)
+    expect(messageText($messages.get()[2])).toBe('second ask')
+    expect(messageText($messages.get()[4])).toBe('second ask, revised')
   })
 
   // MJXHRM-367: every other submit path recovers a runtime the gateway dropped;
@@ -745,7 +870,9 @@ describe('restoreToMessage', () => {
 
     expect(requestGateway).toHaveBeenCalledWith(
       'prompt.submit',
-      expect.objectContaining({ text: 'second ask', truncate_before_user_ordinal: 1 }),
+      // `confirm_truncate` states that this submit IS a rewind; the gateway
+      // refuses a bare ordinal with 4029 (see truncateSubmitParams).
+      expect.objectContaining({ confirm_truncate: true, text: 'second ask', truncate_before_user_ordinal: 1 }),
       expect.anything()
     )
     // The prompt STAYS — it is being re-run, not withdrawn.

@@ -146,6 +146,25 @@ def _(rid, params: dict) -> dict:
         busy_transport = None
         with session["history_lock"]:
             if session.get("running"):
+                # A REWIND is not a mid-turn prompt and must never be folded
+                # into the busy path. Steering hands the text to the very turn
+                # the rewind exists to discard; queueing runs it later with the
+                # truncation silently dropped — and either answers _ok, so the
+                # client that already cut its transcript optimistically believes
+                # the rewind landed and only finds out on the next hydration,
+                # when every "deleted" turn comes back.
+                #
+                # `session.interrupt` returns before the provider actually
+                # stops, so a client that interrupts and submits straight after
+                # lands here by design. 4009 is the answer both clients already
+                # know: they interrupt again and retry until the turn winds down
+                # (`withSessionBusyRetry`).
+                if truncate_user_ordinal is not None:
+                    return _err(
+                        rid,
+                        4009,
+                        "session busy — interrupt the current turn before rewinding it",
+                    )
                 # Don't reject a mid-turn prompt — queue it (and, by default,
                 # interrupt the live turn) so it runs as the next turn. The
                 # provider interrupt itself must happen after this lock is
@@ -203,19 +222,17 @@ def _(rid, params: dict) -> dict:
                     "(update your Hermes client if a rewind was intended)",
                 )
             # The ordinal space has to be exactly the user turns a client can
-            # SEE. `_history_to_messages` types synthetic rows two ways: the
-            # stored `display_kind`, and `_legacy_display_kind`'s sniff for rows
-            # written before turn-start typing — which is EVERY crash-recovery
-            # note, because a turn killed mid-run never reaches the post-turn
-            # stamp. Honoring only the first counted a row no surface renders as
-            # a user turn, so in a session carrying one, every ordinal after it
-            # addressed the wrong turn — and this cut is a destructive
-            # replace_messages().
+            # SEE, because this cut is a destructive replace_messages(). Asking
+            # `_counts_as_user_ordinal` instead of re-deriving the rule here is
+            # the point: that predicate mirrors EVERY way `_history_to_messages`
+            # can drop a role="user" row — a stored `display_kind`,
+            # `_legacy_display_kind`'s sniff for crash-recovery notes written
+            # before turn-start typing, an `[System: …]` bookkeeping marker, a
+            # row that renders empty. The inline version honored only the first
+            # two, so a session carrying a personality-switch marker rewound one
+            # turn early — silently, and for good.
             user_indices = [
-                i for i, m in enumerate(history)
-                if m.get("role") == "user"
-                and not m.get("display_kind")
-                and not _legacy_display_kind("user", _coerce_message_text(m.get("content")))
+                i for i, m in enumerate(history) if _counts_as_user_ordinal(m)
             ]
             # Reject out-of-range ordinals on BOTH ends. A negative value would
             # otherwise sail past the upper-bound check and hit Python's negative
