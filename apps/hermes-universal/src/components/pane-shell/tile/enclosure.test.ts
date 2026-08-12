@@ -129,6 +129,21 @@ describe('narrowCollapsed — the only enclosure that unmounts', () => {
     expect(enclosure.narrowCollapsed).toBe(false)
   })
 
+  it('does not fire for a hidden collapsible pane, at any width', () => {
+    // ⌘G-closed review on a narrow window. It is `enclosed` by the breakpoint
+    // rule, but NarrowOverlays skips hidden panes — so there is no overlay copy
+    // to hand the live instance to, and unmounting here would lose the body the
+    // reveal axis now keeps.
+    const enclosure = zoneEnclosure(
+      group(['review'], { id: 'grp-review' }),
+      ctx({ hidden: new Set(['review']), narrow: true }),
+      true
+    )
+
+    expect(enclosure.collapsed).toBe(true)
+    expect(enclosure.narrowCollapsed).toBe(false)
+  })
+
   it('does not fire for a minimized zone — the case MJXHRM-373 fixed', () => {
     const enclosure = zoneEnclosure(group(['terminal'], { id: 'grp-terminal', minimized: true }), ctx(), false)
 

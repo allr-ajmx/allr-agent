@@ -18,7 +18,7 @@ import { act, cleanup, render } from '@testing-library/react'
 import { useEffect } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { PANE_HIDDEN_ATTR } from '@/components/pane-shell/pane-visibility'
+import { PANE_HIDDEN_ATTR, usePaneVisible } from '@/components/pane-shell/pane-visibility'
 import { group } from '@/components/pane-shell/tree/model'
 import { $hiddenTreePanes, $layoutTree } from '@/components/pane-shell/tree/store'
 
@@ -31,16 +31,26 @@ const ZONE = 'tool-zone'
 const mounted = vi.fn()
 const unmounted = vi.fn()
 
-/** Stands in for a terminal: its unmount is the thing that used to kill a PTY. */
+/** Stands in for a terminal: its unmount is the thing that used to kill a PTY.
+ *  It also reports the visibility the zone hands it, which is the contract a
+ *  kept-alive surface gates its hot subscriptions on. */
 function LiveSurface() {
+  const visible = usePaneVisible()
+
   useEffect(() => {
     mounted()
 
     return () => unmounted()
   }, [])
 
-  return <p data-testid="live">shell</p>
+  return (
+    <p data-testid="live" data-visible={visible ? 'yes' : 'no'}>
+      shell
+    </p>
+  )
 }
+
+const visibility = () => document.querySelector('[data-testid="live"]')?.getAttribute('data-visible')
 
 let disposeTiles: (() => void) | null = null
 let rect: () => DOMRect
@@ -105,6 +115,23 @@ describe('collapsing a zone', () => {
     // scrollback, which is the state this is protecting.
     expect(body()?.style.height).toBe('300px')
     expect(body()?.style.width).toBe('400px')
+  })
+
+  it('tells the kept tile it is not visible, so its hot subscriptions stand down', () => {
+    // The point of keeping the body is the STATE, not the work: a folded zone
+    // shows none of its tiles, so the active one gates itself off exactly like
+    // an inactive tab. Without this a folded chat keeps re-rendering per token.
+    const view = render(<TreeGroup node={zone()} />)
+
+    expect(visibility()).toBe('yes')
+
+    view.rerender(<TreeGroup node={zone(true)} />)
+
+    expect(visibility()).toBe('no')
+
+    view.rerender(<TreeGroup node={zone()} />)
+
+    expect(visibility()).toBe('yes')
   })
 
   it('restores the body to the flow without remounting it', () => {
@@ -177,7 +204,16 @@ describe('a pane its owning store hid', () => {
     // mounting it would spawn the shell / fetch the tree nobody has asked for.
     $hiddenTreePanes.set(new Set(['terminal']))
 
-    render(<TreeGroup node={zone()} />)
+    const view = render(<TreeGroup node={zone()} />)
+
+    expect(mounted).not.toHaveBeenCalled()
+
+    // And it must stay lazy across later renders. `activeId` falls back to
+    // `node.active` when nothing in the zone is shown, so a keep-alive set that
+    // recorded the active tile without checking it is really on screen would
+    // mount this one on the NEXT render rather than this one — lazy in a single
+    // snapshot and eager in the app.
+    view.rerender(<TreeGroup node={zone()} />)
 
     expect(mounted).not.toHaveBeenCalled()
   })
