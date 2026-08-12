@@ -12,6 +12,7 @@ import { ChatBar } from '@/app/chat/composer'
 import { useComposerScope } from '@/app/chat/composer/scope'
 import { useSlashCommand } from '@/app/chat/hooks/use-slash-command'
 import { useSessionView } from '@/app/chat/session-view'
+import { setPrimarySlashRunner } from '@/app/chat/slash-runner'
 import { ModelMenuPanel } from '@/app/shell/model-menu-panel'
 import { transcribeAudio } from '@/hermes'
 import { SLASH_COMMAND_RE } from '@/lib/chat-runtime'
@@ -69,6 +70,20 @@ export function ChatComposer() {
       void refreshCurrentModel()
     }
   }, [isPrimary, gatewayState])
+
+  // Lend the dispatcher to the one caller that has text to run and no React
+  // context to run it from: Quick Entry's bridge (app/chat/slash-runner.ts).
+  // Primary only — the dispatcher acts on the view it was built under, and a
+  // tile's would run a captured `/compress` against the tile.
+  useEffect(() => {
+    if (!isPrimary) {
+      return
+    }
+
+    setPrimarySlashRunner(executeSlashCommand)
+
+    return () => setPrimarySlashRunner(null)
+  }, [executeSlashCommand, isPrimary])
 
   // Route the fully-composed prompt to universal's gateway path. The ported
   // ChatBar owns draft/queue/history internally, so the parent only sends: slash

@@ -5,7 +5,8 @@
  *
  * - **Inbound** — text captured in the quick window is routed by target and
  *   submitted through THIS window's normal prompt machinery. The current chat
- *   rides `sendPrompt`, exactly as the real composer does; a picked stored
+ *   rides the slash dispatcher when the text is a `/`-command and `sendPrompt`
+ *   otherwise, exactly as the real composer does; a picked stored
  *   session rides the session-tile delegate (resume + submit, in the background,
  *   without moving the primary view — the same path a tiled session uses); "new
  *   session" is `startNewSession()` followed by the same `sendPrompt`, which is
@@ -27,6 +28,7 @@
  * the identical shape with `isAuxiliaryWindow`.
  */
 
+import { SLASH_COMMAND_RE } from '@/lib/chat-runtime'
 import { IS_TAURI } from '@/lib/platform'
 import { $connectionPhase } from '@/store/connection'
 import {
@@ -56,6 +58,41 @@ export function quickEntryStatePush(): QuickEntryStatePush {
 }
 
 /**
+ * Run captured text that is a slash command, or report that we cannot.
+ *
+ * A capture window has a bare composer with no slash popover, but nothing stops
+ * anyone typing `/approvals off` into it — and until this existed, that text was
+ * delivered to the AGENT as prose: a message about the command instead of the
+ * command. Desktop's bridge never had the gap, because its three local branches
+ * all end in `submitText`, which dispatches slash itself; universal's port
+ * reached for `sendPrompt`, one layer below the dispatcher (MJXHRM-399).
+ *
+ * Returns false when no primary composer is mounted to lend its dispatcher (the
+ * user is on Settings, or in a full-screen overlay). The caller then sends the
+ * text as it always did — the wrong reading of a slash command, but the capture
+ * surface's one promise is that nothing typed into it disappears.
+ */
+async function runSlashCommand(text: string): Promise<boolean> {
+  // The shape test is a static regex over a module of pure helpers, so ordinary
+  // prose — every capture but a handful — reaches the send having paid nothing
+  // and, more to the point, having taken no extra microtask hop on the way.
+  if (!SLASH_COMMAND_RE.test(text.trim())) {
+    return false
+  }
+
+  const { primarySlashRunner } = await import('@/app/chat/slash-runner')
+  const run = primarySlashRunner()
+
+  if (!run) {
+    return false
+  }
+
+  await run(text.trim())
+
+  return true
+}
+
+/**
  * Send into the current chat — or QUEUE it there when that chat is mid-turn.
  *
  * `sendPrompt` opens with `if (!trimmed || $busy.get()) return`. That guard is
@@ -79,6 +116,14 @@ export function quickEntryStatePush(): QuickEntryStatePush {
  * decided to send, and `sendPrompt` would drop the text on its own re-read.
  */
 async function sendOrQueueCurrent(text: string): Promise<void> {
+  // Before the busy read, not after: a slash command is an act on the app, and
+  // `/interrupt`, `/status` or `/approvals` are at their most useful precisely
+  // while a turn is running. Queueing one would park an app-level verb behind
+  // the turn it was meant to inspect.
+  if (await runSlashCommand(text)) {
+    return
+  }
+
   const [{ $busy, sendPrompt }, { $activeSessionKey }, { enqueueQueuedPrompt }] = await Promise.all([
     import('@/store/chat'),
     import('@/store/session-state-types'),
