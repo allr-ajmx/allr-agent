@@ -36,7 +36,7 @@ import { LayoutDashboard, PanelBottom, Plug } from '@/lib/icons'
 import { type KeybindContribution, KEYBINDS_AREA } from '@/lib/keybinds/actions'
 import { WORKSPACE_PANE_ID } from '@/lib/pane-ids'
 import { IS_MOBILE } from '@/lib/platform'
-import { $chatBubbles, addBubble, bubbleRuntimeKey } from '@/store/chat-bubbles'
+import { $chatBubbles, addBubble, bubbleRuntimeKey, switchToBubble } from '@/store/chat-bubbles'
 import { $gatewayState } from '@/store/gateway'
 import {
   $panesFlipped,
@@ -62,7 +62,7 @@ import {
   focusWorkspaceSession,
   invalidateRuntimeBindings,
   nextSessionTileForWorkspace,
-  openSessionTile,
+  openBranchTile,
   setVisibleBubbleKeysProvider
 } from '@/store/session-states'
 import { $statusbarVisible } from '@/store/statusbar-prefs'
@@ -388,17 +388,25 @@ setVisibleBubbleKeysProvider(() =>
     .filter((key): key is string => Boolean(key))
 )
 
-// Branching the OPEN chat opens the branch BESIDE it and fronts it, leaving the
-// parent exactly where it was — the same placement `SessionTileDelegate`
-// already gives a branch made from a tab, now shared by the one made from an
-// assistant message. Registered here for the same reason as the provider above:
-// `store/session` cannot import tiles or bubbles without a cycle, and this is
-// the layer that knows which of the two this platform has.
-setBranchedSessionOpener(storedSessionId => {
+// Branching a chat opens the branch BESIDE it and FRONTS it, leaving the parent
+// exactly where it was — the same placement `SessionTileDelegate` gives a branch
+// made from a tab, shared by the one made from an assistant message. Registered
+// here for the same reason as the provider above: `store/session` cannot import
+// tiles or bubbles without a cycle, and this is the layer that knows which of
+// the two this platform has.
+//
+// On mobile the strip is the tab bar: `addBubble` alone parks the branch in it
+// as a BACKGROUND chat (its own contract — "WITHOUT switching to it"), so the
+// user branched and stayed exactly where they were, with a new dot to hunt for.
+// The switch is what "opens in a new chat" means; it costs nothing, because
+// `addBubble` has already seeded the parent as a bubble of its own, so the chat
+// being left is one tap away rather than displaced.
+setBranchedSessionOpener((storedSessionId, parentStoredId) => {
   if (IS_MOBILE) {
     addBubble(storedSessionId)
+    switchToBubble(storedSessionId)
   } else {
-    openSessionTile(storedSessionId, 'center')
+    openBranchTile(storedSessionId, parentStoredId)
   }
 })
 

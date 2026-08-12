@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { registerTiles } from '@/components/pane-shell/tile/registry'
 import type { Tile } from '@/components/pane-shell/tile/types'
-import { group, split } from '@/components/pane-shell/tree/model'
+import { findGroup, group, split } from '@/components/pane-shell/tree/model'
 import { $activeTreeGroup, $layoutTree, noteActiveTreeGroup } from '@/components/pane-shell/tree/store'
 import { isChatPaneId, sessionTilePaneId, WORKSPACE_PANE_ID } from '@/lib/pane-ids'
 import { $compactingSessions, sessionCompacting, setSessionCompacting } from '@/store/compaction'
@@ -28,6 +28,7 @@ import {
   focusWorkspaceSession,
   invalidateRuntimeBindings,
   MAX_CACHED_SESSIONS,
+  openBranchTile,
   pruneSessionStates
 } from '@/store/session-states'
 import { $inflightTurns, beginTurn, isTurnLive } from '@/store/turn-lifecycle'
@@ -271,6 +272,52 @@ describe('focusWorkspaceSession', () => {
 
     expect(focusOpenSession('loaded')).toBe(true)
     expect($activeTreeGroup.get()).toBe(CHAT_GROUP)
+  })
+
+  /**
+   * WHERE A BRANCH LANDS (MJXHRM-388).
+   *
+   * Two failures, one helper. Contributing a tile only gets its pane ADOPTED,
+   * and adoption is silent by design (`insertAtGroup(..., activate: false)`), so
+   * the branch was stacked behind the chat it came from and the screen did not
+   * change — the "never foregrounds the new tab" this ticket is named for. And
+   * with no anchor a tile docks against the workspace, so branching a chat that
+   * is itself a tile in another zone put the branch where the user was not
+   * looking.
+   */
+  describe('openBranchTile', () => {
+    it('fronts the branch and claims its zone', () => {
+      const branch = sessionTilePaneId('branch-1')
+      seedTree([WORKSPACE_PANE_ID, branch], WORKSPACE_PANE_ID)
+
+      openBranchTile('branch-1', null)
+
+      expect(findGroup($layoutTree.get()!, CHAT_GROUP)?.active).toBe(branch)
+      expect($activeTreeGroup.get()).toBe(CHAT_GROUP)
+    })
+
+    it('anchors the branch to the PARENT strip when the parent is a tile', () => {
+      seedTree([WORKSPACE_PANE_ID])
+      $sessionTiles.set([{ dir: 'center', storedSessionId: 'parent-1' }])
+
+      openBranchTile('branch-1', 'parent-1')
+
+      expect($sessionTiles.get().find(t => t.storedSessionId === 'branch-1')).toMatchObject({
+        anchor: sessionTilePaneId('parent-1'),
+        dir: 'center'
+      })
+    })
+
+    it('falls back to the workspace strip when the parent is the main chat', () => {
+      seedTree([WORKSPACE_PANE_ID])
+
+      openBranchTile('branch-1', 'parent-1')
+
+      expect($sessionTiles.get().find(t => t.storedSessionId === 'branch-1')).toMatchObject({
+        anchor: WORKSPACE_PANE_ID,
+        dir: 'center'
+      })
+    })
   })
 })
 

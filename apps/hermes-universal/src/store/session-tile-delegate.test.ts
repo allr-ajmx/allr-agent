@@ -49,7 +49,7 @@ vi.mock('@/store/session-states', async () => {
   return {
     ...types,
     closeSessionTile: vi.fn(),
-    openSessionTile: vi.fn(),
+    openBranchTile: vi.fn(),
     setSessionTileDelegate: (next: SessionTileDelegate) => captured(next)
   }
 })
@@ -231,5 +231,39 @@ describe('executeSlash', () => {
     expect($sessionStates.get()['runtime-1']).toMatchObject({ busy: false, turnStartedAt: null })
     expect($inflightTurns.get()['runtime-1']?.phase).toBe('settled')
     expect(notifyError).toHaveBeenCalled()
+  })
+})
+
+// MJXHRM-388: the branch made from a TAB and the one made from an assistant
+// message share `openBranchTile`, so they cannot drift — and the parent it is
+// given is what puts the new tab in the parent's own strip rather than the
+// workspace's.
+describe('branchSession', () => {
+  beforeEach(async () => {
+    const { openBranchTile } = await import('@/store/session-states')
+
+    vi.mocked(openBranchTile).mockClear()
+  })
+
+  it('opens the branch beside the session it was branched from', async () => {
+    const { branchStoredSession } = await import('@/store/session')
+    const { openBranchTile } = await import('@/store/session-states')
+
+    vi.mocked(branchStoredSession).mockResolvedValue('branch-1')
+
+    await delegate.branchSession('stored-1')
+
+    expect(openBranchTile).toHaveBeenCalledWith('branch-1', 'stored-1')
+  })
+
+  it('opens nothing when the fork failed', async () => {
+    const { branchStoredSession } = await import('@/store/session')
+    const { openBranchTile } = await import('@/store/session-states')
+
+    vi.mocked(branchStoredSession).mockResolvedValue(null)
+
+    await delegate.branchSession('stored-1')
+
+    expect(openBranchTile).not.toHaveBeenCalled()
   })
 })
