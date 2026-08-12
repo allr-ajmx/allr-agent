@@ -2885,6 +2885,73 @@ class TestStatusRemoteGateway:
         assert data["gateway_state"] == "running"
 
 
+class TestStatusConfigFloorWarning:
+    """`/api/status` must ship the support-floor verdict the client renders.
+
+    The client stops re-deriving this rule only for as long as the field keeps
+    arriving; nothing else in the suite covers the endpoint wiring, so dropping
+    the key would silently push every client back onto its fallback.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _setup_test_client(self):
+        try:
+            from starlette.testclient import TestClient
+        except ImportError:
+            pytest.skip("fastapi/starlette not installed")
+
+        from hermes_cli.web_server import app, _SESSION_HEADER_NAME, _SESSION_TOKEN
+        self.client = TestClient(app)
+        self.client.headers[_SESSION_HEADER_NAME] = _SESSION_TOKEN
+
+    def test_status_reports_the_floor_verdict(self, monkeypatch):
+        import hermes_cli.config as cfg
+        from hermes_cli.config_migrations import SUPPORT_FLOOR_VERSION
+
+        monkeypatch.setattr(cfg, "check_config_version", lambda: (11, 34))
+        monkeypatch.setattr(cfg, "_raw_config_has_explicit_version", lambda: True)
+
+        data = self.client.get("/api/status").json()
+        assert data["config_floor_warning"] == {
+            "below_floor": True,
+            "support_floor_version": SUPPORT_FLOOR_VERSION,
+        }
+
+    def test_status_clears_the_verdict_for_a_current_config(self, monkeypatch):
+        import hermes_cli.config as cfg
+
+        monkeypatch.setattr(cfg, "check_config_version", lambda: (34, 34))
+        monkeypatch.setattr(cfg, "_raw_config_has_explicit_version", lambda: True)
+
+        assert self.client.get("/api/status").json()["config_floor_warning"]["below_floor"] is False
+
+    def test_status_exempts_a_config_with_no_version_key(self, monkeypatch):
+        """A missing `_config_version` coerces to 0 but is NOT an ancient install.
+
+        This is the one case a client can never derive: over HTTP it arrives as
+        `config_version: 0`, identical to a literal `_config_version: 0`.
+        """
+        import hermes_cli.config as cfg
+
+        monkeypatch.setattr(cfg, "check_config_version", lambda: (0, 34))
+        monkeypatch.setattr(cfg, "_raw_config_has_explicit_version", lambda: False)
+
+        assert self.client.get("/api/status").json()["config_floor_warning"]["below_floor"] is False
+
+    def test_unreadable_config_nulls_the_field_without_breaking_the_probe(self, monkeypatch):
+        """`/api/status` is the public liveness probe; a bad config must not 500."""
+        import hermes_cli.config as cfg
+
+        def _boom():
+            raise OSError("config.yaml is unreadable")
+
+        monkeypatch.setattr(cfg, "config_floor_status", _boom)
+
+        resp = self.client.get("/api/status")
+        assert resp.status_code == 200
+        assert resp.json()["config_floor_warning"] is None
+
+
 class TestGatewayBusyReadout:
     """Tests for the NAS busy/drainable readout on /api/status.
 

@@ -41,8 +41,14 @@ const CONFIG_SUPPORT_FLOOR_FALLBACK = 12
  * `config_version: 0` — so the legacy fallback treats 0 as "no explicit
  * version" and never warns. A false alarm on every hand-written config would be
  * worse than missing a literal `_config_version: 0`, which nobody writes.
+ *
+ * The fallback mirrors the backend's `below_support_floor()` in full — BOTH
+ * clauses, `current < floor` AND `current < latest`. Dropping the second one
+ * warned about a config a gateway considers current: the only gateways that
+ * reach this branch are ones predating the field, and one whose own
+ * `latest_config_version` is itself below 12 has nothing to migrate to.
  */
-function configFloorVerdict(status: StatusResponse): { below: boolean; floor: number } {
+export function configFloorVerdict(status: StatusResponse): { below: boolean; floor: number } {
   const reported = status.config_floor_warning
 
   if (reported) {
@@ -50,7 +56,10 @@ function configFloorVerdict(status: StatusResponse): { below: boolean; floor: nu
   }
 
   return {
-    below: status.config_version > 0 && status.config_version < CONFIG_SUPPORT_FLOOR_FALLBACK,
+    below:
+      status.config_version > 0 &&
+      status.config_version < CONFIG_SUPPORT_FLOOR_FALLBACK &&
+      status.config_version < status.latest_config_version,
     floor: CONFIG_SUPPORT_FLOOR_FALLBACK
   }
 }
@@ -111,8 +120,13 @@ export function GatewayDiagnostics() {
             {cc.hermesActiveSessions(status.version, status.active_sessions)}
             {status.gateway_state ? ` · ${status.gateway_state}` : ''}
           </div>
+          {/* `hermes_home` is one of the absolute host paths /api/status only
+              surfaces on a loopback / --insecure bind — a gated (OAuth, cloud
+              portal) gateway withholds it. JSX renders the absent value as
+              nothing, so this line came out as a headless " · config v34".
+              Drop the separator with the segment. */}
           <div className="mt-1 font-mono text-[0.68rem] text-muted-foreground/60">
-            {status.hermes_home} · config v{status.config_version}
+            {status.hermes_home ? `${status.hermes_home} · ` : ''}config v{status.config_version}
           </div>
           {floor?.below ? (
             <div className="mt-2 flex items-start gap-2 rounded-md bg-(--ui-warning-bg) px-3 py-2 text-xs text-(--ui-warning-text)">

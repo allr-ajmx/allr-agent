@@ -100,8 +100,18 @@ def test_docker_config_migrate_skips_below_floor_config_untouched(tmp_path: Path
     assert not list(tmp_path.glob("*.bak-*"))
 
 
-def test_docker_config_migrate_skips_unversioned_config_untouched(tmp_path: Path) -> None:
-    """Unversioned configs coerce to version 0 — below the floor, so refused."""
+def test_docker_config_migrate_stamps_unversioned_config_like_the_cli(tmp_path: Path) -> None:
+    """A config with NO ``_config_version`` key is migrated, not floor-refused.
+
+    That shape is a fresh minimal config (profile clones write bare keys, users
+    hand-write two-line configs), not an ancient install — ``migrate_config()``
+    runs the normal ladder and stamps it. The Docker boot script used to
+    disagree, because it re-derived the floor as a bare
+    ``current_ver < SUPPORT_FLOOR_VERSION`` over the 0 that a missing key
+    coerces to: the container printed "predates version 12 (~2 years old)" at a
+    brand-new config and left it unstamped forever. Both paths now ask
+    ``config_floor_refused()``, so they cannot disagree again.
+    """
     config_path = tmp_path / "config.yaml"
     original = yaml.safe_dump({"model": {"default": "m", "provider": "openrouter"}})
     config_path.write_text(original, encoding="utf-8")
@@ -109,10 +119,13 @@ def test_docker_config_migrate_skips_unversioned_config_untouched(tmp_path: Path
     proc = _run_migration(tmp_path)
 
     assert proc.returncode == 0, proc.stderr
-    assert "Migrating config schema" not in proc.stdout
-    assert "can no longer be auto-migrated" in proc.stderr
-    assert config_path.read_text(encoding="utf-8") == original
-    assert not list(tmp_path.glob("*.bak-*"))
+    assert "can no longer be auto-migrated" not in proc.stderr
+    assert "Migrating config schema 0 ->" in proc.stdout
+    raw = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    assert raw["_config_version"] == DEFAULT_CONFIG["_config_version"]
+    # The user's own keys survive the ladder.
+    assert raw["model"]["default"] == "m"
+    assert list(tmp_path.glob("config.yaml.bak-*"))
 
 
 def test_docker_config_migrate_does_not_rewrite_invalid_yaml(tmp_path: Path) -> None:
