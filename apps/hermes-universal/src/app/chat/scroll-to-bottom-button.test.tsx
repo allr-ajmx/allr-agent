@@ -96,14 +96,35 @@ describe('ScrollToBottomButton', () => {
     expect(screen.queryByRole('button')).toBeNull()
   })
 
-  it('ignores another session pending approval', () => {
+  // Deliberately a TILE render. On the primary view the old global `$approval` is
+  // a computed over `$activeSessionKey`, so it already answers null for another
+  // session — a primary-view version of this test passes either way and proves
+  // nothing. A tile is where the two readings diverge.
+  it("a tile's button does not borrow the ACTIVE session's approval", () => {
     seedActiveSession(SESSION)
-    setSessionApproval(OTHER, { command: 'rm -rf /tmp/x', description: 'dangerous command', allowPermanent: true })
-    setThreadAtBottom(SESSION, false)
-    render(<ScrollToBottomButton />)
+    setSessionApproval(SESSION, { command: 'rm -rf /tmp/x', description: 'dangerous command', allowPermanent: true })
+    setThreadAtBottom(OTHER, false)
+    render(
+      <SessionViewProvider value={tileView(OTHER)}>
+        <ScrollToBottomButton />
+      </SessionViewProvider>
+    )
 
     expect(screen.getByRole('button', { name: 'Scroll to bottom' })).toBeTruthy()
     expect(screen.queryByText('Approval needed')).toBeNull()
+  })
+
+  it("a tile's button does morph for its OWN session's approval", () => {
+    seedActiveSession(SESSION)
+    setSessionApproval(OTHER, { command: 'rm -rf /tmp/x', description: 'dangerous command', allowPermanent: true })
+    setThreadAtBottom(OTHER, false)
+    render(
+      <SessionViewProvider value={tileView(OTHER)}>
+        <ScrollToBottomButton />
+      </SessionViewProvider>
+    )
+
+    expect(screen.getByRole('button', { name: 'Approval needed' })).toBeTruthy()
   })
 
   it('pins only its own transcript on click', () => {
