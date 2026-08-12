@@ -24,6 +24,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@/compon
 import { Input } from '@/components/ui/input'
 import { type PaneTabCloseItemsOptions, paneTabCloseSpecs } from '@/components/ui/pane-tab'
 import { useI18n } from '@/i18n'
+import { writeClipboardText } from '@/lib/clipboard'
 import { triggerHaptic } from '@/lib/haptics'
 import { IS_MOBILE } from '@/lib/platform'
 import { PROFILE_SWATCHES } from '@/lib/profile-color'
@@ -177,7 +178,7 @@ function useSessionActions({
       icon: 'copy',
       label: r.copyId,
       onSelect: () => {
-        void navigator.clipboard?.writeText(sessionId).catch(err => notifyError(err, r.copyIdFailed))
+        void writeClipboardText(sessionId).catch(err => notifyError(err, r.copyIdFailed))
       }
     },
     // Open this conversation ALONGSIDE the main thread — a mobile "bubble" (a

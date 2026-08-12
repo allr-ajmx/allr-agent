@@ -7,8 +7,8 @@ import { Terminal } from '@xterm/xterm'
 import { useEffect, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
-import { writeClipboardText } from '@/components/ui/copy-button'
 import { type Translations, useI18n } from '@/i18n'
+import { readClipboardText, writeClipboardText } from '@/lib/clipboard'
 import { IS_MOBILE, LOCAL_MODE_SUPPORTED } from '@/lib/platform'
 import { throttleDuringResize } from '@/lib/resize-gesture'
 import { cn } from '@/lib/utils'
@@ -28,7 +28,7 @@ import {
   type TerminalTransportKind
 } from '@/transport/terminal-transport'
 
-import { readClipboardText, terminalClipboardIntent } from './clipboard'
+import { terminalClipboardIntent } from './clipboard'
 import { terminalLinkHandler, terminalWebLinksAddon } from './links'
 import { applyTerminalModifiers, MobileTerminalKeys, nextModifierState, type TerminalModifiers } from './mobile-keys'
 import { isMacPlatform, mirrorSelection } from './selection'

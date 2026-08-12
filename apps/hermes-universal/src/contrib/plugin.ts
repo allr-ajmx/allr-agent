@@ -18,9 +18,9 @@
 
 import { toTileContribution } from '@/components/pane-shell/tile/registry'
 import type { Tile } from '@/components/pane-shell/tile/types'
-import { writeClipboardText } from '@/components/ui/copy-button'
 import { pluginRest, type PluginRestOptions } from '@/hermes'
 import { createPluginI18n, type PluginI18n } from '@/i18n'
+import { writeClipboardText } from '@/lib/clipboard'
 import { tryOpenExternalLink } from '@/lib/external-link'
 import { pluginSocket } from '@/lib/plugin-transport'
 import { tryRevealPathInFileManager } from '@/lib/reveal-path'
@@ -187,9 +187,10 @@ function createPluginOs(pluginId: string): PluginOs {
     // ACL in full.
     openExternal: url => tryOpenExternalLink(url),
     revealPath: path => tryRevealPathInFileManager(path),
-    // The app's single clipboard write seam (components/ui/copy-button), which
-    // throws when the engine refuses — WebKitGTK gates the async Clipboard API
-    // more tightly than Chromium does, and that refusal is what `false` means.
+    // The app's single clipboard write seam (@/lib/clipboard), which throws only
+    // when BOTH the OS plugin and the engine refuse — WebKitGTK gates the async
+    // Clipboard API more tightly than Chromium does, and that refusal is what
+    // `false` means here.
     writeClipboard: text => attempt(() => writeClipboardText(text))
   }
 }
