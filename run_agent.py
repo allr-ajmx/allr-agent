@@ -3328,19 +3328,40 @@ class AIAgent:
     def redirect(self, text: str) -> bool:
         """Redirect the active turn without converting it into a new task.
 
-        During a normal Hermes model request this cancels only that request;
-        the conversation loop retains completed messages/tool results, records
-        the displayed partial reasoning as plain assistant context, appends the
-        correction as a real user message, and retries. During tool execution
-        it degrades to ``steer()`` so the tool can finish at a safe boundary.
-        Codex app-server has a native ``turn/steer`` operation and uses it
-        directly instead of cancelling.
+        Thin boolean wrapper over :meth:`redirect_outcome` — kept because every
+        existing surface (CLI, TUI, gateway busy-mode, ACP) asks only "did you
+        take it?". A surface that has to TELL THE USER what happened wants
+        ``redirect_outcome`` instead: ``True`` here covers both a real
+        rebuild-the-turn redirect and the tool-boundary degrade, which look
+        nothing alike on screen.
+        """
+        return self.redirect_outcome(text) != "rejected"
 
-        Returns ``False`` when there is no live turn or the text is empty, so
-        surfaces can fall back to their existing next-turn queue.
+    def redirect_outcome(self, text: str) -> str:
+        """Redirect the active turn and NAME what actually happened.
+
+        Returns one of:
+
+        ``"redirected"``
+            The live model request was cancelled and the turn is being rebuilt
+            with the correction folded in (or Codex's native ``turn/steer``
+            took it) — the reply on screen is superseded.
+        ``"steered"``
+            A tool was executing, so the correction degraded to :meth:`steer`
+            and rides on the NEXT tool result instead. Nothing on screen is
+            superseded and the model has not seen the text yet; if the turn
+            ends before another tool batch runs, the caller gets the text back
+            as ``result["pending_steer"]``.
+        ``"rejected"``
+            No live turn, empty text, or a hard interrupt already won — the
+            surface must fall back to its next-turn queue.
+
+        The split exists because ``redirect()`` answered ``True`` for the
+        middle case, so ``session.redirect`` reported ``redirected`` for a
+        correction that had changed nothing yet (MJXHRM-410 / MJXHRM-80).
         """
         if not text or not text.strip():
-            return False
+            return "rejected"
         cleaned = text.strip()
 
         # Codex owns its internal reasoning/tool loop, so use its first-class
@@ -3353,29 +3374,32 @@ class AIAgent:
                 if _redirect_lock is not None:
                     with _redirect_lock:
                         if self._interrupt_requested:
-                            return False
+                            return "rejected"
                 elif self._interrupt_requested:
-                    return False
+                    return "rejected"
                 try:
-                    return bool(_native_steer(cleaned))
+                    # Native active-turn steering: the running turn itself
+                    # consumes the correction, so this is a redirect, not the
+                    # deferred tool-boundary degrade below.
+                    return "redirected" if _native_steer(cleaned) else "rejected"
                 except Exception:
                     logger.debug("Codex app-server turn/steer failed", exc_info=True)
-                    return False
+                    return "rejected"
 
         # Never kill a tool merely to deliver conversational guidance. The
         # existing steer drain puts it on the final tool result before the next
         # model decision, including delegate_task children.
         if getattr(self, "_executing_tools", False):
-            return self.steer(cleaned)
+            return "steered" if self.steer(cleaned) else "rejected"
 
         _model_active = getattr(self, "_model_request_active", None)
         _redirect_lock = getattr(self, "_pending_redirect_lock", None)
         if _redirect_lock is None:
             if _model_active is None or not _model_active.is_set():
-                return False
+                return "rejected"
             existing = getattr(self, "_pending_redirect", None)
             if self._interrupt_requested and not existing:
-                return False
+                return "rejected"
             self._pending_redirect = (
                 f"{existing}\n\n[Additional user correction]\n{cleaned}"
                 if existing
@@ -3388,9 +3412,9 @@ class AIAgent:
                 if _model_active is None or not _model_active.is_set():
                     # The response completed before we acquired the state lock.
                     # Reject so the surface queues a new turn.
-                    return False
+                    return "rejected"
                 if self._interrupt_requested and not self._pending_redirect:
-                    return False
+                    return "rejected"
                 if self._pending_redirect:
                     self._pending_redirect = (
                         f"{self._pending_redirect}\n\n"
@@ -3415,7 +3439,7 @@ class AIAgent:
                 _abort_active_request("redirect_abort")
             except Exception:
                 logger.debug("Failed to abort request for redirect", exc_info=True)
-        return True
+        return "redirected"
 
     def _has_pending_redirect(self) -> bool:
         """Return whether an active-turn redirect is waiting to be applied."""
