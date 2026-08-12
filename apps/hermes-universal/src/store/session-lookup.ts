@@ -114,6 +114,23 @@ export function useSessionRow(storedSessionId: null | string): null | SessionInf
   return sessionRowFor(storedSessionId)
 }
 
+/**
+ * `useSessionRow` for a surface that resolves SEVERAL rows in one render and so
+ * cannot call it per row (hooks do not run inside a `map`) — the mobile bubble
+ * strip. Same sources, same subscription breadth, same drift guarantee; the
+ * returned lookup is `sessionRowFor` itself, so it reads live at call time and
+ * is safe to close over.
+ */
+export function useSessionRowLookup(): (storedSessionId: null | string) => null | SessionInfo {
+  const [recents, pinnedCache, projectTree] = SESSION_ROW_SOURCES
+
+  useStore(recents)
+  useStore(pinnedCache)
+  useStore(projectTree)
+
+  return sessionRowFor
+}
+
 /** The three scalars a tab's context menu actually renders. */
 export interface SessionRowScalars {
   /** DURABLE pin key — the lineage root when a row is known, the raw stored id

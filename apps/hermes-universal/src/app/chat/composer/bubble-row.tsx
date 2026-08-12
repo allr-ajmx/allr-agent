@@ -16,7 +16,8 @@ import { rafCoalesce } from '@/lib/raf-coalesce'
 import { cn } from '@/lib/utils'
 import { useStore } from '@/store/atom'
 import { $chatBubbles, type ChatBubble, newChatBubble, removeBubble, switchToBubble } from '@/store/chat-bubbles'
-import { $activeStoredSessionId, $sessions, refreshSessions } from '@/store/session'
+import { $activeStoredSessionId, refreshSessions } from '@/store/session'
+import { useSessionRowLookup } from '@/store/session-lookup'
 
 import { SessionStatusDot } from '../session-status-dot'
 
@@ -65,7 +66,13 @@ export function BubbleRow() {
   const { t } = useI18n()
   const bubbles = useStore($chatBubbles)
   const activeId = useStore($activeStoredSessionId)
-  const sessions = useStore($sessions)
+  // The WIDE lookup, not a `$sessions.find(...)`. The recents page is
+  // paginated, so a bubble for an older chat resolved to nothing: a title
+  // permanently stuck on "Loading…" (MJXHRM-386's own symptom, which the tile
+  // tab and the workspace tab were moved off this find for) and — now that the
+  // shared status dot renders here — no project colour on its idle dot either.
+  // The lookup form, because hooks cannot run inside the bubble `map`.
+  const rowFor = useSessionRowLookup()
 
   // The active id arrives a beat after the persisted bubbles do, so on a cold
   // load `findIndex` is -1 for a moment. Centre the first bubble meanwhile —
@@ -96,17 +103,17 @@ export function BubbleRow() {
         return t.sidebar.nav['new-session']
       }
 
-      const session = sessions.find(s => s.id === bubble.storedSessionId)
+      const session = rowFor(bubble.storedSessionId)
 
       return session ? sessionTitle(session) : t.common.loading
     },
-    [sessions, t]
+    [rowFor, t]
   )
 
   // Bubble titles come from the session list, and on a phone nothing else pulls
   // it — the sidebar is a separate surface that may never have been opened. So
   // the row asks for it when it holds ids it cannot name.
-  const unresolved = bubbles.some(b => b.storedSessionId !== null && !sessions.some(s => s.id === b.storedSessionId))
+  const unresolved = bubbles.some(b => b.storedSessionId !== null && !rowFor(b.storedSessionId))
 
   useEffect(() => {
     if (unresolved) {
@@ -416,7 +423,7 @@ export function BubbleRow() {
           {bubbles.map((bubble, index) => {
             const isCentered = index === centeredIndex
             const armed = isCentered && preview?.closeArmed
-            const session = bubble.storedSessionId ? sessions.find(s => s.id === bubble.storedSessionId) : null
+            const session = rowFor(bubble.storedSessionId)
 
             return (
               <button

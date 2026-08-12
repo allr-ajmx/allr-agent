@@ -35,6 +35,7 @@ import {
   $sessionsLimit,
   $sessionsTotal,
   $unreadFinishedSessionIds,
+  $workingSessionIds,
   archiveSessionLocal,
   branchCurrentSession,
   clearUnreadFinishedSession,
@@ -202,6 +203,67 @@ describe('session store', () => {
     vi.mocked(requestGateway).mockRejectedValue(new Error('offline'))
     await openSession('stored-9')
     expect($currentCwd.get()).toBe('/home/me/project-a')
+  })
+})
+
+/**
+ * MJXHRM-385. A hydrate seeds `hydrating:<stored>` with `busy: true`, and the
+ * generation counter is what cancels one open when another supersedes it. The
+ * two together used to leave the abandoned placeholder busy FOREVER: nothing
+ * else ever writes that slice, the LRU refuses to evict a busy placeholder, and
+ * every surface keyed by the stored id — the sidebar row's status dot and its
+ * running arc above all — then reads a turn that was never running.
+ */
+describe('openSession — an abandoned hydrate', () => {
+  /** A resume that hangs until the returned `release` is called. */
+  const pendingResume = (sessionId: string) => {
+    let release = () => {}
+
+    vi.mocked(getSessionMessages).mockResolvedValue({ messages: [], session_id: sessionId } as never)
+    vi.mocked(requestGateway).mockImplementation(
+      () =>
+        new Promise(resolve => {
+          release = () => resolve({ messages: [], session_id: `runtime-${sessionId}` })
+        }) as never
+    )
+
+    return () => release()
+  }
+
+  // `onResumeSession` calls `openSession` on EVERY row click with no
+  // already-active guard, so this is one row clicked twice during its own load.
+  it('is not cancelled by a second open of the same session', async () => {
+    const release = pendingResume('stored-9')
+
+    const opening = openSession('stored-9')
+    // The same row again, while the first open is still in flight.
+    openSession('stored-9')
+    release()
+    await opening
+
+    expect($sessionStates.get()[hydratingKey('stored-9')]).toBeUndefined()
+    expect($sessionStates.get()['runtime-stored-9']).toMatchObject({
+      busy: false,
+      runtimeSessionId: 'runtime-stored-9'
+    })
+    expect($workingSessionIds.get().has('stored-9')).toBe(false)
+  })
+
+  // Superseded for real: a DIFFERENT session was opened mid-load. The first
+  // one's placeholder has no runtime binding and no turn — it must not be left
+  // claiming one.
+  it('leaves no busy placeholder behind when another session supersedes it', async () => {
+    const release = pendingResume('stored-9')
+
+    const opening = openSession('stored-9')
+    // A different row, before the first resume lands.
+    vi.mocked(requestGateway).mockResolvedValue({ messages: [], session_id: 'runtime-other' })
+    void openSession('stored-other')
+    release()
+    await opening
+
+    expect($sessionStates.get()[hydratingKey('stored-9')]).toBeUndefined()
+    expect($workingSessionIds.get().has('stored-9')).toBe(false)
   })
 })
 

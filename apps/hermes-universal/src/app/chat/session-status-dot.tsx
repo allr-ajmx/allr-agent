@@ -3,7 +3,7 @@ import { useStore } from '@nanostores/react'
 import { type Translations, useI18n } from '@/i18n'
 import { useStoreSelector } from '@/lib/use-session-slice'
 import { cn } from '@/lib/utils'
-import { $attentionSessionIds, $unreadFinishedSessionIds, $workingSessionIds } from '@/store/session'
+import { $attentionSessionIds, $unreadFinishedSessionIds, $workingSessionIds, sessionAliasIds } from '@/store/session'
 import { $sessionColorById, sessionColorFor } from '@/store/session-color'
 import { $stalledSessionIds } from '@/store/session-states'
 import type { SessionInfo } from '@/types/hermes'
@@ -79,7 +79,10 @@ export interface SessionStatusDotProps {
   /** The STORED session id — the key every live-state atom (working /
    *  attention / stalled / unread) is keyed by, on BOTH surfaces: the sidebar
    *  row's `session.id` and a pane tile's `storedSessionId` are the same stored
-   *  id (`$workingSessionIds` et al. map `storedSessionId`).
+   *  id (`$workingSessionIds` et al. map `storedSessionId`). It may be a
+   *  PRE-ROTATION id — a tile or bubble opened before an auto-compression keeps
+   *  the one it was created with — which is why the lookups below go through
+   *  `sessionAliasIds` rather than this value alone.
    *
    *  Null on a chat that has yet to reach the backend — the workspace tab on a
    *  fresh draft, a draft tile. There is no id to key by and no turn behind it,
@@ -123,6 +126,15 @@ export function SessionStatusDot({ storedSessionId, session, branchStem, classNa
   useStore($sessionColorById)
   const color = sessionColorFor(session) ?? null
 
+  // EVERY id that names this conversation, not just the one the caller holds.
+  // Auto-compression rotates a session's stored id and universal deliberately
+  // leaves tiles / bubbles / pane ids on the pre-rotation one; the live-status
+  // collections are keyed by the slice's current id, so asking under a single
+  // id painted a tab or a bubble `idle` straight through a running turn (and
+  // lost needs-input and unread with it). Cheap — at most three ids, resolved
+  // from the row this dot already holds for its colour.
+  const aliases = sessionAliasIds(storedSessionId, session)
+
   // Per-session membership as booleans via useStoreSelector: these collections
   // tick on every stream delta (any session working/stalled/etc changes the
   // reference), but a given dot only repaints when ITS OWN membership flips.
@@ -130,10 +142,10 @@ export function SessionStatusDot({ storedSessionId, session, branchStem, classNa
   //
   // Note the shape split, unlike desktop: universal's $workingSessionIds
   // resolves to a Set, the other three to arrays.
-  const needsInput = useStoreSelector($attentionSessionIds, ids => storedSessionId !== null && ids.includes(storedSessionId))
-  const isWorking = useStoreSelector($workingSessionIds, ids => storedSessionId !== null && ids.has(storedSessionId))
-  const isStalled = useStoreSelector($stalledSessionIds, ids => storedSessionId !== null && ids.includes(storedSessionId))
-  const isUnread = useStoreSelector($unreadFinishedSessionIds, ids => storedSessionId !== null && ids.includes(storedSessionId))
+  const needsInput = useStoreSelector($attentionSessionIds, ids => aliases.some(id => ids.includes(id)))
+  const isWorking = useStoreSelector($workingSessionIds, ids => aliases.some(id => ids.has(id)))
+  const isStalled = useStoreSelector($stalledSessionIds, ids => aliases.some(id => ids.includes(id)))
+  const isUnread = useStoreSelector($unreadFinishedSessionIds, ids => aliases.some(id => ids.includes(id)))
 
   const dotState = sessionDotState({ isDraft: storedSessionId === null, isStalled, isUnread, isWorking, needsInput })
   const variant = DOT_VARIANTS[dotState]
