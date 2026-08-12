@@ -26,6 +26,7 @@ vi.mock('@/store/gateway', async () => {
 })
 
 import { deleteSession, getSession, getSessionMessages, listAllProfileSessions, renameSession } from '@/hermes'
+import { ApiError } from '@/lib/api'
 import { $busy, $currentCwd, $messages, $sessionId } from '@/store/chat'
 import { requestGateway } from '@/store/gateway'
 import { $showAllProfiles } from '@/store/profile'
@@ -44,12 +45,14 @@ import {
   $removedSessionIds,
   $sessions,
   $sessionsLimit,
+  $sessionsListEpoch,
   $sessionsTotal,
   $unreadFinishedSessionIds,
   $workingSessionIds,
   archiveSessionLocal,
   branchCurrentSession,
   branchStoredSession,
+  clearPinnedSessionCache,
   clearUnreadFinishedSession,
   deleteSessionLocal,
   isMessagingSource,
@@ -64,6 +67,7 @@ import {
   renameSessionLocal,
   resetSessionsPaging,
   resolveSessionProfile,
+  sessionExistsOnBackends,
   setBranchedSessionOpener
 } from './session'
 
@@ -531,6 +535,60 @@ describe('owning profile', () => {
     await expect(resolveSessionProfile('stored-9')).resolves.toBe('work')
     // Resolved once, remembered forever — a session's owner never changes.
     expect(knownSessionProfile('stored-9')).toBe('work')
+  })
+})
+
+// The positive deletion signal behind the ghost-pin sweep (MJXHRM-414). Absence
+// from a list proves nothing — an archived session is absent too — so the only
+// safe answer comes from asking about the id directly.
+describe('sessionExistsOnBackends', () => {
+  const notFound = () => new ApiError('GET /api/sessions/x → HTTP 404: nope', 404, 'nope')
+
+  it('reports a row the backend still serves as present', async () => {
+    vi.mocked(getSession).mockResolvedValue({ id: 'alive' } as SessionInfo)
+
+    await expect(sessionExistsOnBackends('alive')).resolves.toBe('present')
+  })
+
+  it('reports gone only when the backend answers 404', async () => {
+    vi.mocked(getSession).mockRejectedValue(notFound())
+
+    await expect(sessionExistsOnBackends('deleted')).resolves.toBe('gone')
+  })
+
+  // The distinction the whole sweep rests on: a gateway that never answered has
+  // not said the session is gone, and a caller acting on it would destroy user
+  // state over a dropped packet.
+  it('reports unknown when the request fails for any other reason', async () => {
+    vi.mocked(getSession).mockRejectedValue(new Error('connection refused'))
+
+    await expect(sessionExistsOnBackends('offline')).resolves.toBe('unknown')
+  })
+
+  it('treats a 500 as no answer, not as a deletion', async () => {
+    vi.mocked(getSession).mockRejectedValue(new ApiError('boom', 500, 'boom'))
+
+    await expect(sessionExistsOnBackends('broken')).resolves.toBe('unknown')
+  })
+
+  // A pin is not profile-scoped while the recents list is, so the session may
+  // simply live on a profile the current scope never loads.
+  it('asks every configured profile before concluding a session is gone', async () => {
+    $profiles.set([profile('default'), profile('work')])
+    vi.mocked(getSession)
+      .mockRejectedValueOnce(notFound())
+      .mockResolvedValueOnce({ id: 'stored-9', profile: 'work' } as SessionInfo)
+
+    await expect(sessionExistsOnBackends('stored-9')).resolves.toBe('present')
+    expect(vi.mocked(getSession).mock.calls.map(call => call[1])).toEqual([undefined, 'work'])
+  })
+
+  it('is gone only when every profile 404s', async () => {
+    $profiles.set([profile('default'), profile('work')])
+    vi.mocked(getSession).mockRejectedValue(notFound())
+
+    await expect(sessionExistsOnBackends('stored-9')).resolves.toBe('gone')
+    expect(getSession).toHaveBeenCalledTimes(2)
   })
 })
 
@@ -1252,6 +1310,53 @@ describe('pinned rows survive the loaded window', () => {
     $removedSessionIds.set(new Set(['stored-pin']))
 
     expect(pinnedSessionRows($sessions.get(), ['stored-pin'])).toEqual([])
+  })
+
+  // A session id means nothing on another backend, so the cached ROWS are
+  // gateway-bound even though the pin ids are not. Left standing across a soft
+  // switch they kept rendering the previous gateway's conversations in the new
+  // one's Pinned section — resolvable by nothing, openable to nothing.
+  it('forgets every cached row, and the persisted copy, when the backend changes', () => {
+    $pinnedSessionIds.set(['stored-pin'])
+    $sessions.set([row('stored-pin', 'Pinned chat')])
+    expect(localStorage.getItem('hermes.pinnedSessionRows')).toContain('stored-pin')
+
+    clearPinnedSessionCache()
+
+    expect($pinnedSessionCache.get()).toEqual({})
+    // Persisted too, or the next launch reads the old gateway's rows back in.
+    expect(localStorage.getItem('hermes.pinnedSessionRows')).not.toContain('stored-pin')
+    // The pin itself stays: it mirrors each gateway's own durable flag, and the
+    // one we are leaving must still have its pins when we come back.
+    expect($pinnedSessionIds.get()).toEqual(['stored-pin'])
+  })
+})
+
+// The sweep that releases a pin whose session another client deleted only runs
+// when a WHOLE window has landed — the one moment a pin's absence from
+// `$sessions` carries information, because the backend back-fills pinned rows
+// past the limit. An epoch bumped on a failed fetch would have it acting on a
+// list that says nothing at all.
+describe('$sessionsListEpoch', () => {
+  it('counts a refresh that landed', async () => {
+    const before = $sessionsListEpoch.get()
+    vi.mocked(listAllProfileSessions).mockResolvedValue({
+      sessions: [row('a', 'A')],
+      total: 1
+    } as unknown as PaginatedSessions)
+
+    await refreshSessions()
+
+    expect($sessionsListEpoch.get()).toBe(before + 1)
+  })
+
+  it('does not count a refresh that failed', async () => {
+    const before = $sessionsListEpoch.get()
+    vi.mocked(listAllProfileSessions).mockRejectedValue(new Error('offline'))
+
+    await refreshSessions()
+
+    expect($sessionsListEpoch.get()).toBe(before)
   })
 })
 

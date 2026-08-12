@@ -6,11 +6,12 @@ import type { SessionInfo } from '@/types/hermes'
 
 // `vi.hoisted`: store/session calls `ownsPersistedAppState()` at import time, so
 // the factories below run before a plain `const` would be initialised.
-const { ownsState, patch } = vi.hoisted(() => ({
+const { getOne, ownsState, patch } = vi.hoisted(() => ({
   ownsState: vi.fn(() => true),
   patch: vi.fn<(id: string, pinned: boolean, profile?: null | string) => Promise<{ ok: boolean }>>(() =>
     Promise.resolve({ ok: true })
-  )
+  ),
+  getOne: vi.fn<(id: string, profile?: null | string) => Promise<unknown>>(() => Promise.resolve({ id: 'x' }))
 }))
 
 // Partial mocks: store/session reaches the rest of the REST surface through
@@ -18,7 +19,8 @@ const { ownsState, patch } = vi.hoisted(() => ({
 // other window helpers, so only the two seams under test are replaced.
 vi.mock('@/hermes', async importOriginal => ({
   ...(await importOriginal<typeof HermesApi>()),
-  setSessionPinnedRemote: (id: string, pinned: boolean, profile?: null | string) => patch(id, pinned, profile)
+  setSessionPinnedRemote: (id: string, pinned: boolean, profile?: null | string) => patch(id, pinned, profile),
+  getSession: (id: string, profile?: null | string) => getOne(id, profile)
 }))
 
 vi.mock('@/store/windows', async importOriginal => ({
@@ -26,8 +28,9 @@ vi.mock('@/store/windows', async importOriginal => ({
   ownsPersistedAppState: () => ownsState()
 }))
 
+import { ApiError } from '@/lib/api'
 import { $pinnedSessionIds } from '@/store/layout'
-import { $sessions } from '@/store/session'
+import { $pinnedSessionCache, $sessions, $sessionsListEpoch } from '@/store/session'
 
 import { resetSessionPinMirror, watchSessionPins } from './session-pin-sync'
 
@@ -43,7 +46,10 @@ beforeAll(() => {
 
 beforeEach(() => {
   ownsState.mockReturnValue(true)
+  getOne.mockReset()
+  getOne.mockResolvedValue({ id: 'x' })
   $sessions.set([])
+  $pinnedSessionCache.set({})
   $pinnedSessionIds.set([])
   // The mirror/pending/unconfirmed maps are module-global, so one test's
   // bookkeeping would otherwise suppress the next test's PATCH (or fence out
@@ -341,5 +347,152 @@ describe('watchSessionPins remote pull', () => {
 
     expect($pinnedSessionIds.get()).toContain('failed')
     expect(patch).toHaveBeenCalledWith('failed', true, undefined)
+  })
+})
+
+// MJXHRM-414's remaining half: a session deleted on ANOTHER client. Nothing in
+// any page says `pinned: false` about a row that no longer exists, so the pull
+// above cannot see it — the pin survives, `$pinnedSessionCache` keeps serving
+// its last-known row, and the Pinned section shows a chat that is gone. Absence
+// from a page is not the signal (an archived pin is absent too); a by-id 404 is.
+describe('watchSessionPins ghost sweep', () => {
+  const notFound = () => new ApiError('GET /api/sessions/x → HTTP 404: nope', 404, 'nope')
+
+  /** A pin whose row only the cache still has — the ghost shape. */
+  const seedCacheOnlyPin = (id: string) => {
+    $pinnedSessionIds.set([id])
+    $pinnedSessionCache.set({ [id]: row(id) })
+  }
+
+  /** A full window landing is the only moment absence carries information. */
+  const listLanded = async () => {
+    $sessionsListEpoch.set($sessionsListEpoch.get() + 1)
+    await flush()
+    await flush()
+    await flush()
+  }
+
+  it('releases the pin of a session every backend says is gone', async () => {
+    seedCacheOnlyPin('deleted-elsewhere')
+    getOne.mockRejectedValue(notFound())
+
+    await listLanded()
+
+    expect(getOne).toHaveBeenCalledWith('deleted-elsewhere', undefined)
+    expect($pinnedSessionIds.get()).toEqual([])
+    // The cached row goes with the pin, or the section would still resolve it.
+    expect($pinnedSessionCache.get()['deleted-elsewhere']).toBeUndefined()
+  })
+
+  it('does not PATCH the row it just proved is gone', async () => {
+    seedCacheOnlyPin('deleted-elsewhere')
+    getOne.mockRejectedValue(notFound())
+    patch.mockClear()
+
+    await listLanded()
+
+    expect(patch).not.toHaveBeenCalled()
+  })
+
+  // The case that makes the naive heuristic dangerous: an archived session is
+  // absent from the page too, because the backend's `include_pinned` back-fill
+  // obeys the archived filter. Unpinning on absence would drop the pin of every
+  // archived-but-pinned chat.
+  it('keeps a pin the list omits but a by-id read still resolves', async () => {
+    seedCacheOnlyPin('archived-pin')
+    getOne.mockResolvedValue({ id: 'archived-pin', archived: true })
+
+    await listLanded()
+
+    expect($pinnedSessionIds.get()).toEqual(['archived-pin'])
+  })
+
+  // A dead gateway answers nothing. Reading that as a deletion would destroy
+  // user state over a dropped packet.
+  it('keeps the pin when the probe gets no answer at all', async () => {
+    seedCacheOnlyPin('unreachable')
+    getOne.mockRejectedValue(new Error('network down'))
+
+    await listLanded()
+
+    expect($pinnedSessionIds.get()).toEqual(['unreachable'])
+  })
+
+  it('re-probes an unanswered pin on the next refresh, rather than trusting a cooldown it never earned', async () => {
+    seedCacheOnlyPin('unreachable')
+    getOne.mockRejectedValue(new Error('network down'))
+    await listLanded()
+    getOne.mockClear()
+
+    // The gateway is back, and now it answers.
+    getOne.mockRejectedValue(notFound())
+    await listLanded()
+
+    expect(getOne).toHaveBeenCalled()
+    expect($pinnedSessionIds.get()).toEqual([])
+  })
+
+  it('asks once per pin, not once per refresh', async () => {
+    seedCacheOnlyPin('archived-pin')
+    getOne.mockResolvedValue({ id: 'archived-pin' })
+    await listLanded()
+    expect(getOne).toHaveBeenCalledTimes(1)
+
+    await listLanded()
+    await listLanded()
+
+    expect(getOne).toHaveBeenCalledTimes(1)
+  })
+
+  // After a gateway switch the cache is wiped and the pin ids stay — they are
+  // this app's mirror of the OTHER backend's durable flag. Probing them here
+  // would 404 against a gateway that has simply never heard of them and delete
+  // the user's pins on the gateway they came from.
+  it('never probes a pin that has no cached row to render', async () => {
+    $pinnedSessionIds.set(['other-gateways-pin'])
+    getOne.mockRejectedValue(notFound())
+
+    await listLanded()
+
+    expect(getOne).not.toHaveBeenCalled()
+    expect($pinnedSessionIds.get()).toEqual(['other-gateways-pin'])
+  })
+
+  it('leaves a pin alone while its row is loaded', async () => {
+    $pinnedSessionIds.set(['live'])
+    $sessions.set([row('live')])
+    $pinnedSessionCache.set({ live: row('live') })
+    getOne.mockRejectedValue(notFound())
+
+    await listLanded()
+
+    expect(getOne).not.toHaveBeenCalled()
+    expect($pinnedSessionIds.get()).toEqual(['live'])
+  })
+
+  // A row loaded under its live tip id answers for a pin stored on the durable
+  // lineage root — otherwise a compacted chat's pin is probed (and, if the probe
+  // ever answered wrongly, dropped) on every refresh.
+  it('counts a loaded row under its lineage-root pin id', async () => {
+    $pinnedSessionIds.set(['root'])
+    $sessions.set([row('tip', { _lineage_root_id: 'root' })])
+    $pinnedSessionCache.set({ root: row('tip', { _lineage_root_id: 'root' }) })
+    getOne.mockRejectedValue(notFound())
+
+    await listLanded()
+
+    expect(getOne).not.toHaveBeenCalled()
+    expect($pinnedSessionIds.get()).toEqual(['root'])
+  })
+
+  it('does nothing in a window that does not own persisted app state', async () => {
+    seedCacheOnlyPin('deleted-elsewhere')
+    getOne.mockRejectedValue(notFound())
+    ownsState.mockReturnValue(false)
+
+    await listLanded()
+
+    expect(getOne).not.toHaveBeenCalled()
+    expect($pinnedSessionIds.get()).toEqual(['deleted-elsewhere'])
   })
 })
