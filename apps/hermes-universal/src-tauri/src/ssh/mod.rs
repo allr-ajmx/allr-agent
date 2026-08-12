@@ -1517,10 +1517,11 @@ mod tests {
         // ~/.ssh in it; pretending otherwise would send the config reader and the
         // known-hosts store somewhere meaningless.
         //
-        // `home_dir()` reads $HOME, which other tests in this crate rewrite, so
-        // take the crate-wide env lock before asserting on it.
-        let _guard = crate::test_env::env_lock();
-
+        // `home_dir()` reads $HOME. No test in this crate writes the environment
+        // any more — the ones that used to now inject their values through seams
+        // (`repo_scan::imp::resolve_home`, `plugins::resolve_hermes_home`) — so
+        // this read needs no serialization. Keep it that way: a `set_var`
+        // anywhere in the crate's tests races this `getenv` and every other one.
         if cfg!(target_os = "android") || cfg!(target_os = "ios") {
             assert!(home_dir().is_none());
         } else {

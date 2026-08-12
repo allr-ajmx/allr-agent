@@ -25,8 +25,6 @@ mod repo_scan;
 mod ssh;
 mod surface;
 mod telemetry;
-#[cfg(test)]
-mod test_env;
 mod transport;
 mod updates;
 mod voice;
