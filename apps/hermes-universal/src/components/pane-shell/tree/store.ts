@@ -179,9 +179,12 @@ export const SESSION_TILE_DRAG = '__session-tile-drag__'
  * ─────────────────────────────────────────────────────────────────────────────
  *
  * REVEAL. Panes hidden by app chrome toggles (titlebar sidebar / right-sidebar
- * buttons). The tree KEEPS the zone and its mounted content; a zone whose
- * every pane is hidden collapses to nothing until a toggle brings it back.
- * Not persisted here — each binding's store owns persistence.
+ * buttons). The tree KEEPS the zone and its mounted content — the zone renderer
+ * holds the body of a hidden pane that has been on screen at least once
+ * (MJXHRM-373; before that it dropped it, so every toggle was a teardown and
+ * rebuild); a zone whose every pane is hidden collapses to nothing until a
+ * toggle brings it back. Not persisted here — each binding's store owns
+ * persistence.
  */
 export const $hiddenTreePanes = atom<ReadonlySet<string>>(new Set())
 

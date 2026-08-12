@@ -50,7 +50,7 @@ import { hiddenPaneProps, PaneGroupContext, PaneVisibleContext } from '../../pan
 import { $detachedTiles, detachTile, reattachTile } from '../../tile/detach'
 import { useTileMap } from '../../tile/registry'
 import { tileChrome } from '../../tile/types'
-import { type TileContext, tileShown } from '../../tile/visibility'
+import { type TileContext, tileShown, tileVisibility } from '../../tile/visibility'
 import type { DropPosition, GroupNode, RootEdge } from '../model'
 import { adjacentGroup } from '../model'
 import {
@@ -356,7 +356,11 @@ export function TreeGroup({
   const everActiveRef = useRef<Set<string>>(new Set())
 
   useEffect(() => {
-    if (!node.minimized && !isEmpty) {
+    // `shown.includes` matters: with every tile in the zone toggled off,
+    // `activeId` falls back to `node.active` — a tile that is NOT on screen.
+    // Recording it there would make the zone's whole laziness contract depend
+    // on which tab a persisted layout happened to leave active.
+    if (!node.minimized && !isEmpty && shown.includes(activeId)) {
       everActiveRef.current.add(activeId)
     }
 
@@ -373,9 +377,35 @@ export function TreeGroup({
   // that holding it costs more than rebuilding it. Nothing declares that today;
   // the default is keep-alive because the surfaces that stack are chats, and a
   // chat is exactly what must not be rebuilt.
-  const keptPanes = shown.filter(
-    id => id === activeId || (everActiveRef.current.has(id) && paneFor(id)?.lifecycle !== 'unmount')
+  const keepsAlive = (id: string) => paneFor(id)?.lifecycle !== 'unmount'
+
+  // THE REVEAL AXIS KEEPS ITS BODY TOO (MJXHRM-373 follow-on).
+  //
+  // `keptPanes` filtered `shown`, and a tile its owning store toggled off is not
+  // shown — so ⌘G, the titlebar side buttons and every `bindPaneVisibility`
+  // binding tore their surface down and rebuilt it on the way back. That is the
+  // same defect minimize had, on the other axis, and three places already
+  // document the opposite contract: the REVEAL note in `tree/store.ts`, the
+  // `hidden` outcome in `tile/visibility.ts` ("the zone collapses but the
+  // content stays mounted, so toggling back is instant"), and the `idle()`
+  // wrapper in `app/contrib/controller.tsx` (which exists to keep that mount off
+  // the first-paint path — it had nothing to defer).
+  //
+  // Only `hidden`, and only once the tile has actually been on screen:
+  //  - `enclosed` (narrow breakpoint) must stay unmounted — NarrowOverlays holds
+  //    the ONE live instance, and a second copy here would double every effect
+  //    the surface runs (for a terminal, a second shell).
+  //  - a tile toggled off since boot has no state to preserve, so it stays lazy
+  //    exactly like a never-activated tab.
+  const hiddenKept = node.panes.filter(
+    id =>
+      !shown.includes(id) && tileVisibility(id, tileCtx) === 'hidden' && everActiveRef.current.has(id) && keepsAlive(id)
   )
+
+  const keptPanes = [
+    ...shown.filter(id => id === activeId || (everActiveRef.current.has(id) && keepsAlive(id))),
+    ...hiddenKept
+  ]
 
   // THE SIZE THE BODY FREEZES AT WHILE THE ZONE IS FOLDED (MJXHRM-373).
   //
@@ -907,7 +937,11 @@ export function TreeGroup({
           ) : (
             keptPanes.map(paneId => {
               const tile = paneFor(paneId)
-              const isActive = paneId === activeId
+              // `shown.includes` is what keeps a KEPT-BUT-HIDDEN tile hidden:
+              // with every tile in the zone toggled off, `activeId` falls back
+              // to `node.active`, and without this the pane the store just hid
+              // would render as the visible one.
+              const isActive = paneId === activeId && shown.includes(paneId)
 
               return (
                 <div
