@@ -1,5 +1,4 @@
 import type { SidebarProjectTree } from '@/app/chat/sidebar/projects/model'
-import { NO_PROJECT_ID } from '@/app/chat/sidebar/projects/workspace-groups'
 import type { HermesGitBaseBranch, HermesGitBranch } from '@/global'
 import { getHermesConfig } from '@/hermes'
 import { translateNow } from '@/i18n'
@@ -14,7 +13,6 @@ import {
 import { desktopGit } from '@/lib/desktop-git'
 import { isMissingRpcMethod, moveSessionWorkspace } from '@/lib/gateway-rpc'
 import { isUnderPath } from '@/lib/path-compare'
-import { persistentAtom } from '@/lib/persisted'
 import { revealPathInFileManager } from '@/lib/reveal-path'
 import { reuseUnchanged } from '@/lib/structural-share'
 import { atom } from '@/store/atom'
@@ -23,8 +21,23 @@ import { $connection } from '@/store/connection'
 import { requestGateway } from '@/store/gateway'
 import { setSidebarAgentsGrouped } from '@/store/layout'
 import { notify, notifyError } from '@/store/notifications'
+import { $projectScope, $projectTree, ALL_PROJECTS } from '@/store/project-scope'
 import { knownSessionProfile, newSession, pruneSessionTombstones, refreshSessions, setSessions } from '@/store/session'
 import type { ProjectInfo, ProjectsPayload } from '@/types/hermes'
+
+// The scope atom, the tree it resolves against and `resolveNewSessionCwd` live
+// in `store/project-scope` — a leaf, so `store/chat` can read the resolver where
+// a fresh draft is actually minted. This module imports `store/chat` and
+// `store/session`, so it can never be that leaf. Re-exported here because this
+// is still the module the app asks for a project.
+export {
+  $projectScope,
+  $projectTree,
+  ALL_PROJECTS,
+  NO_PROJECT_ID,
+  projectRootCwd,
+  resolveNewSessionCwd
+} from '@/store/project-scope'
 
 // First-class per-profile Projects, served by the gateway `projects.*` JSON-RPC
 // methods (backed by projects.db). Ported/adapted from desktop `store/projects.ts`.
@@ -37,7 +50,6 @@ import type { ProjectInfo, ProjectsPayload } from '@/types/hermes'
 
 export const $projects = atom<ProjectInfo[]>([])
 export const $activeProjectId = atom<null | string>(null)
-export const $projectTree = atom<SidebarProjectTree[]>([])
 export const $projectTreeLoading = atom(false)
 // False when the backend predates the projects.* surface; null until first probe.
 export const $projectsRpcAvailable = atom<boolean | null>(null)
@@ -114,12 +126,9 @@ export async function fetchProjectSessions(projectId: string): Promise<SidebarPr
 }
 
 // ── Project scope (the "you're inside a project" view) ──────────────────────
-export const ALL_PROJECTS = '__all_projects__'
-
-export const $projectScope = persistentAtom<string>('hermes.projectScope', ALL_PROJECTS, {
-  decode: raw => raw || ALL_PROJECTS,
-  encode: value => value || ALL_PROJECTS
-})
+// `$projectScope`, `$projectTree`, `ALL_PROJECTS`, `NO_PROJECT_ID`,
+// `projectRootCwd` and `resolveNewSessionCwd` are defined in
+// `store/project-scope` and re-exported at the top of this file.
 
 export function enterProject(id: string): void {
   $projectScope.set(id)
@@ -138,39 +147,6 @@ export function exitProjectScope(): void {
 export function goToProject(id: string): void {
   setSidebarAgentsGrouped(true)
   enterProject(id)
-}
-
-/** A project's repo root: its own folder, else the first repo that has one. */
-export const projectRootCwd = (project: SidebarProjectTree | undefined): string =>
-  (project?.path || project?.repos.find(repo => repo.path)?.path || '').trim()
-
-/**
- * WHERE A NEW SESSION STARTS.
- *
- * ⌘N and ⌘T went straight to `newSession()` with no cwd, so a chat created
- * while standing inside a project opened detached from it (MJXHRM-393) — the
- * sidebar's own per-lane `+` was the only entry point that honoured the scope.
- *
- * The order is desktop's:
- *  1. Standing in the Home / "no project" bucket means DETACHED on purpose.
- *  2. Standing inside a project means that project's repo root.
- *  3. Otherwise defer, and let `resetChat` apply `cwdForNewSession()` — the
- *     configured default project dir. Universal keeps that fallback one layer
- *     down rather than inlining it here, which is why this returns `''` rather
- *     than desktop's `workspaceCwdForNewSession()`.
- */
-export function resolveNewSessionCwd(): string {
-  const scope = $projectScope.get()
-
-  if (scope === NO_PROJECT_ID) {
-    return ''
-  }
-
-  if (scope !== ALL_PROJECTS) {
-    return projectRootCwd($projectTree.get().find(node => node.id === scope))
-  }
-
-  return ''
 }
 
 // The id of the project that OWNS `cwd` (longest path match), or null when the
