@@ -146,6 +146,25 @@ def _(rid, params: dict) -> dict:
         busy_transport = None
         with session["history_lock"]:
             if session.get("running"):
+                # A REWIND is not a mid-turn prompt and must never be folded
+                # into the busy path. Steering hands the text to the very turn
+                # the rewind exists to discard; queueing runs it later with the
+                # truncation silently dropped — and either answers _ok, so the
+                # client that already cut its transcript optimistically believes
+                # the rewind landed and only finds out on the next hydration,
+                # when every "deleted" turn comes back.
+                #
+                # `session.interrupt` returns before the provider actually
+                # stops, so a client that interrupts and submits straight after
+                # lands here by design. 4009 is the answer both clients already
+                # know: they interrupt again and retry until the turn winds down
+                # (`withSessionBusyRetry`).
+                if truncate_user_ordinal is not None:
+                    return _err(
+                        rid,
+                        4009,
+                        "session busy — interrupt the current turn before rewinding it",
+                    )
                 # Don't reject a mid-turn prompt — queue it (and, by default,
                 # interrupt the live turn) so it runs as the next turn. The
                 # provider interrupt itself must happen after this lock is

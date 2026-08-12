@@ -638,6 +638,43 @@ describe('submitEditedPrompt (edit + rewind)', () => {
     expect(vi.mocked(requestGateway).mock.calls[1][0]).toBe('prompt.submit')
   })
 
+  // `session.interrupt` returns BEFORE the provider actually stops, so the
+  // submit that follows it can still land on a running session. The gateway
+  // refuses to fold a truncating submit into its busy path — steering would hand
+  // the text to the very turn being discarded, queueing would run it later with
+  // the truncation dropped, and both answer OK — so it says "session busy" and
+  // this waits the turn out instead of failing the rewind on the first bounce.
+  it('waits out a turn that is still winding down after the interrupt', async () => {
+    seedTurns()
+    updateSession('runtime-1', state => ({ ...state, busy: true }))
+
+    let submitAttempts = 0
+
+    vi.mocked(requestGateway).mockImplementation(async (method: string) => {
+      if (method !== 'prompt.submit') {
+        return {}
+      }
+
+      submitAttempts += 1
+
+      if (submitAttempts < 3) {
+        throw new Error('session busy — interrupt the current turn before rewinding it')
+      }
+
+      return {}
+    })
+
+    await submitEditedPrompt('u2', 'second ask, revised')
+
+    expect(submitAttempts).toBe(3)
+    // The truncation stands: the rewind actually landed.
+    expect($messages.get().map(m => m.id)).toEqual(['u1', 'a1', 'u2'])
+    expect(vi.mocked(requestGateway).mock.calls.at(-1)?.[1]).toMatchObject({
+      confirm_truncate: true,
+      truncate_before_user_ordinal: 1
+    })
+  })
+
   it('resubmits a failed turn plainly, with no truncate ordinal', async () => {
     seedActiveSession('runtime-1', {
       messages: [

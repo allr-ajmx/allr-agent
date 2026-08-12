@@ -4536,6 +4536,66 @@ def test_prompt_submit_empty_truncation_allowed_with_confirm(monkeypatch):
         server._sessions.pop("confirm-empty-sid", None)
 
 
+def test_prompt_submit_refuses_to_rewind_a_running_session(monkeypatch):
+    """A rewind must never be folded into the mid-turn busy path.
+
+    An ordinary prompt that lands while a turn runs is steered or queued rather
+    than rejected. A truncating submit cannot take either road: steering hands
+    the text to the very turn the rewind exists to discard, and queueing runs it
+    later with the truncation dropped — while both answer _ok, so a client that
+    already cut its transcript optimistically believes the rewind landed and only
+    finds out on the next hydration.
+
+    `session.interrupt` returns before the provider actually stops, so a client
+    that interrupts and submits straight after lands here by design. 4009 is the
+    answer it already knows how to wait out.
+    """
+    replaced = []
+    queued = []
+
+    class _FakeDB:
+        def replace_messages(self, key, messages, active_only=False):
+            replaced.append((key, list(messages)))
+
+    history = [
+        {"role": "user", "content": "first"},
+        {"role": "assistant", "content": "ok"},
+        {"role": "user", "content": "second"},
+        {"role": "assistant", "content": "done"},
+    ]
+    server._sessions["busy-rewind-sid"] = _session(history=list(history), running=True)
+    monkeypatch.setattr(server, "_get_db", lambda: _FakeDB())
+    monkeypatch.setattr(
+        server,
+        "_handle_busy_submit",
+        lambda *a, **k: queued.append(a) or pytest.fail("a rewind must not be queued or steered"),
+    )
+
+    try:
+        resp = server.handle_request(
+            {
+                "id": "1",
+                "method": "prompt.submit",
+                "params": {
+                    "session_id": "busy-rewind-sid",
+                    "text": "second, revised",
+                    "truncate_before_user_ordinal": 1,
+                    "confirm_truncate": True,
+                },
+            }
+        )
+
+        assert resp["error"]["code"] == 4009
+        assert "session busy" in resp["error"]["message"]
+        # Nothing cut, nothing queued, the live turn left alone.
+        assert replaced == []
+        assert queued == []
+        assert server._sessions["busy-rewind-sid"]["history"] == history
+        assert server._sessions["busy-rewind-sid"]["history_version"] == 0
+    finally:
+        server._sessions.pop("busy-rewind-sid", None)
+
+
 def test_prompt_submit_ordinal_space_matches_the_display_projection(monkeypatch):
     """A rewind ordinal counts the user turns a client can SEE — and only those.
 

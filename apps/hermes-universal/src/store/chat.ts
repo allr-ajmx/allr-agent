@@ -812,6 +812,33 @@ export function planEdit(messages: ChatMessage[], sourceId: string, rawText: str
 const isSessionBusyError = (error: unknown): boolean =>
   /session busy/i.test(error instanceof Error ? error.message : String(error))
 
+// A rewind interrupts the live turn and submits straight after, but
+// `session.interrupt` returns BEFORE the provider actually stops — a
+// non-interruptible tool keeps running to its next boundary. The gateway refuses
+// to fold a truncating submit into its busy path (it would steer the text into
+// the very turn being discarded, or queue it with the truncation dropped), so
+// that window answers "session busy". Wait it out rather than failing the rewind
+// on the first bounce; bounded so a genuinely stuck turn still surfaces.
+// Desktop's `withSessionBusyRetry` (use-prompt-actions/utils.ts), same numbers.
+const SESSION_BUSY_RETRY_TIMEOUT_MS = 6_000
+const SESSION_BUSY_RETRY_INTERVAL_MS = 150
+
+async function withSessionBusyRetry<T>(call: () => Promise<T>): Promise<T> {
+  const deadline = Date.now() + SESSION_BUSY_RETRY_TIMEOUT_MS
+
+  for (;;) {
+    try {
+      return await call()
+    } catch (err) {
+      if (!isSessionBusyError(err) || Date.now() >= deadline) {
+        throw err
+      }
+
+      await new Promise(resolve => setTimeout(resolve, SESSION_BUSY_RETRY_INTERVAL_MS))
+    }
+  }
+}
+
 const isStaleTargetError = (error: unknown): boolean =>
   /no longer in session history|not in session history/i.test(error instanceof Error ? error.message : String(error))
 
@@ -863,7 +890,11 @@ interface RewindTarget {
  * (drops that user turn + everything after). Idle rewinds submit directly —
  * interrupting an idle agent can leave a stale interrupt flag that cancels the
  * fresh turn; live turns interrupt first, and a raced "session busy" response
- * interrupts + retries. Ported from desktop's `runRewindSubmit`.
+ * interrupts again and waits the turn out (`withSessionBusyRetry`). That wait is
+ * load-bearing rather than defensive: `session.interrupt` returns before the
+ * provider stops, and the gateway refuses to fold a truncating submit into its
+ * busy path precisely so the rewind cannot land as a steer or a queued prompt
+ * with the truncation silently dropped. Ported from desktop's `runRewindSubmit`.
  *
  * Both RPCs run through `withSessionNotFoundResume` (MJXHRM-367). A rewind is
  * the LONGEST-idle submit path in the app — the user reads a reply, thinks, and
@@ -923,7 +954,7 @@ async function runRewindSubmit(
     }
 
     await interrupt()
-    await submit()
+    await withSessionBusyRetry(submit)
   }
 }
 
