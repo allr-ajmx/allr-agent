@@ -28,6 +28,7 @@ import {
   resetSessionsPaging,
   sessionMatchesStoredId
 } from '@/store/session'
+import { resetSessionPinMirror } from '@/store/session-pin-sync'
 import { clearAllSessionStates, resetTileRuntimeBindings } from '@/store/session-states'
 import { resetWorkspaceCwd } from '@/store/workspace-events'
 
@@ -49,6 +50,12 @@ import { resetWorkspaceCwd } from '@/store/workspace-events'
  * cleared in place and the URL is left alone.
  */
 export function wipeSessionListsForGatewaySwitch(): void {
+  // Pins are mirrored per-backend. The next gateway has its own state.db and has
+  // never seen them, so drop the "already pushed" bookkeeping and let the next
+  // reconcile re-assert the whole set against the new backend — otherwise the
+  // pins silently fail to reach it and its auto-archive sweep is free to hide
+  // the conversations they protect.
+  resetSessionPinMirror()
   $sessions.set([])
   $sessionsTotal.set(0)
   $sessionSearch.set([])

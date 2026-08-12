@@ -56,6 +56,7 @@ import { startNewSession, startNewSessionTab } from '@/store/new-session'
 import { $reviewOpen, closeReview, REVIEW_PANE_ID } from '@/store/review'
 import { $activeStoredSessionId, openSession, setBranchedSessionOpener } from '@/store/session'
 import { SESSION_ROW_SOURCES, sessionRowFor } from '@/store/session-lookup'
+import { watchSessionPins } from '@/store/session-pin-sync'
 import {
   $focusedChatPane,
   closeSessionTile,
@@ -350,6 +351,12 @@ watchContributedPanes()
 watchSessionTiles()
 watchRouteTiles()
 watchPreviewTiles()
+
+// Mirror sidebar pins into the backend keep-flag — the only pin channel every
+// client on this gateway shares, and the one the auto-archive sweep and the
+// list endpoints' pinned back-fill both read. Pre-existing local pins migrate
+// transparently on the first reconcile.
+watchSessionPins()
 
 // A reconnect issues new runtime ids, so every binding we hold is dead. Drop
 // the bindings (NOT the sessions — a draft's unsent text is the one thing that

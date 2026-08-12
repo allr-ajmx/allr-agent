@@ -466,11 +466,13 @@ export function setSessions(updater: (prev: SessionInfo[]) => SessionInfo[]): vo
  * stored. The list is a WINDOW; the pin is not, and the section must show every
  * pinned session regardless of how deep it has fallen.
  *
- * Universal's pins are client-local (`hermes.pinnedSessions`), so the backend's
- * new "back-fill pinned rows past offset+limit" cannot help here — the server
- * does not know which sessions this client pinned. The cache is the client-side
- * equivalent: every page that carries a pinned row refreshes its entry, and the
- * entry outlives the row's departure from the window.
+ * The backend's own "back-fill pinned rows past offset+limit" (`include_pinned`)
+ * covers this once a pin has reached `sessions.pinned` — which it now does, via
+ * store/session-pin-sync.ts. This cache remains the fallback for the window
+ * where it has not: a pin made offline or against a backend predating the flag,
+ * and the first paint after a reload, before any page has landed. Every page
+ * carrying a pinned row refreshes its entry, and the entry outlives the row's
+ * departure from the window.
  *
  * Persisted so the section survives a reload, where `$sessions` starts empty and
  * the first page may not reach far enough back to re-cover the pins.
