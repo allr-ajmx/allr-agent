@@ -24,6 +24,7 @@ import {
   $sessionsLoading,
   $sessionsTotal,
   $unreadFinishedSessionIds,
+  clearPinnedSessionCache,
   refreshMessagingSessions,
   refreshSessions,
   resetSessionsPaging,
@@ -57,6 +58,13 @@ export function wipeSessionListsForGatewaySwitch(): void {
   // pins silently fail to reach it and its auto-archive sweep is free to hide
   // the conversations they protect.
   resetSessionPinMirror()
+  // …and the cached pinned ROWS with it. `$sessions` being emptied is not
+  // enough: the Pinned section falls back to this cache precisely so it survives
+  // an empty list, so without the wipe it goes on rendering the PREVIOUS
+  // gateway's conversations under the new one — rows the new backend has never
+  // heard of and cannot open. The pin IDS deliberately stay (the durable flag on
+  // each gateway re-asserts its own set, in both directions).
+  clearPinnedSessionCache()
   $sessions.set([])
   $sessionsTotal.set(0)
   $sessionSearch.set([])

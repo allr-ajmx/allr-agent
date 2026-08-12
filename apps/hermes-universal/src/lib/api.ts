@@ -20,6 +20,34 @@ export interface ApiRequest {
   profile?: string | null
 }
 
+/**
+ * A response that came back, and said no.
+ *
+ * The distinction it carries is the whole point: a 404 is the backend ANSWERING
+ * that a row does not exist, while a transport failure is no answer at all.
+ * Callers that act destructively on "it's gone" — releasing the pin of a session
+ * another client deleted (store/session-pin-sync.ts) — must never mistake an
+ * unreachable gateway for a deletion, and the status is the only thing that
+ * tells them apart. `message` is byte-identical to what this used to throw, so
+ * anything matching on the text is unaffected.
+ */
+export class ApiError extends Error {
+  readonly body: string
+  readonly status: number
+
+  constructor(message: string, status: number, body: string) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+    this.body = body
+  }
+}
+
+/** The backend answered "no such thing" — as opposed to not answering at all. */
+export function isNotFoundError(err: unknown): boolean {
+  return err instanceof ApiError && err.status === 404
+}
+
 // Append ?profile= to the request path when a non-default profile is set,
 // merging with any existing query string.
 function withProfile(path: string, profile?: string | null): string {
@@ -68,7 +96,7 @@ export async function api<T = unknown>({
   })
 
   if (res.status < 200 || res.status >= 300) {
-    throw new Error(`${method} ${path} → HTTP ${res.status}: ${res.body.slice(0, 200)}`)
+    throw new ApiError(`${method} ${path} → HTTP ${res.status}: ${res.body.slice(0, 200)}`, res.status, res.body)
   }
 
   return (res.body ? JSON.parse(res.body) : undefined) as T

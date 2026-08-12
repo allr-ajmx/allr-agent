@@ -40,7 +40,15 @@
 
 import { setSessionPinnedRemote } from '@/hermes'
 import { $pinnedSessionIds, pinSession, unpinSession } from '@/store/layout'
-import { $sessions, sessionMatchesStoredId, sessionPinId } from '@/store/session'
+import {
+  $pinnedSessionCache,
+  $sessions,
+  $sessionsListEpoch,
+  isTombstonedSession,
+  sessionExistsOnBackends,
+  sessionMatchesStoredId,
+  sessionPinId
+} from '@/store/session'
 import { ownsPersistedAppState } from '@/store/windows'
 
 // pin ids we've successfully PATCHed pinned=true this session.
@@ -197,11 +205,108 @@ function reconcile(): void {
   pullRemotePins()
 }
 
+// ---------------------------------------------------------------------------
+// GHOST PINS — a pinned session another client deleted.
+//
+// The pull above can only speak for rows that are IN the payload. A session
+// deleted elsewhere (a second app on this gateway, the CLI, or while this app
+// was closed) is simply not in any page: nothing says `pinned: false`, so the
+// pin survives, `$pinnedSessionCache` keeps serving its last-known row, and the
+// Pinned section renders a chat that no longer exists — permanently, since both
+// halves are persisted. It cannot even be opened.
+//
+// Absence alone is not the signal. The back-fill obeys the archived filter, so
+// an archived-but-pinned chat is absent from a page too, and unpinning on that
+// inference would quietly drop the pins of every archived conversation — worse
+// than the ghost. `sessionExistsOnBackends` asks by id instead, which answers
+// for archived rows and 404s only on real deletion.
+//
+// Three gates keep this cheap and safe:
+//  - only after a SUCCESSFUL full refresh (`$sessionsListEpoch`), the one moment
+//    a live pin cannot be missing from `$sessions`;
+//  - only for pins that are actually RENDERING from the cache fallback, which is
+//    the ghost by definition. A pin with no cached row shows nothing, and after
+//    a gateway switch (which clears the cache) that is exactly every pin the
+//    previous backend owned — so a switch can never spend probes on, or drop,
+//    another gateway's pins;
+//  - one verdict per id per cooldown, so the sidebar's frequent refreshes don't
+//    re-probe an archived pin on every poll.
+// ---------------------------------------------------------------------------
+
+/** How long a `present` verdict stands before the id is worth asking about
+ *  again. Long enough that a steady-state archived pin costs ~nothing; short
+ *  enough that a delete elsewhere clears within one coffee break, and instantly
+ *  on the next app start (the map is per-process). */
+const PIN_EXISTENCE_RECHECK_MS = 300_000
+
+const existenceCheckedAt = new Map<string, number>()
+const probing = new Set<string>()
+
+/** Pins rendering purely from the cache — the ghost candidates. */
+function ghostCandidates(now: number): string[] {
+  const loaded = new Set<string>()
+
+  for (const row of $sessions.get()) {
+    loaded.add(row.id)
+    loaded.add(sessionPinId(row))
+  }
+
+  const cache = $pinnedSessionCache.get()
+
+  return $pinnedSessionIds.get().filter(id => {
+    const checkedAt = existenceCheckedAt.get(id)
+
+    return (
+      !loaded.has(id) &&
+      Boolean(cache[id]) &&
+      // A delete of our own already owns this id: it released the pin
+      // optimistically and will restore it if the RPC fails.
+      !isTombstonedSession(id) &&
+      !probing.has(id) &&
+      (checkedAt === undefined || now - checkedAt >= PIN_EXISTENCE_RECHECK_MS)
+    )
+  })
+}
+
+async function sweepGhostPins(): Promise<void> {
+  if (!ownsPersistedAppState()) {
+    return
+  }
+
+  for (const id of ghostCandidates(Date.now())) {
+    probing.add(id)
+
+    try {
+      const existence = await sessionExistsOnBackends(id)
+
+      if (existence === 'unknown') {
+        // No answer. Leave the pin, leave the stamp unset, ask again next time.
+        continue
+      }
+
+      existenceCheckedAt.set(id, Date.now())
+
+      if (existence === 'gone' && $pinnedSessionIds.get().includes(id)) {
+        // Forget the mirror BEFORE the set changes, exactly as pullRemotePins
+        // does: otherwise the reconcile this fires PATCHes pinned=false at a
+        // row we just proved is not there.
+        mirrored.delete(id)
+        pending.delete(id)
+        unconfirmed.delete(id)
+        unpinSession(id)
+      }
+    } finally {
+      probing.delete(id)
+    }
+  }
+}
+
 // Sync once, then re-sync on pin-set and session-list changes. Call once per app.
 export function watchSessionPins(): void {
   reconcile()
   $pinnedSessionIds.listen(reconcile)
   $sessions.listen(reconcile)
+  $sessionsListEpoch.listen(() => void sweepGhostPins())
 }
 
 /**
@@ -219,4 +324,8 @@ export function resetSessionPinMirror(): void {
   mirrored.clear()
   pending.clear()
   unconfirmed.clear()
+  // "This id exists" was a statement about the OLD gateway's state.db. Keeping
+  // it would let a pin the next backend has genuinely never had ride out the
+  // cooldown unexamined.
+  existenceCheckedAt.clear()
 }
