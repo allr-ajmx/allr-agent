@@ -40,6 +40,7 @@ import { type DeltaChannel, flushDeltas, queueDelta, setStreamBatchSink } from '
 import { stopSpeaking } from '@/lib/tts'
 import { type AgentNoticePayload, clearAgentNotice, nativeNoticeInput, showAgentNotice } from '@/store/agent-notices'
 import { clearBillingBlock, surfaceBillingBlock } from '@/store/billing-block'
+import { noteMissedSteer } from '@/store/chat'
 import { readChoices } from '@/store/clarify'
 import { routeCompactionEvent } from '@/store/compaction'
 import { addGatewayEventListener, requestGateway } from '@/store/gateway'
@@ -424,6 +425,15 @@ export function routeGatewayEvent(event: GatewayEvent): void {
       // Background subagents still running are kept — they outlive the turn
       // that spawned them and must keep receiving progress events.
       pruneFinishedSessionSubagents(key)
+
+      break
+
+    // A correction the gateway ACCEPTED as a deferred steer and never got to
+    // deliver: the turn ended before another tool batch ran, so the words are
+    // requeued as a fresh turn instead. Scoped to the session that emitted it —
+    // the bubble to move lives in THAT transcript, not the visible one.
+    case 'steer.missed':
+      noteMissedSteer(key, coerceText(payload.text))
 
       break
 

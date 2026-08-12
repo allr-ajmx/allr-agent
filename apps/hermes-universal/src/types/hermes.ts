@@ -339,12 +339,20 @@ export interface SessionCreateResponse {
  * Response from `session.redirect` — the "stop and correct" RPC.
  *
  * `redirected` == the live model request was cancelled and rebuilt in place
- * with this text; `queued` == the correction arrived in the turn-build window
- * (no agent to redirect yet) and becomes the NEXT turn's prompt; `rejected` ==
- * the runtime cannot redirect, and the caller must queue the words itself.
+ * with this text; `steered` == a TOOL was running, so the gateway refused to
+ * kill it and deferred the correction to the next tool-result boundary — the
+ * reply on screen is NOT superseded and the model has not seen the words yet;
+ * `queued` == the correction arrived in the turn-build window (no agent to
+ * redirect yet) and becomes the NEXT turn's prompt; `rejected` == the runtime
+ * cannot redirect, and the caller must queue the words itself.
+ *
+ * `steered` used to answer `redirected` — `AIAgent.redirect()` degrades to
+ * `steer()` during tool execution and both came back `True` — which is how a
+ * correction ended up above a reply it had never touched. A deferred steer can
+ * still miss its window entirely; the gateway then pushes `steer.missed`.
  */
 export interface SessionRedirectResponse {
-  status?: 'queued' | 'redirected' | 'rejected'
+  status?: 'queued' | 'redirected' | 'rejected' | 'steered'
   text?: string
 }
 
