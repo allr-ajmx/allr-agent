@@ -57,29 +57,47 @@ const isTilePayload = (data: unknown): data is TilePayload =>
  */
 type FlatPayload = TileChrome & TileSizing & { placement?: TilePlacement }
 
-const CHROME_KEYS = [
-  'collapsible',
-  'uncloseable',
-  'headerVeto',
-  'revealOnPreset',
-  'revealAliases',
-  'accent',
-  'tabLead',
-  'dock',
-  'anchor',
-  'tabWrap',
-  'tabDrag',
-  'loneHeader'
-] as const satisfies readonly (keyof TileChrome)[]
+/**
+ * The key lists `pick` copies a flat payload by — declared as a Record over the
+ * interface rather than an array, so TYPESCRIPT requires an entry per key.
+ *
+ * `as const satisfies readonly (keyof TileChrome)[]` only checked the other
+ * direction: that every listed key exists. A key MISSING from the list was
+ * dropped in silence with nothing to catch it, and three were — `stripTools`,
+ * `linkTarget` and `toolPanel` were added to `TileChrome` and never listed, so
+ * a plugin declaring any of them got a pane that quietly ignored it. The flat
+ * shape is the published SDK contract; a third-party plugin compiled against it
+ * cannot be fixed by editing this repo.
+ */
+const CHROME_KEY_SET: Record<keyof TileChrome, true> = {
+  accent: true,
+  anchor: true,
+  collapsible: true,
+  dock: true,
+  headerVeto: true,
+  linkTarget: true,
+  loneHeader: true,
+  revealAliases: true,
+  revealOnPreset: true,
+  stripTools: true,
+  tabDrag: true,
+  tabLead: true,
+  tabWrap: true,
+  toolPanel: true,
+  uncloseable: true
+}
 
-const SIZING_KEYS = [
-  'width',
-  'height',
-  'minWidth',
-  'maxWidth',
-  'minHeight',
-  'maxHeight'
-] as const satisfies readonly (keyof TileSizing)[]
+const SIZING_KEY_SET: Record<keyof TileSizing, true> = {
+  height: true,
+  maxHeight: true,
+  maxWidth: true,
+  minHeight: true,
+  minWidth: true,
+  width: true
+}
+
+const CHROME_KEYS = Object.keys(CHROME_KEY_SET) as (keyof TileChrome)[]
+const SIZING_KEYS = Object.keys(SIZING_KEY_SET) as (keyof TileSizing)[]
 
 const pick = <T extends object, K extends readonly (keyof T)[]>(source: T, keys: K): Partial<Pick<T, K[number]>> => {
   const out: Partial<Pick<T, K[number]>> = {}
