@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { PlatformAvatar } from '@/app/messaging/platform-icon'
-import { CRON_ROUTE, sessionRoute } from '@/app/routes'
+import { cronJobRoute, sessionRoute } from '@/app/routes'
 import { Codicon } from '@/components/ui/codicon'
 import { GlyphSpinner } from '@/components/ui/glyph-spinner'
 import { SearchField } from '@/components/ui/search-field'
@@ -831,7 +831,10 @@ export function SidebarScrollBody({
             <SidebarCronJobsSection
               jobs={cronJobs}
               label={s.cronJobs}
-              onManageJob={() => openAppRoute(CRON_ROUTE)}
+              // Carry the row's job into the cron surface, or "Manage" on ANY
+              // row lands on whichever job sorts first — the kebab acting on
+              // someone else's job.
+              onManageJob={jobId => openAppRoute(cronJobRoute(jobId))}
               onOpenRun={id => {
                 void openSession(id)
                 navigate(sessionRoute(id))
