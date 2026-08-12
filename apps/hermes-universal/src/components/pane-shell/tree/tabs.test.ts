@@ -439,22 +439,27 @@ describe('the hovered zone outranks the focused one', () => {
 })
 
 describe('treeTabCloseTargets', () => {
-  // Drives menu enablement: a verb that would close nothing is not offered.
+  // Drives menu enablement: a verb that would close nothing is DISABLED (never
+  // dropped — see paneTabCloseSpecs). All three counts matter, so all three are
+  // asserted: `all` was the one the terminal and preview equivalents pinned and
+  // this one did not, which left the workspace exemption below unguarded.
   it('counts what each close verb would actually close', () => {
     seedTree([WORKSPACE_PANE_ID, tile('a'), tile('b')])
 
-    const middle = treeTabCloseTargets(tile('a'))
-    expect(middle.others).toBe(1) // b — the workspace declares `uncloseable`
-    expect(middle.right).toBe(1) // b
+    // a + b. The workspace declares `uncloseable`, so it is not a close target
+    // of anyone's "Close all" — including its own tab's.
+    expect(treeTabCloseTargets(tile('a'))).toEqual({ all: 2, others: 1, right: 1 })
+    expect(treeTabCloseTargets(WORKSPACE_PANE_ID)).toEqual({ all: 2, others: 2, right: 2 })
 
     // The rightmost tab has nothing to its right.
-    expect(treeTabCloseTargets(tile('b')).right).toBe(0)
+    expect(treeTabCloseTargets(tile('b'))).toEqual({ all: 2, others: 1, right: 0 })
   })
 
   it('reports nothing for a lone uncloseable tab', () => {
     seedTree([WORKSPACE_PANE_ID])
 
-    expect(treeTabCloseTargets(WORKSPACE_PANE_ID).others).toBe(0)
-    expect(treeTabCloseTargets(WORKSPACE_PANE_ID).right).toBe(0)
+    // Every verb dead, `all` included: there is nothing in this zone the menu
+    // could close, so "Close all" greys out rather than reading as a live verb.
+    expect(treeTabCloseTargets(WORKSPACE_PANE_ID)).toEqual({ all: 0, others: 0, right: 0 })
   })
 })
