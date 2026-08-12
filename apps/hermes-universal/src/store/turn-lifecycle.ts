@@ -34,6 +34,7 @@ import type { GatewayEvent } from '@/gateway'
 import type { ChatMessage } from '@/lib/chat-messages'
 import { isLiveTailRow, reconcileLiveTail } from '@/lib/live-tail'
 import { appendLiveSessionProjection } from '@/lib/session-history'
+import { applyResumedClarify } from '@/store/clarify'
 import { $gatewayState, requestGateway } from '@/store/gateway'
 import {
   $sessionStates,
@@ -634,8 +635,17 @@ export const resumedTurnIsLive = (resumed: SessionResumeResponse): boolean =>
  * every WS re-open. Without it a session resumed mid-turn is invisible to
  * reconnect reconciliation for the rest of its life, which is the whole point of
  * the layer.
+ *
+ * A turn parked on a blocking prompt is adopted here too, and it is the ONLY
+ * place it can be: `clarify.request` was emitted once, long before this client
+ * opened the session, and a parked turn is in no transcript. Every cold-open
+ * path (the main pane, a tile, a satellite window) reaches the gateway through
+ * this function, so hanging the replay here is what stops the fourth one being
+ * written without it (MJXHRM-362).
  */
 export function adoptResumedTurn(key: string, resumed: SessionResumeResponse): TurnReconciliation {
+  applyResumedClarify(key, resumed)
+
   return applyTurnReconciliation(key, planTurnReconciliation(getInflightTurn(key), remoteTurnSnapshot(resumed)))
 }
 
@@ -779,6 +789,13 @@ export async function reconcileSessionTurn(key: string): Promise<TurnReconciliat
     if (plan.action !== 'settle') {
       reconcileSessionTail(live, resumed)
     }
+
+    // After the tail, so the row lands on the reconciled tail rather than one
+    // `reconcileSessionTail` is about to rebuild. Unconditional: a prompt still
+    // in the gateway's `_pending` means the agent IS parked, whatever the plan
+    // concluded about the turn — and the replay is an upsert, so a card that
+    // survived the disconnect stays one card.
+    applyResumedClarify(live, resumed)
 
     return plan
   } catch {

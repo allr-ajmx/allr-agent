@@ -205,9 +205,18 @@ export function reduceSessionState(
 
     case 'tool.generating':
       return applyToolEvent(state, payload as GatewayToolPayload, 'running')
+    case 'tool.complete': {
+      const settled = applyToolEvent(state, payload as GatewayToolPayload, 'complete')
 
-    case 'tool.complete':
-      return applyToolEvent(state, payload as GatewayToolPayload, 'complete')
+      // The clarify tool returning is this session's "no longer parked on the
+      // user" — the one signal shared by answering, the backend's timeout and
+      // an interrupt, and the agent cannot be blocked on two prompts at once
+      // (`_block` holds the run loop). Without it `needsInput` — set by
+      // `clarify.request` and otherwise cleared only by `message.complete` —
+      // kept the sidebar's attention dot lit, and its running arc suppressed,
+      // for the whole rest of a turn the user had already unblocked.
+      return payload.name === 'clarify' && settled.needsInput ? { ...settled, needsInput: false } : settled
+    }
 
     case 'message.complete':
       return {
@@ -261,10 +270,22 @@ export function reduceSessionState(
      * is what makes this an upsert in the normal path rather than a second live
      * card, and what lets the synthetic row settle on the real `tool.complete`.
      * Desktop does the same in `use-message-stream/gateway-event.ts`.
+     *
+     * This case is also replayed OUT of the stream, by `store/clarify.ts`'s
+     * `applyResumedClarify`, from the prompt the gateway reports on
+     * `session.resume`. The event is emitted once and never buffered, so a
+     * client that cold-opens a parked session has no other way to learn the
+     * question — and going through this same case is what keeps the replayed row
+     * identical to the streamed one.
      */
     case 'clarify.request': {
       const requestId = coerceText(payload.request_id)
-      const question = coerceText(payload.question)
+      // The same fallback chain `store/event-router.ts` reads the question with.
+      // The two halves of this ONE event have to agree on whether it is
+      // renderable: the router writing the prompt store while this case declines
+      // to make a row IS the "needs input, nowhere to answer it" state the row
+      // exists to prevent.
+      const question = coerceText(payload.question) || coerceText(payload.prompt) || coerceText(payload.message)
 
       if (!requestId || !question) {
         return { ...state, needsInput: true }
@@ -276,17 +297,19 @@ export function reduceSessionState(
         ? payload.choices.filter((choice): choice is string => typeof choice === 'string')
         : []
 
+      // Through `applyToolEvent`, not `patchActive`, so this row lands in the
+      // SAME message its own `tool.start` / `tool.complete` land in. Those take
+      // the settled-assistant branch when the turn does not look live, and the
+      // paths that need a synthetic row are exactly the ones where it does not:
+      // `busy` is set by `message.start`, which has already gone by on a
+      // mid-turn reattach or a slice hydrated from history. `patchActive` opened
+      // a fresh pending bubble there instead, putting the two halves of one
+      // clarify in two different messages — where `upsertToolPart` cannot merge
+      // them. Two live cards for one question, and a `pending: true` bubble
+      // nothing settles.
       return {
-        ...state,
-        needsInput: true,
-        messages: patchActive(state.messages, m => ({
-          ...m,
-          parts: upsertToolPart(
-            m.parts,
-            { args: { choices, question }, name: 'clarify', tool_id: requestId },
-            'running'
-          )
-        }))
+        ...applyToolEvent(state, { args: { choices, question }, name: 'clarify', tool_id: requestId }, 'running'),
+        needsInput: true
       }
     }
 

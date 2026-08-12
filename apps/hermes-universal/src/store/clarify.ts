@@ -13,8 +13,13 @@
  * none of which the panel can recover from once rendered.
  */
 
+import type { GatewayEvent } from '@/gateway'
+import { coerceText } from '@/lib/chat-messages'
 import { requestGateway } from '@/store/gateway'
-import { clearSessionClarify, sessionClarifyRequest } from '@/store/prompts'
+import { clearSessionClarify, sessionClarifyRequest, setSessionClarify } from '@/store/prompts'
+import { reduceSessionState } from '@/store/session-reducer'
+import { updateSession } from '@/store/session-state-types'
+import type { SessionResumeResponse } from '@/types/hermes'
 
 /** Longest a choice may be and still read as a button label rather than prose. */
 const MAX_CHOICE_LENGTH = 200
@@ -57,6 +62,65 @@ export function readChoices(source: 'gateway' | 'tool_args', question: string, r
   }
 
   return choices.length > 0 ? choices : null
+}
+
+/**
+ * The pending request this tool row is asking about — or null when the row and
+ * the request are about different questions.
+ *
+ * A transcript can hold an OLD clarify row whose `tool.complete` never landed
+ * (a disconnect ate it) while a NEW clarify is parked on the session. Both rows
+ * would otherwise read the same store entry and offer to answer it. The question
+ * is the only field the row and the request share, so it is the tie-break — and
+ * a row with no question of its own (nothing but `tool.start`'s id ever reached
+ * it) yields to the request rather than rendering blank.
+ */
+export function matchClarifyRequest<T extends { question: string }>(
+  request: null | T | undefined,
+  rowQuestion: string
+): null | T {
+  if (!request) {
+    return null
+  }
+
+  return rowQuestion && request.question && rowQuestion !== request.question ? null : request
+}
+
+/**
+ * Put back the clarify a resumed session is still parked on.
+ *
+ * `clarify.request` is emitted ONCE, with no replay buffer, and a parked turn is
+ * not in the committed transcript — so a client that cold-opens (or reloads
+ * into) a waiting session has neither the question nor the `request_id`, and the
+ * agent stays in the backend's `_block` until its timeout. The gateway now
+ * describes the parked prompt on `session.resume`
+ * (`_session_pending_prompt`); replaying it through THE SAME reducer case the
+ * live event uses is what rebuilds both halves — the store entry the panel
+ * answers from, and the synthetic tool row it mounts on.
+ *
+ * Idempotent by construction: the store entry is a replace, and the reducer
+ * upserts its row (correlating on `question`), so a session that still holds a
+ * live clarify from before the reconnect keeps ONE card.
+ */
+export function applyResumedClarify(key: string, resumed: Pick<SessionResumeResponse, 'pending_prompt'>): void {
+  const pending = resumed.pending_prompt
+
+  if (!pending || pending.event !== 'clarify.request') {
+    return
+  }
+
+  const payload = pending.payload ?? {}
+  const requestId = coerceText(payload.request_id)
+  const question = coerceText(payload.question)
+
+  if (!requestId || !question) {
+    return
+  }
+
+  setSessionClarify(key, { requestId, question, choices: readChoices('gateway', question, payload.choices) })
+  updateSession(key, state =>
+    reduceSessionState(state, { type: 'clarify.request' } as GatewayEvent, payload as Record<string, unknown>)
+  )
 }
 
 /** Is a clarify parked on this session right now? Imperative, for the composer. */

@@ -38,18 +38,52 @@ describe('clarify.request', () => {
     ])
   })
 
-  // The row exists so the question is answerable, not so it lingers: a real
-  // tool.start / tool.complete carrying the same request id must MERGE into it.
-  it('is merged, not duplicated, by the real tool events for the same id', () => {
+  // THE PATH THE ROW EXISTS FOR: `tool.start` was missed (a reconnect, a slice
+  // this event created), so the request arrives FIRST and the real tool events
+  // land afterwards under the MODEL's id. They have to merge into the synthetic
+  // row and settle it, not open a second card.
+  //
+  // This replaces a test that fed `tool.start` the REQUEST id — an event shape
+  // the gateway cannot produce (`_on_tool_start` ships the model's
+  // `tool_call_id`) — which made the merge look like a plain id lookup and hid
+  // the correlation the real ordering depends on.
+  it('is merged, not duplicated, by the real tool events that arrive after it', () => {
     let state = reduce(base(), 'clarify.request', { request_id: 'req-1', question: 'Which branch?' })
-    state = reduce(state, 'tool.start', { name: 'clarify', tool_id: 'req-1' })
+    state = reduce(state, 'tool.start', { name: 'clarify', tool_id: 'call_abc123', context: 'Which branch?' })
 
     expect(toolParts(state)).toHaveLength(1)
 
-    state = reduce(state, 'tool.complete', { name: 'clarify', tool_id: 'req-1', result: 'main' })
+    state = reduce(state, 'tool.complete', {
+      name: 'clarify',
+      tool_id: 'call_abc123',
+      args: { question: 'Which branch?' },
+      result: 'main'
+    })
 
     expect(toolParts(state)).toHaveLength(1)
-    expect(toolParts(state)[0].toolCallId).toBe('req-1')
+    expect(toolParts(state)[0].result).toBeDefined()
+  })
+
+  // A turn whose `message.start` was missed leaves `busy` false with a SETTLED
+  // assistant last — the state every mid-turn reattach and every hydrate from
+  // history is in. `tool.start` merges into that settled bubble
+  // (`applyToolEvent`), so a clarify row appended to a fresh PENDING bubble
+  // could never merge with it: two live cards for one question, in two
+  // different messages, plus a pending bubble nothing settles.
+  it('lands in the message the tool events land in when the turn no longer looks live', () => {
+    const settled: ClientSessionState = {
+      ...emptySessionState('stored-1'),
+      busy: false,
+      messages: [{ id: 'a1', role: 'assistant', parts: [{ type: 'text', text: 'working on it' }] }]
+    }
+
+    let state = reduce(settled, 'tool.start', { name: 'clarify', tool_id: 'call_abc123', context: 'Which branch?' })
+
+    state = reduce(state, 'clarify.request', { request_id: 'req-1', question: 'Which branch?', choices: ['main'] })
+
+    expect(state.messages).toHaveLength(1)
+    expect(toolParts(state)).toHaveLength(1)
+    expect(toolParts(state)[0].args).toMatchObject({ choices: ['main'], question: 'Which branch?' })
   })
 
   // THE NORMAL PATH, and the one the ids do NOT line up on. `tool.start` carries
@@ -153,5 +187,44 @@ describe('status.update', () => {
     const next = reduce(busy, 'status.update', { kind: 'status', text: '' })
 
     expect(next.statusLine).toBe('')
+  })
+})
+
+/**
+ * The clarify tool RETURNING is this session's "no longer parked on the user".
+ * It is the one event shared by all three endings — the user answered, the
+ * backend's `_block` timed out, `session.interrupt` released it — and
+ * `needsInput` was otherwise cleared only by `message.complete`, so the sidebar
+ * kept the attention dot lit (and the running arc suppressed) for the whole rest
+ * of a turn the user had already unblocked.
+ */
+describe('clarify completion', () => {
+  it('stops flagging needs-input when the clarify tool returns', () => {
+    let state = reduce({ ...emptySessionState('stored-1'), busy: true }, 'clarify.request', {
+      request_id: 'req-1',
+      question: 'Which branch?'
+    })
+
+    expect(state.needsInput).toBe(true)
+
+    state = reduce(state, 'tool.complete', {
+      name: 'clarify',
+      tool_id: 'call_abc123',
+      args: { question: 'Which branch?' },
+      result: 'main'
+    })
+
+    expect(state.needsInput).toBe(false)
+    expect(state.busy).toBe(true)
+  })
+
+  // Another tool finishing says nothing about the prompt: an approval parked on
+  // a different tool is still parked.
+  it('leaves needs-input alone when a different tool returns', () => {
+    let state = reduce({ ...emptySessionState('stored-1'), busy: true }, 'approval.request', { command: 'rm -rf /' })
+
+    state = reduce(state, 'tool.complete', { name: 'bash', tool_id: 'call_x', result: 'ok' })
+
+    expect(state.needsInput).toBe(true)
   })
 })

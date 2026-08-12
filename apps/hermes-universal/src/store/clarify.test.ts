@@ -1,7 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { hasClarifyRequest, normalizeChoices, readChoices, skipClarifyRequest } from '@/store/clarify'
+import type { ToolCallPart } from '@/lib/chat-messages'
+import {
+  applyResumedClarify,
+  hasClarifyRequest,
+  matchClarifyRequest,
+  normalizeChoices,
+  readChoices,
+  skipClarifyRequest
+} from '@/store/clarify'
 import { clearAllPrompts, sessionClarifyRequest, setSessionClarify } from '@/store/prompts'
+import { reduceSessionState } from '@/store/session-reducer'
+import { $sessionStates, emptySessionState, publishSessionState } from '@/store/session-state-types'
 
 vi.mock('@/store/gateway', () => ({
   $gatewayState: { get: () => 'open', subscribe: () => () => {} },
@@ -12,6 +22,7 @@ const { requestGateway } = await import('@/store/gateway')
 
 beforeEach(() => {
   clearAllPrompts()
+  $sessionStates.set({})
   vi.mocked(requestGateway).mockClear()
   vi.mocked(requestGateway).mockResolvedValue({})
 })
@@ -91,5 +102,100 @@ describe('skipClarifyRequest', () => {
     expect(await skipClarifyRequest('s1')).toBe(false)
     expect(await skipClarifyRequest(null)).toBe(false)
     expect(requestGateway).not.toHaveBeenCalled()
+  })
+})
+
+describe('matchClarifyRequest', () => {
+  const request = { requestId: 'req-1', question: 'Which branch?', choices: null }
+
+  it('matches when the row carries no question of its own', () => {
+    expect(matchClarifyRequest(request, '')).toBe(request)
+  })
+
+  it('matches the row asking the same question', () => {
+    expect(matchClarifyRequest(request, 'Which branch?')).toBe(request)
+  })
+
+  // An old clarify row whose `tool.complete` was lost must not offer to answer
+  // the NEW question parked on the session.
+  it('rejects a row asking a different question', () => {
+    expect(matchClarifyRequest(request, 'Which region?')).toBeNull()
+  })
+
+  it('is null with nothing parked', () => {
+    expect(matchClarifyRequest(null, 'Which branch?')).toBeNull()
+    expect(matchClarifyRequest(undefined, '')).toBeNull()
+  })
+})
+
+const toolParts = (key: string): ToolCallPart[] =>
+  ($sessionStates.get()[key]?.messages ?? []).flatMap(message =>
+    message.parts.filter((part): part is ToolCallPart => part.type === 'tool-call')
+  )
+
+/**
+ * MJXHRM-362. `clarify.request` is emitted ONCE and never buffered, and a turn
+ * parked in the backend's `_block` is in no committed transcript — so a client
+ * that cold-opens a waiting session had neither the question nor the
+ * `request_id`, and the agent stayed parked until its timeout with nothing on
+ * screen but a "needs input" dot. The gateway now describes the parked prompt on
+ * `session.resume` (`_session_pending_prompt`), and this puts it back.
+ */
+describe('applyResumedClarify', () => {
+  const pending = (payload: Record<string, unknown>, event = 'clarify.request') => ({
+    pending_prompt: { event, payload }
+  })
+
+  beforeEach(() => {
+    publishSessionState('s1', { ...emptySessionState('stored-1'), busy: true })
+  })
+
+  it('rebuilds both the answerable request and the transcript row', () => {
+    applyResumedClarify('s1', pending({ request_id: 'req-1', question: 'Which branch?', choices: ['main', 'dev'] }))
+
+    expect(sessionClarifyRequest('s1').get()).toEqual({
+      requestId: 'req-1',
+      question: 'Which branch?',
+      choices: ['main', 'dev']
+    })
+    expect(toolParts('s1')).toEqual([
+      expect.objectContaining({
+        toolCallId: 'req-1',
+        toolName: 'clarify',
+        args: { choices: ['main', 'dev'], question: 'Which branch?' }
+      })
+    ])
+    expect($sessionStates.get().s1?.needsInput).toBe(true)
+  })
+
+  // A WARM reconnect still holds the card it built from the live event. The
+  // replay must upsert onto it, not stack a second one.
+  it('leaves one card when the session already showed the same clarify', () => {
+    const payload = { request_id: 'req-1', question: 'Which branch?', choices: ['main'] }
+
+    publishSessionState(
+      's1',
+      reduceSessionState($sessionStates.get().s1!, { type: 'clarify.request' } as never, payload)
+    )
+
+    applyResumedClarify('s1', pending(payload))
+
+    expect(toolParts('s1')).toHaveLength(1)
+  })
+
+  it('ignores a prompt that is not a clarify', () => {
+    applyResumedClarify('s1', pending({ request_id: 'req-1', prompt: 'password:' }, 'sudo.request'))
+
+    expect(sessionClarifyRequest('s1').get()).toBeNull()
+    expect(toolParts('s1')).toEqual([])
+  })
+
+  it('ignores a session with no prompt parked, and a malformed one', () => {
+    applyResumedClarify('s1', {})
+    applyResumedClarify('s1', { pending_prompt: null })
+    applyResumedClarify('s1', pending({ request_id: 'req-1' }))
+
+    expect(sessionClarifyRequest('s1').get()).toBeNull()
+    expect(toolParts('s1')).toEqual([])
   })
 })

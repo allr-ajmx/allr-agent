@@ -57,6 +57,7 @@ import { flashPetActivity, setPetActivity } from '@/store/pet'
 import { applyRemotePinnedSessions, startPinnedSessionSync, syncPinnedSessions } from '@/store/pinned-sync'
 import {
   clearAllPrompts,
+  clearSessionClarify,
   setSessionApproval,
   setSessionClarify,
   setSessionSecret,
@@ -490,6 +491,19 @@ export function routeGatewayEvent(event: GatewayEvent): void {
       // skill is offerable now rather than after the hour-long TTL.
       if (payload.name === 'skill_manage') {
         invalidateSlashCompletions()
+      }
+
+      // The clarify tool RETURNING is its request's terminal event, and the one
+      // signal every ending shares: answered, timed out (`_block` gives up and
+      // returns ""), or released by `session.interrupt`'s `_clear_pending`.
+      // Only the answered path cleared the request (`respondClarify`), so the
+      // other two left a phantom parked clarify until `message.complete` — and
+      // `$activeSessionAwaitingInput` is what makes Esc decline to interrupt a
+      // turn that is "waiting on the user", so Esc stayed dead for the rest of a
+      // turn whose question had already expired. The settled row renders from
+      // its own result, so nothing on screen still needs the request.
+      if (payload.name === 'clarify') {
+        clearSessionClarify(key)
       }
 
       // A file-mutating tool just finished — nudge the git-mirroring surfaces

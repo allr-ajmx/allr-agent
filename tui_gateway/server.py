@@ -8060,13 +8060,36 @@ def _schedule_agent_build(sid: str, delay: float = 0.05) -> None:
     timer.start()
 
 
+def _session_pending_prompt(sid: str) -> dict | None:
+    """The blocking prompt this session is parked on, exactly as it was emitted.
+
+    ``_block`` emits each request ONCE and keeps no replay buffer, so a client
+    that was not connected when it fired — or that rebuilt the session from
+    history on a cold open — has no way to learn the question, its choices, or
+    the ``request_id`` it must answer with.  A pending prompt is never committed
+    to session history either (history is written when a turn ENDS, and this
+    turn is parked mid-tool), so nothing in the resume transcript carries it.
+    The agent then sits in ``_block`` until its timeout while every client can
+    show is a contentless "waiting" dot, and the clarify is unanswerable.
+
+    Returning the live payload here hands a resuming client exactly what the
+    one-shot emit handed the original one.  Shaped as the event it was, rather
+    than a clarify-specific dict, because ``_block`` serves every blocking
+    bridge (clarify / sudo / secret / terminal.read / …) and the renderer that
+    knows how to raise one already switches on that event name.
+    """
+    with _prompt_lock:
+        for rid, (owner_sid, _ev) in list(_pending.items()):
+            if owner_sid != sid:
+                continue
+            event, payload = _pending_prompt_payloads.get(rid, ("input.request", {}))
+            return {"event": str(event), "payload": dict(payload)}
+    return None
+
+
 def _session_pending_kind(sid: str) -> str:
-    for rid, (owner_sid, _ev) in list(_pending.items()):
-        if owner_sid != sid:
-            continue
-        event, _payload = _pending_prompt_payloads.get(rid, ("input.request", {}))
-        return str(event).removesuffix(".request")
-    return ""
+    pending = _session_pending_prompt(sid)
+    return str(pending["event"]).removesuffix(".request") if pending else ""
 
 
 def _session_live_status(sid: str, session: dict) -> str:
@@ -8330,6 +8353,14 @@ def _live_session_payload(
         payload["inflight"] = inflight
     if queued:
         payload["queued"] = queued
+    # The one piece of live turn state that is neither in the transcript nor in
+    # the inflight snapshot: a turn parked inside a blocking tool call.  Only
+    # this payload can put the question back on a reconnecting client's screen
+    # (see _session_pending_prompt); "status": "waiting" above says a prompt is
+    # open, this says WHICH.
+    pending_prompt = _session_pending_prompt(sid)
+    if pending_prompt:
+        payload["pending_prompt"] = pending_prompt
     return payload
 
 
