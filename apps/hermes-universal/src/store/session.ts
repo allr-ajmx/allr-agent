@@ -906,14 +906,16 @@ async function reclaimWarmSession(
  * A no-op unless the session has a real live slice here:
  *
  * - no slice at all — nothing on screen is deaf, and the next `openSession` will
- *   hydrate it cold, which resumes and binds properly;
+ *   hydrate it cold, which resumes and binds properly. That is the whole check:
+ *   `runtimeKeyForStoredSession` answers null for a stale index entry too, so
+ *   re-testing `$sessionStates` here would be a branch nothing could reach;
  * - a PLACEHOLDER key — a hydrate is already in flight and will issue its own
  *   resume; forcing a second one would race its re-key and strand the slice.
  */
 export async function reclaimSessionTransport(storedId: string): Promise<void> {
   const warm = runtimeKeyForStoredSession(storedId)
 
-  if (!warm || isPlaceholderKey(warm) || !$sessionStates.get()[warm]) {
+  if (!warm || isPlaceholderKey(warm)) {
     return
   }
 

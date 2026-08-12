@@ -334,14 +334,20 @@ describe('reclaimSessionTransport', () => {
 
   it('is not cancelled by an unrelated session being opened', async () => {
     seedSession('runtime-popped', { storedSessionId: 'stored-popped' })
+    // Two profiles, so the owner has to be PROBED — the await that puts a real
+    // gap between entering the reclaim and issuing its resume. Without one the
+    // open cannot interleave early enough to test anything, and this passed with
+    // the generation guard still in place.
+    $profiles.set([profile('default'), profile('work')])
 
-    let release = () => {}
-    vi.mocked(requestGateway).mockImplementation(
+    let resolveProbe = () => {}
+    vi.mocked(getSession).mockImplementation(
       () =>
         new Promise(resolve => {
-          release = () => resolve({ messages: [], session_id: 'runtime-popped' })
-        }) as never
+          resolveProbe = () => resolve({ id: 'stored-popped', profile: 'default' } as SessionInfo)
+        })
     )
+    vi.mocked(requestGateway).mockResolvedValue({ messages: [], session_id: 'runtime-popped' })
 
     const reclaiming = reclaimSessionTransport('stored-popped')
 
@@ -350,10 +356,36 @@ describe('reclaimSessionTransport', () => {
     // asking — bumping it must not silently skip the resume.
     seedSession('runtime-other', { storedSessionId: 'stored-other' })
     openSession('stored-other')
+    resolveProbe()
+    await reclaiming
+
+    expect(requestGateway).toHaveBeenCalledWith('session.resume', {
+      session_id: 'stored-popped',
+      cols: 96,
+      profile: 'default'
+    })
+  })
+
+  it('drops a re-key whose slice vanished while the resume was in flight', async () => {
+    seedSession('runtime-popped', { storedSessionId: 'stored-popped' })
+
+    let release = () => {}
+    vi.mocked(requestGateway).mockImplementation(
+      () =>
+        new Promise(resolve => {
+          release = () => resolve({ messages: [], session_id: 'runtime-compacted' })
+        }) as never
+    )
+
+    const reclaiming = reclaimSessionTransport('stored-popped')
+
+    // Deleted, evicted, or re-keyed by a hydrate that raced us. `rekeySession`
+    // would move an EMPTY state onto the new runtime id and leave a ghost.
+    $sessionStates.set({})
     release()
     await reclaiming
 
-    expect(requestGateway).toHaveBeenCalledWith('session.resume', { session_id: 'stored-popped', cols: 96 })
+    expect($sessionStates.get()['runtime-compacted']).toBeUndefined()
   })
 })
 
