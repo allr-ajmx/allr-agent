@@ -1292,6 +1292,35 @@ describe('pinned rows survive the loaded window', () => {
     expect(pinnedSessionRows($sessions.get(), $pinnedSessionIds.get())).toEqual([])
   })
 
+  // The half of that fix nothing could see: a compaction rotates the live id,
+  // and the pin stays on the durable lineage root. The delete arrives with the
+  // TIP id, so releasing only the id it was handed leaves the pin standing —
+  // and the Pinned section resolves the deleted chat right back out of the
+  // cache under the root key.
+  it('releases the pin of a compacted session, whose pin id is not the id being deleted', async () => {
+    $pinnedSessionIds.set(['root'])
+    $sessions.set([{ _lineage_root_id: 'root', id: 'tip' } as SessionInfo])
+    vi.mocked(deleteSession).mockResolvedValue({ ok: true })
+
+    await deleteSessionLocal('tip')
+
+    expect($pinnedSessionIds.get()).toEqual([])
+  })
+
+  // And the mirror image, which is why BOTH ids are released rather than just
+  // the durable one: a row can reach a pin control without its lineage stamp —
+  // a server search result carries `session_id` and nothing else — so a pin can
+  // legitimately be stored under the live tip id.
+  it('releases a pin stored under the live tip id, not just the lineage root', async () => {
+    $pinnedSessionIds.set(['tip'])
+    $sessions.set([{ _lineage_root_id: 'root', id: 'tip' } as SessionInfo])
+    vi.mocked(deleteSession).mockResolvedValue({ ok: true })
+
+    await deleteSessionLocal('tip')
+
+    expect($pinnedSessionIds.get()).toEqual([])
+  })
+
   it('restores the pin when the delete RPC fails', async () => {
     $pinnedSessionIds.set(['stored-pin'])
     $sessions.set([row('stored-pin', 'Pinned chat')])
@@ -1310,6 +1339,35 @@ describe('pinned rows survive the loaded window', () => {
     $removedSessionIds.set(new Set(['stored-pin']))
 
     expect(pinnedSessionRows($sessions.get(), ['stored-pin'])).toEqual([])
+  })
+
+  // The two tombstone checks in `pinnedSessionRows` are NOT redundant, and the
+  // test above cannot tell them apart: with a pin id equal to the row id, either
+  // one alone passes it. A compacted chat separates them, and each check is the
+  // only thing covering its own case.
+  it('drops a pin whose stored id was tombstoned, even when its row surfaces under another id', () => {
+    // Deleted from a surface holding the row: `removalIds` tombstoned the
+    // lineage root, and the cached row still answers under its live tip id.
+    const tip = { _lineage_root_id: 'root', id: 'tip' } as SessionInfo
+    $pinnedSessionIds.set(['root'])
+    $sessions.set([tip])
+    expect(pinnedSessionRows($sessions.get(), ['root'])).toEqual([tip])
+
+    $removedSessionIds.set(new Set(['root']))
+
+    expect(pinnedSessionRows($sessions.get(), ['root'])).toEqual([])
+  })
+
+  it('drops a resolved row that was tombstoned under its live id, though the pin id was not', () => {
+    // The mirror image: deleted by an id the loaded rows could not resolve, so
+    // only the live tip got a tombstone while the pin is stored on the root.
+    const tip = { _lineage_root_id: 'root', id: 'tip' } as SessionInfo
+    $pinnedSessionIds.set(['root'])
+    $sessions.set([tip])
+
+    $removedSessionIds.set(new Set(['tip']))
+
+    expect(pinnedSessionRows($sessions.get(), ['root'])).toEqual([])
   })
 
   // A session id means nothing on another backend, so the cached ROWS are

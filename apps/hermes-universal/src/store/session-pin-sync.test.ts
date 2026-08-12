@@ -30,7 +30,7 @@ vi.mock('@/store/windows', async importOriginal => ({
 
 import { ApiError } from '@/lib/api'
 import { $pinnedSessionIds } from '@/store/layout'
-import { $pinnedSessionCache, $sessions, $sessionsListEpoch } from '@/store/session'
+import { $pinnedSessionCache, $removedSessionIds, $sessions, $sessionsListEpoch } from '@/store/session'
 
 import { resetSessionPinMirror, watchSessionPins } from './session-pin-sync'
 
@@ -483,6 +483,25 @@ describe('watchSessionPins ghost sweep', () => {
 
     expect(getOne).not.toHaveBeenCalled()
     expect($pinnedSessionIds.get()).toEqual(['root'])
+  })
+
+  // A tombstoned id is one OUR OWN delete or archive is already deciding: the
+  // delete released the pin optimistically and restores it if the RPC fails,
+  // and the archive deliberately keeps it. Either way the answer is already
+  // owned, so the probe is a request with nothing to do.
+  it('leaves an id alone while our own mutation of it is in flight', async () => {
+    seedCacheOnlyPin('mutating')
+    $removedSessionIds.set(new Set(['mutating']))
+    getOne.mockRejectedValue(notFound())
+
+    try {
+      await listLanded()
+    } finally {
+      $removedSessionIds.set(new Set())
+    }
+
+    expect(getOne).not.toHaveBeenCalled()
+    expect($pinnedSessionIds.get()).toEqual(['mutating'])
   })
 
   it('does nothing in a window that does not own persisted app state', async () => {
