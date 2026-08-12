@@ -31,6 +31,7 @@ import { isValidProfileName } from '@/lib/profile-name'
 import { slug } from '@/lib/sanitize'
 import { normalize } from '@/lib/text'
 import { cn } from '@/lib/utils'
+import { useDisplayPath } from '@/store/display-home'
 import { notify, notifyError } from '@/store/notifications'
 import { $profileColors, refreshProfiles } from '@/store/profile'
 import { runExportProfileFlow, runImportProfileFlow } from '@/store/profile-share'
@@ -370,6 +371,9 @@ function ProfileGlyph({ color, isDefault, name }: { color: null | string; isDefa
 function ProfileDetail({ profile }: { profile: ProfileInfo }) {
   const { t } = useI18n()
   const p = t.profiles
+  // A profile lives under the GATEWAY's HERMES_HOME, so `~` here is the gateway
+  // user's home — never this client's (MJXHRM-394).
+  const displayPath = useDisplayPath()
 
   return (
     <PanelDetail>
@@ -380,8 +384,11 @@ function ProfileDetail({ profile }: { profile: ProfileInfo }) {
             {profile.is_default && <PanelPill tone="good">{p.defaultBadge}</PanelPill>}
             {profile.has_env && <PanelPill tone="muted">.env</PanelPill>}
           </div>
-          <p className="mt-1 truncate font-mono text-[0.66rem] text-muted-foreground/55" title={profile.path}>
-            {profile.path}
+          <p
+            className="mt-1 truncate font-mono text-[0.66rem] text-muted-foreground/55"
+            title={displayPath(profile.path)}
+          >
+            {displayPath(profile.path)}
           </p>
         </div>
 

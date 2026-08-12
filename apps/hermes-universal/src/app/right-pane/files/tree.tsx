@@ -9,6 +9,7 @@ import { IS_MOBILE } from '@/lib/platform'
 import { createTap, isCoarsePointer } from '@/lib/touch'
 import { cn } from '@/lib/utils'
 import { $repoChangeByPath, type RepoChangeKind } from '@/store/coding-status'
+import { useDisplayPath } from '@/store/display-home'
 import { $renamingPath, beginInlineRename } from '@/store/file-actions'
 import { $revealInTreeRequest } from '@/store/layout'
 
@@ -347,6 +348,9 @@ function ProjectTreeRow({
   relativeTo?: null | string
 }) {
   const renamingPath = useStore($renamingPath)
+  // The row's tooltip is the node's ABSOLUTE path on the GATEWAY's filesystem —
+  // this tree is served by `/api/fs`, not by this client's disk (MJXHRM-394).
+  const displayPath = useDisplayPath()
 
   if (!node.data) {
     return <div style={style} />
@@ -427,7 +431,7 @@ function ProjectTreeRow({
         ...style,
         paddingLeft: withTreeInset(style.paddingLeft)
       }}
-      title={node.data.id}
+      title={displayPath(node.data.id)}
     >
       {/* No chevron column — the folder icon (open/closed) already carries the
           expand state, so the extra glyph was pure noise. */}

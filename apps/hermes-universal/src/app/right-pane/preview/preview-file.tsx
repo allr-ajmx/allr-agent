@@ -9,6 +9,7 @@ import { useI18n } from '@/i18n'
 import { IS_MOBILE } from '@/lib/platform'
 import { cn } from '@/lib/utils'
 import { useStore } from '@/store/atom'
+import { useDisplayPath } from '@/store/display-home'
 import { notifyError } from '@/store/notifications'
 import { $previewReloadNonce, type PreviewTarget, requestPreviewReload } from '@/store/preview'
 import { setPreviewDirty } from '@/store/preview-edit'
@@ -128,6 +129,8 @@ export function PreviewFile({ target, variant = 'rail' }: { target: PreviewTarge
 
   const path = target.path
   const ext = extOf(path)
+  // The header tooltip is the file's absolute path on the GATEWAY (MJXHRM-394).
+  const displayPath = useDisplayPath()
   const isMarkdown = MARKDOWN_EXTS.has(ext)
   // Subscribed as a map, read by path: one subscription serves both hosts, and
   // the strip glyph and this body can never disagree about the current view.
@@ -273,7 +276,7 @@ export function PreviewFile({ target, variant = 'rail' }: { target: PreviewTarge
       )}
     >
       {railChrome ? (
-        <span className="min-w-0 flex-1 truncate text-(--ui-text-secondary)" title={path}>
+        <span className="min-w-0 flex-1 truncate text-(--ui-text-secondary)" title={displayPath(path)}>
           {target.name}
         </span>
       ) : (
