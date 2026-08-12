@@ -606,6 +606,33 @@ fn upload_form(upload: &HttpUpload) -> Result<reqwest::multipart::Form, String> 
     Ok(reqwest::multipart::Form::new().part("file", part))
 }
 
+/// Did a redirect swallow this upload?
+///
+/// A redirect does not carry a multipart body anywhere. reqwest's redirect
+/// middleware downgrades a 301/302/303 POST to a **GET with no body** and
+/// follows it (RFC 7231 §6.4.2-4), and `multipart::Form` streams — it cannot be
+/// cloned, so 307/308 stop at the 3xx instead. Either way the file never left
+/// this process.
+///
+/// The 301/302/303 half is the dangerous one, because the caller is then handed
+/// the redirect target's response as if it were the upload's. On the kanban
+/// attachment route that target answers `GET /tasks/<id>/attachments` with a
+/// perfectly good `200 {"attachments": […]}` — a silent success for an upload
+/// that never happened. A gateway behind an http→https or add-a-trailing-slash
+/// proxy is all it takes.
+///
+/// Comparing the FINAL url against the requested one catches it without any
+/// redirect-policy surgery, and cannot fire falsely: an upload that moved was
+/// necessarily stripped, since the only redirects reqwest will follow with this
+/// body are exactly the ones that discard it.
+///
+/// Deliberately NOT extended to JSON bodies: a 307/308 replays those correctly
+/// (a bytes body clones), so a moved URL there is not evidence of loss.
+fn upload_lost_to_redirect(req: &HttpReq, final_url: &reqwest::Url) -> bool {
+    req.upload.is_some()
+        && reqwest::Url::parse(&req.url).is_ok_and(|requested| &requested != final_url)
+}
+
 /// Issue `req` once, with `bearer` attached when there is one.
 async fn send_http(
     client: &reqwest::Client,
@@ -682,6 +709,16 @@ pub async fn http_request(
                 resp = send_http(&state.http, &method, &req, rotated.as_deref()).await?;
             }
         }
+    }
+
+    if upload_lost_to_redirect(&req, resp.url()) {
+        return Err(format!(
+            "{} {} was redirected to {} — a redirect drops the upload, so the file was NOT sent. \
+             Point this client at the final URL.",
+            method,
+            redact_url(&req.url),
+            redact_url(resp.url().as_str())
+        ));
     }
 
     let status = resp.status().as_u16();
@@ -1000,7 +1037,8 @@ mod tests {
     use super::{
         apply_gateway_bearer, caller_set_authorization, pump_reader, redact_bearer, redact_error,
         redact_message, redact_secret, redact_url, safe_upload_filename, send_binary_frame,
-        upload_form, visible_response_headers, HttpUpload, Message, ReaderSink, TransportState,
+        upload_form, upload_lost_to_redirect, visible_response_headers, HashMap, HttpReq,
+        HttpUpload, Message, ReaderSink, TransportState,
     };
 
     /// A tungstenite error of the kind the read loop actually sees after the
@@ -1672,5 +1710,70 @@ mod tests {
         assert!(upload_form(&upload("   ", None, "aGk=")).is_ok());
         // An ordinary name is left exactly as it was.
         assert_eq!(safe_upload_filename("notes.txt"), "notes.txt");
+    }
+
+    fn upload_req(url: &str) -> HttpReq {
+        HttpReq {
+            method: "POST".to_string(),
+            url: url.to_string(),
+            headers: HashMap::new(),
+            body: None,
+            upload: Some(upload("a.txt", None, "aGk=")),
+            timeout_ms: None,
+        }
+    }
+
+    /// A 301/302/303 turns the POST into a bodiless GET and follows it, so the
+    /// file never leaves — and on the kanban attachment route the GET that lands
+    /// instead answers `200 {"attachments": […]}`, which the caller cannot tell
+    /// from a completed upload.
+    #[test]
+    fn an_upload_that_moved_is_a_failure_not_a_result() {
+        let req = upload_req("http://gw.local/api/plugins/kanban/tasks/t1/attachments");
+
+        assert!(upload_lost_to_redirect(
+            &req,
+            &reqwest::Url::parse("https://gw.local/api/plugins/kanban/tasks/t1/attachments")
+                .unwrap()
+        ));
+        assert!(upload_lost_to_redirect(
+            &req,
+            &reqwest::Url::parse("http://gw.local/api/plugins/kanban/tasks/t1/attachments/")
+                .unwrap()
+        ));
+    }
+
+    #[test]
+    fn an_upload_that_stayed_put_is_untouched() {
+        let req = upload_req("http://gw.local/api/plugins/kanban/tasks/t1/attachments");
+
+        assert!(!upload_lost_to_redirect(
+            &req,
+            &reqwest::Url::parse("http://gw.local/api/plugins/kanban/tasks/t1/attachments")
+                .unwrap()
+        ));
+        // Normalisation is not relocation: reqwest hands back the parsed url, so
+        // the comparison has to be parsed-to-parsed or every upload would fail.
+        let req = upload_req("http://gw.local:80/api/plugins/kanban/x?board=b");
+
+        assert!(!upload_lost_to_redirect(
+            &req,
+            &reqwest::Url::parse("http://gw.local/api/plugins/kanban/x?board=b").unwrap()
+        ));
+    }
+
+    /// A JSON body clones, so a 307/308 replays it correctly — a moved url there
+    /// is not evidence of loss, and erroring would break FastAPI's own
+    /// add-the-trailing-slash redirect.
+    #[test]
+    fn a_json_body_that_moved_is_left_alone() {
+        let mut req = upload_req("http://gw.local/api/sessions");
+        req.upload = None;
+        req.body = Some(serde_json::json!({ "a": 1 }));
+
+        assert!(!upload_lost_to_redirect(
+            &req,
+            &reqwest::Url::parse("http://gw.local/api/sessions/").unwrap()
+        ));
     }
 }
