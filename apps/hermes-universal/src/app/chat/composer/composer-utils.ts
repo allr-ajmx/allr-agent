@@ -62,6 +62,29 @@ export function slashChipKindForItem(item: Unstable_TriggerItem): SlashChipKind 
  *  prose, so it is the only kind an inline `/` offers. */
 export const isSkillItem = (item: Unstable_TriggerItem) => slashChipKindForItem(item) === 'skill'
 
+/**
+ * Should this keypress be swallowed because the completion popover is open but
+ * its items have not landed yet?
+ *
+ * Only Tab, and only in that window. Tab is the one key whose default action
+ * leaves the composer entirely, so pressing it a beat before the results paint
+ * moved focus to the next control — from the user's side, the popover ate the
+ * keypress and then stole the caret. Every other key either edits text (fine) or
+ * is handled by the open-with-items branch below it.
+ *
+ * A predicate rather than an inline condition so the rule is pinned by a test:
+ * the composer's keydown handler cannot be mounted in a unit test, and this is
+ * the whole of the decision it makes.
+ */
+export function swallowsTriggerTab(options: {
+  key: string
+  itemCount: number
+  loading: boolean
+  open: boolean
+}): boolean {
+  return options.open && options.loading && options.itemCount === 0 && options.key === 'Tab'
+}
+
 /** A `/` query is at its arg stage once it's past the command name. */
 export const slashArgStage = (query: string) => query.includes(' ')
 

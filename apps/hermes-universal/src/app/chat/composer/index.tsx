@@ -24,7 +24,7 @@ import { useTheme } from '@/themes'
 
 import { AttachmentList } from './attachments'
 import { BubbleRow } from './bubble-row'
-import { COMPOSER_FADE_BACKGROUND, type QueueEditState, slashArgStage } from './composer-utils'
+import { COMPOSER_FADE_BACKGROUND, type QueueEditState, slashArgStage, swallowsTriggerTab } from './composer-utils'
 import { ContextMenu } from './context-menu'
 import { COMPOSER_AREAS, runComposerMiddleware } from './contrib'
 import { ComposerControls } from './controls'
@@ -577,7 +577,14 @@ export function ChatBar({
     // Tab must not fall through to the browser — it would move focus out of
     // the composer mid-completion, which reads as the popover "eating" the
     // keypress. Swallow it; the refresh lands with the items.
-    if (trigger && triggerLoading && triggerItems.length === 0 && event.key === 'Tab') {
+    if (
+      swallowsTriggerTab({
+        itemCount: triggerItems.length,
+        key: event.key,
+        loading: triggerLoading,
+        open: Boolean(trigger)
+      })
+    ) {
       event.preventDefault()
       triggerKeyConsumedRef.current = true
 
