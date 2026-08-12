@@ -3377,6 +3377,63 @@ class TestDeleteSessionEndpoint:
         assert resp.status_code == 200
         assert resp.json().get("ok") is True
 
+    def _seed_compression_chain(self):
+        """root -> tip, the shape ``GET /api/sessions`` shows as ONE row."""
+        from hermes_state import SessionDB
+
+        db = SessionDB()
+        try:
+            db.create_session(session_id="chain_root", source="cli")
+            db.append_message("chain_root", "user", "before compression")
+            db._conn.execute(
+                "UPDATE sessions SET ended_at=?, end_reason=? WHERE id=?",
+                (100.0, "compression", "chain_root"),
+            )
+            db.create_session(
+                session_id="chain_tip", source="cli", parent_session_id="chain_root"
+            )
+            db.append_message("chain_tip", "user", "after compression")
+            db._conn.commit()
+        finally:
+            db.close()
+
+    def test_delete_takes_the_whole_compression_chain(self):
+        # MJXHRM-414. The list projects a compression chain onto its live tip
+        # and shows it as ONE row, so the id a client deletes names the whole
+        # conversation. Deleting only the tip left the root — and with no tip
+        # left to be projected onto, the root came straight BACK into the list
+        # as a conversation of its own, carrying its `pinned` flag with it.
+        self._seed_compression_chain()
+        listed = self.auth_client.get("/api/sessions?limit=20").json()["sessions"]
+        assert [s["id"] for s in listed] == ["chain_tip"]
+
+        resp = self.auth_client.delete("/api/sessions/chain_tip")
+
+        assert resp.status_code == 200
+        assert self._exists("chain_tip") is False
+        assert self._exists("chain_root") is False
+        assert self.auth_client.get("/api/sessions?limit=20").json()["sessions"] == []
+
+    def test_delete_still_leaves_a_branch_child_alone(self):
+        # A branch is a separate conversation with its own list row: it must
+        # survive, orphaned, exactly as before.
+        from hermes_state import SessionDB
+
+        self._seed_compression_chain()
+        db = SessionDB()
+        try:
+            db.create_session(
+                session_id="chain_branch", source="cli", parent_session_id="chain_tip"
+            )
+            db.append_message("chain_branch", "user", "forked off")
+            db._conn.commit()
+        finally:
+            db.close()
+
+        self.auth_client.delete("/api/sessions/chain_tip")
+
+        assert self._exists("chain_branch") is True
+
 
 class TestBulkDeleteSessionsEndpoint:
     """Tests for ``POST /api/sessions/bulk-delete`` — backs the

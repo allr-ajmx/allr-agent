@@ -1011,7 +1011,16 @@ def _(rid, params: dict) -> dict:
         else:
             sessions_dir = get_hermes_home() / "sessions"
         try:
-            deleted = db.delete_session(target, sessions_dir=sessions_dir)
+            # The whole compression chain: the session list projects a chain onto
+            # its live tip and returns it as ONE row, so deleting only that row
+            # left the root behind — and with no tip left to project onto, it
+            # reappeared in the list as a conversation of its own (MJXHRM-414).
+            # Branches keep their own rows and are still only orphaned.
+            deleted = db.delete_session(
+                target,
+                sessions_dir=sessions_dir,
+                include_compression_lineage=True,
+            )
         except Exception as e:
             return _err(rid, 5036, f"delete failed: {e}")
         if not deleted:

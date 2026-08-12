@@ -695,3 +695,33 @@ async def test_patch_session_still_rejects_unknown_fields(adapter, session_db):
         resp = await cli.patch(f"/api/sessions/{session_id}", json={"nonsense": 1})
         assert resp.status == 400, await resp.text()
         assert (await resp.json())["error"]["code"] == "unsupported_session_field"
+
+
+@pytest.mark.asyncio
+async def test_delete_session_takes_the_whole_compression_chain(adapter, session_db):
+    """MJXHRM-414. ``_handle_list_sessions`` projects a compression chain onto
+    its live tip and returns it as ONE row, so the id a client deletes names the
+    whole conversation. Deleting only the tip left the root — and with no tip
+    left to be projected onto, the root came straight back into the list as a
+    conversation of its own."""
+    session_db.create_session("api_root", "api_server")
+    session_db.append_message("api_root", "user", "before compression")
+    session_db._conn.execute(
+        "UPDATE sessions SET ended_at=?, end_reason=? WHERE id=?",
+        (100.0, "compression", "api_root"),
+    )
+    session_db.create_session("api_tip", "api_server", parent_session_id="api_root")
+    session_db.append_message("api_tip", "user", "after compression")
+    session_db._conn.commit()
+
+    app = _create_session_app(adapter)
+    async with TestClient(TestServer(app)) as cli:
+        listed = await (await cli.get("/api/sessions")).json()
+        assert [s["id"] for s in listed["data"]] == ["api_tip"]
+
+        resp = await cli.delete("/api/sessions/api_tip")
+        assert resp.status == 200, await resp.text()
+
+        assert session_db.get_session("api_tip") is None
+        assert session_db.get_session("api_root") is None
+        assert (await (await cli.get("/api/sessions")).json())["data"] == []

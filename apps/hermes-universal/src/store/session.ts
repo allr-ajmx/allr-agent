@@ -9,6 +9,7 @@ import {
   setSessionArchived
 } from '@/hermes'
 import { translateNow } from '@/i18n'
+import { isNotFoundError } from '@/lib/api'
 import { chatMessageText } from '@/lib/chat-messages'
 import { Codecs, persistentAtom } from '@/lib/persisted'
 import { appendLiveSessionProjection, toChatMessages } from '@/lib/session-history'
@@ -53,6 +54,8 @@ const PAGE = 30
 const PINNED_CACHE_KEY = 'hermes.pinnedSessionRows'
 
 export const $sessions = atom<SessionInfo[]>([])
+/** Counts SUCCESSFUL full-window refreshes. See `refreshSessions`. */
+export const $sessionsListEpoch = atom(0)
 export const $sessionsLoading = atom(false)
 export const $sessionsTotal = atom(0)
 export const $sessionsLimit = atom(PAGE)
@@ -201,6 +204,55 @@ export async function resolveSessionProfile(storedSessionId: null | string): Pro
   }
 
   return undefined
+}
+
+/** What the backends say about an id. `unknown` is NOT `gone`: see below. */
+export type SessionExistence = 'gone' | 'present' | 'unknown'
+
+/**
+ * Ask every backend whether a stored id still exists.
+ *
+ * ABSENCE FROM A LIST IS NOT PROOF OF DELETION — an archived session is absent
+ * too (the `include_pinned` back-fill in `hermes_state.py list_sessions_rich`
+ * obeys the archived filter), and so is a session belonging to a profile the
+ * current scope doesn't cover. Acting on the inference would unpin every
+ * archived-but-pinned chat. This is the positive signal instead: a by-id GET
+ * 404s only when the row is really not in that profile's state.db, and returns
+ * archived rows just like live ones (`get_session_detail` reads the row, not the
+ * list).
+ *
+ * Every configured profile is probed, because a pin is not profile-scoped while
+ * the recents list is. Only an answer from ALL of them is `gone`; a transport
+ * failure, a dead gateway or a 500 anywhere is `unknown`, and callers must treat
+ * that as "ask again later" rather than as a deletion.
+ */
+export async function sessionExistsOnBackends(storedSessionId: string): Promise<SessionExistence> {
+  const activeKey = $activeGatewayProfile.get()
+
+  const others = sessionProfileIsAmbiguous()
+    ? $profiles
+        .get()
+        .map(profile => normalizeProfileKey(profile.name))
+        .filter(key => key !== activeKey)
+    : []
+
+  // Unscoped first — one lookup covers every single-profile install.
+  for (const candidate of [undefined, ...others]) {
+    try {
+      await getSession(storedSessionId, candidate)
+
+      return 'present'
+    } catch (err) {
+      if (!isNotFoundError(err)) {
+        // No answer (offline, timeout, 5xx, not connected). Anything but a 404
+        // leaves the question open — and a caller acting on it would delete
+        // user state over a dropped packet.
+        return 'unknown'
+      }
+    }
+  }
+
+  return 'gone'
 }
 
 // ---------------------------------------------------------------------------
@@ -511,6 +563,23 @@ export function syncPinnedSessionCache(): void {
   }
 }
 
+/**
+ * Forget every cached pinned ROW, because the backend they came from is gone.
+ *
+ * The pin IDS stay: they are this app's mirror of `sessions.pinned` in each
+ * gateway's own state.db, and the next gateway re-asserts its own set through
+ * `store/session-pin-sync.ts` (which also re-adopts them on the way back). The
+ * rows are the part that is gateway-bound — a session id means nothing on
+ * another backend — so leaving them behind rendered the PREVIOUS gateway's
+ * conversations in the new one's Pinned section, resolvable by nothing and
+ * openable to nothing. Same reasoning as every other wipe in
+ * `wipeSessionListsForGatewaySwitch`.
+ */
+export function clearPinnedSessionCache(): void {
+  $pinnedSessionCache.set({})
+  writeJson(PINNED_CACHE_KEY, {})
+}
+
 /** Every pinned session, in pin order — loaded rows first, falling back to the
  *  last-known row for a pin that has fallen out of the loaded window.
  *
@@ -723,6 +792,13 @@ export async function refreshSessions(): Promise<void> {
     $sessions.set(reuseUnchanged($sessions.get(), withoutTombstoned(res.sessions ?? [])))
     pruneSessionTombstones((res.sessions ?? []).map(session => session.id))
     $sessionsTotal.set(scope === ALL_PROFILES ? res.total : (res.profile_totals?.[scope] ?? res.total))
+    // Bumped only on the success path, and only here: this says "a WHOLE window
+    // just landed", which is the one moment a pin's absence from `$sessions`
+    // carries information (the backend back-fills pinned rows past the limit,
+    // so a live pin cannot miss a fresh page). `loadMoreSessions` appends a
+    // deeper page and proves nothing about the head, and a failed fetch leaves
+    // the list saying nothing at all. store/session-pin-sync.ts sweeps on it.
+    $sessionsListEpoch.set($sessionsListEpoch.get() + 1)
   } catch (err) {
     // A list-fetch failure is not any one chat's status: surface it as a
     // notification instead of pinning it to whichever session is on screen.

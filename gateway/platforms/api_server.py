@@ -47,7 +47,7 @@ import itertools
 import json
 from contextlib import contextmanager, nullcontext
 from contextvars import ContextVar
-from functools import wraps
+from functools import partial, wraps
 import logging
 import os
 import re
@@ -3537,7 +3537,13 @@ class APIServerAdapter(BasePlatformAdapter):
         if err:
             return err
         db = await self._ensure_session_db_async()
-        deleted = await asyncio.to_thread(db.delete_session, session_id)
+        # The whole compression chain, matching what this API's own session list
+        # surfaces: it projects a chain onto its live tip and returns ONE row, so
+        # deleting only that row left the root to come back as a conversation of
+        # its own (MJXHRM-414). Branches keep their rows and are only orphaned.
+        deleted = await asyncio.to_thread(
+            partial(db.delete_session, session_id, include_compression_lineage=True)
+        )
         return web.json_response({"object": "hermes.session.deleted", "id": session_id, "deleted": bool(deleted)})
 
     async def _handle_session_messages(self, request: "web.Request") -> "web.Response":

@@ -16,6 +16,11 @@ def test_sessions_delete_accepts_unique_id_prefix(monkeypatch, capsys):
 
         def delete_session(self, session_id, **kwargs):
             captured["deleted"] = session_id
+            # `hermes sessions list` surfaces a compression chain as ONE row
+            # (its live tip), so the id typed here names the whole
+            # conversation. Deleting only that row left the root behind to
+            # reappear in the very next listing (MJXHRM-414).
+            captured["lineage"] = kwargs.get("include_compression_lineage")
             return True
 
         def close(self):
@@ -34,6 +39,7 @@ def test_sessions_delete_accepts_unique_id_prefix(monkeypatch, capsys):
     assert captured == {
         "resolved_from": "20260315_092437_c9a6",
         "deleted": "20260315_092437_c9a6ff",
+        "lineage": True,
         "closed": True,
     }
     assert "Deleted session '20260315_092437_c9a6ff'." in output

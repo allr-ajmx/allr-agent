@@ -43,6 +43,10 @@ vi.mock('@/store/session', async () => {
     $sessionsLoading: atom(false),
     $sessionsTotal: atom(0),
     $unreadFinishedSessionIds: atom<string[]>([]),
+    // The pinned-row cache is gateway-bound like the list itself. What the
+    // clearing does to the atom and its persisted copy is asserted in
+    // store/session.test.ts; here the question is whether the wipe calls it.
+    clearPinnedSessionCache: vi.fn(),
     refreshMessagingSessions: vi.fn().mockResolvedValue(undefined),
     refreshSessions: vi.fn().mockResolvedValue(undefined),
     resetSessionsPaging: vi.fn(),
@@ -70,6 +74,7 @@ import {
   $sessionsLoading,
   $sessionsTotal,
   $unreadFinishedSessionIds,
+  clearPinnedSessionCache,
   refreshMessagingSessions,
   refreshSessions
 } from '@/store/session'
@@ -132,6 +137,20 @@ describe('gateway soft switch', () => {
     expect(clearAllSessionStates).toHaveBeenCalledOnce()
     // Skeletons stop once the refresh has landed.
     expect($sessionsLoading.get()).toBe(false)
+  })
+
+  // Emptying `$sessions` is not enough on its own: the Pinned section falls back
+  // to the cached ROW for every pin precisely so it survives an empty list, so
+  // without this it goes on rendering the previous gateway's conversations under
+  // the new one — rows the new backend has never heard of and cannot open.
+  it('drops the cached pinned rows, which belong to the old gateway', async () => {
+    let clearedDuringDial = false
+
+    await softSwitchGateway('remote', async () => {
+      clearedDuringDial = vi.mocked(clearPinnedSessionCache).mock.calls.length > 0
+    })
+
+    expect(clearedDuringDial).toBe(true)
   })
 
   // A repo path is not gateway-scoped: `/home/me/work` exists on the laptop AND
