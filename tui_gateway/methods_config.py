@@ -196,8 +196,6 @@ def _(rid, params: dict) -> dict:
         return _ok(
             rid, {"value": (_load_cfg().get("display") or {}).get("skin", "default")}
         )
-    if key == "pinned_sessions":
-        return _ok(rid, {"value": load_pinned_sessions()})
     if key == "indicator":
         # Normalize so a hand-edited config.yaml with stray casing or
         # an unknown value reads back the SAME value the TUI actually

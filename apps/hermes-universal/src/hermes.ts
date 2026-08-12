@@ -391,6 +391,30 @@ export function setSessionArchived(id: string, archived: boolean, profile?: stri
   })
 }
 
+/**
+ * Write the backend's durable pin ("keep") flag — `sessions.pinned` in the
+ * owning profile's state.db.
+ *
+ * This is what a pin actually IS on the server: the `sessions.auto_archive`
+ * sweep skips pinned rows (`hermes_state.py` `archive_stale_sessions`), and
+ * both list endpoints back-fill pinned conversations past their LIMIT
+ * (`include_pinned=True`) so a pinned chat stays reachable however far it has
+ * aged. A client-side pin list can do neither, which is why the sidebar's pins
+ * mirror here rather than living only in this app.
+ *
+ * `profile` routes the PATCH at the profile that owns the row, exactly like
+ * `setSessionArchived` — a pin on another profile's session would otherwise
+ * 404 against the active one.
+ */
+export function setSessionPinnedRemote(id: string, pinned: boolean, profile?: string | null): Promise<{ ok: boolean }> {
+  return api<{ ok: boolean }>({
+    ...(profile ? { profile } : {}),
+    path: `/api/sessions/${encodeURIComponent(id)}`,
+    method: 'PATCH',
+    body: { pinned }
+  })
+}
+
 export function searchSessions(query: string): Promise<SessionSearchResponse> {
   return api<SessionSearchResponse>({
     path: `/api/sessions/search?q=${encodeURIComponent(query)}`

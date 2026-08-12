@@ -3494,20 +3494,6 @@ def _pairing_sig():
     return sig
 
 
-def _pinned_sessions_sig():
-    """The pinned-session list itself, as the change signature.
-
-    config.yaml's mtime would be far cheaper but far too noisy — every theme,
-    skin and model write moves it, and each would push a pointless pin
-    broadcast. The list is a handful of ids read off the already-cached config.
-    """
-    return tuple(load_pinned_sessions())
-
-
-def _pinned_sessions_payload():
-    return {"value": load_pinned_sessions()}
-
-
 # Watched change signals: event → (check interval, signature fn, payload fn).
 # Signatures are stat/dict-lookup cheap, same bar as the skin watcher; the
 # check interval keeps the pricier probes (pet resolves the active sheet off
@@ -3518,10 +3504,6 @@ _CHANGE_WATCHES: dict[str, tuple[float, Any, Any]] = {
     "sessions.changed": (0.5, _sessions_sig, lambda: {}),
     "platforms.changed": (2.0, _platforms_sig, lambda: {}),
     "pairing.changed": (2.0, _pairing_sig, lambda: {}),
-    # Pins are shared gateway state now, so a client that did not make the
-    # change still has to learn about it — otherwise two open clients drift
-    # apart again and the last one to write silently wins.
-    "pins.changed": (2.0, _pinned_sessions_sig, _pinned_sessions_payload),
 }
 
 # state.db moves on every message append during a streaming turn, and the
@@ -4038,55 +4020,6 @@ def _write_config_key(key_path: str, value):
         current = current[key]
     current[keys[-1]] = value
     _save_cfg(cfg)
-
-
-_PINNED_SESSIONS_KEY = "display.pinned_sessions"
-#: Bound so a client bug (or a stale id set) can't grow config.yaml unboundedly.
-_PINNED_SESSIONS_MAX = 200
-
-
-def load_pinned_sessions() -> list[str]:
-    """The gateway-persisted list of pinned session ids.
-
-    A pin is a property of the gateway's session set, not of one browser's
-    localStorage: two clients on the same gateway kept private lists, so pinning
-    on the desktop and then opening the phone showed different pins with no way
-    to reconcile them — which reads as pins being lost.
-
-    Sanitised on read as well as write, because config.yaml is hand-editable.
-    """
-    raw = (_load_cfg().get("display") or {}).get("pinned_sessions")
-
-    if not isinstance(raw, list):
-        return []
-
-    seen: set[str] = set()
-    out: list[str] = []
-    for item in raw:
-        sid = str(item or "").strip()
-        if sid and sid not in seen:
-            seen.add(sid)
-            out.append(sid)
-    return out[:_PINNED_SESSIONS_MAX]
-
-
-def save_pinned_sessions(values) -> list[str]:
-    """Replace the pinned-session list. Returns the sanitised list as stored."""
-    if not isinstance(values, list):
-        raise ValueError("pinned_sessions must be a list of session ids")
-
-    seen: set[str] = set()
-    out: list[str] = []
-    for item in values:
-        sid = str(item or "").strip()
-        if sid and sid not in seen:
-            seen.add(sid)
-            out.append(sid)
-
-    out = out[:_PINNED_SESSIONS_MAX]
-    _write_config_key(_PINNED_SESSIONS_KEY, out)
-
-    return out
 
 
 _STATUSBAR_MODES = frozenset({"off", "top", "bottom"})
@@ -11531,17 +11464,6 @@ def _(rid, params: dict) -> dict:
             return _err(rid, 4002, f"unknown theme value: {value} (use auto|light|dark)")
         _write_config_key("display.tui_theme", raw)
         return _ok(rid, {"key": key, "value": raw})
-
-    if key == "pinned_sessions":
-        # Whole-list replace, not add/remove: the client owns the ordering, and
-        # a delta protocol would need conflict resolution the pin list does not
-        # earn. Concurrent editors last-write-wins, and `pins.changed` pushes
-        # the winner to everyone else.
-        try:
-            stored = save_pinned_sessions(value)
-        except ValueError as exc:
-            return _err(rid, 4002, str(exc))
-        return _ok(rid, {"key": key, "value": stored})
 
     if key == "statusbar":
         raw = str(value or "").strip().lower()
