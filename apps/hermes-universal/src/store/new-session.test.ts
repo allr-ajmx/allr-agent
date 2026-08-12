@@ -24,6 +24,8 @@ import { group, split } from '@/components/pane-shell/tree/model'
 import { $activeTreeGroup, $layoutTree, noteActiveTreeGroup } from '@/components/pane-shell/tree/store'
 import { DRAFT_TILE_KEY, isChatPaneId, sessionTilePaneId, WORKSPACE_PANE_ID } from '@/lib/pane-ids'
 import { navigateTo } from '@/lib/route-nav'
+import { $currentCwd } from '@/store/chat'
+import { $projectScope, $projectTree, ALL_PROJECTS } from '@/store/projects'
 import { $activeStoredSessionId } from '@/store/session'
 import { $sessionTiles } from '@/store/session-states'
 
@@ -82,11 +84,20 @@ beforeEach(() => {
   vi.clearAllMocks()
   $sessionTiles.set([])
   $activeStoredSessionId.set(null)
+  $projectScope.set(ALL_PROJECTS)
+  $projectTree.set([])
   // The user was last interacting with the terminal zone — so "the new session's
   // zone is the focused one" is a real move, not the state we started in.
   noteActiveTreeGroup(TOOL_GROUP)
   seedTree([WORKSPACE_PANE_ID])
 })
+
+/** The sidebar drilled into a project with a repo root — the state the whole of
+ *  MJXHRM-393 is about. */
+function enterProjectScope(): void {
+  $projectTree.set([{ id: 'p_1', label: 'one', path: '/repos/one', repos: [], sessionCount: 0 }])
+  $projectScope.set('p_1')
+}
 
 describe('startNewSession', () => {
   it('routes to the chat, focuses the workspace zone and the composer', () => {
@@ -103,6 +114,17 @@ describe('startNewSession', () => {
     expect($sessionTiles.get()).toEqual([])
     expect($activeStoredSessionId.get()).toBeNull()
     expect(requestComposerFocus).toHaveBeenCalledWith('main')
+  })
+
+  // ⌘N, the DoD of MJXHRM-393. The directory is resolved in `resetChat` rather
+  // than here (see store/project-scope), so this pins the accelerator's OUTCOME
+  // and stays true wherever the resolution lives.
+  it('opens the new chat inside the project the sidebar is standing in', () => {
+    enterProjectScope()
+
+    startNewSession()
+
+    expect($currentCwd.get()).toBe('/repos/one')
   })
 })
 
@@ -171,5 +193,14 @@ describe('startNewSessionTab', () => {
     startNewSessionTab()
 
     expect(requestComposerFocus).toHaveBeenCalledWith(`tile:${DRAFT_TILE_KEY}`)
+  })
+
+  // ⌘T's half of the DoD: a new TAB is scoped exactly like a new chat is.
+  it('opens the new tab inside the project the sidebar is standing in', () => {
+    enterProjectScope()
+
+    startNewSessionTab()
+
+    expect($currentCwd.get()).toBe('/repos/one')
   })
 })

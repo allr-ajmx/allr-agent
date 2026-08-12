@@ -22,11 +22,11 @@ import {
 } from '@/lib/chat-messages'
 import { stopSpeaking } from '@/lib/tts'
 import { atom, computed } from '@/store/atom'
-import { cwdForNewSession } from '@/store/default-project-dir'
 import { requestGateway } from '@/store/gateway'
 import { clearNotifications, notifyError } from '@/store/notifications'
 import { setPetActivity } from '@/store/pet'
 import { clearPreviewArtifacts } from '@/store/preview-status'
+import { resolveNewSessionCwd } from '@/store/project-scope'
 import {
   $approval,
   $clarify,
@@ -264,10 +264,17 @@ export async function ensureSession(): Promise<{ created: boolean; id: string; s
   // and the session has to be created inside it rather than in the configured
   // default. Unlike that default this is NOT local-mode-gated — the path comes
   // from the backend's own repo (lib/desktop-git runs git where the gateway
-  // lives), so it is meaningful remotely too. Otherwise a configured default
-  // project directory pre-attaches new LOCAL chats to that folder (desktop
-  // parity), and the gateway resolves its own default cwd if neither.
-  const cwd = $currentCwd.get().trim() || cwdForNewSession()
+  // lives), so it is meaningful remotely too. Otherwise the sidebar's project
+  // scope decides — its repo root inside a project, the configured default
+  // project dir outside one, nothing at all in the Home bucket — and the gateway
+  // resolves its own default cwd if that comes back empty (desktop parity, see
+  // `createBackendSessionForSend`).
+  //
+  // This must be the SAME resolver `resetChat` used to seed the draft, or the
+  // detached Home branch dies here instead: an empty slice cwd re-attached the
+  // configured default at send time, which is what MJXHRM-393's first pass
+  // shipped.
+  const cwd = $currentCwd.get().trim() || resolveNewSessionCwd()
   const draftKey = $activeSessionKey.get()
 
   const created = await requestGateway<SessionCreateResponse>('session.create', {
@@ -1408,9 +1415,18 @@ export function resetChat(cwd?: string): void {
   const previousKey = $activeSessionKey.get()
   const draftKey = newDraftKey()
 
-  // Absent an explicit anchor, a fresh chat starts in the configured default
-  // project dir (if any), not in whatever directory the chat we just left used.
-  ensureSessionSlice(draftKey, { cwd: cwd?.trim() || cwdForNewSession()?.trim() || '' })
+  // Absent an explicit anchor, the SIDEBAR'S PROJECT SCOPE decides — never
+  // whatever directory the chat we just left used.
+  //
+  // THE CHOKE POINT (MJXHRM-393). Every fresh draft in the app arrives here:
+  // ⌘N, ⌘T, `/new`, the rail's New session row, the mobile bubble strip's new
+  // chat, the fresh chat left behind by deleting or archiving the active
+  // session, and a tile window re-homed onto a gateway that has never heard of
+  // the chat it was pinned to. Resolving the scope at the CALL SITES instead
+  // meant each of them had to remember, and only two ever did — which is the
+  // whole shape of this ticket. Desktop resolves it in the one place too
+  // (`startFreshSessionDraft`).
+  ensureSessionSlice(draftKey, { cwd: cwd?.trim() || resolveNewSessionCwd() })
   $activeSessionKey.set(draftKey)
 
   // Drop the OLD draft — an unsaved chat the user walked away from has nothing

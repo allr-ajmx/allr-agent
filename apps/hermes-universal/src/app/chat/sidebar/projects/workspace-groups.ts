@@ -47,8 +47,12 @@ export function kanbanWorktreeDir(path: string): null | string {
 /** Label for a main-checkout lane whose session recorded no branch. */
 export const DEFAULT_BRANCH_LABEL = 'main'
 
-/** Id of the Home bucket (must match the backend tree's `NO_PROJECT_ID`). */
-export const NO_PROJECT_ID = '__no_project__'
+/** Id of the Home bucket (must match the backend tree's `NO_PROJECT_ID`).
+ *
+ *  Defined in `store/project-scope` — `resolveNewSessionCwd` is the code that
+ *  gives it meaning, and a store must not import a VALUE out of `app/` to get
+ *  it. Re-exported here so the sidebar keeps asking its own module for it. */
+export { NO_PROJECT_ID } from '@/store/project-scope'
 
 /** The one definition of a main-checkout lane id (must match the backend tree). */
 export const branchLaneId = (repoRoot: string, branch?: string): string =>

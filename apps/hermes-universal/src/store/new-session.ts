@@ -28,7 +28,6 @@ import { IS_MOBILE } from '@/lib/platform'
 import { navigateTo } from '@/lib/route-nav'
 import { newChatBubble } from '@/store/chat-bubbles'
 import { NEW_SESSION_FLASH_EVENT } from '@/store/layout'
-import { resolveNewSessionCwd } from '@/store/projects'
 import { newSession, startSessionInWorkspace } from '@/store/session'
 import { focusWorkspaceSession, newSessionTab } from '@/store/session-states'
 
@@ -67,10 +66,11 @@ function landOnNewSession(surface: { composer: ComposerTarget; focusZone: () => 
  *
  * With no explicit anchor the draft still takes the sidebar's PROJECT SCOPE
  * (MJXHRM-393) — standing inside a project and pressing ⌘N used to open a chat
- * detached from it. That goes through `newSession(cwd)` rather than
- * `startSessionInWorkspace`, so it stays a scope rather than becoming an anchor:
- * the mobile branch keeps its parallel bubble, and `resetChat` still falls back
- * to the configured default project dir when there is no scope.
+ * detached from it. It is NOT resolved here: `resetChat` resolves it for every
+ * fresh draft in the app, which is what makes the MOBILE branch below inherit it
+ * too. The first pass resolved it at this call site only, so ⌘N on a phone — and
+ * the bubble strip's own new-chat gesture, which never comes through here at
+ * all — stayed detached exactly as before.
  */
 export function startNewSession({ cwd }: { cwd?: string } = {}): void {
   if (cwd?.trim()) {
@@ -80,7 +80,7 @@ export function startNewSession({ cwd }: { cwd?: string } = {}): void {
     // draft — but the caret still moves, which is the point of the ticket.
     newChatBubble()
   } else {
-    newSession(resolveNewSessionCwd())
+    newSession()
   }
 
   // The fresh chat loads in MAIN — on phones too, where the only composer scope
@@ -98,6 +98,6 @@ export function startNewSession({ cwd }: { cwd?: string } = {}): void {
  * silently lose its focus step.
  */
 export function startNewSessionTab(): void {
-  newSessionTab(resolveNewSessionCwd())
+  newSessionTab()
   landOnNewSession({ composer: `tile:${DRAFT_TILE_KEY}`, focusZone: () => undefined })
 }

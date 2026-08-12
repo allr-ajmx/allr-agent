@@ -729,12 +729,11 @@ export function openBranchTile(branchStoredId: string, parentStoredId: null | st
  * ONE draft at a time: a second `+` on an empty draft fronts the one already
  * there rather than stacking up empty chats nobody sent a message in.
  *
- * `cwd` anchors the draft, so ⌘T can honour the sidebar's project scope the same
- * way ⌘N does (MJXHRM-393). Omitted, the draft falls back to the configured
- * default project dir inside `resetChat`, exactly as before.
+ * Takes no directory: `resetChat` resolves the sidebar's project scope for every
+ * fresh draft (MJXHRM-393), so ⌘T inherits it without this having to be told.
  */
-export function newSessionTab(cwd?: string): void {
-  newSession(cwd)
+export function newSessionTab(): void {
+  newSession()
 
   // Anchored on the chat the user is looking at, stacked into its zone — a new
   // tab belongs in the strip you asked from, not docked to the side.
