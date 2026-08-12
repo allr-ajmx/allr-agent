@@ -166,12 +166,14 @@ describe('subagents reducer', () => {
     it('merges into rows the destination key already had, without duplicating', () => {
       ensureSessionSlice('draft:1')
       upsertSubagent('draft:1', { subagent_id: 'a', goal: 'moved', status: 'running' }, true, 'subagent.start')
+      upsertSubagent('draft:1', { subagent_id: 'c', goal: 'also moved', status: 'running' }, true, 'subagent.start')
       upsertSubagent('runtime-1', { subagent_id: 'a', goal: 'already there', status: 'running' }, true, 'subagent.start')
       upsertSubagent('runtime-1', { subagent_id: 'b', goal: 'kept', status: 'running' }, true, 'subagent.start')
 
       rekeySession('draft:1', 'runtime-1')
 
-      expect($subagentsBySession.get()['runtime-1']?.map(item => item.id)).toEqual(['a', 'b'])
+      expect($subagentsBySession.get()['runtime-1']?.map(item => item.id)).toEqual(['a', 'b', 'c'])
+      expect($subagentsBySession.get()['runtime-1']?.find(item => item.id === 'a')?.goal).toBe('already there')
     })
 
     it('drops every session at once for a profile / gateway switch', () => {
