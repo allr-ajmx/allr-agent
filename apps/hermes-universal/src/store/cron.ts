@@ -1,23 +1,21 @@
-import {
-  createCronJob,
-  deleteCronJob,
-  getCronJobs,
-  pauseCronJob,
-  resumeCronJob,
-  triggerCronJob,
-  updateCronJob
-} from '@/hermes'
+import { getCronJobs, triggerCronJob } from '@/hermes'
+import { translateNow } from '@/i18n'
 import { atom } from '@/store/atom'
 import { notifyError } from '@/store/notifications'
-import type { CronJob, CronJobCreatePayload, CronJobUpdates } from '@/types/hermes'
+import type { CronJob } from '@/types/hermes'
 
 // Cron *jobs* (not run sessions) power the sidebar "Cron jobs" section and the
 // cron overlay. Listing the job — schedule, state, live next-run countdown —
 // makes the job the first-class entity; its runs (sessions) resolve under it in
-// the cron detail. The optimistic mutation helpers below back the sidebar rows.
+// the cron detail.
+//
+// Everything that MUTATES a job (pause/resume/delete/edit) lives at its call
+// site — `app/chat/sidebar/cron-jobs-section.tsx` and `app/cron/index.tsx` —
+// because both need the job's title and the surface's translated toasts, which
+// an id-only store helper cannot produce. This module deliberately keeps only
+// what more than one surface shares: the list atom and the two calls the sidebar
+// poll makes.
 export const $cronJobs = atom<CronJob[]>([])
-export const $cronLoading = atom(false)
-export const $cronLoadError = atom<string | null>(null)
 
 // Ported from desktop's store/cron.ts — the cron overlay writes through these
 // so the sidebar and the overlay never drift (a delete in the overlay clears the
@@ -28,24 +26,15 @@ export const setCronJobs = (jobs: CronJob[]) => $cronJobs.set(jobs)
 // land in the same atom the sidebar renders — no stale list until the next poll.
 export const updateCronJobs = (fn: (jobs: CronJob[]) => CronJob[]) => $cronJobs.set(fn($cronJobs.get()))
 
-// One-shot focus target: clicking "Manage" on a job sets this, then opens the
-// cron overlay, which reads it once to select + scroll to that job. Cleared
-// after consumption so re-opening cron normally doesn't re-focus a stale job.
-export const $cronFocusJobId = atom<null | string>(null)
-export const setCronFocusJobId = (id: null | string) => $cronFocusJobId.set(id)
-
 /** `profile` scopes the listing: a concrete profile key, or 'all' for the
  *  all-profiles browse view. Omit for the active profile (the REST default). */
 export async function refreshCronJobs(profile?: string): Promise<void> {
-  $cronLoading.set(true)
-  $cronLoadError.set(null)
-
   try {
     $cronJobs.set(await getCronJobs(profile))
-  } catch (err) {
-    $cronLoadError.set(err instanceof Error ? err.message : 'Failed to load cron jobs')
-  } finally {
-    $cronLoading.set(false)
+  } catch {
+    // Deliberately silent: this runs on a timer, so a toast per failed tick on a
+    // gateway that is merely down would bury every other notification. The
+    // sidebar keeps the last good list and the next tick recovers.
   }
 }
 
@@ -53,53 +42,13 @@ function replace(job: CronJob) {
   $cronJobs.set($cronJobs.get().map(j => (j.id === job.id ? job : j)))
 }
 
-/** Enable/disable a job (resume/pause), optimistic with rollback. */
-export async function setCronEnabled(id: string, enabled: boolean): Promise<void> {
-  const prev = $cronJobs.get()
-  $cronJobs.set(prev.map(j => (j.id === id ? { ...j, enabled } : j)))
-
-  try {
-    const updated = enabled ? await resumeCronJob(id) : await pauseCronJob(id)
-    replace(updated)
-  } catch (err) {
-    $cronJobs.set(prev)
-    notifyError(err, enabled ? 'Resume failed' : 'Pause failed')
-  }
-}
-
+/** Run a job now (the sidebar row's zap button and its menu's "Trigger now").
+ *  The returned job carries the new state, so the row repaints without waiting
+ *  for the next poll. */
 export async function triggerCron(id: string): Promise<void> {
   try {
     replace(await triggerCronJob(id))
   } catch (err) {
-    notifyError(err, 'Trigger failed')
-  }
-}
-
-export async function removeCron(id: string): Promise<void> {
-  const prev = $cronJobs.get()
-  $cronJobs.set(prev.filter(j => j.id !== id))
-
-  try {
-    await deleteCronJob(id)
-  } catch (err) {
-    $cronJobs.set(prev)
-    notifyError(err, 'Delete failed')
-  }
-}
-
-/** Create a new job or update an existing one, then reflect it in the list. */
-export async function saveCron(jobId: string | null, payload: CronJobCreatePayload & CronJobUpdates): Promise<boolean> {
-  try {
-    if (jobId) {
-      replace(await updateCronJob(jobId, payload))
-    } else {
-      $cronJobs.set([await createCronJob(payload), ...$cronJobs.get()])
-    }
-
-    return true
-  } catch (err) {
-    notifyError(err, jobId ? 'Update failed' : 'Create failed')
-
-    return false
+    notifyError(err, translateNow('cron.failedTrigger'))
   }
 }
