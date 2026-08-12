@@ -96,9 +96,12 @@ export interface PluginContext {
   /** Live twin of `rest`: a WebSocket to this plugin's own namespace
    *  ('/events'), JSON frames to `onMessage`, auto-reconnect, disposer
    *  returned. Authenticates on EVERY gateway mode (a ws-ticket where there is
-   *  no `token` — see lib/plugin-transport), but treat it as an accelerator over
-   *  your polling and never a replacement: a socket can always drop, and a
-   *  ticket mint can fail on an expired session. */
+   *  no `token` — see lib/plugin-transport), and FOLLOWS the connection like
+   *  `rest` does: call it whenever you like — before the app has dialled is
+   *  normal, since plugins register first — and it re-homes itself onto the
+   *  gateway the user switches to. Still treat it as an accelerator over your
+   *  polling and never a replacement: a socket can always drop, a ticket mint
+   *  can fail on an expired session, and neither is reported back to you. */
   socket: (path: string, onMessage: (data: unknown) => void) => () => void
   /** The curated OS door: native notification, open-external, reveal-in-file-
    *  manager, clipboard — attributed to this plugin, result-shaped (never throws
