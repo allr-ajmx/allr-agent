@@ -14,6 +14,7 @@ import { resetLiveSync } from '@/store/live-sync'
 import { stopLocalBackend } from '@/store/local-backend'
 import { notify, notifyError } from '@/store/notifications'
 import { closeAllPreviewTabs } from '@/store/preview'
+import { $projectTree } from '@/store/project-scope'
 import { resetPullRequestsForBackendSwitch } from '@/store/pull-requests'
 import {
   $activeStoredSessionId,
@@ -82,6 +83,21 @@ export function wipeSessionListsForGatewaySwitch(): void {
   // heard of, and re-opens as "artifact unavailable" — or worse, silently
   // collides with a same-shaped id over there.
   clearArtifactRegistry()
+
+  // BEFORE `resetChat`, which reads it. The project tree is the OLD gateway's
+  // filesystem — `projects.tree` is a gateway RPC — and the sidebar only
+  // re-pulls it on window focus or on entering the grouped view, so a switch
+  // could leave it standing for a long time. Every path in it is absolute and
+  // therefore not gateway-scoped, exactly like the repo-status caches below:
+  // `/home/me/work` exists on both hosts and is a different repo on each. The
+  // fresh chat `resetChat` is about to mint resolves its directory from this
+  // tree (store/project-scope), so a stale one would create the first session on
+  // the new gateway inside the old one's checkout.
+  //
+  // The SCOPE deliberately stays: it is where the user is standing, not the
+  // backend's data. It re-resolves against the new tree when that lands, and
+  // resolves to nothing in the meantime.
+  $projectTree.set([])
 
   $activeStoredSessionId.set(null)
   resetChat()

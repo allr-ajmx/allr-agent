@@ -53,6 +53,7 @@ vi.mock('@/store/session', async () => {
   }
 })
 
+import { resetChat } from '@/store/chat'
 import { resetRepoStatusForBackendSwitch } from '@/store/coding-status'
 import { $connection, beginGatewaySwitch, disconnect, endGatewaySwitch } from '@/store/connection'
 import { closeGateway } from '@/store/gateway'
@@ -60,6 +61,7 @@ import type { Connection } from '@/store/gateway-config'
 import { dialSavedTarget, type GatewayTarget, loadGatewayTarget } from '@/store/gateway-restore'
 import { stopLocalBackend } from '@/store/local-backend'
 import { notify, notifyError } from '@/store/notifications'
+import { $projectTree } from '@/store/project-scope'
 import { resetPullRequestsForBackendSwitch } from '@/store/pull-requests'
 import {
   $activeStoredSessionId,
@@ -147,6 +149,28 @@ describe('gateway soft switch', () => {
     })
 
     expect(clearedDuringDial).toBe(true)
+  })
+
+  // Same story one level up: `projects.tree` is a gateway RPC, so every path in
+  // it belongs to the old backend's filesystem — and the FIRST CHAT on the new
+  // gateway resolves its directory out of that tree (store/project-scope). The
+  // ordering is the assertion: cleared after `resetChat` would seed the fresh
+  // draft inside the old gateway's checkout, and no later refresh could take it
+  // back.
+  it('drops the old gateway’s project tree before the fresh chat is minted', async () => {
+    let treeWhenChatReset: unknown[] | null = null
+
+    $projectTree.set([{ id: 'p_1', label: 'one', path: '/repos/one', repos: [], sessionCount: 0 }])
+    // `Once`: this file's `clearAllMocks` clears calls, not implementations, so a
+    // sticky one would follow the switch into every later test.
+    vi.mocked(resetChat).mockImplementationOnce(() => {
+      treeWhenChatReset = $projectTree.get()
+    })
+
+    await softSwitchGateway('remote', vi.fn().mockResolvedValue(undefined))
+
+    expect(treeWhenChatReset).toEqual([])
+    expect($projectTree.get()).toEqual([])
   })
 
   // Artifacts are keyed by sessions on the gateway that produced them. Carried
