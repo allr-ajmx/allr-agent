@@ -102,6 +102,13 @@ export function TerminalFontSetting() {
           }
 
           setHermesConfigCache(next)
+          // Re-assert the atom against what the gateway now holds. Idempotent in
+          // the normal case (it already says `value`, so nothing changes and
+          // nothing broadcasts) — it exists for the race where a PEER WebView
+          // revalidated its config record during the debounce, read the
+          // pre-save value, and pushed that back over the bus. This is the
+          // moment we know which of the two is authoritative.
+          setTerminalFontFamilyFromConfig(value)
         })
         .catch(error => {
           if (saveVersionRef.current !== version) {

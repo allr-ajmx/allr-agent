@@ -104,6 +104,20 @@ describe('TerminalFontSetting', () => {
     expect(mocks.cache).toHaveBeenCalledWith(mocks.save.mock.calls[0][0])
   })
 
+  it('re-asserts the saved font over anything that moved the atom mid-save', async () => {
+    render(<TerminalFontSetting />)
+    const input = screen.getByRole('combobox', { name: 'Terminal Font' })
+
+    fireEvent.change(input, { target: { value: 'MesloLGS NF' } })
+    // A peer WebView revalidating its config record during the debounce reads
+    // the PRE-save value and pushes it back over the cross-WebView bus.
+    $terminalFontFamily.set('Stale From Peer')
+
+    await flushAutosave()
+
+    expect($terminalFontFamily.get()).toBe('MesloLGS NF')
+  })
+
   it('accepts an arbitrary CSS stack and resets to the bundled default', async () => {
     mocks.loadedConfig = {
       terminal: { backend: 'local', font_family: "'Hack Nerd Font', monospace" }
