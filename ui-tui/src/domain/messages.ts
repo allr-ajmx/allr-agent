@@ -54,6 +54,13 @@ export const toTranscriptMessages = (rows: unknown): Msg[] => {
       continue
     }
 
+    if (display_kind === 'personality_switch') {
+      out.push({ kind: 'event', role: 'system', text: 'personality changed' })
+      pending = []
+
+      continue
+    }
+
     if (display_kind === 'auto_continue') {
       out.push({ kind: 'event', role: 'system', text: 'resumed interrupted turn' })
       pending = []
