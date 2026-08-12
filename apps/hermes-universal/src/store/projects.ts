@@ -16,6 +16,7 @@ import { isMissingRpcMethod, moveSessionWorkspace } from '@/lib/gateway-rpc'
 import { isUnderPath } from '@/lib/path-compare'
 import { persistentAtom } from '@/lib/persisted'
 import { revealPathInFileManager } from '@/lib/reveal-path'
+import { reuseUnchanged } from '@/lib/structural-share'
 import { atom } from '@/store/atom'
 import { $sessionId } from '@/store/chat'
 import { $connection } from '@/store/connection'
@@ -80,7 +81,12 @@ export async function refreshProjectTree(): Promise<void> {
 
   try {
     const res = await requestGateway<ProjectTreePayload>('projects.tree', { preview_limit: 3 })
-    $projectTree.set(res.projects ?? [])
+    // Identity-shared (MJXHRM-383). The tree is re-pulled on every window focus
+    // and on entering the grouped view, and its `previewSessions` are rendered
+    // by the same memoized `SidebarSessionRow` the flat list uses — a verbatim
+    // store of the JSON-parsed payload re-renders every project's preview rows
+    // on a refresh that changed nothing.
+    $projectTree.set(reuseUnchanged($projectTree.get(), res.projects ?? []))
     $activeProjectId.set(res.active_id ?? null)
     // The tree is the authority on what still exists, so it is what LIFTS a
     // delete/archive tombstone: an id it no longer scopes is genuinely gone.

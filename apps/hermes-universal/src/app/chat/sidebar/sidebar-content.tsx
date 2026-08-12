@@ -10,6 +10,7 @@ import { Tip } from '@/components/ui/tooltip'
 import { useI18n } from '@/i18n'
 import { profileColor } from '@/lib/profile-color'
 import { sessionMatchesSearch } from '@/lib/session-search'
+import { reuseUnchanged } from '@/lib/structural-share'
 import { useStore } from '@/store/atom'
 import { $busy, $sessionId } from '@/store/chat'
 import { $cronJobs, refreshCronJobs, triggerCron } from '@/store/cron'
@@ -226,10 +227,25 @@ export function SidebarScrollBody({
     cachedEnteredProject?.scope === scope ? cachedEnteredProject.project : null
   )
 
+  // Mirrors `enteredProject` so the setter can share identities without reading
+  // state through its closure (which would re-mint it on every render and
+  // re-trigger the effects that list it).
+  const enteredProjectRef = useRef(enteredProject)
+
   const setEnteredProject = useCallback(
     (project: null | SidebarProjectTree) => {
-      cachedEnteredProject = { project, scope }
-      setEnteredProjectState(project)
+      // Identity-shared against what is already on screen (MJXHRM-383). This
+      // lands from `fetchProjectSessions`, which is re-run on every turn settle
+      // and every tree change; its lanes carry the same memoized
+      // `SidebarSessionRow` the flat list does, and a JSON-parsed snapshot has a
+      // brand-new object for every row. Reusing the unchanged ones is what lets
+      // the row memo bail — and an identical refetch does not re-render at all,
+      // because `useState` skips a set of the same reference.
+      const shared = reuseUnchanged(enteredProjectRef.current, project)
+
+      enteredProjectRef.current = shared
+      cachedEnteredProject = { project: shared, scope }
+      setEnteredProjectState(shared)
     },
     [scope]
   )
@@ -598,14 +614,22 @@ export function SidebarScrollBody({
     startNewSession()
   }
 
-  // Stable identities, because `renderRow` one layer down (`sessions-section`)
-  // is a `useCallback` that lists all three of these in its dependency array
-  // (MJXHRM-383). Fresh inline arrows made it change on EVERY render of this
-  // component — which is every write to any of the ~15 stores it subscribes to
-  // — so the memo was inert and the virtualizer got a new render function
-  // mid-scroll on a status tick. The row component itself still bails out
-  // (`rowPropsEqual` deliberately ignores handler identity); what this restores
-  // is the list-level memo above it.
+  // Stable identities, so `renderRow` one layer down (`sessions-section`) — a
+  // `useCallback` listing all three — keeps its identity too.
+  //
+  // BE PRECISE about what this buys, because the first pass at MJXHRM-383 was
+  // not: `renderRow` is INVOKED during render by every consumer
+  // (`sessions-section` itself, `profile-group`, `overview-row`,
+  // `workspace-group`, `entered-content`) and none of them is memoized, so a
+  // stable `renderRow` skips nothing on its own today. It is correct, it is free
+  // and it stops being a lie the moment anything above the row is memoized — but
+  // it is not why rows re-render.
+  //
+  // What actually decides that is `SidebarSessionRow`'s own memo, whose
+  // comparator deliberately IGNORES these handlers and resolves the row down to
+  // `Object.is(prev.session, next.session)`. Which is why the fix that made the
+  // memo hit had to land in the STORES: see `reuseUnchanged` and its use in
+  // `store/session.ts` / `store/projects.ts`.
   const onArchiveSession = useCallback((id: string) => void archiveSessionLocal(id), [])
   const onDeleteSession = useCallback((id: string) => void deleteSessionLocal(id), [])
 

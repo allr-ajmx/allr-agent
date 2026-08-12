@@ -14,6 +14,7 @@ import { Codecs, persistentAtom } from '@/lib/persisted'
 import { appendLiveSessionProjection, toChatMessages } from '@/lib/session-history'
 import { stableArray } from '@/lib/stable-array'
 import { readJson, writeJson } from '@/lib/storage'
+import { reuseUnchanged } from '@/lib/structural-share'
 import { atom, computed } from '@/store/atom'
 import { $busy, $clarify, $currentCwd, $messages, $sessionId, type ChatMessage, resetChat } from '@/store/chat'
 import { resetUnscopedStreamPin } from '@/store/event-router'
@@ -638,7 +639,14 @@ export const $messagingSessions = atom<SessionInfo[]>([])
 export async function refreshMessagingSessions(): Promise<void> {
   try {
     const res = await listAllProfileSessions(100, 1, 'exclude', 'recent', 'all', { excludeSources: ['cron'] })
-    $messagingSessions.set((res.sessions ?? []).filter(session => isMessagingSource(session.source)))
+    // Same identity gate as `refreshSessions` (MJXHRM-383) — the messaging lanes
+    // render the same memoized `SidebarSessionRow`, on the same poll.
+    $messagingSessions.set(
+      reuseUnchanged(
+        $messagingSessions.get(),
+        (res.sessions ?? []).filter(session => isMessagingSource(session.source))
+      )
+    )
   } catch {
     // Best-effort; keep the last known slice.
   }
@@ -689,7 +697,15 @@ export async function refreshSessions(): Promise<void> {
     // may predate it. Honouring the optimistic tombstones is what keeps the row
     // from flashing back; the ids the server DID return then lift the ones it
     // has caught up with.
-    $sessions.set(withoutTombstoned(res.sessions ?? []))
+    //
+    // Through `reuseUnchanged` (MJXHRM-383): this response was JSON-parsed, so
+    // every row is a fresh object even when nothing changed, and
+    // `SidebarSessionRow`'s memo comparator bails only on
+    // `Object.is(prev.session, next.session)`. Stored verbatim, a poll every
+    // ~10s re-rendered every mounted row for nothing. Reusing the rows that did
+    // not move is what lets the memo actually skip; an unchanged page comes back
+    // as the SAME array, which nanostores does not even publish.
+    $sessions.set(reuseUnchanged($sessions.get(), withoutTombstoned(res.sessions ?? [])))
     pruneSessionTombstones((res.sessions ?? []).map(session => session.id))
     $sessionsTotal.set(scope === ALL_PROFILES ? res.total : (res.profile_totals?.[scope] ?? res.total))
   } catch (err) {

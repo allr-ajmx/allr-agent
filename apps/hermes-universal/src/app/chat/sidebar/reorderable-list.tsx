@@ -22,6 +22,19 @@ import { TAP_SLOP_PX } from '@/lib/touch'
 // `app/chat/sidebar/reorderable-list.tsx`.
 const reorderAutoScroll = { threshold: { x: 0, y: 0.2 } }
 
+// MODULE-LEVEL, and load-bearing (MJXHRM-383). `useSensor` memoizes on
+// `[sensor, options]`, `useSensors` on the descriptors it is handed, and
+// `useDraggable` derives its synthetic `listeners` from that array. Built as
+// fresh object literals inside the component, every render of this list minted a
+// new sensor array → a new DndContext value → a NEW `onPointerDown` for every
+// row. That lands in `dragHandleProps`, which `rowPropsEqual` compares, so
+// `SidebarSessionRow`'s memo could never bail in the sortable path — which is
+// the default Recents list and the Pinned list. Rows repainted on every write to
+// any of the ~30 stores `sidebar-content` subscribes to, no matter how stable
+// the handlers above them were.
+const reorderPointerSensorOptions = { activationConstraint: { distance: TAP_SLOP_PX } }
+const reorderKeyboardSensorOptions = { coordinateGetter: sortableKeyboardCoordinates }
+
 export function ReorderableList({
   children,
   ids,
@@ -37,8 +50,8 @@ export function ReorderableList({
   // neither scroll the list nor stay a tap. This used to take a `sensors` prop
   // threaded down from `sessions-section`, which nothing ever passed.
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: TAP_SLOP_PX } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+    useSensor(PointerSensor, reorderPointerSensorOptions),
+    useSensor(KeyboardSensor, reorderKeyboardSensorOptions)
   )
 
   const handleDragEnd = ({ activatorEvent, active, over }: DragEndEvent) => {
