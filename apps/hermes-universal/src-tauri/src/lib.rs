@@ -314,6 +314,14 @@ pub fn run() {
                 if window::is_satellite_window_label(label) {
                     let _ = app_handle.emit(window::SATELLITE_WINDOW_CLOSED_EVENT, label.clone());
                 }
+                // A full app window may have been the one holding this process's
+                // OS-hotkey claims — every window tries, all but one are refused
+                // — and a native close runs no teardown in it. The survivors
+                // reclaim on this, or the chord stays taken from the whole
+                // machine and answers into a dead channel (MJXHRM-384).
+                if window::is_app_window_label(label) {
+                    let _ = app_handle.emit(window::APP_WINDOW_CLOSED_EVENT, label.clone());
+                }
             }
 
             // Flush pending spans before the process goes away. The batch

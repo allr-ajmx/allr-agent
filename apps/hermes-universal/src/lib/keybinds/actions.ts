@@ -166,11 +166,9 @@ export const KEYBIND_ACTIONS: readonly KeybindActionMeta[] = [
   // the chord from the OS so it answers from inside another application, which
   // is the entire point of that surface.
   //
-  // Shipped UNBOUND on purpose: this wave landed the substrate (the window
-  // lifecycle + the OS-hotkey registrar), not the surface, and a default chord
-  // taken from every other app on the machine has to buy something. SE-J gives
-  // it a default when there is a HUD to summon; until then a user can still
-  // assign one from the shortcuts panel and watch it work.
+  // Bound by default since MJXHRM-213 gave it a surface worth summoning. A
+  // default chord taken from every other app on the machine has to buy
+  // something, and by then it did.
   { id: 'view.toggleHud', category: 'view', defaults: ['mod+shift+h'], global: true },
   // Summon Quick Entry — the one-line capture surface (MJXHRM-384). `global` for
   // the same reason the HUD's is: a composer you can only reach from inside

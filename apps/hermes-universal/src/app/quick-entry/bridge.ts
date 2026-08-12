@@ -38,9 +38,10 @@ import {
   type QuickEntrySubmitPayload
 } from '@/store/quick-entry'
 import { $sessions } from '@/store/session'
-import { isSecondaryWindow } from '@/store/windows'
+import { isSecondaryWindow, SATELLITE_WINDOW_CLOSED_EVENT, satelliteSurfaceFromLabel } from '@/store/windows'
 
 import { emitQuickEntryState, onQuickEntryHello, onQuickEntrySubmit } from './channel'
+import { QUICK_ENTRY_SURFACE } from './quick-entry'
 
 /**
  * What the quick window is told. `connected` is the gateway gate universal
@@ -55,23 +56,62 @@ export function quickEntryStatePush(): QuickEntryStatePush {
 }
 
 /**
+ * Send into the current chat — or QUEUE it there when that chat is mid-turn.
+ *
+ * `sendPrompt` opens with `if (!trimmed || $busy.get()) return`. That guard is
+ * right for the composer, which shows Stop instead of Send while a turn runs, so
+ * the keystroke never gets that far. It is wrong for a capture surface: the
+ * quick window has already cleared its draft and closed itself by the time this
+ * runs, so a busy session meant the user's sentence vanished with nothing to
+ * show for it — no send, no queue entry, no toast. And "fire a prompt at the
+ * agent while it is working" is the single likeliest use of a global chord.
+ *
+ * The app already has the right answer to "Enter while busy": the composer's
+ * QUEUE (mod+Enter), which parks the text per session and auto-drains it on the
+ * settle edge (`store/composer-queue.ts`, `use-composer-queue.ts`). Queueing
+ * under `$activeSessionKey` is queueing under exactly the key the primary
+ * composer reads — its `activeQueueSessionKey` IS that atom (the primary session
+ * view's `$runtimeId`) — so the entry shows up in the queue panel and sends
+ * itself when the turn ends.
+ *
+ * Every import is resolved BEFORE the busy read, so the read and the send are
+ * one synchronous step. An `await` in between would let a turn start after we
+ * decided to send, and `sendPrompt` would drop the text on its own re-read.
+ */
+async function sendOrQueueCurrent(text: string): Promise<void> {
+  const [{ $busy, sendPrompt }, { $activeSessionKey }, { enqueueQueuedPrompt }] = await Promise.all([
+    import('@/store/chat'),
+    import('@/store/session-state-types'),
+    import('@/store/composer-queue')
+  ])
+
+  if ($busy.get()) {
+    enqueueQueuedPrompt($activeSessionKey.get(), { attachments: [], text })
+
+    return
+  }
+
+  await sendPrompt(text)
+}
+
+/**
  * Turn one captured payload into a real send.
  *
- * Every branch ends in a submit. A target that has gone stale — a session
- * deleted between the push and the Enter — must not swallow the prompt, so the
- * delegate path falls back to the current chat rather than failing silently.
- * That is the one behaviour here worth more than the code it costs.
+ * Every branch ends in a submit or a queue entry — nothing captured is ever
+ * dropped. A target that has gone stale — a session deleted between the push and
+ * the Enter — must not swallow the prompt either, so the delegate path falls
+ * back to the current chat rather than failing silently. That is the one
+ * behaviour here worth more than the code it costs.
  */
 async function routeQuickEntrySubmit({ target, text }: QuickEntrySubmitPayload): Promise<void> {
-  const { sendPrompt } = await import('@/store/chat')
-
   if (target === QUICK_TARGET_NEW) {
     const { startNewSession } = await import('@/store/new-session')
 
     // The same act as clicking New chat: a fresh draft in front, caret in it,
-    // and then the normal submit is what creates the backend session.
+    // and then the normal submit is what creates the backend session. A fresh
+    // draft is never busy, so this all but always takes the send path.
     startNewSession()
-    await sendPrompt(text)
+    await sendOrQueueCurrent(text)
 
     return
   }
@@ -81,22 +121,69 @@ async function routeQuickEntrySubmit({ target, text }: QuickEntrySubmitPayload):
     const delegate = sessionTileDelegate()
 
     if (delegate) {
+      // `submitToSession` carries no busy guard of its own — a backgrounded
+      // session is submitted to whatever it is doing — so only the fallback
+      // needs the queue.
       await delegate
         .resumeTile(target)
         .then(runtimeId => delegate.submitToSession(runtimeId, text))
-        .catch(() => sendPrompt(text))
+        .catch(() => sendOrQueueCurrent(text))
 
       return
     }
   }
 
-  await sendPrompt(text)
+  await sendOrQueueCurrent(text)
 }
 
 let installed = false
 let stopListening: (() => void) | null = null
 
+/**
+ * Whether a quick window is up to be pushed to.
+ *
+ * The bridge outlives the window it serves — it is armed on the first summon and
+ * deliberately never torn down, because the next summon must find it already
+ * listening. Without this flag that meant every later `$sessions` refresh and
+ * every connection-phase change broadcast a state event across the IPC bus, for
+ * the life of the app, to a window that closed minutes ago. That is the shape
+ * iteration 42 found in `installHudHandoff`: armed once, never disarmed.
+ *
+ * Set on each summon and — the half that matters — cleared from the NATIVE close
+ * event, because a satellite dismissed by the compositor, by its own Escape, or
+ * by a blur runs no teardown in THIS window. The submit listener is never
+ * removed: a submit and the dismiss that follows it race by construction
+ * (`emitQuickEntrySubmit` then `closeQuickEntry`, both fire-and-forget), and
+ * dropping the listener on the close would be dropping the prompt.
+ */
+let quickWindowUp = false
+
+/**
+ * Notice the quick window going away. Rust emits this on
+ * `WindowEvent::Destroyed` for every satellite, so it arrives for the ways the
+ * window can close without running any JS here — which is all of them.
+ */
+async function watchQuickWindowClose(): Promise<null | (() => void)> {
+  try {
+    const { listen } = await import('@tauri-apps/api/event')
+
+    return await listen<string>(SATELLITE_WINDOW_CLOSED_EVENT, event => {
+      if (satelliteSurfaceFromLabel(event.payload ?? '') === QUICK_ENTRY_SURFACE) {
+        quickWindowUp = false
+      }
+    })
+  } catch {
+    // No window system here — nothing can open, so nothing can close.
+    return null
+  }
+}
+
 export function installQuickEntryBridge(): void {
+  // Re-armed on every summon: this is the one call that knows a window is about
+  // to exist, and it is called before `openSatelliteWindow` precisely so the
+  // hello that follows is answered.
+  quickWindowUp = true
+
   if (installed || !IS_TAURI || isSecondaryWindow()) {
     return
   }
@@ -117,9 +204,20 @@ export function installQuickEntryBridge(): void {
 
   // The quick window opens long after the last state change, so it asks rather
   // than waiting for one. This is the cache Electron's main process used to hold.
-  void onQuickEntryHello(() => void emitQuickEntryState(quickEntryStatePush())).then(off => disposers.push(off))
+  // A hello can only come from a live quick window, so it also re-proves the
+  // flag — a window this process did not summon still gets answered.
+  void onQuickEntryHello(() => {
+    quickWindowUp = true
+    void emitQuickEntryState(quickEntryStatePush())
+  }).then(off => disposers.push(off))
 
-  const push = () => void emitQuickEntryState(quickEntryStatePush())
+  void watchQuickWindowClose().then(off => off && disposers.push(off))
+
+  const push = () => {
+    if (quickWindowUp) {
+      void emitQuickEntryState(quickEntryStatePush())
+    }
+  }
 
   disposers.push($connectionPhase.listen(push), $sessions.listen(push))
 
@@ -130,9 +228,16 @@ export function installQuickEntryBridge(): void {
   }
 }
 
+/** Whether the bridge currently believes a quick window is listening. Exported
+ *  for the test that pins the push gate; nothing else reads it. */
+export function quickEntryWindowIsUp(): boolean {
+  return quickWindowUp
+}
+
 /** Test seam: drop the listeners and forget that the bridge was installed. */
 export function resetQuickEntryBridge(): void {
   stopListening?.()
   stopListening = null
   installed = false
+  quickWindowUp = false
 }

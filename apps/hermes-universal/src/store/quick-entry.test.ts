@@ -102,7 +102,18 @@ describe('quickComposerReducer', () => {
   })
 
   it('a second submit while already submitting cannot double-send', () => {
-    const { sent, state } = run([connect, { draft: 'hello', type: 'edit' }, { type: 'submit' }, { type: 'submit' }])
+    // The draft has to be non-empty for this to test anything: a bare double
+    // Enter is already stopped by the empty-text guard, since the first submit
+    // clears the draft — so that version passed with `submitting` deleted
+    // outright. A keystroke landing between the two Enters is the shape a fast
+    // typist actually produces, and it is what the flag is for.
+    const { sent, state } = run([
+      connect,
+      { draft: 'hello', type: 'edit' },
+      { type: 'submit' },
+      { draft: 'hello there', type: 'edit' },
+      { type: 'submit' }
+    ])
 
     expect(sent).toEqual([{ target: QUICK_TARGET_CURRENT, text: 'hello' }])
     expect(state.submitting).toBe(true)
