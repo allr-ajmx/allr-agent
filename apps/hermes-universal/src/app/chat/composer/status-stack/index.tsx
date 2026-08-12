@@ -13,7 +13,7 @@ import { useStore } from '@/store/atom'
 import { $billingBlock } from '@/store/billing-block'
 import { $previewStatusBySession, dismissPreviewArtifact, type PreviewArtifact } from '@/store/preview-status'
 import { $subagentsBySession, type SubagentProgress } from '@/store/subagents'
-import { $threadScrolledUp } from '@/store/thread-scroll'
+import { sessionThreadScrolledUp } from '@/store/thread-scroll'
 import { canOpenSessionWindow, openSessionInNewWindow } from '@/store/windows'
 
 import { PreviewStatusRow } from './preview-row'
@@ -48,8 +48,21 @@ interface ComposerStatusStackProps {
 
 export function ComposerStatusStack({ queue, sessionId }: ComposerStatusStackProps) {
   const { t } = useI18n()
-  const scrolledUp = useStore($threadScrolledUp)
-  const billing = useStore($billingBlock)
+  // Keyed per session (MJXHRM-381). This was a global boolean, and the stack
+  // mounts once per open tile — so scrolling one tile's transcript dimmed and
+  // re-rendered every other tile's status card, and closing a tile reset the
+  // flag out from under a tile that was still scrolled up.
+  const scrolledUp = useStore(sessionThreadScrolledUp(sessionId))
+
+  // NARROWED (MJXHRM-381). The block is a single global slot but only ever
+  // renders on the session it names, so a whole-atom read meant a credit wall
+  // raised on one session re-rendered every other tile's stack. Selecting to
+  // `null` for every other session is what makes it quiet: their snapshots
+  // compare equal. Returns the store's OWN object when it matches, never a fresh
+  // one — a rebuilt object would defeat `useStoreSelector`'s `Object.is` bail.
+  const billing = useStoreSelector($billingBlock, block =>
+    block && sessionId && block.sessionId === sessionId ? block : null
+  )
 
   // NARROWED TO THIS SESSION'S SLICE (MJXHRM-45). Both stores are
   // `Record<sessionId, T[]>` written immutably per key, and this component
@@ -98,7 +111,9 @@ export function ComposerStatusStack({ queue, sessionId }: ComposerStatusStackPro
   // Billing wall sits at the very top of the stack — it's the most important
   // thing above the composer when the account is out of credits. Rendered here
   // (not as a composer-disable) so slash commands stay usable.
-  if (billing && sessionId && billing.sessionId === sessionId) {
+  // `billing` is already this session's or null — the selector above did the
+  // matching, so there is nothing left to compare here.
+  if (billing && sessionId) {
     sections.push({ key: 'billing', node: <BillingBanner sessionId={sessionId} /> })
   }
 

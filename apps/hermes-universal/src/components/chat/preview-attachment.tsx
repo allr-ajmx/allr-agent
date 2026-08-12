@@ -6,6 +6,7 @@ import { useI18n } from '@/i18n'
 import { openExternalLink } from '@/lib/external-link'
 import { MonitorPlay } from '@/lib/icons'
 import { previewName } from '@/lib/preview-targets'
+import { useStoreSelector } from '@/lib/use-session-slice'
 import { notifyError } from '@/store/notifications'
 import { $activePreviewPath, closePreviewTab, setPreviewTarget } from '@/store/preview'
 
@@ -47,14 +48,18 @@ function filePathFor(target: string, cwd: string): string {
 export function PreviewAttachment({ target }: { target: string }) {
   const { t } = useI18n()
   const cwd = useStore(useSessionView().$cwd)
-  const activePath = useStore($activePreviewPath)
   const [opening, setOpening] = useState(false)
 
   const isUrl = URL_TARGET.test(target.trim())
   const path = isUrl ? '' : filePathFor(target, cwd)
   // A preview is a TILE now — "showing" is the tab list's business, not a
   // singleton pane's open flag (see preview-row.tsx).
-  const isActive = !isUrl && activePath === path
+  //
+  // NARROWED to the boolean (MJXHRM-381): one of these renders per previewable
+  // link in a transcript, across every mounted transcript, and nothing else
+  // re-renders them when a preview tab changes — so the whole-atom read was the
+  // sole reason every one of them repainted on every tab open/switch/close.
+  const isActive = useStoreSelector($activePreviewPath, active => !isUrl && active === path)
   const name = previewName(target)
 
   const togglePreview = async () => {

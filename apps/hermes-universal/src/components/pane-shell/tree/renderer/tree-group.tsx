@@ -317,11 +317,24 @@ export function TreeGroup({
   // re-rendered everything.
   const epochKey = useStoreSelector($treePaneEpochs, epochs => node.panes.map(id => epochs[id] ?? 0).join('\u0000'))
 
-  const paneEpochs = useMemo(
-    () => Object.fromEntries(epochKey.split('\u0000').map((value, index) => [node.panes[index], Number(value) || 0])),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- `node.panes` is already folded into `epochKey`.
-    [epochKey]
-  )
+  // Decoded BY POSITION against the same `node.panes` the signature was built
+  // from, which is therefore a real dependency and not a folded-in constant. The
+  // signature carries epoch VALUES, not ids: a zone that swaps one pane for
+  // another whose epoch happens to match keeps a byte-identical signature, so
+  // keying the memo on the signature alone handed the incoming pane the outgoing
+  // pane's entry — and for an empty zone `''.split()` yields `['']`, i.e. an
+  // `{ undefined: 0 }` map. Both are recoverable (an epoch is only a remount key
+  // and a missing entry falls back to 0), but neither is intended.
+  const paneEpochs = useMemo(() => {
+    const values = epochKey ? epochKey.split('\u0000') : []
+    const epochs: Record<string, number> = {}
+
+    node.panes.forEach((id, index) => {
+      epochs[id] = Number(values[index]) || 0
+    })
+
+    return epochs
+  }, [epochKey, node.panes])
 
   // Multi-tab selection (⌥/Ctrl-click, Shift-click) lives in ONE zone at a time.
   // Selecting to `null` for every other zone is what makes this quiet: the other

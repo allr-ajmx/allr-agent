@@ -35,16 +35,32 @@ vi.mock('@/store/chat', async importOriginal => ({
   restoreToMessage: vi.fn().mockResolvedValue(undefined)
 }))
 
+// Every `sessionKey` the list was handed, in render order. The list is memo'd
+// and takes the key as a PROP, so recording the prop is the only way to see it —
+// nothing it drives (the render-budget cut, the pin-to-bottom settle loop, the
+// per-session scroll mirror) is observable from outside.
+const listProps = vi.hoisted(() => ({ sessionKeys: [] as (null | string | undefined)[] }))
+
 // The transcript list is a windowed, stick-to-bottom scroller; all this test
 // needs from it is that the components map it is handed is what renders each
 // message. Rendering `components.UserMessage` IS the assertion that the map
 // reaches a message.
 vi.mock('./list', () => ({
-  ThreadMessageList: ({ components }: { components: { UserMessage: () => ReactNode } }) => (
-    <div>
-      <components.UserMessage />
-    </div>
-  )
+  ThreadMessageList: ({
+    components,
+    sessionKey
+  }: {
+    components: { UserMessage: () => ReactNode }
+    sessionKey?: null | string
+  }) => {
+    listProps.sessionKeys.push(sessionKey)
+
+    return (
+      <div>
+        <components.UserMessage />
+      </div>
+    )
+  }
 }))
 
 vi.mock('./timeline', () => ({ ThreadTimeline: () => null }))
@@ -127,6 +143,7 @@ const confirm = async () => {
 
 beforeEach(() => {
   seedSession()
+  listProps.sessionKeys.length = 0
   vi.mocked(restoreToMessage).mockClear()
   vi.mocked(restoreToMessage).mockResolvedValue(undefined)
 })
@@ -194,5 +211,31 @@ describe('Thread restore-checkpoint wiring', () => {
 
     expect(restoreToMessage).not.toHaveBeenCalled()
     expect(screen.getByText('No active session to restore.')).toBeTruthy()
+  })
+})
+
+/**
+ * MJXHRM-381. `ThreadMessageList` declares a `sessionKey` prop and drives three
+ * things off it — the render-budget cut on a warm session switch, the pin-to-
+ * bottom settle loop, and (now) which session's scroll state the composer /
+ * status stack / jump button read. Desktop's `thread/index.tsx` passes it; this
+ * port did not, so inside the memo'd list it was permanently `undefined` and all
+ * three were dead. Nothing downstream is observable from here, which is exactly
+ * why nothing caught it — so the prop itself is what gets pinned.
+ */
+describe('Thread → ThreadMessageList session key', () => {
+  it('hands the list this surface’s session key', () => {
+    render(<Thread />)
+
+    expect(listProps.sessionKeys.at(-1)).toBe('runtime-tile')
+  })
+
+  it('re-hands it when the surface switches session', async () => {
+    render(<Thread />)
+    await act(async () => {
+      view.$runtimeId.set('runtime-other')
+    })
+
+    expect(listProps.sessionKeys.at(-1)).toBe('runtime-other')
   })
 })

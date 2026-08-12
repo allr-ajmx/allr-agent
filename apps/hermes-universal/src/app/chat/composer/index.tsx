@@ -18,7 +18,7 @@ import { POPOUT_WIDTH_REM } from '@/store/composer-popout'
 import { parkQueuedPrompts, removeQueuedPrompt, unparkQueuedPrompts } from '@/store/composer-queue'
 import { $gatewayState } from '@/store/gateway'
 import { toggleReview } from '@/store/review'
-import { $threadScrolledUp } from '@/store/thread-scroll'
+import { sessionThreadScrolledUp } from '@/store/thread-scroll'
 import { $autoSpeakReplies } from '@/store/voice-prefs'
 import { useTheme } from '@/themes'
 
@@ -117,7 +117,10 @@ export function ChatBar({
   // focus-bus key, and awaiting-input edge. Main scope = the legacy globals.
   const scope = useComposerScope()
   const attachments = useStore(scope.attachments.$attachments)
-  const scrolledUp = useStore($threadScrolledUp)
+  // THIS session's thread, not "a" thread: the flag is keyed per session now
+  // (MJXHRM-381), so scrolling up in one tile no longer dims — or re-renders —
+  // every other tile's composer.
+  const scrolledUp = useStore(sessionThreadScrolledUp(sessionId))
   const autoSpeak = useStore($autoSpeakReplies)
   // The turn is parked on the user (clarify / approval / sudo / secret). Esc must
   // not interrupt it — there's nothing actively running to stop, and stopping
