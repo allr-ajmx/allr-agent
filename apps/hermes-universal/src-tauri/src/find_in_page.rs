@@ -6,33 +6,56 @@
 //! WebKitGTK `WebView` and drives its `WebKitFindController` directly — the same
 //! engine-level machinery Electron's API is a wrapper around.
 //!
-//! **Why not a DOM overlay.** The obvious alternative is to walk the document in
-//! JavaScript and wrap matches in `<mark>`s. It cannot work here: the chat
-//! transcript, the file tree and the editor are all virtualized, so most of the
-//! text the user is searching for is not in the DOM at the moment they search
-//! for it. A DOM scan would confidently report "no matches" for text that is
-//! plainly in the conversation. The engine's own find has the same blind spot
-//! for unmounted rows, but it is at least the same search the platform performs
-//! everywhere else, and it highlights and scrolls without us reimplementing
-//! either.
+//! **Why not a DOM overlay.** Wrapping matches in `<mark>`s in JavaScript would
+//! mean rewriting text nodes under a streaming transcript and putting them back
+//! afterwards. The engine highlights and scrolls without any of that, and it
+//! does not fight the render budget for ownership of the DOM.
 //!
 //! **This module is the LINUX path, not the whole feature.** `with_webview`
-//! hands back a platform-specific handle: `WKWebView` on macOS (no public find
-//! API at all — `NSTextFinder` does not apply to web content), `ICoreWebView2`
-//! on Windows (its `Find` API landed only in recent runtime versions and needs a
-//! direct `webview2-com` dependency), and a `WebView` object on Android (JNI).
-//! Three separate native bindings, none of which can even be COMPILED on the
-//! Linux host this is developed on — so every other target is served instead by
-//! a portable `window.find` path in `src/lib/find-in-page-dom.ts`, and the
-//! frontend picks between the two in `src/store/find-in-page.ts`. Native
-//! bindings for the remaining engines stay open as MJXHRM-302; they would buy
-//! highlight-all and exact counts, not the feature itself.
+//! hands back a platform-specific handle, and each one wants a separate native
+//! binding. Every other target is served instead by a portable `window.find`
+//! path in `src/lib/find-in-page-dom.ts`, and the frontend picks between the two
+//! in `src/store/find-in-page.ts`. The per-platform ledger, verified against
+//! tauri 2.11 / wry 0.55 rather than inherited:
+//!
+//! - **macOS / iOS.** An earlier version of this comment said `WKWebView` "has
+//!   no public find API at all". That is FALSE, and the correction matters:
+//!   `findString:configuration:completionHandler:` has been public since macOS
+//!   13 / iOS 16, `PlatformWebview::inner()` hands over the `WKWebView` pointer,
+//!   and `objc2-web-kit` is already in the tree. It is skipped on merit, not for
+//!   want of an API — `WKFindResult` exposes `matchFound` and nothing else: no
+//!   count, no active index, no highlight-all. That is exactly what
+//!   `window.find` already returns, so the binding would add an unsafe FFI hop
+//!   and buy the user nothing. There is no gap here to close.
+//! - **Windows.** `ICoreWebView2_25::Find` (WebView2 SDK 1.0.2957+) reports the
+//!   match count AND the active index, and highlights all matches — strictly
+//!   better than the portable path, and the only target where the count would
+//!   stop being ours. `PlatformWebview::controller()` already hands back the
+//!   controller, but reaching `_25` needs a direct `webview2-com` dependency
+//!   pinned to tauri's, and a runtime recent enough to QueryInterface it.
+//! - **Android.** `WebView.findAllAsync` + `setFindListener` gives the same
+//!   count, active index and highlight-all, through
+//!   `PlatformWebview::jni_handle().exec(..)`.
+//!
+//! The two that WOULD pay are also the two that cannot be verified here: `cargo
+//! check` on this Linux host never compiles `#[cfg(target_os = "windows")]` or
+//! `"android"` code, and CI does not build those targets either. Unsafe FFI that
+//! has never been compiled is worse than the portable path it would replace, so
+//! they stay open as MJXHRM-302 — as an accurate cost (highlight-all and an
+//! engine-reported ordinal), not as a missing feature.
 //!
 //! **One ordinal caveat.** WebKitGTK reports the match COUNT (`found-text`,
 //! `counted-matches`) but never which match is currently selected — there is no
 //! equivalent of Electron's `activeMatchOrdinal`. The frontend therefore counts
 //! the steps itself (`store/find-in-page.ts`); this module reports only what the
 //! engine actually knows.
+//!
+//! **Scope is the calling window.** Both commands take an injected
+//! `tauri::WebviewWindow`, which Tauri resolves to the webview that issued the
+//! IPC call — so a detached tile window or the HUD searches ITSELF, and the
+//! `found-text` handlers are keyed by `window.label()` so each window wires its
+//! controller exactly once. The frontend mounts the bar per window to match
+//! (`src/app.tsx`).
 
 /// Emitted to the searching window with the match count for the current query.
 pub const FOUND_IN_PAGE_EVENT: &str = "hermes://found-in-page";
