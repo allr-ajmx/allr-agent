@@ -1290,7 +1290,10 @@ export const en: Translations = {
     steerCancel: 'Cancel',
     steerQueued: 'Queued for the next step',
     steerRejected: 'Too late to steer — this subagent is already past its last step',
-    steerFailed: 'Could not reach the gateway'
+    steerFailed: 'Could not reach the gateway',
+    steerGone: 'That subagent is no longer running',
+    steerNotOwned: 'That subagent belongs to another chat — steer it from there',
+    steerMissed: (text: string) => `Steer never landed — this subagent finished first: ${text}`
   },
 
   commandCenter: {
@@ -2763,6 +2766,7 @@ export const en: Translations = {
     thread: {
       loadingSession: 'Loading session',
       showEarlier: 'Show earlier messages',
+      steerMissed: 'steer missed',
       loadingResponse: 'Hermes is loading a response',
       compacting: 'Summarizing thread',
       resumeWhenBackgroundDone: count =>

@@ -120,7 +120,32 @@ export function moveSessionWorkspace(params: {
 
 // --- subagent.steer --------------------------------------------------------
 
+/**
+ * Why a steer was refused. Present ONLY on `rejected`, and they do not mean the
+ * same thing to a user: `not_accepting` is a race they lost by a hair,
+ * `unknown_subagent` means the work is already over, `not_owner` /
+ * `no_session_authority` mean this window addressed the wrong session and the
+ * steer would never work no matter how fast they were.
+ *
+ * `steer_failed` (the child's own `steer()` refused or raised) and
+ * `empty_text`/`no_agent` are backstops the UI folds into the generic refusal.
+ * Source: `tools/delegate_tool.py` `steer_subagent_reason` + the
+ * `subagent.steer` handler in `tui_gateway/methods_session.py`.
+ */
+export type SubagentSteerReason =
+  | 'empty_text'
+  | 'no_agent'
+  | 'no_session_authority'
+  | 'not_accepting'
+  | 'not_owner'
+  | 'steer_failed'
+  | 'unknown_subagent'
+  | (string & {})
+
 export interface SubagentSteerResult {
+  /** Set only when `status` is `rejected`. Older gateways omit it entirely, so
+   *  a caller must still have a generic refusal message. */
+  reason?: SubagentSteerReason
   /** `rejected` = the child could not be resolved, is not ours, or is already
    *  gone. NOT an RPC error — the backend answers 200 either way, so a caller
    *  that only catches rejections silently drops the steer. */
@@ -136,9 +161,10 @@ export interface SubagentSteerResult {
  * tool call is never cut.
  *
  * "queued" is not "delivered": a child already past its final tool batch has no
- * boundary left to drain into. That race is NOT pushed as an event — it lands
- * as `missed_steer` on the parent's delegate tool result, and reaches the
- * client only inside the `subagent.complete` summary text.
+ * boundary left to drain into. That race now rides on the `subagent.complete`
+ * event as `missed_steer` (store/subagents.ts folds it onto the row). It used
+ * to reach no client at all — the miss was appended to the delegate tool result
+ * the parent MODEL reads, while the event carried the pre-note summary.
  */
 export function steerSubagent(params: {
   sessionId: string

@@ -8,7 +8,7 @@ import { FadeText } from '@/components/ui/fade-text'
 import { GlyphSpinner } from '@/components/ui/glyph-spinner'
 import { type Translations, useI18n } from '@/i18n'
 import { compactNumber } from '@/lib/format'
-import { steerSubagent } from '@/lib/gateway-rpc'
+import { steerSubagent, type SubagentSteerReason } from '@/lib/gateway-rpc'
 import { AlertCircle, CheckCircle2 } from '@/lib/icons'
 import { useEnterAnimation } from '@/lib/use-enter-animation'
 import { cn } from '@/lib/utils'
@@ -297,12 +297,42 @@ function StreamLine({
 }
 
 /**
+ * Which refusal the user is being told about.
+ *
+ * `subagent.steer` answers 200 for every one of these and names which in
+ * `reason`. They are not one message: "too late" is a race lost by a hair and
+ * worth retrying on the next child, while "not this chat's subagent" will never
+ * work from here however fast the user is. A gateway too old to send `reason`
+ * (and any value added after this build) falls back to the generic line.
+ */
+const steerRefusal = (reason: SubagentSteerReason | undefined, copy: Translations['agents']): string => {
+  switch (reason) {
+    case 'no_agent':
+
+    case 'unknown_subagent':
+      return copy.steerGone
+
+    case 'no_session_authority':
+
+    case 'not_owner':
+      return copy.steerNotOwned
+
+    default:
+      return copy.steerRejected
+  }
+}
+
+/**
  * Redirect a live subagent without stopping it.
  *
  * `subagent.steer` answers 200 either way: `rejected` means the child is gone,
  * is not ours, or is already past its last tool boundary. Nothing surfaced that
  * before, so a steer that never landed looked exactly like one that did — hence
  * the explicit outcome line rather than a fire-and-forget button.
+ *
+ * "Queued" is still not "delivered". A child that finishes before draining the
+ * text produces `missedSteer` on its row (see `SubagentRow`), which is the only
+ * retraction of the promise this control makes.
  */
 function SteerControl({ node }: { node: SubagentNode }) {
   const { t } = useI18n()
@@ -325,7 +355,10 @@ function SteerControl({ node }: { node: SubagentNode }) {
     try {
       const result = await steerSubagent({ sessionId, subagentId: node.id, text: trimmed })
       const queued = result.status === 'queued'
-      setOutcome({ kind: queued ? 'ok' : 'error', message: queued ? a.steerQueued : a.steerRejected })
+      setOutcome({
+        kind: queued ? 'ok' : 'error',
+        message: queued ? a.steerQueued : steerRefusal(result.reason, a)
+      })
 
       if (queued) {
         setText('')
@@ -491,6 +524,15 @@ function SubagentRow({ node, depth = 0, nowMs }: { node: SubagentNode; depth?: n
       ) : null}
 
       {running ? <SteerControl node={node} /> : null}
+
+      {/* The other half of the steer contract: "queued" was never a delivery
+          receipt, and this row is where the promise is withdrawn. The gateway
+          only knows it at completion, so it always lands on a settled row. */}
+      {node.missedSteer ? (
+        <p className="pl-6 text-[0.62rem] leading-[0.95rem] text-destructive" data-selectable-text="true" role="status">
+          {t.agents.steerMissed(node.missedSteer)}
+        </p>
+      ) : null}
 
       {node.children.length > 0 ? (
         <div className="grid min-w-0 gap-3 pl-6">
