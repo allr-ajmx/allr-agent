@@ -1,8 +1,8 @@
 /**
  * Satellite windows (MJXHRM-55) — the substrate a summonable second surface
- * sits on. The thing worth testing is the lifecycle, not the pixels: opening
- * twice must focus rather than spawn a twin, and nothing may be left running
- * after the window that summoned it goes away.
+ * sits on. The thing worth testing is the lifecycle, not the pixels: nothing may
+ * be left running after the window that summoned it goes away, and — since
+ * MJXHRM-382 — the frontend must not build the window itself.
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -12,44 +12,57 @@ import type * as Platform from '@/lib/platform'
 interface FakeWindow {
   close: ReturnType<typeof vi.fn>
   label: string
-  once: (event: string, handler: (payload: { payload: unknown }) => void) => void
-  setFocus: ReturnType<typeof vi.fn>
-  show: ReturnType<typeof vi.fn>
 }
 
 const live = new Map<string, FakeWindow>()
-const constructed: Array<{ label: string; options: Record<string, unknown> }> = []
+/** Every `open_satellite_window` invoke, with the arguments it carried. */
+const opens: Array<Record<string, unknown>> = []
 let closeRequested: ((event: { preventDefault: () => void }) => void) | null = null
 const mainClose = vi.fn()
 
-function makeWindow(label: string): FakeWindow {
-  const win: FakeWindow = {
-    close: vi.fn(async () => {
-      live.delete(label)
-    }),
-    label,
-    once: (event, handler) => {
-      // The real window announces creation asynchronously; mirror that so the
-      // opener's await is exercised rather than short-circuited.
-      if (event === 'tauri://created') {
-        setTimeout(() => handler({ payload: null }), 0)
-      }
-    },
-    setFocus: vi.fn(async () => undefined),
-    show: vi.fn(async () => undefined)
-  }
+/** The satellites Rust's `SATELLITES` registry knows. A surface outside it is
+ *  refused there, which is what makes `sat-*` a namespace the webview cannot
+ *  write into. */
+const KNOWN = new Set(['hud', 'quick'])
 
-  return win
-}
+vi.mock('@tauri-apps/api/core', () => ({
+  invoke: async (command: string, args: Record<string, unknown>) => {
+    if (command !== 'open_satellite_window') {
+      throw new Error(`unexpected command ${command}`)
+    }
+
+    opens.push(args)
+
+    const surface = String(args.surface)
+
+    if (!KNOWN.has(surface)) {
+      throw new Error(`unknown surface ${surface}`)
+    }
+
+    const label = `sat-${surface}`
+    const fresh = !live.has(label)
+
+    live.set(label, {
+      close: vi.fn(async () => {
+        live.delete(label)
+      }),
+      label
+    })
+
+    // Rust answers with a grant only for a FRESH attach; a satellite that merely
+    // came forward keeps the one already written down for it.
+    return { grant: fresh ? { backend: 'layer-shell', label, outputSized: true } : null, label }
+  }
+}))
 
 vi.mock('@tauri-apps/api/webviewWindow', () => {
   class WebviewWindow {
-    constructor(label: string, options: Record<string, unknown>) {
-      constructed.push({ label, options })
-      const win = makeWindow(label)
-      live.set(label, win)
-
-      return win as unknown as WebviewWindow
+    constructor() {
+      // What the ACL now does: `core:webview:allow-create-webview-window` is not
+      // in `capabilities/default.json` any more, so a webview that tries to
+      // build a window is refused. The mock refuses too — a mock that granted it
+      // would let a regression back in without a single test noticing.
+      throw new Error('webview.create_webview_window not allowed')
     }
 
     static async getByLabel(label: string) {
@@ -103,9 +116,7 @@ const {
   toggleSatelliteWindow
 } = await import('./windows')
 
-/** The key `rememberSurfaceGrant` writes — asserted through the module's own
- *  reader below, but written directly here because the real writer is the
- *  native attach, which has no window system under test. */
+/** The key `rememberSurfaceGrant` writes. */
 const GRANT_KEY = 'hermes:surface-grant:hud'
 
 /** What Rust emits when a window is DESTROYED, however it was destroyed. */
@@ -121,51 +132,67 @@ async function flush(): Promise<void> {
 beforeEach(async () => {
   await closeAllSatelliteWindows()
   live.clear()
-  constructed.length = 0
+  opens.length = 0
   mainClose.mockClear()
   window.localStorage.removeItem(GRANT_KEY)
 })
 
 describe('satellite windows', () => {
-  it('opens under a label the capability set actually grants', async () => {
-    expect(await openSatelliteWindow({ surface: 'hud' })).toBe('sat-hud')
+  it('asks Rust for the window instead of building one', async () => {
+    expect(await openSatelliteWindow('hud')).toBe('sat-hud')
 
-    // `sat-*` is the glob in capabilities/default.json; a label outside it would
-    // spawn a webview with no JS surface at all.
-    expect(constructed[0].label).toBe('sat-hud')
-    // The `?win=` flag rides BEFORE the HashRouter '#', so it lands in
-    // location.search — which is where satelliteSurface() reads it from.
-    expect(constructed[0].options.url).toBe('index.html?win=hud')
+    // The whole of MJXHRM-382's second pass: the label, the URL and the geometry
+    // are Rust's, so the only things that cross are which surface and where in
+    // the app it opens. A `new WebviewWindow(...)` here would throw — see the
+    // mock, which models the ACL that no longer grants it.
+    expect(opens).toEqual([{ route: null, surface: 'hud' }])
   })
 
-  it('carries a route after the hash', async () => {
-    await openSatelliteWindow({ route: '/settings', surface: 'hud' })
+  it('carries an in-app route for Rust to place after the hash', async () => {
+    await openSatelliteWindow('hud', '/settings')
 
-    expect(constructed[0].options.url).toBe('index.html?win=hud#/settings')
+    expect(opens[0].route).toBe('/settings')
   })
 
-  it('focuses the window already up instead of spawning a twin', async () => {
-    await openSatelliteWindow({ surface: 'hud' })
-    expect(await openSatelliteWindow({ surface: 'hud' })).toBe('sat-hud')
+  it('records the grant a fresh attach answers with', async () => {
+    await openSatelliteWindow('hud')
 
-    expect(constructed).toHaveLength(1)
-    expect(live.get('sat-hud')?.setFocus).toHaveBeenCalled()
+    // The satellite cannot ask for itself — attaching happens before its JS
+    // exists — so the answer has to be written down where it can read it.
+    expect(satelliteSurfaceGrant('hud')?.outputSized).toBe(true)
+  })
+
+  it('keeps the grant when a satellite already up is merely brought forward', async () => {
+    await openSatelliteWindow('hud')
+    expect(await openSatelliteWindow('hud')).toBe('sat-hud')
+
+    // Rust answers a re-focus with no grant; overwriting the stored one with
+    // null would leave the HUD laying itself out as a plain window.
+    expect(satelliteSurfaceGrant('hud')?.outputSized).toBe(true)
   })
 
   it('refuses a surface name that would not survive a label or a URL', async () => {
-    expect(await openSatelliteWindow({ surface: 'Quick Entry' })).toBeNull()
-    expect(await openSatelliteWindow({ surface: '../evil' })).toBeNull()
-    expect(constructed).toHaveLength(0)
+    expect(await openSatelliteWindow('Quick Entry')).toBeNull()
+    expect(await openSatelliteWindow('../evil')).toBeNull()
+    expect(opens).toHaveLength(0)
+  })
+
+  it('reports a surface Rust does not know as not opened', async () => {
+    // Well-formed as a label, absent from the registry — the case that stops a
+    // caller minting a satellite of its own.
+    expect(await openSatelliteWindow('evil')).toBeNull()
+    expect(opens).toHaveLength(1)
+    expect(live.size).toBe(0)
   })
 
   it('toggles: summon, then dismiss', async () => {
-    expect(await toggleSatelliteWindow({ surface: 'hud' })).toBe(true)
-    expect(await toggleSatelliteWindow({ surface: 'hud' })).toBe(false)
+    expect(await toggleSatelliteWindow('hud')).toBe(true)
+    expect(await toggleSatelliteWindow('hud')).toBe(false)
     expect(live.has('sat-hud')).toBe(false)
   })
 
   it('takes its satellites down with the window that summoned them', async () => {
-    await openSatelliteWindow({ surface: 'hud' })
+    await openSatelliteWindow('hud')
     await flush()
 
     expect(closeRequested).not.toBeNull()
@@ -181,7 +208,7 @@ describe('satellite windows', () => {
   })
 
   it('stands aside once there is nothing left to tear down', async () => {
-    await openSatelliteWindow({ surface: 'hud' })
+    await openSatelliteWindow('hud')
     await closeSatelliteWindow('hud')
 
     const preventDefault = vi.fn()
@@ -193,7 +220,7 @@ describe('satellite windows', () => {
   })
 
   it('reports a window the user closed as gone', async () => {
-    await openSatelliteWindow({ surface: 'hud' })
+    await openSatelliteWindow('hud')
     expect(await isSatelliteWindowOpen('hud')).toBe(true)
 
     live.delete('sat-hud')
@@ -206,7 +233,7 @@ describe('satellite windows', () => {
   // (MJXHRM-374).
   describe('a satellite closed natively', () => {
     it('stops being claimed by the window that summoned it', async () => {
-      await openSatelliteWindow({ surface: 'hud' })
+      await openSatelliteWindow('hud')
       await flush()
 
       // The compositor takes it: gone from the window system, no JS ran.
@@ -223,11 +250,9 @@ describe('satellite windows', () => {
     })
 
     it('clears the surface grant it left on disk', async () => {
-      await openSatelliteWindow({ surface: 'hud' })
+      await openSatelliteWindow('hud')
       await flush()
 
-      // What a successful floating attach records for the satellite to read.
-      window.localStorage.setItem(GRANT_KEY, JSON.stringify({ backend: 'layer-shell', outputSized: true }))
       expect(satelliteSurfaceGrant('hud')).not.toBeNull()
 
       live.delete('sat-hud')
@@ -241,9 +266,8 @@ describe('satellite windows', () => {
     })
 
     it('ignores a close that is not a satellite', async () => {
-      await openSatelliteWindow({ surface: 'hud' })
+      await openSatelliteWindow('hud')
       await flush()
-      window.localStorage.setItem(GRANT_KEY, JSON.stringify({ backend: 'layer-shell', outputSized: true }))
 
       // Every window hears this event; only `sat-*` labels are ours to act on.
       emitNativeClose('tile-abc')

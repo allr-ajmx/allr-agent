@@ -16,18 +16,14 @@
 import { routeSessionId, sessionRoute } from '@/app/routes'
 import { surfaceCapabilities } from '@/lib/surface'
 import { requestComposerDraftSync } from '@/store/composer'
-import {
-  closeSatelliteWindow,
-  HUD_SATELLITE,
-  isSatelliteWindowOpen,
-  openSatelliteWindow,
-  type SatelliteWindowSpec
-} from '@/store/windows'
+import { closeSatelliteWindow, HUD_SURFACE, isSatelliteWindowOpen, openSatelliteWindow } from '@/store/windows'
 
 import { installHudHandoff, noteHudSummoned } from './handoff'
 
-/** The HUD's surface id, and therefore its `?win=` flag and label suffix. */
-export const HUD_SURFACE = HUD_SATELLITE.surface
+/** The HUD's surface id, and therefore its `?win=` flag and label suffix.
+ *  Re-exported so `app/hud/` call sites need not know it lives in the window
+ *  store, where `handoff.ts` also reads it. */
+export { HUD_SURFACE }
 
 /**
  * Which conversation the HUD should open on: the one the summoning window is
@@ -72,8 +68,7 @@ export async function openHud(sessionId: null | string = hudTargetSessionId()): 
   // the HUD is up could miss one dismissed immediately.
   installHudHandoff()
 
-  const spec: SatelliteWindowSpec = sessionId ? { ...HUD_SATELLITE, route: sessionRoute(sessionId) } : HUD_SATELLITE
-  const opened = (await openSatelliteWindow(spec)) !== null
+  const opened = (await openSatelliteWindow(HUD_SURFACE, sessionId ? sessionRoute(sessionId) : undefined)) !== null
 
   if (opened) {
     // Claim the return trip. Armed above, OWNED here: a peer app window hears

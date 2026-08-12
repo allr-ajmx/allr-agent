@@ -9,7 +9,7 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const open = vi.fn(async (_spec: unknown) => 'sat-hud' as null | string)
+const open = vi.fn(async (_surface: string, _route?: string) => 'sat-hud' as null | string)
 const close = vi.fn(async (_surface: string) => undefined)
 const isOpen = vi.fn(async (_surface: string) => false)
 const sync = vi.fn()
@@ -22,12 +22,12 @@ vi.mock('@/store/windows', () => ({
 
     return close(surface)
   },
-  HUD_SATELLITE: { floating: { namespace: 'hermes:hud' }, height: 260, surface: 'hud', width: 560 },
+  HUD_SURFACE: 'hud',
   isSatelliteWindowOpen: (surface: string) => isOpen(surface),
-  openSatelliteWindow: (spec: unknown) => {
+  openSatelliteWindow: (surface: string, route?: string) => {
     calls.push('open')
 
-    return open(spec)
+    return open(surface, route)
   }
 }))
 
@@ -92,13 +92,14 @@ describe('which conversation the HUD opens on', () => {
     atRoute('#/abc123')
     await openHud()
 
-    expect(open).toHaveBeenCalledWith(expect.objectContaining({ route: '/abc123', surface: 'hud' }))
+    expect(open).toHaveBeenCalledWith('hud', '/abc123')
   })
 
   it('opens on the new-chat route with no session at all', async () => {
     await openHud(null)
 
-    expect(open.mock.calls[0]?.[0]).not.toHaveProperty('route')
+    // No session: the HUD opens on the app's root route, not on a stale one.
+    expect(open).toHaveBeenCalledWith('hud', undefined)
   })
 })
 

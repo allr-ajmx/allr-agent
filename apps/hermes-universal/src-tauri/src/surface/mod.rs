@@ -18,7 +18,7 @@
 //! broken one.
 //!
 //! So callers **ask first** ([`surface_capabilities`]) and **are told what they
-//! actually got** ([`SurfaceGrant`] from [`surface_attach`]). Nothing here reports
+//! actually got** (the [`SurfaceGrant`] a satellite is opened with). Nothing here reports
 //! a capability because a call did not error; the Linux probe asks the compositor
 //! whether it speaks the protocol.
 //!
@@ -432,19 +432,31 @@ fn capabilities_for_other_desktop() -> SurfaceCapabilities {
 // Who may reshape which window (MJXHRM-382)
 // ---------------------------------------------------------------------------
 //
-// These commands take the label of the window to act on, and the webview they
-// are called from is *not* a trusted principal: plugins run in the app's own
-// webview, so any plugin — or any XSS in a rendered message — reaches this IPC
-// surface with the same authority the app has. Without a check, a caller could
-// name `main` and hand it an overlay-layer wlr-layer-shell role with
-// `keyboardFocus: exclusive`, i.e. turn the user's ordinary window into a
-// screen-covering surface that takes every keystroke; or shape the main
-// window's input region down to nothing.
+// The webview these are reached from is *not* a trusted principal: plugins run
+// in the app's own webview with the app's full authority (see
+// `contrib/runtime-loader.ts`, which says so in as many words), so any plugin —
+// or any injected content in a rendered message — reaches this IPC surface. A
+// caller that could name `main` and hand it an overlay-layer wlr-layer-shell
+// role with `keyboardFocus: exclusive` would turn the user's ordinary window
+// into a screen-covering surface that takes every keystroke; one that could
+// shape a window's input region could make it swallow or ignore every click.
 //
 // The rule is ownership, expressed in the label namespace this app already
 // uses. Only satellites (`sat-*`, see `store/windows.ts`) are reshapeable at
 // all — never `main`, `tile-*`, `instance-*`, `session-*` or `screen` — and a
 // satellite may only be reshaped by the window that attached it, or by itself.
+//
+// **Attaching is no longer reachable from JS at all** (MJXHRM-382, second
+// pass). An ownership check over a caller-supplied label was only ever as
+// strong as the label space: the webview held
+// `core:webview:allow-create-webview-window`, so the same caller could mint its
+// own `sat-anything` — or squat `sat-hud` before the real HUD existed — and
+// then attach *that*, with a namespace, layer and keyboard mode of its
+// choosing. The window is now built by `window::open_satellite_window` out of a
+// registry Rust owns, that permission is gone from `capabilities/default.json`,
+// and the request is never a value from the webview. What remains below guards
+// `surface_set_interactive_rect`, which a satellite legitimately calls about
+// itself, and records the ownership that check reads.
 
 /// Label prefix for satellite windows. Must stay in step with
 /// `SATELLITE_LABEL_PREFIX` in `store/windows.ts` and with the `sat-*` glob in
@@ -453,7 +465,7 @@ fn capabilities_for_other_desktop() -> SurfaceCapabilities {
 const SATELLITE_PREFIX: &str = "sat-";
 
 /// Which satellite label was attached by which window. Keyed by the satellite,
-/// valued by its owner — the window that called [`surface_attach`] for it.
+/// valued by its owner — the window whose `open_satellite_window` built it.
 #[cfg(desktop)]
 static SURFACE_OWNERS: std::sync::Mutex<std::collections::BTreeMap<String, String>> =
     std::sync::Mutex::new(std::collections::BTreeMap::new());
@@ -481,10 +493,11 @@ fn is_satellite_label(label: &str) -> bool {
 /// Pure so the policy is testable without a window system. `owner` is the
 /// currently recorded owner of `target`, if any.
 ///
-/// A satellite is refused as a *caller*: the frontend already holds that a
-/// satellite never spawns another (`canOpenSatelliteWindow()`), and a HUD that
-/// lives over other applications is the most exposed webview in the app — it
-/// must not be able to mint further overlay surfaces if it is compromised.
+/// A satellite is refused as a *caller*: `canOpenSatelliteWindow()` holds the
+/// same rule in the frontend, and a HUD that lives over other applications is
+/// the most exposed webview in the app — it must not be able to mint further
+/// overlay surfaces if it is compromised. Enforcing it here rather than only
+/// there is the difference between a rule and a convention.
 #[cfg(desktop)]
 fn may_attach(caller: &str, target: &str, owner: Option<&str>) -> Result<(), String> {
     if !is_satellite_label(target) {
@@ -648,26 +661,24 @@ pub async fn surface_capabilities() -> Result<SurfaceCapabilities, String> {
 /// surface has to be configured before its GtkWindow is realized. The caller
 /// shows it afterwards.
 ///
-/// `label` is the window to attach, and it is **authorized, not trusted** — see
-/// [`may_attach`]. Only a satellite may be attached, and only by a non-satellite
-/// window, which then owns it.
+/// **Not an IPC command, and that is the point (MJXHRM-382).** The only caller is
+/// `window::open_satellite_window`, which builds the window in the same
+/// main-thread turn and hands over a request out of its own pinned registry, so
+/// neither the target nor the layer/namespace/keyboard-focus it gets is ever a
+/// value that crossed the IPC boundary. `caller` is the label of the webview
+/// that asked for the satellite; it is still authorized (see [`may_attach`]) and
+/// recorded as the surface's owner, because [`surface_set_interactive_rect`] —
+/// which *is* reachable from JS — answers to that record.
+///
+/// Must be called on the main thread.
 #[cfg(desktop)]
-#[tauri::command]
-pub async fn surface_attach(
-    app: tauri::AppHandle,
-    webview: tauri::WebviewWindow,
-    label: String,
-    request: SurfaceRequest,
+pub fn attach_floating_surface(
+    app: &tauri::AppHandle,
+    caller: &str,
+    label: &str,
+    request: &SurfaceRequest,
 ) -> Result<SurfaceGrant, String> {
-    let caller = webview.label().to_string();
-
-    tauri::async_runtime::spawn_blocking(move || {
-        on_main_thread(&app, move |app| {
-            attach_on_main(&app, &caller, &label, &request)
-        })
-    })
-    .await
-    .map_err(|e| format!("attach failed: {e}"))??
+    attach_on_main(app, caller, label, request)
 }
 
 #[cfg(desktop)]
@@ -791,10 +802,12 @@ fn attach_on_main(
 /// `set_ignore_cursor_events`, which is why passing a rect there makes the surface
 /// interactive everywhere rather than pretending to cut a hole.
 ///
-/// `label` is authorized the same way [`surface_attach`]'s is — see
-/// [`may_reshape`]. A surface may shape itself (the HUD does), and its owner may
-/// shape it; nothing else can, because an input region is also a way to make a
-/// window swallow or ignore every click in it.
+/// `label` is **authorized, not trusted** — see [`may_reshape`]. A surface may
+/// shape itself (the HUD does), and its owner may shape it; nothing else can,
+/// because an input region is also a way to make a window swallow or ignore
+/// every click in it. This is the one half of the surface API that stayed on the
+/// IPC boundary, because the rect is measured inside the satellite's own
+/// document (`app/hud/use-hud-surface.ts`) and only it knows the number.
 #[cfg(desktop)]
 #[tauri::command]
 pub async fn surface_set_interactive_rect(
@@ -859,17 +872,8 @@ pub async fn surface_set_interactive_rect(
     .map_err(|e| format!("input region failed: {e}"))??
 }
 
-/// Mobile stubs. Registered so a stray call from shared frontend code gets a
+/// Mobile stub. Registered so a stray call from shared frontend code gets a
 /// clear refusal rather than "unknown command".
-#[cfg(mobile)]
-#[tauri::command]
-pub async fn surface_attach(
-    _label: String,
-    _request: SurfaceRequest,
-) -> Result<SurfaceGrant, String> {
-    Err("unsupported_platform".to_string())
-}
-
 #[cfg(mobile)]
 #[tauri::command]
 pub async fn surface_set_interactive_rect(

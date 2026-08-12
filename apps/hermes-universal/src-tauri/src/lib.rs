@@ -54,7 +54,7 @@ use ssh::{
     ssh_resolve_host, ssh_test, ssh_trust_host_key, SshState,
 };
 use surface::below::read_window_below;
-use surface::{surface_attach, surface_capabilities, surface_set_interactive_rect};
+use surface::{surface_capabilities, surface_set_interactive_rect};
 use transport::{
     cookies_export, cookies_import, http_request, ws_close, ws_open, ws_send, TransportState,
 };
@@ -63,7 +63,10 @@ use voice::{
     voice_arm, voice_close, voice_force_turn, voice_open, voice_suspend, voice_update_auth,
     voice_wake_listen, VoiceState,
 };
-use window::{open_instance_window, open_screen_window, open_session_window, open_tile_window};
+use window::{
+    open_instance_window, open_satellite_window, open_screen_window, open_session_window,
+    open_tile_window,
+};
 
 /// Open a URL in the system browser. Routed through the opener plugin's Rust API
 /// rather than its JS `openUrl` command: a Rust-internal call isn't gated by the
@@ -249,6 +252,7 @@ pub fn run() {
             open_instance_window,
             open_tile_window,
             open_screen_window,
+            open_satellite_window,
             update_check,
             update_open_download,
             ssh_connect,
@@ -262,7 +266,6 @@ pub fn run() {
             find_in_page,
             stop_find_in_page,
             surface_capabilities,
-            surface_attach,
             surface_set_interactive_rect,
             read_window_below
         ]))
