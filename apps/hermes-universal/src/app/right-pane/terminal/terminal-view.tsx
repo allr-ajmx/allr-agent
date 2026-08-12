@@ -6,7 +6,6 @@ import { WebglAddon } from '@xterm/addon-webgl'
 import { Terminal } from '@xterm/xterm'
 import { useEffect, useRef, useState } from 'react'
 
-import { useHermesConfigRecord } from '@/app/hooks/use-config-record'
 import { Button } from '@/components/ui/button'
 import { writeClipboardText } from '@/components/ui/copy-button'
 import { type Translations, useI18n } from '@/i18n'
@@ -33,14 +32,9 @@ import { readClipboardText, terminalClipboardIntent } from './clipboard'
 import { terminalLinkHandler, terminalWebLinksAddon } from './links'
 import { applyTerminalModifiers, MobileTerminalKeys, nextModifierState, type TerminalModifiers } from './mobile-keys'
 import { isMacPlatform, mirrorSelection } from './selection'
-import {
-  $terminalFontFamily,
-  applyTerminalFontFamily,
-  resolveTerminalFontFamily,
-  setTerminalFontFamilyFromConfig,
-  terminalFontFamilyFromConfig
-} from './terminal-font'
+import { $terminalFontFamily, applyTerminalFontFamily, resolveTerminalFontFamily } from './terminal-font'
 import { terminalTheme, withSurface } from './terminal-theme'
+import { useTerminalFontFromConfig } from './use-terminal-font-config'
 
 // The right-pane integrated terminal: an xterm bound to whichever shell the
 // workspace actually lives on. The transport is chosen at spawn by the gateway
@@ -123,17 +117,10 @@ export function TerminalView({ id }: { id: string }) {
   const terminalFont = useStore($terminalFontFamily)
 
   // The configured family, read off the SHARED config-record query rather than
-  // fetched once per mount. That shared cache is what makes the setting live:
-  // the Settings picker writes through it, a profile switch invalidates it, and
-  // every revalidation lands here — so the font no longer waits for the pane to
-  // be torn down and rebuilt before a config change is seen.
-  const { data: hermesConfig } = useHermesConfigRecord()
-
-  useEffect(() => {
-    if (hermesConfig) {
-      setTerminalFontFamilyFromConfig(terminalFontFamilyFromConfig(hermesConfig))
-    }
-  }, [hermesConfig])
+  // fetched once per mount — see ./use-terminal-font-config for why that cache
+  // IS the config→atom sync. Peer WebViews (a detached tile, the Android
+  // Settings activity) are covered by ./terminal-font-sync instead.
+  useTerminalFontFromConfig()
 
   const hostRef = useRef<HTMLDivElement | null>(null)
   const termRef = useRef<Terminal | null>(null)
