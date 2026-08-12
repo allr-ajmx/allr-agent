@@ -1290,6 +1290,42 @@ class TestDeleteSessionCompressionLineage:
 
         assert db.get_session("root") is not None
 
+    def test_bulk_delete_takes_each_selection_whole(self, db):
+        """The dashboard's multi-select reads the same projected list, so its
+        rows name chains too."""
+        self._chain(db)
+        db.create_session("solo", "cli")
+        db.append_message("solo", "user", "unrelated")
+        db._conn.commit()
+
+        deleted = db.delete_sessions(["tip", "solo"], include_compression_lineage=True)
+
+        # Counted in CONVERSATIONS, which is what the user ticked and what the
+        # "deleted N" toast claims — not in the rows it took to honour them.
+        assert deleted == 2
+        assert db.get_session("root") is None
+        assert db.get_session("tip") is None
+        assert db.get_session("solo") is None
+
+    def test_bulk_delete_counts_selections_not_rows(self, db):
+        """One selected conversation is several rows. The count the endpoint
+        returns is what the dashboard puts in its "deleted N" toast, so it has
+        to keep counting what the user ticked."""
+        self._chain(db)
+        # A third link, so the chain is unambiguously longer than the selection.
+        db._conn.execute(
+            "UPDATE sessions SET ended_at=?, end_reason=? WHERE id=?",
+            (200.0, "compression", "tip"),
+        )
+        db.create_session("tip2", "cli", parent_session_id="tip")
+        db.append_message("tip2", "user", "later still")
+        db._conn.commit()
+
+        deleted = db.delete_sessions(["tip2"], include_compression_lineage=True)
+
+        assert deleted == 1
+        assert db.list_sessions_rich(source="cli", limit=20) == []
+
 
 class TestBulkDeleteSessions:
     """``delete_sessions(ids)`` — the bulk-delete primitive backing the
