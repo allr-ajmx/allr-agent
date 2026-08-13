@@ -2,6 +2,15 @@
 // toHaveClass, …) to Vitest's expect.
 import '@testing-library/jest-dom/vitest'
 
+import { configureQueryClientForTests } from '@/lib/query-client'
+
+// A dozen test files render against the app's SHARED React Query client — they
+// have to, because the cache writers close over that instance. Its production
+// defaults carry React Query's retry ladder, which stretches any REJECTED query
+// to ~7s and blows Vitest's 5s testTimeout, so no test could assert a
+// failed-load state. Disabled once here, where no file can forget it.
+configureQueryClientForTests()
+
 // Node 26 defines its own `localStorage` accessor on the global object, which
 // returns `undefined` unless the process was started with --localstorage-file
 // (it warns: "localStorage is not available because --localstorage-file was
