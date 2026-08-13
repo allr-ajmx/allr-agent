@@ -73,3 +73,49 @@ export function stopVoicePlayback(): void {
   stopSpeaking()
   resetVoicePlayback()
 }
+
+/** True while a clip is being fetched or played — the window in which cutting
+ *  playback off is an INTERRUPTION rather than a no-op. */
+export function isVoicePlaybackActive(): boolean {
+  return $voicePlayback.get().status !== 'idle'
+}
+
+// ---------------------------------------------------------------------------
+// Interruption latch (MJXHRM-389).
+//
+// Universal's barge-in is native — the Rust `VoiceSession` raises `speechStart`
+// and the controller cuts playback — but cutting the audio is only half of it.
+// The model dictated a reply the user never heard the end of; unless the NEXT
+// submit says so, it answers the follow-up as though its previous answer had
+// landed in full ("as I said above…"), and the conversation quietly drifts out
+// of step with what the user actually heard.
+//
+// The gateway already accepts the flag: `prompt.submit` with `interrupted: true`
+// calls `mark_speech_interrupted()` (tui_gateway/methods_prompt.py:105-110),
+// which annotates that turn's MODEL message only — never the persisted text. So
+// this is purely a client-side latch: mark it where playback is cut, take it
+// where the next prompt goes out.
+//
+// TTL'd, because "take" is not guaranteed to follow "mark": a barge-in the user
+// then walks away from would otherwise annotate whatever they type twenty
+// minutes later as an interruption of a reply nobody remembers.
+// ---------------------------------------------------------------------------
+
+const INTERRUPT_TTL_MS = 120_000
+
+let interruptedAt: null | number = null
+
+/** Latch "the reply that was playing got cut off". Idempotent; the newest
+ *  interruption wins the TTL. */
+export function markVoicePlaybackInterrupted(): void {
+  interruptedAt = Date.now()
+}
+
+/** Consume the latch. Returns true only for a *fresh* interruption, and always
+ *  clears — so one barge-in annotates exactly one submit. */
+export function takeVoicePlaybackInterrupted(): boolean {
+  const at = interruptedAt
+  interruptedAt = null
+
+  return at !== null && Date.now() - at < INTERRUPT_TTL_MS
+}

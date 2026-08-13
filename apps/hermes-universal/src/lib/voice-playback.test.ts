@@ -7,7 +7,7 @@
  */
 
 import { atom } from 'nanostores'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const speakNow = vi.fn(async () => undefined)
 const speakUntilDone = vi.fn(async () => 'finished' as const)
@@ -69,5 +69,100 @@ describe('read-aloud sanitizes before speaking', () => {
 
     await expect(playSpeechText('hello', { source: 'read-aloud' })).rejects.toThrow(/no audio/)
     expect($voicePlayback.get().status).toBe('idle')
+  })
+})
+
+/**
+ * The interruption latch (MJXHRM-389).
+ *
+ * What makes this worth pinning is that BOTH halves are easy to write in a way
+ * that always answers "yes" — a `take` that ignores the TTL, or one that forgets
+ * to clear. Each test below fails on exactly one of those mistakes.
+ */
+describe('interrupted-playback latch', () => {
+  beforeEach(async () => {
+    vi.clearAllMocks()
+    // Drain anything a previous test latched: the module-level latch outlives a
+    // test, which is precisely the leak the TTL exists to bound.
+    const { takeVoicePlaybackInterrupted } = await import('./voice-playback')
+    takeVoicePlaybackInterrupted()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('is not set until something marks it', async () => {
+    const { takeVoicePlaybackInterrupted } = await import('./voice-playback')
+
+    expect(takeVoicePlaybackInterrupted()).toBe(false)
+  })
+
+  it('reports a fresh interruption', async () => {
+    const { markVoicePlaybackInterrupted, takeVoicePlaybackInterrupted } = await import('./voice-playback')
+
+    markVoicePlaybackInterrupted()
+
+    expect(takeVoicePlaybackInterrupted()).toBe(true)
+  })
+
+  it('annotates exactly ONE submit — a second take is false', async () => {
+    const { markVoicePlaybackInterrupted, takeVoicePlaybackInterrupted } = await import('./voice-playback')
+
+    markVoicePlaybackInterrupted()
+    takeVoicePlaybackInterrupted()
+
+    expect(takeVoicePlaybackInterrupted()).toBe(false)
+  })
+
+  it('expires: a barge-in the user walked away from never annotates the prompt they type later', async () => {
+    const { markVoicePlaybackInterrupted, takeVoicePlaybackInterrupted } = await import('./voice-playback')
+
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-01-01T00:00:00Z'))
+    markVoicePlaybackInterrupted()
+    // One millisecond past the 120 s TTL.
+    vi.setSystemTime(new Date('2026-01-01T00:02:00.001Z'))
+
+    expect(takeVoicePlaybackInterrupted()).toBe(false)
+  })
+
+  it('still reports just inside the TTL', async () => {
+    const { markVoicePlaybackInterrupted, takeVoicePlaybackInterrupted } = await import('./voice-playback')
+
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-01-01T00:00:00Z'))
+    markVoicePlaybackInterrupted()
+    vi.setSystemTime(new Date('2026-01-01T00:01:59.999Z'))
+
+    expect(takeVoicePlaybackInterrupted()).toBe(true)
+  })
+
+  it('an expired latch is cleared, not left to poison the next submit', async () => {
+    const { markVoicePlaybackInterrupted, takeVoicePlaybackInterrupted } = await import('./voice-playback')
+
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-01-01T00:00:00Z'))
+    markVoicePlaybackInterrupted()
+    vi.setSystemTime(new Date('2026-01-01T00:05:00Z'))
+    takeVoicePlaybackInterrupted()
+    // Back inside a TTL window measured from the ORIGINAL mark: if `take` had
+    // only reported false without clearing, this would now be true again.
+    vi.setSystemTime(new Date('2026-01-01T00:05:01Z'))
+
+    expect(takeVoicePlaybackInterrupted()).toBe(false)
+  })
+
+  it('tracks playback state so the typed-barge path can tell an interruption from a no-op', async () => {
+    const { isVoicePlaybackActive } = await import('./voice-playback')
+    const { $voicePlayback, resetVoicePlayback } = await import('@/store/voice-playback')
+
+    resetVoicePlayback()
+    expect(isVoicePlaybackActive()).toBe(false)
+
+    $voicePlayback.set({ source: 'read-aloud', messageId: null, status: 'speaking' })
+    expect(isVoicePlaybackActive()).toBe(true)
+
+    resetVoicePlayback()
   })
 })

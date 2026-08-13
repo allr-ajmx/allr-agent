@@ -1477,6 +1477,77 @@ describe('redirectPrompt', () => {
 //
 // The gateway drops a session's in-memory runtime on sleep/wake, a restart, or a
 // long idle. The STORED session survives; the runtime id the client holds does
+/**
+ * Interrupted-submit flagging (MJXHRM-389).
+ *
+ * Universal cut the audio on a barge-in and told the model nothing, so the reply
+ * the user never heard the end of came back referenced as though it had landed
+ * in full. The gateway already accepts the flag (`mark_speech_interrupted`); the
+ * client just never sent it.
+ *
+ * The negative case matters as much as the positive: `interrupted` must be
+ * ABSENT — not `false` — on an ordinary submit, so a backend that predates the
+ * flag sees the params it always did.
+ */
+describe('interrupted-submit flagging', () => {
+  const speaking = async () => {
+    const { $voicePlayback } = await import('@/store/voice-playback')
+    $voicePlayback.set({ source: 'read-aloud', messageId: 'a1', status: 'speaking' })
+  }
+
+  const submitParams = () =>
+    vi.mocked(requestGateway).mock.calls.find(call => call[0] === 'prompt.submit')?.[1] as Record<string, unknown>
+
+  beforeEach(async () => {
+    const { takeVoicePlaybackInterrupted } = await import('@/lib/voice-playback')
+    const { resetVoicePlayback } = await import('@/store/voice-playback')
+    takeVoicePlaybackInterrupted()
+    resetVoicePlayback()
+  })
+
+  it('flags a prompt typed over a reply being read aloud', async () => {
+    seedActiveSession('runtime-1', { storedSessionId: 'stored-1' })
+    await speaking()
+
+    await sendPrompt('actually, never mind that')
+
+    expect(submitParams()).toMatchObject({ text: 'actually, never mind that', interrupted: true })
+  })
+
+  it('omits the flag entirely when nothing was playing', async () => {
+    seedActiveSession('runtime-1', { storedSessionId: 'stored-1' })
+
+    await sendPrompt('a perfectly ordinary question')
+
+    expect(submitParams()).not.toHaveProperty('interrupted')
+  })
+
+  it('carries a latch set by the voice loop, which cut playback long before this', async () => {
+    seedActiveSession('runtime-1', { storedSessionId: 'stored-1' })
+    const { markVoicePlaybackInterrupted } = await import('@/lib/voice-playback')
+
+    // Exactly what a Rust `speechStart` barge-in leaves behind: the latch set,
+    // and `$voicePlayback` already back to idle.
+    markVoicePlaybackInterrupted()
+
+    await sendPrompt('wait, stop')
+
+    expect(submitParams()).toMatchObject({ interrupted: true })
+  })
+
+  it('flags only the FIRST submit after an interruption', async () => {
+    seedActiveSession('runtime-1', { storedSessionId: 'stored-1' })
+    await speaking()
+
+    await sendPrompt('first')
+    vi.mocked(requestGateway).mockClear()
+    updateSession('runtime-1', state => ({ ...state, busy: false }))
+    await sendPrompt('second')
+
+    expect(submitParams()).not.toHaveProperty('interrupted')
+  })
+})
+
 // not, and every session-scoped RPC then answers "session not found". One shared
 // resolver rebinds and retries once (store/session-recovery.ts).
 describe('stale-runtime recovery', () => {

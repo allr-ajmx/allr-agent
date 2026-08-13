@@ -1,7 +1,7 @@
 import type { ComposerTarget } from '@/app/chat/composer/focus'
 import type { SessionView } from '@/app/chat/session-view'
 import { takeSpeechChunk } from '@/lib/speech-chunker'
-import { playSpeechTextUntilDone, stopVoicePlayback } from '@/lib/voice-playback'
+import { markVoicePlaybackInterrupted, playSpeechTextUntilDone, stopVoicePlayback } from '@/lib/voice-playback'
 import { isVoiceStopCommand } from '@/lib/voice-stop-word'
 import { $connection } from '@/store/connection'
 import { notify, notifyError } from '@/store/notifications'
@@ -214,6 +214,12 @@ class ConversationController {
         if (this.speaking) {
           // Barge-in: stop the assistant; the in-flight playback settles 'stopped'
           // and the barge turn's transcript will supersede the current one.
+          //
+          // Latch it FIRST. `stopVoicePlayback` clears `$voicePlayback`, so by the
+          // time the barge utterance has been transcribed and reaches `sendPrompt`
+          // there is no longer any live playback for that path to notice — this is
+          // the only site that still knows a reply was cut off mid-sentence.
+          markVoicePlaybackInterrupted()
           stopVoicePlayback()
         }
 
