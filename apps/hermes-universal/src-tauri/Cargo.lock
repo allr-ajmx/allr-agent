@@ -2478,6 +2478,9 @@ dependencies = [
  "android_logger",
  "base64 0.22.1",
  "cookie_store 0.21.1",
+ "core-foundation",
+ "core-foundation-sys",
+ "core-graphics",
  "cpal",
  "flacenc",
  "futures-util",
@@ -2522,6 +2525,8 @@ dependencies = [
  "tracing-opentelemetry",
  "tracing-subscriber",
  "webkit2gtk",
+ "windows-sys 0.61.2",
+ "x11rb",
  "zip",
 ]
 

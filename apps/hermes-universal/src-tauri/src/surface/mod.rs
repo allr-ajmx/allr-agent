@@ -49,13 +49,25 @@
 pub mod below;
 #[cfg(target_os = "linux")]
 mod layer_shell;
+#[cfg(all(desktop, target_os = "macos"))]
+mod mac;
 #[cfg(desktop)]
 pub mod placement;
+#[cfg(all(desktop, target_os = "windows"))]
+mod win;
+// Desktop-only: nothing on a mobile OS enumerates other applications' windows,
+// so the picker, the mechanism enum and the enumerators all sit behind this.
+#[cfg(desktop)]
+pub mod window_stack;
+#[cfg(all(desktop, target_os = "linux"))]
+mod x11;
 
 use serde::{Deserialize, Serialize};
 
 #[cfg(desktop)]
 use placement::{MonitorRect, PlacementSource};
+#[cfg(desktop)]
+use window_stack::WindowBelowSource;
 
 #[cfg(desktop)]
 use tauri::Manager;
@@ -334,12 +346,43 @@ pub fn placement_source_for_linux(session: LinuxSession) -> PlacementSource {
     }
 }
 
+/// Which mechanism answers `read_window_below` on this Linux session
+/// (MJXHRM-392). Pure, and the *only* definition — the descriptor derives its
+/// `readWindowBelow` from it and the command dispatches on it, so the report
+/// cannot outlive the code.
+///
+/// Hyprland first and X11 second, never both: its IPC socket sees native
+/// Wayland windows, which no X11 enumeration can, so on a Hyprland session that
+/// is strictly the better answer even when `DISPLAY` is also set.
+///
+/// The Wayland arm is a refusal on purpose. XWayland *would* answer — and would
+/// answer wrongly: it reports only X11 clients, in a stacking order the Wayland
+/// compositor above it does not use, so under GNOME or KDE the "window below"
+/// would confidently name an application that is not there. Nothing beats that.
+///
+/// Like [`LinuxSession::hyprland`], `X11Stacking` is a claim about the
+/// *mechanism* being present, not a promise the round trip will succeed: a
+/// window manager that does not publish `_NET_CLIENT_LIST_STACKING` fails at
+/// call time with its own explanation, exactly as a Hyprland socket that does
+/// not answer already does.
+#[cfg(any(target_os = "linux", test))]
+pub fn window_below_source_for_linux(session: LinuxSession) -> WindowBelowSource {
+    if session.hyprland {
+        WindowBelowSource::HyprlandIpc
+    } else if session.wayland {
+        WindowBelowSource::Nothing
+    } else {
+        WindowBelowSource::X11Stacking
+    }
+}
+
 /// Map a probed Linux session onto the descriptor. Pure.
 #[cfg(any(target_os = "linux", test))]
 pub fn capabilities_for_linux(session: LinuxSession) -> SurfaceCapabilities {
     let mut notes = Vec::new();
     let layer_shell = session.layer_shell();
     let placement = placement_source_for_linux(session);
+    let read_below = window_below_source_for_linux(session);
 
     if layer_shell {
         notes.push(match session.layer_shell_protocol {
@@ -399,19 +442,9 @@ pub fn capabilities_for_linux(session: LinuxSession) -> SurfaceCapabilities {
         vec![KeyboardFocus::None, KeyboardFocus::OnDemand]
     };
 
-    let (read_below, read_below_source) = if session.hyprland {
-        (Support::Supported, Some("hyprland-ipc".to_string()))
-    } else {
-        notes.push(if session.wayland {
-            "Reading the window underneath needs a compositor that will tell us about other \
-             applications' windows. Only Hyprland's IPC socket is implemented; Wayland itself \
-             refuses."
-                .to_string()
-        } else {
-            "Reading the window underneath is not implemented for X11 in this build.".to_string()
-        });
-        (Support::Unsupported, None)
-    };
+    if let Some(note) = read_below.note() {
+        notes.push(note.to_string());
+    }
 
     if let Some(note) = placement.note() {
         notes.push(note.to_string());
@@ -445,15 +478,14 @@ pub fn capabilities_for_linux(session: LinuxSession) -> SurfaceCapabilities {
             Support::Supported
         },
         multi_monitor_placement: placement.support(),
-        read_window_below: read_below,
-        read_window_below_source: read_below_source,
+        read_window_below: read_below.support(),
+        read_window_below_source: read_below.label().map(str::to_string),
         notes,
     }
 }
 
 /// macOS and Windows. Both give an ordinary toplevel everything except an input
-/// region with a hole, and neither has a `read_window_below` implementation in
-/// this build — which is reported, not papered over.
+/// region with a hole.
 #[cfg(all(desktop, not(target_os = "linux")))]
 fn capabilities_for_other_desktop() -> SurfaceCapabilities {
     let platform = if cfg!(target_os = "macos") {
@@ -461,6 +493,31 @@ fn capabilities_for_other_desktop() -> SurfaceCapabilities {
     } else {
         "windows"
     };
+
+    capabilities_for_other_desktop_with(platform, window_below_source())
+}
+
+/// The mapping, split out from the probe so it is a pure function with tests.
+///
+/// Compiled under `cfg(test)` on Linux too, and that is the point: the CI job
+/// this repo actually runs is a Linux one, so a `cfg`-gated macOS/Windows
+/// descriptor is otherwise checked by nothing at all. That is precisely how the
+/// `multiMonitorPlacement: Supported` claim survived here with no code behind
+/// it (MJXHRM-417).
+#[cfg(any(all(desktop, not(target_os = "linux")), test))]
+fn capabilities_for_other_desktop_with(
+    platform: &str,
+    read_below: WindowBelowSource,
+) -> SurfaceCapabilities {
+    let mut notes = vec![
+        "Only whole-surface click-through is available; there is no partial input region, so the \
+         surface is either interactive everywhere or nowhere."
+            .to_string(),
+    ];
+    if let Some(note) = read_below.note() {
+        notes.push(note.to_string());
+    }
+
     SurfaceCapabilities {
         platform: platform.to_string(),
         floating_surface: true,
@@ -476,17 +533,9 @@ fn capabilities_for_other_desktop() -> SurfaceCapabilities {
         // in the codebase positioned a satellite at all, which made it the
         // boldest of the descriptor's untrue entries rather than the safest.
         multi_monitor_placement: PlacementSource::Pointer.support(),
-        read_window_below: Support::Unsupported,
-        read_window_below_source: None,
-        notes: vec![
-            "Reading the window underneath is Linux/Hyprland-only in this build; a win32 \
-             EnumWindows binding and a macOS CGWindowList binding are not written yet \
-             (MJXHRM-213)."
-                .to_string(),
-            "Only whole-surface click-through is available; there is no partial input region, so \
-             the surface is either interactive everywhere or nowhere."
-                .to_string(),
-        ],
+        read_window_below: read_below.support(),
+        read_window_below_source: read_below.label().map(str::to_string),
+        notes,
     }
 }
 
@@ -694,6 +743,55 @@ fn placement_source() -> PlacementSource {
         // macOS and Windows: the pointer is readable and a window can be moved
         // to where it is.
         PlacementSource::Pointer
+    }
+}
+
+/// Which mechanism answers `read_window_below` here (MJXHRM-392). The
+/// descriptor's `readWindowBelow` is derived from this same value, so a caller
+/// reading the capability is reading the mechanism.
+///
+/// **Must run on the GTK main thread** on Linux.
+#[cfg(desktop)]
+fn window_below_source() -> WindowBelowSource {
+    #[cfg(target_os = "linux")]
+    {
+        window_below_source_for_linux(probe_linux_session())
+    }
+    #[cfg(target_os = "macos")]
+    {
+        // The one platform where the mechanism is the same call either way and
+        // only the *completeness* of its answer changes. Preflight never
+        // prompts; nothing in this crate calls the API that does. See
+        // `surface/mac.rs`.
+        if mac::titles_available() {
+            WindowBelowSource::MacWindowList
+        } else {
+            WindowBelowSource::MacWindowListUntitled
+        }
+    }
+    #[cfg(target_os = "windows")]
+    {
+        WindowBelowSource::Win32EnumWindows
+    }
+}
+
+/// [`window_below_source`], from wherever the caller happens to be.
+///
+/// The `read_window_below` command runs on a blocking pool and the Linux probe
+/// must run on the GTK main thread, so the hop lives here rather than being
+/// worked around with a second, cheaper, subtly different probe — which is how
+/// a capability report and the code behind it come apart.
+#[cfg(desktop)]
+pub fn window_below_source_for(app: &tauri::AppHandle) -> Result<WindowBelowSource, String> {
+    #[cfg(target_os = "linux")]
+    {
+        on_main_thread(app, |_| window_below_source())
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = app;
+
+        Ok(window_below_source())
     }
 }
 
@@ -1258,14 +1356,136 @@ mod tests {
         assert!(caps.can_host_input());
     }
 
+    // -----------------------------------------------------------------------
+    // Which mechanism reads the window underneath (MJXHRM-392)
+    // -----------------------------------------------------------------------
+
+    /// Wayland-without-Hyprland is the one Linux session that cannot answer.
+    /// It must say so *and say why* — an `Unsupported` with no note is a bug
+    /// report the user has no next step for.
     #[test]
-    fn no_hyprland_means_read_window_below_says_no() {
-        let caps = capabilities_for_linux(LinuxSession {
+    fn wayland_without_hyprland_cannot_read_the_window_below_and_says_why() {
+        let session = LinuxSession {
             hyprland: false,
             ..hyprland_session()
-        });
+        };
+        assert_eq!(
+            window_below_source_for_linux(session),
+            WindowBelowSource::Nothing
+        );
+
+        let caps = capabilities_for_linux(session);
         assert_eq!(caps.read_window_below, Support::Unsupported);
         assert!(caps.read_window_below_source.is_none());
+        // Matched on a phrase only THIS note carries. "Wayland" on its own is
+        // not a check: the placement note on the very same session says it too,
+        // so the assertion still passed with the read-below note deleted.
+        assert!(
+            caps.notes
+                .iter()
+                .any(|n| n.contains("withholds window identity")),
+            "{:?}",
+            caps.notes
+        );
+    }
+
+    /// X11 can enumerate every window on the display; that is the property
+    /// Wayland removed. Before MJXHRM-392 this session reported `Unsupported`
+    /// with a note saying so, and the note was the accurate part.
+    #[test]
+    fn an_x11_session_reads_the_window_below_over_the_x_protocol() {
+        let session = LinuxSession {
+            wayland: false,
+            layer_shell_library: false,
+            layer_shell_supported: false,
+            layer_shell_protocol: None,
+            hyprland: false,
+        };
+        assert_eq!(
+            window_below_source_for_linux(session),
+            WindowBelowSource::X11Stacking
+        );
+
+        let caps = capabilities_for_linux(session);
+        assert_eq!(caps.read_window_below, Support::Supported);
+        assert_eq!(
+            caps.read_window_below_source.as_deref(),
+            Some("x11-stacking")
+        );
+        assert!(
+            !caps.notes.iter().any(|n| n.contains("window underneath")),
+            "a supported mechanism owes no apology: {:?}",
+            caps.notes
+        );
+    }
+
+    /// Hyprland wins over X11 even with `DISPLAY` set, which it is on any
+    /// session running XWayland: its IPC socket sees native Wayland clients and
+    /// an X11 enumeration cannot.
+    #[test]
+    fn hyprland_beats_x11_when_both_look_available() {
+        assert_eq!(
+            window_below_source_for_linux(LinuxSession {
+                wayland: false,
+                ..hyprland_session()
+            }),
+            WindowBelowSource::HyprlandIpc
+        );
+        assert_eq!(
+            capabilities_for_linux(hyprland_session())
+                .read_window_below_source
+                .as_deref(),
+            Some("hyprland-ipc")
+        );
+    }
+
+    /// The macOS/Windows descriptor, exercised from the Linux CI job — the only
+    /// job this repo runs. MJXHRM-417 found `multiMonitorPlacement: Supported`
+    /// here with nothing behind it precisely because nothing compiled this
+    /// function.
+    #[test]
+    fn windows_reads_the_window_below_and_says_which_call_does_it() {
+        let caps =
+            capabilities_for_other_desktop_with("windows", WindowBelowSource::Win32EnumWindows);
+        assert_eq!(caps.platform, "windows");
+        assert_eq!(caps.read_window_below, Support::Supported);
+        assert_eq!(
+            caps.read_window_below_source.as_deref(),
+            Some("win32-enum-windows")
+        );
+        assert!(!caps.notes.iter().any(|n| n.contains("Screen Recording")));
+    }
+
+    /// macOS is the one platform whose answer can be partial: everything but
+    /// the title is public. `Degraded` with the reason attached is the honest
+    /// report — `Supported` would promise titles that are not coming, and
+    /// `Unsupported` would throw away a reading the model can use.
+    #[test]
+    fn macos_degrades_rather_than_refusing_when_titles_are_withheld() {
+        let granted =
+            capabilities_for_other_desktop_with("macos", WindowBelowSource::MacWindowList);
+        assert_eq!(granted.read_window_below, Support::Supported);
+        assert_eq!(
+            granted.read_window_below_source.as_deref(),
+            Some("macos-window-list")
+        );
+        assert!(!granted.notes.iter().any(|n| n.contains("Screen Recording")));
+
+        let withheld =
+            capabilities_for_other_desktop_with("macos", WindowBelowSource::MacWindowListUntitled);
+        assert_eq!(withheld.read_window_below, Support::Degraded);
+        assert_eq!(
+            withheld.read_window_below_source.as_deref(),
+            Some("macos-window-list-untitled")
+        );
+        assert!(
+            withheld
+                .notes
+                .iter()
+                .any(|n| n.contains("Screen Recording")),
+            "{:?}",
+            withheld.notes
+        );
     }
 
     // -----------------------------------------------------------------------
