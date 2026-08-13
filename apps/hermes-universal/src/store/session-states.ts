@@ -939,18 +939,21 @@ export function discardSessionTile(storedSessionId: string) {
 /** ⌘⇧T — reopen the most recently closed tab where it was, then FOCUS it.
  *  Adoption alone is silent (it must not steal the active tab), so restore has
  *  to front the pane explicitly or the tab comes back behind whatever you were
- *  looking at. Skips ids that are live again (reopened / now the primary). */
+ *  looking at. Skips conversations that are live again — reopened, or now the
+ *  primary — asked by CONVERSATION rather than by id, because the stack holds
+ *  the key the tile had when it CLOSED and a compaction since then has moved the
+ *  session on (MJXHRM-423). */
 export function reopenLastClosedTile(): void {
   const stack = closedStack()
 
   for (let tile = stack.pop(); tile; tile = stack.pop()) {
     const { storedSessionId } = tile
 
-    if (storedSessionId === $activeStoredSessionId.get()) {
+    if (sameStoredSession(storedSessionId, $activeStoredSessionId.get())) {
       continue
     }
 
-    if (!$sessionTiles.get().some(t => t.storedSessionId === storedSessionId)) {
+    if (!$sessionTiles.get().some(t => sameStoredSession(t.storedSessionId, storedSessionId))) {
       openSessionTile(storedSessionId, tile.dir, tile.anchor, tile.before)
       focusOpenSession(storedSessionId)
 
