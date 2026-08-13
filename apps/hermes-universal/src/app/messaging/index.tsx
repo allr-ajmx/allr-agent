@@ -49,7 +49,7 @@ const PLATFORMS_BACKSTOP_MS = 60_000
 const PILL_TONE: Record<StatusTone, string> = {
   good: 'bg-primary/10 text-primary',
   muted: 'bg-muted text-muted-foreground',
-  warn: 'bg-amber-500/10 text-amber-600 dark:text-amber-300',
+  warn: 'bg-(--ui-yellow)/10 text-(--ui-yellow)',
   bad: 'bg-destructive/10 text-destructive'
 }
 

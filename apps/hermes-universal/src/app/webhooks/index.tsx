@@ -351,7 +351,7 @@ export function WebhooksView({ onClose, variant }: WebhooksViewProps) {
                     {visible.map(sub => (
                       <PanelListRow
                         active={selected?.name === sub.name}
-                        dotClassName={sub.enabled ? 'bg-emerald-500' : 'bg-muted-foreground/50'}
+                        dotClassName={sub.enabled ? 'bg-(--ui-green)' : 'bg-muted-foreground/50'}
                         key={sub.name}
                         menuItems={[
                           {
@@ -511,7 +511,7 @@ function ReceiverBanner({
         'mb-3 shrink-0 rounded-md px-3 py-2.5 text-xs leading-relaxed',
         off || enableNote?.tone === 'bad'
           ? 'bg-destructive/10 text-destructive'
-          : 'bg-amber-500/10 text-amber-700 dark:text-amber-300'
+          : 'bg-(--ui-yellow)/10 text-(--ui-yellow)'
       )}
       role="status"
     >

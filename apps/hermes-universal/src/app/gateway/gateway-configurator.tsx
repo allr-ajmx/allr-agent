@@ -131,9 +131,9 @@ function ModeCard({
 type ProbeStatus = 'idle' | 'probing' | 'done' | 'error'
 
 const CLOUD_STATUS_DOT: Record<string, string> = {
-  active: 'bg-green-500',
-  degraded: 'bg-yellow-500',
-  down: 'bg-red-500',
+  active: 'bg-(--ui-green)',
+  degraded: 'bg-(--ui-yellow)',
+  down: 'bg-(--ui-red)',
   unknown: 'bg-muted-foreground'
 }
 

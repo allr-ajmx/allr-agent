@@ -29,11 +29,11 @@ const DOT_BASE = 'size-1.5 rounded-full'
 // the dot is for is telling states APART, and that is a job for color and fill:
 // filled means producing, hollow means open but quiet.
 const DOT_VARIANTS: Record<SessionDotState, DotVariant> = {
-  // Amber — a clarify/approval is blocking the turn. The one "act now" color,
+  // Yellow — a clarify/approval is blocking the turn. The one "act now" color,
   // and the only state the user is required to do something about.
   'needs-input': {
     ariaLabel: r => r.needsInput,
-    className: `${DOT_BASE} bg-amber-500`,
+    className: `${DOT_BASE} bg-(--ui-yellow)`,
     role: 'status',
     title: r => r.waitingForAnswer
   },
@@ -52,10 +52,10 @@ const DOT_VARIANTS: Record<SessionDotState, DotVariant> = {
     role: 'status',
     title: r => r.sessionRunning
   },
-  // Emerald — the turn finished while the user was looking elsewhere.
+  // Green — the turn finished while the user was looking elsewhere.
   unread: {
     ariaLabel: r => r.finishedUnread,
-    className: `${DOT_BASE} bg-emerald-500`,
+    className: `${DOT_BASE} bg-(--ui-green)`,
     role: 'status',
     title: r => r.finishedUnread
   },

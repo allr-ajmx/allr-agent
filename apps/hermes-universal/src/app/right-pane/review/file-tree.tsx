@@ -56,8 +56,8 @@ const STATUS_GLYPH: Record<string, { icon: string; tone: string }> = {
   A: { icon: 'diff-added', tone: 'text-(--ui-green)' },
   C: { icon: 'diff-added', tone: 'text-(--ui-green)' },
   D: { icon: 'diff-removed', tone: 'text-(--ui-red)' },
-  M: { icon: 'diff-modified', tone: 'text-amber-500/85' },
-  R: { icon: 'diff-renamed', tone: 'text-sky-500/85' },
+  M: { icon: 'diff-modified', tone: 'text-(--ui-yellow)/85' },
+  R: { icon: 'diff-renamed', tone: 'text-(--ui-cyan)/85' },
   U: { icon: 'warning', tone: 'text-(--ui-red)' },
   '?': { icon: 'diff-added', tone: 'text-muted-foreground/60' }
 }

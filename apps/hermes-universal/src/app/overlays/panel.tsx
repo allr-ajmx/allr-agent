@@ -362,7 +362,7 @@ const PILL_TONE: Record<PanelPillTone, string> = {
   bad: 'bg-destructive/10 text-destructive',
   good: 'bg-primary/10 text-primary',
   muted: 'bg-foreground/10 text-muted-foreground',
-  warn: 'bg-amber-500/10 text-amber-600 dark:text-amber-300'
+  warn: 'bg-(--ui-yellow)/10 text-(--ui-yellow)'
 }
 
 export function PanelPill({ children, tone = 'muted' }: { children: ReactNode; tone?: PanelPillTone }) {

@@ -429,7 +429,7 @@ export function CommandCenterView({
                       <span
                         className={cn(
                           'size-2 shrink-0 rounded-full',
-                          status.gateway_running ? 'bg-emerald-500' : 'bg-amber-500'
+                          status.gateway_running ? 'bg-(--ui-green)' : 'bg-(--ui-yellow)'
                         )}
                       />
                       <span className="text-[length:var(--conversation-text-font-size)] font-medium text-foreground">
@@ -596,7 +596,7 @@ function UsagePanel({ error, loading, onRefresh, period, usage }: UsagePanelProp
               <span className="size-2 rounded-[1px] bg-[color:var(--dt-primary)]/60" /> {cc.input}
             </span>
             <span className="inline-flex items-center gap-1">
-              <span className="size-2 rounded-[1px] bg-emerald-500/70" /> {cc.output}
+              <span className="size-2 rounded-[1px] bg-(--ui-green)/70" /> {cc.output}
             </span>
           </span>
         </div>
@@ -622,7 +622,7 @@ function UsagePanel({ error, loading, onRefresh, period, usage }: UsagePanelProp
                       style={{ height: Math.max(inputH, entry.input_tokens > 0 ? 1 : 0) }}
                     />
                     <div
-                      className="w-full bg-emerald-500/60"
+                      className="w-full bg-(--ui-green)/60"
                       style={{ height: Math.max(outputH, entry.output_tokens > 0 ? 1 : 0) }}
                     />
                   </div>

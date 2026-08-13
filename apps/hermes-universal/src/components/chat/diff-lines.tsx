@@ -40,15 +40,15 @@ interface ParsedHunk {
 // plain renderer; the Shiki path omits it so syntax colors win, layering only
 // the background + border.
 const DIFF_KIND_TINT: Record<DiffKind, string> = {
-  add: 'border-emerald-500 bg-emerald-500/12',
+  add: 'border-(--ui-green) bg-(--ui-green)/12',
   context: 'border-transparent',
-  remove: 'border-rose-500 bg-rose-500/12'
+  remove: 'border-(--ui-red) bg-(--ui-red)/12'
 }
 
 const DIFF_KIND_TEXT: Record<DiffKind, string> = {
-  add: 'text-emerald-800 dark:text-emerald-200',
+  add: 'text-(--ui-green)',
   context: '',
-  remove: 'text-rose-800 dark:text-rose-200'
+  remove: 'text-(--ui-red)'
 }
 
 // `diff-line` is a hook, not a style: it is the one handle every renderer here
