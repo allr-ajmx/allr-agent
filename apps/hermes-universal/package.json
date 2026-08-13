@@ -25,13 +25,15 @@
     "lint": "eslint src/ && npm run lint:samples",
     "lint:samples": "cd ../../packages/hermes-sample-plugins && eslint .",
     "lint:fix": "eslint src/ --fix && cd ../../packages/hermes-sample-plugins && eslint . --fix",
-    "fmt": "prettier --write 'src/**/*.{ts,tsx}' 'bench/*.mjs' 'vite.config.ts'",
+    "fmt": "prettier --write 'src/**/*.{ts,tsx}' 'bench/*.mjs' 'scripts/*.mjs' 'vite.config.ts'",
     "fix": "npm run lint:fix && npm run fmt",
+    "i18n:baseline": "node scripts/i18n-audit.mjs --write",
     "check:js": "npm run typecheck && npm run lint && npm run test && npm run build",
+    "check:i18n": "node scripts/i18n-audit.mjs",
     "check:rust": "cargo check --manifest-path src-tauri/Cargo.toml",
     "check:rust:fmt": "cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check",
     "check:rust:test": "cargo test --manifest-path src-tauri/Cargo.toml --all-features",
-    "check": "npm run check:js && npm run check:rust:fmt && npm run check:rust && npm run check:rust:test"
+    "check": "npm run check:js && npm run check:i18n && npm run check:rust:fmt && npm run check:rust && npm run check:rust:test"
   },
   "dependencies": {
     "@assistant-ui/core": "0.2.23",
