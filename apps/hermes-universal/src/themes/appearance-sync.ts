@@ -1,7 +1,5 @@
-import { emit, listen } from '@tauri-apps/api/event'
-
 import { IS_TAURI } from '@/lib/platform'
-import { WEBVIEW_ID } from '@/lib/webview-id'
+import { broadcastToPeers, onPeerBroadcast, type PeerBroadcast } from '@/lib/webview-broadcast'
 
 import { $mode, $skin } from './context'
 
@@ -22,16 +20,13 @@ import { $mode, $skin } from './context'
 // renderers, and cross-process `storage` delivery is a WebKit/Android WebView
 // implementation detail we would be betting the feature on. The portable
 // equivalent already exists here and is proven in production — the Tauri event
-// bus, exactly as store/gateway-switch-sync.ts uses it for the same "one WebView
-// changed something global" problem. This is its appearance twin.
+// bus, reached through lib/webview-broadcast.ts. This is its appearance twin.
 //
 // Wired by a side-effect import in main.tsx, like the gateway sync it mirrors.
 
 export const APPEARANCE_EVENT = 'appearance://changed'
 
-export interface AppearanceChangedPayload {
-  /** The sending WebView, so a receiver can drop its own echo (emit is global). */
-  origin: string
+export interface AppearanceChangedPayload extends PeerBroadcast {
   /** Skin NAME, not a palette. Every WebView resolves it against its own registry. */
   skin: string
   /** Raw `light` / `dark` / `system` — normalized by the ThemeProvider, not here. */
@@ -70,11 +65,7 @@ export function initAppearanceSync(): void {
       return
     }
 
-    const payload: AppearanceChangedPayload = { mode: $mode.get(), origin: WEBVIEW_ID, skin: $skin.get() }
-
-    // Best-effort: a failed broadcast must never break the switch that just
-    // worked in THIS window.
-    void emit(APPEARANCE_EVENT, payload).catch(() => {})
+    broadcastToPeers<AppearanceChangedPayload>(APPEARANCE_EVENT, { mode: $mode.get(), skin: $skin.get() })
   }
 
   // `listen`, not `subscribe`: nanostores calls a subscriber immediately, which
@@ -83,13 +74,7 @@ export function initAppearanceSync(): void {
   $skin.listen(announce)
   $mode.listen(announce)
 
-  void listen<AppearanceChangedPayload>(APPEARANCE_EVENT, event => {
-    const payload = event.payload
-
-    if (!payload?.origin || payload.origin === WEBVIEW_ID) {
-      return
-    }
-
+  onPeerBroadcast<AppearanceChangedPayload>(APPEARANCE_EVENT, payload => {
     applyingRemote = true
 
     try {

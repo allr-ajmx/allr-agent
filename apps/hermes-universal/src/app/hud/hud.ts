@@ -15,8 +15,14 @@
 
 import { routeSessionId, sessionRoute } from '@/app/routes'
 import { surfaceCapabilities } from '@/lib/surface'
-import { requestComposerDraftSync } from '@/store/composer'
-import { closeSatelliteWindow, HUD_SURFACE, isSatelliteWindowOpen, openSatelliteWindow } from '@/store/windows'
+import { requestComposerDraftSync, requestPeerComposerFlush } from '@/store/composer'
+import {
+  closeSatelliteWindow,
+  HUD_SURFACE,
+  isSatelliteWindow,
+  isSatelliteWindowOpen,
+  openSatelliteWindow
+} from '@/store/windows'
 
 import { installHudHandoff, noteHudSummoned } from './handoff'
 
@@ -100,6 +106,24 @@ export async function closeHud(): Promise<void> {
   // half-typed text is in the stash before it is torn down, rather than relying
   // on `pagehide` winning a race with window destruction.
   requestComposerDraftSync('flush')
+
+  // And when it is NOT — the titlebar button, and the OS-wide chord, which the
+  // global-shortcut plugin registers per PROCESS and so fires in whichever
+  // window claimed it — the text at risk is in the other webview and this one
+  // cannot reach it by dispatching a DOM event. Nothing there writes it down on
+  // the way out either: a satellite torn down from another window runs no JS at
+  // all (store/windows.ts), which is why its close is announced from Rust. So it
+  // is asked, and the ask is AWAITED — the whole point is that the draft is on
+  // disk before the window holding it stops existing.
+  //
+  // Only from a non-satellite, and only after the local flush above: this
+  // window and the HUD are usually on the SAME conversation, so an unordered
+  // exchange would let one window's older copy of one draft land on top of the
+  // other's newer one.
+  if (!isSatelliteWindow()) {
+    await requestPeerComposerFlush(HUD_SURFACE)
+  }
+
   await closeSatelliteWindow(HUD_SURFACE)
 }
 

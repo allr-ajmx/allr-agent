@@ -1,7 +1,5 @@
-import { emit, listen } from '@tauri-apps/api/event'
-
 import { IS_TAURI } from '@/lib/platform'
-import { WEBVIEW_ID } from '@/lib/webview-id'
+import { broadcastToPeers, onPeerBroadcast, type PeerBroadcast } from '@/lib/webview-broadcast'
 import { $activeGatewayProfile } from '@/store/profile'
 
 import { $terminalFontFamily, setTerminalFontFamilyFromConfig } from './terminal-font'
@@ -33,12 +31,10 @@ import { $terminalFontFamily, setTerminalFontFamilyFromConfig } from './terminal
 
 export const TERMINAL_FONT_EVENT = 'terminal-font://changed'
 
-export interface TerminalFontChangedPayload {
+export interface TerminalFontChangedPayload extends PeerBroadcast {
   /** The configured family verbatim — a friendly name OR an authored CSS stack.
    *  Each WebView resolves it against the bundled fallback itself. */
   family: string
-  /** The sending WebView, so a receiver can drop its own echo (emit is global). */
-  origin: string
   /** The profile the sender is scoped to. `$activeProfile` is a per-WebView
    *  persisted atom, so a satellite opened before a profile switch is still on
    *  the old one — and this is profile config, not a device preference. Without
@@ -79,15 +75,10 @@ export function initTerminalFontSync(): void {
       return
     }
 
-    const payload: TerminalFontChangedPayload = {
+    broadcastToPeers<TerminalFontChangedPayload>(TERMINAL_FONT_EVENT, {
       family,
-      origin: WEBVIEW_ID,
       profile: $activeGatewayProfile.get()
-    }
-
-    // Best-effort: a failed broadcast must never break the change that just
-    // worked in THIS window.
-    void emit(TERMINAL_FONT_EVENT, payload).catch(() => {})
+    })
   }
 
   // `listen`, not `subscribe`: nanostores calls a subscriber immediately, which
@@ -95,10 +86,9 @@ export function initTerminalFontSync(): void {
   // over a live one.
   $terminalFontFamily.listen(announce)
 
-  void listen<TerminalFontChangedPayload>(TERMINAL_FONT_EVENT, event => {
-    const payload = event.payload
-
-    if (!payload?.origin || payload.origin === WEBVIEW_ID || typeof payload.family !== 'string') {
+  // `onPeerBroadcast` has already dropped our own echo (`emit` is global).
+  onPeerBroadcast<TerminalFontChangedPayload>(TERMINAL_FONT_EVENT, payload => {
+    if (typeof payload.family !== 'string') {
       return
     }
 
