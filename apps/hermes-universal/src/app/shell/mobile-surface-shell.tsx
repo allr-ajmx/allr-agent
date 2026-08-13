@@ -118,7 +118,7 @@ export function MobileSurfaceShell({
         }
         left={
           <TitlebarButton className="size-4" label={t.common.back} onClick={onHome}>
-            <Codicon name="chevron-left" size="1.4rem" />
+            <Codicon className="rtl:-scale-x-100" name="chevron-left" size="1.4rem" />
           </TitlebarButton>
         }
       />

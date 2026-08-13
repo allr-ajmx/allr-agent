@@ -195,7 +195,7 @@ function StatusbarVisibilityMenu({
 function StatusbarHideHint() {
   const hint = useKeybindHint('view.toggleStatusbar')
 
-  return <span className="ml-auto pl-2 text-(--ui-text-quaternary)">{hint}</span>
+  return <span className="ms-auto ps-2 text-(--ui-text-quaternary)">{hint}</span>
 }
 
 /**
@@ -245,7 +245,7 @@ function StatusbarItemViewImpl({
   const content = row ? (
     <>
       <span className={NAV_ROW_ICON}>{item.icon}</span>
-      {item.label && <span className="min-w-0 flex-1 truncate text-left">{item.label}</span>}
+      {item.label && <span className="min-w-0 flex-1 truncate text-start">{item.label}</span>}
       {item.detail && <span className="truncate text-(--ui-text-tertiary)">{item.detail}</span>}
     </>
   ) : (

@@ -131,7 +131,7 @@ export function ModelEditSubmenu({
               {copy.thinking}
               <Switch
                 checked={thinkingOn}
-                className="ml-auto"
+                className="ms-auto"
                 onCheckedChange={checked =>
                   onSetOptions({ effort: checked ? effortValue || DEFAULT_REASONING_EFFORT : 'none' })
                 }
@@ -142,7 +142,7 @@ export function ModelEditSubmenu({
           {hasFast ? (
             <DropdownMenuItem className={dropdownMenuRow} onSelect={event => event.preventDefault()}>
               {copy.fast}
-              <Switch checked={fastOn} className="ml-auto" onCheckedChange={setFast} size="xs" />
+              <Switch checked={fastOn} className="ms-auto" onCheckedChange={setFast} size="xs" />
             </DropdownMenuItem>
           ) : null}
           {reasoning ? (

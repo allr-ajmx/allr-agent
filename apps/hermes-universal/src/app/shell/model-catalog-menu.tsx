@@ -336,7 +336,7 @@ export function ModelCatalogMenu({
                             {meta ? <span className="text-(--ui-text-tertiary)"> {meta}</span> : null}
                           </span>
                           {isCurrent ? (
-                            <Codicon className="ml-auto text-foreground" name="check" size="0.75rem" />
+                            <Codicon className="ms-auto text-foreground" name="check" size="0.75rem" />
                           ) : null}
                         </DropdownMenuSubTrigger>
                         <ModelEditSubmenu
@@ -380,7 +380,7 @@ export function ModelCatalogMenu({
                 }}
               >
                 <span className="min-w-0 flex-1 truncate">MoA: {preset}</span>
-                {isCurrentMoa ? <Codicon className="ml-auto text-foreground" name="check" size="0.75rem" /> : null}
+                {isCurrentMoa ? <Codicon className="ms-auto text-foreground" name="check" size="0.75rem" /> : null}
               </DropdownMenuItem>
             )
           })}

@@ -153,7 +153,7 @@ export function MobileWorkspace({ onClose }: { onClose: () => void }) {
     <div
       // In from the right, matching the button that opens it — see MobileSidebar
       // for why these surfaces animate at all.
-      className="animate-in slide-in-from-right fixed right-0 left-0 z-50 flex flex-col bg-background duration-150"
+      className="animate-in slide-in-from-end fixed inset-x-0 z-50 flex flex-col bg-background duration-150"
       style={{
         // Sized to the VISIBLE rectangle, not the layout viewport. A webview
         // that reveals a focused input by scrolling the visual viewport leaves
@@ -172,7 +172,7 @@ export function MobileWorkspace({ onClose }: { onClose: () => void }) {
         center={<span className="block truncate text-xs text-muted-foreground">{project || copy.noProject}</span>}
         left={
           <TitlebarButton className="size-4" label={copy.backToChat} onClick={onClose}>
-            <Codicon name="chevron-left" size="1.4rem" />
+            <Codicon className="rtl:-scale-x-100" name="chevron-left" size="1.4rem" />
           </TitlebarButton>
         }
       />
