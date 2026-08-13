@@ -74,6 +74,68 @@ function applyToolEvent(
   return patchLastAssistant(state, m => ({ ...m, parts: upsertToolPart(m.parts, payload, phase) }))
 }
 
+/**
+ * Adopt the gateway's `session.info` runtime snapshot into the slice.
+ *
+ * This used to take `cwd` and drop everything else on the floor — while three
+ * comments in `store/model.ts` promised the opposite ("a live session's own
+ * session.info sync takes over", "session.info will confirm it"). Nothing
+ * consumed it, so a session's model/provider/effort/fast were whatever the LAST
+ * optimistic pick wrote, and a session that never had one (every tile, every
+ * detached window, every `/model` run from another client) had them blank
+ * forever.
+ *
+ * It matters most for a MID-TURN model pick. `config.set model` on a running
+ * session cannot swap the agent in place, so the gateway stashes the pick in
+ * `pending_model_switch` and applies it at the next turn start — and
+ * `_session_info` deliberately reports that PENDING model (`display_model`) so
+ * the end-of-turn settle paints the user's choice instead of blipping back to
+ * the model still running (`tui_gateway/server.py`). A client that ignores the
+ * event never sees the pick confirmed at all.
+ *
+ * Gating, per field:
+ *  - `cwd`/`model`/`provider` are truthiness-gated: the gateway reports `''` for
+ *    "not known yet" (a session whose agent is still building has no
+ *    `agent.model`), and blanking a painted model on a heartbeat is worse than
+ *    keeping a slightly stale one.
+ *  - `reasoning_effort`/`service_tier`/`fast` adopt any value of the right type,
+ *    because `''` and `false` are real states there ("provider default" and
+ *    "not fast"). Desktop's `sessionInfoStatePatch` draws the line in the same
+ *    place.
+ *
+ * Returns the SAME state object when nothing changed. `session.info` is emitted
+ * on every turn boundary and on every config write, so an unconditional spread
+ * would republish `$sessionStates` — and re-render every chat surface — for
+ * events that carry no news.
+ */
+function applySessionInfo(state: ClientSessionState, payload: Record<string, unknown>): ClientSessionState {
+  const patch: Partial<ClientSessionState> = {}
+
+  const adoptText = (key: 'cwd' | 'model' | 'provider', raw: unknown): void => {
+    if (typeof raw === 'string' && raw && raw !== state[key]) {
+      patch[key] = raw
+    }
+  }
+
+  adoptText('cwd', payload.cwd)
+  adoptText('model', payload.model)
+  adoptText('provider', payload.provider)
+
+  if (typeof payload.reasoning_effort === 'string' && payload.reasoning_effort !== state.reasoningEffort) {
+    patch.reasoningEffort = payload.reasoning_effort
+  }
+
+  if (typeof payload.service_tier === 'string' && payload.service_tier !== state.serviceTier) {
+    patch.serviceTier = payload.service_tier
+  }
+
+  if (typeof payload.fast === 'boolean' && payload.fast !== state.fast) {
+    patch.fast = payload.fast
+  }
+
+  return Object.keys(patch).length > 0 ? { ...state, ...patch } : state
+}
+
 /** Reduce ONE gateway event into ONE session's state slice. Pure. */
 export function reduceSessionState(
   state: ClientSessionState,
@@ -263,9 +325,7 @@ export function reduceSessionState(
       return { ...state, statusLine: coerceText(payload.text) }
 
     case 'session.info':
-      // Truthiness-gated (desktop parity): an empty cwd means "unknown", not
-      // "detach the current one".
-      return typeof payload.cwd === 'string' && payload.cwd ? { ...state, cwd: payload.cwd } : state
+      return applySessionInfo(state, payload)
     /**
      * A clarify parks the agent in the backend's `_block` until
      * `clarify.respond` lands, and the inline ClarifyTool normally mounts from

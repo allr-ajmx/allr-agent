@@ -191,6 +191,74 @@ describe('status.update', () => {
 })
 
 /**
+ * MJXHRM-304 item 4. `session.info` is the gateway's only report of what a
+ * session is actually running, and the ONLY confirmation a mid-turn model pick
+ * ever gets: `config.set model` on a busy session parks the pick in
+ * `pending_model_switch` and `_session_info` reports it as `display_model`
+ * (`tui_gateway/server.py`), precisely so the end-of-turn settle paints the
+ * user's choice rather than the model still running. This case took `cwd` and
+ * threw the rest away.
+ */
+describe('session.info', () => {
+  const base = () => ({ ...emptySessionState('stored-1'), model: 'old-model', provider: 'old-provider' })
+
+  it('adopts the model the gateway reports — including a pick queued mid-turn', () => {
+    const next = reduce(base(), 'session.info', {
+      model: 'glm-5',
+      provider: 'zai',
+      reasoning_effort: 'high',
+      service_tier: 'priority',
+      fast: true,
+      running: true
+    })
+
+    expect(next).toMatchObject({
+      model: 'glm-5',
+      provider: 'zai',
+      reasoningEffort: 'high',
+      serviceTier: 'priority',
+      fast: true
+    })
+  })
+
+  // The gateway reports '' for "not known yet" — a session whose agent is still
+  // building has no `agent.model`. Blanking a painted model on that is worse
+  // than keeping a slightly stale one, so model/provider/cwd are truthy-gated.
+  it('keeps a painted model when the gateway reports a blank one', () => {
+    const next = reduce(base(), 'session.info', { cwd: '', model: '', provider: '' })
+
+    expect(next).toMatchObject({ model: 'old-model', provider: 'old-provider' })
+  })
+
+  // '' and false are REAL states for these three ("provider default", "not
+  // fast"), so they must land where a blank model must not.
+  it('adopts an empty effort and a false fast, which are real values', () => {
+    const on = { ...base(), fast: true, reasoningEffort: 'high', serviceTier: 'priority' }
+    const next = reduce(on, 'session.info', { reasoning_effort: '', service_tier: '', fast: false })
+
+    expect(next).toMatchObject({ fast: false, reasoningEffort: '', serviceTier: '' })
+  })
+
+  // `session.info` rides every turn boundary and every config write. Returning a
+  // fresh object for one that carries no news republishes $sessionStates and
+  // re-renders every chat surface for nothing.
+  it('returns the same state object when nothing changed', () => {
+    const state = { ...base(), cwd: '/w', fast: false, reasoningEffort: '', serviceTier: '' }
+
+    const next = reduce(state, 'session.info', {
+      cwd: '/w',
+      model: 'old-model',
+      provider: 'old-provider',
+      reasoning_effort: '',
+      service_tier: '',
+      fast: false
+    })
+
+    expect(next).toBe(state)
+  })
+})
+
+/**
  * The clarify tool RETURNING is this session's "no longer parked on the user".
  * It is the one event shared by all three endings — the user answered, the
  * backend's `_block` timed out, `session.interrupt` released it — and
