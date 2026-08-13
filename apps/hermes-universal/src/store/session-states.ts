@@ -623,6 +623,37 @@ export function orderTilesByTree<T extends { storedSessionId: string }>(
   return next.some((t, i) => t !== tiles[i]) ? next : null
 }
 
+/**
+ * Keep the PERSISTED tile order in step with the order on screen.
+ *
+ * The layout tree owns where a tab sits; `$sessionTiles` is a parallel list that
+ * outlives it, and two consumers read that list's ORDER rather than the tree's:
+ *
+ *  - `stackSessionTilesIntoMain` — the layout-RESET handler
+ *    (`registerLayoutResetHandler`, app/contrib/controller.tsx) — restacks every
+ *    tile into the workspace zone by walking `$sessionTiles` front to back;
+ *  - `paneMirror` re-registers panes in array order, which is the order they
+ *    dock in when the tree holds no pane for them yet (a profile switch back, or
+ *    a tree that lost them).
+ *
+ * So a stale list is not cosmetic: drag three tabs into the order you want, hit
+ * Reset, and they come back in the order they were OPENED in.
+ *
+ * This ran from exactly one caller — `openSessionTile`'s move branch — and every
+ * OTHER way the on-screen order changes left the list behind: dragging a tab
+ * within a strip (`reorderTreePanes`), dragging one between zones
+ * (`moveTreePanes`), the zone menu's Move (`moveTreePane`), a shift-drag zone
+ * merge, and a preset application that re-homes panes. Hanging it off the tree
+ * itself covers all of them at once, including any future writer — the invariant
+ * belongs to the tree changing, not to the handful of callers that happened to
+ * be written first.
+ *
+ * Safe to run on every commit. `orderTilesByTree` returns `null` unless the
+ * order actually moved, so the common case costs one walk and no write; and a
+ * pure reorder of `$sessionTiles` registers and removes nothing in `paneMirror`
+ * (it diffs by key, then by title/accent), so this cannot drive the tree write
+ * that would re-enter it.
+ */
 function syncTileStripOrder() {
   const next = orderTilesByTree($layoutTree.get(), $sessionTiles.get())
 
@@ -630,6 +661,11 @@ function syncTileStripOrder() {
     saveTiles(next)
   }
 }
+
+// `listen`, not `subscribe`: the initial tree is mirrored into tiles by the
+// registrations that FOLLOW it, and firing before any pane exists would only
+// rank every tile `Infinity`.
+$layoutTree.listen(syncTileStripOrder)
 
 /**
  * Open spans for chats currently being opened, keyed by stored-session id.
@@ -704,9 +740,11 @@ export function openSessionTile(
   const target = tree ? findGroupOfPane(tree, anchor ?? WORKSPACE_PANE_ID)?.id : null
 
   if (target) {
+    // No explicit re-order here: `moveTreePane` commits the tree, and the tree
+    // is what `syncTileStripOrder` now listens to. `patchSessionTile` maps the
+    // list in place, so it cannot disturb the order that landed first.
     moveTreePane(`${TILE_PANE_PREFIX}${open.storedSessionId}`, { before: before ?? null, groupId: target, pos: dir })
     patchSessionTile(open.storedSessionId, { anchor, before: before ?? undefined, dir })
-    syncTileStripOrder()
   }
 }
 
