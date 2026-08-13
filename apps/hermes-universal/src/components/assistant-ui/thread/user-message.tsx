@@ -293,10 +293,20 @@ export const UserMessage: FC<{
 
                       void triggerHaptic('selection')
                     }}
-                    onPointerDown={event => {
+                    onPointerDown={() => {
+                      // Skip the notify, but let the press keep its DEFAULT.
+                      // Cancelling it suppresses the compatibility mouse
+                      // events, and mousedown's default is the only thing that
+                      // collapses a live selection — so a bubble pressed while
+                      // ANY text was highlighted (typically in the reply above
+                      // it) both did nothing and left the highlight standing,
+                      // which made the very next press do nothing either. The
+                      // bubble stayed dead until the user clicked some other
+                      // surface. Letting the default run collapses the stale
+                      // highlight, so `onClick` below sees none and the editor
+                      // opens; a highlight made by dragging INSIDE the bubble
+                      // is still live at click time and still wins.
                       if (hasTextSelection()) {
-                        event.preventDefault()
-
                         return
                       }
 
