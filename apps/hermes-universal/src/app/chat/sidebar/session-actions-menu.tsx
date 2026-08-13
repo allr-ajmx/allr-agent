@@ -32,7 +32,7 @@ import { useStore } from '@/store/atom'
 import { addBubble } from '@/store/chat-bubbles'
 import { notify, notifyError } from '@/store/notifications'
 import { $projects, moveSessionToProject } from '@/store/projects'
-import { $activeStoredSessionId, renameSessionLocal } from '@/store/session'
+import { $activeStoredSessionId, renameSessionLocal, sameStoredSession } from '@/store/session'
 import { $sessionColorOverrides, setSessionColorOverride } from '@/store/session-color'
 import { useSessionRowScalars } from '@/store/session-lookup'
 import { openSessionTile } from '@/store/session-states'
@@ -161,7 +161,15 @@ function useSessionActions({
 
   // "Open in bubble" (mobile) / "Open in tile" (desktop) is meaningless for the
   // session already loaded in the workspace — hide it there.
-  const isActiveSession = Boolean(sessionId) && sessionId === activeStoredId
+  //
+  // By CONVERSATION, not by id. A tile tab's menu is handed the key its tile was
+  // opened with while main holds the same chat's live tip (or the reverse), and
+  // compared as strings the row was offered on the session already on screen —
+  // where `openSessionTile` / `addBubble` then no-op, so it did nothing at all
+  // (MJXHRM-423). The active id is already subscribed above; the row lookup
+  // inside is a read, and this menu re-renders on the write that would change
+  // the answer.
+  const isActiveSession = sameStoredSession(sessionId, activeStoredId)
 
   const specs: MenuSpec[] = [
     {
