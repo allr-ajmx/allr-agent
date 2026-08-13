@@ -59,7 +59,7 @@ import { resumePortalSignIn } from './store/cloud'
 import { autoRestoreConnection } from './store/gateway-restore'
 import { initKeepAwake } from './store/keep-awake'
 import { ThemeProvider } from './themes'
-
+import { RouterNavBridge } from './lib/router-nav-bridge'
 // Span tracing. Installed FIRST so boot-time work falls inside the trace rather
 // than before it. Recording is off by default, so this is a no-op until someone
 // asks for it — see src/observability/index.ts.
@@ -116,6 +116,7 @@ createRoot(container).render(
                 stable callbacks, so hoisting is what it is for. */}
             <RootTooltipProvider>
               <HashRouter>
+                <RouterNavBridge />
                 <App />
               </HashRouter>
             </RootTooltipProvider>
