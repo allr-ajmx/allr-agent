@@ -12,6 +12,7 @@ import {
 import { playWakeSound } from '@/lib/wake-sound'
 import { atom } from '@/store/atom'
 import { addGatewayEventListener } from '@/store/gateway'
+import { activateWakeIndicator } from '@/store/wake-indicator'
 import { voiceEngine } from '@/voice/engine'
 import type { VoiceLease } from '@/voice/types'
 
@@ -389,7 +390,28 @@ export async function resumeWakeAfterVoice(): Promise<void> {
 
 // --- detection --------------------------------------------------------------
 
-type StartConversation = (profile: null | string) => void
+/**
+ * What the gateway tells us about a detection (`wake.detected`, emitted by
+ * `tui_gateway/server.py`).
+ *
+ * All three fields are decisions the BACKEND already made and the client used to
+ * throw away:
+ *
+ *  * `phrase`  — which of the enrolled phrases fired.
+ *  * `profile` — whose phrase it was. Sherpa builds a phrase→profile map from
+ *    every wake-enabled profile's config (`tools/wake_word.py`), so "hey scout"
+ *    and "hey hermes" can wake the same detector into different profiles. Null
+ *    on a single-phrase engine.
+ *  * `startNewSession` — `wake_word.start_new_session`, default true: whether the
+ *    phrase opens a FRESH chat or continues the one on screen.
+ */
+export interface WakeDetection {
+  phrase: string
+  profile: null | string
+  startNewSession: boolean
+}
+
+type StartConversation = (detection: WakeDetection) => void
 
 let onDetected: StartConversation | null = null
 
@@ -411,14 +433,31 @@ addGatewayEventListener(event => {
     return
   }
 
-  const payload = (event.payload ?? {}) as { phrase?: string; profile?: null | string }
-  const profile = payload.profile || null
+  const payload = (event.payload ?? {}) as {
+    phrase?: string
+    profile?: null | string
+    start_new_session?: boolean
+  }
 
-  patch({ phrase: payload.phrase || $wakeWord.get().phrase })
+  const phrase = payload.phrase || $wakeWord.get().phrase
+
+  patch({ phrase })
+
+  const detection: WakeDetection = {
+    phrase,
+    profile: payload.profile?.trim() || null,
+    // Absent means the backend default (true) — only an explicit `false` keeps
+    // the conversation in the chat already on screen.
+    startNewSession: payload.start_new_session !== false
+  }
 
   void (async () => {
     await stopClientCapture()
     playWakeSound()
-    onDetected?.(profile)
+    // Chime AND light: on a machine with sounds muted the chime is the only
+    // acknowledgement, and it is silent. Lit before the starter runs so the
+    // indicator covers the whole gap while the conversation opens.
+    activateWakeIndicator()
+    onDetected?.(detection)
   })()
 })

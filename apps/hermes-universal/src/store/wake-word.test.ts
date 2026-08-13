@@ -79,6 +79,7 @@ import {
 import { playWakeSound } from '@/lib/wake-sound'
 import { voiceEngine } from '@/voice/engine'
 
+import { $wakeIndicator, clearWakeIndicator } from './wake-indicator'
 import {
   $wakeWord,
   armWakeWord,
@@ -136,7 +137,10 @@ beforeEach(async () => {
   vi.mocked(resumeWakeWord).mockResolvedValue({ resumed: true, reason: null })
 })
 
-afterEach(() => setWakeConversationStarter(null))
+afterEach(() => {
+  setWakeConversationStarter(null)
+  clearWakeIndicator()
+})
 
 describe('the toggle IS the config', () => {
   it('persists on the click, in both directions', async () => {
@@ -329,8 +333,53 @@ describe('wake.detected', () => {
 
     expect(lease.close).toHaveBeenCalled()
     expect(playWakeSound).toHaveBeenCalled()
-    expect(starter).toHaveBeenCalledWith('coder')
+    expect(starter).toHaveBeenCalledWith({ phrase: 'hey coder', profile: 'coder', startNewSession: true })
     expect($wakeWord.get().phrase).toBe('hey coder')
+  })
+
+  // The whole payload is a routing decision the BACKEND already made
+  // (MJXHRM-389). Dropping any field of it puts the conversation somewhere the
+  // user did not ask for, silently.
+  it('carries start_new_session: false through to the starter', async () => {
+    const starter = vi.fn()
+    setWakeConversationStarter(starter)
+
+    h.route?.({
+      type: 'wake.detected',
+      payload: { phrase: 'hey hermes', profile: null, start_new_session: false }
+    })
+    await new Promise(resolve => setTimeout(resolve, 0))
+
+    expect(starter).toHaveBeenCalledWith({ phrase: 'hey hermes', profile: null, startNewSession: false })
+  })
+
+  it('defaults start_new_session to true when the backend omits it', async () => {
+    const starter = vi.fn()
+    setWakeConversationStarter(starter)
+
+    h.route?.({ type: 'wake.detected', payload: { phrase: 'hey hermes' } })
+    await new Promise(resolve => setTimeout(resolve, 0))
+
+    expect(starter).toHaveBeenCalledWith({ phrase: 'hey hermes', profile: null, startNewSession: true })
+  })
+
+  it('normalizes a blank profile to null rather than a profile named ""', async () => {
+    const starter = vi.fn()
+    setWakeConversationStarter(starter)
+
+    h.route?.({ type: 'wake.detected', payload: { phrase: 'hey hermes', profile: '  ' } })
+    await new Promise(resolve => setTimeout(resolve, 0))
+
+    expect(starter).toHaveBeenCalledWith({ phrase: 'hey hermes', profile: null, startNewSession: true })
+  })
+
+  it('lights the wake indicator, so a muted machine still sees the wake register', async () => {
+    setWakeConversationStarter(vi.fn())
+
+    h.route?.({ type: 'wake.detected', payload: { phrase: 'hey hermes' } })
+    await new Promise(resolve => setTimeout(resolve, 0))
+
+    expect($wakeIndicator.get()).toBe('detected')
   })
 
   it('ignores every other gateway event', async () => {

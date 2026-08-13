@@ -38,9 +38,9 @@ import {
 } from '@/store/layout'
 import { $sidebarCronOpen, setSidebarCronOpen } from '@/store/layout'
 import { $changeEventsAvailable, $cronChangeTick, livePollIntervalMs } from '@/store/live-sync'
-import { startNewSession } from '@/store/new-session'
+import { newSessionInProfile, startNewSession } from '@/store/new-session'
 import { $profileScope, ALL_PROFILES, normalizeProfileKey } from '@/store/profile'
-import { $profiles, setActiveProfile } from '@/store/profiles'
+import { $profiles } from '@/store/profiles'
 import {
   $activeProjectId,
   $projectScope,
@@ -606,13 +606,9 @@ export function SidebarScrollBody({
     return projectOrder.length ? applyManualOrder(sorted, projectOrder) : sorted
   }, [showAllProfiles, projectTree, dismissedProjects, activeProjectId, projectOrder])
 
-  // The per-lane "+" in the browse view: point the app at that profile and start
-  // a fresh chat, WITHOUT calling selectProfile — that clears $showAllProfiles and
-  // would collapse the browse view the user is standing in.
-  const startSessionInProfile = (profileKey: string) => {
-    setActiveProfile(profileKey === 'default' ? null : profileKey)
-    startNewSession()
-  }
+  // The per-lane "+" in the browse view uses the shared `newSessionInProfile`
+  // (store/new-session) — which deliberately does NOT call `selectProfile`, so
+  // the browse view the user is standing in survives the click.
 
   // Stable identities, so `renderRow` one layer down (`sessions-section`) — a
   // `useCallback` listing all three — keeps its identity too.
@@ -783,7 +779,7 @@ export function SidebarScrollBody({
               )
             }
             onEnterProject={enterProject}
-            onNewSessionInProfile={startSessionInProfile}
+            onNewSessionInProfile={newSessionInProfile}
             onNewSessionInWorkspace={newSessionInWorkspace}
             onReorderProjects={showAllProfiles ? undefined : ids => setSidebarProjectOrderIds(ids)}
             onReorderSessions={

@@ -21,6 +21,12 @@ import {
   withActiveAssistant
 } from '@/lib/chat-messages'
 import { stopSpeaking } from '@/lib/tts'
+import {
+  isVoicePlaybackActive,
+  markVoicePlaybackInterrupted,
+  stopVoicePlayback,
+  takeVoicePlaybackInterrupted
+} from '@/lib/voice-playback'
 import { atom, computed } from '@/store/atom'
 import { requestGateway } from '@/store/gateway'
 import { clearNotifications, notifyError } from '@/store/notifications'
@@ -338,7 +344,29 @@ export async function sendPrompt(text: string): Promise<void> {
     return
   }
 
-  stopSpeaking() // silence any TTS when the user sends a new prompt
+  // Typing barge-in: a new prompt silences the reply being read aloud. When
+  // something WAS playing, that is an interruption the model has to hear about,
+  // so latch it before the stop clears the state that proves it (MJXHRM-389).
+  // The voice loop latches at its own site instead — it cuts playback the
+  // instant the user speaks, long before the transcript reaches this function.
+  if (isVoicePlaybackActive()) {
+    markVoicePlaybackInterrupted()
+  }
+
+  // `stopVoicePlayback`, not the bare `stopSpeaking` this used to call: it is
+  // the same stop PLUS the per-message state reset. Leaving that reset to the
+  // `$ttsSpeaking` subscription means the app's idea of what is playing only
+  // clears if the engine happens to publish a falling edge — and a submit that
+  // silences a reply must leave "nothing is playing" true either way, or the
+  // NEXT submit inherits this one's interruption.
+  stopVoicePlayback()
+
+  // Consumed once per submit, whichever path latched it. `interrupted: true`
+  // makes the gateway annotate this turn's MODEL message with the cut-off note
+  // (`mark_speech_interrupted`, tui_gateway/methods_prompt.py:105-110) — never
+  // the persisted text. Omitted entirely when false, so a backend that predates
+  // the flag sees exactly the params it always did.
+  const interrupted = takeVoicePlaybackInterrupted()
 
   // The SUBMITTING session, not the on-screen one. `ensureSession` rekeys a
   // draft onto its runtime id mid-flight, and the user can switch chats while
@@ -417,7 +445,12 @@ export async function sendPrompt(text: string): Promise<void> {
     await withSessionNotFoundResume(
       sessionId,
       storedId,
-      live => requestGateway('prompt.submit', { session_id: live, text: trimmed }, PROMPT_SUBMIT_TIMEOUT_MS),
+      live =>
+        requestGateway(
+          'prompt.submit',
+          { session_id: live, text: trimmed, ...(interrupted && { interrupted: true }) },
+          PROMPT_SUBMIT_TIMEOUT_MS
+        ),
       {
         onRecovered: live => {
           rekeySession(submitKey, live, { runtimeSessionId: live })

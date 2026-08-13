@@ -1,11 +1,13 @@
 import type { ComposerTarget } from '@/app/chat/composer/focus'
 import type { SessionView } from '@/app/chat/session-view'
 import { takeSpeechChunk } from '@/lib/speech-chunker'
-import { playSpeechTextUntilDone, stopVoicePlayback } from '@/lib/voice-playback'
+import { syncThinkingSound } from '@/lib/thinking-sound'
+import { markVoicePlaybackInterrupted, playSpeechTextUntilDone, stopVoicePlayback } from '@/lib/voice-playback'
 import { isVoiceStopCommand } from '@/lib/voice-stop-word'
 import { $connection } from '@/store/connection'
 import { notify, notifyError } from '@/store/notifications'
 import {
+  $voiceConversation,
   beginVoiceConversation,
   resetVoiceConversation,
   setConversationLevel,
@@ -214,6 +216,12 @@ class ConversationController {
         if (this.speaking) {
           // Barge-in: stop the assistant; the in-flight playback settles 'stopped'
           // and the barge turn's transcript will supersede the current one.
+          //
+          // Latch it FIRST. `stopVoicePlayback` clears `$voicePlayback`, so by the
+          // time the barge utterance has been transcribed and reaches `sendPrompt`
+          // there is no longer any live playback for that path to notice — this is
+          // the only site that still knows a reply was cut off mid-sentence.
+          markVoicePlaybackInterrupted()
           stopVoicePlayback()
         }
 
@@ -444,3 +452,12 @@ class ConversationController {
 }
 
 export const voiceConversation = new ConversationController()
+
+// The ambient "thinking" blips follow the conversation's own render surface
+// rather than being started and stopped at each transition inside the controller.
+// Every status the loop can reach passes through `$voiceConversation`, including
+// the ones that end it (`resetVoiceConversation`), so there is no exit — error,
+// stop word, idle timeout, disconnect — that can leave the blips running. Bound
+// here, at the controller, because this module is what a surface imports to
+// drive a conversation at all.
+$voiceConversation.subscribe(syncThinkingSound)

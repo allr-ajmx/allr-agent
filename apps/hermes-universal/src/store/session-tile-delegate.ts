@@ -13,6 +13,12 @@
 
 import { getSessionMessages } from '@/hermes'
 import { appendLiveSessionProjection, toChatMessages } from '@/lib/session-history'
+import {
+  isVoicePlaybackActive,
+  markVoicePlaybackInterrupted,
+  stopVoicePlayback,
+  takeVoicePlaybackInterrupted
+} from '@/lib/voice-playback'
 import { type ChatMessage, interruptSession, nextId } from '@/store/chat'
 import { requestGateway } from '@/store/gateway'
 import { notifyError } from '@/store/notifications'
@@ -163,6 +169,19 @@ async function hydrateSessionToState(storedId: string): Promise<string> {
  * exactly as typing would (MJXHRM-419).
  */
 async function submitTextToSession(runtimeId: string, text: string): Promise<void> {
+  // A tile runs the same voice conversation the main composer does, so the same
+  // interruption latch has to be consumed here — otherwise a barge-in in a tile
+  // leaves the flag set and the NEXT submit anywhere in the app inherits it
+  // (MJXHRM-389). Typing barge-in latches here too: `stopSpeaking` is called by
+  // whichever surface owns playback, and a tile submit is just as much a "stop
+  // reading and listen to this" as a main-pane one.
+  if (isVoicePlaybackActive()) {
+    markVoicePlaybackInterrupted()
+    stopVoicePlayback()
+  }
+
+  const interrupted = takeVoicePlaybackInterrupted()
+
   // Optimistic: append the user turn + go busy, then let routeTileEvent stream
   // the reply into this session's slice.
   updateSession(runtimeId, state => ({
@@ -196,7 +215,7 @@ async function submitTextToSession(runtimeId: string, text: string): Promise<voi
     await withSessionNotFoundResume(
       runtimeId,
       storedIdOfSession(runtimeId),
-      live => requestGateway('prompt.submit', { session_id: live, text }),
+      live => requestGateway('prompt.submit', { session_id: live, text, ...(interrupted && { interrupted: true }) }),
       {
         onRecovered: live => {
           rekeySession(submitKey, live, { runtimeSessionId: live })

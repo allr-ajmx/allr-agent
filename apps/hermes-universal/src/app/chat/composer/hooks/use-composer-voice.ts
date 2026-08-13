@@ -2,12 +2,14 @@ import { useStore } from '@nanostores/react'
 import { useCallback, useEffect, useRef } from 'react'
 
 import { useSessionView } from '@/app/chat/session-view'
+import { routeWakeDetection } from '@/app/chat/wake-routing'
 import { useI18n } from '@/i18n'
 import { triggerHaptic } from '@/lib/haptics'
 import { resetBrowseState } from '@/store/composer-input-history'
 import { notifyError } from '@/store/notifications'
 import { $voiceConversation } from '@/store/voice-conversation'
-import { $autoSpeakReplies, setAutoSpeakReplies } from '@/store/voice-prefs'
+import { $autoSpeakReplies, seedVoicePrefs, setAutoSpeakReplies } from '@/store/voice-prefs'
+import { clearWakeIndicator, syncWakeIndicatorWithVoice } from '@/store/wake-indicator'
 import { armWakeWord, setWakeConversationStarter } from '@/store/wake-word'
 import type { ConversationBinding } from '@/voice/conversation-controller'
 
@@ -123,14 +125,54 @@ export function useComposerVoice({
     }
 
     void armWakeWord()
+    // `voice.auto_tts` and `voice.thinking_sound` are backend config, and this is
+    // the one effect that runs once for the main composer — so it is where the
+    // preference atoms get their real values. Without it `$autoSpeakReplies` sat
+    // at its `false` default forever (MJXHRM-389).
+    void seedVoicePrefs()
     // Register a starter that reads the LIVE `start` through a ref rather than
     // the one this effect closed over. The binding is rebuilt whenever the
     // session view or submit handler changes, and a detection minutes later must
     // open a conversation against the current chat, not the mounted one.
-    setWakeConversationStarter(() => startRef.current())
+    //
+    // ROUTE FIRST, then open the conversation. `routeWakeDetection` may switch
+    // profile and create a fresh chat; the binding built by `startRef.current()`
+    // reads `PRIMARY_SESSION_VIEW`, whose atoms are the ACTIVE session's, so it
+    // picks up the chat the routing just landed on rather than the one that was
+    // there when the phrase was spoken.
+    setWakeConversationStarter(detection => {
+      routeWakeDetection(detection)
+      startRef.current()
+    })
 
     return () => setWakeConversationStarter(null)
   }, [disabled, target])
+
+  // The wake indicator follows the conversation the wake phrase opened, and only
+  // that one — a conversation the user started by hand shows the composer's own
+  // pill and needs no light. `syncWakeIndicatorWithVoice` answers whether this
+  // surface owns the indicator; the unmount below is what stops a chat closing
+  // mid-conversation from leaving the light on with nothing behind it.
+  const ownsWakeIndicator = useRef(false)
+
+  useEffect(() => {
+    if (target !== 'main') {
+      return
+    }
+
+    if (syncWakeIndicatorWithVoice(voiceConversationActive, conversation.status)) {
+      ownsWakeIndicator.current = voiceConversationActive
+    }
+  }, [conversation.status, target, voiceConversationActive])
+
+  useEffect(
+    () => () => {
+      if (ownsWakeIndicator.current) {
+        clearWakeIndicator()
+      }
+    },
+    []
+  )
 
   const startConversation = useCallback(() => conversation.start(), [conversation])
   const endConversation = useCallback(() => conversation.end(), [conversation])
