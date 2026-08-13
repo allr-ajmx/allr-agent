@@ -18,6 +18,7 @@
 import type { GatewayEvent } from '@/gateway'
 import {
   appendAssistantTextPart,
+  appendSealedReasoning,
   appendStreamPart,
   applyCompletion,
   applySettledReasoning,
@@ -171,11 +172,16 @@ export function reduceSessionState(
     // replaces wholesale, while universal makes every burst its own block
     // (see the case below). Keeping the trail above the reference blocks is the
     // honest analogue — it reads as a record of the fan-out, not as leftovers.
+    //
+    // SEALED, and it has to be: `agent/moa_loop.py` emits every `moa.reference`
+    // FIRST and this frame after them, so the marker lands after a closed
+    // advisory block and opens its own — and once the aggregator takes over,
+    // its own reasoning must not swallow the record of the fan-out.
     case 'moa.phase':
       return payload.phase === 'aggregator'
         ? patchLastAssistant(state, m => ({
             ...m,
-            parts: appendStreamPart(m.parts, 'reasoning', '◇ MoA aggregating…\n')
+            parts: appendSealedReasoning(m.parts, '◇ MoA aggregating…\n')
           }))
         : state
     case 'moa.reference': {
@@ -192,10 +198,16 @@ export function reduceSessionState(
       const header = `◇ Reference${position}${label ? ` — ${label}` : ''}\n`
 
       // A reference block is its own labelled thinking block — never merged into
-      // the neighbouring one (desktop appends it as a settled burst too).
+      // the neighbouring one (desktop appends it as a settled burst too), and
+      // SEALED so nothing merges into IT either. Opening a new part only closed
+      // the block on the way in: the aggregator runs immediately after the
+      // fan-out on this same session, so its first `reasoning.delta` used to be
+      // concatenated onto the last advisor's answer (misattributing it to that
+      // model) and its `reasoning.available` used to replace that answer
+      // outright — deleting an advisor response from the transcript.
       return patchLastAssistant(state, m => ({
         ...m,
-        parts: [...m.parts, { type: 'reasoning', text: header + coerceThinkingText(payload.text) }]
+        parts: [...m.parts, { type: 'reasoning', text: header + coerceThinkingText(payload.text), sealed: true }]
       }))
     }
 
