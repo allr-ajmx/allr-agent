@@ -1,3 +1,4 @@
+import { Direction } from 'radix-ui'
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo } from 'react'
 
 import { Codecs, persistentAtom } from '@/lib/persisted'
@@ -80,7 +81,18 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     [locale, setLocale]
   )
 
-  return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>
+  // Radix does NOT read the document's `dir`. Every primitive that places itself
+  // on an edge or walks an inline axis takes its direction from this provider and
+  // defaults to `ltr` without it: the ScrollArea pins its vertical bar with a
+  // literal `right: 0` unless `dir === 'rtl'`, and Dropdown/Context submenus both
+  // open toward, and are opened by the arrow key pointing at, the same hard-coded
+  // side. So an RTL document with no DirectionProvider mirrors its own CSS while
+  // every Radix surface stays left-to-right — worse than either extreme.
+  return (
+    <Direction.Provider dir={value.direction}>
+      <I18nContext.Provider value={value}>{children}</I18nContext.Provider>
+    </Direction.Provider>
+  )
 }
 
 export function useI18n(): I18nContextValue {

@@ -2744,19 +2744,46 @@ html[data-hud] [data-hud-card] * {
    Direction is set once, on <html>, by the i18n provider from the active
    locale. Everything below is the small set of surfaces that must NOT follow it.
 
-   Note the deliberate scope: this file makes an RTL document behave correctly
-   at the DOCUMENT level. Component layout is a separate, larger job — the app
-   still leans on physical Tailwind utilities (ml-/pl-/left-/text-left) in a few
-   hundred places, and each one has to be read and converted to its logical
-   equivalent (ms-/ps-/start-/text-start) by someone who can see the component.
-   Converting them blind would be worse than leaving them: a physical class that
-   was RIGHT stays right, whereas a wrongly-flipped one is a new bug.
+   Component layout was converted to logical properties in MJXHRM-429 (ms-/ps-/
+   start-/end-/text-start/border-s), so panes, gutters and rails now mirror on
+   their own. What stays PHYSICAL, deliberately, is only: the surfaces pinned
+   below, chrome floating over them, device safe-area insets, and the
+   `left-1/2 + -translate-x-1/2` centring idiom (see --dir-flip-x).
    --------------------------------------------------------------------------- */
+
+/* Physical transforms do NOT mirror with `dir`: `translate`, `rotate` and
+   `scale` are geometry, not layout, so a `-translate-x-1/2` used to straddle an
+   edge points the same way in both directions and lands on the wrong side of an
+   RTL element. Multiply the x component by this to make it follow the document.
+
+   It has to be a variable rather than an `rtl:` Tailwind variant because the
+   `rtl:` variant SORTS AFTER `group-hover:` and `group-data-[…]:` in Tailwind
+   v4's utility order, so an `rtl:`-flipped transform would also override the
+   hover/open state that is supposed to slide the element back to 0. A bare
+   `translate-x-[calc(…*var(--dir-flip-x))]` sorts before them and does not.
+
+   NOT for centring: `left-1/2` + `-translate-x-1/2` is already
+   direction-agnostic (left 50%, back by half your own width, in any direction)
+   and must be left exactly as it is. */
+:root {
+  --dir-flip-x: 1;
+}
+
+[dir='rtl'] {
+  --dir-flip-x: -1;
+}
 
 /* Source code, shell output and paths read left-to-right in every language.
    An RTL document would otherwise reorder a command line, a diff hunk or a
-   stack trace into something that no longer means what it says. */
-[dir='rtl'] :where(pre, code, kbd, samp, .xterm, .cm-editor, [data-slot='code-card']) {
+   stack trace into something that no longer means what it says.
+
+   `[data-slot='file-diff-panel']` is the windowed/side-by-side file diff. Only
+   the `<pre>` variant of the diff (`[data-slot='diff-lines']`) was covered by
+   the `pre` selector above; the windowed panel is a `<div>` grid whose line
+   numbers and overview ruler live OUTSIDE any `pre`, so it inherited RTL and
+   reordered its own gutter. */
+[dir='rtl']
+  :where(pre, code, kbd, samp, .xterm, .cm-editor, [data-slot='code-card'], [data-slot='file-diff-panel']) {
   direction: ltr;
   text-align: left;
 }
