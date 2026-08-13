@@ -18,6 +18,7 @@ vi.mock('@/app/hud/hud-window', () => ({ HudWindowRoot: () => <div>hud</div> }))
 vi.mock('@/app/mobile-controller', () => ({ MobileController: () => <div>shell</div> }))
 vi.mock('@/app/quick-entry/quick-entry-window', () => ({ QuickEntryWindowRoot: () => <div>quick</div> }))
 vi.mock('@/app/tile-window', () => ({ TileWindowRoot: () => <div>tile</div> }))
+vi.mock('@/app/wake-indicator/wake-indicator-window', () => ({ WakeIndicatorWindowRoot: () => <div>wake</div> }))
 vi.mock('@/app/right-pane/files/remote-picker', () => ({
   RemoteFolderPicker: () => <div data-testid="remote-picker" />
 }))
@@ -29,13 +30,23 @@ let tile = false
 let surface: string | null = null
 
 vi.mock('@/store/windows', () => ({
+  WAKE_INDICATOR_SURFACE: 'wake',
+  // The wake light's own driver reads these when the indicator fires. It never
+  // does in this file — the atom starts hidden — but a mock that answers only
+  // the questions asked today is the shape that turns the next root into a
+  // crash rather than a failed assertion.
+  canOpenSatelliteWindow: () => true,
+  closeSatelliteWindow: async () => undefined,
   isActivityWindow: () => activity,
+  isSatelliteWindow: () => surface !== null,
   isTileWindow: () => tile,
+  openSatelliteWindow: async () => null,
   satelliteSurface: () => surface
 }))
 
 import { HUD_SURFACE } from '@/app/hud/hud'
 import { QUICK_ENTRY_SURFACE } from '@/app/quick-entry/quick-entry'
+import { WAKE_INDICATOR_SURFACE } from '@/store/windows'
 
 import { App } from './app'
 
@@ -50,6 +61,7 @@ const ROOTS: [name: string, arrange: () => void, marker: string][] = [
   ['a detached tile window', () => void (tile = true), 'tile'],
   ['the HUD', () => void (surface = HUD_SURFACE), 'hud'],
   ['Quick Entry', () => void (surface = QUICK_ENTRY_SURFACE), 'quick'],
+  ['the wake indicator light', () => void (surface = WAKE_INDICATOR_SURFACE), 'wake'],
   ['an activity screen', () => void (activity = true), 'activity']
 ]
 

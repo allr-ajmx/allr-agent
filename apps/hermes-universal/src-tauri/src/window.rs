@@ -122,9 +122,12 @@ pub fn is_app_window_label(label: &str) -> bool {
 // --------------------------------------------------------------------------
 // Satellites (MJXHRM-55 / MJXHRM-213 / MJXHRM-382)
 //
-// A satellite is a SECOND SURFACE of the app in its own window — summoned by a
-// hotkey, living over other applications, dismissed the moment it is done. The
-// HUD and Quick Entry are the two that exist.
+// A satellite is a SECOND SURFACE of the app in its own window — living over
+// other applications, and gone the moment it is done. Three exist: the HUD and
+// Quick Entry, both summoned by a hotkey and typed into, and the wake indicator
+// (MJXHRM-228), which is not typed into at all — it is a light, opened and
+// closed by the state it mirrors rather than by the user, and it is the only one
+// that takes neither clicks nor focus.
 //
 // They are built HERE rather than in the frontend, and the frontend no longer
 // holds `core:webview:allow-create-webview-window` at all. That is a security
@@ -161,6 +164,21 @@ struct SatelliteSpec {
     /// window. **Pinned here, never taken from the caller** — namespace, layer
     /// and keyboard mode are exactly the privileges this ticket exists over.
     floating: Option<FloatingSpec>,
+    /// Whether the satellite may take focus when it opens.
+    ///
+    /// False for a satellite that is a *light* rather than a surface to work in
+    /// (MJXHRM-228): the wake indicator appears while the user is typing in
+    /// another application, and a window that steals focus to say "I heard you"
+    /// has interrupted the very thing it was supposed to leave alone.
+    focusable: bool,
+    /// Whether every click passes straight through to whatever is behind.
+    ///
+    /// Load-bearing rather than polish for a layer-shell satellite: that backend
+    /// anchors all four edges, so the surface is the SIZE OF THE OUTPUT
+    /// (`surface/layer_shell.rs`). Without click-through such a window swallows
+    /// every click on the desktop — which is why [`build_satellite`] refuses to
+    /// show a surface asking for it that did not get it, rather than degrading.
+    click_through: bool,
 }
 
 /// The pinned half of a [`crate::surface::SurfaceRequest`].
@@ -198,6 +216,8 @@ const SATELLITES: &[SatelliteSpec] = &[
             keyboard_focus: crate::surface::KeyboardFocus::Exclusive,
             margins: [0, 0, HUD_TOP_MARGIN, 0],
         }),
+        focusable: true,
+        click_through: false,
     },
     // Quick Entry (MJXHRM-384). Deliberately NOT a layer surface: it wants the
     // keyboard outright for one sentence and then to be gone, which an ordinary
@@ -212,8 +232,51 @@ const SATELLITES: &[SatelliteSpec] = &[
         // is *which* screen (MJXHRM-417).
         top_margin: None,
         floating: None,
+        focusable: true,
+        click_through: false,
+    },
+    // The wake indicator (MJXHRM-228) — "the app heard you", drawn where the
+    // user is looking rather than inside a window they may not be in. Desktop's
+    // is an Electron panel pinned to the top of the internal display and is
+    // macOS-only (`electron/wake-indicator-window.ts` returns early otherwise);
+    // this is the same light on the surface layer, so it exists wherever the
+    // layer answers for it and says why where it does not.
+    //
+    // Takes no input and no focus at all: it is a light. The state it shows is
+    // decided once, in `store/wake-indicator.ts`, and pushed to this window over
+    // the event bus — this end never re-derives it.
+    SatelliteSpec {
+        surface: "wake",
+        // Desktop's 176×52. Only the size the light is drawn in on a plain
+        // toplevel; a layer surface is output-sized and the CSS centres it.
+        width: WAKE_INDICATOR_WIDTH,
+        height: WAKE_INDICATOR_HEIGHT,
+        transparent: true,
+        // Top of the screen. `place_on_active_monitor` works in the WORK AREA,
+        // so on macOS this sits directly under the menu bar rather than in the
+        // notch cutout — a floating-level window cannot draw over the menu bar
+        // anyway, so that is the honest position rather than a compromise.
+        top_margin: Some(0),
+        floating: Some(FloatingSpec {
+            namespace: "hermes:wake-indicator",
+            // Above a full-screen application: the point of a hands-free cue is
+            // that it reaches you while you are somewhere else.
+            layer: crate::surface::SurfaceLayer::Overlay,
+            keyboard_focus: crate::surface::KeyboardFocus::None,
+            margins: [0, 0, 0, 0],
+        }),
+        focusable: false,
+        click_through: true,
     },
 ];
+
+/// The wake indicator's window size — desktop's 176×52, shared with the
+/// frontend through the same constants so the light and the window it is drawn
+/// in cannot drift apart.
+#[cfg(desktop)]
+const WAKE_INDICATOR_WIDTH: f64 = 176.0;
+#[cfg(desktop)]
+const WAKE_INDICATOR_HEIGHT: f64 = 52.0;
 
 #[cfg(desktop)]
 fn satellite_spec(surface: &str) -> Option<&'static SatelliteSpec> {
@@ -331,7 +394,10 @@ fn build_satellite(
         // attached with is the one the frontend already wrote down.
         let _ = existing.unminimize();
         let _ = existing.show();
-        let _ = existing.set_focus();
+
+        if spec.focusable {
+            let _ = existing.set_focus();
+        }
 
         return Ok(SatelliteWindow {
             label: label.to_string(),
@@ -352,7 +418,7 @@ fn build_satellite(
         // monitor (MJXHRM-417) before it is ever painted, rather than appearing
         // on one screen and jumping to another.
         .visible(false)
-        .focused(true);
+        .focused(spec.focusable);
 
     // A transient surface does not belong in the window list.
     #[cfg(any(target_os = "linux", target_os = "windows"))]
@@ -372,6 +438,21 @@ fn build_satellite(
         .build()
         .map_err(|e| format!("could not open window: {e}"))?;
 
+    // Before anything is shown. A satellite that asked to be click-through and
+    // is not would, on the layer-shell backend, be an OUTPUT-SIZED window
+    // swallowing every click on the desktop — so this is a hard failure that
+    // takes the window with it, not a degradation to report.
+    if spec.click_through {
+        if let Err(e) = window.set_ignore_cursor_events(true) {
+            let _ = window.close();
+
+            return Err(format!(
+                "refusing to show {label}: it must pass clicks through and this platform would not \
+                 let it ({e})"
+            ));
+        }
+    }
+
     let Some(floating) = &spec.floating else {
         // Not a floating surface, but still a window that should open where the
         // user is looking. Placement is refused outright on Wayland — see
@@ -379,7 +460,10 @@ fn build_satellite(
         // than a move that silently does nothing.
         let _ = crate::surface::place_on_active_monitor(app, &window, spec.top_margin);
         let _ = window.show();
-        let _ = window.set_focus();
+
+        if spec.focusable {
+            let _ = window.set_focus();
+        }
 
         return Ok(SatelliteWindow {
             label: label.to_string(),
@@ -416,7 +500,10 @@ fn build_satellite(
     }
 
     let _ = window.show();
-    let _ = window.set_focus();
+
+    if spec.focusable {
+        let _ = window.set_focus();
+    }
 
     Ok(SatelliteWindow {
         label: label.to_string(),
@@ -738,6 +825,7 @@ mod tests {
     fn only_registered_surfaces_can_be_opened() {
         assert!(satellite_spec("hud").is_some());
         assert!(satellite_spec("quick").is_some());
+        assert!(satellite_spec("wake").is_some());
 
         for surface in ["evil", "", "HUD", "hud ", "hud/../main", "sat-hud", "main"] {
             assert!(
@@ -763,6 +851,61 @@ mod tests {
         assert_eq!(floating.layer, SurfaceLayer::Overlay);
         assert_eq!(floating.keyboard_focus, KeyboardFocus::Exclusive);
         assert_eq!(floating.margins, [0, 0, HUD_TOP_MARGIN, 0]);
+    }
+
+    /// The wake indicator is a LIGHT, and the two properties that make it one
+    /// are the two whose absence is catastrophic rather than cosmetic
+    /// (MJXHRM-228).
+    ///
+    /// It is a layer-shell surface asking for the overlay layer, which anchors
+    /// all four edges — so it is the size of the whole output. Taking clicks
+    /// would mean swallowing every click on the desktop, and taking focus would
+    /// mean stealing it from whatever the user was typing in at the exact moment
+    /// they spoke to Hermes instead. `build_satellite` refuses to show a
+    /// click-through satellite it could not make click-through, rather than
+    /// degrading.
+    #[test]
+    fn the_wake_light_takes_no_clicks_and_no_focus() {
+        let spec = satellite_spec("wake").expect("the wake indicator is registered");
+
+        assert!(
+            spec.click_through,
+            "an output-sized light must not take clicks"
+        );
+        assert!(!spec.focusable, "a light must never take focus");
+
+        let floating = spec
+            .floating
+            .as_ref()
+            .expect("the wake light is a floating surface");
+
+        assert_eq!(floating.namespace, "hermes:wake-indicator");
+        assert_eq!(floating.layer, SurfaceLayer::Overlay);
+        assert_eq!(floating.keyboard_focus, KeyboardFocus::None);
+        // Flush with the top edge: this is the notch position.
+        assert_eq!(floating.margins, [0, 0, 0, 0]);
+        assert_eq!(spec.top_margin, Some(0));
+    }
+
+    /// The HUD and Quick Entry are surfaces to work IN, so they focus and take
+    /// input; only the light does not. Asserted over the whole registry so a new
+    /// satellite has to make the choice deliberately.
+    #[test]
+    fn only_the_wake_light_is_click_through() {
+        for spec in SATELLITES {
+            assert_eq!(
+                spec.click_through,
+                spec.surface == "wake",
+                "{} click_through",
+                spec.surface
+            );
+            assert_eq!(
+                spec.focusable,
+                spec.surface != "wake",
+                "{} focusable",
+                spec.surface
+            );
+        }
     }
 
     /// A floating satellite is born hidden, because a wlr-layer-shell surface

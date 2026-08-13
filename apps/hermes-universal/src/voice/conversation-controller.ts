@@ -48,6 +48,18 @@ export interface ConversationBinding {
   target: ComposerTarget
   /** Submit a finalized transcript as a chat turn. */
   submit: (text: string) => Promise<void>
+  /**
+   * Stop the turn this session is running — the Stop button's own seam.
+   *
+   * The generation half of full-duplex barge-in needs it (MJXHRM-228): speaking
+   * over a reply that is still being GENERATED has to stop the model, or the
+   * interrupting utterance queues behind a turn nobody wants any more — and
+   * `submit` refuses outright while the session is busy, so it would not even
+   * queue, it would vanish. Supplied by the surface rather than reached for
+   * here: the controller has no static edge to the chat store and must not grow
+   * one (`store/chat` → `lib/voice-playback` → back here is a cycle).
+   */
+  interrupt: () => Promise<void>
   /** False when speech-to-text isn't configured — surface the notice, don't start. */
   transcriptionAvailable: boolean
   copy: ConversationCopy
@@ -55,6 +67,21 @@ export interface ConversationBinding {
 
 /** End the conversation after this many consecutive idle timeouts (~2 × 12 s). */
 const MAX_IDLE_TIMEOUTS = 2
+
+/**
+ * How long a generation-phase barge waits for its interrupt to actually stop the
+ * turn before submitting anyway.
+ *
+ * `session.interrupt` returns BEFORE the provider stops (see `interruptSession`
+ * in `store/chat.ts`), and the submit path refuses while the session is busy —
+ * so without this wait the interrupting utterance is dropped silently, which is
+ * the failure that looks exactly like "it didn't hear me". Desktop waits the
+ * same 5 s (`use-voice-conversation.ts`, `INTERRUPT_SETTLE_TIMEOUT_MS`).
+ */
+const INTERRUPT_SETTLE_MS = 5_000
+
+/** How often the settle wait re-reads `$busy`. */
+const INTERRUPT_POLL_MS = 100
 
 function currentTarget(): VoiceTarget | null {
   const conn = $connection.get()
@@ -81,6 +108,18 @@ class ConversationController {
   private turnSeq = 0
   private speaking = false
   private idleTimeouts = 0
+  /**
+   * The turn whose reply is still being produced, or 0.
+   *
+   * A turn id rather than a boolean, so it self-invalidates: every path that
+   * supersedes a turn bumps `turnSeq` already — a new transcript, `end()` — and
+   * a flag left set by an abandoned continuation would have the next barge
+   * interrupt a session that is not running anything.
+   */
+  private generatingTurn = 0
+  /** Whether any of the current turn's reply has been spoken yet. Decides
+   *  whether a barge may claim a SPOKEN reply was cut off — see `onBargeIn`. */
+  private spokenAnything = false
 
   async start(binding: ConversationBinding): Promise<void> {
     if (this.lease) {
@@ -158,6 +197,8 @@ class ConversationController {
     this.turnSeq += 1
     this.idleTimeouts = 0
     this.speaking = false
+    this.generatingTurn = 0
+    this.spokenAnything = false
 
     this.offEvents?.()
     this.offEvents = null
@@ -217,18 +258,7 @@ class ConversationController {
 
       case 'speechStart':
         this.idleTimeouts = 0
-
-        if (this.speaking) {
-          // Barge-in: stop the assistant; the in-flight playback settles 'stopped'
-          // and the barge turn's transcript will supersede the current one.
-          //
-          // Latch it FIRST. `stopVoicePlayback` clears `$voicePlayback`, so by the
-          // time the barge utterance has been transcribed and reaches `sendPrompt`
-          // there is no longer any live playback for that path to notice — this is
-          // the only site that still knows a reply was cut off mid-sentence.
-          markVoicePlaybackInterrupted()
-          stopVoicePlayback()
-        }
+        this.onBargeIn()
 
         break
 
@@ -266,7 +296,99 @@ class ConversationController {
     }
   }
 
+  /** The current turn is still being produced (and has not been superseded). */
+  private get generating(): boolean {
+    return this.generatingTurn !== 0 && this.generatingTurn === this.turnSeq
+  }
+
+  /**
+   * The user spoke while the agent had the floor — full-duplex barge-in
+   * (MJXHRM-228).
+   *
+   * TWO windows, and until now only the second was covered. The mic was armed
+   * for the first time at the first spoken chunk, so between submitting a turn
+   * and hearing it start to speak the session sat `Idle`, where the Rust machine
+   * DISCARDS audio (`machine.rs`, `on_frames`) — the app was deaf for exactly
+   * the stretch a user is most likely to say "no, wait". That is the half-duplex
+   * gap desktop closed in `e0233f8fc5`; the fix here is the same shape, in the
+   * state machine instead of a JS analyser (`runTurn` arms straight after the
+   * submit).
+   *
+   *  * **Generation** — nothing is playing; there is a model producing tokens.
+   *    Stop it. Without that the barge utterance is transcribed and then dropped
+   *    on the floor: `submit` refuses while the session is busy.
+   *  * **Playback** — cut the audio. The in-flight clip settles `stopped` and the
+   *    barge turn's transcript supersedes this one.
+   *
+   * `markVoicePlaybackInterrupted` is deliberately NOT called for a barge that
+   * lands before a word has been spoken, and this is where universal diverges
+   * from desktop on purpose (desktop's `onSpeech` marks unconditionally). The
+   * flag makes the gateway prepend a fixed note to the next turn — "the user
+   * interrupted your previous SPOKEN reply before it finished"
+   * (`tools/tts_streaming.py`) — so sending it for a turn that never reached the
+   * speakers tells the model something that did not happen. `spokenAnything`,
+   * not `speaking`, because a barge landing in the gap between two clips of one
+   * reply did cut that reply off mid-narration.
+   *
+   * The interrupt is conditioned on the session actually being busy. Interrupting
+   * an idle agent can leave a stale interrupt flag that cancels the NEXT turn
+   * (`store/chat.ts`, `runRewindSubmit`), and the turn can complete between the
+   * last chunk being handed to the speakers and the user talking over it.
+   */
+  private onBargeIn(): void {
+    const binding = this.binding
+
+    if (!binding || (!this.speaking && !this.generating)) {
+      return
+    }
+
+    if (this.speaking || this.spokenAnything) {
+      // Latch it FIRST. `stopVoicePlayback` clears `$voicePlayback`, so by the
+      // time the barge utterance has been transcribed and reaches `sendPrompt`
+      // there is no longer any live playback for that path to notice — this is
+      // the only site that still knows a reply was cut off mid-sentence.
+      markVoicePlaybackInterrupted()
+    }
+
+    if (this.speaking) {
+      stopVoicePlayback()
+    }
+
+    if (this.generating && binding.view.$busy.get()) {
+      void binding.interrupt().catch(() => undefined)
+    }
+  }
+
+  /**
+   * Wait for a just-interrupted turn to actually settle, bounded.
+   *
+   * Runs before every submit and costs nothing on the normal path, where the
+   * session is not busy. If the wait expires the submit goes ahead and the
+   * binding's own busy guard drops it — the loop still re-arms (an empty reply
+   * ends `replyChunks` through its "no reply and not busy" branch), so a
+   * gateway that never stops leaves the user repeating themselves rather than
+   * facing a dead microphone.
+   */
+  private async settleInterrupt(view: SessionView, myTurn: number): Promise<void> {
+    const deadline = Date.now() + INTERRUPT_SETTLE_MS
+
+    while (view.$busy.get() && myTurn === this.turnSeq && Date.now() < deadline) {
+      await new Promise(resolve => window.setTimeout(resolve, INTERRUPT_POLL_MS))
+    }
+  }
+
   private onIdleTimeout(): void {
+    // The mic is armed through the generation and playback windows now, so the
+    // VAD's idle timer runs while the AGENT is the one taking time. A user
+    // waiting out a two-minute turn is not an idle conversation, and counting
+    // those would end it under them — the timeout only means "nobody is here"
+    // when it is the user's turn to speak.
+    if (this.generating || this.speaking) {
+      this.idleTimeouts = 0
+
+      return
+    }
+
     this.idleTimeouts += 1
 
     if (this.idleTimeouts >= MAX_IDLE_TIMEOUTS) {
@@ -298,13 +420,40 @@ class ConversationController {
     }
 
     const myTurn = ++this.turnSeq
+    this.generatingTurn = 0
+    this.spokenAnything = false
     setConversationStatus('thinking')
+
+    // This transcript may BE a barge that just interrupted the previous turn.
+    // The interrupt returns before the provider stops, and the submit refuses
+    // while the session is busy, so wait for it to land first.
+    await this.settleInterrupt(binding.view, myTurn)
+
+    if (myTurn !== this.turnSeq) {
+      return
+    }
 
     await binding.submit(text)
 
     if (myTurn !== this.turnSeq) {
       return
     }
+
+    // Live through GENERATION, not just playback. Armed after the submit
+    // resolves rather than before it: a barge that lands while `prompt.submit`
+    // is still in the air has no turn to interrupt, and interrupting a session
+    // that is not yet running one is the stale-flag hazard `onBargeIn` guards
+    // against.
+    //
+    // 'normal' thresholds here, and that is not an oversight — barge-in's higher
+    // onset exists to stop the assistant's own speakers tripping the mic, and
+    // during generation nothing is playing. It matches desktop's phase-aware
+    // trigger, which clamps up only while audio is flowing. Announcing
+    // 'listening' is suppressed: the agent is thinking, the pill and the ambient
+    // blips both follow that status, and a mic being live is not a prompt to
+    // speak.
+    this.generatingTurn = myTurn
+    await this.arm('normal', { announce: false })
 
     let armedForBargeIn = false
 
@@ -313,8 +462,9 @@ class ConversationController {
         return
       }
 
-      // Arm barge-in only once we actually start speaking, so a user speaking
-      // during 'thinking' doesn't get captured against an empty reply.
+      // Switch to barge-in thresholds as the speakers open. The session is
+      // already Armed, so this only re-tunes the VAD (`machine.rs`, `on_arm`) —
+      // no state transition, no gap in which the mic is deaf.
       if (!armedForBargeIn) {
         await this.arm('bargein')
         armedForBargeIn = true
@@ -322,6 +472,7 @@ class ConversationController {
 
       setConversationStatus('speaking')
       this.speaking = true
+      this.spokenAnything = true
       const outcome = await playSpeechTextUntilDone(chunk, { source: 'voice-conversation' })
       this.speaking = false
 
@@ -348,6 +499,13 @@ class ConversationController {
 
         break
       }
+    }
+
+    // The turn is over: nothing left to interrupt, so a later barge must not try
+    // to. Only if this turn still owns the loop — a superseded one returns above
+    // and its successor is already the generating turn.
+    if (myTurn === this.turnSeq) {
+      this.generatingTurn = 0
     }
 
     await this.arm(this.armMode())
@@ -439,12 +597,20 @@ class ConversationController {
     return 'normal'
   }
 
-  private async arm(mode: VoiceArmMode): Promise<void> {
+  /**
+   * Arm the mic.
+   *
+   * `announce` defaults to what the mode implies — arming 'normal' is normally
+   * the loop handing the floor back — and is passed explicitly by the one caller
+   * that arms the SAME mode for the opposite reason: the generation window,
+   * where the mic goes live while the agent is still the one talking.
+   */
+  private async arm(mode: VoiceArmMode, { announce = mode === 'normal' }: { announce?: boolean } = {}): Promise<void> {
     if (!this.lease || this.mutedState) {
       return
     }
 
-    if (mode === 'normal') {
+    if (announce) {
       setConversationStatus('listening')
     }
 

@@ -1901,9 +1901,15 @@ export const ja = defineLocale({
     voiceDictation: '音声口述',
     speakReplies: '返信を読み上げる',
     stopSpeakingReplies: '返信の読み上げを停止',
+    wakeWordClientCapture: (phrase: string) =>
+      `ウェイクワードはオフ — クリックで「${phrase}」を待機。このバックエンドにはマイクがないため、この端末のマイク音声を送信します。`,
     wakeWordListening: (phrase: string) => `「${phrase}」を待機中 — クリックで停止`,
+    wakeWordNeedsConfirm: (phrase: string) =>
+      `「${phrase}」にはこの端末のマイクが必要です — クリックしてバックエンドへの送信を開始`,
     wakeWordOff: (phrase: string) => `ウェイクワードはオフ — クリックで「${phrase}」を待機`,
     wakeWordPausedVoice: (phrase: string) => `音声チャット中は「${phrase}」を一時停止`,
+    wakeWordStreaming: (phrase: string) =>
+      `「${phrase}」を待機中 — この端末のマイク音声をバックエンドへ送信中。クリックで停止。`,
     wakeWordUnavailable: 'このゲートウェイではウェイクワードを利用できません',
     lookupLoading: '検索中…',
     lookupNoMatches: '一致なし。',

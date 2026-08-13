@@ -1767,9 +1767,12 @@ export interface Translations {
     voiceDictation: string
     speakReplies: string
     stopSpeakingReplies: string
+    wakeWordClientCapture: (phrase: string) => string
     wakeWordListening: (phrase: string) => string
+    wakeWordNeedsConfirm: (phrase: string) => string
     wakeWordOff: (phrase: string) => string
     wakeWordPausedVoice: (phrase: string) => string
+    wakeWordStreaming: (phrase: string) => string
     wakeWordUnavailable: string
     lookupLoading: string
     lookupNoMatches: string

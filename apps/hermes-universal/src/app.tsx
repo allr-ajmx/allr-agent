@@ -8,8 +8,9 @@ import { QuickEntryWindowRoot } from '@/app/quick-entry/quick-entry-window'
 import { RemoteFolderPicker } from '@/app/right-pane/files/remote-picker'
 import { TileWindowRoot } from '@/app/tile-window'
 import { WakeIndicatorOverlay } from '@/app/wake-indicator-overlay'
+import { WakeIndicatorWindowRoot } from '@/app/wake-indicator/wake-indicator-window'
 import { FindBar } from '@/components/find-bar'
-import { isActivityWindow, isTileWindow, satelliteSurface } from '@/store/windows'
+import { isActivityWindow, isTileWindow, satelliteSurface, WAKE_INDICATOR_SURFACE } from '@/store/windows'
 
 /**
  * Every window root, plus the surfaces that must exist in ALL of them.
@@ -81,6 +82,14 @@ function AppRoot() {
   // to the primary window to send.
   if (satelliteSurface() === QUICK_ENTRY_SURFACE) {
     return <QuickEntryWindowRoot />
+  }
+
+  // The wake indicator (`?win=wake`) — a light over other applications saying
+  // the phrase was heard (MJXHRM-228). The third satellite, and the one that is
+  // not a surface to work in at all: it takes no input, no focus and no route,
+  // and it is opened and closed by the state it mirrors rather than by the user.
+  if (satelliteSurface() === WAKE_INDICATOR_SURFACE) {
+    return <WakeIndicatorWindowRoot />
   }
 
   // A tile window (`?win=tile`, or the legacy `?win=secondary`) hosts exactly

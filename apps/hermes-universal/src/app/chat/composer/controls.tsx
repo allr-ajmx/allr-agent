@@ -21,7 +21,7 @@ import {
 import { formatCombo } from '@/lib/keybinds/combo'
 import { cn } from '@/lib/utils'
 import { bindingsFor } from '@/store/keybinds'
-import { $wakeWord, toggleWakeWord } from '@/store/wake-word'
+import { $wakeWord, toggleWakeWord, WAKE_CLIENT_CAPTURE_UNCONFIRMED } from '@/store/wake-word'
 
 import type { ConversationStatus } from './hooks/use-voice-conversation'
 import { ModelPill } from './model-pill'
@@ -321,20 +321,34 @@ function ConversationIndicator({
  * Deliberately never hidden, even when the backend refuses. A control that
  * disappears leaves the user with no way to find out WHY the wake word isn't
  * working; a control that stays and explains itself in its tooltip does.
+ *
+ * It also names the MECHANISM, which is the whole of the informed half of
+ * informed consent (MJXHRM-228): on a backend with no microphone of its own,
+ * turning this on streams THIS device's microphone continuously, and the label
+ * says so before the click and while it is happening. `awaitingConsent` is the
+ * config saying on and this device not having agreed — it reads as off, because
+ * nothing is listening, and the click means start.
  */
 function WakeWordButton({ disabled, pausedForVoice = false }: { disabled: boolean; pausedForVoice?: boolean }) {
   const { t } = useI18n()
   const c = t.composer
   const wake = useStore($wakeWord)
-  const on = wake.enabled && wake.available
+  const awaitingConsent = wake.reason === WAKE_CLIENT_CAPTURE_UNCONFIRMED
+  const on = wake.enabled && wake.available && !awaitingConsent
 
   const label = !wake.available
     ? c.wakeWordUnavailable
     : pausedForVoice || wake.pausedForVoice
       ? c.wakeWordPausedVoice(wake.phrase)
-      : on
-        ? c.wakeWordListening(wake.phrase)
-        : c.wakeWordOff(wake.phrase)
+      : awaitingConsent
+        ? c.wakeWordNeedsConfirm(wake.phrase)
+        : on
+          ? wake.streaming
+            ? c.wakeWordStreaming(wake.phrase)
+            : c.wakeWordListening(wake.phrase)
+          : wake.capture === 'client'
+            ? c.wakeWordClientCapture(wake.phrase)
+            : c.wakeWordOff(wake.phrase)
 
   return (
     <Tip label={label}>

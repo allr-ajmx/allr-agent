@@ -1690,6 +1690,10 @@ export const ar = defineLocale({
     stopDictation: 'إيقاف الإملاء',
     transcribingDictation: 'جار تفريغ الإملاء',
     voiceDictation: 'إملاء صوتي',
+    wakeWordClientCapture: phrase =>
+      `كلمة التنبيه متوقفة — انقر للاستماع إلى "${phrase}". لا يملك هذا الخادم ميكروفونا، لذا سيبث جهازك ميكروفونه.`,
+    wakeWordNeedsConfirm: phrase => `"${phrase}" يحتاج إلى ميكروفون جهازك — انقر لبدء بثه إلى الخادم`,
+    wakeWordStreaming: phrase => `جار الاستماع إلى "${phrase}" — يبث ميكروفون جهازك إلى الخادم. انقر للإيقاف.`,
     lookupLoading: 'جار البحث...',
     lookupNoMatches: 'لا توجد نتائج',
     lookupTry: 'جرب',

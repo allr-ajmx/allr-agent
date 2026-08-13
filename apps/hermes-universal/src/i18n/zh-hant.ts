@@ -1845,9 +1845,13 @@ export const zhHant = defineLocale({
     voiceDictation: '語音聽寫',
     speakReplies: '朗讀回覆',
     stopSpeakingReplies: '停止朗讀回覆',
+    wakeWordClientCapture: (phrase: string) =>
+      `唤醒詞已關閉 — 點擊以監聽「${phrase}」。此後端沒有麥克風，將改用本裝置的麥克風持續上傳音訊。`,
     wakeWordListening: (phrase: string) => `正在監聽「${phrase}」 — 點擊停止`,
+    wakeWordNeedsConfirm: (phrase: string) => `「${phrase}」需要使用本裝置的麥克風 — 點擊開始向後端上傳音訊`,
     wakeWordOff: (phrase: string) => `唤醒詞已關閉 — 點擊以監聽「${phrase}」`,
     wakeWordPausedVoice: (phrase: string) => `語音對話期間已暫停「${phrase}」`,
+    wakeWordStreaming: (phrase: string) => `正在監聽「${phrase}」 — 本裝置的麥克風正在向後端上傳音訊。點擊停止。`,
     wakeWordUnavailable: '此閘道不支援唤醒詞',
     lookupLoading: '查詢中…',
     lookupNoMatches: '沒有相符項目。',
