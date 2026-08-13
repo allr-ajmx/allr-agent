@@ -26,6 +26,8 @@ const bus = vi.hoisted(() => {
       }
     },
     emit: vi.fn(async (_event: string, _payload: unknown) => undefined),
+    /** How many handlers are armed for `event` right now. */
+    listenerCount: (event: string) => listeners.get(event)?.size ?? 0,
     listen: vi.fn(async (event: string, handler: (received: { payload: unknown }) => void) => {
       const wrapped = (payload: unknown) => handler({ payload })
       const forEvent = listeners.get(event) ?? new Set()
@@ -330,20 +332,27 @@ describe('asking another window to flush', () => {
   })
 
   it('stops listening once it has an answer', async () => {
-    const pending = requestPeerComposerFlush('hud', 200)
+    const before = bus.listenerCount(FLUSHED_EVENT)
+
+    const answered = requestPeerComposerFlush('hud', 200)
 
     await Promise.resolve()
     await Promise.resolve()
 
-    const nonce = lastFlushNonce()
-    bus.deliver(FLUSHED_EVENT, { nonce, origin: 'the-hud' })
-    await pending
+    expect(bus.listenerCount(FLUSHED_EVENT)).toBe(before + 1)
 
-    // A listener left armed would stack one per dismissal, and each one holds a
-    // timer the caller has already stopped waiting on.
-    bus.emit.mockClear()
-    bus.deliver(FLUSHED_EVENT, { nonce, origin: 'the-hud' })
+    bus.deliver(FLUSHED_EVENT, { nonce: lastFlushNonce(), origin: 'the-hud' })
+    await answered
 
-    expect(bus.emit).not.toHaveBeenCalled()
+    // Armed for one question and taken down with it. A listener left behind
+    // stacks one per dismissal, for the life of the window.
+    expect(bus.listenerCount(FLUSHED_EVENT)).toBe(before)
+  })
+
+  it('stops listening when nobody answers either', async () => {
+    const before = bus.listenerCount(FLUSHED_EVENT)
+
+    expect(await requestPeerComposerFlush('hud', 10)).toBe(false)
+    expect(bus.listenerCount(FLUSHED_EVENT)).toBe(before)
   })
 })
