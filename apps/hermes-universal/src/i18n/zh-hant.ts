@@ -313,6 +313,30 @@ export const zhHant = defineLocale({
       completionSoundDesc: '代理回合結束時播放。可在此選擇預設並預覽。',
       completionSoundPreview: '預覽'
     },
+    voiceLevels: {
+      title: '電平',
+      intro:
+        '調整 Hermes 聽你說話的靈敏度以及朗讀回覆的音量。這裡沒有回音消除，因此把插話門檻設在喇叭所產生的電平之上，才能避免 Hermes 打斷自己。',
+      meterTitle: '輸入電平表',
+      meterDesc: '開啟麥克風，對照下方的門檻查看你的電平。不會錄音，也不會上傳。',
+      meterRunningDesc: '正在聆聽。請正常說話，然後把輸入門檻設在略低於說話電平處。一分鐘後會自動停止。',
+      meterStart: '測試麥克風',
+      meterStop: '停止',
+      meterLevel: (percent: string) => `電平 ${percent}`,
+      meterPeak: (percent: string) => `峰值 ${percent}`,
+      meterBusy: '麥克風已被佔用',
+      meterFailed: '無法開啟麥克風',
+      saveFailed: '無法儲存語音電平',
+      gainTitle: '輸入增益',
+      gainDesc: '以倍率放大測得的電平，讓音量偏小的麥克風也能達到門檻。不會改變用於轉錄的音訊。',
+      thresholdTitle: '輸入門檻',
+      thresholdDesc: '聲音要多大，Hermes 才會視為你開始說話。過低會被環境噪音觸發，過高則完全聽不到你。',
+      bargeinTitle: '插話門檻',
+      bargeinDesc: 'Hermes 說話期間套用的較高門檻。請保持它高於僅有喇叭發聲時電平表顯示的數值。',
+      outputSectionTitle: '輸出',
+      outputTitle: '朗讀音量',
+      outputDesc: '朗讀回覆的播放音量。'
+    },
     sections: {
       model: '模型',
       chat: '聊天',

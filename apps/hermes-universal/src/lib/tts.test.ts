@@ -43,12 +43,21 @@ const { connectionRef, FakeSocket, mintWsTicket, speakText } = vi.hoisted(() => 
   }
 })
 
-vi.mock('@/hermes', () => ({ speakText }))
+// `apiRequestProfile` is reached through `@/store/voice-prefs`, which lib/tts
+// imports for the output volume; the config read/write are never called here.
+vi.mock('@/hermes', () => ({
+  apiRequestProfile: () => null,
+  getHermesConfigRecord: vi.fn(),
+  saveHermesConfig: vi.fn(),
+  speakText
+}))
 vi.mock('@/lib/auth', () => ({ mintWsTicket }))
 // Only `.get()` is used, and mocking it keeps the whole connect/ssh/oauth store
 // graph out of a unit test for playback.
 vi.mock('@/store/connection', () => ({ $connection: { get: () => connectionRef.value } }))
 vi.mock('@/transport/terminal-socket', () => ({ TerminalSocket: FakeSocket }))
+
+import { $voiceOutputVolume, DEFAULT_VOICE_LEVELS } from '@/store/voice-prefs'
 
 import { $ttsSpeaking, speakNow, speakUntilDone, stopSpeaking } from './tts'
 
@@ -59,6 +68,7 @@ class FakeAudio {
   onended: (() => void) | null = null
   onerror: (() => void) | null = null
   src = ''
+  volume = 1
 
   constructor(public readonly dataUrl?: string) {
     FakeAudio.last = this
@@ -174,9 +184,20 @@ class FakeAudioContext {
   destination = {}
   closed = 0
   resumed = 0
+  /** The master gain the session builds on its `start` frame, and what every
+   *  chunk was connected to. */
+  master: { gain: { value: number }; connect: (target: unknown) => void } | null = null
+  readonly connectedTo: unknown[] = []
 
   constructor() {
     FakeAudioContext.last = this
+  }
+
+  createGain() {
+    const node = { gain: { value: 1 }, connect: () => undefined }
+    this.master = node
+
+    return node
   }
 
   createBuffer(_channels: number, length: number, rate: number) {
@@ -191,7 +212,9 @@ class FakeAudioContext {
 
     return {
       buffer: null as unknown,
-      connect() {},
+      connect(target: unknown) {
+        ctx.connectedTo.push(target)
+      },
       start(at: number) {
         ctx.startedAt.push(at)
       }
@@ -441,5 +464,72 @@ describe('speakUntilDone over /api/audio/speak-stream', () => {
     expect(speakText).toHaveBeenCalledWith('no web audio')
     FakeAudio.last?.onended?.()
     await expect(silent).resolves.toBe('ended')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Output volume (MJXHRM-90)
+// ---------------------------------------------------------------------------
+
+/**
+ * The volume has to reach BOTH playback paths. `speakUntilDone` — what the
+ * voice-conversation loop uses — tries the STREAMING path first and only falls
+ * back to `<audio>`, so a fix applied to the media element alone would be a
+ * slider that does nothing for the one consumer that matters.
+ */
+describe('speech output volume', () => {
+  beforeEach(() => {
+    speakText.mockClear()
+    speakText.mockResolvedValue({ ok: true, data_url: 'data:audio/mp3;base64,AAAA' })
+    FakeAudio.last = null
+    FakeSocket.last = null
+    FakeSocket.count = 0
+    FakeAudioContext.last = null
+    $voiceOutputVolume.set(DEFAULT_VOICE_LEVELS.outputVolume)
+    vi.stubGlobal('Audio', FakeAudio)
+    vi.stubGlobal('AudioContext', FakeAudioContext)
+  })
+
+  afterEach(() => {
+    stopSpeaking()
+    connectionRef.value = null
+    $voiceOutputVolume.set(DEFAULT_VOICE_LEVELS.outputVolume)
+    vi.unstubAllGlobals()
+  })
+
+  it('applies the persisted volume to the data-URL clip', async () => {
+    connectionRef.value = null
+    $voiceOutputVolume.set(0.35)
+
+    await speakNow('quietly')
+
+    expect(FakeAudio.last?.volume).toBe(0.35)
+  })
+
+  it('applies the persisted volume to the streamed reply', async () => {
+    connectionRef.value = { authMode: 'none', baseUrl: 'http://gw.example:8080', mode: 'remote' } satisfies Connection
+    $voiceOutputVolume.set(0.2)
+
+    const promise = speakUntilDone('streamed quietly')
+    await flush()
+    socket().handlers.onOpen()
+    socket().handlers.onText(START_FRAME)
+    socket().handlers.onBinary(new Uint8Array([0x01, 0x02]))
+
+    const context = FakeAudioContext.last
+    expect(context?.master?.gain.value).toBe(0.2)
+    // ...and every chunk actually goes THROUGH it rather than straight out.
+    expect(context?.connectedTo).toEqual([context?.master])
+
+    stopSpeaking()
+    await promise
+  })
+
+  it('plays at full volume by default', async () => {
+    connectionRef.value = null
+
+    await speakNow('normally')
+
+    expect(FakeAudio.last?.volume).toBe(1)
   })
 })

@@ -11,6 +11,8 @@ vi.mock('@/hermes', () => ({
   // Via ConfigSection → store/projects → store/profile → store/profiles, which
   // syncs the REST scope at import time.
   setApiRequestProfile: vi.fn(),
+  // The levels panel in the header slot seeds the prefs store when it mounts.
+  apiRequestProfile: () => null,
   getHermesConfigRecord: vi.fn(async () => ({ tts: { provider: 'elevenlabs', elevenlabs: { voice_id: 'v1' } } })),
   getHermesConfigSchema: vi.fn(async () => ({ fields: { 'tts.elevenlabs.voice_id': { type: 'string' } } })),
   saveHermesConfig: vi.fn(async () => ({ ok: true })),

@@ -10,7 +10,10 @@ export type VoiceStateKind =
 
 export type VoiceEmptyReason = 'noSpeech' | 'tooShort' | 'noTranscript'
 
-export type VoiceArmMode = 'normal' | 'bargein'
+/** `monitor` arms the mic for its LEVEL only — Rust makes the onset threshold
+ *  unreachable and the idle window infinite, so no turn is ever captured or
+ *  transcribed. It is what the Voice settings meter runs on. */
+export type VoiceArmMode = 'normal' | 'bargein' | 'monitor'
 
 /** One event from a session, decoded from a `voice://{id}/{topic}` payload. */
 export type VoiceEvent =
@@ -27,6 +30,9 @@ export type VoiceEvent =
 
 /** Optional VAD/turn overrides; omitted fields use Rust's tuned defaults. */
 export interface VoiceVad {
+  /** Mic gain on the level scale — scales the reported RMS only, never the PCM
+   *  that gets transcribed (Rust `VoiceConfig::level_gain`). */
+  levelGain?: number
   speechLevel?: number
   bargeinSpeechLevel?: number
   onsetMs?: number
@@ -51,8 +57,10 @@ export interface VoiceOpenOptions {
 }
 
 /** Mic owners, most privileged first. `wake` is the standing background listener
- *  and yields to anything the user asked for directly. */
-export type VoiceOwner = 'conversation' | 'dictation' | 'wake'
+ *  and yields to anything the user asked for directly — including `meter`, the
+ *  Voice settings calibration meter, which only exists while the user is holding
+ *  a button down on that page. */
+export type VoiceOwner = 'conversation' | 'dictation' | 'meter' | 'wake'
 
 export type VoiceEventHandler = (event: VoiceEvent) => void
 

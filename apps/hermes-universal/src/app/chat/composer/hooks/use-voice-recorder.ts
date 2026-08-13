@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useI18n } from '@/i18n'
 import { $connection } from '@/store/connection'
 import { notify, notifyError } from '@/store/notifications'
+import { voiceInputGain } from '@/store/voice-prefs'
 import { voiceEngine } from '@/voice/engine'
 import { VoiceBusyError, voiceErrorMessage } from '@/voice/errors'
 import type { VoiceEvent, VoiceLease, VoiceTarget, VoiceVad } from '@/voice/types'
@@ -22,8 +23,14 @@ interface VoiceRecorderOptions {
 // conversation loop there is no auto-turn: VAD auto-end is disabled (a huge
 // silence window + a zero speech threshold that keeps every frame "voiced"), so
 // only an explicit `forceTurn` ends the take.
-function dictationVad(capSeconds: number): VoiceVad {
+//
+// The user's input GAIN still applies — it only scales the level, which is what
+// the recording pill's meter draws — but their input THRESHOLD deliberately does
+// not: push-to-talk ends when the button is pressed again, and threading a
+// threshold in here would hand dictation the auto-end it is defined not to have.
+function dictationVad(capSeconds: number, levelGain: number): VoiceVad {
   return {
+    levelGain,
     speechLevel: 0, // every frame counts as speech → records immediately, never auto-ends
     onsetMs: 0,
     minTurnMs: 0,
@@ -162,7 +169,7 @@ export function useVoiceRecorder({
     const cap = Math.max(1, Math.min(Math.trunc(maxRecordingSeconds), 600))
 
     try {
-      const lease = await voiceEngine.open('dictation', { target, vad: dictationVad(cap) })
+      const lease = await voiceEngine.open('dictation', { target, vad: dictationVad(cap, voiceInputGain()) })
       leaseRef.current = lease
       lease.on(onEvent)
       await lease.arm('normal')

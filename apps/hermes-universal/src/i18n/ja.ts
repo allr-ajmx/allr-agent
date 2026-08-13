@@ -319,6 +319,34 @@ export const ja = defineLocale({
       completionSoundDesc: 'エージェントのターン終了時に再生されます。プリセットを選んでここで試聴できます。',
       completionSoundPreview: '試聴'
     },
+    voiceLevels: {
+      title: 'レベル',
+      intro:
+        'Hermes があなたの声をどれだけ拾い、どれだけ大きく話し返すかを調整します。エコーキャンセルはないため、スピーカーの音量を上回る割り込みしきい値を設定することが、Hermes が自分の声で割り込むのを防ぐ唯一の方法です。',
+      meterTitle: '入力メーター',
+      meterDesc: 'マイクを開いて、下のしきい値に対する自分のレベルを確認します。録音も送信も行いません。',
+      meterRunningDesc:
+        '待ち受け中です。普段どおり話し、入力しきい値を発話のすぐ下に設定してください。1 分後に自動で停止します。',
+      meterStart: 'マイクをテスト',
+      meterStop: '停止',
+      meterLevel: (percent: string) => `レベル ${percent}`,
+      meterPeak: (percent: string) => `ピーク ${percent}`,
+      meterBusy: 'マイクは既に使用中です',
+      meterFailed: 'マイクを開けませんでした',
+      saveFailed: '音声レベルを保存できませんでした',
+      gainTitle: '入力ゲイン',
+      gainDesc:
+        '測定レベルを倍率で持ち上げ、音の小さいマイクでもしきい値に届くようにします。文字起こしされる音声そのものは変わりません。',
+      thresholdTitle: '入力しきい値',
+      thresholdDesc:
+        'Hermes が発話の開始とみなす音の大きさです。低すぎると環境音で反応し、高すぎるとまったく聞き取れません。',
+      bargeinTitle: '割り込みしきい値',
+      bargeinDesc:
+        'Hermes が話している間に適用される高い方のゲートです。スピーカーの音だけが鳴っているときのメーター表示より高く保ってください。',
+      outputSectionTitle: '出力',
+      outputTitle: '読み上げ音量',
+      outputDesc: '読み上げの再生音量です。'
+    },
     sections: {
       model: 'モデル',
       chat: 'チャット',

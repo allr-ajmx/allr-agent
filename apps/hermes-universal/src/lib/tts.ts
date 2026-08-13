@@ -3,6 +3,7 @@ import { speakText } from '@/hermes'
 import { mintWsTicket } from '@/lib/auth'
 import { atom } from '@/store/atom'
 import type { Connection } from '@/store/connection'
+import { $voiceOutputVolume } from '@/store/voice-prefs'
 import { TerminalSocket } from '@/transport/terminal-socket'
 
 // Text-to-speech playback. Two paths, in preference order:
@@ -19,6 +20,13 @@ import { TerminalSocket } from '@/transport/terminal-socket'
 //
 // One utterance plays at a time; a new speak (or stopSpeaking) interrupts the
 // previous one on BOTH paths.
+//
+// The user's output volume (`$voiceOutputVolume`, Settings → Voice) has to be
+// applied on BOTH of them or it is a slider that does nothing for the consumer
+// that matters: the voice-conversation loop goes through `speakUntilDone`, which
+// tries the STREAMING path first and only falls back to `<audio>`. On the stream
+// there is no media element to set `.volume` on, so a master GainNode sits
+// between every scheduled chunk and the destination.
 export const $ttsSpeaking = atom(false)
 
 /** How a `speakUntilDone` playback ended. */
@@ -143,6 +151,9 @@ export interface SpeechStreamSession {
 function openSpeechStream(wsUrl: string, AudioCtor: AudioContextCtor): SpeechStreamSession {
   let socket: TerminalSocket | null = null
   let context: AudioContext | null = null
+  // One master gain for the whole reply, built with the context on the `start`
+  // frame and reused by every chunk — the streaming equivalent of `<audio>.volume`.
+  let master: GainNode | null = null
   let streamRate = DEFAULT_SAMPLE_RATE
   let nextStartAt = 0
   let carry: Uint8Array | null = null
@@ -177,6 +188,7 @@ function openSpeechStream(wsUrl: string, AudioCtor: AudioContextCtor): SpeechStr
       socket = null
       void context?.close().catch(() => undefined)
       context = null
+      master = null
       resolve(value)
     }
   })
@@ -252,7 +264,7 @@ function openSpeechStream(wsUrl: string, AudioCtor: AudioContextCtor): SpeechStr
 
     const source = context.createBufferSource()
     source.buffer = buffer
-    source.connect(context.destination)
+    source.connect(master ?? context.destination)
 
     const startAt = Math.max(context.currentTime + SCHEDULE_LEAD_S, nextStartAt)
     source.start(startAt)
@@ -276,6 +288,9 @@ function openSpeechStream(wsUrl: string, AudioCtor: AudioContextCtor): SpeechStr
     if (frame.type === 'start') {
       streamRate = frame.sample_rate || DEFAULT_SAMPLE_RATE
       context = new AudioCtor()
+      master = context.createGain()
+      master.gain.value = $voiceOutputVolume.get()
+      master.connect(context.destination)
 
       // A voice turn started by the wake word has no preceding user gesture, so
       // the autoplay policy can hand back a suspended context. Resume it or the
@@ -426,6 +441,7 @@ async function startPlayback(text: string): Promise<{ done: Promise<SpeechEnd>; 
     }
 
     const audio = new Audio(res.data_url)
+    audio.volume = $voiceOutputVolume.get()
     current = audio
     $ttsSpeaking.set(true)
 
