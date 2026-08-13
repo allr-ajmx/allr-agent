@@ -1,4 +1,5 @@
 import type { StagedAttachment } from '@/app/chat/attachments'
+import { requestComposerDraftSync } from '@/lib/composer-draft-bus'
 import { deriveDraftTitle } from '@/lib/draft-title'
 import { triggerHaptic } from '@/lib/haptics'
 import { Codecs, persistentAtom } from '@/lib/persisted'
@@ -6,7 +7,7 @@ import { IS_TAURI } from '@/lib/platform'
 import { broadcastToPeers, listenToPeers, onPeerBroadcast, type PeerBroadcast } from '@/lib/webview-broadcast'
 import { WEBVIEW_ID } from '@/lib/webview-id'
 import { atom } from '@/store/atom'
-import { satelliteSurface } from '@/store/windows'
+import { addressesThisWindow, type WindowAddress } from '@/store/windows'
 
 // ===========================================================================
 // LEGACY LEAN SHIM (pre-port). Kept so the two existing non-composer consumers
@@ -362,12 +363,14 @@ export const clearSessionDraft = (scope: string | null | undefined) => stashSess
 //   • CHANGED is an announcement. It needs no acknowledgement — the text is on
 //     disk, so a peer that misses the news still picks it up the next time it
 //     consults the stash. Missing it costs a repaint, not a draft.
-//   • FLUSH is a request, and it is the one that can lose text: a satellite the
-//     other window tears down runs no JS on the way out (see store/windows.ts —
-//     that is why the close signal comes from Rust), so nothing writes down what
-//     was typed since its last debounce unless it is ASKED to, and asked in time.
-//     Hence the acknowledgement: `requestPeerComposerFlush` can tell "that window
-//     wrote its draft down" from "nobody answered", and says which.
+//   • FLUSH is a request, and it is the one that can lose text: a window another
+//     window tears down runs no JS on the way out (see store/windows.ts — that
+//     is why both the satellite and the tile close signals come from Rust), so
+//     nothing writes down what was typed since its last debounce unless it is
+//     ASKED to, and asked in time. Hence the acknowledgement:
+//     `requestPeerComposerFlush` can tell "that window wrote its draft down"
+//     from "nobody answered", and says which. Two callers today: dismissing the
+//     HUD, and reattaching a detached tile.
 //
 // What this does NOT promise on Android: a webview whose activity Kotlin has
 // already finished runs nothing, so an event cannot reach it and a draft held
@@ -384,25 +387,25 @@ export const clearSessionDraft = (scope: string | null | undefined) => stashSess
  *  it. */
 const DRAFT_STASH_EVENT = 'composer-draft://changed'
 
-/** Asks ONE named surface to write its editor down, and hears back.
+/** Asks ONE named window to write its editor down, and hears back.
  *
  *  Addressed rather than broadcast, even though the bus is global: several
  *  windows routinely hold the SAME draft scope — the HUD opens on the very
- *  conversation the summoning window is showing — so asking all of them to flush
- *  would race their copies and let a stale one land last. */
+ *  conversation the summoning window is showing, and a detached tile IS the one
+ *  its slot in the main window is holding — so asking all of them to flush would
+ *  race their copies and let a stale one land last. */
 const DRAFT_FLUSH_EVENT = 'composer-draft://flush'
 const DRAFT_FLUSHED_EVENT = 'composer-draft://flushed'
 
 type ComposerDraftStashPayload = PeerBroadcast
 
-interface ComposerDraftFlushPayload extends PeerBroadcast {
+/** The address travels FLAT in the payload rather than nested, so the wire shape
+ *  is one object and a receiver can hand the whole payload to
+ *  `addressesThisWindow`. */
+interface ComposerDraftFlushPayload extends PeerBroadcast, WindowAddress {
   /** Ties an answer to its question, so an unrelated flush cannot be mistaken
    *  for this one having been served. */
   nonce: string
-  /** The satellite surface expected to answer — `null` means the ordinary
-   *  window. Compared against `satelliteSurface()`, which every webview knows
-   *  about itself synchronously from its own `?win=` flag. */
-  surface: null | string
 }
 
 interface ComposerDraftFlushedPayload extends PeerBroadcast {
@@ -439,29 +442,10 @@ export function reloadPersistedDrafts(): void {
   }
 }
 
-/** `flush`: write what is in the editor to the stash NOW, before another window
- *  reads it. `reload`: re-read the stash into a composer whose scope did not
- *  change — otherwise the only thing that makes it re-consult the stash is a
- *  session swap, and a handoff is not one. */
-export type ComposerDraftSyncMode = 'flush' | 'reload'
-
-const DRAFT_SYNC_EVENT = 'hermes:composer-draft-sync'
-
-export function requestComposerDraftSync(mode: ComposerDraftSyncMode): void {
-  try {
-    window.dispatchEvent(new CustomEvent(DRAFT_SYNC_EVENT, { detail: mode }))
-  } catch {
-    // No DOM — nothing is mounted to answer anyway.
-  }
-}
-
-export function onComposerDraftSyncRequest(handler: (mode: ComposerDraftSyncMode) => void): () => void {
-  const listener = (event: Event) => handler((event as CustomEvent<ComposerDraftSyncMode>).detail)
-
-  window.addEventListener(DRAFT_SYNC_EVENT, listener)
-
-  return () => window.removeEventListener(DRAFT_SYNC_EVENT, listener)
-}
+// The same-window half of the draft sync — `requestComposerDraftSync` and
+// `onComposerDraftSyncRequest` — lives in `lib/composer-draft-bus.ts`. It has no
+// dependencies at all, which is what lets `store/windows.ts` flush before it
+// builds a window without importing this module back (MJXHRM-398).
 
 /** How long `requestPeerComposerFlush` waits for the window it asked.
  *
@@ -475,7 +459,7 @@ export const DRAFT_FLUSH_ACK_TIMEOUT_MS = 250
 let flushRequestSeq = 0
 
 /**
- * Ask the window on `surface` to write its editor's text into the shared stash,
+ * Ask the window at `address` to write its editor's text into the shared stash,
  * and wait until it says it has.
  *
  * Resolves `true` only when that window answered — which, because the flush it
@@ -487,15 +471,15 @@ let flushRequestSeq = 0
  *
  * What it cannot tell you is whether the window that answered had a composer
  * MOUNTED. `requestComposerDraftSync` dispatches to whoever is listening, and a
- * surface showing something else answers just the same. That is the honest limit
- * of this signal, and it is fine for the one caller: a HUD with no composer has
- * no draft to lose.
+ * window showing something else answers just the same. That is the honest limit
+ * of this signal, and it is fine for both callers: a HUD or a detached terminal
+ * tile with no composer has no draft to lose.
  *
  * Call it AFTER flushing this window (which is synchronous), so the peer's copy
  * of a shared scope lands on top of ours rather than under it.
  */
 export async function requestPeerComposerFlush(
-  surface: null | string,
+  address: WindowAddress,
   timeoutMs: number = DRAFT_FLUSH_ACK_TIMEOUT_MS
 ): Promise<boolean> {
   if (!IS_TAURI) {
@@ -524,7 +508,7 @@ export async function requestPeerComposerFlush(
   const timer = window.setTimeout(() => settle(false), timeoutMs)
 
   try {
-    broadcastToPeers<ComposerDraftFlushPayload>(DRAFT_FLUSH_EVENT, { nonce, surface })
+    broadcastToPeers<ComposerDraftFlushPayload>(DRAFT_FLUSH_EVENT, { nonce, ...address })
 
     if (!(await answered)) {
       return false
@@ -558,7 +542,7 @@ onPeerBroadcast<ComposerDraftStashPayload>(DRAFT_STASH_EVENT, () => {
 
 // A peer is about to destroy this window and wants what is in the editor first.
 onPeerBroadcast<ComposerDraftFlushPayload>(DRAFT_FLUSH_EVENT, payload => {
-  if (payload.surface !== satelliteSurface()) {
+  if (!addressesThisWindow(payload)) {
     return
   }
 

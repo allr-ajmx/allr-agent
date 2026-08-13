@@ -47,9 +47,10 @@
 import { listen } from '@tauri-apps/api/event'
 
 import { sessionRoute } from '@/app/routes'
+import { requestComposerDraftSync } from '@/lib/composer-draft-bus'
 import { IS_TAURI } from '@/lib/platform'
 import { navigateTo } from '@/lib/route-nav'
-import { reloadPersistedDrafts, requestComposerDraftSync } from '@/store/composer'
+import { reloadPersistedDrafts } from '@/store/composer'
 import { notifyError } from '@/store/notifications'
 import {
   HUD_SURFACE,

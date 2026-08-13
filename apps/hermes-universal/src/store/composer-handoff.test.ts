@@ -10,14 +10,9 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import {
-  onComposerDraftSyncRequest,
-  reloadPersistedDrafts,
-  requestComposerDraftSync,
-  SESSION_DRAFTS_STORAGE_KEY,
-  stashSessionDraft,
-  takeSessionDraft
-} from './composer'
+import { onComposerDraftSyncRequest, requestComposerDraftSync } from '@/lib/composer-draft-bus'
+
+import { reloadPersistedDrafts, SESSION_DRAFTS_STORAGE_KEY, stashSessionDraft, takeSessionDraft } from './composer'
 
 const attachment = (id: string) => ({ id, kind: 'image' as const, label: `${id}.png` })
 
