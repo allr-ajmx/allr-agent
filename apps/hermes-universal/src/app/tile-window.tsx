@@ -116,7 +116,7 @@ function ChatTileHost() {
     <SidebarProvider>
       <div className="relative flex h-full min-h-0 flex-col">
         <div
-          className="flex h-(--titlebar-height) shrink-0 items-center gap-1 border-b border-(--ui-stroke-tertiary) pl-2 pr-1"
+          className="flex h-(--titlebar-height) shrink-0 items-center gap-1 border-b border-(--ui-stroke-tertiary) ps-2 pe-1"
           data-tauri-drag-region
         >
           <div className="min-w-0 flex-1 overflow-hidden">
@@ -167,7 +167,7 @@ function TileHost({ tileId }: { tileId: string }) {
     <SidebarProvider>
       <div className="relative flex h-full min-h-0 flex-col">
         <div
-          className="flex h-(--titlebar-height) shrink-0 items-center gap-1 border-b border-(--ui-stroke-tertiary) pr-1 pl-2"
+          className="flex h-(--titlebar-height) shrink-0 items-center gap-1 border-b border-(--ui-stroke-tertiary) pe-1 ps-2"
           data-tauri-drag-region
         >
           <span className="min-w-0 flex-1 truncate text-xs text-(--ui-text-secondary)">{tile?.title ?? tileId}</span>

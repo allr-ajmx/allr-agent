@@ -178,7 +178,7 @@ export function NodeContextMenu({ onClose, onNodeRemoved, target }: NodeContextM
                 which keys off `[data-slot='button']` — does not reach them.
                 Sized here instead. */}
             <button
-              className="block w-full cursor-pointer rounded-md px-2 py-1 text-left text-xs hover:bg-(--ui-control-active-background) hover:text-foreground disabled:opacity-50 coarse:py-2.5 coarse:text-sm"
+              className="block w-full cursor-pointer rounded-md px-2 py-1 text-start text-xs hover:bg-(--ui-control-active-background) hover:text-foreground disabled:opacity-50 coarse:py-2.5 coarse:text-sm"
               disabled={loading}
               onClick={() => void openEdit()}
               type="button"
@@ -186,7 +186,7 @@ export function NodeContextMenu({ onClose, onNodeRemoved, target }: NodeContextM
               Edit {noun}…
             </button>
             <button
-              className="block w-full cursor-pointer rounded-md px-2 py-1 text-left text-xs text-destructive hover:bg-destructive/10 coarse:py-2.5 coarse:text-sm"
+              className="block w-full cursor-pointer rounded-md px-2 py-1 text-start text-xs text-destructive hover:bg-destructive/10 coarse:py-2.5 coarse:text-sm"
               onClick={() => {
                 setDeleting({ id: target.id, kind: target.kind, label: target.label })
                 onClose()

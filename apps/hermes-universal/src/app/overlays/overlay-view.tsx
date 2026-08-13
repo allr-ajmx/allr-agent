@@ -121,13 +121,13 @@ export function OverlayView({
               scrubber shares this band. */}
           <Button
             aria-label={closeLabel}
-            className="pointer-events-auto absolute left-3 -translate-y-1/2 text-(--ui-text-tertiary) hover:bg-(--chrome-action-hover) hover:text-foreground"
+            className="pointer-events-auto absolute start-3 -translate-y-1/2 text-(--ui-text-tertiary) hover:bg-(--chrome-action-hover) hover:text-foreground"
             onClick={closeOverlay}
             size="sm"
             style={{ top: 'calc(var(--safe-area-inset-top) + 0.1875rem + var(--titlebar-height) / 2)' }}
             variant="ghost"
           >
-            <Codicon name="chevron-left" size="1.4rem" />
+            <Codicon className="rtl:-scale-x-100" name="chevron-left" size="1.4rem" />
           </Button>
         </div>
 
@@ -178,7 +178,7 @@ export function OverlayView({
 
           <Button
             aria-label={closeLabel}
-            className="pointer-events-auto absolute right-3 top-[calc(0.1875rem+var(--titlebar-height)/2)] -translate-y-1/2 text-(--ui-text-tertiary) hover:bg-(--chrome-action-hover) hover:text-foreground"
+            className="pointer-events-auto absolute end-3 top-[calc(0.1875rem+var(--titlebar-height)/2)] -translate-y-1/2 text-(--ui-text-tertiary) hover:bg-(--chrome-action-hover) hover:text-foreground"
             onClick={closeOverlay}
             size="icon-titlebar"
             variant="ghost"

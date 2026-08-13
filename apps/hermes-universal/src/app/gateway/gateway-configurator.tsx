@@ -100,7 +100,7 @@ function ModeCard({
   return (
     <button
       className={cn(
-        'flex h-full min-h-0 w-full flex-col p-3 text-left disabled:cursor-not-allowed disabled:opacity-50',
+        'flex h-full min-h-0 w-full flex-col p-3 text-start disabled:cursor-not-allowed disabled:opacity-50',
         selectableCardClass({ active, prominent: true })
       )}
       onClick={onSelect}
@@ -119,7 +119,7 @@ function ModeCard({
             </span>
           </Tip>
         ) : null}
-        {active ? <Check className="ml-auto size-3.5 shrink-0 text-primary" /> : null}
+        {active ? <Check className="ms-auto size-3.5 shrink-0 text-primary" /> : null}
       </div>
       <p className="mt-1.5 flex-1 text-[length:var(--conversation-caption-font-size)] leading-(--conversation-caption-line-height) text-(--ui-text-tertiary)">
         {description}
@@ -854,7 +854,7 @@ export function GatewayConfigurator({
         <div className={cn('flex flex-wrap items-center justify-end gap-4', isEmbedded ? 'mt-4' : 'mt-6')}>
           {pendingMode === 'remote' ? (
             <Button
-              className="mr-auto"
+              className="me-auto"
               disabled={testing || !trimmedUrl}
               onClick={() => void testRemote()}
               size="sm"
@@ -866,7 +866,7 @@ export function GatewayConfigurator({
           ) : null}
           {pendingMode === 'ssh' ? (
             <Button
-              className="mr-auto"
+              className="me-auto"
               disabled={testing || !trimmedSshHost}
               onClick={() => void testSsh()}
               size="sm"
@@ -1075,7 +1075,7 @@ function CloudPanel({
                         action={
                           connected ? (
                             <Pill tone="primary">
-                              <Check className="mr-1 inline size-3" />
+                              <Check className="me-1 inline size-3" />
                               {g.cloudConnectedPill}
                             </Pill>
                           ) : (

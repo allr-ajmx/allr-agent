@@ -185,9 +185,9 @@ const PaletteRow = memo(function PaletteRow({
       {item.detail && (
         <span className={cn(HUD_NOTE, HUD_NOTE_VARIANT[item.detailVariant ?? 'muted'])}>{item.detail}</span>
       )}
-      {combo && <KbdCombo className="ml-auto opacity-55" combo={combo} size="sm" />}
-      {item.to && <ChevronRight className={cn('size-3.5 shrink-0 text-muted-foreground/70', !combo && 'ml-auto')} />}
-      {item.active && <Check className={cn('size-3.5 shrink-0 text-primary', !combo && !item.to && 'ml-auto')} />}
+      {combo && <KbdCombo className="ms-auto opacity-55" combo={combo} size="sm" />}
+      {item.to && <ChevronRight className={cn('size-3.5 shrink-0 text-muted-foreground/70 rtl:-scale-x-100', !combo && 'ms-auto')} />}
+      {item.active && <Check className={cn('size-3.5 shrink-0 text-primary', !combo && !item.to && 'ms-auto')} />}
     </CommandItem>
   )
 })
@@ -1034,11 +1034,11 @@ function CommandPaletteBody({ onExited }: { onExited: () => void }) {
         <Command className="bg-transparent" loop shouldFilter={false}>
           {activePage && (
             <button
-              className="flex w-full items-center gap-1.5 border-b border-border px-3 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:text-foreground"
+              className="flex w-full items-center gap-1.5 border-b border-border px-3 py-1.5 text-start text-xs text-muted-foreground transition-colors hover:text-foreground"
               onClick={goBack}
               type="button"
             >
-              <ChevronLeft className="size-3.5" />
+              <ChevronLeft className="size-3.5 rtl:-scale-x-100" />
               <span>{t.commandCenter.back}</span>
               <span className="text-muted-foreground/50">/</span>
               <span className="font-medium text-foreground">{activePage.title}</span>

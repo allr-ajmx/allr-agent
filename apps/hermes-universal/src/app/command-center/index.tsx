@@ -370,7 +370,7 @@ export function CommandCenterView({
                 return (
                   <li className="group flex items-center gap-2 py-2" key={session.id}>
                     <button
-                      className="min-w-0 flex-1 text-left"
+                      className="min-w-0 flex-1 text-start"
                       onClick={() => onOpenSession(session.id)}
                       type="button"
                     >

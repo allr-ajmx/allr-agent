@@ -142,7 +142,7 @@ export function GatewayDiagnostics() {
           <div className="text-[length:var(--conversation-caption-font-size)] font-medium text-(--ui-text-secondary)">
             {cc.recentLogs}
           </div>
-          <Button className="-mr-2" onClick={() => void openSystemScreen()} size="xs" variant="text">
+          <Button className="-me-2" onClick={() => void openSystemScreen()} size="xs" variant="text">
             {t.shell.gatewayMenu.viewAllLogs}
           </Button>
         </div>

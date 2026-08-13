@@ -102,6 +102,12 @@ export function ShareControls({ imported = false, onImport, onResetMap, shareCod
             <textarea
               aria-label={t.starmap.shareTitle}
               className="h-24 w-full resize-none rounded-md bg-foreground/5 p-2.5 pr-9 font-mono text-xs leading-relaxed break-all text-muted-foreground/90 outline-none transition placeholder:text-muted-foreground/50 focus-visible:text-foreground focus-visible:ring-1 focus-visible:ring-ring/40"
+              // A share code is opaque machine text, not prose: an RTL
+              // paragraph direction would reorder its runs on screen and the
+              // user would copy something that does not read as what it is.
+              // Pinning it also makes the copy button's physical `end` correct
+              // — it stays clear of the code's start, not on top of it.
+              dir="ltr"
               onChange={e => {
                 setValue(e.target.value)
                 setError(null)

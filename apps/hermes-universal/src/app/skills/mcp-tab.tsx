@@ -966,7 +966,7 @@ export function McpTab({ gateway }: { gateway: HermesGateway | null }) {
   return (
     <div className={cn('grid h-full min-h-0 grid-cols-1', MASTER_DETAIL_WIDE_COLS)}>
       {/* LEFT: the focused block's server config, or the fleet list / catalog. */}
-      <aside className="flex min-h-0 flex-col overflow-hidden border-r border-(--ui-stroke-quaternary)">
+      <aside className="flex min-h-0 flex-col overflow-hidden border-e border-(--ui-stroke-quaternary)">
         {leftView === 'servers' && selected && activeEntry ? (
           <ServerConfig
             authing={authing === selected}
@@ -987,7 +987,7 @@ export function McpTab({ gateway }: { gateway: HermesGateway | null }) {
           <div className="flex min-h-0 flex-1 flex-col p-2">
             {/* Geometry mirrors ListStrip (mb-1 h-6 pl-2) so these tabs land on
                 the exact line the sort link occupies in the Skills/Tools views. */}
-            <div className="mb-1 flex h-6 shrink-0 items-center gap-3 pl-2 pr-1">
+            <div className="mb-1 flex h-6 shrink-0 items-center gap-3 ps-2 pe-1">
               {(['servers', 'catalog'] as const).map(view => (
                 <TextTab
                   active={leftView === view}
@@ -1150,7 +1150,7 @@ function ServerConfig({
           config: items-start with per-element top margins that reproduce the
           row's h-11 centering exactly (h-5 controls → mt-3, size-6 avatar →
           mt-2.5, h-4 switch → mt-3.5) no matter how tall the text column gets. */}
-      <div className="flex items-start gap-2 pr-1.5">
+      <div className="flex items-start gap-2 pe-1.5">
         <Tip label={m.allServers}>
           <Button
             aria-label={m.allServers}
@@ -1159,7 +1159,7 @@ function ServerConfig({
             size="icon"
             variant="ghost"
           >
-            <Codicon name="chevron-left" size="0.8125rem" />
+            <Codicon className="rtl:-scale-x-100" name="chevron-left" size="0.8125rem" />
           </Button>
         </Tip>
         <McpAvatar className="mt-2.5" name={name} status={status} />
@@ -1618,7 +1618,7 @@ function McpAvatar({ className, name, status }: { className?: string; name: stri
       <span
         aria-hidden
         className={cn(
-          'absolute -bottom-0.5 -right-0.5 size-2 rounded-full ring-2 ring-(--ui-chat-surface-background)',
+          'absolute -bottom-0.5 -end-0.5 size-2 rounded-full ring-2 ring-(--ui-chat-surface-background)',
           STATUS_DOT[status]
         )}
       />
@@ -1652,13 +1652,13 @@ function McpRow({
   return (
     <div
       className={cn(
-        'group/row row-hover flex h-11 w-full shrink-0 items-center gap-2 rounded-md pl-2 pr-1.5 hover:text-foreground',
+        'group/row row-hover flex h-11 w-full shrink-0 items-center gap-2 rounded-md ps-2 pe-1.5 hover:text-foreground',
         active ? 'bg-(--ui-row-active-background) text-foreground' : 'text-(--ui-text-secondary)'
       )}
       id={`mcp-server-${name}`}
     >
       <button
-        className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-left"
+        className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-start"
         onClick={onSelect}
         type="button"
       >
