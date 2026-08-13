@@ -14,6 +14,7 @@ import { useComposerScope } from '@/app/chat/composer/scope'
 import { useSlashCommand } from '@/app/chat/hooks/use-slash-command'
 import { useSessionView } from '@/app/chat/session-view'
 import { setPrimarySlashRunner } from '@/app/chat/slash-runner'
+import { submitPromptToSurface } from '@/app/chat/surface-submit'
 import { ModelMenuPanel } from '@/app/shell/model-menu-panel'
 import { transcribeAudio } from '@/hermes'
 import { translateNow } from '@/i18n'
@@ -22,7 +23,7 @@ import { canReadClipboardImage, readClipboardImage } from '@/lib/clipboard'
 import { gatewayOwnsLocalFs } from '@/lib/desktop-fs'
 import { triggerHaptic } from '@/lib/haptics'
 import { useStore } from '@/store/atom'
-import { interruptSession, redirectPrompt, sendPrompt } from '@/store/chat'
+import { interruptSession, redirectPrompt } from '@/store/chat'
 import { type ComposerAttachment } from '@/store/composer'
 import { $connection } from '@/store/connection'
 import { $gatewayState, getGatewayClient, requestGateway } from '@/store/gateway'
@@ -113,21 +114,17 @@ export function ChatComposer() {
         return false
       }
 
-      // Route by scope: the main composer submits the primary chat; a tile's
-      // composer submits to its own session through the tile delegate.
-      if (scope.target === 'main') {
-        await sendPrompt(full)
-      } else {
-        const rt = view.$runtimeId.get()
-
-        if (rt) {
-          await sessionTileDelegate()?.submitToSession(rt, full)
-        }
-      }
+      // Route by surface: the main composer submits the primary chat; a tile's
+      // composer submits to its own session through the tile delegate. Shared
+      // with the slash dispatcher's `send` directive so the two cannot disagree
+      // about which session a submit belongs to (MJXHRM-419), and so a tile with
+      // no live session says so instead of swallowing the text the composer has
+      // already cleared.
+      await submitPromptToSurface(view, full)
 
       return true
     },
-    [executeSlashCommand, scope, view]
+    [executeSlashCommand, view]
   )
 
   // Stop and correct: cancel the live model request and rebuild the turn with

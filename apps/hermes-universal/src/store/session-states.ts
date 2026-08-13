@@ -569,7 +569,6 @@ export interface SessionTileDelegate {
   archiveSession(storedSessionId: string): Promise<void>
   branchSession(storedSessionId: string): Promise<void>
   deleteSession(storedSessionId: string): Promise<void>
-  executeSlash(rawCommand: string, sessionId: string): Promise<void>
   interruptSession(runtimeId: string): Promise<void>
   resumeTile(storedSessionId: string): Promise<string>
   submitToSession(runtimeId: string, text: string): Promise<void>

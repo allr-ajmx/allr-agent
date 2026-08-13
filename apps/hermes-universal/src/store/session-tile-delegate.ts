@@ -157,16 +157,12 @@ async function hydrateSessionToState(storedId: string): Promise<string> {
  * The one submit path a tile has: append the turn, go busy, open the in-flight
  * turn, send, and roll the whole thing back if the send never lands.
  *
- * A plain message and an app-level slash both come through here. They differ
- * only in the copy on the failure toast — a slash is still a `prompt.submit`
- * carrying the raw command, so it needs the same turn record and the same
- * optimistic busy state. `executeSlash` used to skip all of it (MJXHRM-419):
- * the tile sat visually idle from Enter until the first frame, the
- * submit→`message.start` window had no turn for a reconnect to reconcile, the
- * transcript kept no record of what was run, and a rejection propagated out of
- * the delegate with no per-tile rollback.
+ * A message the user typed and the message a slash `send` directive resolves to
+ * both come through here (the latter via `app/chat/surface-submit`), so a
+ * `/goal …` run in a tile opens the tile's turn and shows the tile's busy state
+ * exactly as typing would (MJXHRM-419).
  */
-async function submitTextToSession(runtimeId: string, text: string, failureMessage: string): Promise<void> {
+async function submitTextToSession(runtimeId: string, text: string): Promise<void> {
   // Optimistic: append the user turn + go busy, then let routeTileEvent stream
   // the reply into this session's slice.
   updateSession(runtimeId, state => ({
@@ -219,7 +215,7 @@ async function submitTextToSession(runtimeId: string, text: string, failureMessa
       turnStartedAt: null,
       statusLine: err instanceof Error ? err.message : String(err)
     }))
-    notifyError(err, failureMessage)
+    notifyError(err, 'Message failed to send')
   }
 }
 
@@ -227,7 +223,7 @@ setSessionTileDelegate({
   resumeTile: storedId => resumeSessionToState(storedId),
 
   async submitToSession(runtimeId, text) {
-    await submitTextToSession(runtimeId, text, 'Message failed to send')
+    await submitTextToSession(runtimeId, text)
   },
 
   async interruptSession(runtimeId) {
@@ -236,15 +232,14 @@ setSessionTileDelegate({
 
   updateSession,
 
-  // App-level slash on a tile's session — submit it as text; the backend
-  // interprets branch/handoff/etc. (desktop routes these to the main surface).
-  //
-  // Goes through the same submit path as a typed message so the tile shows it is
-  // working, the turn exists before the send leaves, and a rejection rolls the
-  // tile back instead of propagating into `useSlashCommand`'s caller.
-  async executeSlash(rawCommand, sessionId) {
-    await submitTextToSession(sessionId, rawCommand, 'Command failed to run')
-  },
+  // There is deliberately NO `executeSlash` here. A tile's composer dispatches
+  // slashes through `app/chat/hooks/use-slash-command`, mounted under the tile's
+  // own session view — the same dispatcher the main composer uses, so `/model`,
+  // `/new` and every other client-side verb runs instead of being submitted to
+  // the agent as words. This delegate held an `executeSlash` that did exactly
+  // that (submit the raw command as prompt text) and never had a caller
+  // (MJXHRM-419); the slash `send` directive now comes back through
+  // `submitToSession` like any other message.
 
   async archiveSession(storedId) {
     closeSessionTile(storedId)
