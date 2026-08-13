@@ -32,6 +32,7 @@ import {
 } from '@/store/session'
 import { resetSessionPinMirror } from '@/store/session-pin-sync'
 import { clearAllSessionStates, resetTileRuntimeBindings } from '@/store/session-states'
+import { resetArchivedSessionsForBackendSwitch } from '@/store/sidebar-archive'
 import { resetWorkspaceCwd } from '@/store/workspace-events'
 
 // The soft gateway switch: re-home the running app onto another gateway in place.
@@ -119,6 +120,10 @@ export function wipeSessionListsForGatewaySwitch(): void {
   // gateway, keyed by the gateway's repo roots.
   resetRepoStatusForBackendSwitch()
   resetPullRequestsForBackendSwitch()
+  // The Archived view is its own fetch against the old backend's session list,
+  // and nothing else re-fetches it — without this it keeps showing the previous
+  // gateway's archived rows until the user toggles the filter off and back on.
+  resetArchivedSessionsForBackendSwitch()
   // …and so did every open preview tab. A preview reads and WRITES through
   // `/api/fs/*` on whichever gateway is current, so a surviving tab shows the
   // old backend's bytes over the new backend's path: hitting save either

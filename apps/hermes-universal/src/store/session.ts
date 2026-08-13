@@ -371,6 +371,15 @@ export function clearUnreadFinishedSession(storedSessionId: string): void {
   }
 }
 
+/** Drop every "finished while you were away" marker at once — the sidebar
+ *  filter menu's "Mark all as read". Skips the write when there is nothing to
+ *  clear, so it can't churn subscribers on a repeated press. */
+export function markAllSessionsRead(): void {
+  if ($unreadFinishedSessionIds.get().length) {
+    $unreadFinishedSessionIds.set([])
+  }
+}
+
 // Opening a session clears its unread state — the user is now looking at it.
 // Hung off the atom rather than the several `openSession`/`hydrateColdSession`
 // call sites so it exactly mirrors the mark, which `session-states.ts#handleTransition`

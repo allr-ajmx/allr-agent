@@ -1,7 +1,11 @@
 import { readKey } from '@/lib/persist'
-import { Codecs, persistentAtom } from '@/lib/persisted'
+import { type Codec, Codecs, persistentAtom } from '@/lib/persisted'
 import { arraysEqual, insertUniqueId } from '@/lib/storage'
-import { atom, computed, type ReadableAtom } from '@/store/atom'
+import { atom, computed, type ReadableAtom, type WritableAtom } from '@/store/atom'
+// TYPE-ONLY, and load-bearing that it stays that way: `store/session` imports
+// this module, so a value import of either would close a runtime cycle.
+import type { PullRequestBucket } from '@/store/pull-requests'
+import type { SessionStatusBucket } from '@/store/session-dot-state'
 
 import { $paneStates, ensurePaneRegistered, setPaneOpen, setPaneWidthOverride, togglePane } from './panes'
 
@@ -205,6 +209,204 @@ export const $sidebarMessagingOpenIds = persistentAtom(
   Codecs.stringArray
 )
 export const $sidebarAgentsGrouped = persistentAtom('hermes.agentsGroupedByWorkspace', false, Codecs.bool)
+
+// ── Sidebar view: grouping, ordering, row metadata, filters ─────────────────
+//
+// Ported from desktop `store/layout.ts` (the state behind `sidebar/filter-menu`),
+// adapted where universal's list model genuinely differs — see each note.
+
+/**
+ * How the recents list is divided.
+ *
+ * DIVERGES FROM DESKTOP, deliberately. Desktop offers `date | project | status`,
+ * where `date` and `status` are DIVIDER rows interleaved with sessions
+ * (`lib/session-date-groups.ts` → `SidebarListRow`). Universal has no divider
+ * row model at all: `sessions-section` renders a flat `SessionInfo[]` and its
+ * virtualizer is indexed by session, not by row. Offering `date`/`status` here
+ * would ship two radio options that change nothing, so the two views universal
+ * actually HAS are the two it offers.
+ */
+export type SidebarGrouping = 'project' | 'sessions'
+
+/** What ranks rows within whatever grouping is active. */
+export type SidebarOrdering = 'cost' | 'created' | 'manual' | 'status' | 'tokens' | 'updated'
+
+/** The sort keys the menu offers; `manual` is entered by dragging, not picked. */
+export type SidebarSortKey = Exclude<SidebarOrdering, 'manual'>
+
+/**
+ * Optional per-row metadata the user can switch on.
+ *
+ * DIVERGES FROM DESKTOP: desktop also has `pr` and `profile` here. Universal's
+ * row already renders both unconditionally by their own rules (the PR chip
+ * whenever the branch join finds one, the profile chip in the all-profiles
+ * browse scope), so a toggle for either could only TAKE AWAY an affordance that
+ * ships today — a regression wearing an option's clothes. This set is purely
+ * additive: it pins the age that is otherwise hover-only, and adds the two
+ * chips the row has never shown.
+ */
+export type SidebarRowMeta = 'cost' | 'tokens' | 'updated'
+
+/** One-of-N persisted enum: an unknown stored value falls back rather than
+ *  poisoning the view with a state no code handles. */
+function oneOf<T extends string>(values: readonly T[], fallback: T): Codec<T> {
+  return {
+    decode: raw => (values.includes(raw as T) ? (raw as T) : fallback),
+    encode: value => value
+  }
+}
+
+/** Persisted subset of a known enum — same reasoning, per element. */
+function listOf<T extends string>(values: readonly T[]): Codec<T[]> {
+  return {
+    decode: raw => Codecs.stringArray.decode(raw).filter((item): item is T => values.includes(item as T)),
+    encode: value => Codecs.stringArray.encode(value)
+  }
+}
+
+const ROW_META: readonly SidebarRowMeta[] = ['cost', 'tokens', 'updated']
+const STATUS_FILTERS: readonly SessionStatusBucket[] = ['needs-input', 'working', 'unread', 'idle']
+const PR_FILTERS: readonly PullRequestBucket[] = ['open', 'draft', 'merged', 'closed', 'none']
+export const SIDEBAR_SORT_KEYS: readonly SidebarSortKey[] = ['updated', 'created', 'status', 'tokens', 'cost']
+
+/**
+ * The grouping, as one value.
+ *
+ * Not its own persisted atom: `$sidebarAgentsGrouped` above is already the
+ * single authority for the project view — the header toggle, ⌘K's "enter
+ * project" and the repo scan all write it — and a second stored copy is how the
+ * menu and the header end up disagreeing about which view is on.
+ */
+export const $sidebarGrouping: ReadableAtom<SidebarGrouping> = computed($sidebarAgentsGrouped, grouped =>
+  grouped ? 'project' : 'sessions'
+)
+
+const $sidebarSortKey = persistentAtom<SidebarSortKey>(
+  'hermes.sidebarSortKey',
+  'updated',
+  oneOf(SIDEBAR_SORT_KEYS, 'updated')
+)
+
+// A hand-dragged order outranks any sort key — dragging IS how you pick manual,
+// so the menu reflects that rather than offering a fourth way to say it.
+export const $sidebarOrdering: ReadableAtom<SidebarOrdering> = computed(
+  [$sidebarSessionOrderManual, $sidebarSortKey],
+  (manual, key) => (manual ? 'manual' : key)
+)
+
+export const $sidebarRowMeta = persistentAtom<SidebarRowMeta[]>('hermes.sidebarRowMeta', [], listOf(ROW_META))
+
+export const $sidebarStatusFilter = persistentAtom<SessionStatusBucket[]>(
+  'hermes.sidebarStatusFilter',
+  [],
+  listOf(STATUS_FILTERS)
+)
+
+// Project ids as `liveSessionProjectId` reports them: an explicit project's id,
+// or a repo root path for an auto-promoted one.
+export const $sidebarProjectFilter = persistentAtom('hermes.sidebarProjectFilter', [] as string[], Codecs.stringArray)
+
+// Whether a session's branch has a PR, and in what state. Fetched per repo via
+// the gateway's `gh` (see store/pull-requests), so this is empty on a backend
+// where `gh` is missing or unauthenticated — every row reads `none` and the
+// filter still behaves, it just has one bucket to sort into.
+export const $sidebarPrFilter = persistentAtom<PullRequestBucket[]>('hermes.sidebarPrFilter', [], listOf(PR_FILTERS))
+
+// Archived sessions are a separate backend query (`archived: 'only'`), so this
+// flag both filters the list and drives the fetch.
+export const $sidebarShowArchived = persistentAtom('hermes.sidebarShowArchived', false, Codecs.bool)
+
+/** Anything that HIDES rows — what makes the menu's trigger read as engaged. */
+export const $sidebarFiltersActive: ReadableAtom<boolean> = computed(
+  [$sidebarStatusFilter, $sidebarProjectFilter, $sidebarPrFilter, $sidebarShowArchived],
+  (statuses, projects, prs, archived) => statuses.length > 0 || projects.length > 0 || prs.length > 0 || archived
+)
+
+/** Anything at all moved off the shipped view — what makes a reset worth
+ *  offering. Broader than {@link $sidebarFiltersActive}, which only knows about
+ *  what hides rows, not about how they're grouped, sorted or labelled. */
+export const $sidebarViewCustomized: ReadableAtom<boolean> = computed(
+  [$sidebarGrouping, $sidebarOrdering, $sidebarRowMeta, $sidebarFiltersActive],
+  (grouping, ordering, rowMeta, filtersActive) =>
+    grouping !== 'sessions' || ordering !== 'updated' || rowMeta.length > 0 || filtersActive
+)
+
+function toggleIn<T extends string>($atom: WritableAtom<T[]>, value: T) {
+  const current = $atom.get()
+
+  $atom.set(current.includes(value) ? current.filter(item => item !== value) : [...current, value])
+}
+
+export function toggleSidebarRowMeta(meta: SidebarRowMeta) {
+  toggleIn($sidebarRowMeta, meta)
+}
+
+export function toggleSidebarStatusFilter(status: SessionStatusBucket) {
+  toggleIn($sidebarStatusFilter, status)
+}
+
+export function toggleSidebarProjectFilter(projectId: string) {
+  toggleIn($sidebarProjectFilter, projectId)
+}
+
+export function toggleSidebarPrFilter(bucket: PullRequestBucket) {
+  toggleIn($sidebarPrFilter, bucket)
+}
+
+export function setSidebarShowArchived(show: boolean) {
+  if ($sidebarShowArchived.get() !== show) {
+    $sidebarShowArchived.set(show)
+  }
+}
+
+export function setSidebarOrdering(ordering: SidebarOrdering) {
+  if (ordering === 'manual') {
+    setSidebarSessionOrderManual(true)
+
+    return
+  }
+
+  // Picking a sort key is the only way back out of a hand-dragged order, so it
+  // has to drop the saved sequence as well as the flag.
+  setSidebarSessionOrderManual(false)
+  setSidebarSessionOrderIds([])
+  $sidebarSortKey.set(ordering)
+}
+
+function clearSidebarFilters() {
+  $sidebarStatusFilter.set([])
+  $sidebarProjectFilter.set([])
+  $sidebarPrFilter.set([])
+  setSidebarShowArchived(false)
+}
+
+/**
+ * Every knob the filter menu owns, back to the sidebar as it ships.
+ *
+ * Grouping is NOT reset here — see `setSidebarGrouping` in `store/projects.ts`,
+ * which has to leave the entered project scope on the way out and cannot be
+ * called from this module without a cycle. `resetSidebarView` is composed with
+ * it at the one call site that needs both.
+ */
+export function resetSidebarView() {
+  setSidebarOrdering('updated')
+  $sidebarRowMeta.set([])
+  clearSidebarFilters()
+}
+
+// Fold a whole level shut (or open) in one write — the menu's "Collapse all"
+// over the project rows. Their lanes keep their own state underneath, so
+// re-opening a project shows it as the user left it.
+export function setWorkspaceNodesOpen(ids: readonly string[], open: boolean): void {
+  if (!ids.length) {
+    return
+  }
+
+  $sidebarWorkspaceNodeOpen.set({
+    ...$sidebarWorkspaceNodeOpen.get(),
+    ...Object.fromEntries(ids.map(id => [id, open]))
+  })
+}
 
 // Set by the PaneShell hover-reveal overlay while the sidebar is collapsed; kept
 // true the whole time it's a floating overlay so ChatSidebar mounts its rows

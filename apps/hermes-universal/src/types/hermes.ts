@@ -444,6 +444,14 @@ export interface SessionInfo {
    *  continuation tip. Stable across compressions — used as the durable id for
    *  pins so a pinned conversation survives auto-compression. */
   _lineage_root_id?: null | string
+  /** Spend for the session, straight off the `sessions` row. `actual` is set
+   *  when the provider reported a price; `estimated` is the backend's own
+   *  pricing-table math. Both are 0 (or absent, on an older backend) on
+   *  subscription auth that never quotes a price, which is why the sidebar only
+   *  offers a cost sort when some session actually has spend — see
+   *  `$sessionsHaveCost` in `store/sidebar-archive.ts`. */
+  actual_cost_usd?: null | number
+  estimated_cost_usd?: null | number
   input_tokens: number
   is_active: boolean
   last_active: number
