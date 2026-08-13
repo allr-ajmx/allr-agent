@@ -1373,8 +1373,13 @@ mod tests {
         let caps = capabilities_for_linux(session);
         assert_eq!(caps.read_window_below, Support::Unsupported);
         assert!(caps.read_window_below_source.is_none());
+        // Matched on a phrase only THIS note carries. "Wayland" on its own is
+        // not a check: the placement note on the very same session says it too,
+        // so the assertion still passed with the read-below note deleted.
         assert!(
-            caps.notes.iter().any(|n| n.contains("Wayland")),
+            caps.notes
+                .iter()
+                .any(|n| n.contains("withholds window identity")),
             "{:?}",
             caps.notes
         );
