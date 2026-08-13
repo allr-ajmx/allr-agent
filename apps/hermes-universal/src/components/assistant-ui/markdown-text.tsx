@@ -20,6 +20,7 @@ import { preprocessMarkdown } from '@/lib/markdown-preprocess'
 import {
   downloadGatewayMediaFile,
   gatewayMediaDataUrl,
+  isInlineMediaSrc,
   mediaKind,
   mediaName,
   mediaPathFromMarkdownHref,
@@ -420,13 +421,91 @@ function MarkdownLink({ children, className, href, ...props }: ComponentProps<'a
   )
 }
 
-function MarkdownImage({ className, src, alt, ...props }: ComponentProps<'img'>) {
-  // Rendered images (data:/http/gateway) open in the shared pan/zoom viewer.
-  // `#media:` hrefs (incl. file:// media) are dispatched by MarkdownLink →
-  // MediaAttachment, which resolves gateway bytes to a data URL and renders
-  // here with a real src.
-  if (!src) {
+/**
+ * A markdown image the model wrote itself — `![alt](src)`.
+ *
+ * `#media:` hrefs never reach here (MarkdownLink dispatches those to
+ * MediaAttachment). What DOES reach here is whatever the model typed, and it is
+ * routinely not an image: generated clips arrive as `![clip](clip.mp4)`, and an
+ * `<img>` with a video source paints a broken-image glyph over a perfectly good
+ * file. So the source's KIND picks the element, exactly as it does for a
+ * `#media:` attachment.
+ */
+function MarkdownImage(props: ComponentProps<'img'>) {
+  const rawSrc = typeof props.src === 'string' ? props.src : ''
+  const kind = rawSrc ? mediaKind(rawSrc) : 'file'
+
+  if (kind === 'audio' || kind === 'video') {
+    return <MediaAttachment path={rawSrc} />
+  }
+
+  return <MarkdownImageContent {...props} />
+}
+
+/**
+ * The image itself, resolved.
+ *
+ * A bare filesystem path is the GATEWAY's path, not this device's — universal is
+ * always a remote-gateway client — so handing it to `<img src>` asks the webview
+ * to resolve it against the app origin, which 404s. It has to come back over the
+ * authenticated fs bridge, the same route `MediaAttachment` uses. `data:`/`http`
+ * sources are already displayable and are set on the first paint, so an inline
+ * image never flashes a placeholder.
+ */
+function MarkdownImageContent({ className, src, alt, ...props }: ComponentProps<'img'>) {
+  const rawSrc = typeof src === 'string' ? src : ''
+  const [resolvedSrc, setResolvedSrc] = useState(() => (rawSrc && isInlineMediaSrc(rawSrc) ? rawSrc : ''))
+  const [failed, setFailed] = useState(false)
+  const { open, openFailed } = useOpenMediaFile(rawSrc)
+  const name = mediaName(rawSrc || String(alt || 'image'))
+
+  useEffect(() => {
+    let cancelled = false
+
+    setFailed(false)
+    setResolvedSrc(rawSrc && isInlineMediaSrc(rawSrc) ? rawSrc : '')
+
+    if (!rawSrc || isInlineMediaSrc(rawSrc)) {
+      return () => {
+        cancelled = true
+      }
+    }
+
+    void resolveMediaDisplaySrc(rawSrc)
+      .then(value => {
+        if (!cancelled) {
+          setResolvedSrc(value)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setFailed(true)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [rawSrc])
+
+  if (!rawSrc) {
     return null
+  }
+
+  if (failed) {
+    return (
+      <span className="my-2 block text-sm text-muted-foreground">
+        Couldn&apos;t load {name}.{' '}
+        <button className="ref font-medium text-foreground" onClick={open} type="button">
+          Open image
+        </button>
+        {openFailed && <OpenMediaFailedNote name={name} />}
+      </span>
+    )
+  }
+
+  if (!resolvedSrc) {
+    return <span className="my-2 block text-sm text-muted-foreground">Loading {name}...</span>
   }
 
   return (
@@ -436,7 +515,7 @@ function MarkdownImage({ className, src, alt, ...props }: ComponentProps<'img'>)
         'm-0 block h-auto w-auto max-h-(--image-preview-height) max-w-[min(100%,var(--image-preview-max-width))] rounded-lg object-contain',
         className
       )}
-      src={typeof src === 'string' ? src : ''}
+      src={resolvedSrc}
       {...props}
     />
   )
