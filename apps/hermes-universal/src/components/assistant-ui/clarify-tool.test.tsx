@@ -33,6 +33,7 @@ vi.mock('@/store/chat', async importActual => {
 })
 
 import { onComposerInsertRequest } from '@/app/chat/composer/focus'
+import { WIDGET_SHELL_CLASS } from '@/components/chat/widget-shell'
 import { respondClarify } from '@/store/chat'
 import { setSessionClarify } from '@/store/prompts'
 import { seedActiveSession } from '@/test-sessions'
@@ -44,11 +45,32 @@ afterEach(() => {
   seedActiveSession('sess-1')
   setSessionClarify('sess-1', null)
   aui.messageRunning = true
+  vi.mocked(respondClarify).mockClear()
   vi.mocked(respondClarify).mockResolvedValue('delivered')
 })
 
 function renderClarify(ui: ReactNode) {
   return render(<I18nProvider>{ui}</I18nProvider>)
+}
+
+/**
+ * Settle the send the panel just started.
+ *
+ * A bare `setTimeout(0)` was NOT enough: `respond` awaits `respondClarify` and
+ * does its expired-answer work in the continuation, so under load the draft
+ * could land after the assertion — and after `dispose()` — which then showed up
+ * in the NEXT test's listener. That is how these two tests failed as a pair,
+ * one short and one long, but only when the file ran alongside others.
+ *
+ * Awaiting the panel's OWN promise fixes the order rather than out-waiting it:
+ * the component registered its continuation first, so it runs first, and the
+ * macrotask after it flushes anything the continuation queued.
+ */
+async function settleRespond() {
+  await act(async () => {
+    await vi.mocked(respondClarify).mock.results.at(-1)?.value
+    await new Promise(resolve => setTimeout(resolve, 0))
+  })
 }
 
 function clarifyProps(
@@ -179,6 +201,68 @@ describe('ClarifyTool settled view', () => {
 
     expect(screen.getByText('Anything else?')).toBeTruthy()
     expect(screen.getByText('Skipped')).toBeTruthy()
+  })
+})
+
+describe('ClarifyTool widget shell', () => {
+  // Clarify is one of the transcript's inline widgets — a panel the user reads
+  // and acts on — so it wears the SHARED shell (`WIDGET_SHELL_CLASS`) rather
+  // than picking its own radius and fill, which is how it drifted to a 2px
+  // radius over the chat backdrop's own colour: a card visible only by its
+  // hairline while the artifact card beside it was a surface.
+  //
+  // The expectation is read off the shell module, not restated here — a copy
+  // would let the two drift and still pass. The shell is asserted in all three
+  // states because each is a separate `ClarifyShell` call site.
+  const shellClasses = WIDGET_SHELL_CLASS.split(' ')
+
+  function expectWearsShell(node: Element | null) {
+    expect(node).toBeTruthy()
+
+    const worn = Array.from(node?.classList ?? [])
+
+    expect(
+      shellClasses.filter(cls => !worn.includes(cls)),
+      `missing from ${worn.join(' ')}`
+    ).toEqual([])
+  }
+
+  it('wears the shared shell while waiting on the gateway request', () => {
+    renderClarify(<ClarifyTool {...clarifyProps({ question: 'Which target?' }, undefined, 'clarify-shell-1')} />)
+
+    expectWearsShell(screen.getByRole('status'))
+  })
+
+  it('wears the shared shell while the question is answerable', () => {
+    setSessionClarify('sess-1', { requestId: 'cs2', question: 'Which target?', choices: ['staging', 'prod'] })
+
+    renderClarify(<ClarifyTool {...clarifyProps({}, undefined, 'clarify-shell-2')} />)
+
+    expectWearsShell(document.querySelector('[data-slot="clarify-inline"]'))
+  })
+
+  it('wears the shared shell once the answer has settled', () => {
+    renderClarify(
+      <ClarifyTool
+        {...clarifyProps(
+          { question: 'Which target?' },
+          { question: 'Which target?', user_response: 'staging' },
+          'clarify-shell-3'
+        )}
+      />
+    )
+
+    expectWearsShell(document.querySelector('[data-clarify-settled]'))
+  })
+
+  it('would notice a widget that stopped wearing it', () => {
+    // The three assertions above are only worth their runtime if a panel on its
+    // own surface fails them, so put one in front of the same check.
+    const ownSurface = document.createElement('div')
+
+    ownSurface.className = 'my-1.5 grid gap-1.5 rounded-[2px] px-3.5 py-3'
+
+    expect(() => expectWearsShell(ownSurface)).toThrow()
   })
 })
 
@@ -357,7 +441,7 @@ describe('ClarifyTool expired answer', () => {
     // Picking stages; Continue is what sends.
     fireEvent.click(screen.getByRole('button', { name: /prod/ }))
     fireEvent.click(screen.getByRole('button', { name: /Continue/ }))
-    await act(() => new Promise(resolve => setTimeout(resolve, 0)))
+    await settleRespond()
     dispose()
 
     expect(inserted).toHaveLength(1)
@@ -376,7 +460,7 @@ describe('ClarifyTool expired answer', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /prod/ }))
     fireEvent.click(screen.getByRole('button', { name: /Continue/ }))
-    await act(() => new Promise(resolve => setTimeout(resolve, 0)))
+    await settleRespond()
     dispose()
 
     expect(inserted).toEqual([])
