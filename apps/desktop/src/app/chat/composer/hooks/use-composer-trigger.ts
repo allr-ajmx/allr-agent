@@ -24,6 +24,11 @@ import {
 } from '../rich-editor'
 import { detectTrigger, textBeforeCaret, type TriggerState } from '../text-utils'
 
+/** One shared empty list, so "there is nothing to show" is the SAME value every
+ *  time. A fresh `[]` per call is never `Object.is`-equal to the last one, which
+ *  costs React its bail-out and turns any effect that re-runs into a render. */
+const NO_TRIGGER_ITEMS: readonly Unstable_TriggerItem[] = []
+
 /**
  * Rebuild-from-text fallback for carets the range walk can't anchor (a
  * non-collapsed selection, a caret not preceded by contiguous text). It
@@ -185,7 +190,7 @@ export function useComposerTrigger({
 
   useEffect(() => {
     if (!trigger || !triggerAdapter?.search) {
-      setTriggerItems([])
+      setTriggerItems(NO_TRIGGER_ITEMS)
 
       return
     }
@@ -222,7 +227,7 @@ export function useComposerTrigger({
 
   const closeTrigger = () => {
     setTrigger(null)
-    setTriggerItems([])
+    setTriggerItems(NO_TRIGGER_ITEMS)
     resetTriggerActive()
   }
 

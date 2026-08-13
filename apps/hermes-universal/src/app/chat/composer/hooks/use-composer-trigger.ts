@@ -24,6 +24,11 @@ import {
 } from '../rich-editor'
 import { detectTrigger, mayContainTrigger, textBeforeCaret, type TriggerState } from '../text-utils'
 
+/** One shared empty list, so "there is nothing to show" is the SAME value every
+ *  time. A fresh `[]` per call is never `Object.is`-equal to the last one, which
+ *  costs React its bail-out and turns any effect that re-runs into a render. */
+const NO_TRIGGER_ITEMS: readonly Unstable_TriggerItem[] = []
+
 /**
  * Rewrite the `tokenLength` characters before the caret, keeping the prose on
  * either side. The fallback for when the in-place `replaceBeforeCaret` can't
@@ -177,12 +182,22 @@ export function useComposerTrigger({
     }
   }, [composingRef, editorRef, trigger])
 
+  // Every arm names its kind — no trailing fallback. Letting `:` be the `else`
+  // meant that with NO trigger open the adapter was still the emoji one, so a
+  // completion source whose identity churns fed the effect below a dependency
+  // that changed every render while the composer sat idle.
   const triggerAdapter: Unstable_TriggerAdapter | null =
-    trigger?.kind === '@' ? at.adapter : trigger?.kind === '/' ? slash.adapter : (emoji?.adapter ?? null)
+    trigger?.kind === '@'
+      ? at.adapter
+      : trigger?.kind === '/'
+        ? slash.adapter
+        : trigger?.kind === ':'
+          ? (emoji?.adapter ?? null)
+          : null
 
   useEffect(() => {
     if (!trigger || !triggerAdapter?.search) {
-      setTriggerItems([])
+      setTriggerItems(NO_TRIGGER_ITEMS)
 
       return
     }
@@ -206,7 +221,7 @@ export function useComposerTrigger({
 
   const closeTrigger = () => {
     setTrigger(null)
-    setTriggerItems([])
+    setTriggerItems(NO_TRIGGER_ITEMS)
     setTriggerActive(0)
   }
 

@@ -113,10 +113,16 @@ export function useEmojiCompletions() {
     []
   )
 
+  // Stable identity, like every other completion source's. An inline arrow here
+  // is a new function each render, which walks up through `scheduleFetch` into
+  // the adapter's useMemo and hands the trigger engine a brand-new adapter on
+  // every render — an effect dependency that never settles.
+  const isCached = useCallback(() => indexLoaded, [])
+
   return useLiveCompletionAdapter({
     enabled: true,
     fetcher,
-    isCached: () => indexLoaded,
+    isCached,
     toItem
   })
 }
