@@ -30,10 +30,16 @@ export function useLiveCompletionAdapter(options: {
    *  request per keystroke, and a spinner over an answer we already hold reads
    *  as latency the user isn't actually paying. */
   isCached?: (query: string) => boolean
-  /** Bump to declare the held answer stale. Without it a popover left open on
-   *  an unchanged query would keep serving what it fetched before the source
-   *  changed, because the adapter de-dupes on the query alone. */
-  epoch?: number
+  /** Change to declare the held answer stale. Without it the adapter keeps
+   *  serving what it fetched before the source changed, because it de-dupes on
+   *  the query alone — `search()` returns the held items outright when the
+   *  query matches, so no fetcher-side cache key is ever consulted.
+   *
+   *  A string works as well as a counter (this is only ever an effect
+   *  dependency), which lets a caller whose staleness is a SCOPE rather than an
+   *  event — the `@` source, whose answers are relative to a cwd — hand over
+   *  the scope itself instead of maintaining a counter beside it. */
+  epoch?: number | string
   toItem: (entry: CompletionEntry, index: number) => Unstable_TriggerItem
 }): { adapter: Unstable_TriggerAdapter; loading: boolean } {
   const { enabled, debounceMs = 60, epoch = 0, fetcher, isCached, toItem } = options

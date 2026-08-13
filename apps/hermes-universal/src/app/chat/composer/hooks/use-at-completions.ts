@@ -1,6 +1,7 @@
 import type { Unstable_TriggerAdapter, Unstable_TriggerItem } from '@assistant-ui/core'
 import { useCallback } from 'react'
 
+import { refChipLabel } from '@/components/assistant-ui/directive-text'
 import type { HermesGateway } from '@/hermes'
 import { cachedPathCompletion, hasCachedPathCompletion } from '@/lib/slash-completion-cache'
 import { normalize } from '@/lib/text'
@@ -61,7 +62,15 @@ function classify(entry: CompletionEntry): {
     return {
       type: kind,
       insertId: rest,
-      display: textValue(entry.display, rest || `@${kind}:`),
+      // The row must show exactly what picking it produces. The gateway's
+      // `display` is a BASENAME (`methods_complete.py` emits `entry + suffix`),
+      // while the chip this row inserts is labelled by `refChipLabel` off the
+      // full `@kind:value` — so taking `display` verbatim gave one folder two
+      // names: the list said `desktop/`, the editor said `apps/desktop/`. Worse
+      // on the fuzzy branch, which ranks matches from anywhere in the tree and
+      // returned every `index.ts` in the repo as the same undifferentiated row.
+      // Both ends derive from `refChipLabel` now, so they cannot drift.
+      display: rest ? refChipLabel(kind, rest) : textValue(entry.display, `@${kind}:`),
       meta: textValue(entry.meta)
     }
   }
@@ -83,10 +92,14 @@ export function useAtCompletions(options: {
   const { gateway, sessionId, cwd } = options
   const enabled = Boolean(gateway)
 
-  // Cache key: the completion depends on the query AND the directory it's
-  // resolved against, so a cwd or session change can't serve another tree's
-  // listing.
-  const cacheKey = useCallback((query: string) => `${cwd ?? ''}|${sessionId ?? ''}|${query}`, [cwd, sessionId])
+  // The scope a listing is relative to. It namespaces the response cache below
+  // AND is handed to the adapter as its epoch — both are needed. The cache key
+  // alone protected nothing: the adapter answers a repeated query from the items
+  // it is already holding and never calls the fetcher, so `@src/` typed in one
+  // repo kept listing that repo's files after a session or project switch moved
+  // the cwd. Changing the epoch is what makes it ask again.
+  const scope = `${cwd ?? ''}|${sessionId ?? ''}`
+  const cacheKey = useCallback((query: string) => `${scope}|${query}`, [scope])
 
   const fetcher = useCallback(
     async (query: string): Promise<CompletionPayload> => {
@@ -154,7 +167,7 @@ export function useAtCompletions(options: {
   // nothing when the answer is already in hand.
   const isCached = useCallback((query: string) => hasCachedPathCompletion(cacheKey(query)), [cacheKey])
 
-  return useLiveCompletionAdapter({ enabled, fetcher, isCached, toItem })
+  return useLiveCompletionAdapter({ enabled, epoch: scope, fetcher, isCached, toItem })
 }
 
 /** Re-export `classify` for use by the formatter (insertion side). */

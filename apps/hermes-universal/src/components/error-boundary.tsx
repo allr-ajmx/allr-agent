@@ -79,10 +79,18 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     this.setState({ error: null })
   }
 
-  /** One recovery budget per rolling window. The `count === 0` arm restarts the
-   *  window on the FIRST attempt rather than trusting an epoch of 0 to be
-   *  "long ago" — otherwise the very first crash of the process consumed the
-   *  budget it should have opened. */
+  /** One recovery budget per rolling window.
+   *
+   *  The `count === 0` arm is DEFENSIVE, not load-bearing, and the comment it
+   *  carried claimed otherwise (MJXHRM-406). `autoRecoveryWindowStart` is only
+   *  ever set to `now` — inside this arm, immediately before the count leaves
+   *  zero — or to 0, so `count === 0` already implies a window start of 0, and
+   *  against a real epoch clock the elapsed check restarts the window on its
+   *  own. It cannot change an outcome today; it exists so a future caller that
+   *  zeroes the count without the window start still opens a budget rather than
+   *  inheriting a stale one. No test pins it, deliberately — one would have to
+   *  freeze the clock at epoch 0 to see any difference, which is a property of
+   *  the test rig and not of the app. */
   private takeAutoRecoveryAttempt(): boolean {
     const now = Date.now()
 
