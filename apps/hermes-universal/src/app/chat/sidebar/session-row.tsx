@@ -4,15 +4,19 @@ import { memo, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import { Codicon } from '@/components/ui/codicon'
 import { type Translations, useI18n } from '@/i18n'
+import { compactNumber } from '@/lib/format'
 import { triggerHaptic } from '@/lib/haptics'
 import { middleClickHandlers } from '@/lib/middle-click'
 import { IS_MOBILE } from '@/lib/platform'
 import { useStoreSelector } from '@/lib/use-session-slice'
 import { cn } from '@/lib/utils'
+import { useStore } from '@/store/atom'
 import { addBubble } from '@/store/chat-bubbles'
+import { $sidebarRowMeta } from '@/store/layout'
 import { $pullRequestsByBranch, sessionPrKey } from '@/store/pull-requests'
 import { $attentionSessionIds } from '@/store/session'
 import { openSessionTile } from '@/store/session-states'
+import { sessionCostUsd } from '@/store/sidebar-archive'
 import { canOpenSessionWindow, openSessionInNewWindow } from '@/store/windows'
 import type { SessionInfo } from '@/types/hermes'
 
@@ -107,6 +111,26 @@ function SidebarSessionRowImpl({
   // single map write, and only the rows on those branches should repaint.
   const prKey = sessionPrKey(session)
   const pr = useStoreSelector($pullRequestsByBranch, prs => (prKey ? prs[prKey] : undefined))
+  // The filter menu's "Show" submenu. Purely ADDITIVE here: it pins the age
+  // that is otherwise hover-only and adds two chips the row has never had — it
+  // can never take away the PR or profile chips, which universal renders by
+  // their own rules (see `SidebarRowMeta` in store/layout).
+  const rowMeta = useStore($sidebarRowMeta)
+  const pinnedAge = rowMeta.includes('updated')
+  const totalTokens = session.input_tokens + session.output_tokens
+  const cost = sessionCostUsd(session)
+
+  // Tokens, cost and age share the ONE trailing slot rather than each claiming
+  // its own column, so switching two on doesn't squeeze the title.
+  const meta = [
+    rowMeta.includes('tokens') && totalTokens > 0 ? compactNumber(totalTokens) : null,
+    // Below a cent every row reads "$0.00", which says nothing.
+    rowMeta.includes('cost') && cost >= 0.01 ? `$${cost.toFixed(2)}` : null,
+    pinnedAge ? age : null
+  ]
+    .filter(Boolean)
+    .join(' · ')
+
   // Latched by the touch tap below, cleared on the next press, so a synthetic
   // click trailing the same gesture can't resume the session twice.
   const tapped = useRef(false)
@@ -135,9 +159,18 @@ function SidebarSessionRowImpl({
       <SidebarRowShell
         actions={
           <div className="relative z-2 grid w-[1.375rem] place-items-center">
-            {!isWorking && (
-              <span className="pointer-events-none absolute right-6 top-1/2 min-w-6 -translate-y-1/2 text-right text-[0.625rem] leading-none text-(--ui-text-tertiary) opacity-0 transition-opacity group-hover:opacity-100">
-                {age}
+            {/* Switched-on metadata stays put; the bare age is hover-only, so a
+                resting sidebar is titles and nothing else. A running row hides
+                the hover age (the arc already owns that space) but keeps any
+                metadata the user explicitly asked for. */}
+            {(meta ? true : !isWorking) && (
+              <span
+                className={cn(
+                  'pointer-events-none absolute right-6 top-1/2 min-w-6 -translate-y-1/2 whitespace-nowrap text-right text-[0.625rem] leading-none text-(--ui-text-tertiary)',
+                  !meta && 'opacity-0 transition-opacity group-hover:opacity-100'
+                )}
+              >
+                {meta || age}
               </span>
             )}
             <SessionActionsMenu

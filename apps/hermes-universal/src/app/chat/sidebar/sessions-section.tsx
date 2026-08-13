@@ -97,6 +97,22 @@ export interface SidebarSessionsSectionProps {
   sortable?: boolean
   /** Owning-profile chips on every row (all-profiles browse scope). */
   showProfileTags?: boolean
+  /**
+   * The filter menu's row predicate, or `undefined` when nothing narrows.
+   *
+   * Applies to the PROJECT-LANE rows only — the flat `sessions` prop arrives
+   * already narrowed by the caller, because that list is also what the section
+   * counts and hands the virtualizer. Lanes cannot be pre-narrowed the same
+   * way: their sessions live inside the backend's `projects.tree` snapshot, and
+   * rebuilding those objects to filter them would mint new `SessionInfo`
+   * references and break `SidebarSessionRow`'s memo for every row in the tree.
+   *
+   * MUST be `undefined` rather than a `() => true` when inactive — it is a
+   * dependency of `renderProjectRows` below, and a fresh function per render
+   * would rebuild that callback (and with it every lane) on any unrelated store
+   * write. That is the exact regression MJXHRM-219 fixed.
+   */
+  sessionFilter?: (session: SessionInfo) => boolean
   /** Per-profile lanes, rendered instead of the flat list when present. */
   groups?: SidebarSessionGroup[]
   onNewSessionInProfile?: (profileKey: string) => void
@@ -141,6 +157,7 @@ export function SidebarSessionsSection(props: SidebarSessionsSectionProps) {
     collapsible = true,
     sortable = false,
     showProfileTags = false,
+    sessionFilter,
     groups,
     onNewSessionInProfile,
     onReorderSessions,
@@ -218,10 +235,14 @@ export function SidebarSessionsSection(props: SidebarSessionsSectionProps) {
     ]
   )
 
-  // Static (non-draggable) rows for project previews + entered-project sessions.
+  // Static (non-draggable) rows for project previews + entered-project sessions,
+  // narrowed here because this is the ONE funnel every lane's rows pass through
+  // (`profile-group`, `overview-row`, `workspace-group`, `entered-content` all
+  // call it). `sessionFilter` is `undefined` unless the user has switched a
+  // filter on, so the default view's identity is exactly what it was.
   const renderProjectRows = useCallback(
-    (items: SessionInfo[]) => items.map(session => renderRow(session, false)),
-    [renderRow]
+    (items: SessionInfo[]) => (sessionFilter ? items.filter(sessionFilter) : items).map(s => renderRow(s, false)),
+    [renderRow, sessionFilter]
   )
 
   const showProjectsSkeleton =
