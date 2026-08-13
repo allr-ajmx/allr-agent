@@ -2454,7 +2454,6 @@ export interface Translations {
       copyFile: string
       copyPath: string
       outputAlt: string
-      rawResponse: string
       copyActivity: string
       recoveredOne: string
       recoveredMany: (count: number) => string

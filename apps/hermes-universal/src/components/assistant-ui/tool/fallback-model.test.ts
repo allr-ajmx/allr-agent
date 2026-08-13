@@ -8,6 +8,7 @@ import {
   countDiffLineStats,
   inlineDiffFromResult,
   MAX_TOOL_RENDER_CHARS,
+  prettyJson,
   type ToolPart
 } from './fallback-model'
 
@@ -86,6 +87,87 @@ describe('buildToolView terminal exit-code status', () => {
     expect(poll({ exit_code: 1, output_preview: 'npm warn deprecated ...' }).status).toBe('success')
     expect(poll({ exit_code: 1, output_preview: '   ' }).status).toBe('error')
     expect(poll({ exit_code: 1 }).status).toBe('error')
+  })
+
+  it('keeps the command and exit code for the terminal transcript', () => {
+    const view = buildToolView(
+      part({
+        args: { command: 'npm run check --workspace=apps/hermes-universal' },
+        result: { exit_code: 0, output: 'done' },
+        toolName: 'terminal'
+      }),
+      ''
+    )
+
+    expect(view.terminalCommand).toBe('npm run check --workspace=apps/hermes-universal')
+    expect(view.terminalExitCode).toBe(0)
+  })
+
+  // The failure modes the gateway really reports (tools/terminal_tool.py):
+  // 124 on timeout, 130 on a genuine user interrupt, -1 when the backend itself
+  // failed. Each is a NUMBER, so each gets a chip — none of them may read 0.
+  it('keeps a timeout / interrupt / backend-failure exit code', () => {
+    const code = (result: Record<string, unknown>) =>
+      buildToolView(part({ result, toolName: 'terminal' }), '').terminalExitCode
+
+    expect(code({ error: 'Command timed out after 120 seconds', exit_code: 124, output: '' })).toBe(124)
+    expect(code({ exit_code: 130, output: '[Command interrupted]' })).toBe(130)
+    expect(code({ error: 'Terminal backend degraded', exit_code: -1, output: '' })).toBe(-1)
+  })
+
+  // A turn cancelled before `tool.complete` fires never carries a result, and
+  // the row settles against a synthetic empty one. Reporting "exit 0" there
+  // would claim a success for a command whose fate nobody knows.
+  it('reports no exit code at all when the run never completed', () => {
+    expect(
+      buildToolView(part({ args: { command: 'sleep 900' }, result: {}, toolName: 'terminal' }), '').terminalExitCode
+    ).toBeUndefined()
+    expect(
+      buildToolView(part({ result: { exit_code: null }, toolName: 'terminal' }), '').terminalExitCode
+    ).toBeUndefined()
+  })
+
+  // `execute_code` has no `$` transcript, so it must not claim these fields —
+  // its output falls through to the generic detail body instead.
+  it('leaves execute_code without a transcript', () => {
+    const view = buildToolView(
+      part({ args: { code: 'print(1)' }, result: { exit_code: 0 }, toolName: 'execute_code' }),
+      ''
+    )
+
+    expect(view.terminalCommand).toBeUndefined()
+    expect(view.terminalExitCode).toBeUndefined()
+  })
+})
+
+describe('buildToolView web-search query', () => {
+  it('keeps the query separate from structured search results', () => {
+    const view = buildToolView(
+      part({
+        args: { query: 'Hermes Agent Universal tool calls' },
+        result: { web: [{ snippet: 'Universal docs', title: 'Hermes docs', url: 'https://example.com/docs' }] },
+        toolName: 'web_search'
+      }),
+      ''
+    )
+
+    expect(view.searchQuery).toBe('Hermes Agent Universal tool calls')
+    expect(view.searchHits).toEqual([
+      { snippet: 'Universal docs', title: 'Hermes docs', url: 'https://example.com/docs' }
+    ])
+  })
+
+  // Live, `tool.start` carries no args at all — only the gateway's `context`
+  // preview (tui_gateway/server.py `_on_tool_start`). The header still has to
+  // name what is being searched for.
+  it('falls back to the gateway context before real args arrive', () => {
+    const view = buildToolView(part({ args: { context: 'rust async runtime' }, toolName: 'web_search' }), '')
+
+    expect(view.searchQuery).toBe('rust async runtime')
+  })
+
+  it('leaves other tools without a search header', () => {
+    expect(buildToolView(part({ args: { query: 'x' }, toolName: 'read_file' }), '').searchQuery).toBeUndefined()
   })
 })
 
@@ -319,6 +401,28 @@ describe('buildToolView title actions', () => {
     expect(view.titleAction).toEqual({ prefix: '', text: 'Running', suffix: ' pnpm run lint' })
   })
 
+  it('never stutters the verb or echoes the command when the backend context is a phrased label', () => {
+    // Older backends stamped tool.start with a *phrased* label
+    // ("Running sleep 70 + 2 commands") rather than a raw arg preview, and the
+    // client merges that into args.context (lib/chat-tool-parts.ts `toolArgs`).
+    // The row must still prepend its own verb exactly once, show the real
+    // command in the `$` transcript, and not repeat either string as detail.
+    const command = 'sleep 70; echo "a"; echo "b"'
+
+    const view = buildToolView(
+      part({
+        args: { command, context: 'Running sleep 70 + 2 commands' },
+        result: { exit_code: 0 },
+        toolName: 'terminal'
+      }),
+      ''
+    )
+
+    expect(view.title).toBe('Ran sleep 70 + 2 commands')
+    expect(view.terminalCommand).toBe(command)
+    expect(view.detail).toBe('')
+  })
+
   it('uses the runtime locale for title text and action placement', () => {
     setRuntimeI18nLocale('ja')
 
@@ -354,15 +458,24 @@ describe('clampForDisplay', () => {
 })
 
 // A large tool result (e.g. a 100KB read_file during a `/learn` run) must not
-// be serialized into the rendered rawResult at full size — that JSON.stringify
-// payload is what floods the renderer when many rows stack up.
-describe('buildToolView caps serialized result size', () => {
-  it('clamps rawResult for an oversized result', () => {
+// be serialized at full size — that JSON.stringify payload is what floods the
+// renderer. `buildToolView` no longer prettyJson's every result eagerly, so a
+// view carries no serialized payload at all; the technical-mode disclosure
+// builds one only for the row whose payload someone actually opened.
+describe('prettyJson caps serialized result size', () => {
+  it('clamps an oversized result', () => {
     const huge = 'y'.repeat(MAX_TOOL_RENDER_CHARS * 3)
-    const view = buildToolView(part({ result: { content: huge }, toolName: 'read_file' }), '')
+    const out = prettyJson({ content: huge })
 
-    expect(view.rawResult.length).toBeLessThanOrEqual(MAX_TOOL_RENDER_CHARS + 200)
-    expect(view.rawResult).toContain('truncated')
+    expect(out.length).toBeLessThanOrEqual(MAX_TOOL_RENDER_CHARS + 200)
+    expect(out).toContain('truncated')
+  })
+
+  it('is not what a tool view carries', () => {
+    const view = buildToolView(part({ result: { content: 'y'.repeat(50) }, toolName: 'read_file' }), '')
+
+    expect(view).not.toHaveProperty('rawArgs')
+    expect(view).not.toHaveProperty('rawResult')
   })
 })
 

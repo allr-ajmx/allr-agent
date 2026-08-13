@@ -2562,7 +2562,6 @@ export const ja = defineLocale({
       copyFile: 'ファイルをコピー',
       copyPath: 'パスをコピー',
       outputAlt: 'ツール出力',
-      rawResponse: '生の応答',
       copyActivity: 'アクティビティをコピー',
       recoveredOne: '1 つの失敗したステップの後に回復しました',
       recoveredMany: count => `${count} つの失敗したステップの後に回復しました`,

@@ -2990,7 +2990,6 @@ export const zh: Translations = {
       copyFile: '复制文件',
       copyPath: '复制路径',
       outputAlt: '工具输出',
-      rawResponse: '原始响应',
       copyActivity: '复制活动',
       recoveredOne: '在 1 个失败步骤后已恢复',
       recoveredMany: count => `在 ${count} 个失败步骤后已恢复`,

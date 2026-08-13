@@ -2326,7 +2326,6 @@ export const ar = defineLocale({
       copyFile: 'نسخ الملف',
       copyPath: 'نسخ المسار',
       outputAlt: 'إخراج الأداة',
-      rawResponse: 'الرد الخام',
       copyActivity: 'نسخ النشاط',
       recoveredOne: 'تم الاسترداد',
       recoveredMany: count => `تم استرداد ${count}`,

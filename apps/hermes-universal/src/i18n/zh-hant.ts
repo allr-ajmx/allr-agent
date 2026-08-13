@@ -2489,7 +2489,6 @@ export const zhHant = defineLocale({
       copyFile: '複製檔案',
       copyPath: '複製路徑',
       outputAlt: '工具輸出',
-      rawResponse: '原始回應',
       copyActivity: '複製活動',
       recoveredOne: '在 1 個失敗步驟後已復原',
       recoveredMany: count => `在 ${count} 個失敗步驟後已復原`,
