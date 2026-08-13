@@ -23,6 +23,7 @@ import {
   $cloudError,
   $cloudOrg,
   $cloudOrgs,
+  $portalResume,
   $portalSignedIn,
   changeCloudOrg,
   type CloudAgent,
@@ -46,7 +47,7 @@ import {
   signOut
 } from '@/store/connection'
 import { type Connection, type GatewayMode } from '@/store/gateway-config'
-import { loadGatewayTarget, saveGatewayTarget, takePendingPortal } from '@/store/gateway-restore'
+import { loadGatewayTarget, saveGatewayTarget } from '@/store/gateway-restore'
 import { softSwitchGateway } from '@/store/gateway-soft-switch'
 import { $gatewayMode, setGatewayMode } from '@/store/gateway-switch'
 import { broadcastGatewaySwitch } from '@/store/gateway-switch-broadcast'
@@ -161,11 +162,16 @@ export function GatewayConfigurator({
   // ...with one exception: an Android portal sign-in coming back. That round-trip reloaded
   // the SPA, and $gatewayMode still holds whatever we were connected to — so without this
   // the user returns from the portal to the *remote* card, with no sign that the login
-  // they just completed went anywhere. Consumed in an effect rather than the state
-  // initializer above because the marker is one-shot and initializers can run twice.
-  // Selecting cloud is enough; the `pendingMode === 'cloud'` effect below discovers.
+  // they just completed went anywhere.
+  //
+  // The durable marker is read at BOOT (store/cloud.ts `resumePortalSignIn`), not here:
+  // this effect only runs when a configurator mounts, and the sign-in can be started from
+  // the statusbar popover, which the reload closes. What is left here is the in-memory
+  // verdict, cleared on the first mount that acts on it. Selecting cloud is enough — the
+  // `pendingMode === 'cloud'` effect below discovers.
   useEffect(() => {
-    if (takePendingPortal()) {
+    if ($portalResume.get()) {
+      $portalResume.set(false)
       setPendingMode('cloud')
     }
   }, [])
@@ -354,8 +360,7 @@ export function GatewayConfigurator({
   // (RFC 8252, token in the OS keyring) and the in-app cookie cascade — and once
   // you are through, nothing on this screen distinguished them. Gated on the same
   // base comparison as `oauthConnected` for the same reason.
-  const sessionKind =
-    oauthConnected && oauthSession?.base === connection?.baseUrl ? oauthSession.kind : null
+  const sessionKind = oauthConnected && oauthSession?.base === connection?.baseUrl ? oauthSession.kind : null
 
   // Which auth control the remote panel shows. Desktop parity: derive it from a
   // live probe while the user edits a URL, ELSE from the live connection, ELSE from
