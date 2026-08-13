@@ -44,11 +44,32 @@ afterEach(() => {
   seedActiveSession('sess-1')
   setSessionClarify('sess-1', null)
   aui.messageRunning = true
+  vi.mocked(respondClarify).mockClear()
   vi.mocked(respondClarify).mockResolvedValue('delivered')
 })
 
 function renderClarify(ui: ReactNode) {
   return render(<I18nProvider>{ui}</I18nProvider>)
+}
+
+/**
+ * Settle the send the panel just started.
+ *
+ * A bare `setTimeout(0)` was NOT enough: `respond` awaits `respondClarify` and
+ * does its expired-answer work in the continuation, so under load the draft
+ * could land after the assertion — and after `dispose()` — which then showed up
+ * in the NEXT test's listener. That is how these two tests failed as a pair,
+ * one short and one long, but only when the file ran alongside others.
+ *
+ * Awaiting the panel's OWN promise fixes the order rather than out-waiting it:
+ * the component registered its continuation first, so it runs first, and the
+ * macrotask after it flushes anything the continuation queued.
+ */
+async function settleRespond() {
+  await act(async () => {
+    await vi.mocked(respondClarify).mock.results.at(-1)?.value
+    await new Promise(resolve => setTimeout(resolve, 0))
+  })
 }
 
 function clarifyProps(
@@ -357,7 +378,7 @@ describe('ClarifyTool expired answer', () => {
     // Picking stages; Continue is what sends.
     fireEvent.click(screen.getByRole('button', { name: /prod/ }))
     fireEvent.click(screen.getByRole('button', { name: /Continue/ }))
-    await act(() => new Promise(resolve => setTimeout(resolve, 0)))
+    await settleRespond()
     dispose()
 
     expect(inserted).toHaveLength(1)
@@ -376,7 +397,7 @@ describe('ClarifyTool expired answer', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /prod/ }))
     fireEvent.click(screen.getByRole('button', { name: /Continue/ }))
-    await act(() => new Promise(resolve => setTimeout(resolve, 0)))
+    await settleRespond()
     dispose()
 
     expect(inserted).toEqual([])
