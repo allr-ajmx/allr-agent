@@ -56,6 +56,7 @@ export function ScrollToBottomButton() {
       aria-hidden={!visible}
       aria-label={label}
       className={cn(
+        // eslint-disable-next-line better-tailwindcss/no-restricted-classes -- centring, not an edge — pairs with a physical -translate-x-1/2, and start-1/2 would resolve to right:50% while the transform still pulled left (.thread-jump-button's own keyframes translateX(-50%))
         'thread-jump-button absolute left-1/2 z-20 grid place-items-center backdrop-blur-[0.75rem] [-webkit-backdrop-filter:blur(0.75rem)]',
         approval
           ? 'h-8 grid-flow-col gap-1.5 rounded-full border border-primary/40 bg-(--composer-fill) px-3 text-primary hover:bg-primary/10'

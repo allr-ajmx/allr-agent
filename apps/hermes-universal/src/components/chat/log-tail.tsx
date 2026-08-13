@@ -32,6 +32,7 @@ export function LogTail({ className, emptyLabel, lines }: LogTailProps) {
     <div className={cn('group/logs relative h-full min-h-0', className)}>
       <CopyButton
         appearance="inline"
+        // eslint-disable-next-line better-tailwindcss/no-restricted-classes -- over a surface pinned left-to-right — see the [dir='rtl'] block in styles.css
         className="absolute right-2.5 top-1.5 z-10 h-5 gap-0 rounded-md px-1 opacity-5 transition-opacity group-hover/logs:opacity-100 coarse:opacity-100 hover:opacity-100 focus-visible:opacity-100"
         iconClassName="size-3"
         showLabel={false}

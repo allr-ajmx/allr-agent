@@ -400,6 +400,7 @@ export function BubbleRow() {
       {dragging && (
         <div
           className={cn(
+            // eslint-disable-next-line better-tailwindcss/no-restricted-classes -- centring, not an edge — pairs with a physical -translate-x-1/2, and start-1/2 would resolve to right:50% while the transform still pulled left
             'pointer-events-none absolute -top-9 left-1/2 z-10 max-w-[70%] -translate-x-1/2 truncate rounded-md px-2 py-0.5 text-[0.7rem] font-medium shadow-sm',
             preview?.closeArmed
               ? 'bg-destructive/15 text-destructive'

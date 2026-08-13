@@ -141,6 +141,7 @@ export const PaneTab = React.forwardRef<HTMLDivElement, PaneTabProps>(function P
           aria-hidden
           className={cn(
             'pointer-events-none absolute grid size-4 place-items-center',
+            // eslint-disable-next-line better-tailwindcss/no-restricted-classes -- centring, not an edge — pairs with a physical -translate-x-1/2, and start-1/2 would resolve to right:50% while the transform still pulled left
             vertical ? 'bottom-1.5 left-1/2 -translate-x-1/2' : 'end-1.5 top-1/2 -translate-y-1/2'
           )}
         >

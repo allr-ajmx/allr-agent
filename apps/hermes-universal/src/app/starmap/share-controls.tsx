@@ -101,6 +101,7 @@ export function ShareControls({ imported = false, onImport, onResetMap, shareCod
           <div className="group/code relative">
             <textarea
               aria-label={t.starmap.shareTitle}
+              // eslint-disable-next-line better-tailwindcss/no-restricted-classes -- this surface is itself pinned left-to-right — see the [dir='rtl'] block in styles.css
               className="h-24 w-full resize-none rounded-md bg-foreground/5 p-2.5 pr-9 font-mono text-xs leading-relaxed break-all text-muted-foreground/90 outline-none transition placeholder:text-muted-foreground/50 focus-visible:text-foreground focus-visible:ring-1 focus-visible:ring-ring/40"
               // A share code is opaque machine text, not prose: an RTL
               // paragraph direction would reorder its runs on screen and the
@@ -119,6 +120,7 @@ export function ShareControls({ imported = false, onImport, onResetMap, shareCod
             {code !== '' && (
               <CopyButton
                 appearance="inline"
+                // eslint-disable-next-line better-tailwindcss/no-restricted-classes -- over a surface pinned left-to-right — see the [dir='rtl'] block in styles.css
                 className="absolute right-1.5 top-1.5 h-5 gap-0 rounded-md px-1 opacity-0 transition-opacity focus-visible:opacity-100 group-hover/code:opacity-100 coarse:opacity-100 hover:opacity-100"
                 iconClassName="size-3"
                 label={t.starmap.copy}

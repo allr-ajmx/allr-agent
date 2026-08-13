@@ -106,6 +106,7 @@ export function OverlayView({
         >
           {headerContent && (
             <div
+              // eslint-disable-next-line better-tailwindcss/no-restricted-classes -- centring, not an edge — pairs with a physical -translate-x-1/2, and start-1/2 would resolve to right:50% while the transform still pulled left
               className="pointer-events-auto absolute left-1/2 -translate-x-1/2 -translate-y-1/2"
               style={{ top: 'calc(var(--safe-area-inset-top) + 0.5rem + var(--titlebar-height) / 2)' }}
             >
@@ -171,6 +172,7 @@ export function OverlayView({
           data-tauri-drag-region
         >
           {headerContent && (
+            // eslint-disable-next-line better-tailwindcss/no-restricted-classes -- centring, not an edge — pairs with a physical -translate-x-1/2, and start-1/2 would resolve to right:50% while the transform still pulled left
             <div className="pointer-events-auto absolute left-1/2 top-[calc(0.5rem+var(--titlebar-height)/2)] -translate-x-1/2 -translate-y-1/2">
               {headerContent}
             </div>

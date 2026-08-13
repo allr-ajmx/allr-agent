@@ -625,6 +625,7 @@ export function TerminalView({ id }: { id: string }) {
         />
 
         {status === 'connecting' && (
+          // eslint-disable-next-line better-tailwindcss/no-restricted-classes -- over a surface pinned left-to-right — see the [dir='rtl'] block in styles.css
           <div className="pointer-events-none absolute right-2 top-1 rounded bg-black/30 px-1.5 py-0.5 text-[0.65rem] text-white/80">
             {t.rightSidebar.terminalConnecting}
           </div>
@@ -633,6 +634,7 @@ export function TerminalView({ id }: { id: string }) {
         {/* An abnormal drop is being retried with backoff — the shell is kept alive
             server-side, so this is a wait, not a failure. */}
         {status === 'reconnecting' && (
+          // eslint-disable-next-line better-tailwindcss/no-restricted-classes -- over a surface pinned left-to-right — see the [dir='rtl'] block in styles.css
           <div className="pointer-events-none absolute right-2 top-1 rounded bg-black/30 px-1.5 py-0.5 text-[0.65rem] text-white/80">
             {t.rightSidebar.terminalReconnecting}
           </div>
@@ -640,6 +642,7 @@ export function TerminalView({ id }: { id: string }) {
 
         {/* One-shot after a reattach: the burst of replayed scrollback is expected. */}
         {status === 'reattached' && (
+          // eslint-disable-next-line better-tailwindcss/no-restricted-classes -- over a surface pinned left-to-right — see the [dir='rtl'] block in styles.css
           <div className="pointer-events-none absolute right-2 top-1 rounded bg-black/30 px-1.5 py-0.5 text-[0.65rem] text-white/80">
             {t.rightSidebar.terminalReattached}
           </div>
@@ -647,6 +650,7 @@ export function TerminalView({ id }: { id: string }) {
 
         {hostChip && (
           <div
+            // eslint-disable-next-line better-tailwindcss/no-restricted-classes -- over a surface pinned left-to-right — see the [dir='rtl'] block in styles.css
             className="pointer-events-none absolute right-2 top-1 max-w-[60%] truncate rounded bg-black/25 px-1.5 py-0.5 text-[0.65rem] text-white/70"
             title={t.rightSidebar.terminalHostChip(hostChip)}
           >
@@ -658,6 +662,7 @@ export function TerminalView({ id }: { id: string }) {
             not, so the mismatch has to keep being visible, not fade out. */}
         {fellBack && status === 'open' && (
           <div
+            // eslint-disable-next-line better-tailwindcss/no-restricted-classes -- over a surface pinned left-to-right — see the [dir='rtl'] block in styles.css
             className="pointer-events-none absolute right-2 top-1 max-w-[70%] truncate rounded bg-destructive/40 px-1.5 py-0.5 text-[0.65rem] text-white/90"
             title={t.rightSidebar.terminalLocalFallbackChip}
           >

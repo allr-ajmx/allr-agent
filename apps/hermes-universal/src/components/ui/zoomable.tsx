@@ -125,6 +125,7 @@ function Toolbar({
   }
 
   return (
+    // eslint-disable-next-line better-tailwindcss/no-restricted-classes -- centring, not an edge — pairs with a physical -translate-x-1/2, and start-1/2 would resolve to right:50% while the transform still pulled left
     <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full border border-border/70 bg-background/85 p-1 shadow-sm backdrop-blur">
       <ToolbarButton label="Zoom out" onClick={zoomOut}>
         <ZoomOut className="size-4" />

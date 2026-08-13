@@ -69,6 +69,7 @@ function PopoverContent({
             the inner span and keep the solid --popover-surface. */}
         <PopoverPrimitive.Arrow asChild height={7} width={16}>
           <span className="relative block h-[7px] w-4 overflow-visible">
+            {/* eslint-disable-next-line better-tailwindcss/no-restricted-classes -- centring, not an edge — pairs with a physical -translate-x-1/2, and start-1/2 would resolve to right:50% while the transform still pulled left; and rotate-45 arrow geometry — two adjacent edges of a square, not an edge treatment */}
             <span className="absolute top-0 left-1/2 size-[11px] -translate-x-1/2 -translate-y-1/2 rotate-45 border-r border-b border-(--ui-stroke-secondary) bg-[var(--popover-surface)] backdrop-blur-md" />
           </span>
         </PopoverPrimitive.Arrow>

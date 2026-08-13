@@ -543,6 +543,7 @@ function DiffOverviewRuler({ lines }: { lines: DiffLine[] }) {
   }
 
   return (
+    // eslint-disable-next-line better-tailwindcss/no-restricted-classes -- over a surface pinned left-to-right — see the [dir='rtl'] block in styles.css
     <div aria-hidden className="pointer-events-none absolute top-0 right-0 bottom-0 w-1.5 opacity-80">
       {/* Cap the tick field to the diff's natural height (rows × line px) so a
           short diff renders thin, line-aligned ticks instead of stretching a few
@@ -660,12 +661,14 @@ export function FileDiffPanel({
   return (
     <div className={cn(DIFF_BOX_CLASS, 'relative overflow-hidden', className)} data-slot="file-diff-panel">
       <div
+        // eslint-disable-next-line better-tailwindcss/no-restricted-classes -- this surface is itself pinned left-to-right — see the [dir='rtl'] block in styles.css
         className={cn('absolute inset-0 overflow-auto', showLineNumbers && 'pr-2.5')}
         onScroll={onScroll}
         ref={scrollerRef}
       >
         {showLineNumbers ? (
           <div className="grid min-w-max grid-cols-[auto_minmax(0,1fr)]">
+            {/* eslint-disable-next-line better-tailwindcss/no-restricted-classes -- this surface is itself pinned left-to-right — see the [dir='rtl'] block in styles.css */}
             <div className="sticky left-0 z-1 select-none bg-(--ui-editor-surface-background) py-3 text-muted-foreground/55">
               {beforeRows > 0 && <div aria-hidden style={{ height: beforeRows * PREVIEW_LINE_PX }} />}
               {visibleLineChunks.map(chunk => (
@@ -675,6 +678,7 @@ export function FileDiffPanel({
 
                     return (
                       <div
+                        // eslint-disable-next-line better-tailwindcss/no-restricted-classes -- this surface is itself pinned left-to-right — see the [dir='rtl'] block in styles.css
                         className="h-5 w-9 pr-2 text-right leading-5 tabular-nums"
                         key={`${index}-${line.oldNo}-${line.newNo}`}
                       >
