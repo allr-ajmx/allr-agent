@@ -153,7 +153,11 @@ describe('resumeTile', () => {
 })
 
 describe('submitToSession', () => {
-  it('opens the in-flight turn before the submit leaves', async () => {
+  // Every tile submit lands here — a typed message and the message a slash
+  // `send` directive resolves to alike (app/chat/surface-submit), which is what
+  // gives a slash run in a tile the same turn record and the same visible busy
+  // state as typing (MJXHRM-419).
+  it('opens the in-flight turn before the submit leaves, and shows busy', async () => {
     seed('runtime-1', { storedSessionId: 'stored-1' })
     requestGateway.mockResolvedValue({})
 
@@ -161,6 +165,13 @@ describe('submitToSession', () => {
 
     expect(getInflightTurn('runtime-1')).toMatchObject({ prompt: 'hello', origin: 'local' })
     expect(requestGateway).toHaveBeenCalledWith('prompt.submit', { session_id: 'runtime-1', text: 'hello' })
+
+    const state = $sessionStates.get()['runtime-1']
+
+    expect(state).toMatchObject({ busy: true })
+    expect(state?.turnStartedAt).not.toBeNull()
+    // ...and the transcript keeps a record of what was sent.
+    expect(state?.messages.at(-1)).toMatchObject({ role: 'user', parts: [{ type: 'text', text: 'hello' }] })
   })
 
   // MJXHRM-308: the default `onRecovered` resolved the LIVE id through the
@@ -202,35 +213,15 @@ describe('submitToSession', () => {
   })
 })
 
-// MJXHRM-419: a slash sent straight to `prompt.submit` opened no turn, showed no
-// busy state, left no transcript record, and threw out of the delegate.
-describe('executeSlash', () => {
-  it('opens a turn and shows busy, like a typed message', async () => {
-    seed('runtime-1', { storedSessionId: 'stored-1' })
-    requestGateway.mockResolvedValue({})
-
-    await delegate.executeSlash('/compress', 'runtime-1')
-
-    expect(requestGateway).toHaveBeenCalledWith('prompt.submit', { session_id: 'runtime-1', text: '/compress' })
-    expect(getInflightTurn('runtime-1')).toMatchObject({ prompt: '/compress', origin: 'local' })
-
-    const state = $sessionStates.get()['runtime-1']
-
-    expect(state).toMatchObject({ busy: true })
-    expect(state?.turnStartedAt).not.toBeNull()
-    // The transcript keeps a record of what was actually run.
-    expect(state?.messages.at(-1)).toMatchObject({ role: 'user', parts: [{ type: 'text', text: '/compress' }] })
-  })
-
-  it('leaves the tile idle with a visible error instead of propagating', async () => {
-    seed('runtime-1', { storedSessionId: 'stored-1' })
-    requestGateway.mockRejectedValue(new Error('transport is gone'))
-
-    await expect(delegate.executeSlash('/compress', 'runtime-1')).resolves.toBeUndefined()
-
-    expect($sessionStates.get()['runtime-1']).toMatchObject({ busy: false, turnStartedAt: null })
-    expect($inflightTurns.get()['runtime-1']?.phase).toBe('settled')
-    expect(notifyError).toHaveBeenCalled()
+// MJXHRM-419: the delegate used to carry an `executeSlash` that submitted the
+// raw command as prompt text. It never had a caller — a tile's composer
+// dispatches slashes through `app/chat/hooks/use-slash-command` under the tile's
+// own view — and routing through it would have sent `/model`, `/new` and every
+// other client-side verb to the agent as words. It is gone; this pins that it
+// stays gone, so nothing wires it back up.
+describe('the delegate surface', () => {
+  it('offers no executeSlash for a caller to route slashes through', () => {
+    expect('executeSlash' in delegate).toBe(false)
   })
 })
 
