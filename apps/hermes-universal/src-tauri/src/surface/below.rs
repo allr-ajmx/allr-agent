@@ -34,8 +34,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 #[cfg(desktop)]
-use super::window_stack::from_enumeration;
-use super::window_stack::WindowBelowSource;
+use super::window_stack::{from_enumeration, WindowBelowSource};
 
 /// Hyprland answers `j/clients` with this, plus fields we do not use.
 #[derive(Clone, Debug, Deserialize)]

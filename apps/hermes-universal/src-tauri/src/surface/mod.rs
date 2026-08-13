@@ -55,6 +55,9 @@ mod mac;
 pub mod placement;
 #[cfg(all(desktop, target_os = "windows"))]
 mod win;
+// Desktop-only: nothing on a mobile OS enumerates other applications' windows,
+// so the picker, the mechanism enum and the enumerators all sit behind this.
+#[cfg(desktop)]
 pub mod window_stack;
 #[cfg(all(desktop, target_os = "linux"))]
 mod x11;
@@ -63,6 +66,7 @@ use serde::{Deserialize, Serialize};
 
 #[cfg(desktop)]
 use placement::{MonitorRect, PlacementSource};
+#[cfg(desktop)]
 use window_stack::WindowBelowSource;
 
 #[cfg(desktop)]
