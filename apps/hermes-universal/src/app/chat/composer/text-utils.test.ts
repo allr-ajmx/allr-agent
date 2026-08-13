@@ -1,6 +1,8 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 
-import { blobDedupeKey, detectTrigger, extractClipboardImageBlobs } from './text-utils'
+import { setReactionsEnabled } from '@/store/reactions-enabled'
+
+import { blobDedupeKey, detectTrigger, extractClipboardImageBlobs, mayContainTrigger } from './text-utils'
 
 describe('detectTrigger', () => {
   it('detects a bare slash trigger with an empty query', () => {
@@ -279,5 +281,82 @@ describe('blobDedupeKey', () => {
     const file = new File([], 'a.png', { type: 'image/png', lastModified: 42 })
 
     expect(blobDedupeKey(file)).toBe('file:a.png:0:image/png:42')
+  })
+})
+
+/**
+ * The `:shortcode:` trigger and the cheap screen that guards it.
+ *
+ * The screen used to live in `use-composer-trigger`, listing `@` and `/` only,
+ * so it discarded every emoji trigger before `detectTrigger` could match one.
+ * It lives beside the regexes now precisely so the two cannot drift again —
+ * these tests hold them together.
+ */
+describe('the `:` emoji trigger', () => {
+  afterEach(() => {
+    setReactionsEnabled(false)
+  })
+
+  it('matches a shortcode of two characters or more', () => {
+    setReactionsEnabled(true)
+
+    expect(detectTrigger(':jo')).toEqual({ kind: ':', query: 'jo', tokenLength: 3, value: 'jo' })
+    expect(detectTrigger('nice :tada')).toEqual({ kind: ':', query: 'tada', tokenLength: 5, value: 'tada' })
+    expect(detectTrigger('\uFFFC:jo')).toEqual({ kind: ':', query: 'jo', tokenLength: 3, value: 'jo' })
+  })
+
+  it('needs two characters, so a bare colon and a clock time stay quiet', () => {
+    setReactionsEnabled(true)
+
+    expect(detectTrigger(':')).toBeNull()
+    expect(detectTrigger(':j')).toBeNull()
+    expect(detectTrigger('12:30')).toBeNull()
+    expect(detectTrigger('http://ex')).toBeNull()
+  })
+
+  it("yields to `@` — a directive starter's colon is part of the @ query", () => {
+    setReactionsEnabled(true)
+
+    expect(detectTrigger('@file:')?.kind).toBe('@')
+    expect(detectTrigger('@folder:src')?.kind).toBe('@')
+  })
+
+  it('is off unless the emoji surface is on', () => {
+    expect(detectTrigger(':joy')).toBeNull()
+
+    setReactionsEnabled(true)
+
+    expect(detectTrigger(':joy')?.kind).toBe(':')
+  })
+})
+
+describe('mayContainTrigger', () => {
+  afterEach(() => {
+    setReactionsEnabled(false)
+  })
+
+  it('admits anything holding an @ or a /', () => {
+    expect(mayContainTrigger('mail me @ home')).toBe(true)
+    expect(mayContainTrigger('src/foo')).toBe(true)
+  })
+
+  it('rejects prose with no trigger character at all', () => {
+    expect(mayContainTrigger('hello there')).toBe(false)
+  })
+
+  it('admits a colon only while the emoji surface is on', () => {
+    expect(mayContainTrigger('hello :jo')).toBe(false)
+
+    setReactionsEnabled(true)
+
+    expect(mayContainTrigger('hello :jo')).toBe(true)
+  })
+
+  it('never rejects text `detectTrigger` would have matched', () => {
+    setReactionsEnabled(true)
+
+    for (const text of ['@', '/', 'hi /skill', '@file:src', 'hello :jo', '\uFFFC:tada']) {
+      expect(mayContainTrigger(text), text).toBe(true)
+    }
   })
 })
