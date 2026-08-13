@@ -2,6 +2,7 @@ import { useStore } from '@nanostores/react'
 import { useCallback, useEffect, useRef } from 'react'
 
 import { useSessionView } from '@/app/chat/session-view'
+import { routeWakeDetection } from '@/app/chat/wake-routing'
 import { useI18n } from '@/i18n'
 import { triggerHaptic } from '@/lib/haptics'
 import { resetBrowseState } from '@/store/composer-input-history'
@@ -132,7 +133,16 @@ export function useComposerVoice({
     // the one this effect closed over. The binding is rebuilt whenever the
     // session view or submit handler changes, and a detection minutes later must
     // open a conversation against the current chat, not the mounted one.
-    setWakeConversationStarter(() => startRef.current())
+    //
+    // ROUTE FIRST, then open the conversation. `routeWakeDetection` may switch
+    // profile and create a fresh chat; the binding built by `startRef.current()`
+    // reads `PRIMARY_SESSION_VIEW`, whose atoms are the ACTIVE session's, so it
+    // picks up the chat the routing just landed on rather than the one that was
+    // there when the phrase was spoken.
+    setWakeConversationStarter(detection => {
+      routeWakeDetection(detection)
+      startRef.current()
+    })
 
     return () => setWakeConversationStarter(null)
   }, [disabled, target])

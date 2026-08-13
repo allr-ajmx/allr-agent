@@ -28,6 +28,8 @@ import { IS_MOBILE } from '@/lib/platform'
 import { navigateTo } from '@/lib/route-nav'
 import { newChatBubble } from '@/store/chat-bubbles'
 import { NEW_SESSION_FLASH_EVENT } from '@/store/layout'
+import { normalizeProfileKey } from '@/store/profile'
+import { setActiveProfile } from '@/store/profiles'
 import { newSession, startSessionInWorkspace } from '@/store/session'
 import { focusWorkspaceSession, newSessionTab } from '@/store/session-states'
 
@@ -86,6 +88,29 @@ export function startNewSession({ cwd }: { cwd?: string } = {}): void {
   // The fresh chat loads in MAIN — on phones too, where the only composer scope
   // is the default one (session tiles, the other scope, are desktop-only).
   landOnNewSession({ composer: 'main', focusZone: focusWorkspaceSession })
+}
+
+/**
+ * Start a fresh chat in ANOTHER profile: point the app at it, then create the
+ * session (desktop's `newSessionInProfile`, `store/profile.ts`).
+ *
+ * `setActiveProfile` (plural `store/profiles`) rather than `selectProfile`
+ * (singular `store/profile`) on purpose — `selectProfile` also clears
+ * `$showAllProfiles`, which would collapse the unified browse view out from
+ * under a user standing in it. Both callers want the profile pointed, not the
+ * sidebar rearranged.
+ *
+ * ORDER MATTERS: the profile has to be active BEFORE the draft is created, or
+ * the fresh chat resolves its cwd and its project scope under the outgoing
+ * profile.
+ *
+ * What this does NOT do is move the live chat socket — see
+ * `store/profile-chat-scope`. Callers who have a user in front of them say so;
+ * this stays a pure act.
+ */
+export function newSessionInProfile(name: string): void {
+  setActiveProfile(normalizeProfileKey(name) === 'default' ? null : name)
+  startNewSession()
 }
 
 /**
