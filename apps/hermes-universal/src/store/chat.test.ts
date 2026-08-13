@@ -294,6 +294,78 @@ describe('chat reducer (parts model)', () => {
     expect(requestGateway).toHaveBeenCalledWith('approval.respond', { choice: 'once', session_id: 'runtime-1' })
     expect($approval.get()).toBeNull()
   })
+
+  // MJXHRM-418, second pass. A rejection is only half of "the gateway did not
+  // take this answer": each of these RPCs also has a SUCCESS that delivers
+  // nothing, and reporting that as a normal send is the same lie the swallowed
+  // rejection was.
+
+  // `approval.respond` returns the COUNT of parked agent threads it unblocked
+  // (`resolve_gateway_approval`). Zero means the five-minute approval timeout,
+  // a /stop, or another surface already took the request off the queue — the
+  // command was BLOCKED and this click changed nothing.
+  it('reports an approval that unblocked nobody as expired', async () => {
+    handleGatewayEvent(ev('approval.request', { command: 'rm -rf /' }))
+    vi.mocked(requestGateway).mockResolvedValueOnce({ resolved: 0 } as never)
+
+    await expect(respondApproval('once')).resolves.toBe('expired')
+    // Nothing is waiting for it any more, so the dead bar goes either way.
+    expect($approval.get()).toBeNull()
+  })
+
+  it('reports an approval that unblocked a waiting tool as delivered', async () => {
+    handleGatewayEvent(ev('approval.request', { command: 'rm -rf /' }))
+    vi.mocked(requestGateway).mockResolvedValueOnce({ resolved: 1 } as never)
+
+    await expect(respondApproval('once')).resolves.toBe('delivered')
+  })
+
+  // A backend that doesn't report `resolved` is not claiming anything either
+  // way; treating the missing field as zero would warn on every send.
+  it('does not call an approval expired when the gateway omits the count', async () => {
+    handleGatewayEvent(ev('approval.request', { command: 'rm -rf /' }))
+    vi.mocked(requestGateway).mockResolvedValueOnce({} as never)
+
+    await expect(respondApproval('once')).resolves.toBe('delivered')
+  })
+
+  // `sudo.respond` / `secret.respond` are `allow_expired`: a password or value
+  // that lands after the tool's own wait gave up is accepted and discarded.
+  it('reports a sudo password the tool had stopped waiting for as expired', async () => {
+    handleGatewayEvent(ev('sudo.request', { request_id: 's11', prompt: 'pw' }))
+    vi.mocked(requestGateway).mockResolvedValueOnce({ status: 'expired' } as never)
+
+    await expect(respondSudo('hunter2')).resolves.toBe('expired')
+    expect($sudo.get()).toBeNull()
+  })
+
+  it('reports a live sudo password as delivered', async () => {
+    handleGatewayEvent(ev('sudo.request', { request_id: 's12', prompt: 'pw' }))
+    vi.mocked(requestGateway).mockResolvedValueOnce({ status: 'ok' } as never)
+
+    await expect(respondSudo('hunter2')).resolves.toBe('delivered')
+  })
+
+  it('reports a secret the tool had stopped waiting for as expired', async () => {
+    handleGatewayEvent(ev('secret.request', { request_id: 'x11', env_var: 'API_KEY', prompt: 'key?' }))
+    vi.mocked(requestGateway).mockResolvedValueOnce({ status: 'expired' } as never)
+
+    await expect(respondSecret('sk-1')).resolves.toBe('expired')
+    expect($secret.get()).toBeNull()
+  })
+
+  it('reports a live secret as delivered', async () => {
+    handleGatewayEvent(ev('secret.request', { request_id: 'x12', env_var: 'API_KEY', prompt: 'key?' }))
+    vi.mocked(requestGateway).mockResolvedValueOnce({ status: 'ok' } as never)
+
+    await expect(respondSecret('sk-1')).resolves.toBe('delivered')
+  })
+
+  it('answers nothing when there is no local request left to answer', async () => {
+    await expect(respondSudo('hunter2')).resolves.toBe('gone')
+    await expect(respondSecret('sk-1')).resolves.toBe('gone')
+    expect(requestGateway).not.toHaveBeenCalled()
+  })
 })
 
 describe('tool events outside the live turn', () => {

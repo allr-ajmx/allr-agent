@@ -4,7 +4,7 @@ import { RequestBar, RequestBarActions, RequestBarDescription } from '@/app/chat
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { respondSecret, type SecretRequest } from '@/store/chat'
-import { notifyError } from '@/store/notifications'
+import { notify, notifyError } from '@/store/notifications'
 
 export function SecretBar({ request, sessionKey }: { request: SecretRequest; sessionKey: string }) {
   const [value, setValue] = useState('')
@@ -19,7 +19,15 @@ export function SecretBar({ request, sessionKey }: { request: SecretRequest; ses
     setSending(true)
 
     try {
-      await respondSecret(value, sessionKey)
+      // `secret.respond` is `allow_expired` like sudo's: a value that arrives
+      // after the tool stopped waiting is accepted and discarded. Reporting that
+      // as sent is how a secret disappears with the UI saying it landed.
+      if ((await respondSecret(value, sessionKey)) === 'expired') {
+        notify({
+          kind: 'warning',
+          message: 'That secret prompt had already timed out — the tool gave up, so the value was not used.'
+        })
+      }
     } catch (error) {
       notifyError(error, 'Secret failed to send')
     } finally {

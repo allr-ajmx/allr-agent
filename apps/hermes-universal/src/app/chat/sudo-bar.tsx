@@ -4,7 +4,7 @@ import { RequestBar, RequestBarActions, RequestBarDescription } from '@/app/chat
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { respondSudo, type SudoRequest } from '@/store/chat'
-import { notifyError } from '@/store/notifications'
+import { notify, notifyError } from '@/store/notifications'
 
 export function SudoBar({ request, sessionKey }: { request: SudoRequest; sessionKey: string }) {
   const [password, setPassword] = useState('')
@@ -17,7 +17,16 @@ export function SudoBar({ request, sessionKey }: { request: SudoRequest; session
     setSending(true)
 
     try {
-      await respondSudo(value, sessionKey)
+      // `sudo.respond` is `allow_expired`: once the tool's own wait has given up
+      // the gateway takes the password and drops it on the floor, answering
+      // `{"status": "expired"}`. Say so — the command it was for is already
+      // cancelled, and a bar that just vanishes reads as "password accepted".
+      if ((await respondSudo(value, sessionKey)) === 'expired') {
+        notify({
+          kind: 'warning',
+          message: 'That sudo prompt had already timed out — the command was cancelled, so the password went nowhere.'
+        })
+      }
     } catch (error) {
       notifyError(error, 'Sudo response failed to send')
     } finally {
