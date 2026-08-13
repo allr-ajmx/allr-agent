@@ -99,6 +99,12 @@ export function isSecondaryWindow(): boolean {
  * exporting a profile from the Profiles screen bundles `$layoutTree`, and on
  * Android that screen is the only way to do it — so blanking the read would
  * export an empty layout every time. Read as primary, write as nobody.
+ *
+ * "Write as nobody" is about writes this window AUTHORS. A layout that arrives
+ * inside an imported profile is authored by the archive, and the Profiles screen
+ * unpacking it is an activity window, so that one write goes through regardless
+ * — see the import handshake in `components/pane-shell/tree/store.ts`, which is
+ * also the only thing entitled to bypass this predicate.
  */
 export function ownsPersistedAppState(): boolean {
   return !isSecondaryWindow() && !isActivityWindow()
