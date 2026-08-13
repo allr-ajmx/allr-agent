@@ -11,10 +11,23 @@ import {
   PROFILES_ROUTE,
   SETTINGS_ROUTE,
   SKILLS_ROUTE,
-  STARMAP_ROUTE
+  STARMAP_ROUTE,
+  WEBHOOKS_ROUTE
 } from '@/app/routes'
 import type { Translations } from '@/i18n'
-import { Box, Clock, Cpu, LayoutGrid, MessageCircle, Send, Settings, Sparkles, Stars, Users } from '@/lib/icons'
+import {
+  Box,
+  Clock,
+  Cpu,
+  LayoutGrid,
+  MessageCircle,
+  Send,
+  Settings,
+  Sparkles,
+  Stars,
+  Users,
+  Webhook
+} from '@/lib/icons'
 
 /** Keybind action a destination advertises — the command-menu row's live combo,
  *  and the rail row's tooltip hint. Keyed by view so both surfaces resolve it
@@ -106,6 +119,14 @@ export const NAV_ITEMS: NavItem[] = [
     label: 'Command Center',
     icon: LayoutGrid,
     keywords: ['status', 'logs', 'usage', 'sessions', 'system']
+  },
+  {
+    view: 'webhooks',
+    path: WEBHOOKS_ROUTE,
+    labelKey: 'webhooks',
+    label: 'Webhooks',
+    icon: Webhook,
+    keywords: ['hooks', 'events', 'subscriptions', 'inbound', 'http']
   },
   { view: 'profiles', path: PROFILES_ROUTE, labelKey: 'profiles', label: 'Profiles', icon: Users },
   { view: 'settings', path: SETTINGS_ROUTE, labelKey: 'settings', label: 'Settings', icon: Settings }

@@ -145,6 +145,7 @@ export {
   IconVolume as Volume2Icon,
   IconVolumeOff as VolumeX,
   IconVolumeOff as VolumeXIcon,
+  IconWebhook as Webhook,
   IconTool as Wrench,
   IconX as X,
   IconX as XIcon,

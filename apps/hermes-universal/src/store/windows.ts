@@ -1,7 +1,14 @@
 import { supportsMultipleWindows } from '@tauri-apps/api/app'
 import { invoke } from '@tauri-apps/api/core'
 
-import { AGENTS_ROUTE, COMMAND_CENTER_ROUTE, CRON_ROUTE, PROFILES_ROUTE, SETTINGS_ROUTE } from '@/app/routes'
+import {
+  AGENTS_ROUTE,
+  COMMAND_CENTER_ROUTE,
+  CRON_ROUTE,
+  PROFILES_ROUTE,
+  SETTINGS_ROUTE,
+  WEBHOOKS_ROUTE
+} from '@/app/routes'
 import { IS_ANDROID, IS_DESKTOP, IS_IOS } from '@/lib/platform'
 import { navigateTo } from '@/lib/route-nav'
 import { type SurfaceGrant } from '@/lib/surface'
@@ -122,7 +129,7 @@ export function ownsPersistedAppState(): boolean {
 
 const ACTIVITY_WINDOW_FLAG = 'activity'
 
-export type ActivitySurface = 'agents' | 'command-center' | 'cron' | 'profiles' | 'settings'
+export type ActivitySurface = 'agents' | 'command-center' | 'cron' | 'profiles' | 'settings' | 'webhooks'
 
 // The windowable surfaces, as one table: `activitySurfaceForPath` reads it to
 // decide what the activity renders and `openAppRoute` reads it to decide what
@@ -133,7 +140,8 @@ const ACTIVITY_ROUTES: readonly { route: string; surface: ActivitySurface }[] = 
   { route: COMMAND_CENTER_ROUTE, surface: 'command-center' },
   { route: CRON_ROUTE, surface: 'cron' },
   { route: PROFILES_ROUTE, surface: 'profiles' },
-  { route: SETTINGS_ROUTE, surface: 'settings' }
+  { route: SETTINGS_ROUTE, surface: 'settings' },
+  { route: WEBHOOKS_ROUTE, surface: 'webhooks' }
 ]
 
 /** Matches the route itself and anything under it — a child path or a query. */
@@ -236,6 +244,10 @@ export async function openCronScreen(route: string = CRON_ROUTE): Promise<void> 
 }
 
 export async function openAgentsScreen(route: string = AGENTS_ROUTE): Promise<void> {
+  await openActivityScreen(route)
+}
+
+export async function openWebhooksScreen(route: string = WEBHOOKS_ROUTE): Promise<void> {
   await openActivityScreen(route)
 }
 
