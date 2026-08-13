@@ -13,6 +13,7 @@ import {
   useState
 } from 'react'
 
+import { swallowsTriggerTab } from '@/app/chat/composer/composer-utils'
 import { ComposerDirectiveActions } from '@/app/chat/composer/directive-actions'
 import { focusComposerInput, markActiveComposer } from '@/app/chat/composer/focus'
 import { useComposerTrigger } from '@/app/chat/composer/hooks/use-composer-trigger'
@@ -335,6 +336,24 @@ export const UserEditComposer: FC = () => {
     // the flag as reliably as Chromium, and compositionstart/end are what the
     // engines agree on.
     if (composingRef.current || event.nativeEvent.isComposing) {
+      return
+    }
+
+    // The menu is up but its items are still in flight — the emoji index loads
+    // on the first `:` of the session, so this window is real. Tab must not fall
+    // through: focus leaving THIS composer blurs it, and a blur with the draft
+    // still matching its baseline cancels the edit outright.
+    if (
+      swallowsTriggerTab({
+        itemCount: triggerItems.length,
+        key: event.key,
+        loading: triggerLoading,
+        open: Boolean(emojiTrigger)
+      })
+    ) {
+      event.preventDefault()
+      triggerKeyConsumedRef.current = true
+
       return
     }
 

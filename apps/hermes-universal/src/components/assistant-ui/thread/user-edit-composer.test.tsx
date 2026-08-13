@@ -17,7 +17,7 @@
  * what any of this is about.
  */
 
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, createEvent, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { setReactionsEnabled } from '@/store/reactions-enabled'
@@ -27,21 +27,6 @@ const composerApi = vi.hoisted(() => ({
   send: vi.fn(),
   setText: vi.fn()
 }))
-
-const emojiItems = vi.hoisted(() => [
-  {
-    id: '\u{1F602}|0',
-    type: 'emoji',
-    label: '\u{1F602}  :joy:',
-    metadata: { display: '\u{1F602}  :joy:', rawText: '\u{1F602}', meta: '', group: '', action: '' }
-  },
-  {
-    id: '\u{1F0CF}|1',
-    type: 'emoji',
-    label: '\u{1F0CF}  :joker:',
-    metadata: { display: '\u{1F0CF}  :joker:', rawText: '\u{1F0CF}', meta: '', group: '', action: '' }
-  }
-])
 
 vi.mock('@assistant-ui/react', () => ({
   ComposerPrimitive: {
@@ -54,11 +39,33 @@ vi.mock('@assistant-ui/react', () => ({
 
 // One stable source object, as the real hook returns (its adapter is memoized).
 // A fresh one per render would change the trigger engine's effect deps on every
-// render, which is a loop rather than a test.
-const emojiSource = vi.hoisted(() => ({
-  adapter: { categories: () => [], categoryItems: () => [], search: () => emojiItems },
-  loading: false
-}))
+// render, which is a loop rather than a test. `items` and `loading` are mutable
+// so a test can put the source in flight, which is a real state here: the emoji
+// index loads on the first `:` of a session.
+const emojiSource = vi.hoisted(() => {
+  const source = {
+    adapter: { categories: () => [], categoryItems: () => [], search: () => source.items },
+    items: [
+      {
+        id: '\u{1F602}|0',
+        type: 'emoji',
+        label: '\u{1F602}  :joy:',
+        metadata: { display: '\u{1F602}  :joy:', rawText: '\u{1F602}', meta: '', group: '', action: '' }
+      },
+      {
+        id: '\u{1F0CF}|1',
+        type: 'emoji',
+        label: '\u{1F0CF}  :joker:',
+        metadata: { display: '\u{1F0CF}  :joker:', rawText: '\u{1F0CF}', meta: '', group: '', action: '' }
+      }
+    ],
+    loading: false
+  }
+
+  return source
+})
+
+const emojiItems = emojiSource.items
 
 vi.mock('@/app/chat/composer/hooks/use-emoji-completions', () => ({
   useEmojiCompletions: () => emojiSource
@@ -108,6 +115,8 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers()
   setReactionsEnabled(false)
+  emojiSource.items = emojiItems
+  emojiSource.loading = false
 })
 
 describe('the edit composer and an IME', () => {
@@ -241,6 +250,24 @@ describe('the edit composer and `:shortcode:` completions', () => {
     measure.setEnd(after!.startContainer, after!.startOffset)
 
     expect(measure.toString()).toBe('nice \u{1F602}')
+  })
+
+  it('swallows Tab while the index is still loading, rather than blurring the edit away', () => {
+    setReactionsEnabled(true)
+    emojiSource.items = []
+    emojiSource.loading = true
+    render(<UserEditComposer />)
+
+    type('nice work :jo')
+
+    const tab = createEvent.keyDown(editor(), { key: 'Tab' })
+
+    fireEvent(editor(), tab)
+
+    // Focus leaving this composer blurs it, and a blur with the draft still at
+    // its baseline cancels the edit.
+    expect(tab.defaultPrevented).toBe(true)
+    expect(composerApi.cancel).not.toHaveBeenCalled()
   })
 
   it('accepts on Tab as well', () => {
