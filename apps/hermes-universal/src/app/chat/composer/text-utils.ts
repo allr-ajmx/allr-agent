@@ -180,6 +180,30 @@ export function openDirectiveScope(editor: HTMLDivElement): number {
   return trigger?.kind === '@' && trigger.scope && !trigger.value ? trigger.tokenLength : 0
 }
 
+/**
+ * Cheap precondition for `detectTrigger`: could this text hold a trigger at all?
+ *
+ * The caret-anchored detection above costs a recursive chip-aware walk plus DOM
+ * range work, so callers screen the editor's raw `textContent` first. That
+ * screen is knowledge about WHICH characters can start a trigger, and it lives
+ * here — beside the regexes — because the copy that used to live in the caller
+ * listed only `@` and `/`. When `:` joined `TriggerState` the screen was never
+ * widened, so every emoji completion was discarded before `detectTrigger` ran:
+ * the feature was reachable only in a draft that happened to contain an
+ * unrelated `@` or `/`.
+ *
+ * `:` is admitted only while the emoji surface is on, so the default (flag off)
+ * pays exactly the same two `includes` as before — a colon is far too common in
+ * prose to widen the screen for a feature that cannot fire.
+ */
+export function mayContainTrigger(rawText: string): boolean {
+  if (rawText.includes('@') || rawText.includes('/')) {
+    return true
+  }
+
+  return rawText.includes(':') && $reactionsEnabled.get()
+}
+
 export function detectTrigger(textBefore: string): TriggerState | null {
   // An inline `/skill` is a reference dropped into prose, so it carries no args
   // and the whole match is the token the chip replaces. Checked BEFORE the

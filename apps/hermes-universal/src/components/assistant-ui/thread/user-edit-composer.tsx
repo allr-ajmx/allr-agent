@@ -1,3 +1,4 @@
+import type { Unstable_TriggerItem } from '@assistant-ui/core'
 import { ComposerPrimitive, useAui, useAuiState } from '@assistant-ui/react'
 import {
   type ClipboardEvent,
@@ -12,14 +13,18 @@ import {
   useState
 } from 'react'
 
+import { swallowsTriggerTab } from '@/app/chat/composer/composer-utils'
 import { ComposerDirectiveActions } from '@/app/chat/composer/directive-actions'
 import { focusComposerInput, markActiveComposer } from '@/app/chat/composer/focus'
+import { useComposerTrigger } from '@/app/chat/composer/hooks/use-composer-trigger'
+import { useEmojiCompletions } from '@/app/chat/composer/hooks/use-emoji-completions'
 import {
   composerPlainText,
   placeCaretEnd,
   renderComposerContents,
   RICH_INPUT_SLOT
 } from '@/app/chat/composer/rich-editor'
+import { ComposerTriggerPopover } from '@/app/chat/composer/trigger-popover'
 import {
   StickyHumanMessageContainer,
   StopGlyph,
@@ -34,14 +39,26 @@ import { sanitizeComposerInput } from '@/lib/composer-input-sanitize'
 import { cn } from '@/lib/utils'
 import { notifyThreadEditClose } from '@/store/thread-scroll'
 
+/** Below this much room above the editor, the completion list is drawn under it
+ *  instead — the drawer caps at 22rem and would otherwise run off the top. */
+const DRAWER_MIN_SPACE_ABOVE_PX = 220
+
 /**
  * Inline editor for a past user prompt: click a bubble, change the text, press
  * Enter (or the send button) to rewind to that turn and re-run it with the new
  * text — the runtime's `onEdit` routes to `submitEditedPrompt`. Esc cancels.
  *
- * Ported from desktop's user-edit-composer.tsx, minus the completion popover
- * (@-mention / slash), inline-ref drag-drop, and OS-drop upload staging:
- * FLAG(chat-port) — the desktop file's own text-editing core is what's here.
+ * Ported from desktop's user-edit-composer.tsx, minus the `@`-mention / slash
+ * completions, inline-ref drag-drop, and OS-drop upload staging: FLAG(chat-port)
+ * — the desktop file's own text-editing core is what's here.
+ *
+ * `:shortcode:` emoji completions ARE wired, through the same
+ * `useComposerTrigger` engine the docked composer runs on: an emoji is plain
+ * text with no backend to resolve it, so it needs no gateway, session or cwd —
+ * which is exactly what the `@` and `/` sources this mount lacks would need.
+ * Only the `:` kind is honoured here (see `emojiTrigger`); a `/` typed into a
+ * sent message is prose, and an adapter-less popover would dead-end on
+ * "No matches".
  */
 export const UserEditComposer: FC = () => {
   const { t } = useI18n()
@@ -61,6 +78,7 @@ export const UserEditComposer: FC = () => {
   // preedit text that must not reach the draft.
   const composingRef = useRef(false)
   const [submitting, setSubmitting] = useState(false)
+  const [triggerPlacement, setTriggerPlacement] = useState<'bottom' | 'top'>('top')
   const expanded = draft.includes('\n')
   const canSubmit = draft.trim().length > 0
 
@@ -78,11 +96,93 @@ export const UserEditComposer: FC = () => {
     markActiveComposer('edit')
   }, [])
 
+  /**
+   * Focus WITHOUT moving the caret — what a completion pick needs.
+   *
+   * `focusEditor` drops the caret at the end, which is right on mount (a message
+   * opened for edit starts with the caret after its last character) and wrong
+   * after a pick: the insertion already left the caret behind the emoji, and a
+   * shortcode typed mid-message would otherwise teleport the cursor past the
+   * prose that follows it. The docked composer's equivalent only bumps a focus
+   * request; it never touches the selection.
+   */
+  const refocusEditor = useCallback(() => {
+    focusComposerInput(editorRef.current)
+    markActiveComposer('edit')
+  }, [])
+
   const rememberInitialDraft = useCallback(() => {
     if (initialDraftRef.current === null) {
       initialDraftRef.current = draftRef.current
     }
   }, [])
+
+  const emoji = useEmojiCompletions()
+
+  const setComposerText = useCallback(
+    (text: string) => {
+      draftRef.current = text
+      aui.composer().setText(text)
+    },
+    [aui]
+  )
+
+  const {
+    closeTrigger,
+    refreshTrigger: detectTriggerNow,
+    replaceTriggerWithChip,
+    setTriggerActive,
+    trigger,
+    triggerActive,
+    triggerItems,
+    triggerKeyConsumedRef,
+    triggerLoading
+  } = useComposerTrigger({
+    // No gateway/session/cwd on this mount, so no `@` or `/` source to give it.
+    at: { adapter: null, loading: false },
+    composingRef,
+    draftRef,
+    editorRef,
+    emoji,
+    requestMainFocus: refocusEditor,
+    setComposerText,
+    slash: { adapter: null, loading: false }
+  })
+
+  // The engine detects every kind; this mount only SERVES `:`. Everything below
+  // reads this rather than `trigger`, so an `@` or `/` typed into a sent message
+  // stays inert text instead of opening a popover with no source behind it.
+  const emojiTrigger = trigger?.kind === ':' ? trigger : null
+
+  // A message opened for edit sits anywhere in the transcript, including hard
+  // against the top of the viewport where a list drawn above it would be
+  // off-screen. The docked composer never has that problem (it is pinned to the
+  // bottom), which is why only this mount measures. Measured on refresh rather
+  // than during render so the layout read stays out of React's render pass.
+  const refreshTrigger = useCallback(() => {
+    const editor = editorRef.current
+
+    if (editor) {
+      const rect = editor.getBoundingClientRect()
+      const spaceAbove = rect.top
+      const spaceBelow = window.innerHeight - rect.bottom
+
+      setTriggerPlacement(spaceAbove < DRAWER_MIN_SPACE_ABOVE_PX && spaceBelow > spaceAbove ? 'bottom' : 'top')
+    }
+
+    detectTriggerNow()
+  }, [detectTriggerNow])
+
+  // Picking must count as an edit: blur cancels this composer when the draft
+  // still matches its pre-edit baseline, and an emoji inserted without banking
+  // that baseline would be thrown away by the next click outside.
+  const pickCompletion = useCallback(
+    (item: Unstable_TriggerItem) => {
+      rememberInitialDraft()
+      replaceTriggerWithChip(item)
+    },
+    [rememberInitialDraft, replaceTriggerWithChip]
+  )
 
   // Paint the hydrated draft into the contenteditable (which React doesn't own)
   // whenever the runtime's text changes out from under it.
@@ -153,6 +253,9 @@ export const UserEditComposer: FC = () => {
     composingRef.current = false
     rememberInitialDraft()
     syncDraftFromEditor(event.currentTarget)
+    // Now — and only now — the editor holds committed text, so this is where a
+    // `:` typed through the IME is allowed to open the menu.
+    window.setTimeout(refreshTrigger, 0)
   }
 
   const handlePaste = (event: ClipboardEvent<HTMLDivElement>) => {
@@ -167,6 +270,7 @@ export const UserEditComposer: FC = () => {
     rememberInitialDraft()
     document.execCommand('insertText', false, pastedText)
     syncDraftFromEditor(event.currentTarget)
+    window.setTimeout(refreshTrigger, 0)
   }
 
   const submitEdit = (editor: HTMLDivElement) => {
@@ -205,6 +309,10 @@ export const UserEditComposer: FC = () => {
         // baseline.
         const initialDraft = initialDraftRef.current ?? draftRef.current
 
+        // Focus has genuinely left this composer, so an open menu is stale
+        // either way — close it before the dirty-edit guard returns.
+        closeTrigger()
+
         if (editor && syncDraftFromEditor(editor) !== initialDraft) {
           return
         }
@@ -212,7 +320,7 @@ export const UserEditComposer: FC = () => {
         aui.composer().cancel()
       }, 80)
     },
-    [aui, submitting, syncDraftFromEditor]
+    [aui, closeTrigger, submitting, syncDraftFromEditor]
   )
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -231,6 +339,74 @@ export const UserEditComposer: FC = () => {
       return
     }
 
+    // The menu is up but its items are still in flight — the emoji index loads
+    // on the first `:` of the session, so this window is real. Tab must not fall
+    // through: focus leaving THIS composer blurs it, and a blur with the draft
+    // still matching its baseline cancels the edit outright.
+    if (
+      swallowsTriggerTab({
+        itemCount: triggerItems.length,
+        key: event.key,
+        loading: triggerLoading,
+        open: Boolean(emojiTrigger)
+      })
+    ) {
+      event.preventDefault()
+      triggerKeyConsumedRef.current = true
+
+      return
+    }
+
+    // Completion navigation, ahead of Escape and Enter — both of those mean
+    // something else entirely while the menu is up, and Enter here is
+    // destructive.
+    if (emojiTrigger && triggerItems.length > 0) {
+      if (event.key === 'ArrowDown') {
+        event.preventDefault()
+        triggerKeyConsumedRef.current = true
+        setTriggerActive(idx => (idx + 1) % triggerItems.length)
+
+        return
+      }
+
+      if (event.key === 'ArrowUp') {
+        event.preventDefault()
+        triggerKeyConsumedRef.current = true
+        setTriggerActive(idx => (idx - 1 + triggerItems.length) % triggerItems.length)
+
+        return
+      }
+
+      // Enter and Tab accept, exactly as the docked composer does. There is no
+      // Space acceptance and no folder descent: those are `/` and `@` shapes,
+      // and an emoji shortcode can legitimately be followed by a space.
+      if (event.key === 'Enter' || event.key === 'Tab') {
+        event.preventDefault()
+        triggerKeyConsumedRef.current = true
+
+        const item = triggerItems[triggerActive]
+
+        if (item) {
+          pickCompletion(item)
+        }
+
+        return
+      }
+    }
+
+    // Escape dismisses the menu whenever it is up — including the empty and
+    // loading states, which is a deliberate divergence from the docked composer
+    // (it only handles Escape with items present). There, a fall-through Escape
+    // interrupts the turn, which is recoverable; here it discards the edit, and
+    // losing a message because a completion list happened to be empty is not.
+    if (emojiTrigger && event.key === 'Escape') {
+      event.preventDefault()
+      triggerKeyConsumedRef.current = true
+      closeTrigger()
+
+      return
+    }
+
     if (event.key === 'Escape') {
       event.preventDefault()
       aui.composer().cancel()
@@ -244,6 +420,19 @@ export const UserEditComposer: FC = () => {
     }
   }
 
+  const handleKeyUp = () => {
+    // Keys the open menu already consumed in keydown (Arrow/Enter/Tab/Escape)
+    // never edit text, and for Escape the menu is already closed — a refresh
+    // here would re-detect the still-present `:` and reopen it instantly.
+    if (triggerKeyConsumedRef.current) {
+      triggerKeyConsumedRef.current = false
+
+      return
+    }
+
+    window.setTimeout(refreshTrigger, 0)
+  }
+
   return (
     <ComposerPrimitive.Root className="contents" data-slot="aui_edit-composer-root">
       <StickyHumanMessageContainer>
@@ -252,6 +441,17 @@ export const UserEditComposer: FC = () => {
           onBlur={handleEditBlur}
           ref={rootRef}
         >
+          {emojiTrigger && (
+            <ComposerTriggerPopover
+              activeIndex={triggerActive}
+              items={triggerItems}
+              kind={emojiTrigger.kind}
+              loading={triggerLoading}
+              onHover={setTriggerActive}
+              onPick={pickCompletion}
+              placement={triggerPlacement}
+            />
+          )}
           <div
             className={cn(
               USER_BUBBLE_BASE_CLASS,
@@ -285,6 +485,8 @@ export const UserEditComposer: FC = () => {
               onFocus={() => markActiveComposer('edit')}
               onInput={handleInput}
               onKeyDown={handleKeyDown}
+              onKeyUp={handleKeyUp}
+              onMouseUp={refreshTrigger}
               onPaste={handlePaste}
               ref={editorRef}
               role="textbox"
