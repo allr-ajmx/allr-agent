@@ -92,10 +92,14 @@ export function useAtCompletions(options: {
   const { gateway, sessionId, cwd } = options
   const enabled = Boolean(gateway)
 
-  // Cache key: the completion depends on the query AND the directory it's
-  // resolved against, so a cwd or session change can't serve another tree's
-  // listing.
-  const cacheKey = useCallback((query: string) => `${cwd ?? ''}|${sessionId ?? ''}|${query}`, [cwd, sessionId])
+  // The scope a listing is relative to. It namespaces the response cache below
+  // AND is handed to the adapter as its epoch — both are needed. The cache key
+  // alone protected nothing: the adapter answers a repeated query from the items
+  // it is already holding and never calls the fetcher, so `@src/` typed in one
+  // repo kept listing that repo's files after a session or project switch moved
+  // the cwd. Changing the epoch is what makes it ask again.
+  const scope = `${cwd ?? ''}|${sessionId ?? ''}`
+  const cacheKey = useCallback((query: string) => `${scope}|${query}`, [scope])
 
   const fetcher = useCallback(
     async (query: string): Promise<CompletionPayload> => {
@@ -163,7 +167,7 @@ export function useAtCompletions(options: {
   // nothing when the answer is already in hand.
   const isCached = useCallback((query: string) => hasCachedPathCompletion(cacheKey(query)), [cacheKey])
 
-  return useLiveCompletionAdapter({ enabled, fetcher, isCached, toItem })
+  return useLiveCompletionAdapter({ enabled, epoch: scope, fetcher, isCached, toItem })
 }
 
 /** Re-export `classify` for use by the formatter (insertion side). */
