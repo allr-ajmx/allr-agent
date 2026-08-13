@@ -130,6 +130,17 @@ function readFileDisplayTarget(args: Record<string, unknown>, result: Record<str
   return [fileEditBasename(path), lineLabel].filter(Boolean).join(' ')
 }
 
+// The real command, preferring the actual argument over the backend's
+// display preview. `context` is a *summarized* preview ("sleep 70 + 2
+// commands") the gateway sends on tool.start before real args arrive — fine
+// as a placeholder for the live title, wrong for the `$` transcript, which
+// must show what actually ran.
+function shellCommand(args: Record<string, unknown>): string {
+  return (
+    firstStringField(args, ['command', 'code']) || firstStringField(args, ['context', 'preview']) || contextValue(args)
+  )
+}
+
 const TOOL_META: Record<ToolTitleKey, ToolMetaSpec> = {
   browser_click: {
     icon: 'globe',
@@ -1093,6 +1104,13 @@ function toolDetailText(
     if (output || lines) {
       return [output, lines].filter(Boolean).join('\n')
     }
+
+    // A terminal row with no output already shows its command in the `$`
+    // transcript above; the generic fallback would print the same string a
+    // second time. `execute_code` has no transcript, so it keeps the fallback.
+    if (part.toolName === 'terminal') {
+      return ''
+    }
   }
 
   if (part.toolName === 'web_extract') {
@@ -1362,10 +1380,7 @@ function dynamicTitle(
   }
 
   if (part.toolName === 'terminal' || part.toolName === 'execute_code') {
-    const command =
-      firstStringField(args, ['context', 'preview']) ||
-      firstStringField(args, ['command', 'code']) ||
-      contextValue(args)
+    const command = shellCommand(args)
 
     if (command) {
       const action =
@@ -1442,6 +1457,11 @@ export function buildToolView(part: ToolPart, inlineDiff: string): ToolView {
   const searchHits =
     part.toolName === 'web_search' && status !== 'error' ? extractSearchResults(part.result) : undefined
 
+  const searchQuery =
+    part.toolName === 'web_search'
+      ? firstStringField(argsRecord, ['search_term', 'query']) || contextValue(argsRecord)
+      : ''
+
   const resultCount = status === 'error' ? null : toolResultCount(part, argsRecord, resultRecord)
 
   // For shell/code tools we surface stdout and stderr as separate labeled
@@ -1455,6 +1475,8 @@ export function buildToolView(part: ToolPart, inlineDiff: string): ToolView {
   // field — otherwise the merged `detail` already covers it and double-
   // rendering would duplicate output.
   const hasSplitStreams = rendersAnsi && (Boolean(stdout) || Boolean(stderrRaw))
+  const terminalCommand = part.toolName === 'terminal' ? shellCommand(argsRecord) : undefined
+  const terminalExitCode = part.toolName === 'terminal' ? numericField(resultRecord, 'exit_code') : undefined
 
   return {
     countLabel: resultCount ? formatCountLabel(resultCount) : undefined,
@@ -1468,8 +1490,11 @@ export function buildToolView(part: ToolPart, inlineDiff: string): ToolView {
     rawArgs: prettyJson(part.args),
     rawResult: prettyJson(part.result),
     rendersAnsi: rendersAnsi || undefined,
+    searchQuery: searchQuery || undefined,
     searchHits: searchHits?.length ? searchHits : undefined,
     stderr: hasSplitStreams ? stderrRaw || undefined : undefined,
+    terminalCommand,
+    terminalExitCode,
     stdout: hasSplitStreams ? stdout || undefined : undefined,
     status,
     subtitle,
