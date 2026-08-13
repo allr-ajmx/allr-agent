@@ -5,6 +5,7 @@ import { useSessionView } from '@/app/chat/session-view'
 import { routeWakeDetection } from '@/app/chat/wake-routing'
 import { useI18n } from '@/i18n'
 import { triggerHaptic } from '@/lib/haptics'
+import { interruptSession } from '@/store/chat'
 import { resetBrowseState } from '@/store/composer-input-history'
 import { notifyError } from '@/store/notifications'
 import { $voiceConversation } from '@/store/voice-conversation'
@@ -83,6 +84,18 @@ export function useComposerVoice({
         resetBrowseState(sessionId)
         clearDraft()
         await onSubmit(text)
+      },
+      // Barge-in during GENERATION (MJXHRM-228). The same verb the Stop button
+      // sends, addressed to the session this conversation is bound to rather
+      // than the foreground one — a tile's voice loop must stop its own turn,
+      // not the main pane's. `$runtimeId` is the slice key, which is what
+      // `interruptSession` addresses.
+      interrupt: async () => {
+        const key = view.$runtimeId.get()
+
+        if (key) {
+          await interruptSession(key)
+        }
       }
     }
   }, [clearDraft, onSubmit, onTranscribeAudio, sessionId, t.notifications.voice, target, view])
