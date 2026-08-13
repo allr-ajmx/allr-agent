@@ -79,6 +79,58 @@ describe('toChatMessages', () => {
     expect(ids).toHaveLength(2)
     expect(new Set(ids).size).toBe(2)
   })
+
+  // MJXHRM-363. `lib/generated-images.ts` was ported with the rest of the media
+  // layer and then never called: a reloaded transcript showed a generated image
+  // TWICE — once in the tool slot, once as the markdown the model wrote to
+  // announce it. The prose around it has to survive.
+  describe('generated-image echoes', () => {
+    const generation = (prose: string) => [
+      msg({
+        role: 'assistant',
+        content: prose,
+        tool_calls: [{ id: 'g1', function: { name: 'image_generate', arguments: { prompt: 'a peacock' } } }]
+      }),
+      msg({
+        role: 'tool',
+        tool_call_id: 'g1',
+        content: JSON.stringify({ host_image: '/host/p.png', image: '/host/p.png', success: true })
+      })
+    ]
+
+    it('drops the image the model restated in prose, keeping its words', () => {
+      const out = toChatMessages(generation('Here is your peacock! ![peacock](/host/p.png) Enjoy.'))
+
+      expect(texts(out.flatMap(m => m.parts))).toEqual(['Here is your peacock! Enjoy.'])
+      expect(tools(out.flatMap(m => m.parts))).toHaveLength(1)
+    })
+
+    it('leaves prose alone when the generation failed, so nothing is silently eaten', () => {
+      const failed = [
+        msg({
+          role: 'assistant',
+          content: 'It refused: ![peacock](/host/p.png)',
+          tool_calls: [{ id: 'g1', function: { name: 'image_generate' } }]
+        }),
+        msg({ role: 'tool', tool_call_id: 'g1', content: JSON.stringify({ success: false }) })
+      ]
+
+      expect(texts(toChatMessages(failed).flatMap(m => m.parts))).toEqual(['It refused: ![peacock](/host/p.png)'])
+    })
+
+    it('leaves an ordinary tool turn’s markdown image alone', () => {
+      const out = toChatMessages([
+        msg({
+          role: 'assistant',
+          content: 'see ![chart](/host/c.png)',
+          tool_calls: [{ id: 't1', function: { name: 'read_file' } }]
+        }),
+        msg({ role: 'tool', tool_call_id: 't1', content: 'ok' })
+      ])
+
+      expect(texts(out.flatMap(m => m.parts))).toEqual(['see ![chart](/host/c.png)'])
+    })
+  })
 })
 
 // Scaffolding the model was fed, persisted as role:'user' and TAGGED by the

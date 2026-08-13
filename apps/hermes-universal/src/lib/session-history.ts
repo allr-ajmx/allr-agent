@@ -1,4 +1,5 @@
 import { renderMediaTags } from '@/lib/chat-media'
+import { dedupeGeneratedImageEchoesInParts } from '@/lib/generated-images'
 import { shouldProjectInflightDump, userTurnAlreadyPersisted } from '@/lib/live-tail'
 import type { ChatMessage, ChatPart, ToolCallPart } from '@/store/chat'
 import type { MessageReaction, SessionMessage, SessionResumeResponse } from '@/types/hermes'
@@ -7,8 +8,10 @@ import type { MessageReaction, SessionMessage, SessionResumeResponse } from '@/t
 // model (Hc1). Lean port of desktop apps/desktop/src/lib/chat-messages.ts
 // toChatMessages — the essential grouping (attach role:'tool' results to the
 // preceding assistant's tool-call by tool_call_id/name; buffer tool-only
-// assistants onto the surrounding turn) — dropping media/todos/generated-image/
-// branch/timestamp/argsText concerns.
+// assistants onto the surrounding turn) — dropping todos/branch/timestamp/
+// argsText concerns. The generated-image de-dupe is NOT among the dropped ones
+// any more: leaving it unwired showed a generated picture twice, once in the
+// tool slot and once in the prose that restated it (MJXHRM-363).
 //
 // Desktop additionally collapses a `/skill` turn back to its invocation via
 // `skillInvocationText` (a fallback for older gateways that persisted the whole
@@ -507,7 +510,18 @@ export function toChatMessages(messages: SessionMessage[]): ChatMessage[] {
   })
   flushPendingTools(messages.length)
 
-  return withUniqueToolCallIds(result.filter(m => messageText(m).trim() || m.parts.some(part => part.type !== 'text')))
+  // The model routinely restates a generated image in its own prose — usually as
+  // markdown pointing at a path the tool result already carries. The image
+  // belongs in the tool slot; a second copy inline is the same picture twice.
+  // (Desktop does this in `lib/chat-messages.ts`; universal's history converter
+  // is this function.)
+  const withoutGeneratedImageEchoes = result.map(message =>
+    message.role === 'assistant' ? { ...message, parts: dedupeGeneratedImageEchoesInParts(message.parts) } : message
+  )
+
+  return withUniqueToolCallIds(
+    withoutGeneratedImageEchoes.filter(m => messageText(m).trim() || m.parts.some(part => part.type !== 'text'))
+  )
 }
 
 /**

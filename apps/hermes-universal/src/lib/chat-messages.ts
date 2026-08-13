@@ -15,6 +15,7 @@
 // Ported from apps/desktop/src/lib/chat-messages.ts.
 
 import { renderMediaTags } from '@/lib/chat-media'
+import { dedupeGeneratedImageEchoesInParts } from '@/lib/generated-images'
 import type { MessageReaction } from '@/types/hermes'
 
 export type Role = 'assistant' | 'system' | 'user'
@@ -474,10 +475,17 @@ export function applyCompletion(messages: ChatMessage[], text: string): ChatMess
   const finalText = text.includes('MEDIA:') ? renderMediaTags(text) : text
   const error = completionErrorText(finalText)
 
+  // The authoritative final text is the model's own prose, restated generated
+  // image and all — so the de-dupe has to run AFTER it lands, or the settle at
+  // end of turn puts back the second copy the live pass removed.
   const settle = (message: ChatMessage): ChatMessage =>
     error
       ? { ...message, error, parts: message.parts.filter(part => part.type !== 'text'), pending: false }
-      : { ...message, parts: finalizeParts(message.parts, finalText), pending: false }
+      : {
+          ...message,
+          parts: dedupeGeneratedImageEchoesInParts(finalizeParts(message.parts, finalText)),
+          pending: false
+        }
 
   // An empty completion carries no authority (an interrupted turn reports no
   // final response) — settle whatever streamed instead of erasing it.
