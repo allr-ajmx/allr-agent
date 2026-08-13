@@ -420,6 +420,30 @@ export const zh: Translations = {
       terminalHostDevice: '此设备',
       terminalHostGateway: '网关／工作区主机'
     },
+    voiceLevels: {
+      title: '电平',
+      intro:
+        '调整 Hermes 听你说话的灵敏度以及朗读回复的音量。这里没有回声消除，因此把打断阈值设在扬声器所产生的电平之上，才能避免 Hermes 打断自己。',
+      meterTitle: '输入电平表',
+      meterDesc: '打开麦克风，对照下面的阈值查看你的电平。不会录音，也不会上传。',
+      meterRunningDesc: '正在聆听。请正常说话，然后把输入阈值设在略低于说话电平处。一分钟后会自动停止。',
+      meterStart: '测试麦克风',
+      meterStop: '停止',
+      meterLevel: (percent: string) => `电平 ${percent}`,
+      meterPeak: (percent: string) => `峰值 ${percent}`,
+      meterBusy: '麦克风已被占用',
+      meterFailed: '无法打开麦克风',
+      saveFailed: '无法保存语音电平',
+      gainTitle: '输入增益',
+      gainDesc: '按倍数放大测得的电平，让音量偏小的麦克风也能达到阈值。不会改变用于转写的音频。',
+      thresholdTitle: '输入阈值',
+      thresholdDesc: '声音需要多大，Hermes 才会认为你开始说话。过低会被环境噪声触发，过高则完全听不到你。',
+      bargeinTitle: '打断阈值',
+      bargeinDesc: 'Hermes 说话期间使用的更高门限。请保持它高于仅有扬声器发声时电平表显示的数值。',
+      outputSectionTitle: '输出',
+      outputTitle: '朗读音量',
+      outputDesc: '朗读回复的播放音量。'
+    },
     sections: {
       model: '模型',
       chat: '对话',

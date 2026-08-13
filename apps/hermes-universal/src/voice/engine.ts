@@ -15,13 +15,16 @@ import { createWebLease } from './web-engine'
 //
 // Priority: a live conversation is a long-running mode and beats the momentary
 // dictation button (dictation gets `VoiceBusyError`); a conversation starting
-// while dictation is recording preempts it. Wake listening sits UNDER both — it
-// is a standing background listener, so anything the user asked for directly
-// preempts it, and it is the only owner that never wins a contest. Encoded once
-// here rather than as ad-hoc try/catch at each call site.
+// while dictation is recording preempts it. The settings level meter sits under
+// both — calibrating must never interrupt a real turn — but ABOVE wake, because
+// it too is something the user asked for directly by pressing a button. Wake
+// listening sits under everything: it is a standing background listener, so
+// anything the user asked for preempts it, and it is the only owner that never
+// wins a contest. Encoded once here rather than as ad-hoc try/catch at each call
+// site.
 
 /** Lower number wins a contest for the device. */
-const PRIORITY: Record<VoiceOwner, number> = { conversation: 0, dictation: 1, wake: 2 }
+const PRIORITY: Record<VoiceOwner, number> = { conversation: 0, dictation: 1, meter: 2, wake: 3 }
 
 class VoiceEngineImpl implements VoiceEngine {
   private _owner: VoiceOwner | null = null

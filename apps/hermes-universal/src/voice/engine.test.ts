@@ -133,6 +133,45 @@ describe('voice engine lease arbitration', () => {
     await dictation.close()
   })
 
+  // The settings level meter is something the user pressed a button for, so it
+  // outranks the standing wake listener — but calibrating must never cut into a
+  // real turn, so it loses to both conversation and dictation.
+  it('the settings meter preempts wake but never a live turn', async () => {
+    await voiceEngine.open('wake', OPTS)
+    const wakeLease = h.nativeCreated[0]
+
+    const meter = await voiceEngine.open('meter', OPTS)
+    expect(voiceEngine.owner).toBe('meter')
+    expect(wakeLease.close).toHaveBeenCalled()
+
+    // ...and cannot be taken back while the user is calibrating. Ranking the two
+    // the SAME still lets the meter preempt wake, so this is the assertion that
+    // distinguishes a real ordering from a tie.
+    await expect(voiceEngine.open('wake', OPTS)).rejects.toBeInstanceOf(VoiceBusyError)
+    expect(voiceEngine.owner).toBe('meter')
+
+    await meter.close()
+
+    const conversation = await voiceEngine.open('conversation', OPTS)
+    await expect(voiceEngine.open('meter', OPTS)).rejects.toBeInstanceOf(VoiceBusyError)
+    await conversation.close()
+
+    const dictation = await voiceEngine.open('dictation', OPTS)
+    await expect(voiceEngine.open('meter', OPTS)).rejects.toBeInstanceOf(VoiceBusyError)
+    await dictation.close()
+  })
+
+  it('a conversation takes the device back from the meter', async () => {
+    await voiceEngine.open('meter', OPTS)
+    const meterLease = h.nativeCreated[0]
+
+    const conversation = await voiceEngine.open('conversation', OPTS)
+    expect(voiceEngine.owner).toBe('conversation')
+    expect(meterLease.close).toHaveBeenCalled()
+
+    await conversation.close()
+  })
+
   it('downgrades to the web engine when the native open fails', async () => {
     h.state.failNative = true
 

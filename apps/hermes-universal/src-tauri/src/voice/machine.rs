@@ -45,6 +45,13 @@ pub enum VoiceStateKind {
 pub enum ArmMode {
     Normal,
     BargeIn,
+    /// Level-meter only (MJXHRM-90): the device is hot and `level` events flow,
+    /// but the turn machinery is disabled — the onset threshold is unreachable
+    /// and the idle window is infinite, so the session can never start
+    /// recording, never finalizes, and never POSTs audio anywhere. This is what
+    /// lets the Voice settings page show a calibration meter without opening a
+    /// transcription session against the user's speech.
+    Monitor,
 }
 
 /// Output container format. Lives here (dependency-free) so `VoiceConfig` can name
@@ -176,8 +183,20 @@ pub struct VoiceConfig {
     /// uses, which keeps `wake.feed` at ~3 RPCs/s while adding a detection latency
     /// nobody can hear.
     pub wake_batch_ms: u64,
+    /// Multiplier applied to the captured block RMS before it becomes the `level`
+    /// the VAD compares against `speech_level` (see `DEFAULT_LEVEL_GAIN`). User
+    /// controllable so a quiet mic can be lifted onto the same 0..1 scale the
+    /// thresholds live on (MJXHRM-90).
+    pub level_gain: f32,
     pub format: ClipFormat,
 }
+
+/// Default mic gain: maps f32 RMS onto the 0..1 scale the VAD thresholds are
+/// calibrated for. Ported from `audio.rs::LEVEL_GAIN` (the old browser meter
+/// normalized 8-bit-centered RMS by /42; the f32 equivalent is ~×(128/42) ≈ 3.0).
+/// Not load-bearing on its own — `speech_level` is a relative threshold on this
+/// same scale — which is exactly why the two are exposed together.
+pub const DEFAULT_LEVEL_GAIN: f32 = 3.0;
 
 impl VoiceConfig {
     /// The tuned defaults, matching `use-voice-conversation.ts` (`silenceLevel
@@ -194,6 +213,7 @@ impl VoiceConfig {
             min_turn_ms: 250,
             preroll_ms: 300,
             wake_batch_ms: 320,
+            level_gain: DEFAULT_LEVEL_GAIN,
             format: ClipFormat::Wav,
         }
     }
@@ -202,6 +222,9 @@ impl VoiceConfig {
         match mode {
             ArmMode::Normal => self.speech_level,
             ArmMode::BargeIn => self.bargein_speech_level,
+            // Unreachable by construction: the host clamps the emitted level to
+            // 1.0, so no block can ever satisfy `rms >= INFINITY`.
+            ArmMode::Monitor => f32::INFINITY,
         }
     }
 
@@ -209,6 +232,15 @@ impl VoiceConfig {
         match mode {
             ArmMode::Normal => self.onset_ms,
             ArmMode::BargeIn => self.bargein_onset_ms,
+            ArmMode::Monitor => 0,
+        }
+    }
+
+    fn idle_silence_for(&self, mode: ArmMode) -> u64 {
+        match mode {
+            // A meter is not a turn: it must not be reaped for "no speech".
+            ArmMode::Monitor => u64::MAX,
+            _ => self.idle_silence_ms,
         }
     }
 }
@@ -498,6 +530,8 @@ impl VoiceMachine {
         self.cur_speech_level = self.cfg.level_for(mode);
         self.vad
             .set_thresholds(self.cfg.level_for(mode), self.cfg.onset_for(mode));
+        self.vad
+            .set_idle_silence_ms(self.cfg.idle_silence_for(mode));
         self.preroll.set_cap(preroll_cap(
             self.src_rate,
             self.cfg.preroll_ms + self.cfg.onset_for(mode),
@@ -989,6 +1023,71 @@ mod tests {
             vec![VoiceStateKind::Idle, VoiceStateKind::Armed]
         );
         assert_eq!(m.kind(), VoiceStateKind::Armed);
+    }
+
+    // --- monitor (settings level meter, MJXHRM-90) --------------------------
+
+    fn levels(effects: &[VoiceEffect]) -> Vec<f32> {
+        effects
+            .iter()
+            .filter_map(|e| match e {
+                VoiceEffect::Emit("level", EmitPayload::Level(v)) => Some(*v),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn monitor_reports_levels_without_ever_recording() {
+        let mut m = machine();
+        let mut out = Vec::new();
+        m.step(VoiceInput::Arm(ArmMode::Monitor), &mut out);
+        assert_eq!(states(&out), vec![VoiceStateKind::Armed]);
+
+        // The loudest possible block (the host clamps `rms` to 1.0) still must
+        // not trip onset: a calibration meter that starts a turn would ship the
+        // user's test speech to the transcription provider.
+        let e = feed(&mut m, 100, 1.0);
+        assert_eq!(m.kind(), VoiceStateKind::Armed);
+        assert_eq!(levels(&e), vec![1.0]);
+        assert!(!topics(&e).contains(&"speechStart"));
+        assert!(!e.iter().any(|x| matches!(x, VoiceEffect::Finalize(_))));
+    }
+
+    #[test]
+    fn monitor_never_idle_times_out() {
+        let mut m = machine();
+        let mut out = Vec::new();
+        m.step(VoiceInput::Arm(ArmMode::Monitor), &mut out);
+        // Far past `idle_silence_ms` (12 s) — a normal arm would have reaped.
+        let e = feed(&mut m, 60_000, QUIET);
+        assert!(!topics(&e).contains(&"idleTimeout"));
+        assert_eq!(m.kind(), VoiceStateKind::Armed);
+    }
+
+    #[test]
+    fn leaving_monitor_restores_the_real_thresholds() {
+        let mut m = machine();
+        let mut out = Vec::new();
+        m.step(VoiceInput::Arm(ArmMode::Monitor), &mut out);
+        feed(&mut m, 100, LOUD);
+        assert_eq!(m.kind(), VoiceStateKind::Armed);
+        // Re-arming normally must un-do BOTH monitor overrides, or the session
+        // that follows a calibration pass would be permanently deaf.
+        out.clear();
+        m.step(VoiceInput::Arm(ArmMode::Normal), &mut out);
+        feed(&mut m, 20, LOUD);
+        assert_eq!(m.kind(), VoiceStateKind::Recording);
+    }
+
+    #[test]
+    fn leaving_monitor_restores_the_idle_window() {
+        let mut m = machine();
+        let mut out = Vec::new();
+        m.step(VoiceInput::Arm(ArmMode::Monitor), &mut out);
+        m.step(VoiceInput::Arm(ArmMode::Normal), &mut out);
+        let e = feed(&mut m, 12_000, QUIET);
+        assert!(topics(&e).contains(&"idleTimeout"));
     }
 
     #[test]

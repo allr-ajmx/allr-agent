@@ -39,6 +39,7 @@ const h = vi.hoisted(() => {
     lease,
     open: vi.fn(async () => lease),
     playback,
+    markInterrupted: vi.fn(),
     stopPlayback: vi.fn(),
     resolvePlayback: (r: string) => resolvePlayback?.(r),
     notify: vi.fn(),
@@ -49,7 +50,12 @@ const h = vi.hoisted(() => {
 vi.mock('@/store/connection', () => ({
   $connection: { get: () => ({ baseUrl: 'http://gw', token: 't' }), subscribe: () => () => undefined }
 }))
+// `markVoicePlaybackInterrupted` was added to the controller's barge-in path by
+// MJXHRM-389/PR #227 and never added here, so the barge-in test has been throwing
+// "No export defined on the mock" on main-sync ever since — a red test in the
+// suite, not a passing one.
 vi.mock('@/lib/voice-playback', () => ({
+  markVoicePlaybackInterrupted: h.markInterrupted,
   playSpeechTextUntilDone: h.playback,
   stopVoicePlayback: h.stopPlayback
 }))
@@ -57,6 +63,13 @@ vi.mock('@/store/notifications', () => ({ notify: h.notify, notifyError: h.notif
 vi.mock('@/voice/engine', () => ({
   voiceEngine: { open: h.open, updateAuth: vi.fn(async () => undefined), owner: null }
 }))
+
+import {
+  $voiceBargeinThreshold,
+  $voiceInputGain,
+  $voiceInputThreshold,
+  DEFAULT_VOICE_LEVELS
+} from '@/store/voice-prefs'
 
 import { type ConversationBinding, voiceConversation } from './conversation-controller'
 
@@ -93,10 +106,14 @@ beforeEach(() => {
   $messages = atom<any[]>([])
   $busy = atom(false)
   view = { $messages, $busy } as unknown as SessionView
+  $voiceInputGain.set(DEFAULT_VOICE_LEVELS.inputGain)
+  $voiceInputThreshold.set(DEFAULT_VOICE_LEVELS.inputThreshold)
+  $voiceBargeinThreshold.set(DEFAULT_VOICE_LEVELS.bargeinThreshold)
 })
 
 afterEach(async () => {
   await voiceConversation.end()
+  h.open.mockClear()
   h.lease.arm.mockClear()
   h.lease.forceTurn.mockClear()
   h.lease.close.mockClear()
@@ -110,6 +127,23 @@ function armCalls(mode: string) {
 }
 
 describe('conversation controller', () => {
+  // MJXHRM-90: Rust takes the VAD once, at `voice_open`. A conversation that
+  // opened without the persisted levels would run on the tuned constants no
+  // matter what the user set — the settings page would be decorative.
+  it('opens the session with the user-calibrated levels', async () => {
+    $voiceInputGain.set(7.5)
+    $voiceInputThreshold.set(0.2)
+    $voiceBargeinThreshold.set(0.44)
+
+    await voiceConversation.start(binding())
+    await flush()
+
+    expect(h.open).toHaveBeenCalledWith(
+      'conversation',
+      expect.objectContaining({ vad: { levelGain: 7.5, speechLevel: 0.2, bargeinSpeechLevel: 0.44 } })
+    )
+  })
+
   it('re-arms the mic after a completed spoken turn', async () => {
     await voiceConversation.start(binding())
     await flush()

@@ -433,6 +433,34 @@ export const en: Translations = {
       terminalHostDevice: 'This device',
       terminalHostGateway: 'Gateway / workspace host'
     },
+    voiceLevels: {
+      title: 'Levels',
+      intro:
+        'Tune how loudly Hermes hears you and how loudly it speaks back. There is no echo cancellation here, so a barge-in threshold set above what your speakers register is what stops Hermes interrupting itself.',
+      meterTitle: 'Input meter',
+      meterDesc: 'Open the microphone to see your level against the thresholds below. Nothing is recorded or sent.',
+      meterRunningDesc:
+        'Listening. Speak normally, then set the input threshold just below your speech. Stops on its own after a minute.',
+      meterStart: 'Test microphone',
+      meterStop: 'Stop',
+      meterLevel: (percent: string) => `Level ${percent}`,
+      meterPeak: (percent: string) => `Peak ${percent}`,
+      meterBusy: 'The microphone is already in use',
+      meterFailed: 'Could not open the microphone',
+      saveFailed: 'Could not save the voice level',
+      gainTitle: 'Input gain',
+      gainDesc:
+        'Multiplies the measured level so a quiet microphone can reach the thresholds. Does not change the audio that is transcribed.',
+      thresholdTitle: 'Input threshold',
+      thresholdDesc:
+        'How loud a sound must be before Hermes treats it as the start of your turn. Too low and room noise triggers it; too high and it never hears you.',
+      bargeinTitle: 'Barge-in threshold',
+      bargeinDesc:
+        'The higher gate that applies while Hermes is speaking. Keep it above whatever the meter shows when only your speakers are playing.',
+      outputSectionTitle: 'Output',
+      outputTitle: 'Speech volume',
+      outputDesc: 'How loudly spoken replies are played.'
+    },
     sections: {
       model: 'Model',
       chat: 'Chat',

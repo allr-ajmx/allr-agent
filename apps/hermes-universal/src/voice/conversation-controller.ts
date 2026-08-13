@@ -14,6 +14,7 @@ import {
   setConversationMuted,
   setConversationStatus
 } from '@/store/voice-conversation'
+import { conversationVoiceVad } from '@/store/voice-prefs'
 import { markReplySpoken, unspokenTurn } from '@/store/voice-reply-cursor'
 import { pauseWakeForVoice, resumeWakeAfterVoice } from '@/store/wake-word'
 
@@ -115,7 +116,11 @@ class ConversationController {
     await pauseWakeForVoice()
 
     try {
-      this.lease = await voiceEngine.open('conversation', { target })
+      // Read at OPEN, not at module load: the levels are seeded asynchronously
+      // from config and can be dragged between conversations, and Rust takes the
+      // VAD once per session — so this is the moment the user's calibration has
+      // to be picked up (MJXHRM-90).
+      this.lease = await voiceEngine.open('conversation', { target, vad: conversationVoiceVad() })
     } catch (error) {
       notifyError(error, binding.copy.couldNotStartSession)
       resetVoiceConversation()

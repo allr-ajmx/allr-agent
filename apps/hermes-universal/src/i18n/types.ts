@@ -366,6 +366,31 @@ export interface Translations {
       terminalHostDevice: string
       terminalHostGateway: string
     }
+    // Settings → Voice → Levels: mic gain, the two input thresholds with their
+    // live meter, and TTS output volume.
+    voiceLevels: {
+      title: string
+      intro: string
+      meterTitle: string
+      meterDesc: string
+      meterRunningDesc: string
+      meterStart: string
+      meterStop: string
+      meterLevel: (percent: string) => string
+      meterPeak: (percent: string) => string
+      meterBusy: string
+      meterFailed: string
+      saveFailed: string
+      gainTitle: string
+      gainDesc: string
+      thresholdTitle: string
+      thresholdDesc: string
+      bargeinTitle: string
+      bargeinDesc: string
+      outputSectionTitle: string
+      outputTitle: string
+      outputDesc: string
+    }
     sections: Record<string, string>
     searchPlaceholder: Record<'about' | 'config' | 'gateway' | 'keys' | 'mcp' | 'sessions', string>
     modeOptions: Record<'light' | 'dark' | 'system', ModeOptionCopy>

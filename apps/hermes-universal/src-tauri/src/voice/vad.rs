@@ -70,6 +70,13 @@ impl Vad {
         self.cfg.onset_ms = onset_ms;
     }
 
+    /// Swap the no-onset reap window. Paired with `set_thresholds` so an arm mode
+    /// that is not a turn (`ArmMode::Monitor`) can hold the mic open indefinitely
+    /// without being reaped for silence.
+    pub fn set_idle_silence_ms(&mut self, idle_silence_ms: u64) {
+        self.cfg.idle_silence_ms = idle_silence_ms;
+    }
+
     /// Enter Armed at `now_ms`: reset onset tracking and the idle window.
     pub fn arm(&mut self, now_ms: u64) {
         self.t.armed_at = now_ms;
