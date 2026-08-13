@@ -8,7 +8,7 @@ import { cn } from '@/lib/utils'
 // A standalone glassy panel floating just off the composer edge, inset from the
 // left. Skin is the shared composerPanelCard (also used by the attach menu).
 const DRAWER_SHELL = cn(
-  'absolute left-2 z-50 w-80 max-w-[calc(100%-1rem)] max-h-[min(22rem,calc(100vh-8rem))]',
+  'absolute start-2 z-50 w-80 max-w-[calc(100%-1rem)] max-h-[min(22rem,calc(100vh-8rem))]',
   'overflow-y-auto overscroll-contain p-1 text-popover-foreground',
   composerPanelCard
 )

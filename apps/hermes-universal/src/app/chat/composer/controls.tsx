@@ -118,7 +118,7 @@ export function ComposerControls({
   const showVoicePrimary = !busy && !hasComposerPayload
 
   return (
-    <div className="ml-auto flex shrink-0 items-center gap-(--composer-control-gap)">
+    <div className="ms-auto flex shrink-0 items-center gap-(--composer-control-gap)">
       <ModelPill compact={compactModelPill} disabled={disabled} model={state.model} />
       {/* Dictation stays put while a correction is being typed: the mic slot is
           not the steer slot. The primary button below already carries the steer
@@ -225,7 +225,7 @@ function ConversationPill({
             : c.listening
 
   return (
-    <div className="ml-auto flex shrink-0 items-center gap-(--composer-control-gap)">
+    <div className="ms-auto flex shrink-0 items-center gap-(--composer-control-gap)">
       <Tip label={muted ? c.unmuteMic : c.muteMic}>
         <Button
           aria-label={muted ? c.unmuteMic : c.muteMic}

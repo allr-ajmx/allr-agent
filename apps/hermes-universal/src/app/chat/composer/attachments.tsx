@@ -83,7 +83,7 @@ function AttachmentPill({ attachment, onRemove }: { attachment: ComposerAttachme
           aria-busy={isUploading || undefined}
           aria-label={canPreview ? c.previewLabel(attachment.label) : attachment.label}
           className={cn(
-            'flex max-w-56 items-center gap-2 rounded-2xl border bg-background/50 px-2 py-1.5 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.18)] transition-colors disabled:cursor-default',
+            'flex max-w-56 items-center gap-2 rounded-2xl border bg-background/50 px-2 py-1.5 text-start shadow-[inset_0_1px_0_rgba(255,255,255,0.18)] transition-colors disabled:cursor-default',
             hasUploadError
               ? 'border-destructive/45 hover:border-destructive/60'
               : 'border-border/60 hover:border-primary/35 hover:bg-accent/45'
@@ -133,7 +133,7 @@ function AttachmentPill({ attachment, onRemove }: { attachment: ComposerAttachme
         {onRemove && (
           <button
             aria-label={c.removeAttachment(attachment.label)}
-            className="absolute -right-1 -top-1 grid size-3.5 place-items-center rounded-full border border-border/70 bg-background text-muted-foreground opacity-0 shadow-xs transition hover:bg-accent hover:text-foreground group-hover/attachment:opacity-100 coarse:opacity-100 focus-visible:opacity-100"
+            className="absolute -end-1 -top-1 grid size-3.5 place-items-center rounded-full border border-border/70 bg-background text-muted-foreground opacity-0 shadow-xs transition hover:bg-accent hover:text-foreground group-hover/attachment:opacity-100 coarse:opacity-100 focus-visible:opacity-100"
             onClick={() => onRemove(attachment.id)}
             type="button"
           >
