@@ -6,14 +6,20 @@ import { api } from '@/lib/api'
 import type { SessionInfo } from '@/types/hermes'
 
 import {
+  createWebhook,
+  deleteWebhook,
+  enableWebhooks,
   getAutomationBlueprints,
   getHermesConfig,
   getSession,
   getStatus,
+  getWebhooks,
   instantiateAutomationBlueprint,
   listAllProfileSessions,
   listSessions,
-  saveHermesConfig
+  saveHermesConfig,
+  setApiRequestProfile,
+  setWebhookEnabled
 } from './hermes'
 
 const mockApi = vi.mocked(api)
@@ -75,6 +81,69 @@ describe('automation blueprints', () => {
     expect(mockApi).toHaveBeenCalledWith(
       expect.objectContaining({ path: '/api/cron/blueprints/instantiate?profile=my%20profile' })
     )
+  })
+})
+
+// Ported from apps/desktop/src/webhooks-rest.test.ts. Two additions: the
+// deliberate absence of a profile scope (none of the five backend handlers
+// declares that query parameter, so sending one would advertise a scoping the
+// client does not have), and the create payload's `secret`, which the backend
+// accepts and desktop's client never offered.
+describe('webhook REST', () => {
+  // With a profile ACTIVE, so the assertion pins the absence rather than
+  // agreeing with a `profileScoped()` that happened to be empty.
+  it('getWebhooks → GET /api/webhooks, unscoped even under an active profile', async () => {
+    setApiRequestProfile('work')
+
+    try {
+      await getWebhooks()
+    } finally {
+      setApiRequestProfile(null)
+    }
+
+    expect(mockApi).toHaveBeenCalledWith({ path: '/api/webhooks' })
+  })
+
+  it('enableWebhooks → POST /api/webhooks/enable', async () => {
+    await enableWebhooks()
+
+    expect(mockApi).toHaveBeenCalledWith(expect.objectContaining({ method: 'POST', path: '/api/webhooks/enable' }))
+  })
+
+  it('createWebhook → POST /api/webhooks with the full payload', async () => {
+    const body = {
+      deliver: 'telegram',
+      deliver_chat_id: '-100123',
+      deliver_only: true,
+      description: 'push events',
+      events: ['push'],
+      name: 'github-push',
+      prompt: 'summarize the push',
+      secret: 'mine',
+      skills: ['git']
+    }
+
+    await createWebhook(body)
+
+    expect(mockApi).toHaveBeenCalledWith(expect.objectContaining({ body, method: 'POST', path: '/api/webhooks' }))
+  })
+
+  // The name is a path segment; an unencoded one would address a different route
+  // (or none), and DELETE addressing the wrong row is not a recoverable mistake.
+  it('deleteWebhook encodes the name into the path', async () => {
+    await deleteWebhook('my hook')
+
+    expect(mockApi).toHaveBeenCalledWith(expect.objectContaining({ method: 'DELETE', path: '/api/webhooks/my%20hook' }))
+  })
+
+  it('setWebhookEnabled → PUT /api/webhooks/{name}/enabled, encoded, with the flag', async () => {
+    await setWebhookEnabled('my hook', false)
+
+    expect(mockApi).toHaveBeenCalledWith({
+      body: { enabled: false },
+      method: 'PUT',
+      path: '/api/webhooks/my%20hook/enabled'
+    })
   })
 })
 
