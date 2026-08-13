@@ -3,7 +3,13 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { registerTiles } from '@/components/pane-shell/tile/registry'
 import type { Tile } from '@/components/pane-shell/tile/types'
 import { findGroup, group, split } from '@/components/pane-shell/tree/model'
-import { $activeTreeGroup, $layoutTree, noteActiveTreeGroup } from '@/components/pane-shell/tree/store'
+import {
+  $activeTreeGroup,
+  $layoutTree,
+  moveTreePane,
+  noteActiveTreeGroup,
+  reorderTreePanes
+} from '@/components/pane-shell/tree/store'
 import { isChatPaneId, sessionTilePaneId, WORKSPACE_PANE_ID } from '@/lib/pane-ids'
 import { $compactingSessions, sessionCompacting, setSessionCompacting } from '@/store/compaction'
 import { $activeStoredSessionId, $sessions } from '@/store/session'
@@ -434,6 +440,90 @@ describe('focusWorkspaceSession', () => {
 
       expect($sessionTiles.get().map(t => t.storedSessionId)).toContain('root')
       expect($sessionTiles.get().map(t => t.storedSessionId)).not.toContain('wanted-3')
+    })
+  })
+
+  /**
+   * MJXHRM-404 — the persisted tile list must follow the order on SCREEN.
+   *
+   * `$sessionTiles` is a second list beside the layout tree, and two things read
+   * its ORDER rather than the tree's: `stackSessionTilesIntoMain` (the layout
+   * RESET handler) restacks tiles by walking it front to back, and `paneMirror`
+   * docks panes in array order when the tree holds none for them.
+   *
+   * `syncTileStripOrder` existed for exactly that and ran from ONE caller —
+   * `openSessionTile`'s move branch — so every other way the on-screen order
+   * changes (drag a tab within a strip, drag one between zones, the zone menu's
+   * Move, a zone merge) left the list stale: arrange three tabs by hand, hit
+   * Reset, and they come back in the order they were OPENED in. It is now hung
+   * off `$layoutTree` itself, which is what these pin — the invariant belongs to
+   * the tree changing, not to the callers that happened to be written first.
+   */
+  describe('tile strip order follows the layout tree', () => {
+    const tiles = (...ids: string[]) =>
+      $sessionTiles.set(ids.map(id => ({ dir: 'right' as const, storedSessionId: id })))
+
+    const order = () => $sessionTiles.get().map(t => t.storedSessionId)
+
+    it('re-orders the persisted list when a tab is dragged within its strip', () => {
+      seedTree([WORKSPACE_PANE_ID, sessionTilePaneId('a'), sessionTilePaneId('b'), sessionTilePaneId('c')])
+      tiles('a', 'b', 'c')
+
+      // The drag a tab strip commits: move `c` in front of `a`.
+      reorderTreePanes(CHAT_GROUP, [sessionTilePaneId('c')], sessionTilePaneId('a'))
+
+      expect(order()).toEqual(['c', 'a', 'b'])
+    })
+
+    it('re-orders when a tab is moved into ANOTHER zone, reading both zones in tree order', () => {
+      seedTree([WORKSPACE_PANE_ID, sessionTilePaneId('a'), sessionTilePaneId('b')])
+      tiles('a', 'b')
+
+      // `a` leaves the chat zone for the tool zone, which the tree walks SECOND.
+      moveTreePane(sessionTilePaneId('a'), { groupId: TOOL_GROUP, pos: 'center' })
+
+      expect(order()).toEqual(['b', 'a'])
+    })
+
+    it('leaves the list untouched when a tree write moves no tile', () => {
+      seedTree([WORKSPACE_PANE_ID, sessionTilePaneId('a'), sessionTilePaneId('b')])
+      tiles('a', 'b')
+
+      const before = $sessionTiles.get()
+
+      reorderTreePanes(TOOL_GROUP, ['terminal'], null)
+
+      // Same ARRAY identity: `orderTilesByTree` answers null and nothing is
+      // written. A sync that rewrote the list on every commit would churn
+      // localStorage on every tab activate and every sash release.
+      expect($sessionTiles.get()).toBe(before)
+    })
+
+    it('keeps a tile the tree has no pane for, rather than dropping it', () => {
+      seedTree([WORKSPACE_PANE_ID, sessionTilePaneId('b')])
+      tiles('a', 'b')
+
+      reorderTreePanes(CHAT_GROUP, [sessionTilePaneId('b')], WORKSPACE_PANE_ID)
+
+      // `a` is mid-registration, or belongs to a pane the tree lost. It ranks
+      // LAST rather than vanishing: this function orders a list, and must never
+      // be the thing that closes a tab.
+      expect(order()).toEqual(['b', 'a'])
+    })
+
+    it('still re-orders when an open tile is re-docked — the branch that used to do it by hand', () => {
+      seedTree([WORKSPACE_PANE_ID, sessionTilePaneId('a'), sessionTilePaneId('b')], WORKSPACE_PANE_ID)
+      // Seeded DISAGREEING with the tree on purpose. Seeding it already-correct
+      // made this case pass with the sync torn out entirely — it asserted an
+      // order that was there before the act under test.
+      tiles('b', 'a')
+
+      // Re-dock `a` ahead of the workspace tab. The tree moves, so the list has
+      // to follow even though `openSessionTile` no longer re-orders itself.
+      openSessionTile('a', 'left', WORKSPACE_PANE_ID, WORKSPACE_PANE_ID)
+
+      expect(order()).toEqual(['a', 'b'])
+      expect($sessionTiles.get().find(t => t.storedSessionId === 'a')?.dir).toBe('left')
     })
   })
 })

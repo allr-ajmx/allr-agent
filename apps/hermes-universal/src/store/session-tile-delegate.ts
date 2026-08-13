@@ -6,9 +6,28 @@
  * adapter over universal's primitives (`requestGateway`, the REST transcript,
  * `$sessionStates`).
  *
- * FIXME(MJX-50/tile-rewind): edit/reload/restore-in-tile (the full rewind
- * adapter) is Phase 7 — this covers resume / submit / steer / interrupt / the
- * session verbs. Primary chat keeps its own path.
+ * SCOPE: resume / submit / interrupt / the session verbs (archive, branch,
+ * delete). Primary chat keeps its own path.
+ *
+ * Deliberately NOT here, and no longer pending: edit, reload, restore and steer
+ * in a tile. A `FIXME(MJX-50/tile-rewind)` stood here calling those a "full
+ * rewind adapter" still to be built — they are all built, and none of them
+ * needed an adapter, because the primitives take the SESSION KEY the surface
+ * owns instead of resolving "whichever chat is active":
+ *
+ *  - edit    — `app/chat/runtime.tsx` `onEdit` → `submitEditedPrompt(id, text, key)`,
+ *              `key = view.$runtimeId.get()`;
+ *  - restore — `components/assistant-ui/thread/thread.tsx` → `restoreToMessage(id, target, key)`,
+ *              which REFUSES rather than defaulting when the surface has no key;
+ *  - steer   — `app/chat/chat-composer.tsx` → `redirectPrompt(text, view.$runtimeId.get() ?? …)`;
+ *  - reload  — `app/chat/session-tile.tsx` `onReload` → `reloadTreePane(paneId)`,
+ *              a layout verb, so it never belonged to a session delegate at all.
+ *
+ * Adding any of them here would be a second way to reach the same RPC. The list
+ * is recorded so the absence reads as settled rather than unfinished.
+ *
+ * (`MJX-50` was a Linear id. That tracker is retired and its numbers did not
+ * carry over, so the reference pointed at nothing by the time it was read.)
  */
 
 import { getSessionMessages } from '@/hermes'
