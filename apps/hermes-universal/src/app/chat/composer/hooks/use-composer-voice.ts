@@ -7,7 +7,7 @@ import { triggerHaptic } from '@/lib/haptics'
 import { resetBrowseState } from '@/store/composer-input-history'
 import { notifyError } from '@/store/notifications'
 import { $voiceConversation } from '@/store/voice-conversation'
-import { $autoSpeakReplies, setAutoSpeakReplies } from '@/store/voice-prefs'
+import { $autoSpeakReplies, seedVoicePrefs, setAutoSpeakReplies } from '@/store/voice-prefs'
 import { armWakeWord, setWakeConversationStarter } from '@/store/wake-word'
 import type { ConversationBinding } from '@/voice/conversation-controller'
 
@@ -123,6 +123,11 @@ export function useComposerVoice({
     }
 
     void armWakeWord()
+    // `voice.auto_tts` and `voice.thinking_sound` are backend config, and this is
+    // the one effect that runs once for the main composer — so it is where the
+    // preference atoms get their real values. Without it `$autoSpeakReplies` sat
+    // at its `false` default forever (MJXHRM-389).
+    void seedVoicePrefs()
     // Register a starter that reads the LIVE `start` through a ref rather than
     // the one this effect closed over. The binding is rebuilt whenever the
     // session view or submit handler changes, and a detection minutes later must

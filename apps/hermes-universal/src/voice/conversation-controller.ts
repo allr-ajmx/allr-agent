@@ -1,11 +1,13 @@
 import type { ComposerTarget } from '@/app/chat/composer/focus'
 import type { SessionView } from '@/app/chat/session-view'
 import { takeSpeechChunk } from '@/lib/speech-chunker'
+import { syncThinkingSound } from '@/lib/thinking-sound'
 import { markVoicePlaybackInterrupted, playSpeechTextUntilDone, stopVoicePlayback } from '@/lib/voice-playback'
 import { isVoiceStopCommand } from '@/lib/voice-stop-word'
 import { $connection } from '@/store/connection'
 import { notify, notifyError } from '@/store/notifications'
 import {
+  $voiceConversation,
   beginVoiceConversation,
   resetVoiceConversation,
   setConversationLevel,
@@ -450,3 +452,12 @@ class ConversationController {
 }
 
 export const voiceConversation = new ConversationController()
+
+// The ambient "thinking" blips follow the conversation's own render surface
+// rather than being started and stopped at each transition inside the controller.
+// Every status the loop can reach passes through `$voiceConversation`, including
+// the ones that end it (`resetVoiceConversation`), so there is no exit — error,
+// stop word, idle timeout, disconnect — that can leave the blips running. Bound
+// here, at the controller, because this module is what a surface imports to
+// drive a conversation at all.
+$voiceConversation.subscribe(syncThinkingSound)
