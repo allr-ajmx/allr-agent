@@ -8,6 +8,13 @@ import { defineConfig, globalIgnores } from 'eslint/config'
 export default defineConfig([
   globalIgnores(['dist']),
   {
+    // Same ratchet as eslint.config.shared.mjs — this workspace does not extend
+    // it. `warn` is the flat-config default and `eslint .` here passes no
+    // --max-warnings, so a directive that stopped being needed was invisible.
+    // Audited when this landed: 0 unused directives in web/src.
+    linterOptions: { reportUnusedDisableDirectives: 'error' },
+  },
+  {
     files: ['**/*.{ts,tsx}'],
     extends: [
       js.configs.recommended,
