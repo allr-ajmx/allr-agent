@@ -14,7 +14,8 @@ vi.mock('@/store/gateway', async () => {
 import { flushDeltas } from '@/lib/stream-batch'
 import { routeGatewayEvent as handleGatewayEvent } from '@/store/event-router'
 import { requestGateway } from '@/store/gateway'
-import { sessionApprovalRequest, sessionClarifyRequest } from '@/store/prompts'
+import { $petActivity } from '@/store/pet'
+import { $activeSessionAwaitingInput, sessionApprovalRequest, sessionClarifyRequest } from '@/store/prompts'
 import { $sessionStates, newDraftKey, rekeySession, updateSession } from '@/store/session-state-types'
 import { $subagentsBySession } from '@/store/subagents'
 import { beginTurn, getInflightTurn } from '@/store/turn-lifecycle'
@@ -365,6 +366,62 @@ describe('chat reducer (parts model)', () => {
     await expect(respondSudo('hunter2')).resolves.toBe('gone')
     await expect(respondSecret('sk-1')).resolves.toBe('gone')
     expect(requestGateway).not.toHaveBeenCalled()
+  })
+})
+
+// `_block()` in tui_gateway/server.py emits `<name>.expire` when a blocking
+// prompt's wait gives up — the gateway TELLING us the bar on screen is dead.
+// Ignoring it left the bar answerable over a cancelled tool AND kept
+// `$activeSessionAwaitingInput` true, which is what makes Esc refuse to
+// interrupt the rest of the turn.
+describe('blocking prompts the gateway says expired', () => {
+  it('drops an expired sudo request and stops reporting the turn as parked', () => {
+    handleGatewayEvent(ev('sudo.request', { request_id: 's20', prompt: 'pw' }))
+    expect($activeSessionAwaitingInput.get()).toBe(true)
+    // The pet's waiting pose is set by the request and is only ever cleared by
+    // ANSWERING one, so an unanswered death used to strand it there.
+    expect($petActivity.get().awaitingInput).toBe(true)
+
+    handleGatewayEvent(ev('sudo.expire', { request_id: 's20' }))
+
+    expect($sudo.get()).toBeNull()
+    expect($activeSessionAwaitingInput.get()).toBe(false)
+    expect($petActivity.get().awaitingInput).toBe(false)
+  })
+
+  it('drops an expired secret request', () => {
+    handleGatewayEvent(ev('secret.request', { request_id: 'x20', env_var: 'API_KEY', prompt: 'key?' }))
+    handleGatewayEvent(ev('secret.expire', { request_id: 'x20' }))
+
+    expect($secret.get()).toBeNull()
+  })
+
+  // The expire is matched on request_id: a second prompt that arrived while the
+  // first was expiring is still live and must not be torn down with it.
+  it('keeps a newer sudo request when a stale expire arrives', () => {
+    handleGatewayEvent(ev('sudo.request', { request_id: 's21', prompt: 'pw' }))
+    handleGatewayEvent(ev('sudo.expire', { request_id: 's20' }))
+
+    expect($sudo.get()).toMatchObject({ requestId: 's21' })
+  })
+
+  it('keeps a newer secret request when a stale expire arrives', () => {
+    handleGatewayEvent(ev('secret.request', { request_id: 'x21', env_var: 'API_KEY', prompt: 'key?' }))
+    handleGatewayEvent(ev('secret.expire', { request_id: 'x20' }))
+
+    expect($secret.get()).toMatchObject({ requestId: 'x21' })
+  })
+
+  // An approval is still open on this session, so the turn IS still parked on
+  // the user even though the sudo prompt died.
+  it('leaves the turn parked when another prompt on the session is still open', () => {
+    handleGatewayEvent(ev('sudo.request', { request_id: 's22', prompt: 'pw' }))
+    handleGatewayEvent(ev('approval.request', { command: 'rm -rf /' }))
+    handleGatewayEvent(ev('sudo.expire', { request_id: 's22' }))
+
+    expect($sudo.get()).toBeNull()
+    expect($activeSessionAwaitingInput.get()).toBe(true)
+    expect($petActivity.get().awaitingInput).toBe(true)
   })
 })
 
