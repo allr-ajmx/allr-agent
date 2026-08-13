@@ -36,7 +36,7 @@ export function SectionHeading({
       <Icon className="size-4 shrink-0 text-muted-foreground" />
       <span>{title}</span>
       {meta && <Pill>{meta}</Pill>}
-      {aside && <div className="ml-auto flex min-w-0 items-center">{aside}</div>}
+      {aside && <div className="ms-auto flex min-w-0 items-center">{aside}</div>}
     </div>
   )
 }

@@ -231,10 +231,10 @@ export function SettingsSection() {
       <header className="flex items-center gap-1 border-b border-border p-3">
         <Link
           aria-label="Back"
-          className="-ml-1 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          className="-ms-1 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
           to="/settings"
         >
-          <ChevronLeft className="size-5" />
+          <ChevronLeft className="size-5 rtl:-scale-x-100" />
         </Link>
         <h1 className="text-base font-semibold text-foreground">{title}</h1>
       </header>

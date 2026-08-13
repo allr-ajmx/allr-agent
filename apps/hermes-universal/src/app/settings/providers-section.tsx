@@ -93,7 +93,7 @@ function ConnectedTag() {
 }
 
 const PROVIDER_ROW_CLASS =
-  'group flex w-full items-center justify-between gap-3 rounded-[6px] px-3 py-2.5 text-left transition-colors hover:bg-(--ui-control-hover-background)'
+  'group flex w-full items-center justify-between gap-3 rounded-[6px] px-3 py-2.5 text-start transition-colors hover:bg-(--ui-control-hover-background)'
 
 function FeaturedProviderRow({
   onSelect,
@@ -106,7 +106,7 @@ function FeaturedProviderRow({
 
   return (
     <button
-      className="group flex w-full items-center justify-between gap-4 rounded-[8px] bg-primary/[0.06] px-3 py-2.5 text-left transition-colors hover:bg-primary/10"
+      className="group flex w-full items-center justify-between gap-4 rounded-[8px] bg-primary/[0.06] px-3 py-2.5 text-start transition-colors hover:bg-primary/10"
       onClick={() => onSelect(provider)}
       type="button"
     >
@@ -121,7 +121,7 @@ function FeaturedProviderRow({
         </div>
         <p className="mt-1 text-xs leading-5 text-muted-foreground">{t.onboarding.featuredPitch}</p>
       </div>
-      <ChevronRight className="size-4 shrink-0 text-primary transition group-hover:translate-x-0.5" />
+      <ChevronRight className="size-4 shrink-0 text-primary transition group-hover:translate-x-[calc(0.125rem*var(--dir-flip-x))] rtl:-scale-x-100" />
     </button>
   )
 }
@@ -138,7 +138,7 @@ function KeyProviderRow({ onClick, pitch, title }: { onClick: () => void; pitch:
         <span className="text-[length:var(--conversation-text-font-size)] font-semibold">{title}</span>
         <p className="mt-1 text-xs leading-5 text-muted-foreground">{pitch}</p>
       </div>
-      <ChevronRight className="size-4 text-muted-foreground transition group-hover:text-foreground" />
+      <ChevronRight className="size-4 text-muted-foreground transition group-hover:text-foreground rtl:-scale-x-100" />
     </RowButton>
   )
 }
@@ -182,7 +182,7 @@ function ConnectedProviderRow({
 
   return (
     <div className="group grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1 rounded-[6px] transition-colors hover:bg-(--ui-control-hover-background)">
-      <RowButton className="min-w-0 px-3 py-2.5 text-left" onClick={() => onSelect(provider)}>
+      <RowButton className="min-w-0 px-3 py-2.5 text-start" onClick={() => onSelect(provider)}>
         <div className="flex min-w-0 items-center gap-2">
           <span className="truncate text-[length:var(--conversation-text-font-size)] font-semibold">{title}</span>
           <ConnectedTag />
@@ -194,7 +194,7 @@ function ConnectedProviderRow({
           </p>
         )}
       </RowButton>
-      <div className="flex items-center gap-1 pr-2">
+      <div className="flex items-center gap-1 pe-2">
         <Trail className="size-4 text-muted-foreground transition group-hover:text-foreground" />
         {canDisconnect && (
           <Tip label={`${t.common.remove} ${title}`}>

@@ -167,14 +167,14 @@ export function ProviderConnectOverlay() {
       <div className="relative w-full max-w-md rounded-xl border border-border bg-card p-5 shadow-lg">
         <button
           aria-label={t.common.close}
-          className="absolute right-3 top-3 rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          className="absolute end-3 top-3 rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
           onClick={() => cancelProviderConnect()}
           type="button"
         >
           <X className="size-4" />
         </button>
 
-        <div className="mb-3 pr-6 text-base font-medium text-foreground">{t.onboarding.signInWith(title)}</div>
+        <div className="mb-3 pe-6 text-base font-medium text-foreground">{t.onboarding.signInWith(title)}</div>
         {body}
       </div>
     </div>

@@ -208,7 +208,7 @@ export function BillingPlansView({ onBack, tiers }: { onBack: () => void; tiers:
           type="button"
           variant="ghost"
         >
-          <ChevronLeft className="size-4" />
+          <ChevronLeft className="size-4 rtl:-scale-x-100" />
         </Button>
         <span>Plans</span>
       </div>

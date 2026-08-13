@@ -27,6 +27,12 @@ const envVar = (over: Partial<EnvVarInfo>): EnvVarInfo => ({
 })
 
 vi.mock('@/hermes', () => ({
+  // Whole-module mock, so EVERY `@/hermes` export this file's import graph
+  // touches has to be listed. `store/profiles` calls `setApiRequestProfile` at
+  // module scope, and reaching it through the component tree made the mock
+  // incomplete — the file then threw on import and vitest reported "no tests",
+  // which reads as a pass in a run summary rather than as lost coverage.
+  setApiRequestProfile: vi.fn(),
   listOAuthProviders: vi.fn(async () => ({ providers: [] as OAuthProvider[] })),
   disconnectOAuthProvider: vi.fn(async () => ({ ok: true, provider: 'x' })),
   getEnvVars: vi.fn(async () => ({}) as Record<string, EnvVarInfo>),
