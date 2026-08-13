@@ -22,7 +22,7 @@ import {
   RICH_INPUT_SLOT,
   slashChipElement
 } from '../rich-editor'
-import { detectTrigger, textBeforeCaret, type TriggerState } from '../text-utils'
+import { detectTrigger, mayContainTrigger, textBeforeCaret, type TriggerState } from '../text-utils'
 
 /**
  * Rewrite the `tokenLength` characters before the caret, keeping the prose on
@@ -70,6 +70,12 @@ interface CompletionSource {
 
 interface UseComposerTriggerOptions {
   at: CompletionSource
+  /** True while an IME preedit is open. The popover must not act on composition
+   *  keys: the DOM already holds the uncommitted preedit, so detecting against
+   *  it opens a menu over the IME's own candidate window on characters the user
+   *  has not committed and may never commit. `compositionend` refreshes with
+   *  what the input method actually produced. */
+  composingRef?: MutableRefObject<boolean>
   /** `:joy` emoji completions — inserts the emoji character, never a chip. */
   emoji?: CompletionSource
   draftRef: MutableRefObject<string>
@@ -93,6 +99,7 @@ interface UseComposerTriggerOptions {
  */
 export function useComposerTrigger({
   at,
+  composingRef,
   emoji,
   draftRef,
   editorRef,
@@ -120,14 +127,26 @@ export function useComposerTrigger({
       return
     }
 
-    // Fast-bail: if neither `@` nor `/` appears in the current draft, there's
-    // nothing for `detectTrigger` to match. Use `textContent` (cheap browser-
-    // native walk) for the precondition check rather than `composerPlainText`
-    // (recursive child walk with chip-aware logic). Only when a trigger char
-    // is present do we pay the cost of the full walk + DOM range work.
+    // Mid-composition the editor holds an uncommitted IME preedit, so anything
+    // detected against it is a menu opened on keys the user is still choosing
+    // between. Leave whatever is already open alone and wait for
+    // `compositionend`, which refreshes with the committed text. Keyup fires for
+    // every physical key during a preedit, so without this the popover reacts to
+    // the composition on both composers.
+    if (composingRef?.current) {
+      return
+    }
+
+    // Fast-bail: if the draft holds no character that can START a trigger,
+    // there's nothing for `detectTrigger` to match. Use `textContent` (cheap
+    // browser-native walk) for the precondition check rather than
+    // `composerPlainText` (recursive child walk with chip-aware logic). Only
+    // when a trigger char is present do we pay the cost of the full walk + DOM
+    // range work. The character set lives beside the regexes in `text-utils` —
+    // a local copy of it is what silently dropped every `:` emoji trigger.
     const rawText = editor.textContent ?? ''
 
-    if (!rawText.includes('@') && !rawText.includes('/')) {
+    if (!mayContainTrigger(rawText)) {
       if (trigger) {
         setTrigger(null)
         setTriggerActive(0)
@@ -156,7 +175,7 @@ export function useComposerTrigger({
     if (detected?.kind !== trigger?.kind || detected?.query !== trigger?.query) {
       setTriggerActive(0)
     }
-  }, [editorRef, trigger])
+  }, [composingRef, editorRef, trigger])
 
   const triggerAdapter: Unstable_TriggerAdapter | null =
     trigger?.kind === '@' ? at.adapter : trigger?.kind === '/' ? slash.adapter : (emoji?.adapter ?? null)

@@ -339,6 +339,7 @@ export function ChatBar({
     triggerLoading
   } = useComposerTrigger({
     at,
+    composingRef,
     draftRef,
     editorRef,
     emoji,
