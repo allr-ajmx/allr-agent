@@ -101,12 +101,55 @@ function loadPersisted(): LayoutNode | null {
   return isLayoutNode(parsed) ? normalize(parsed) : null
 }
 
+/**
+ * ═══ THE IMPORT HANDSHAKE (MJXHRM-420) ═══
+ *
+ * `ownsPersistedAppState()` answers "may this window AUTHOR the layout?", and
+ * for a tile window / a satellite / an Android activity screen the answer is no:
+ * they share one origin's `localStorage` with the real window and hold no tree
+ * of their own, so every commit they make — boot adoption, a default
+ * declaration — would be someone else's layout being overwritten.
+ *
+ * There is exactly one write that is not theirs to withhold. A layout that
+ * arrives inside an imported profile is authored by the ARCHIVE, not by the
+ * window that unpacked it, and on Android the Profiles screen runs in an
+ * activity window and is the only import door there. Gating that write on window
+ * ownership dropped it silently: `applyTree` still cleared the user's pane size
+ * overrides, still cleared their user-placed pins and still wrote the `custom`
+ * preset marker (none of those go through `persist`), so the import degraded the
+ * layout it then failed to replace, and the next launch read the old tree back.
+ *
+ * So the gate is on the OPERATION, not only on the window. `adoptImportedTree`
+ * raises `adoptingImportedTree` for the duration of one adoption, and:
+ *
+ *  - `persist` writes through it, whatever window kind this is;
+ *  - a monotonic token lands in `IMPORT_TOKEN_KEY`, which is what tells every
+ *    OTHER live window that the tree on disk was authored elsewhere and is meant
+ *    to replace the one it is holding. Without that, the main window keeps its
+ *    in-memory tree and re-persists it on its very next commit, so the import
+ *    would survive on disk for about as long as it takes to click a tab.
+ *
+ * The token is deliberately separate from the tree key. Two primary windows
+ * (desktop `open_instance_window`) both own the layout and both write the tree
+ * key, so "the tree key changed" cannot tell an ordinary commit next door from
+ * an import — only the token bump can, and adopting on the token alone leaves
+ * multi-instance behaviour exactly as it was.
+ */
+const IMPORT_TOKEN_KEY = 'hermes.layout.tree.imported'
+
+let adoptingImportedTree = false
+
+/** The token this window has already accounted for. Seeded at load so a token
+ *  left behind by a previous run is not replayed as a fresh import. */
+let seenImportToken = readKey(IMPORT_TOKEN_KEY)
+
 function persist(tree: LayoutNode | null) {
   // Every window of this origin shares one localStorage. A secondary window
   // (single-chat pop-out) writing its stripped-down DEFAULT tree back would
   // wipe the primary's layout — and so would a native activity screen, which
-  // renders Settings/Command Center and has no tree of its own at all.
-  if (!ownsPersistedAppState()) {
+  // renders Settings/Command Center and has no tree of its own at all. An
+  // imported layout is the exception: see the handshake note above.
+  if (!adoptingImportedTree && !ownsPersistedAppState()) {
     return
   }
 
@@ -1385,6 +1428,83 @@ export function applyTree(tree: LayoutNode, presetId: string) {
     if (tileChrome(panes.find(c => c.id === paneId)).revealOnPreset) {
       paneOpeners[paneId]?.()
     }
+  }
+}
+
+/**
+ * Adopt a layout that arrived from OUTSIDE this app instance — today, the tree
+ * bundled in an imported profile (`store/profile-share.ts`).
+ *
+ * Everything `applyTree` does, plus the two things that make the adoption
+ * survive the window it happened in (see the import-handshake note above):
+ * the persist runs whatever kind of window this is, and the token bump tells
+ * the other live windows to stop holding the tree they booted with.
+ *
+ * The token is written AFTER the tree so a window woken by the storage event
+ * can never read the new token beside the old tree.
+ */
+export function adoptImportedTree(tree: LayoutNode): void {
+  adoptingImportedTree = true
+
+  try {
+    applyTree(tree, 'custom')
+  } finally {
+    adoptingImportedTree = false
+  }
+
+  // `Date.now()` rather than a counter: the token only has to CHANGE, and it has
+  // to change across processes, where a counter starting at zero would repeat a
+  // value another window had already accounted for.
+  seenImportToken = String(Date.now())
+  writeKey(IMPORT_TOKEN_KEY, seenImportToken)
+}
+
+/**
+ * Pick up a layout another window imported. No-op unless the token moved, so an
+ * ordinary commit in a second primary window is never mistaken for one.
+ *
+ * The size overrides go with it: `applyTree` cleared them in the importing
+ * window (a new layout sizes itself), and this window's stale `$paneStates`
+ * would otherwise write the old widths straight back over that.
+ */
+function adoptImportedTreeFromOtherWindow(): void {
+  const token = readKey(IMPORT_TOKEN_KEY)
+
+  if (token === null || token === seenImportToken) {
+    return
+  }
+
+  seenImportToken = token
+
+  const next = loadPersisted()
+
+  if (next) {
+    $layoutTree.set(next)
+    clearAllPaneSizeOverrides()
+  }
+}
+
+// Two triggers, because on Android neither is sufficient alone. The `storage`
+// event is the direct one, but the import happens in a native Activity's own
+// WebView and cross-WebView delivery is not something this app can promise; the
+// visibility check is what covers it, because finishing that Activity is exactly
+// what brings the main window back to `visible`.
+if (typeof window !== 'undefined' && !isSecondaryWindow()) {
+  try {
+    window.addEventListener('storage', event => {
+      // `key === null` is a whole-store clear, which also drops the token.
+      if (event.key === IMPORT_TOKEN_KEY || event.key === null) {
+        adoptImportedTreeFromOtherWindow()
+      }
+    })
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') {
+        adoptImportedTreeFromOtherWindow()
+      }
+    })
+  } catch {
+    // No DOM — the module still imports cleanly under unit tests.
   }
 }
 

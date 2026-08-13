@@ -28,7 +28,7 @@
  */
 
 import { isLayoutNode, normalize } from '@/components/pane-shell/tree/model'
-import { $layoutTree, applyTree } from '@/components/pane-shell/tree/store'
+import { $layoutTree, adoptImportedTree } from '@/components/pane-shell/tree/store'
 import { translateNow } from '@/i18n'
 import { selectRemotePaths } from '@/lib/desktop-fs'
 import { exportProfileArchive, importProfileArchive, type ProfileDesktopOverlay } from '@/lib/gateway-rest'
@@ -133,14 +133,19 @@ export function applyDesktopOverlay(profile: string, overlay: null | ProfileDesk
 
   // 4. Layout tree — global by design (one window layout). Normalized through
   //    the same canonicalizer the boot load uses; a null result means the tree
-  //    was junk, so the current layout stays. `applyTree` (rather than a raw
-  //    atom set) is what persists it and clears the stale size overrides the
-  //    previous arrangement left behind.
+  //    was junk, so the current layout stays.
+  //
+  //    `adoptImportedTree` rather than `applyTree`: this tree was authored by
+  //    the ARCHIVE, not by the window unpacking it, and on Android that window
+  //    is the Profiles Activity — which does not own the persisted layout, so a
+  //    plain `applyTree` had its write swallowed while still clearing the user's
+  //    pane sizes and pins. It is also what tells the other live windows to stop
+  //    holding the layout they booted with (MJXHRM-420).
   if (overlay.layoutTree != null && isLayoutNode(overlay.layoutTree)) {
     const tree = normalize(overlay.layoutTree)
 
     if (tree) {
-      applyTree(tree, 'custom')
+      adoptImportedTree(tree)
     }
   }
 }
