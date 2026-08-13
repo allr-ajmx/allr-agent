@@ -29,6 +29,7 @@ import {
 } from '@/lib/chat-messages'
 import { coerceThinkingText } from '@/lib/chat-runtime'
 import { type GatewayToolPayload, upsertToolPart } from '@/lib/chat-tool-parts'
+import { dedupeGeneratedImageEchoesInParts } from '@/lib/generated-images'
 import { isLiveTailRow } from '@/lib/live-tail'
 import { type ClientSessionState } from '@/store/session-state-types'
 
@@ -64,14 +65,23 @@ function applyToolEvent(
   const last = messages[messages.length - 1]
   const settledAssistant = !state.busy && last?.role === 'assistant' && !last.pending
 
+  // A generated image becomes visible on the tool write that carries its result;
+  // the model's prose has usually restated it already, so the de-dupe runs on
+  // the same write rather than leaving the picture doubled until the turn ends.
   if (settledAssistant) {
     const copy = messages.slice()
-    copy[copy.length - 1] = { ...last, parts: upsertToolPart(last.parts, payload, phase) }
+    copy[copy.length - 1] = {
+      ...last,
+      parts: dedupeGeneratedImageEchoesInParts(upsertToolPart(last.parts, payload, phase))
+    }
 
     return { ...state, messages: copy }
   }
 
-  return patchLastAssistant(state, m => ({ ...m, parts: upsertToolPart(m.parts, payload, phase) }))
+  return patchLastAssistant(state, m => ({
+    ...m,
+    parts: dedupeGeneratedImageEchoesInParts(upsertToolPart(m.parts, payload, phase))
+  }))
 }
 
 /**
@@ -157,7 +167,7 @@ export function reduceSessionState(
     case 'message.delta':
       return patchLastAssistant(state, m => ({
         ...m,
-        parts: appendAssistantTextPart(m.parts, coerceText(payload.text))
+        parts: dedupeGeneratedImageEchoesInParts(appendAssistantTextPart(m.parts, coerceText(payload.text)))
       }))
 
     // An interim finalizes the current bubble mid-turn: the next delta opens a
