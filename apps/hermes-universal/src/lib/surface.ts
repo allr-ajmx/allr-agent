@@ -53,6 +53,11 @@ export interface SurfaceCapabilities {
    *  different mechanism from `clickThrough`, hence a separate answer. */
   interactiveRegion: Support
   keyboardFocus: KeyboardFocus[]
+  /** Whether a floating surface opens on the monitor the user is on
+   *  (MJXHRM-417). `degraded` means the compositor picks the output and we
+   *  cannot name one; `unsupported` means neither is possible — a plain Wayland
+   *  toplevel is told neither where the pointer is nor allowed to move itself.
+   *  The reason is in `notes` in both cases. */
   multiMonitorPlacement: Support
   /** Human-readable, one line per limitation. For diagnostics; never parsed. */
   notes: string[]
@@ -92,6 +97,10 @@ export interface SurfaceGrant {
   interactiveRegion: Support
   keyboardFocus: KeyboardFocus
   label: string
+  /** The monitor the surface was deliberately placed on, as the windowing
+   *  system names it. Null means nobody chose — the compositor picked, or this
+   *  session cannot place a surface at all — and `degraded` then says which. */
+  monitor: null | string
   /** True when the surface covers the whole output and must position its own
    *  content — the layer-shell shape. False when it is a plain sized window. */
   outputSized: boolean
