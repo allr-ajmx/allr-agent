@@ -17,6 +17,9 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { PaneTabCloseItemsOptions } from '@/components/ui/pane-tab'
+import { IS_MOBILE } from '@/lib/platform'
+import { $activeStoredSessionId, $sessions } from '@/store/session'
+import type { SessionInfo } from '@/types/hermes'
 
 import { SessionContextMenu } from './session-actions-menu'
 
@@ -24,13 +27,13 @@ afterEach(cleanup)
 
 const CLOSE_GROUP = ['Close', 'Close others', 'Close to the right', 'Close all']
 
-const openMenu = (tab?: { close: PaneTabCloseItemsOptions; onReload: () => void }) => {
+const openMenu = (tab?: { close: PaneTabCloseItemsOptions; onReload: () => void }, sessionId = 'sess-1') => {
   render(
     <SessionContextMenu
       onArchive={() => {}}
       onDelete={() => {}}
       onPin={() => {}}
-      sessionId="sess-1"
+      sessionId={sessionId}
       tab={tab}
       title="Some chat"
     >
@@ -108,5 +111,39 @@ describe('the session menu on a TAB', () => {
 
     fireEvent.click(screen.getByRole('menuitem', { name: 'Close others' }))
     expect(onCloseOthers).toHaveBeenCalledTimes(1)
+  })
+})
+
+/**
+ * MJXHRM-423 — "Open in tile" is about a CONVERSATION.
+ *
+ * A tile tab's menu is handed the key its tile was opened with, and
+ * auto-compression rotates the id main is holding for the same chat. Compared as
+ * strings the row was offered on the session already on screen, where
+ * `openSessionTile` no-ops — a menu row that does nothing when picked.
+ */
+describe('the session menu on the chat already in main', () => {
+  afterEach(() => {
+    $sessions.set([])
+    $activeStoredSessionId.set(null)
+  })
+
+  const OPEN_HERE = IS_MOBILE ? 'Open in bubble' : 'Open in tile'
+
+  it('offers the open verb for a different conversation', () => {
+    $activeStoredSessionId.set('other')
+
+    openMenu()
+
+    expect(items()).toContain(OPEN_HERE)
+  })
+
+  it('withholds it when main holds the same conversation under its live tip', () => {
+    $sessions.set([{ _lineage_root_id: 'root', id: 'tip' } as SessionInfo])
+    $activeStoredSessionId.set('tip')
+
+    openMenu(undefined, 'root')
+
+    expect(items()).not.toContain(OPEN_HERE)
   })
 })

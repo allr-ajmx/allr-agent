@@ -620,6 +620,38 @@ export const sessionMatchesStoredId = (
 ): boolean => session.id === storedSessionId || session._lineage_root_id === storedSessionId
 
 /**
+ * Do two stored ids name the SAME conversation?
+ *
+ * The mirror of `sessionMatchesStoredId`: that one asks whether an id names a
+ * row you already have, this one asks whether two ids — held by two different
+ * surfaces, neither carrying a row — are the same chat. Auto-compression rotates
+ * the stored id and universal deliberately leaves layout keys on the old one, so
+ * a tile opened before a compaction is keyed on the lineage root while the
+ * sidebar row beside it renders under the live tip. Compared on identity,
+ * "Open in tile" from that row did not see the tile that was already open and
+ * added a SECOND tab for the same live conversation — both tabs resolving to one
+ * `$sessionStates` slice through the stored-id index (MJXHRM-423).
+ *
+ * Answered from `$sessions` alone, deliberately: this is called from synchronous
+ * layout code, and the surface that can produce the mismatch (a sidebar row, a
+ * search hit) is by definition rendering a row that is loaded. An id no loaded
+ * row explains is only equal to itself, which is where this started.
+ */
+export function sameStoredSession(a: null | string, b: null | string): boolean {
+  if (!a || !b) {
+    return false
+  }
+
+  if (a === b) {
+    return true
+  }
+
+  const row = $sessions.get().find(session => sessionMatchesStoredId(session, a))
+
+  return Boolean(row && sessionMatchesStoredId(row, b))
+}
+
+/**
  * EVERY id that names this conversation: the one the caller is holding, plus
  * the resolved row's live tip and its durable lineage root.
  *
@@ -1725,12 +1757,36 @@ export const $yoloActive = atom(false)
 
 export const setYoloActive = (active: boolean): void => $yoloActive.set(active)
 
+/**
+ * Rename a stored session.
+ *
+ * `id` is whatever the calling surface holds, which for a tile tab, a mobile
+ * bubble or a restored layout pane is the id the chat was OPENED with — the
+ * lineage ROOT once auto-compression has rotated it. `PATCH /api/sessions/{id}`
+ * routes `title` to `set_session_title`, which writes a SINGLE row (unlike the
+ * `pinned` / `archived` fields beside it, which flip the whole compression
+ * chain), while the session list surfaces the TIP's title. Renaming under the
+ * root wrote the new name onto a hidden ancestor: the dialog closed, the
+ * "Renamed" toast fired, and the title never moved (MJXHRM-423).
+ *
+ * Both the optimistic patch and the wire call therefore go to the row's LIVE
+ * id — the same thing the sidebar row and the title bar do by hand, which is
+ * why neither of them ever showed this.
+ *
+ * Dynamic import for the same reason `branchStoredSession` uses one:
+ * `store/session-lookup` reads `$projectTree` and `store/projects` already
+ * imports this module. Safe here — this only ever runs long after every module
+ * has initialized.
+ */
 export async function renameSessionLocal(id: string, title: string): Promise<void> {
+  const { liveSessionIdFor } = await import('@/store/session-lookup')
+  const target = liveSessionIdFor(id)
   const prev = $sessions.get()
-  $sessions.set(prev.map(s => (s.id === id ? { ...s, title } : s)))
+
+  $sessions.set(prev.map(s => (s.id === target ? { ...s, title } : s)))
 
   try {
-    await renameSession(id, title, knownSessionProfile(id))
+    await renameSession(target, title, knownSessionProfile(target))
   } catch (err) {
     $sessions.set(prev)
     notifyError(err, 'Rename failed')
@@ -1742,6 +1798,13 @@ export async function renameSessionLocal(id: string, title: string): Promise<voi
  *  compression, so both have to fall or the row comes back under the other id. */
 function removalIds(session: SessionInfo | undefined, id: string): string[] {
   return sessionAliasIds(id, session)
+}
+
+/** Does `candidate` name the conversation these alias ids belong to? The
+ *  "is this the session in main?" check, asked so a removal driven from a
+ *  surface holding a different alias still empties the pane. */
+function idNamesSession(ids: readonly string[], candidate: null | string): boolean {
+  return Boolean(candidate) && ids.includes(candidate as string)
 }
 
 export async function deleteSessionLocal(id: string): Promise<void> {
@@ -1763,14 +1826,24 @@ export async function deleteSessionLocal(id: string): Promise<void> {
 
   $pinnedSessionIds.set(previousPinned.filter(pinId => pinId !== id && pinId !== removedPinId))
 
-  $sessions.set(prev.filter(s => s.id !== id))
+  // By ALIAS, not `s.id !== id`. The backend already drops the whole compression
+  // chain (`include_compression_lineage=True`), and `removalIds` already
+  // tombstones every id — but the optimistic removal matched on the live tip
+  // alone, so a delete arriving from a surface that holds the lineage root (a
+  // tile tab, a bubble) left the row sitting in the sidebar until the next
+  // fetch. Same rule the `removed` lookup two lines up already uses.
+  $sessions.set(prev.filter(s => !sessionMatchesStoredId(s, id)))
   $sessionsTotal.set(Math.max(0, $sessionsTotal.get() - 1))
   // Pin the tombstone for as long as the RPC is in flight, so a list or project
   // tree refresh that predates it can't flash the row back.
   tombstoneSessions(ids)
   markSessionMutation(ids, true)
 
-  if ($activeStoredSessionId.get() === id) {
+  // `ids` (every alias of the removed conversation), not `=== id`: main can be
+  // holding the live tip while the delete comes from a tile tab holding the
+  // root. Left on identity, main went on rendering a conversation the backend
+  // had just deleted, and the next submit into it would 404.
+  if (idNamesSession(ids, $activeStoredSessionId.get())) {
     newSession()
   }
 
@@ -1795,11 +1868,15 @@ export async function archiveSessionLocal(id: string): Promise<void> {
   const ids = removalIds(archived, id)
   const owner = knownSessionProfile(id)
 
-  $sessions.set(prev.filter(s => s.id !== id))
+  // By ALIAS — see the same edit in `deleteSessionLocal`. `set_session_archived`
+  // flips the whole compression chain on the backend, so the row is gone there
+  // either way; matching on the tip alone just meant the sidebar disagreed with
+  // it until the next fetch.
+  $sessions.set(prev.filter(s => !sessionMatchesStoredId(s, id)))
   tombstoneSessions(ids)
   markSessionMutation(ids, true)
 
-  if ($activeStoredSessionId.get() === id) {
+  if (idNamesSession(ids, $activeStoredSessionId.get())) {
     newSession()
   }
 

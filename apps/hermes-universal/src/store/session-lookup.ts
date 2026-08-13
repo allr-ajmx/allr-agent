@@ -140,6 +140,39 @@ export function chatTabTitle({ draftTitle, page, selected, stored }: ChatTabTitl
 }
 
 /**
+ * THE ID A WIRE CALL FOR THIS CONVERSATION HAS TO CARRY.
+ *
+ * A surface holds the id it was OPENED with, and universal deliberately never
+ * renames those: auto-compression rotates a conversation's stored id, and tiles,
+ * mobile bubbles, layout pane ids and the persisted `hermes.*` blobs all keep
+ * the pre-rotation one (see `sessionAliasIds` in store/session). Row LOOKUP has
+ * always followed that — `sessionRowFor` matches the live tip OR the lineage
+ * root — so a tab titled from an old id shows the right name.
+ *
+ * Its VERBS are a different question, and the backend does not answer it
+ * uniformly. Pin, archive, delete and the transcript read all resolve the whole
+ * compression chain, so any alias works. `set_session_title`
+ * (`PATCH /api/sessions/{id}`) and `update_session_cwd` (`session.workspace.move`)
+ * write ONE row — while `list_sessions_rich` projects a chain onto its live tip
+ * and surfaces the TIP's `title` and `cwd`. Renaming or re-homing under the
+ * lineage root therefore wrote to a hidden ancestor: the toast said "Renamed",
+ * the row never changed, and the next refresh put the old name straight back
+ * (MJXHRM-423).
+ *
+ * So: layout keys stay whatever the surface holds, and everything that leaves
+ * for the backend goes through here first. The sidebar row and the chat title
+ * bar already did this by hand — they pass `session.id` off the row they
+ * resolved — and `branchStoredSession` does it for `parent_session_id`. This is
+ * that rule with one name, reachable from the surfaces that hold an alias.
+ *
+ * Falls back to the id as given when no source has seen the session: there is
+ * nothing better to send, and the backend's own 404 is the right answer then.
+ */
+export function liveSessionIdFor(storedSessionId: string): string {
+  return sessionRowFor(storedSessionId)?.id ?? storedSessionId
+}
+
+/**
  * Pin/unpin the ACTIVE session — the `session.togglePin` keybind action.
  * Adapted from desktop `app/contrib/wiring.tsx`.
  *

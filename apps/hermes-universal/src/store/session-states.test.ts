@@ -6,7 +6,7 @@ import { findGroup, group, split } from '@/components/pane-shell/tree/model'
 import { $activeTreeGroup, $layoutTree, noteActiveTreeGroup } from '@/components/pane-shell/tree/store'
 import { isChatPaneId, sessionTilePaneId, WORKSPACE_PANE_ID } from '@/lib/pane-ids'
 import { $compactingSessions, sessionCompacting, setSessionCompacting } from '@/store/compaction'
-import { $activeStoredSessionId } from '@/store/session'
+import { $activeStoredSessionId, $sessions } from '@/store/session'
 import {
   $activeSessionKey,
   $sessionStates,
@@ -24,16 +24,20 @@ import {
   $focusedCwd,
   $sessionTiles,
   clearAllSessionStates,
+  closeSessionTile,
   focusOpenSession,
   focusWorkspaceSession,
   invalidateRuntimeBindings,
   MAX_CACHED_SESSIONS,
   openBranchTile,
-  pruneSessionStates
+  openSessionTile,
+  pruneSessionStates,
+  reopenLastClosedTile
 } from '@/store/session-states'
 import { $subagentsBySession, allSubagents, upsertSubagent } from '@/store/subagents'
 import { $inflightTurns, beginTurn, isTurnLive } from '@/store/turn-lifecycle'
 import { $effectiveCwd, $workspaceCwd } from '@/store/workspace-events'
+import type { SessionInfo } from '@/types/hermes'
 
 const seed = (key: string, patch: Partial<ReturnType<typeof emptySessionState>> = {}) =>
   publishSessionState(key, { ...emptySessionState(patch.storedSessionId ?? key), runtimeSessionId: key, ...patch })
@@ -318,6 +322,118 @@ describe('focusWorkspaceSession', () => {
         anchor: WORKSPACE_PANE_ID,
         dir: 'center'
       })
+    })
+  })
+
+  /**
+   * MJXHRM-423 — "Open in tile" asks about a CONVERSATION, not an id.
+   *
+   * A tile keeps the id its chat was opened with; auto-compression rotates the
+   * live one. So the sidebar row of a compacted chat names it `tip` while the
+   * tile already showing it is keyed on `root` — and matching on identity
+   * contributed a SECOND pane onto the same `$sessionStates` slice, two tabs
+   * fighting over one live conversation.
+   */
+  describe('openSessionTile — one tile per conversation', () => {
+    afterEach(() => {
+      $sessions.set([])
+    })
+
+    it('reveals the tile already open under the lineage root rather than adding a second', () => {
+      seedTree([WORKSPACE_PANE_ID, sessionTilePaneId('root')], WORKSPACE_PANE_ID)
+      $sessions.set([{ _lineage_root_id: 'root', id: 'tip' } as SessionInfo])
+      $sessionTiles.set([{ dir: 'right', storedSessionId: 'root' }])
+
+      openSessionTile('tip', 'center')
+
+      expect($sessionTiles.get().map(t => t.storedSessionId)).toEqual(['root'])
+      // ...and the re-dock landed on the tile's OWN key: its pane id and its
+      // record are both on `root`, so patching under `tip` would have written a
+      // dock nothing reads.
+      expect($sessionTiles.get()[0].dir).toBe('center')
+    })
+
+    it('never opens a tile for the conversation already loaded in main', () => {
+      seedTree([WORKSPACE_PANE_ID])
+      $sessions.set([{ _lineage_root_id: 'root', id: 'tip' } as SessionInfo])
+      $activeStoredSessionId.set('tip')
+
+      openSessionTile('root')
+
+      expect($sessionTiles.get()).toEqual([])
+    })
+
+    it('still opens a tile for a genuinely different session', () => {
+      seedTree([WORKSPACE_PANE_ID])
+      $sessions.set([{ _lineage_root_id: 'root', id: 'tip' } as SessionInfo])
+      $sessionTiles.set([{ dir: 'right', storedSessionId: 'root' }])
+
+      openSessionTile('unrelated')
+
+      expect($sessionTiles.get().map(t => t.storedSessionId)).toEqual(['root', 'unrelated'])
+    })
+  })
+
+  /**
+   * ⌘⇧T asks the same question (MJXHRM-423). The closed-tab stack holds the key
+   * a tile had when it CLOSED, and a compaction since then moves the
+   * conversation onto a new id — so both of its "is this live again?" guards
+   * missed, and ⌘⇧T SPENT itself on a chat that was already on screen: the pop
+   * returned, and the tab the user actually wanted back stayed closed.
+   *
+   * That is what these assert. A duplicate tile is `openSessionTile`'s guard and
+   * is covered above; what only this function can get wrong is which entry of
+   * the stack the keystroke consumes, so each case stacks a second, genuinely
+   * closed tab UNDER the decoy and expects it back.
+   *
+   * The stack is module-level and LIFO, so each case pushes its own two entries
+   * immediately before reopening and names the key it expects rather than
+   * asserting on the whole list, which still carries whatever earlier tests left
+   * below.
+   */
+  describe('reopenLastClosedTile — one tab per conversation', () => {
+    afterEach(() => {
+      $sessions.set([])
+    })
+
+    /** A genuinely closed tab, then a compacted one closed on top of it. */
+    const stackDecoyOver = (wanted: string) => {
+      seedTree([WORKSPACE_PANE_ID])
+      $sessions.set([{ _lineage_root_id: 'root', id: 'tip' } as SessionInfo])
+      $sessionTiles.set([
+        { dir: 'right', storedSessionId: wanted },
+        { dir: 'right', storedSessionId: 'root' }
+      ])
+      closeSessionTile(wanted)
+      closeSessionTile('root')
+      $sessionTiles.set([])
+    }
+
+    it('moves past a tab whose conversation is open again under its live tip', () => {
+      stackDecoyOver('wanted-1')
+      $sessionTiles.set([{ dir: 'right', storedSessionId: 'tip' }])
+
+      reopenLastClosedTile()
+
+      expect($sessionTiles.get().map(t => t.storedSessionId)).toContain('wanted-1')
+    })
+
+    it('moves past a tab whose conversation is now the primary', () => {
+      stackDecoyOver('wanted-2')
+      $activeStoredSessionId.set('tip')
+
+      reopenLastClosedTile()
+
+      expect($sessionTiles.get().map(t => t.storedSessionId)).toContain('wanted-2')
+    })
+
+    it('still restores the top of the stack when its conversation is genuinely gone', () => {
+      stackDecoyOver('wanted-3')
+
+      reopenLastClosedTile()
+
+      expect($sessionTiles.get().map(t => t.storedSessionId)).toContain('root')
+      expect($sessionTiles.get().map(t => t.storedSessionId)).not.toContain('wanted-3')
     })
   })
 })

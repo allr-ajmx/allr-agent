@@ -26,7 +26,7 @@ import { readJson, writeJson } from '@/lib/storage'
 import { atom, computed } from '@/store/atom'
 import { requestClose } from '@/store/close-confirm'
 import { $activeGatewayProfile, normalizeProfileKey } from '@/store/profile'
-import { $activeStoredSessionId, newSession, openSession } from '@/store/session'
+import { $activeStoredSessionId, newSession, openSession, sameStoredSession } from '@/store/session'
 import { $activeSessionKey, isDraftKey } from '@/store/session-state-types'
 import {
   dropSessionState,
@@ -210,13 +210,19 @@ function promote(storedId: null | string) {
 /** "Open in bubble" — add a stored session as a live BACKGROUND parallel chat
  *  WITHOUT switching to it (the mobile analog of `openSessionTile`). No-ops on the
  *  active session or one already in the row. Seeds the current session as a bubble
- *  too, so the row shows both. */
+ *  too, so the row shows both.
+ *
+ *  Both no-ops compare CONVERSATIONS, not id strings — a bubble keeps the id it
+ *  was opened with while auto-compression rotates the session's live one, so the
+ *  sidebar row for a compacted chat names it differently from the bubble already
+ *  showing it. On identity, "Open in bubble" added a second bubble onto the same
+ *  `$sessionStates` slice (MJXHRM-423 — the mobile half of `openSessionTile`). */
 export function addBubble(storedSessionId: string) {
-  if (storedSessionId === $activeStoredSessionId.get()) {
+  if (sameStoredSession(storedSessionId, $activeStoredSessionId.get())) {
     return
   }
 
-  if ($chatBubbles.get().some(b => b.storedSessionId === storedSessionId)) {
+  if ($chatBubbles.get().some(b => sameStoredSession(b.storedSessionId, storedSessionId))) {
     return
   }
 

@@ -48,6 +48,7 @@ import {
   $activeStoredSessionId,
   $unreadFinishedSessionIds,
   newSession,
+  sameStoredSession,
   setActiveSessionStoredIdRotation
 } from '@/store/session'
 import {
@@ -662,8 +663,21 @@ export function noteSessionTileMounted(storedSessionId: string): void {
   requestAnimationFrame(() => endSpan(id))
 }
 
-/** Open a tile for a stored session, or MOVE an existing one to the new dock. The
- *  session LOADED IN MAIN never opens as a tile. */
+/**
+ * Open a tile for a stored session, or MOVE an existing one to the new dock. The
+ * session LOADED IN MAIN never opens as a tile.
+ *
+ * Both "is this already in main" and "is this already a tile" are asked by
+ * CONVERSATION, not by string. A tile keeps the id it was opened with while
+ * auto-compression rotates the session's live id, so the sidebar row for a
+ * compacted chat and the tile already showing it carry different ids — and
+ * matching on identity opened a second tab onto the same live slice, which then
+ * fought the first for its pane title and its close verb (MJXHRM-423).
+ *
+ * The existing tile's OWN key is what gets moved: its pane id and its
+ * `$sessionTiles` record are both keyed on it, and re-keying a live tile to the
+ * new id would strand the pane the layout tree already holds.
+ */
 export function openSessionTile(
   storedSessionId: string,
   dir: TileDock = 'right',
@@ -672,11 +686,13 @@ export function openSessionTile(
 ) {
   const tiles = $sessionTiles.get()
 
-  if (storedSessionId === $activeStoredSessionId.get()) {
+  if (sameStoredSession(storedSessionId, $activeStoredSessionId.get())) {
     return
   }
 
-  if (!tiles.some(t => t.storedSessionId === storedSessionId)) {
+  const open = tiles.find(tile => sameStoredSession(tile.storedSessionId, storedSessionId))
+
+  if (!open) {
     // No session id in the attributes — these spans end up in shared traces.
     opening.set(storedSessionId, beginDetached('chat.open', { dir }))
     saveTiles([...tiles, { anchor, before, dir, storedSessionId }])
@@ -688,8 +704,8 @@ export function openSessionTile(
   const target = tree ? findGroupOfPane(tree, anchor ?? WORKSPACE_PANE_ID)?.id : null
 
   if (target) {
-    moveTreePane(`${TILE_PANE_PREFIX}${storedSessionId}`, { before: before ?? null, groupId: target, pos: dir })
-    patchSessionTile(storedSessionId, { anchor, before: before ?? undefined, dir })
+    moveTreePane(`${TILE_PANE_PREFIX}${open.storedSessionId}`, { before: before ?? null, groupId: target, pos: dir })
+    patchSessionTile(open.storedSessionId, { anchor, before: before ?? undefined, dir })
     syncTileStripOrder()
   }
 }
@@ -923,18 +939,21 @@ export function discardSessionTile(storedSessionId: string) {
 /** ⌘⇧T — reopen the most recently closed tab where it was, then FOCUS it.
  *  Adoption alone is silent (it must not steal the active tab), so restore has
  *  to front the pane explicitly or the tab comes back behind whatever you were
- *  looking at. Skips ids that are live again (reopened / now the primary). */
+ *  looking at. Skips conversations that are live again — reopened, or now the
+ *  primary — asked by CONVERSATION rather than by id, because the stack holds
+ *  the key the tile had when it CLOSED and a compaction since then has moved the
+ *  session on (MJXHRM-423). */
 export function reopenLastClosedTile(): void {
   const stack = closedStack()
 
   for (let tile = stack.pop(); tile; tile = stack.pop()) {
     const { storedSessionId } = tile
 
-    if (storedSessionId === $activeStoredSessionId.get()) {
+    if (sameStoredSession(storedSessionId, $activeStoredSessionId.get())) {
       continue
     }
 
-    if (!$sessionTiles.get().some(t => t.storedSessionId === storedSessionId)) {
+    if (!$sessionTiles.get().some(t => sameStoredSession(t.storedSessionId, storedSessionId))) {
       openSessionTile(storedSessionId, tile.dir, tile.anchor, tile.before)
       focusOpenSession(storedSessionId)
 
