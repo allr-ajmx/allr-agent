@@ -240,7 +240,7 @@ function ModelResults({
           <CommandGroup heading={<ProviderHeading provider={provider} />} key={provider.slug}>
             {provider.warning && (
               <div className="px-2 pb-2">
-                <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-2.5 py-1.5 text-xs text-amber-200">
+                <div className="rounded-md border border-(--ui-yellow)/40 bg-(--ui-yellow)/10 px-2.5 py-1.5 text-xs text-(--ui-yellow)">
                   {provider.warning}
                 </div>
               </div>
