@@ -19,7 +19,7 @@ import { atom } from '@/store/atom'
 import { $sessionId } from '@/store/chat'
 import { $connection } from '@/store/connection'
 import { requestGateway } from '@/store/gateway'
-import { setSidebarAgentsGrouped } from '@/store/layout'
+import { setSidebarAgentsGrouped, type SidebarGrouping } from '@/store/layout'
 import { notify, notifyError } from '@/store/notifications'
 import { $projectScope, $projectTree, ALL_PROJECTS } from '@/store/project-scope'
 import { knownSessionProfile, newSession, pruneSessionTombstones, refreshSessions, setSessions } from '@/store/session'
@@ -140,6 +140,23 @@ export function enterProject(id: string): void {
 
 export function exitProjectScope(): void {
   $projectScope.set(ALL_PROJECTS)
+}
+
+/**
+ * Switch the sidebar between the flat session list and the project tree.
+ *
+ * Lives here rather than in `store/layout` because leaving the project view has
+ * to drop the entered-project SCOPE as well as the grouping flag: the header
+ * toggle and the filter menu's Grouping submenu both go through this, so a
+ * user who groups → enters a project → ungroups doesn't come back later to a
+ * flat list still silently scoped to that project.
+ */
+export function setSidebarGrouping(grouping: SidebarGrouping): void {
+  if (grouping !== 'project') {
+    exitProjectScope()
+  }
+
+  setSidebarAgentsGrouped(grouping === 'project')
 }
 
 /** Enter a project by id (the palette's Projects rows), grouping the sidebar so

@@ -1562,6 +1562,42 @@ export interface Translations {
     noProject: string
     projectEmpty: string
     noSessions: string
+    /** The sidebar header's filter/view menu. */
+    filters: {
+      trigger: string
+      grouping: string
+      groupingSessions: string
+      groupingProject: string
+      ordering: string
+      orderUpdated: string
+      orderCreated: string
+      orderStatus: string
+      orderTokens: string
+      orderCost: string
+      orderManual: string
+      show: string
+      metaUpdated: string
+      metaTokens: string
+      metaCost: string
+      sectionLabel: string
+      status: string
+      statusNeedsInput: string
+      statusWorking: string
+      statusUnread: string
+      statusIdle: string
+      pullRequest: string
+      prOpen: string
+      prDraft: string
+      prMerged: string
+      prClosed: string
+      prNone: string
+      project: string
+      archived: string
+      reset: string
+      collapseAll: string
+      expandAll: string
+      markAllRead: string
+    }
     projects: {
       sectionLabel: string
       newButton: string

@@ -7,10 +7,13 @@ import { Codicon } from '@/components/ui/codicon'
 import { GlyphSpinner } from '@/components/ui/glyph-spinner'
 import { SearchField } from '@/components/ui/search-field'
 import { Tip } from '@/components/ui/tooltip'
+import type { HermesBranchPullRequest } from '@/global'
 import { useI18n } from '@/i18n'
 import { profileColor } from '@/lib/profile-color'
+import { liveSessionProjectId } from '@/lib/session-membership'
 import { sessionMatchesSearch } from '@/lib/session-search'
 import { reuseUnchanged } from '@/lib/structural-share'
+import { useStoreSelector } from '@/lib/use-session-slice'
 import { useStore } from '@/store/atom'
 import { $busy, $sessionId } from '@/store/chat'
 import { $cronJobs, refreshCronJobs, triggerCron } from '@/store/cron'
@@ -19,11 +22,16 @@ import {
   $pinnedSessionIds,
   $sidebarAgentsGrouped,
   $sidebarMessagingOpenIds,
+  $sidebarOrdering,
   $sidebarPinsOpen,
+  $sidebarPrFilter,
+  $sidebarProjectFilter,
   $sidebarProjectOrderIds,
   $sidebarRecentsOpen,
   $sidebarSessionOrderIds,
   $sidebarSessionOrderManual,
+  $sidebarShowArchived,
+  $sidebarStatusFilter,
   pinSession,
   SESSION_SEARCH_FOCUS_EVENT,
   setPinnedSessionOrder,
@@ -33,6 +41,7 @@ import {
   setSidebarRecentsOpen,
   setSidebarSessionOrderIds,
   setSidebarSessionOrderManual,
+  type SidebarOrdering,
   toggleSidebarMessagingOpen,
   unpinSession
 } from '@/store/layout'
@@ -43,6 +52,7 @@ import { $profileScope, ALL_PROFILES, normalizeProfileKey } from '@/store/profil
 import { $profiles } from '@/store/profiles'
 import {
   $activeProjectId,
+  $projects,
   $projectScope,
   $projectTree,
   $projectTreeLoading,
@@ -59,6 +69,8 @@ import {
 } from '@/store/projects'
 import {
   $prBranchBySession,
+  $pullRequestsByBranch,
+  pullRequestBucket,
   recoverSessionPullRequests,
   refreshPullRequests,
   sessionPrKey
@@ -86,11 +98,14 @@ import {
   searchSessionsQuery,
   sessionPinId
 } from '@/store/session'
+import { $sessionDotStateById, sessionStatusBucket, sessionStatusRank } from '@/store/session-dot-state'
+import { $archivedSessions, loadArchivedSessions, sessionCostUsd } from '@/store/sidebar-archive'
 import { openAppRoute } from '@/store/windows'
 import type { SessionInfo, SessionSearchResult } from '@/types/hermes'
 
 import { countLabel } from './chrome'
 import { SidebarCronJobsSection } from './cron-jobs-section'
+import { SidebarFilterMenu } from './filter-menu'
 import { SidebarLoadMoreButton, SidebarLoadMoreRow } from './load-more-row'
 import { ProjectDialog } from './project-dialog'
 import {
@@ -103,6 +118,7 @@ import { ProjectBackRow } from './projects/overview-row'
 import { StartWorkButton } from './projects/workspace-header'
 import { WorktreeDialog } from './projects/worktree-dialog'
 import { SidebarPinnedEmptyState } from './section-states'
+import type { SessionDotState } from './session-row-state'
 import { SidebarSessionsSection } from './sessions-section'
 
 // Synthesize a minimal row for a server search hit not in the loaded page.
@@ -130,6 +146,46 @@ function togglePin(pinId: string): void {
     unpinSession(pinId)
   } else {
     pinSession(pinId)
+  }
+}
+
+// Stable "nothing selected" values for the two HOT stores the filter reads.
+// `$sessionDotStateById` republishes on every status edge anywhere in the app
+// and `$pullRequestsByBranch` on every per-repo `gh` refresh; subscribing this
+// component to either unconditionally would repaint the whole sidebar body for
+// state the default view never reads. Returned from a `useStoreSelector` when
+// the corresponding control is off, so the snapshot stays `Object.is`-identical
+// and React bails out (MJXHRM-219 / MJXHRM-383 are the same lesson a layer down).
+const NO_DOT_STATES: Record<string, SessionDotState | undefined> = {}
+const NO_PULL_REQUESTS: Record<string, HermesBranchPullRequest> = {}
+
+/** The comparator behind each sort key. `updated` is the default and matches
+ *  what the row itself prints as its age (`last_active || started_at`);
+ *  `created` is the session's own birth time. */
+function compareSessions(
+  ordering: SidebarOrdering,
+  dotStates: Record<string, SessionDotState | undefined>
+): (a: SessionInfo, b: SessionInfo) => number {
+  const updatedAt = (s: SessionInfo) => s.last_active || s.started_at || 0
+  const byUpdated = (a: SessionInfo, b: SessionInfo) => updatedAt(b) - updatedAt(a)
+
+  switch (ordering) {
+    case 'created':
+      return (a, b) => (b.started_at || 0) - (a.started_at || 0)
+
+    case 'status':
+      // Loudest first, then newest within a status — a flat rank alone would
+      // shuffle the idle tail into whatever order the backend page arrived in.
+      return (a, b) => sessionStatusRank(dotStates[a.id]) - sessionStatusRank(dotStates[b.id]) || byUpdated(a, b)
+
+    case 'tokens':
+      return (a, b) => b.input_tokens + b.output_tokens - (a.input_tokens + a.output_tokens) || byUpdated(a, b)
+
+    case 'cost':
+      return (a, b) => sessionCostUsd(b) - sessionCostUsd(a) || byUpdated(a, b)
+
+    default:
+      return byUpdated
   }
 }
 
@@ -202,7 +258,18 @@ export function SidebarScrollBody({
   const recentsOpen = useStore($sidebarRecentsOpen)
   const orderManual = useStore($sidebarSessionOrderManual)
   const orderIds = useStore($sidebarSessionOrderIds)
-  const grouped = useStore($sidebarAgentsGrouped)
+  const ordering = useStore($sidebarOrdering)
+  const statusFilter = useStore($sidebarStatusFilter)
+  const projectFilter = useStore($sidebarProjectFilter)
+  const prFilter = useStore($sidebarPrFilter)
+  const showArchived = useStore($sidebarShowArchived)
+  const archivedSessions = useStore($archivedSessions)
+  const explicitProjects = useStore($projects)
+  const groupedPref = useStore($sidebarAgentsGrouped)
+  // Archived rows come from their own query and have no project tree behind
+  // them, so the Archived view is always the flat list — same call desktop
+  // makes, for the same reason.
+  const grouped = groupedPref && !showArchived
   const scope = useStore($projectScope)
   const projectTree = useStore($projectTree)
   const projectsLoading = useStore($projectTreeLoading)
@@ -390,6 +457,55 @@ export function SidebarScrollBody({
     return () => window.removeEventListener(SESSION_SEARCH_FOCUS_EVENT, onFocus)
   }, [])
 
+  // ── The filter menu's narrowing layer ──────────────────────────────────────
+  const filtersNarrow = statusFilter.length > 0 || projectFilter.length > 0 || prFilter.length > 0
+  const needsDotStates = statusFilter.length > 0 || ordering === 'status'
+  // Gated so the default view pays nothing — see NO_DOT_STATES above.
+  const dotStates = useStoreSelector($sessionDotStateById, states => (needsDotStates ? states : NO_DOT_STATES))
+  const pullRequests = useStoreSelector($pullRequestsByBranch, prs => (prFilter.length ? prs : NO_PULL_REQUESTS))
+
+  // Archived is a view of its OWN set rather than a filter over the live one:
+  // archived rows are excluded from the sessions query, so they arrive from a
+  // separate fetch that only runs while the toggle is on.
+  useEffect(() => {
+    if (showArchived) {
+      void loadArchivedSessions()
+    }
+  }, [showArchived])
+
+  const pool = showArchived ? archivedSessions : sessions
+
+  // ONE predicate for the status/PR/project filters, so the flat list and the
+  // project lanes narrow by the same rule. A project lane holds rows the loaded
+  // page may not, so it has to be answerable per session rather than by
+  // membership in some pre-filtered set.
+  const sessionMatchesFilters = useCallback(
+    (session: SessionInfo) => {
+      if (statusFilter.length && !statusFilter.includes(sessionStatusBucket(dotStates[session.id]))) {
+        return false
+      }
+
+      if (prFilter.length) {
+        const key = sessionPrKey(session)
+
+        if (!prFilter.includes(pullRequestBucket(key ? pullRequests[key] : undefined))) {
+          return false
+        }
+      }
+
+      // Same membership the sidebar groups and colors by, so a filtered row
+      // lands in the lane the user picked it from.
+      return !projectFilter.length || projectFilter.includes(liveSessionProjectId(session, explicitProjects) ?? '')
+    },
+    [statusFilter, projectFilter, prFilter, pullRequests, explicitProjects, dotStates]
+  )
+
+  // `undefined` — not a no-op predicate — whenever nothing narrows. That keeps
+  // the prop referentially constant for every user who never opens the menu, so
+  // `renderProjectRows` downstream keeps the memoized identity MJXHRM-219 paid
+  // for. A `() => true` would be a fresh function every render instead.
+  const sessionFilter = filtersNarrow ? sessionMatchesFilters : undefined
+
   const trimmed = query.trim()
 
   const results = useMemo(() => {
@@ -407,29 +523,42 @@ export function SidebarScrollBody({
   // page happens to cover. A pinned chat that has fallen past the loaded window
   // resolves from its last-known row (`$pinnedSessionCache`) instead of silently
   // disappearing from the section while its pin is still stored.
-  const pinnedSessions = useMemo(
-    () => pinnedSessionRows(sessions, pinnedIds),
+  const pinnedSessions = useMemo(() => {
+    // Resolved from the LIVE pool even in the Archived view, and always before
+    // the filter runs. Both matter: `pinnedSessionRows` falls back to
+    // `$pinnedSessionCache` for a pin that has fallen past the loaded page, so
+    // handing it a narrowed list would make the cache RESURRECT the very rows
+    // the filter just removed. Narrowing the resolved rows instead gives
+    // desktop's behaviour (Pinned obeys the filters) with none of that.
+    const rows = pinnedSessionRows(sessions, pinnedIds)
+
+    return filtersNarrow ? rows.filter(sessionMatchesFilters) : rows
     // `pinnedCache` looks unnecessary to the linter and is not: the memo body
     // never names it, but `pinnedSessionRows` reads `$pinnedSessionCache` with
     // `.get()`, so this is what makes the rows recompute when the cache moves —
     // in lockstep with these two by store/session.ts's subscriptions.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [sessions, pinnedIds, pinnedCache]
-  )
+  }, [sessions, pinnedIds, pinnedCache, filtersNarrow, sessionMatchesFilters])
 
-  // Recents = loaded sessions minus pinned, newest-first (or the manual order).
+  // Recents = the pool minus pinned, sorted by the chosen key (or the manual
+  // drag order), narrowed by whatever the filter menu has switched on.
   const recents = useMemo(() => {
     const pinnedSet = new Set(pinnedIds)
 
-    const base = sessions
+    let base = pool
       .filter(session => !pinnedSet.has(sessionPinId(session)))
       // Cron runs + messaging-platform threads have their own sidebar regions
       // (the Cron section + per-platform groups), so keep them out of recents.
       .filter(session => session.source !== 'cron' && !isMessagingSource(session.source))
-      .sort((a, b) => (b.started_at || 0) - (a.started_at || 0))
+
+    if (filtersNarrow) {
+      base = base.filter(sessionMatchesFilters)
+    }
+
+    base.sort(compareSessions(ordering, dotStates))
 
     return orderManual && orderIds.length ? applyManualOrder(base, orderIds) : base
-  }, [sessions, pinnedIds, orderManual, orderIds])
+  }, [pool, pinnedIds, orderManual, orderIds, ordering, dotStates, filtersNarrow, sessionMatchesFilters])
 
   // Per-platform messaging groups (Discord, Telegram, …), busiest first.
   const messagingGroups = useMemo(() => {
@@ -757,6 +886,15 @@ export function SidebarScrollBody({
                     <Codicon name={grouped ? 'list-unordered' : 'root-folder'} size="0.75rem" />
                   </button>
                 </Tip>
+                {/* Same placement and same gate as desktop: the view menu sits
+                    last in the header cluster, and the all-profiles browse
+                    scope hides it — its grouping, ordering and project filter
+                    all describe a single-profile list. */}
+                {!showAllProfiles && (
+                  <div className="grid size-5 place-items-center">
+                    <SidebarFilterMenu className="text-(--ui-text-tertiary) opacity-70 transition-opacity hover:bg-(--ui-control-hover-background) hover:text-foreground hover:opacity-100 focus-visible:opacity-100" />
+                  </div>
+                )}
               </div>
             }
             label={
@@ -801,6 +939,7 @@ export function SidebarScrollBody({
             projectRepoWorktrees={scopedRepoWorktrees}
             projectsLoading={grouped ? projectsLoading : false}
             rootClassName={SESSIONS_ROOT_CLASS}
+            sessionFilter={sessionFilter}
             sessions={grouped || showAllProfiles ? [] : recents}
             showProfileTags={showAllProfiles}
             sortable={!grouped && !showAllProfiles}
