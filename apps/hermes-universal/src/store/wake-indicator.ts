@@ -31,7 +31,9 @@ import type { ConversationStatus } from '@/store/voice-conversation'
  * suppressing it is a condition on that component, not a change here.
  */
 
-export type WakeIndicatorState = 'capturing' | 'detected' | 'hidden'
+export const WAKE_INDICATOR_STATES = ['hidden', 'detected', 'capturing'] as const
+
+export type WakeIndicatorState = (typeof WAKE_INDICATOR_STATES)[number]
 
 export const $wakeIndicator = atom<WakeIndicatorState>('hidden')
 

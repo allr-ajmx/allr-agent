@@ -505,6 +505,13 @@ const SATELLITE_LABEL_PREFIX = 'sat'
  *  `hud/handoff.ts` needs it without importing `hud.ts` (see the note there). */
 export const HUD_SURFACE = 'hud'
 
+/** The wake indicator's surface id (MJXHRM-228) — a light over other
+ *  applications, opened and closed by the state it mirrors rather than by the
+ *  user. Beside the HUD's for the same reason: `app.tsx` routes on it and the
+ *  driver in `app/wake-indicator/` opens it, and neither should import the
+ *  other to learn its name. */
+export const WAKE_INDICATOR_SURFACE = 'wake'
+
 /** Surfaces opened BY THIS WINDOW. The authority on what to tear down; a window
  *  the user already closed drops out of `getByLabel` on its own. */
 const openedSatellites = new Set<string>()
