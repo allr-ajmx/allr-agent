@@ -20,7 +20,7 @@ import { $pinnedSessionIds } from './layout'
 import { $projectTree } from './projects'
 import { $activeStoredSessionId, $sessions } from './session'
 import { $sessionColorOverrides, sessionColorFor, setSessionColorOverride } from './session-color'
-import { chatTabTitle, sessionRowFor, toggleSelectedPin, useSessionRowScalars } from './session-lookup'
+import { chatTabTitle, liveSessionIdFor, sessionRowFor, toggleSelectedPin, useSessionRowScalars } from './session-lookup'
 
 const row = (id: string, title: string, lineageRoot?: string): SessionInfo =>
   ({ id, title, ...(lineageRoot ? { _lineage_root_id: lineageRoot } : {}) }) as unknown as SessionInfo
@@ -101,6 +101,44 @@ describe('sessionRowFor', () => {
 
     $projectTree.set([tree([row('tip-3', 'From the tree', 'root-3')])])
     expect(sessionRowFor('root-3')?.title).toBe('From the tree')
+  })
+})
+
+/**
+ * MJXHRM-423 — the id a WIRE call has to carry.
+ *
+ * `sessionRowFor` fixed what a tab SAYS. What its verbs DO stayed on the raw id
+ * the surface was holding, which after an auto-compaction is the lineage root.
+ * The backend does not treat that uniformly: pin / archive / delete flip the
+ * whole compression chain, but `set_session_title` and `update_session_cwd`
+ * write ONE row while the session list surfaces the TIP's title and cwd — so a
+ * rename or a move addressed to the root landed on a hidden ancestor and simply
+ * never appeared.
+ */
+describe('liveSessionIdFor', () => {
+  it('resolves a pre-rotation id to the live tip, through every source', () => {
+    $sessions.set([row('tip-1', 'From recents', 'root-1')])
+    expect(liveSessionIdFor('root-1')).toBe('tip-1')
+
+    $pinnedSessionIds.set(['root-2'])
+    $sessions.set([row('tip-2', 'From the pinned cache', 'root-2')])
+    $sessions.set([])
+    expect(liveSessionIdFor('root-2')).toBe('tip-2')
+
+    $projectTree.set([tree([row('tip-3', 'From the tree', 'root-3')])])
+    expect(liveSessionIdFor('root-3')).toBe('tip-3')
+  })
+
+  it('is a no-op for an id that already names the live row', () => {
+    $sessions.set([row('tip-1', 'Loaded', 'root-1')])
+
+    expect(liveSessionIdFor('tip-1')).toBe('tip-1')
+  })
+
+  it('hands back the raw id when no source has ever seen the session', () => {
+    // Nothing better to send, and the backend's own 404 is the right answer —
+    // silently swapping in some other id would be worse than the miss.
+    expect(liveSessionIdFor('unknown-1')).toBe('unknown-1')
   })
 })
 

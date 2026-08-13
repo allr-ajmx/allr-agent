@@ -67,6 +67,7 @@ import {
   renameSessionLocal,
   resetSessionsPaging,
   resolveSessionProfile,
+  sameStoredSession,
   sessionExistsOnBackends,
   setBranchedSessionOpener
 } from './session'
@@ -628,6 +629,112 @@ describe('delete/archive tombstones', () => {
 
     expect($sessions.get().map(s => s.id)).toEqual(['a'])
     expect($removedSessionIds.get().size).toBe(0)
+  })
+})
+
+/**
+ * MJXHRM-423 — a session verb addressed by an alias.
+ *
+ * Auto-compression rotates a conversation's stored id and universal deliberately
+ * leaves the surfaces holding the old one: a tile tab, a mobile bubble and a
+ * restored layout pane all keep the id their chat was OPENED with, which after a
+ * compaction is the lineage ROOT. Row lookup has always followed that. The
+ * VERBS did not, and the backend does not paper over it uniformly — pin,
+ * archive and delete flip the whole compression chain, while `set_session_title`
+ * and `update_session_cwd` write a single row that the session list then
+ * projects the TIP over.
+ *
+ * The fixture is the shape every one of these tests needs: the row is loaded
+ * under its live tip `tip`, and the caller is holding `root`.
+ */
+describe('a verb addressed by a pre-rotation id', () => {
+  const compacted = (title = 'Compacted chat') =>
+    ({ _lineage_root_id: 'root', id: 'tip', title }) as unknown as SessionInfo
+
+  // The one with no other symptom. The rename dialog opens on the correct
+  // current title (MJXHRM-386 widened THAT), the user retypes it, the "Renamed"
+  // toast fires — and the name goes onto a hidden ancestor row nothing renders.
+  it('renames the live tip, not the lineage root the tab is holding', async () => {
+    $sessions.set([compacted('Old')])
+    vi.mocked(renameSession).mockResolvedValue(undefined as never)
+
+    await renameSessionLocal('root', 'New')
+
+    expect(renameSession).toHaveBeenCalledWith('tip', 'New', undefined)
+    expect($sessions.get()[0].title).toBe('New')
+  })
+
+  it('still rolls the optimistic rename back when the wire call fails', async () => {
+    $sessions.set([compacted('Old')])
+    vi.mocked(renameSession).mockRejectedValue(new Error('nope'))
+
+    await renameSessionLocal('root', 'New')
+
+    expect($sessions.get()[0].title).toBe('Old')
+  })
+
+  it('removes the row optimistically on delete', async () => {
+    $sessions.set([compacted()])
+    $sessionsTotal.set(1)
+    vi.mocked(deleteSession).mockResolvedValue({ ok: true })
+
+    await deleteSessionLocal('root')
+
+    expect($sessions.get()).toEqual([])
+  })
+
+  it('removes the row optimistically on archive', async () => {
+    $sessions.set([compacted()])
+
+    await archiveSessionLocal('root')
+
+    expect($sessions.get()).toEqual([])
+  })
+
+  // Main is on the live tip; the delete comes from a tile tab on the root. Left
+  // comparing identity, the workspace went on rendering a conversation the
+  // backend had just dropped, and the next submit into it would 404.
+  it('empties main when the session being deleted is the one on screen under another id', async () => {
+    $sessions.set([compacted()])
+    $activeStoredSessionId.set('tip')
+    vi.mocked(deleteSession).mockResolvedValue({ ok: true })
+
+    await deleteSessionLocal('root')
+
+    expect($activeStoredSessionId.get()).toBeNull()
+  })
+
+  it('leaves an unrelated session in main alone', async () => {
+    $sessions.set([compacted(), row('other', 'Other')])
+    $activeStoredSessionId.set('other')
+    vi.mocked(deleteSession).mockResolvedValue({ ok: true })
+
+    await deleteSessionLocal('root')
+
+    expect($activeStoredSessionId.get()).toBe('other')
+  })
+})
+
+/** The question two SURFACES ask of each other — neither holding a row. */
+describe('sameStoredSession', () => {
+  it('sees one conversation behind a lineage root and its live tip', () => {
+    $sessions.set([{ _lineage_root_id: 'root', id: 'tip' } as SessionInfo])
+
+    expect(sameStoredSession('root', 'tip')).toBe(true)
+    expect(sameStoredSession('tip', 'root')).toBe(true)
+  })
+
+  it('keeps two different conversations apart', () => {
+    $sessions.set([{ _lineage_root_id: 'root', id: 'tip' } as SessionInfo, row('other', 'Other')])
+
+    expect(sameStoredSession('root', 'other')).toBe(false)
+  })
+
+  it('is identity when no loaded row explains the id, and false for a missing one', () => {
+    expect(sameStoredSession('lonely', 'lonely')).toBe(true)
+    expect(sameStoredSession('lonely', 'stranger')).toBe(false)
+    expect(sameStoredSession(null, 'a')).toBe(false)
+    expect(sameStoredSession('a', null)).toBe(false)
   })
 })
 

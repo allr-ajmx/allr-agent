@@ -6,10 +6,18 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 vi.mock('@/store/session', async () => {
   const { atom } = await import('nanostores')
   const $activeStoredSessionId = atom<null | string>(null)
+  // The loaded recents page. `sameStoredSession` is the only thing that reads it
+  // here, and the rule is reproduced rather than stubbed to `a === b`, so a test
+  // can actually drive the lineage branch — a stub comparing identity would pin
+  // the defect this file now covers as the contract.
+  const $sessions = atom<{ _lineage_root_id?: string; id: string }[]>([])
+
+  const matches = (row: { _lineage_root_id?: string; id: string }, id: string) =>
+    row.id === id || row._lineage_root_id === id
 
   return {
     $activeStoredSessionId,
-    $sessions: atom([]),
+    $sessions,
     $unreadFinishedSessionIds: atom<string[]>([]),
     $workingSessionIds: atom(new Set<string>()),
     newSession: () => $activeStoredSessionId.set(null),
@@ -17,6 +25,19 @@ vi.mock('@/store/session', async () => {
       $activeStoredSessionId.set(id)
 
       return Promise.resolve()
+    },
+    sameStoredSession: (a: null | string, b: null | string) => {
+      if (!a || !b) {
+        return false
+      }
+
+      if (a === b) {
+        return true
+      }
+
+      const row = $sessions.get().find(session => matches(session, a))
+
+      return Boolean(row && matches(row, b))
     }
   }
 })
@@ -42,7 +63,7 @@ vi.mock('@/store/session-states', () => ({
   })
 }))
 
-import { $activeStoredSessionId } from '@/store/session'
+import { $activeStoredSessionId, $sessions } from '@/store/session'
 import { $activeSessionKey } from '@/store/session-state-types'
 import { dropSessionState, sessionTileDelegate } from '@/store/session-states'
 
@@ -65,6 +86,7 @@ afterEach(() => {
 
   $chatBubbles.set([])
   $activeStoredSessionId.set(null)
+  ;($sessions as unknown as { set: (v: unknown[]) => void }).set([])
   $activeSessionKey.set('')
   busyKeys.clear()
   live.clear()
@@ -272,6 +294,42 @@ describe('chat-bubbles store', () => {
     addBubble('b')
 
     expect(resumeTile).not.toHaveBeenCalled()
+  })
+
+  /**
+   * MJXHRM-423 — the mobile half of `openSessionTile`'s one-tile-per-conversation
+   * rule. A bubble keeps the id its chat was opened with; the sidebar row of that
+   * same chat names its live tip after a compaction. Compared as strings, "Open
+   * in bubble" from that row added a SECOND bubble onto one live slice.
+   */
+  it('does not add a second bubble for a session already in the row under another id', () => {
+    ;($sessions as unknown as { set: (v: unknown[]) => void }).set([{ _lineage_root_id: 'root', id: 'tip' }])
+    $activeStoredSessionId.set('a')
+    addBubble('root')
+    expect(ids()).toEqual(['a', 'root'])
+
+    addBubble('tip')
+
+    expect(ids()).toEqual(['a', 'root'])
+  })
+
+  it('does not bubble the conversation already in the active chat under another id', () => {
+    ;($sessions as unknown as { set: (v: unknown[]) => void }).set([{ _lineage_root_id: 'root', id: 'tip' }])
+    $activeStoredSessionId.set('tip')
+
+    addBubble('root')
+
+    expect(ids()).toEqual([])
+  })
+
+  it('still bubbles a genuinely different session', () => {
+    ;($sessions as unknown as { set: (v: unknown[]) => void }).set([{ _lineage_root_id: 'root', id: 'tip' }])
+    $activeStoredSessionId.set('a')
+    addBubble('root')
+
+    addBubble('unrelated')
+
+    expect(ids()).toEqual(['a', 'root', 'unrelated'])
   })
 
   // MJX-133: a background auto-compaction rotates the stored id, and the bubble
