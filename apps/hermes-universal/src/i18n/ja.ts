@@ -57,7 +57,8 @@ export const ja = defineLocale({
     profiles: 'プロファイル',
     settings: '設定',
     files: 'ファイル',
-    review: 'レビュー'
+    review: 'レビュー',
+    webhooks: 'Webhook'
   },
 
   // The read-only `shortcuts` reference became the full rebindable `keybinds`
@@ -2808,5 +2809,112 @@ export const ja = defineLocale({
     settingsDesc:
       'グローバルショートカットで小さな入力欄をどこからでも呼び出し、Hermes を開かずにプロンプトを送信します。',
     shortcutHint: 'ショートカットは「キーボードショートカット」で割り当ててください。'
+  },
+  webhooks: {
+    title: 'Webhook',
+    loading: 'Webhook を読み込み中…',
+    loadFailed: 'Webhook の読み込みに失敗しました',
+    search: 'サブスクリプションを検索…',
+    noMatches: '一致するサブスクリプションはありません。',
+    tabInbound: '受信',
+    tabOutbound: '送信',
+    outboundSubtitle: 'config.yaml で設定',
+    outboundTitle: '送信 Webhook',
+    outboundBody:
+      'Hermes はセッションのライフサイクルフックで、HMAC 署名付きイベントを任意の URL に POST できます。設定は config.yaml の `hooks.outbound:` にあり、ゲートウェイに API はないため、ここから管理することはまだできません。',
+    emptyTitle: 'サブスクリプションはまだありません',
+    emptyDesc:
+      'サブスクリプションは外部サービスにイベントを POST する URL を与え、受信時にエージェントが何をするかを決めます。',
+    emptyDescDisabled:
+      'サブスクリプションを作る前に Webhook レシーバーを有効にしてください。プラットフォームが無効な間、ゲートウェイは作成を拒否します。',
+    newSubscription: '新しいサブスクリプション',
+    enableFirst: 'まず Webhook レシーバーを有効にしてください。',
+    rowActions: 'サブスクリプションの操作',
+    enableRow: '有効化',
+    disableRow: '無効化',
+    showSecret: 'シークレットを表示',
+    secretUnsaved: 'シークレット未保存',
+    deliverOnly: '配信のみ',
+    allEvents: '（すべてのイベント）',
+    webhookUrl: 'Webhook URL',
+    fieldName: '名前',
+    fieldNamePlaceholder: '例: github-push',
+    fieldDescription: '説明',
+    fieldDescriptionPlaceholder: 'このサブスクリプションの用途（任意）',
+    fieldPrompt: 'プロンプト',
+    fieldPromptPlaceholder: '発火時にエージェントが行うこと（任意）',
+    fieldEvents: 'イベント',
+    fieldEventsPlaceholder: 'カンマ区切り。空ならすべてのイベントに一致',
+    fieldSkills: 'スキル',
+    fieldSkillsPlaceholder: 'カンマ区切りのスキル名（任意）',
+    fieldDeliver: '配信先',
+    fieldDeliverChatId: '配信チャット ID',
+    fieldDeliverChatPlaceholder: '配信先のチャット / チャンネル ID（任意）',
+    fieldDeliverChatDisabled: '先に配信先を選んでください',
+    fieldDeliverOnly: 'ペイロードのみ配信',
+    fieldDeliverOnlyHint: 'エージェントを実行せず、生のイベントを配信先へ転送します。',
+    fieldSecret: '署名シークレット',
+    fieldSecretPlaceholder: '空にすると自動生成されます',
+    fieldSecretHint:
+      '自動生成されたシークレットは一度しか表示されません。自分で指定すれば最初から手元に控えを残せます。',
+    fieldCreated: '作成日時',
+    fieldScript: 'スクリプト',
+    secretSet: '設定済み（非表示）',
+    secretMissing: '未設定',
+    createHint: '名前は URL のパスになるため、小文字化され、空白はハイフンになります。',
+    create: '作成',
+    creating: '作成中…',
+    createFailed: 'サブスクリプションを作成できませんでした',
+    created: (name: string) => `「${name}」を作成しました`,
+    nameRequired: '名前は必須です。',
+    nameInvalid: '英小文字・数字・ハイフン・アンダースコアを使い、英数字で始めてください。',
+    nameNormalized: (name: string) => `「${name}」として作成されます。`,
+    deliverOnlyNeedsTarget: 'ペイロードのみの配信には実際の配信先が必要です。ログ以外を選んでください。',
+    createdTitle: (name: string) => `「${name}」のシークレット`,
+    secretOnce: '署名シークレット',
+    secretOnceWarning: 'このシークレットが表示されるのはこの一度だけです。以降ゲートウェイは読み取りのたびに隠します。',
+    secretCopiedHint: 'クリップボードにコピーしました。閉じる前に安全な場所へ貼り付けてください。',
+    secretNotCopiedHint: 'まだコピーしていません。クリップボードが使えない場合は値を選択して手動でコピーしてください。',
+    secretRecovery:
+      '失くしましたか？ このサブスクリプションを削除して作り直すか、次回は自分でシークレットを指定してください。',
+    secretLater: 'あとで',
+    secretSaved: '保存しました',
+    enabledRow: (name: string) => `「${name}」を有効化しました`,
+    disabledRow: (name: string) => `「${name}」を無効化しました`,
+    toggleFailed: (name: string) => `「${name}」を変更できませんでした`,
+    deleteTitle: 'サブスクリプションを削除',
+    deleteDescPrefix: '次を完全に削除します: ',
+    deleteDescSuffix: '。署名シークレットも一緒に消えます。元に戻せません。',
+    deleting: '削除中…',
+    deleted: 'サブスクリプションを削除しました',
+    deleteFailed: (name: string) => `「${name}」を削除できませんでした`,
+    disabledTitle: 'Webhook レシーバーは停止中です',
+    disabledBody:
+      'Webhook は独立したゲートウェイプラットフォームです。有効にすると受信 HTTP イベントを受け付けます。チャットチャンネルはサブスクリプションがそこへ配信する場合にのみ必要です。',
+    enable: 'Webhook を有効にする',
+    enabling: '有効化中…',
+    enableFailed: 'Webhook プラットフォームを有効にできませんでした',
+    enabledRestartStarted:
+      '設定上は有効になり、ゲートウェイの再起動を開始しました。再起動が完了するまでレシーバーはイベントを受け付けません。',
+    restartNotStarted: (detail: string) =>
+      `設定上は有効になりましたが、ゲートウェイの再起動を開始できませんでした${detail} レシーバーが起動するには手動で再起動してください。`,
+    restartGateway: 'ゲートウェイを再起動',
+    restarting: '再起動中…',
+    receiverNotLiveTitle: 'レシーバーはイベントを受け付けていません',
+    receiverNotLive: (state: string) =>
+      `ゲートウェイは Webhook プラットフォームを「${state}」と報告しています。下のサブスクリプションは保存されていますが、まだ待ち受けていません。`,
+    receiverUnknown:
+      'このゲートウェイはプラットフォームの状態を報告しないため、レシーバーが実際に待ち受けているかはここでは確認できません。設定上有効であることだけが分かります。',
+    pendingRestartBody:
+      'Webhook は設定上有効ですが、稼働中のゲートウェイはその変更より前に起動しており、レシーバーを開いていません。再起動してください。',
+    unknownState: '不明',
+    deliverOptions: {
+      log: 'ログ',
+      telegram: 'Telegram',
+      discord: 'Discord',
+      slack: 'Slack',
+      email: 'メール',
+      github_comment: 'GitHub コメント'
+    }
   }
 })

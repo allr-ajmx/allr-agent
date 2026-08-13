@@ -106,6 +106,7 @@ export interface Translations {
     settings: string
     files: string
     review: string
+    webhooks: string
   }
 
   // The code-review / git-diff view.
@@ -2649,5 +2650,95 @@ export interface Translations {
     settingsDesc: string
     /** Where to bind the chord, since this port ships it unbound. */
     shortcutHint: string
+  }
+  /** Inbound webhook subscriptions — the Webhooks overlay (app/webhooks). */
+  webhooks: {
+    title: string
+    loading: string
+    loadFailed: string
+    search: string
+    noMatches: string
+    tabInbound: string
+    tabOutbound: string
+    outboundSubtitle: string
+    outboundTitle: string
+    outboundBody: string
+    emptyTitle: string
+    emptyDesc: string
+    emptyDescDisabled: string
+    newSubscription: string
+    enableFirst: string
+    rowActions: string
+    enableRow: string
+    disableRow: string
+    showSecret: string
+    secretUnsaved: string
+    deliverOnly: string
+    allEvents: string
+    webhookUrl: string
+    fieldName: string
+    fieldNamePlaceholder: string
+    fieldDescription: string
+    fieldDescriptionPlaceholder: string
+    fieldPrompt: string
+    fieldPromptPlaceholder: string
+    fieldEvents: string
+    fieldEventsPlaceholder: string
+    fieldSkills: string
+    fieldSkillsPlaceholder: string
+    fieldDeliver: string
+    fieldDeliverChatId: string
+    fieldDeliverChatPlaceholder: string
+    fieldDeliverChatDisabled: string
+    fieldDeliverOnly: string
+    fieldDeliverOnlyHint: string
+    fieldSecret: string
+    fieldSecretPlaceholder: string
+    fieldSecretHint: string
+    fieldCreated: string
+    fieldScript: string
+    secretSet: string
+    secretMissing: string
+    createHint: string
+    create: string
+    creating: string
+    createFailed: string
+    created: (name: string) => string
+    nameRequired: string
+    nameInvalid: string
+    nameNormalized: (name: string) => string
+    deliverOnlyNeedsTarget: string
+    createdTitle: (name: string) => string
+    secretOnce: string
+    secretOnceWarning: string
+    secretCopiedHint: string
+    secretNotCopiedHint: string
+    secretRecovery: string
+    secretLater: string
+    secretSaved: string
+    enabledRow: (name: string) => string
+    disabledRow: (name: string) => string
+    toggleFailed: (name: string) => string
+    deleteTitle: string
+    deleteDescPrefix: string
+    deleteDescSuffix: string
+    deleting: string
+    deleted: string
+    deleteFailed: (name: string) => string
+    disabledTitle: string
+    disabledBody: string
+    enable: string
+    enabling: string
+    enableFailed: string
+    enabledRestartStarted: string
+    restartNotStarted: (detail: string) => string
+    restartGateway: string
+    restarting: string
+    receiverNotLiveTitle: string
+    receiverNotLive: (state: string) => string
+    receiverUnknown: string
+    pendingRestartBody: string
+    unknownState: string
+    deliverOptions: Record<string, string>
   }
 }
