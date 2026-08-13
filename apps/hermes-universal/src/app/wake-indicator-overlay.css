@@ -1,0 +1,72 @@
+/* The in-window wake indicator: a small light pinned to the top edge, centred.
+ *
+ * Desktop draws this in a dedicated always-on-top Electron window sitting over
+ * the notch (electron/wake-indicator.ts, 176×52 at the top of the internal
+ * display). Universal has no such window today, so the pill is drawn INSIDE the
+ * app window at the same place on the same geometry — the visual language is
+ * identical, only the surface differs. MJXHRM-228's native notch light replaces
+ * the surface, not this look. */
+
+.wake-indicator-surface {
+  align-items: flex-start;
+  display: flex;
+  inset: 0 0 auto 0;
+  justify-content: center;
+  /* Above every in-app overlay: the point of the indicator is that it is visible
+   * when nothing else told you the app heard you. */
+  padding-top: max(5px, env(safe-area-inset-top));
+  pointer-events: none;
+  position: fixed;
+  z-index: 100;
+}
+
+.wake-indicator-light {
+  backdrop-filter: blur(20px) saturate(1.2);
+  background: rgba(124, 58, 237, 0.62);
+  border: 1px solid rgba(216, 180, 254, 0.82);
+  border-radius: 999px;
+  box-shadow:
+    0 0 10px rgba(124, 58, 237, 0.7),
+    0 0 24px rgba(168, 85, 247, 0.48);
+  height: 28px;
+  opacity: 0;
+  transform: scale(0.96);
+  transition:
+    opacity 500ms ease-out,
+    transform 500ms ease-out;
+  width: 120px;
+}
+
+.wake-indicator-surface[data-state='detected'] .wake-indicator-light {
+  animation: wake-indicator-breathe 2.5s ease-in-out infinite;
+}
+
+.wake-indicator-surface[data-state='capturing'] .wake-indicator-light {
+  opacity: 1;
+  transform: scale(1);
+}
+
+@keyframes wake-indicator-breathe {
+  0%,
+  100% {
+    opacity: 0.34;
+    transform: scale(0.96);
+  }
+
+  50% {
+    opacity: 0.94;
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wake-indicator-light {
+    transition: opacity 200ms ease-out;
+  }
+
+  .wake-indicator-surface[data-state='detected'] .wake-indicator-light {
+    animation: none;
+    opacity: 0.72;
+    transform: scale(1);
+  }
+}

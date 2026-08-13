@@ -7,6 +7,7 @@ import { QUICK_ENTRY_SURFACE } from '@/app/quick-entry/quick-entry'
 import { QuickEntryWindowRoot } from '@/app/quick-entry/quick-entry-window'
 import { RemoteFolderPicker } from '@/app/right-pane/files/remote-picker'
 import { TileWindowRoot } from '@/app/tile-window'
+import { WakeIndicatorOverlay } from '@/app/wake-indicator-overlay'
 import { FindBar } from '@/components/find-bar'
 import { isActivityWindow, isTileWindow, satelliteSurface } from '@/store/windows'
 
@@ -28,6 +29,11 @@ import { isActivityWindow, isTileWindow, satelliteSurface } from '@/store/window
  * nothing until opened and carries its own accelerator where no dispatcher
  * exists, so mounting it per window is free.
  *
+ * `WakeIndicatorOverlay` (MJXHRM-389) is the fourth, for the same reason as
+ * `FindBar`: it renders nothing until "Hey Hermes" fires, and the window that
+ * armed the detector is not necessarily the one the app shell is in. Mounting it
+ * per root costs one atom subscription and removes the question entirely.
+ *
  * `CloseConfirm` (MJXHRM-390) is the third, and it was the same mistake one
  * level down: the "close a working chat?" gate mounted inside
  * `ContribController`, i.e. only in the DOCKED TILE TREE. A phone renders
@@ -45,6 +51,7 @@ export function App() {
       <RemoteFolderPicker />
       <FindBar />
       <CloseConfirm />
+      <WakeIndicatorOverlay />
     </>
   )
 }

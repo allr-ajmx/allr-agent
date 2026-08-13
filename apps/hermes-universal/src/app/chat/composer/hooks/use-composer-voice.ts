@@ -9,6 +9,7 @@ import { resetBrowseState } from '@/store/composer-input-history'
 import { notifyError } from '@/store/notifications'
 import { $voiceConversation } from '@/store/voice-conversation'
 import { $autoSpeakReplies, seedVoicePrefs, setAutoSpeakReplies } from '@/store/voice-prefs'
+import { clearWakeIndicator, syncWakeIndicatorWithVoice } from '@/store/wake-indicator'
 import { armWakeWord, setWakeConversationStarter } from '@/store/wake-word'
 import type { ConversationBinding } from '@/voice/conversation-controller'
 
@@ -146,6 +147,32 @@ export function useComposerVoice({
 
     return () => setWakeConversationStarter(null)
   }, [disabled, target])
+
+  // The wake indicator follows the conversation the wake phrase opened, and only
+  // that one — a conversation the user started by hand shows the composer's own
+  // pill and needs no light. `syncWakeIndicatorWithVoice` answers whether this
+  // surface owns the indicator; the unmount below is what stops a chat closing
+  // mid-conversation from leaving the light on with nothing behind it.
+  const ownsWakeIndicator = useRef(false)
+
+  useEffect(() => {
+    if (target !== 'main') {
+      return
+    }
+
+    if (syncWakeIndicatorWithVoice(voiceConversationActive, conversation.status)) {
+      ownsWakeIndicator.current = voiceConversationActive
+    }
+  }, [conversation.status, target, voiceConversationActive])
+
+  useEffect(
+    () => () => {
+      if (ownsWakeIndicator.current) {
+        clearWakeIndicator()
+      }
+    },
+    []
+  )
 
   const startConversation = useCallback(() => conversation.start(), [conversation])
   const endConversation = useCallback(() => conversation.end(), [conversation])

@@ -12,6 +12,7 @@ import {
 import { playWakeSound } from '@/lib/wake-sound'
 import { atom } from '@/store/atom'
 import { addGatewayEventListener } from '@/store/gateway'
+import { activateWakeIndicator } from '@/store/wake-indicator'
 import { voiceEngine } from '@/voice/engine'
 import type { VoiceLease } from '@/voice/types'
 
@@ -453,6 +454,10 @@ addGatewayEventListener(event => {
   void (async () => {
     await stopClientCapture()
     playWakeSound()
+    // Chime AND light: on a machine with sounds muted the chime is the only
+    // acknowledgement, and it is silent. Lit before the starter runs so the
+    // indicator covers the whole gap while the conversation opens.
+    activateWakeIndicator()
     onDetected?.(detection)
   })()
 })

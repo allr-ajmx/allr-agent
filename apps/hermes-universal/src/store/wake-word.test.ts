@@ -79,6 +79,7 @@ import {
 import { playWakeSound } from '@/lib/wake-sound'
 import { voiceEngine } from '@/voice/engine'
 
+import { $wakeIndicator, clearWakeIndicator } from './wake-indicator'
 import {
   $wakeWord,
   armWakeWord,
@@ -136,7 +137,10 @@ beforeEach(async () => {
   vi.mocked(resumeWakeWord).mockResolvedValue({ resumed: true, reason: null })
 })
 
-afterEach(() => setWakeConversationStarter(null))
+afterEach(() => {
+  setWakeConversationStarter(null)
+  clearWakeIndicator()
+})
 
 describe('the toggle IS the config', () => {
   it('persists on the click, in both directions', async () => {
@@ -367,6 +371,15 @@ describe('wake.detected', () => {
     await new Promise(resolve => setTimeout(resolve, 0))
 
     expect(starter).toHaveBeenCalledWith({ phrase: 'hey hermes', profile: null, startNewSession: true })
+  })
+
+  it('lights the wake indicator, so a muted machine still sees the wake register', async () => {
+    setWakeConversationStarter(vi.fn())
+
+    h.route?.({ type: 'wake.detected', payload: { phrase: 'hey hermes' } })
+    await new Promise(resolve => setTimeout(resolve, 0))
+
+    expect($wakeIndicator.get()).toBe('detected')
   })
 
   it('ignores every other gateway event', async () => {
