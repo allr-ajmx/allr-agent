@@ -2849,7 +2849,6 @@ export const en: Translations = {
       copyFile: 'Copy file',
       copyPath: 'Copy path',
       outputAlt: 'Tool output',
-      rawResponse: 'Raw response',
       copyActivity: 'Copy activity',
       recoveredOne: 'Recovered after 1 failed step',
       recoveredMany: count => `Recovered after ${count} failed steps`,
