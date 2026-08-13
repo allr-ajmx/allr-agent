@@ -36,15 +36,18 @@ vi.mock('@/store/windows', () => ({
   }
 }))
 
-vi.mock('@/store/composer', () => ({
+vi.mock('@/lib/composer-draft-bus', () => ({
   requestComposerDraftSync: (mode: string) => {
     calls.push(`sync:${mode}`)
     sync(mode)
-  },
-  requestPeerComposerFlush: (surface: string) => {
-    calls.push(`peer-flush:${surface}`)
+  }
+}))
 
-    return peerFlush(surface)
+vi.mock('@/store/composer', () => ({
+  requestPeerComposerFlush: (address: { surface: null | string }) => {
+    calls.push(`peer-flush:${address.surface}`)
+
+    return peerFlush(address.surface as string)
   }
 }))
 
@@ -158,7 +161,7 @@ describe('the transport handoff', () => {
     // before anything was listening. Claimed AFTER, and only on success: the
     // claim says "this window put that HUD on screen", which a failed summon did
     // not do — and a peer app window hears the same native close.
-    expect(calls).toEqual(['sync:flush', 'arm', 'open', 'claim'])
+    expect(calls).toEqual(['arm', 'open', 'claim'])
   })
 
   it('claims nothing when the HUD could not be opened', async () => {
@@ -170,12 +173,16 @@ describe('the transport handoff', () => {
 })
 
 describe('the draft handoff', () => {
-  it('flushes before the window that will read it exists', async () => {
+  it('does not flush on the way out of THIS module any more', async () => {
     await openHud('abc123')
 
-    // Reversed, the HUD's composer mounts, reads an empty stash, paints, and
-    // only then hears about the text — by which point it has already lost.
-    expect(calls).toEqual(['sync:flush', 'arm', 'open', 'claim'])
+    // The flush still happens, and still before the window exists — it moved
+    // into `openSatelliteWindow` and its three siblings, because this was the
+    // only opener that ever had one and three others were building windows that
+    // read the stash without writing to it first (MJXHRM-398). Pinned there, in
+    // `store/windows.test.ts`; `openSatelliteWindow` is mocked here, so a flush
+    // appearing in this list again would mean a second one was reintroduced.
+    expect(calls).not.toContain('sync:flush')
   })
 
   it('flushes before tearing the HUD down, this window first and then the HUD', async () => {

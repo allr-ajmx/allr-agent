@@ -10,12 +10,35 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const openTileWindow = vi.fn()
 const closeTileWindow = vi.fn()
+const requestPeerComposerFlush = vi.fn(async () => true)
+/** Every cross-module call in order — reattach is about SEQUENCE. */
+const calls: string[] = []
 let closedHandler: ((event: { payload: string }) => void) | undefined
 
 vi.mock('@/store/windows', () => ({
-  closeTileWindow,
+  closeTileWindow: (label: string) => {
+    calls.push('close-window')
+
+    return closeTileWindow(label)
+  },
   openTileWindow,
   TILE_WINDOW_CLOSED_EVENT: 'hermes://tile-window-closed'
+}))
+
+// Two marks, not one, and a real microtask between them: the ask going out is
+// not the guarantee — the ANSWER is, and only awaiting it puts the peer's text on
+// disk before this window acts. Without the second mark a dropped `await` would
+// still order identically.
+vi.mock('@/store/composer', () => ({
+  requestPeerComposerFlush: async (address: { surface: null | string; tile: null | string }) => {
+    calls.push(`peer-flush:${address.tile}`)
+
+    const answered = await requestPeerComposerFlush()
+
+    calls.push('flush-answered')
+
+    return answered
+  }
 }))
 
 vi.mock('@tauri-apps/api/event', () => ({
@@ -34,6 +57,8 @@ describe('detached tiles', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.resetModules()
+    requestPeerComposerFlush.mockResolvedValue(true)
+    calls.length = 0
     closedHandler = undefined
   })
 
@@ -109,6 +134,60 @@ describe('detached tiles', () => {
     await reattachTile('terminal')
 
     expect(closeTileWindow).not.toHaveBeenCalled()
+    // Not even the ask: there is no window holding that tile to ask.
+    expect(requestPeerComposerFlush).not.toHaveBeenCalled()
+  })
+
+  it('brings the draft home before the slot fills back in, and before the window dies', async () => {
+    const { $detachedTiles, detachTile, reattachTile } = await load()
+
+    openTileWindow.mockResolvedValueOnce('tile-session-tile-abc')
+    await detachTile('session-tile:abc')
+
+    calls.length = 0
+
+    const stop = $detachedTiles.subscribe(tiles => {
+      if (!tiles.has('session-tile:abc')) {
+        calls.push('slot-refilled')
+      }
+    })
+
+    await reattachTile('session-tile:abc')
+    stop()
+
+    // Both orderings are load-bearing and neither is obvious. Refilling the slot
+    // first mounts a composer that seeds from the shared stash, so it would paint
+    // the host's text as of its last 400 ms debounce; closing first destroys a
+    // webview from OUTSIDE it, and nothing runs there on the way out.
+    expect(calls).toEqual(['peer-flush:session-tile:abc', 'flush-answered', 'slot-refilled', 'close-window'])
+  })
+
+  it('addresses the tile, not a satellite surface — a tile window is not one', async () => {
+    const { detachTile, reattachTile } = await load()
+
+    openTileWindow.mockResolvedValueOnce('tile-session-tile-abc')
+    await detachTile('session-tile:abc')
+    await reattachTile('session-tile:abc')
+
+    // `{ surface: null }` is every ordinary window AND every tile window, so the
+    // tile id is the only field that separates the one being reattached from the
+    // window doing the reattaching.
+    expect(calls).toContain('peer-flush:session-tile:abc')
+  })
+
+  it('reattaches anyway when the host window never answered', async () => {
+    const { detachTile, isTileDetached, reattachTile } = await load()
+
+    openTileWindow.mockResolvedValueOnce('tile-terminal')
+    await detachTile('terminal')
+
+    // Already gone, or no event bus. The draft is unrecoverable either way, and
+    // stranding a tile the user asked to bring back is the worse failure.
+    requestPeerComposerFlush.mockResolvedValueOnce(false)
+    await reattachTile('terminal')
+
+    expect(isTileDetached('terminal')).toBe(false)
+    expect(closeTileWindow).toHaveBeenCalledWith('tile-terminal')
   })
 
   it('a closed window reattaches the tile it was hosting, and only that one', async () => {

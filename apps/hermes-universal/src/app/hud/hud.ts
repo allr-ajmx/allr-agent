@@ -14,8 +14,9 @@
  */
 
 import { routeSessionId, sessionRoute } from '@/app/routes'
+import { requestComposerDraftSync } from '@/lib/composer-draft-bus'
 import { surfaceCapabilities } from '@/lib/surface'
-import { requestComposerDraftSync, requestPeerComposerFlush } from '@/store/composer'
+import { requestPeerComposerFlush } from '@/store/composer'
 import {
   closeSatelliteWindow,
   HUD_SURFACE,
@@ -65,21 +66,25 @@ export async function canUseHud(): Promise<boolean> {
 /**
  * Summon the HUD on `sessionId` (defaulting to whatever this window is showing).
  *
- * The draft flush happens BEFORE the window exists, not after: the HUD's
- * composer reads the shared stash as it mounts, and a `storage` event racing
- * that mount would land after it has already painted an empty box.
+ * There is no draft flush here any more, and its absence is the point. It used
+ * to sit on this line, and it was the ONLY opener that had one — tearing a tile
+ * off, popping a chat out and opening a new instance window all built a window
+ * that reads the shared stash without writing to it first (MJXHRM-398). So the
+ * flush moved to `openSatelliteWindow` and its three siblings in
+ * `store/windows.ts`, where every native window of the app is actually built,
+ * and it still happens BEFORE the window exists: the HUD's composer reads the
+ * stash as it mounts, and a write racing that mount lands after it has already
+ * painted an empty box.
  */
 export async function openHud(sessionId: null | string = hudTargetSessionId()): Promise<boolean> {
   // The capability gate, at the one choke point all three entry points share —
   // the titlebar button, the in-app keybind, and the OS-wide chord. Checked
   // before anything is flushed or armed, because a summon that cannot happen
-  // must leave no trace: a `flush` here would make the HUD's composer stash the
+  // must leave no trace: a flush here would make the HUD's composer stash the
   // authoritative draft for a window that never opens.
   if (!(await canUseHud())) {
     return false
   }
-
-  requestComposerDraftSync('flush')
 
   // Arm the return trip BEFORE the window exists (MJXHRM-371). The HUD takes the
   // gateway's binding for whatever session it resumes, so this window has to be
@@ -121,7 +126,7 @@ export async function closeHud(): Promise<void> {
   // exchange would let one window's older copy of one draft land on top of the
   // other's newer one.
   if (!isSatelliteWindow()) {
-    await requestPeerComposerFlush(HUD_SURFACE)
+    await requestPeerComposerFlush({ surface: HUD_SURFACE, tile: null })
   }
 
   await closeSatelliteWindow(HUD_SURFACE)

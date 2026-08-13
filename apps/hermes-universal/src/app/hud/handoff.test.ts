@@ -31,7 +31,8 @@ vi.mock('@tauri-apps/api/event', () => ({ listen }))
 vi.mock('@/lib/platform', () => ({ IS_TAURI: true }))
 vi.mock('@/lib/route-nav', () => ({ navigateTo }))
 vi.mock('@/store/notifications', () => ({ notifyError }))
-vi.mock('@/store/composer', () => ({ reloadPersistedDrafts, requestComposerDraftSync }))
+vi.mock('@/lib/composer-draft-bus', () => ({ requestComposerDraftSync }))
+vi.mock('@/store/composer', () => ({ reloadPersistedDrafts }))
 vi.mock('@/store/session', () => ({
   $activeStoredSessionId: { get: () => activeStoredSessionId },
   openSession

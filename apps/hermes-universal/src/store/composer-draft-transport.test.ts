@@ -54,14 +54,22 @@ vi.mock('@/lib/platform', async importOriginal => ({
   IS_TAURI: true
 }))
 
-/** Which surface the window running the test is. Settable: a flush is ADDRESSED,
- *  so answering one meant for somebody else is the failure. */
-const surface = vi.hoisted(() => ({ current: null as null | string }))
+/** Which window the one running the test IS. Settable: a flush is ADDRESSED, so
+ *  answering one meant for somebody else is the failure.
+ *
+ *  Two fields because a window kind needs both to be named: a detached tile
+ *  window is `surface: null` exactly like the main window, and the HUD is
+ *  `tile: null` exactly like it too. */
+const here = vi.hoisted(() => ({ surface: null as null | string, tile: null as null | string }))
 
-vi.mock('@/store/windows', () => ({ satelliteSurface: () => surface.current }))
+vi.mock('@/store/windows', () => ({
+  addressesThisWindow: (address: { surface: null | string; tile: null | string }) =>
+    address.surface === here.surface && address.tile === here.tile
+}))
+
+const { onComposerDraftSyncRequest } = await import('@/lib/composer-draft-bus')
 
 const {
-  onComposerDraftSyncRequest,
   reloadPersistedDrafts,
   requestPeerComposerFlush,
   SESSION_DRAFTS_STORAGE_KEY,
@@ -72,6 +80,11 @@ const {
 const STASH_EVENT = 'composer-draft://changed'
 const FLUSH_EVENT = 'composer-draft://flush'
 const FLUSHED_EVENT = 'composer-draft://flushed'
+
+/** The two windows that get asked to flush today: the HUD on its dismissal, and
+ *  a detached tile's host on its reattach (MJXHRM-398). */
+const HUD = { surface: 'hud', tile: null }
+const TILE = { surface: null, tile: 'session-tile:abc' }
 
 /** What this window put on the bus for `event`, oldest first. */
 function emitted(event: string): Record<string, unknown>[] {
@@ -96,7 +109,8 @@ beforeEach(() => {
   // Storage is empty again, so the dedupe baseline has to be too — otherwise the
   // first stash of a case compares equal to the previous case's and says nothing.
   reloadPersistedDrafts()
-  surface.current = null
+  here.surface = null
+  here.tile = null
   bus.emit.mockClear()
 })
 
@@ -228,7 +242,7 @@ describe('serving a flush another window asked for', () => {
     const heard = vi.fn()
     const off = onComposerDraftSyncRequest(heard)
 
-    bus.deliver(FLUSH_EVENT, { nonce: 'n-1', origin: 'another-webview', surface: null })
+    bus.deliver(FLUSH_EVENT, { nonce: 'n-1', origin: 'another-webview', surface: null, tile: null })
 
     expect(heard).toHaveBeenCalledWith('flush')
     expect(emitted(FLUSHED_EVENT)).toHaveLength(1)
@@ -247,7 +261,7 @@ describe('serving a flush another window asked for', () => {
       order.push(`emit:${event}`)
     })
 
-    bus.deliver(FLUSH_EVENT, { nonce: 'n-1', origin: 'another-webview', surface: null })
+    bus.deliver(FLUSH_EVENT, { nonce: 'n-1', origin: 'another-webview', surface: null, tile: null })
 
     // "Acknowledged" has to mean "the text is on disk". The asker is about to
     // destroy this window on the strength of it.
@@ -261,7 +275,7 @@ describe('serving a flush another window asked for', () => {
     const heard = vi.fn()
     const off = onComposerDraftSyncRequest(heard)
 
-    bus.deliver(FLUSH_EVENT, { nonce: 'n-1', origin: 'another-webview', surface: 'hud' })
+    bus.deliver(FLUSH_EVENT, { nonce: 'n-1', origin: 'another-webview', surface: 'hud', tile: null })
 
     // This window is the ordinary one. Answering for the HUD would both lie and
     // put this window's copy of a shared conversation on top of the HUD's.
@@ -272,15 +286,63 @@ describe('serving a flush another window asked for', () => {
   })
 
   it('answers when it IS the surface addressed', () => {
-    surface.current = 'hud'
+    here.surface = 'hud'
 
     const heard = vi.fn()
     const off = onComposerDraftSyncRequest(heard)
 
-    bus.deliver(FLUSH_EVENT, { nonce: 'n-1', origin: 'another-webview', surface: 'hud' })
+    bus.deliver(FLUSH_EVENT, { nonce: 'n-1', origin: 'another-webview', surface: 'hud', tile: null })
 
     expect(heard).toHaveBeenCalledWith('flush')
     expect(emitted(FLUSHED_EVENT)).toHaveLength(1)
+
+    off()
+  })
+
+  it('answers when it is the detached tile window addressed', () => {
+    here.tile = 'session-tile:abc'
+
+    const heard = vi.fn()
+    const off = onComposerDraftSyncRequest(heard)
+
+    bus.deliver(FLUSH_EVENT, { nonce: 'n-1', origin: 'the-main-window', ...TILE })
+
+    // A tile window is not a satellite, so a surface alone could never have
+    // reached it — which is why reattach used to have nothing to ask
+    // (MJXHRM-398).
+    expect(heard).toHaveBeenCalledWith('flush')
+    expect(emitted(FLUSHED_EVENT)).toHaveLength(1)
+
+    off()
+  })
+
+  it('does not answer for a DIFFERENT tile window', () => {
+    here.tile = 'session-tile:zzz'
+
+    const heard = vi.fn()
+    const off = onComposerDraftSyncRequest(heard)
+
+    bus.deliver(FLUSH_EVENT, { nonce: 'n-1', origin: 'the-main-window', ...TILE })
+
+    // Several tiles can be detached at once, each in its own window, and they
+    // are all `surface: null`. Answering for a sibling would put its copy of a
+    // shared conversation on top of the one being reattached.
+    expect(heard).not.toHaveBeenCalled()
+    expect(emitted(FLUSHED_EVENT)).toHaveLength(0)
+
+    off()
+  })
+
+  it('does not let the main window answer a tile window’s flush', () => {
+    const heard = vi.fn()
+    const off = onComposerDraftSyncRequest(heard)
+
+    bus.deliver(FLUSH_EVENT, { nonce: 'n-1', origin: 'the-main-window', ...TILE })
+
+    // `here` is the ordinary window — the one that ASKED. Serving its own
+    // request would report success with the peer's text still unwritten.
+    expect(heard).not.toHaveBeenCalled()
+    expect(emitted(FLUSHED_EVENT)).toHaveLength(0)
 
     off()
   })
@@ -288,7 +350,7 @@ describe('serving a flush another window asked for', () => {
 
 describe('asking another window to flush', () => {
   it('reports success only when that window answered', async () => {
-    const pending = requestPeerComposerFlush('hud', 200)
+    const pending = requestPeerComposerFlush(HUD, 200)
 
     // Let the listener registration round trip resolve before the peer answers.
     await Promise.resolve()
@@ -306,11 +368,11 @@ describe('asking another window to flush', () => {
   it('reports failure when nobody answered', async () => {
     // The difference this whole file exists for: emitting into a void and
     // returning cleanly is indistinguishable from a flush that worked.
-    expect(await requestPeerComposerFlush('hud', 10)).toBe(false)
+    expect(await requestPeerComposerFlush(HUD, 10)).toBe(false)
   })
 
   it('does not count an answer to somebody else’s question', async () => {
-    const pending = requestPeerComposerFlush('hud', 20)
+    const pending = requestPeerComposerFlush(HUD, 20)
 
     await Promise.resolve()
     await Promise.resolve()
@@ -321,12 +383,27 @@ describe('asking another window to flush', () => {
   })
 
   it('addresses the surface it was asked about', async () => {
-    const pending = requestPeerComposerFlush('hud', 10)
+    const pending = requestPeerComposerFlush(HUD, 10)
 
     await Promise.resolve()
     await Promise.resolve()
 
     expect(emitted(FLUSH_EVENT).at(-1)?.surface).toBe('hud')
+    // Carried even when it is null: the address is compared field by field, so a
+    // missing `tile` and an explicit `null` have to be the same question.
+    expect(emitted(FLUSH_EVENT).at(-1)?.tile).toBeNull()
+
+    await pending
+  })
+
+  it('addresses the tile it was asked about', async () => {
+    const pending = requestPeerComposerFlush(TILE, 10)
+
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(emitted(FLUSH_EVENT).at(-1)?.tile).toBe('session-tile:abc')
+    expect(emitted(FLUSH_EVENT).at(-1)?.surface).toBeNull()
 
     await pending
   })
@@ -334,7 +411,7 @@ describe('asking another window to flush', () => {
   it('stops listening once it has an answer', async () => {
     const before = bus.listenerCount(FLUSHED_EVENT)
 
-    const answered = requestPeerComposerFlush('hud', 200)
+    const answered = requestPeerComposerFlush(HUD, 200)
 
     await Promise.resolve()
     await Promise.resolve()
@@ -352,7 +429,7 @@ describe('asking another window to flush', () => {
   it('stops listening when nobody answers either', async () => {
     const before = bus.listenerCount(FLUSHED_EVENT)
 
-    expect(await requestPeerComposerFlush('hud', 10)).toBe(false)
+    expect(await requestPeerComposerFlush(HUD, 10)).toBe(false)
     expect(bus.listenerCount(FLUSHED_EVENT)).toBe(before)
   })
 })
