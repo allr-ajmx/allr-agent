@@ -264,6 +264,12 @@ export interface Translations {
     pressKey: string
     set: string
     conflictWith: (label: string) => string
+    /** Marker on a shortcut the OS has been asked to reserve machine-wide. */
+    globalTag: string
+    globalTagHint: string
+    globalClaimTitle: string
+    globalClaimMessage: (combos: string) => string
+    globalClaimAction: string
     categories: Record<string, string>
     actions: Record<string, string>
   }

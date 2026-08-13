@@ -212,6 +212,13 @@ export const en: Translations = {
     pressKey: 'Press a key…',
     set: 'set',
     conflictWith: label => `Also bound to “${label}”`,
+    globalTag: 'System-wide',
+    globalTagHint:
+      'Claimed from the operating system at startup: it fires while Hermes is in the background, and no other app on this computer can use this chord.',
+    globalClaimTitle: 'A shortcut is now reserved system-wide',
+    globalClaimMessage: combos =>
+      `Hermes claimed ${combos} from the operating system, so it answers while another app is in front. No other app can use it while Hermes is running.`,
+    globalClaimAction: 'Change it',
     categories: {
       composer: 'Composer',
       profiles: 'Profiles',

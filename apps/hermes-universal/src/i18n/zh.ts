@@ -209,6 +209,12 @@ export const zh: Translations = {
     pressKey: '请按下按键…',
     set: '设置',
     conflictWith: label => `已绑定到“${label}”`,
+    globalTag: '系统级',
+    globalTagHint: '启动时从操作系统占用：Hermes 在后台时也会触发，本机上的其他应用无法使用该组合键。',
+    globalClaimTitle: '已在系统级占用一个快捷键',
+    globalClaimMessage: combos =>
+      `Hermes 已从操作系统占用 ${combos}，因此在其他应用位于前台时也会响应。Hermes 运行期间其他应用无法使用它。`,
+    globalClaimAction: '修改',
     categories: {
       composer: '输入框',
       profiles: '配置',

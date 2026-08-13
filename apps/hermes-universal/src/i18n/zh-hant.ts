@@ -63,7 +63,13 @@ export const zhHant = defineLocale({
   // The read-only `shortcuts` reference became the full rebindable `keybinds`
   // panel; only its title is translated here, the rest falls back to English.
   keybinds: {
-    title: '鍵盤快速鍵'
+    title: '鍵盤快速鍵',
+    globalTag: '系統層級',
+    globalTagHint: '啟動時向作業系統取得：Hermes 在背景時也會觸發，本機上的其他應用程式無法使用這組按鍵。',
+    globalClaimTitle: '已在系統層級保留一組快速鍵',
+    globalClaimMessage: combos =>
+      `Hermes 已向作業系統取得 ${combos}，因此其他應用程式在前景時也會回應。Hermes 執行期間其他應用程式無法使用它。`,
+    globalClaimAction: '變更'
   },
 
   files: {

@@ -63,7 +63,14 @@ export const ja = defineLocale({
   // The read-only `shortcuts` reference became the full rebindable `keybinds`
   // panel; only its title is translated here, the rest falls back to English.
   keybinds: {
-    title: 'キーボードショートカット'
+    title: 'キーボードショートカット',
+    globalTag: 'システム全体',
+    globalTagHint:
+      '起動時にオペレーティングシステムから予約されます。Hermes がバックグラウンドにあるときも動作し、このコンピューター上の他のアプリはこのキーを使えません。',
+    globalClaimTitle: 'ショートカットをシステム全体で予約しました',
+    globalClaimMessage: combos =>
+      `Hermes はオペレーティングシステムから ${combos} を予約しました。他のアプリが手前にあるときも反応します。Hermes の実行中は他のアプリがこのキーを使えません。`,
+    globalClaimAction: '変更する'
   },
 
   files: {

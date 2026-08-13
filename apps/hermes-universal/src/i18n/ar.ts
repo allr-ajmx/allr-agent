@@ -148,6 +148,13 @@ export const ar = defineLocale({
     pressKey: 'اضغط مفتاحا...',
     set: 'مضبوط',
     conflictWith: label => `مرتبط أيضا بـ “${label}”`,
+    globalTag: 'على مستوى النظام',
+    globalTagHint:
+      'محجوز من نظام التشغيل عند بدء التشغيل: يعمل بينما يكون هيرميس في الخلفية، ولا يمكن لأي تطبيق آخر على هذا الحاسوب استخدام هذا الاختصار.',
+    globalClaimTitle: 'تم حجز اختصار على مستوى النظام',
+    globalClaimMessage: combos =>
+      `حجز هيرميس ${combos} من نظام التشغيل، لذا يستجيب حتى عندما يكون تطبيق آخر في المقدمة. لا يمكن لأي تطبيق آخر استخدامه أثناء تشغيل هيرميس.`,
+    globalClaimAction: 'تغييره',
     categories: {
       composer: 'المحرّر',
       profiles: 'الملفات الشخصية',
