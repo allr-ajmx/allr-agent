@@ -513,6 +513,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
+    // BOOTSTRAP-ONCE. `themeName` is read only to skip a redundant setState on
+    // the response; depending on it would re-issue this GET on every theme
+    // switch and let a slow reply overwrite the switch the user just made.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -537,6 +540,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
+    // BOOTSTRAP-ONCE, as above: `fontId` only guards a redundant setState, and
+    // depending on it would refetch the preference every time the font changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

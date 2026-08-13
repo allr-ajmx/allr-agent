@@ -120,6 +120,10 @@ export default function PairingPage() {
     return () => {
       setEnd(null);
     };
+    // `handleClearPending` MUST stay out: it is a plain function with a fresh
+    // identity every render, and the effect body is a setState (`setEnd`
+    // stores a new element each call) — depending on it would render-loop the
+    // page. Only `clearing` changes what the button shows, so it is the dep.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [setEnd, clearing]);
 

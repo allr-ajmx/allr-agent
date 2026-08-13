@@ -121,6 +121,9 @@ export default function FilesPage() {
     // until the shared lint profile is updated for async page loaders.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void load(currentPath);
+    // `load` is `useCallback(..., [currentPath])` and the path is passed
+    // explicitly here, so `[currentPath]` already fires exactly when `load`
+    // changes — naming both would be the same effect with a redundant dep.
   }, [currentPath]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {

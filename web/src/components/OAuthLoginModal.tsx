@@ -66,6 +66,14 @@ export function OAuthLoginModal({ provider, onClose, onSuccess }: Props) {
       if (copyResetTimer.current !== null)
         window.clearTimeout(copyResetTimer.current);
     };
+    // MOUNT-ONCE: one OAuth flow per mount. `provider.id` cannot change under a
+    // mounted modal — the sole call site (OAuthProvidersCard) renders this only
+    // while `loginFor` is set, and the only setter is a provider row's Connect
+    // button, which this `fixed inset-0` backdrop covers. Closing nulls
+    // `loginFor` and unmounts. If a second call site ever renders this without
+    // unmounting between providers, key it by `provider.id` rather than adding
+    // the dep — restarting a live device-code flow in place would strand the
+    // poll timer on the previous provider.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
