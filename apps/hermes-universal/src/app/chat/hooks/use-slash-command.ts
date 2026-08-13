@@ -1,6 +1,9 @@
 import { useCallback } from 'react'
 
+import { requestComposerInsert } from '@/app/chat/composer/focus'
+import { useComposerScope } from '@/app/chat/composer/scope'
 import { branchSourceOf, useSessionView } from '@/app/chat/session-view'
+import { submitPromptToSurface } from '@/app/chat/surface-submit'
 import { PET_SETTINGS_ROUTE, STARMAP_ROUTE } from '@/app/routes'
 import type {
   BrowserManageResponse,
@@ -26,9 +29,8 @@ import { toChatMessages } from '@/lib/session-history'
 import { isSessionIdCandidate, renderCommandsCatalog, slashStatusText } from '@/lib/slash-utils'
 import { setSessionYolo } from '@/lib/yolo-session'
 import { syncApprovalModeForProfile } from '@/store/approval-mode'
-import { appendSessionSystemMessage, ensureSession, sendPrompt } from '@/store/chat'
+import { appendSessionSystemMessage, ensureSession } from '@/store/chat'
 import { setSessionCompacting } from '@/store/compaction'
-import { setComposerDraft } from '@/store/composer'
 import { $connection } from '@/store/connection'
 import { $focusView, pushFocusView } from '@/store/focus-view'
 import { requestGateway } from '@/store/gateway'
@@ -91,17 +93,21 @@ interface SlashActionCtx {
  * `command.dispatch`) was misrouted the same way, and their output printed into
  * the main pane too (MJXHRM-357).
  *
- * `store/session-tile-delegate.ts` still exposes `executeSlash` for this, from
- * before the local dispatcher was ported; it has had no caller since. Routing
- * through it is not the fix — it submits the raw command as PROMPT TEXT, so
- * `/model`, `/new` and the other client-side verbs would reach the agent as
- * words instead of running.
+ * `store/session-tile-delegate.ts` used to expose an `executeSlash` for this,
+ * from before the local dispatcher was ported. It never gained a caller and is
+ * now deleted: it submitted the raw command as PROMPT TEXT, so `/model`, `/new`
+ * and the other client-side verbs would have reached the agent as words instead
+ * of running. Every slash on every surface comes through here.
  */
 export function useSlashCommand() {
   const { t } = useI18n()
   const copy = t.desktop
   const handleSkinCommand = useSkinCommand()
   const view = useSessionView()
+  // Which composer on the insert bus is THIS surface's ('main' | 'tile:<id>').
+  // Commands that hand text back (`/undo`'s prefill, the degenerate-slash
+  // restore) must address it, not the foreground one.
+  const composerTarget = useComposerScope().target
 
   return useCallback(
     async (rawCommand: string, options?: { recordInput?: boolean }) => {
@@ -201,9 +207,16 @@ export function useSlashCommand() {
 
           // /undo returns a prefill directive: drop the backed-up message into
           // the composer for editing instead of submitting it immediately.
+          //
+          // Through the insert bus, addressed to THIS surface's composer. It
+          // used to call `setComposerDraft`, which writes `$composerDraft` — an
+          // atom no mounted composer has ever read (the draft engine keeps its
+          // text in the contentEditable plus `stashSessionDraft`). So the
+          // backed-up message was written to a dead store and `/undo` silently
+          // destroyed the very text it exists to give back.
           if (dispatch.type === 'prefill') {
             if (message) {
-              setComposerDraft(message)
+              requestComposerInsert(message, { target: composerTarget })
             }
 
             return
@@ -227,7 +240,14 @@ export function useSlashCommand() {
             return
           }
 
-          await sendPrompt(message)
+          // The SURFACE's own session, like every other session-bound act in
+          // this file. A bare `sendPrompt` here submitted to the foreground
+          // chat and was gated on the foreground chat's busy flag, so from a
+          // tile this either opened the turn on the wrong conversation or —
+          // whenever the main pane was mid-turn — dropped the directive in
+          // silence, which is the "no turn, no busy state" this ticket is
+          // named for (MJXHRM-419).
+          await submitPromptToSurface(view, message)
         }
 
         try {
@@ -854,9 +874,11 @@ export function useSlashCommand() {
           // The composer draft was already cleared on submit, and slash input
           // never lands in the Up-arrow history ring (it derives from sent user
           // messages) — so without this restore, any payload after a degenerate
-          // slash (`/ text`, `/` + newline) is lost forever. Hand it back.
+          // slash (`/ text`, `/` + newline) is lost forever. Hand it back to the
+          // composer it was typed in — `setComposerDraft` wrote an atom no
+          // composer reads, so this "restore" restored nothing.
           if (command.replace(/^\/+/, '').trim()) {
-            setComposerDraft(command)
+            requestComposerInsert(command, { target: composerTarget })
           }
 
           appendTargetSystemMessage(copy.emptySlashCommand)
@@ -889,6 +911,6 @@ export function useSlashCommand() {
 
       await runSlash(rawCommand, options?.recordInput ?? true)
     },
-    [copy, handleSkinCommand, view]
+    [composerTarget, copy, handleSkinCommand, view]
   )
 }

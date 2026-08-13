@@ -14,17 +14,19 @@ vi.mock('@/store/gateway', async () => {
   }
 })
 
+import { onComposerInsertRequest } from '@/app/chat/composer/focus'
+import { type ComposerScope, ComposerScopeProvider, MAIN_COMPOSER_SCOPE } from '@/app/chat/composer/scope'
 import { type SessionView, SessionViewProvider } from '@/app/chat/session-view'
 import { GatewayRpcError } from '@/gateway/rpc-error'
 import { $approvalModes } from '@/store/approval-mode'
 import type * as ChatStoreModule from '@/store/chat'
 import { $messages, $sessionId, resetChat, sendPrompt } from '@/store/chat'
 import { $compactingSessions, sessionCompacting } from '@/store/compaction'
-import { $composerDraft } from '@/store/composer'
 import { requestGateway } from '@/store/gateway'
 import { $modelPickerOpen } from '@/store/model'
 import { $sessions } from '@/store/session'
 import { $sessionStates, emptySessionState, publishSessionState, updateSession } from '@/store/session-state-types'
+import { type SessionTileDelegate, setSessionTileDelegate } from '@/store/session-states'
 import { resetSessionStates, seedActiveSession } from '@/test-sessions'
 import { ThemeProvider } from '@/themes/context'
 
@@ -59,6 +61,22 @@ function mount() {
   )
 }
 
+/**
+ * Text handed back to a composer, and WHICH composer got it.
+ *
+ * The real insert bus, not a mock of it: `setComposerDraft` used to write a
+ * `$composerDraft` atom that no mounted composer has ever read, so the old
+ * assertions here passed while `/undo` and the degenerate-slash restore threw
+ * the user's text away (MJXHRM-419). Reading the bus is what makes the
+ * difference visible — and it carries the target, which is the other half of
+ * the bug: a tile's text must not land in the main composer.
+ */
+const inserts: { target: string; text: string }[] = []
+let stopListening: () => void = () => undefined
+
+/** The bus defers a macrotask so click/keydown handlers finish first. */
+const flushInsertBus = () => new Promise(resolve => setTimeout(resolve, 0))
+
 /** Text of every system line currently in the transcript. */
 const systemLines = () =>
   $messages
@@ -78,7 +96,8 @@ beforeEach(() => {
   resetSessionStates()
   resetChat()
   seedActiveSession('sess-1')
-  $composerDraft.set('')
+  inserts.length = 0
+  stopListening = onComposerInsertRequest(({ target, text }) => inserts.push({ target, text }))
   $modelPickerOpen.set(false)
   vi.mocked(requestGateway).mockReset()
   vi.mocked(sendPrompt).mockClear()
@@ -86,6 +105,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  stopListening()
   $sessions.set([])
   updateSession('sess-1', s => ({ ...s, busy: false }))
 })
@@ -151,8 +171,9 @@ describe('useSlashCommand', () => {
     vi.mocked(requestGateway).mockResolvedValue({ type: 'prefill', message: 'restored text' } as never)
 
     await run('/undo')
+    await flushInsertBus()
 
-    expect($composerDraft.get()).toBe('restored text')
+    expect(inserts).toEqual([{ target: 'main', text: 'restored text' }])
     expect(sendPrompt).not.toHaveBeenCalled()
   })
 
@@ -273,8 +294,9 @@ describe('useSlashCommand', () => {
 
   it('restores the payload of a degenerate slash and reports it', async () => {
     await run('/ some text')
+    await flushInsertBus()
 
-    expect($composerDraft.get()).toBe('/ some text')
+    expect(inserts).toEqual([{ target: 'main', text: '/ some text' }])
     expect(systemLines()).toEqual(['empty slash command'])
   })
   // MJXHRM-308: the recovery resolver's default `onRecovered` REKEYS the slice
@@ -410,6 +432,22 @@ describe('a slash command typed in a tile', () => {
     $reasoningEffort: atom('')
   })
 
+  /** The tile's composer on the focus/insert bus — what session-tile.tsx
+   *  provides alongside the tile's session view. */
+  const tileScope: ComposerScope = { ...MAIN_COMPOSER_SCOPE, popoutAllowed: false, target: 'tile:stored-tile' }
+
+  /** Submits the tile delegate received. The delegate is the tile's half of
+   *  `submitPromptToSurface`; its turn/busy behaviour is pinned in
+   *  store/session-tile-delegate.test.ts. */
+  let submitted: [string, string][]
+
+  /** The TILE's system lines. `systemLines()` reads `$messages`, which is the
+   *  foreground chat — a tile's slash output must never appear there. */
+  const tileSystemLines = () =>
+    ($sessionStates.get()['tile-1']?.messages ?? [])
+      .filter(m => m.role === 'system')
+      .map(m => m.parts.map(p => ('text' in p ? p.text : '')).join(''))
+
   beforeEach(() => {
     // Only these two slices: `resetChat` leaves a draft behind per test, and the
     // LRU cap would otherwise evict the very sessions under test.
@@ -418,11 +456,20 @@ describe('a slash command typed in a tile', () => {
     // A second, background session — the tile's — beside the active one.
     publishSessionState('tile-1', { ...emptySessionState('stored-tile'), runtimeSessionId: 'tile-1' })
 
+    submitted = []
+    setSessionTileDelegate({
+      submitToSession: async (runtimeId: string, text: string) => {
+        submitted.push([runtimeId, text])
+      }
+    } as unknown as SessionTileDelegate)
+
     render(
       <MemoryRouter>
         <ThemeProvider>
           <SessionViewProvider value={tileView('tile-1')}>
-            <TileHarness />
+            <ComposerScopeProvider value={tileScope}>
+              <TileHarness />
+            </ComposerScopeProvider>
           </SessionViewProvider>
         </ThemeProvider>
       </MemoryRouter>
@@ -467,6 +514,51 @@ describe('a slash command typed in a tile', () => {
     })
     // ...and the foreground transcript is still its own.
     expect($sessionStates.get()['sess-1'].messages).toEqual(said('foreground answer'))
+  })
+
+  // MJXHRM-419, the ticket's own shape. A `send` directive went out through the
+  // bare `sendPrompt`, which submits to `$activeSessionKey` and opens with
+  // `if (!trimmed || $busy.get()) return` over the FOREGROUND chat's busy flag.
+  // From a tile that meant the turn opened on the main pane — or, when the main
+  // pane was mid-turn, nothing happened anywhere and nothing said so.
+  it('submits a send directive to the tile, not the chat in the foreground', async () => {
+    vi.mocked(requestGateway).mockResolvedValue({ type: 'send', message: 'do the thing' } as never)
+
+    await run('/goal ship it')
+
+    expect(submitted).toEqual([['tile-1', 'do the thing']])
+    expect(sendPrompt).not.toHaveBeenCalled()
+  })
+
+  it('still submits a send directive while the FOREGROUND chat is mid-turn', async () => {
+    updateSession('sess-1', s => ({ ...s, busy: true }))
+    vi.mocked(requestGateway).mockResolvedValue({ type: 'send', message: 'do the thing' } as never)
+
+    await run('/goal ship it')
+
+    // The tile is idle, so its own busy guard does not fire and the directive
+    // must land. `sendPrompt` would have dropped it on the foreground's flag.
+    expect(submitted).toEqual([['tile-1', 'do the thing']])
+    expect(tileSystemLines().every(line => !line.includes('session busy'))).toBe(true)
+  })
+
+  it('refuses a send directive when the TILE is the one mid-turn', async () => {
+    updateSession('tile-1', s => ({ ...s, busy: true }))
+    vi.mocked(requestGateway).mockResolvedValue({ type: 'send', message: 'do the thing' } as never)
+
+    await run('/goal ship it')
+
+    expect(submitted).toEqual([])
+    expect(tileSystemLines().at(-1)).toContain('session busy')
+  })
+
+  it('hands a prefill back to the tile composer, not the main one', async () => {
+    vi.mocked(requestGateway).mockResolvedValue({ type: 'prefill', message: 'restored text' } as never)
+
+    await run('/undo')
+    await flushInsertBus()
+
+    expect(inserts).toEqual([{ target: 'tile:stored-tile', text: 'restored text' }])
   })
 
   it('marks the tile as compacting while it runs, and releases it after', async () => {
