@@ -1383,7 +1383,20 @@ html {
    phase — ported now so the markup already carries its styling contract.
    ========================================================================== */
 
-/* Messages are selectable text even though buttons globally aren't. */
+/* Messages are selectable text even though buttons globally aren't.
+
+   The shell says `user-select: none` on <body> (it's an app, not a document),
+   so everything below is the carve-out list: the surfaces where a drag really
+   is meant to highlight. Editable elements are named explicitly rather than
+   left to the engine — CSS-UI says an editable element's `auto` resolves to
+   `contain` no matter what its ancestors say, but `-webkit-user-select` in
+   WebKit predates that rule and plain inherits, and universal's webview IS
+   WebKitGTK. `:not([contenteditable='false'])` keeps the carve-out off the
+   inert bits: a disabled composer renders `contenteditable="false"`, and every
+   committed `@`-chip is a `contenteditable="false"` span. */
+input,
+textarea,
+[contenteditable]:not([contenteditable='false']),
 [data-slot='aui_user-message-root'],
 [data-slot='aui_assistant-message-content'],
 [data-slot='aui_system-message-root'],
@@ -1391,6 +1404,53 @@ html {
 [data-selectable-text='true'] * {
   -webkit-user-select: text;
   user-select: text;
+}
+
+/* The placeholder is a painted hint, not content: it must never end up in a
+   selection or on the clipboard. It needs saying here because the rule above
+   just made its host selectable, and WebKit lets generated content inherit. */
+[data-slot='composer-rich-input']:empty::before {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+button,
+[role='button'] {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* User bubbles are <button>s (click → edit), so the rule above would kill
+   drag-to-select and leave ⌘C with nothing to grab. Message text stays
+   selectable; chrome controls outside the bubble keep user-select: none.
+
+   THESE TWO RULES ARE ONE UNIT. The override exists only to undo the `none`
+   above it — ship the `none` without it and a sent prompt stops being
+   selectable; ship it without the `none` and it changes nothing. Moving or
+   deleting either one alone is always a bug. */
+[data-slot='aui_user-message-root'] button,
+[data-slot='aui_user-message-root'] [role='button'] {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+img,
+picture,
+video,
+canvas,
+svg {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* An image inside a reply is a passenger of the text around it. Without this a
+   press on one starts a native image drag instead of a text selection, so a
+   drag-select that begins on a picture — or on the icon inside a chip — never
+   selects anything at all. */
+img,
+video,
+canvas {
+  -webkit-user-drag: none;
 }
 
 [data-slot='aui_assistant-message-content'] {
