@@ -302,7 +302,7 @@ export function PreviewFile({ target, variant = 'rail' }: { target: PreviewTarge
           {canEdit && (
             <button
               className={cn(
-                'ml-1 inline-flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-(--chrome-action-hover) hover:text-foreground',
+                'ms-1 inline-flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-(--chrome-action-hover) hover:text-foreground',
                 IS_MOBILE && 'min-h-9 px-2.5'
               )}
               onClick={beginEdit}

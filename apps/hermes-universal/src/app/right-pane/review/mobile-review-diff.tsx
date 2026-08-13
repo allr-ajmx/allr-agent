@@ -62,7 +62,7 @@ export function MobileReviewDiff({
       <header className="shrink-0 border-b border-(--ui-stroke-tertiary)">
         <div className="flex min-h-[44px] items-center gap-1 px-1">
           <Button aria-label={m.backToFiles} className="size-9 shrink-0" onClick={onBack} size="icon" variant="ghost">
-            <Codicon name="chevron-left" size="1.1rem" />
+            <Codicon className="rtl:-scale-x-100" name="chevron-left" size="1.1rem" />
           </Button>
 
           <div className="flex min-w-0 flex-1 flex-col">
@@ -70,7 +70,7 @@ export function MobileReviewDiff({
             <span className="truncate text-[0.7rem] text-(--ui-text-tertiary)">{file.path}</span>
           </div>
 
-          <DiffCount added={file.added} className="shrink-0 pr-1 text-[0.7rem]" removed={file.removed} />
+          <DiffCount added={file.added} className="shrink-0 pe-1 text-[0.7rem]" removed={file.removed} />
         </div>
 
         {/* Position + neighbours. Reviewing twenty files on a phone means never
@@ -84,7 +84,7 @@ export function MobileReviewDiff({
             size="sm"
             variant="ghost"
           >
-            <Codicon name="chevron-left" size="0.9rem" />
+            <Codicon className="rtl:-scale-x-100" name="chevron-left" size="0.9rem" />
             {m.previous}
           </Button>
 
@@ -101,7 +101,7 @@ export function MobileReviewDiff({
             variant="ghost"
           >
             {m.next}
-            <Codicon name="chevron-right" size="0.9rem" />
+            <Codicon className="rtl:-scale-x-100" name="chevron-right" size="0.9rem" />
           </Button>
         </div>
       </header>

@@ -82,7 +82,7 @@ export function MobileTerminalKeys({ modifiers, onCycleModifier, onSend }: Mobil
 
       {/* Arrows stay pinned: history and line editing are what the row is for,
           and they can't be allowed to scroll away. */}
-      <div className="flex shrink-0 gap-1 border-l border-(--ui-stroke-tertiary) pl-1">
+      <div className="flex shrink-0 gap-1 border-s border-(--ui-stroke-tertiary) ps-1">
         <Key icon="arrow-left" label="Left" onPress={send(`${ESC}[D`)} />
         <Key icon="arrow-up" label="Up" onPress={send(`${ESC}[A`)} />
         <Key icon="arrow-down" label="Down" onPress={send(`${ESC}[B`)} />

@@ -40,7 +40,7 @@ export function TerminalRail() {
   const activeId = useStore($activeTerminalId)
 
   return (
-    <div className="flex h-full w-9 shrink-0 flex-col items-center border-l border-(--ui-stroke-tertiary) bg-(--ui-editor-surface-background)">
+    <div className="flex h-full w-9 shrink-0 flex-col items-center border-s border-(--ui-stroke-tertiary) bg-(--ui-editor-surface-background)">
       <ul
         aria-label={t.rightSidebar.terminalsAria}
         className="flex min-h-0 flex-1 flex-col items-center gap-0.5 self-stretch overflow-y-auto overflow-x-hidden py-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
@@ -88,7 +88,7 @@ function TerminalRailItem({ active, index, term }: { active: boolean; index: num
       <ContextMenuTrigger asChild>
         <li className="relative flex w-full justify-center">
           {active && (
-            <span aria-hidden className="absolute inset-y-0.5 right-0 w-0.5 rounded-l-sm bg-(--ui-stroke-primary)" />
+            <span aria-hidden className="absolute inset-y-0.5 end-0 w-0.5 rounded-s-sm bg-(--ui-stroke-primary)" />
           )}
           <Tip label={label}>
             <button
