@@ -17,7 +17,16 @@
  * jsdom does not implement the selection collapse itself, so the middle block
  * asserts the CONTRACT (the press leaves its default alone) rather than the
  * engine behaviour. WebKitGTK confirmation is on the ticket's runtime list.
+ *
+ * THE OTHER HALF (MJXHRM-361). None of those handlers decide whether a drag
+ * highlights anything in the first place — the cascade in styles.css does, and
+ * <body> says `user-select: none` because this is an app, not a document. The
+ * last block reads that cascade for the elements it governs.
  */
+
+/// <reference types="node" />
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 
 import { act, cleanup, render, screen } from '@testing-library/react'
 import type { ReactNode } from 'react'
@@ -197,5 +206,199 @@ describe('right-click', () => {
 
     // No handler at all, so the native menu is the behaviour on both paths.
     expect(press(bubble(), 'contextmenu').defaultPrevented).toBe(false)
+  })
+})
+
+// ── The CSS half ────────────────────────────────────────────────────────────
+//
+// The bubble is a <button>, which is the one element type the stylesheet turns
+// selection OFF for — so `button { user-select: none }` and the override that
+// re-enables it inside `[data-slot='aui_user-message-root']` are a single unit,
+// and the thing worth pinning is the OUTCOME of the cascade rather than the
+// presence of a line of CSS. Universal shipped neither half for a while, which
+// computed the same answer for the bubble and a different one for every other
+// selectable surface around it (buttons and images inside a reply).
+//
+// Vitest stubs every css import (see overlay-z-order.test.tsx), so the sheet is
+// read off disk. What follows resolves ONE property over the rules in that one
+// file: it is not a browser, and it ignores Tailwind's own utilities — none of
+// the elements below carry a `select-*` class. It cannot prove that WebKitGTK
+// honours the result; that is the runtime checklist's job.
+const STYLESHEET = readFileSync(join(__dirname, '..', '..', '..', 'styles.css'), 'utf8').replace(
+  /\/\*[\s\S]*?\*\//g,
+  ''
+)
+
+interface CssRule {
+  declarations: Map<string, string>
+  order: number
+  selectors: string[]
+}
+
+const RULES: CssRule[] = (() => {
+  const rules: CssRule[] = []
+
+  // Innermost blocks only: `[^{}]` cannot cross a brace, so an at-rule wrapper
+  // (`@layer base { … }`) contributes its children and never itself.
+  for (const [, selectorList, body] of STYLESHEET.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    const declarations = new Map<string, string>()
+
+    for (const declaration of body.split(';')) {
+      const colon = declaration.indexOf(':')
+
+      if (colon !== -1) {
+        declarations.set(declaration.slice(0, colon).trim(), declaration.slice(colon + 1).trim())
+      }
+    }
+
+    rules.push({
+      declarations,
+      order: rules.length,
+      selectors: selectorList
+        .split(',')
+        .map(selector => selector.trim())
+        .filter(Boolean)
+    })
+  }
+
+  return rules
+})()
+
+/** a·b·c flattened into one number. `:not()` takes its argument's specificity,
+ *  which falls out of counting the attribute selectors written inside it. */
+function specificity(selector: string): number {
+  const ids = selector.match(/#[\w-]+/g)?.length ?? 0
+  const classes = selector.match(/\.[\w-]+|\[[^\]]+\]|(?<!:):(?!:)(?!not\b)[\w-]+/g)?.length ?? 0
+  const types = selector.match(/(?:^|[\s>+~])[a-z]+/g)?.length ?? 0
+
+  return ids * 10000 + classes * 100 + types
+}
+
+/** Pseudo-element selectors throw in the DOM matcher, and could not match an
+ *  element anyway. */
+function matchesSelector(element: Element, selector: string): boolean {
+  try {
+    return element.matches(selector)
+  } catch {
+    return false
+  }
+}
+
+/** The declaration that wins ON this element — highest specificity, then last
+ *  one written. `null` when nothing in the sheet targets it. */
+function declaredOn(element: Element, property: string): null | string {
+  let winner: null | { order: number; specificity: number; value: string } = null
+
+  for (const rule of RULES) {
+    const value = rule.declarations.get(property)
+
+    if (value === undefined) {
+      continue
+    }
+
+    for (const selector of rule.selectors) {
+      if (!matchesSelector(element, selector)) {
+        continue
+      }
+
+      const rank = specificity(selector)
+
+      if (!winner || rank > winner.specificity || (rank === winner.specificity && rule.order > winner.order)) {
+        winner = { order: rule.order, specificity: rank, value }
+      }
+    }
+  }
+
+  return winner?.value ?? null
+}
+
+/** The value an element ends up with: its own declaration if it has one, else
+ *  the nearest ancestor's. (WebKit inherits `-webkit-user-select` outright; the
+ *  spec arrives at the same answer for `none`/`text` via `auto`'s used value.) */
+function userSelect(element: Element): string {
+  for (let node: Element | null = element; node; node = node.parentElement) {
+    const declared = declaredOn(node, 'user-select')
+
+    if (declared) {
+      return declared
+    }
+  }
+
+  return 'auto'
+}
+
+/** Markup that lives elsewhere in the app, mounted where the cascade can see
+ *  it. Each fixture names its source so it can be checked against the real one. */
+function mount(markup: string): HTMLElement {
+  const host = document.createElement('div')
+
+  host.innerHTML = markup
+  document.body.append(host)
+
+  return host.firstElementChild as HTMLElement
+}
+
+describe('the cascade the guard is paired with', () => {
+  it('starts from a shell that is not selectable at all', () => {
+    // The premise for everything below: without a carve-out, nothing highlights.
+    expect(userSelect(mount('<div>chrome</div>'))).toBe('none')
+  })
+
+  it('leaves the sent bubble selectable even though it is a <button>', () => {
+    render(<UserMessage />)
+
+    // Reachability: the override is a DESCENDANT selector. Move the data-slot
+    // onto the button itself and it stops matching, and `button { none }` wins
+    // in silence.
+    expect(bubble().closest("[data-slot='aui_user-message-root']")).not.toBeNull()
+    expect(userSelect(bubble())).toBe('text')
+  })
+
+  it('keeps the prompt text inside the bubble selectable', () => {
+    render(<UserMessage />)
+
+    expect(userSelect(bubble().querySelector("[data-slot='aui_user-message-text']")!)).toBe('text')
+  })
+
+  it('turns selection off on a button INSIDE a reply, where the prose around it is on', () => {
+    // assistant-message.tsx renders the dismiss-error control inside the content
+    // slot. A drag across the reply must not sweep its label into the clipboard.
+    const content = mount(
+      '<div data-slot="aui_assistant-message-content"><p>reply</p><button type="button">Dismiss</button></div>'
+    )
+
+    expect(userSelect(content.querySelector('p')!)).toBe('text')
+    expect(userSelect(content.querySelector('button')!)).toBe('none')
+  })
+
+  it('keeps an editable composer selectable under the shell-wide none', () => {
+    // composer/index.tsx and user-edit-composer.tsx both render the editor as
+    // `data-slot="composer-rich-input"` on a contenteditable div.
+    expect(userSelect(mount('<div contenteditable="true" data-slot="composer-rich-input">draft</div>'))).toBe('text')
+  })
+
+  it('does not carve out a DISABLED composer, which renders contenteditable="false"', () => {
+    expect(userSelect(mount('<div contenteditable="false" data-slot="composer-rich-input">draft</div>'))).toBe('none')
+  })
+
+  it('takes images out of the selection and out of the drag gesture', () => {
+    const content = mount('<div data-slot="aui_assistant-message-content"><p>look</p><img alt="" src="x.png"></div>')
+
+    const image = content.querySelector('img')!
+
+    expect(userSelect(image)).toBe('none')
+    // Without this a press on the picture starts a native image drag, so a
+    // drag-select that begins on one never selects anything.
+    expect(declaredOn(image, '-webkit-user-drag')).toBe('none')
+  })
+
+  it('never lets the painted placeholder into a selection', () => {
+    // It is a ::before, so no element can carry it — assert the rule instead.
+    // The selector appears twice in the sheet (the composer section paints it,
+    // the selection section disarms it), so this asks whether ANY of them does.
+    const guards = RULES.filter(rule => rule.selectors.includes("[data-slot='composer-rich-input']:empty::before"))
+
+    expect(guards.length).toBeGreaterThan(0)
+    expect(guards.map(rule => rule.declarations.get('user-select'))).toContain('none')
   })
 })
