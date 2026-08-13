@@ -12,6 +12,7 @@ import {
 import { playWakeSound } from '@/lib/wake-sound'
 import { atom } from '@/store/atom'
 import { addGatewayEventListener } from '@/store/gateway'
+import { grantClientCaptureConsent, hasClientCaptureConsent } from '@/store/wake-capture-consent'
 import { activateWakeIndicator } from '@/store/wake-indicator'
 import { voiceEngine } from '@/voice/engine'
 import type { VoiceLease } from '@/voice/types'
@@ -35,7 +36,23 @@ import type { VoiceLease } from '@/voice/types'
  *  * **A detection starts a conversation, it does not transcribe.** The wake
  *    phrase itself is never sent anywhere: `wake.detected` frees the mic, plays
  *    the chime, and asks the composer to open a real voice turn.
+ *
+ * And one of ours (MJXHRM-228): **client capture needs its own press.** Where
+ * the backend answers `capture: "client"` this device streams its microphone
+ * continuously, which the wake toggle alone never asked for — see
+ * `store/wake-capture-consent.ts`. A passive re-arm stops instead of opening the
+ * device, and says so; only a deliberate click starts the upload.
  */
+
+/**
+ * `reason` when the config says the wake word is on, the backend wants THIS
+ * device's microphone, and nobody has agreed to that on this device.
+ *
+ * Exported because the composer's ear button branches on it, and a string only
+ * this module can produce is what keeps that branch honest — matching on a
+ * substring shared with another refusal would make the check untestable.
+ */
+export const WAKE_CLIENT_CAPTURE_UNCONFIRMED = 'client_capture_unconfirmed'
 
 export interface WakeWordState {
   /** The backend can run a detector at all (model present, deps installed). */
@@ -233,6 +250,14 @@ async function applyStart(persist: boolean): Promise<void> {
   }
 
   const capture: WakeCapture = answer.capture === 'client' ? 'client' : 'local'
+
+  // The click IS the consent, and this is where it is recorded: `persist` marks
+  // a deliberate press of the ear, and the backend has just said the press means
+  // "stream this device's microphone" (the button said so before it was pressed).
+  if (capture === 'client' && persist) {
+    grantClientCaptureConsent()
+  }
+
   patch({
     listening: true,
     owned: true,
@@ -244,6 +269,17 @@ async function applyStart(persist: boolean): Promise<void> {
     hint: null,
     pausedForVoice: false
   })
+
+  if (capture === 'client' && !hasClientCaptureConsent()) {
+    // The detector is armed on a backend that has no microphone of its own, and
+    // we are not going to feed it — so disarm rather than leave a listener
+    // nobody supplies audio to. Without `persist`: the user's preference is not
+    // what is in question, only this device's part in it.
+    await stopWakeWord({}).catch(() => undefined)
+    patch({ listening: false, owned: false, streaming: false, reason: WAKE_CLIENT_CAPTURE_UNCONFIRMED, hint: null })
+
+    return
+  }
 
   if (capture === 'client') {
     await startClientCapture()
@@ -264,6 +300,17 @@ export async function armWakeWord(): Promise<void> {
     applyStatus(status)
 
     if (!status.enabled || !status.available) {
+      return
+    }
+
+    // A backend with no microphone wants ours, and nothing on this device has
+    // agreed to that. Stop here rather than opening it: the config saying "the
+    // wake word is on" was written when the mechanism may have been the gateway's
+    // own microphone, and a re-arm at app start is not a moment the user is in.
+    // The ear button explains it and one click starts the upload.
+    if (status.capture === 'client' && !hasClientCaptureConsent()) {
+      patch({ listening: false, owned: false, streaming: false, reason: WAKE_CLIENT_CAPTURE_UNCONFIRMED, hint: null })
+
       return
     }
 
@@ -305,7 +352,12 @@ export async function toggleWakeWord(): Promise<void> {
   patch({ busy: true })
 
   try {
-    if ($wakeWord.get().enabled) {
+    // "Enabled but waiting for this device's consent" reads as ON in the config
+    // and OFF on screen, and the press means START. Without this the one control
+    // offered to allow client capture would disable the wake word instead.
+    const awaitingConsent = $wakeWord.get().reason === WAKE_CLIENT_CAPTURE_UNCONFIRMED
+
+    if ($wakeWord.get().enabled && !awaitingConsent) {
       await stopClientCapture()
       const answer = await stopWakeWord({ persist: true })
       patch({

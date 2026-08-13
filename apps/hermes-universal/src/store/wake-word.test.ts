@@ -79,6 +79,7 @@ import {
 import { playWakeSound } from '@/lib/wake-sound'
 import { voiceEngine } from '@/voice/engine'
 
+import { grantClientCaptureConsent } from './wake-capture-consent'
 import { $wakeIndicator, clearWakeIndicator } from './wake-indicator'
 import {
   $wakeWord,
@@ -86,7 +87,8 @@ import {
   pauseWakeForVoice,
   resumeWakeAfterVoice,
   setWakeConversationStarter,
-  toggleWakeWord
+  toggleWakeWord,
+  WAKE_CLIENT_CAPTURE_UNCONFIRMED
 } from './wake-word'
 
 const start = vi.mocked(startWakeWord)
@@ -108,6 +110,9 @@ const STATUS = {
 async function reset(): Promise<void> {
   // Ending any capture the previous test left open.
   await pauseWakeForVoice()
+  // Client-capture consent is persisted, so one test granting it would decide
+  // the next one's behaviour by test order (MJXHRM-228).
+  localStorage.clear()
   $wakeWord.set({
     available: false,
     enabled: false,
@@ -390,5 +395,85 @@ describe('wake.detected', () => {
     await new Promise(resolve => setTimeout(resolve, 0))
 
     expect(starter).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * MJXHRM-228. The wake toggle is consent to a FEATURE; `capture: "client"` is a
+ * different mechanism behind it — this device's microphone, streaming
+ * continuously, re-established on every app start with no press at all.
+ */
+describe('client capture needs this device’s consent', () => {
+  it('does not open the microphone on a passive re-arm, and says why', async () => {
+    status.mockResolvedValue({ ...STATUS, enabled: true, capture: 'client' })
+
+    await armWakeWord()
+
+    expect(start).not.toHaveBeenCalled()
+    expect(open).not.toHaveBeenCalled()
+    expect($wakeWord.get().streaming).toBe(false)
+    expect($wakeWord.get().reason).toBe(WAKE_CLIENT_CAPTURE_UNCONFIRMED)
+  })
+
+  it('leaves a backend with its own microphone alone', async () => {
+    // The common case must not be gated: no audio leaves this device at all,
+    // so there is nothing here to agree to.
+    status.mockResolvedValue({ ...STATUS, enabled: true, capture: 'local' })
+
+    await armWakeWord()
+
+    expect(start).toHaveBeenCalledWith({ persist: false })
+    expect($wakeWord.get().reason).toBeNull()
+  })
+
+  it('takes the deliberate click as the consent and starts streaming', async () => {
+    start.mockResolvedValue({ started: true, capture: 'client', phrase: 'hey hermes' })
+
+    await toggleWakeWord()
+
+    expect($wakeWord.get().streaming).toBe(true)
+    expect($wakeWord.get().reason).toBeNull()
+  })
+
+  it('streams without asking again on the next start', async () => {
+    grantClientCaptureConsent()
+    status.mockResolvedValue({ ...STATUS, enabled: true, capture: 'client' })
+    start.mockResolvedValue({ started: true, capture: 'client', phrase: 'hey hermes' })
+
+    await armWakeWord()
+
+    expect(start).toHaveBeenCalledWith({ persist: false })
+    expect($wakeWord.get().streaming).toBe(true)
+  })
+
+  it('disarms a detector it has just armed and will not feed', async () => {
+    // `wake.status` can answer `local` and the arm still come back `client` —
+    // the backend decides at arm time. Leaving that detector armed would be a
+    // listener with no audio, so it is stopped WITHOUT persisting: the user's
+    // preference is not what is in question, only this device's part in it.
+    start.mockResolvedValue({ started: true, capture: 'client', phrase: 'hey hermes' })
+    status.mockResolvedValue({ ...STATUS, enabled: true, capture: 'local' })
+
+    await armWakeWord()
+
+    expect(stop).toHaveBeenCalledWith({})
+    expect($wakeWord.get().listening).toBe(false)
+    expect($wakeWord.get().reason).toBe(WAKE_CLIENT_CAPTURE_UNCONFIRMED)
+  })
+
+  it('starts rather than stops when the ear is clicked while waiting for consent', async () => {
+    // The config says enabled, so the naive toggle would read "on" and turn the
+    // wake word OFF — leaving the one control offered to allow client capture
+    // unable to do it.
+    status.mockResolvedValue({ ...STATUS, enabled: true, capture: 'client' })
+    await armWakeWord()
+    expect($wakeWord.get().reason).toBe(WAKE_CLIENT_CAPTURE_UNCONFIRMED)
+
+    start.mockResolvedValue({ started: true, capture: 'client', phrase: 'hey hermes' })
+    await toggleWakeWord()
+
+    expect(stop).not.toHaveBeenCalledWith({ persist: true })
+    expect(start).toHaveBeenCalledWith({ persist: true })
+    expect($wakeWord.get().streaming).toBe(true)
   })
 })

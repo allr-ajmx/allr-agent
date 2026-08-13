@@ -2079,9 +2079,15 @@ export const en: Translations = {
     voiceDictation: 'Voice dictation',
     speakReplies: 'Read replies aloud',
     stopSpeakingReplies: 'Stop reading replies aloud',
+    wakeWordClientCapture: (phrase: string) =>
+      `Wake word off — click to listen for “${phrase}”. This backend has no microphone, so your device streams its own.`,
     wakeWordListening: (phrase: string) => `Listening for “${phrase}” — click to stop`,
+    wakeWordNeedsConfirm: (phrase: string) =>
+      `“${phrase}” needs your device’s microphone — click to start streaming it to the backend`,
     wakeWordOff: (phrase: string) => `Wake word off — click to listen for “${phrase}”`,
     wakeWordPausedVoice: (phrase: string) => `“${phrase}” paused while the voice chat is open`,
+    wakeWordStreaming: (phrase: string) =>
+      `Listening for “${phrase}” — your device’s microphone is streaming to the backend. Click to stop.`,
     wakeWordUnavailable: 'Wake word is unavailable on this gateway',
     lookupLoading: 'Looking up…',
     lookupNoMatches: 'No matches.',

@@ -2235,9 +2235,13 @@ export const zh: Translations = {
     voiceDictation: '语音听写',
     speakReplies: '朗读回复',
     stopSpeakingReplies: '停止朗读回复',
+    wakeWordClientCapture: (phrase: string) =>
+      `唤醒词已关闭 — 点击以监听“${phrase}”。此后端没有麦克风，将改用本设备的麦克风持续上传音频。`,
     wakeWordListening: (phrase: string) => `正在监听“${phrase}” — 点击停止`,
+    wakeWordNeedsConfirm: (phrase: string) => `“${phrase}”需要使用本设备的麦克风 — 点击开始向后端上传音频`,
     wakeWordOff: (phrase: string) => `唤醒词已关闭 — 点击以监听“${phrase}”`,
     wakeWordPausedVoice: (phrase: string) => `语音对话期间已暂停“${phrase}”`,
+    wakeWordStreaming: (phrase: string) => `正在监听“${phrase}” — 本设备的麦克风正在向后端上传音频。点击停止。`,
     wakeWordUnavailable: '此网关不支持唤醒词',
     lookupLoading: '查找中…',
     lookupNoMatches: '没有匹配项。',
