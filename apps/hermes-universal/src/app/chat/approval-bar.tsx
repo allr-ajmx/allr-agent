@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { RequestBar, RequestBarActions, RequestBarDescription } from '@/app/chat/request-bar'
 import { Button, type buttonVariants } from '@/components/ui/button'
 import { type ApprovalChoice, type ApprovalRequest, respondApproval } from '@/store/chat'
-import { notifyError } from '@/store/notifications'
+import { notify, notifyError } from '@/store/notifications'
 
 type Variant = NonNullable<Parameters<typeof buttonVariants>[0]>['variant']
 
@@ -25,7 +25,17 @@ export function ApprovalBar({ request, sessionKey }: { request: ApprovalRequest;
     setSending(true)
 
     try {
-      await respondApproval(choice, sessionKey)
+      // A send that SUCCEEDS can still have unblocked nobody: `approval.respond`
+      // answers `{"resolved": 0}` once the five-minute approval timeout (or a
+      // /stop, or another surface) has taken the request off the queue. The
+      // command was already BLOCKED, so letting the bar simply disappear here
+      // reads as "approved" for something that never ran (MJXHRM-418).
+      if ((await respondApproval(choice, sessionKey)) === 'expired') {
+        notify({
+          kind: 'warning',
+          message: 'That approval had already timed out — the command was blocked. Ask the agent to try it again.'
+        })
+      }
     } catch (error) {
       notifyError(error, 'Approval failed to send')
     } finally {

@@ -14,7 +14,8 @@ vi.mock('@/store/gateway', async () => {
 import { flushDeltas } from '@/lib/stream-batch'
 import { routeGatewayEvent as handleGatewayEvent } from '@/store/event-router'
 import { requestGateway } from '@/store/gateway'
-import { sessionApprovalRequest, sessionClarifyRequest } from '@/store/prompts'
+import { $petActivity } from '@/store/pet'
+import { $activeSessionAwaitingInput, sessionApprovalRequest, sessionClarifyRequest } from '@/store/prompts'
 import { $sessionStates, newDraftKey, rekeySession, updateSession } from '@/store/session-state-types'
 import { $subagentsBySession } from '@/store/subagents'
 import { beginTurn, getInflightTurn } from '@/store/turn-lifecycle'
@@ -293,6 +294,134 @@ describe('chat reducer (parts model)', () => {
     // swallow then hid.
     expect(requestGateway).toHaveBeenCalledWith('approval.respond', { choice: 'once', session_id: 'runtime-1' })
     expect($approval.get()).toBeNull()
+  })
+
+  // MJXHRM-418, second pass. A rejection is only half of "the gateway did not
+  // take this answer": each of these RPCs also has a SUCCESS that delivers
+  // nothing, and reporting that as a normal send is the same lie the swallowed
+  // rejection was.
+
+  // `approval.respond` returns the COUNT of parked agent threads it unblocked
+  // (`resolve_gateway_approval`). Zero means the five-minute approval timeout,
+  // a /stop, or another surface already took the request off the queue — the
+  // command was BLOCKED and this click changed nothing.
+  it('reports an approval that unblocked nobody as expired', async () => {
+    handleGatewayEvent(ev('approval.request', { command: 'rm -rf /' }))
+    vi.mocked(requestGateway).mockResolvedValueOnce({ resolved: 0 } as never)
+
+    await expect(respondApproval('once')).resolves.toBe('expired')
+    // Nothing is waiting for it any more, so the dead bar goes either way.
+    expect($approval.get()).toBeNull()
+  })
+
+  it('reports an approval that unblocked a waiting tool as delivered', async () => {
+    handleGatewayEvent(ev('approval.request', { command: 'rm -rf /' }))
+    vi.mocked(requestGateway).mockResolvedValueOnce({ resolved: 1 } as never)
+
+    await expect(respondApproval('once')).resolves.toBe('delivered')
+  })
+
+  // A backend that doesn't report `resolved` is not claiming anything either
+  // way; treating the missing field as zero would warn on every send.
+  it('does not call an approval expired when the gateway omits the count', async () => {
+    handleGatewayEvent(ev('approval.request', { command: 'rm -rf /' }))
+    vi.mocked(requestGateway).mockResolvedValueOnce({} as never)
+
+    await expect(respondApproval('once')).resolves.toBe('delivered')
+  })
+
+  // `sudo.respond` / `secret.respond` are `allow_expired`: a password or value
+  // that lands after the tool's own wait gave up is accepted and discarded.
+  it('reports a sudo password the tool had stopped waiting for as expired', async () => {
+    handleGatewayEvent(ev('sudo.request', { request_id: 's11', prompt: 'pw' }))
+    vi.mocked(requestGateway).mockResolvedValueOnce({ status: 'expired' } as never)
+
+    await expect(respondSudo('hunter2')).resolves.toBe('expired')
+    expect($sudo.get()).toBeNull()
+  })
+
+  it('reports a live sudo password as delivered', async () => {
+    handleGatewayEvent(ev('sudo.request', { request_id: 's12', prompt: 'pw' }))
+    vi.mocked(requestGateway).mockResolvedValueOnce({ status: 'ok' } as never)
+
+    await expect(respondSudo('hunter2')).resolves.toBe('delivered')
+  })
+
+  it('reports a secret the tool had stopped waiting for as expired', async () => {
+    handleGatewayEvent(ev('secret.request', { request_id: 'x11', env_var: 'API_KEY', prompt: 'key?' }))
+    vi.mocked(requestGateway).mockResolvedValueOnce({ status: 'expired' } as never)
+
+    await expect(respondSecret('sk-1')).resolves.toBe('expired')
+    expect($secret.get()).toBeNull()
+  })
+
+  it('reports a live secret as delivered', async () => {
+    handleGatewayEvent(ev('secret.request', { request_id: 'x12', env_var: 'API_KEY', prompt: 'key?' }))
+    vi.mocked(requestGateway).mockResolvedValueOnce({ status: 'ok' } as never)
+
+    await expect(respondSecret('sk-1')).resolves.toBe('delivered')
+  })
+
+  it('answers nothing when there is no local request left to answer', async () => {
+    await expect(respondSudo('hunter2')).resolves.toBe('gone')
+    await expect(respondSecret('sk-1')).resolves.toBe('gone')
+    expect(requestGateway).not.toHaveBeenCalled()
+  })
+})
+
+// `_block()` in tui_gateway/server.py emits `<name>.expire` when a blocking
+// prompt's wait gives up — the gateway TELLING us the bar on screen is dead.
+// Ignoring it left the bar answerable over a cancelled tool AND kept
+// `$activeSessionAwaitingInput` true, which is what makes Esc refuse to
+// interrupt the rest of the turn.
+describe('blocking prompts the gateway says expired', () => {
+  it('drops an expired sudo request and stops reporting the turn as parked', () => {
+    handleGatewayEvent(ev('sudo.request', { request_id: 's20', prompt: 'pw' }))
+    expect($activeSessionAwaitingInput.get()).toBe(true)
+    // The pet's waiting pose is set by the request and is only ever cleared by
+    // ANSWERING one, so an unanswered death used to strand it there.
+    expect($petActivity.get().awaitingInput).toBe(true)
+
+    handleGatewayEvent(ev('sudo.expire', { request_id: 's20' }))
+
+    expect($sudo.get()).toBeNull()
+    expect($activeSessionAwaitingInput.get()).toBe(false)
+    expect($petActivity.get().awaitingInput).toBe(false)
+  })
+
+  it('drops an expired secret request', () => {
+    handleGatewayEvent(ev('secret.request', { request_id: 'x20', env_var: 'API_KEY', prompt: 'key?' }))
+    handleGatewayEvent(ev('secret.expire', { request_id: 'x20' }))
+
+    expect($secret.get()).toBeNull()
+  })
+
+  // The expire is matched on request_id: a second prompt that arrived while the
+  // first was expiring is still live and must not be torn down with it.
+  it('keeps a newer sudo request when a stale expire arrives', () => {
+    handleGatewayEvent(ev('sudo.request', { request_id: 's21', prompt: 'pw' }))
+    handleGatewayEvent(ev('sudo.expire', { request_id: 's20' }))
+
+    expect($sudo.get()).toMatchObject({ requestId: 's21' })
+  })
+
+  it('keeps a newer secret request when a stale expire arrives', () => {
+    handleGatewayEvent(ev('secret.request', { request_id: 'x21', env_var: 'API_KEY', prompt: 'key?' }))
+    handleGatewayEvent(ev('secret.expire', { request_id: 'x20' }))
+
+    expect($secret.get()).toMatchObject({ requestId: 'x21' })
+  })
+
+  // An approval is still open on this session, so the turn IS still parked on
+  // the user even though the sudo prompt died.
+  it('leaves the turn parked when another prompt on the session is still open', () => {
+    handleGatewayEvent(ev('sudo.request', { request_id: 's22', prompt: 'pw' }))
+    handleGatewayEvent(ev('approval.request', { command: 'rm -rf /' }))
+    handleGatewayEvent(ev('sudo.expire', { request_id: 's22' }))
+
+    expect($sudo.get()).toBeNull()
+    expect($activeSessionAwaitingInput.get()).toBe(true)
+    expect($petActivity.get().awaitingInput).toBe(true)
   })
 })
 

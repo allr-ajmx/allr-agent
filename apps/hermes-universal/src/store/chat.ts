@@ -1333,6 +1333,32 @@ export async function restoreToMessage(
 // again. `respondClarify` was the local precedent and the other three now follow
 // its shape: send first, clear only once the gateway has the answer, and throw
 // so the bar can surface the failure and stay answerable.
+//
+// A REJECTION is only half of "the gateway did not take this answer" (MJXHRM-418
+// second pass). Every one of these RPCs also has a SUCCESS that delivers
+// nothing, and each responder has to read the reply to tell the two apart:
+//
+//  - `sudo.respond` / `secret.respond` / `clarify.respond` are `allow_expired`
+//    (`_respond` in `tui_gateway/server.py`), so an answer that arrives after the
+//    tool's own wait gave up returns `{"status": "expired"}` — HTTP-200 shaped,
+//    delivered nowhere.
+//  - `approval.respond` returns `{"resolved": N}` from
+//    `tools/approval.resolve_gateway_approval`, the COUNT of parked agent threads
+//    it unblocked. `N === 0` means the queue was already empty: the five-minute
+//    approval timeout popped it (`_await_gateway_decision`'s `_drop_entry`), a
+//    `/stop` released it, another surface answered it, or the recovery retry
+//    landed on a gateway that no longer has the thread. The command was BLOCKED.
+//
+// Reporting either of those as a normal send is the same lie the swallowed
+// rejection was, so the outcome comes back to the caller and the bars say so.
+
+/** What the gateway did with a blocking-prompt answer.
+ *
+ *  - `delivered` — a waiter took it.
+ *  - `expired` — the RPC succeeded and nothing was waiting; the tool has already
+ *    given up, so the answer changed nothing. NOT retryable.
+ *  - `gone` — there was no local request to answer in the first place. */
+export type PromptRespondOutcome = 'delivered' | 'expired' | 'gone'
 
 /**
  * `approval.respond` is the ONE responder the resume wrapper can help.
@@ -1347,8 +1373,18 @@ export async function restoreToMessage(
  * `request_id` alone and carry no session at all, so wrapping THEM would be dead
  * code: there is no rejection for the wrapper to catch. See MJXHRM-418's
  * correction comment.
+ *
+ * Returns `expired` when the gateway resolved NOTHING (`{"resolved": 0}`): the
+ * approval the bar is showing is no longer parked anywhere, so the tool it was
+ * guarding has already been BLOCKED and this choice changed nothing. The
+ * recovery retry above is one of the ways to get there — a resume mints a fresh
+ * runtime, and if the gateway process is the thing that died, the thread that
+ * was waiting on the queue died with it.
  */
-export async function respondApproval(choice: ApprovalChoice, key = $activeSessionKey.get()): Promise<void> {
+export async function respondApproval(
+  choice: ApprovalChoice,
+  key = $activeSessionKey.get()
+): Promise<PromptRespondOutcome> {
   const slice = $sessionStates.get()[key]
   // A slice with no runtime id has nothing the gateway can resolve — `_sess()`
   // answers an empty `session_id` with the same "session not found" it gives a
@@ -1358,8 +1394,12 @@ export async function respondApproval(choice: ApprovalChoice, key = $activeSessi
   // imports back into the session store (see the note on `sessionRecovery`).
   const { withSessionNotFoundResume } = await sessionRecovery()
 
-  const { recovered, sessionId: recoveredId } = await withSessionNotFoundResume(live, slice?.storedSessionId, id =>
-    requestGateway('approval.respond', { choice, session_id: id })
+  const {
+    recovered,
+    result,
+    sessionId: recoveredId
+  } = await withSessionNotFoundResume(live, slice?.storedSessionId, id =>
+    requestGateway<{ resolved?: number }>('approval.respond', { choice, session_id: id })
   )
 
   // A recovery MOVES the slice. The default `onRecovered` rekeys it onto the
@@ -1371,15 +1411,17 @@ export async function respondApproval(choice: ApprovalChoice, key = $activeSessi
   // shape as MJXHRM-308, one layer above the resolver that fixed it.
   const liveKey = recovered ? recoveredId : key
 
-  // Only drop the request once the gateway has taken the answer.
+  // Only drop the request once the gateway has taken the answer. An approval it
+  // resolved nothing for is equally finished — the tool stopped waiting — so the
+  // dead bar goes too, and the outcome tells the caller to SAY so.
   clearSessionApproval(liveKey)
   clearAwaitingInputPose(liveKey)
-}
 
-/** What the gateway did with a clarify answer. `gone` covers both halves of
- *  "nobody is waiting for this": no local request to answer, and a request the
- *  backend already timed out. */
-export type ClarifyRespondOutcome = 'delivered' | 'expired' | 'gone'
+  // A gateway that omits `resolved` is not claiming anything either way; only an
+  // explicit zero means "nobody was waiting". Treating a missing field as
+  // expired would turn every older backend into a permanent false warning.
+  return result?.resolved === 0 ? 'expired' : 'delivered'
+}
 
 /**
  * Answer the pending clarify.
@@ -1395,7 +1437,7 @@ export type ClarifyRespondOutcome = 'delivered' | 'expired' | 'gone'
  * nothing. Reporting that as a normal send is how an answer disappears with the
  * UI saying it went through, so the outcome comes back to the caller.
  */
-export async function respondClarify(answer: string, key = $activeSessionKey.get()): Promise<ClarifyRespondOutcome> {
+export async function respondClarify(answer: string, key = $activeSessionKey.get()): Promise<PromptRespondOutcome> {
   const req = sessionClarifyRequest(key).get()
 
   if (!req) {
@@ -1418,14 +1460,25 @@ export async function respondClarify(answer: string, key = $activeSessionKey.get
   return result?.status === 'expired' ? 'expired' : 'delivered'
 }
 
-export async function respondSudo(password: string, key = $activeSessionKey.get()): Promise<void> {
+/**
+ * Answer the pending sudo password prompt.
+ *
+ * `sudo.respond` is `allow_expired`, so a password sent after the tool's own
+ * wait gave up answers `{"status": "expired"}` — a success that delivered
+ * nothing and left the command cancelled. The caller gets that back so the bar
+ * can say the password went nowhere instead of vanishing like it worked.
+ */
+export async function respondSudo(password: string, key = $activeSessionKey.get()): Promise<PromptRespondOutcome> {
   const req = sessionSudoRequest(key).get()
 
   if (!req) {
-    return
+    return 'gone'
   }
 
-  await requestGateway('sudo.respond', { request_id: req.requestId, password })
+  const result = await requestGateway<{ status?: string }>('sudo.respond', {
+    request_id: req.requestId,
+    password
+  })
 
   // Same guard `respondClarify` uses: a `tool.complete` racing this answer may
   // already have swapped the request out, and clearing then would drop a
@@ -1434,21 +1487,30 @@ export async function respondSudo(password: string, key = $activeSessionKey.get(
     clearSessionSudo(key)
     clearAwaitingInputPose(key)
   }
+
+  return result?.status === 'expired' ? 'expired' : 'delivered'
 }
 
-export async function respondSecret(value: string, key = $activeSessionKey.get()): Promise<void> {
+/** Answer the pending secret prompt. `expired` for the same reason as
+ *  `respondSudo`: `secret.respond` is `allow_expired` too. */
+export async function respondSecret(value: string, key = $activeSessionKey.get()): Promise<PromptRespondOutcome> {
   const req = sessionSecretRequest(key).get()
 
   if (!req) {
-    return
+    return 'gone'
   }
 
-  await requestGateway('secret.respond', { request_id: req.requestId, value })
+  const result = await requestGateway<{ status?: string }>('secret.respond', {
+    request_id: req.requestId,
+    value
+  })
 
   if (sessionSecretRequest(key).get()?.requestId === req.requestId) {
     clearSessionSecret(key)
     clearAwaitingInputPose(key)
   }
+
+  return result?.status === 'expired' ? 'expired' : 'delivered'
 }
 
 /** The pet reflects what the USER is looking at, so answering a background

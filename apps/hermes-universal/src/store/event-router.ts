@@ -58,6 +58,11 @@ import { flashPetActivity, setPetActivity } from '@/store/pet'
 import {
   clearAllPrompts,
   clearSessionClarify,
+  clearSessionSecret,
+  clearSessionSudo,
+  sessionAwaitingInput,
+  sessionSecretRequest,
+  sessionSudoRequest,
   setSessionApproval,
   setSessionClarify,
   setSessionSecret,
@@ -413,6 +418,42 @@ export function routeGatewayEvent(event: GatewayEvent): void {
       })
 
       break
+    // The gateway TELLS us when a blocking prompt dies. `_block()` emits
+    // `<name>.expire` for every request type whose responder is `allow_expired`
+    // (`tui_gateway/server.py`) the moment its wait gives up and the tool is
+    // handed an empty answer. Nothing here consumed it, so the bar sat there
+    // over a tool that had already been cancelled — and, worse,
+    // `$activeSessionAwaitingInput` kept calling the turn "parked on the user",
+    // which is exactly what makes Esc refuse to interrupt (see the clarify clear
+    // on `tool.complete` below, which fixed the same thing one prompt over).
+    //
+    // Matched on request_id so a SECOND prompt that arrived while the first was
+    // expiring is never torn down with it. `sudo.request` / `secret.request` are
+    // the only two of the six expiring types with a UI here; `clarify.expire` is
+    // deliberately NOT handled — `tool.complete` already clears that request,
+    // and dropping it out from under a live inline panel would strand it on its
+    // loading spinner in the one case the event exists for (a reconnect that ate
+    // `tool.complete`), where the panel today still routes a late answer into
+    // the composer.
+    case 'secret.expire': {
+      const requestId = coerceText(payload.request_id)
+
+      if (requestId && sessionSecretRequest(key).get()?.requestId === requestId) {
+        clearSessionSecret(key)
+      }
+
+      break
+    }
+
+    case 'sudo.expire': {
+      const requestId = coerceText(payload.request_id)
+
+      if (requestId && sessionSudoRequest(key).get()?.requestId === requestId) {
+        clearSessionSudo(key)
+      }
+
+      break
+    }
 
     case 'message.start':
       // A fresh turn on this session optimistically clears its billing wall; if
@@ -611,6 +652,20 @@ export function routeGatewayEvent(event: GatewayEvent): void {
 
     case 'sudo.request':
       setPetActivity({ awaitingInput: true }) // pet: waiting pose (blocked on user)
+
+      break
+
+    case 'secret.expire':
+
+    case 'sudo.expire':
+      // The waiting pose is set by the four `*.request` events above and dropped
+      // when one is ANSWERED (`clearAwaitingInputPose` in store/chat.ts). A
+      // prompt that died unanswered took its bar with it a moment ago, so the
+      // pet would otherwise keep waiting for input nobody will ever give. Guard
+      // on the aggregate: this session may still have another prompt open.
+      if (!sessionAwaitingInput(key).get()) {
+        setPetActivity({ awaitingInput: false })
+      }
 
       break
 
