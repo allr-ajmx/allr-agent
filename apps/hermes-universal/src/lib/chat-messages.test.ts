@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest'
 
-import { type ChatMessage, collectUnspokenTurnSpeech, userTurnOrdinal } from './chat-messages'
+import {
+  appendSealedReasoning,
+  appendStreamPart,
+  applySettledReasoning,
+  type ChatMessage,
+  type ChatPart,
+  collectUnspokenTurnSpeech,
+  userTurnOrdinal
+} from './chat-messages'
 
 const assistant = (id: string, text: string, extra: Partial<ChatMessage> = {}): ChatMessage => ({
   id,
@@ -111,5 +119,90 @@ describe('userTurnOrdinal', () => {
   it('answers null for an assistant row or an id it does not hold', () => {
     expect(userTurnOrdinal(transcript, 'a1')).toBeNull()
     expect(userTurnOrdinal(transcript, 'nope')).toBeNull()
+  })
+})
+
+/**
+ * A sealed reasoning part is one CLOSED, attributed thought. It exists because
+ * `moa.reference` carries a different model's finished answer, and the
+ * aggregator's own reasoning arrives on the same session immediately after it.
+ */
+describe('sealed reasoning blocks', () => {
+  const sealed = (text: string): ChatPart => ({ type: 'reasoning', text, sealed: true })
+
+  it('opens a new block instead of coalescing a reasoning delta into a closed one', () => {
+    expect(appendStreamPart([sealed('advisor answer')], 'reasoning', 'aggregator thought')).toEqual([
+      sealed('advisor answer'),
+      { type: 'reasoning', text: 'aggregator thought' }
+    ])
+  })
+
+  it('does not scan PAST a closed block into the live one before it', () => {
+    const parts: ChatPart[] = [{ type: 'reasoning', text: 'trail\n' }, sealed('advisor answer')]
+
+    expect(appendStreamPart(parts, 'reasoning', 'aggregator thought')).toEqual([
+      ...parts,
+      { type: 'reasoning', text: 'aggregator thought' }
+    ])
+  })
+
+  it('still coalesces into an OPEN reasoning block', () => {
+    expect(appendStreamPart([{ type: 'reasoning', text: 'half ' }], 'reasoning', 'a thought')).toEqual([
+      { type: 'reasoning', text: 'half a thought' }
+    ])
+  })
+
+  // The seal closes the REASONING channel only. Prose deltas either side of an
+  // advisory block are still one sentence and must stay one bubble.
+  it('leaves the text channel transparent', () => {
+    const parts: ChatPart[] = [{ type: 'text', text: 'the answer ' }, sealed('advisor answer')]
+
+    expect(appendStreamPart(parts, 'text', 'is 42')).toEqual([
+      { type: 'text', text: 'the answer is 42' },
+      sealed('advisor answer')
+    ])
+  })
+
+  it('appends settled reasoning after a closed block rather than replacing it', () => {
+    expect(applySettledReasoning([sealed('advisor answer')], 'aggregator scratchpad')).toEqual([
+      sealed('advisor answer'),
+      { type: 'reasoning', text: 'aggregator scratchpad' }
+    ])
+  })
+
+  it('still replaces an OPEN reasoning block with the authoritative full text', () => {
+    expect(applySettledReasoning([{ type: 'reasoning', text: 'partial' }], 'the full thought')).toEqual([
+      { type: 'reasoning', text: 'the full thought' }
+    ])
+  })
+
+  // The dedupe asks "did we already stream this very thought?". Another model's
+  // answer that happens to contain the same words is not that thought.
+  it('does not let a closed block suppress identical settled reasoning', () => {
+    expect(applySettledReasoning([sealed('use the second approach')], 'use the second approach')).toEqual([
+      sealed('use the second approach'),
+      { type: 'reasoning', text: 'use the second approach' }
+    ])
+  })
+
+  it('still drops settled reasoning already streamed into an open block', () => {
+    const parts: ChatPart[] = [{ type: 'reasoning', text: 'use the second approach, obviously' }]
+
+    expect(applySettledReasoning(parts, 'use the second approach')).toBe(parts)
+  })
+
+  describe('appendSealedReasoning', () => {
+    it('closes the open block it lands in', () => {
+      expect(appendSealedReasoning([{ type: 'reasoning', text: 'trail\n' }], '◇ MoA aggregating…\n')).toEqual([
+        sealed('trail\n◇ MoA aggregating…\n')
+      ])
+    })
+
+    it('opens its own closed block after another closed one', () => {
+      expect(appendSealedReasoning([sealed('advisor answer')], '◇ MoA aggregating…\n')).toEqual([
+        sealed('advisor answer'),
+        sealed('◇ MoA aggregating…\n')
+      ])
+    })
   })
 })

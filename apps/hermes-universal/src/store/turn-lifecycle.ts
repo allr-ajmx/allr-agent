@@ -196,10 +196,24 @@ function write(key: string, next: InflightTurn | null, transition: TurnTransitio
 // The pure fold
 // ---------------------------------------------------------------------------
 
-/** Events that mean the gateway produced something for this turn. */
+/**
+ * Events that mean the gateway produced something for this turn.
+ *
+ * The whole `moa.*` family counts, not just `moa.reference`. A MoA fan-out
+ * emits nothing BUT `moa.progress` until every advisor has returned, against a
+ * `moa_reference` timeout that defaults to 900s — so with only `moa.reference`
+ * here, a turn that has been visibly reporting progress for a quarter of an
+ * hour still read as "produced nothing", and `lastEventAt` never advanced past
+ * `message.start` for the whole fan-out. `store/compaction.ts` already treats
+ * the family as proof the turn is producing again; these two folds are driven
+ * by the same router call and must not disagree about it.
+ */
 const OUTPUT_EVENT_TYPES = new Set([
   'message.delta',
   'message.interim',
+  'moa.aggregating',
+  'moa.phase',
+  'moa.progress',
   'moa.reference',
   'reasoning.available',
   'reasoning.batch',
