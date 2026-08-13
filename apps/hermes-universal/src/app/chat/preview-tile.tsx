@@ -94,7 +94,7 @@ function PreviewTabLead({ path }: { path: string }) {
   const dirty = useStore($dirtyPreviewPaths).has(path)
 
   if (dirty) {
-    return <span aria-hidden className="size-1.5 rounded-full bg-amber-500" />
+    return <span aria-hidden className="size-1.5 rounded-full bg-(--ui-yellow)" />
   }
 
   return isArtifactTab(path) ? (

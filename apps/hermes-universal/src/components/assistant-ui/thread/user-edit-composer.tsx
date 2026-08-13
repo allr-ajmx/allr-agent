@@ -499,7 +499,7 @@ export const UserEditComposer: FC = () => {
                 contenteditable above is what the user actually types into. */}
             <ComposerPrimitive.Input
               asChild
-              className="sr-only bg-amber-500"
+              className="sr-only"
               submitMode="ctrlEnter"
               tabIndex={-1}
               unstable_focusOnScrollToBottom={false}
@@ -509,7 +509,7 @@ export const UserEditComposer: FC = () => {
                 autoCapitalize="off"
                 autoComplete="off"
                 autoCorrect="off"
-                className="sr-only bg-green-500"
+                className="sr-only"
                 spellCheck={false}
                 tabIndex={-1}
               />

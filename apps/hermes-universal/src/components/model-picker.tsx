@@ -329,7 +329,7 @@ function ModelPrice({ isCurrent, price }: { isCurrent: boolean; price?: ModelPri
       <span
         className={cn(
           'shrink-0 rounded-sm px-1 py-0.5 text-[0.62rem] font-semibold uppercase tracking-wide',
-          isCurrent ? 'bg-primary-foreground/20' : 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
+          isCurrent ? 'bg-primary-foreground/20' : 'bg-(--ui-green)/15 text-(--ui-green)'
         )}
       >
         {copy.free}
@@ -368,7 +368,7 @@ function ProviderHeading({ provider }: { provider: ModelOptionProvider }) {
   // free_tier is only set for Nous. true → "Free tier", false → "Pro".
   const tierBadge =
     provider.free_tier === true ? (
-      <span className="rounded-sm bg-emerald-500/15 px-1 py-0.5 text-[0.6rem] font-semibold uppercase tracking-wide text-emerald-600 dark:text-emerald-400">
+      <span className="rounded-sm bg-(--ui-green)/15 px-1 py-0.5 text-[0.6rem] font-semibold uppercase tracking-wide text-(--ui-green)">
         {copy.freeTier}
       </span>
     ) : provider.free_tier === false ? (

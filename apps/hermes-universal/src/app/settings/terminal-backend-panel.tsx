@@ -123,7 +123,7 @@ export function TerminalBackendPanel({ onConfiguredChange }: TerminalBackendPane
           section level, not just on the row, because the user's mental model
           after clicking is "done" — and it isn't until a restart. */}
       {data.restart_required && data.configured && (
-        <p className="flex items-start gap-1 px-0.5 text-[0.68rem] text-amber-600 dark:text-amber-300">
+        <p className="flex items-start gap-1 px-0.5 text-[0.68rem] text-(--ui-yellow)">
           <AlertTriangle className="mt-0.5 size-3 shrink-0" />
           {copy.restartBanner(data.configured, data.active)}
         </p>
@@ -163,7 +163,7 @@ export function TerminalBackendPanel({ onConfiguredChange }: TerminalBackendPane
             </span>
             <span className="text-[0.68rem] text-muted-foreground">{backend.description}</span>
             {backend.status !== 'ready' && backend.detail && (
-              <span className="flex items-start gap-1 text-[0.68rem] text-amber-600 dark:text-amber-300">
+              <span className="flex items-start gap-1 text-[0.68rem] text-(--ui-yellow)">
                 <AlertTriangle className="mt-0.5 size-3 shrink-0" />
                 {backend.detail}
                 {backend.active && ` ${copy.needsSetupHint}`}

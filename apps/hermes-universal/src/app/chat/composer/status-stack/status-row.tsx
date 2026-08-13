@@ -35,7 +35,7 @@ function leadingGlyph(item: SubagentProgress, s: Translations['statusStack']): R
       aria-hidden
       className={cn(
         'size-1.5 rounded-full',
-        item.status === 'failed' || item.status === 'interrupted' ? 'bg-destructive/80' : 'bg-emerald-500/70'
+        item.status === 'failed' || item.status === 'interrupted' ? 'bg-destructive/80' : 'bg-(--ui-green)/70'
       )}
     />
   )

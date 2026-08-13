@@ -346,18 +346,18 @@ export function PreviewFile({ target, variant = 'rail' }: { target: PreviewTarge
       {toolbar}
 
       {conflict && (
-        <div className="flex items-center justify-between gap-2 border-b border-amber-500/40 bg-amber-500/10 px-2 py-1 text-[0.7rem] text-amber-700 dark:text-amber-300">
+        <div className="flex items-center justify-between gap-2 border-b border-(--ui-yellow)/40 bg-(--ui-yellow)/10 px-2 py-1 text-[0.7rem] text-(--ui-yellow)">
           <span className="min-w-0 truncate">{copy.diskChangedBody}</span>
           <span className="flex shrink-0 gap-1">
             <button
-              className="rounded px-1.5 py-0.5 font-medium hover:bg-amber-500/20"
+              className="rounded px-1.5 py-0.5 font-medium hover:bg-(--ui-yellow)/20"
               onClick={() => void saveEdit(true)}
               type="button"
             >
               {copy.overwrite}
             </button>
             <button
-              className="rounded px-1.5 py-0.5 hover:bg-amber-500/20"
+              className="rounded px-1.5 py-0.5 hover:bg-(--ui-yellow)/20"
               onClick={() => {
                 cancelEdit()
                 requestPreviewReload()

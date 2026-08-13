@@ -210,7 +210,7 @@ export function useStatusbarItems(opts?: {
   const gatewayClassName = inferenceReady
     ? undefined
     : gatewayDegraded
-      ? 'text-amber-600 hover:text-amber-600'
+      ? 'text-(--ui-yellow) hover:text-(--ui-yellow)'
       : 'text-destructive hover:text-destructive'
 
   const gatewayMenuContent = useCallback(

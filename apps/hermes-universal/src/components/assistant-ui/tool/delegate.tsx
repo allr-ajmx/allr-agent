@@ -50,7 +50,7 @@ function statusGlyph(status: DelegateRowStatus, label: string): ReactNode {
     return <span aria-hidden className="size-1.5 rounded-full bg-(--ui-text-tertiary)" />
   }
 
-  return <CheckCircle2 aria-label={label} className="size-3.5 text-emerald-600/85 dark:text-emerald-400/85" />
+  return <CheckCircle2 aria-label={label} className="size-3.5 text-(--ui-green)/85" />
 }
 
 /**

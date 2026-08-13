@@ -1105,7 +1105,7 @@ export function ModelSettings({ onMainModelChanged }: ModelSettingsProps) {
               say. Say so, rather than leaving live-looking switches that cannot
               change what runs. */}
           {currentMoaPreset.enabled === false && (
-            <p className="mb-2 text-xs text-amber-200">{m.moaPresetDisabledHint}</p>
+            <p className="mb-2 text-xs text-(--ui-yellow)">{m.moaPresetDisabledHint}</p>
           )}
           <div className="grid gap-1">
             {currentMoaPreset.reference_models.map((slot, index) => (

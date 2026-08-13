@@ -124,7 +124,7 @@ describe('preview tiles', () => {
 
     const clean = render(<>{chrome?.tabLead?.()}</>)
 
-    expect(clean.container.querySelector('.bg-amber-500')).toBeNull()
+    expect(clean.container.querySelector('[class*="bg-(--ui-yellow)"]')).toBeNull()
     expect(clean.container.firstElementChild).not.toBeNull()
 
     setPreviewDirty('/a.ts', true)
@@ -132,6 +132,6 @@ describe('preview tiles', () => {
     // The lead re-reads the store on its own — the tile is not re-registered.
     const dirty = render(<>{chrome?.tabLead?.()}</>)
 
-    expect(dirty.container.querySelector('.bg-amber-500')).not.toBeNull()
+    expect(dirty.container.querySelector('[class*="bg-(--ui-yellow)"]')).not.toBeNull()
   })
 })
