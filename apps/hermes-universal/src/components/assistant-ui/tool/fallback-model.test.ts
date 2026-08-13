@@ -8,6 +8,7 @@ import {
   countDiffLineStats,
   inlineDiffFromResult,
   MAX_TOOL_RENDER_CHARS,
+  prettyJson,
   type ToolPart
 } from './fallback-model'
 
@@ -457,15 +458,24 @@ describe('clampForDisplay', () => {
 })
 
 // A large tool result (e.g. a 100KB read_file during a `/learn` run) must not
-// be serialized into the rendered rawResult at full size — that JSON.stringify
-// payload is what floods the renderer when many rows stack up.
-describe('buildToolView caps serialized result size', () => {
-  it('clamps rawResult for an oversized result', () => {
+// be serialized at full size — that JSON.stringify payload is what floods the
+// renderer. `buildToolView` no longer prettyJson's every result eagerly, so a
+// view carries no serialized payload at all; the technical-mode disclosure
+// builds one only for the row whose payload someone actually opened.
+describe('prettyJson caps serialized result size', () => {
+  it('clamps an oversized result', () => {
     const huge = 'y'.repeat(MAX_TOOL_RENDER_CHARS * 3)
-    const view = buildToolView(part({ result: { content: huge }, toolName: 'read_file' }), '')
+    const out = prettyJson({ content: huge })
 
-    expect(view.rawResult.length).toBeLessThanOrEqual(MAX_TOOL_RENDER_CHARS + 200)
-    expect(view.rawResult).toContain('truncated')
+    expect(out.length).toBeLessThanOrEqual(MAX_TOOL_RENDER_CHARS + 200)
+    expect(out).toContain('truncated')
+  })
+
+  it('is not what a tool view carries', () => {
+    const view = buildToolView(part({ result: { content: 'y'.repeat(50) }, toolName: 'read_file' }), '')
+
+    expect(view).not.toHaveProperty('rawArgs')
+    expect(view).not.toHaveProperty('rawResult')
   })
 })
 
