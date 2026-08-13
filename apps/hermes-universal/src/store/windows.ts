@@ -9,6 +9,7 @@ import {
   SETTINGS_ROUTE,
   WEBHOOKS_ROUTE
 } from '@/app/routes'
+import { requestComposerDraftSync } from '@/lib/composer-draft-bus'
 import { IS_ANDROID, IS_DESKTOP, IS_IOS } from '@/lib/platform'
 import { navigateTo } from '@/lib/route-nav'
 import { type SurfaceGrant } from '@/lib/surface'
@@ -212,6 +213,8 @@ export async function returnHome(): Promise<void> {
 // the in-app overlay. Optimistic: a failed invoke degrades to the overlay.
 async function openActivityScreen(route: string): Promise<void> {
   if (IS_ANDROID && !isActivityWindow()) {
+    flushComposerDraftsBeforeOpen()
+
     try {
       await invoke('open_screen_window', { route })
 
@@ -326,10 +329,47 @@ async function runWindowOpen(call: () => Promise<unknown>, failMessage: string):
   }
 }
 
+/**
+ * Write this window's half-typed composer text into the shared draft stash
+ * before a new window is built (MJXHRM-398).
+ *
+ * Every window kind below boots the app, and the app seeds its per-session
+ * drafts from `localStorage` at module init. That stash is only ever as current
+ * as the last debounced write — 400 ms (`DRAFT_PERSIST_DEBOUNCE_MS`) — so a tile
+ * torn off mid-sentence used to open showing the sentence as it stood a moment
+ * ago. Nothing recovered the rest either: the slot the tile left behind becomes
+ * a placeholder, so this window's copy of that composer unmounts, and it does so
+ * AFTER the new window has already read.
+ *
+ * Here, at the one choke point every native window of the app is built through,
+ * rather than at each opener's caller — which is what `app/hud/hud.ts` used to
+ * do alone. The bug IS "a caller forgot", and three of them had (tear-off, chat
+ * pop-out, new instance window); putting it at the callers leaves the next one
+ * free to forget again.
+ *
+ * Deliberately unaddressed: this dispatch reaches every composer mounted in THIS
+ * window, and each stashes under its own session key. The window ordering the
+ * new one is the window holding the text — a tear-off, a pop-out and a new
+ * instance window are all requested from the surface that is showing the tile —
+ * so there is nobody else to ask. Dismissal is the direction where the text is
+ * in the OTHER webview, and that one goes through `requestPeerComposerFlush`.
+ *
+ * Synchronous, and it has to stay that way: the dispatch runs the mounted
+ * composer's listener inline, which stashes, which writes `localStorage`, all
+ * before the `invoke` that follows hands the window over to Rust. Awaiting
+ * anything here would put the new window's mount in a race with the write it is
+ * about to read.
+ */
+function flushComposerDraftsBeforeOpen(): void {
+  requestComposerDraftSync('flush')
+}
+
 export async function openSessionInNewWindow(sessionId: string, opts?: { watch?: boolean }): Promise<void> {
   if (!sessionId || !canOpenSessionWindow()) {
     return
   }
+
+  flushComposerDraftsBeforeOpen()
 
   try {
     // The label, not `void`: the new window is about to take this session's
@@ -377,6 +417,8 @@ export async function openTileWindow(
     return null
   }
 
+  flushComposerDraftsBeforeOpen()
+
   try {
     const label = await invoke<string>('open_tile_window', {
       tileId,
@@ -419,6 +461,8 @@ export async function openNewWindow(): Promise<void> {
   if (!canOpenNewWindow()) {
     return
   }
+
+  flushComposerDraftsBeforeOpen()
 
   await runWindowOpen(() => invoke('open_instance_window'), 'Could not open a new window')
 }
@@ -582,6 +626,39 @@ export function isSatelliteWindow(): boolean {
   return satelliteSurface() !== null
 }
 
+/**
+ * Which window a window-addressed message is for.
+ *
+ * `surface` is the satellite it must be (`null` = an ordinary window); `tile` is
+ * the detached tile it must be hosting (`null` = it hosts no single tile). Both
+ * fields, because neither alone names one window: every tile window reads
+ * `surface: null` exactly like the main window does, and every satellite reads
+ * `tile: null` exactly like it too.
+ *
+ * The one pair this cannot separate is the main window from a legacy
+ * `?win=secondary` pop-out, which carries no tile id. Nothing addresses
+ * `{ surface: null, tile: null }` today, and Rust has not BUILT a `secondary`
+ * window since `open_session_window` started delegating to `open_tile_window`
+ * (`src-tauri/src/window.rs`) — the flag survives only so an already-open window
+ * and a stored link keep working.
+ */
+export interface WindowAddress {
+  surface: null | string
+  tile: null | string
+}
+
+/**
+ * True when `address` names THIS window.
+ *
+ * Synchronous, and that is the point: every field is read off this window's own
+ * URL, so a message handler can decide inline and answer in the same tick —
+ * which is what makes an acknowledgement mean "the text is on disk" rather than
+ * "the message arrived".
+ */
+export function addressesThisWindow(address: WindowAddress): boolean {
+  return address.surface === satelliteSurface() && address.tile === detachedTileId()
+}
+
 /** Satellites need a real second window, so they follow the same platform gate
  *  as the other pop-outs — and a satellite never spawns another. */
 export function canOpenSatelliteWindow(): boolean {
@@ -677,6 +754,11 @@ export async function openSatelliteWindow(surface: string, route?: string): Prom
   if (!satelliteLabel(surface) || !canOpenSatelliteWindow()) {
     return null
   }
+
+  // After the guard, never before it: a summon that cannot happen must leave no
+  // trace, and a flush would make the shared stash authoritative for a composer
+  // that will never mount to read it.
+  flushComposerDraftsBeforeOpen()
 
   try {
     const opened = await invoke<SatelliteWindow>('open_satellite_window', { route: route ?? null, surface })
