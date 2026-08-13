@@ -38,8 +38,12 @@ vi.mock('@/store/composer', () => ({
   }
 }))
 
+/** The capability gate. Settable, because "can this platform float a window"
+ *  is the one input that changes what `openHud` is allowed to do. */
+let floatingSurface = true
+
 vi.mock('@/lib/surface', () => ({
-  surfaceCapabilities: async () => ({ floatingSurface: true })
+  surfaceCapabilities: async () => ({ floatingSurface })
 }))
 
 // The return trip (MJXHRM-371). Mocked so the ORDER is observable: without it the
@@ -67,6 +71,7 @@ beforeEach(() => {
   sync.mockClear()
   isOpen.mockResolvedValue(false)
   atRoute('')
+  floatingSurface = true
 })
 
 describe('which conversation the HUD opens on', () => {
@@ -100,6 +105,35 @@ describe('which conversation the HUD opens on', () => {
 
     // No session: the HUD opens on the app's root route, not on a stale one.
     expect(open).toHaveBeenCalledWith('hud', undefined)
+  })
+})
+
+describe('the capability gate', () => {
+  // `lib/surface.ts` states the rule: read `floatingSurface` before offering the
+  // affordance. The titlebar hides its button (see titlebar.test.tsx), but a
+  // hotkey — including the OS-wide chord claimed at boot — never sees a hidden
+  // button, so the refusal has to live here as well.
+  it('refuses to summon where the platform has no floating surface', async () => {
+    floatingSurface = false
+
+    expect(await openHud('abc123')).toBe(false)
+    expect(open).not.toHaveBeenCalled()
+  })
+
+  it('leaves no trace of a summon that could not happen', async () => {
+    floatingSurface = false
+
+    await openHud('abc123')
+
+    // Not even the draft flush: it makes the shared stash authoritative for a
+    // HUD composer that will never mount to read it, and arming the return trip
+    // would leave a listener waiting on a window nobody opened.
+    expect(calls).toEqual([])
+  })
+
+  it('still summons where the platform can float one', async () => {
+    expect(await openHud('abc123')).toBe(true)
+    expect(open).toHaveBeenCalled()
   })
 })
 

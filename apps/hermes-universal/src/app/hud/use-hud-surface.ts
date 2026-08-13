@@ -13,6 +13,10 @@
  * 2. **Where the card is.** On an output-sized surface everything outside the
  *    card must be click-through, or the HUD would swallow every click on the
  *    screen. That is an input region, and only this side knows the rectangle.
+ *
+ * A third crossing belongs to the SUMMONING window rather than the HUD itself —
+ * whether to offer the affordance at all — and lives here because it is the same
+ * capability layer, reached the same way. See [`useCanUseHud`].
  */
 
 import { type RefObject, useEffect, useState } from 'react'
@@ -20,7 +24,7 @@ import { type RefObject, useEffect, useState } from 'react'
 import { setSurfaceInteractiveRect, type SurfaceGrant } from '@/lib/surface'
 import { satelliteSurfaceGrant } from '@/store/windows'
 
-import { HUD_SURFACE } from './hud'
+import { canUseHud, HUD_SURFACE } from './hud'
 
 /** The window label the native side knows this surface by. Must match
  *  `satelliteLabel()` in `store/windows.ts`. */
@@ -35,6 +39,38 @@ export function useHudGrant(): null | SurfaceGrant {
   const [grant] = useState(() => satelliteSurfaceGrant(HUD_SURFACE))
 
   return grant
+}
+
+/**
+ * Whether to OFFER the HUD here — `lib/surface.ts`'s rule for callers, in the
+ * shape a component can use.
+ *
+ * Starts false and turns true once the capability query answers, rather than the
+ * other way round: a button that appears a frame late is a detail, a button that
+ * appears and then vanishes reads as a bug. The query is cached for the process,
+ * so this costs one IPC round trip for the whole session.
+ *
+ * This is the affordance half of the gate. The enforcement half is in `openHud`,
+ * because a hotkey does not go past a hidden button.
+ */
+export function useCanUseHud(): boolean {
+  const [can, setCan] = useState(false)
+
+  useEffect(() => {
+    let live = true
+
+    void canUseHud().then(ok => {
+      if (live) {
+        setCan(ok)
+      }
+    })
+
+    return () => {
+      live = false
+    }
+  }, [])
+
+  return can
 }
 
 /**
