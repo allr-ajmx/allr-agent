@@ -42,7 +42,7 @@ export function DisclosureRow({
         className={cn(
           // max-w-fit so the click target hugs the title text width — no
           // background fill, just the cursor + the affordance caret.
-          'flex min-w-0 max-w-fit items-start gap-1.5 text-left transition-colors',
+          'flex min-w-0 max-w-fit items-start gap-1.5 text-start transition-colors',
           onToggle ? 'hover:text-foreground focus-visible:text-foreground focus-visible:outline-none' : 'cursor-default'
         )}
         disabled={!onToggle}
@@ -66,12 +66,12 @@ export function DisclosureRow({
         )}
       </button>
       {action && (
-        <span className="ml-auto flex h-(--conversation-line-height) shrink-0 items-center self-start pl-1.5">
+        <span className="ms-auto flex h-(--conversation-line-height) shrink-0 items-center self-start ps-1.5">
           {action}
         </span>
       )}
       {trailing && (
-        <span className="absolute right-1 top-0 flex h-(--conversation-line-height) items-center">{trailing}</span>
+        <span className="absolute end-1 top-0 flex h-(--conversation-line-height) items-center">{trailing}</span>
       )}
     </div>
   )

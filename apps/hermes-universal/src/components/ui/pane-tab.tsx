@@ -77,7 +77,7 @@ export const PaneTab = React.forwardRef<HTMLDivElement, PaneTabProps>(function P
 ) {
   // Content-facing edge: horizontal cuts the bottom strip line; vertical cuts
   // the side that faces the editor (left rail → right edge, right rail → left).
-  const edge = vertical ? (side === 'right' ? 'border-l' : 'border-r') : 'border-b'
+  const edge = vertical ? (side === 'right' ? 'border-s' : 'border-e') : 'border-b'
   // Middle-click through the pointer-pair gesture, not `auxclick`: a tab strip
   // is a scroller, and a middle press inside one starts the autoscroll pan on
   // Windows/Linux — the mouseup ends the pan instead of completing a click, so
@@ -141,7 +141,8 @@ export const PaneTab = React.forwardRef<HTMLDivElement, PaneTabProps>(function P
           aria-hidden
           className={cn(
             'pointer-events-none absolute grid size-4 place-items-center',
-            vertical ? 'bottom-1.5 left-1/2 -translate-x-1/2' : 'right-1.5 top-1/2 -translate-y-1/2'
+            // eslint-disable-next-line better-tailwindcss/no-restricted-classes -- centring, not an edge — pairs with a physical -translate-x-1/2, and start-1/2 would resolve to right:50% while the transform still pulled left
+            vertical ? 'bottom-1.5 left-1/2 -translate-x-1/2' : 'end-1.5 top-1/2 -translate-y-1/2'
           )}
         >
           <span className="size-2 rounded-full bg-amber-500 shadow-[0_0_0_2px_var(--tab-bg),0_1px_2px_rgba(0,0,0,0.45)] dark:bg-amber-400" />
@@ -167,7 +168,7 @@ export const PaneTabLabel = React.forwardRef<HTMLElement, PaneTabLabelProps>(fun
 
   return (
     <Comp
-      className="flex h-full min-w-0 max-w-full items-center overflow-hidden px-2 text-left outline-none group-data-[vertical]/tab:h-auto group-data-[vertical]/tab:w-full group-data-[vertical]/tab:justify-center group-data-[vertical]/tab:py-2"
+      className="flex h-full min-w-0 max-w-full items-center overflow-hidden px-2 text-start outline-none group-data-[vertical]/tab:h-auto group-data-[vertical]/tab:w-full group-data-[vertical]/tab:justify-center group-data-[vertical]/tab:py-2"
       ref={ref}
       {...props}
     >

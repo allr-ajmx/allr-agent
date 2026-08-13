@@ -392,7 +392,7 @@ function ModelCatalogPicker({ toolset, providerName, isActiveBackend }: ModelCat
             <button
               aria-pressed={isSelected}
               className={cn(
-                'grid gap-0.5 rounded-lg border px-2.5 py-2 text-left transition',
+                'grid gap-0.5 rounded-lg border px-2.5 py-2 text-start transition',
                 isSelected
                   ? 'border-(--ui-stroke-secondary) bg-(--ui-bg-tertiary)'
                   : 'border-transparent bg-background/55 hover:bg-accent/40',
@@ -549,7 +549,7 @@ export function ToolsetConfigPanel({ toolset, onConfiguredChange }: ToolsetConfi
             <button
               aria-pressed={isActive}
               className={cn(
-                'flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left transition hover:bg-accent/50',
+                'flex w-full items-center justify-between gap-3 px-3 py-2.5 text-start transition hover:bg-accent/50',
                 isActive && 'bg-accent/40'
               )}
               onClick={() => void handleSelect(provider)}

@@ -199,7 +199,7 @@ export function FindBar() {
   return (
     <div
       className={cn(
-        'pointer-events-auto fixed right-4 top-[calc(var(--titlebar-height,0px)+0.5rem)] z-(--z-over-modal)',
+        'pointer-events-auto fixed end-4 top-[calc(var(--titlebar-height,0px)+0.5rem)] z-(--z-over-modal)',
         'flex items-center gap-1 rounded-lg border border-(--stroke-nous) bg-(--ui-chat-bubble-background) px-2 py-1 shadow-nous'
       )}
       role="search"

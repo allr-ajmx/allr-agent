@@ -472,7 +472,7 @@ export const UserEditComposer: FC = () => {
                 // clearance (pr-9, same as the read-only bubble) lives here, so the
                 // text sits at the same x in both modes. Wrap rules match the
                 // docked composer input so long URLs/paths can't force x-overflow.
-                'ui-prompt-input-editor__input resize-none whitespace-pre-wrap break-words [overflow-wrap:anywhere] pr-9 text-[length:var(--conversation-text-font-size)] text-foreground/95 outline-none',
+                'ui-prompt-input-editor__input resize-none whitespace-pre-wrap break-words [overflow-wrap:anywhere] pe-9 text-[length:var(--conversation-text-font-size)] text-foreground/95 outline-none',
                 'empty:before:content-[attr(data-placeholder)] empty:before:text-muted-foreground/60',
                 '**:data-ref-text:cursor-default',
                 expanded ? 'min-h-16' : 'min-h-[1.25rem]'
@@ -518,7 +518,7 @@ export const UserEditComposer: FC = () => {
           <Tip label={copy.sendEdited}>
             <button
               aria-label={copy.sendEdited}
-              className={cn('absolute right-2 bottom-2 size-5', USER_ACTION_ICON_BUTTON_CLASS)}
+              className={cn('absolute end-2 bottom-2 size-5', USER_ACTION_ICON_BUTTON_CLASS)}
               disabled={!canSubmit || submitting}
               onClick={() => {
                 const editor = editorRef.current

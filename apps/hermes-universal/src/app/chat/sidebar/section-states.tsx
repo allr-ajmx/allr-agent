@@ -11,7 +11,7 @@ export function SidebarSessionSkeletons() {
     <div aria-hidden="true" className="grid gap-px">
       {['w-32', 'w-40', 'w-28', 'w-36', 'w-24'].map((width, i) => (
         <div
-          className="grid min-h-[1.625rem] grid-cols-[minmax(0,1fr)_1.375rem] items-center rounded-md pl-2"
+          className="grid min-h-[1.625rem] grid-cols-[minmax(0,1fr)_1.375rem] items-center rounded-md ps-2"
           key={`${width}-${i}`}
         >
           <Skeleton className={cn('h-3 rounded-sm', width)} />
@@ -44,7 +44,7 @@ export function SidebarPinnedEmptyState() {
   const { t } = useI18n()
 
   return (
-    <div className="flex min-h-7 items-center gap-1.5 rounded-lg pl-2 text-[0.75rem] text-(--ui-text-tertiary)">
+    <div className="flex min-h-7 items-center gap-1.5 rounded-lg ps-2 text-[0.75rem] text-(--ui-text-tertiary)">
       <span className="grid w-3.5 shrink-0 place-items-center text-(--ui-text-quaternary)">
         <Codicon name="pin" size="0.75rem" />
       </span>

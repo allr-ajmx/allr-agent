@@ -4,6 +4,7 @@ import { Codicon } from '@/components/ui/codicon'
 import { DiffCount } from '@/components/ui/diff-count'
 import type { HermesReviewFile } from '@/global'
 import { useI18n } from '@/i18n'
+import { directionSign } from '@/lib/direction'
 import { triggerHaptic } from '@/lib/haptics'
 import { cn } from '@/lib/utils'
 
@@ -164,7 +165,12 @@ export function MobileReviewRow({
     const clamped = Math.max(-MAX_PX, Math.min(MAX_PX, moveX))
     setDx(clamped)
 
-    const next: Armed = clamped >= COMMIT_PX ? 'stage' : clamped <= -COMMIT_PX ? 'revert' : 'none'
+    // `clamped` stays PHYSICAL — it drives `translateX`, which does not mirror —
+    // but which action it arms is read in the row's own inline frame, so the
+    // backdrops (start = stage, end = revert) stay under the edge the row
+    // actually uncovers. In LTR the sign is 1 and this is the old expression.
+    const inline = clamped * directionSign(event.currentTarget)
+    const next: Armed = inline >= COMMIT_PX ? 'stage' : inline <= -COMMIT_PX ? 'revert' : 'none'
 
     if (next !== armed) {
       setArmed(next)
@@ -218,7 +224,7 @@ export function MobileReviewRow({
           colour itself is the "let go now" signal. */}
       <div
         className={cn(
-          'absolute inset-y-0 left-0 flex w-24 items-center justify-start pl-4 transition-colors',
+          'absolute inset-y-0 start-0 flex w-24 items-center justify-start ps-4 transition-colors',
           armed === 'stage' ? 'bg-(--ui-green)/25 text-(--ui-green)' : 'bg-(--ui-green)/10 text-(--ui-green)/60'
         )}
       >
@@ -226,7 +232,7 @@ export function MobileReviewRow({
       </div>
       <div
         className={cn(
-          'absolute inset-y-0 right-0 flex w-24 items-center justify-end pr-4 transition-colors',
+          'absolute inset-y-0 end-0 flex w-24 items-center justify-end pe-4 transition-colors',
           armed === 'revert' ? 'bg-(--ui-red)/25 text-(--ui-red)' : 'bg-(--ui-red)/10 text-(--ui-red)/60'
         )}
       >

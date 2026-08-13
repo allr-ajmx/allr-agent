@@ -80,7 +80,7 @@ export function ProjectOverviewRow({
                 // Not a decorative caret: the row's label navigates into the
                 // project, so this button is the only way to peek at its
                 // sessions in place.
-                className="ml-auto grid size-4 shrink-0 place-items-center rounded-sm text-(--ui-text-tertiary) opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100 coarse:opacity-100"
+                className="ms-auto grid size-4 shrink-0 place-items-center rounded-sm text-(--ui-text-tertiary) opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100 coarse:opacity-100"
                 onClick={() => setExpanded(v => !v)}
                 type="button"
               >
@@ -101,7 +101,7 @@ export function ProjectBackRow({ label, onExit }: { label: string; onExit: () =>
   return (
     <Tip label={t.sidebar.projects.back}>
       <button
-        className="flex min-h-[1.625rem] w-full items-center gap-1.5 rounded-md pl-2 text-left text-[0.8125rem] text-(--ui-text-tertiary) opacity-70 transition hover:bg-(--ui-control-hover-background) hover:text-foreground hover:opacity-100"
+        className="flex min-h-[1.625rem] w-full items-center gap-1.5 rounded-md ps-2 text-start text-[0.8125rem] text-(--ui-text-tertiary) opacity-70 transition hover:bg-(--ui-control-hover-background) hover:text-foreground hover:opacity-100"
         onClick={onExit}
         type="button"
       >

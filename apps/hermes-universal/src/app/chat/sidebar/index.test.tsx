@@ -19,14 +19,17 @@ afterEach(() => {
 })
 
 describe('ChatSidebar (pane) — the sidebar↔main division', () => {
-  it('paints the surface + edge border on the right edge when open', () => {
+  it('paints the surface + edge border on the main-facing (inline-end) edge when open', () => {
     setSidebarOpen(true)
     const { container } = renderSidebar({ variant: 'pane' })
     const root = container.firstChild as HTMLElement
 
     expect(root.className).toContain('bg-(--ui-sidebar-surface-background)')
     expect(root.className).toContain('border-(--sidebar-edge-border)')
-    expect(root.className).toContain('border-r')
+    // Whole token, not `toContain`: the unflipped class list also carries
+    // `border-s-0`, so a substring check passes in BOTH states and can never
+    // fail. (It could not fail on `border-r`/`border-l-0` either.)
+    expect(root.className).toMatch(/(?:^|\s)border-e(?:\s|$)/)
     expect(screen.getByText('New session')).toBeInTheDocument()
   })
 
@@ -40,12 +43,12 @@ describe('ChatSidebar (pane) — the sidebar↔main division', () => {
     expect(root.className).toContain('pointer-events-none')
   })
 
-  it('mirrors the border to the left edge when panes are flipped', () => {
+  it('mirrors the border to the inline-start edge when panes are flipped', () => {
     setSidebarOpen(true)
     $panesFlipped.set(true)
     const { container } = renderSidebar({ variant: 'pane' })
     const root = container.firstChild as HTMLElement
 
-    expect(root.className).toContain('border-l')
+    expect(root.className).toMatch(/(?:^|\s)border-s(?:\s|$)/)
   })
 })

@@ -35,13 +35,13 @@ export function Zoomable({ children, overlay, onCopy, label = 'Open full view', 
       <div className={cn('group/zoomable relative', className)}>
         {/* The whole content is the trigger — click anywhere to open, like an image. */}
         <Tip label={label}>
-          <button className="block w-full cursor-zoom-in text-left" onClick={() => setOpen(true)} type="button">
+          <button className="block w-full cursor-zoom-in text-start" onClick={() => setOpen(true)} type="button">
             {children}
           </button>
         </Tip>
         <span
           aria-hidden
-          className="pointer-events-none absolute right-2 top-2 grid size-8 place-items-center rounded-full border border-border/70 bg-background/80 text-muted-foreground opacity-0 shadow-sm backdrop-blur transition-opacity group-hover/zoomable:opacity-100"
+          className="pointer-events-none absolute end-2 top-2 grid size-8 place-items-center rounded-full border border-border/70 bg-background/80 text-muted-foreground opacity-0 shadow-sm backdrop-blur transition-opacity group-hover/zoomable:opacity-100"
         >
           <Maximize className="size-4" />
         </span>
@@ -125,6 +125,7 @@ function Toolbar({
   }
 
   return (
+    // eslint-disable-next-line better-tailwindcss/no-restricted-classes -- centring, not an edge — pairs with a physical -translate-x-1/2, and start-1/2 would resolve to right:50% while the transform still pulled left
     <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full border border-border/70 bg-background/85 p-1 shadow-sm backdrop-blur">
       <ToolbarButton label="Zoom out" onClick={zoomOut}>
         <ZoomOut className="size-4" />

@@ -62,7 +62,7 @@ export function WorkspaceShowMoreButton({
     <Tip label={text}>
       <button
         aria-label={text}
-        className="ml-auto grid size-5 place-items-center rounded-sm bg-transparent text-(--ui-text-tertiary) transition-colors hover:bg-(--ui-control-hover-background) hover:text-foreground"
+        className="ms-auto grid size-5 place-items-center rounded-sm bg-transparent text-(--ui-text-tertiary) transition-colors hover:bg-(--ui-control-hover-background) hover:text-foreground"
         onClick={onClick}
         type="button"
       >
@@ -207,7 +207,7 @@ export function WorkspaceHeader({
     >
       <button
         className={cn(
-          'flex min-w-0 flex-1 items-center gap-1.5 bg-transparent text-left',
+          'flex min-w-0 flex-1 items-center gap-1.5 bg-transparent text-start',
           emphasis ? 'hover:text-foreground' : 'hover:text-(--ui-text-secondary)'
         )}
         onClick={onToggle}

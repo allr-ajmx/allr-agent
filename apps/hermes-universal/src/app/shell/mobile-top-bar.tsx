@@ -52,7 +52,7 @@ export function MobileTopBar() {
               which an equal-specificity class override can't. */}
           {onPage ? (
             <TitlebarButton className="size-4" label={t.common.back} onClick={() => navigate(NEW_CHAT_ROUTE)}>
-              <Codicon name="chevron-left" size="1.4rem" />
+              <Codicon className="rtl:-scale-x-100" name="chevron-left" size="1.4rem" />
             </TitlebarButton>
           ) : (
             <TitlebarButton className="size-4" label={t.titlebar.showSidebar} onClick={toggleMobile}>

@@ -150,7 +150,7 @@ export function ModelPickerDialog({
 
         <DialogFooter className="flex-row items-center justify-end gap-2 bg-card p-3">
           <Button
-            className="mr-auto text-(--ui-text-tertiary)"
+            className="me-auto text-(--ui-text-tertiary)"
             onClick={() => {
               close()
               setModelVisibilityOpen(true)
@@ -292,7 +292,7 @@ function ModelRow({
   return (
     <CommandItem
       className={cn(
-        'flex items-center gap-2 pl-6 font-mono',
+        'flex items-center gap-2 ps-6 font-mono',
         isCurrent &&
           'bg-primary text-primary-foreground data-[selected=true]:bg-primary data-[selected=true]:text-primary-foreground',
         locked && 'cursor-not-allowed opacity-45'
@@ -354,7 +354,7 @@ function LoadingResults() {
   return (
     <CommandGroup heading={<Skeleton className="h-3 w-32" />}>
       {Array.from({ length: 4 }, (_, rowIndex) => (
-        <div className="rounded-sm py-1.5 pl-6 pr-2" key={rowIndex}>
+        <div className="rounded-sm py-1.5 ps-6 pe-2" key={rowIndex}>
           <Skeleton className={cn('h-5', rowIndex % 3 === 0 ? 'w-3/5' : rowIndex % 3 === 1 ? 'w-4/5' : 'w-1/2')} />
         </div>
       ))}

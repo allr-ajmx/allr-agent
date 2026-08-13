@@ -97,7 +97,7 @@ export function SettingsIndex() {
               >
                 <Icon className="size-5 shrink-0 text-muted-foreground" />
                 <span className="min-w-0 flex-1 truncate font-medium">{entry.label}</span>
-                <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+                <ChevronRight className="size-4 shrink-0 text-muted-foreground rtl:-scale-x-100" />
               </Link>
             )
           })}

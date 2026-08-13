@@ -70,7 +70,7 @@ export function ThemeControls() {
                 aria-label={theme.label}
                 aria-pressed={selected}
                 className={cn(
-                  'flex items-center gap-2.5 rounded-lg border p-2.5 text-left transition-colors',
+                  'flex items-center gap-2.5 rounded-lg border p-2.5 text-start transition-colors',
                   selected ? 'border-primary bg-accent' : 'border-border hover:bg-accent'
                 )}
                 key={theme.name}

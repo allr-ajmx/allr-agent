@@ -334,7 +334,7 @@ const MessageAge: FC = () => {
 }
 
 const AssistantFooter: FC<MessageActionProps> = props => (
-  <div className="flex min-h-6 flex-col items-end gap-1 pr-(--message-text-indent) pl-(--message-text-indent)">
+  <div className="flex min-h-6 flex-col items-end gap-1 pe-(--message-text-indent) ps-(--message-text-indent)">
     {/* BLOCKED(MJX-205): branch picker needs an incremental runtime. Under
         the stock external-store runtime hideWhenSingleBranch renders nothing —
         the markup is kept so it lights up once branching lands. */}
@@ -343,13 +343,13 @@ const AssistantFooter: FC<MessageActionProps> = props => (
       hideWhenSingleBranch
     >
       <BranchPickerPrimitive.Previous className="grid size-6 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-default disabled:opacity-35">
-        <Codicon name="chevron-left" size="0.875rem" />
+        <Codicon className="rtl:-scale-x-100" name="chevron-left" size="0.875rem" />
       </BranchPickerPrimitive.Previous>
       <span className="tabular-nums">
         <BranchPickerPrimitive.Number /> / <BranchPickerPrimitive.Count />
       </span>
       <BranchPickerPrimitive.Next className="grid size-6 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-default disabled:opacity-35">
-        <Codicon name="chevron-right" size="0.875rem" />
+        <Codicon className="rtl:-scale-x-100" name="chevron-right" size="0.875rem" />
       </BranchPickerPrimitive.Next>
     </BranchPickerPrimitive.Root>
     <AssistantActionBar {...props} />

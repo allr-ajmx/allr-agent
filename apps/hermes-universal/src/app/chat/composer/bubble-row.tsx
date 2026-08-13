@@ -400,6 +400,7 @@ export function BubbleRow() {
       {dragging && (
         <div
           className={cn(
+            // eslint-disable-next-line better-tailwindcss/no-restricted-classes -- centring, not an edge — pairs with a physical -translate-x-1/2, and start-1/2 would resolve to right:50% while the transform still pulled left
             'pointer-events-none absolute -top-9 left-1/2 z-10 max-w-[70%] -translate-x-1/2 truncate rounded-md px-2 py-0.5 text-[0.7rem] font-medium shadow-sm',
             preview?.closeArmed
               ? 'bg-destructive/15 text-destructive'
@@ -469,7 +470,7 @@ export function BubbleRow() {
                     colour nothing else uses. A bubble is a session; it says
                     what a session says. */}
                 <SessionStatusDot
-                  className="absolute top-0.5 right-0.5"
+                  className="absolute top-0.5 end-0.5"
                   session={session}
                   storedSessionId={bubble.storedSessionId}
                 />
@@ -501,7 +502,7 @@ function NewSessionGhost({ armed, progress, side }: { armed: boolean; progress: 
       aria-hidden
       className={cn(
         'pointer-events-none absolute top-1/2 flex size-8 items-center justify-center rounded-full',
-        side === 'start' ? '-left-[2.625rem]' : '-right-[2.625rem]',
+        side === 'start' ? '-start-[2.625rem]' : '-end-[2.625rem]',
         armed ? 'bg-primary text-primary-foreground' : 'bg-primary/15 text-primary'
       )}
       style={{

@@ -43,7 +43,7 @@ export function MobileTabButton({
         {showBadge && (
           <span
             className={cn(
-              'absolute -top-1 -right-2 rounded-full bg-(--ui-accent-primary) text-[0.5625rem] leading-none font-medium text-white',
+              'absolute -top-1 -end-2 rounded-full bg-(--ui-accent-primary) text-[0.5625rem] leading-none font-medium text-white',
               badge === true ? 'size-1.5' : 'min-w-3.5 px-1 py-0.5 text-center'
             )}
           >

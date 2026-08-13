@@ -87,13 +87,13 @@ export function SidebarProfileGroup({ group, onNewSession, renderRows }: Sidebar
             {group.label}
           </SidebarRowLink>
           {group.sessions.length > 0 && <SidebarCount>{group.sessions.length}</SidebarCount>}
-          <DisclosureCaret className="ml-auto shrink-0 text-(--ui-text-tertiary)" open={open} />
+          <DisclosureCaret className="ms-auto shrink-0 text-(--ui-text-tertiary)" open={open} />
         </SidebarRowCluster>
       </SidebarRowShell>
       {open && (
         <>
           {visibleSessions.length === 0 ? (
-            <div className="min-h-7 pl-2 text-[0.75rem] leading-7 text-(--ui-text-quaternary)">{s.noSessions}</div>
+            <div className="min-h-7 ps-2 text-[0.75rem] leading-7 text-(--ui-text-quaternary)">{s.noSessions}</div>
           ) : (
             renderRows(visibleSessions)
           )}

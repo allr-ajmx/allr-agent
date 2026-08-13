@@ -79,7 +79,7 @@ function PreviewTab({ active, dirty, tab }: { active: boolean; dirty: boolean; t
       <ContextMenuTrigger asChild>
         <div
           className={cn(
-            'group/tab flex min-w-0 max-w-40 shrink-0 cursor-pointer items-center gap-1.5 border-r border-(--ui-stroke-tertiary) px-2 text-xs',
+            'group/tab flex min-w-0 max-w-40 shrink-0 cursor-pointer items-center gap-1.5 border-e border-(--ui-stroke-tertiary) px-2 text-xs',
             active
               ? 'bg-(--ui-editor-surface-background) text-foreground'
               : 'text-(--ui-text-tertiary) hover:text-foreground'

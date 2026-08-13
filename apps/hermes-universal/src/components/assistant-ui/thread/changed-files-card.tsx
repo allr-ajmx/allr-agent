@@ -60,7 +60,7 @@ export const ChangedFilesCard: FC<{ parts: readonly unknown[] }> = ({ parts }) =
           // (there's a test enforcing this on every button).
           <Tip key={file.path} label={displayPath(file.path)}>
             <button
-              className="row-hover flex shrink-0 items-center gap-2 rounded-md px-1.5 py-1 text-left"
+              className="row-hover flex shrink-0 items-center gap-2 rounded-md px-1.5 py-1 text-start"
               onClick={() => void openReviewForPath(file.path)}
               type="button"
             >

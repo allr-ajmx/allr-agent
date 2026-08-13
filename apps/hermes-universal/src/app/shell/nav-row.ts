@@ -3,7 +3,7 @@
 // (e.g. the mobile Status list) match those buttons exactly, from one source.
 
 export const NAV_ROW_LAYOUT =
-  'flex h-7 w-full items-center justify-start gap-2 rounded-md border border-transparent px-2 text-left text-[0.8125rem] font-medium text-(--ui-text-secondary)'
+  'flex h-7 w-full items-center justify-start gap-2 rounded-md border border-transparent px-2 text-start text-[0.8125rem] font-medium text-(--ui-text-secondary)'
 
 export const NAV_ROW_HOVER =
   'transition-colors duration-100 ease-out hover:bg-(--ui-control-hover-background) hover:text-foreground hover:transition-none'

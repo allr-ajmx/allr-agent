@@ -102,7 +102,7 @@ export function GatewayConnectingScreen() {
             {/* The card is centred; the configurator's rows are not. A successful
                 connect flips $connectionPhase to ready and the root gate swaps this
                 whole screen out, so it needs no onConnected. */}
-            <div className="mt-4 w-full text-left">
+            <div className="mt-4 w-full text-start">
               <GatewayConfigurator variant="embedded" />
             </div>
             <Button className="mt-2" onClick={() => cancelRestore()} size="sm" type="button" variant="text">

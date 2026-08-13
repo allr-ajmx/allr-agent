@@ -150,7 +150,7 @@ export function SidebarNavRail({ variant, onNavigate }: { variant: 'pane' | 'she
               <span className="min-w-0 flex-1 truncate">{label}</span>
               {isNewSession && newSessionCombo && (
                 <KbdCombo
-                  className={cn('ml-auto opacity-55', kbdFlash && 'opacity-100!')}
+                  className={cn('ms-auto opacity-55', kbdFlash && 'opacity-100!')}
                   combo={newSessionCombo}
                   size="sm"
                 />

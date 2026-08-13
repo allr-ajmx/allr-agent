@@ -169,7 +169,7 @@ function HudSurface() {
               find. */}
           <button
             aria-label={t.titlebar.exitHud}
-            className="absolute right-1.5 top-1.5 z-10 grid size-5 place-items-center rounded text-(--ui-text-quaternary) opacity-0 transition-opacity hover:bg-(--ui-fill-secondary) hover:text-(--ui-text-primary) coarse:opacity-100 focus-visible:opacity-100 group-hover/hud:opacity-100"
+            className="absolute end-1.5 top-1.5 z-10 grid size-5 place-items-center rounded text-(--ui-text-quaternary) opacity-0 transition-opacity hover:bg-(--ui-fill-secondary) hover:text-(--ui-text-primary) coarse:opacity-100 focus-visible:opacity-100 group-hover/hud:opacity-100"
             data-hud-exit
             onClick={() => void closeHud()}
             type="button"

@@ -383,7 +383,7 @@ export function PluginsSettings() {
       {!loading && (
         <p className="mb-4 text-[length:var(--conversation-caption-font-size)] text-(--ui-text-tertiary)">
           {sourceLabel}
-          {root && <span className="ml-1 font-mono opacity-70">{root}</span>}
+          {root && <span className="ms-1 font-mono opacity-70">{root}</span>}
         </p>
       )}
 

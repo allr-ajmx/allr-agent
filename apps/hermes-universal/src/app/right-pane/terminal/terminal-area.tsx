@@ -29,7 +29,7 @@ export function TerminalArea() {
   useEffect(() => selectTerminalForCwd(cwd), [cwd])
 
   return (
-    <div className="flex h-full min-h-0 bg-(--ui-editor-surface-background) border-r">
+    <div className="flex h-full min-h-0 bg-(--ui-editor-surface-background) border-e">
       <div className="relative min-w-0 flex-1">
         {terminals.map(term => (
           <div className={cn('absolute inset-0', term.id !== activeId && 'invisible')} key={term.id}>

@@ -166,7 +166,7 @@ function SidebarSessionRowImpl({
             {(meta ? true : !isWorking) && (
               <span
                 className={cn(
-                  'pointer-events-none absolute right-6 top-1/2 min-w-6 -translate-y-1/2 whitespace-nowrap text-right text-[0.625rem] leading-none text-(--ui-text-tertiary)',
+                  'pointer-events-none absolute end-6 top-1/2 min-w-6 -translate-y-1/2 whitespace-nowrap text-end text-[0.625rem] leading-none text-(--ui-text-tertiary)',
                   !meta && 'opacity-0 transition-opacity group-hover:opacity-100'
                 )}
               >
@@ -211,7 +211,7 @@ function SidebarSessionRowImpl({
         <SidebarRowBody
           // The kebab is permanently visible on touch, so the padding that
           // keeps the label out from under it has to be permanent too.
-          className={cn('z-0 group-hover:pr-12 coarse:pr-12', branchStem && 'pl-3.5')}
+          className={cn('z-0 group-hover:pe-12 coarse:pe-12', branchStem && 'ps-3.5')}
           onClick={event => {
             // A finger already resumed this row from `onTap` below; whether the
             // engine also synthesizes a click is its business, not ours.

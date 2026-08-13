@@ -185,7 +185,7 @@ function LevelRow({
             type="range"
             value={value}
           />
-          <span className="w-12 text-right text-[length:var(--conversation-caption-font-size)] tabular-nums text-(--ui-text-tertiary)">
+          <span className="w-12 text-end text-[length:var(--conversation-caption-font-size)] tabular-nums text-(--ui-text-tertiary)">
             {format(value)}
           </span>
         </div>
@@ -241,7 +241,7 @@ export function VoiceLevelsPanel() {
               <div className="relative h-3 w-full overflow-hidden rounded-full bg-(--ui-stroke-tertiary)">
                 <div
                   className={cn(
-                    'absolute inset-y-0 left-0 rounded-full transition-[width] duration-75',
+                    'absolute inset-y-0 start-0 rounded-full transition-[width] duration-75',
                     meter.level >= bargein
                       ? 'bg-destructive'
                       : meter.level >= threshold

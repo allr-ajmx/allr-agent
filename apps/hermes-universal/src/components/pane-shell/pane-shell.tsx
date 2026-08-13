@@ -13,6 +13,7 @@ import {
   useState
 } from 'react'
 
+import { directionSign } from '@/lib/direction'
 import { cn } from '@/lib/utils'
 import { useStore } from '@/store/atom'
 import {
@@ -475,7 +476,10 @@ export function Pane({
       const handle = event.currentTarget
       const { pointerId } = event
       const start = axis === 'x' ? event.clientX : event.clientY
-      const dir = axis === 'x' ? (side === 'left' ? 1 : -1) : -1
+      // `clientX` grows rightward in every locale, but the rail it belongs to has
+      // swapped ends under `dir=rtl` — without the sign the sash renders on the
+      // right edge and then widens the pane when dragged into it.
+      const dir = axis === 'x' ? (side === 'left' ? 1 : -1) * directionSign(handle) : -1
       const [min, max] = axis === 'x' ? [lo, hi] : [loH, hiH]
       const apply = axis === 'x' ? setPaneWidthOverride : setPaneHeightOverride
       const restoreCursor = document.body.style.cursor
@@ -554,8 +558,16 @@ export function Pane({
   // box). group-hover (or data-forced from the keyboard) drives the slide; the
   // enter-delay is the hover-intent gate. No JS pointer math.
   if (overlayActive) {
-    const edge = side === 'left' ? 'left' : 'right'
-    const offscreen = side === 'left' ? '-translate-x-[calc(100%+1rem)]' : 'translate-x-[calc(100%+1rem)]'
+    // Inline edges, so the reveal hugs the same side of the pane the grid put it
+    // on. The slide is a transform and needs the direction sign applied by hand;
+    // it cannot be an `rtl:` variant, which sorts after — and would beat — the
+    // `group-hover:`/`group-data-[forced]:translate-x-0` that slides it in.
+    const edge = side === 'left' ? 'insetInlineStart' : 'insetInlineEnd'
+
+    const offscreen =
+      side === 'left'
+        ? 'translate-x-[calc((100%+1rem)*var(--dir-flip-x)*-1)]'
+        : 'translate-x-[calc((100%+1rem)*var(--dir-flip-x))]'
 
     return (
       <div
@@ -619,7 +631,13 @@ export function Pane({
           className={cn(
             'group absolute z-20',
             sash.bar,
-            !isBottomRow && (slot.side === 'left' ? 'right-0 translate-x-1/2' : 'left-0 -translate-x-1/2')
+            // The grid mirrors on its own under `dir=rtl` (column 1 is the inline
+            // start), so the sash follows with logical insets. Its half-width
+            // straddle is a TRANSFORM, which does not mirror — hence the sign.
+            !isBottomRow &&
+              (slot.side === 'left'
+                ? 'end-0 translate-x-[calc(50%*var(--dir-flip-x))]'
+                : 'start-0 translate-x-[calc(-50%*var(--dir-flip-x))]')
           )}
           onPointerDown={e => startResize(e, axis)}
           role="separator"

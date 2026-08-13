@@ -92,7 +92,7 @@ export function readClarifyResult(result: unknown): ClarifyResult {
 const letterFor = (index: number): string => String.fromCharCode(65 + index)
 
 const OPTION_ROW_CLASS =
-  'flex w-full items-start gap-2 rounded-[0.25rem] px-1.5 py-1 text-left disabled:cursor-not-allowed disabled:opacity-50'
+  'flex w-full items-start gap-2 rounded-[0.25rem] px-1.5 py-1 text-start disabled:cursor-not-allowed disabled:opacity-50'
 
 // field-sizing on top of Textarea's shared chrome; kill min-h-16 for one-liners.
 const CLARIFY_TEXTAREA_CLASS = 'field-sizing-content max-h-40 min-h-0 resize-none'
@@ -669,7 +669,7 @@ function ClarifyToolPending({ args }: ToolCallMessagePartProps) {
           ) : (
             <>
               {copy.continueLabel}
-              <span aria-hidden className="ml-0.5 text-[0.625rem] opacity-70">
+              <span aria-hidden className="ms-0.5 text-[0.625rem] opacity-70">
                 ⏎
               </span>
             </>

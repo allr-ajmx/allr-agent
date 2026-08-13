@@ -58,7 +58,7 @@ function Picker() {
       <div className="flex flex-col gap-2">
         {oauthProviders.map(provider => (
           <button
-            className="flex items-center gap-3 rounded-lg border border-border bg-card p-3 text-left transition-colors hover:border-primary"
+            className="flex items-center gap-3 rounded-lg border border-border bg-card p-3 text-start transition-colors hover:border-primary"
             key={provider.id}
             onClick={() => void startProviderOAuth(provider)}
             type="button"
@@ -75,7 +75,7 @@ function Picker() {
             {provider.flow === 'external' ? (
               <Terminal className="size-4 shrink-0 text-muted-foreground" />
             ) : (
-              <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+              <ChevronRight className="size-4 shrink-0 text-muted-foreground rtl:-scale-x-100" />
             )}
           </button>
         ))}
@@ -88,7 +88,7 @@ function Picker() {
 
           return (
             <button
-              className="flex items-center gap-3 rounded-lg border border-border bg-card p-3 text-left transition-colors hover:border-primary"
+              className="flex items-center gap-3 rounded-lg border border-border bg-card p-3 text-start transition-colors hover:border-primary"
               key={option.id}
               onClick={() => selectApiKeyProvider(option)}
               type="button"
@@ -104,7 +104,7 @@ function Picker() {
                 </span>
                 {description && <span className="mt-0.5 block text-xs text-muted-foreground">{description}</span>}
               </span>
-              <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+              <ChevronRight className="size-4 shrink-0 text-muted-foreground rtl:-scale-x-100" />
             </button>
           )
         })}
@@ -134,11 +134,11 @@ function ApiKeyForm({ option }: { option: ApiKeyOption | null }) {
   return (
     <div className="flex flex-1 flex-col">
       <button
-        className="-ml-1 mb-3 inline-flex items-center gap-1 text-sm text-muted-foreground"
+        className="-ms-1 mb-3 inline-flex items-center gap-1 text-sm text-muted-foreground"
         onClick={() => backToPicker()}
         type="button"
       >
-        <ChevronLeft className="size-4" />
+        <ChevronLeft className="size-4 rtl:-scale-x-100" />
         {t.onboarding.backToSignIn}
       </button>
 
@@ -198,11 +198,11 @@ function OAuthPanel() {
 
   const backRow = (
     <button
-      className="-ml-1 mb-3 inline-flex items-center gap-1 text-sm text-muted-foreground"
+      className="-ms-1 mb-3 inline-flex items-center gap-1 text-sm text-muted-foreground"
       onClick={() => backToPicker()}
       type="button"
     >
-      <ChevronLeft className="size-4" />
+      <ChevronLeft className="size-4 rtl:-scale-x-100" />
       {t.onboarding.pickDifferentProvider}
     </button>
   )

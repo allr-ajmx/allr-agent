@@ -47,7 +47,7 @@ export function ComboboxInput({
       <PopoverAnchor asChild>
         <div className={cn('relative', className)}>
           <Input
-            className="w-full pr-7"
+            className="w-full pe-7"
             onChange={e => {
               onChange(e.target.value)
 
@@ -67,7 +67,7 @@ export function ComboboxInput({
           />
           <button
             aria-label="Show options"
-            className="absolute inset-y-0 right-1.5 flex items-center text-muted-foreground"
+            className="absolute inset-y-0 end-1.5 flex items-center text-muted-foreground"
             onClick={() => {
               setOpen(current => !current)
               inputRef.current?.focus()
@@ -98,7 +98,7 @@ export function ComboboxInput({
                     value={option}
                   >
                     <Codicon
-                      className={cn('mr-2 size-4', option === value ? 'opacity-100' : 'opacity-0')}
+                      className={cn('me-2 size-4', option === value ? 'opacity-100' : 'opacity-0')}
                       name="check"
                     />
                     <span className="truncate">{optionLabels?.[option] ?? option}</span>

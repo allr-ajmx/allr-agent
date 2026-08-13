@@ -186,7 +186,7 @@ function VersionStepper({
           onClick={() => onSelect(current - 1)}
           type="button"
         >
-          <ChevronLeft className="size-3" />
+          <ChevronLeft className="size-3 rtl:-scale-x-100" />
         </button>
       </Tip>
       <span className="tabular-nums text-(--ui-text-tertiary)">{copy.versionOf(current + 1, total)}</span>
@@ -198,7 +198,7 @@ function VersionStepper({
           onClick={() => onSelect(current + 1)}
           type="button"
         >
-          <ChevronRight className="size-3" />
+          <ChevronRight className="size-3 rtl:-scale-x-100" />
         </button>
       </Tip>
       {current < total - 1 && (

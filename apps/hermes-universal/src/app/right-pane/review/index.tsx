@@ -76,9 +76,13 @@ export function ReviewPane() {
       aria-label={c.review}
       className={cn(
         'before:pointer-events-none relative flex h-full w-full min-w-0 flex-col overflow-hidden border-(--ui-stroke-secondary) bg-(--ui-sidebar-surface-background) text-(--ui-text-tertiary)',
+        // The rails are grid columns, so they already mirror under `dir=rtl` and
+        // the seam follows with a logical border. The inner highlight is a
+        // box-shadow OFFSET — geometry, not layout — so it carries the direction
+        // sign instead, or it would light the opposite edge from its own border.
         panesFlipped
-          ? 'border-r shadow-[inset_-0.0625rem_0_0_color-mix(in_srgb,white_18%,transparent)]'
-          : 'border-l shadow-[inset_0.0625rem_0_0_color-mix(in_srgb,white_18%,transparent)]'
+          ? 'border-e shadow-[inset_calc(-0.0625rem*var(--dir-flip-x))_0_0_color-mix(in_srgb,white_18%,transparent)]'
+          : 'border-s shadow-[inset_calc(0.0625rem*var(--dir-flip-x))_0_0_color-mix(in_srgb,white_18%,transparent)]'
       )}
     >
       {(loading || isRepo) && (

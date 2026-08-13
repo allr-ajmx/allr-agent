@@ -98,7 +98,7 @@ export function ArtifactCard({ code, detection, streaming = false }: ArtifactCar
     <button
       className={cn(
         WIDGET_SHELL_CLASS,
-        'group/artifact my-1.5 flex w-full max-w-md items-center gap-2.5 overflow-hidden text-left',
+        'group/artifact my-1.5 flex w-full max-w-md items-center gap-2.5 overflow-hidden text-start',
         streaming ? 'cursor-default' : 'cursor-pointer'
       )}
       data-slot="aui_artifact-card"

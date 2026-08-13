@@ -716,7 +716,7 @@ const MARKDOWN_COMPONENTS = {
   th: ({ className, ...props }: ComponentProps<'th'>) => (
     <th
       className={cn(
-        'whitespace-nowrap px-2.5 py-1.5 text-left align-middle text-[0.75rem] font-medium text-muted-foreground',
+        'whitespace-nowrap px-2.5 py-1.5 text-start align-middle text-[0.75rem] font-medium text-muted-foreground',
         className
       )}
       {...props}
