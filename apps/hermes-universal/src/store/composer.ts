@@ -97,7 +97,6 @@ export interface ComposerAttachment {
   uploadState?: 'uploading' | 'error'
 }
 
-export const $composerDraft = atom('')
 export const $composerAttachments = atom<ComposerAttachment[]>([])
 export const $composerTerminalSelections = atom<Record<string, string>>({})
 
@@ -377,39 +376,14 @@ try {
   // No DOM — the module still imports cleanly under unit tests.
 }
 
-export function setComposerDraft(value: string) {
-  $composerDraft.set(value)
-}
-
-export function appendComposerDraft(value: string) {
-  const text = value.trim()
-
-  if (!text) {
-    return
-  }
-
-  const current = $composerDraft.get()
-  const separator = current && !current.endsWith('\n') ? '\n\n' : ''
-
-  $composerDraft.set(`${current}${separator}${text}`)
-}
-
-export function appendComposerInline(value: string) {
-  const text = value.trim()
-
-  if (!text) {
-    return
-  }
-
-  const current = $composerDraft.get().trimEnd()
-  const separator = current ? ' ' : ''
-
-  $composerDraft.set(`${current}${separator}${text}`)
-}
-
-export function clearComposerDraft() {
-  $composerDraft.set('')
-}
+// There is deliberately no `$composerDraft` atom or set/append/clear helpers
+// over one. A composer's live text lives in its own contentEditable plus
+// `draftRef`, stashed per session key via `stashSessionDraft` — see
+// app/chat/composer/hooks/use-composer-draft.ts. The atom that used to sit here
+// looked like the draft API and was read by nothing, so everything written to it
+// (the `/undo` prefill, the degenerate-slash restore) was silently discarded
+// (MJXHRM-419). To put text into a composer from outside, address one on the
+// insert bus: `requestComposerInsert(text, { target })`.
 
 // Main-scope conveniences — the names the app has always used.
 export const addComposerAttachment = (attachment: ComposerAttachment) => mainComposerScope.add(attachment)
