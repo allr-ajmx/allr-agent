@@ -425,6 +425,49 @@ describe('the hovered zone outranks the focused one', () => {
     expect(activePaneOf(CHAT_GROUP)).toBe(tile('b'))
   })
 
+  /**
+   * THE THIRD RUNG (MJXHRM-406). Hover and focus were both pinned above; the
+   * fallback under them was not — deleting `return main && eligible(main) ...`
+   * outright left this whole file green. It is the rung a COLD START runs on:
+   * nothing has been clicked, so no zone is active, and the pointer is wherever
+   * the window opened it. Without it ⌥2, ⌃Tab and ⌘W are all dead until the
+   * user clicks into a pane first, which is exactly the kind of "wired but
+   * unreachable" the hover rung shipped as.
+   */
+  it('falls back to the zone holding the MAIN tile when nothing is hovered or focused', () => {
+    seedTree([WORKSPACE_PANE_ID, tile('a'), tile('b')])
+    noteActiveTreeGroup(null)
+    noteHoveredTreeGroup(null)
+
+    expect(activateTreeTabSlot(2)).toBe(true)
+    expect(activePaneOf(CHAT_GROUP)).toBe(tile('a'))
+
+    expect(cycleTreeTabInFocusedZone(1)).toBe(true)
+    expect(activePaneOf(CHAT_GROUP)).toBe(tile('b'))
+  })
+
+  it('⌘W closes the main zone tab on a cold start', () => {
+    seedTree([WORKSPACE_PANE_ID, tile('a')], tile('a'))
+    noteActiveTreeGroup(null)
+    noteHoveredTreeGroup(null)
+
+    expect(closeFocusedTabInZone()).toBe(true)
+    expect(panesOf(CHAT_GROUP)).toEqual([WORKSPACE_PANE_ID])
+  })
+
+  it('reaches the main rung when BOTH the hovered and the focused zone are ineligible', () => {
+    seedTree([WORKSPACE_PANE_ID, tile('a'), tile('b')])
+    // The tool zone collapsed to one tab, and it is both hovered and focused —
+    // so neither of the first two rungs can serve the verb.
+    setTreePaneHidden('logs', true)
+    noteActiveTreeGroup(TOOL_GROUP)
+    noteHoveredTreeGroup(TOOL_GROUP)
+
+    expect(activateTreeTabSlot(2)).toBe(true)
+    expect(activePaneOf(CHAT_GROUP)).toBe(tile('a'))
+    expect(activePaneOf(TOOL_GROUP)).toBe('terminal')
+  })
+
   it('reverts to the focused zone once the pointer leaves every zone', () => {
     seedTree([WORKSPACE_PANE_ID, tile('a')])
     noteActiveTreeGroup(CHAT_GROUP)
