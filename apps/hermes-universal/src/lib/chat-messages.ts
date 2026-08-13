@@ -26,6 +26,24 @@ export interface TextPart {
 export interface ReasoningPart {
   type: 'reasoning'
   text: string
+  /**
+   * This block is CLOSED: it is one complete, attributed thought and nothing
+   * may be appended to it or written over it.
+   *
+   * Every other reasoning writer here walks backwards to the nearest reasoning
+   * part and either concatenates onto it (`appendStreamPart`) or swaps it out
+   * for the authoritative full text (`applySettledReasoning`) — the right rule
+   * for one model's own scratchpad, which arrives as tokens and then as a
+   * settled burst of the SAME thought.
+   *
+   * A MoA advisory block is not that. `moa.reference` carries a DIFFERENT
+   * model's finished answer under its own `◇ Reference k/n — label` header, and
+   * the aggregator's reasoning follows it immediately on the same session. With
+   * no seal, the aggregator's first reasoning token was concatenated onto the
+   * last advisor's body (misattributing it) and its settled burst replaced that
+   * body outright (deleting an advisor answer the user paid for).
+   */
+  sealed?: boolean
 }
 export interface ToolCallPart {
   type: 'tool-call'
@@ -221,25 +239,25 @@ export function patchActive(messages: ChatMessage[], patch: (m: ChatMessage) => 
   return copy
 }
 
-// Append a streaming delta into the tail part when it's the same channel, else
-// open a new part.
-export function appendStreamPart(parts: ChatPart[], type: 'reasoning' | 'text', delta: string): ChatPart[] {
-  if (!delta) {
-    return parts
-  }
-
-  // Coalesce into the most recent same-type part within the current segment
-  // (bounded by non-streaming parts like tool calls). The opposite streaming
-  // channel (text<->reasoning) is TRANSPARENT — so a reasoning burst between two
-  // content deltas can't shred one sentence into text / Thinking / text.
+/**
+ * Which part a streaming delta of `type` belongs to, or -1 for "open a new one".
+ *
+ * Coalesce into the most recent same-type part within the current segment
+ * (bounded by non-streaming parts like tool calls). The opposite streaming
+ * channel (text<->reasoning) is TRANSPARENT — so a reasoning burst between two
+ * content deltas can't shred one sentence into text / Thinking / text.
+ *
+ * A SEALED reasoning part closes the reasoning segment: it is somebody else's
+ * finished thought, so the next reasoning delta opens its own block rather than
+ * continuing it. Text is unaffected — a sealed advisory sitting between two
+ * prose deltas must still not split the sentence.
+ */
+function streamTargetIndex(parts: ChatPart[], type: 'reasoning' | 'text'): number {
   for (let i = parts.length - 1; i >= 0; i--) {
     const part = parts[i]
 
     if (part.type === type) {
-      const copy = parts.slice()
-      copy[i] = { type, text: part.text + delta }
-
-      return copy
+      return part.type === 'reasoning' && part.sealed ? -1 : i
     }
 
     if (part.type !== 'text' && part.type !== 'reasoning') {
@@ -247,7 +265,52 @@ export function appendStreamPart(parts: ChatPart[], type: 'reasoning' | 'text', 
     }
   }
 
-  return [...parts, { type, text: delta }]
+  return -1
+}
+
+// Append a streaming delta into the tail part when it's the same channel, else
+// open a new part.
+export function appendStreamPart(parts: ChatPart[], type: 'reasoning' | 'text', delta: string): ChatPart[] {
+  if (!delta) {
+    return parts
+  }
+
+  const index = streamTargetIndex(parts, type)
+
+  if (index === -1) {
+    return [...parts, { type, text: delta }]
+  }
+
+  const copy = parts.slice()
+  copy[index] = { type, text: (parts[index] as ReasoningPart | TextPart).text + delta }
+
+  return copy
+}
+
+/**
+ * Append a reasoning delta and CLOSE the block it landed in.
+ *
+ * For chrome the model does not own — the `◇ MoA aggregating…` marker — where
+ * the line has to survive whatever the aggregator says next. Without the seal
+ * the marker is either swallowed by the aggregator's settled reasoning or, when
+ * it lands after the advisory blocks (the order `agent/moa_loop.py` actually
+ * emits in), glued onto the end of the last advisor's answer.
+ */
+export function appendSealedReasoning(parts: ChatPart[], delta: string): ChatPart[] {
+  if (!delta) {
+    return parts
+  }
+
+  const index = streamTargetIndex(parts, 'reasoning')
+
+  if (index === -1) {
+    return [...parts, { type: 'reasoning', text: delta, sealed: true }]
+  }
+
+  const copy = parts.slice()
+  copy[index] = { type: 'reasoning', text: (parts[index] as ReasoningPart).text + delta, sealed: true }
+
+  return copy
 }
 
 // Append an assistant text delta, then rewrite MEDIA: markers in the active text
@@ -297,6 +360,13 @@ export function appendAssistantTextPart(parts: ChatPart[], delta: string): ChatP
 //     swap in the authoritative full text.
 //  3. Prose or a tool call already followed → open a NEW block, preserving the
 //     chronology of the turn instead of clobbering the previous step.
+//
+// A SEALED block is case 3 as well, and for the same reason: it belongs to a
+// step that is over. The aggregator's settled reasoning arriving after a MoA
+// fan-out used to take case 2 and overwrite the LAST advisor's answer with it.
+// The dedupe in case 1 skips sealed blocks too — it asks "did we already stream
+// this very thought?", and another model's answer that happens to contain the
+// same words is not that thought.
 export function applySettledReasoning(parts: ChatPart[], text: string): ChatPart[] {
   const settled = text.trim()
 
@@ -304,21 +374,21 @@ export function applySettledReasoning(parts: ChatPart[], text: string): ChatPart
     return parts
   }
 
-  if (parts.some(part => part.type === 'reasoning' && part.text.trim().includes(settled))) {
+  if (parts.some(part => part.type === 'reasoning' && !part.sealed && part.text.trim().includes(settled))) {
     return parts
   }
 
   for (let i = parts.length - 1; i >= 0; i--) {
     const part = parts[i]
 
-    if (part.type === 'reasoning') {
+    if (part.type === 'reasoning' && !part.sealed) {
       const copy = parts.slice()
       copy[i] = { type: 'reasoning', text }
 
       return copy
     }
 
-    // Any prose or tool call closes the previous thinking block.
+    // Any prose, tool call or closed block ends the previous thinking block.
     break
   }
 
