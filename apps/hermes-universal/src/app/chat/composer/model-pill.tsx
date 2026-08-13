@@ -1,6 +1,7 @@
 import { useStore } from '@nanostores/react'
 import { useState } from 'react'
 
+import { useSessionView } from '@/app/chat/session-view'
 import { ModelMenuCloseContext } from '@/app/shell/model-menu-panel'
 import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
@@ -10,13 +11,7 @@ import { useI18n } from '@/i18n'
 import { ChevronDown } from '@/lib/icons'
 import { formatModelStatusLabel } from '@/lib/model-status-label'
 import { cn } from '@/lib/utils'
-import {
-  $currentFastMode,
-  $currentModel,
-  $currentProvider,
-  $currentReasoningEffort,
-  setModelPickerOpen
-} from '@/store/model'
+import { setModelPickerOpen } from '@/store/model'
 
 import type { ChatBarState } from './types'
 
@@ -31,6 +26,12 @@ const PILL = cn(
  * Composer model selector — the relocated status-bar pill. Reuses the live
  * `model.options` dropdown (`modelMenuContent`) verbatim; falls back to the
  * full picker when the gateway is closed and no live menu exists.
+ *
+ * Display follows THIS surface's SessionView (primary or tile), never the
+ * primary-only globals — desktop parity. Reading `$currentModel` directly meant
+ * a tile's (and a detached window's) pill LABELLED the primary chat's model
+ * while every action on that surface targeted the tile's own session: the two
+ * halves of one control disagreeing about which chat they mean.
  */
 export function ModelPill({
   compact = false,
@@ -42,10 +43,16 @@ export function ModelPill({
   model: ChatBarState['model']
 }) {
   const copy = useI18n().t.shell.statusbar
-  const currentModel = useStore($currentModel)
-  const currentProvider = useStore($currentProvider)
-  const fastMode = useStore($currentFastMode)
-  const reasoningEffort = useStore($currentReasoningEffort)
+  const view = useSessionView()
+  // Prefer the chat-bar snapshot (already view-scoped by ChatComposer); fall
+  // back to the live SessionView atoms so a mid-flight session.info still
+  // paints — including the PENDING model a mid-turn pick was queued as.
+  const viewModel = useStore(view.$model)
+  const viewProvider = useStore(view.$provider)
+  const currentModel = model.model || viewModel
+  const currentProvider = model.provider || viewProvider
+  const fastMode = useStore(view.$fast)
+  const reasoningEffort = useStore(view.$reasoningEffort)
   const [open, setOpen] = useState(false)
 
   // The model resolves a beat after the gateway/session comes up. Rather than
