@@ -64,6 +64,10 @@ function useSubtreeOverrides(paneIds: readonly string[]): TrackContext['override
     }
 
     return cache.current.value
+    // `key` (the joined ids) stands in for `paneIds`, which is a fresh array
+    // every render. Depending on the array itself would hand
+    // `useSyncExternalStore` a new getSnapshot each render and defeat the
+    // signature gate this whole hook exists to provide.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key])
 
@@ -488,6 +492,11 @@ export function TreeSplit({
 
       setTreeSplitWeights(node.id, !preset && !pinned ? weights.map(() => 1) : weights)
     },
+    // Same substitution as `startSash` above: `trackCtx` and `paneFor` are
+    // rebuilt every render, so this array lists their INPUTS instead —
+    // `trackCtx` is `{ paneFor, paneGone, overrides }`, `paneFor` reads `byId`,
+    // and `paneGone` adds `editMode`/`hiddenPanes`/`narrow`. All five are here,
+    // so the callback's behaviour is fully covered without churning identity.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [axis, editMode, horizontal, node.children, node.id, node.weights, hiddenPanes, narrow, overrides, byId]
   )

@@ -221,6 +221,12 @@ export function SessionTilePane({ storedSessionId }: { storedSessionId: string }
     if (gatewayOpen && tile?.error) {
       patchSessionTile(storedSessionId, { error: undefined })
     }
+    // RECONNECT EDGE only. `tile?.error` is read but must not be depended on:
+    // the resume effect above bails while an error is set, so clearing on the
+    // error's own edge would resume → fail → clear → resume in a loop for as
+    // long as the gateway stays up. `storedSessionId` is fixed for the life of
+    // this instance — the pane id embeds it (`session-tile:<id>`), so React
+    // never reuses one instance for another tile.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gatewayOpen])
 

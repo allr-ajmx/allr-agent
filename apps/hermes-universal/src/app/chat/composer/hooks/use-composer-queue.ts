@@ -354,6 +354,10 @@ export function useComposerQueue({
     }
 
     setQueueEditSnapshot(null)
+    // `loadIntoComposer` is redeclared every render (it closes over the draft
+    // engine's live refs) while its behaviour is fixed. Listing it would turn a
+    // scope/snapshot-change effect into a per-render one that repaints the
+    // composer from `queueEdit.draft` while the user is typing into it.
   }, [activeQueueSessionKey, editingQueuedPrompt, queueEdit, setQueueEditSnapshot]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return {
