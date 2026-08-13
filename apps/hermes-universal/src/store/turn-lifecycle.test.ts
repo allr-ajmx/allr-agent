@@ -89,6 +89,25 @@ describe('applyTurnEvent', () => {
     expect(settled.phase).toBe('settled')
     expect(applyTurnEvent(settled, event('message.delta'))).toBe(settled)
   })
+
+  // A MoA fan-out emits NOTHING but `moa.progress` until every advisor returns,
+  // against a `moa_reference` timeout that defaults to 900s. With only
+  // `moa.reference` counted, a turn that had been reporting progress for a
+  // quarter of an hour still read as "produced nothing" and its `lastEventAt`
+  // never moved off `message.start`.
+  it.each(['moa.progress', 'moa.phase', 'moa.aggregating', 'moa.reference'])(
+    'counts %s as output the turn produced',
+    type => {
+      const started = applyTurnEvent(beginTurn('s1', { prompt: 'x' }), event('message.start'), 1_000)!
+
+      expect(started.producedOutput).toBe(false)
+
+      const after = applyTurnEvent(started, event(type), 500_000)!
+
+      expect(after.producedOutput).toBe(true)
+      expect(after.lastEventAt).toBe(500_000)
+    }
+  )
 })
 
 describe('the store', () => {
