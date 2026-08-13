@@ -77,7 +77,7 @@ export const PaneTab = React.forwardRef<HTMLDivElement, PaneTabProps>(function P
 ) {
   // Content-facing edge: horizontal cuts the bottom strip line; vertical cuts
   // the side that faces the editor (left rail → right edge, right rail → left).
-  const edge = vertical ? (side === 'right' ? 'border-l' : 'border-r') : 'border-b'
+  const edge = vertical ? (side === 'right' ? 'border-s' : 'border-e') : 'border-b'
   // Middle-click through the pointer-pair gesture, not `auxclick`: a tab strip
   // is a scroller, and a middle press inside one starts the autoscroll pan on
   // Windows/Linux — the mouseup ends the pan instead of completing a click, so

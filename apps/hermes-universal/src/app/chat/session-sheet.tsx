@@ -22,7 +22,7 @@ import type { SessionSearchResult } from '@/types/hermes'
 function SearchRow({ result, onOpen }: { result: SessionSearchResult; onOpen: () => void }) {
   return (
     <button
-      className="w-full rounded-md px-3 py-2.5 text-left hover:bg-accent"
+      className="w-full rounded-md px-3 py-2.5 text-start hover:bg-accent"
       onClick={() => {
         void openSession(result.session_id)
         onOpen()

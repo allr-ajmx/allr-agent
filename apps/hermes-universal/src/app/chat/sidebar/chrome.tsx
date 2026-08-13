@@ -19,7 +19,7 @@ export function SidebarCount({ children }: { children: React.ReactNode }) {
 
 // ── Row geometry (session row is canonical — everything composes these) ─────
 const rowMinH = 'min-h-[1.625rem]'
-const rowPadX = 'pl-2 pr-1'
+const rowPadX = 'ps-2 pe-1'
 const rowGap = 'gap-1.5'
 const rowLead = 'grid size-3.5 shrink-0 place-items-center'
 const rowInset = cn(rowPadX, rowGap, 'flex h-full min-w-0 items-center self-stretch py-0.5')

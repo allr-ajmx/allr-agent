@@ -200,7 +200,7 @@ function applyManualOrder<T extends { id: string }>(items: T[], ids: string[]): 
 }
 
 const SESSIONS_CONTENT_CLASS =
-  'flex min-h-0 flex-1 flex-col gap-px overflow-y-auto overflow-x-hidden overscroll-contain pb-1 pr-1.5'
+  'flex min-h-0 flex-1 flex-col gap-px overflow-y-auto overflow-x-hidden overscroll-contain pb-1 pe-1.5'
 
 // All-profiles lanes need breathing room between group headers; the flat list
 // packs rows at gap-px.

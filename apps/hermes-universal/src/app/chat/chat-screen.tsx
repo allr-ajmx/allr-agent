@@ -69,7 +69,7 @@ export const ChatScreen = memo(function ChatScreen() {
         <ScrollToBottomButton />
         {barsPresent && (
           <div className="composer-bars">
-            {busy && statusLine && <div className="pl-0.5 text-[0.8125rem] text-muted-foreground">{statusLine}</div>}
+            {busy && statusLine && <div className="ps-0.5 text-[0.8125rem] text-muted-foreground">{statusLine}</div>}
             {approval && <ApprovalBar request={approval} sessionKey={sessionKey} />}
             {/* Clarify has no bar here: like desktop, the question renders inline in
                 the transcript (components/assistant-ui/clarify-tool.tsx) so the

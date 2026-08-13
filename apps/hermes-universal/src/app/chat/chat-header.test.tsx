@@ -17,7 +17,7 @@ import { seedActiveSession } from '@/test-sessions'
 
 import { ChatHeader } from './chat-header'
 
-const INSET = 'pl-[6.75rem]'
+const INSET = 'ps-[6.75rem]'
 
 const renderHeader = () => {
   // ChatTitle (nested) calls useLocation, so a router context is required.
@@ -47,7 +47,7 @@ describe('ChatHeader — titlebar cluster inset', () => {
     seedActiveSession('live-1')
     setSidebarOpen(true)
 
-    expect(renderHeader().className).toContain('pl-3')
+    expect(renderHeader().className).toContain('ps-3')
   })
 
   it('clears the cluster once the left side is empty', () => {
@@ -73,7 +73,7 @@ describe('ChatHeader — titlebar cluster inset', () => {
     $panesFlipped.set(true)
     $rightSidebarOpen.set(true)
 
-    expect(renderHeader().className).toContain('pl-3')
+    expect(renderHeader().className).toContain('ps-3')
   })
 
   it('hugs the pane edge when flipped with only the review pane on the left', () => {
@@ -82,6 +82,6 @@ describe('ChatHeader — titlebar cluster inset', () => {
     $rightSidebarOpen.set(false)
     $reviewOpen.set(true)
 
-    expect(renderHeader().className).toContain('pl-3')
+    expect(renderHeader().className).toContain('ps-3')
   })
 })

@@ -27,7 +27,7 @@ const HEADER_CLASS =
 // the titlebar's own px-2 — the title must clear it when the chat pane reaches
 // the window's left edge (nothing docked on that side). Re-do the sum if a
 // button joins the cluster or changes size in `app/shell/titlebar*.tsx`.
-const LEFT_CLUSTER_INSET = 'pl-[6.75rem]'
+const LEFT_CLUSTER_INSET = 'ps-[6.75rem]'
 
 export function ChatHeader() {
   const activeId = useStore($activeStoredSessionId)
@@ -59,8 +59,8 @@ export function ChatHeader() {
   const headerClass = cn(
     HEADER_CLASS,
     IS_DESKTOP && 'mt-[calc(-1*var(--titlebar-height))]',
-    IS_DESKTOP && !leftColumnOpen ? LEFT_CLUSTER_INSET : 'pl-3',
-    'pr-3'
+    IS_DESKTOP && !leftColumnOpen ? LEFT_CLUSTER_INSET : 'ps-3',
+    'pe-3'
   )
 
   return (
