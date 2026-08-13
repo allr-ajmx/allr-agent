@@ -205,11 +205,18 @@ export function isWindowBelowUnavailable(answer: WindowBelowAnswer): answer is W
 /**
  * What application is underneath us. Metadata only — this never captures pixels.
  *
- * Linux/Hyprland only in this build, over the compositor's IPC socket, because
- * Wayland refuses to tell one client about another's windows and XWayland's
- * `xprop` reports a stacking order that no longer means anything. macOS and
- * Windows return an explained refusal rather than an empty answer that reads as
- * "nothing is there".
+ * Which mechanism answers is decided in Rust and published as
+ * `readWindowBelowSource` on the capability descriptor: Hyprland's IPC socket,
+ * `_NET_CLIENT_LIST_STACKING` on X11, `CGWindowListCopyWindowInfo` on macOS or
+ * `EnumWindows` on Windows (MJXHRM-392). The one session that cannot answer is
+ * Wayland-without-Hyprland, which refuses to tell one client about another's
+ * windows; there this returns an explained refusal rather than an empty answer
+ * that reads as "nothing is there".
+ *
+ * On macOS the reading is real but its titles may be missing: only the Screen
+ * Recording permission reveals them, and this app preflights that grant without
+ * ever requesting it. That case arrives as `note` on a normal reading, and as
+ * `degraded` on the capability.
  */
 export async function readWindowBelow(): Promise<WindowBelowAnswer> {
   try {
