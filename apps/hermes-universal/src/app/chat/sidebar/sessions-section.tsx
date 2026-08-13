@@ -55,7 +55,7 @@ function SidebarSectionHeader({
     <div className="group/section flex shrink-0 items-center justify-between gap-1 pb-1 pt-1.5">
       {collapsible ? (
         <button
-          className="group/section-label flex w-fit items-center gap-1 bg-transparent text-left leading-none"
+          className="group/section-label flex w-fit items-center gap-1 bg-transparent text-start leading-none"
           onClick={onToggle}
           type="button"
         >

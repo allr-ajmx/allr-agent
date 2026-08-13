@@ -67,7 +67,7 @@ export function ChatSidebar({ variant = 'pane', onNavigate }: ChatSidebarProps) 
     <div
       className={cn(
         'relative flex h-full min-w-0 flex-col overflow-hidden border-t-0 border-b-0 text-foreground transition-none',
-        panesFlipped ? 'border-l border-r-0' : 'border-r border-l-0',
+        panesFlipped ? 'border-s border-e-0' : 'border-e border-s-0',
         contentVisible
           ? 'border-(--sidebar-edge-border) bg-(--ui-sidebar-surface-background) opacity-100'
           : 'pointer-events-none border-transparent bg-transparent opacity-0'

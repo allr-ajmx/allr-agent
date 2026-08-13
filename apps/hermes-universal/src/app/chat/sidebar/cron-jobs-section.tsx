@@ -135,7 +135,7 @@ export function SidebarCronJobsSection({
     <div className="flex shrink-0 flex-col p-0 pb-1">
       <div className="group/section flex shrink-0 items-center justify-between pb-1 pt-1.5">
         <button
-          className="group/section-label flex w-fit items-center gap-1 bg-transparent text-left leading-none"
+          className="group/section-label flex w-fit items-center gap-1 bg-transparent text-start leading-none"
           onClick={onToggle}
           type="button"
         >
@@ -148,7 +148,7 @@ export function SidebarCronJobsSection({
         </button>
       </div>
       {open && (
-        <div className="flex max-h-72 flex-col gap-px overflow-x-hidden overflow-y-auto overscroll-contain pb-1.5 pr-2.5">
+        <div className="flex max-h-72 flex-col gap-px overflow-x-hidden overflow-y-auto overscroll-contain pb-1.5 pe-2.5">
           {shown.map(job => (
             <CronJobSidebarRow
               expanded={peekJobId === job.id}
@@ -257,7 +257,7 @@ function CronJobSidebarRow({
             <button
               aria-expanded={expanded}
               aria-label={expanded ? c.hideRuns : c.showRuns}
-              className="flex min-w-0 items-center gap-1.5 bg-transparent py-0.5 pl-2 pr-1 text-left"
+              className="flex min-w-0 items-center gap-1.5 bg-transparent py-0.5 ps-2 pe-1 text-start"
               onClick={onTogglePeek}
               type="button"
             >
@@ -283,7 +283,7 @@ function CronJobSidebarRow({
               />
             </button>
           </Tip>
-          <div className="group/cron-actions flex items-center gap-0.5 justify-self-end pr-1">
+          <div className="group/cron-actions flex items-center gap-0.5 justify-self-end pe-1">
             {/* Hover swaps the next-run time out for the actions; on touch there
                 is no hover, so the buttons stay put. Inverted rather than
                 layered: the touch layout is the base and the swap is scoped to
@@ -386,18 +386,18 @@ function CronJobSidebarRuns({ jobId, onOpenRun }: { jobId: string; onOpenRun: (s
   }, [changeEventsAvailable, cronChangeTick, jobId])
 
   return (
-    <div className="mb-1 ml-[1.375rem] flex flex-col gap-px">
+    <div className="mb-1 ms-[1.375rem] flex flex-col gap-px">
       {runs === null ? (
-        <div className="flex items-center gap-1.5 py-1 pl-1 text-[0.6875rem] text-(--ui-text-tertiary)">
+        <div className="flex items-center gap-1.5 py-1 ps-1 text-[0.6875rem] text-(--ui-text-tertiary)">
           <Codicon className="animate-spin" name="loading" size="0.75rem" />
         </div>
       ) : runs.length === 0 ? (
-        <div className="py-1 pl-1 text-[0.6875rem] text-(--ui-text-tertiary)">{c.noRuns}</div>
+        <div className="py-1 ps-1 text-[0.6875rem] text-(--ui-text-tertiary)">{c.noRuns}</div>
       ) : (
         runs.map(run => (
           <button
             className={cn(
-              'truncate rounded-md px-1.5 py-0.5 text-left text-[0.6875rem] tabular-nums',
+              'truncate rounded-md px-1.5 py-0.5 text-start text-[0.6875rem] tabular-nums',
               run.id === selectedSessionId
                 ? 'bg-(--ui-row-active-background) text-foreground'
                 : 'text-(--ui-text-secondary) hover:bg-(--chrome-action-hover) hover:text-foreground'
