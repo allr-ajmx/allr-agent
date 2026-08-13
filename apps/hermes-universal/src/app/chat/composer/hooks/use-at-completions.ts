@@ -1,6 +1,7 @@
 import type { Unstable_TriggerAdapter, Unstable_TriggerItem } from '@assistant-ui/core'
 import { useCallback } from 'react'
 
+import { refChipLabel } from '@/components/assistant-ui/directive-text'
 import type { HermesGateway } from '@/hermes'
 import { cachedPathCompletion, hasCachedPathCompletion } from '@/lib/slash-completion-cache'
 import { normalize } from '@/lib/text'
@@ -61,7 +62,15 @@ function classify(entry: CompletionEntry): {
     return {
       type: kind,
       insertId: rest,
-      display: textValue(entry.display, rest || `@${kind}:`),
+      // The row must show exactly what picking it produces. The gateway's
+      // `display` is a BASENAME (`methods_complete.py` emits `entry + suffix`),
+      // while the chip this row inserts is labelled by `refChipLabel` off the
+      // full `@kind:value` — so taking `display` verbatim gave one folder two
+      // names: the list said `desktop/`, the editor said `apps/desktop/`. Worse
+      // on the fuzzy branch, which ranks matches from anywhere in the tree and
+      // returned every `index.ts` in the repo as the same undifferentiated row.
+      // Both ends derive from `refChipLabel` now, so they cannot drift.
+      display: rest ? refChipLabel(kind, rest) : textValue(entry.display, `@${kind}:`),
       meta: textValue(entry.meta)
     }
   }
