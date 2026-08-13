@@ -144,6 +144,12 @@ describe('voice engine lease arbitration', () => {
     expect(voiceEngine.owner).toBe('meter')
     expect(wakeLease.close).toHaveBeenCalled()
 
+    // ...and cannot be taken back while the user is calibrating. Ranking the two
+    // the SAME still lets the meter preempt wake, so this is the assertion that
+    // distinguishes a real ordering from a tie.
+    await expect(voiceEngine.open('wake', OPTS)).rejects.toBeInstanceOf(VoiceBusyError)
+    expect(voiceEngine.owner).toBe('meter')
+
     await meter.close()
 
     const conversation = await voiceEngine.open('conversation', OPTS)
