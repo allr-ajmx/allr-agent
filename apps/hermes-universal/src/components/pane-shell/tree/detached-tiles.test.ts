@@ -25,11 +25,19 @@ vi.mock('@/store/windows', () => ({
   TILE_WINDOW_CLOSED_EVENT: 'hermes://tile-window-closed'
 }))
 
+// Two marks, not one, and a real microtask between them: the ask going out is
+// not the guarantee — the ANSWER is, and only awaiting it puts the peer's text on
+// disk before this window acts. Without the second mark a dropped `await` would
+// still order identically.
 vi.mock('@/store/composer', () => ({
-  requestPeerComposerFlush: (address: { surface: null | string; tile: null | string }) => {
+  requestPeerComposerFlush: async (address: { surface: null | string; tile: null | string }) => {
     calls.push(`peer-flush:${address.tile}`)
 
-    return requestPeerComposerFlush()
+    const answered = await requestPeerComposerFlush()
+
+    calls.push('flush-answered')
+
+    return answered
   }
 }))
 
@@ -151,7 +159,7 @@ describe('detached tiles', () => {
     // first mounts a composer that seeds from the shared stash, so it would paint
     // the host's text as of its last 400 ms debounce; closing first destroys a
     // webview from OUTSIDE it, and nothing runs there on the way out.
-    expect(calls).toEqual(['peer-flush:session-tile:abc', 'slot-refilled', 'close-window'])
+    expect(calls).toEqual(['peer-flush:session-tile:abc', 'flush-answered', 'slot-refilled', 'close-window'])
   })
 
   it('addresses the tile, not a satellite surface — a tile window is not one', async () => {
