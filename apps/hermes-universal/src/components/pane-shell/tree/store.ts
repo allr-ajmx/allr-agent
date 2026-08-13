@@ -10,7 +10,7 @@ import { SIDEBAR_COLLAPSE_MEDIA_QUERY } from '@/app/layout-constants'
 import { setPluginEnabled } from '@/contrib/plugins-store'
 import { registry } from '@/contrib/registry'
 import { translateNow } from '@/i18n'
-import { readJson, readKey, writeJson, writeKey } from '@/lib/storage'
+import { readJson, readKey, writeKey } from '@/lib/storage'
 import { beginSpan, endSpan, isRecording, recordSpan, span } from '@/observability'
 import { shapeAttrs } from '@/observability/auto/layout-shape'
 import { notify } from '@/store/notifications'
@@ -170,6 +170,29 @@ function persist(tree: LayoutNode | null) {
   endSpan(id, { bytes: json?.length ?? 0 })
 }
 
+/**
+ * The layout's SIDE TABLES — dismissals, user-placed pins, the active preset —
+ * held to the same ownership rule as the tree itself.
+ *
+ * Each is its own `localStorage` key, so the guard inside `persist` never
+ * covered any of them, and every one is written on a path a NON-OWNING window
+ * genuinely runs: a detached tile window and the HUD both side-effect-import
+ * `app/contrib/controller`, whose `bindTreeSideVisibility` calls
+ * `restoreDismissedSidePanes` during module evaluation. Merely opening one
+ * therefore un-dismissed every pane the user had closed in the main window — on
+ * disk, in the store both windows share, permanently.
+ *
+ * The ATOMS still update either way: that window's own view of the layout has to
+ * be right. Only the write to the shared store stands down.
+ */
+function writeOwnedLayoutKey(key: string, value: null | string): void {
+  if (!adoptingImportedTree && !ownsPersistedAppState()) {
+    return
+  }
+
+  writeKey(key, value)
+}
+
 /** The live tree (null until a default is declared). A secondary window ignores
  *  the persisted (primary) layout and boots to the default — nothing but its
  *  own routed session. */
@@ -179,11 +202,13 @@ export const $layoutTree = atom<LayoutNode | null>(isSecondaryWindow() ? null : 
  * Which layout preset the current tree came from; `'custom'` after the user
  * rearranges anything. Drives the picker's active highlight.
  */
-export const $activePresetId = atom<string>(readKey('hermes.layout.preset.active') ?? 'default')
+const PRESET_KEY = 'hermes.layout.preset.active'
+
+export const $activePresetId = atom<string>(readKey(PRESET_KEY) ?? 'default')
 
 export function markActivePreset(id: string) {
   $activePresetId.set(id)
-  writeKey('hermes.layout.preset.active', id)
+  writeOwnedLayoutKey(PRESET_KEY, id)
 }
 
 /** Pane id being dragged (tree drag session), null when idle. Also set to the
@@ -316,7 +341,7 @@ export const $dismissedPanes = atom<ReadonlySet<string>>(loadDismissed())
 
 function saveDismissed(next: ReadonlySet<string>) {
   $dismissedPanes.set(next)
-  writeJson(DISMISSED_KEY, next.size === 0 ? null : [...next])
+  writeOwnedLayoutKey(DISMISSED_KEY, next.size === 0 ? null : JSON.stringify([...next]))
 }
 
 function setDismissed(paneId: string, dismissed: boolean) {
@@ -1317,7 +1342,7 @@ export const $userPlacedPanes = atom<ReadonlySet<string>>(new Set(readJson<strin
 
 function saveUserPlaced(next: ReadonlySet<string>) {
   $userPlacedPanes.set(next)
-  writeJson(USER_PLACED_KEY, next.size === 0 ? null : [...next])
+  writeOwnedLayoutKey(USER_PLACED_KEY, next.size === 0 ? null : JSON.stringify([...next]))
 }
 
 function markPaneUserPlaced(paneId: string) {
