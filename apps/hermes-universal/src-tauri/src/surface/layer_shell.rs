@@ -119,6 +119,7 @@ pub struct LayerShell {
     set_exclusive_zone: unsafe extern "C" fn(GtkWindowPtr, c_int),
     set_keyboard_mode: unsafe extern "C" fn(GtkWindowPtr, c_int),
     set_namespace: unsafe extern "C" fn(GtkWindowPtr, *const c_char),
+    set_monitor: unsafe extern "C" fn(GtkWindowPtr, *mut gtk::gdk::ffi::GdkMonitor),
 }
 
 /// The SONAME, not the linker name: distributions ship the runtime library
@@ -295,6 +296,7 @@ fn load() -> Option<LayerShell> {
             set_exclusive_zone: sym!("gtk_layer_set_exclusive_zone\0"),
             set_keyboard_mode: sym!("gtk_layer_set_keyboard_mode\0"),
             set_namespace: sym!("gtk_layer_set_namespace\0"),
+            set_monitor: sym!("gtk_layer_set_monitor\0"),
             _lib: lib,
         };
         Some(shell)
@@ -345,6 +347,14 @@ impl LayerShell {
     /// half-configure a surface. See the module docs on `mod.rs` for why the
     /// surface is anchored to every edge and positioned with margins rather than
     /// being sized and moved.
+    ///
+    /// `monitor` is the output the surface belongs on (MJXHRM-417). `None` is a
+    /// deliberate answer, not an omission: a layer surface that names no output
+    /// is placed by the compositor, which on wlroots means the one with the
+    /// cursor — the right screen most of the time, and the only thing available
+    /// where nothing will say which output has focus. The capability descriptor
+    /// reports the difference (`supported` vs `degraded`) rather than letting
+    /// both look alike.
     pub fn configure(
         &self,
         window: &gtk::ApplicationWindow,
@@ -352,6 +362,7 @@ impl LayerShell {
         layer: Layer,
         keyboard: KeyboardMode,
         margins: [i32; 4],
+        monitor: Option<&gtk::gdk::Monitor>,
     ) {
         let upcast: gtk::Window = window.clone().upcast();
         let stash: gtk::glib::translate::Stash<'_, GtkWindowPtr, _> = upcast.to_glib_none();
@@ -378,6 +389,16 @@ impl LayerShell {
             // -1 means "reserve nothing AND ignore what everyone else reserved",
             // which is what lets the surface cover a status bar.
             (self.set_exclusive_zone)(ptr, -1);
+            if let Some(monitor) = monitor {
+                // SAFETY: a live borrowed GdkMonitor* for the duration of the
+                // statement. The library takes its own reference. Skipped
+                // entirely when we do not know which output to name — passing
+                // NULL is documented as "let the compositor decide", which is
+                // also what never calling it does.
+                let monitor: gtk::glib::translate::Stash<'_, *mut gtk::gdk::ffi::GdkMonitor, _> =
+                    monitor.to_glib_none();
+                (self.set_monitor)(ptr, monitor.0);
+            }
         }
     }
 }

@@ -36,7 +36,7 @@ const LAYER_SHELL = {
   floatingSurface: true,
   interactiveRegion: 'supported',
   keyboardFocus: ['none', 'on-demand', 'exclusive'],
-  multiMonitorPlacement: 'degraded',
+  multiMonitorPlacement: 'supported',
   notes: [],
   platform: 'linux',
   readWindowBelow: 'supported',
@@ -58,6 +58,30 @@ describe('asking what the platform can do', () => {
 
     expect(caps.alwaysOnTop).toBe('layer-shell')
     expect(caps.keyboardFocus).toContain('exclusive')
+    expect(caps.multiMonitorPlacement).toBe('supported')
+  })
+
+  it('carries a shortfall in monitor placement through with its reason', async () => {
+    // MJXHRM-417: the backend derives this from the mechanism it actually has —
+    // a compositor that picks the output for us, or a session that cannot place
+    // a surface at all. A client that dropped the level, or read it without the
+    // note, would be back to a status nothing can act on.
+    invoke.mockResolvedValue({
+      ...LAYER_SHELL,
+      multiMonitorPlacement: 'degraded',
+      notes: ['Which monitor a floating surface opens on is the compositor’s choice here']
+    })
+
+    const caps = await surfaceCapabilities()
+
+    expect(caps.multiMonitorPlacement).toBe('degraded')
+    expect(caps.notes[0]).toContain('compositor')
+  })
+
+  it('assumes nothing about placement when it cannot ask', async () => {
+    invoke.mockRejectedValue(new Error('unknown command'))
+
+    expect((await surfaceCapabilities()).multiMonitorPlacement).toBe('unsupported')
   })
 
   it('asks once and reuses the answer', async () => {

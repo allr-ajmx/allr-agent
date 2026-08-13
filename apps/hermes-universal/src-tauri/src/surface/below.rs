@@ -227,6 +227,81 @@ pub fn answer_from_clients(payload: &str, self_pid: i32) -> WindowBelowAnswer {
 }
 
 // ---------------------------------------------------------------------------
+// Which output the user is on (MJXHRM-417)
+// ---------------------------------------------------------------------------
+
+/// Hyprland answers `j/monitors` with this, plus fields we do not use.
+///
+/// The same socket as `j/clients` and the same trust rules, asked a different
+/// question: **which output has focus**. Wayland will not tell a client that —
+/// the pointer's position is not ours to read (see `surface/placement.rs`) — so
+/// on this compositor the IPC socket is the only honest source, and where there
+/// is no socket the capability descriptor says so rather than guessing.
+#[cfg(target_os = "linux")]
+#[derive(Clone, Debug, Deserialize)]
+pub struct HyprMonitor {
+    /// The connector, e.g. `eDP-1`.
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub make: String,
+    #[serde(default)]
+    pub model: String,
+    /// Layout position in logical pixels — the key that matches GDK geometry.
+    #[serde(default)]
+    pub x: i32,
+    #[serde(default)]
+    pub y: i32,
+    #[serde(default)]
+    pub focused: bool,
+    #[serde(default)]
+    pub disabled: bool,
+}
+
+/// The focused output in an already-fetched `j/monitors` payload.
+///
+/// A disabled output is skipped even if it claims focus: Hyprland keeps
+/// reporting a monitor that has been switched off, and placing a surface there
+/// would put the HUD somewhere with no pixels. A payload that does not parse is
+/// `None` — the caller then lets the compositor choose, which is the same thing
+/// it does on a compositor with no IPC at all.
+#[cfg(target_os = "linux")]
+pub fn focused_monitor(payload: &str) -> Option<super::placement::FocusedOutput> {
+    let monitors: Vec<HyprMonitor> = serde_json::from_str(payload)
+        .map_err(|e| log::info!("Hyprland's monitor list did not parse: {e}"))
+        .ok()?;
+
+    monitors
+        .iter()
+        .find(|m| m.focused && !m.disabled)
+        .map(|m| super::placement::FocusedOutput {
+            connector: m.name.clone(),
+            make: m.make.clone(),
+            model: m.model.clone(),
+            x: f64::from(m.x),
+            y: f64::from(m.y),
+        })
+}
+
+/// Ask the compositor which output has focus, or `None` if it will not say.
+///
+/// Never fails loudly: not knowing which monitor the user is on is a *degraded*
+/// placement, not an error, and the surface still opens.
+#[cfg(all(unix, target_os = "linux"))]
+pub fn read_focused_monitor() -> Option<super::placement::FocusedOutput> {
+    let path = socket_path(&env_map(), current_uid())?;
+
+    match request(&path, "j/monitors") {
+        Ok(payload) => focused_monitor(&payload),
+        Err(e) => {
+            log::info!("could not ask Hyprland which output has focus: {e}");
+
+            None
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Hyprland IPC
 // ---------------------------------------------------------------------------
 
@@ -724,5 +799,68 @@ mod tests {
         env.insert("XDG_SESSION_TYPE".into(), "wayland".into());
         assert!(unavailable_note(&env).contains("Wayland"));
         assert!(unavailable_note(&BTreeMap::new()).contains("X11"));
+    }
+
+    // -----------------------------------------------------------------------
+    // Which output has focus (MJXHRM-417)
+    // -----------------------------------------------------------------------
+
+    /// Two outputs as `hyprctl -j monitors` really prints them on the
+    /// development machine, trimmed to the keys this reads. `focused` is
+    /// substituted so one fixture covers both answers.
+    #[cfg(target_os = "linux")]
+    fn monitors_payload(focused: &str, disabled_focused: bool) -> String {
+        format!(
+            r#"[
+              {{"id":0,"name":"HDMI-A-1","description":"Hewlett Packard HP 22es 3CM6480R8G",
+                "make":"Hewlett Packard","model":"HP 22es","width":1920,"height":1080,
+                "x":0,"y":0,"scale":1.00,"focused":{hdmi},"disabled":false}},
+              {{"id":1,"name":"eDP-1","description":"BOE 0x08DF","make":"BOE","model":"0x08DF",
+                "width":1920,"height":1080,"x":1920,"y":0,"scale":1.00,
+                "focused":{edp},"disabled":{disabled}}}
+            ]"#,
+            hdmi = focused == "HDMI-A-1",
+            edp = focused == "eDP-1",
+            disabled = disabled_focused,
+        )
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn the_focused_output_comes_back_with_its_layout_origin() {
+        let output = focused_monitor(&monitors_payload("eDP-1", false)).expect("an output");
+        assert_eq!(output.connector, "eDP-1");
+        assert_eq!(output.model, "0x08DF");
+        assert_eq!((output.x, output.y), (1920.0, 0.0));
+
+        let output = focused_monitor(&monitors_payload("HDMI-A-1", false)).expect("an output");
+        assert_eq!(output.connector, "HDMI-A-1");
+        assert_eq!((output.x, output.y), (0.0, 0.0));
+    }
+
+    /// A switched-off monitor keeps its `focused` flag in Hyprland's answer.
+    /// Placing the HUD there would put it on a screen with no pixels, so the
+    /// answer must be "we do not know" and the compositor gets to choose.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_disabled_output_is_never_the_answer() {
+        assert!(focused_monitor(&monitors_payload("eDP-1", true)).is_none());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_payload_with_no_focused_output_chooses_nothing() {
+        assert!(focused_monitor(&monitors_payload("none", false)).is_none());
+        assert!(focused_monitor("[]").is_none());
+    }
+
+    /// Unparseable is "we do not know", not a panic and not a wrong monitor:
+    /// this runs while a window is being built and must not take the HUD down
+    /// with it.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_malformed_monitor_list_chooses_nothing() {
+        assert!(focused_monitor("not json").is_none());
+        assert!(focused_monitor(r#"{"name":"eDP-1"}"#).is_none());
     }
 }

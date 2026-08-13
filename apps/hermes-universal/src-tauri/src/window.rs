@@ -151,6 +151,12 @@ struct SatelliteSpec {
     width: f64,
     height: f64,
     transparent: bool,
+    /// How far down the active monitor the window sits, in logical pixels;
+    /// `None` centres it vertically. Only reached on the platforms that can
+    /// place a window at all (MJXHRM-417) — a layer surface is positioned by
+    /// [`FloatingSpec::margins`] instead, which is why the HUD repeats the same
+    /// number through both.
+    top_margin: Option<i32>,
     /// A `wlr-layer-shell` role to ask for, or `None` for a plain always-on-top
     /// window. **Pinned here, never taken from the caller** — namespace, layer
     /// and keyboard mode are exactly the privileges this ticket exists over.
@@ -185,6 +191,7 @@ const SATELLITES: &[SatelliteSpec] = &[
         width: 560.0,
         height: 260.0,
         transparent: true,
+        top_margin: Some(HUD_TOP_MARGIN),
         floating: Some(FloatingSpec {
             namespace: "hermes:hud",
             layer: crate::surface::SurfaceLayer::Overlay,
@@ -200,6 +207,10 @@ const SATELLITES: &[SatelliteSpec] = &[
         width: 640.0,
         height: 168.0,
         transparent: true,
+        // Centred on the active monitor, which is where a window manager left
+        // to itself would put it on a single screen — the difference this makes
+        // is *which* screen (MJXHRM-417).
+        top_margin: None,
         floating: None,
     },
 ];
@@ -280,11 +291,23 @@ pub async fn open_satellite_window(
         satellite_route(route.as_deref())
     );
 
+    // Which output the user is on, before anything touches the main thread: on
+    // Hyprland this is a blocking round trip over a Unix socket, and the main
+    // thread is where the window is about to be built (MJXHRM-417).
+    let output = crate::surface::active_output().await;
+
     let (tx, rx) = oneshot::channel::<Result<SatelliteWindow, String>>();
     let app_main = app.clone();
     let label_main = label.clone();
     app.run_on_main_thread(move || {
-        let _ = tx.send(build_satellite(&app_main, &caller, &label_main, spec, url));
+        let _ = tx.send(build_satellite(
+            &app_main,
+            &caller,
+            &label_main,
+            spec,
+            url,
+            output.as_ref(),
+        ));
     })
     .map_err(|e| format!("failed to schedule window: {e}"))?;
 
@@ -301,6 +324,7 @@ fn build_satellite(
     label: &str,
     spec: &SatelliteSpec,
     url: String,
+    output: Option<&crate::surface::placement::FocusedOutput>,
 ) -> Result<SatelliteWindow, String> {
     if let Some(existing) = app.get_webview_window(label) {
         // Already up: summoning it again brings it forward. The grant it was
@@ -322,9 +346,12 @@ fn build_satellite(
         .decorations(false)
         .resizable(false)
         .always_on_top(true)
-        // A floating satellite is born hidden and shown below, once its layer
-        // role is configured. One with no role has nothing to configure.
-        .visible(spec.floating.is_none())
+        // Every satellite is born hidden and shown at the end. A floating one
+        // must be: a layer surface has to be configured before its GtkWindow is
+        // realized. One with no role is too, so that it is moved onto the right
+        // monitor (MJXHRM-417) before it is ever painted, rather than appearing
+        // on one screen and jumping to another.
+        .visible(false)
         .focused(true);
 
     // A transient surface does not belong in the window list.
@@ -346,6 +373,14 @@ fn build_satellite(
         .map_err(|e| format!("could not open window: {e}"))?;
 
     let Some(floating) = &spec.floating else {
+        // Not a floating surface, but still a window that should open where the
+        // user is looking. Placement is refused outright on Wayland — see
+        // `surface::place_on_active_monitor` — so this is a no-op there rather
+        // than a move that silently does nothing.
+        let _ = crate::surface::place_on_active_monitor(app, &window, spec.top_margin);
+        let _ = window.show();
+        let _ = window.set_focus();
+
         return Ok(SatelliteWindow {
             label: label.to_string(),
             grant: None,
@@ -363,9 +398,22 @@ fn build_satellite(
     // always-on-top HUD is worse than a layer-shell one, and no HUD is worse
     // than that. The absent grant is what tells the frontend to lay itself out
     // as a plain window.
-    let grant = crate::surface::attach_floating_surface(app, caller, label, &request)
+    let grant = crate::surface::attach_floating_surface(app, caller, label, &request, output)
         .map_err(|e| log::warn!("could not attach a floating surface to {label}: {e}"))
         .ok();
+
+    // "It opened on the wrong screen" is a report with no visible cause, so the
+    // cause goes in the log next to the window it is about (MJXHRM-417). The
+    // grant carries the same lines to the frontend.
+    if let Some(grant) = &grant {
+        match &grant.monitor {
+            Some(monitor) => log::info!("{label} placed on {monitor}"),
+            None => log::info!(
+                "{label} was not placed on a chosen monitor: {}",
+                grant.degraded.join(" ")
+            ),
+        }
+    }
 
     let _ = window.show();
     let _ = window.set_focus();

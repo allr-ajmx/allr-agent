@@ -49,8 +49,13 @@
 pub mod below;
 #[cfg(target_os = "linux")]
 mod layer_shell;
+#[cfg(desktop)]
+pub mod placement;
 
 use serde::{Deserialize, Serialize};
+
+#[cfg(desktop)]
+use placement::{MonitorRect, PlacementSource};
 
 #[cfg(desktop)]
 use tauri::Manager;
@@ -252,6 +257,11 @@ pub struct SurfaceGrant {
     /// content — the layer-shell shape. False when it is a plain sized window.
     pub output_sized: bool,
     pub interactive_region: Support,
+    /// The monitor the surface was deliberately placed on, as the windowing
+    /// system names it (MJXHRM-417). `None` means nobody chose — either the
+    /// compositor picked the output, or this session cannot place a surface at
+    /// all — and the reason is then in [`Self::degraded`].
+    pub monitor: Option<String>,
     /// One line per thing the caller asked for and did not get. Empty means the
     /// request was met in full.
     pub degraded: Vec<String>,
@@ -265,6 +275,11 @@ pub struct SurfaceGrant {
 /// [`capabilities_for_linux`] so the mapping from session facts to a descriptor
 /// is a pure function with tests, rather than something only observable on a
 /// particular desktop.
+///
+/// Compiled for Linux, and under `cfg(test)` everywhere else so the mapping
+/// stays covered wherever the suite runs. Mobile has no Linux session — Android
+/// is `target_os = "android"` — and no [`placement`] module to map onto.
+#[cfg(any(target_os = "linux", test))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LinuxSession {
     /// The GDK backend is Wayland (rather than X11/XWayland).
@@ -281,11 +296,50 @@ pub struct LinuxSession {
     pub hyprland: bool,
 }
 
+#[cfg(any(target_os = "linux", test))]
+impl LinuxSession {
+    /// Whether this session gets the layer-shell backend. One rule, read by the
+    /// descriptor and by the placement decision alike.
+    pub fn layer_shell(&self) -> bool {
+        self.wayland && self.layer_shell_library && self.layer_shell_supported
+    }
+}
+
+/// How this session can choose which monitor a floating surface opens on
+/// (MJXHRM-417). Pure, and the *only* definition — [`capabilities_for_linux`]
+/// derives the reported capability from it and the attach path derives its
+/// behaviour from it, so the two cannot drift.
+///
+/// The Wayland arms are the point. A client on Wayland is told neither where the
+/// pointer is (tao answers `Ok((0, 0))`, GDK answers `0,0`) nor allowed to move
+/// its own toplevel, so:
+///
+/// * with layer-shell it can at least *name* an output — if something will say
+///   which one has focus, which today means Hyprland's IPC socket;
+/// * without layer-shell it can do neither, and `Unsupported` is the honest
+///   answer rather than the `Degraded` that was reported before.
+#[cfg(any(target_os = "linux", test))]
+pub fn placement_source_for_linux(session: LinuxSession) -> PlacementSource {
+    if !session.wayland {
+        // X11: the pointer really is readable and windows really can be moved.
+        return PlacementSource::Pointer;
+    }
+    if !session.layer_shell() {
+        return PlacementSource::Nothing;
+    }
+    if session.hyprland {
+        PlacementSource::FocusedOutput
+    } else {
+        PlacementSource::CompositorChoice
+    }
+}
+
 /// Map a probed Linux session onto the descriptor. Pure.
+#[cfg(any(target_os = "linux", test))]
 pub fn capabilities_for_linux(session: LinuxSession) -> SurfaceCapabilities {
     let mut notes = Vec::new();
-    let layer_shell =
-        session.wayland && session.layer_shell_library && session.layer_shell_supported;
+    let layer_shell = session.layer_shell();
+    let placement = placement_source_for_linux(session);
 
     if layer_shell {
         notes.push(match session.layer_shell_protocol {
@@ -359,6 +413,10 @@ pub fn capabilities_for_linux(session: LinuxSession) -> SurfaceCapabilities {
         (Support::Unsupported, None)
     };
 
+    if let Some(note) = placement.note() {
+        notes.push(note.to_string());
+    }
+
     SurfaceCapabilities {
         platform: "linux".to_string(),
         floating_surface: true,
@@ -386,7 +444,7 @@ pub fn capabilities_for_linux(session: LinuxSession) -> SurfaceCapabilities {
         } else {
             Support::Supported
         },
-        multi_monitor_placement: Support::Degraded,
+        multi_monitor_placement: placement.support(),
         read_window_below: read_below,
         read_window_below_source: read_below_source,
         notes,
@@ -413,7 +471,11 @@ fn capabilities_for_other_desktop() -> SurfaceCapabilities {
         interactive_region: Support::Unsupported,
         keyboard_focus: vec![KeyboardFocus::None, KeyboardFocus::OnDemand],
         remembered_geometry: Support::Supported,
-        multi_monitor_placement: Support::Supported,
+        // The pointer is readable and a window can be moved to it — and, since
+        // MJXHRM-417, actually is. This used to claim `Supported` while nothing
+        // in the codebase positioned a satellite at all, which made it the
+        // boldest of the descriptor's untrue entries rather than the safest.
+        multi_monitor_placement: PlacementSource::Pointer.support(),
         read_window_below: Support::Unsupported,
         read_window_below_source: None,
         notes: vec![
@@ -592,6 +654,185 @@ where
         .map_err(|_| "the main thread did not answer".to_string())
 }
 
+/// Probe the running Linux session. **Must run on the GTK main thread** — it
+/// asks GDK for the backend and gtk-layer-shell for the compositor's answer.
+#[cfg(target_os = "linux")]
+fn probe_linux_session() -> LinuxSession {
+    let shell = layer_shell::get();
+    let wayland = gtk::gdk::Display::default()
+        .map(|d| {
+            use gtk::gdk::prelude::DisplayExtManual;
+            d.backend().is_wayland()
+        })
+        .unwrap_or(false);
+
+    LinuxSession {
+        wayland,
+        layer_shell_library: shell.is_some(),
+        // Behavioural: asks the compositor, not the library's presence.
+        layer_shell_supported: shell.map(|s| s.is_supported()).unwrap_or(false),
+        layer_shell_protocol: shell
+            .filter(|s| s.is_supported())
+            .map(|s| s.protocol_version()),
+        hyprland: below::hyprland_available(),
+    }
+}
+
+/// How a floating surface gets onto the right monitor here (MJXHRM-417). The
+/// descriptor's `multiMonitorPlacement` is this same value, so a caller reading
+/// the capability is reading the mechanism.
+///
+/// **Must run on the GTK main thread** on Linux.
+#[cfg(desktop)]
+fn placement_source() -> PlacementSource {
+    #[cfg(target_os = "linux")]
+    {
+        placement_source_for_linux(probe_linux_session())
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        // macOS and Windows: the pointer is readable and a window can be moved
+        // to where it is.
+        PlacementSource::Pointer
+    }
+}
+
+/// Which output the user is on, from whatever will say so — blocking IPC, so it
+/// is fetched off the main thread before a window is built rather than during.
+///
+/// `None` is a normal answer: it means the compositor chooses, which is what a
+/// layer surface naming no output already gets.
+#[cfg(desktop)]
+pub async fn active_output() -> Option<placement::FocusedOutput> {
+    #[cfg(target_os = "linux")]
+    {
+        tauri::async_runtime::spawn_blocking(below::read_focused_monitor)
+            .await
+            .ok()
+            .flatten()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        // The pointer answers this on every other platform, and it is read at
+        // placement time from the main thread — there is nothing to fetch here.
+        None
+    }
+}
+
+/// Move `window` onto the monitor the pointer is on, horizontally centred and
+/// `top_margin` logical pixels down (vertically centred when `top_margin` is
+/// `None`). Returns the monitor it was placed on, or `None` when nothing was
+/// moved.
+///
+/// Refuses on Wayland, and that refusal is the substance of this function.
+/// `cursor_position()` there is a hardcoded `Ok((0, 0))` (tao 0.35.3,
+/// `platform_impl/linux/util.rs:18`) and `set_position` is a request the
+/// protocol has no way to make, so a placement written the obvious way would
+/// report success while pinning every surface to whichever monitor sits at the
+/// layout origin. [`placement_source`] is what stops that, and it is the same
+/// value the descriptor publishes.
+///
+/// **Must run on the GTK main thread** on Linux.
+#[cfg(desktop)]
+pub fn place_on_active_monitor(
+    app: &tauri::AppHandle,
+    window: &tauri::WebviewWindow,
+    top_margin: Option<i32>,
+) -> Option<String> {
+    if placement_source() != PlacementSource::Pointer {
+        return None;
+    }
+
+    let cursor = app.cursor_position().ok()?;
+    let monitors = app.available_monitors().ok()?;
+    // Containment is tested against the whole monitor: the pointer can sit over
+    // a taskbar, which is outside the work area but very much on that screen.
+    let screens: Vec<MonitorRect> = monitors
+        .iter()
+        .map(|m| MonitorRect {
+            name: m.name().cloned(),
+            x: f64::from(m.position().x),
+            y: f64::from(m.position().y),
+            width: f64::from(m.size().width),
+            height: f64::from(m.size().height),
+        })
+        .collect();
+    let monitor = monitors.get(placement::monitor_at_point(&screens, cursor.x, cursor.y)?)?;
+    // Placement uses the work area, so the surface does not open underneath a
+    // taskbar or the macOS menu bar.
+    let area = monitor.work_area();
+    let usable = MonitorRect {
+        name: None,
+        x: f64::from(area.position.x),
+        y: f64::from(area.position.y),
+        width: f64::from(area.size.width),
+        height: f64::from(area.size.height),
+    };
+    let size = window.outer_size().ok()?;
+    let (width, height) = (f64::from(size.width), f64::from(size.height));
+    let margin = match top_margin {
+        // Everything here is physical; the margin is authored in logical pixels
+        // because that is what the layer-shell side uses for the same surface.
+        Some(margin) => f64::from(margin) * monitor.scale_factor(),
+        None => ((usable.height - height) / 2.0).max(0.0),
+    };
+    let (x, y) = placement::top_centred(&usable, width, height, margin);
+
+    window
+        .set_position(tauri::PhysicalPosition::new(
+            x.round() as i32,
+            y.round() as i32,
+        ))
+        .map_err(|e| {
+            log::warn!(
+                "could not place {} on {:?}: {e}",
+                window.label(),
+                monitor.name()
+            )
+        })
+        .ok()?;
+
+    monitor.name().cloned()
+}
+
+/// The GDK monitor for `output`, or `None` when nothing matches it — in which
+/// case the surface names no output and the compositor chooses.
+///
+/// **Must run on the GTK main thread.**
+#[cfg(target_os = "linux")]
+fn gdk_monitor_for(
+    display: &gtk::gdk::Display,
+    output: &placement::FocusedOutput,
+) -> Option<gtk::gdk::Monitor> {
+    use gtk::gdk::prelude::MonitorExt;
+
+    let monitors: Vec<gtk::gdk::Monitor> = (0..display.n_monitors())
+        .filter_map(|index| display.monitor(index))
+        .collect();
+    // GDK reports LOGICAL geometry, which is the space Hyprland's layout
+    // coordinates are in; the two agreed exactly on the machine this was built
+    // against (0,0 and 1920,0). The model is the fallback key — GDK never
+    // reports the connector name.
+    let rects: Vec<MonitorRect> = monitors
+        .iter()
+        .map(|m| {
+            let geometry = m.geometry();
+
+            MonitorRect {
+                name: m.model().map(|model| model.to_string()),
+                x: f64::from(geometry.x()),
+                y: f64::from(geometry.y()),
+                width: f64::from(geometry.width()),
+                height: f64::from(geometry.height()),
+            }
+        })
+        .collect();
+
+    monitors
+        .into_iter()
+        .nth(placement::monitor_at_origin(&rects, output)?)
+}
+
 /// What this platform can do for a floating surface.
 #[cfg(desktop)]
 #[tauri::command]
@@ -599,25 +840,7 @@ pub async fn surface_capabilities(app: tauri::AppHandle) -> Result<SurfaceCapabi
     tauri::async_runtime::spawn_blocking(move || {
         #[cfg(target_os = "linux")]
         {
-            on_main_thread(&app, |_| {
-                let shell = layer_shell::get();
-                let wayland = gtk::gdk::Display::default()
-                    .map(|d| {
-                        use gtk::gdk::prelude::DisplayExtManual;
-                        d.backend().is_wayland()
-                    })
-                    .unwrap_or(false);
-                capabilities_for_linux(LinuxSession {
-                    wayland,
-                    layer_shell_library: shell.is_some(),
-                    // Behavioural: asks the compositor, not the library's presence.
-                    layer_shell_supported: shell.map(|s| s.is_supported()).unwrap_or(false),
-                    layer_shell_protocol: shell
-                        .filter(|s| s.is_supported())
-                        .map(|s| s.protocol_version()),
-                    hyprland: below::hyprland_available(),
-                })
-            })
+            on_main_thread(&app, |_| capabilities_for_linux(probe_linux_session()))
         }
         #[cfg(not(target_os = "linux"))]
         {
@@ -677,8 +900,9 @@ pub fn attach_floating_surface(
     caller: &str,
     label: &str,
     request: &SurfaceRequest,
+    output: Option<&placement::FocusedOutput>,
 ) -> Result<SurfaceGrant, String> {
-    attach_on_main(app, caller, label, request)
+    attach_on_main(app, caller, label, request, output)
 }
 
 #[cfg(desktop)]
@@ -687,6 +911,7 @@ fn attach_on_main(
     caller: &str,
     label: &str,
     request: &SurfaceRequest,
+    output: Option<&placement::FocusedOutput>,
 ) -> Result<SurfaceGrant, String> {
     claim_surface(app, caller, label)?;
 
@@ -704,9 +929,30 @@ fn attach_on_main(
             gtk_win.display().backend().is_wayland()
         };
 
+        let placement = placement_source();
         let shell = layer_shell::get().filter(|s| s.is_supported());
         if let Some(shell) = shell {
             shell.init_for_window(&gtk_win)?;
+            // Which output the surface belongs on (MJXHRM-417). Naming one is
+            // the only way a client on Wayland has any say; where nothing will
+            // tell us which output has focus we name none, the compositor
+            // chooses, and the grant says which of the two happened.
+            let monitor = output.and_then(|output| {
+                use gtk::prelude::WidgetExt;
+
+                gdk_monitor_for(&gtk_win.display(), output)
+            });
+            if monitor.is_none() {
+                degraded.push(placement.note().map(str::to_string).unwrap_or_else(|| {
+                    // The session *can* name an output and we still did not:
+                    // the socket did not answer, or what it named matched no
+                    // monitor GDK knows about. Distinct from "this session
+                    // cannot choose", and it must not be silent.
+                    "Could not work out which monitor has focus, so the compositor chose which \
+                     screen this surface opened on."
+                        .to_string()
+                }));
+            }
             let keyboard = match request.keyboard_focus {
                 KeyboardFocus::None => layer_shell::KeyboardMode::None,
                 KeyboardFocus::OnDemand => layer_shell::KeyboardMode::OnDemand,
@@ -722,6 +968,7 @@ fn attach_on_main(
                 layer,
                 keyboard,
                 request.margins,
+                monitor.as_ref(),
             );
             if !shell.is_layer_window(&gtk_win) {
                 return Err("gtk-layer-shell accepted the window but did not claim it".to_string());
@@ -733,6 +980,11 @@ fn attach_on_main(
                 keyboard_focus: request.keyboard_focus,
                 output_sized: true,
                 interactive_region: Support::Supported,
+                monitor: monitor.and_then(|m| {
+                    use gtk::gdk::prelude::MonitorExt;
+
+                    m.model().map(|model| model.to_string())
+                }),
                 degraded,
             });
         }
@@ -740,6 +992,14 @@ fn attach_on_main(
         // Fallback: an ordinary toplevel. On X11 that genuinely floats; on
         // Wayland it does not, and saying so is the entire job of this branch.
         let _ = window.set_always_on_top(true);
+        // X11 can still be put on the right monitor; Wayland cannot, and
+        // `place_on_active_monitor` refuses rather than pretending.
+        let placed = place_on_active_monitor(app, &window, Some(request.margins[2]));
+        if placed.is_none() {
+            if let Some(note) = placement.note() {
+                degraded.push(note.to_string());
+            }
+        }
         let always_on_top = if wayland {
             degraded.push(
                 "This surface cannot stay above other windows: the session is Wayland and \
@@ -765,15 +1025,25 @@ fn attach_on_main(
             keyboard_focus: KeyboardFocus::OnDemand,
             output_sized: false,
             interactive_region: Support::Degraded,
+            monitor: placed,
             degraded,
         });
     }
 
     #[cfg(not(target_os = "linux"))]
     {
+        let _ = output;
         window
             .set_always_on_top(true)
             .map_err(|e| format!("could not raise the surface: {e}"))?;
+        let placed = place_on_active_monitor(app, &window, Some(request.margins[2]));
+        if placed.is_none() {
+            degraded.push(
+                "Could not work out which monitor the pointer is on, so this surface opened \
+                 wherever the window manager put it."
+                    .to_string(),
+            );
+        }
         if request.keyboard_focus == KeyboardFocus::Exclusive {
             degraded.push(
                 "Exclusive keyboard focus is a layer-shell capability and does not exist on this \
@@ -788,6 +1058,7 @@ fn attach_on_main(
             keyboard_focus: KeyboardFocus::OnDemand,
             output_sized: false,
             interactive_region: Support::Unsupported,
+            monitor: placed,
             degraded,
         })
     }
@@ -960,6 +1231,10 @@ mod tests {
         });
         assert_eq!(caps.always_on_top, AlwaysOnTop::AppAsserted);
         assert_eq!(caps.remembered_geometry, Support::Supported);
+        // X11 hands out the pointer's real position and honours a move, so the
+        // surface goes on the monitor the user is on.
+        assert_eq!(caps.multi_monitor_placement, Support::Supported);
+        assert!(!caps.notes.iter().any(|n| n.contains("compositor's choice")));
     }
 
     /// A layer surface is anchored to every edge, so it has no geometry to
@@ -991,6 +1266,99 @@ mod tests {
         });
         assert_eq!(caps.read_window_below, Support::Unsupported);
         assert!(caps.read_window_below_source.is_none());
+    }
+
+    // -----------------------------------------------------------------------
+    // Which monitor a surface opens on (MJXHRM-417)
+    // -----------------------------------------------------------------------
+
+    /// With the compositor's focused output readable, the surface is placed
+    /// deliberately — `gtk_layer_set_monitor` with the output Hyprland named —
+    /// so the descriptor may say so outright.
+    #[test]
+    fn hyprland_places_the_surface_on_the_focused_output() {
+        let caps = capabilities_for_linux(hyprland_session());
+        assert_eq!(
+            placement_source_for_linux(hyprland_session()),
+            PlacementSource::FocusedOutput
+        );
+        assert_eq!(caps.multi_monitor_placement, Support::Supported);
+    }
+
+    /// A wlroots compositor with no IPC we can read: the surface names no
+    /// output and the compositor chooses. Degraded — and, unlike before this
+    /// ticket, degraded *with a stated reason*, which is what the enum's own
+    /// documentation promises.
+    #[test]
+    fn without_an_ipc_socket_the_compositor_chooses_and_says_so() {
+        let session = LinuxSession {
+            hyprland: false,
+            ..hyprland_session()
+        };
+        assert_eq!(
+            placement_source_for_linux(session),
+            PlacementSource::CompositorChoice
+        );
+
+        let caps = capabilities_for_linux(session);
+        assert_eq!(caps.multi_monitor_placement, Support::Degraded);
+        assert!(
+            caps.notes
+                .iter()
+                .any(|n| n.contains("the compositor's choice")),
+            "a degraded placement must explain itself: {:?}",
+            caps.notes
+        );
+    }
+
+    /// The correction this ticket turned up: a plain Wayland toplevel cannot be
+    /// placed at all — no pointer position, no way to move itself — so the
+    /// answer is Unsupported, not the Degraded that was reported for every
+    /// Linux session regardless of backend.
+    #[test]
+    fn a_plain_wayland_toplevel_cannot_be_placed_at_all() {
+        let session = LinuxSession {
+            layer_shell_supported: false,
+            ..hyprland_session()
+        };
+        assert_eq!(
+            placement_source_for_linux(session),
+            PlacementSource::Nothing
+        );
+
+        let caps = capabilities_for_linux(session);
+        assert_eq!(caps.multi_monitor_placement, Support::Unsupported);
+        assert!(caps
+            .notes
+            .iter()
+            .any(|n| n.contains("neither the pointer's position nor the ability to move")));
+    }
+
+    /// The guard the whole module turns on. `cursor_position()` answers
+    /// `Ok((0, 0))` on Wayland (tao) and `gdk_device_get_position` answers the
+    /// same, so a pointer-driven placement there would silently pin every
+    /// surface to whichever monitor sits at the layout origin. No Wayland
+    /// session may reach that path, whatever else is true of it.
+    #[test]
+    fn no_wayland_session_ever_places_from_the_pointer() {
+        for library in [false, true] {
+            for supported in [false, true] {
+                for hyprland in [false, true] {
+                    let session = LinuxSession {
+                        wayland: true,
+                        layer_shell_library: library,
+                        layer_shell_supported: supported,
+                        layer_shell_protocol: None,
+                        hyprland,
+                    };
+                    assert_ne!(
+                        placement_source_for_linux(session),
+                        PlacementSource::Pointer,
+                        "{session:?} must not trust the pointer"
+                    );
+                }
+            }
+        }
     }
 
     #[test]
