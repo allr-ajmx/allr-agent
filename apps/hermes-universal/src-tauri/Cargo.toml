@@ -246,9 +246,42 @@ gtk = "0.18"
 # question for a packaging failure. `libloading` is the dlopen wrapper; the
 # library itself is not a dependency of this crate at all.
 libloading = "0.8"
+# X11 window enumeration for `read_window_below` (surface/x11.rs, MJXHRM-392).
+# Pure-Rust X protocol client — NOT a shell-out to xprop/xwininfo the way the
+# Electron desktop's `get-windows` does it, so there is no x11-utils packaging
+# requirement and no subprocess. Costs nothing in the tree: arboard (clipboard)
+# and global-hotkey both already depend on this exact version with default
+# features, so `cargo tree -i x11rb` is unchanged by naming it here.
+x11rb = "0.13"
 # WebKitGTK (Linux only) — the desktop webview auto-DENIES getUserMedia unless the
 # embedder answers WebKitWebView's `permission-request` signal. wry doesn't, so we
 # allow microphone requests ourselves (see lib.rs). Version matches wry's webkit2gtk
 # (0.55 → 2.0.2) to avoid a duplicate in the tree; `v2_8` exposes the
 # UserMediaPermissionRequest type used to scope the allow to mic/camera only.
 webkit2gtk = { version = "2.0", features = ["v2_8"] }
+
+# macOS window enumeration for `read_window_below` (surface/mac.rs, MJXHRM-392).
+# `core-graphics` and `core-foundation` are already in the tree via tao at these
+# versions, so this adds no crate; `core-foundation-sys` is what core-foundation
+# itself is built on, and is used here for the dictionary lookups, whose safe
+# wrappers do not have the CFString-keyed shape CGWindowList returns.
+#
+# NOTE the permission line, which is a product decision and not just a code one:
+# CGWindowListCopyWindowInfo needs NO grant for owner/bounds/z-order, and titles
+# need Screen Recording. This build PREFLIGHTS that grant and never requests it.
+[target.'cfg(target_os = "macos")'.dependencies]
+core-graphics = "0.25"
+core-foundation = "0.10"
+core-foundation-sys = "0.8"
+
+# Windows window enumeration for `read_window_below` (surface/win.rs,
+# MJXHRM-392). windows-sys is already in the tree at this version via tauri's own
+# Windows stack; these features are declaration-only bindings, so enabling them
+# adds no crate and no runtime cost.
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "0.61", features = [
+  "Win32_Foundation",
+  "Win32_Graphics_Dwm",
+  "Win32_System_Threading",
+  "Win32_UI_WindowsAndMessaging",
+] }

@@ -10,12 +10,15 @@
 //! compositor. So the answer has to come from whatever the *compositor* is
 //! willing to say, and that is a different conversation on every desktop.
 //!
-//! Implemented here for **Hyprland only**, over its IPC socket — the same choice
-//! the Electron desktop made, for the same reason. macOS (`CGWindowListCopy…`)
-//! and Windows (`EnumWindows` + `GetWindowText`) are real work that is not done;
-//! they report [`Support::Unsupported`](super::Support) through the capability
-//! descriptor rather than returning an empty answer that looks like "nothing is
-//! there".
+//! This file is the **Hyprland** half of the answer, over its IPC socket — the
+//! same choice the Electron desktop made, for the same reason. The other three
+//! platforms enumerate a real z-order and live next door: [`super::x11`],
+//! [`super::mac`] and [`super::win`], sharing the picker in
+//! [`super::window_stack`] (MJXHRM-392). Which one runs is decided once, by
+//! [`WindowBelowSource`], and the capability descriptor publishes that same
+//! value — so a platform that cannot answer reports
+//! [`Support::Unsupported`](super::Support) with a reason rather than returning
+//! an empty answer that looks like "nothing is there".
 //!
 //! # Wire compatibility
 //!
@@ -29,6 +32,10 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
+
+#[cfg(desktop)]
+use super::window_stack::from_enumeration;
+use super::window_stack::WindowBelowSource;
 
 /// Hyprland answers `j/clients` with this, plus fields we do not use.
 #[derive(Clone, Debug, Deserialize)]
@@ -71,7 +78,7 @@ pub struct Bounds {
 }
 
 impl Bounds {
-    fn overlaps(&self, other: &Bounds) -> bool {
+    pub(super) fn overlaps(&self, other: &Bounds) -> bool {
         self.x < other.x + other.width
             && other.x < self.x + self.width
             && self.y < other.y + other.height
@@ -116,7 +123,7 @@ pub enum WindowBelowAnswer {
 }
 
 impl WindowBelowAnswer {
-    fn unavailable(error: impl Into<String>) -> Self {
+    pub(super) fn unavailable(error: impl Into<String>) -> Self {
         Self::Unavailable {
             error: error.into(),
             platform: std::env::consts::OS.to_string(),
@@ -512,37 +519,98 @@ fn request(path: &str, command: &str) -> Result<String, String> {
 
 /// What is underneath this application's floating surface.
 ///
-/// Answers for the calling *process*, not a particular window: Hyprland reports a
-/// pid per client, and a layer-shell surface is not a client at all, so the
-/// question is genuinely process-scoped. See [`pick_window_below`].
+/// Answers for the calling *process*, not a particular window: every enumerator
+/// here reports a pid per window, our HUD and our main window share one, and a
+/// layer-shell surface is not in its compositor's client list at all — so the
+/// question is genuinely process-scoped. See [`pick_window_below`] and
+/// [`super::window_stack::pick_from_stack`].
+///
+/// The [`tauri::AppHandle`] is injected by the command macro, not passed from
+/// JS, and exists so the mechanism can be probed by the *same* code path the
+/// capability descriptor uses (on Linux that probe must run on the GTK main
+/// thread). Asking twice in two different ways is how the two answers drift.
 #[cfg(desktop)]
 #[tauri::command]
-pub async fn read_window_below() -> Result<WindowBelowAnswer, String> {
-    tauri::async_runtime::spawn_blocking(|| {
-        #[cfg(all(unix, target_os = "linux"))]
-        {
-            let Some(path) = socket_path(&env_map(), current_uid()) else {
-                return WindowBelowAnswer::unavailable(unavailable_note(&env_map()));
-            };
-            match request(&path, "j/clients") {
-                Ok(payload) => answer_from_clients(&payload, std::process::id() as i32),
-                Err(e) => WindowBelowAnswer::unavailable(format!(
-                    "Could not enumerate windows: {e}. Check that `hyprctl clients` works from the \
-                     same session Hermes is running in."
-                )),
-            }
-        }
-        #[cfg(not(all(unix, target_os = "linux")))]
-        {
-            WindowBelowAnswer::unavailable(
-                "Reading the window underneath is Linux/Hyprland-only in this build. A win32 \
-                 EnumWindows binding and a macOS CGWindowList binding are not written yet \
-                 (MJXHRM-213).",
-            )
-        }
+pub async fn read_window_below(app: tauri::AppHandle) -> Result<WindowBelowAnswer, String> {
+    tauri::async_runtime::spawn_blocking(move || match super::window_below_source_for(&app) {
+        Ok(source) => answer_for(source),
+        Err(e) => WindowBelowAnswer::unavailable(format!(
+            "Could not work out how to read the window underneath: {e}"
+        )),
     })
     .await
     .map_err(|e| format!("read_window_below failed: {e}"))
+}
+
+/// Run the mechanism the descriptor named. Blocking — IPC, an X11 round trip or
+/// a window-server call, none of which belong on an async executor.
+#[cfg(desktop)]
+fn answer_for(source: WindowBelowSource) -> WindowBelowAnswer {
+    #[cfg(target_os = "linux")]
+    {
+        match source {
+            WindowBelowSource::HyprlandIpc => read_via_hyprland(),
+            WindowBelowSource::X11Stacking => {
+                from_enumeration(super::x11::enumerate(), source, std::process::id() as i32)
+            }
+            other => WindowBelowAnswer::unavailable(refusal(other)),
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        match source {
+            WindowBelowSource::MacWindowList | WindowBelowSource::MacWindowListUntitled => {
+                from_enumeration(
+                    super::mac::enumerate(source.titles()),
+                    source,
+                    std::process::id() as i32,
+                )
+            }
+            other => WindowBelowAnswer::unavailable(refusal(other)),
+        }
+    }
+    #[cfg(target_os = "windows")]
+    {
+        match source {
+            WindowBelowSource::Win32EnumWindows => {
+                from_enumeration(super::win::enumerate(), source, std::process::id() as i32)
+            }
+            other => WindowBelowAnswer::unavailable(refusal(other)),
+        }
+    }
+}
+
+/// The refusal text for a mechanism that cannot run here — the descriptor's own
+/// note, so the diagnostics panel and the model read the same sentence.
+#[cfg(desktop)]
+fn refusal(source: WindowBelowSource) -> String {
+    format!(
+        "Could not enumerate windows: {}",
+        source.note().unwrap_or(
+            "no mechanism for reading the window underneath is available in this session."
+        )
+    )
+}
+
+/// Ask Hyprland. Unchanged since MJXHRM-213 apart from where it is called from:
+/// this is the one path with a compositor behind it rather than a window list,
+/// and its own picker.
+#[cfg(all(desktop, target_os = "linux"))]
+fn read_via_hyprland() -> WindowBelowAnswer {
+    let Some(path) = socket_path(&env_map(), current_uid()) else {
+        // Unreachable while `LinuxSession::hyprland` is what selects this arm —
+        // both read the same environment — but a refusal beats a panic.
+        return WindowBelowAnswer::unavailable(
+            "Could not enumerate windows: this session has no Hyprland instance signature.",
+        );
+    };
+    match request(&path, "j/clients") {
+        Ok(payload) => answer_from_clients(&payload, std::process::id() as i32),
+        Err(e) => WindowBelowAnswer::unavailable(format!(
+            "Could not enumerate windows: {e}. Check that `hyprctl clients` works from the same \
+             session Hermes is running in."
+        )),
+    }
 }
 
 #[cfg(mobile)]
@@ -552,24 +620,6 @@ pub async fn read_window_below() -> Result<WindowBelowAnswer, String> {
         "Reading another application's window is not something a mobile OS permits. On Android \
          this becomes screen access with per-session consent (MJXHRM-351).",
     ))
-}
-
-/// Explain *why* we cannot answer, specifically enough to act on. A generic
-/// failure string here is how a Wayland user ends up filing "it returns null".
-#[cfg(target_os = "linux")]
-fn unavailable_note(env: &BTreeMap<String, String>) -> String {
-    let wayland = env.get("XDG_SESSION_TYPE").map(String::as_str) == Some("wayland")
-        || (env.contains_key("WAYLAND_DISPLAY") && !env.contains_key("DISPLAY"));
-    if wayland {
-        "Could not enumerate windows: this is a Wayland session, and Wayland does not let an \
-         application see other applications' windows. Only Hyprland's IPC socket is implemented, \
-         and this is not a Hyprland session."
-            .to_string()
-    } else {
-        "Could not enumerate windows: reading the window underneath is not implemented for X11 in \
-         this build."
-            .to_string()
-    }
 }
 
 #[cfg(test)]
@@ -790,15 +840,6 @@ mod tests {
             serde_json::to_value(WindowBelowAnswer::unavailable("nope")).expect("serializes");
         assert_eq!(json["error"], "nope");
         assert!(json.get("window").is_none());
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn the_wayland_refusal_names_wayland() {
-        let mut env = BTreeMap::new();
-        env.insert("XDG_SESSION_TYPE".into(), "wayland".into());
-        assert!(unavailable_note(&env).contains("Wayland"));
-        assert!(unavailable_note(&BTreeMap::new()).contains("X11"));
     }
 
     // -----------------------------------------------------------------------
