@@ -47,7 +47,11 @@ export function hudTargetSessionId(): null | string {
 
 /** Whether this build/platform can put a floating surface on screen at all. A
  *  platform that cannot should not show the affordance rather than showing one
- *  that opens an ordinary window. */
+ *  that opens an ordinary window.
+ *
+ *  Read in two places for two different reasons: `useCanUseHud` hides the
+ *  titlebar button, and `openHud` below refuses outright. The button is the
+ *  affordance; the refusal is the part a hotkey cannot route around. */
 export async function canUseHud(): Promise<boolean> {
   return (await surfaceCapabilities()).floatingSurface
 }
@@ -60,6 +64,15 @@ export async function canUseHud(): Promise<boolean> {
  * that mount would land after it has already painted an empty box.
  */
 export async function openHud(sessionId: null | string = hudTargetSessionId()): Promise<boolean> {
+  // The capability gate, at the one choke point all three entry points share —
+  // the titlebar button, the in-app keybind, and the OS-wide chord. Checked
+  // before anything is flushed or armed, because a summon that cannot happen
+  // must leave no trace: a `flush` here would make the HUD's composer stash the
+  // authoritative draft for a window that never opens.
+  if (!(await canUseHud())) {
+    return false
+  }
+
   requestComposerDraftSync('flush')
 
   // Arm the return trip BEFORE the window exists (MJXHRM-371). The HUD takes the

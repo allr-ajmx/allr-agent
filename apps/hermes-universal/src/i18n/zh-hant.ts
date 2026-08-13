@@ -63,7 +63,13 @@ export const zhHant = defineLocale({
   // The read-only `shortcuts` reference became the full rebindable `keybinds`
   // panel; only its title is translated here, the rest falls back to English.
   keybinds: {
-    title: '鍵盤快速鍵'
+    title: '鍵盤快速鍵',
+    globalTag: '系統層級',
+    globalTagHint: '啟動時向作業系統取得：Hermes 在背景時也會觸發，本機上的其他應用程式無法使用這組按鍵。',
+    globalClaimTitle: '已在系統層級保留一組快速鍵',
+    globalClaimMessage: combos =>
+      `Hermes 已向作業系統取得 ${combos}，因此其他應用程式在前景時也會回應。Hermes 執行期間其他應用程式無法使用它。`,
+    globalClaimAction: '變更'
   },
 
   files: {
@@ -99,49 +105,6 @@ export const zhHant = defineLocale({
     deleteTitle: name => `刪除 ${name}？`,
     deleteBody: '將移至垃圾桶，你可以從那裡還原。',
     pathCopied: '已複製路徑'
-  },
-
-  boot: {
-    ready: 'Hermes Desktop 已就緒',
-    desktopBootFailedWithMessage: message => `桌面啟動失敗：${message}`,
-    steps: {
-      connectingGateway: '正在連線桌面閘道',
-      loadingSettings: '正在載入 Hermes 設定',
-      loadingSessions: '正在載入最近工作階段',
-      startingDesktopConnection: '正在啟動桌面連線',
-      startingHermesDesktop: '正在啟動 Hermes Desktop…'
-    },
-    errors: {
-      backgroundExited: 'Hermes 背景程序已結束。',
-      backgroundExitedDuringStartup: 'Hermes 背景程序在啟動期間結束。',
-      backendStopped: '後端已停止',
-      desktopBootFailed: '桌面啟動失敗',
-      gatewayConnectionLost: '與閘道的連線已中斷',
-      gatewaySignInRequired: '需要閘道登入',
-      ipcBridgeUnavailable: '桌面 IPC 橋接器不可用。'
-    },
-    failure: {
-      title: 'Hermes 無法啟動',
-      description: '背景閘道未啟動。請嘗試下面的復原步驟。這裡的操作不會刪除您的聊天或設定。',
-      remoteTitle: '需要重新登入遠端閘道',
-      remoteDescription: '您的遠端閘道工作階段已過期。請重新登入以重新連線。這裡的操作不會刪除您的聊天或設定。',
-      retry: '重試',
-      repairInstall: '修復安裝',
-      useLocalGateway: '使用本機閘道',
-      openLogs: '開啟記錄',
-      repairHint: '修復會重新執行安裝程式，在新機器上可能需要幾分鐘。',
-      remoteSignInHint: '開啟閘道登入視窗。使用本機閘道可切換至內建後端。',
-      hideRecentLogs: '隱藏最近記錄',
-      showRecentLogs: '顯示最近記錄',
-      signedInTitle: '已登入',
-      signedInMessage: '正在重新連線至遠端閘道…',
-      signInIncompleteTitle: '登入未完成',
-      signInIncompleteMessage: '登入視窗在驗證完成前關閉。',
-      signInFailed: '登入失敗',
-      signInToRemoteGateway: '登入遠端閘道',
-      signInWithProvider: provider => `使用 ${provider} 登入`,
-      identityProvider: '您的身分提供方'
-    }
   },
 
   notifications: {

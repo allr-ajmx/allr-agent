@@ -88,28 +88,34 @@ export function MemoryConnect({ provider }: { provider: string }) {
         try {
           const next = await getMemoryProviderOAuthStatus(provider)
 
-          if (next.state === 'pending') {
-            if (Date.now() > deadline.current) {
-              stop()
+          if (next.state !== 'pending') {
+            stop()
+            setConnected(next.connected)
+            setAuth(next.auth)
+
+            if (next.state === 'error') {
               setPhase('error')
-              setDetail('Timed out — try again.')
+              setDetail(next.detail || 'Connection failed.')
+            } else {
+              setPhase('idle')
             }
 
             return
           }
-
-          stop()
-          setConnected(next.connected)
-          setAuth(next.auth)
-
-          if (next.state === 'error') {
-            setPhase('error')
-            setDetail(next.detail || 'Connection failed.')
-          } else {
-            setPhase('idle')
-          }
+          // Still pending — fall through to the deadline check below.
         } catch {
-          // Transient poll failure — keep trying until the deadline.
+          // Transient poll failure — falls through to the same deadline check.
+          // A gateway that is DOWN rather than slow answers this way EVERY
+          // time, and returning here (as this used to) meant the deadline was
+          // never read on the one path that most needs it: the spinner said
+          // "Waiting for browser consent…" forever and the poll kept firing
+          // every 1.5s for as long as the page stayed mounted.
+        }
+
+        if (Date.now() > deadline.current) {
+          stop()
+          setPhase('error')
+          setDetail('Timed out — try again.')
         }
       })()
     }, POLL_MS)

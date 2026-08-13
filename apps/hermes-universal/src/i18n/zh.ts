@@ -96,49 +96,6 @@ export const zh: Translations = {
     pathCopied: '已复制路径'
   },
 
-  boot: {
-    ready: 'Hermes 桌面版已就绪',
-    desktopBootFailedWithMessage: message => `桌面启动失败：${message}`,
-    steps: {
-      connectingGateway: '正在连接桌面网关',
-      loadingSettings: '正在加载 Hermes 设置',
-      loadingSessions: '正在加载最近会话',
-      startingDesktopConnection: '正在启动桌面连接',
-      startingHermesDesktop: '正在启动 Hermes 桌面版…'
-    },
-    errors: {
-      backgroundExited: 'Hermes 后台进程已退出。',
-      backgroundExitedDuringStartup: 'Hermes 后台进程在启动期间退出。',
-      backendStopped: '后端已停止',
-      desktopBootFailed: '桌面启动失败',
-      gatewayConnectionLost: '与网关的连接已断开',
-      gatewaySignInRequired: '需要登录网关',
-      ipcBridgeUnavailable: '桌面 IPC 桥不可用。'
-    },
-    failure: {
-      title: 'Hermes 无法启动',
-      description: '后台网关没有启动。请尝试下面的恢复步骤；这里不会删除你的对话或设置。',
-      remoteTitle: '需要重新登录远程网关',
-      remoteDescription: '你的远程网关会话已过期。请重新登录以恢复连接。这些操作不会删除你的对话或设置。',
-      retry: '重试',
-      repairInstall: '修复安装',
-      useLocalGateway: '使用本地网关',
-      openLogs: '打开日志',
-      repairHint: '修复会重新运行安装器，在新机器上可能需要几分钟。',
-      remoteSignInHint: '打开网关登录窗口。也可以使用本地网关切换到随应用提供的后端。',
-      hideRecentLogs: '隐藏最近日志',
-      showRecentLogs: '显示最近日志',
-      signedInTitle: '已登录',
-      signedInMessage: '正在重新连接远程网关…',
-      signInIncompleteTitle: '登录未完成',
-      signInIncompleteMessage: '登录窗口在认证完成前关闭。',
-      signInFailed: '登录失败',
-      signInToRemoteGateway: '登录远程网关',
-      signInWithProvider: provider => `使用 ${provider} 登录`,
-      identityProvider: '你的身份提供方'
-    }
-  },
-
   notifications: {
     region: '通知',
     hide: '隐藏',
@@ -252,6 +209,12 @@ export const zh: Translations = {
     pressKey: '请按下按键…',
     set: '设置',
     conflictWith: label => `已绑定到“${label}”`,
+    globalTag: '系统级',
+    globalTagHint: '启动时从操作系统占用：Hermes 在后台时也会触发，本机上的其他应用无法使用该组合键。',
+    globalClaimTitle: '已在系统级占用一个快捷键',
+    globalClaimMessage: combos =>
+      `Hermes 已从操作系统占用 ${combos}，因此在其他应用位于前台时也会响应。Hermes 运行期间其他应用无法使用它。`,
+    globalClaimAction: '修改',
     categories: {
       composer: '输入框',
       profiles: '配置',

@@ -146,49 +146,6 @@ export interface Translations {
     pathCopied: string
   }
 
-  boot: {
-    ready: string
-    desktopBootFailedWithMessage: (message: string) => string
-    steps: {
-      connectingGateway: string
-      loadingSettings: string
-      loadingSessions: string
-      startingDesktopConnection: string
-      startingHermesDesktop: string
-    }
-    errors: {
-      backgroundExited: string
-      backgroundExitedDuringStartup: string
-      backendStopped: string
-      desktopBootFailed: string
-      gatewayConnectionLost: string
-      gatewaySignInRequired: string
-      ipcBridgeUnavailable: string
-    }
-    failure: {
-      title: string
-      description: string
-      remoteTitle: string
-      remoteDescription: string
-      retry: string
-      repairInstall: string
-      useLocalGateway: string
-      openLogs: string
-      repairHint: string
-      remoteSignInHint: string
-      hideRecentLogs: string
-      showRecentLogs: string
-      signedInTitle: string
-      signedInMessage: string
-      signInIncompleteTitle: string
-      signInIncompleteMessage: string
-      signInFailed: string
-      signInToRemoteGateway: string
-      signInWithProvider: (provider: string) => string
-      identityProvider: string
-    }
-  }
-
   notifications: {
     region: string
     hide: string
@@ -307,6 +264,12 @@ export interface Translations {
     pressKey: string
     set: string
     conflictWith: (label: string) => string
+    /** Marker on a shortcut the OS has been asked to reserve machine-wide. */
+    globalTag: string
+    globalTagHint: string
+    globalClaimTitle: string
+    globalClaimMessage: (combos: string) => string
+    globalClaimAction: string
     categories: Record<string, string>
     actions: Record<string, string>
   }

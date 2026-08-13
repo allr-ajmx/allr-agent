@@ -48,6 +48,20 @@ describe('KeybindSettings', () => {
     expect(screen.getByText('Press a key…')).toBeInTheDocument()
   })
 
+  // The only rows whose effect leaves this app: the OS is asked to reserve them
+  // machine-wide at startup. The first-run notice says so once; this panel is
+  // where a user who dismissed it can still find out which rows do it.
+  it('marks the shortcuts claimed from the whole operating system', () => {
+    renderPanel()
+
+    const hudRow = screen.getByText('Toggle HUD window').closest('div')
+    const sidebarRow = screen.getByText('Toggle sessions sidebar').closest('div')
+
+    expect(hudRow?.textContent).toContain('System-wide')
+    // And ONLY those — an in-app shortcut takes nothing from anyone.
+    expect(sidebarRow?.textContent).not.toContain('System-wide')
+  })
+
   it('resets every binding back to its shipped default', () => {
     renderPanel()
 

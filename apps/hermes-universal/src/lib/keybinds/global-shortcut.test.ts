@@ -8,8 +8,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type * as Platform from '@/lib/platform'
 import type * as Keybinds from '@/store/keybinds'
+import type * as Notifications from '@/store/notifications'
 
+import type * as Combo from './combo'
 import type * as Registrar from './global-shortcut'
+
+/** Must match `$globalShortcutsDisclosed`'s key in `global-shortcut.ts`. */
+const DISCLOSED_KEY = 'hermes.globalShortcutsDisclosed'
 
 type ShortcutEvent = { state: string }
 
@@ -40,6 +45,12 @@ vi.mock('@/lib/platform', async importOriginal => ({
   IS_DESKTOP: true
 }))
 
+// The disclosure's "Change it" door. Stubbed so the registrar's module graph
+// does not drag in the satellite-window machinery (and Tauri with it).
+const openAppRoute = vi.fn()
+
+vi.mock('@/store/windows', () => ({ openAppRoute: (route: string) => openAppRoute(route) }))
+
 // The HUD's chord — the only global-flagged action that ships WITH a default
 // (MJXHRM-213 gave it a surface worth summoning). Quick Entry is the other
 // global action and ships unbound on purpose, so it contributes nothing to a
@@ -54,18 +65,33 @@ async function flush(): Promise<void> {
   }
 }
 
-async function load(): Promise<{ mod: typeof Registrar; setBinding: typeof Keybinds.setBinding }> {
+async function load(): Promise<{
+  formatCombo: typeof Combo.formatCombo
+  mod: typeof Registrar
+  notifications: typeof Notifications.$notifications
+  setBinding: typeof Keybinds.setBinding
+}> {
   vi.resetModules()
   const mod = await import('./global-shortcut')
   const { setBinding } = await import('@/store/keybinds')
+  const { $notifications } = await import('@/store/notifications')
+  const { formatCombo } = await import('./combo')
 
-  return { mod, setBinding }
+  return { formatCombo, mod, notifications: $notifications, setBinding }
 }
 
 beforeEach(() => {
-  register.mockClear()
-  unregister.mockClear()
+  // Reset, not just clear: a case that makes the OS refuse a claim must not
+  // leave the next one registering against a rejecting stub — and a failed
+  // assertion skips whatever cleanup the case wrote at its end.
+  register.mockReset()
+  unregister.mockReset()
+  openAppRoute.mockClear()
   windowClosedListeners.length = 0
+  // The disclosure is remembered in localStorage, which `vi.resetModules` does
+  // not clear — without this the first case to run would be the only one that
+  // ever sees the notice.
+  localStorage.removeItem(DISCLOSED_KEY)
 })
 
 afterEach(() => {
@@ -238,5 +264,78 @@ describe('global shortcuts follow the rebindable registry', () => {
 
     warn.mockRestore()
     setBinding(ACTION, [])
+  })
+})
+
+describe('disclosing the OS-wide claim', () => {
+  // `view.toggleHud` ships bound to mod+shift+H with `global: true`, so this
+  // claim happens at BOOT — before the user has touched anything, and it takes
+  // the chord away from every other application on the machine. Nothing in the
+  // app said so.
+  it('tells the user once, naming the chord it actually took', async () => {
+    const { formatCombo, mod, notifications, setBinding } = await load()
+
+    setBinding(ACTION, ['mod+shift+h'])
+    await mod.syncGlobalShortcuts()
+
+    const notice = notifications.get().at(-1)
+
+    expect(notice?.title).toBe('A shortcut is now reserved system-wide')
+    expect(notice?.message).toContain(formatCombo('mod+shift+h'))
+    // Reading it is the whole point, so it must not expire on its own while the
+    // app is still painting its first frame.
+    expect(notice?.action).toBeDefined()
+
+    notice?.action?.onClick()
+    expect(openAppRoute).toHaveBeenCalledWith('/settings/shortcuts')
+
+    setBinding(ACTION, [])
+  })
+
+  it('says nothing when the OS refused the claim', async () => {
+    const { mod, notifications, setBinding } = await load()
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+
+    // Another application already owns the chord: nothing was taken, so a notice
+    // saying otherwise would be a claim the user cannot verify.
+    register.mockRejectedValue(new Error('HotKey already registered'))
+    setBinding(ACTION, ['mod+shift+h'])
+    await mod.syncGlobalShortcuts()
+
+    expect(notifications.get()).toHaveLength(0)
+    // And the flag stays down, so the next boot — on a machine where the other
+    // app is not running — still gets to say it.
+    expect(localStorage.getItem(DISCLOSED_KEY)).not.toBe('true')
+
+    warn.mockRestore()
+    setBinding(ACTION, [])
+  })
+
+  it('never says it twice', async () => {
+    const { mod, notifications, setBinding } = await load()
+
+    setBinding(ACTION, ['mod+shift+h'])
+    await mod.syncGlobalShortcuts()
+    expect(notifications.get()).toHaveLength(1)
+
+    // A rebind re-claims, and so does a reclaim after a peer window dies. Neither
+    // is news.
+    setBinding(ACTION, ['mod+shift+space'])
+    await mod.syncGlobalShortcuts()
+    await mod.reclaimGlobalShortcuts()
+
+    expect(notifications.get()).toHaveLength(1)
+
+    setBinding(ACTION, [])
+  })
+
+  it('stays quiet on a machine where nothing is bound globally', async () => {
+    const { mod, notifications, setBinding } = await load()
+
+    setBinding(ACTION, [])
+    await mod.syncGlobalShortcuts()
+
+    expect(register).not.toHaveBeenCalled()
+    expect(notifications.get()).toHaveLength(0)
   })
 })

@@ -16,10 +16,14 @@
  * whole module stands down elsewhere.
  */
 
+import { translateNow } from '@/i18n'
 import { globalKeybindActions } from '@/lib/keybinds/actions'
-import { acceleratorFromCombo } from '@/lib/keybinds/combo'
+import { acceleratorFromCombo, formatCombo } from '@/lib/keybinds/combo'
+import { Codecs, persistentAtom } from '@/lib/persisted'
 import { IS_DESKTOP } from '@/lib/platform'
 import { $bindings, bindingsFor } from '@/store/keybinds'
+import { notify } from '@/store/notifications'
+import { openAppRoute } from '@/store/windows'
 
 /** Accelerator → the action it currently stands for. Rebuilt on every sync. */
 let registered = new Map<string, string>()
@@ -41,10 +45,17 @@ export function setGlobalShortcutDispatch(fn: (actionId: string) => void): void 
   dispatch = fn
 }
 
-/** The accelerators that SHOULD be claimed right now, by action id. An action
- *  with no binding, or one the OS can't take, simply isn't in the map. */
-function desiredAccelerators(): Map<string, string> {
-  const wanted = new Map<string, string>()
+/** What one accelerator stands for: the action it fires, and the combo the user
+ *  actually typed — an accelerator is the OS's spelling and unfit to show. */
+interface WantedClaim {
+  actionId: string
+  combo: string
+}
+
+/** The accelerators that SHOULD be claimed right now. An action with no binding,
+ *  or one the OS can't take, simply isn't in the map. */
+function desiredAccelerators(): Map<string, WantedClaim> {
+  const wanted = new Map<string, WantedClaim>()
 
   for (const action of globalKeybindActions()) {
     for (const combo of bindingsFor(action.id)) {
@@ -53,12 +64,59 @@ function desiredAccelerators(): Map<string, string> {
       // First writer wins, so two actions bound to one chord resolve the same
       // way the in-app dispatcher resolves them.
       if (accelerator && !wanted.has(accelerator)) {
-        wanted.set(accelerator, action.id)
+        wanted.set(accelerator, { actionId: action.id, combo })
       }
     }
   }
 
   return wanted
+}
+
+/**
+ * Whether the user has been told that Hermes takes a chord away from the rest of
+ * the machine.
+ *
+ * Device-local (`lib/persisted`, like the Quick Entry switch and keep-awake),
+ * because the claim is a property of THIS computer's window system, not of the
+ * profile: the same account on a phone claims nothing.
+ */
+export const $globalShortcutsDisclosed = persistentAtom<boolean>('hermes.globalShortcutsDisclosed', false, Codecs.bool)
+
+/** Where the notice sends the user to take the chord back. */
+const SHORTCUTS_ROUTE = '/settings/shortcuts'
+
+/**
+ * Say, once ever, which chords Hermes just took from the operating system.
+ *
+ * `view.toggleHud` ships bound to `mod+shift+h` with `global: true`, so this
+ * claim happens at BOOT, before the user has done anything — the one capability
+ * in the app that reaches outside its own window and takes something away from
+ * every other application on the machine. It is the kind of thing a user has to
+ * be able to find out about without reading the source.
+ *
+ * Fired on a claim the OS actually GRANTED, not on the attempt: a chord another
+ * app already owns was never taken, and saying otherwise would be a lie the user
+ * cannot check. It carries no auto-dismiss for the same reason a consent notice
+ * does not — a first-run toast that expires in five seconds while the app is
+ * still painting has told nobody anything.
+ */
+function discloseGlobalClaim(combos: string[]): void {
+  if (combos.length === 0 || $globalShortcutsDisclosed.get()) {
+    return
+  }
+
+  $globalShortcutsDisclosed.set(true)
+
+  notify({
+    action: {
+      label: translateNow('keybinds.globalClaimAction'),
+      onClick: () => openAppRoute(SHORTCUTS_ROUTE)
+    },
+    durationMs: 0,
+    kind: 'info',
+    message: translateNow('keybinds.globalClaimMessage', combos.map(formatCombo).join(', ')),
+    title: translateNow('keybinds.globalClaimTitle')
+  })
 }
 
 /**
@@ -92,9 +150,11 @@ export async function syncGlobalShortcuts(): Promise<void> {
     const { register, unregister } = await import('@tauri-apps/plugin-global-shortcut')
     const wanted = desiredAccelerators()
     const next = new Map<string, string>()
+    /** Combos the OS granted in THIS pass — what the first-run notice reports. */
+    const claimed: string[] = []
 
     for (const [accelerator, actionId] of registered) {
-      if (!force && wanted.get(accelerator) === actionId) {
+      if (!force && wanted.get(accelerator)?.actionId === actionId) {
         next.set(accelerator, actionId)
 
         continue
@@ -107,7 +167,7 @@ export async function syncGlobalShortcuts(): Promise<void> {
       }
     }
 
-    for (const [accelerator, actionId] of wanted) {
+    for (const [accelerator, claim] of wanted) {
       if (next.has(accelerator)) {
         continue
       }
@@ -129,10 +189,11 @@ export async function syncGlobalShortcuts(): Promise<void> {
           // The plugin reports both edges; acting on Released too would run the
           // action twice per press.
           if (event.state === 'Pressed') {
-            dispatch(actionId)
+            dispatch(claim.actionId)
           }
         })
-        next.set(accelerator, actionId)
+        next.set(accelerator, claim.actionId)
+        claimed.push(claim.combo)
       } catch (err) {
         // Another application already owns the chord. That is a legitimate
         // outcome of a global claim, not a failure of ours — the in-app binding
@@ -142,6 +203,7 @@ export async function syncGlobalShortcuts(): Promise<void> {
     }
 
     registered = next
+    discloseGlobalClaim(claimed)
   } finally {
     syncing = false
 
