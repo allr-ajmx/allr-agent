@@ -38,7 +38,6 @@ import { AlertCircle, CheckCircle2 } from '@/lib/icons'
 import { normalize } from '@/lib/text'
 import { useEnterAnimation } from '@/lib/use-enter-animation'
 import { cn } from '@/lib/utils'
-import { $sessionId as $activeSessionId, $currentCwd } from '@/store/chat'
 import { useDisplayPath } from '@/store/display-home'
 import { $focusRevealedRuns, $focusView, isFocusRunRevealed, revealFocusRun } from '@/store/focus-view'
 import { recordPreviewArtifact } from '@/store/preview-status'
@@ -331,19 +330,30 @@ function ToolEntry({ part }: ToolEntryProps) {
 
   // Surface a previewable artifact (HTML file / localhost URL) as a compact link
   // in the composer status stack rather than a bulky inline card. Uses the same
-  // detected target the old inline card did, keyed to the active session the
-  // stack reads from. Idempotent + dedup'd, so re-renders don't churn.
-  const activeSessionId = useStore($activeSessionId)
-  const currentCwd = useStore($currentCwd)
+  // detected target the old inline card did. Idempotent + dedup'd, so re-renders
+  // don't churn.
   const previewTarget = view.previewTarget
+  // The session whose transcript this row is IN, which is not necessarily the
+  // primary one: a tool row inside a session tile must feed that tile's composer.
+  // Reading the global `$sessionId`/`$currentCwd` here filed a tile's preview
+  // under the main chat, where its own composer never showed it — and recorded
+  // the wrong session's cwd beside it, so a relative target resolved elsewhere.
+  const { $cwd: $sessionCwd, $runtimeId: $sessionRuntimeId } = useSessionView()
 
   useEffect(() => {
-    if (isPending || !activeSessionId || !previewTarget || !isPreviewableTarget(previewTarget)) {
+    if (isPending || !previewTarget || !isPreviewableTarget(previewTarget)) {
       return
     }
 
-    recordPreviewArtifact(activeSessionId, previewTarget, currentCwd || '')
-  }, [activeSessionId, currentCwd, isPending, previewTarget])
+    // Read (don't subscribe) session/cwd: this only fires when a previewable
+    // target appears, and subscribing re-rendered every tool row on any session
+    // or cwd change.
+    const sessionId = $sessionRuntimeId.get()
+
+    if (sessionId) {
+      recordPreviewArtifact(sessionId, previewTarget, $sessionCwd.get() || '')
+    }
+  }, [$sessionCwd, $sessionRuntimeId, isPending, previewTarget])
 
   const detailSections = useMemo(() => {
     if (!view.detail) {
