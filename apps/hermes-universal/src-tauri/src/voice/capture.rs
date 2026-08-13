@@ -27,12 +27,6 @@ use crate::voice::machine::{
 };
 use crate::voice::transcribe::{self, TranscribeCtx};
 
-/// Maps f32 RMS onto the 0..1 scale the VAD thresholds are calibrated for. Ported
-/// from `audio.rs::LEVEL_GAIN` (the old browser meter normalized 8-bit-centered
-/// RMS by /42; the f32 equivalent is ~×(128/42) ≈ 3.0). Not load-bearing —
-/// `speech_level` is a relative threshold on this same scale.
-const LEVEL_GAIN: f32 = 3.0;
-
 /// If the stream is playing but no frames arrive for this long, treat the device
 /// as lost. cpal delivers input buffers continuously even in silence (~100 Hz),
 /// so a gap this large means the device dropped (unplugged, default switched).
@@ -146,13 +140,29 @@ fn capture_thread(
         let _ = err_tx.send(VoiceMsg::StreamError(e.to_string()));
     };
 
+    // Copied out before `cfg` moves into the machine: the gain is applied on
+    // cpal's realtime thread, inside the stream closure built below.
+    let gain = cfg.level_gain;
+
     let built = match sample_format {
-        cpal::SampleFormat::F32 => build_stream::<f32>(&device, &config, frames_tx.clone(), err_fn),
-        cpal::SampleFormat::I16 => build_stream::<i16>(&device, &config, frames_tx.clone(), err_fn),
-        cpal::SampleFormat::U16 => build_stream::<u16>(&device, &config, frames_tx.clone(), err_fn),
-        cpal::SampleFormat::I32 => build_stream::<i32>(&device, &config, frames_tx.clone(), err_fn),
-        cpal::SampleFormat::I8 => build_stream::<i8>(&device, &config, frames_tx.clone(), err_fn),
-        cpal::SampleFormat::U8 => build_stream::<u8>(&device, &config, frames_tx.clone(), err_fn),
+        cpal::SampleFormat::F32 => {
+            build_stream::<f32>(&device, &config, gain, frames_tx.clone(), err_fn)
+        }
+        cpal::SampleFormat::I16 => {
+            build_stream::<i16>(&device, &config, gain, frames_tx.clone(), err_fn)
+        }
+        cpal::SampleFormat::U16 => {
+            build_stream::<u16>(&device, &config, gain, frames_tx.clone(), err_fn)
+        }
+        cpal::SampleFormat::I32 => {
+            build_stream::<i32>(&device, &config, gain, frames_tx.clone(), err_fn)
+        }
+        cpal::SampleFormat::I8 => {
+            build_stream::<i8>(&device, &config, gain, frames_tx.clone(), err_fn)
+        }
+        cpal::SampleFormat::U8 => {
+            build_stream::<u8>(&device, &config, gain, frames_tx.clone(), err_fn)
+        }
         other => {
             let _ = ready_tx.send(Err(format!("unsupported_sample_format: {other:?}")));
             return;
@@ -377,9 +387,15 @@ fn encode_wake_frame(samples: &[f32]) -> String {
 /// `VoiceMsg::Frames` per callback. Runs on cpal's REALTIME thread, so it does
 /// only arithmetic and a non-blocking channel send — the machine step + IPC emit
 /// happen on the capture thread.
+///
+/// `gain` scales only the reported RMS (`VoiceConfig::level_gain`). The mono PCM
+/// handed to the machine — and therefore the clip that is transcribed — is
+/// untouched: this is a meter/threshold calibration, not a recording gain, so
+/// turning it up must never distort what the STT provider hears.
 fn build_stream<T>(
     device: &cpal::Device,
     config: &cpal::StreamConfig,
+    gain: f32,
     frames_tx: Sender<VoiceMsg>,
     err_fn: impl FnMut(cpal::StreamError) + Send + 'static,
 ) -> Result<cpal::Stream, cpal::BuildStreamError>
@@ -404,7 +420,7 @@ where
             let rms = if mono.is_empty() {
                 0.0
             } else {
-                (acc_sq / mono.len() as f64).sqrt() as f32 * LEVEL_GAIN
+                (acc_sq / mono.len() as f64).sqrt() as f32 * gain
             };
             let _ = frames_tx.send(VoiceMsg::Frames {
                 mono,
