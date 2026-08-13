@@ -9,6 +9,7 @@
 import { useStore } from '@nanostores/react'
 import { type PointerEvent as ReactPointerEvent, useCallback, useMemo, useRef, useSyncExternalStore } from 'react'
 
+import { directionSign } from '@/lib/direction'
 import { guardGuestPointers } from '@/lib/guest-pointer-guard'
 import { rafCoalesce } from '@/lib/raf-coalesce'
 import { beginResizeGesture, endResizeGesture } from '@/lib/resize-gesture'
@@ -339,7 +340,11 @@ export function TreeSplit({
       let done = false
 
       const onMove = (ev: PointerEvent) => {
-        lastShift = Math.max(lo, Math.min(hi, (horizontal ? ev.clientX : ev.clientY) - start))
+        // `clientX` grows rightward in every locale; the seam's two sides have
+        // swapped under `dir=rtl`, so an unsigned delta would grow the zone the
+        // drag is shrinking. `lo`/`hi` are already in the seam's own frame.
+        const delta = horizontal ? (ev.clientX - start) * directionSign(handle) : ev.clientY - start
+        lastShift = Math.max(lo, Math.min(hi, delta))
         resize.push(lastShift)
       }
 
@@ -641,7 +646,13 @@ function Sash({
     <div
       className={cn(
         'group absolute z-20 [-webkit-app-region:no-drag]',
-        horizontal ? 'inset-y-0 left-0 w-[9px] -translate-x-1/2' : 'inset-x-0 top-0 h-[9px] -translate-y-1/2',
+        // A flex row already mirrors under `dir=rtl`, so the sash follows with a
+        // logical inset. Its half-width straddle is a transform, which does not
+        // mirror — hence the sign. (The hairline and hover strip below stay
+        // `left-1/2 -translate-x-1/2`: that pair is centring, not an edge.)
+        horizontal
+          ? 'inset-y-0 start-0 w-[9px] translate-x-[calc(-50%*var(--dir-flip-x))]'
+          : 'inset-x-0 top-0 h-[9px] -translate-y-1/2',
         disabled ? 'pointer-events-none' : horizontal ? 'cursor-col-resize' : 'cursor-row-resize'
       )}
       onDoubleClick={disabled ? undefined : onDoubleClick}

@@ -334,7 +334,7 @@ const MessageAge: FC = () => {
 }
 
 const AssistantFooter: FC<MessageActionProps> = props => (
-  <div className="flex min-h-6 flex-col items-end gap-1 pr-(--message-text-indent) pl-(--message-text-indent)">
+  <div className="flex min-h-6 flex-col items-end gap-1 pe-(--message-text-indent) ps-(--message-text-indent)">
     {/* BLOCKED(MJX-205): branch picker needs an incremental runtime. Under
         the stock external-store runtime hideWhenSingleBranch renders nothing —
         the markup is kept so it lights up once branching lands. */}

@@ -917,11 +917,11 @@ export function TreeGroup({
                       the same box so a strip mixing the two keeps one left
                       edge. */}
                   {chrome.tabLead ? (
-                    <span className="ml-2 -mr-1 flex shrink-0 items-center">{chrome.tabLead()}</span>
+                    <span className="ms-2 -me-1 flex shrink-0 items-center">{chrome.tabLead()}</span>
                   ) : chrome.accent ? (
                     <span
                       aria-hidden="true"
-                      className="ml-2 -mr-1 size-1 shrink-0 rounded-full"
+                      className="ms-2 -me-1 size-1 shrink-0 rounded-full"
                       style={{ backgroundColor: chrome.accent }}
                     />
                   ) : null}
@@ -961,7 +961,7 @@ export function TreeGroup({
         <div
           className={cn(
             'relative min-h-0 min-w-0 overflow-auto',
-            node.minimized ? 'pointer-events-none invisible absolute top-0 left-0' : 'flex-1'
+            node.minimized ? 'pointer-events-none invisible absolute top-0 start-0' : 'flex-1'
           )}
           data-tree-body
           ref={bodyRef}

@@ -72,7 +72,7 @@ export const SystemMessage: FC = () => {
       <MessagePrimitive.Root
         className={cn(
           'w-[60%] max-w-[44rem] self-center px-2 py-0.5 text-[0.6875rem] leading-5 text-muted-foreground/60',
-          multiline ? 'text-left' : 'text-center'
+          multiline ? 'text-start' : 'text-center'
         )}
         data-role="system"
         data-slot="aui_system-message-root"
@@ -96,7 +96,7 @@ export const SystemMessage: FC = () => {
     <MessagePrimitive.Root
       className={cn(
         'w-[60%] max-w-[44rem] self-center px-2 py-0.5 text-[0.6875rem] leading-5 text-muted-foreground/55',
-        multiline ? 'text-left' : 'text-center'
+        multiline ? 'text-start' : 'text-center'
       )}
       data-role="system"
       data-slot="aui_system-message-root"

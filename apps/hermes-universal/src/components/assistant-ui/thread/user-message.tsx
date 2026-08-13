@@ -90,7 +90,7 @@ const ProcessNotificationNote: FC<{ text: string }> = ({ text }) => {
         <span className="wrap-anywhere">{headline}</span>
       </span>
       {detail && (
-        <details className="pl-[1.3125rem]">
+        <details className="ps-[1.3125rem]">
           <summary className="cursor-pointer select-none text-muted-foreground/45 hover:text-muted-foreground/70">
             output
           </summary>
@@ -215,7 +215,7 @@ export const UserMessage: FC<{
 
   const bubbleClassName = cn(
     USER_BUBBLE_BASE_CLASS,
-    'cursor-pointer pr-9 text-[length:var(--conversation-text-font-size)] leading-(--dt-line-height) text-foreground/95 transition-colors',
+    'cursor-pointer pe-9 text-[length:var(--conversation-text-font-size)] leading-(--dt-line-height) text-foreground/95 transition-colors',
     'border-(--ui-stroke-tertiary) hover:border-(--ui-stroke-secondary)'
   )
 
@@ -322,7 +322,7 @@ export const UserMessage: FC<{
                   </button>
                 </ActionBarPrimitive.Edit>
                 {(showStop || showRestore) && (
-                  <div className="pointer-events-none absolute right-2 bottom-2 z-10 flex items-center justify-center opacity-0 transition-opacity group-hover/user-message:opacity-100 coarse:opacity-100 group-focus-within/user-message:opacity-100">
+                  <div className="pointer-events-none absolute end-2 bottom-2 z-10 flex items-center justify-center opacity-0 transition-opacity group-hover/user-message:opacity-100 coarse:opacity-100 group-focus-within/user-message:opacity-100">
                     {showStop ? (
                       <Tip label={copy.stop}>
                         <button
@@ -367,12 +367,12 @@ export const UserMessage: FC<{
                 same emoji size, same vertical padding, right-aligned to the
                 sent bubble. Overlaying the corner read badly in practice. */}
             <ReactionBadge
-              className="justify-end gap-1.5 py-1.5 pr-1.5"
+              className="justify-end gap-1.5 py-1.5 pe-1.5"
               onRetract={() => react(null)}
               reactions={shownReactions}
             />
             <BranchPickerPrimitive.Root
-              className="checkpoint-container flex items-center gap-1 pb-0 pt-1 pl-1.5 text-[0.75rem] leading-none text-(--ui-text-tertiary)"
+              className="checkpoint-container flex items-center gap-1 pb-0 pt-1 ps-1.5 text-[0.75rem] leading-none text-(--ui-text-tertiary)"
               hideWhenSingleBranch
             >
               <span aria-hidden className="checkpoint-icon size-1.5 rounded-full border border-current" />

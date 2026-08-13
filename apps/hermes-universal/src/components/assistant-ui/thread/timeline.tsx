@@ -338,7 +338,7 @@ export const ThreadTimeline: FC = () => {
   return (
     <div
       aria-label="Conversation timeline"
-      className="group/timeline pointer-events-auto absolute right-0 top-1/2 z-40 flex -translate-y-1/2 flex-col items-end"
+      className="group/timeline pointer-events-auto absolute end-0 top-1/2 z-40 flex -translate-y-1/2 flex-col items-end"
       data-slot="thread-timeline"
       data-suppress-pane-reveal=""
       onMouseEnter={keepOpen}
@@ -474,7 +474,7 @@ const TimelineTicks: FC<{
     {entries.map((entry, index) => (
       <button
         aria-label={entry.preview}
-        className="flex h-2 w-7 cursor-pointer items-center justify-end pr-1"
+        className="flex h-2 w-7 cursor-pointer items-center justify-end pe-1"
         key={entry.id}
         onClick={() => onJump(entry.id)}
         type="button"
