@@ -13,6 +13,10 @@ const open = vi.fn(async (_surface: string, _route?: string) => 'sat-hud' as nul
 const close = vi.fn(async (_surface: string) => undefined)
 const isOpen = vi.fn(async (_surface: string) => false)
 const sync = vi.fn()
+const peerFlush = vi.fn(async (_surface: string) => true)
+/** Whether the window running the test IS the HUD. Settable, because `closeHud`
+ *  runs in both and only one of them may ask a peer for its draft. */
+let inSatellite = false
 /** Every cross-module call in order — the assertions are about sequence. */
 const calls: string[] = []
 
@@ -23,6 +27,7 @@ vi.mock('@/store/windows', () => ({
     return close(surface)
   },
   HUD_SURFACE: 'hud',
+  isSatelliteWindow: () => inSatellite,
   isSatelliteWindowOpen: (surface: string) => isOpen(surface),
   openSatelliteWindow: (surface: string, route?: string) => {
     calls.push('open')
@@ -35,6 +40,11 @@ vi.mock('@/store/composer', () => ({
   requestComposerDraftSync: (mode: string) => {
     calls.push(`sync:${mode}`)
     sync(mode)
+  },
+  requestPeerComposerFlush: (surface: string) => {
+    calls.push(`peer-flush:${surface}`)
+
+    return peerFlush(surface)
   }
 }))
 
@@ -69,9 +79,12 @@ beforeEach(() => {
   open.mockClear()
   close.mockClear()
   sync.mockClear()
+  peerFlush.mockClear()
+  peerFlush.mockResolvedValue(true)
   isOpen.mockResolvedValue(false)
   atRoute('')
   floatingSurface = true
+  inSatellite = false
 })
 
 describe('which conversation the HUD opens on', () => {
@@ -165,12 +178,40 @@ describe('the draft handoff', () => {
     expect(calls).toEqual(['sync:flush', 'arm', 'open', 'claim'])
   })
 
-  it('flushes before tearing the HUD down', async () => {
+  it('flushes before tearing the HUD down, this window first and then the HUD', async () => {
     await closeHud()
 
     // `closeHud` may be running INSIDE the HUD, so its own text has to reach the
-    // stash without racing the window's destruction.
+    // stash without racing the window's destruction — and when it is not, the
+    // text at risk is in the OTHER webview, which no DOM event of ours reaches
+    // and which runs nothing on the way out. Both flushes complete before the
+    // close: reversed, the window holding the draft is already gone.
+    //
+    // This window before the HUD, because the two are normally on the SAME
+    // conversation: the later write wins, and the one being destroyed is the one
+    // whose copy has to survive.
+    expect(calls).toEqual(['sync:flush', 'peer-flush:hud', 'close'])
+  })
+
+  it('does not ask a peer for a draft when the HUD is the window closing itself', async () => {
+    inSatellite = true
+
+    await closeHud()
+
+    // Its own flush above already wrote the text down. Asking would only invite
+    // the main window's older copy of the same conversation to land on top of it.
     expect(calls).toEqual(['sync:flush', 'close'])
+  })
+
+  it('tears the HUD down even when nobody answered the flush', async () => {
+    peerFlush.mockResolvedValue(false)
+
+    await closeHud()
+
+    // An unanswered flush means the window was already gone or had no bus — the
+    // draft is not recoverable either way, and refusing to close would strand a
+    // HUD the user asked to dismiss.
+    expect(calls).toEqual(['sync:flush', 'peer-flush:hud', 'close'])
   })
 })
 
