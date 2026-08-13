@@ -382,6 +382,14 @@ export function useComposerDraft({
         stashAt(activeQueueSessionKey, latestText)
       }
     }
+    // `sessionId` is deliberately the STALE (outgoing) one — do NOT "fix" this
+    // to `sessionIdRef.current` for consistency with the rest of the file. This
+    // cleanup persists the draft of the session being LEFT, under the outgoing
+    // `activeQueueSessionKey`, so the browse guard has to ask about that same
+    // session; the ref holds the incoming one by the time cleanup runs.
+    // `loadIntoComposer` / `stashAt` are redeclared every render (they read
+    // through live refs), so listing them would make a session-swap effect fire
+    // per keystroke — stashing and reloading the composer mid-typing.
   }, [activeQueueSessionKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // A draft moving BETWEEN WINDOWS (MJXHRM-213). The HUD and the main window are

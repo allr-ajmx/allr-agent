@@ -58,6 +58,10 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
       setManagementProfile(urlProfile);
       setProfileState(urlProfile);
     }
+    // `profile` is compared but must NOT be a dep: state leads and the URL
+    // follows (see the effect below), so re-running on a state change would
+    // re-assert the URL's older value back over the switcher and the two
+    // effects would fight. Only an incoming URL param is an explicit request.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [urlProfile]);
 
@@ -75,6 +79,13 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
       },
       { replace: true },
     );
+    // `searchParams` is read only as a "already in sync?" guard, and the write
+    // itself takes the updater form so it composes with whatever the URL holds
+    // at commit time — it never depends on the snapshot it read. Listing it
+    // would re-run this on every unrelated query-param change. Verified: every
+    // other `setSearchParams` caller in the app (ChatSessionList, ChatPage)
+    // builds `next` from the previous params, so `?profile=` is never dropped
+    // behind this effect's back.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname, profile]);
 
@@ -106,6 +117,10 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
+    // MOUNT-ONCE bootstrap: `searchParams` is read for the INITIAL deep link
+    // (does the URL name a profile?) and that question is only meaningful at
+    // load. Depending on it would re-ask the server for the active profile on
+    // every navigation and could snap the switcher back mid-session.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
