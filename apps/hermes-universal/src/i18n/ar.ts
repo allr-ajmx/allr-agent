@@ -63,47 +63,6 @@ export const ar = defineLocale({
     deleteBody: 'سيتم نقله إلى سلة المهملات — يمكنك استعادته من هناك.',
     pathCopied: 'تم نسخ المسار'
   },
-  boot: {
-    ready: 'Hermes Desktop جاهز',
-    desktopBootFailedWithMessage: message => `فشل تشغيل سطح المكتب: ${message}`,
-    steps: {
-      connectingGateway: 'جار الاتصال ببوابة سطح المكتب',
-      loadingSettings: 'جار تحميل إعدادات Hermes',
-      loadingSessions: 'جار تحميل الجلسات الأخيرة',
-      startingDesktopConnection: 'جار بدء اتصال سطح المكتب',
-      startingHermesDesktop: 'جار تشغيل Hermes Desktop...'
-    },
-    errors: {
-      backgroundExited: 'خرجت عملية Hermes الخلفية.',
-      backgroundExitedDuringStartup: 'خرجت عملية Hermes الخلفية أثناء بدء التشغيل.',
-      backendStopped: 'توقف الخلفية',
-      desktopBootFailed: 'فشل تشغيل سطح المكتب',
-      gatewayConnectionLost: 'انقطع الاتصال بالبوابة',
-      gatewaySignInRequired: 'تسجيل الدخول للبوابة مطلوب',
-      ipcBridgeUnavailable: 'جسر IPC لسطح المكتب غير متاح.'
-    },
-    failure: {
-      title: 'تعذر تشغيل Hermes',
-      description: 'لم تعمل البوابة الخلفية. جرب إحدى خطوات الاسترداد أدناه. لن يحذف ذلك محادثاتك أو إعداداتك.',
-      remoteTitle: 'تسجيل الدخول للبوابة البعيدة مطلوب',
-      remoteDescription: 'انتهت جلسة البوابة البعيدة. سجل الدخول مرة أخرى لإعادة الاتصال.',
-      retry: 'إعادة المحاولة',
-      repairInstall: 'إصلاح التثبيت',
-      useLocalGateway: 'استخدام البوابة المحلية',
-      openLogs: 'فتح السجلات',
-      repairHint: 'يعيد الإصلاح تشغيل المثبت وقد يستغرق بضع دقائق على جهاز جديد.',
-      hideRecentLogs: 'إخفاء السجلات الأخيرة',
-      showRecentLogs: 'إظهار السجلات الأخيرة',
-      signedInTitle: 'تم تسجيل الدخول',
-      signedInMessage: 'جار إعادة الاتصال بالبوابة البعيدة...',
-      signInIncompleteTitle: 'تسجيل الدخول غير مكتمل',
-      signInIncompleteMessage: 'أغلقت نافذة تسجيل الدخول قبل اكتمال المصادقة.',
-      signInFailed: 'فشل تسجيل الدخول',
-      signInToRemoteGateway: 'تسجيل الدخول للبوابة البعيدة',
-      signInWithProvider: provider => `تسجيل الدخول عبر ${provider}`,
-      identityProvider: 'مزود الهوية'
-    }
-  },
   notifications: {
     region: 'الإشعارات',
     hide: 'إخفاء',
