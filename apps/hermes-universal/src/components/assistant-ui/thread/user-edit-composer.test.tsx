@@ -205,6 +205,44 @@ describe('the edit composer and `:shortcode:` completions', () => {
     expect(editor().querySelector('[data-ref-text]')).toBeNull()
   })
 
+  it('picks mid-message without eating the prose after it or moving the caret to the end', () => {
+    setReactionsEnabled(true)
+    render(<UserEditComposer />)
+
+    const el = editor()
+
+    // Caret sits after `:jo`, with prose still to its right — the shape a
+    // shortcode typed into the middle of a sent message always has.
+    el.textContent = 'nice :jo work'
+    const range = document.createRange()
+    range.setStart(el.firstChild as Node, 8)
+    range.collapse(true)
+    const sel = window.getSelection()
+    sel?.removeAllRanges()
+    sel?.addRange(range)
+    fireEvent.input(el)
+    fireEvent.keyUp(el, { key: 'o' })
+
+    act(() => {
+      vi.advanceTimersByTime(1)
+    })
+
+    fireEvent.keyDown(el, { key: 'Enter' })
+
+    expect(el.textContent).toBe('nice \u{1F602} work')
+
+    // The caret must land behind the emoji, not at the end of the message —
+    // focusing the editor by way of a helper that re-drops it at the end is the
+    // easy mistake here.
+    const after = window.getSelection()?.getRangeAt(0)
+    const measure = document.createRange()
+
+    measure.selectNodeContents(el)
+    measure.setEnd(after!.startContainer, after!.startOffset)
+
+    expect(measure.toString()).toBe('nice \u{1F602}')
+  })
+
   it('accepts on Tab as well', () => {
     setReactionsEnabled(true)
     render(<UserEditComposer />)

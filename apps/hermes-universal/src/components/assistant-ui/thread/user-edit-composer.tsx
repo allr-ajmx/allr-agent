@@ -38,6 +38,10 @@ import { sanitizeComposerInput } from '@/lib/composer-input-sanitize'
 import { cn } from '@/lib/utils'
 import { notifyThreadEditClose } from '@/store/thread-scroll'
 
+/** Below this much room above the editor, the completion list is drawn under it
+ *  instead — the drawer caps at 22rem and would otherwise run off the top. */
+const DRAWER_MIN_SPACE_ABOVE_PX = 220
+
 /**
  * Inline editor for a past user prompt: click a bubble, change the text, press
  * Enter (or the send button) to rewind to that turn and re-run it with the new
@@ -55,10 +59,6 @@ import { notifyThreadEditClose } from '@/store/thread-scroll'
  * sent message is prose, and an adapter-less popover would dead-end on
  * "No matches".
  */
-/** Below this much room above the editor, the completion list is drawn under it
- *  instead — the drawer caps at 22rem and would otherwise run off the top. */
-const DRAWER_MIN_SPACE_ABOVE_PX = 220
-
 export const UserEditComposer: FC = () => {
   const { t } = useI18n()
   const copy = t.assistant.thread
@@ -95,6 +95,21 @@ export const UserEditComposer: FC = () => {
     markActiveComposer('edit')
   }, [])
 
+  /**
+   * Focus WITHOUT moving the caret — what a completion pick needs.
+   *
+   * `focusEditor` drops the caret at the end, which is right on mount (a message
+   * opened for edit starts with the caret after its last character) and wrong
+   * after a pick: the insertion already left the caret behind the emoji, and a
+   * shortcode typed mid-message would otherwise teleport the cursor past the
+   * prose that follows it. The docked composer's equivalent only bumps a focus
+   * request; it never touches the selection.
+   */
+  const refocusEditor = useCallback(() => {
+    focusComposerInput(editorRef.current)
+    markActiveComposer('edit')
+  }, [])
+
   const rememberInitialDraft = useCallback(() => {
     if (initialDraftRef.current === null) {
       initialDraftRef.current = draftRef.current
@@ -128,7 +143,7 @@ export const UserEditComposer: FC = () => {
     draftRef,
     editorRef,
     emoji,
-    requestMainFocus: focusEditor,
+    requestMainFocus: refocusEditor,
     setComposerText,
     slash: { adapter: null, loading: false }
   })
