@@ -437,18 +437,30 @@ export async function moveSessionToProject(sessionId: string, cwd: string): Prom
     return false
   }
 
+  // The conversation's LIVE id, not whatever alias the calling surface holds. A
+  // tile tab and a mobile bubble keep the id their chat was OPENED with, and
+  // auto-compression rotates it; `session.workspace.move` writes `cwd` /
+  // `git_repo_root` onto ONE row while the session list surfaces the TIP's,
+  // so a move addressed to the lineage root updated a hidden ancestor and the
+  // row never left its old project (MJXHRM-423 — the same asymmetry as rename).
+  //
+  // Dynamic import: `store/session-lookup` reads `$projectTree`, which lives in
+  // this module.
+  const { liveSessionIdFor } = await import('@/store/session-lookup')
+  const liveId = liveSessionIdFor(sessionId)
+
   try {
     const moved = await moveSessionWorkspace({
       cwd: target,
-      profile: knownSessionProfile(sessionId) ?? null,
-      sessionKey: sessionId
+      profile: knownSessionProfile(liveId) ?? null,
+      sessionKey: liveId
     })
 
     // Optimistic, from the backend's OWN resolution (`~` expanded, absolute) —
     // echoing the requested path would show a `~` the row never had.
     setSessions(prev =>
       prev.map(session =>
-        session.id === sessionId
+        session.id === liveId
           ? { ...session, cwd: moved.cwd ?? target, git_repo_root: moved.git_repo_root ?? null }
           : session
       )

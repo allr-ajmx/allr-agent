@@ -420,6 +420,18 @@ export function SessionTabMenu({
   // of these wrappers is mounted per open tab, permanently, for a menu that is
   // almost never open — subscribing to all three sources whole re-rendered every
   // tab's wrapper on any recents poll or any OTHER session's title update.
+  //
+  // `storedSessionId` STAYS the id passed down to the verbs, and that is
+  // deliberate. It is this tab's layout key — the tile record, the pane id and
+  // `closeSessionTile` are all keyed on it — and after an auto-compaction it is
+  // the lineage ROOT rather than the conversation's live id. Every verb that
+  // leaves for the backend now resolves that alias at its own funnel
+  // (`liveSessionIdFor` in store/session-lookup), because a menu is not the only
+  // surface holding a stale id: mobile bubbles, restored panes and the Command
+  // Center hold them too, and fixing it here would have fixed exactly one of
+  // them. Widening the RESOLUTION and leaving the ACTIONS on the raw id is what
+  // made rename and move-to-project silently no-op from this menu while the
+  // dialog showed the correct current title (MJXHRM-423).
   const { pinId, title: storedTitle } = useSessionRowScalars(storedSessionId)
   // Same reasoning one level down: the pin LIST reference changes whenever any
   // session is pinned or unpinned; this tab only cares about its own membership.
