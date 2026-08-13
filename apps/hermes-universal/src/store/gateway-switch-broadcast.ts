@@ -1,7 +1,4 @@
-import { emit } from '@tauri-apps/api/event'
-
-import { IS_TAURI } from '@/lib/platform'
-import { WEBVIEW_ID } from '@/lib/webview-id'
+import { broadcastToPeers, type PeerBroadcast } from '@/lib/webview-broadcast'
 import type { GatewayMode } from '@/store/gateway-config'
 import type { GatewayTarget } from '@/store/gateway-restore'
 
@@ -9,14 +6,12 @@ import type { GatewayTarget } from '@/store/gateway-restore'
 // store/gateway-switch-sync.ts). Split out because one of the initiators is
 // gateway-restore.ts (the Android OAuth resume), and having it reach into the listener
 // module would close the loop `restore → sync → soft-switch → restore` — exactly the
-// cycle that graph is kept free of. This module imports nothing but types and the event
-// API, so any store can depend on it.
+// cycle that graph is kept free of. This module imports nothing but types and the
+// broadcast leaf, so any store can depend on it.
 
 export const SWITCH_EVENT = 'gateway://switched'
 
-export interface GatewaySwitchedPayload {
-  /** The sending WebView, so a receiver can drop its own echo (emit is global). */
-  origin: string
+export interface GatewaySwitchedPayload extends PeerBroadcast {
   mode: GatewayMode
   /** The gateway to re-home onto. Non-secret — secrets stay in the keyring, and
    *  dialSavedTarget fetches them on the receiving side. */
@@ -36,12 +31,5 @@ export interface GatewaySwitchedPayload {
  * the "don't echo forever" guard is structural rather than a flag.
  */
 export function broadcastGatewaySwitch(mode: GatewayMode, target: GatewayTarget): void {
-  if (!IS_TAURI) {
-    return
-  }
-
-  const payload: GatewaySwitchedPayload = { origin: WEBVIEW_ID, mode, target }
-
-  // Best-effort: a failed broadcast must never fail the switch that just worked.
-  void emit(SWITCH_EVENT, payload).catch(() => {})
+  broadcastToPeers<GatewaySwitchedPayload>(SWITCH_EVENT, { mode, target })
 }

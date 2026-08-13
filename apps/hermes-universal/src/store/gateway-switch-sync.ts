@@ -1,7 +1,5 @@
-import { listen } from '@tauri-apps/api/event'
-
 import { IS_TAURI } from '@/lib/platform'
-import { WEBVIEW_ID } from '@/lib/webview-id'
+import { onPeerBroadcast } from '@/lib/webview-broadcast'
 import { dialSavedTarget } from '@/store/gateway-restore'
 import { softSwitchGateway } from '@/store/gateway-soft-switch'
 import { type GatewaySwitchedPayload, SWITCH_EVENT } from '@/store/gateway-switch-broadcast'
@@ -41,13 +39,12 @@ export function initGatewaySwitchSync(): void {
 
   started = true
 
-  void listen<GatewaySwitchedPayload>(SWITCH_EVENT, event => {
-    const payload = event.payload
-
-    // Drop our own echo, and anything malformed. The shape check is not paranoia:
-    // acting on a payload with no target would tear this WebView's connection down
-    // and then dial nothing, which is strictly worse than ignoring the event.
-    if (!payload?.origin || !payload.mode || !payload.target || payload.origin === WEBVIEW_ID) {
+  // `onPeerBroadcast` has already dropped our own echo (`emit` is global).
+  onPeerBroadcast<GatewaySwitchedPayload>(SWITCH_EVENT, payload => {
+    // Anything malformed goes too. The shape check is not paranoia: acting on a
+    // payload with no target would tear this WebView's connection down and then
+    // dial nothing, which is strictly worse than ignoring the event.
+    if (!payload.mode || !payload.target) {
       return
     }
 
