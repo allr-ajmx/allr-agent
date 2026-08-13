@@ -16,6 +16,7 @@
 import type { GatewayEvent } from '@/gateway'
 import { coerceText } from '@/lib/chat-messages'
 import { requestGateway } from '@/store/gateway'
+import { notifyError } from '@/store/notifications'
 import { clearSessionClarify, sessionClarifyRequest, setSessionClarify } from '@/store/prompts'
 import { reduceSessionState } from '@/store/session-reducer'
 import { updateSession } from '@/store/session-state-types'
@@ -133,9 +134,17 @@ export const hasClarifyRequest = (key: null | string | undefined): boolean =>
  * composer means: "none of these".
  *
  * The request is cleared FIRST so a second Enter can't answer twice, and the
- * RPC failure is swallowed: the tool times out on its own, and a failed skip
- * must never swallow the message the user was actually sending. `true` when
- * there was something to skip.
+ * failure never rejects: this is fire-and-forget beside the real send, and a
+ * failed skip must not swallow the message the user was actually sending.
+ * `true` when there was something to skip.
+ *
+ * But it must not be SILENT either (MJXHRM-418). "The tool times out on its
+ * own" is not a guarantee: `_clarify_timeout_seconds()` returns None for a
+ * configured timeout <= 0, and `_block(timeout=None)` then waits forever,
+ * released only by a real answer or `session.interrupt`. With the card already
+ * torn down there is nothing left that could ever answer it — the same dead end
+ * the optimistic responders had, minus the five-minute floor. So a skip that
+ * did not land puts the question BACK and says so, and the next Enter retries it.
  */
 export async function skipClarifyRequest(key: null | string | undefined): Promise<boolean> {
   const request = key ? sessionClarifyRequest(key).get() : null
@@ -148,8 +157,14 @@ export async function skipClarifyRequest(key: null | string | undefined): Promis
 
   try {
     await requestGateway('clarify.respond', { request_id: request.requestId, answer: '' })
-  } catch {
-    /* the tool times out on its own; never block the real message on this */
+  } catch (error) {
+    // Only if nothing newer has taken the slot in the meantime — restoring over
+    // a fresh question would make THAT one unanswerable.
+    if (!sessionClarifyRequest(key).get()) {
+      setSessionClarify(key, request)
+    }
+
+    notifyError(error, 'The question could not be skipped — answer it to unblock the agent')
   }
 
   return true

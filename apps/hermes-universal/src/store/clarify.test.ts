@@ -18,13 +18,17 @@ vi.mock('@/store/gateway', () => ({
   requestGateway: vi.fn(() => Promise.resolve({}))
 }))
 
+vi.mock('@/store/notifications', () => ({ notifyError: vi.fn() }))
+
 const { requestGateway } = await import('@/store/gateway')
+const { notifyError } = await import('@/store/notifications')
 
 beforeEach(() => {
   clearAllPrompts()
   $sessionStates.set({})
   vi.mocked(requestGateway).mockClear()
   vi.mocked(requestGateway).mockResolvedValue({})
+  vi.mocked(notifyError).mockClear()
 })
 
 describe('normalizeChoices', () => {
@@ -88,14 +92,33 @@ describe('skipClarifyRequest', () => {
     expect(sessionClarifyRequest('s1').get()).toBeNull()
   })
 
-  // The tool times out on its own. A failed skip must never swallow the
-  // message the user was actually sending.
-  it('resolves true even when the RPC fails, and still clears', async () => {
+  // A failed skip must never swallow the message the user was actually sending,
+  // so it still RESOLVES — but it must not vanish either (MJXHRM-418). The agent
+  // is still parked in `_block`, and a clarify configured with a timeout <= 0
+  // waits there forever, so a torn-down card is a permanently wedged session.
+  // The question comes back and says so.
+  it('restores the question and surfaces the failure when the RPC fails', async () => {
     vi.mocked(requestGateway).mockRejectedValueOnce(new Error('socket down'))
     setSessionClarify('s1', { requestId: 'req-2', question: 'q', choices: null })
 
     expect(await skipClarifyRequest('s1')).toBe(true)
-    expect(sessionClarifyRequest('s1').get()).toBeNull()
+    expect(sessionClarifyRequest('s1').get()).toMatchObject({ requestId: 'req-2' })
+    expect(notifyError).toHaveBeenCalled()
+  })
+
+  // …unless a NEWER question has taken the slot while the failed skip was in
+  // flight. Restoring over it would make that one unanswerable.
+  it('does not restore over a question that arrived while the skip was failing', async () => {
+    setSessionClarify('s1', { requestId: 'req-3', question: 'q', choices: null })
+    vi.mocked(requestGateway).mockImplementationOnce(async () => {
+      setSessionClarify('s1', { requestId: 'req-4', question: 'newer', choices: null })
+
+      throw new Error('socket down')
+    })
+
+    await skipClarifyRequest('s1')
+
+    expect(sessionClarifyRequest('s1').get()).toMatchObject({ requestId: 'req-4' })
   })
 
   it('is a no-op with nothing parked', async () => {
