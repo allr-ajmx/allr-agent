@@ -208,6 +208,75 @@ export interface MessagingPlatformTestResponse {
   state?: null | string
 }
 
+// -- Webhooks (inbound subscription CRUD) ------------------------------------
+// Incoming HTTP event routes served by the webhook gateway platform. Backed by
+// the same JSON store the CLI/dashboard use (`hermes_cli/webhook.py`); per-route
+// HMAC secrets are redacted on read and surfaced EXACTLY ONCE, on create.
+//
+// Ported from apps/desktop/src/types/hermes.ts, plus the two summary fields
+// desktop's types never declared (so its page could not render them):
+// `created_at` and `script`.
+
+export interface WebhookRoute {
+  created_at: null | string
+  deliver: string
+  deliver_only: boolean
+  description: string
+  enabled: boolean
+  events: string[]
+  name: string
+  prompt: string
+  /** Local script the route runs on fire. Set via the CLI; read-only here. */
+  script: string
+  /** A secret EXISTS for this route — never the value (masked on read). */
+  secret_set: boolean
+  skills: string[]
+  url: string
+}
+
+export interface WebhooksResponse {
+  base_url: string
+  /** CONFIG state (`platforms.webhook.enabled`), NOT "the receiver is bound".
+   *  The live answer is the `webhook` platform's `state` on
+   *  `GET /api/messaging/platforms` — see `app/webhooks/index.tsx`. */
+  enabled: boolean
+  subscriptions: WebhookRoute[]
+}
+
+export interface WebhookCreatePayload {
+  deliver?: string
+  /** Target chat for a real delivery platform → stored as `deliver_extra.chat_id`. */
+  deliver_chat_id?: string
+  deliver_only?: boolean
+  description?: string
+  events?: string[]
+  name: string
+  prompt?: string
+  /** Omit and the gateway generates one, returned exactly once. Supply your own
+   *  and there is no one-time reveal to lose. */
+  secret?: string
+  skills?: string[]
+}
+
+/** Create echoes the route summary plus the one-time secret. */
+export interface WebhookCreateResponse extends WebhookRoute {
+  secret: string
+}
+
+export interface WebhookEnableResponse {
+  enabled: true
+  /** `!restart_started` — the backend's own derivation. */
+  needs_restart: boolean
+  ok: boolean
+  platform: 'webhook'
+  restart_action?: string
+  restart_error?: string
+  restart_pid?: null | number
+  /** A restart was SPAWNED — not that it finished, and not that the receiver
+   *  came up. Nothing in this response can promise that. */
+  restart_started?: boolean
+}
+
 export interface GatewayReadyPayload {
   skin?: unknown
 }

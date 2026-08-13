@@ -1,16 +1,20 @@
 import { afterEach, describe, expect, it } from 'vitest'
 
+import { NAV_ITEMS } from '@/app/shell/nav-items'
 import { registry } from '@/contrib/registry'
+import { activitySurfaceForPath } from '@/store/windows'
 
 import {
   appViewForPath,
   contributedRoutes,
   cronJobRoute,
   isOverlayView,
+  isWorkspacePagePath,
   routeCronJobId,
   ROUTES_AREA,
   routeSessionId,
-  sessionRoute
+  sessionRoute,
+  WEBHOOKS_ROUTE
 } from './routes'
 
 describe('routes', () => {
@@ -36,6 +40,29 @@ describe('routes', () => {
   it('flags overlay views', () => {
     expect(isOverlayView('settings')).toBe(true)
     expect(isOverlayView('chat')).toBe(false)
+  })
+})
+
+// A new page is reachable only once every link in the chain agrees on it. The
+// reservation is the link that fails SILENTLY: an unreserved `/webhooks` parses
+// as a session id, so the route opens a phantom chat instead of the page.
+describe('webhooks route registration', () => {
+  it('resolves to the webhooks view and is reserved against the session parser', () => {
+    expect(appViewForPath(WEBHOOKS_ROUTE)).toBe('webhooks')
+    expect(routeSessionId(WEBHOOKS_ROUTE)).toBeNull()
+  })
+
+  it('is an overlay, not a workspace page — the chat stays beneath it', () => {
+    expect(isOverlayView('webhooks')).toBe(true)
+    expect(isWorkspacePagePath(WEBHOOKS_ROUTE)).toBe(false)
+  })
+
+  it('is a windowable surface, so Android opens it as a native screen', () => {
+    expect(activitySurfaceForPath(WEBHOOKS_ROUTE)).toBe('webhooks')
+  })
+
+  it('is a destination the command menu registers', () => {
+    expect(NAV_ITEMS.find(item => item.view === 'webhooks')?.path).toBe(WEBHOOKS_ROUTE)
   })
 })
 

@@ -14,6 +14,7 @@ import { ProfilesView } from '@/app/profiles'
 import { ProviderConnectOverlay } from '@/app/settings/provider-connect-overlay'
 import { SettingsView } from '@/app/settings/settings-view'
 import { StarmapView } from '@/app/starmap'
+import { WebhooksView } from '@/app/webhooks'
 import { NotificationStack } from '@/components/notifications'
 import { useMediaQuery } from '@/hooks/use-media-query'
 import { IS_DESKTOP, IS_MOBILE } from '@/lib/platform'
@@ -128,7 +129,8 @@ export function MobileController() {
     profilesOpen,
     returnPathRef,
     starmapOpen,
-    settingsOpen
+    settingsOpen,
+    webhooksOpen
   } = useOverlayRouting()
 
   // The single global listener for every rebindable hotkey, plus the keybind
@@ -151,7 +153,7 @@ export function MobileController() {
   // the Gateway page; the others need a live connection).
   const mobileSurfaceOpen =
     (settingsOpen && (connected || settingsGatewayOpen)) ||
-    (connected && (agentsOpen || commandCenterOpen || cronOpen || profilesOpen))
+    (connected && (agentsOpen || commandCenterOpen || cronOpen || profilesOpen || webhooksOpen))
 
   let content: ReactNode
 
@@ -296,6 +298,10 @@ export function MobileController() {
         )}
         {/* Profiles overlay — desktop's profile CRUD + soul editor master/detail. */}
         {!IS_MOBILE && connected && profilesOpen && <ProfilesView onClose={closeOverlayToPreviousRoute} />}
+        {/* Webhooks overlay — inbound HTTP event subscriptions (create / enable /
+            disable / delete) plus the receiver's real runtime state. Like cron and
+            profiles it becomes a windowable surface on a phone. */}
+        {!IS_MOBILE && connected && webhooksOpen && <WebhooksView onClose={closeOverlayToPreviousRoute} />}
         {/* Star map overlay — the radial "what Hermes has learned" map. */}
         {connected && starmapOpen && <StarmapView onClose={closeOverlayToPreviousRoute} />}
         {/* Provider-connect overlay — a focused per-provider sign-in card that
@@ -321,7 +327,9 @@ export function MobileController() {
             patrol doesn't exist there. */}
         {connected && !(IS_MOBILE && mobileSurfaceOpen) && (
           <FloatingPet
-            overlayOpen={settingsOpen || agentsOpen || commandCenterOpen || cronOpen || profilesOpen || starmapOpen}
+            overlayOpen={
+              settingsOpen || agentsOpen || commandCenterOpen || cronOpen || profilesOpen || starmapOpen || webhooksOpen
+            }
           />
         )}
       </div>

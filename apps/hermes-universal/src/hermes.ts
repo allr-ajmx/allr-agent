@@ -67,7 +67,11 @@ import type {
   TerminalBackendsResponse,
   ToolsetConfig,
   ToolsetInfo,
-  ToolsetModelsResponse
+  ToolsetModelsResponse,
+  WebhookCreatePayload,
+  WebhookCreateResponse,
+  WebhookEnableResponse,
+  WebhooksResponse
 } from '@/types/hermes'
 
 // Desktop startup fires a burst of read-only data calls (config, profiles,
@@ -183,7 +187,12 @@ export type {
   ToolsetConfig,
   ToolsetInfo,
   ToolsetModel,
-  ToolsetModelsResponse
+  ToolsetModelsResponse,
+  WebhookCreatePayload,
+  WebhookCreateResponse,
+  WebhookEnableResponse,
+  WebhookRoute,
+  WebhooksResponse
 } from '@/types/hermes'
 
 export class HermesGateway extends JsonRpcGatewayClient {
@@ -1011,6 +1020,55 @@ export function testMessagingPlatform(platformId: string): Promise<MessagingPlat
   return api<MessagingPlatformTestResponse>({
     path: `/api/messaging/platforms/${encodeURIComponent(platformId)}/test`,
     method: 'POST'
+  })
+}
+
+// -- Webhooks (inbound subscription CRUD) ------------------------------------
+// The webhook receiver is its own gateway platform; subscriptions live in a JSON
+// store the CLI and dashboard also drive. Enable mutates config and best-effort
+// restarts the gateway; subscription changes hot-reload.
+//
+// Deliberately NOT `profileScoped()` (desktop scopes all five). Desktop's
+// `?profile=` picks which backend PROCESS answers; universal's `api()` turns it
+// into a `?profile=` query, and none of these five FastAPI handlers declares that
+// parameter — so it would be silently dropped and the client would advertise a
+// scoping it does not have. These routes always read the gateway's own
+// HERMES_HOME.
+
+export function getWebhooks(): Promise<WebhooksResponse> {
+  return api<WebhooksResponse>({ path: '/api/webhooks' })
+}
+
+export function enableWebhooks(): Promise<WebhookEnableResponse> {
+  return api<WebhookEnableResponse>({
+    path: '/api/webhooks/enable',
+    method: 'POST'
+  })
+}
+
+export function createWebhook(body: WebhookCreatePayload): Promise<WebhookCreateResponse> {
+  return api<WebhookCreateResponse>({
+    path: '/api/webhooks',
+    method: 'POST',
+    body
+  })
+}
+
+export function deleteWebhook(name: string): Promise<{ ok: boolean }> {
+  return api<{ ok: boolean }>({
+    path: `/api/webhooks/${encodeURIComponent(name)}`,
+    method: 'DELETE'
+  })
+}
+
+export function setWebhookEnabled(
+  name: string,
+  enabled: boolean
+): Promise<{ enabled: boolean; name: string; ok: boolean }> {
+  return api<{ enabled: boolean; name: string; ok: boolean }>({
+    path: `/api/webhooks/${encodeURIComponent(name)}/enabled`,
+    method: 'PUT',
+    body: { enabled }
   })
 }
 

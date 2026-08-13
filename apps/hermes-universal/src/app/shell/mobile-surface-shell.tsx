@@ -9,6 +9,7 @@ import { SettingsFooter, SettingsView } from '@/app/settings/settings-view'
 import { MobileChromeBar } from '@/app/shell/mobile-chrome-bar'
 import { useSurfaceNavRows } from '@/app/shell/surface-nav'
 import { TitlebarButton } from '@/app/shell/titlebar-button'
+import { WebhooksView } from '@/app/webhooks'
 import { Codicon } from '@/components/ui/codicon'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { TitleMenuTrigger } from '@/components/ui/title-menu-trigger'
@@ -76,7 +77,9 @@ export function MobileSurfaceShell({
           ? t.cron.title
           : surface === 'profiles'
             ? t.profiles.title
-            : t.commandCenter.settings
+            : surface === 'webhooks'
+              ? t.webhooks.title
+              : t.commandCenter.settings
 
   // Command Center / Cron / Profiles need a live connection for their data;
   // Settings can render once we've ever connected so it survives a reconnect. A
@@ -138,6 +141,8 @@ export function MobileSurfaceShell({
             <CronView onClose={onHome} onOpenSession={onOpenSession} variant="fullscreen" />
           ) : surface === 'agents' ? (
             <AgentsView onClose={onHome} variant="fullscreen" />
+          ) : surface === 'webhooks' ? (
+            <WebhooksView onClose={onHome} variant="fullscreen" />
           ) : (
             <ProfilesView onClose={onHome} variant="fullscreen" />
           )

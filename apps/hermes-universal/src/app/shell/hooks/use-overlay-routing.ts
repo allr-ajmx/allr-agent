@@ -4,7 +4,8 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { appViewForPath, isOverlayView, NEW_CHAT_ROUTE, SETTINGS_ROUTE } from '@/app/routes'
 
 // Ported from apps/desktop/src/app/shell/hooks/use-overlay-routing.ts. Overlay
-// views (settings / command-center / agents / cron / profiles / starmap) render
+// views (settings / command-center / agents / cron / profiles / starmap /
+// webhooks) render
 // as full-screen portals over the chat backdrop rather than routed panes, so the
 // router only carries which one is open. A single `returnPathRef` stashes the
 // underlying path while no overlay is open, so closing any of them returns there
@@ -24,6 +25,7 @@ export function useOverlayRouting() {
   const starmapOpen = currentView === 'starmap'
   const cronOpen = currentView === 'cron'
   const profilesOpen = currentView === 'profiles'
+  const webhooksOpen = currentView === 'webhooks'
   const chatOpen = currentView === 'chat' && !settingsOpen
   const overlayOpen = settingsOpen || isOverlayView(currentView)
 
@@ -51,6 +53,7 @@ export function useOverlayRouting() {
     profilesOpen,
     returnPathRef,
     settingsOpen,
-    starmapOpen
+    starmapOpen,
+    webhooksOpen
   }
 }
