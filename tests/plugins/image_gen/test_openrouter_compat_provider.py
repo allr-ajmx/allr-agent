@@ -10,7 +10,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 _RUNTIME = "hermes_cli.runtime_provider.resolve_runtime_provider"
-_PNG_DATA_URI = "data:image/png;base64,dGVzdC1pbWFnZS1kYXRh"  # "test-image-data"
+_B64 = "dGVzdC1pbWFnZS1kYXRh"  # "test-image-data"
+_PNG_DATA_URI = f"data:image/png;base64,{_B64}"
 
 
 def _runtime_ok(**over):
@@ -26,6 +27,7 @@ def _runtime_ok(**over):
 
 
 def _mock_chat_response(images):
+    """A `/chat/completions` image response — the Nous Portal protocol."""
     resp = MagicMock()
     resp.status_code = 200
     resp.raise_for_status = MagicMock()
@@ -41,6 +43,22 @@ def _mock_chat_response(images):
                 }
             }
         ]
+    }
+    return resp
+
+
+def _mock_images_response(items=((_B64, "image/png"),)):
+    """A `/v1/images` response — the OpenRouter protocol.
+
+    Base64 bytes plus a sibling media_type; never a hosted URL.
+    """
+    resp = MagicMock()
+    resp.status_code = 200
+    resp.raise_for_status = MagicMock()
+    resp.json.return_value = {
+        "created": 1748372400,
+        "data": [{"b64_json": b64, "media_type": media} for b64, media in items],
+        "usage": {"prompt_tokens": 16, "completion_tokens": 272, "cost": 0.04},
     }
     return resp
 
@@ -63,9 +81,10 @@ _CHAIN = ("vendor/model-a", "vendor/model-b")
 
 
 def _openrouter():
-    from plugins.image_gen.openrouter import OpenRouterCompatImageProvider
+    """The real openrouter row — the Images API protocol."""
+    from plugins.image_gen.openrouter import OpenRouterImagesProvider
 
-    return OpenRouterCompatImageProvider(
+    return OpenRouterImagesProvider(
         provider_name="openrouter",
         display_name="OpenRouter",
         runtime_name="openrouter",
@@ -73,6 +92,13 @@ def _openrouter():
         model_env_var="OPENROUTER_IMAGE_MODEL",
         setup_schema={"name": "OpenRouter (image)", "badge": "paid", "env_vars": []},
     )
+
+
+def _nous():
+    """The real nous row — the legacy chat-completions protocol."""
+    from plugins.image_gen.openrouter import _build_providers
+
+    return {p.name: p for p in _build_providers()}["nous"]
 
 
 # ---------------------------------------------------------------------------
@@ -95,9 +121,22 @@ class TestProviderClass:
         assert by_name["nous"].display_name == "Nous Portal"
 
     def test_capabilities_support_image_input(self):
+        from plugins.image_gen.openrouter import (
+            _MAX_IMAGES_API_REFERENCES,
+            _MAX_REFERENCE_IMAGES,
+        )
+
         caps = _openrouter().capabilities()
         assert "image" in caps["modalities"]
-        assert caps["max_reference_images"] >= 1
+        # The Images API advertises input_references 0-14; the legacy
+        # chat-completions path is still capped at 3.
+        assert caps["max_reference_images"] == _MAX_IMAGES_API_REFERENCES
+        assert _nous().capabilities()["max_reference_images"] == _MAX_REFERENCE_IMAGES
+
+    def test_capabilities_accept_custom_models(self):
+        """Both pickers offer free-text entry off the back of this flag."""
+        assert _openrouter().capabilities()["accepts_custom_model"] is True
+        assert _nous().capabilities()["accepts_custom_model"] is True
 
     def test_is_available_with_key(self):
         with patch(_RUNTIME, return_value=_runtime_ok()):
@@ -105,12 +144,18 @@ class TestProviderClass:
 
 
     def test_default_model(self):
-        from plugins.image_gen.openrouter import DEFAULT_MODEL
+        from plugins.image_gen.openrouter import DEFAULT_MODEL, _FALLBACK_MODEL
 
         with patch("plugins.image_gen.openrouter._load_image_gen_config", return_value={}):
             assert _openrouter().default_model() == DEFAULT_MODEL
             # Default must be an image-output model id (provider/model form).
             assert "/" in DEFAULT_MODEL and "image" in DEFAULT_MODEL
+
+        # Pinned: the previous default was an access-gated openai/ image model
+        # that most accounts cannot route, which is what broke image generation.
+        assert DEFAULT_MODEL == "google/gemini-3-pro-image"
+        assert _FALLBACK_MODEL == "google/gemini-3.1-flash-image"
+        assert not DEFAULT_MODEL.startswith("openai/")
 
 
     def test_model_env_override(self, monkeypatch):
@@ -214,9 +259,9 @@ class TestGenerate:
         assert result["success"] is False
         assert result["error_type"] == "missing_api_key"
 
-    def test_success_data_uri(self):
+    def test_success_b64_json(self):
         with patch(_RUNTIME, return_value=_runtime_ok()), \
-             patch("requests.post", return_value=_mock_chat_response([_PNG_DATA_URI])), \
+             patch("requests.post", return_value=_mock_images_response()), \
              patch(
                  "plugins.image_gen.openrouter.save_b64_image",
                  return_value=Path("/tmp/openrouter_gen.png"),
@@ -226,42 +271,91 @@ class TestGenerate:
         assert result["success"] is True
         assert result["image"] == "/tmp/openrouter_gen.png"
         assert result["provider"] == "openrouter"
-        mock_save.assert_called_once()
+        # The raw base64 is saved, not the reconstructed data URI.
+        assert mock_save.call_args.args[0] == _B64
+        assert mock_save.call_args.kwargs["extension"] == "png"
 
+    def test_media_type_drives_the_saved_extension(self):
+        """A vector model's SVG written as .png is silently broken for every
+        downstream consumer — the extension must follow media_type."""
+        with patch(_RUNTIME, return_value=_runtime_ok()), \
+             patch("requests.post", return_value=_mock_images_response([(_B64, "image/svg+xml")])), \
+             patch(
+                 "plugins.image_gen.openrouter.save_b64_image",
+                 return_value=Path("/tmp/x.svg"),
+             ) as mock_save:
+            result = _openrouter().generate(prompt="a logo")
+
+        assert result["success"] is True
+        assert mock_save.call_args.kwargs["extension"] == "svg"
 
     def test_empty_response(self):
         with patch(_RUNTIME, return_value=_runtime_ok()), \
-             patch("requests.post", return_value=_mock_chat_response([])):
+             patch("requests.post", return_value=_mock_images_response([])):
             result = _openrouter().generate(prompt="a pet")
         assert result["success"] is False
         assert result["error_type"] == "empty_response"
 
     def test_payload_shape_and_references(self, tmp_path):
-        """Wire payload must carry image modalities, aspect_ratio, and the
-        reference image inlined as a data URI (this is what makes pet rows
-        stay on-model)."""
+        """Images API body: prompt + aspect_ratio, references as objects.
+
+        The reference inlined as a data URI is what makes pet rows stay
+        on-model, and `input_references` items are objects — a bare URL string
+        is rejected by the endpoint.
+        """
         ref = tmp_path / "base.png"
         ref.write_bytes(b"\x89PNG\r\n")
 
         with patch(_RUNTIME, return_value=_runtime_ok()), \
-             patch("requests.post", return_value=_mock_chat_response([_PNG_DATA_URI])) as mock_post, \
+             patch("requests.post", return_value=_mock_images_response()) as mock_post, \
              patch("plugins.image_gen.openrouter.save_b64_image", return_value=Path("/tmp/x.png")):
             _openrouter().generate(
                 prompt="a pet", aspect_ratio="square", reference_images=[str(ref)]
             )
 
         payload = mock_post.call_args.kwargs["json"]
-        assert payload["modalities"] == ["image", "text"]
-        assert payload["image_config"]["aspect_ratio"] == "1:1"
-        content = payload["messages"][0]["content"]
-        assert content[0] == {"type": "text", "text": "a pet"}
-        image_parts = [c for c in content if c["type"] == "image_url"]
-        assert len(image_parts) == 1
-        assert image_parts[0]["image_url"]["url"].startswith("data:image/png;base64,")
+        assert payload["prompt"] == "a pet"
+        assert payload["aspect_ratio"] == "1:1"
+        # None of the chat-completions protocol may leak onto this endpoint.
+        assert "modalities" not in payload
+        assert "messages" not in payload
+        assert "image_config" not in payload
+
+        refs = payload["input_references"]
+        assert len(refs) == 1
+        assert refs[0]["type"] == "image_url"
+        assert refs[0]["image_url"]["url"].startswith("data:image/png;base64,")
+
+    def test_input_references_omitted_when_absent(self):
+        """Text-to-image must not send an empty list — that is a different
+        request shape than omitting the key."""
+        with patch(_RUNTIME, return_value=_runtime_ok()), \
+             patch("requests.post", return_value=_mock_images_response()) as mock_post, \
+             patch("plugins.image_gen.openrouter.save_b64_image", return_value=Path("/tmp/x.png")):
+            _openrouter().generate(prompt="a pet")
+
+        assert "input_references" not in mock_post.call_args.kwargs["json"]
+
+    def test_input_references_clamped(self, tmp_path):
+        from plugins.image_gen.openrouter import _MAX_IMAGES_API_REFERENCES
+
+        refs = []
+        for i in range(_MAX_IMAGES_API_REFERENCES + 5):
+            p = tmp_path / f"ref{i}.png"
+            p.write_bytes(b"\x89PNG\r\n")
+            refs.append(str(p))
+
+        with patch(_RUNTIME, return_value=_runtime_ok()), \
+             patch("requests.post", return_value=_mock_images_response()) as mock_post, \
+             patch("plugins.image_gen.openrouter.save_b64_image", return_value=Path("/tmp/x.png")):
+            _openrouter().generate(prompt="a pet", reference_images=refs)
+
+        sent = mock_post.call_args.kwargs["json"]["input_references"]
+        assert len(sent) == _MAX_IMAGES_API_REFERENCES
 
     def test_auth_header(self):
         with patch(_RUNTIME, return_value=_runtime_ok()), \
-             patch("requests.post", return_value=_mock_chat_response([_PNG_DATA_URI])) as mock_post, \
+             patch("requests.post", return_value=_mock_images_response()) as mock_post, \
              patch("plugins.image_gen.openrouter.save_b64_image", return_value=Path("/tmp/x.png")):
             _openrouter().generate(prompt="a pet")
 
@@ -271,7 +365,7 @@ class TestGenerate:
     def test_generate_uses_model_kwarg_from_dispatch(self):
         """image_generate passes image_gen.model as a model kwarg — honor it."""
         with patch(_RUNTIME, return_value=_runtime_ok()), \
-             patch("requests.post", return_value=_mock_chat_response([_PNG_DATA_URI])) as mock_post, \
+             patch("requests.post", return_value=_mock_images_response()) as mock_post, \
              patch("plugins.image_gen.openrouter.save_b64_image", return_value=Path("/tmp/x.png")):
             result = _openrouter().generate(prompt="a pet", model="openai/gpt-image-2")
 
@@ -279,23 +373,39 @@ class TestGenerate:
         assert result["model"] == "openai/gpt-image-2"
         assert mock_post.call_args.kwargs["json"]["model"] == "openai/gpt-image-2"
 
-    def test_posts_to_resolved_base_url(self):
-        """Nous routes to its own base URL — proves the same code serves both."""
+    def test_openrouter_posts_to_the_images_endpoint(self):
+        with patch(_RUNTIME, return_value=_runtime_ok()), \
+             patch("requests.post", return_value=_mock_images_response()) as mock_post, \
+             patch("plugins.image_gen.openrouter.save_b64_image", return_value=Path("/tmp/x.png")):
+            result = _openrouter().generate(prompt="a pet")
+
+        assert result["success"] is True
+        assert mock_post.call_args[0][0] == "https://openrouter.ai/api/v1/images"
+
+    def test_nous_stays_on_chat_completions(self):
+        """Nous Portal has no /images endpoint — it must keep the legacy
+        protocol, base URL and 3-reference clamp."""
+        from plugins.image_gen.openrouter import _MAX_REFERENCE_IMAGES
+
         nous_runtime = _runtime_ok(
             provider="nous", base_url="https://inference.nousresearch.com/v1", api_key="nous-tok"
         )
         with patch(_RUNTIME, return_value=nous_runtime), \
              patch("requests.post", return_value=_mock_chat_response([_PNG_DATA_URI])) as mock_post, \
              patch("plugins.image_gen.openrouter.save_b64_image", return_value=Path("/tmp/x.png")):
-            from plugins.image_gen.openrouter import _build_providers
-
-            nous = {p.name: p for p in _build_providers()}["nous"]
-            result = nous.generate(prompt="a pet")
+            nous = _nous()
+            result = nous.generate(prompt="a pet", aspect_ratio="square")
 
         assert result["success"] is True
         assert result["provider"] == "nous"
-        url = mock_post.call_args[0][0]
-        assert url == "https://inference.nousresearch.com/v1/chat/completions"
+        assert mock_post.call_args[0][0] == "https://inference.nousresearch.com/v1/chat/completions"
+
+        payload = mock_post.call_args.kwargs["json"]
+        assert payload["modalities"] == ["image", "text"]
+        assert payload["image_config"]["aspect_ratio"] == "1:1"
+        assert payload["messages"][0]["content"][0] == {"type": "text", "text": "a pet"}
+        assert "input_references" not in payload
+        assert nous.max_reference_images == _MAX_REFERENCE_IMAGES
 
     def test_api_error(self):
         import requests as req_lib
@@ -346,7 +456,7 @@ class TestModelChain:
         # only the status can drive the retry.
         responses = [
             _http_error(404, "model unavailable"),
-            _mock_chat_response([_PNG_DATA_URI]),
+            _mock_images_response(),
         ]
         with patch(_RUNTIME, return_value=_runtime_ok()), \
              patch("plugins.image_gen.openrouter._load_image_gen_config", return_value={}), \
@@ -361,7 +471,7 @@ class TestModelChain:
     def test_chain_falls_back_on_server_error(self):
         responses = [
             _http_error(503, "upstream busy"),
-            _mock_chat_response([_PNG_DATA_URI]),
+            _mock_images_response(),
         ]
         with patch(_RUNTIME, return_value=_runtime_ok()), \
              patch("plugins.image_gen.openrouter._load_image_gen_config", return_value={}), \

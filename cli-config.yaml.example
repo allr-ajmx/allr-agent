@@ -1282,10 +1282,16 @@ stt:
 
 # Image generation. Each provider plugin reads its own ``image_gen.<name>``
 # block; deepinfra discovers models live from
-# api.deepinfra.com/v1/openai/models filtered by the ``image-gen`` tag —
-# no model id is hardcoded, so retired models disappear automatically.
+# api.deepinfra.com/v1/openai/models filtered by the ``image-gen`` tag, and
+# openrouter from openrouter.ai/api/v1/images/models — no model id is
+# hardcoded in either, so retired models disappear automatically.
 # image_gen:
-#   provider: "deepinfra"
+#   provider: "openrouter"
+#   openrouter:
+#     # Any id from openrouter.ai/api/v1/images/models; `hermes tools` also
+#     # accepts one typed by hand. Blank = the built-in quality-first chain
+#     # (gemini-3-pro-image, falling back to gemini-3.1-flash-image).
+#     model: "google/gemini-3-pro-image"
 #   deepinfra:
 #     # Leave `model` blank for the first live `image-gen`-tagged result.
 #     model: ""

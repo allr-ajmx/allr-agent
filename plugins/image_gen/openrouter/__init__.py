@@ -1,22 +1,34 @@
-"""OpenRouter-compatible image generation backend (OpenRouter + Nous Portal).
+"""OpenRouter-compatible image generation backends (OpenRouter + Nous Portal).
 
-Both OpenRouter and the Nous Portal inference endpoint speak the same
-OpenAI-style ``/chat/completions`` image-generation protocol: send
-``modalities: ["image", "text"]`` with an image-output model (e.g.
-``google/gemini-3-pro-image``), pass reference images as ``image_url``
-content parts for grounding, and read the generated images back from
-``choices[0].message.images[].image_url.url`` (a ``data:image/...;base64`` URI).
+Two backends, two protocols, one set of surrounding machinery.
 
-Nous Portal proxies OpenRouter, so one implementation services both — we only
-swap the resolved ``(base_url, api_key)``. Credentials are resolved through the
-agent's existing :func:`~hermes_cli.runtime_provider.resolve_runtime_provider`,
-which already understands OpenRouter's key pool and the Nous OAuth device-code
-token, so this plugin never reinvents auth.
+**OpenRouter** serves image generation from a dedicated ``POST /v1/images``:
+send ``model`` + ``prompt`` (plus ``aspect_ratio``, and ``input_references``
+for image-to-image) and read the result from ``data[].b64_json`` alongside a
+``media_type``. New image models ship there exclusively — chat-completions
+image output is legacy compatibility only, which is why the previous default
+here (an access-gated ``openai/`` image model reached over
+``/chat/completions``) had stopped working for most accounts.
+
+**Nous Portal** proxies OpenRouter but exposes no ``/images`` endpoint, so it
+stays on the OpenAI-style ``/chat/completions`` protocol: ``modalities:
+["image", "text"]`` with an image-output model, reference images as
+``image_url`` content parts, and generated images read back from
+``choices[0].message.images[].image_url.url``.
+
+The two share everything that isn't the wire format — credentials, the model
+chain, error mapping, saving — through three seams on the base class
+(``endpoint_path``, ``_build_payload``, ``_extract_image_refs``). The parsers
+normalise both protocols to ``data:`` URIs so one save step serves both.
+Credentials resolve through the agent's existing
+:func:`~hermes_cli.runtime_provider.resolve_runtime_provider`, which already
+understands OpenRouter's key pool and the Nous OAuth device-code token, so this
+plugin never reinvents auth.
 
 Reference grounding is the reason pet sprite generation cares about this
 backend: each animation row must stay the same character as the chosen base
-frame, which only works on models that accept image input. Gemini Flash Image
-("nano-banana") does, so both providers advertise image-to-image support.
+frame, which only works on models that accept image input. Both defaults do,
+so both providers advertise image-to-image support.
 """
 
 from __future__ import annotations
@@ -42,33 +54,65 @@ logger = logging.getLogger(__name__)
 
 # Quality-first model chain for OpenRouter-compatible endpoints.
 #
-# Default behavior (no env/config override): try the highest-fidelity OpenAI
-# image model first, then fall back to Gemini 3 Pro Image if the OpenAI model
-# is access-gated / unavailable / times out on this endpoint.
+# Default behavior (no env/config override): highest-fidelity first, falling
+# back to the faster tier when the first is access-gated / unavailable / times
+# out. Both are reachable without per-account enablement, unlike the ``openai/``
+# image models that previously headed this chain.
 #
 # Explicit override (OPENROUTER_IMAGE_MODEL, image_gen.<provider>.model, or
 # image_gen.model from ``hermes tools``): use exactly that model (no auto
 # fallback), so power users keep full control.
-DEFAULT_MODEL = "openai/gpt-5.4-image-2"
-_FALLBACK_MODEL = "google/gemini-3-pro-image"
+DEFAULT_MODEL = "google/gemini-3-pro-image"
+_FALLBACK_MODEL = "google/gemini-3.1-flash-image"
 _DEFAULT_MODEL_CHAIN = (DEFAULT_MODEL, _FALLBACK_MODEL)
 
-# Semantic aspect ratio (the image_gen contract) → OpenRouter's image_config
-# aspect_ratio strings.
+# Picker rows for the default chain. Nous Portal has no catalog endpoint to
+# enumerate, so this is its whole list; OpenRouter overrides it with the live
+# catalog and falls back here when that fetch fails.
+_STATIC_MODELS = (
+    {
+        "id": DEFAULT_MODEL,
+        "display": "Gemini 3 Pro Image",
+        "strengths": "Highest fidelity; 1K-4K; up to 14 reference images",
+    },
+    {
+        "id": _FALLBACK_MODEL,
+        "display": "Gemini 3.1 Flash Image",
+        "strengths": "Faster and cheaper; adds 512px and wide/tall ratios",
+    },
+)
+
+# Semantic aspect ratio (the image_gen contract) → the aspect_ratio strings both
+# protocols accept. All three are in every default model's supported set.
 _ASPECT_RATIOS = {
     "square": "1:1",
     "landscape": "16:9",
     "portrait": "9:16",
 }
 
-# Gemini Flash Image accepts up to 3 input images per prompt; clamp references
-# so we never overflow the model's limit.
+# Chat-completions image models accept up to 3 input images per prompt; clamp
+# references so we never overflow the model's limit.
 _MAX_REFERENCE_IMAGES = 3
 
-# Per single image call. The quality-first default (OpenAI image via OpenRouter)
-# is genuinely slow — a single cold row can run well past 3 minutes — so give
-# each call real headroom before we treat it as hung and fall back / retry.
+# The Images API advertises input_references 0-14 on both default models.
+_MAX_IMAGES_API_REFERENCES = 14
+
+# Per single image call. The quality-first default is genuinely slow — a single
+# cold row can run well past 3 minutes — so give each call real headroom before
+# we treat it as hung and fall back / retry.
 _REQUEST_TIMEOUT = 300.0
+
+# media_type → file extension for saved images. Kept explicit and small: we
+# never want to inherit an extension from a degenerate content type, and a
+# vector model's SVG written as ".png" is silently broken for every consumer.
+_MEDIA_EXTENSIONS = {
+    "image/png": "png",
+    "image/jpeg": "jpg",
+    "image/jpg": "jpg",
+    "image/webp": "webp",
+    "image/gif": "gif",
+    "image/svg+xml": "svg",
+}
 
 
 def _load_image_gen_config() -> Dict[str, Any]:
@@ -134,6 +178,39 @@ def _extract_images(payload: Dict[str, Any]) -> List[str]:
             if isinstance(url, str) and url.strip():
                 out.append(url.strip())
     return out
+
+
+def _extract_images_api_images(payload: Dict[str, Any]) -> List[str]:
+    """Pull generated images from an Images API response, as ``data:`` URIs.
+
+    The endpoint returns base64 bytes in ``data[].b64_json`` with the format in
+    a sibling ``media_type`` — never a hosted URL. Re-joining them into a data
+    URI lets the shared save step handle both protocols identically.
+    """
+    out: List[str] = []
+    items = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(items, list):
+        return out
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        b64 = item.get("b64_json")
+        if not isinstance(b64, str) or not b64.strip():
+            continue
+        media = str(item.get("media_type") or "image/png").strip() or "image/png"
+        out.append(f"data:{media};base64,{b64.strip()}")
+    return out
+
+
+def _data_uri_parts(uri: str) -> tuple[str, str]:
+    """Split a ``data:`` URI into ``(base64_payload, file_extension)``.
+
+    Falls back to ``png`` for unknown or absent media types — the historical
+    behavior, and right for every raster format we'd otherwise mislabel.
+    """
+    header, _, payload = uri.partition(",")
+    media = header[len("data:") :].split(";", 1)[0].strip().lower()
+    return payload, _MEDIA_EXTENSIONS.get(media, "png")
 
 
 def _access_error_hint(
@@ -265,6 +342,10 @@ class OpenRouterCompatImageProvider(ImageGenProvider):
         return {
             "modalities": ["text", "image"],
             "max_reference_images": self.max_reference_images,
+            # These endpoints route any model id the account can reach, and the
+            # catalog moves faster than we ship — so the pickers let the user
+            # type an id we've never heard of instead of rejecting it.
+            "accepts_custom_model": True,
         }
 
     # -- protocol seams ----------------------------------------------------
@@ -300,18 +381,7 @@ class OpenRouterCompatImageProvider(ImageGenProvider):
         return _extract_images(payload)
 
     def list_models(self) -> List[Dict[str, Any]]:
-        return [
-            {
-                "id": DEFAULT_MODEL,
-                "display": "OpenAI GPT-5.4 Image 2",
-                "strengths": "Highest fidelity; best prompt adherence; slower on OpenRouter",
-            },
-            {
-                "id": _FALLBACK_MODEL,
-                "display": "Gemini 3 Pro Image",
-                "strengths": "Fast, reliable fallback with good layout adherence",
-            },
-        ]
+        return [dict(row) for row in _STATIC_MODELS]
 
     def default_model(self) -> Optional[str]:
         return self._resolve_model()
@@ -515,8 +585,10 @@ class OpenRouterCompatImageProvider(ImageGenProvider):
             first = images[0]
             try:
                 if first.startswith("data:"):
-                    b64 = first.split(",", 1)[1] if "," in first else ""
-                    saved_path = save_b64_image(b64, prefix=f"{self._name}_gen")
+                    b64, extension = _data_uri_parts(first)
+                    saved_path = save_b64_image(
+                        b64, prefix=f"{self._name}_gen", extension=extension
+                    )
                 else:
                     saved_path = save_url_image(first, prefix=f"{self._name}_gen")
             except Exception as exc:  # noqa: BLE001
@@ -547,9 +619,52 @@ class OpenRouterCompatImageProvider(ImageGenProvider):
         )
 
 
+class OpenRouterImagesProvider(OpenRouterCompatImageProvider):
+    """OpenRouter's dedicated Image API (``POST /v1/images``).
+
+    Same credentials, model chain and error handling as the chat-completions
+    base class — only the wire format differs.
+    """
+
+    endpoint_path = "/images"
+    max_reference_images = _MAX_IMAGES_API_REFERENCES
+
+    def _build_payload(
+        self,
+        *,
+        model_id: str,
+        prompt: str,
+        aspect: str,
+        refs: List[str],
+    ) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {
+            "model": model_id,
+            "prompt": prompt,
+            "aspect_ratio": aspect,
+        }
+        # Reference items take the same shape as chat-completions image parts,
+        # so _to_image_url_part (which inlines local files as data URIs) is
+        # reused verbatim.
+        parts = [
+            {"type": "image_url", "image_url": {"url": url}}
+            for url in (
+                _to_image_url_part(ref) for ref in refs[: self.max_reference_images]
+            )
+            if url
+        ]
+        if parts:
+            # Omitted entirely rather than sent empty — an empty list is a
+            # different request than a text-to-image one on some providers.
+            payload["input_references"] = parts
+        return payload
+
+    def _extract_image_refs(self, payload: Dict[str, Any]) -> List[str]:
+        return _extract_images_api_images(payload)
+
+
 def _build_providers() -> List[OpenRouterCompatImageProvider]:
     return [
-        OpenRouterCompatImageProvider(
+        OpenRouterImagesProvider(
             provider_name="openrouter",
             display_name="OpenRouter",
             runtime_name="openrouter",
@@ -558,7 +673,7 @@ def _build_providers() -> List[OpenRouterCompatImageProvider]:
             setup_schema={
                 "name": "OpenRouter (image)",
                 "badge": "paid",
-                "tag": "Gemini Flash Image & more via OpenRouter; uses OPENROUTER_API_KEY",
+                "tag": "OpenRouter's full image catalog (Gemini, FLUX, Seedream, …); uses OPENROUTER_API_KEY",
                 "env_vars": [
                     {
                         "key": "OPENROUTER_API_KEY",
