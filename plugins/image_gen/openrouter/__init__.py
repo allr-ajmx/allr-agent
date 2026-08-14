@@ -161,6 +161,35 @@ def _access_error_hint(
     )
 
 
+# HTTP statuses worth re-attempting on the next model in the chain. 402/403/404
+# are the access-gate shapes (model not enabled, not routable, unknown here),
+# 408/429 and 5xx are transient on this endpoint but not on the request itself.
+_RETRYABLE_STATUSES = frozenset({402, 403, 404, 408, 429})
+
+# Messages OpenRouter returns for "this model isn't available to you", across
+# assorted statuses.
+_RETRYABLE_MESSAGES = ("no endpoints", "not a valid model", "data policy")
+
+
+def _should_try_next(status: int, err_msg: str) -> bool:
+    """Whether an HTTP failure should advance to the next candidate model.
+
+    Deliberately separate from :func:`_access_error_hint`, which only shapes
+    the *message*: that helper is scoped to ``openai/`` models, so gating the
+    retry on it would silently disable fallback for every other vendor's chain.
+
+    ``400`` (malformed body) and ``401`` (bad credential) are identical for
+    every model in the chain, so retrying them just burns a call and doubles
+    the latency before the same error surfaces.
+    """
+    if status in (400, 401):
+        return False
+    if status in _RETRYABLE_STATUSES or status >= 500:
+        return True
+    low = (err_msg or "").lower()
+    return any(s in low for s in _RETRYABLE_MESSAGES)
+
+
 def _dedupe_models(models: list[str]) -> list[str]:
     out: list[str] = []
     seen: set[str] = set()
@@ -401,8 +430,7 @@ class OpenRouterCompatImageProvider(ImageGenProvider):
                 except Exception:  # noqa: BLE001
                     err_msg = resp.text[:300] if resp is not None else str(exc)
                 logger.error("%s image gen failed (%d) on %s: %s", self._name, status, model_id, err_msg)
-                hint = _access_error_hint(self._display, model_id, self._model_env_var, status, err_msg)
-                if hint and not is_last:
+                if _should_try_next(status, err_msg) and not is_last:
                     logger.info(
                         "%s model %s unavailable; retrying with fallback %s",
                         self._name,
@@ -410,6 +438,7 @@ class OpenRouterCompatImageProvider(ImageGenProvider):
                         model_chain[i + 1],
                     )
                     continue
+                hint = _access_error_hint(self._display, model_id, self._model_env_var, status, err_msg)
                 last_error = error_response(
                     error=hint or f"{self._display} image generation failed ({status}): {err_msg}",
                     error_type="model_access" if hint else "api_error",

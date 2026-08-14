@@ -45,6 +45,23 @@ def _mock_chat_response(images):
     return resp
 
 
+def _http_error(status, message):
+    """A ``requests.post`` return value whose raise_for_status() raises."""
+    import requests as req_lib
+
+    resp = MagicMock()
+    resp.status_code = status
+    resp.text = message
+    resp.json.return_value = {"error": {"message": message}}
+    resp.raise_for_status.side_effect = req_lib.HTTPError(response=resp)
+    return resp
+
+
+# Vendor-neutral ids: the fallback trigger must not depend on who makes the
+# model (it used to only fire for ``openai/``).
+_CHAIN = ("vendor/model-a", "vendor/model-b")
+
+
 def _openrouter():
     from plugins.image_gen.openrouter import OpenRouterCompatImageProvider
 
@@ -154,6 +171,22 @@ class TestHelpers:
         }
         assert _extract_images(payload) == ["data:image/png;base64,AA"]
 
+
+    def test_should_try_next_by_status(self):
+        from plugins.image_gen.openrouter import _should_try_next
+
+        for status in (402, 403, 404, 408, 429, 500, 503):
+            assert _should_try_next(status, "model unavailable") is True, status
+        # Same for every model in the chain — retrying is pure latency.
+        assert _should_try_next(400, "invalid input_references") is False
+        assert _should_try_next(401, "Invalid API key") is False
+
+    def test_should_try_next_by_message(self):
+        """OpenRouter returns the access-gate wording under assorted statuses."""
+        from plugins.image_gen.openrouter import _should_try_next
+
+        assert _should_try_next(422, "No endpoints found matching your data policy") is True
+        assert _should_try_next(422, "something else entirely") is False
 
     def test_access_error_hint_for_gated_openai_model(self):
         from plugins.image_gen.openrouter import _FALLBACK_MODEL, _access_error_hint
@@ -288,6 +321,78 @@ class TestGenerate:
             result = _openrouter().generate(prompt="a pet")
         assert result["success"] is False
         assert result["error_type"] == "timeout"
+
+
+# ---------------------------------------------------------------------------
+# Model-chain fallback
+# ---------------------------------------------------------------------------
+
+
+class TestModelChain:
+    """The chain advances on access-gate / transient failures only.
+
+    Fallback used to be gated on ``_access_error_hint``, which hard-requires an
+    ``openai/`` model id — so a chain made of any other vendor's models could
+    never advance. These pin the trigger to the status, not the vendor.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _bare_default_chain(self, monkeypatch):
+        monkeypatch.delenv("OPENROUTER_IMAGE_MODEL", raising=False)
+        monkeypatch.setattr("plugins.image_gen.openrouter._DEFAULT_MODEL_CHAIN", _CHAIN)
+
+    def test_chain_falls_back_on_404(self):
+        # Message deliberately carries none of the retryable substrings, so
+        # only the status can drive the retry.
+        responses = [
+            _http_error(404, "model unavailable"),
+            _mock_chat_response([_PNG_DATA_URI]),
+        ]
+        with patch(_RUNTIME, return_value=_runtime_ok()), \
+             patch("plugins.image_gen.openrouter._load_image_gen_config", return_value={}), \
+             patch("requests.post", side_effect=responses) as mock_post, \
+             patch("plugins.image_gen.openrouter.save_b64_image", return_value=Path("/tmp/x.png")):
+            result = _openrouter().generate(prompt="a pet")
+
+        assert result["success"] is True
+        assert result["model"] == _CHAIN[1]
+        assert mock_post.call_count == 2
+
+    def test_chain_falls_back_on_server_error(self):
+        responses = [
+            _http_error(503, "upstream busy"),
+            _mock_chat_response([_PNG_DATA_URI]),
+        ]
+        with patch(_RUNTIME, return_value=_runtime_ok()), \
+             patch("plugins.image_gen.openrouter._load_image_gen_config", return_value={}), \
+             patch("requests.post", side_effect=responses) as mock_post, \
+             patch("plugins.image_gen.openrouter.save_b64_image", return_value=Path("/tmp/x.png")):
+            result = _openrouter().generate(prompt="a pet")
+
+        assert result["success"] is True
+        assert mock_post.call_count == 2
+
+    def test_chain_does_not_retry_on_400(self):
+        """A malformed body fails identically on every model — retrying it only
+        doubles the latency before the same error surfaces."""
+        with patch(_RUNTIME, return_value=_runtime_ok()), \
+             patch("plugins.image_gen.openrouter._load_image_gen_config", return_value={}), \
+             patch("requests.post", return_value=_http_error(400, "invalid input_references")) as mock_post:
+            result = _openrouter().generate(prompt="a pet")
+
+        assert result["success"] is False
+        assert result["error_type"] == "api_error"
+        assert mock_post.call_count == 1
+
+    def test_explicit_model_disables_fallback(self):
+        """An explicit selection means 'use exactly this' — one attempt only."""
+        with patch(_RUNTIME, return_value=_runtime_ok()), \
+             patch("plugins.image_gen.openrouter._load_image_gen_config", return_value={}), \
+             patch("requests.post", return_value=_http_error(404, "model unavailable")) as mock_post:
+            result = _openrouter().generate(prompt="a pet", model=_CHAIN[0])
+
+        assert result["success"] is False
+        assert mock_post.call_count == 1
 
 
 # ---------------------------------------------------------------------------
