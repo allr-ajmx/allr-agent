@@ -179,7 +179,17 @@ class OpenRouterCompatImageProvider(ImageGenProvider):
     Instantiated once per backend (OpenRouter, Nous Portal). The two differ only
     in which runtime provider supplies ``(base_url, api_key)`` and in the config
     namespace used for the model override.
+
+    Subclasses that speak a different image protocol override the three seams
+    below — the endpoint suffix, the request body, and the response parser.
+    Everything else (credentials, the model chain, error mapping, saving) is
+    protocol-agnostic and inherited.
     """
+
+    #: Appended to the resolved ``base_url`` to form the request URL.
+    endpoint_path = "/chat/completions"
+    #: Hard cap on reference images sent in one request.
+    max_reference_images = _MAX_REFERENCE_IMAGES
 
     def __init__(
         self,
@@ -225,8 +235,40 @@ class OpenRouterCompatImageProvider(ImageGenProvider):
         # latter is what makes this backend usable for pet sprite rows.
         return {
             "modalities": ["text", "image"],
-            "max_reference_images": _MAX_REFERENCE_IMAGES,
+            "max_reference_images": self.max_reference_images,
         }
+
+    # -- protocol seams ----------------------------------------------------
+
+    def _build_payload(
+        self,
+        *,
+        model_id: str,
+        prompt: str,
+        aspect: str,
+        refs: List[str],
+    ) -> Dict[str, Any]:
+        """Request body for one generation attempt.
+
+        Chat-completions image output: the prompt and any reference images ride
+        in a single user message's content parts, and ``modalities`` is what
+        asks the model for an image back instead of text.
+        """
+        content: List[Dict[str, Any]] = [{"type": "text", "text": prompt}]
+        for ref in refs[: self.max_reference_images]:
+            part = _to_image_url_part(ref)
+            if part:
+                content.append({"type": "image_url", "image_url": {"url": part}})
+        return {
+            "model": model_id,
+            "modalities": ["image", "text"],
+            "messages": [{"role": "user", "content": content}],
+            "image_config": {"aspect_ratio": aspect},
+        }
+
+    def _extract_image_refs(self, payload: Dict[str, Any]) -> List[str]:
+        """Generated images from one response, as URLs or ``data:`` URIs."""
+        return _extract_images(payload)
 
     def list_models(self) -> List[Dict[str, Any]]:
         return [
@@ -327,12 +369,6 @@ class OpenRouterCompatImageProvider(ImageGenProvider):
         for ref in reference_image_urls or []:
             references.append(str(ref))
 
-        content: List[Dict[str, Any]] = [{"type": "text", "text": prompt}]
-        for ref in references[:_MAX_REFERENCE_IMAGES]:
-            part = _to_image_url_part(ref)
-            if part:
-                content.append({"type": "image_url", "image_url": {"url": part}})
-
         headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
@@ -342,16 +378,16 @@ class OpenRouterCompatImageProvider(ImageGenProvider):
         }
         last_error: Optional[Dict[str, Any]] = None
         for i, model_id in enumerate(model_chain):
-            payload: Dict[str, Any] = {
-                "model": model_id,
-                "modalities": ["image", "text"],
-                "messages": [{"role": "user", "content": content}],
-                "image_config": {"aspect_ratio": or_aspect},
-            }
+            payload = self._build_payload(
+                model_id=model_id,
+                prompt=prompt,
+                aspect=or_aspect,
+                refs=references,
+            )
             is_last = i == len(model_chain) - 1
             try:
                 response = requests.post(
-                    f"{base_url}/chat/completions",
+                    f"{base_url}{self.endpoint_path}",
                     headers=headers,
                     json=payload,
                     timeout=_REQUEST_TIMEOUT,
@@ -423,7 +459,7 @@ class OpenRouterCompatImageProvider(ImageGenProvider):
                     aspect_ratio=aspect,
                 )
 
-            images = _extract_images(result)
+            images = self._extract_image_refs(result)
             if not images:
                 if not is_last:
                     logger.info(
