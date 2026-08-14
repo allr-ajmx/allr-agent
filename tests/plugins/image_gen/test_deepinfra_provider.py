@@ -36,6 +36,10 @@ def _isolation(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     import hermes_cli.models as _models_mod
     monkeypatch.setattr(_models_mod, "_deepinfra_catalog_cache", {})
+    # The negative cache suppresses fetches for 60s after any failure, so a
+    # real catalog attempt in an earlier test would stop the mock below from
+    # ever being called — making this file pass or fail by test order.
+    monkeypatch.setattr(_models_mod, "_deepinfra_catalog_neg_cache", {})
     monkeypatch.setenv("DEEPINFRA_API_KEY", "test-key")
     yield
 

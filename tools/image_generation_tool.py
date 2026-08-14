@@ -1346,11 +1346,18 @@ def check_image_generation_requirements() -> bool:
         pass
 
     configured = _read_configured_image_provider()
-    if not configured or configured == "fal":
+    if configured == "fal":
         return False
+    if not configured:
+        # Unset: fall back to the backend belonging to the user's active LLM
+        # provider. Merely possessing some *other* cloud key must not opt a
+        # user into a paid image-generation backend, which the registry's
+        # selection rules enforce. Must agree with _dispatch_to_plugin_provider
+        # — advertising the tool here while dispatch falls through to the
+        # keyless FAL path would offer the model a tool that cannot run.
+        return _auto_selected_provider() is not None
 
-    # Probe only the explicitly selected plugin. Merely possessing a cloud
-    # provider key must not opt a user into a paid image-generation backend.
+    # Probe the explicitly selected plugin.
     try:
         from agent.image_gen_registry import get_provider
         from hermes_cli.plugins import _ensure_plugins_discovered
@@ -1519,6 +1526,34 @@ def _read_configured_image_provider():
     return None
 
 
+def _auto_selected_provider():
+    """The provider ``image_generate`` uses when ``image_gen.provider`` is unset.
+
+    :func:`check_image_generation_requirements`,
+    :func:`_dispatch_to_plugin_provider` and :func:`_active_image_capabilities`
+    MUST all route through this. If the check advertises the tool and dispatch
+    disagrees, the model is handed a tool that then falls through to the
+    keyless in-tree FAL path; if the capabilities disagree, the tool's schema
+    describes a backend that will not run the call.
+
+    Returns ``None`` for ``fal`` on purpose: the registry's legacy-FAL rule
+    hands it back whenever ``FAL_KEY`` is set, but FAL belongs on the in-tree
+    pipeline rather than the plugin dispatch path (see issue #26241).
+    """
+    try:
+        from agent.image_gen_registry import get_active_provider
+        from hermes_cli.plugins import _ensure_plugins_discovered
+
+        _ensure_plugins_discovered()
+        provider = get_active_provider()
+    except Exception as exc:  # noqa: BLE001 - auto-selection is best-effort
+        logger.debug("image_gen auto-selection skipped: %s", exc)
+        return None
+    if provider is None or getattr(provider, "name", None) == "fal":
+        return None
+    return provider
+
+
 def _dispatch_to_plugin_provider(
     prompt: str,
     aspect_ratio: str,
@@ -1535,7 +1570,8 @@ def _dispatch_to_plugin_provider(
     ``"fal"`` itself, which now resolves to the
     ``plugins/image_gen/fal/`` plugin (the plugin re-enters this module's
     pipeline via ``_it`` indirection so behavior is identical to the
-    direct call, just routed through the registry).
+    direct call, just routed through the registry) — and, when it is unset,
+    for whatever :func:`_auto_selected_provider` resolves.
 
     ``image_url`` / ``reference_image_urls`` enable image-to-image / editing:
     they are forwarded to the provider's ``generate()`` so the backend can
@@ -1544,11 +1580,23 @@ def _dispatch_to_plugin_provider(
     ignore it via their ``**kwargs`` (the ABC contract).
     """
     configured = _read_configured_image_provider()
-    if not configured or configured == "fal":
-        return None  # unset/explicit FAL keeps the legacy FAL path
+    if configured == "fal":
+        return None  # explicit FAL keeps the legacy in-tree path
+    auto = not configured
+    if auto:
+        provider = _auto_selected_provider()
+        if provider is None:
+            return None  # nothing resolvable — legacy FAL fall-through
+        configured = provider.name
 
-    # Also read configured model so we can pass it to the plugin
-    configured_model = _read_configured_image_model()
+    # Also read configured model so we can pass it to the plugin. Not for an
+    # auto-selected backend: image_gen.model is written alongside
+    # image_gen.provider, so with no provider set any top-level value belongs
+    # to a different backend — and because plugins treat an explicit model
+    # kwarg as "use exactly this", passing it would also disable their
+    # fallback chain. (A stale value still reaches plugins that read the
+    # top-level key themselves; that precedence is theirs to define.)
+    configured_model = None if auto else _read_configured_image_model()
 
     try:
         # Import locally so plugin discovery isn't triggered just by
@@ -1885,7 +1933,8 @@ def _active_image_capabilities() -> Dict[str, Any]:
 
     Resolution order mirrors the runtime dispatch:
     1. If ``image_gen.provider`` is set, ask that plugin provider.
-    2. Otherwise inspect the in-tree FAL model catalog for the active model.
+    2. If unset, ask whatever :func:`_auto_selected_provider` resolves.
+    3. Otherwise inspect the in-tree FAL model catalog for the active model.
 
     Returns a dict like ``{"modalities": [...], "max_reference_images": N,
     "model": "...", "provider": "..."}``. Never raises.
@@ -1893,6 +1942,14 @@ def _active_image_capabilities() -> Dict[str, Any]:
     info: Dict[str, Any] = {"modalities": ["text"], "max_reference_images": 0}
 
     configured_provider = _read_configured_image_provider()
+    # Unset resolves the same backend dispatch will use. Falling through to the
+    # FAL catalog here would advertise "text-to-image only, 0 reference images"
+    # for a backend that actually does image-to-image, so the model would never
+    # be told it can pass a reference.
+    auto = not configured_provider
+    if auto:
+        auto_provider = _auto_selected_provider()
+        configured_provider = auto_provider.name if auto_provider is not None else None
     if configured_provider and configured_provider != "fal":
         try:
             from agent.image_gen_registry import get_provider
@@ -1907,7 +1964,10 @@ def _active_image_capabilities() -> Dict[str, Any]:
                 except Exception:  # noqa: BLE001
                     caps = {}
                 info["provider"] = provider.display_name
-                info["model"] = _read_configured_image_model() or (provider.default_model() or "")
+                # Auto-selected: a top-level image_gen.model belongs to whatever
+                # backend last wrote it, so report this one's own default.
+                configured_model = None if auto else _read_configured_image_model()
+                info["model"] = configured_model or (provider.default_model() or "")
                 if caps.get("modalities"):
                     info["modalities"] = list(caps["modalities"])
                 if caps.get("max_reference_images"):
