@@ -409,7 +409,16 @@ async def select_toolset_model(
                 if not isinstance(section_cfg, dict):
                     section_cfg = {}
                     config[section] = section_cfg
-                section_cfg["model"] = model_id
+                if section == "image_gen":
+                    # Write the scoped key too — deepinfra and xai resolve only
+                    # image_gen.<plugin>.model, so a top-level-only write made
+                    # the GUI report success while generation kept the old
+                    # model. Same write the CLI picker performs.
+                    from hermes_cli.tools_config import _write_plugin_image_model
+
+                    _write_plugin_image_model(section_cfg, plugin, model_id)
+                else:
+                    section_cfg["model"] = model_id
                 save_config(config)
         return plugin
 

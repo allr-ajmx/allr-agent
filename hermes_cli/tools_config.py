@@ -3797,8 +3797,14 @@ def _plugin_image_gen_catalog(plugin_name: str):
 def _configure_imagegen_model_for_plugin(plugin_name: str, config: dict) -> None:
     """Prompt the user to pick a model for a plugin-registered backend.
 
-    Writes selection to ``image_gen.model``. Mirrors
-    :func:`_configure_imagegen_model` but sources its catalog from the
+    Writes the selection to **both** ``image_gen.<plugin>.model`` and
+    ``image_gen.model``. Both are needed: the deepinfra and xai plugins resolve
+    only the scoped key and never fall back to the top-level one, so writing
+    top-level alone made their model selection a silent no-op — the picker
+    reported success and generation kept using the previous model. Other
+    backends and the GUI catalog endpoint still read the top-level key.
+
+    Mirrors :func:`_configure_imagegen_model` but sources its catalog from the
     plugin registry instead of :data:`IMAGEGEN_BACKENDS`.
     """
     catalog, default_model = _plugin_image_gen_catalog(plugin_name)
@@ -3809,7 +3815,11 @@ def _configure_imagegen_model_for_plugin(plugin_name: str, config: dict) -> None
     if not isinstance(cur_cfg, dict):
         cur_cfg = {}
         config["image_gen"] = cur_cfg
-    current_model = cur_cfg.get("model") or default_model
+    scoped = cur_cfg.get(plugin_name)
+    scoped_model = scoped.get("model") if isinstance(scoped, dict) else None
+    # Prefer the scoped key — it is what the plugins actually resolve against,
+    # so it is the one that reflects what generation will really use.
+    current_model = scoped_model or cur_cfg.get("model") or default_model
     if current_model not in catalog:
         current_model = default_model
 
@@ -3845,8 +3855,21 @@ def _configure_imagegen_model_for_plugin(plugin_name: str, config: dict) -> None
     )
 
     chosen = ordered[idx]
-    cur_cfg["model"] = chosen
+    _write_plugin_image_model(cur_cfg, plugin_name, chosen)
     _print_success(f"  Model set to: {chosen}")
+
+
+def _write_plugin_image_model(image_gen_cfg: dict, plugin_name: str, model_id: str) -> None:
+    """Persist a chosen model to both the scoped and top-level keys.
+
+    See :func:`_configure_imagegen_model_for_plugin` for why both.
+    """
+    image_gen_cfg["model"] = model_id
+    scoped = image_gen_cfg.get(plugin_name)
+    if not isinstance(scoped, dict):
+        scoped = {}
+        image_gen_cfg[plugin_name] = scoped
+    scoped["model"] = model_id
 
 
 def _configure_xai_imagine_storage(section_name: str, config: dict) -> None:

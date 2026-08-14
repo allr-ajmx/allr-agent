@@ -144,6 +144,67 @@ class TestConfigWriting:
 
         assert config["image_gen"]["provider"] == "noenv"
         assert config["image_gen"]["model"] == "noenv-model-v1"
+        # The scoped key is the one deepinfra and xai actually resolve against.
+        assert config["image_gen"]["noenv"]["model"] == "noenv-model-v1"
+
+    def test_model_pick_writes_the_provider_scoped_key(self, monkeypatch, tmp_path):
+        """The deepinfra and xai plugins read only ``image_gen.<name>.model``
+        and never fall back to the top-level key, so a top-level-only write
+        made their model selection a silent no-op — the picker reported
+        success and generation kept using the previous model."""
+        from hermes_cli import tools_config
+
+        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        image_gen_registry.register_provider(
+            _FakeProvider(
+                "scoped",
+                models=[
+                    {"id": "scoped-model-v1", "display": "v1"},
+                    {"id": "scoped-model-v2", "display": "v2"},
+                ],
+            )
+        )
+        # Pick the second row (index 0 is "currently in use").
+        monkeypatch.setattr(tools_config, "_prompt_choice", lambda *a, **kw: 1)
+
+        config: dict = {}
+        tools_config._configure_imagegen_model_for_plugin("scoped", config)
+
+        assert config["image_gen"]["scoped"]["model"] == "scoped-model-v2"
+        assert config["image_gen"]["model"] == "scoped-model-v2"
+
+    def test_model_pick_shows_the_scoped_key_as_current(self, monkeypatch, tmp_path):
+        """A stale top-level value left by another backend must not be
+        presented as this backend's current model."""
+        from hermes_cli import tools_config
+
+        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        image_gen_registry.register_provider(
+            _FakeProvider(
+                "scoped",
+                models=[
+                    {"id": "scoped-model-v1", "display": "v1"},
+                    {"id": "scoped-model-v2", "display": "v2"},
+                ],
+            )
+        )
+        seen = {}
+        monkeypatch.setattr(
+            tools_config,
+            "_prompt_choice",
+            lambda _q, rows, **kw: seen.setdefault("rows", rows) and 0 or 0,
+        )
+
+        config = {
+            "image_gen": {
+                "model": "some-other-backends-model",
+                "scoped": {"model": "scoped-model-v2"},
+            }
+        }
+        tools_config._configure_imagegen_model_for_plugin("scoped", config)
+
+        assert "scoped-model-v2" in seen["rows"][0]
+        assert "currently in use" in seen["rows"][0]
 
 
     def test_plugin_provider_active_overrides_managed_nous_active_label(self, monkeypatch):
