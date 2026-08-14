@@ -629,6 +629,24 @@ class OpenRouterImagesProvider(OpenRouterCompatImageProvider):
     endpoint_path = "/images"
     max_reference_images = _MAX_IMAGES_API_REFERENCES
 
+    def list_models(self) -> List[Dict[str, Any]]:
+        """The live catalog, falling back to the default chain.
+
+        OpenRouter adds image models faster than we ship, and hardcoding two of
+        them is what left this backend pinned to a model most accounts cannot
+        route. Discovery keeps the picker current; the static pair keeps it
+        usable when the catalog is unreachable, where an empty list would make
+        the picker silently configure nothing at all.
+        """
+        try:
+            from hermes_cli.models import fetch_openrouter_image_models
+
+            rows = fetch_openrouter_image_models()
+        except Exception as exc:  # noqa: BLE001 - discovery is best-effort
+            logger.debug("openrouter image catalog fetch failed: %s", exc)
+            rows = []
+        return rows or super().list_models()
+
     def _build_payload(
         self,
         *,

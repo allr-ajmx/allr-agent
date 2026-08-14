@@ -181,6 +181,67 @@ class TestProviderClass:
 
 
 # ---------------------------------------------------------------------------
+# Model catalog
+# ---------------------------------------------------------------------------
+
+
+_FETCH = "hermes_cli.models.fetch_openrouter_image_models"
+
+
+class TestCatalog:
+    def test_openrouter_lists_the_live_catalog(self):
+        live = [
+            {"id": "bytedance-seed/seedream-4.5", "display": "Seedream 4.5", "strengths": "1K-4K"},
+            {"id": "black-forest-labs/flux.2-pro", "display": "FLUX.2 Pro", "strengths": ""},
+        ]
+        with patch(_FETCH, return_value=live):
+            rows = _openrouter().list_models()
+
+        assert [r["id"] for r in rows] == [
+            "bytedance-seed/seedream-4.5",
+            "black-forest-labs/flux.2-pro",
+        ]
+
+    def test_openrouter_falls_back_to_the_default_chain(self):
+        """An empty list would make the CLI picker configure nothing at all,
+        so an unreachable catalog must still yield usable rows."""
+        from plugins.image_gen.openrouter import DEFAULT_MODEL, _FALLBACK_MODEL
+
+        with patch(_FETCH, return_value=[]):
+            rows = _openrouter().list_models()
+
+        assert [r["id"] for r in rows] == [DEFAULT_MODEL, _FALLBACK_MODEL]
+
+    def test_openrouter_falls_back_when_discovery_raises(self):
+        from plugins.image_gen.openrouter import DEFAULT_MODEL
+
+        with patch(_FETCH, side_effect=RuntimeError("boom")):
+            rows = _openrouter().list_models()
+
+        assert rows[0]["id"] == DEFAULT_MODEL
+
+    def test_nous_does_not_hit_the_openrouter_catalog(self):
+        """Nous Portal exposes no catalog endpoint to enumerate."""
+        from plugins.image_gen.openrouter import DEFAULT_MODEL, _FALLBACK_MODEL
+
+        with patch(_FETCH, return_value=[{"id": "x/y", "display": "X", "strengths": ""}]) as fetch:
+            rows = _nous().list_models()
+
+        fetch.assert_not_called()
+        assert [r["id"] for r in rows] == [DEFAULT_MODEL, _FALLBACK_MODEL]
+
+    def test_default_model_ignores_the_catalog(self):
+        """The default stays the known-good chain head — a 43-model catalog
+        must not silently re-point it at whatever sorts first."""
+        from plugins.image_gen.openrouter import DEFAULT_MODEL
+
+        live = [{"id": "some/other-image-model", "display": "Other", "strengths": ""}]
+        with patch(_FETCH, return_value=live), \
+             patch("plugins.image_gen.openrouter._load_image_gen_config", return_value={}):
+            assert _openrouter().default_model() == DEFAULT_MODEL
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 

@@ -106,6 +106,10 @@ OPENROUTER_MODELS: list[tuple[str, str]] = [
 
 _openrouter_catalog_cache: list[tuple[str, str]] | None = None
 
+# OpenRouter's image models are absent from /v1/models — they live behind their
+# own catalog endpoint, so the chat cache above cannot serve them.
+_openrouter_image_catalog_cache: list[dict] | None = None
+
 
 # Fallback Vercel AI Gateway snapshot used when the live catalog is unavailable.
 # OSS / open-weight models prioritized first, then closed-source by family.
@@ -1579,6 +1583,94 @@ def fetch_openrouter_models(
 def model_ids(*, force_refresh: bool = False) -> list[str]:
     """Return just the OpenRouter model-id strings."""
     return [mid for mid, _ in fetch_openrouter_models(force_refresh=force_refresh)]
+
+
+def _openrouter_image_strengths(item: dict) -> str:
+    """One-line capability summary for an image model picker row.
+
+    Built from the live capability descriptors rather than a maintained
+    blurb, so it can't drift from what the model actually accepts.
+    """
+    params = item.get("supported_parameters")
+    if not isinstance(params, dict):
+        return ""
+    bits: list[str] = []
+
+    resolution = params.get("resolution")
+    if isinstance(resolution, dict):
+        values = [str(v) for v in (resolution.get("values") or []) if v]
+        if values:
+            bits.append(values[0] if len(values) == 1 else f"{values[0]}-{values[-1]}")
+
+    refs = params.get("input_references")
+    if isinstance(refs, dict):
+        try:
+            max_refs = int(refs.get("max") or 0)
+        except (TypeError, ValueError):
+            max_refs = 0
+        if max_refs > 0:
+            bits.append(f"up to {max_refs} reference images")
+
+    if isinstance(params.get("seed"), bool) and params["seed"]:
+        bits.append("seeded")
+
+    return " · ".join(bits)
+
+
+def fetch_openrouter_image_models(
+    timeout: float = 8.0,
+    *,
+    force_refresh: bool = False,
+) -> list[dict]:
+    """Return OpenRouter's live image-model catalog as picker rows.
+
+    Rows are ``{"id", "display", "strengths"}``. Returns ``[]`` when the
+    catalog is unreachable or malformed — the caller substitutes its own
+    static fallback, since only it knows which ids are sane defaults.
+
+    Cached for the process like :func:`fetch_openrouter_models`: the catalog
+    changes on OpenRouter's release cadence, not ours, and every picker open
+    would otherwise pay the round trip.
+    """
+    global _openrouter_image_catalog_cache
+
+    if _openrouter_image_catalog_cache is not None and not force_refresh:
+        return [dict(row) for row in _openrouter_image_catalog_cache]
+
+    try:
+        req = urllib.request.Request(
+            "https://openrouter.ai/api/v1/images/models",
+            headers={"Accept": "application/json"},
+        )
+        with _urlopen_model_catalog_request(req, timeout=timeout) as resp:
+            payload = json.loads(resp.read().decode())
+    except Exception:
+        return []
+
+    items = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(items, list):
+        return []
+
+    rows: list[dict] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        mid = str(item.get("id") or "").strip()
+        if not mid:
+            continue
+        rows.append(
+            {
+                "id": mid,
+                "display": str(item.get("name") or "").strip() or mid.split("/", 1)[-1],
+                "strengths": _openrouter_image_strengths(item),
+            }
+        )
+
+    if not rows:
+        return []
+
+    _openrouter_image_catalog_cache = rows
+    return [dict(row) for row in rows]
 
 
 def get_curated_nous_model_ids() -> list[str]:
