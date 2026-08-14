@@ -984,6 +984,11 @@ export interface ToolsetModelsResponse {
   models: ToolsetModel[]
   current: string | null
   default: string | null
+  /** True when the backend routes ids outside its own catalog (OpenRouter's
+   *  image catalog moves faster than we ship), so the panel offers free-text
+   *  entry. Backends with a closed id set stay list-only. Absent on older
+   *  gateways — treat undefined as false. */
+  accepts_custom_model?: boolean
 }
 
 /** Shape of `GET /api/tools/computer-use/status`.

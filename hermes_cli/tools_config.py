@@ -3794,6 +3794,32 @@ def _plugin_image_gen_catalog(plugin_name: str):
     return catalog, default
 
 
+# Sentinel row appended to model pickers whose backend routes arbitrary ids.
+# Mirrors the vision backend picker's free-text escape hatch.
+_CUSTOM_MODEL_ROW = "Type a custom model id…"
+
+
+def image_gen_accepts_custom_model(plugin_name: str) -> bool:
+    """Whether *plugin_name* routes model ids outside its own catalog.
+
+    True for backends that pass the id straight through to a provider whose
+    catalog moves faster than we ship (OpenRouter, Nous Portal), so the pickers
+    can offer free-text entry. False for backends whose ids are a closed set —
+    typing one there only produces a runtime failure later.
+    """
+    try:
+        from agent.image_gen_registry import get_provider
+        from hermes_cli.plugins import _ensure_plugins_discovered
+
+        _ensure_plugins_discovered()
+        provider = get_provider(plugin_name)
+        if provider is None:
+            return False
+        return bool((provider.capabilities() or {}).get("accepts_custom_model"))
+    except Exception:
+        return False
+
+
 def _configure_imagegen_model_for_plugin(plugin_name: str, config: dict) -> None:
     """Prompt the user to pick a model for a plugin-registered backend.
 
@@ -3808,7 +3834,10 @@ def _configure_imagegen_model_for_plugin(plugin_name: str, config: dict) -> None
     plugin registry instead of :data:`IMAGEGEN_BACKENDS`.
     """
     catalog, default_model = _plugin_image_gen_catalog(plugin_name)
-    if not catalog:
+    accepts_custom = image_gen_accepts_custom_model(plugin_name)
+    # An empty catalog used to return silently, configuring nothing and saying
+    # nothing. Backends that accept a typed id can still be configured.
+    if not catalog and not accepts_custom:
         return
 
     cur_cfg = config.setdefault("image_gen", {})
@@ -3820,14 +3849,20 @@ def _configure_imagegen_model_for_plugin(plugin_name: str, config: dict) -> None
     # Prefer the scoped key — it is what the plugins actually resolve against,
     # so it is the one that reflects what generation will really use.
     current_model = scoped_model or cur_cfg.get("model") or default_model
-    if current_model not in catalog:
+    if current_model not in catalog and not accepts_custom:
         current_model = default_model
+
+    if current_model and current_model not in catalog:
+        # A hand-entered id lives outside the catalog. Keep it on the list so
+        # it stays visibly selected instead of appearing to revert.
+        catalog = {**catalog, current_model: {"strengths": "custom"}}
 
     model_ids = list(catalog.keys())
     ordered = [current_model] + [m for m in model_ids if m != current_model]
+    ordered = [m for m in ordered if m]
 
     widths = {
-        "model": max(len(m) for m in model_ids),
+        "model": max((len(m) for m in model_ids), default=len(_CUSTOM_MODEL_ROW)),
         "speed": max((len(catalog[m].get("speed", "")) for m in model_ids), default=6),
         "strengths": max((len(catalog[m].get("strengths", "")) for m in model_ids), default=0),
     }
@@ -3847,6 +3882,8 @@ def _configure_imagegen_model_for_plugin(plugin_name: str, config: dict) -> None
         if mid == current_model:
             row += "  ← currently in use"
         rows.append(row)
+    if accepts_custom:
+        rows.append(_CUSTOM_MODEL_ROW)
 
     idx = _prompt_choice(
         f"  Choose {plugin_name} model:",
@@ -3854,7 +3891,13 @@ def _configure_imagegen_model_for_plugin(plugin_name: str, config: dict) -> None
         default=0,
     )
 
-    chosen = ordered[idx]
+    if accepts_custom and idx >= len(ordered):
+        chosen = _prompt("    Model id").strip()
+        if not chosen:
+            _print_warning("  No model entered — cancelled")
+            return
+    else:
+        chosen = ordered[idx]
     _write_plugin_image_model(cur_cfg, plugin_name, chosen)
     _print_success(f"  Model set to: {chosen}")
 

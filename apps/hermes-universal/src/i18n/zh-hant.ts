@@ -999,7 +999,11 @@ export const zhHant = defineLocale({
       postSetupCompleteMessage: step => `已安裝 ${step}。`,
       postSetupErrorTitle: '設定完成但有錯誤',
       postSetupErrorMessage: step => `請檢查 ${step} 日誌。`,
-      postSetupFailed: step => `執行 ${step} 設定失敗`
+      postSetupFailed: step => `執行 ${step} 設定失敗`,
+      modelCustomBadge: '自訂',
+      modelCustomLabel: '或輸入模型 ID',
+      modelCustomPlaceholder: 'vendor/model-name',
+      modelCustomSave: '使用'
     }
   },
 

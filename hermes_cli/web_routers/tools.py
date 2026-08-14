@@ -299,6 +299,23 @@ async def get_toolset_config(name: str, profile: Optional[str] = None):
     return payload
 
 
+def _accepts_custom_model(toolset: str, plugin: str) -> bool:
+    """Whether *plugin* routes model ids outside its own catalog.
+
+    OpenRouter's image catalog moves faster than we ship, so rejecting an id we
+    haven't heard of would lock users out of models their account can already
+    reach. Backends with a closed id set stay validated.
+    """
+    if toolset != "image_gen":
+        return False
+    try:
+        from hermes_cli.tools_config import image_gen_accepts_custom_model
+
+        return image_gen_accepts_custom_model(plugin)
+    except Exception:
+        return False
+
+
 @router.get("/api/tools/toolsets/{name}/models")
 async def get_toolset_models(
     name: str, provider: Optional[str] = None, profile: Optional[str] = None
@@ -313,7 +330,14 @@ async def get_toolset_models(
     """
     section = _MODEL_CATALOG_TOOLSETS.get(name)
     if section is None:
-        return {"name": name, "has_models": False, "models": [], "current": None, "default": None}
+        return {
+            "name": name,
+            "has_models": False,
+            "models": [],
+            "current": None,
+            "default": None,
+            "accepts_custom_model": False,
+        }
 
     def _read():
         with _profile_scope(profile):
@@ -327,12 +351,22 @@ async def get_toolset_models(
             section_cfg = config.get(section)
             current = None
             if isinstance(section_cfg, dict):
-                raw = section_cfg.get("model")
+                scoped = section_cfg.get(plugin)
+                raw = None
+                if isinstance(scoped, dict):
+                    # The scoped key is what the plugin actually resolves.
+                    raw = scoped.get("model")
+                if not (isinstance(raw, str) and raw.strip()):
+                    raw = section_cfg.get("model")
                 if isinstance(raw, str) and raw.strip():
                     current = raw.strip()
-            if current not in catalog:
+            custom_ok = _accepts_custom_model(name, plugin)
+            # A hand-entered id is legitimately absent from the catalog —
+            # rewriting it to the default would render the wrong model as
+            # selected and quietly lose the user's choice on the next save.
+            if current not in catalog and not (custom_ok and current):
                 current = default_model if default_model in catalog else None
-        return row, plugin, catalog, default_model, current
+        return row, plugin, catalog, default_model, current, custom_ok
 
     resolved = await asyncio.to_thread(_read)
     if resolved is None:
@@ -342,8 +376,9 @@ async def get_toolset_models(
             "models": [],
             "current": None,
             "default": None,
+            "accepts_custom_model": False,
         }
-    row, plugin, catalog, default_model, current = resolved
+    row, plugin, catalog, default_model, current, accepts_custom = resolved
 
     models = [
         {
@@ -363,6 +398,9 @@ async def get_toolset_models(
         "models": models,
         "current": current,
         "default": default_model,
+        # Drives the GUI's free-text model field; backends with a closed id
+        # set stay list-only.
+        "accepts_custom_model": accepts_custom,
     }
 
 
@@ -399,7 +437,7 @@ async def select_toolset_model(
                     )
 
                 catalog, _default = _toolset_model_catalog(name, plugin)
-                if model_id not in catalog:
+                if model_id not in catalog and not _accepts_custom_model(name, plugin):
                     raise HTTPException(
                         status_code=400,
                         detail=f"Unknown model {model_id!r} for backend {plugin!r}",

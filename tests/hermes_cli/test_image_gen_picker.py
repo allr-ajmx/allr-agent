@@ -15,16 +15,26 @@ from agent.image_gen_provider import ImageGenProvider
 
 
 class _FakeProvider(ImageGenProvider):
-    def __init__(self, name: str, available: bool = True, schema=None, models=None):
+    def __init__(
+        self,
+        name: str,
+        available: bool = True,
+        schema=None,
+        models=None,
+        accepts_custom: bool = False,
+    ):
         self._name = name
         self._available = available
+        self._accepts_custom = accepts_custom
         self._schema = schema or {
             "name": name.title(),
             "badge": "test",
             "tag": f"{name} test tag",
             "env_vars": [{"key": f"{name.upper()}_API_KEY", "prompt": f"{name} key"}],
         }
-        self._models = models or [
+        # `is not None`, not `or`: an explicitly empty catalog is a real case
+        # (live discovery unreachable) and must not fall back to the default.
+        self._models = models if models is not None else [
             {"id": f"{name}-model-v1", "display": f"{name} v1",
              "speed": "~5s", "strengths": "test", "price": "$"},
         ]
@@ -41,6 +51,12 @@ class _FakeProvider(ImageGenProvider):
 
     def default_model(self):
         return self._models[0]["id"] if self._models else None
+
+    def capabilities(self):
+        return {
+            "modalities": ["text", "image"],
+            "accepts_custom_model": self._accepts_custom,
+        }
 
     def get_setup_schema(self):
         return dict(self._schema)
@@ -231,3 +247,89 @@ class TestConfigWriting:
         assert tools_config._is_provider_active(openai_row, config) is True
         assert tools_config._is_provider_active(nous_row, config) is False
 
+
+class TestCustomModelEntry:
+    """OpenRouter's catalog moves faster than we ship, so the picker must let
+    a user name a model it has never heard of."""
+
+    def _rows_shown(self, monkeypatch, plugin, config, pick):
+        from hermes_cli import tools_config
+
+        seen = {}
+
+        def _choice(_question, rows, **kw):
+            seen["rows"] = rows
+            return pick(rows)
+
+        monkeypatch.setattr(tools_config, "_prompt_choice", _choice)
+        tools_config._configure_imagegen_model_for_plugin(plugin, config)
+        return seen["rows"]
+
+    def test_sentinel_offered_only_for_custom_capable_backends(self, monkeypatch, tmp_path):
+        from hermes_cli import tools_config
+
+        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        image_gen_registry.register_provider(_FakeProvider("openish", accepts_custom=True))
+        image_gen_registry.register_provider(_FakeProvider("closed", accepts_custom=False))
+
+        open_rows = self._rows_shown(monkeypatch, "openish", {}, lambda rows: 0)
+        closed_rows = self._rows_shown(monkeypatch, "closed", {}, lambda rows: 0)
+
+        assert tools_config._CUSTOM_MODEL_ROW in open_rows
+        assert tools_config._CUSTOM_MODEL_ROW not in closed_rows
+
+    def test_typed_id_is_persisted(self, monkeypatch, tmp_path):
+        from hermes_cli import tools_config
+
+        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        image_gen_registry.register_provider(_FakeProvider("openish", accepts_custom=True))
+        monkeypatch.setattr(tools_config, "_prompt", lambda *a, **kw: "  vendor/brand-new-model  ")
+
+        config: dict = {}
+        # Last row is the sentinel.
+        self._rows_shown(monkeypatch, "openish", config, lambda rows: len(rows) - 1)
+
+        assert config["image_gen"]["model"] == "vendor/brand-new-model"
+        assert config["image_gen"]["openish"]["model"] == "vendor/brand-new-model"
+
+    def test_blank_entry_cancels_without_writing(self, monkeypatch, tmp_path):
+        from hermes_cli import tools_config
+
+        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        image_gen_registry.register_provider(_FakeProvider("openish", accepts_custom=True))
+        monkeypatch.setattr(tools_config, "_prompt", lambda *a, **kw: "   ")
+
+        config: dict = {}
+        self._rows_shown(monkeypatch, "openish", config, lambda rows: len(rows) - 1)
+
+        assert "model" not in config.get("image_gen", {})
+
+    def test_existing_custom_id_stays_selected(self, monkeypatch, tmp_path):
+        """It is absent from the catalog by definition — it must not silently
+        revert to the default on the next visit."""
+        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        image_gen_registry.register_provider(_FakeProvider("openish", accepts_custom=True))
+
+        config = {"image_gen": {"openish": {"model": "vendor/hand-typed"}}}
+        rows = self._rows_shown(monkeypatch, "openish", config, lambda rows: 0)
+
+        assert "vendor/hand-typed" in rows[0]
+        assert "currently in use" in rows[0]
+        assert config["image_gen"]["openish"]["model"] == "vendor/hand-typed"
+
+    def test_empty_catalog_still_offers_entry(self, monkeypatch, tmp_path):
+        """An empty catalog used to return silently, configuring nothing and
+        explaining nothing."""
+        from hermes_cli import tools_config
+
+        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        image_gen_registry.register_provider(
+            _FakeProvider("openish", models=[], accepts_custom=True)
+        )
+        monkeypatch.setattr(tools_config, "_prompt", lambda *a, **kw: "vendor/only-choice")
+
+        config: dict = {}
+        rows = self._rows_shown(monkeypatch, "openish", config, lambda rows: len(rows) - 1)
+
+        assert rows == [tools_config._CUSTOM_MODEL_ROW]
+        assert config["image_gen"]["model"] == "vendor/only-choice"

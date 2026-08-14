@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -39,6 +39,29 @@ interface ToolsetConfigPanelProps {
 /** Toolsets whose backends expose a selectable model catalog (mirrors the
  *  backend's _MODEL_CATALOG_TOOLSETS map). */
 const MODEL_CATALOG_TOOLSETS = new Set(['image_gen', 'video_gen'])
+
+/**
+ * The in-use model id when it was typed by hand rather than picked, else null.
+ *
+ * A hand-entered id is absent from the catalog by definition, so without its
+ * own row the panel would render every catalog entry as unselected and look
+ * like nothing is configured. Only backends that accept custom ids can have
+ * one — for the rest, an id outside the catalog is stale config the gateway
+ * already resolves back to the default.
+ */
+export function customSelectedModel(catalog: ToolsetModelsResponse): string | null {
+  if (catalog.accepts_custom_model !== true) {
+    return null
+  }
+
+  const selected = catalog.current ?? catalog.default
+
+  if (selected === null || catalog.models.some(m => m.id === selected)) {
+    return null
+  }
+
+  return selected
+}
 
 function providerConfigured(provider: ToolProvider, envState: Record<string, boolean>): boolean {
   if (provider.env_vars.length === 0) {
@@ -320,6 +343,8 @@ function ModelCatalogPicker({ toolset, providerName, isActiveBackend }: ModelCat
   const [catalog, setCatalog] = useState<ToolsetModelsResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState<string | null>(null)
+  const [customId, setCustomId] = useState('')
+  const customFieldId = useId()
 
   useEffect(() => {
     let cancelled = false
@@ -347,15 +372,21 @@ function ModelCatalogPicker({ toolset, providerName, isActiveBackend }: ModelCat
     return () => void (cancelled = true)
   }, [toolset, providerName])
 
-  const pick = async (modelId: string) => {
+  const pick = async (modelId: string): Promise<boolean> => {
     setSaving(modelId)
 
     try {
       await selectToolsetModel(toolset, modelId, providerName)
       setCatalog(current => (current ? { ...current, current: modelId } : current))
       notify({ kind: 'success', title: copy.modelSelectedTitle, message: copy.modelSelectedMessage(modelId) })
+
+      return true
     } catch (err) {
+      // The gateway rejects ids a closed-catalog backend can't route — keep the
+      // typed value in the field so it can be corrected rather than retyped.
       notifyError(err, copy.failedSelectModel(modelId))
+
+      return false
     } finally {
       setSaving(null)
     }
@@ -370,11 +401,14 @@ function ModelCatalogPicker({ toolset, providerName, isActiveBackend }: ModelCat
     )
   }
 
-  if (!catalog || !catalog.has_models || catalog.models.length === 0) {
+  const acceptsCustom = catalog?.accepts_custom_model === true
+
+  if (!catalog || (!acceptsCustom && (!catalog.has_models || catalog.models.length === 0))) {
     return null
   }
 
   const selected = catalog.current ?? catalog.default
+  const customSelected = customSelectedModel(catalog)
 
   return (
     <div className="grid gap-1.5">
@@ -384,6 +418,18 @@ function ModelCatalogPicker({ toolset, providerName, isActiveBackend }: ModelCat
       </div>
       {!isActiveBackend && <p className="px-0.5 text-[0.68rem] text-muted-foreground">{copy.modelInactiveHint}</p>}
       <div className="grid gap-1">
+        {customSelected && (
+          <div className="grid gap-0.5 rounded-lg border border-(--ui-stroke-secondary) bg-(--ui-bg-tertiary) px-2.5 py-2">
+            <span className="flex flex-wrap items-center gap-2">
+              <span className="font-mono text-xs font-medium">{customSelected}</span>
+              <Pill tone="primary">
+                <Check className="size-3" />
+                {copy.modelInUse}
+              </Pill>
+              <Pill>{copy.modelCustomBadge}</Pill>
+            </span>
+          </div>
+        )}
         {catalog.models.map(model => {
           const isSelected = selected === model.id
           const isDefault = catalog.default === model.id
@@ -423,6 +469,52 @@ function ModelCatalogPicker({ toolset, providerName, isActiveBackend }: ModelCat
           )
         })}
       </div>
+      {acceptsCustom && (
+        <form
+          className="grid gap-1 px-0.5"
+          onSubmit={event => {
+            event.preventDefault()
+            const next = customId.trim()
+
+            if (next) {
+              void pick(next).then(ok => {
+                if (ok) {
+                  setCustomId('')
+                }
+              })
+            }
+          }}
+        >
+          <label className="text-[0.68rem] text-muted-foreground" htmlFor={customFieldId}>
+            {copy.modelCustomLabel}
+          </label>
+          <div className="flex items-center gap-1.5">
+            <Input
+              autoComplete="off"
+              className="h-7 font-mono text-xs"
+              disabled={saving !== null || !isActiveBackend}
+              id={customFieldId}
+              onChange={event => setCustomId(event.target.value)}
+              placeholder={copy.modelCustomPlaceholder}
+              spellCheck={false}
+              value={customId}
+            />
+            <Button
+              disabled={saving !== null || !isActiveBackend || customId.trim() === ''}
+              size="sm"
+              type="submit"
+              variant="secondary"
+            >
+              {saving !== null && saving === customId.trim() ? (
+                <Loader2 className="size-3 animate-spin" />
+              ) : (
+                <Save className="size-3" />
+              )}
+              {copy.modelCustomSave}
+            </Button>
+          </div>
+        </form>
+      )}
     </div>
   )
 }

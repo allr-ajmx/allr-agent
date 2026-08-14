@@ -1034,7 +1034,11 @@ export const ja = defineLocale({
       postSetupCompleteMessage: step => `${step} をインストールしました。`,
       postSetupErrorTitle: 'セットアップはエラーで終了しました',
       postSetupErrorMessage: step => `${step} のログを確認してください。`,
-      postSetupFailed: step => `${step} のセットアップの実行に失敗しました`
+      postSetupFailed: step => `${step} のセットアップの実行に失敗しました`,
+      modelCustomBadge: 'カスタム',
+      modelCustomLabel: 'またはモデル ID を入力',
+      modelCustomPlaceholder: 'vendor/model-name',
+      modelCustomSave: '使用する'
     }
   },
 
