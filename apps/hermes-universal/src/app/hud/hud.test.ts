@@ -113,9 +113,15 @@ describe('which conversation the HUD opens on', () => {
     expect(hudTargetSessionId()).toBeNull()
   })
 
-  it('carries the session into the window it opens', async () => {
+  it('opens on a fresh new session by default when summoned with no session', async () => {
     atRoute('#/abc123')
     await openHud()
+
+    expect(open).toHaveBeenCalledWith('hud', undefined)
+  })
+
+  it('carries an explicit session into the window when provided', async () => {
+    await openHud('abc123')
 
     expect(open).toHaveBeenCalledWith('hud', '/abc123')
   })
@@ -123,11 +129,6 @@ describe('which conversation the HUD opens on', () => {
   it('opens on the new-chat route with no session at all', async () => {
     await openHud(null)
 
-    // No session: the HUD opens on the app's root route, not on a stale one.
-    // What it then LANDS on is decided inside that window (`hud-window.tsx` ->
-    // `session-landing.ts`): the root route is a standing start, so a remembered
-    // chat wins there and a blank one is the floor. The three steps below are
-    // unchanged by that.
     expect(open).toHaveBeenCalledWith('hud', undefined)
   })
 })

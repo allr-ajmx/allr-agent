@@ -10,7 +10,7 @@ import {
   WEBHOOKS_ROUTE
 } from '@/app/routes'
 import { requestComposerDraftSync } from '@/lib/composer-draft-bus'
-import { IS_ANDROID, IS_DESKTOP, IS_IOS } from '@/lib/platform'
+import { IS_ANDROID, IS_DESKTOP, IS_IOS, IS_TAURI } from '@/lib/platform'
 import { navigateTo } from '@/lib/route-nav'
 import { type SurfaceGrant } from '@/lib/surface'
 import { backgroundCloseTakesOver } from '@/store/background-mode'
@@ -735,13 +735,16 @@ export async function showAppWindow(): Promise<void> {
  * toast per frame — and the visible consequence is a window that does not grow,
  * which the log already explains.
  */
-export async function resizeSatelliteWindow(height: number): Promise<null | number> {
+export async function resizeSatelliteWindow(height: number, width?: number): Promise<null | number> {
   if (!isSatelliteWindow() || !Number.isFinite(height)) {
     return null
   }
 
   try {
-    return await invoke<number>('resize_satellite_window', { height })
+    return await invoke<number>('resize_satellite_window', {
+      height,
+      width: Number.isFinite(width) ? width : undefined
+    })
   } catch (err) {
     console.warn('could not resize this window', err)
 
@@ -885,9 +888,26 @@ export async function sweepStaleSurfaceGrants(): Promise<void> {
   }
 
   for (const surface of surfaces) {
-    if (!(await isSatelliteWindowOpen(surface))) {
+    if (!(await doesSatelliteWindowExist(surface))) {
       rememberSurfaceGrant(surface, null)
     }
+  }
+}
+
+/** True when the satellite window exists in the window system (whether visible or hidden). */
+export async function doesSatelliteWindowExist(surface: string): Promise<boolean> {
+  const label = satelliteLabel(surface)
+
+  if (!label) {
+    return false
+  }
+
+  try {
+    const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow')
+
+    return (await WebviewWindow.getByLabel(label)) !== null
+  } catch {
+    return false
   }
 }
 
@@ -934,8 +954,7 @@ export async function openSatelliteWindow(surface: string, route?: string): Prom
   }
 }
 
-/** Close a satellite. A window the user already closed is not an error — the
- *  end state is what the caller wanted. */
+/** Close or hide a satellite. The HUD uses hiding so it stays warm in the background. */
 export async function closeSatelliteWindow(surface: string): Promise<void> {
   const label = satelliteLabel(surface)
 
@@ -943,6 +962,16 @@ export async function closeSatelliteWindow(surface: string): Promise<void> {
 
   if (!label) {
     return
+  }
+
+  if (IS_TAURI) {
+    try {
+      await invoke('hide_satellite_window', { surface })
+
+      return
+    } catch {
+      // Fall through to close if hide is refused or fails
+    }
   }
 
   try {
@@ -959,8 +988,7 @@ export async function closeAllSatelliteWindows(): Promise<void> {
   await Promise.all([...openedSatellites].map(closeSatelliteWindow))
 }
 
-/** True when the satellite is currently up — asked of the window system, not of
- *  our bookkeeping, so a window the user closed reads as gone. */
+/** True when the satellite is currently up and visible — asked of the window system. */
 export async function isSatelliteWindowOpen(surface: string): Promise<boolean> {
   const label = satelliteLabel(surface)
 
@@ -968,10 +996,23 @@ export async function isSatelliteWindowOpen(surface: string): Promise<boolean> {
     return false
   }
 
+  if (IS_TAURI) {
+    try {
+      return await invoke<boolean>('is_satellite_window_visible', { surface })
+    } catch {
+      // Fall through
+    }
+  }
+
   try {
     const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow')
+    const win = await WebviewWindow.getByLabel(label)
 
-    return (await WebviewWindow.getByLabel(label)) !== null
+    if (!win) {
+      return false
+    }
+
+    return await win.isVisible()
   } catch {
     return false
   }

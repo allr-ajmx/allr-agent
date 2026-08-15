@@ -10,7 +10,17 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { HUD_BAND_MAX_PX, HUD_BAR_HEIGHT_PX, HUD_MAX_HEIGHT_PX, hudBandMax, hudWindowHeight } from './hud-size'
+import {
+  HUD_BAND_MAX_PX,
+  HUD_BAR_HEIGHT_PX,
+  HUD_BASE_WIDTH_PX,
+  HUD_EXPANDED_WIDTH_PX,
+  HUD_MAX_HEIGHT_PX,
+  HUD_WIDTH_PX,
+  hudBandMax,
+  hudWindowHeight,
+  hudWindowWidth
+} from './hud-size'
 
 const open = (barPx: number, contentPx: number, bandMaxPx = 336) => ({
   bandMaxPx,
@@ -24,15 +34,15 @@ describe('hudWindowHeight', () => {
   // times a second, and each of those would be an IPC round trip and a
   // compositor reconfigure for a change nobody can see.
   it('answers the same height for a wobble smaller than one step', () => {
-    // 195 and 199 want 205 and 209 with the panel's chrome, and both bucket to
+    // 193 and 195 want 205 and 207 with the panel's chrome (12px), and both ceil-bucket to
     // 208 — which is between the floor and the cap, so it is the BUCKETING that
     // makes them equal and not a clamp at either end.
-    expect(hudWindowHeight(open(195, 0))).toBe(hudWindowHeight(open(199, 0)))
-    expect(hudWindowHeight(open(195, 0))).toBe(208)
+    expect(hudWindowHeight(open(193, 0))).toBe(hudWindowHeight(open(195, 0)))
+    expect(hudWindowHeight(open(193, 0))).toBe(208)
   })
 
   it('answers a different height once the wobble crosses a step', () => {
-    expect(hudWindowHeight(open(195, 0))).not.toBe(hudWindowHeight(open(207, 0)))
+    expect(hudWindowHeight(open(193, 0))).not.toBe(hudWindowHeight(open(197, 0)))
   })
 
   it('never exceeds the window cap', () => {
@@ -42,7 +52,7 @@ describe('hudWindowHeight', () => {
   })
 
   it('never grows past the panel cap even when the window has room', () => {
-    // 88 + (200 + 10) = 298 → 288. Under the window cap, so only the PANEL cap
+    // 88 + 200 = 288. Under the window cap, so only the PANEL cap
     // can produce this number: without it the answer is the window cap, 520.
     expect(hudWindowHeight(open(88, 9999, 200))).toBe(288)
   })
@@ -61,9 +71,27 @@ describe('hudWindowHeight', () => {
   })
 
   it('grows with the transcript in between', () => {
-    // 96 + (120 + 10) = 226 → 224. The panel is doing the work: with `open`
+    // 96 + (120 + 12) = 228 → 232. The panel is doing the work: with `open`
     // false the same inputs answer 96.
-    expect(hudWindowHeight(open(96, 120))).toBe(224)
+    expect(hudWindowHeight(open(96, 120))).toBe(232)
+  })
+
+  it('expands to fit the model dropdown menu and restores when closed', () => {
+    // Collapsed bar with model menu open: 88 + 360 = 448
+    expect(hudWindowHeight({ bandMaxPx: 336, barPx: 88, contentPx: 0, modelMenuOpen: true, open: false })).toBe(448)
+    // When closed, collapses back to bar height
+    expect(hudWindowHeight({ bandMaxPx: 336, barPx: 88, contentPx: 0, modelMenuOpen: false, open: false })).toBe(
+      HUD_BAR_HEIGHT_PX
+    )
+  })
+
+  it('expands to fit the attachment dropdown menu and restores when closed', () => {
+    // Collapsed bar with attachment menu open: 88 + 360 = 448
+    expect(hudWindowHeight({ attachmentMenuOpen: true, bandMaxPx: 336, barPx: 88, contentPx: 0, open: false })).toBe(448)
+    // When closed, collapses back to bar height
+    expect(hudWindowHeight({ attachmentMenuOpen: false, bandMaxPx: 336, barPx: 88, contentPx: 0, open: false })).toBe(
+      HUD_BAR_HEIGHT_PX
+    )
   })
 
   // A card that has not been laid out reports 0 for every box, and arithmetic
@@ -98,5 +126,14 @@ describe('hudBandMax', () => {
   it('answers nothing for a screen it could not measure', () => {
     expect(hudBandMax(Number.NaN)).toBe(0)
     expect(hudBandMax(-100)).toBe(0)
+  })
+})
+
+describe('hudWindowWidth', () => {
+  it('returns HUD_WIDTH_PX (600px) by default', () => {
+    expect(hudWindowWidth({})).toBe(600)
+    expect(hudWindowWidth({ modelMenuOpen: false, attachmentMenuOpen: false })).toBe(600)
+    expect(hudWindowWidth({ modelMenuOpen: true })).toBe(600)
+    expect(hudWindowWidth({ attachmentMenuOpen: true })).toBe(600)
   })
 })

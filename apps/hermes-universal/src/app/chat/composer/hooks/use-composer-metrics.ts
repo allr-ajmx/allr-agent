@@ -54,6 +54,10 @@ export function useComposerMetrics({ composerRef, composerSurfaceRef, editorRef,
     }
 
     if (expanded) {
+      if (!hasHardNewline && editorRef.current && editorRef.current.scrollHeight <= COMPOSER_SINGLE_LINE_MAX_PX) {
+        setExpanded(false)
+      }
+
       return
     }
 
@@ -63,7 +67,7 @@ export function useComposerMetrics({ composerRef, composerSurfaceRef, editorRef,
     if (hasHardNewline) {
       setExpanded(true)
     }
-  }, [expanded, hasHardNewline, isEmpty])
+  }, [editorRef, expanded, hasHardNewline, isEmpty])
 
   // Bucket measured heights so we only invalidate the global CSS var when
   // the size crosses a meaningful threshold. Without bucketing, the editor
@@ -148,7 +152,7 @@ export function useComposerMetrics({ composerRef, composerSurfaceRef, editorRef,
     }
 
     if (height > 0) {
-      const bucket = Math.round(height / 8) * 8
+      const bucket = Math.ceil(height / 8) * 8
 
       if (bucket !== lastBucketedHeightRef.current) {
         lastBucketedHeightRef.current = bucket
@@ -157,7 +161,7 @@ export function useComposerMetrics({ composerRef, composerSurfaceRef, editorRef,
     }
 
     if (surfaceHeight && surfaceHeight > 0) {
-      const bucket = Math.round(surfaceHeight / 8) * 8
+      const bucket = Math.ceil(surfaceHeight / 8) * 8
 
       if (bucket !== lastBucketedSurfaceHeightRef.current) {
         lastBucketedSurfaceHeightRef.current = bucket

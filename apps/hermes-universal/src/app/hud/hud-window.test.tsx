@@ -12,7 +12,7 @@
  * `html[data-hud]` selector names something no component renders.
  */
 
-import { act, cleanup, render, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { MemoryRouter, useNavigate } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -84,6 +84,7 @@ vi.mock('./handoff', () => ({ reportHudSession: vi.fn() }))
 import { $connectionError, $connectionPhase } from '@/store/connection'
 import { $activeStoredSessionId, openSession } from '@/store/session'
 
+import { closeHud } from './hud'
 import { HudWindowRoot } from './hud-window'
 
 const turn = (id: string) => ({ id, parts: [{ text: 'hello', type: 'text' as const }], role: 'assistant' })
@@ -277,30 +278,20 @@ describe('the connecting state', () => {
   // The resolution waits rather than gives up: `$connectionPhase` is a nanostore
   // and the resume effect is a subscription, so it fires when the phase reaches
   // `ready` without needing a re-summon.
-  it('resumes the remembered chat when the gateway comes up later', async () => {
-    $connectionPhase.set('connecting')
+  it('opens a blank new chat on root summon even if previous sessions exist', async () => {
     remembered.id = 'remembered-1'
 
     summonAt('/')
 
+    await act(async () => {})
+
     expect(openSession).not.toHaveBeenCalled()
-
-    await act(async () => {
-      $connectionPhase.set('ready')
-    })
-
-    await waitFor(() => expect(openSession).toHaveBeenCalledWith('remembered-1'))
-    expect(nav.navigateTo).toHaveBeenCalledWith('/remembered-1')
+    expect(nav.navigateTo).not.toHaveBeenCalled()
   })
 })
 
 describe('which conversation a summon lands on', () => {
-  // Which of the two WINS is `session-landing.test.ts`'s subject, and it is
-  // structural here (`routeId ?? …`) rather than a branch this file could get
-  // backwards. What this file can get wrong is failing to read its own route at
-  // all — the shape of the handoff bug below — so the memory is seeded to
-  // disagree, and it is the route that must come out.
-  it('resumes the conversation it was summoned onto, not the remembered one', async () => {
+  it('resumes the conversation it was explicitly summoned onto in the route', async () => {
     remembered.id = 'remembered-1'
 
     summonAt('/from-the-route')
@@ -320,12 +311,11 @@ describe('which conversation a summon lands on', () => {
     expect(nav.navigateTo).not.toHaveBeenCalled()
   })
 
-  // A remembered id can name a conversation deleted since it was recorded.
-  it('falls back to a blank new chat when the remembered one is gone', async () => {
-    remembered.id = 'deleted-1'
+  // A route id can name a conversation deleted since it was recorded.
+  it('falls back to a blank new chat when the summoned route session is gone', async () => {
     vi.mocked(openSession).mockRejectedValueOnce(new Error('no such session'))
 
-    const { container } = summonAt('/')
+    const { container } = summonAt('/deleted-1')
 
     await waitFor(() => expect(openSession).toHaveBeenCalledWith('deleted-1'))
     // Not an error, and not a spinner that never resolves: the blank chat that
@@ -337,11 +327,10 @@ describe('which conversation a summon lands on', () => {
   // The refusal may be the gateway restarting rather than a dead session, and a
   // HUD that latched on the first failure would sit on a blank chat for the rest
   // of its life with a perfectly good conversation one reconnect away.
-  it('tries the remembered chat again after the gateway drops and returns', async () => {
-    remembered.id = 'flaky-1'
+  it('tries the summoned route chat again after the gateway drops and returns', async () => {
     vi.mocked(openSession).mockRejectedValueOnce(new Error('gateway restarting'))
 
-    summonAt('/')
+    summonAt('/flaky-1')
 
     await waitFor(() => expect(openSession).toHaveBeenCalledTimes(1))
 
@@ -353,7 +342,6 @@ describe('which conversation a summon lands on', () => {
     })
 
     await waitFor(() => expect(openSession).toHaveBeenCalledTimes(2))
-    expect(nav.navigateTo).toHaveBeenCalledWith('/flaky-1')
   })
 })
 
@@ -398,3 +386,21 @@ describe('the handoff back to the summoning window', () => {
     expect(nav.navigateTo).not.toHaveBeenCalled()
   })
 })
+
+describe('dismissing the HUD', () => {
+  it('closes the HUD on Escape key press', () => {
+    summonAt('/')
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    expect(closeHud).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not close the HUD on window blur or click outside', () => {
+    const { container } = summonAt('/')
+    const root = container.querySelector('[data-hud-root]')!
+
+    window.dispatchEvent(new Event('blur'))
+    fireEvent.pointerDown(root)
+    expect(closeHud).not.toHaveBeenCalled()
+  })
+})
+

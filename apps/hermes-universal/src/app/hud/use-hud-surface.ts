@@ -25,7 +25,7 @@ import { setSurfaceInteractiveRect, type SurfaceGrant } from '@/lib/surface'
 import { resizeSatelliteWindow, satelliteSurfaceGrant } from '@/store/windows'
 
 import { canUseHud, HUD_SURFACE } from './hud'
-import { hudWindowHeight } from './hud-size'
+import { hudWindowHeight, hudWindowWidth } from './hud-size'
 
 /** The window label the native side knows this surface by. Must match
  *  `satelliteLabel()` in `store/windows.ts`. */
@@ -82,6 +82,10 @@ const TRANSCRIPT_SELECTOR = "[data-slot='aui_thread-content']"
 export interface HudCardMetrics {
   /** `--hud-band-max` in pixels, so growth and the CSS cap agree. */
   bandMaxPx: number
+  /** Whether the composer attachment/context menu dropdown is currently open. */
+  attachmentMenuOpen?: boolean
+  /** Whether the composer model selector dropdown is currently open. */
+  modelMenuOpen?: boolean
   /** Whether the response panel is showing. */
   open: boolean
   /** Whether the platform gave this surface the whole output. */
@@ -123,6 +127,7 @@ export function useHudCardMetrics(cardRef: RefObject<HTMLElement | null>, metric
   const frame = useRef(0)
   const lastRect = useRef('')
   const lastHeight = useRef(0)
+  const lastWidth = useRef(0)
   const observer = useRef<null | ResizeObserver>(null)
 
   const measure = useCallback(() => {
@@ -132,14 +137,25 @@ export function useHudCardMetrics(cardRef: RefObject<HTMLElement | null>, metric
       return
     }
 
-    const { bandMaxPx, open, outputSized } = latest.current
+    const { attachmentMenuOpen, bandMaxPx, modelMenuOpen, open, outputSized } = latest.current
 
     if (outputSized) {
       const box = card.getBoundingClientRect()
+      let height = Math.ceil(box.height)
+      let width = Math.ceil(box.width)
+      const menuNodes = document.querySelectorAll<HTMLElement>(
+        "[data-slot='dropdown-menu-content'], [data-slot='dropdown-menu-sub-content']"
+      )
+
+      for (const menuNode of menuNodes) {
+        const menuBox = menuNode.getBoundingClientRect()
+        height = Math.max(height, Math.ceil(menuBox.bottom - box.top))
+        width = Math.max(width, Math.ceil(menuBox.right - box.left))
+      }
 
       const rect = {
-        height: Math.ceil(box.height),
-        width: Math.ceil(box.width),
+        height,
+        width,
         x: Math.floor(box.left),
         y: Math.floor(box.top)
       }
@@ -160,20 +176,28 @@ export function useHudCardMetrics(cardRef: RefObject<HTMLElement | null>, metric
     }
 
     const height = hudWindowHeight({
+      attachmentMenuOpen,
       bandMaxPx,
       barPx: card.querySelector<HTMLElement>(BAR_SELECTOR)?.offsetHeight ?? 0,
       contentPx: card.querySelector<HTMLElement>(TRANSCRIPT_SELECTOR)?.offsetHeight ?? 0,
+      modelMenuOpen,
       open
+    })
+
+    const width = hudWindowWidth({
+      attachmentMenuOpen,
+      modelMenuOpen
     })
 
     // Same reasoning as the region write above: an unchanged bucket still costs
     // a round trip and a compositor reconfigure.
-    if (height === lastHeight.current) {
+    if (height === lastHeight.current && width === lastWidth.current) {
       return
     }
 
     lastHeight.current = height
-    void resizeSatelliteWindow(height)
+    lastWidth.current = width
+    void resizeSatelliteWindow(height, width)
   }, [cardRef])
 
   // Coalesced through one animation frame, so a burst of mutations inside a

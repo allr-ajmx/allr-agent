@@ -222,7 +222,7 @@ const SATELLITES: &[SatelliteSpec] = &[
     // typed into from inside another application, which keeps its own focus.
     SatelliteSpec {
         surface: "hud",
-        width: 560.0,
+        width: 600.0,
         // Born as a bar. Everything below it is grown into by
         // `resize_satellite_window` as the conversation arrives (MJXHRM-438).
         height: HUD_COLLAPSED_HEIGHT,
@@ -411,6 +411,7 @@ pub async fn open_satellite_window(
     let (tx, rx) = oneshot::channel::<Result<SatelliteWindow, String>>();
     let app_main = app.clone();
     let label_main = label.clone();
+    let route_for_build = route.clone();
     app.run_on_main_thread(move || {
         let _ = tx.send(build_satellite(
             &app_main,
@@ -418,6 +419,7 @@ pub async fn open_satellite_window(
             &label_main,
             spec,
             url,
+            route_for_build.as_deref(),
             output.as_ref(),
         ));
     })
@@ -436,11 +438,17 @@ fn build_satellite(
     label: &str,
     spec: &SatelliteSpec,
     url: String,
+    route: Option<&str>,
     output: Option<&crate::surface::placement::FocusedOutput>,
 ) -> Result<SatelliteWindow, String> {
     if let Some(existing) = app.get_webview_window(label) {
-        // Already up: summoning it again brings it forward. The grant it was
-        // attached with is the one the frontend already wrote down.
+        // Already up: update route hash if one was requested, then bring it forward.
+        if let Some(r) = route {
+            let hash = satellite_route(Some(r));
+            if !hash.is_empty() {
+                let _ = existing.eval(&format!("window.location.hash = '{}';", hash));
+            }
+        }
         let _ = existing.unminimize();
         let _ = existing.show();
 
@@ -461,6 +469,7 @@ fn build_satellite(
         .decorations(false)
         .resizable(false)
         .always_on_top(true)
+        .shadow(false)
         // Every satellite is born hidden and shown at the end. A floating one
         // must be: a layer surface has to be configured before its GtkWindow is
         // realized. One with no role is too, so that it is moved onto the right
@@ -475,13 +484,7 @@ fn build_satellite(
         builder = builder.skip_taskbar(true);
     }
 
-    // `transparent` only exists on macOS behind `macos-private-api`, which this
-    // build does not take — so there, the card loses its rounded corners rather
-    // than the window failing to open.
-    #[cfg(not(target_os = "macos"))]
-    {
-        builder = builder.transparent(spec.transparent);
-    }
+    builder = builder.transparent(spec.transparent);
 
     let window = builder
         .build()
@@ -623,6 +626,7 @@ pub async fn resize_satellite_window(
     app: tauri::AppHandle,
     webview: tauri::WebviewWindow,
     height: f64,
+    width: Option<f64>,
 ) -> Result<f64, String> {
     let label = webview.label().to_string();
     let spec = satellite_surface_from_label(&label)
@@ -637,7 +641,7 @@ pub async fn resize_satellite_window(
         .max_height
         .ok_or_else(|| format!("{surface} is a fixed-size satellite and may not be resized"))?;
 
-    let width = spec.width;
+    let base_width = spec.width;
     let min = spec.height;
     let top_margin = f64::from(spec.top_margin.unwrap_or(0));
 
@@ -660,11 +664,12 @@ pub async fn resize_satellite_window(
             f64::from(area.size.height) / scale - top_margin - SATELLITE_BOTTOM_GUTTER
         });
 
-        let applied = satellite_growth_height(min, max, height, available);
+        let applied_height = satellite_growth_height(min, max, height, available);
+        let applied_width = width.unwrap_or(base_width).max(base_width);
 
-        // The top edge, captured BEFORE the resize and put back after. A no-op
-        // on GTK and on Windows, which size from the top-left; the whole point
-        // on macOS, which sizes from the bottom-left.
+        // The top edge, captured BEFORE the resize and put back after on platforms
+        // where it is needed. On macOS, Tauri's `set_size` handles top-left anchoring.
+        #[cfg(not(target_os = "macos"))]
         let anchor = window.outer_position().ok();
 
         // GTK pins WM size hints to `min == max == current` on a window built
@@ -677,12 +682,16 @@ pub async fn resize_satellite_window(
         let _ = window.set_resizable(true);
 
         let result = window
-            .set_size(tauri::LogicalSize::new(width, applied))
+            .set_size(tauri::LogicalSize::new(applied_width, applied_height))
             .map_err(|e| format!("could not resize {surface}: {e}"));
 
         #[cfg(target_os = "linux")]
         let _ = window.set_resizable(false);
 
+        // On macOS, Tauri's native `set_size` implementation already anchors the
+        // top-left origin. Calling `set_position` after `set_size` on macOS creates
+        // a 2px coordinate conversion rounding jitter between Physical and Logical pixels.
+        #[cfg(not(target_os = "macos"))]
         if let Some(position) = anchor {
             // Refused on a plain Wayland toplevel, which is not ours to fix and
             // not ours to report: a client there cannot position itself at all,
@@ -690,7 +699,7 @@ pub async fn resize_satellite_window(
             let _ = window.set_position(position);
         }
 
-        let _ = tx.send(result.map(|()| applied));
+        let _ = tx.send(result.map(|()| applied_height));
     })
     .map_err(|e| format!("failed to schedule resize: {e}"))?;
 
@@ -701,8 +710,64 @@ pub async fn resize_satellite_window(
 /// Mobile stub — see [`open_satellite_window`]'s.
 #[cfg(mobile)]
 #[tauri::command]
-pub async fn resize_satellite_window(_height: f64) -> Result<f64, String> {
+pub async fn resize_satellite_window(_height: f64, _width: Option<f64>) -> Result<f64, String> {
     Err("unsupported_platform".to_string())
+}
+
+/// Hide a satellite window (e.g. the HUD) so it stays warm in the background.
+#[cfg(desktop)]
+#[tauri::command]
+pub async fn hide_satellite_window(app: tauri::AppHandle, surface: String) -> Result<(), String> {
+    use tauri::Emitter;
+
+    let spec = satellite_spec(&surface)
+        .ok_or_else(|| format!("refusing to hide {surface}: not a registered satellite"))?;
+    let label = format!("sat-{}", spec.surface);
+
+    let (tx, rx) = oneshot::channel::<Result<(), String>>();
+    let app_main = app.clone();
+    let label_main = label.clone();
+
+    app.run_on_main_thread(move || {
+        let result = if let Some(window) = app_main.get_webview_window(&label_main) {
+            window.hide().map_err(|e| e.to_string())
+        } else {
+            Ok(())
+        };
+        let _ = app_main.emit(SATELLITE_WINDOW_CLOSED_EVENT, label_main);
+        let _ = tx.send(result);
+    })
+    .map_err(|e| format!("failed to schedule hide: {e}"))?;
+
+    rx.await.map_err(|_| "failed to hide window".to_string())?
+}
+
+/// Mobile stub
+#[cfg(mobile)]
+#[tauri::command]
+pub async fn hide_satellite_window(_surface: String) -> Result<(), String> {
+    Err("unsupported_platform".to_string())
+}
+
+/// Check whether a satellite window is currently open AND visible on screen.
+#[cfg(desktop)]
+#[tauri::command]
+pub fn is_satellite_window_visible(app: tauri::AppHandle, surface: String) -> Result<bool, String> {
+    let spec = satellite_spec(&surface).ok_or_else(|| format!("unknown satellite: {surface}"))?;
+    let label = format!("sat-{}", spec.surface);
+
+    if let Some(window) = app.get_webview_window(&label) {
+        window.is_visible().map_err(|e| e.to_string())
+    } else {
+        Ok(false)
+    }
+}
+
+/// Mobile stub
+#[cfg(mobile)]
+#[tauri::command]
+pub fn is_satellite_window_visible(_surface: String) -> Result<bool, String> {
+    Ok(false)
 }
 
 /// Build a frameless window for `url` under `label`, or focus the existing one

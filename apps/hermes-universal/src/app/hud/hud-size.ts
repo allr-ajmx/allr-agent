@@ -18,7 +18,7 @@
 /** The bar and nothing else. Must match `HUD_COLLAPSED_HEIGHT` in
  *  `src-tauri/src/window.rs`, which is the floor Rust clamps to and the size the
  *  window is born at. */
-export const HUD_BAR_HEIGHT_PX = 88
+export const HUD_BAR_HEIGHT_PX = 88 
 
 /** Must match `HUD_MAX_HEIGHT` in `src-tauri/src/window.rs`. Rust re-clamps and
  *  is authoritative; this end knows the cap only so it stops ASKING once there
@@ -36,10 +36,10 @@ export const HUD_MAX_HEIGHT_PX = 520
  */
 export const HUD_HEIGHT_STEP_PX = 8
 
-/** Panel border (2px) plus the 0.5rem gap between it and the bar — the part of
+/** Panel border (2px) plus the 0.625rem gap between it and the bar — the part of
  *  the panel that is not transcript. Mirrors the `[data-slot='thread-root']`
  *  rule in `styles.css`. */
-const PANEL_CHROME_PX = 10
+const PANEL_CHROME_PX = 12
 
 /**
  * The response panel never takes more than this much of the screen. Raised from
@@ -48,6 +48,11 @@ const PANEL_CHROME_PX = 10
  */
 export const HUD_BAND_MAX_PX = 336
 export const HUD_BAND_MAX_FRACTION = 0.5
+
+/** Minimum vertical room reserved when a composer dropdown menu (model, attachment) is open. */
+export const HUD_DROPDOWN_MENU_HEIGHT_PX = 360
+export const HUD_MODEL_MENU_HEIGHT_PX = HUD_DROPDOWN_MENU_HEIGHT_PX
+export const HUD_ATTACHMENT_MENU_HEIGHT_PX = HUD_DROPDOWN_MENU_HEIGHT_PX
 
 /**
  * `--hud-band-max` for a screen this tall.
@@ -72,6 +77,10 @@ export interface HudHeightInput {
   barPx: number
   /** Natural height of the transcript, ignoring how much of it is on screen. */
   contentPx: number
+  /** Whether the composer attachment/context menu dropdown is currently open. */
+  attachmentMenuOpen?: boolean
+  /** Whether the composer model selector dropdown is currently open. */
+  modelMenuOpen?: boolean
   /** Whether the response panel is showing at all. */
   open: boolean
 }
@@ -83,7 +92,14 @@ export interface HudHeightInput {
  * has not been laid out yet reports 0 for every box, and a HUD that shrank to
  * zero on its first frame would be an invisible window holding the keyboard.
  */
-export function hudWindowHeight({ bandMaxPx, barPx, contentPx, open }: HudHeightInput): number {
+export function hudWindowHeight({
+  attachmentMenuOpen,
+  bandMaxPx,
+  barPx,
+  contentPx,
+  modelMenuOpen,
+  open
+}: HudHeightInput): number {
   const bar = Number.isFinite(barPx) ? Math.max(barPx, 0) : 0
   const content = Number.isFinite(contentPx) ? Math.max(contentPx, 0) : 0
   const cap = Number.isFinite(bandMaxPx) ? Math.max(bandMaxPx, 0) : 0
@@ -91,7 +107,25 @@ export function hudWindowHeight({ bandMaxPx, barPx, contentPx, open }: HudHeight
   // Collapsed, the transcript's height is not merely ignored — it must be, or
   // the window would stay at the size of a conversation the user has hidden.
   const panel = open ? Math.min(content + PANEL_CHROME_PX, cap) : 0
-  const stepped = Math.round((bar + panel) / HUD_HEIGHT_STEP_PX) * HUD_HEIGHT_STEP_PX
+  const baseHeight = bar + panel
+  const menuOpen = modelMenuOpen || attachmentMenuOpen
+  const menuHeight = menuOpen ? Math.min(bar + HUD_DROPDOWN_MENU_HEIGHT_PX, HUD_MAX_HEIGHT_PX) : 0
+  const target = Math.max(baseHeight, menuHeight)
+  const stepped = Math.ceil(target / HUD_HEIGHT_STEP_PX) * HUD_HEIGHT_STEP_PX
 
   return Math.min(Math.max(stepped, HUD_BAR_HEIGHT_PX), HUD_MAX_HEIGHT_PX)
+}
+
+/** Full width of the HUD window. Must match `SatelliteSpec.width` in `src-tauri/src/window.rs`. */
+export const HUD_WIDTH_PX = 600 
+export const HUD_BASE_WIDTH_PX = HUD_WIDTH_PX
+export const HUD_EXPANDED_WIDTH_PX = HUD_WIDTH_PX
+
+export interface HudWidthInput {
+  attachmentMenuOpen?: boolean
+  modelMenuOpen?: boolean
+}
+
+export function hudWindowWidth(_input?: HudWidthInput): number {
+  return HUD_WIDTH_PX
 }

@@ -17,16 +17,22 @@ import { GlyphSpinner } from '@/components/ui/glyph-spinner'
 import { useI18n } from '@/i18n'
 import { chatMessageText } from '@/lib/chat-messages'
 import { ChevronDown, ChevronUp } from '@/lib/icons'
+import { IS_TAURI } from '@/lib/platform'
 import { navigateTo } from '@/lib/route-nav'
 import { useStore } from '@/store/atom'
 import { $busy, $messages } from '@/store/chat'
+import { $attachmentMenuDropdownOpen } from '@/store/composer'
 import { $connectionError, $connectionPhase } from '@/store/connection'
 import { $activeStoredSessionId, lastOpenedSessionId, openSession, refreshSessions } from '@/store/session'
+import { $modelMenuDropdownOpen } from '@/store/model'
 import { showAppWindow } from '@/store/windows'
+
+import { cn } from '@/lib/utils'
 
 import { reportHudSession } from './handoff'
 import { closeHud } from './hud'
 import { hudBandMax } from './hud-size'
+import { useHudDrag } from './use-hud-drag'
 import { useHudCardMetrics, useHudGrant, useTransparentDocument } from './use-hud-surface'
 
 /** How long the panel stays fully legible after the last thing the agent said.
@@ -80,7 +86,7 @@ function useRecentActivity(): boolean {
  */
 function HudPlaceholderBar({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex min-h-14 w-full items-center gap-2 rounded-2xl border border-(--ui-stroke-tertiary) bg-(--ui-chat-surface-background) px-4 py-3 text-xs text-(--ui-text-tertiary)">
+    <div className="flex w-full items-center gap-2 rounded-full border border-(--ui-stroke-tertiary) bg-(--ui-chat-surface-background) px-4 py-3 text-xs text-(--ui-text-tertiary)">
       {children}
     </div>
   )
@@ -111,18 +117,11 @@ function HudSurface() {
   // part that may take input; a card-sized window is interactive by definition.
   const outputSized = grant?.outputSized ?? false
 
-  // Resolved ONCE, from the route this window was built on. Deliberately not
-  // `useRestoreLastSession()`: that hook's `done.current` latch means "once per
-  // launch", and in a window that is rebuilt on every summon those same words
-  // quietly become "once per summon" — the same sentence, a different
-  // guarantee. What is shared with it is the DECISION, in `session-landing.ts`.
-  const [landing] = useState<SessionLanding>(() => resolveSessionLanding(pathname, lastOpenedSessionId()))
-
-  // The route stays the single representation of "which conversation this window
-  // is on" — it is what `reportHudSession` hands back to the summoner — so a
-  // remembered landing is only a seed until the resume navigates onto it.
+  // When summoned on root (`#/`), HUD always starts a fresh new session rather
+  // than resuming the main app's last opened conversation.
   const routeId = routeSessionId(pathname)
-  const targetId = routeId ?? (landing.kind === 'remembered' ? landing.id : null)
+  const [landing] = useState<SessionLanding>(() => (routeId ? { id: routeId, kind: 'route' } : { kind: 'new' }))
+  const targetId = routeId
 
   const pathnameRef = useRef(pathname)
   pathnameRef.current = pathname
@@ -134,9 +133,11 @@ function HudSurface() {
   const open = messages.length > 0 && !collapsedByUser
 
   const bandMaxPx = useMemo(() => hudBandMax(window.screen?.availHeight || window.innerHeight), [])
+  const modelMenuOpen = useStore($modelMenuDropdownOpen)
+  const attachmentMenuOpen = useStore($attachmentMenuDropdownOpen)
 
   useTransparentDocument(true)
-  useHudCardMetrics(cardRef, { bandMaxPx, open, outputSized })
+  useHudCardMetrics(cardRef, { attachmentMenuOpen, bandMaxPx, modelMenuOpen, open, outputSized })
 
   // Resume the conversation this window was summoned onto. Same shape as the
   // tile window's: the session list has to land before the title resolves, and a
@@ -228,21 +229,26 @@ function HudSurface() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
+  const { commandHeld, onPointerDown: onHudPointerDown } = useHudDrag()
+
   return (
     <SidebarProvider>
       <div
-        className={
+        className={cn(
           outputSized
-            ? 'pointer-events-none flex h-full w-full justify-center bg-transparent'
-            : 'flex h-full w-full flex-col bg-transparent'
-        }
+            ? 'pointer-events-auto flex h-full w-full justify-center bg-transparent'
+            : 'flex h-full w-full flex-col bg-transparent',
+          commandHeld && 'cursor-grab active:cursor-grabbing select-none'
+        )}
+        data-command-held={commandHeld ? '' : undefined}
         data-hud-engaged={engaged ? '' : undefined}
         data-hud-root
+        onPointerDown={onHudPointerDown}
       >
         <div
           className={
             outputSized
-              ? 'group/hud pointer-events-auto relative flex max-h-full w-[35rem] max-w-full flex-col bg-transparent'
+              ? 'group/hud pointer-events-auto relative flex max-h-full w-[37.5rem] max-w-full flex-col bg-transparent'
               : 'group/hud relative flex h-full min-h-0 w-full flex-col bg-transparent'
           }
           data-hud-band-state={open ? 'open' : 'collapsed'}

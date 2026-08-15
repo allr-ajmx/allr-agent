@@ -68,9 +68,9 @@ use voice::{
     voice_wake_listen, VoiceState,
 };
 use window::{
-    close_this_window, hide_this_window, open_instance_window, open_satellite_window,
-    open_screen_window, open_session_window, open_tile_window, resize_satellite_window,
-    show_app_window,
+    close_this_window, hide_satellite_window, hide_this_window, is_satellite_window_visible,
+    open_instance_window, open_satellite_window, open_screen_window, open_session_window,
+    open_tile_window, resize_satellite_window, show_app_window,
 };
 
 /// Open a URL in the system browser. Routed through the opener plugin's Rust API
@@ -288,6 +288,8 @@ pub fn run() {
             open_tile_window,
             open_screen_window,
             open_satellite_window,
+            hide_satellite_window,
+            is_satellite_window_visible,
             resize_satellite_window,
             update_check,
             update_open_download,

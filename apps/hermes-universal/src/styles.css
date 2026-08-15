@@ -337,6 +337,8 @@
   --radius-2xl: calc(var(--radius-scalar) * 1.5rem);
   --radius-3xl: calc(var(--radius-scalar) * 2rem);
   --radius-4xl: calc(var(--radius-scalar) * 2.5rem);
+  --radius-5xl: calc(var(--radius-scalar) * 3rem);
+  --radius-6xl: calc(var(--radius-scalar) * 3.5rem);
 
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
@@ -2711,10 +2713,40 @@ html[data-hud] [data-slot='composer-root'] {
   inset: auto;
   /* Tailwind v4 emits `-translate-x-1/2` as the `translate` PROPERTY rather
      than as a `transform` function, so this really does undo it. */
-  translate: none;
-  width: 100%;
-  max-width: none;
-  padding: 0;
+  translate: none !important;
+  width: 100% !important;
+  max-width: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  border-radius: var(--radius-6xl, 3rem);
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+html[data-hud] [data-slot='composer-surface'] {
+  border: none !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  outline: none !important;
+}
+
+html[data-hud] [data-slot='composer-fade'] {
+  padding-inline: 1rem !important;
+  padding-block: 0.375rem !important;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+html[data-hud] [data-slot='composer-rich-input'] {
+  padding-inline-start: 0.5rem !important;
+  padding-inline-end: 0.5rem !important;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  outline: none !important;
 }
 
 /* The response panel: a second rounded card BELOW the bar. Collapsed to nothing
@@ -2726,10 +2758,11 @@ html[data-hud] [data-slot='composer-root'] {
    height. It has been computed there since the feature shipped and, until this
    ticket, read by nothing. */
 html[data-hud] [data-slot='thread-root'] {
-  margin-block-start: 0.5rem;
-  border-radius: 0.875rem;
-  border: 1px solid var(--ui-stroke-tertiary);
-  background: color-mix(in srgb, var(--ui-chat-surface-background) 92%, transparent);
+  margin-block-start: 0.625rem;
+  border-radius: var(--radius-6xl, 3rem);
+  border: none !important;
+  box-shadow: none !important;
+  background: transparent !important;
   max-block-size: var(--hud-band-max, 21rem);
   overflow: hidden;
   transition:
@@ -2748,16 +2781,17 @@ html[data-hud] [data-hud-band-state='collapsed'] [data-slot='thread-root'] {
   pointer-events: none;
 }
 
-/* Open but idle: a glance rather than a window. Reveal is faster than the fade
-   out — a reveal answers the user, a fade is the surface getting out of the
-   way — and the caret in the composer means asking to read it, which is an
-   answerable request. */
+/* Open state: stay fully visible when open, focused, hovered, or selecting text in the thread */
 html[data-hud] [data-hud-band-state='open'] [data-slot='thread-root'] {
-  opacity: 0.62;
+  opacity: 1;
 }
 
 html[data-hud] [data-hud-engaged] [data-hud-band-state='open'] [data-slot='thread-root'],
-html[data-hud] [data-hud-card]:has([data-slot='composer-rich-input']:focus) [data-slot='thread-root'] {
+html[data-hud] [data-hud-card]:has([data-slot='composer-rich-input']:focus) [data-slot='thread-root'],
+html[data-hud] [data-hud-card]:focus-within [data-slot='thread-root'],
+html[data-hud] [data-hud-card]:hover [data-slot='thread-root'],
+html[data-hud] [data-slot='thread-root']:focus-within,
+html[data-hud] [data-slot='thread-root']:hover {
   opacity: 1;
   transition-duration: 180ms, 110ms;
 }
@@ -2807,11 +2841,128 @@ html[data-hud] .thread-jump-button {
   display: none !important;
 }
 
+/* User and AI message styling in HUD mode: compact, clean flow */
+html[data-hud] [data-slot='aui_user-message-root'] {
+  background: transparent !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  width: 100% !important;
+  position: static !important;
+}
+
+html[data-hud] .composer-human-message {
+  background: transparent !important;
+  border: none !important;
+  padding: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+html[data-hud] [data-slot='aui_assistant-message-content'] {
+  padding-inline-start: 0 !important;
+  padding-inline-end: 0 !important;
+}
+
+html[data-hud] [data-slot='aui_assistant-message-root'] {
+  padding-inline: 0 !important;
+}
+
+html[data-hud] [data-slot='aui_thread-viewport'] {
+  scroll-padding-top: 1.125rem;
+}
+
+html[data-hud] [data-slot='aui_thread-content'] {
+  padding-inline: 1.25rem !important;
+  padding-block-start: 1.125rem !important;
+  padding-block-end: 1rem !important;
+}
+
+/* User edit composer styling in HUD mode: transparent, no container background */
+html[data-hud] .composer-human-message-container,
+html[data-hud] [data-slot='aui_edit-composer-root'] .composer-human-message-container {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+
+html[data-hud] [data-slot='aui_edit-composer-root'] .ui-prompt-input__container {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  max-height: none !important;
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: flex-start !important;
+}
+
+html[data-hud] [data-slot='aui_edit-composer-root'] .ui-prompt-input-editor__input {
+  padding: 0 !important;
+  padding-inline-end: 2rem !important;
+  background: transparent !important;
+  line-height: 1.5rem !important;
+  min-height: 1.5rem !important;
+  flex: 1 1 auto !important;
+}
+
+html[data-hud] [data-slot='aui_edit-composer-root'] button {
+  inset-inline-end: 0 !important;
+  top: 0 !important;
+  bottom: auto !important;
+  height: 1.5rem !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+/* Prompt chevron prefix (codicon-chevron-right) in front of user message in HUD thread root (both read-only & edit mode) */
+html[data-hud] [data-slot='aui_user-inline-text']:first-child::before {
+  content: '\eab6';
+  font-family: codicon, sans-serif;
+  color: var(--color-primary, var(--dt-primary));
+  font-size: 0.95rem;
+  font-weight: 400;
+  line-height: 1;
+  display: inline-block;
+  vertical-align: -0.12em;
+  margin-inline-end: 0.35rem;
+}
+
+html[data-hud] [data-slot='aui_edit-composer-root'] .ui-prompt-input__container::before {
+  content: '\eab6';
+  font-family: codicon, sans-serif;
+  color: var(--color-primary, var(--dt-primary));
+  font-size: 0.95rem;
+  font-weight: 400;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 1.5rem;
+  margin-inline-end: 0.35rem;
+  flex-shrink: 0;
+}
+
+/* Remove highlight/selection background when the user prompt is selected in HUD mode */
+html[data-hud] [data-slot='aui_user-message-root'] *::selection,
+html[data-hud] [data-slot='aui_user-message-root']::selection,
+html[data-hud] [data-slot='aui_edit-composer-root'] *::selection,
+html[data-hud] [data-slot='aui_edit-composer-root']::selection {
+  background: transparent !important;
+  color: inherit !important;
+}
+
 /* Tailwind's backdrop-blur utilities inside the composer tree paint as visible
    halos on a genuinely transparent window instead of disappearing the way they
    do over an opaque app background. */
-html[data-hud] [data-hud-card] * {
+html[data-hud] [data-hud-card] *,
+html[data-hud] [data-hud-card] {
   backdrop-filter: none !important;
+  box-shadow: none !important;
+  text-shadow: none !important;
 }
 
 /* ---------------------------------------------------------------------------
