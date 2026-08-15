@@ -67,7 +67,8 @@ use voice::{
 };
 use window::{
     close_this_window, hide_this_window, open_instance_window, open_satellite_window,
-    open_screen_window, open_session_window, open_tile_window, show_app_window,
+    open_screen_window, open_session_window, open_tile_window, resize_satellite_window,
+    show_app_window,
 };
 
 /// Open a URL in the system browser. Routed through the opener plugin's Rust API
@@ -279,6 +280,7 @@ pub fn run() {
             open_tile_window,
             open_screen_window,
             open_satellite_window,
+            resize_satellite_window,
             update_check,
             update_open_download,
             ssh_connect,

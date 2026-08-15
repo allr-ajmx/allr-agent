@@ -152,7 +152,18 @@ struct SatelliteSpec {
     /// Surface id: the `?win=` flag, and the `sat-<id>` label suffix.
     surface: &'static str,
     width: f64,
+    /// The height the window is BORN at. For a satellite that may grow
+    /// ([`max_height`](SatelliteSpec::max_height)) this is also the floor a
+    /// resize may never go below.
     height: f64,
+    /// How tall this satellite may grow, or `None` for one whose size is fixed
+    /// for its whole life.
+    ///
+    /// `None` is the refusal in [`resize_satellite_window`], not a default: a
+    /// satellite that never asked to grow calling that command is a bug in the
+    /// caller, and answering `Ok` to it would hide the bug behind a window that
+    /// simply never changed size.
+    max_height: Option<f64>,
     transparent: bool,
     /// How far down the active monitor the window sits, in logical pixels;
     /// `None` centres it vertically. Only reached on the platforms that can
@@ -198,6 +209,26 @@ struct FloatingSpec {
 #[cfg(desktop)]
 const HUD_TOP_MARGIN: i32 = 96;
 
+/// The HUD at rest: an input bar and nothing else (MJXHRM-438). It used to be
+/// born 260px tall, which is a small chat window — the shape the whole redesign
+/// exists to stop being.
+///
+/// A multiple of the frontend's 8px growth bucket (`app/hud/hud-size.ts`), so
+/// the first measured report after the window paints does not immediately ask
+/// for a different height than the one it was built at.
+#[cfg(desktop)]
+const HUD_COLLAPSED_HEIGHT: f64 = 88.0;
+
+/// How tall the HUD may grow once a reply is streaming into the panel below the
+/// bar. Also a multiple of 8.
+#[cfg(desktop)]
+const HUD_MAX_HEIGHT: f64 = 520.0;
+
+/// Room left between the bottom of a grown satellite and the bottom of the work
+/// area, so growth never runs the window off the screen it was placed on.
+#[cfg(desktop)]
+const SATELLITE_BOTTOM_GUTTER: f64 = 24.0;
+
 /// Every satellite the app has. A surface not in here cannot be opened, and
 /// therefore cannot be attached.
 #[cfg(desktop)]
@@ -207,7 +238,10 @@ const SATELLITES: &[SatelliteSpec] = &[
     SatelliteSpec {
         surface: "hud",
         width: 560.0,
-        height: 260.0,
+        // Born as a bar. Everything below it is grown into by
+        // `resize_satellite_window` as the conversation arrives (MJXHRM-438).
+        height: HUD_COLLAPSED_HEIGHT,
+        max_height: Some(HUD_MAX_HEIGHT),
         transparent: true,
         top_margin: Some(HUD_TOP_MARGIN),
         floating: Some(FloatingSpec {
@@ -226,6 +260,9 @@ const SATELLITES: &[SatelliteSpec] = &[
         surface: "quick",
         width: 640.0,
         height: 168.0,
+        // One sentence and gone. Quick Entry has nothing to grow INTO — it
+        // renders no transcript — so a resize request from it is a mistake.
+        max_height: None,
         transparent: true,
         // Centred on the active monitor, which is where a window manager left
         // to itself would put it on a single screen — the difference this makes
@@ -251,6 +288,9 @@ const SATELLITES: &[SatelliteSpec] = &[
         // toplevel; a layer surface is output-sized and the CSS centres it.
         width: WAKE_INDICATOR_WIDTH,
         height: WAKE_INDICATOR_HEIGHT,
+        // A light is one size. It also takes no clicks and no focus, so nothing
+        // in it could ask.
+        max_height: None,
         transparent: true,
         // Top of the screen. `place_on_active_monitor` works in the WORK AREA,
         // so on macOS this sits directly under the menu bar rather than in the
@@ -281,6 +321,30 @@ const WAKE_INDICATOR_HEIGHT: f64 = 52.0;
 #[cfg(desktop)]
 fn satellite_spec(surface: &str) -> Option<&'static SatelliteSpec> {
     SATELLITES.iter().find(|spec| spec.surface == surface)
+}
+
+/// The surface a satellite LABEL names, or `None` for any other window.
+///
+/// The inverse of the `sat-{surface}` labels [`build_satellite`] mints, and the
+/// one way a command may learn which satellite is calling it: the caller's label
+/// comes from the runtime rather than from the webview, so resolving through
+/// here is what keeps a satellite command from being told which window to act
+/// on. Mirrors `satelliteSurfaceFromLabel` in `src/store/windows.ts`.
+#[cfg(desktop)]
+fn satellite_surface_from_label(label: &str) -> Option<&str> {
+    let surface = label.strip_prefix("sat-")?;
+
+    // `sat-` alone, or anything with a second segment, is not a surface name —
+    // the same shape the frontend's `satelliteLabel` regex accepts.
+    if surface.is_empty()
+        || !surface
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+    {
+        return None;
+    }
+
+    Some(surface)
 }
 
 /// What the caller gets back: the window's label, and what the platform granted
@@ -517,6 +581,142 @@ fn build_satellite(
 #[cfg(mobile)]
 #[tauri::command]
 pub async fn open_satellite_window(_surface: String, _route: Option<String>) -> Result<(), String> {
+    Err("unsupported_platform".to_string())
+}
+
+/// The height a satellite may actually take, given what it asked for.
+///
+/// Pure, and separated from the window call for the reason every clamp in this
+/// file is: the arithmetic is the part that can be wrong in a way no compile or
+/// `cargo check` would notice, and it is not observable from a running app
+/// either — a window that stopped growing looks the same whether the cap was
+/// applied correctly or the request was dropped.
+///
+/// `available` is how much room is left below the window's top edge on the
+/// monitor it sits on, or `None` when that could not be asked. It can be
+/// SMALLER than `min` on a short screen; the floor still wins, because a window
+/// too short to draw its own input bar is worse than one that overhangs.
+#[cfg(desktop)]
+fn satellite_growth_height(min: f64, max: f64, requested: f64, available: Option<f64>) -> f64 {
+    // A non-finite request is a `NaN`/`Infinity` that crossed IPC from JS.
+    // `clamp` panics on a NaN bound and silently propagates a NaN value, so it
+    // is refused here rather than turned into a window size.
+    if !requested.is_finite() {
+        return min;
+    }
+
+    let ceiling = available
+        .filter(|a| a.is_finite())
+        .map_or(max, |a| max.min(a))
+        // Never below the floor: the registry's own `height` is the smallest
+        // this window is ever allowed to be.
+        .max(min);
+
+    requested.clamp(min, ceiling)
+}
+
+/// Grow or shrink the CALLING satellite's window (MJXHRM-438).
+///
+/// **No label crosses IPC.** The caller is resolved from `webview.label()`
+/// against [`SATELLITES`], exactly as [`open_satellite_window`] resolves what it
+/// is allowed to build (MJXHRM-382) — `core:window:allow-set-size` is
+/// deliberately absent from `capabilities/default.json`, and it would take the
+/// label of any window as an argument.
+///
+/// The width never changes and the window is never MOVED by the resize, so it
+/// grows DOWNWARD from a fixed top edge — which is the whole visual contract of
+/// a spotlight bar that answers underneath itself. The position is captured and
+/// restored around the call because that is not free everywhere: AppKit sizes a
+/// window from its bottom-left origin, so a naive `set_size` there would push
+/// the bar UP the screen as the answer arrived.
+///
+/// Answers with the height actually applied, after clamping — the caller needs
+/// it to know that further growth is pointless.
+#[cfg(desktop)]
+#[tauri::command]
+pub async fn resize_satellite_window(
+    app: tauri::AppHandle,
+    webview: tauri::WebviewWindow,
+    height: f64,
+) -> Result<f64, String> {
+    let label = webview.label().to_string();
+    let spec = satellite_surface_from_label(&label)
+        .and_then(satellite_spec)
+        .ok_or_else(|| format!("refusing to resize {label}: it is not a registered satellite"))?;
+    let surface = spec.surface;
+
+    // A satellite with no cap never asked to grow. Silence here would hide a
+    // real bug in whichever surface called: the window would simply never
+    // change size, which is indistinguishable from a compositor ignoring us.
+    let max = spec
+        .max_height
+        .ok_or_else(|| format!("{surface} is a fixed-size satellite and may not be resized"))?;
+
+    let width = spec.width;
+    let min = spec.height;
+    let top_margin = f64::from(spec.top_margin.unwrap_or(0));
+
+    let (tx, rx) = oneshot::channel::<Result<f64, String>>();
+    let app_main = app.clone();
+
+    app.run_on_main_thread(move || {
+        let Some(window) = app_main.get_webview_window(&label) else {
+            let _ = tx.send(Err("window went away".to_string()));
+
+            return;
+        };
+
+        // How much room is left below the top edge on the monitor this window is
+        // actually on. Physical, so it is converted to the logical pixels the
+        // registry and `set_size` below both work in.
+        let available = window.current_monitor().ok().flatten().map(|monitor| {
+            let area = monitor.work_area();
+            let scale = monitor.scale_factor();
+            f64::from(area.size.height) / scale - top_margin - SATELLITE_BOTTOM_GUTTER
+        });
+
+        let applied = satellite_growth_height(min, max, height, available);
+
+        // The top edge, captured BEFORE the resize and put back after. A no-op
+        // on GTK and on Windows, which size from the top-left; the whole point
+        // on macOS, which sizes from the bottom-left.
+        let anchor = window.outer_position().ok();
+
+        // GTK pins WM size hints to `min == max == current` on a window built
+        // `.resizable(false)` — which every satellite is — so `set_size` on one
+        // is SILENTLY IGNORED there. Opening the hints for the duration of the
+        // call is the only way a non-resizable GTK window can be resized by its
+        // own application, and it is scoped to the call so the user still cannot
+        // drag the HUD's edges.
+        #[cfg(target_os = "linux")]
+        let _ = window.set_resizable(true);
+
+        let result = window
+            .set_size(tauri::LogicalSize::new(width, applied))
+            .map_err(|e| format!("could not resize {surface}: {e}"));
+
+        #[cfg(target_os = "linux")]
+        let _ = window.set_resizable(false);
+
+        if let Some(position) = anchor {
+            // Refused on a plain Wayland toplevel, which is not ours to fix and
+            // not ours to report: a client there cannot position itself at all,
+            // and the compositor keeps the window where it put it.
+            let _ = window.set_position(position);
+        }
+
+        let _ = tx.send(result.map(|()| applied));
+    })
+    .map_err(|e| format!("failed to schedule resize: {e}"))?;
+
+    rx.await
+        .map_err(|_| "failed to resize window".to_string())?
+}
+
+/// Mobile stub — see [`open_satellite_window`]'s.
+#[cfg(mobile)]
+#[tauri::command]
+pub async fn resize_satellite_window(_height: f64) -> Result<f64, String> {
     Err("unsupported_platform".to_string())
 }
 
@@ -1085,6 +1285,144 @@ mod tests {
                 spec.surface != "wake",
                 "{} focusable",
                 spec.surface
+            );
+        }
+    }
+
+    /// Growth is a privilege, not a default (MJXHRM-438). Asserted over the
+    /// whole registry, like `only_the_wake_light_is_click_through` above, so a
+    /// new satellite has to decide deliberately rather than inherit whatever
+    /// the entry above it happened to say.
+    ///
+    /// The HUD may grow because it answers underneath its own input bar. Quick
+    /// Entry is one sentence and gone, and the wake light is a light — for both
+    /// of them `resize_satellite_window` is an `Err`, and that refusal is what
+    /// makes a stray call visible instead of silently doing nothing.
+    #[test]
+    fn only_the_hud_may_grow() {
+        for spec in SATELLITES {
+            assert_eq!(
+                spec.max_height.is_some(),
+                spec.surface == "hud",
+                "{} max_height",
+                spec.surface
+            );
+
+            // A cap below the floor would make `satellite_growth_height`'s
+            // ceiling the floor, so the window could never grow at all — and on
+            // a bare `clamp` it would panic.
+            if let Some(max) = spec.max_height {
+                assert!(
+                    max > spec.height,
+                    "{} may grow, so its cap must be above the height it is born at",
+                    spec.surface
+                );
+            }
+        }
+    }
+
+    /// The HUD is born as an INPUT BAR. It used to open 260px tall, which is a
+    /// small chat window with a header, a transcript and a docked composer —
+    /// the exact shape MJXHRM-438 exists to stop being. The number is also the
+    /// floor a resize may never go below, so a HUD that shrank past its own bar
+    /// would be a window with nothing drawable in it.
+    #[test]
+    fn the_hud_opens_at_bar_height() {
+        let spec = satellite_spec("hud").expect("the hud is registered");
+
+        assert_eq!(spec.height, HUD_COLLAPSED_HEIGHT);
+        assert!(
+            spec.height < HUD_MAX_HEIGHT,
+            "a bar that opens at its own cap can never grow"
+        );
+        // Both ends are multiples of the frontend's 8px growth bucket
+        // (`app/hud/hud-size.ts`), so the first measured report after the window
+        // paints does not immediately ask for a height it was already at.
+        assert_eq!(HUD_COLLAPSED_HEIGHT % 8.0, 0.0);
+        assert_eq!(HUD_MAX_HEIGHT % 8.0, 0.0);
+    }
+
+    /// The arithmetic behind every resize. Not observable from a running app —
+    /// a window that stopped growing looks identical whether the cap was
+    /// applied or the request was dropped — so it is pinned here.
+    #[test]
+    fn a_growth_request_is_held_between_the_bar_and_the_cap() {
+        // Ordinary growth passes through untouched.
+        assert_eq!(satellite_growth_height(88.0, 520.0, 300.0, None), 300.0);
+        // Above the cap, and below the bar.
+        assert_eq!(satellite_growth_height(88.0, 520.0, 9999.0, None), 520.0);
+        assert_eq!(satellite_growth_height(88.0, 520.0, 1.0, None), 88.0);
+        assert_eq!(satellite_growth_height(88.0, 520.0, -400.0, None), 88.0);
+    }
+
+    /// A short screen lowers the ceiling below the registry's cap — but never
+    /// below the bar. A HUD too short to draw its own input is worse than one
+    /// that overhangs the work area by a few pixels.
+    #[test]
+    fn a_short_screen_lowers_the_ceiling_but_not_the_floor() {
+        assert_eq!(
+            satellite_growth_height(88.0, 520.0, 500.0, Some(300.0)),
+            300.0
+        );
+        assert_eq!(
+            satellite_growth_height(88.0, 520.0, 500.0, Some(40.0)),
+            88.0,
+            "a screen shorter than the bar still gets the whole bar"
+        );
+        // A roomier screen than the cap does not raise the cap.
+        assert_eq!(
+            satellite_growth_height(88.0, 520.0, 9999.0, Some(4000.0)),
+            520.0
+        );
+    }
+
+    /// `NaN` and `Infinity` are ordinary JS numbers and this command takes an
+    /// `f64` straight off the IPC boundary. `f64::clamp` PANICS on a NaN bound
+    /// and propagates a NaN value, and a NaN window height is a size nobody can
+    /// see the wrongness of.
+    #[test]
+    fn a_nonsense_height_falls_back_to_the_bar() {
+        assert_eq!(satellite_growth_height(88.0, 520.0, f64::NAN, None), 88.0);
+        assert_eq!(
+            satellite_growth_height(88.0, 520.0, f64::INFINITY, None),
+            88.0
+        );
+        assert_eq!(
+            satellite_growth_height(88.0, 520.0, 300.0, Some(f64::NAN)),
+            300.0,
+            "a monitor that could not be measured must not take the window with it"
+        );
+    }
+
+    /// Which window may ask to be resized, resolved from the label the RUNTIME
+    /// reports rather than from anything the webview said. If this ever accepted
+    /// a shape `build_satellite` does not mint, a tile or an instance window
+    /// could resize itself through a command written for satellites.
+    #[test]
+    fn only_a_satellite_label_names_a_surface() {
+        for spec in SATELLITES {
+            assert_eq!(
+                satellite_surface_from_label(&format!("sat-{}", spec.surface)),
+                Some(spec.surface),
+                "sat-{} must resolve back to its surface",
+                spec.surface
+            );
+        }
+
+        for label in [
+            "main",
+            "instance-2",
+            "tile-session-tile-abc",
+            "sat-",
+            "sat-HUD",
+            "sat-hud/evil",
+            "sat-hud ",
+            "screen",
+        ] {
+            assert_eq!(
+                satellite_surface_from_label(label),
+                None,
+                "{label} must not name a satellite surface"
             );
         }
     }

@@ -704,6 +704,39 @@ export async function hideThisWindow(): Promise<void> {
 }
 
 /**
+ * Ask Rust to resize THIS satellite's window to `height` logical pixels, and
+ * answer with the height it actually applied (or null when nothing happened).
+ *
+ * Only the calling window's own size can be changed — the label never crosses
+ * IPC (`resize_satellite_window`), and `core:window:allow-set-size` is
+ * deliberately absent from `capabilities/default.json` precisely because it
+ * takes any window's label as an argument.
+ *
+ * The `isSatelliteWindow()` refusal here is not a duplicate of Rust's: it is
+ * what stops the HUD's own layout hooks from firing an IPC call every time a
+ * chat surface is remeasured in the MAIN window, where those hooks also run and
+ * where the answer would always be the same refusal.
+ *
+ * A failure is swallowed rather than notified. The only surface that calls this
+ * does so from a `ResizeObserver`, so a platform that refuses would raise one
+ * toast per frame — and the visible consequence is a window that does not grow,
+ * which the log already explains.
+ */
+export async function resizeSatelliteWindow(height: number): Promise<null | number> {
+  if (!isSatelliteWindow() || !Number.isFinite(height)) {
+    return null
+  }
+
+  try {
+    return await invoke<number>('resize_satellite_window', { height })
+  } catch (err) {
+    console.warn('could not resize this window', err)
+
+    return null
+  }
+}
+
+/**
  * Destroy this window for real.
  *
  * This exists because the obvious spellings do not work.
