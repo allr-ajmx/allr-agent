@@ -17,8 +17,13 @@ interface FakeWindow {
 const live = new Map<string, FakeWindow>()
 /** Every `open_satellite_window` invoke, with the arguments it carried. */
 const opens: Array<Record<string, unknown>> = []
-let closeRequested: ((event: { preventDefault: () => void }) => void) | null = null
+let closeRequested: ((event: { preventDefault: () => void }) => Promise<void> | void) | null = null
 const mainClose = vi.fn()
+/** The command the close guard ends in. A Rust one, not an ACL grant —
+ *  `core:window:allow-destroy` is absent from `capabilities/default.json`, which
+ *  is the whole reason the guard cannot fall through to the JS wrapper's own
+ *  `destroy()`. */
+const closeThis = vi.fn()
 
 /** The satellites Rust's `SATELLITES` registry knows. A surface outside it is
  *  refused there, which is what makes `sat-*` a namespace the webview cannot
@@ -27,6 +32,12 @@ const KNOWN = new Set(['hud', 'quick'])
 
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: async (command: string, args: Record<string, unknown>) => {
+    if (command === 'close_this_window') {
+      closeThis(args)
+
+      return undefined
+    }
+
     if (command !== 'open_satellite_window') {
       throw new Error(`unexpected command ${command}`)
     }
@@ -73,7 +84,7 @@ vi.mock('@tauri-apps/api/webviewWindow', () => {
   return {
     getCurrentWebviewWindow: () => ({
       close: mainClose,
-      onCloseRequested: async (handler: (event: { preventDefault: () => void }) => void) => {
+      onCloseRequested: async (handler: (event: { preventDefault: () => void }) => Promise<void> | void) => {
         closeRequested = handler
 
         return () => undefined
@@ -134,6 +145,7 @@ beforeEach(async () => {
   live.clear()
   opens.length = 0
   mainClose.mockClear()
+  closeThis.mockClear()
   window.localStorage.removeItem(GRANT_KEY)
 })
 
@@ -200,23 +212,33 @@ describe('satellite windows', () => {
     const preventDefault = vi.fn()
     await closeRequested?.({ preventDefault })
 
-    // The close is deferred so the satellite goes first — otherwise the app
-    // keeps running with nothing but an always-on-top orphan on screen.
+    // The satellite goes first — otherwise the app keeps running with nothing
+    // but an always-on-top orphan on screen — and only then does the window go.
     expect(preventDefault).toHaveBeenCalled()
     expect(live.has('sat-hud')).toBe(false)
-    expect(mainClose).toHaveBeenCalled()
+    expect(closeThis).toHaveBeenCalled()
   })
 
-  it('stands aside once there is nothing left to tear down', async () => {
+  // This used to assert `preventDefault` was NOT called, and called that
+  // "standing aside". It was not standing aside — it was a dead end. Tauri's core
+  // prevents the close for any window that has a JS close-requested listener
+  // (tauri/src/manager/window.rs) and the JS wrapper's only fallback is
+  // `destroy()`, which `capabilities/default.json` does not grant. So a window
+  // that had ever summoned a satellite could not be closed by its titlebar button
+  // at all, and the old test pinned that as the contract.
+  it('closes through Rust when there is nothing left to tear down', async () => {
     await openSatelliteWindow('hud')
+    await flush()
     await closeSatelliteWindow('hud')
 
     const preventDefault = vi.fn()
     await closeRequested?.({ preventDefault })
 
-    // Re-entrant by design: the second close request finds an empty set and lets
-    // the window go, rather than deferring forever.
-    expect(preventDefault).not.toHaveBeenCalled()
+    expect(preventDefault).toHaveBeenCalled()
+    expect(closeThis).toHaveBeenCalled()
+    // Never the webview's own `close()`: it re-emits CloseRequested, which this
+    // very handler would intercept again, forever.
+    expect(mainClose).not.toHaveBeenCalled()
   })
 
   it('reports a window the user closed as gone', async () => {
@@ -234,19 +256,24 @@ describe('satellite windows', () => {
   describe('a satellite closed natively', () => {
     it('stops being claimed by the window that summoned it', async () => {
       await openSatelliteWindow('hud')
+      await openSatelliteWindow('quick')
       await flush()
 
-      // The compositor takes it: gone from the window system, no JS ran.
+      // The compositor takes the HUD: gone from the window system, no JS ran.
+      // Quick Entry is untouched and still claimed.
       live.delete('sat-hud')
       emitNativeClose('sat-hud')
 
-      const preventDefault = vi.fn()
-      await closeRequested?.({ preventDefault })
+      const quick = live.get('sat-quick')
 
-      // Still claiming a satellite that no longer exists would defer this
-      // window's own close for a teardown with nothing to tear down.
-      expect(preventDefault).not.toHaveBeenCalled()
-      expect(mainClose).not.toHaveBeenCalled()
+      await closeRequested?.({ preventDefault: vi.fn() })
+
+      // The teardown reaches only what is still claimed. A window still on the
+      // list would have its `close()` called on a window that no longer exists —
+      // and, before the native announcement existed, every later quit paid that
+      // round trip.
+      expect(quick?.close).toHaveBeenCalled()
+      expect(closeThis).toHaveBeenCalled()
     })
 
     it('clears the surface grant it left on disk', async () => {

@@ -52,14 +52,15 @@ import { I18nProvider } from './i18n'
 import { warmKatexFonts } from './lib/katex-fonts'
 import { IS_MOBILE } from './lib/platform'
 import { queryClient } from './lib/query-client'
+import { RouterNavBridge } from './lib/router-nav-bridge'
 import { initSafeAreaInsets } from './lib/safe-area'
 import { restoreSessionCookies } from './lib/session-persist'
 import { installObservability } from './observability/install'
 import { resumePortalSignIn } from './store/cloud'
 import { autoRestoreConnection } from './store/gateway-restore'
 import { initKeepAwake } from './store/keep-awake'
+import { installWindowCloseGuard, ownsPersistedAppState } from './store/windows'
 import { ThemeProvider } from './themes'
-import { RouterNavBridge } from './lib/router-nav-bridge'
 // Span tracing. Installed FIRST so boot-time work falls inside the trace rather
 // than before it. Recording is off by default, so this is a no-op until someone
 // asks for it — see src/observability/index.ts.
@@ -85,6 +86,28 @@ void resumePortalSignIn()
 // Rust and dies with the process, so a relaunch has to re-arm it — otherwise the
 // toggle reads "on" while the machine is free to sleep. No-op off desktop.
 initKeepAwake()
+
+// The window close guard — the ONLY `tauri://close-requested` listener this
+// window gets (store/windows.ts).
+//
+// It used to be armed lazily by the first satellite summon, and that was a latent
+// bug: Tauri's core prevents the close for any window that has such a listener,
+// and the JS wrapper's fallback `destroy()` is not in `capabilities/default.json`
+// — so a window that had ever opened a satellite could not be closed by its
+// titlebar button at all. It now always ends in an explicit Rust destroy.
+//
+// Scoped to the window that owns the app's persisted state, because registering
+// the listener is what makes the core prevent the close in the first place:
+// arming one inside a SATELLITE would turn `closeSatelliteWindow`'s direct
+// `close()` into a round trip through that satellite's own JS, and a satellite
+// whose page had not finished booting would then survive the teardown that is
+// supposed to take it down with its summoner. Tile windows still arm it lazily
+// from `openSatelliteWindow`, because a window that claims a satellite has to be
+// able to close it; a satellite never gets that far (`canOpenSatelliteWindow` is
+// false inside one).
+if (ownsPersistedAppState()) {
+  void installWindowCloseGuard()
+}
 
 // Pull KaTeX's faces in at idle. They are `font-display: block`, so the first
 // equation of a session otherwise renders INVISIBLE until they land (see

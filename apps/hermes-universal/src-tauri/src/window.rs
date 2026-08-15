@@ -717,6 +717,45 @@ pub async fn open_screen_window(
 }
 
 // --------------------------------------------------------------------------
+// Really closing a window (MJXHRM-436).
+//
+// `close_this_window` is not a nicety. `core:window:allow-destroy` is absent
+// from `capabilities/default.json` (and from `core:window:default`, which grants
+// only read-only queries), while Tauri's core calls `prevent_close()` for any
+// window that has a JS `tauri://close-requested` listener and the JS wrapper
+// then falls through to `destroy()`. So once `installWindowCloseGuard` arms its
+// listener, the ONLY way that window can actually go away is a Rust-side
+// `destroy` — a webview `close()` re-enters `CloseRequested` and a webview
+// `destroy()` is refused by the ACL.
+//
+// A command rather than a grant, for the MJXHRM-382 reason the rest of this file
+// exists: it acts on the window that CALLED it, so no label crosses the IPC
+// boundary.
+// --------------------------------------------------------------------------
+
+/// Destroy THIS window for real.
+///
+/// The counterpart to the close guard: the guard always calls `preventDefault`,
+/// because the JS wrapper's fallback is a `destroy()` the ACL does not grant, so
+/// the window's own close has to come back through here. `destroy` rather than
+/// `close` — `close` re-emits `CloseRequested`, which the guard would intercept
+/// again, forever.
+#[cfg(desktop)]
+#[tauri::command]
+pub fn close_this_window(window: tauri::WebviewWindow) -> Result<(), String> {
+    window.destroy().map_err(|e| e.to_string())
+}
+
+// Mobile: the store gates on `IS_DESKTOP` before this, and a phone has one
+// surface anyway. Registered so a stray call is a clear refusal (the
+// `open_satellite_window` idiom above).
+#[cfg(mobile)]
+#[tauri::command]
+pub async fn close_this_window() -> Result<(), String> {
+    Err("unsupported_platform".to_string())
+}
+
+// --------------------------------------------------------------------------
 // Mobile screen activity (MJX-141 Android / MJX-176 iOS): the windowable surfaces
 // (Settings / Command Center / Profiles) share ONE native container, opened at a
 // route. `WebviewWindowBuilder::build()` on Android launches the registered

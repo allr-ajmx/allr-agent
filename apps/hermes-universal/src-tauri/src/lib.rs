@@ -62,8 +62,8 @@ use voice::{
     voice_wake_listen, VoiceState,
 };
 use window::{
-    open_instance_window, open_satellite_window, open_screen_window, open_session_window,
-    open_tile_window,
+    close_this_window, open_instance_window, open_satellite_window, open_screen_window,
+    open_session_window, open_tile_window,
 };
 
 /// Open a URL in the system browser. Routed through the opener plugin's Rust API
@@ -265,7 +265,8 @@ pub fn run() {
             stop_find_in_page,
             surface_capabilities,
             surface_set_interactive_rect,
-            read_window_below
+            read_window_below,
+            close_this_window
         ]))
         // `.build(...).run(closure)` (rather than the terminal `.run(context)`) so
         // we can observe `RunEvent`s. On iOS this catches scenes the *system*
