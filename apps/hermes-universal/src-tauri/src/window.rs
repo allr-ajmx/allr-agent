@@ -717,7 +717,14 @@ pub async fn open_screen_window(
 }
 
 // --------------------------------------------------------------------------
-// Really closing a window (MJXHRM-436).
+// Background mode (MJXHRM-436): hiding, revealing and really closing a window.
+//
+// All three are Rust commands rather than `core:window:allow-hide/show/destroy`
+// grants, for the MJXHRM-382 reason the rest of this file exists: the label of
+// the window to act on is never a value from the webview. `hide_this_window` and
+// `close_this_window` act on the window that CALLED them; `show_app_window`
+// picks its target from [`window_to_reveal`], which is a pure function over the
+// live label set.
 //
 // `close_this_window` is not a nicety. `core:window:allow-destroy` is absent
 // from `capabilities/default.json` (and from `core:window:default`, which grants
@@ -727,11 +734,123 @@ pub async fn open_screen_window(
 // listener, the ONLY way that window can actually go away is a Rust-side
 // `destroy` — a webview `close()` re-enters `CloseRequested` and a webview
 // `destroy()` is refused by the ACL.
-//
-// A command rather than a grant, for the MJXHRM-382 reason the rest of this file
-// exists: it acts on the window that CALLED it, so no label crosses the IPC
-// boundary.
 // --------------------------------------------------------------------------
+
+/// The window `tauri.conf.json` declares, and the one a reveal recreates when
+/// every window has been destroyed.
+#[cfg(desktop)]
+pub const MAIN_WINDOW_LABEL: &str = "main";
+
+/// Label prefix for a full app instance (`open_instance_window`).
+#[cfg(desktop)]
+const INSTANCE_LABEL_PREFIX: &str = "instance-";
+
+/// Which window the tray's "Show Hermes" reveals: `main` first, then the lowest
+/// numbered instance. Never a tile, never a satellite.
+///
+/// A pure function over labels so the preference order can be asserted without a
+/// window system — and so the exclusions are stated once. Revealing a satellite
+/// would be actively wrong: the HUD is a summoned overlay with no titlebar and
+/// no navigation, so "Show Hermes" landing there gives the user a 560x260 strip
+/// and no way to the app. A detached tile is the same problem one step down.
+///
+/// The instance ordering is NUMERIC, not lexical: `instance-10` sorting before
+/// `instance-2` would make the tray reveal a different window depending on how
+/// many pop-outs happened to have been opened.
+#[cfg(desktop)]
+pub fn window_to_reveal(labels: &[String]) -> Option<&str> {
+    if let Some(main) = labels.iter().find(|l| l.as_str() == MAIN_WINDOW_LABEL) {
+        return Some(main.as_str());
+    }
+
+    labels
+        .iter()
+        .filter_map(|label| Some((instance_seq(label)?, label.as_str())))
+        .min_by_key(|(seq, _)| *seq)
+        .map(|(_, label)| label)
+}
+
+/// The sequence number of an `instance-<n>` label, or `None` for anything else —
+/// including a tile, a satellite, and an `instance-` prefix with a non-numeric
+/// tail (nothing builds one, and guessing at one would be how a satellite got
+/// back in).
+#[cfg(desktop)]
+fn instance_seq(label: &str) -> Option<u32> {
+    label.strip_prefix(INSTANCE_LABEL_PREFIX)?.parse().ok()
+}
+
+/// Bring the best full app window back: unminimize, show, focus. Builds `main`
+/// when every window has been destroyed, which is exactly the state background
+/// mode makes reachable — close the last window and the process is still here
+/// with nothing on screen.
+#[cfg(desktop)]
+pub async fn reveal_app_window(app: tauri::AppHandle) -> Result<String, String> {
+    let labels: Vec<String> = app.webview_windows().keys().cloned().collect();
+
+    let Some(label) = window_to_reveal(&labels).map(str::to_string) else {
+        open_or_focus(app, MAIN_WINDOW_LABEL.to_string(), "index.html".to_string()).await?;
+
+        return Ok(MAIN_WINDOW_LABEL.to_string());
+    };
+
+    let (tx, rx) = oneshot::channel::<Result<(), String>>();
+    let app_main = app.clone();
+    let target = label.clone();
+
+    app.run_on_main_thread(move || {
+        let Some(window) = app_main.get_webview_window(&target) else {
+            let _ = tx.send(Err("window went away".to_string()));
+
+            return;
+        };
+
+        // Unminimize first: `show()` on a minimized window leaves it minimized
+        // on Windows and on several Linux WMs, so the icon would appear to do
+        // nothing.
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+        let _ = tx.send(Ok(()));
+    })
+    .map_err(|e| format!("failed to schedule reveal: {e}"))?;
+
+    rx.await.map_err(|_| "failed to reveal".to_string())??;
+
+    Ok(label)
+}
+
+/// Reveal the app. Answers with the label it landed on so the caller can tell a
+/// reveal from a rebuild.
+#[cfg(desktop)]
+#[tauri::command]
+pub async fn show_app_window(app: tauri::AppHandle) -> Result<String, String> {
+    reveal_app_window(app).await
+}
+
+/// Put THIS window out of sight without destroying it.
+///
+/// Refuses from anything but `main`, and the refusal is the point rather than
+/// paranoia: a hidden window is reachable through exactly one affordance — the
+/// tray's Show Hermes — and [`window_to_reveal`] resolves that to `main`, the
+/// lowest surviving instance, or a rebuilt `main`. Anything else that hid itself
+/// would still exist, still hold whatever it was showing, and have nothing
+/// anywhere able to bring it back.
+///
+/// Which rules out each other window kind for its own reason too. A satellite is
+/// dismissed, not backgrounded — hiding the HUD would leave a live always-on-top
+/// window that `isSatelliteWindowOpen` still reports as up, so the next chord
+/// would "dismiss" an invisible window instead of summoning one. A detached tile
+/// that hid itself would strand the tile with nothing to reattach it. And a
+/// pop-out `instance-*` is the stranding case above.
+#[cfg(desktop)]
+#[tauri::command]
+pub fn hide_this_window(window: tauri::WebviewWindow) -> Result<(), String> {
+    if window.label() != MAIN_WINDOW_LABEL {
+        return Err("only_the_main_window_can_be_hidden".to_string());
+    }
+
+    window.hide().map_err(|e| e.to_string())
+}
 
 /// Destroy THIS window for real.
 ///
@@ -746,9 +865,32 @@ pub fn close_this_window(window: tauri::WebviewWindow) -> Result<(), String> {
     window.destroy().map_err(|e| e.to_string())
 }
 
-// Mobile: the store gates on `IS_DESKTOP` before this, and a phone has one
-// surface anyway. Registered so a stray call is a clear refusal (the
-// `open_satellite_window` idiom above).
+/// Destroy every satellite window. Used by the explicit quit so no always-on-top
+/// (or layer-shell) orphan is left over a bare desktop while the app goes away.
+#[cfg(desktop)]
+pub fn close_satellite_windows(app: &tauri::AppHandle) {
+    for (label, window) in app.webview_windows() {
+        if is_satellite_window_label(&label) {
+            let _ = window.destroy();
+        }
+    }
+}
+
+// Mobile: a phone has one surface. Nothing hides, nothing is revealed, and the
+// store gates on `IS_DESKTOP` before any of these. Registered anyway so a stray
+// call is a clear refusal (the `open_satellite_window` idiom above).
+#[cfg(mobile)]
+#[tauri::command]
+pub async fn show_app_window() -> Result<String, String> {
+    Err("unsupported_platform".to_string())
+}
+
+#[cfg(mobile)]
+#[tauri::command]
+pub async fn hide_this_window() -> Result<(), String> {
+    Err("unsupported_platform".to_string())
+}
+
 #[cfg(mobile)]
 #[tauri::command]
 pub async fn close_this_window() -> Result<(), String> {
@@ -1014,5 +1156,67 @@ mod tests {
         }
 
         assert!(!is_app_window_label("tile-session-tile-abc"));
+    }
+
+    /// What "Show Hermes" is allowed to land on. The tray is the ONLY way back to
+    /// a hidden Hermes, so revealing the wrong window is not a cosmetic miss — a
+    /// 560x260 chromeless HUD strip with no navigation is a dead end, and a
+    /// detached tile is one too.
+    #[test]
+    fn the_tray_never_reveals_a_satellite() {
+        for spec in SATELLITES {
+            let labels = vec![format!("sat-{}", spec.surface)];
+
+            assert_eq!(
+                window_to_reveal(&labels),
+                None,
+                "sat-{} must not be revealed",
+                spec.surface
+            );
+        }
+
+        assert_eq!(
+            window_to_reveal(&["tile-session-tile-abc".to_string()]),
+            None,
+            "a detached tile is not the app"
+        );
+
+        // Nothing left at all: the caller builds `main` instead.
+        assert_eq!(window_to_reveal(&[]), None);
+    }
+
+    /// `main` is the window the user thinks of as Hermes, so it wins over any
+    /// pop-out instance regardless of the order the label map happens to yield.
+    #[test]
+    fn the_tray_prefers_main_over_any_instance() {
+        assert_eq!(
+            window_to_reveal(&["instance-2".to_string(), "main".to_string()]),
+            Some("main")
+        );
+        assert_eq!(
+            window_to_reveal(&["main".to_string(), "instance-2".to_string()]),
+            Some("main")
+        );
+    }
+
+    /// With `main` gone the oldest surviving instance is the one to raise, and
+    /// "oldest" is numeric. Lexical ordering would put `instance-10` before
+    /// `instance-2`, so which window the tray revealed would depend on how many
+    /// pop-outs had ever been opened.
+    #[test]
+    fn the_tray_falls_back_to_the_lowest_instance() {
+        let labels = vec![
+            "sat-hud".to_string(),
+            "instance-10".to_string(),
+            "tile-x".to_string(),
+            "instance-2".to_string(),
+        ];
+
+        assert_eq!(window_to_reveal(&labels), Some("instance-2"));
+
+        // An `instance-` prefix with no number is not a window we build, and
+        // guessing at one is how a satellite would get back in.
+        assert_eq!(window_to_reveal(&["instance-".to_string()]), None);
+        assert_eq!(window_to_reveal(&["instance-abc".to_string()]), None);
     }
 }
