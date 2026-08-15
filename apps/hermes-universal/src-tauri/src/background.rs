@@ -120,6 +120,11 @@ pub fn set_background_mode(
 /// surfaces — an orphan left over a bare desktop is the worst failure this can
 /// have — and closing them gives their webviews a chance to run their own
 /// teardown before the loop stops.
+///
+/// The machine-wide chords go back too. `shortcuts.rs` deliberately does NOT
+/// release on a window teardown — the claim outliving every window is the whole
+/// point — so the explicit quit is the one place that hands them back, and it
+/// does so before the loop stops rather than leaving it to process teardown.
 #[cfg(desktop)]
 #[tauri::command]
 pub fn quit_app(
@@ -127,6 +132,7 @@ pub fn quit_app(
     state: tauri::State<'_, BackgroundState>,
 ) -> Result<(), String> {
     state.request_quit();
+    crate::shortcuts::release_all(&app);
     crate::window::close_satellite_windows(&app);
     app.exit(0);
 

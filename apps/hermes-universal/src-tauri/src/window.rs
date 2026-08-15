@@ -94,30 +94,15 @@ pub fn is_satellite_window_label(label: &str) -> bool {
     label.starts_with("sat-")
 }
 
-/// Emitted to every remaining window when a FULL APP window is destroyed — the
-/// main window or an `instance-*` one, not a tile and not a satellite.
-///
-/// It exists for one thing the frontend cannot otherwise learn: OS-level hotkeys
-/// (`lib/keybinds/global-shortcut.ts`) are claimed by a webview, and the claim is
-/// app-global while the handler channel that answers it belongs to the window
-/// that made it. Every full window tries to claim the same chords at boot and
-/// all but the first are refused with "already registered", so exactly one
-/// window owns each. When THAT window is closed natively no JS teardown runs in
-/// it, `releaseGlobalShortcuts` never happens, and the chord stays claimed from
-/// the whole machine while answering into a channel that died with the window —
-/// registered, stolen, and dead, until the app restarts.
-///
-/// The survivors reclaim on this event. Emitted from `RunEvent::WindowEvent`
-/// like its two siblings above, and for the same reason: the window it concerns
-/// is the one that cannot report it.
-pub const APP_WINDOW_CLOSED_EVENT: &str = "hermes://app-window-closed";
-
-/// Whether a destroyed window was a full app window — one that mounts the whole
-/// shell, and therefore one that may have been holding the global-hotkey claims.
-/// Tiles and satellites never mount `useKeybinds`, so they never claim anything.
-pub fn is_app_window_label(label: &str) -> bool {
-    !is_tile_window_label(label) && !is_satellite_window_label(label)
-}
+// There is deliberately no "a full app window was destroyed" event here any more
+// (MJXHRM-437). It existed for one thing: OS hotkeys were claimed by a webview,
+// the claim was process-wide while the handler channel belonged to the window
+// that made it, and a natively-closed owner left the chord taken from the whole
+// machine answering into a dead channel — so the survivors had to reclaim.
+// `shortcuts.rs` now holds the claim in Rust, where no window's death can reach
+// it, and a second claimant fighting that registry would be strictly worse than
+// none. Nothing else ever listened, so the event and its `is_app_window_label`
+// predicate went with it rather than sitting here as a contract with no parties.
 
 // --------------------------------------------------------------------------
 // Satellites (MJXHRM-55 / MJXHRM-213 / MJXHRM-382)
@@ -540,16 +525,7 @@ async fn open_or_focus(app: tauri::AppHandle, label: String, url: String) -> Res
             let _ = tx.send(Ok(()));
             return;
         }
-        #[allow(unused_mut)]
-        let mut builder = WebviewWindowBuilder::new(&app_main, &label, WebviewUrl::App(url.into()))
-            .title("Hermes (MJX)")
-            .inner_size(WINDOW_WIDTH, WINDOW_HEIGHT)
-            .min_inner_size(WINDOW_MIN_WIDTH, WINDOW_MIN_HEIGHT);
-        #[cfg(desktop)]
-        {
-            builder = builder.decorations(false);
-        }
-        let build = builder.build();
+        let build = app_window_builder(&app_main, &label, url).build();
         let _ = tx.send(
             build
                 .map(|_| ())
@@ -558,6 +534,30 @@ async fn open_or_focus(app: tauri::AppHandle, label: String, url: String) -> Res
     })
     .map_err(|e| format!("failed to schedule window: {e}"))?;
     rx.await.map_err(|_| "failed to open window".to_string())?
+}
+
+/// The builder EVERY full app window is made from.
+///
+/// One function rather than one per call site: a cold summon builds `main` the
+/// same way a reveal does, and a second builder that drifted would give the user
+/// a window of a different size or with a titlebar depending on which route
+/// happened to create it.
+#[cfg(any(desktop, target_os = "ios"))]
+fn app_window_builder<'a>(
+    app: &'a tauri::AppHandle,
+    label: &'a str,
+    url: String,
+) -> WebviewWindowBuilder<'a, tauri::Wry, tauri::AppHandle> {
+    #[allow(unused_mut)]
+    let mut builder = WebviewWindowBuilder::new(app, label, WebviewUrl::App(url.into()))
+        .title("Hermes (MJX)")
+        .inner_size(WINDOW_WIDTH, WINDOW_HEIGHT)
+        .min_inner_size(WINDOW_MIN_WIDTH, WINDOW_MIN_HEIGHT);
+    #[cfg(desktop)]
+    {
+        builder = builder.decorations(false);
+    }
+    builder
 }
 
 /// Map an id to a Tauri window label under `prefix`. Labels allow only
@@ -865,6 +865,35 @@ pub fn close_this_window(window: tauri::WebviewWindow) -> Result<(), String> {
     window.destroy().map_err(|e| e.to_string())
 }
 
+/// Build `main` OFF SCREEN, for a chord that fired with nothing to answer it.
+///
+/// The cold-summon half of `shortcuts::deliver`. Background mode is what
+/// makes "the process is up and there are no app windows" reachable at all, and a
+/// chord pressed in that state has to end with a HUD — so a host has to exist
+/// before anything can be dispatched into one.
+///
+/// Hidden rather than shown, and that is the whole point: the action this window
+/// is being built to run opens a DIFFERENT window. A cold summon that also threw
+/// the full app on screen would be a spotlight that drags the room in with it.
+/// The window becomes visible only if the user asks for it — tray ▸ Show Hermes,
+/// which [`window_to_reveal`] resolves to this same `main`.
+///
+/// **Main thread only.** `WebviewWindowBuilder::build` is a main-thread call on
+/// every backend; the one caller is already inside `run_on_main_thread`.
+/// Idempotent, because two chords pressed in quick succession both arrive here.
+#[cfg(desktop)]
+pub fn build_hidden_main_window(app: &tauri::AppHandle) -> Result<(), String> {
+    if app.get_webview_window(MAIN_WINDOW_LABEL).is_some() {
+        return Ok(());
+    }
+
+    app_window_builder(app, MAIN_WINDOW_LABEL, "index.html".to_string())
+        .visible(false)
+        .build()
+        .map(|_| ())
+        .map_err(|e| format!("could not open window: {e}"))
+}
+
 /// Destroy every satellite window. Used by the explicit quit so no always-on-top
 /// (or layer-shell) orphan is left over a bare desktop while the app goes away.
 #[cfg(desktop)]
@@ -1137,25 +1166,6 @@ mod tests {
             let label = format!("sat-{}", spec.surface);
             assert!(is_satellite_window_label(&label), "{label}");
         }
-    }
-
-    /// Which windows get [`APP_WINDOW_CLOSED_EVENT`], and therefore which closes
-    /// make the survivors reclaim the OS hotkeys. Only a window that mounts the
-    /// whole shell can have been holding them; a satellite answering here would
-    /// have Quick Entry's own dismiss churn the machine-wide claim every time it
-    /// is summoned and let go.
-    #[test]
-    fn only_full_app_windows_are_app_windows() {
-        for label in ["main", "instance-2", "screen"] {
-            assert!(is_app_window_label(label), "{label} is a full app window");
-        }
-
-        for spec in SATELLITES {
-            let label = format!("sat-{}", spec.surface);
-            assert!(!is_app_window_label(&label), "{label} is a satellite");
-        }
-
-        assert!(!is_app_window_label("tile-session-tile-abc"));
     }
 
     /// What "Show Hermes" is allowed to land on. The tray is the ONLY way back to
