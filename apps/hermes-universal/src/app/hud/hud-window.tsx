@@ -9,7 +9,6 @@ import { useLocation } from 'react-router-dom'
 
 import { ChatScreen } from '@/app/chat/chat-screen'
 import { routeSessionId, sessionRoute } from '@/app/routes'
-import { resolveSessionLanding, type SessionLanding } from '@/app/session-landing'
 import { SidebarProvider } from '@/app/shell/sidebar'
 import { NotificationStack } from '@/components/notifications'
 import { Codicon } from '@/components/ui/codicon'
@@ -17,13 +16,12 @@ import { GlyphSpinner } from '@/components/ui/glyph-spinner'
 import { useI18n } from '@/i18n'
 import { chatMessageText } from '@/lib/chat-messages'
 import { ChevronDown, ChevronUp } from '@/lib/icons'
-import { IS_TAURI } from '@/lib/platform'
 import { navigateTo } from '@/lib/route-nav'
 import { useStore } from '@/store/atom'
 import { $busy, $messages } from '@/store/chat'
 import { $attachmentMenuDropdownOpen } from '@/store/composer'
 import { $connectionError, $connectionPhase } from '@/store/connection'
-import { $activeStoredSessionId, lastOpenedSessionId, openSession, refreshSessions } from '@/store/session'
+import { $activeStoredSessionId, openSession, refreshSessions } from '@/store/session'
 import { $modelMenuDropdownOpen } from '@/store/model'
 import { showAppWindow } from '@/store/windows'
 
@@ -120,7 +118,6 @@ function HudSurface() {
   // When summoned on root (`#/`), HUD always starts a fresh new session rather
   // than resuming the main app's last opened conversation.
   const routeId = routeSessionId(pathname)
-  const [landing] = useState<SessionLanding>(() => (routeId ? { id: routeId, kind: 'route' } : { kind: 'new' }))
   const targetId = routeId
 
   const pathnameRef = useRef(pathname)

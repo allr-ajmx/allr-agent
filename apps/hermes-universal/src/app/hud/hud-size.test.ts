@@ -13,10 +13,7 @@ import { describe, expect, it } from 'vitest'
 import {
   HUD_BAND_MAX_PX,
   HUD_BAR_HEIGHT_PX,
-  HUD_BASE_WIDTH_PX,
-  HUD_EXPANDED_WIDTH_PX,
   HUD_MAX_HEIGHT_PX,
-  HUD_WIDTH_PX,
   hudBandMax,
   hudWindowHeight,
   hudWindowWidth
