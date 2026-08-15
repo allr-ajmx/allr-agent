@@ -27,6 +27,7 @@ mod ssh;
 mod surface;
 mod telemetry;
 mod transport;
+mod tray;
 mod updates;
 mod voice;
 mod window;
@@ -58,6 +59,7 @@ use surface::{surface_capabilities, surface_set_interactive_rect};
 use transport::{
     cookies_export, cookies_import, http_request, ws_close, ws_open, ws_send, TransportState,
 };
+use tray::{tray_set_labels, tray_set_status, TrayState};
 use updates::{update_check, update_open_download, UpdateState};
 use voice::{
     voice_arm, voice_close, voice_force_turn, voice_open, voice_suspend, voice_update_auth,
@@ -155,6 +157,11 @@ pub fn run() {
         // one-way "the user asked to quit" latch that stops `ExitRequested`
         // from preventing the app's own exit (background.rs).
         .manage(BackgroundState::default())
+        // The tray's live menu rows, so their text can be replaced when the
+        // webview pushes the translated catalog. Managed on both targets so
+        // the builder chain is the same shape; the mobile `TrayState` is an
+        // empty struct nothing reads.
+        .manage(TrayState::default())
         // Inline audio/video streams through here instead of loading as a base64
         // data URL — see media.rs. Registered on the BUILDER, not in `.setup()`:
         // on Linux, wry registers custom schemes into the WebContext when the
@@ -199,6 +206,21 @@ pub fn run() {
                             });
                     });
                 }
+            }
+
+            // The tray. Desktop only, and deliberately not fatal: a machine
+            // with no StatusNotifier host (a bare sway/wlroots session with no
+            // waybar and no xembed tray) is a perfectly good machine to run
+            // Hermes on — it just cannot run it hidden, so the flag below is
+            // what makes `set_background_mode` refuse to arm rather than
+            // stranding a live process with no window and no icon.
+            #[cfg(desktop)]
+            {
+                use tauri::Manager;
+
+                let ready = tray::install(app.handle());
+
+                app.state::<BackgroundState>().set_tray_ready(ready);
             }
 
             let _ = app;
@@ -276,7 +298,9 @@ pub fn run() {
             quit_app,
             show_app_window,
             hide_this_window,
-            close_this_window
+            close_this_window,
+            tray_set_labels,
+            tray_set_status
         ]))
         // `.build(...).run(closure)` (rather than the terminal `.run(context)`) so
         // we can observe `RunEvent`s. On iOS this catches scenes the *system*
