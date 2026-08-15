@@ -812,6 +812,40 @@ export async function installWindowCloseGuard(): Promise<void> {
 }
 
 /**
+ * Drop surface grants left behind by a previous run.
+ *
+ * `hermes:surface-grant:<surface>` is `localStorage`, so it outlives the PROCESS.
+ * Every live path clears it — `forgetSatellite` on an explicit close, and the
+ * native destroy event for a close that ran no JS — but neither can fire when
+ * there was nothing alive to hear it: an explicit Quit from the tray takes the
+ * whole process down, and a crash or a `SIGKILL` takes it down harder. The next
+ * run's HUD would then read a grant negotiated for a window that died on a
+ * different compositor and lay itself out for a layer surface it never got.
+ *
+ * Liveness is asked of the window system rather than assumed from "we just
+ * booted": an instance window opening while the HUD is up boots too, and must not
+ * sweep a grant that is currently in force.
+ */
+export async function sweepStaleSurfaceGrants(): Promise<void> {
+  let surfaces: string[]
+
+  try {
+    surfaces = Object.keys(window.localStorage)
+      .filter(key => key.startsWith(SURFACE_GRANT_KEY))
+      .map(key => key.slice(SURFACE_GRANT_KEY.length))
+  } catch {
+    // Private mode / no storage: nothing was written, so nothing is stale.
+    return
+  }
+
+  for (const surface of surfaces) {
+    if (!(await isSatelliteWindowOpen(surface))) {
+      rememberSurfaceGrant(surface, null)
+    }
+  }
+}
+
+/**
  * Open the satellite, or bring it forward if it is already up. Returns its
  * label, or null when the platform has no second window, the surface is not one
  * Rust knows, or the window could not be built.

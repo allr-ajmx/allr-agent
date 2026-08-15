@@ -139,6 +139,7 @@ const {
   openSatelliteWindow,
   SATELLITE_WINDOW_CLOSED_EVENT,
   satelliteSurfaceGrant,
+  sweepStaleSurfaceGrants,
   toggleSatelliteWindow
 } = await import('./windows')
 
@@ -300,6 +301,36 @@ describe('satellite windows', () => {
       expect(hideThis).toHaveBeenCalledTimes(1)
       expect(live.has('sat-hud')).toBe(false)
       expect(closeThis).toHaveBeenCalled()
+    })
+  })
+
+  // `hermes:surface-grant:<surface>` is localStorage, so it outlives the PROCESS.
+  // Tray -> Quit takes the whole app down with nothing alive to hear the native
+  // close event, and the next run's HUD would read a grant negotiated for a
+  // window that died on a different compositor.
+  describe('the boot sweep for stale surface grants', () => {
+    it('drops a grant whose window is gone', async () => {
+      await openSatelliteWindow('hud')
+      await flush()
+      expect(satelliteSurfaceGrant('hud')).not.toBeNull()
+
+      // What a killed process leaves: the key on disk, no window behind it, and
+      // no event ever emitted.
+      live.delete('sat-hud')
+      await sweepStaleSurfaceGrants()
+
+      expect(satelliteSurfaceGrant('hud')).toBeNull()
+    })
+
+    it('leaves a grant alone while its window is up', async () => {
+      await openSatelliteWindow('hud')
+      await flush()
+
+      // An instance window booting beside a live HUD runs this too. Liveness is
+      // asked of the window system, not assumed from "we just booted".
+      await sweepStaleSurfaceGrants()
+
+      expect(satelliteSurfaceGrant('hud')).not.toBeNull()
     })
   })
 

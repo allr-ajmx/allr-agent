@@ -61,7 +61,7 @@ import { resumePortalSignIn } from './store/cloud'
 import { autoRestoreConnection } from './store/gateway-restore'
 import { initKeepAwake } from './store/keep-awake'
 import { initTray } from './store/tray'
-import { installWindowCloseGuard, ownsPersistedAppState } from './store/windows'
+import { installWindowCloseGuard, ownsPersistedAppState, sweepStaleSurfaceGrants } from './store/windows'
 import { ThemeProvider } from './themes'
 // Span tracing. Installed FIRST so boot-time work falls inside the trace rather
 // than before it. Recording is off by default, so this is a no-op until someone
@@ -118,6 +118,13 @@ if (ownsPersistedAppState()) {
   void installWindowCloseGuard()
   initBackgroundMode()
   initTray()
+
+  // `hermes:surface-grant:<surface>` is localStorage and outlives the PROCESS,
+  // so an explicit Quit (or a crash) leaves one behind with nothing alive to
+  // hear the native close event. The next run's HUD would lay itself out for a
+  // layer surface it never got. Asks the window system what is actually up, so
+  // an instance window booting beside a live HUD sweeps nothing.
+  void sweepStaleSurfaceGrants()
 }
 
 // Pull KaTeX's faces in at idle. They are `font-display: block`, so the first
