@@ -164,7 +164,18 @@ export function Thread() {
 
   return (
     <RestoreRequestContext.Provider value={requestRestore}>
-      <ThreadPrimitive.Root className="relative flex min-h-0 flex-1 flex-col bg-transparent contain-[layout_paint]">
+      {/* `data-slot` so the stylesheet can address the transcript as a whole
+          without knowing anything about this component. It is what the HUD's
+          response panel IS (MJXHRM-438): a rounded card below the input bar,
+          collapsed to nothing at rest. Purely a handle — no layout here changes,
+          and `src/styles.css`'s hud-dom-contract test is what keeps it honest,
+          because a selector written against an element that stopped existing is
+          exactly how the previous HUD stylesheet rotted for the life of the
+          feature. */}
+      <ThreadPrimitive.Root
+        className="relative flex min-h-0 flex-1 flex-col bg-transparent contain-[layout_paint]"
+        data-slot="thread-root"
+      >
         <ThreadMessageList
           clampToComposer
           components={MESSAGE_COMPONENTS}
