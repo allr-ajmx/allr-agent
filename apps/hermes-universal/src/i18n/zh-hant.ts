@@ -2759,6 +2759,7 @@ export const zhHant = defineLocale({
 
   tray: {
     show: '顯示 Hermes',
+    hud: '開啟 HUD',
     quit: '結束 Hermes',
     tooltip: 'Hermes (MJX)',
     status: {

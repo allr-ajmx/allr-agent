@@ -3135,6 +3135,7 @@ export const en: Translations = {
 
   tray: {
     show: 'Show Hermes',
+    hud: 'Open HUD',
     quit: 'Quit Hermes',
     tooltip: 'Hermes (MJX)',
     status: {

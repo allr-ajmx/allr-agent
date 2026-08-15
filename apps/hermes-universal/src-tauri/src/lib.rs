@@ -23,6 +23,7 @@ mod oauth;
 mod plugins;
 mod pty;
 mod repo_scan;
+mod shortcuts;
 mod ssh;
 mod surface;
 mod telemetry;
@@ -50,6 +51,7 @@ use oauth::{oauth_login, oauth_logout, oauth_status};
 use plugins::{plugins_list, plugins_read, plugins_root};
 use pty::{pty_kill, pty_resize, pty_spawn, pty_write, PtyState};
 use repo_scan::repo_scan_git_repos;
+use shortcuts::{global_shortcut_take_pending, global_shortcuts_sync, ShortcutState};
 use ssh::{
     ssh_answer_prompt, ssh_cancel, ssh_connect, ssh_disconnect, ssh_list_config_hosts,
     ssh_resolve_host, ssh_test, ssh_trust_host_key, SshState,
@@ -162,6 +164,12 @@ pub fn run() {
         // the builder chain is the same shape; the mobile `TrayState` is an
         // empty struct nothing reads.
         .manage(TrayState::default())
+        // The OS-hotkey registry. Rust holds the claims now, not a webview
+        // (MJXHRM-437), so this outlives every window — which is the point:
+        // background mode makes "no window is visible" the state the chord has
+        // to work in. Managed on both targets so the builder chain is the same
+        // shape; the mobile `ShortcutState` is an empty struct nothing reads.
+        .manage(ShortcutState::default())
         // Inline audio/video streams through here instead of loading as a base64
         // data URL — see media.rs. Registered on the BUILDER, not in `.setup()`:
         // on Linux, wry registers custom schemes into the WebContext when the
@@ -300,7 +308,9 @@ pub fn run() {
             hide_this_window,
             close_this_window,
             tray_set_labels,
-            tray_set_status
+            tray_set_status,
+            global_shortcuts_sync,
+            global_shortcut_take_pending
         ]))
         // `.build(...).run(closure)` (rather than the terminal `.run(context)`) so
         // we can observe `RunEvent`s. On iOS this catches scenes the *system*
@@ -353,14 +363,6 @@ pub fn run() {
                 }
                 if window::is_satellite_window_label(label) {
                     let _ = app_handle.emit(window::SATELLITE_WINDOW_CLOSED_EVENT, label.clone());
-                }
-                // A full app window may have been the one holding this process's
-                // OS-hotkey claims — every window tries, all but one are refused
-                // — and a native close runs no teardown in it. The survivors
-                // reclaim on this, or the chord stays taken from the whole
-                // machine and answers into a dead channel (MJXHRM-384).
-                if window::is_app_window_label(label) {
-                    let _ = app_handle.emit(window::APP_WINDOW_CLOSED_EVENT, label.clone());
                 }
             }
 
