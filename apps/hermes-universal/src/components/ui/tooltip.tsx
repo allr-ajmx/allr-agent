@@ -82,7 +82,6 @@ function TooltipContent({
     <TooltipPrimitive.Portal>
       <TooltipPrimitive.Content
         avoidCollisions
-        collisionPadding={collisionPadding}
         // Transparent, width-capped wrapper. The visible chip is the inner inline
         // span so `box-decoration-break: clone` gives a marker-style background
         // that hugs EACH wrapped line (bg only on the text, ragged right — no
@@ -90,6 +89,7 @@ function TooltipContent({
         // pointer-events-none: the tip must never steal hover/clicks from the
         // chrome underneath (titlebar tools, adjacent tabs, etc.).
         className={cn('pointer-events-none z-(--z-over-modal) w-fit max-w-64 select-none', className)}
+        collisionPadding={collisionPadding}
         data-slot="tooltip-content"
         side={effectiveSide}
         sideOffset={sideOffset}
