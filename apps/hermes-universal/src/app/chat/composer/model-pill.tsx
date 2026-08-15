@@ -1,5 +1,5 @@
 import { useStore } from '@nanostores/react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { useSessionView } from '@/app/chat/session-view'
 import { ModelMenuCloseContext } from '@/app/shell/model-menu-panel'
@@ -11,7 +11,7 @@ import { useI18n } from '@/i18n'
 import { ChevronDown } from '@/lib/icons'
 import { formatModelStatusLabel } from '@/lib/model-status-label'
 import { cn } from '@/lib/utils'
-import { setModelPickerOpen } from '@/store/model'
+import { setModelMenuDropdownOpen, setModelPickerOpen } from '@/store/model'
 
 import type { ChatBarState } from './types'
 
@@ -54,6 +54,13 @@ export function ModelPill({
   const fastMode = useStore(view.$fast)
   const reasoningEffort = useStore(view.$reasoningEffort)
   const [open, setOpen] = useState(false)
+  const isHud = typeof document !== 'undefined' && document.documentElement.hasAttribute('data-hud')
+
+  useEffect(() => {
+    return () => {
+      setModelMenuDropdownOpen(false)
+    }
+  }, [])
 
   // The model resolves a beat after the gateway/session comes up. Rather than
   // flash a literal "No model", show a quiet loader (inherits the pill text
@@ -100,7 +107,13 @@ export function ModelPill({
   }
 
   return (
-    <DropdownMenu onOpenChange={setOpen} open={open}>
+    <DropdownMenu
+      onOpenChange={isOpen => {
+        setOpen(isOpen)
+        setModelMenuDropdownOpen(isOpen)
+      }}
+      open={open}
+    >
       <Tip label={title} side="top">
         <DropdownMenuTrigger asChild>
           <Button aria-label={title} className={pillClass} disabled={disabled} type="button" variant="ghost">
@@ -108,8 +121,13 @@ export function ModelPill({
           </Button>
         </DropdownMenuTrigger>
       </Tip>
-      <DropdownMenuContent align="end" className="w-64 p-0" side="top" sideOffset={8}>
-        <ModelMenuCloseContext.Provider value={() => setOpen(false)}>
+      <DropdownMenuContent align="end" className="w-64 p-0" side={isHud ? 'bottom' : 'top'} sideOffset={8}>
+        <ModelMenuCloseContext.Provider
+          value={() => {
+            setOpen(false)
+            setModelMenuDropdownOpen(false)
+          }}
+        >
           {model.modelMenuContent}
         </ModelMenuCloseContext.Provider>
       </DropdownMenuContent>

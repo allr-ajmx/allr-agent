@@ -25,12 +25,15 @@ export const $currentFastMode = persistentAtom('hermes.model.fast', false, Codec
 // app/model-picker-overlay). Raised by ⌘⇧M (`composer.modelPicker`) and by the
 // composer pill when the gateway is closed and no live dropdown exists.
 export const $modelPickerOpen = atom(false)
+// Open flag for the composer model pill's dropdown menu panel.
+export const $modelMenuDropdownOpen = atom(false)
 
 export const setCurrentModel = (value: string): void => $currentModel.set(value)
 export const setCurrentProvider = (value: string): void => $currentProvider.set(value)
 export const setCurrentReasoningEffort = (value: string): void => $currentReasoningEffort.set(value)
 export const setCurrentFastMode = (value: boolean): void => $currentFastMode.set(value)
 export const setModelPickerOpen = (value: boolean): void => $modelPickerOpen.set(value)
+export const setModelMenuDropdownOpen = (value: boolean): void => $modelMenuDropdownOpen.set(value)
 
 export interface ModelSelection {
   model: string

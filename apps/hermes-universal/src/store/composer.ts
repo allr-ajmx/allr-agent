@@ -28,6 +28,10 @@ export const $queue = atom<string[]>([])
 // whole-chat file-drop handler and the composer's chips operate on one list.
 export const $staged = atom<StagedAttachment[]>([])
 
+// Open flag for the composer context menu / attachment dropdown panel.
+export const $attachmentMenuDropdownOpen = atom(false)
+export const setAttachmentMenuDropdownOpen = (value: boolean): void => $attachmentMenuDropdownOpen.set(value)
+
 export function addStaged(attachment: StagedAttachment): void {
   $staged.set([...$staged.get(), attachment])
 }
