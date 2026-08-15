@@ -56,9 +56,11 @@ import { RouterNavBridge } from './lib/router-nav-bridge'
 import { initSafeAreaInsets } from './lib/safe-area'
 import { restoreSessionCookies } from './lib/session-persist'
 import { installObservability } from './observability/install'
+import { initBackgroundMode } from './store/background-mode'
 import { resumePortalSignIn } from './store/cloud'
 import { autoRestoreConnection } from './store/gateway-restore'
 import { initKeepAwake } from './store/keep-awake'
+import { initTray } from './store/tray'
 import { installWindowCloseGuard, ownsPersistedAppState } from './store/windows'
 import { ThemeProvider } from './themes'
 // Span tracing. Installed FIRST so boot-time work falls inside the trace rather
@@ -87,26 +89,35 @@ void resumePortalSignIn()
 // toggle reads "on" while the machine is free to sleep. No-op off desktop.
 initKeepAwake()
 
-// The window close guard — the ONLY `tauri://close-requested` listener this
-// window gets (store/windows.ts).
+// Background mode (MJXHRM-436). Three pieces, all at boot:
 //
-// It used to be armed lazily by the first satellite summon, and that was a latent
-// bug: Tauri's core prevents the close for any window that has such a listener,
-// and the JS wrapper's fallback `destroy()` is not in `capabilities/default.json`
-// — so a window that had ever opened a satellite could not be closed by its
-// titlebar button at all. It now always ends in an explicit Rust destroy.
+//  • the close guard, which is the ONLY `tauri://close-requested` listener this
+//    window gets. It used to be armed lazily by the first satellite summon, and
+//    that was a latent bug on its own: Tauri's core prevents the close for any
+//    window that has such a listener and the JS wrapper's fallback `destroy()`
+//    is not in `capabilities/default.json`, so a window that had opened a
+//    satellite could not be closed by its titlebar button at all. It now always
+//    ends in an explicit Rust destroy — or, with background mode on, in a hide.
+//  • the preference, re-mirrored down because `BackgroundState` is process-local
+//    and starts false.
+//  • the tray's copy, which is native and cannot read the i18n catalog.
 //
-// Scoped to the window that owns the app's persisted state, because registering
-// the listener is what makes the core prevent the close in the first place:
-// arming one inside a SATELLITE would turn `closeSatelliteWindow`'s direct
-// `close()` into a round trip through that satellite's own JS, and a satellite
-// whose page had not finished booting would then survive the teardown that is
-// supposed to take it down with its summoner. Tile windows still arm it lazily
-// from `openSatelliteWindow`, because a window that claims a satellite has to be
-// able to close it; a satellite never gets that far (`canOpenSatelliteWindow` is
-// false inside one).
+// All three are scoped to the window that owns the app's persisted state. The
+// preference and the tray copy are process-global levers, and a tile window or an
+// activity screen re-asserting them would mean N toasts for one refusal. The
+// guard is scoped for a different reason: registering a close listener is what
+// makes Tauri's core prevent the close in the first place, so arming one inside a
+// SATELLITE would turn `closeSatelliteWindow`'s direct `close()` into a round
+// trip through that satellite's own JS — and a satellite whose page had not
+// finished booting would then survive the teardown that is supposed to take it
+// down with its summoner. Tile windows still arm it lazily from
+// `openSatelliteWindow`, because a window that claims a satellite has to be able
+// to close it; a satellite never gets that far (`canOpenSatelliteWindow` is false
+// inside one).
 if (ownsPersistedAppState()) {
   void installWindowCloseGuard()
+  initBackgroundMode()
+  initTray()
 }
 
 // Pull KaTeX's faces in at idle. They are `font-display: block`, so the first

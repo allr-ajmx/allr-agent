@@ -9,6 +9,7 @@ import { triggerHaptic } from '@/lib/haptics'
 import { ChevronLeft } from '@/lib/icons'
 import { IS_DESKTOP } from '@/lib/platform'
 import { useStore } from '@/store/atom'
+import { $backgroundMode, setBackgroundMode } from '@/store/background-mode'
 import { $keepAwake, setKeepAwake } from '@/store/keep-awake'
 import { $terminalHostPreference, setTerminalHostPreference } from '@/store/terminals'
 import type { TerminalHostPreference } from '@/transport/terminal-transport'
@@ -93,6 +94,36 @@ function KeepAwakeRow() {
   )
 }
 
+// Background mode sits beside keep-awake because it is the same KIND of setting:
+// a device-local switch over a native lever, with nothing to send to the gateway.
+// It is also the same SHAPE — the atom follows what Rust reports, so a machine
+// with no system tray flips this back off rather than promising a resident app
+// the user would have no way to reach (store/background-mode.ts). Desktop-only:
+// there is nothing to hide behind on a phone, so `IS_DESKTOP` below keeps the row
+// off mobile entirely.
+function BackgroundModeRow() {
+  const { t } = useI18n()
+  const copy = t.settings.config
+  const backgroundMode = useStore($backgroundMode)
+
+  return (
+    <ListRow
+      action={
+        <Switch
+          aria-label={copy.backgroundModeTitle}
+          checked={backgroundMode}
+          onCheckedChange={on => {
+            triggerHaptic('selection')
+            setBackgroundMode(on)
+          }}
+        />
+      }
+      description={copy.backgroundModeDesc}
+      title={copy.backgroundModeTitle}
+    />
+  )
+}
+
 // The per-section body. Each Track-J chunk replaces its placeholder case with a
 // real renderer (Jc8 appearance, Jc9 notifications, Jc10 keys, …). Exported so
 // the desktop-style SettingsView overlay renders the active section here too.
@@ -121,6 +152,7 @@ export function SectionBody({ section }: { section: string }) {
             IS_DESKTOP ? (
               <>
                 <KeepAwakeRow />
+                <BackgroundModeRow />
                 <QuickEntryRow />
               </>
             ) : undefined

@@ -19,10 +19,11 @@ const live = new Map<string, FakeWindow>()
 const opens: Array<Record<string, unknown>> = []
 let closeRequested: ((event: { preventDefault: () => void }) => Promise<void> | void) | null = null
 const mainClose = vi.fn()
-/** The command the close guard ends in. A Rust one, not an ACL grant —
- *  `core:window:allow-destroy` is absent from `capabilities/default.json`, which
- *  is the whole reason the guard cannot fall through to the JS wrapper's own
- *  `destroy()`. */
+/** The two window commands the close guard ends in. Rust ones, not ACL grants —
+ *  `core:window:allow-hide` and `-destroy` are both absent from
+ *  `capabilities/default.json`, which is the whole reason the guard cannot fall
+ *  through to the JS wrapper's `destroy()`. */
+const hideThis = vi.fn()
 const closeThis = vi.fn()
 
 /** The satellites Rust's `SATELLITES` registry knows. A surface outside it is
@@ -32,10 +33,20 @@ const KNOWN = new Set(['hud', 'quick'])
 
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: async (command: string, args: Record<string, unknown>) => {
+    if (command === 'hide_this_window') {
+      hideThis(args)
+
+      return undefined
+    }
+
     if (command === 'close_this_window') {
       closeThis(args)
 
       return undefined
+    }
+
+    if (command === 'set_background_mode') {
+      return args.on
     }
 
     if (command !== 'open_satellite_window') {
@@ -84,6 +95,10 @@ vi.mock('@tauri-apps/api/webviewWindow', () => {
   return {
     getCurrentWebviewWindow: () => ({
       close: mainClose,
+      // `main` is the ONLY label background mode hides — see
+      // `backgroundCloseTakesOver`. A hidden `instance-2` would have nothing able
+      // to reveal it.
+      label: 'main',
       onCloseRequested: async (handler: (event: { preventDefault: () => void }) => Promise<void> | void) => {
         closeRequested = handler
 
@@ -127,6 +142,8 @@ const {
   toggleSatelliteWindow
 } = await import('./windows')
 
+const { $backgroundMode } = await import('./background-mode')
+
 /** The key `rememberSurfaceGrant` writes. */
 const GRANT_KEY = 'hermes:surface-grant:hud'
 
@@ -145,7 +162,9 @@ beforeEach(async () => {
   live.clear()
   opens.length = 0
   mainClose.mockClear()
+  hideThis.mockClear()
   closeThis.mockClear()
+  $backgroundMode.set(false)
   window.localStorage.removeItem(GRANT_KEY)
 })
 
@@ -239,6 +258,49 @@ describe('satellite windows', () => {
     // Never the webview's own `close()`: it re-emits CloseRequested, which this
     // very handler would intercept again, forever.
     expect(mainClose).not.toHaveBeenCalled()
+  })
+
+  // Background mode (MJXHRM-436): the window is not going away, it is going out
+  // of sight. A hidden window still EXISTS, so "a satellite may never outlive its
+  // summoner" is not violated — and the HUD staying up is the entire point, since
+  // it has to remain summonable with no UI on screen.
+  describe('with background mode on', () => {
+    it('hides the window and keeps the satellites', async () => {
+      await openSatelliteWindow('hud')
+      await flush()
+      $backgroundMode.set(true)
+
+      const preventDefault = vi.fn()
+      await closeRequested?.({ preventDefault })
+
+      expect(preventDefault).toHaveBeenCalled()
+      // No label crosses the IPC boundary: Rust resolves the window to hide from
+      // the calling webview (MJXHRM-382), which is the same reason
+      // `core:window:allow-hide` is withheld.
+      expect(hideThis).toHaveBeenCalledWith(undefined)
+      // The two things a hide must NOT do. Tearing the HUD down would leave the
+      // chord summoning nothing; destroying the window would take the gateway
+      // socket and every in-flight turn with it.
+      expect(live.has('sat-hud')).toBe(true)
+      expect(closeThis).not.toHaveBeenCalled()
+      expect(mainClose).not.toHaveBeenCalled()
+    })
+
+    it('goes back to closing the moment the preference is off', async () => {
+      await openSatelliteWindow('hud')
+      await flush()
+      $backgroundMode.set(true)
+
+      await closeRequested?.({ preventDefault: vi.fn() })
+      expect(hideThis).toHaveBeenCalledTimes(1)
+
+      $backgroundMode.set(false)
+      await closeRequested?.({ preventDefault: vi.fn() })
+
+      expect(hideThis).toHaveBeenCalledTimes(1)
+      expect(live.has('sat-hud')).toBe(false)
+      expect(closeThis).toHaveBeenCalled()
+    })
   })
 
   it('reports a window the user closed as gone', async () => {

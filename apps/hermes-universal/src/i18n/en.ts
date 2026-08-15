@@ -638,7 +638,11 @@ export const en: Translations = {
       invalidJson: 'Invalid config JSON',
       keepAwakeTitle: 'Keep computer awake',
       keepAwakeDesc: 'Stop this machine from sleeping so long or overnight runs keep going. The display can still dim.',
-      keepAwakeFailed: "Couldn't keep this computer awake"
+      keepAwakeFailed: "Couldn't keep this computer awake",
+      backgroundModeTitle: 'Keep running in the background',
+      backgroundModeDesc:
+        'Closing the window puts Hermes away instead of quitting it, so a running turn keeps streaming. Use the tray icon to bring it back or to quit.',
+      backgroundModeFailed: "Couldn't keep Hermes running in the background"
     },
     credentials: {
       pasteKey: 'Paste key',
@@ -3129,6 +3133,18 @@ export const en: Translations = {
     zoneCount: count => `${count} zones`
   },
 
+  tray: {
+    show: 'Show Hermes',
+    quit: 'Quit Hermes',
+    tooltip: 'Hermes (MJX)',
+    status: {
+      idle: 'Not connected',
+      probing: 'Checking gateway…',
+      connecting: 'Connecting…',
+      ready: 'Connected',
+      error: 'Connection failed'
+    }
+  },
   quickEntry: {
     label: 'Quick Entry',
     placeholder: 'Ask Hermes…',

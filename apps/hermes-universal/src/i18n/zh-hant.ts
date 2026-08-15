@@ -702,7 +702,10 @@ export const zhHant = defineLocale({
       invalidJson: '設定 JSON 無效',
       keepAwakeTitle: '保持電腦喚醒',
       keepAwakeDesc: '阻止本機睡眠，讓長時間或整夜執行持續進行。螢幕仍可變暗。',
-      keepAwakeFailed: '無法讓本機保持喚醒'
+      keepAwakeFailed: '無法讓本機保持喚醒',
+      backgroundModeTitle: '在背景繼續執行',
+      backgroundModeDesc: '關閉視窗只會收起 Hermes 而不結束，進行中的回覆會繼續輸出。可透過系統匣圖示重新顯示或結束。',
+      backgroundModeFailed: '無法讓 Hermes 在背景繼續執行'
     },
     credentials: {
       pasteKey: '貼上金鑰',
@@ -2754,6 +2757,18 @@ export const zhHant = defineLocale({
     zoneCount: count => `${count} 個區域`
   },
 
+  tray: {
+    show: '顯示 Hermes',
+    quit: '結束 Hermes',
+    tooltip: 'Hermes (MJX)',
+    status: {
+      idle: '未連線',
+      probing: '正在檢查閘道…',
+      connecting: '正在連線…',
+      ready: '已連線',
+      error: '連線失敗'
+    }
+  },
   quickEntry: {
     label: '快速輸入',
     placeholder: '向 Hermes 提問…',

@@ -13,6 +13,7 @@ import { requestComposerDraftSync } from '@/lib/composer-draft-bus'
 import { IS_ANDROID, IS_DESKTOP, IS_IOS } from '@/lib/platform'
 import { navigateTo } from '@/lib/route-nav'
 import { type SurfaceGrant } from '@/lib/surface'
+import { backgroundCloseTakesOver } from '@/store/background-mode'
 import { notifyError } from '@/store/notifications'
 
 // Ported from desktop `store/windows.ts`. Desktop opens native windows through an
@@ -689,6 +690,20 @@ function forgetSatellite(surface: string): void {
 }
 
 /**
+ * Put this window out of sight without destroying it (background mode).
+ *
+ * A Rust command rather than `core:window:allow-hide`, and it takes no label:
+ * the window to act on is the one that called, resolved from the calling webview
+ * on the Rust side. Same posture as every other window operation here
+ * (MJXHRM-382) — the label of the window to act on is never a value from the
+ * webview. Rust refuses from anything but `main` — see `hide_this_window` and
+ * `backgroundCloseTakesOver` for why a hidden pop-out would be unreachable.
+ */
+export async function hideThisWindow(): Promise<void> {
+  await invoke('hide_this_window')
+}
+
+/**
  * Destroy this window for real.
  *
  * This exists because the obvious spellings do not work.
@@ -718,12 +733,16 @@ async function closeThisWindow(): Promise<void> {
  * `stands aside once there is nothing left to tear down` test asserted exactly
  * that dead end as the contract.
  *
- * The two outcomes:
+ * The three outcomes, in order:
  *
- *  1. **Satellites up** — a satellite may never outlive its summoner, so they go
+ *  1. **Background mode** — this window is not going away, it is going out of
+ *     sight. Its satellites outlive nothing (the window that summoned them is
+ *     still here), so they stay, and the HUD stays summonable with no UI on
+ *     screen. This is the branch that makes "close" mean "hide".
+ *  2. **Satellites up** — a satellite may never outlive its summoner, so they go
  *     first and the window follows. No longer re-entrant: `closeThisWindow`
  *     destroys, so there is no second close request to service.
- *  2. **Nothing to do** — destroy.
+ *  3. **Nothing to do** — destroy.
  *
  * Installed at BOOT for any window that owns the app's persisted state, and
  * still lazily from `openSatelliteWindow` for the ones that do not (a tile
@@ -758,6 +777,18 @@ export async function installWindowCloseGuard(): Promise<void> {
     // a safety net, so it must never be the reason this one did not get armed.
     await current.onCloseRequested(async event => {
       event.preventDefault()
+
+      if (backgroundCloseTakesOver(current.label, ownsPersistedAppState())) {
+        try {
+          await hideThisWindow()
+        } catch (err) {
+          // The window is still on screen and the user pressed close. Saying
+          // nothing would read as a dead titlebar button.
+          notifyError(err, 'Could not hide this window')
+        }
+
+        return
+      }
 
       if (openedSatellites.size > 0) {
         await closeAllSatelliteWindows()

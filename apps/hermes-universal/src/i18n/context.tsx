@@ -15,7 +15,10 @@ export { LOCALE_META } from './languages'
 // the Hermes config). Same public contract as desktop I18nContextValue so ported
 // components + translateNow work unchanged; the async/config fields are trivially
 // satisfied (localStorage is synchronous).
-const $locale = persistentAtom<string>('hermes.locale', DEFAULT_LOCALE, Codecs.text)
+// Exported as `$appLocale` (re-exported from `i18n/index.ts`) for the surfaces
+// React cannot reach: the system tray's menu is native, so `store/tray.ts` has to
+// be told when the language changes rather than re-rendering into it.
+export const $locale = persistentAtom<string>('hermes.locale', DEFAULT_LOCALE, Codecs.text)
 setRuntimeI18nLocale(normalizeLocale($locale.get()))
 
 export interface I18nContextValue {

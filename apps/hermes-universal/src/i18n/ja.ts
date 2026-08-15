@@ -718,7 +718,11 @@ export const ja = defineLocale({
       invalidJson: '設定 JSON が無効です',
       keepAwakeTitle: 'コンピューターをスリープさせない',
       keepAwakeDesc: '本体のスリープを防ぎ、長時間や夜通しの実行を継続します。画面は暗転できます。',
-      keepAwakeFailed: 'このコンピューターのスリープを抑止できませんでした'
+      keepAwakeFailed: 'このコンピューターのスリープを抑止できませんでした',
+      backgroundModeTitle: 'バックグラウンドで実行を続ける',
+      backgroundModeDesc:
+        'ウィンドウを閉じても終了せず、Hermes をしまうだけになります。実行中の応答はそのまま続きます。再表示や終了はトレイアイコンから行えます。',
+      backgroundModeFailed: 'Hermes をバックグラウンドで実行し続けられませんでした'
     },
     credentials: {
       pasteKey: 'キーを貼り付け',
@@ -2865,6 +2869,18 @@ export const ja = defineLocale({
     zoneCount: count => `${count} 個のゾーン`
   },
 
+  tray: {
+    show: 'Hermes を表示',
+    quit: 'Hermes を終了',
+    tooltip: 'Hermes (MJX)',
+    status: {
+      idle: '未接続',
+      probing: 'ゲートウェイを確認中…',
+      connecting: '接続中…',
+      ready: '接続済み',
+      error: '接続に失敗しました'
+    }
+  },
   quickEntry: {
     label: 'クイック入力',
     placeholder: 'Hermes に質問…',

@@ -822,7 +822,10 @@ export const zh: Translations = {
       invalidJson: '配置 JSON 无效',
       keepAwakeTitle: '保持电脑唤醒',
       keepAwakeDesc: '阻止本机休眠，让长时间或通宵运行继续进行。屏幕仍可变暗。',
-      keepAwakeFailed: '无法让本机保持唤醒'
+      keepAwakeFailed: '无法让本机保持唤醒',
+      backgroundModeTitle: '在后台继续运行',
+      backgroundModeDesc: '关闭窗口只会收起 Hermes 而不退出，正在进行的回复会继续输出。可通过托盘图标重新显示或退出。',
+      backgroundModeFailed: '无法让 Hermes 在后台继续运行'
     },
     credentials: {
       pasteKey: '粘贴密钥',
@@ -3249,6 +3252,18 @@ export const zh: Translations = {
     zoneCount: count => `${count} 个区域`
   },
 
+  tray: {
+    show: '显示 Hermes',
+    quit: '退出 Hermes',
+    tooltip: 'Hermes (MJX)',
+    status: {
+      idle: '未连接',
+      probing: '正在检查网关…',
+      connecting: '正在连接…',
+      ready: '已连接',
+      error: '连接失败'
+    }
+  },
   quickEntry: {
     label: '快速输入',
     placeholder: '向 Hermes 提问…',

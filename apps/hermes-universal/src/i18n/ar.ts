@@ -620,7 +620,11 @@ export const ar = defineLocale({
       failedLoad: 'فشل تحميل الإعدادات',
       autosaveFailed: 'فشل الحفظ التلقائي',
       imported: 'تم استيراد الإعدادات',
-      invalidJson: 'JSON غير صالح'
+      invalidJson: 'JSON غير صالح',
+      backgroundModeTitle: 'الاستمرار في العمل بالخلفية',
+      backgroundModeDesc:
+        'إغلاق النافذة يخفي Hermes بدلاً من إنهائه، فتستمر الجلسة الجارية في البث. استخدم أيقونة شريط النظام لإظهاره أو لإنهائه.',
+      backgroundModeFailed: 'تعذّر إبقاء Hermes يعمل في الخلفية'
     },
     credentials: {
       pasteKey: 'لصق المفتاح',
@@ -2616,6 +2620,18 @@ export const ar = defineLocale({
   },
   nav: {
     webhooks: 'الويب هوك'
+  },
+  tray: {
+    show: 'إظهار Hermes',
+    quit: 'إنهاء Hermes',
+    tooltip: 'Hermes (MJX)',
+    status: {
+      idle: 'غير متصل',
+      probing: 'جار فحص البوابة…',
+      connecting: 'جار الاتصال…',
+      ready: 'متصل',
+      error: 'فشل الاتصال'
+    }
   },
   webhooks: {
     title: 'الويب هوك',
