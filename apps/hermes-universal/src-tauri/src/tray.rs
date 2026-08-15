@@ -33,6 +33,7 @@ mod imp {
     /// Menu ids. `MenuEvent` carries the id as a string, so these are the wire
     /// format between the builder and the handler and must not drift.
     const ID_SHOW: &str = "show";
+    const ID_HUD: &str = "hud";
     const ID_STATUS: &str = "status";
     const ID_QUIT: &str = "quit";
 
@@ -40,19 +41,21 @@ mod imp {
     /// before the webview has booted (or in a run where the push fails) still
     /// reads as words rather than as keys or as nothing at all.
     const DEFAULT_SHOW: &str = "Show Hermes";
+    const DEFAULT_HUD: &str = "Open HUD";
     const DEFAULT_QUIT: &str = "Quit Hermes";
     const DEFAULT_STATUS: &str = "Not connected";
     const DEFAULT_TOOLTIP: &str = "Hermes (MJX)";
 
     /// The live menu rows, kept so their text can be replaced in place.
     ///
-    /// Rebuilding the menu instead would work today and break the moment Unit B
-    /// adds its "Open HUD" row: a rebuild owned by this module would drop
-    /// anything another module had appended. `MenuItem<Wry>` is an `Arc` over a
-    /// main-thread-hopping inner and is `Send + Sync`, so holding clones here is
-    /// exactly what it is shaped for.
+    /// Rebuilding the menu on every label push would work today and break the
+    /// moment a row is added from outside this module: a rebuild owned here would
+    /// drop anything another module had appended. `MenuItem<Wry>` is an `Arc`
+    /// over a main-thread-hopping inner and is `Send + Sync`, so holding clones
+    /// here is exactly what it is shaped for.
     struct TrayItems {
         show: MenuItem<Wry>,
+        hud: MenuItem<Wry>,
         status: MenuItem<Wry>,
         quit: MenuItem<Wry>,
     }
@@ -65,13 +68,15 @@ mod imp {
     #[serde(rename_all = "camelCase")]
     pub struct TrayLabels {
         pub show: String,
+        pub hud: String,
         pub quit: String,
         pub tooltip: String,
     }
 
     /// The connection readout. One field today; a struct rather than a bare
     /// `String` because the row is the app's only always-visible status surface
-    /// and Unit B's HUD state belongs in the same push.
+    /// and anything else that has to be READ rather than clicked belongs in the
+    /// same push.
     #[derive(serde::Deserialize)]
     #[serde(rename_all = "camelCase")]
     pub struct TrayStatus {
@@ -107,15 +112,23 @@ mod imp {
             }
         };
 
-        let menu =
-            match Menu::with_items(app, &[&items.show, &items.status, &separator, &items.quit]) {
-                Ok(menu) => menu,
-                Err(err) => {
-                    log::warn!("tray menu could not be assembled: {err}");
+        let menu = match Menu::with_items(
+            app,
+            &[
+                &items.show,
+                &items.hud,
+                &items.status,
+                &separator,
+                &items.quit,
+            ],
+        ) {
+            Ok(menu) => menu,
+            Err(err) => {
+                log::warn!("tray menu could not be assembled: {err}");
 
-                    return false;
-                }
-            };
+                return false;
+            }
+        };
 
         // `app.default_window_icon()` is `None` on macOS — the bundle carries an
         // .icns the runtime does not hand back as an `Image` — so a tray built
@@ -179,6 +192,11 @@ mod imp {
     fn build_items(app: &AppHandle) -> tauri::Result<TrayItems> {
         Ok(TrayItems {
             show: MenuItem::with_id(app, ID_SHOW, DEFAULT_SHOW, true, None::<&str>)?,
+            // Summon the HUD without a keyboard. The row is the ONLY way to the
+            // HUD on a machine where another application already owns the chord
+            // — `global_shortcuts_sync` reports that as `refused` and the in-app
+            // binding needs Hermes focused, which a hidden Hermes is not.
+            hud: MenuItem::with_id(app, ID_HUD, DEFAULT_HUD, true, None::<&str>)?,
             // Disabled on purpose: this row is a readout. Clicking a connection
             // state has no meaning, and an enabled row that does nothing is a
             // worse lie than a greyed one.
@@ -190,15 +208,23 @@ mod imp {
     fn on_menu(app: &AppHandle, id: &str) {
         match id {
             ID_SHOW => reveal(app),
+            // Through the SAME bus the chord uses (`shortcuts::fire`), not a
+            // bespoke path: the action resolves to a window, and with everything
+            // hidden it builds one. A tray row that opened the HUD its own way
+            // would be a second answer to "which window is the app".
+            ID_HUD => crate::shortcuts::fire(app, crate::shortcuts::HUD_ACTION_ID),
             ID_QUIT => {
                 if let Some(state) = app.try_state::<crate::background::BackgroundState>() {
                     state.request_quit();
                 }
 
+                // Give the machine its chords back at the moment of the quit
+                // rather than whenever the process happens to unwind.
+                crate::shortcuts::release_all(app);
                 crate::window::close_satellite_windows(app);
                 app.exit(0);
             }
-            // `status` is disabled and Unit B's `hud` row is not ours to handle.
+            // `status` is disabled: it is a readout, not a button.
             _ => {}
         }
     }
@@ -221,6 +247,7 @@ mod imp {
         let items = held.as_ref().ok_or_else(|| "no_tray".to_string())?;
 
         items.show.set_text(&labels.show).map_err(err_text)?;
+        items.hud.set_text(&labels.hud).map_err(err_text)?;
         items.quit.set_text(&labels.quit).map_err(err_text)?;
 
         if let Some(tray) = app.tray_by_id(TRAY_ID) {
@@ -257,6 +284,7 @@ mod imp {
     #[serde(rename_all = "camelCase")]
     pub struct TrayLabels {
         pub show: String,
+        pub hud: String,
         pub quit: String,
         pub tooltip: String,
     }

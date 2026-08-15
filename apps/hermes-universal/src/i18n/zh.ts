@@ -3254,6 +3254,7 @@ export const zh: Translations = {
 
   tray: {
     show: '显示 Hermes',
+    hud: '打开 HUD',
     quit: '退出 Hermes',
     tooltip: 'Hermes (MJX)',
     status: {

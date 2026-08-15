@@ -2623,6 +2623,7 @@ export const ar = defineLocale({
   },
   tray: {
     show: 'إظهار Hermes',
+    hud: 'فتح شريط الاستدعاء',
     quit: 'إنهاء Hermes',
     tooltip: 'Hermes (MJX)',
     status: {

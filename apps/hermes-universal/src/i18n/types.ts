@@ -2708,6 +2708,9 @@ export interface Translations {
    *  literals and cannot read this catalog. */
   tray: {
     show: string
+    /** Summon the HUD from the tray — the only route to it on a machine where
+     *  another application already owns the chord. */
+    hud: string
     quit: string
     /** Hover text on the tray icon itself. */
     tooltip: string

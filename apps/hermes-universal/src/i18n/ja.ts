@@ -2871,6 +2871,7 @@ export const ja = defineLocale({
 
   tray: {
     show: 'Hermes を表示',
+    hud: 'HUD を開く',
     quit: 'Hermes を終了',
     tooltip: 'Hermes (MJX)',
     status: {
