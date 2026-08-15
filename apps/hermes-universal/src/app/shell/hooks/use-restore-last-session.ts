@@ -1,7 +1,8 @@
 import { useEffect, useRef } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 
-import { NEW_CHAT_ROUTE, sessionRoute } from '@/app/routes'
+import { sessionRoute } from '@/app/routes'
+import { resolveSessionLanding } from '@/app/session-landing'
 import { $connectionPhase } from '@/store/connection'
 import { $activeStoredSessionId, lastOpenedSessionId, openSession } from '@/store/session'
 
@@ -42,13 +43,21 @@ export function useRestoreLastSession(): void {
 
       done.current = true
 
-      const id = lastOpenedSessionId()
-
       // Only from a standing start. Anything already open — a deep link, a chat
       // the user opened while we were still connecting — outranks a memory.
-      if (!id || $activeStoredSessionId.get() || pathnameRef.current !== NEW_CHAT_ROUTE) {
+      //
+      // The route half of that rule is `resolveSessionLanding`, shared with the
+      // HUD so the two surfaces cannot drift on which conversation "the last
+      // one" is. The `$activeStoredSessionId` half stays here: it is in-flight
+      // state rather than a route, and only this caller has a launch to be in
+      // the middle of.
+      const landing = resolveSessionLanding(pathnameRef.current, lastOpenedSessionId())
+
+      if (landing.kind !== 'remembered' || $activeStoredSessionId.get()) {
         return
       }
+
+      const id = landing.id
 
       void Promise.resolve(openSession(id))
         .then(() => navigate(sessionRoute(id)))
