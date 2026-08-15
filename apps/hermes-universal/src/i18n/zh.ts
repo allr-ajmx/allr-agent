@@ -193,6 +193,12 @@ export const zh: Translations = {
     restore: '还原',
     close: '关闭'
   },
+  hud: {
+    connecting: '正在连接 Hermes…',
+    connectionFailed: 'Hermes 无法连接到网关。',
+    expandReply: '显示回复',
+    collapseReply: '隐藏回复'
+  },
 
   findInPage: {
     title: '在页面中查找',

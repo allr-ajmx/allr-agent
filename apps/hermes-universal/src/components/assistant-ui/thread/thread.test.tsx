@@ -85,7 +85,13 @@ vi.mock('@assistant-ui/react', () => {
       Count: () => <span>1</span>
     },
     MessagePrimitive: { Root: passthrough },
-    ThreadPrimitive: { Root: passthrough },
+    // The thread root FORWARDS its props, unlike the passthroughs above. The
+    // real `ThreadPrimitive.Root` does (it is how the component's own className
+    // reaches the DOM at all), and a stub that dropped them would make the
+    // `data-slot` test below assert nothing.
+    ThreadPrimitive: {
+      Root: ({ children, ...rest }: { children?: ReactNode }) => <div {...rest}>{children}</div>
+    },
     useAuiState: (selector: (value: unknown) => unknown) =>
       selector({
         message: { id: 'h6-user', content: [{ type: 'text', text: 'the fourth ask' }] },
@@ -237,5 +243,27 @@ describe('Thread → ThreadMessageList session key', () => {
     })
 
     expect(listProps.sessionKeys.at(-1)).toBe('runtime-other')
+  })
+})
+
+/**
+ * The selector the HUD's response panel is (MJXHRM-438).
+ *
+ * This is the test whose absence caused the whole bug. `src/styles.css` carried
+ * three `html[data-hud]` rules written against `[data-slot='composer-bounds']`
+ * — an element only `apps/desktop` has ever produced — so the HUD's entire
+ * visual identity was dead code for the life of the feature, and nothing
+ * anywhere would go red about it. A stylesheet selector is a contract between
+ * two files that never import each other, and the only thing that keeps one
+ * honest is a test that renders the component and looks for the handle.
+ *
+ * The matching half lives in `src/styles.hud-contract.test.ts`, which reads the
+ * stylesheet and fails on a `html[data-hud]` selector no component produces.
+ */
+describe('Thread → the HUD response panel selector', () => {
+  it('marks its root with data-slot="thread-root"', () => {
+    const { container } = render(<Thread />)
+
+    expect(container.querySelector('[data-slot="thread-root"]')).not.toBeNull()
   })
 })

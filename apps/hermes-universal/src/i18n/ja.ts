@@ -205,6 +205,12 @@ export const ja = defineLocale({
     restore: '元のサイズに戻す',
     close: '閉じる'
   },
+  hud: {
+    connecting: 'Hermes に接続中…',
+    connectionFailed: 'Hermes はゲートウェイに接続できませんでした。',
+    expandReply: '返信を表示',
+    collapseReply: '返信を非表示'
+  },
 
   language: {
     label: '言語',
