@@ -31,6 +31,7 @@ import {
 } from '@/store/model-visibility'
 import { $activeGatewayProfile } from '@/store/profile'
 import { $collapsedProviders, toggleCollapsedProvider } from '@/store/provider-collapse'
+import { isSatelliteWindow } from '@/store/windows'
 import type { ModelOptionProvider, ModelOptionsResponse } from '@/types/hermes'
 
 import { ModelEditSubmenu, resolveFastControl } from './model-edit-submenu'
@@ -128,6 +129,10 @@ export function ModelCatalogMenu({
   // catalog shows the same shortlist. A per-caller opt-in is how a plugin and
   // the composer would end up disagreeing about what "my models" means.
   const visibleModels = useStore($visibleModels)
+  // Constant for the window's life — the flag is in the URL — so it is read once
+  // rather than subscribed to. Same reading `chat-header.tsx` does for the same
+  // kind of question: which SHAPE of the app is this menu inside.
+  const canCurate = !isSatelliteWindow()
 
   const modelOptions = useQuery({
     queryKey: modelOptionsQueryKey(profile ?? activeProfile, sessionId),
@@ -392,14 +397,24 @@ export function ModelCatalogMenu({
 
       {/* Curation belongs to the catalog, not to one host: wherever you can pick
           a model you can say which models you want, and the shortlist is the
-          same everywhere because it is one stored preference. */}
-      <DropdownMenuItem
-        className={cn(dropdownMenuRow, 'text-(--ui-text-tertiary)')}
-        onSelect={() => setModelVisibilityOpen(true)}
-      >
-        <Codicon name="settings-gear" size="0.75rem" />
-        {copy.editModels}
-      </DropdownMenuItem>
+          same everywhere because it is one stored preference.
+
+          Everywhere it can be REACHED, that is. The row raises a dialog, and the
+          dialog is mounted by the full window roots (`MobileController`,
+          `TileWindowRoot`) — a satellite renders neither it nor
+          `ModelPickerOverlay`, so in the HUD this row opened nothing at all. It
+          is hidden rather than disabled: the choice is not unavailable, it is
+          somewhere else, and the shortlist a satellite shows is still the one
+          curated in the window the user curates from. */}
+      {canCurate ? (
+        <DropdownMenuItem
+          className={cn(dropdownMenuRow, 'text-(--ui-text-tertiary)')}
+          onSelect={() => setModelVisibilityOpen(true)}
+        >
+          <Codicon name="settings-gear" size="0.75rem" />
+          {copy.editModels}
+        </DropdownMenuItem>
+      ) : null}
     </>
   )
 }
