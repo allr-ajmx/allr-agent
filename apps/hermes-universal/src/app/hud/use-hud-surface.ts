@@ -19,12 +19,13 @@
  * capability layer, reached the same way. See [`useCanUseHud`].
  */
 
-import { type RefObject, useEffect, useState } from 'react'
+import { type RefObject, useCallback, useEffect, useRef, useState } from 'react'
 
 import { setSurfaceInteractiveRect, type SurfaceGrant } from '@/lib/surface'
-import { satelliteSurfaceGrant } from '@/store/windows'
+import { resizeSatelliteWindow, satelliteSurfaceGrant } from '@/store/windows'
 
 import { canUseHud, HUD_SURFACE } from './hud'
+import { hudWindowHeight, hudWindowWidth } from './hud-size'
 
 /** The window label the native side knows this surface by. Must match
  *  `satelliteLabel()` in `store/windows.ts`. */
@@ -73,35 +74,88 @@ export function useCanUseHud(): boolean {
   return can
 }
 
+/** The bar, and the transcript's natural height. Both live inside `ChatScreen`,
+ *  so they are found by slot rather than held as refs. */
+const BAR_SELECTOR = "[data-slot='composer-root']"
+const TRANSCRIPT_SELECTOR = "[data-slot='aui_thread-content']"
+
+export interface HudCardMetrics {
+  /** `--hud-band-max` in pixels, so growth and the CSS cap agree. */
+  bandMaxPx: number
+  /** Whether the composer attachment/context menu dropdown is currently open. */
+  attachmentMenuOpen?: boolean
+  /** Whether the composer model selector dropdown is currently open. */
+  modelMenuOpen?: boolean
+  /** Whether the response panel is showing. */
+  open: boolean
+  /** Whether the platform gave this surface the whole output. */
+  outputSized: boolean
+}
+
 /**
- * Keep the surface's interactive region on the card.
+ * One `ResizeObserver` over the HUD's card, doing the two things the card's size
+ * decides — split by which surface the platform actually granted.
  *
- * Only meaningful when the surface is output-sized: a card-sized window is
- * interactive everywhere by definition, and asking for a region there would be
- * asking the capability layer to cut a hole in something with no margin around
- * it.
+ * **Output-sized (Wayland layer-shell).** The surface is already the size of the
+ * screen, so nothing is resized: the card grows and shrinks by CSS alone, and
+ * what has to follow it is the INPUT REGION. Everything outside the card must
+ * pass clicks through or the HUD swallows every click on the desktop, and a
+ * region that lags the card is a strip of screen that either eats clicks meant
+ * for the app underneath or drops clicks meant for the HUD.
  *
- * Measured with a `ResizeObserver` rather than on render, because the card's
- * height is driven by the chat band growing and shrinking, and a region that
- * lags the card is a strip of screen that either eats clicks meant for the app
- * underneath or drops clicks meant for the HUD.
+ * **Card-sized (macOS / Windows / X11).** The window IS the card, so growth has
+ * to be a real resize — `resizeSatelliteWindow`, which keeps the top edge fixed
+ * so the HUD grows downward.
+ *
+ * WHAT IS MEASURED IS NOT THE CARD. On the card-sized path the card is `h-full`,
+ * so its height is the window's height, and resizing the window to the card's
+ * height is a fixed point that can never grow. The bar and the transcript's
+ * content box are measured instead — neither is bounded by the window — and
+ * `hudWindowHeight` turns them into a request, bucketed to 8px because a
+ * streaming reply changes the content height a pixel at a time dozens of times a
+ * second and each of those would be an IPC round trip for a change nobody can
+ * see.
  */
-export function useHudInteractiveRect(cardRef: RefObject<HTMLElement | null>, enabled: boolean): void {
-  useEffect(() => {
+export function useHudCardMetrics(cardRef: RefObject<HTMLElement | null>, metrics: HudCardMetrics): void {
+  // Read through a ref rather than a dependency. The panel opening is a state
+  // change on every summon and every collapse, and re-installing a
+  // compositor-visible observer for a value the callback can simply read is
+  // churn the surface layer would have to service.
+  const latest = useRef(metrics)
+  latest.current = metrics
+
+  const frame = useRef(0)
+  const lastRect = useRef('')
+  const lastHeight = useRef(0)
+  const lastWidth = useRef(0)
+  const observer = useRef<null | ResizeObserver>(null)
+
+  const measure = useCallback(() => {
     const card = cardRef.current
 
-    if (!enabled || !card) {
-      return undefined
+    if (!card) {
+      return
     }
 
-    let last = ''
+    const { attachmentMenuOpen, bandMaxPx, modelMenuOpen, open, outputSized } = latest.current
 
-    const report = () => {
+    if (outputSized) {
       const box = card.getBoundingClientRect()
+      let height = Math.ceil(box.height)
+      let width = Math.ceil(box.width)
+      const menuNodes = document.querySelectorAll<HTMLElement>(
+        "[data-slot='dropdown-menu-content'], [data-slot='dropdown-menu-sub-content']"
+      )
+
+      for (const menuNode of menuNodes) {
+        const menuBox = menuNode.getBoundingClientRect()
+        height = Math.max(height, Math.ceil(menuBox.bottom - box.top))
+        width = Math.max(width, Math.ceil(menuBox.right - box.left))
+      }
 
       const rect = {
-        height: Math.ceil(box.height),
-        width: Math.ceil(box.width),
+        height,
+        width,
         x: Math.floor(box.left),
         y: Math.floor(box.top)
       }
@@ -111,26 +165,102 @@ export function useHudInteractiveRect(cardRef: RefObject<HTMLElement | null>, en
       // A no-op region write still crosses IPC and still asks the compositor to
       // re-evaluate the surface; the card is remeasured far more often than it
       // actually moves.
-      if (key === last || rect.width <= 0 || rect.height <= 0) {
+      if (key === lastRect.current || rect.width <= 0 || rect.height <= 0) {
         return
       }
 
-      last = key
+      lastRect.current = key
       void setSurfaceInteractiveRect(HUD_LABEL, rect)
+
+      return
     }
 
-    const observer = new ResizeObserver(report)
+    const height = hudWindowHeight({
+      attachmentMenuOpen,
+      bandMaxPx,
+      barPx: card.querySelector<HTMLElement>(BAR_SELECTOR)?.offsetHeight ?? 0,
+      contentPx: card.querySelector<HTMLElement>(TRANSCRIPT_SELECTOR)?.offsetHeight ?? 0,
+      modelMenuOpen,
+      open
+    })
 
-    observer.observe(card)
-    report()
+    const width = hudWindowWidth({
+      attachmentMenuOpen,
+      modelMenuOpen
+    })
+
+    // Same reasoning as the region write above: an unchanged bucket still costs
+    // a round trip and a compositor reconfigure.
+    if (height === lastHeight.current && width === lastWidth.current) {
+      return
+    }
+
+    lastHeight.current = height
+    lastWidth.current = width
+    void resizeSatelliteWindow(height, width)
+  }, [cardRef])
+
+  // Coalesced through one animation frame, so a burst of mutations inside a
+  // single streamed chunk produces one measurement rather than one per node.
+  const schedule = useCallback(() => {
+    if (frame.current) {
+      return
+    }
+
+    frame.current = window.requestAnimationFrame(() => {
+      frame.current = 0
+      measure()
+    })
+  }, [measure])
+
+  useEffect(() => {
+    const instance = new ResizeObserver(schedule)
+
+    observer.current = instance
 
     return () => {
-      observer.disconnect()
+      observer.current = null
+      instance.disconnect()
+
+      if (frame.current) {
+        window.cancelAnimationFrame(frame.current)
+        frame.current = 0
+      }
+
       // Hand the whole surface back on the way out. Leaving a stale hole behind
       // would make a window that is closing anyway eat clicks while it does.
+      // Unconditional: releasing a region that was never taken is a no-op.
       void setSurfaceInteractiveRect(HUD_LABEL, null)
     }
-  }, [cardRef, enabled])
+  }, [schedule])
+
+  // Deliberately no dependency array. The bar and the transcript are found by
+  // slot inside `ChatScreen`, and the transcript's content box is REPLACED when
+  // the thread swaps between its empty placeholder and its message list — so an
+  // observer bound once would keep watching a node that no longer exists and go
+  // quiet at the exact moment the first reply arrives. Re-observing is cheap and
+  // idempotent.
+  useEffect(() => {
+    const card = cardRef.current
+    const instance = observer.current
+
+    if (!card || !instance) {
+      return
+    }
+
+    instance.disconnect()
+    instance.observe(card)
+
+    for (const selector of [BAR_SELECTOR, TRANSCRIPT_SELECTOR]) {
+      const node = card.querySelector(selector)
+
+      if (node) {
+        instance.observe(node)
+      }
+    }
+
+    schedule()
+  })
 }
 
 /**

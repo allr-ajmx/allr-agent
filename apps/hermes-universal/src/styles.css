@@ -337,6 +337,8 @@
   --radius-2xl: calc(var(--radius-scalar) * 1.5rem);
   --radius-3xl: calc(var(--radius-scalar) * 2rem);
   --radius-4xl: calc(var(--radius-scalar) * 2.5rem);
+  --radius-5xl: calc(var(--radius-scalar) * 3rem);
+  --radius-6xl: calc(var(--radius-scalar) * 3.5rem);
 
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
@@ -2692,50 +2694,275 @@ html[data-hud] #root {
   background: transparent !important;
 }
 
-/* The band: the tail of the conversation above the bar, faded back so it reads
-   as a glance rather than a window. Three states — gone, glanceable, and fully
-   legible while the composer has the caret, since asking to read it is an
-   answerable request.
+/* ── The layout inversion (MJXHRM-438) ──────────────────────────────────────
+   Everything below used to be scoped to `[data-slot='composer-bounds']`, which
+   ONLY `apps/desktop` renders — so the collapse-at-rest rule, the glance rule
+   and the focus-reveal rule had never matched anything, and what shipped was
+   `ChatScreen` verbatim in a 560x260 box: a miniature chat window. The rules
+   are rewritten here against slots this app actually produces, and
+   `styles.hud-contract.test.ts` fails on any selector in this block that does
+   not. Do not add one without checking that test still passes.
 
-   `max-height` rather than `height`: a short reply should occupy a short band,
-   and animating toward a measured height would need JS to measure it. */
-html[data-hud] [data-slot='composer-bounds'] {
-  max-height: 0;
-  opacity: 0;
+   THE BAR IS THE HUD. In the chat screen the composer is docked over the bottom
+   of the transcript; here it is undocked and made the FIRST ROW in flow, so
+   everything else grows below it — which is the whole point of a spotlight bar
+   that answers underneath itself. */
+html[data-hud] [data-slot='composer-root'] {
+  position: relative;
+  order: -1;
+  inset: auto;
+  /* Tailwind v4 emits `-translate-x-1/2` as the `translate` PROPERTY rather
+     than as a `transform` function, so this really does undo it. */
+  translate: none !important;
+  width: 100% !important;
+  max-width: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  border-radius: var(--radius-6xl, 3rem);
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+html[data-hud] [data-slot='composer-surface'] {
+  border: none !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  outline: none !important;
+}
+
+html[data-hud] [data-slot='composer-fade'] {
+  padding-inline: 1rem !important;
+  padding-block: 0.375rem !important;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+html[data-hud] [data-slot='composer-rich-input'] {
+  padding-inline-start: 0.5rem !important;
+  padding-inline-end: 0.5rem !important;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+/* The response panel: a second rounded card BELOW the bar. Collapsed to nothing
+   at rest — and THAT state is the spotlight bar.
+
+   `max-block-size` rather than a height: a short reply should occupy a short
+   panel, and animating toward a measured height would need JS to measure it.
+   The cap is `--hud-band-max`, written by `hud-window.tsx` from the window's own
+   height. It has been computed there since the feature shipped and, until this
+   ticket, read by nothing. */
+html[data-hud] [data-slot='thread-root'] {
+  margin-block-start: 0.625rem;
+  border-radius: var(--radius-6xl, 3rem);
+  border: none !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  max-block-size: var(--hud-band-max, 21rem);
   overflow: hidden;
-  pointer-events: none;
   transition:
-    max-height 180ms cubic-bezier(0.4, 0, 0.2, 1),
+    max-block-size 180ms cubic-bezier(0.4, 0, 0.2, 1),
     opacity 270ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-html[data-hud] [data-hud-engaged] [data-slot='composer-bounds'] {
-  max-height: var(--hud-band-max, 10.5rem);
-  opacity: 0.55;
-  pointer-events: auto;
+/* The state React writes, rather than a `:has()` over the transcript: a value on
+   an element is assertable in jsdom, and an unassertable contract is precisely
+   how the last one rotted. */
+html[data-hud] [data-hud-band-state='collapsed'] [data-slot='thread-root'] {
+  max-block-size: 0;
+  opacity: 0;
+  border-width: 0;
+  margin-block-start: 0;
+  pointer-events: none;
 }
 
-/* Reveal is faster than the fade out: a reveal answers the user, a fade is the
-   surface getting out of the way. */
-html[data-hud] [data-hud-card]:has([data-slot='composer-rich-input']:focus) [data-slot='composer-bounds'] {
-  max-height: var(--hud-band-max, 10.5rem);
+/* Open state: stay fully visible when open, focused, hovered, or selecting text in the thread */
+html[data-hud] [data-hud-band-state='open'] [data-slot='thread-root'] {
   opacity: 1;
-  transition-duration: 110ms, 110ms;
+}
+
+html[data-hud] [data-hud-engaged] [data-hud-band-state='open'] [data-slot='thread-root'],
+html[data-hud] [data-hud-card]:has([data-slot='composer-rich-input']:focus) [data-slot='thread-root'],
+html[data-hud] [data-hud-card]:focus-within [data-slot='thread-root'],
+html[data-hud] [data-hud-card]:hover [data-slot='thread-root'],
+html[data-hud] [data-slot='thread-root']:focus-within,
+html[data-hud] [data-slot='thread-root']:hover {
+  opacity: 1;
+  transition-duration: 180ms, 110ms;
+}
+
+/* The transcript's own scroller is sized to leave room for the DOCKED composer
+   (`--thread-viewport-height`, list.tsx's `clampToComposer`). In the HUD the
+   composer is not over the thread at all — it is the row above it — so that
+   reservation is wrong, and on the layer-shell path it is a percentage of a box
+   the HUD deliberately leaves indefinite.
+
+   Handing the height back to flex is what makes the panel SCROLL rather than
+   clip: the panel's `max-block-size` is a definite bound, the flex item shrinks
+   to it, and the viewport inside gets a real overflow. Clipped instead, the top
+   of a long reply would be unreachable — which is the exact failure desktop's
+   own stylesheet comment warns about. */
+html[data-hud] [data-slot='thread-root'] > :has(> [data-slot='aui_thread-viewport']) {
+  block-size: auto;
+  min-block-size: 0;
+  flex: 1 1 auto;
+}
+
+/* Same reservation, same reason: a spacer sized for a composer that is no longer
+   underneath the transcript is a blank half-panel at the end of every reply. */
+html[data-hud] [data-slot='aui_composer-clearance'] {
+  display: none;
+}
+
+/* The prompt bars (approval / sudo / secret) float above the docked composer in
+   the chat screen. Pinned to a bottom that no longer means anything here, they
+   would sit over the panel — but they are NOT hidden: a HUD turn can block on an
+   approval exactly like any other, and a blocking prompt with no visible answer
+   is a conversation that hangs with no explanation. In flow, under the panel. */
+html[data-hud] .composer-bars {
+  position: static;
+  order: 1;
+  width: 100%;
+  transform: none;
+  margin-block-start: 0.5rem;
 }
 
 /* Chrome the HUD has no room for. The window has no titlebar, the timeline is a
-   navigation aid for a transcript that is not shown, and a jump-to-bottom button
-   on a band that is always at the bottom is a button that does nothing. */
+   navigation aid for a transcript shown a few lines at a time, and a
+   jump-to-bottom button on a panel that is always at the bottom is a button that
+   does nothing. */
 html[data-hud] [data-slot='thread-timeline'],
 html[data-hud] .thread-jump-button {
   display: none !important;
 }
 
+/* User and AI message styling in HUD mode: compact, clean flow */
+html[data-hud] [data-slot='aui_user-message-root'] {
+  background: transparent !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  width: 100% !important;
+  position: static !important;
+}
+
+html[data-hud] .composer-human-message {
+  background: transparent !important;
+  border: none !important;
+  padding: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+html[data-hud] [data-slot='aui_assistant-message-content'] {
+  padding-inline-start: 0 !important;
+  padding-inline-end: 0 !important;
+}
+
+html[data-hud] [data-slot='aui_assistant-message-root'] {
+  padding-inline: 0 !important;
+}
+
+html[data-hud] [data-slot='aui_thread-viewport'] {
+  scroll-padding-top: 1.125rem;
+}
+
+html[data-hud] [data-slot='aui_thread-content'] {
+  padding-inline: 1.25rem !important;
+  padding-block-start: 1.125rem !important;
+  padding-block-end: 1rem !important;
+}
+
+/* User edit composer styling in HUD mode: transparent, no container background */
+html[data-hud] .composer-human-message-container,
+html[data-hud] [data-slot='aui_edit-composer-root'] .composer-human-message-container {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+
+html[data-hud] [data-slot='aui_edit-composer-root'] .ui-prompt-input__container {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  max-height: none !important;
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: flex-start !important;
+}
+
+html[data-hud] [data-slot='aui_edit-composer-root'] .ui-prompt-input-editor__input {
+  padding: 0 !important;
+  padding-inline-end: 2rem !important;
+  background: transparent !important;
+  line-height: 1.5rem !important;
+  min-height: 1.5rem !important;
+  flex: 1 1 auto !important;
+}
+
+html[data-hud] [data-slot='aui_edit-composer-root'] button {
+  inset-inline-end: 0 !important;
+  top: 0 !important;
+  bottom: auto !important;
+  height: 1.5rem !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+/* Prompt chevron prefix (codicon-chevron-right) in front of user message in HUD thread root (both read-only & edit mode) */
+html[data-hud] [data-slot='aui_user-inline-text']:first-child::before {
+  content: '\eab6';
+  font-family: codicon, sans-serif;
+  color: var(--color-primary, var(--dt-primary));
+  font-size: 0.95rem;
+  font-weight: 400;
+  line-height: 1;
+  display: inline-block;
+  vertical-align: -0.12em;
+  margin-inline-end: 0.35rem;
+}
+
+html[data-hud] [data-slot='aui_edit-composer-root'] .ui-prompt-input__container::before {
+  content: '\eab6';
+  font-family: codicon, sans-serif;
+  color: var(--color-primary, var(--dt-primary));
+  font-size: 0.95rem;
+  font-weight: 400;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 1.5rem;
+  margin-inline-end: 0.35rem;
+  flex-shrink: 0;
+}
+
+/* Remove highlight/selection background when the user prompt is selected in HUD mode */
+html[data-hud] [data-slot='aui_user-message-root'] *::selection,
+html[data-hud] [data-slot='aui_user-message-root']::selection,
+html[data-hud] [data-slot='aui_edit-composer-root'] *::selection,
+html[data-hud] [data-slot='aui_edit-composer-root']::selection {
+  background: transparent !important;
+  color: inherit !important;
+}
+
 /* Tailwind's backdrop-blur utilities inside the composer tree paint as visible
    halos on a genuinely transparent window instead of disappearing the way they
    do over an opaque app background. */
-html[data-hud] [data-hud-card] * {
+html[data-hud] [data-hud-card] *,
+html[data-hud] [data-hud-card] {
   backdrop-filter: none !important;
+  box-shadow: none !important;
+  text-shadow: none !important;
 }
 
 /* ---------------------------------------------------------------------------
@@ -2782,8 +3009,7 @@ html[data-hud] [data-hud-card] * {
    the `pre` selector above; the windowed panel is a `<div>` grid whose line
    numbers and overview ruler live OUTSIDE any `pre`, so it inherited RTL and
    reordered its own gutter. */
-[dir='rtl']
-  :where(pre, code, kbd, samp, .xterm, .cm-editor, [data-slot='code-card'], [data-slot='file-diff-panel']) {
+[dir='rtl'] :where(pre, code, kbd, samp, .xterm, .cm-editor, [data-slot='code-card'], [data-slot='file-diff-panel']) {
   direction: ltr;
   text-align: left;
 }

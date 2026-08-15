@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { composerPanelCard } from '@/components/chat/composer-dock'
 import { Button } from '@/components/ui/button'
@@ -28,6 +28,7 @@ import {
   Monitor
 } from '@/lib/icons'
 import { cn } from '@/lib/utils'
+import { setAttachmentMenuDropdownOpen } from '@/store/composer'
 
 import { useComposerAttachmentProviders } from './contrib'
 import { GHOST_ICON_BTN } from './controls'
@@ -76,6 +77,15 @@ export function ContextMenu({
   // browser). Same submenu-positioning bug as snippets, so instead of a Radix
   // sub the menu content swaps in place and Back returns to the root view.
   const [view, setView] = useState<'root' | 'files' | 'folder'>('root')
+  const [open, setOpen] = useState(false)
+  const isHud = typeof document !== 'undefined' && document.documentElement.hasAttribute('data-hud')
+
+  useEffect(() => {
+    return () => {
+      setAttachmentMenuDropdownOpen(false)
+    }
+  }, [])
+
   // `composer.attachments` contributions — plugin/core-registered rows that
   // extend this menu through the same registry as every other surface.
   const attachmentProviders = useComposerAttachmentProviders()
@@ -97,7 +107,16 @@ export function ContextMenu({
 
   return (
     <>
-      <DropdownMenu onOpenChange={open => !open && setView('root')}>
+      <DropdownMenu
+        onOpenChange={isOpen => {
+          setOpen(isOpen)
+          if (!isOpen) {
+            setView('root')
+          }
+          setAttachmentMenuDropdownOpen(isOpen)
+        }}
+        open={open}
+      >
         <Tip label={state.tools.label} side="top">
           <DropdownMenuTrigger asChild>
             <Button
@@ -115,7 +134,12 @@ export function ContextMenu({
             </Button>
           </DropdownMenuTrigger>
         </Tip>
-        <DropdownMenuContent align="start" className={cn('w-60', composerPanelCard)} side="top" sideOffset={6}>
+        <DropdownMenuContent
+          align="start"
+          className={cn('w-60', composerPanelCard)}
+          side={isHud ? 'bottom' : 'top'}
+          sideOffset={isHud ? 8 : 6}
+        >
           {view !== 'root' ? (
             <>
               <DropdownMenuLabel className="px-2 pb-0.5 pt-0.5 text-[0.625rem] font-semibold uppercase tracking-wider text-(--ui-text-tertiary)">

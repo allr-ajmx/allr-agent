@@ -94,30 +94,15 @@ pub fn is_satellite_window_label(label: &str) -> bool {
     label.starts_with("sat-")
 }
 
-/// Emitted to every remaining window when a FULL APP window is destroyed — the
-/// main window or an `instance-*` one, not a tile and not a satellite.
-///
-/// It exists for one thing the frontend cannot otherwise learn: OS-level hotkeys
-/// (`lib/keybinds/global-shortcut.ts`) are claimed by a webview, and the claim is
-/// app-global while the handler channel that answers it belongs to the window
-/// that made it. Every full window tries to claim the same chords at boot and
-/// all but the first are refused with "already registered", so exactly one
-/// window owns each. When THAT window is closed natively no JS teardown runs in
-/// it, `releaseGlobalShortcuts` never happens, and the chord stays claimed from
-/// the whole machine while answering into a channel that died with the window —
-/// registered, stolen, and dead, until the app restarts.
-///
-/// The survivors reclaim on this event. Emitted from `RunEvent::WindowEvent`
-/// like its two siblings above, and for the same reason: the window it concerns
-/// is the one that cannot report it.
-pub const APP_WINDOW_CLOSED_EVENT: &str = "hermes://app-window-closed";
-
-/// Whether a destroyed window was a full app window — one that mounts the whole
-/// shell, and therefore one that may have been holding the global-hotkey claims.
-/// Tiles and satellites never mount `useKeybinds`, so they never claim anything.
-pub fn is_app_window_label(label: &str) -> bool {
-    !is_tile_window_label(label) && !is_satellite_window_label(label)
-}
+// There is deliberately no "a full app window was destroyed" event here any more
+// (MJXHRM-437). It existed for one thing: OS hotkeys were claimed by a webview,
+// the claim was process-wide while the handler channel belonged to the window
+// that made it, and a natively-closed owner left the chord taken from the whole
+// machine answering into a dead channel — so the survivors had to reclaim.
+// `shortcuts.rs` now holds the claim in Rust, where no window's death can reach
+// it, and a second claimant fighting that registry would be strictly worse than
+// none. Nothing else ever listened, so the event and its `is_app_window_label`
+// predicate went with it rather than sitting here as a contract with no parties.
 
 // --------------------------------------------------------------------------
 // Satellites (MJXHRM-55 / MJXHRM-213 / MJXHRM-382)
@@ -152,7 +137,18 @@ struct SatelliteSpec {
     /// Surface id: the `?win=` flag, and the `sat-<id>` label suffix.
     surface: &'static str,
     width: f64,
+    /// The height the window is BORN at. For a satellite that may grow
+    /// ([`max_height`](SatelliteSpec::max_height)) this is also the floor a
+    /// resize may never go below.
     height: f64,
+    /// How tall this satellite may grow, or `None` for one whose size is fixed
+    /// for its whole life.
+    ///
+    /// `None` is the refusal in [`resize_satellite_window`], not a default: a
+    /// satellite that never asked to grow calling that command is a bug in the
+    /// caller, and answering `Ok` to it would hide the bug behind a window that
+    /// simply never changed size.
+    max_height: Option<f64>,
     transparent: bool,
     /// How far down the active monitor the window sits, in logical pixels;
     /// `None` centres it vertically. Only reached on the platforms that can
@@ -198,6 +194,26 @@ struct FloatingSpec {
 #[cfg(desktop)]
 const HUD_TOP_MARGIN: i32 = 96;
 
+/// The HUD at rest: an input bar and nothing else (MJXHRM-438). It used to be
+/// born 260px tall, which is a small chat window — the shape the whole redesign
+/// exists to stop being.
+///
+/// A multiple of the frontend's 8px growth bucket (`app/hud/hud-size.ts`), so
+/// the first measured report after the window paints does not immediately ask
+/// for a different height than the one it was built at.
+#[cfg(desktop)]
+const HUD_COLLAPSED_HEIGHT: f64 = 88.0;
+
+/// How tall the HUD may grow once a reply is streaming into the panel below the
+/// bar. Also a multiple of 8.
+#[cfg(desktop)]
+const HUD_MAX_HEIGHT: f64 = 520.0;
+
+/// Room left between the bottom of a grown satellite and the bottom of the work
+/// area, so growth never runs the window off the screen it was placed on.
+#[cfg(desktop)]
+const SATELLITE_BOTTOM_GUTTER: f64 = 24.0;
+
 /// Every satellite the app has. A surface not in here cannot be opened, and
 /// therefore cannot be attached.
 #[cfg(desktop)]
@@ -206,8 +222,11 @@ const SATELLITES: &[SatelliteSpec] = &[
     // typed into from inside another application, which keeps its own focus.
     SatelliteSpec {
         surface: "hud",
-        width: 560.0,
-        height: 260.0,
+        width: 600.0,
+        // Born as a bar. Everything below it is grown into by
+        // `resize_satellite_window` as the conversation arrives (MJXHRM-438).
+        height: HUD_COLLAPSED_HEIGHT,
+        max_height: Some(HUD_MAX_HEIGHT),
         transparent: true,
         top_margin: Some(HUD_TOP_MARGIN),
         floating: Some(FloatingSpec {
@@ -226,6 +245,9 @@ const SATELLITES: &[SatelliteSpec] = &[
         surface: "quick",
         width: 640.0,
         height: 168.0,
+        // One sentence and gone. Quick Entry has nothing to grow INTO — it
+        // renders no transcript — so a resize request from it is a mistake.
+        max_height: None,
         transparent: true,
         // Centred on the active monitor, which is where a window manager left
         // to itself would put it on a single screen — the difference this makes
@@ -251,6 +273,9 @@ const SATELLITES: &[SatelliteSpec] = &[
         // toplevel; a layer surface is output-sized and the CSS centres it.
         width: WAKE_INDICATOR_WIDTH,
         height: WAKE_INDICATOR_HEIGHT,
+        // A light is one size. It also takes no clicks and no focus, so nothing
+        // in it could ask.
+        max_height: None,
         transparent: true,
         // Top of the screen. `place_on_active_monitor` works in the WORK AREA,
         // so on macOS this sits directly under the menu bar rather than in the
@@ -281,6 +306,30 @@ const WAKE_INDICATOR_HEIGHT: f64 = 52.0;
 #[cfg(desktop)]
 fn satellite_spec(surface: &str) -> Option<&'static SatelliteSpec> {
     SATELLITES.iter().find(|spec| spec.surface == surface)
+}
+
+/// The surface a satellite LABEL names, or `None` for any other window.
+///
+/// The inverse of the `sat-{surface}` labels [`build_satellite`] mints, and the
+/// one way a command may learn which satellite is calling it: the caller's label
+/// comes from the runtime rather than from the webview, so resolving through
+/// here is what keeps a satellite command from being told which window to act
+/// on. Mirrors `satelliteSurfaceFromLabel` in `src/store/windows.ts`.
+#[cfg(desktop)]
+fn satellite_surface_from_label(label: &str) -> Option<&str> {
+    let surface = label.strip_prefix("sat-")?;
+
+    // `sat-` alone, or anything with a second segment, is not a surface name —
+    // the same shape the frontend's `satelliteLabel` regex accepts.
+    if surface.is_empty()
+        || !surface
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+    {
+        return None;
+    }
+
+    Some(surface)
 }
 
 /// What the caller gets back: the window's label, and what the platform granted
@@ -362,6 +411,7 @@ pub async fn open_satellite_window(
     let (tx, rx) = oneshot::channel::<Result<SatelliteWindow, String>>();
     let app_main = app.clone();
     let label_main = label.clone();
+    let route_for_build = route.clone();
     app.run_on_main_thread(move || {
         let _ = tx.send(build_satellite(
             &app_main,
@@ -369,6 +419,7 @@ pub async fn open_satellite_window(
             &label_main,
             spec,
             url,
+            route_for_build.as_deref(),
             output.as_ref(),
         ));
     })
@@ -387,11 +438,17 @@ fn build_satellite(
     label: &str,
     spec: &SatelliteSpec,
     url: String,
+    route: Option<&str>,
     output: Option<&crate::surface::placement::FocusedOutput>,
 ) -> Result<SatelliteWindow, String> {
     if let Some(existing) = app.get_webview_window(label) {
-        // Already up: summoning it again brings it forward. The grant it was
-        // attached with is the one the frontend already wrote down.
+        // Already up: update route hash if one was requested, then bring it forward.
+        if let Some(r) = route {
+            let hash = satellite_route(Some(r));
+            if !hash.is_empty() {
+                let _ = existing.eval(&format!("window.location.hash = '{}';", hash));
+            }
+        }
         let _ = existing.unminimize();
         let _ = existing.show();
 
@@ -412,6 +469,7 @@ fn build_satellite(
         .decorations(false)
         .resizable(false)
         .always_on_top(true)
+        .shadow(false)
         // Every satellite is born hidden and shown at the end. A floating one
         // must be: a layer surface has to be configured before its GtkWindow is
         // realized. One with no role is too, so that it is moved onto the right
@@ -426,13 +484,7 @@ fn build_satellite(
         builder = builder.skip_taskbar(true);
     }
 
-    // `transparent` only exists on macOS behind `macos-private-api`, which this
-    // build does not take — so there, the card loses its rounded corners rather
-    // than the window failing to open.
-    #[cfg(not(target_os = "macos"))]
-    {
-        builder = builder.transparent(spec.transparent);
-    }
+    builder = builder.transparent(spec.transparent);
 
     let window = builder
         .build()
@@ -520,6 +572,204 @@ pub async fn open_satellite_window(_surface: String, _route: Option<String>) -> 
     Err("unsupported_platform".to_string())
 }
 
+/// The height a satellite may actually take, given what it asked for.
+///
+/// Pure, and separated from the window call for the reason every clamp in this
+/// file is: the arithmetic is the part that can be wrong in a way no compile or
+/// `cargo check` would notice, and it is not observable from a running app
+/// either — a window that stopped growing looks the same whether the cap was
+/// applied correctly or the request was dropped.
+///
+/// `available` is how much room is left below the window's top edge on the
+/// monitor it sits on, or `None` when that could not be asked. It can be
+/// SMALLER than `min` on a short screen; the floor still wins, because a window
+/// too short to draw its own input bar is worse than one that overhangs.
+#[cfg(desktop)]
+fn satellite_growth_height(min: f64, max: f64, requested: f64, available: Option<f64>) -> f64 {
+    // A non-finite request is a `NaN`/`Infinity` that crossed IPC from JS.
+    // `clamp` panics on a NaN bound and silently propagates a NaN value, so it
+    // is refused here rather than turned into a window size.
+    if !requested.is_finite() {
+        return min;
+    }
+
+    let ceiling = available
+        .filter(|a| a.is_finite())
+        .map_or(max, |a| max.min(a))
+        // Never below the floor: the registry's own `height` is the smallest
+        // this window is ever allowed to be.
+        .max(min);
+
+    requested.clamp(min, ceiling)
+}
+
+/// Grow or shrink the CALLING satellite's window (MJXHRM-438).
+///
+/// **No label crosses IPC.** The caller is resolved from `webview.label()`
+/// against [`SATELLITES`], exactly as [`open_satellite_window`] resolves what it
+/// is allowed to build (MJXHRM-382) — `core:window:allow-set-size` is
+/// deliberately absent from `capabilities/default.json`, and it would take the
+/// label of any window as an argument.
+///
+/// The width never changes and the window is never MOVED by the resize, so it
+/// grows DOWNWARD from a fixed top edge — which is the whole visual contract of
+/// a spotlight bar that answers underneath itself. The position is captured and
+/// restored around the call because that is not free everywhere: AppKit sizes a
+/// window from its bottom-left origin, so a naive `set_size` there would push
+/// the bar UP the screen as the answer arrived.
+///
+/// Answers with the height actually applied, after clamping — the caller needs
+/// it to know that further growth is pointless.
+#[cfg(desktop)]
+#[tauri::command]
+pub async fn resize_satellite_window(
+    app: tauri::AppHandle,
+    webview: tauri::WebviewWindow,
+    height: f64,
+    width: Option<f64>,
+) -> Result<f64, String> {
+    let label = webview.label().to_string();
+    let spec = satellite_surface_from_label(&label)
+        .and_then(satellite_spec)
+        .ok_or_else(|| format!("refusing to resize {label}: it is not a registered satellite"))?;
+    let surface = spec.surface;
+
+    // A satellite with no cap never asked to grow. Silence here would hide a
+    // real bug in whichever surface called: the window would simply never
+    // change size, which is indistinguishable from a compositor ignoring us.
+    let max = spec
+        .max_height
+        .ok_or_else(|| format!("{surface} is a fixed-size satellite and may not be resized"))?;
+
+    let base_width = spec.width;
+    let min = spec.height;
+    let top_margin = f64::from(spec.top_margin.unwrap_or(0));
+
+    let (tx, rx) = oneshot::channel::<Result<f64, String>>();
+    let app_main = app.clone();
+
+    app.run_on_main_thread(move || {
+        let Some(window) = app_main.get_webview_window(&label) else {
+            let _ = tx.send(Err("window went away".to_string()));
+
+            return;
+        };
+
+        // How much room is left below the top edge on the monitor this window is
+        // actually on. Physical, so it is converted to the logical pixels the
+        // registry and `set_size` below both work in.
+        let available = window.current_monitor().ok().flatten().map(|monitor| {
+            let area = monitor.work_area();
+            let scale = monitor.scale_factor();
+            f64::from(area.size.height) / scale - top_margin - SATELLITE_BOTTOM_GUTTER
+        });
+
+        let applied_height = satellite_growth_height(min, max, height, available);
+        let applied_width = width.unwrap_or(base_width).max(base_width);
+
+        // The top edge, captured BEFORE the resize and put back after on platforms
+        // where it is needed. On macOS, Tauri's `set_size` handles top-left anchoring.
+        #[cfg(not(target_os = "macos"))]
+        let anchor = window.outer_position().ok();
+
+        // GTK pins WM size hints to `min == max == current` on a window built
+        // `.resizable(false)` — which every satellite is — so `set_size` on one
+        // is SILENTLY IGNORED there. Opening the hints for the duration of the
+        // call is the only way a non-resizable GTK window can be resized by its
+        // own application, and it is scoped to the call so the user still cannot
+        // drag the HUD's edges.
+        #[cfg(target_os = "linux")]
+        let _ = window.set_resizable(true);
+
+        let result = window
+            .set_size(tauri::LogicalSize::new(applied_width, applied_height))
+            .map_err(|e| format!("could not resize {surface}: {e}"));
+
+        #[cfg(target_os = "linux")]
+        let _ = window.set_resizable(false);
+
+        // On macOS, Tauri's native `set_size` implementation already anchors the
+        // top-left origin. Calling `set_position` after `set_size` on macOS creates
+        // a 2px coordinate conversion rounding jitter between Physical and Logical pixels.
+        #[cfg(not(target_os = "macos"))]
+        if let Some(position) = anchor {
+            // Refused on a plain Wayland toplevel, which is not ours to fix and
+            // not ours to report: a client there cannot position itself at all,
+            // and the compositor keeps the window where it put it.
+            let _ = window.set_position(position);
+        }
+
+        let _ = tx.send(result.map(|()| applied_height));
+    })
+    .map_err(|e| format!("failed to schedule resize: {e}"))?;
+
+    rx.await
+        .map_err(|_| "failed to resize window".to_string())?
+}
+
+/// Mobile stub — see [`open_satellite_window`]'s.
+#[cfg(mobile)]
+#[tauri::command]
+pub async fn resize_satellite_window(_height: f64, _width: Option<f64>) -> Result<f64, String> {
+    Err("unsupported_platform".to_string())
+}
+
+/// Hide a satellite window (e.g. the HUD) so it stays warm in the background.
+#[cfg(desktop)]
+#[tauri::command]
+pub async fn hide_satellite_window(app: tauri::AppHandle, surface: String) -> Result<(), String> {
+    use tauri::Emitter;
+
+    let spec = satellite_spec(&surface)
+        .ok_or_else(|| format!("refusing to hide {surface}: not a registered satellite"))?;
+    let label = format!("sat-{}", spec.surface);
+
+    let (tx, rx) = oneshot::channel::<Result<(), String>>();
+    let app_main = app.clone();
+    let label_main = label.clone();
+
+    app.run_on_main_thread(move || {
+        let result = if let Some(window) = app_main.get_webview_window(&label_main) {
+            window.hide().map_err(|e| e.to_string())
+        } else {
+            Ok(())
+        };
+        let _ = app_main.emit(SATELLITE_WINDOW_CLOSED_EVENT, label_main);
+        let _ = tx.send(result);
+    })
+    .map_err(|e| format!("failed to schedule hide: {e}"))?;
+
+    rx.await.map_err(|_| "failed to hide window".to_string())?
+}
+
+/// Mobile stub
+#[cfg(mobile)]
+#[tauri::command]
+pub async fn hide_satellite_window(_surface: String) -> Result<(), String> {
+    Err("unsupported_platform".to_string())
+}
+
+/// Check whether a satellite window is currently open AND visible on screen.
+#[cfg(desktop)]
+#[tauri::command]
+pub fn is_satellite_window_visible(app: tauri::AppHandle, surface: String) -> Result<bool, String> {
+    let spec = satellite_spec(&surface).ok_or_else(|| format!("unknown satellite: {surface}"))?;
+    let label = format!("sat-{}", spec.surface);
+
+    if let Some(window) = app.get_webview_window(&label) {
+        window.is_visible().map_err(|e| e.to_string())
+    } else {
+        Ok(false)
+    }
+}
+
+/// Mobile stub
+#[cfg(mobile)]
+#[tauri::command]
+pub fn is_satellite_window_visible(_surface: String) -> Result<bool, String> {
+    Ok(false)
+}
+
 /// Build a frameless window for `url` under `label`, or focus the existing one
 /// (one window per target). The gtk/WKWebView calls must run on the main thread;
 /// a oneshot carries the build result back so a failure surfaces to the caller.
@@ -540,16 +790,7 @@ async fn open_or_focus(app: tauri::AppHandle, label: String, url: String) -> Res
             let _ = tx.send(Ok(()));
             return;
         }
-        #[allow(unused_mut)]
-        let mut builder = WebviewWindowBuilder::new(&app_main, &label, WebviewUrl::App(url.into()))
-            .title("Hermes (MJX)")
-            .inner_size(WINDOW_WIDTH, WINDOW_HEIGHT)
-            .min_inner_size(WINDOW_MIN_WIDTH, WINDOW_MIN_HEIGHT);
-        #[cfg(desktop)]
-        {
-            builder = builder.decorations(false);
-        }
-        let build = builder.build();
+        let build = app_window_builder(&app_main, &label, url).build();
         let _ = tx.send(
             build
                 .map(|_| ())
@@ -558,6 +799,30 @@ async fn open_or_focus(app: tauri::AppHandle, label: String, url: String) -> Res
     })
     .map_err(|e| format!("failed to schedule window: {e}"))?;
     rx.await.map_err(|_| "failed to open window".to_string())?
+}
+
+/// The builder EVERY full app window is made from.
+///
+/// One function rather than one per call site: a cold summon builds `main` the
+/// same way a reveal does, and a second builder that drifted would give the user
+/// a window of a different size or with a titlebar depending on which route
+/// happened to create it.
+#[cfg(any(desktop, target_os = "ios"))]
+fn app_window_builder<'a>(
+    app: &'a tauri::AppHandle,
+    label: &'a str,
+    url: String,
+) -> WebviewWindowBuilder<'a, tauri::Wry, tauri::AppHandle> {
+    #[allow(unused_mut)]
+    let mut builder = WebviewWindowBuilder::new(app, label, WebviewUrl::App(url.into()))
+        .title("Hermes (MJX)")
+        .inner_size(WINDOW_WIDTH, WINDOW_HEIGHT)
+        .min_inner_size(WINDOW_MIN_WIDTH, WINDOW_MIN_HEIGHT);
+    #[cfg(desktop)]
+    {
+        builder = builder.decorations(false);
+    }
+    builder
 }
 
 /// Map an id to a Tauri window label under `prefix`. Labels allow only
@@ -865,6 +1130,35 @@ pub fn close_this_window(window: tauri::WebviewWindow) -> Result<(), String> {
     window.destroy().map_err(|e| e.to_string())
 }
 
+/// Build `main` OFF SCREEN, for a chord that fired with nothing to answer it.
+///
+/// The cold-summon half of `shortcuts::deliver`. Background mode is what
+/// makes "the process is up and there are no app windows" reachable at all, and a
+/// chord pressed in that state has to end with a HUD — so a host has to exist
+/// before anything can be dispatched into one.
+///
+/// Hidden rather than shown, and that is the whole point: the action this window
+/// is being built to run opens a DIFFERENT window. A cold summon that also threw
+/// the full app on screen would be a spotlight that drags the room in with it.
+/// The window becomes visible only if the user asks for it — tray ▸ Show Hermes,
+/// which [`window_to_reveal`] resolves to this same `main`.
+///
+/// **Main thread only.** `WebviewWindowBuilder::build` is a main-thread call on
+/// every backend; the one caller is already inside `run_on_main_thread`.
+/// Idempotent, because two chords pressed in quick succession both arrive here.
+#[cfg(desktop)]
+pub fn build_hidden_main_window(app: &tauri::AppHandle) -> Result<(), String> {
+    if app.get_webview_window(MAIN_WINDOW_LABEL).is_some() {
+        return Ok(());
+    }
+
+    app_window_builder(app, MAIN_WINDOW_LABEL, "index.html".to_string())
+        .visible(false)
+        .build()
+        .map(|_| ())
+        .map_err(|e| format!("could not open window: {e}"))
+}
+
 /// Destroy every satellite window. Used by the explicit quit so no always-on-top
 /// (or layer-shell) orphan is left over a bare desktop while the app goes away.
 #[cfg(desktop)]
@@ -1089,6 +1383,144 @@ mod tests {
         }
     }
 
+    /// Growth is a privilege, not a default (MJXHRM-438). Asserted over the
+    /// whole registry, like `only_the_wake_light_is_click_through` above, so a
+    /// new satellite has to decide deliberately rather than inherit whatever
+    /// the entry above it happened to say.
+    ///
+    /// The HUD may grow because it answers underneath its own input bar. Quick
+    /// Entry is one sentence and gone, and the wake light is a light — for both
+    /// of them `resize_satellite_window` is an `Err`, and that refusal is what
+    /// makes a stray call visible instead of silently doing nothing.
+    #[test]
+    fn only_the_hud_may_grow() {
+        for spec in SATELLITES {
+            assert_eq!(
+                spec.max_height.is_some(),
+                spec.surface == "hud",
+                "{} max_height",
+                spec.surface
+            );
+
+            // A cap below the floor would make `satellite_growth_height`'s
+            // ceiling the floor, so the window could never grow at all — and on
+            // a bare `clamp` it would panic.
+            if let Some(max) = spec.max_height {
+                assert!(
+                    max > spec.height,
+                    "{} may grow, so its cap must be above the height it is born at",
+                    spec.surface
+                );
+            }
+        }
+    }
+
+    /// The HUD is born as an INPUT BAR. It used to open 260px tall, which is a
+    /// small chat window with a header, a transcript and a docked composer —
+    /// the exact shape MJXHRM-438 exists to stop being. The number is also the
+    /// floor a resize may never go below, so a HUD that shrank past its own bar
+    /// would be a window with nothing drawable in it.
+    #[test]
+    fn the_hud_opens_at_bar_height() {
+        let spec = satellite_spec("hud").expect("the hud is registered");
+
+        assert_eq!(spec.height, HUD_COLLAPSED_HEIGHT);
+        assert!(
+            spec.height < HUD_MAX_HEIGHT,
+            "a bar that opens at its own cap can never grow"
+        );
+        // Both ends are multiples of the frontend's 8px growth bucket
+        // (`app/hud/hud-size.ts`), so the first measured report after the window
+        // paints does not immediately ask for a height it was already at.
+        assert_eq!(HUD_COLLAPSED_HEIGHT % 8.0, 0.0);
+        assert_eq!(HUD_MAX_HEIGHT % 8.0, 0.0);
+    }
+
+    /// The arithmetic behind every resize. Not observable from a running app —
+    /// a window that stopped growing looks identical whether the cap was
+    /// applied or the request was dropped — so it is pinned here.
+    #[test]
+    fn a_growth_request_is_held_between_the_bar_and_the_cap() {
+        // Ordinary growth passes through untouched.
+        assert_eq!(satellite_growth_height(88.0, 520.0, 300.0, None), 300.0);
+        // Above the cap, and below the bar.
+        assert_eq!(satellite_growth_height(88.0, 520.0, 9999.0, None), 520.0);
+        assert_eq!(satellite_growth_height(88.0, 520.0, 1.0, None), 88.0);
+        assert_eq!(satellite_growth_height(88.0, 520.0, -400.0, None), 88.0);
+    }
+
+    /// A short screen lowers the ceiling below the registry's cap — but never
+    /// below the bar. A HUD too short to draw its own input is worse than one
+    /// that overhangs the work area by a few pixels.
+    #[test]
+    fn a_short_screen_lowers_the_ceiling_but_not_the_floor() {
+        assert_eq!(
+            satellite_growth_height(88.0, 520.0, 500.0, Some(300.0)),
+            300.0
+        );
+        assert_eq!(
+            satellite_growth_height(88.0, 520.0, 500.0, Some(40.0)),
+            88.0,
+            "a screen shorter than the bar still gets the whole bar"
+        );
+        // A roomier screen than the cap does not raise the cap.
+        assert_eq!(
+            satellite_growth_height(88.0, 520.0, 9999.0, Some(4000.0)),
+            520.0
+        );
+    }
+
+    /// `NaN` and `Infinity` are ordinary JS numbers and this command takes an
+    /// `f64` straight off the IPC boundary. `f64::clamp` PANICS on a NaN bound
+    /// and propagates a NaN value, and a NaN window height is a size nobody can
+    /// see the wrongness of.
+    #[test]
+    fn a_nonsense_height_falls_back_to_the_bar() {
+        assert_eq!(satellite_growth_height(88.0, 520.0, f64::NAN, None), 88.0);
+        assert_eq!(
+            satellite_growth_height(88.0, 520.0, f64::INFINITY, None),
+            88.0
+        );
+        assert_eq!(
+            satellite_growth_height(88.0, 520.0, 300.0, Some(f64::NAN)),
+            300.0,
+            "a monitor that could not be measured must not take the window with it"
+        );
+    }
+
+    /// Which window may ask to be resized, resolved from the label the RUNTIME
+    /// reports rather than from anything the webview said. If this ever accepted
+    /// a shape `build_satellite` does not mint, a tile or an instance window
+    /// could resize itself through a command written for satellites.
+    #[test]
+    fn only_a_satellite_label_names_a_surface() {
+        for spec in SATELLITES {
+            assert_eq!(
+                satellite_surface_from_label(&format!("sat-{}", spec.surface)),
+                Some(spec.surface),
+                "sat-{} must resolve back to its surface",
+                spec.surface
+            );
+        }
+
+        for label in [
+            "main",
+            "instance-2",
+            "tile-session-tile-abc",
+            "sat-",
+            "sat-HUD",
+            "sat-hud/evil",
+            "sat-hud ",
+            "screen",
+        ] {
+            assert_eq!(
+                satellite_surface_from_label(label),
+                None,
+                "{label} must not name a satellite surface"
+            );
+        }
+    }
+
     /// A floating satellite is born hidden, because a wlr-layer-shell surface
     /// must be configured before its GtkWindow is realized; one with no layer
     /// role has nothing to configure and is born visible. `build_satellite`
@@ -1137,25 +1569,6 @@ mod tests {
             let label = format!("sat-{}", spec.surface);
             assert!(is_satellite_window_label(&label), "{label}");
         }
-    }
-
-    /// Which windows get [`APP_WINDOW_CLOSED_EVENT`], and therefore which closes
-    /// make the survivors reclaim the OS hotkeys. Only a window that mounts the
-    /// whole shell can have been holding them; a satellite answering here would
-    /// have Quick Entry's own dismiss churn the machine-wide claim every time it
-    /// is summoned and let go.
-    #[test]
-    fn only_full_app_windows_are_app_windows() {
-        for label in ["main", "instance-2", "screen"] {
-            assert!(is_app_window_label(label), "{label} is a full app window");
-        }
-
-        for spec in SATELLITES {
-            let label = format!("sat-{}", spec.surface);
-            assert!(!is_app_window_label(&label), "{label} is a satellite");
-        }
-
-        assert!(!is_app_window_label("tile-session-tile-abc"));
     }
 
     /// What "Show Hermes" is allowed to land on. The tray is the ONLY way back to

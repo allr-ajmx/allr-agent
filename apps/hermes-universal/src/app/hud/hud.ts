@@ -76,7 +76,7 @@ export async function canUseHud(): Promise<boolean> {
  * stash as it mounts, and a write racing that mount lands after it has already
  * painted an empty box.
  */
-export async function openHud(sessionId: null | string = hudTargetSessionId()): Promise<boolean> {
+export async function openHud(sessionId: null | string = null): Promise<boolean> {
   // The capability gate, at the one choke point all three entry points share —
   // the titlebar button, the in-app keybind, and the OS-wide chord. Checked
   // before anything is flushed or armed, because a summon that cannot happen
@@ -140,5 +140,5 @@ export async function toggleHud(sessionId?: null | string): Promise<boolean> {
     return false
   }
 
-  return openHud(sessionId ?? hudTargetSessionId())
+  return openHud(sessionId ?? null)
 }

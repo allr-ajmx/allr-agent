@@ -23,6 +23,7 @@ mod oauth;
 mod plugins;
 mod pty;
 mod repo_scan;
+mod shortcuts;
 mod ssh;
 mod surface;
 mod telemetry;
@@ -34,7 +35,7 @@ mod window;
 
 use appearance::set_window_translucency;
 use artifact::{artifact_release, artifact_stage, ArtifactState, ARTIFACT_SCHEME};
-use background::{quit_app, set_background_mode, BackgroundState};
+use background::{get_background_mode, quit_app, set_background_mode, BackgroundState};
 use cloud::{
     portal_agent_sign_in, portal_discover_agents, portal_login, portal_logout, portal_status,
 };
@@ -50,6 +51,7 @@ use oauth::{oauth_login, oauth_logout, oauth_status};
 use plugins::{plugins_list, plugins_read, plugins_root};
 use pty::{pty_kill, pty_resize, pty_spawn, pty_write, PtyState};
 use repo_scan::repo_scan_git_repos;
+use shortcuts::{global_shortcut_take_pending, global_shortcuts_sync, ShortcutState};
 use ssh::{
     ssh_answer_prompt, ssh_cancel, ssh_connect, ssh_disconnect, ssh_list_config_hosts,
     ssh_resolve_host, ssh_test, ssh_trust_host_key, SshState,
@@ -66,8 +68,9 @@ use voice::{
     voice_wake_listen, VoiceState,
 };
 use window::{
-    close_this_window, hide_this_window, open_instance_window, open_satellite_window,
-    open_screen_window, open_session_window, open_tile_window, show_app_window,
+    close_this_window, hide_satellite_window, hide_this_window, is_satellite_window_visible,
+    open_instance_window, open_satellite_window, open_screen_window, open_session_window,
+    open_tile_window, resize_satellite_window, show_app_window,
 };
 
 /// Open a URL in the system browser. Routed through the opener plugin's Rust API
@@ -162,6 +165,12 @@ pub fn run() {
         // the builder chain is the same shape; the mobile `TrayState` is an
         // empty struct nothing reads.
         .manage(TrayState::default())
+        // The OS-hotkey registry. Rust holds the claims now, not a webview
+        // (MJXHRM-437), so this outlives every window — which is the point:
+        // background mode makes "no window is visible" the state the chord has
+        // to work in. Managed on both targets so the builder chain is the same
+        // shape; the mobile `ShortcutState` is an empty struct nothing reads.
+        .manage(ShortcutState::default())
         // Inline audio/video streams through here instead of loading as a base64
         // data URL — see media.rs. Registered on the BUILDER, not in `.setup()`:
         // on Linux, wry registers custom schemes into the WebContext when the
@@ -279,6 +288,9 @@ pub fn run() {
             open_tile_window,
             open_screen_window,
             open_satellite_window,
+            hide_satellite_window,
+            is_satellite_window_visible,
+            resize_satellite_window,
             update_check,
             update_open_download,
             ssh_connect,
@@ -295,12 +307,15 @@ pub fn run() {
             surface_set_interactive_rect,
             read_window_below,
             set_background_mode,
+            get_background_mode,
             quit_app,
             show_app_window,
             hide_this_window,
             close_this_window,
             tray_set_labels,
-            tray_set_status
+            tray_set_status,
+            global_shortcuts_sync,
+            global_shortcut_take_pending
         ]))
         // `.build(...).run(closure)` (rather than the terminal `.run(context)`) so
         // we can observe `RunEvent`s. On iOS this catches scenes the *system*
@@ -353,14 +368,6 @@ pub fn run() {
                 }
                 if window::is_satellite_window_label(label) {
                     let _ = app_handle.emit(window::SATELLITE_WINDOW_CLOSED_EVENT, label.clone());
-                }
-                // A full app window may have been the one holding this process's
-                // OS-hotkey claims — every window tries, all but one are refused
-                // — and a native close runs no teardown in it. The survivors
-                // reclaim on this, or the chord stays taken from the whole
-                // machine and answers into a dead channel (MJXHRM-384).
-                if window::is_app_window_label(label) {
-                    let _ = app_handle.emit(window::APP_WINDOW_CLOSED_EVENT, label.clone());
                 }
             }
 

@@ -11,10 +11,22 @@
  * `global: true` in `lib/keybinds/actions.ts`, and whatever `$bindings` says its
  * combo is right now is what gets registered.
  *
+ * **The claim itself lives in Rust** (`src-tauri/src/shortcuts.rs`, MJXHRM-437).
+ * This module decides WHAT should be held and hands the whole set over; the
+ * backend is the registrar. That split is what makes the chord survive background
+ * mode: the plugin's registry is per PROCESS while a webview's handler channel
+ * belongs to its WINDOW, so a claim made from here died with whichever window
+ * happened to win the race for it — and background mode's normal state is one
+ * hidden window, or none at all. It also puts the claim somewhere no webview
+ * scheduler can throttle, and makes a summon with zero windows possible: Rust
+ * parks the action and builds a host for it.
+ *
  * Desktop only. Neither mobile OS lets an app claim a system-wide chord, and the
- * plugin is not in the mobile dependency set, so the import is dynamic and the
- * whole module stands down elsewhere.
+ * commands answer `unsupported_platform` there, so the whole module stands down
+ * on `IS_DESKTOP`.
  */
+
+import type * as TauriCoreModule from '@tauri-apps/api/core'
 
 import { translateNow } from '@/i18n'
 import { globalKeybindActions } from '@/lib/keybinds/actions'
@@ -25,8 +37,7 @@ import { $bindings, bindingsFor } from '@/store/keybinds'
 import { notify } from '@/store/notifications'
 import { openAppRoute } from '@/store/windows'
 
-/** Accelerator → the action it currently stands for. Rebuilt on every sync. */
-let registered = new Map<string, string>()
+type TauriCore = typeof TauriCoreModule
 
 /** How a fired accelerator reaches its action. Set by the keybind hook, which is
  *  where the handler map lives — this module deliberately knows no actions. */
@@ -36,13 +47,47 @@ let syncing = false
 let resync = false
 
 /**
- * Claim the next sync's accelerators from scratch, releasing whoever holds them
- * first. See [`reclaimGlobalShortcuts`].
+ * The IPC entrypoint, imported once.
+ *
+ * Dynamic because this module is loaded on mobile and on the web too, where
+ * `@tauri-apps/api` has nothing to talk to — and shared because `boot` starts a
+ * sync and a pending-drain in the same tick, and two of them racing the same
+ * module load is a needless round trip on the one path whose whole point is that
+ * it answers immediately.
  */
-let forceReclaim = false
+let core_: null | Promise<TauriCore> = null
+
+function core(): Promise<TauriCore> {
+  core_ ??= import('@tauri-apps/api/core')
+
+  return core_
+}
 
 export function setGlobalShortcutDispatch(fn: (actionId: string) => void): void {
   dispatch = fn
+}
+
+/**
+ * Rust's delivery of a chord that fired, addressed at ONE window
+ * (`shortcuts::GLOBAL_SHORTCUT_EVENT`).
+ */
+const GLOBAL_SHORTCUT_EVENT = 'hermes://global-shortcut'
+
+/** One accelerator to hold, as `global_shortcuts_sync` takes it. */
+interface ShortcutClaim {
+  accelerator: string
+  actionId: string
+  combo: string
+}
+
+/** What the sync achieved, in COMBOS — an accelerator is the OS's spelling. */
+interface ShortcutSync {
+  /** Combos the OS granted in this pass. Not what was asked for: a chord another
+   *  application owns was never taken, and one this process already held is not
+   *  news. This is what the first-run disclosure is allowed to name. */
+  granted: string[]
+  /** Combos the OS refused, so the console can say which and why nothing happened. */
+  refused: string[]
 }
 
 /** What one accelerator stands for: the action it fires, and the combo the user
@@ -62,7 +107,8 @@ function desiredAccelerators(): Map<string, WantedClaim> {
       const accelerator = acceleratorFromCombo(combo)
 
       // First writer wins, so two actions bound to one chord resolve the same
-      // way the in-app dispatcher resolves them.
+      // way the in-app dispatcher resolves them — and the same way
+      // `diff_claims` resolves them on the other side of the boundary.
       if (accelerator && !wanted.has(accelerator)) {
         wanted.set(accelerator, { actionId: action.id, combo })
       }
@@ -120,12 +166,17 @@ function discloseGlobalClaim(combos: string[]): void {
 }
 
 /**
- * Bring the OS's registrations in line with the registry: claim what's new,
- * release what's gone, leave the rest alone.
+ * Hand Rust the whole set of accelerators that should be held right now.
  *
- * Serialized. Registering is async and a rebind can arrive mid-flight; two
- * overlapping syncs would race to claim the same chord and one of them would
- * fail with "already registered". A pending flag re-runs once instead.
+ * The backend reconciles — releases what is gone, claims what is new, leaves an
+ * unchanged claim alone — so this sends the desired state rather than a delta,
+ * and nothing on this side remembers what is registered. That is deliberate:
+ * every full app window runs this at boot, and a per-window memory of "what I
+ * claimed" is exactly what made the claim die with a window.
+ *
+ * Serialized. A rebind can arrive while a sync is in flight, and two overlapping
+ * syncs would hand the registrar two different desired states in an order
+ * neither of them chose. A pending flag re-runs once instead.
  */
 export async function syncGlobalShortcuts(): Promise<void> {
   if (!IS_DESKTOP) {
@@ -140,70 +191,29 @@ export async function syncGlobalShortcuts(): Promise<void> {
 
   syncing = true
 
-  // Consumed here rather than at the call site: a reclaim requested while
-  // another sync was in flight returned early above, and this is the run that
-  // has to honour it.
-  const force = forceReclaim
-  forceReclaim = false
-
   try {
-    const { register, unregister } = await import('@tauri-apps/plugin-global-shortcut')
-    const wanted = desiredAccelerators()
-    const next = new Map<string, string>()
-    /** Combos the OS granted in THIS pass — what the first-run notice reports. */
-    const claimed: string[] = []
+    const { invoke } = await core()
 
-    for (const [accelerator, actionId] of registered) {
-      if (!force && wanted.get(accelerator)?.actionId === actionId) {
-        next.set(accelerator, actionId)
+    const claims: ShortcutClaim[] = [...desiredAccelerators()].map(([accelerator, wanted]) => ({
+      accelerator,
+      actionId: wanted.actionId,
+      combo: wanted.combo
+    }))
 
-        continue
-      }
+    const { granted, refused } = await invoke<ShortcutSync>('global_shortcuts_sync', { claims })
 
-      try {
-        await unregister(accelerator)
-      } catch (err) {
-        console.warn('[keybinds] could not release global shortcut', accelerator, err)
-      }
+    if (refused.length > 0) {
+      // Another application already owns the chord. That is a legitimate outcome
+      // of a global claim, not a failure of ours — the in-app binding still
+      // works, so say it once and move on.
+      console.warn('[keybinds] global shortcut unavailable', refused.join(', '))
     }
 
-    for (const [accelerator, claim] of wanted) {
-      if (next.has(accelerator)) {
-        continue
-      }
-
-      // A reclaim assumes the chord is held by a claim this window did not make
-      // and cannot see — the plugin's registry is per PROCESS, not per window.
-      // Release it blind before claiming; an accelerator nobody holds simply
-      // rejects here, which is the no-op we want.
-      if (force) {
-        try {
-          await unregister(accelerator)
-        } catch {
-          // Nobody held it. Claiming it below is the whole point.
-        }
-      }
-
-      try {
-        await register(accelerator, event => {
-          // The plugin reports both edges; acting on Released too would run the
-          // action twice per press.
-          if (event.state === 'Pressed') {
-            dispatch(claim.actionId)
-          }
-        })
-        next.set(accelerator, claim.actionId)
-        claimed.push(claim.combo)
-      } catch (err) {
-        // Another application already owns the chord. That is a legitimate
-        // outcome of a global claim, not a failure of ours — the in-app binding
-        // still works, so say so once and move on.
-        console.warn('[keybinds] global shortcut unavailable', accelerator, err)
-      }
-    }
-
-    registered = next
-    discloseGlobalClaim(claimed)
+    discloseGlobalClaim(granted)
+  } catch (err) {
+    // No Tauri runtime, or the command refused. Nothing is claimed, so nothing
+    // is stolen — but stay quiet about a success that did not happen.
+    console.warn('[keybinds] could not sync global shortcuts', err)
   } finally {
     syncing = false
 
@@ -214,104 +224,102 @@ export async function syncGlobalShortcuts(): Promise<void> {
   }
 }
 
-/** Release everything this app claimed. For teardown; safe to call twice. */
-export async function releaseGlobalShortcuts(): Promise<void> {
-  if (!IS_DESKTOP || registered.size === 0) {
-    return
-  }
-
-  const claimed = [...registered.keys()]
-  registered = new Map()
-
-  try {
-    const { unregister } = await import('@tauri-apps/plugin-global-shortcut')
-
-    for (const accelerator of claimed) {
-      try {
-        await unregister(accelerator)
-      } catch {
-        // Already released, or the window system is going away with us.
-      }
-    }
-  } catch {
-    // Plugin not present (mobile/web) — nothing was ever claimed.
-  }
-}
-
 /**
- * Take the claims back after another window of this app went away.
+ * Take the chord that fired before this window existed.
  *
- * The plugin's registry is per PROCESS while the handler channel that answers a
- * chord belongs to the WINDOW that registered it. Every full app window runs
- * this module and asks for the same accelerators at boot; the first is granted
- * and the rest are refused with "already registered" (see `global-hotkey`'s
- * `Error::AlreadyRegistered` on all three desktop backends), so exactly one
- * window is the owner. Close that window natively — a compositor, a title-bar X,
- * anything but a JS teardown — and `releaseGlobalShortcuts` never runs: the
- * accelerator stays claimed from every application on the machine and delivers
- * into a channel that died with the window. Every global action, Quick Entry and
- * the HUD included, is then silently unreachable until the app restarts, even
- * though a window is still open.
+ * A cold summon: the process was resident with everything hidden, or the last
+ * window had just gone. Rust parks the action in a one-slot register and builds
+ * `main` hidden; this is the other half. Read-and-clear on the backend, so a
+ * second window booting behind this one finds nothing and the chord cannot be
+ * replayed on a later launch.
  *
- * So the survivors re-claim: release blind, then register onto a live channel.
- * If several survive they all try at once, and that is fine — each does
- * release-then-claim, so the end state is one owner either way.
+ * Awaited rather than fire-and-forget so a failure is reported instead of
+ * becoming an unhandled rejection — and so the tests can prove the drain happened
+ * at all.
  */
-export async function reclaimGlobalShortcuts(): Promise<void> {
+async function drainPendingShortcut(): Promise<void> {
   if (!IS_DESKTOP) {
     return
   }
 
-  forceReclaim = true
-  await syncGlobalShortcuts()
+  try {
+    const { invoke } = await core()
+    const actionId = await invoke<null | string>('global_shortcut_take_pending')
+
+    if (actionId) {
+      dispatch(actionId)
+    }
+  } catch (err) {
+    console.warn('[keybinds] could not drain a pending global shortcut', err)
+  }
 }
 
-/** Emitted by Rust when a full app window is destroyed (`src-tauri/src/window.rs`).
- *  Native-side because the window it concerns cannot report its own death. */
-const APP_WINDOW_CLOSED_EVENT = 'hermes://app-window-closed'
-
-async function watchClosedAppWindows(): Promise<null | (() => void)> {
+/**
+ * Listen for the chord Rust decided THIS window should answer.
+ *
+ * Targeted at our own label, and that is load-bearing rather than tidy. Tauri
+ * filters an `emit_to` against the target each listener registered with, and the
+ * JS default (`{ kind: 'Any' }`) matches nothing an `emit_to` sends — a plain
+ * `listen(EVENT, handler)` here would receive the chord never, silently, with the
+ * backend reporting a successful emit. Naming the label is what puts this window
+ * in `AppManager::emit_to`'s filter.
+ *
+ * The other direction matters too: Rust picks ONE window on purpose. A broadcast
+ * would have every full app window run `toggleHud`, summoning the HUD and
+ * dismissing it again in a single keypress.
+ */
+async function listenForDelivery(): Promise<null | (() => void)> {
   if (!IS_DESKTOP) {
     return null
   }
 
   try {
-    const { listen } = await import('@tauri-apps/api/event')
+    const [{ listen }, { getCurrentWebviewWindow }] = await Promise.all([
+      import('@tauri-apps/api/event'),
+      import('@tauri-apps/api/webviewWindow')
+    ])
 
-    return await listen<string>(APP_WINDOW_CLOSED_EVENT, () => void reclaimGlobalShortcuts())
+    return await listen<{ actionId: string }>(GLOBAL_SHORTCUT_EVENT, event => dispatch(event.payload.actionId), {
+      target: getCurrentWebviewWindow().label
+    })
   } catch {
-    // No window system here — no second window to lose the claims to.
+    // No window system here — nothing claimed the chord, so nothing will deliver.
     return null
   }
 }
 
 /**
  * Keep the OS registrations following the registry for as long as the app is up.
- * Returns the unsubscribe, which also releases every claimed chord — a hotkey
- * that outlives its handler is a chord silently stolen from the whole machine.
+ *
+ * The returned disposer no longer releases anything, and that inversion is the
+ * point of MJXHRM-437. A claim that died with its window was the bug: the chord
+ * has to keep working while every window is hidden, and while none exists at all.
+ * The claim is given back at the one deliberate exit — `quit_app` / tray ▸ Quit,
+ * both of which call `shortcuts::release_all` before the loop stops — and by the
+ * OS when the process ends.
  */
 export function startGlobalShortcuts(): () => void {
   void syncGlobalShortcuts()
+  void drainPendingShortcut()
 
   const stop = $bindings.subscribe(() => void syncGlobalShortcuts())
 
-  let stopWatching: null | (() => void) = null
+  let stopListening: null | (() => void) = null
   let stopped = false
 
-  void watchClosedAppWindows().then(off => {
+  void listenForDelivery().then(off => {
     if (stopped) {
       off?.()
 
       return
     }
 
-    stopWatching = off
+    stopListening = off
   })
 
   return () => {
     stopped = true
     stop()
-    stopWatching?.()
-    void releaseGlobalShortcuts()
+    stopListening?.()
   }
 }

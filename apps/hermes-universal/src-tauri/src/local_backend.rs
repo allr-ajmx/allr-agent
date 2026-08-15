@@ -196,6 +196,17 @@ mod imp {
 #[cfg(desktop)]
 pub use imp::LocalBackendState;
 
+/// Kill the spawned `hermes serve` child, for callers that are not a command.
+///
+/// The tray's Keep Running row is the one such caller: turning background mode
+/// off means the process is about to stop being resident, and a child gateway
+/// left behind would outlive the app that spawned it with nothing in the UI able
+/// to reach it. `imp` stays private — this is the one door out of it.
+#[cfg(desktop)]
+pub async fn stop(state: &imp::LocalBackendState) {
+    imp::stop(state).await;
+}
+
 #[cfg(desktop)]
 #[tauri::command]
 pub async fn local_backend_spawn(

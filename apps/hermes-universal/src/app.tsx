@@ -1,4 +1,5 @@
 import { ActivityScreenRoot } from '@/app/activity-screen'
+import { BackgroundCloseDialog } from '@/app/background-close-dialog'
 import { CloseConfirm } from '@/app/close-confirm'
 import { HUD_SURFACE } from '@/app/hud/hud'
 import { HudWindowRoot } from '@/app/hud/hud-window'
@@ -42,6 +43,12 @@ import { isActivityWindow, isTileWindow, satelliteSurface, WAKE_INDICATOR_SURFAC
  * could park a pending close and nothing would ever draw the question — which
  * is why the mobile bubble strip dropped a chat mid-turn without asking.
  *
+ * `BackgroundCloseDialog` is the fifth, and it is the same shape as
+ * `CloseConfirm`: the WINDOW close guard is installed at boot for any window
+ * that owns the app's persisted state, so the surface that answers it has to
+ * exist wherever that guard does. A window whose shell forgot it would park the
+ * first close and never draw the question, which is a dead titlebar button.
+ *
  * Mounted HERE rather than once per root so the next root cannot forget them —
  * the failure mode is silence, which is the kind that ships.
  */
@@ -52,6 +59,7 @@ export function App() {
       <RemoteFolderPicker />
       <FindBar />
       <CloseConfirm />
+      <BackgroundCloseDialog />
       <WakeIndicatorOverlay />
     </>
   )

@@ -24,7 +24,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 /** Every cross-module call in order. */
 const calls: string[] = []
 
-const invoke = vi.fn(async (command: string, _args?: unknown) => {
+// `Promise<unknown>`, not the inferred union: the commands here answer with
+// genuinely different shapes (a label, a satellite record, a height), and a
+// return type narrowed to whichever two happen to be listed first makes every
+// later `mockImplementationOnce` a type error rather than a test.
+const invoke = vi.fn(async (command: string, _args?: unknown): Promise<unknown> => {
   calls.push(`invoke:${command}`)
 
   if (command === 'open_satellite_window') {
@@ -81,7 +85,8 @@ const {
   openSatelliteWindow,
   openSessionInNewWindow,
   openSettingsScreen,
-  openTileWindow
+  openTileWindow,
+  resizeSatelliteWindow
 } = await import('./windows')
 
 beforeEach(() => {
@@ -212,5 +217,73 @@ describe('addressing one window out of several', () => {
     inWindow('?win=tile&tile=session-tile:abc')
 
     expect(addressesThisWindow({ surface: 'hud', tile: null })).toBe(false)
+  })
+})
+
+/**
+ * Growing the HUD's own window (MJXHRM-438).
+ *
+ * This is called from a `ResizeObserver`, so it runs on every remeasure of every
+ * chat surface in every window — including the main one, where the same layout
+ * hooks live. What must never happen is an IPC call from a window that Rust will
+ * only ever refuse.
+ */
+describe('resizing the calling satellite', () => {
+  function inWindow(search: string): void {
+    window.history.replaceState({}, '', `/${search}`)
+  }
+
+  it('grows the window it is called from and answers with the applied height', async () => {
+    inWindow('?win=hud')
+    invoke.mockImplementationOnce(async (command: string) => {
+      calls.push(`invoke:${command}`)
+
+      return 344
+    })
+
+    expect(await resizeSatelliteWindow(340)).toBe(344)
+    // The height Rust applied after clamping, NOT the one that was asked for —
+    // the caller stops growing on the answer, so echoing the request back would
+    // have it keep asking for a size it is never going to get.
+    expect(invoke).toHaveBeenCalledWith('resize_satellite_window', { height: 340 })
+  })
+
+  it('never crosses IPC from a window that is not a satellite', async () => {
+    inWindow('')
+
+    expect(await resizeSatelliteWindow(300)).toBeNull()
+    expect(calls).toEqual([])
+  })
+
+  it('never crosses IPC from a detached tile window either', async () => {
+    inWindow('?win=tile&tile=session-tile:abc')
+
+    expect(await resizeSatelliteWindow(300)).toBeNull()
+    expect(calls).toEqual([])
+  })
+
+  // A measured height is arithmetic over `getBoundingClientRect()` values, and a
+  // card that is not laid out yet measures 0 — divide by that anywhere upstream
+  // and this is what arrives. Rust refuses a non-finite height too; the point of
+  // refusing here is that the refusal is free and does not need a round trip.
+  it('refuses a height that is not a number', async () => {
+    inWindow('?win=hud')
+
+    expect(await resizeSatelliteWindow(Number.NaN)).toBeNull()
+    expect(await resizeSatelliteWindow(Number.POSITIVE_INFINITY)).toBeNull()
+    expect(calls).toEqual([])
+  })
+
+  // One toast per animation frame is worse than a window that does not grow.
+  it('stays quiet when the platform refuses', async () => {
+    inWindow('?win=hud')
+    invoke.mockImplementationOnce(async (command: string) => {
+      calls.push(`invoke:${command}`)
+
+      throw new Error('quick is a fixed-size satellite and may not be resized')
+    })
+
+    expect(await resizeSatelliteWindow(300)).toBeNull()
+    expect(calls).toEqual(['invoke:resize_satellite_window'])
   })
 })

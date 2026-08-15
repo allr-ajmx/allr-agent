@@ -69,13 +69,19 @@ function TooltipTrigger({ onFocus, ...props }: React.ComponentProps<typeof Toolt
 
 function TooltipContent({
   className,
+  collisionPadding = 8,
   sideOffset = 6,
+  side,
   children,
   ...props
 }: React.ComponentProps<typeof TooltipPrimitive.Content>) {
+  const isHud = typeof document !== 'undefined' && document.documentElement.hasAttribute('data-hud')
+  const effectiveSide = isHud ? (side === 'top' ? 'bottom' : (side ?? 'bottom')) : side
+
   return (
     <TooltipPrimitive.Portal>
       <TooltipPrimitive.Content
+        avoidCollisions
         // Transparent, width-capped wrapper. The visible chip is the inner inline
         // span so `box-decoration-break: clone` gives a marker-style background
         // that hugs EACH wrapped line (bg only on the text, ragged right — no
@@ -83,7 +89,9 @@ function TooltipContent({
         // pointer-events-none: the tip must never steal hover/clicks from the
         // chrome underneath (titlebar tools, adjacent tabs, etc.).
         className={cn('pointer-events-none z-(--z-over-modal) w-fit max-w-64 select-none', className)}
+        collisionPadding={collisionPadding}
         data-slot="tooltip-content"
+        side={effectiveSide}
         sideOffset={sideOffset}
         {...props}
       >

@@ -246,6 +246,14 @@ export interface Translations {
     close: string
   }
 
+  // The HUD — a spotlight bar summoned over other applications (MJXHRM-438).
+  hud: {
+    connecting: string
+    connectionFailed: string
+    expandReply: string
+    collapseReply: string
+  }
+
   // The find-in-page bar (⌘F) — the engine's own search over the rendered page.
   findInPage: {
     title: string
@@ -2708,9 +2716,22 @@ export interface Translations {
    *  literals and cannot read this catalog. */
   tray: {
     show: string
+    /** Summon the HUD from the tray — the only route to it on a machine where
+     *  another application already owns the chord. */
+    hud: string
     quit: string
+    /** The tray's checkable Keep Running row — background mode's second control
+     *  surface, and the only one a hidden Hermes still offers. */
+    keepRunning: string
     /** Hover text on the tray icon itself. */
     tooltip: string
+    /** The first close asks, once, which of the two "close" means. */
+    closeDialogTitle: string
+    closeDialogDesc: string
+    /** Answer 1: hide the window, keep the process resident. */
+    keepInBackground: string
+    /** Answer 2: end the app, gateway child and all. */
+    closeApp: string
     /** The disabled readout row, one string per `ConnectionPhase`. */
     status: {
       idle: string

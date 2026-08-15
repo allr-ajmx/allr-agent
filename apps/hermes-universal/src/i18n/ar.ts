@@ -138,6 +138,13 @@ export const ar = defineLocale({
     enterHud: 'وضع HUD',
     exitHud: 'إنهاء وضع HUD'
   },
+  hud: {
+    connecting: 'جارٍ الاتصال بهيرميس…',
+    connectionFailed: 'تعذر على هيرميس الوصول إلى البوابة.',
+    expandReply: 'إظهار الرد',
+    collapseReply: 'إخفاء الرد'
+  },
+
   keybinds: {
     title: 'اختصارات لوحة المفاتيح',
     subtitle: open => `انقر على اختصار لإعادة تعيينه \xB7 ${open} يعيد فتح هذه اللوحة.`,
@@ -2623,8 +2630,15 @@ export const ar = defineLocale({
   },
   tray: {
     show: 'إظهار Hermes',
+    hud: 'فتح شريط الاستدعاء',
     quit: 'إنهاء Hermes',
+    keepRunning: 'الاستمرار في العمل',
     tooltip: 'Hermes (MJX)',
+    closeDialogTitle: 'هل تريد إبقاء Hermes في الخلفية؟',
+    closeDialogDesc:
+      'اختر إبقاء Hermes يعمل في الخلفية عند إغلاق هذه النافذة، أو إنهاءه تمامًا. يمكنك تغيير ذلك في أي وقت من الإعدادات أو من قائمة شريط النظام.',
+    keepInBackground: 'الإبقاء في الخلفية',
+    closeApp: 'إنهاء Hermes',
     status: {
       idle: 'غير متصل',
       probing: 'جار فحص البوابة…',

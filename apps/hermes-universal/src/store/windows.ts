@@ -10,10 +10,11 @@ import {
   WEBHOOKS_ROUTE
 } from '@/app/routes'
 import { requestComposerDraftSync } from '@/lib/composer-draft-bus'
-import { IS_ANDROID, IS_DESKTOP, IS_IOS } from '@/lib/platform'
+import { IS_ANDROID, IS_DESKTOP, IS_IOS, IS_TAURI } from '@/lib/platform'
 import { navigateTo } from '@/lib/route-nav'
 import { type SurfaceGrant } from '@/lib/surface'
-import { backgroundCloseTakesOver } from '@/store/background-mode'
+import { backgroundCloseAction, commitBackgroundMode, requestBackgroundClosePrompt } from '@/store/background-mode'
+import { stopLocalBackend } from '@/store/local-backend'
 import { notifyError } from '@/store/notifications'
 
 // Ported from desktop `store/windows.ts`. Desktop opens native windows through an
@@ -704,6 +705,55 @@ export async function hideThisWindow(): Promise<void> {
 }
 
 /**
+ * Bring the app's real window back.
+ *
+ * Takes no label, for the same reason `hideThisWindow` does not: Rust picks the
+ * target from the live label set (`window_to_reveal`), which never resolves to a
+ * satellite or a detached tile. Called from the HUD, which since background mode
+ * can be the only Hermes on screen — so when its gateway is down, the affordance
+ * that gets the user to a window where that is fixable has to exist there.
+ */
+export async function showAppWindow(): Promise<void> {
+  await invoke('show_app_window')
+}
+
+/**
+ * Ask Rust to resize THIS satellite's window to `height` logical pixels, and
+ * answer with the height it actually applied (or null when nothing happened).
+ *
+ * Only the calling window's own size can be changed — the label never crosses
+ * IPC (`resize_satellite_window`), and `core:window:allow-set-size` is
+ * deliberately absent from `capabilities/default.json` precisely because it
+ * takes any window's label as an argument.
+ *
+ * The `isSatelliteWindow()` refusal here is not a duplicate of Rust's: it is
+ * what stops the HUD's own layout hooks from firing an IPC call every time a
+ * chat surface is remeasured in the MAIN window, where those hooks also run and
+ * where the answer would always be the same refusal.
+ *
+ * A failure is swallowed rather than notified. The only surface that calls this
+ * does so from a `ResizeObserver`, so a platform that refuses would raise one
+ * toast per frame — and the visible consequence is a window that does not grow,
+ * which the log already explains.
+ */
+export async function resizeSatelliteWindow(height: number, width?: number): Promise<null | number> {
+  if (!isSatelliteWindow() || !Number.isFinite(height)) {
+    return null
+  }
+
+  try {
+    return await invoke<number>('resize_satellite_window', {
+      height,
+      width: Number.isFinite(width) ? width : undefined
+    })
+  } catch (err) {
+    console.warn('could not resize this window', err)
+
+    return null
+  }
+}
+
+/**
  * Destroy this window for real.
  *
  * This exists because the obvious spellings do not work.
@@ -716,6 +766,77 @@ export async function hideThisWindow(): Promise<void> {
  */
 async function closeThisWindow(): Promise<void> {
   await invoke('close_this_window')
+}
+
+/** The ordinary close: satellites may never outlive their summoner, then the
+ *  window itself. Every window kind but the app's own takes this path. */
+async function closeThisWindowAndSatellites(): Promise<void> {
+  if (openedSatellites.size > 0) {
+    await closeAllSatelliteWindows()
+  }
+
+  await closeThisWindow()
+}
+
+/**
+ * Put the window away and keep the process — background mode's whole point.
+ *
+ * `answering` is true only when the user has just picked "Keep in Background" in
+ * the prompt. That choice has to be persisted AND mirrored down before the
+ * window goes: hiding while Rust still reads "not resident" makes this the last
+ * window destroyed, which takes the app with it. Awaited for the same reason —
+ * and the answer is checked, because a machine with no system tray refuses to
+ * arm, and hiding there would leave a live process with no window, no icon and
+ * nothing able to bring it back.
+ *
+ * In the already-answered case there is nothing to commit: the preference is in
+ * force, and re-asserting it on every close would put an IPC round trip on the
+ * app's most common verb.
+ */
+async function hideForBackgroundMode(answering: boolean): Promise<void> {
+  if (answering && !(await commitBackgroundMode(true))) {
+    // Refused. `commitBackgroundMode` has already flipped the preference back
+    // and said so, so the window simply stays where it is.
+    return
+  }
+
+  try {
+    await hideThisWindow()
+  } catch (err) {
+    // The window is still on screen and the user pressed close. Saying nothing
+    // would read as a dead titlebar button.
+    notifyError(err, 'Could not hide this window')
+  }
+}
+
+/**
+ * End the app, not merely this window — the prompt's "Quit Hermes" answer.
+ *
+ * The only close path that quits, and it is the one where the user asked in
+ * those words. An ordinary close of `main` still just destroys the window: the
+ * process ends with it if it was the last, and any other open instance window
+ * survives, exactly as it always has.
+ *
+ * Through Rust's `quit_app` rather than a destroy, because that is the ONE
+ * deliberate exit (`src-tauri/src/background.rs`) — it marks the quit explicit
+ * so `ExitRequested` cannot be prevented by a preference, hands the machine-wide
+ * chords back, and closes the satellites before the loop stops.
+ *
+ * The preference is recorded FIRST so the next launch stops asking, and the
+ * spawned `hermes serve` child is stopped before the exit: it is OUR child
+ * rather than the OS's problem, and after `app.exit(0)` there is nobody left to
+ * ask. That failure is swallowed — a gateway that was never local, or is already
+ * gone, must not be the reason a quit does not happen.
+ */
+async function quitTheApp(): Promise<void> {
+  await commitBackgroundMode(false)
+  await stopLocalBackend().catch(() => {})
+
+  try {
+    await invoke('quit_app')
+  } catch (err) {
+    notifyError(err, 'Could not close Hermes')
+  }
 }
 
 /**
@@ -733,16 +854,20 @@ async function closeThisWindow(): Promise<void> {
  * `stands aside once there is nothing left to tear down` test asserted exactly
  * that dead end as the contract.
  *
- * The three outcomes, in order:
+ * The four outcomes, in order:
  *
- *  1. **Background mode** — this window is not going away, it is going out of
+ *  1. **Unanswered** — the preference has never been given, so the close is
+ *     PARKED and the question goes on screen (`app/background-close-dialog.tsx`).
+ *     The window is untouched until the answer comes back, and whichever answer
+ *     it is finishes this close through the thunks handed over here.
+ *  2. **Background mode** — this window is not going away, it is going out of
  *     sight. Its satellites outlive nothing (the window that summoned them is
  *     still here), so they stay, and the HUD stays summonable with no UI on
  *     screen. This is the branch that makes "close" mean "hide".
- *  2. **Satellites up** — a satellite may never outlive its summoner, so they go
+ *  3. **Satellites up** — a satellite may never outlive its summoner, so they go
  *     first and the window follows. No longer re-entrant: `closeThisWindow`
  *     destroys, so there is no second close request to service.
- *  3. **Nothing to do** — destroy.
+ *  4. **Nothing to do** — destroy.
  *
  * Installed at BOOT for any window that owns the app's persisted state, and
  * still lazily from `openSatelliteWindow` for the ones that do not (a tile
@@ -778,23 +903,31 @@ export async function installWindowCloseGuard(): Promise<void> {
     await current.onCloseRequested(async event => {
       event.preventDefault()
 
-      if (backgroundCloseTakesOver(current.label, ownsPersistedAppState())) {
-        try {
-          await hideThisWindow()
-        } catch (err) {
-          // The window is still on screen and the user pressed close. Saying
-          // nothing would read as a dead titlebar button.
-          notifyError(err, 'Could not hide this window')
-        }
+      switch (backgroundCloseAction(current.label, ownsPersistedAppState())) {
+        case 'ask':
+          // Never answered. The window stays exactly where it is until the
+          // dialog is answered — which is why the two outcomes are handed over
+          // as THUNKS rather than a flag being raised: whichever the user picks
+          // has to finish the close THIS event started, and the event itself is
+          // long gone by the time they pick.
+          requestBackgroundClosePrompt({
+            close: () => quitTheApp(),
+            keep: () => hideForBackgroundMode(true)
+          })
 
-        return
+          return
+
+        case 'hide':
+          await hideForBackgroundMode(false)
+
+          return
+
+        // Including an answered "close means close": that is the absence of a
+        // background-mode behaviour, not one of its own. The window is destroyed
+        // and the process ends with it if it was the last.
+        default:
+          await closeThisWindowAndSatellites()
       }
-
-      if (openedSatellites.size > 0) {
-        await closeAllSatelliteWindows()
-      }
-
-      await closeThisWindow()
     })
 
     const { listen } = await import('@tauri-apps/api/event')
@@ -839,9 +972,26 @@ export async function sweepStaleSurfaceGrants(): Promise<void> {
   }
 
   for (const surface of surfaces) {
-    if (!(await isSatelliteWindowOpen(surface))) {
+    if (!(await doesSatelliteWindowExist(surface))) {
       rememberSurfaceGrant(surface, null)
     }
+  }
+}
+
+/** True when the satellite window exists in the window system (whether visible or hidden). */
+export async function doesSatelliteWindowExist(surface: string): Promise<boolean> {
+  const label = satelliteLabel(surface)
+
+  if (!label) {
+    return false
+  }
+
+  try {
+    const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow')
+
+    return (await WebviewWindow.getByLabel(label)) !== null
+  } catch {
+    return false
   }
 }
 
@@ -888,8 +1038,7 @@ export async function openSatelliteWindow(surface: string, route?: string): Prom
   }
 }
 
-/** Close a satellite. A window the user already closed is not an error — the
- *  end state is what the caller wanted. */
+/** Close or hide a satellite. The HUD uses hiding so it stays warm in the background. */
 export async function closeSatelliteWindow(surface: string): Promise<void> {
   const label = satelliteLabel(surface)
 
@@ -897,6 +1046,16 @@ export async function closeSatelliteWindow(surface: string): Promise<void> {
 
   if (!label) {
     return
+  }
+
+  if (IS_TAURI) {
+    try {
+      await invoke('hide_satellite_window', { surface })
+
+      return
+    } catch {
+      // Fall through to close if hide is refused or fails
+    }
   }
 
   try {
@@ -913,8 +1072,7 @@ export async function closeAllSatelliteWindows(): Promise<void> {
   await Promise.all([...openedSatellites].map(closeSatelliteWindow))
 }
 
-/** True when the satellite is currently up — asked of the window system, not of
- *  our bookkeeping, so a window the user closed reads as gone. */
+/** True when the satellite is currently up and visible — asked of the window system. */
 export async function isSatelliteWindowOpen(surface: string): Promise<boolean> {
   const label = satelliteLabel(surface)
 
@@ -922,10 +1080,23 @@ export async function isSatelliteWindowOpen(surface: string): Promise<boolean> {
     return false
   }
 
+  if (IS_TAURI) {
+    try {
+      return await invoke<boolean>('is_satellite_window_visible', { surface })
+    } catch {
+      // Fall through
+    }
+  }
+
   try {
     const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow')
+    const win = await WebviewWindow.getByLabel(label)
 
-    return (await WebviewWindow.getByLabel(label)) !== null
+    if (!win) {
+      return false
+    }
+
+    return await win.isVisible()
   } catch {
     return false
   }

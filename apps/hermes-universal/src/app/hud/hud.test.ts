@@ -106,12 +106,22 @@ describe('which conversation the HUD opens on', () => {
   it('is nothing on a reserved screen', () => {
     atRoute('#/settings')
 
+    // Still null, and still correct: a summoner on Settings is not looking at a
+    // conversation. Since MJXHRM-438 the HUD resolves further on its OWN side —
+    // no route means it falls back to the profile's remembered chat — so this
+    // answers "what is the summoner showing", not "what will the HUD open on".
     expect(hudTargetSessionId()).toBeNull()
   })
 
-  it('carries the session into the window it opens', async () => {
+  it('opens on a fresh new session by default when summoned with no session', async () => {
     atRoute('#/abc123')
     await openHud()
+
+    expect(open).toHaveBeenCalledWith('hud', undefined)
+  })
+
+  it('carries an explicit session into the window when provided', async () => {
+    await openHud('abc123')
 
     expect(open).toHaveBeenCalledWith('hud', '/abc123')
   })
@@ -119,7 +129,6 @@ describe('which conversation the HUD opens on', () => {
   it('opens on the new-chat route with no session at all', async () => {
     await openHud(null)
 
-    // No session: the HUD opens on the app's root route, not on a stale one.
     expect(open).toHaveBeenCalledWith('hud', undefined)
   })
 })

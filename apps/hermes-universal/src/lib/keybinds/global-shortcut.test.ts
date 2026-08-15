@@ -2,7 +2,15 @@
  * A global hotkey is a chord taken from EVERY application on the machine, so the
  * two things that matter are that it follows the user's rebind and that it is
  * always given back.
+ *
+ * Since MJXHRM-437 the CLAIM lives in Rust (`src-tauri/src/shortcuts.rs`) — this
+ * module only decides what should be held and receives what fired. So these cases
+ * pin the two halves of that boundary: the desired set that goes down, and the
+ * delivery that comes back to exactly this window.
  */
+
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -16,27 +24,53 @@ import type * as Registrar from './global-shortcut'
 /** Must match `$globalShortcutsDisclosed`'s key in `global-shortcut.ts`. */
 const DISCLOSED_KEY = 'hermes.globalShortcutsDisclosed'
 
-type ShortcutEvent = { state: string }
+/** Must match `shortcuts::GLOBAL_SHORTCUT_EVENT`. */
+const DELIVERY_EVENT = 'hermes://global-shortcut'
 
-const register = vi.fn(async (_accelerator: string, _handler: (event: ShortcutEvent) => void) => undefined)
-const unregister = vi.fn(async (_accelerator: string) => undefined)
+/** The label this window is pretending to be, so a targeted delivery can be
+ *  checked against something other than a wildcard. */
+const WINDOW_LABEL = 'instance-3'
 
-vi.mock('@tauri-apps/plugin-global-shortcut', () => ({
-  register: (accelerator: string, handler: (event: ShortcutEvent) => void) => register(accelerator, handler),
-  unregister: (accelerator: string) => unregister(accelerator)
+interface SyncResult {
+  granted: string[]
+  refused: string[]
+}
+
+/** Rust's answer to `global_shortcuts_sync`, per case. */
+let syncResult: SyncResult = { granted: [], refused: [] }
+/** Rust's answer to `global_shortcut_take_pending`, per case. */
+let pending: null | string = null
+
+const invoke = vi.fn(async (command: string, _args?: unknown) => {
+  if (command === 'global_shortcuts_sync') {
+    return syncResult
+  }
+
+  if (command === 'global_shortcut_take_pending') {
+    return pending
+  }
+
+  throw new Error(`unexpected command ${command}`)
+})
+
+vi.mock('@tauri-apps/api/core', () => ({
+  invoke: (command: string, args?: unknown) => invoke(command, args)
 }))
 
-/** Rust's "a full app window was destroyed" broadcast, played by hand. */
-const windowClosedListeners: (() => void)[] = []
+/** Every `listen` this module registered: the event, the handler, and — the part
+ *  that matters — the target it asked to be filtered on. */
+const listeners: { event: string; handler: (event: { payload: unknown }) => void; target: unknown }[] = []
 
 vi.mock('@tauri-apps/api/event', () => ({
-  listen: async (event: string, handler: () => void) => {
-    if (event === 'hermes://app-window-closed') {
-      windowClosedListeners.push(handler)
-    }
+  listen: async (event: string, handler: (e: { payload: unknown }) => void, options?: { target?: unknown }) => {
+    listeners.push({ event, handler, target: options?.target })
 
     return () => undefined
   }
+}))
+
+vi.mock('@tauri-apps/api/webviewWindow', () => ({
+  getCurrentWebviewWindow: () => ({ label: WINDOW_LABEL })
 }))
 
 // The registrar stands down off desktop; these cases are about the desktop path.
@@ -57,12 +91,22 @@ vi.mock('@/store/windows', () => ({ openAppRoute: (route: string) => openAppRout
 // default sync; the cases below clear this one when they want a quiet registry.
 const ACTION = 'view.toggleHud'
 
+/** The shipped default, as `acceleratorFromCombo` spells it for the OS. */
+const DEFAULT_ACCELERATOR = 'CommandOrControl+Shift+H'
+
 // The registrar serializes its syncs, so a rebind that arrives while one is in
 // flight lands on the follow-up run rather than racing it. Drain both.
 async function flush(): Promise<void> {
   for (let i = 0; i < 4; i += 1) {
     await new Promise(resolve => setTimeout(resolve, 0))
   }
+}
+
+/** Every `global_shortcuts_sync` payload sent so far, newest last. */
+function syncCalls(): { claims: { accelerator: string; actionId: string; combo: string }[] }[] {
+  return invoke.mock.calls
+    .filter(([command]) => command === 'global_shortcuts_sync')
+    .map(([, args]) => args as { claims: { accelerator: string; actionId: string; combo: string }[] })
 }
 
 async function load(): Promise<{
@@ -82,12 +126,13 @@ async function load(): Promise<{
 
 beforeEach(() => {
   // Reset, not just clear: a case that makes the OS refuse a claim must not
-  // leave the next one registering against a rejecting stub — and a failed
+  // leave the next one syncing against a rejecting stub — and a failed
   // assertion skips whatever cleanup the case wrote at its end.
-  register.mockReset()
-  unregister.mockReset()
+  invoke.mockClear()
   openAppRoute.mockClear()
-  windowClosedListeners.length = 0
+  listeners.length = 0
+  syncResult = { granted: [], refused: [] }
+  pending = null
   // The disclosure is remembered in localStorage, which `vi.resetModules` does
   // not clear — without this the first case to run would be the only one that
   // ever sees the notice.
@@ -99,15 +144,19 @@ afterEach(() => {
 })
 
 describe('global shortcuts follow the rebindable registry', () => {
-  it('claims the shipped default at boot', async () => {
+  it('sends the whole desired set to Rust', async () => {
     const { mod } = await load()
 
     await mod.syncGlobalShortcuts()
 
     // The HUD's chord is the one thing this app takes from the whole machine
-    // without being asked, so it is worth a test that it is exactly that one.
-    expect(register).toHaveBeenCalledTimes(1)
-    expect(register).toHaveBeenCalledWith('CommandOrControl+Shift+H', expect.any(Function))
+    // without being asked, so it is worth a test that it is exactly that one —
+    // and that every field the registrar needs is on it. `combo` is not
+    // decoration: it is what the first-run disclosure names, and an accelerator
+    // is the OS's spelling.
+    expect(syncCalls()).toEqual([
+      { claims: [{ accelerator: DEFAULT_ACCELERATOR, actionId: ACTION, combo: 'mod+shift+h' }] }
+    ])
   })
 
   it('claims nothing once the user unbinds the action', async () => {
@@ -116,23 +165,27 @@ describe('global shortcuts follow the rebindable registry', () => {
     setBinding(ACTION, [])
     await mod.syncGlobalShortcuts()
 
-    expect(register).not.toHaveBeenCalled()
+    // Still a sync — the empty set is how Rust learns to hand the chord back —
+    // but with nothing in it.
+    expect(syncCalls()).toEqual([{ claims: [] }])
   })
 
-  it('claims the combo the user bound, and re-claims when they change it', async () => {
+  it('sends the combo the user bound, and re-sends when they change it', async () => {
     const { mod, setBinding } = await load()
 
     setBinding(ACTION, ['mod+shift+space'])
     await mod.syncGlobalShortcuts()
 
-    expect(register).toHaveBeenCalledWith('CommandOrControl+Shift+Space', expect.any(Function))
+    expect(syncCalls().at(-1)?.claims).toEqual([
+      { accelerator: 'CommandOrControl+Shift+Space', actionId: ACTION, combo: 'mod+shift+space' }
+    ])
 
     setBinding(ACTION, ['mod+alt+h'])
     await mod.syncGlobalShortcuts()
 
-    // The old chord goes back to the machine before the new one is taken.
-    expect(unregister).toHaveBeenCalledWith('CommandOrControl+Shift+Space')
-    expect(register).toHaveBeenCalledWith('CommandOrControl+Alt+H', expect.any(Function))
+    expect(syncCalls().at(-1)?.claims).toEqual([
+      { accelerator: 'CommandOrControl+Alt+H', actionId: ACTION, combo: 'mod+alt+h' }
+    ])
 
     setBinding(ACTION, [])
   })
@@ -147,123 +200,135 @@ describe('global shortcuts follow the rebindable registry', () => {
     // deleted outright — which is the one thing it exists to prove: a chord
     // assigned in Settings has to take effect without a restart.
     await flush()
-    register.mockClear()
+    invoke.mockClear()
 
     setBinding(ACTION, ['mod+shift+space'])
     await flush()
 
-    expect(register).toHaveBeenCalledWith('CommandOrControl+Shift+Space', expect.any(Function))
+    expect(syncCalls().at(-1)?.claims).toEqual([
+      { accelerator: 'CommandOrControl+Shift+Space', actionId: ACTION, combo: 'mod+shift+space' }
+    ])
 
     stop()
     setBinding(ACTION, [])
   })
 
-  it('runs the action on press only — the plugin reports both edges', async () => {
-    const { mod, setBinding } = await load()
-    const ran = vi.fn()
-
-    mod.setGlobalShortcutDispatch(ran)
-    setBinding(ACTION, ['mod+shift+space'])
-    await mod.syncGlobalShortcuts()
-
-    const handler = register.mock.calls[0][1]
-
-    handler({ state: 'Released' })
-    expect(ran).not.toHaveBeenCalled()
-
-    handler({ state: 'Pressed' })
-    expect(ran).toHaveBeenCalledWith(ACTION)
-
-    setBinding(ACTION, [])
-  })
-
-  it('gives every claimed chord back when it is released', async () => {
-    const { mod, setBinding } = await load()
-
-    setBinding(ACTION, ['mod+shift+space'])
-    await mod.syncGlobalShortcuts()
-
-    await mod.releaseGlobalShortcuts()
-
-    expect(unregister).toHaveBeenCalledWith('CommandOrControl+Shift+Space')
-
-    setBinding(ACTION, [])
-  })
-
-  it('takes the chord back when the window that owned it goes away', async () => {
+  it('says which chord another application already owns', async () => {
     const { mod, setBinding } = await load()
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
 
-    // Explicit, because an earlier case may have left the action unbound in
-    // persisted storage — which `vi.resetModules` does not clear.
-    setBinding(ACTION, ['mod+shift+h'])
-
-    // Another window of THIS app claimed it first — the plugin's registry is per
-    // process, so this window is refused exactly as it would be by a foreign
-    // app, and ends up holding nothing.
-    register.mockRejectedValue(new Error('HotKey already registered'))
-
-    const stop = mod.startGlobalShortcuts()
-    await flush()
-
-    expect(register).toHaveBeenCalled()
-    register.mockImplementation(async () => undefined)
-    register.mockClear()
-    unregister.mockClear()
-
-    // That window is closed natively. Its handler channel died with it, so the
-    // chord is registered, taken from the whole machine, and answers nobody.
-    expect(windowClosedListeners).toHaveLength(1)
-    windowClosedListeners[0]?.()
-    await flush()
-
-    // Released blind, then re-claimed onto a channel that is alive.
-    expect(unregister).toHaveBeenCalledWith('CommandOrControl+Shift+H')
-    expect(register).toHaveBeenCalledWith('CommandOrControl+Shift+H', expect.any(Function))
-
-    stop()
-    warn.mockRestore()
-    setBinding(ACTION, [])
-  })
-
-  it('reclaims onto a live handler, so the chord runs the action again', async () => {
-    const { mod, setBinding } = await load()
-    const ran = vi.fn()
-
-    mod.setGlobalShortcutDispatch(ran)
-    setBinding(ACTION, ['mod+shift+h'])
-    register.mockRejectedValue(new Error('HotKey already registered'))
-
-    const stop = mod.startGlobalShortcuts()
-    await flush()
-
-    register.mockImplementation(async () => undefined)
-    register.mockClear()
-    await mod.reclaimGlobalShortcuts()
-
-    expect(register).toHaveBeenCalledWith('CommandOrControl+Shift+H', expect.any(Function))
-
-    const handler = register.mock.calls.at(-1)?.[1]
-    handler?.({ state: 'Pressed' })
-
-    expect(ran).toHaveBeenCalledWith(ACTION)
-
-    stop()
-    setBinding(ACTION, [])
-  })
-
-  it('survives a chord another application already owns', async () => {
-    const { mod, setBinding } = await load()
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
-
-    register.mockRejectedValueOnce(new Error('HotKey already registered'))
+    syncResult = { granted: [], refused: ['mod+shift+space'] }
     setBinding(ACTION, ['mod+shift+space'])
 
     await expect(mod.syncGlobalShortcuts()).resolves.toBeUndefined()
-    expect(warn).toHaveBeenCalled()
+
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('unavailable'), 'mod+shift+space')
 
     warn.mockRestore()
     setBinding(ACTION, [])
+  })
+
+  it('does not take the app down when the backend refuses the sync', async () => {
+    const { mod } = await load()
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+
+    invoke.mockRejectedValueOnce(new Error('unsupported_platform'))
+
+    await expect(mod.syncGlobalShortcuts()).resolves.toBeUndefined()
+
+    // And the serialization flag is released, so a later rebind still syncs.
+    invoke.mockClear()
+    await mod.syncGlobalShortcuts()
+    expect(syncCalls()).toHaveLength(1)
+
+    warn.mockRestore()
+  })
+})
+
+describe('delivering a chord that fired outside this window', () => {
+  it('listens on THIS window’s label, not on the wildcard Tauri defaults to', async () => {
+    const { mod } = await load()
+    const stop = mod.startGlobalShortcuts()
+
+    await flush()
+
+    const delivery = listeners.filter(l => l.event === DELIVERY_EVENT)
+
+    expect(delivery).toHaveLength(1)
+    // Rust addresses ONE window with `emit_to`, and Tauri filters an `emit_to`
+    // against the target each listener registered with — the default
+    // `{ kind: 'Any' }` matches nothing an `emit_to` sends. A listener that did
+    // not name its label would receive the chord never, silently, while the
+    // backend reported a successful emit.
+    expect(delivery[0]?.target).toBe(WINDOW_LABEL)
+
+    stop()
+  })
+
+  it('runs the delivered action through the same handler map as the in-app chord', async () => {
+    const { mod } = await load()
+    const ran = vi.fn()
+
+    mod.setGlobalShortcutDispatch(ran)
+
+    const stop = mod.startGlobalShortcuts()
+    await flush()
+
+    listeners.find(l => l.event === DELIVERY_EVENT)?.handler({ payload: { actionId: ACTION } })
+
+    expect(ran).toHaveBeenCalledWith(ACTION)
+
+    stop()
+  })
+
+  it('drains a chord that fired before this window existed', async () => {
+    const { mod } = await load()
+    const ran = vi.fn()
+
+    // The cold summon: Rust parked the action, built `main` hidden, and this is
+    // the boot that has to finish the job.
+    pending = ACTION
+    mod.setGlobalShortcutDispatch(ran)
+
+    const stop = mod.startGlobalShortcuts()
+    await flush()
+
+    expect(invoke).toHaveBeenCalledWith('global_shortcut_take_pending', undefined)
+    expect(ran).toHaveBeenCalledWith(ACTION)
+
+    stop()
+  })
+
+  it('dispatches nothing when no chord was parked', async () => {
+    const { mod } = await load()
+    const ran = vi.fn()
+
+    mod.setGlobalShortcutDispatch(ran)
+
+    const stop = mod.startGlobalShortcuts()
+    await flush()
+
+    expect(invoke).toHaveBeenCalledWith('global_shortcut_take_pending', undefined)
+    expect(ran).not.toHaveBeenCalled()
+
+    stop()
+  })
+
+  it('keeps the claim when a window goes away', async () => {
+    const { mod } = await load()
+
+    const stop = mod.startGlobalShortcuts()
+    await flush()
+    invoke.mockClear()
+
+    // The disposer runs when a full app window tears down. Before MJXHRM-437 it
+    // released every claim, which is exactly the thing background mode cannot
+    // afford: the surviving windows are hidden, or there are none, and the chord
+    // still has to summon the HUD.
+    stop()
+    await flush()
+
+    expect(invoke).not.toHaveBeenCalled()
   })
 })
 
@@ -275,6 +340,7 @@ describe('disclosing the OS-wide claim', () => {
   it('tells the user once, naming the chord it actually took', async () => {
     const { formatCombo, mod, notifications, setBinding } = await load()
 
+    syncResult = { granted: ['mod+shift+h'], refused: [] }
     setBinding(ACTION, ['mod+shift+h'])
     await mod.syncGlobalShortcuts()
 
@@ -297,8 +363,9 @@ describe('disclosing the OS-wide claim', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
 
     // Another application already owns the chord: nothing was taken, so a notice
-    // saying otherwise would be a claim the user cannot verify.
-    register.mockRejectedValue(new Error('HotKey already registered'))
+    // saying otherwise would be a claim the user cannot verify. Rust reports it
+    // as refused, and `granted` — the only thing the disclosure reads — is empty.
+    syncResult = { granted: [], refused: ['mod+shift+h'] }
     setBinding(ACTION, ['mod+shift+h'])
     await mod.syncGlobalShortcuts()
 
@@ -314,15 +381,17 @@ describe('disclosing the OS-wide claim', () => {
   it('never says it twice', async () => {
     const { mod, notifications, setBinding } = await load()
 
+    syncResult = { granted: ['mod+shift+h'], refused: [] }
     setBinding(ACTION, ['mod+shift+h'])
     await mod.syncGlobalShortcuts()
     expect(notifications.get()).toHaveLength(1)
 
-    // A rebind re-claims, and so does a reclaim after a peer window dies. Neither
-    // is news.
+    // A rebind re-claims, and so does the second window of this app booting.
+    // Neither is news.
+    syncResult = { granted: ['mod+shift+space'], refused: [] }
     setBinding(ACTION, ['mod+shift+space'])
     await mod.syncGlobalShortcuts()
-    await mod.reclaimGlobalShortcuts()
+    await mod.syncGlobalShortcuts()
 
     expect(notifications.get()).toHaveLength(1)
 
@@ -335,7 +404,25 @@ describe('disclosing the OS-wide claim', () => {
     setBinding(ACTION, [])
     await mod.syncGlobalShortcuts()
 
-    expect(register).not.toHaveBeenCalled()
+    expect(syncCalls()).toEqual([{ claims: [] }])
     expect(notifications.get()).toHaveLength(0)
+  })
+})
+
+describe('the action id Rust names', () => {
+  /**
+   * `tray.rs`'s *Open HUD* row fires `shortcuts::HUD_ACTION_ID` through the same
+   * dispatch bus the chord uses. That is the one action id spelled on both sides
+   * of the boundary, and nothing in either language would notice it drifting: a
+   * tray row firing an id no handler has is a dead click with no error anywhere,
+   * because `handlersRef.current[actionId]?.()` is optional by design.
+   */
+  it('is an action this registry actually has, and a global one', async () => {
+    const { globalKeybindActions } = await import('@/lib/keybinds/actions')
+    const source = readFileSync(join(process.cwd(), 'src-tauri/src/shortcuts.rs'), 'utf8')
+    const declared = /pub const HUD_ACTION_ID: &str = "([^"]+)";/.exec(source)?.[1]
+
+    expect(declared).toBeDefined()
+    expect(globalKeybindActions().map(action => action.id)).toContain(declared)
   })
 })

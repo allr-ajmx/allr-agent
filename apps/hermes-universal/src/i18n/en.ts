@@ -196,6 +196,12 @@ export const en: Translations = {
     restore: 'Restore',
     close: 'Close'
   },
+  hud: {
+    connecting: 'Connecting to Hermes…',
+    connectionFailed: 'Hermes could not reach its gateway.',
+    expandReply: 'Show the reply',
+    collapseReply: 'Hide the reply'
+  },
 
   findInPage: {
     title: 'Find in page',
@@ -3135,8 +3141,15 @@ export const en: Translations = {
 
   tray: {
     show: 'Show Hermes',
+    hud: 'Open HUD',
     quit: 'Quit Hermes',
+    keepRunning: 'Keep Running',
     tooltip: 'Hermes (MJX)',
+    closeDialogTitle: 'Keep Hermes in the background?',
+    closeDialogDesc:
+      'Keep Hermes running in the background when you close this window, or quit completely. You can change this any time in Settings or from the tray menu.',
+    keepInBackground: 'Keep in Background',
+    closeApp: 'Quit Hermes',
     status: {
       idle: 'Not connected',
       probing: 'Checking gateway…',

@@ -70,6 +70,8 @@ async function push(command: string, args: Record<string, unknown>): Promise<voi
 async function pushLabels(locale: Locale): Promise<void> {
   await push('tray_set_labels', {
     labels: {
+      hud: tr(locale, 'tray.hud'),
+      keepRunning: tr(locale, 'tray.keepRunning'),
       quit: tr(locale, 'tray.quit'),
       show: tr(locale, 'tray.show'),
       tooltip: tr(locale, 'tray.tooltip')
