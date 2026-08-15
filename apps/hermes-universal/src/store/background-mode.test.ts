@@ -10,8 +10,11 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { invoke, platform } = vi.hoisted(() => ({
+const { invoke, listeners, platform } = vi.hoisted(() => ({
   invoke: vi.fn(async (_cmd: string, args: { on: boolean }) => args.on),
+  /** The tray's toggle announcement, captured rather than stubbed away: a hidden
+   *  window's ONLY route to this preference is that native event. */
+  listeners: new Map<string, (event: { payload: unknown }) => void>(),
   // Mutable so the phone case can be asserted in the same file. `IS_DESKTOP` is
   // read through a getter, so the module under test sees the current value on
   // every call rather than the one captured at import.
@@ -19,6 +22,13 @@ const { invoke, platform } = vi.hoisted(() => ({
 }))
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke }))
+vi.mock('@tauri-apps/api/event', () => ({
+  listen: async (event: string, handler: (event: { payload: unknown }) => void) => {
+    listeners.set(event, handler)
+
+    return () => listeners.delete(event)
+  }
+}))
 vi.mock('@/lib/platform', () => ({
   get IS_DESKTOP() {
     return platform.desktop
@@ -28,18 +38,26 @@ vi.mock('@/lib/platform', () => ({
 import {
   $backgroundMode,
   applyBackgroundMode,
-  backgroundCloseTakesOver,
+  BACKGROUND_MODE_CHANGED_EVENT,
+  backgroundCloseAction,
+  commitBackgroundMode,
   initBackgroundMode,
   setBackgroundMode,
   toggleBackgroundMode
 } from './background-mode'
 import { $notifications, clearNotifications } from './notifications'
 
+/** What `src-tauri/src/tray.rs` emits when the Keep Running row is clicked. */
+function emitTrayToggle(payload: unknown): void {
+  listeners.get(BACKGROUND_MODE_CHANGED_EVENT)?.({ payload })
+}
+
 beforeEach(() => {
   invoke.mockReset()
   invoke.mockImplementation(async (_cmd: string, args: { on: boolean }) => args.on)
   platform.desktop = true
-  $backgroundMode.set(false)
+  listeners.clear()
+  $backgroundMode.set(null)
   localStorage.clear()
   clearNotifications()
 })
@@ -56,11 +74,71 @@ describe('background mode store', () => {
     await vi.waitFor(() => expect(invoke).toHaveBeenLastCalledWith('set_background_mode', { on: false }))
   })
 
-  it('toggles the current value', () => {
+  it('toggles the current value, with unset counting as off', () => {
+    expect($backgroundMode.get()).toBeNull()
+
     toggleBackgroundMode()
     expect($backgroundMode.get()).toBe(true)
 
     toggleBackgroundMode()
+    expect($backgroundMode.get()).toBe(false)
+  })
+
+  // The whole point of the tri-state: `false` and "never asked" have to survive a
+  // round trip as DIFFERENT values, because only one of them makes the next close
+  // put a question on screen.
+  it('persists all three states distinguishably', () => {
+    setBackgroundMode(true)
+    expect(localStorage.getItem('hermes.backgroundMode')).toBe('true')
+
+    setBackgroundMode(false)
+    expect(localStorage.getItem('hermes.backgroundMode')).toBe('false')
+
+    // Unanswered is the ABSENCE of the key — there is no third string to
+    // mis-decode, and a fresh machine reads the same way as a cleared one.
+    $backgroundMode.set(null)
+    expect(localStorage.getItem('hermes.backgroundMode')).toBeNull()
+  })
+
+  // The tray's Keep Running row can change this while the window is hidden, and
+  // Rust has ALREADY applied it by the time the event lands. Mirroring it back
+  // down would be an ask that answers itself.
+  it('follows the tray toggle without mirroring it back down', async () => {
+    initBackgroundMode()
+    await vi.waitFor(() => expect(listeners.has(BACKGROUND_MODE_CHANGED_EVENT)).toBe(true))
+    invoke.mockClear()
+
+    emitTrayToggle(true)
+    expect($backgroundMode.get()).toBe(true)
+    expect(localStorage.getItem('hermes.backgroundMode')).toBe('true')
+
+    emitTrayToggle(false)
+    expect($backgroundMode.get()).toBe(false)
+
+    expect(invoke).not.toHaveBeenCalled()
+  })
+
+  // Emitted app-wide, so anything may hear it. Only a definite boolean is an
+  // answer — a malformed payload must not knock the preference back to unset and
+  // make the next close ask again.
+  it('ignores a tray event that carries no answer', async () => {
+    initBackgroundMode()
+    await vi.waitFor(() => expect(listeners.has(BACKGROUND_MODE_CHANGED_EVENT)).toBe(true))
+
+    emitTrayToggle(true)
+    emitTrayToggle(null)
+    emitTrayToggle('false')
+
+    expect($backgroundMode.get()).toBe(true)
+  })
+
+  // The awaited form, and the reason it exists: the close prompt has to know
+  // whether the machine agreed BEFORE it hides the window.
+  it('answers the committer with what is actually in force', async () => {
+    await expect(commitBackgroundMode(true)).resolves.toBe(true)
+
+    invoke.mockRejectedValueOnce(new Error('no_tray'))
+    await expect(commitBackgroundMode(true)).resolves.toBe(false)
     expect($backgroundMode.get()).toBe(false)
   })
 
@@ -193,9 +271,9 @@ describe('background mode store', () => {
     expect($backgroundMode.get()).toBe(true)
   })
 
-  // `BackgroundState` is process-local and starts false, so a relaunch has to
-  // mirror the preference down again — otherwise the switch reads "on" over an
-  // app that quits the moment you close it.
+  // `BackgroundState` is process-local and starts unset, so a relaunch has to
+  // mirror an ANSWERED preference down again — otherwise the switch reads "on"
+  // over an app that quits the moment you close it.
   it('re-asserts the persisted preference at startup', async () => {
     $backgroundMode.set(true)
     invoke.mockClear()
@@ -204,7 +282,10 @@ describe('background mode store', () => {
     await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith('set_background_mode', { on: true }))
   })
 
-  it('stays quiet at startup when the preference is off', async () => {
+  // A preference nobody has given yet has no answer to assert, and staying quiet
+  // keeps a boot on a machine with no tray from opening with a toast about a
+  // lever the user never pulled.
+  it('stays quiet at startup when nobody has been asked yet', async () => {
     initBackgroundMode()
 
     await new Promise(resolve => setTimeout(resolve, 50))
@@ -214,14 +295,32 @@ describe('background mode store', () => {
   })
 })
 
-// The predicate `installWindowCloseGuard` branches on. It takes its
+// The decision `installWindowCloseGuard` branches on. It takes its
 // `ownsPersistedAppState` half as an argument rather than importing it, because
 // `store/windows` imports THIS module and the edge only goes one way.
-describe('backgroundCloseTakesOver', () => {
-  it('takes over for the main window with the switch on', () => {
+describe('backgroundCloseAction', () => {
+  it('hides the main window with the preference on', () => {
     $backgroundMode.set(true)
 
-    expect(backgroundCloseTakesOver('main', true)).toBe(true)
+    expect(backgroundCloseAction('main', true)).toBe('hide')
+  })
+
+  // The first close is where the preference gets answered — there is no honest
+  // default, so the question is asked at the moment it is about something
+  // concrete rather than assumed either way.
+  it('asks when nobody has answered yet', () => {
+    expect($backgroundMode.get()).toBeNull()
+
+    expect(backgroundCloseAction('main', true)).toBe('ask')
+  })
+
+  // `false` is the ABSENCE of a behaviour, not a third one. Quitting the app here
+  // would take any other open instance window down with it — something this
+  // preference never promised. Only the prompt's "Quit Hermes" ends everything.
+  it('leaves an answered close-means-close to the ordinary path', () => {
+    $backgroundMode.set(false)
+
+    expect(backgroundCloseAction('main', true)).toBeNull()
   })
 
   // The stranding case, and the reason this takes a label at all. A hidden window
@@ -229,33 +328,35 @@ describe('backgroundCloseTakesOver', () => {
   // that resolves to `main`, the lowest surviving instance, or a rebuilt `main`.
   // A hidden `instance-2` would exist, hold a session, and have nothing anywhere
   // able to bring it back.
-  it('never takes over for a pop-out instance', () => {
+  it('never applies to a pop-out instance', () => {
     $backgroundMode.set(true)
 
-    expect(backgroundCloseTakesOver('instance-2', true)).toBe(false)
+    expect(backgroundCloseAction('instance-2', true)).toBeNull()
   })
 
-  // A tile window or a satellite: a surface of the app, not the app.
-  it('never takes over for a tile or a satellite', () => {
+  // A tile window or a satellite: a surface of the app, not the app. It must not
+  // be asked either — a question whose answer changes nothing about the close in
+  // front of the user.
+  it('never applies to a tile or a satellite, answered or not', () => {
     $backgroundMode.set(true)
 
-    expect(backgroundCloseTakesOver('tile-session-tile-abc', false)).toBe(false)
-    expect(backgroundCloseTakesOver('sat-hud', false)).toBe(false)
+    expect(backgroundCloseAction('tile-session-tile-abc', false)).toBeNull()
+    expect(backgroundCloseAction('sat-hud', false)).toBeNull()
     // Even a window that somehow answered `main` while not owning the app state
     // stays out — the two halves have to agree.
-    expect(backgroundCloseTakesOver('main', false)).toBe(false)
+    expect(backgroundCloseAction('main', false)).toBeNull()
+
+    $backgroundMode.set(null)
+    expect(backgroundCloseAction('sat-hud', false)).toBeNull()
   })
 
-  it('does not take over with the switch off', () => {
-    $backgroundMode.set(false)
-
-    expect(backgroundCloseTakesOver('main', true)).toBe(false)
-  })
-
-  it('never takes over on a phone', () => {
+  it('never applies on a phone', () => {
     platform.desktop = false
     $backgroundMode.set(true)
 
-    expect(backgroundCloseTakesOver('main', true)).toBe(false)
+    expect(backgroundCloseAction('main', true)).toBeNull()
+
+    $backgroundMode.set(null)
+    expect(backgroundCloseAction('main', true)).toBeNull()
   })
 })

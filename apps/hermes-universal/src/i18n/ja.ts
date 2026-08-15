@@ -2879,7 +2879,13 @@ export const ja = defineLocale({
     show: 'Hermes を表示',
     hud: 'HUD を開く',
     quit: 'Hermes を終了',
+    keepRunning: 'バックグラウンドで実行',
     tooltip: 'Hermes (MJX)',
+    closeDialogTitle: 'Hermes をバックグラウンドに残しますか？',
+    closeDialogDesc:
+      'このウィンドウを閉じたあとも Hermes をバックグラウンドで実行し続けるか、完全に終了するかを選べます。設定またはトレイメニューからいつでも変更できます。',
+    keepInBackground: 'バックグラウンドに残す',
+    closeApp: 'Hermes を終了',
     status: {
       idle: '未接続',
       probing: 'ゲートウェイを確認中…',

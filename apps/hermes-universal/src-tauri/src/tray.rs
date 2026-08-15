@@ -22,9 +22,9 @@
 mod imp {
     use std::sync::Mutex;
 
-    use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+    use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
     use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-    use tauri::{AppHandle, Manager, Wry};
+    use tauri::{AppHandle, Emitter, Manager, Wry};
 
     /// The tray icon's id. `install` is idempotent through it: a second call
     /// finds the icon already registered and leaves it alone.
@@ -36,6 +36,12 @@ mod imp {
     const ID_HUD: &str = "hud";
     const ID_STATUS: &str = "status";
     const ID_QUIT: &str = "quit";
+    const ID_KEEP_RUNNING: &str = "keep_running";
+
+    /// Announced when the Keep Running row is clicked, carrying the new state.
+    /// Must match `BACKGROUND_MODE_CHANGED_EVENT` in
+    /// `src/store/background-mode.ts`, which is what persists the toggle.
+    const BACKGROUND_MODE_CHANGED_EVENT: &str = "hermes://background-mode-changed";
 
     /// English fallbacks. The menu is built with these so a tray that appears
     /// before the webview has booted (or in a run where the push fails) still
@@ -43,6 +49,7 @@ mod imp {
     const DEFAULT_SHOW: &str = "Show Hermes";
     const DEFAULT_HUD: &str = "Open HUD";
     const DEFAULT_QUIT: &str = "Quit Hermes";
+    const DEFAULT_KEEP_RUNNING: &str = "Keep Running";
     const DEFAULT_STATUS: &str = "Not connected";
     const DEFAULT_TOOLTIP: &str = "Hermes (MJX)";
 
@@ -58,6 +65,7 @@ mod imp {
         hud: MenuItem<Wry>,
         status: MenuItem<Wry>,
         quit: MenuItem<Wry>,
+        keep_running: CheckMenuItem<Wry>,
     }
 
     #[derive(Default)]
@@ -70,6 +78,7 @@ mod imp {
         pub show: String,
         pub hud: String,
         pub quit: String,
+        pub keep_running: Option<String>,
         pub tooltip: String,
     }
 
@@ -120,6 +129,7 @@ mod imp {
                 &items.status,
                 &separator,
                 &items.quit,
+                &items.keep_running,
             ],
         ) {
             Ok(menu) => menu,
@@ -190,6 +200,11 @@ mod imp {
     }
 
     fn build_items(app: &AppHandle) -> tauri::Result<TrayItems> {
+        let background_on = app
+            .try_state::<crate::background::BackgroundState>()
+            .map(|s| s.enabled())
+            .unwrap_or(false);
+
         Ok(TrayItems {
             show: MenuItem::with_id(app, ID_SHOW, DEFAULT_SHOW, true, None::<&str>)?,
             // Summon the HUD without a keyboard. The row is the ONLY way to the
@@ -202,6 +217,14 @@ mod imp {
             // worse lie than a greyed one.
             status: MenuItem::with_id(app, ID_STATUS, DEFAULT_STATUS, false, None::<&str>)?,
             quit: MenuItem::with_id(app, ID_QUIT, DEFAULT_QUIT, true, None::<&str>)?,
+            keep_running: CheckMenuItem::with_id(
+                app,
+                ID_KEEP_RUNNING,
+                DEFAULT_KEEP_RUNNING,
+                true,
+                background_on,
+                None::<&str>,
+            )?,
         })
     }
 
@@ -213,6 +236,7 @@ mod imp {
             // hidden it builds one. A tray row that opened the HUD its own way
             // would be a second answer to "which window is the app".
             ID_HUD => crate::shortcuts::fire(app, crate::shortcuts::HUD_ACTION_ID),
+            ID_KEEP_RUNNING => toggle_keep_running(app),
             ID_QUIT => {
                 if let Some(state) = app.try_state::<crate::background::BackgroundState>() {
                     state.request_quit();
@@ -227,6 +251,83 @@ mod imp {
             // `status` is disabled: it is a readout, not a button.
             _ => {}
         }
+    }
+
+    /// The Keep Running row: background mode's SECOND control surface.
+    ///
+    /// Settings owns the same preference, but a hidden Hermes has no Settings to
+    /// reach — the tray is the only thing on screen — so this row has to be able
+    /// to change the preference, not merely report it.
+    ///
+    /// Turning it OFF is the branch with consequences. The process was resident
+    /// on the strength of that flag; with it gone nothing keeps the spawned
+    /// `hermes serve` child around, and if the window is already put away
+    /// nothing keeps the app itself around either. So the child is stopped, and
+    /// a toggle that leaves NOTHING on screen quits — the alternative is a
+    /// process with no window, no reason to exist, and a tray row that has just
+    /// stopped promising to bring anything back.
+    ///
+    /// Satellites count as "on screen". A user who turns this off while the HUD
+    /// is up still has a Hermes in front of them, and when that one goes away
+    /// `ExitRequested` finds `enabled == false` and lets the app end on its own.
+    fn toggle_keep_running(app: &AppHandle) {
+        let Some(state) = app.try_state::<crate::background::BackgroundState>() else {
+            return;
+        };
+
+        let on = !state.enabled();
+
+        state.set_enabled(on);
+        state.set_preference(if on {
+            crate::background::BackgroundPreference::KeepRunning
+        } else {
+            crate::background::BackgroundPreference::Close
+        });
+
+        let _ = set_keep_running(app, on);
+
+        // The webview owns the PERSISTED copy of this preference, so a toggle
+        // made here has to travel back up — otherwise the next boot mirrors down
+        // the value the user just turned off. Emitted app-wide because any
+        // window may be the one that owns the app's persisted state.
+        let _ = app.emit(BACKGROUND_MODE_CHANGED_EVENT, on);
+
+        if on {
+            return;
+        }
+
+        let app = app.clone();
+
+        tauri::async_runtime::spawn(async move {
+            if let Some(backend) = app.try_state::<crate::local_backend::LocalBackendState>() {
+                crate::local_backend::stop(&backend).await;
+            }
+
+            if any_window_visible(&app) {
+                return;
+            }
+
+            // Through the same teardown an explicit Quit runs (satellites first,
+            // machine-wide chords handed back) rather than a bare `exit` — see
+            // `background::quit_app`, which this mirrors because it has an
+            // `AppHandle` rather than a command's `State`.
+            if let Some(state) = app.try_state::<crate::background::BackgroundState>() {
+                state.request_quit();
+            }
+
+            crate::shortcuts::release_all(&app);
+            crate::window::close_satellite_windows(&app);
+            app.exit(0);
+        });
+    }
+
+    /// Whether ANY window of the app is currently on screen. A window the
+    /// platform cannot answer for is counted as visible: the failure worth
+    /// avoiding is quitting out from under a window that was there.
+    fn any_window_visible(app: &AppHandle) -> bool {
+        app.webview_windows()
+            .values()
+            .any(|window| window.is_visible().unwrap_or(true))
     }
 
     fn reveal(app: &AppHandle) {
@@ -249,12 +350,28 @@ mod imp {
         items.show.set_text(&labels.show).map_err(err_text)?;
         items.hud.set_text(&labels.hud).map_err(err_text)?;
         items.quit.set_text(&labels.quit).map_err(err_text)?;
+        if let Some(ref keep_running) = labels.keep_running {
+            items
+                .keep_running
+                .set_text(keep_running)
+                .map_err(err_text)?;
+        }
 
         if let Some(tray) = app.tray_by_id(TRAY_ID) {
             tray.set_tooltip(Some(&labels.tooltip)).map_err(err_text)?;
         }
 
         Ok(())
+    }
+
+    pub fn set_keep_running(app: &AppHandle, on: bool) -> Result<(), String> {
+        let state = app
+            .try_state::<TrayState>()
+            .ok_or_else(|| "no_tray".to_string())?;
+        let held = state.0.lock().unwrap_or_else(|err| err.into_inner());
+        let items = held.as_ref().ok_or_else(|| "no_tray".to_string())?;
+
+        items.keep_running.set_checked(on).map_err(err_text)
     }
 
     pub fn set_status(app: &AppHandle, status: TrayStatus) -> Result<(), String> {
@@ -286,6 +403,7 @@ mod imp {
         pub show: String,
         pub hud: String,
         pub quit: String,
+        pub keep_running: Option<String>,
         pub tooltip: String,
     }
 
@@ -294,12 +412,18 @@ mod imp {
     pub struct TrayStatus {
         pub text: String,
     }
+
+    pub fn set_keep_running(_app: &tauri::AppHandle, _on: bool) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 pub use imp::{TrayLabels, TrayState, TrayStatus};
 
+#[cfg(mobile)]
+pub use imp::set_keep_running;
 #[cfg(desktop)]
-pub use imp::install;
+pub use imp::{install, set_keep_running};
 
 /// Push the translated menu copy. See the module note on why this is a push.
 #[cfg(desktop)]

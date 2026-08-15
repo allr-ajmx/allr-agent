@@ -101,6 +101,11 @@ function KeepAwakeRow() {
 // the user would have no way to reach (store/background-mode.ts). Desktop-only:
 // there is nothing to hide behind on a phone, so `IS_DESKTOP` below keeps the row
 // off mobile entirely.
+//
+// The atom is TRI-state — `null` means the user has not been asked yet, which
+// the first window close does — and a switch has two positions, so unanswered
+// renders as off. That is the honest reading: until it is answered, closing the
+// window does not keep Hermes running.
 function BackgroundModeRow() {
   const { t } = useI18n()
   const copy = t.settings.config
@@ -111,7 +116,7 @@ function BackgroundModeRow() {
       action={
         <Switch
           aria-label={copy.backgroundModeTitle}
-          checked={backgroundMode}
+          checked={backgroundMode === true}
           onCheckedChange={on => {
             triggerHaptic('selection')
             setBackgroundMode(on)

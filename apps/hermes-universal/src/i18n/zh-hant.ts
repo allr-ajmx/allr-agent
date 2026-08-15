@@ -2767,7 +2767,13 @@ export const zhHant = defineLocale({
     show: '顯示 Hermes',
     hud: '開啟 HUD',
     quit: '結束 Hermes',
+    keepRunning: '保持背景執行',
     tooltip: 'Hermes (MJX)',
+    closeDialogTitle: '讓 Hermes 留在背景嗎？',
+    closeDialogDesc:
+      '關閉此視窗後，可以讓 Hermes 繼續在背景執行，也可以完全結束。你隨時可以在設定或系統匣選單中變更。',
+    keepInBackground: '留在背景',
+    closeApp: '結束 Hermes',
     status: {
       idle: '未連線',
       probing: '正在檢查閘道…',

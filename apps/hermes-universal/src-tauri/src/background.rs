@@ -27,7 +27,44 @@
 //! icon and no menu. `set_background_mode` refuses, the store flips the switch
 //! back, and close goes back to meaning quit.
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+
+pub const PREFERENCE_UNSET: u8 = 0;
+pub const PREFERENCE_KEEP_RUNNING: u8 = 1;
+pub const PREFERENCE_CLOSE: u8 = 2;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BackgroundPreference {
+    Unset,
+    KeepRunning,
+    Close,
+}
+
+impl BackgroundPreference {
+    pub fn from_u8(v: u8) -> Self {
+        match v {
+            PREFERENCE_KEEP_RUNNING => Self::KeepRunning,
+            PREFERENCE_CLOSE => Self::Close,
+            _ => Self::Unset,
+        }
+    }
+
+    pub fn to_u8(self) -> u8 {
+        match self {
+            Self::Unset => PREFERENCE_UNSET,
+            Self::KeepRunning => PREFERENCE_KEEP_RUNNING,
+            Self::Close => PREFERENCE_CLOSE,
+        }
+    }
+
+    pub fn as_bool(self) -> Option<bool> {
+        match self {
+            Self::KeepRunning => Some(true),
+            Self::Close => Some(false),
+            Self::Unset => None,
+        }
+    }
+}
 
 /// Whether `RunEvent::ExitRequested` should be prevented.
 ///
@@ -42,16 +79,17 @@ pub fn should_prevent_exit(background_on: bool, quit_requested: bool) -> bool {
     background_on && !quit_requested
 }
 
-/// The three flags above, shared across the event loop, the commands and the
+/// The flags above, shared across the event loop, the commands and the
 /// tray's menu handlers.
 ///
-/// Atomics rather than a `Mutex`: every access is a single bool, the exit arm
+/// Atomics rather than a `Mutex`: every access is a single bool/u8, the exit arm
 /// runs on the event-loop thread while the commands run on the IPC thread, and a
 /// poisoned lock in the exit path would be the difference between quitting and
 /// hanging.
 #[derive(Default)]
 pub struct BackgroundState {
     enabled: AtomicBool,
+    preference: AtomicU8,
     quit_requested: AtomicBool,
     tray_ready: AtomicBool,
 }
@@ -63,6 +101,14 @@ impl BackgroundState {
 
     pub fn set_enabled(&self, on: bool) {
         self.enabled.store(on, Ordering::SeqCst);
+    }
+
+    pub fn preference(&self) -> BackgroundPreference {
+        BackgroundPreference::from_u8(self.preference.load(Ordering::SeqCst))
+    }
+
+    pub fn set_preference(&self, pref: BackgroundPreference) {
+        self.preference.store(pref.to_u8(), Ordering::SeqCst);
     }
 
     pub fn quit_requested(&self) -> bool {
@@ -99,6 +145,7 @@ impl BackgroundState {
 #[cfg(desktop)]
 #[tauri::command]
 pub fn set_background_mode(
+    app: tauri::AppHandle,
     state: tauri::State<'_, BackgroundState>,
     on: bool,
 ) -> Result<bool, String> {
@@ -110,8 +157,24 @@ pub fn set_background_mode(
     }
 
     state.set_enabled(on);
+    state.set_preference(if on {
+        BackgroundPreference::KeepRunning
+    } else {
+        BackgroundPreference::Close
+    });
+
+    let _ = crate::tray::set_keep_running(&app, on);
 
     Ok(on)
+}
+
+/// Query current background mode preference.
+#[cfg(desktop)]
+#[tauri::command]
+pub fn get_background_mode(
+    state: tauri::State<'_, BackgroundState>,
+) -> Result<Option<bool>, String> {
+    Ok(state.preference().as_bool())
 }
 
 /// The one deliberate way out while background mode is on.
@@ -147,6 +210,12 @@ pub fn quit_app(
 #[cfg(mobile)]
 #[tauri::command]
 pub async fn set_background_mode(_on: bool) -> Result<bool, String> {
+    Err("unsupported_platform".to_string())
+}
+
+#[cfg(mobile)]
+#[tauri::command]
+pub async fn get_background_mode() -> Result<Option<bool>, String> {
     Err("unsupported_platform".to_string())
 }
 
@@ -194,5 +263,22 @@ mod tests {
         // Nothing the preference does may resurrect the prevention.
         state.set_enabled(true);
         assert!(!state.should_prevent_exit());
+    }
+
+    #[test]
+    fn background_preference_transitions() {
+        use super::BackgroundPreference;
+
+        let state = BackgroundState::default();
+        assert_eq!(state.preference(), BackgroundPreference::Unset);
+        assert_eq!(state.preference().as_bool(), None);
+
+        state.set_preference(BackgroundPreference::KeepRunning);
+        assert_eq!(state.preference(), BackgroundPreference::KeepRunning);
+        assert_eq!(state.preference().as_bool(), Some(true));
+
+        state.set_preference(BackgroundPreference::Close);
+        assert_eq!(state.preference(), BackgroundPreference::Close);
+        assert_eq!(state.preference().as_bool(), Some(false));
     }
 }

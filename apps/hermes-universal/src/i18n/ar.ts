@@ -2632,7 +2632,13 @@ export const ar = defineLocale({
     show: 'إظهار Hermes',
     hud: 'فتح شريط الاستدعاء',
     quit: 'إنهاء Hermes',
+    keepRunning: 'الاستمرار في العمل',
     tooltip: 'Hermes (MJX)',
+    closeDialogTitle: 'هل تريد إبقاء Hermes في الخلفية؟',
+    closeDialogDesc:
+      'اختر إبقاء Hermes يعمل في الخلفية عند إغلاق هذه النافذة، أو إنهاءه تمامًا. يمكنك تغيير ذلك في أي وقت من الإعدادات أو من قائمة شريط النظام.',
+    keepInBackground: 'الإبقاء في الخلفية',
+    closeApp: 'إنهاء Hermes',
     status: {
       idle: 'غير متصل',
       probing: 'جار فحص البوابة…',

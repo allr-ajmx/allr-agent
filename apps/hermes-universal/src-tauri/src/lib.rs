@@ -35,7 +35,7 @@ mod window;
 
 use appearance::set_window_translucency;
 use artifact::{artifact_release, artifact_stage, ArtifactState, ARTIFACT_SCHEME};
-use background::{quit_app, set_background_mode, BackgroundState};
+use background::{get_background_mode, quit_app, set_background_mode, BackgroundState};
 use cloud::{
     portal_agent_sign_in, portal_discover_agents, portal_login, portal_logout, portal_status,
 };
@@ -307,6 +307,7 @@ pub fn run() {
             surface_set_interactive_rect,
             read_window_below,
             set_background_mode,
+            get_background_mode,
             quit_app,
             show_app_window,
             hide_this_window,

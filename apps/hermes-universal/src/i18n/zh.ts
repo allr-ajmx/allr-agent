@@ -3262,7 +3262,13 @@ export const zh: Translations = {
     show: '显示 Hermes',
     hud: '打开 HUD',
     quit: '退出 Hermes',
+    keepRunning: '保持后台运行',
     tooltip: 'Hermes (MJX)',
+    closeDialogTitle: '让 Hermes 留在后台吗？',
+    closeDialogDesc:
+      '关闭此窗口后，可以让 Hermes 继续在后台运行，也可以完全退出。你随时可以在设置或托盘菜单中更改。',
+    keepInBackground: '留在后台',
+    closeApp: '退出 Hermes',
     status: {
       idle: '未连接',
       probing: '正在检查网关…',

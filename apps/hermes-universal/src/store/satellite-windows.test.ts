@@ -12,6 +12,7 @@ import type * as Platform from '@/lib/platform'
 interface FakeWindow {
   close: ReturnType<typeof vi.fn>
   label: string
+  visible?: boolean
 }
 
 const live = new Map<string, FakeWindow>()
@@ -25,6 +26,13 @@ const mainClose = vi.fn()
  *  through to the JS wrapper's `destroy()`. */
 const hideThis = vi.fn()
 const closeThis = vi.fn()
+/** The two the prompt's "Quit Hermes" answer ends in — the deliberate exit, and
+ *  the spawned `hermes serve` child that must not outlive it. */
+const quitApp = vi.fn()
+const stopBackend = vi.fn()
+/** Whether this "machine" has a system tray. Flipped on for the one test that
+ *  asserts a refused arm leaves the window where it is. */
+let armRefused = false
 
 /** The satellites Rust's `SATELLITES` registry knows. A surface outside it is
  *  refused there, which is what makes `sat-*` a namespace the webview cannot
@@ -45,8 +53,47 @@ vi.mock('@tauri-apps/api/core', () => ({
       return undefined
     }
 
+    if (command === 'hide_satellite_window') {
+      const surface = String(args.surface)
+      const label = `sat-${surface}`
+      const win = live.get(label)
+
+      if (win) {
+        win.visible = false
+      }
+
+      return undefined
+    }
+
+    if (command === 'is_satellite_window_visible') {
+      const surface = String(args.surface)
+      const label = `sat-${surface}`
+      const win = live.get(label)
+
+      return win ? (win.visible ?? true) : false
+    }
+
     if (command === 'set_background_mode') {
+      // The refusal that really happens: a bare wlroots session with no
+      // StatusNotifier host gets no tray, so Rust will not arm background mode.
+      // Turning it OFF always succeeds.
+      if (args.on && armRefused) {
+        throw new Error('no_tray')
+      }
+
       return args.on
+    }
+
+    if (command === 'quit_app') {
+      quitApp()
+
+      return undefined
+    }
+
+    if (command === 'local_backend_stop') {
+      stopBackend()
+
+      return undefined
     }
 
     if (command !== 'open_satellite_window') {
@@ -68,7 +115,8 @@ vi.mock('@tauri-apps/api/core', () => ({
       close: vi.fn(async () => {
         live.delete(label)
       }),
-      label
+      label,
+      visible: true
     })
 
     // Rust answers with a grant only for a FRESH attach; a satellite that merely
@@ -88,15 +136,24 @@ vi.mock('@tauri-apps/api/webviewWindow', () => {
     }
 
     static async getByLabel(label: string) {
-      return live.get(label) ?? null
+      const win = live.get(label)
+
+      if (!win) {
+        return null
+      }
+
+      return {
+        ...win,
+        isVisible: async () => win.visible ?? true
+      }
     }
   }
 
   return {
     getCurrentWebviewWindow: () => ({
       close: mainClose,
-      // `main` is the ONLY label background mode hides — see
-      // `backgroundCloseTakesOver`. A hidden `instance-2` would have nothing able
+      // `main` is the ONLY label background mode acts on — see
+      // `backgroundCloseAction`. A hidden `instance-2` would have nothing able
       // to reveal it.
       label: 'main',
       onCloseRequested: async (handler: (event: { preventDefault: () => void }) => Promise<void> | void) => {
@@ -143,7 +200,7 @@ const {
   toggleSatelliteWindow
 } = await import('./windows')
 
-const { $backgroundMode } = await import('./background-mode')
+const { $backgroundClosePrompt, $backgroundMode, dismissBackgroundClosePrompt } = await import('./background-mode')
 
 /** The key `rememberSurfaceGrant` writes. */
 const GRANT_KEY = 'hermes:surface-grant:hud'
@@ -165,7 +222,13 @@ beforeEach(async () => {
   mainClose.mockClear()
   hideThis.mockClear()
   closeThis.mockClear()
+  quitApp.mockClear()
+  stopBackend.mockClear()
+  armRefused = false
+  // An ANSWERED "close means close": the default for most of this file, so the
+  // close guard runs its ordinary path rather than parking a question.
   $backgroundMode.set(false)
+  dismissBackgroundClosePrompt()
   window.localStorage.removeItem(GRANT_KEY)
 })
 
@@ -301,6 +364,101 @@ describe('satellite windows', () => {
       expect(hideThis).toHaveBeenCalledTimes(1)
       expect(live.has('sat-hud')).toBe(false)
       expect(closeThis).toHaveBeenCalled()
+    })
+  })
+
+  // The first close on a fresh machine. There is no honest default — assuming
+  // "quits" ends an app that may have been mid-turn, assuming "hides" leaves a
+  // running process behind a tray icon nobody mentioned — so the close is PARKED
+  // and the answer finishes it.
+  describe('with the preference unanswered', () => {
+    beforeEach(() => {
+      $backgroundMode.set(null)
+    })
+
+    it('parks the close and touches neither window nor satellites', async () => {
+      await openSatelliteWindow('hud')
+      await flush()
+
+      const preventDefault = vi.fn()
+      await closeRequested?.({ preventDefault })
+
+      expect(preventDefault).toHaveBeenCalled()
+      expect($backgroundClosePrompt.get()).not.toBeNull()
+      // The window is still there and still holding whatever it was holding.
+      expect(hideThis).not.toHaveBeenCalled()
+      expect(closeThis).not.toHaveBeenCalled()
+      expect(quitApp).not.toHaveBeenCalled()
+      expect(live.has('sat-hud')).toBe(true)
+    })
+
+    // A second close while the question is up is the SAME question. Replacing the
+    // parked thunks would answer the newer close and silently drop the older one.
+    it('asks once, however many times close is pressed', async () => {
+      await closeRequested?.({ preventDefault: vi.fn() })
+      const first = $backgroundClosePrompt.get()
+
+      await closeRequested?.({ preventDefault: vi.fn() })
+
+      expect($backgroundClosePrompt.get()).toBe(first)
+    })
+
+    it('hides and records the preference when the answer is "keep"', async () => {
+      await openSatelliteWindow('hud')
+      await flush()
+      await closeRequested?.({ preventDefault: vi.fn() })
+
+      await $backgroundClosePrompt.get()?.keep()
+
+      expect($backgroundMode.get()).toBe(true)
+      expect(hideThis).toHaveBeenCalled()
+      // A hide is not a teardown: the HUD stays up, and stays summonable with no
+      // UI on screen.
+      expect(live.has('sat-hud')).toBe(true)
+      expect(closeThis).not.toHaveBeenCalled()
+    })
+
+    // The machine that cannot give us a tray. Hiding there would leave a live
+    // process with no window, no icon and nothing able to bring it back — so the
+    // window stays put and the preference goes back to off.
+    it('does not hide when the machine refuses to arm', async () => {
+      await closeRequested?.({ preventDefault: vi.fn() })
+
+      const prompt = $backgroundClosePrompt.get()
+      armRefused = true
+      await prompt?.keep()
+
+      expect($backgroundMode.get()).toBe(false)
+      expect(hideThis).not.toHaveBeenCalled()
+    })
+
+    it('quits for real when the answer is "quit"', async () => {
+      await closeRequested?.({ preventDefault: vi.fn() })
+
+      await $backgroundClosePrompt.get()?.close()
+
+      expect($backgroundMode.get()).toBe(false)
+      // The child gateway goes BEFORE the exit — after `app.exit(0)` there is
+      // nobody left to ask.
+      expect(stopBackend).toHaveBeenCalled()
+      expect(quitApp).toHaveBeenCalled()
+      // Not a plain destroy: `quit_app` is the one deliberate exit, and it is
+      // what marks the quit explicit so `ExitRequested` cannot be prevented.
+      expect(closeThis).not.toHaveBeenCalled()
+    })
+
+    // Cancel is not a courtesy. The close button is one keystroke from Quit on
+    // every platform, and a misclick must not dispose of the window OR get
+    // written down as the answer for every close after it.
+    it('leaves everything alone when the prompt is dismissed', async () => {
+      await closeRequested?.({ preventDefault: vi.fn() })
+
+      dismissBackgroundClosePrompt()
+
+      expect($backgroundMode.get()).toBeNull()
+      expect(hideThis).not.toHaveBeenCalled()
+      expect(closeThis).not.toHaveBeenCalled()
+      expect(quitApp).not.toHaveBeenCalled()
     })
   })
 

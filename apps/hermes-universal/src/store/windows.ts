@@ -13,7 +13,8 @@ import { requestComposerDraftSync } from '@/lib/composer-draft-bus'
 import { IS_ANDROID, IS_DESKTOP, IS_IOS, IS_TAURI } from '@/lib/platform'
 import { navigateTo } from '@/lib/route-nav'
 import { type SurfaceGrant } from '@/lib/surface'
-import { backgroundCloseTakesOver } from '@/store/background-mode'
+import { backgroundCloseAction, commitBackgroundMode, requestBackgroundClosePrompt } from '@/store/background-mode'
+import { stopLocalBackend } from '@/store/local-backend'
 import { notifyError } from '@/store/notifications'
 
 // Ported from desktop `store/windows.ts`. Desktop opens native windows through an
@@ -767,6 +768,77 @@ async function closeThisWindow(): Promise<void> {
   await invoke('close_this_window')
 }
 
+/** The ordinary close: satellites may never outlive their summoner, then the
+ *  window itself. Every window kind but the app's own takes this path. */
+async function closeThisWindowAndSatellites(): Promise<void> {
+  if (openedSatellites.size > 0) {
+    await closeAllSatelliteWindows()
+  }
+
+  await closeThisWindow()
+}
+
+/**
+ * Put the window away and keep the process — background mode's whole point.
+ *
+ * `answering` is true only when the user has just picked "Keep in Background" in
+ * the prompt. That choice has to be persisted AND mirrored down before the
+ * window goes: hiding while Rust still reads "not resident" makes this the last
+ * window destroyed, which takes the app with it. Awaited for the same reason —
+ * and the answer is checked, because a machine with no system tray refuses to
+ * arm, and hiding there would leave a live process with no window, no icon and
+ * nothing able to bring it back.
+ *
+ * In the already-answered case there is nothing to commit: the preference is in
+ * force, and re-asserting it on every close would put an IPC round trip on the
+ * app's most common verb.
+ */
+async function hideForBackgroundMode(answering: boolean): Promise<void> {
+  if (answering && !(await commitBackgroundMode(true))) {
+    // Refused. `commitBackgroundMode` has already flipped the preference back
+    // and said so, so the window simply stays where it is.
+    return
+  }
+
+  try {
+    await hideThisWindow()
+  } catch (err) {
+    // The window is still on screen and the user pressed close. Saying nothing
+    // would read as a dead titlebar button.
+    notifyError(err, 'Could not hide this window')
+  }
+}
+
+/**
+ * End the app, not merely this window — the prompt's "Quit Hermes" answer.
+ *
+ * The only close path that quits, and it is the one where the user asked in
+ * those words. An ordinary close of `main` still just destroys the window: the
+ * process ends with it if it was the last, and any other open instance window
+ * survives, exactly as it always has.
+ *
+ * Through Rust's `quit_app` rather than a destroy, because that is the ONE
+ * deliberate exit (`src-tauri/src/background.rs`) — it marks the quit explicit
+ * so `ExitRequested` cannot be prevented by a preference, hands the machine-wide
+ * chords back, and closes the satellites before the loop stops.
+ *
+ * The preference is recorded FIRST so the next launch stops asking, and the
+ * spawned `hermes serve` child is stopped before the exit: it is OUR child
+ * rather than the OS's problem, and after `app.exit(0)` there is nobody left to
+ * ask. That failure is swallowed — a gateway that was never local, or is already
+ * gone, must not be the reason a quit does not happen.
+ */
+async function quitTheApp(): Promise<void> {
+  await commitBackgroundMode(false)
+  await stopLocalBackend().catch(() => {})
+
+  try {
+    await invoke('quit_app')
+  } catch (err) {
+    notifyError(err, 'Could not close Hermes')
+  }
+}
+
 /**
  * The one `tauri://close-requested` handler this window gets, plus the satellite
  * bookkeeping that hangs off native closes.
@@ -782,16 +854,20 @@ async function closeThisWindow(): Promise<void> {
  * `stands aside once there is nothing left to tear down` test asserted exactly
  * that dead end as the contract.
  *
- * The three outcomes, in order:
+ * The four outcomes, in order:
  *
- *  1. **Background mode** — this window is not going away, it is going out of
+ *  1. **Unanswered** — the preference has never been given, so the close is
+ *     PARKED and the question goes on screen (`app/background-close-dialog.tsx`).
+ *     The window is untouched until the answer comes back, and whichever answer
+ *     it is finishes this close through the thunks handed over here.
+ *  2. **Background mode** — this window is not going away, it is going out of
  *     sight. Its satellites outlive nothing (the window that summoned them is
  *     still here), so they stay, and the HUD stays summonable with no UI on
  *     screen. This is the branch that makes "close" mean "hide".
- *  2. **Satellites up** — a satellite may never outlive its summoner, so they go
+ *  3. **Satellites up** — a satellite may never outlive its summoner, so they go
  *     first and the window follows. No longer re-entrant: `closeThisWindow`
  *     destroys, so there is no second close request to service.
- *  3. **Nothing to do** — destroy.
+ *  4. **Nothing to do** — destroy.
  *
  * Installed at BOOT for any window that owns the app's persisted state, and
  * still lazily from `openSatelliteWindow` for the ones that do not (a tile
@@ -827,23 +903,31 @@ export async function installWindowCloseGuard(): Promise<void> {
     await current.onCloseRequested(async event => {
       event.preventDefault()
 
-      if (backgroundCloseTakesOver(current.label, ownsPersistedAppState())) {
-        try {
-          await hideThisWindow()
-        } catch (err) {
-          // The window is still on screen and the user pressed close. Saying
-          // nothing would read as a dead titlebar button.
-          notifyError(err, 'Could not hide this window')
-        }
+      switch (backgroundCloseAction(current.label, ownsPersistedAppState())) {
+        case 'ask':
+          // Never answered. The window stays exactly where it is until the
+          // dialog is answered — which is why the two outcomes are handed over
+          // as THUNKS rather than a flag being raised: whichever the user picks
+          // has to finish the close THIS event started, and the event itself is
+          // long gone by the time they pick.
+          requestBackgroundClosePrompt({
+            close: () => quitTheApp(),
+            keep: () => hideForBackgroundMode(true)
+          })
 
-        return
+          return
+
+        case 'hide':
+          await hideForBackgroundMode(false)
+
+          return
+
+        // Including an answered "close means close": that is the absence of a
+        // background-mode behaviour, not one of its own. The window is destroyed
+        // and the process ends with it if it was the last.
+        default:
+          await closeThisWindowAndSatellites()
       }
-
-      if (openedSatellites.size > 0) {
-        await closeAllSatelliteWindows()
-      }
-
-      await closeThisWindow()
     })
 
     const { listen } = await import('@tauri-apps/api/event')
