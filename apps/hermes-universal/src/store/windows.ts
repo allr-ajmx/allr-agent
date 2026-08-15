@@ -13,6 +13,7 @@ import { requestComposerDraftSync } from '@/lib/composer-draft-bus'
 import { IS_ANDROID, IS_DESKTOP, IS_IOS } from '@/lib/platform'
 import { navigateTo } from '@/lib/route-nav'
 import { type SurfaceGrant } from '@/lib/surface'
+import { backgroundCloseTakesOver } from '@/store/background-mode'
 import { notifyError } from '@/store/notifications'
 
 // Ported from desktop `store/windows.ts`. Desktop opens native windows through an
@@ -582,7 +583,7 @@ interface SatelliteWindow {
  *
  * Because it is `localStorage` it outlives the PROCESS, so "cleared on close"
  * has to hold for every way a satellite can close, including the ones that run
- * no JS in it — see `installSatelliteTeardown`, which is what makes that true.
+ * no JS in it — see `installWindowCloseGuard`, which is what makes that true.
  */
 const SURFACE_GRANT_KEY = 'hermes:surface-grant:'
 
@@ -689,27 +690,78 @@ function forgetSatellite(surface: string): void {
 }
 
 /**
- * Summoning a satellite must not be able to leave one behind: if the window that
- * opened it goes away, so do its satellites. Installed lazily on the first open
- * (an app that never summons one pays nothing) and only once.
+ * Put this window out of sight without destroying it (background mode).
  *
- * The re-entrant `close()` is intentional. Closing the satellites is async, so
- * the first close request is deferred; by the time we ask again the set is empty
- * and this handler stands aside.
+ * A Rust command rather than `core:window:allow-hide`, and it takes no label:
+ * the window to act on is the one that called, resolved from the calling webview
+ * on the Rust side. Same posture as every other window operation here
+ * (MJXHRM-382) — the label of the window to act on is never a value from the
+ * webview. Rust refuses from anything but `main` — see `hide_this_window` and
+ * `backgroundCloseTakesOver` for why a hidden pop-out would be unreachable.
+ */
+export async function hideThisWindow(): Promise<void> {
+  await invoke('hide_this_window')
+}
+
+/**
+ * Destroy this window for real.
  *
- * The second listener is the other half of the same guarantee, and the one that
- * is easy to miss: a satellite closed NATIVELY — the compositor, the window
- * manager, an OS close button — runs no JS teardown at all, so
- * `closeSatelliteWindow()` never happens for it. Without this, that close leaks
- * both halves of `forgetSatellite`: this window keeps claiming a satellite that
- * is gone (every later app quit then pays a pointless prevented-close round trip
- * through `closeAllSatelliteWindows`), and — the part that outlives the process —
+ * This exists because the obvious spellings do not work.
+ * `getCurrentWebviewWindow().close()` re-emits `CloseRequested`, which the guard
+ * below intercepts again — forever — and the `destroy()` the JS wrapper falls
+ * back to needs `core:window:allow-destroy`, which `capabilities/default.json`
+ * does not grant (nor does `core:window:default`, which is read-only queries
+ * only). So the only way a guarded window can actually go away is Rust
+ * destroying it.
+ */
+async function closeThisWindow(): Promise<void> {
+  await invoke('close_this_window')
+}
+
+/**
+ * The one `tauri://close-requested` handler this window gets, plus the satellite
+ * bookkeeping that hangs off native closes.
+ *
+ * **Every branch calls `preventDefault`, and that is not defensive.** Tauri's
+ * core calls `prevent_close()` for any window that has a JS close-requested
+ * listener (`tauri/src/manager/window.rs`) and then emits the event; the JS
+ * wrapper runs this handler and, if nothing prevented, calls `destroy()`. That
+ * `destroy` is not in the ACL. So "return and let it close" is not a path that
+ * closes anything — before this, a window that had ever opened a satellite could
+ * not be closed by its titlebar button at all, because the second, re-entrant
+ * pass found an empty set, stood aside, and hit the refused `destroy`. The old
+ * `stands aside once there is nothing left to tear down` test asserted exactly
+ * that dead end as the contract.
+ *
+ * The three outcomes, in order:
+ *
+ *  1. **Background mode** — this window is not going away, it is going out of
+ *     sight. Its satellites outlive nothing (the window that summoned them is
+ *     still here), so they stay, and the HUD stays summonable with no UI on
+ *     screen. This is the branch that makes "close" mean "hide".
+ *  2. **Satellites up** — a satellite may never outlive its summoner, so they go
+ *     first and the window follows. No longer re-entrant: `closeThisWindow`
+ *     destroys, so there is no second close request to service.
+ *  3. **Nothing to do** — destroy.
+ *
+ * Installed at BOOT for any window that owns the app's persisted state, and
+ * still lazily from `openSatelliteWindow` for the ones that do not (a tile
+ * window can summon Quick Entry). Idempotent through `teardownInstalled`,
+ * because there must be exactly one of these: JS is authoritative over the close,
+ * and two handlers would race over what the close meant.
+ *
+ * The `SATELLITE_WINDOW_CLOSED_EVENT` listener is the other half of the
+ * guarantee, and the one that is easy to miss: a satellite closed NATIVELY — the
+ * compositor, the window manager, an OS close button — runs no JS teardown at
+ * all, so `closeSatelliteWindow()` never happens for it. Without this, that close
+ * leaks both halves of `forgetSatellite`: this window keeps claiming a satellite
+ * that is gone, and — the part that outlives the process —
  * `hermes:surface-grant:<surface>` stays on disk, so the NEXT run's satellite can
  * read a grant negotiated for a window that died in a previous one. The event is
  * emitted from Rust (`src-tauri/src/lib.rs`, `RunEvent::WindowEvent::Destroyed`)
  * precisely because it must arrive whether or not the dying page ran anything.
  */
-async function installSatelliteTeardown(): Promise<void> {
+export async function installWindowCloseGuard(): Promise<void> {
   if (teardownInstalled) {
     return
   }
@@ -724,13 +776,25 @@ async function installSatelliteTeardown(): Promise<void> {
     // outlives its summoner. The bookkeeping listener below is a correction, not
     // a safety net, so it must never be the reason this one did not get armed.
     await current.onCloseRequested(async event => {
-      if (openedSatellites.size === 0) {
+      event.preventDefault()
+
+      if (backgroundCloseTakesOver(current.label, ownsPersistedAppState())) {
+        try {
+          await hideThisWindow()
+        } catch (err) {
+          // The window is still on screen and the user pressed close. Saying
+          // nothing would read as a dead titlebar button.
+          notifyError(err, 'Could not hide this window')
+        }
+
         return
       }
 
-      event.preventDefault()
-      await closeAllSatelliteWindows()
-      void current.close()
+      if (openedSatellites.size > 0) {
+        await closeAllSatelliteWindows()
+      }
+
+      await closeThisWindow()
     })
 
     const { listen } = await import('@tauri-apps/api/event')
@@ -744,6 +808,40 @@ async function installSatelliteTeardown(): Promise<void> {
     })
   } catch {
     // No window system here (web/mobile) — nothing to tear down.
+  }
+}
+
+/**
+ * Drop surface grants left behind by a previous run.
+ *
+ * `hermes:surface-grant:<surface>` is `localStorage`, so it outlives the PROCESS.
+ * Every live path clears it — `forgetSatellite` on an explicit close, and the
+ * native destroy event for a close that ran no JS — but neither can fire when
+ * there was nothing alive to hear it: an explicit Quit from the tray takes the
+ * whole process down, and a crash or a `SIGKILL` takes it down harder. The next
+ * run's HUD would then read a grant negotiated for a window that died on a
+ * different compositor and lay itself out for a layer surface it never got.
+ *
+ * Liveness is asked of the window system rather than assumed from "we just
+ * booted": an instance window opening while the HUD is up boots too, and must not
+ * sweep a grant that is currently in force.
+ */
+export async function sweepStaleSurfaceGrants(): Promise<void> {
+  let surfaces: string[]
+
+  try {
+    surfaces = Object.keys(window.localStorage)
+      .filter(key => key.startsWith(SURFACE_GRANT_KEY))
+      .map(key => key.slice(SURFACE_GRANT_KEY.length))
+  } catch {
+    // Private mode / no storage: nothing was written, so nothing is stale.
+    return
+  }
+
+  for (const surface of surfaces) {
+    if (!(await isSatelliteWindowOpen(surface))) {
+      rememberSurfaceGrant(surface, null)
+    }
   }
 }
 
@@ -779,7 +877,8 @@ export async function openSatelliteWindow(surface: string, route?: string): Prom
     openedSatellites.add(surface)
     // Claiming a satellite this window did not build still makes this window
     // responsible for it — and arms the close listener that forgets it again.
-    void installSatelliteTeardown()
+    // Idempotent: a window that owns the app's state already armed it at boot.
+    void installWindowCloseGuard()
 
     return opened.label
   } catch (err) {

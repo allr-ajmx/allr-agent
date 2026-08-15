@@ -535,6 +535,11 @@ export interface Translations {
       keepAwakeDesc: string
       /** Shown when the OS refuses the inhibitor — the switch flips back off with it. */
       keepAwakeFailed: string
+      backgroundModeTitle: string
+      backgroundModeDesc: string
+      /** Shown when the machine has no system tray, so hiding the window would
+       *  leave a process with nothing to reach it by — the switch flips back off. */
+      backgroundModeFailed: string
     }
     credentials: {
       pasteKey: string
@@ -2698,6 +2703,23 @@ export interface Translations {
    *  settings row. Kept as ONE top-level block rather than split across
    *  `settings.*`: the window's copy and the switch that enables it are the
    *  same feature, and the surface has no other home in the tree. */
+  /** The system tray's menu (desktop). Native copy, so it is PUSHED down from
+   *  `store/tray.ts` — `src-tauri/src/tray.rs` builds the menu with English
+   *  literals and cannot read this catalog. */
+  tray: {
+    show: string
+    quit: string
+    /** Hover text on the tray icon itself. */
+    tooltip: string
+    /** The disabled readout row, one string per `ConnectionPhase`. */
+    status: {
+      idle: string
+      probing: string
+      connecting: string
+      ready: string
+      error: string
+    }
+  }
   quickEntry: {
     /** Accessible name of the single-line input. */
     label: string

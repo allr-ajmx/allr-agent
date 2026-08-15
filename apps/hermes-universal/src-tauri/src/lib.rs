@@ -11,6 +11,7 @@
 
 mod appearance;
 mod artifact;
+mod background;
 mod cloud;
 mod find_in_page;
 mod keep_awake;
@@ -26,12 +27,14 @@ mod ssh;
 mod surface;
 mod telemetry;
 mod transport;
+mod tray;
 mod updates;
 mod voice;
 mod window;
 
 use appearance::set_window_translucency;
 use artifact::{artifact_release, artifact_stage, ArtifactState, ARTIFACT_SCHEME};
+use background::{quit_app, set_background_mode, BackgroundState};
 use cloud::{
     portal_agent_sign_in, portal_discover_agents, portal_login, portal_logout, portal_status,
 };
@@ -56,14 +59,15 @@ use surface::{surface_capabilities, surface_set_interactive_rect};
 use transport::{
     cookies_export, cookies_import, http_request, ws_close, ws_open, ws_send, TransportState,
 };
+use tray::{tray_set_labels, tray_set_status, TrayState};
 use updates::{update_check, update_open_download, UpdateState};
 use voice::{
     voice_arm, voice_close, voice_force_turn, voice_open, voice_suspend, voice_update_auth,
     voice_wake_listen, VoiceState,
 };
 use window::{
-    open_instance_window, open_satellite_window, open_screen_window, open_session_window,
-    open_tile_window,
+    close_this_window, hide_this_window, open_instance_window, open_satellite_window,
+    open_screen_window, open_session_window, open_tile_window, show_app_window,
 };
 
 /// Open a URL in the system browser. Routed through the opener plugin's Rust API
@@ -149,6 +153,15 @@ pub fn run() {
         // Live SSH sessions. Unlike desktop's on-disk control socket, nothing
         // here outlives the process, so there is no stale master to evict.
         .manage(SshState::default())
+        // Background mode's two flags — the mirrored preference, and the
+        // one-way "the user asked to quit" latch that stops `ExitRequested`
+        // from preventing the app's own exit (background.rs).
+        .manage(BackgroundState::default())
+        // The tray's live menu rows, so their text can be replaced when the
+        // webview pushes the translated catalog. Managed on both targets so
+        // the builder chain is the same shape; the mobile `TrayState` is an
+        // empty struct nothing reads.
+        .manage(TrayState::default())
         // Inline audio/video streams through here instead of loading as a base64
         // data URL — see media.rs. Registered on the BUILDER, not in `.setup()`:
         // on Linux, wry registers custom schemes into the WebContext when the
@@ -193,6 +206,21 @@ pub fn run() {
                             });
                     });
                 }
+            }
+
+            // The tray. Desktop only, and deliberately not fatal: a machine
+            // with no StatusNotifier host (a bare sway/wlroots session with no
+            // waybar and no xembed tray) is a perfectly good machine to run
+            // Hermes on — it just cannot run it hidden, so the flag below is
+            // what makes `set_background_mode` refuse to arm rather than
+            // stranding a live process with no window and no icon.
+            #[cfg(desktop)]
+            {
+                use tauri::Manager;
+
+                let ready = tray::install(app.handle());
+
+                app.state::<BackgroundState>().set_tray_ready(ready);
             }
 
             let _ = app;
@@ -265,7 +293,14 @@ pub fn run() {
             stop_find_in_page,
             surface_capabilities,
             surface_set_interactive_rect,
-            read_window_below
+            read_window_below,
+            set_background_mode,
+            quit_app,
+            show_app_window,
+            hide_this_window,
+            close_this_window,
+            tray_set_labels,
+            tray_set_status
         ]))
         // `.build(...).run(closure)` (rather than the terminal `.run(context)`) so
         // we can observe `RunEvent`s. On iOS this catches scenes the *system*
@@ -326,6 +361,35 @@ pub fn run() {
                 // machine and answers into a dead channel (MJXHRM-384).
                 if window::is_app_window_label(label) {
                     let _ = app_handle.emit(window::APP_WINDOW_CLOSED_EVENT, label.clone());
+                }
+            }
+
+            // Background mode's hold on the process (MJXHRM-436).
+            //
+            // tao raises `ExitRequested` the moment the window map empties —
+            // `tauri-runtime-wry` fires it from `TaoWindowEvent::Destroyed` and
+            // then sets `ControlFlow::Exit` unless something prevents it — so
+            // without this arm destroying the last window ends the process, and
+            // "keep running in the background" would end at the first close that
+            // was not a hide.
+            //
+            // It is NOT the hide mechanism. Close-to-hide is decided in JS, in
+            // `installWindowCloseGuard`, because Tauri's core calls
+            // `prevent_close()` for any window that has a JS
+            // `tauri://close-requested` listener — so a Rust `CloseRequested` arm
+            // would be fighting a handler that has already won. This arm is the
+            // guard for every other route to zero windows: the macOS
+            // last-window-closed quit, a window destroyed natively by the
+            // compositor, a satellite teardown that took the last one with it.
+            //
+            // The `quit_requested` half is what keeps Tray → Quit working:
+            // `AppHandle::exit` raises this same event.
+            #[cfg(desktop)]
+            if let tauri::RunEvent::ExitRequested { api, .. } = &event {
+                use tauri::Manager;
+
+                if app_handle.state::<BackgroundState>().should_prevent_exit() {
+                    api.prevent_exit();
                 }
             }
 
