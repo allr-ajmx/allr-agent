@@ -704,6 +704,19 @@ export async function hideThisWindow(): Promise<void> {
 }
 
 /**
+ * Bring the app's real window back.
+ *
+ * Takes no label, for the same reason `hideThisWindow` does not: Rust picks the
+ * target from the live label set (`window_to_reveal`), which never resolves to a
+ * satellite or a detached tile. Called from the HUD, which since background mode
+ * can be the only Hermes on screen — so when its gateway is down, the affordance
+ * that gets the user to a window where that is fixable has to exist there.
+ */
+export async function showAppWindow(): Promise<void> {
+  await invoke('show_app_window')
+}
+
+/**
  * Ask Rust to resize THIS satellite's window to `height` logical pixels, and
  * answer with the height it actually applied (or null when nothing happened).
  *

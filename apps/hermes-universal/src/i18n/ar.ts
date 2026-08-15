@@ -138,6 +138,13 @@ export const ar = defineLocale({
     enterHud: 'وضع HUD',
     exitHud: 'إنهاء وضع HUD'
   },
+  hud: {
+    connecting: 'جارٍ الاتصال بهيرميس…',
+    connectionFailed: 'تعذر على هيرميس الوصول إلى البوابة.',
+    expandReply: 'إظهار الرد',
+    collapseReply: 'إخفاء الرد'
+  },
+
   keybinds: {
     title: 'اختصارات لوحة المفاتيح',
     subtitle: open => `انقر على اختصار لإعادة تعيينه \xB7 ${open} يعيد فتح هذه اللوحة.`,

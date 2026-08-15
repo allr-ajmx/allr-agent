@@ -246,6 +246,14 @@ export interface Translations {
     close: string
   }
 
+  // The HUD — a spotlight bar summoned over other applications (MJXHRM-438).
+  hud: {
+    connecting: string
+    connectionFailed: string
+    expandReply: string
+    collapseReply: string
+  }
+
   // The find-in-page bar (⌘F) — the engine's own search over the rendered page.
   findInPage: {
     title: string

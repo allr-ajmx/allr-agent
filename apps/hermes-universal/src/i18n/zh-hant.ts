@@ -201,6 +201,12 @@ export const zhHant = defineLocale({
     restore: '還原',
     close: '關閉'
   },
+  hud: {
+    connecting: '正在連線至 Hermes…',
+    connectionFailed: 'Hermes 無法連線至閘道。',
+    expandReply: '顯示回覆',
+    collapseReply: '隱藏回覆'
+  },
 
   language: {
     label: '語言',

@@ -196,6 +196,12 @@ export const en: Translations = {
     restore: 'Restore',
     close: 'Close'
   },
+  hud: {
+    connecting: 'Connecting to Hermes…',
+    connectionFailed: 'Hermes could not reach its gateway.',
+    expandReply: 'Show the reply',
+    collapseReply: 'Hide the reply'
+  },
 
   findInPage: {
     title: 'Find in page',
