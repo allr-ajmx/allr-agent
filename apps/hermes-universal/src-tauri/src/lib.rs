@@ -31,6 +31,7 @@ mod transport;
 mod tray;
 mod updates;
 mod voice;
+mod webview_cookies;
 mod window;
 
 use appearance::set_window_translucency;
