@@ -6,21 +6,26 @@
 //!
 //! Two shapes, for the same reason as `oauth.rs`:
 //!
-//!   • Desktop/iOS — the Privy session lives in a dedicated, persistent portal webview
+//!   • Desktop — the Privy session lives in a dedicated, persistent portal webview
 //!     with its own `data_directory`, mirroring desktop's `persist:hermes-remote-oauth`
 //!     partition. It is kept (hidden) between calls so discovery and the silent SSO can
 //!     reuse it.
-//!   • Android — neither half of that works: a second window would replace the app and
-//!     never close (wry's `setContentView`, see `oauth.rs`), and `data_directory` is not
-//!     honoured — one app-global `CookieManager` holds everything. So the login runs in
-//!     the CALLING webview (navigate away, poll, navigate back) and every later call
-//!     reads the portal cookies back out of that same global store.
+//!   • Mobile (Android AND iOS) — neither half of that works. A second window is
+//!     unusable: on Android it would replace the app and never close (wry's
+//!     `setContentView`, see `oauth.rs`), and on iOS tao turns `inner_size` into a
+//!     literal `UIWindow` frame pinned to the screen's top-left, so the login rendered
+//!     as a partial window overlapping the app with no chrome to dismiss it. Nor is
+//!     `data_directory` honoured on either: Android has one app-global `CookieManager`,
+//!     and wry only implements `data_directory` for webkitgtk/webview2 — every
+//!     WKWebView in the process shares the default `WKWebsiteDataStore`. So the login
+//!     runs in the CALLING webview (navigate away, poll, navigate back) and every later
+//!     call reads the portal cookies back out of that same app-global store.
 //!
 //! This used to carry a `FIXME(E4)` claiming `cookies_for_url()` returns an empty Vec on
 //! Android. That was the wry `RustWebView.getCookies` null bug, now patched in `build.rs`
 //! — the same read is what makes the Android gateway OAuth poll work today.
 
-#[cfg(not(target_os = "android"))]
+#[cfg(desktop)]
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -28,15 +33,15 @@ use serde::Serialize;
 use serde_json::Value;
 use tauri::webview::cookie::Cookie;
 use tauri::{AppHandle, State, Url, WebviewWindow};
-// The dedicated portal window and its callback intercept are the desktop/iOS shape only.
-#[cfg(not(target_os = "android"))]
+// The dedicated portal window and its callback intercept are the desktop shape only.
+#[cfg(desktop)]
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent};
-#[cfg(not(target_os = "android"))]
+#[cfg(desktop)]
 use tokio::sync::oneshot;
 
 use crate::transport::TransportState;
 
-#[cfg(not(target_os = "android"))]
+#[cfg(desktop)]
 const PORTAL_WINDOW_LABEL: &str = "hermes-portal";
 const DEFAULT_PORTAL: &str = "https://portal.nousresearch.com";
 
@@ -52,14 +57,14 @@ const DEFAULT_PORTAL: &str = "https://portal.nousresearch.com";
 /// Same idea as desktop's `WINDOW_REVEAL_FALLBACK_MS` (4s), and the same value:
 /// long enough that a genuinely silent cascade never flashes a window, short
 /// enough to leave most of the timeout for the person now typing into it.
-#[cfg(not(target_os = "android"))]
+#[cfg(desktop)]
 const PORTAL_REVEAL_AFTER_MS: u64 = 4_000;
 
-/// How long the Android login may run before we navigate the app back. Tighter than
+/// How long the mobile login may run before we navigate the app back. Tighter than
 /// desktop's 300s for the same reason as `oauth.rs`: the login has replaced the whole app
 /// UI, so there is no in-app cancel until this elapses.
-#[cfg(target_os = "android")]
-const PORTAL_TIMEOUT_SECS_ANDROID: u64 = 120;
+#[cfg(mobile)]
+const PORTAL_TIMEOUT_SECS_MOBILE: u64 = 120;
 
 /// Portal base URL — env-overridable like desktop (`HERMES_PORTAL_BASE_URL` /
 /// `NOUS_PORTAL_BASE_URL`), trailing slash stripped.
@@ -91,9 +96,9 @@ pub fn has_privy_cookie(cookies: &[Cookie<'static>]) -> bool {
     cookies.iter().any(|c| is_privy_cookie(c.name()))
 }
 
-/// The Privy cookie values currently held, so the Android login can tell a session it
+/// The Privy cookie values currently held, so the mobile login can tell a session it
 /// just minted from one that was already lying around (see `portal_login`).
-#[cfg(target_os = "android")]
+#[cfg(mobile)]
 fn privy_cookie_values(cookies: &[Cookie<'static>]) -> Vec<String> {
     cookies
         .iter()
@@ -102,7 +107,7 @@ fn privy_cookie_values(cookies: &[Cookie<'static>]) -> Vec<String> {
         .collect()
 }
 
-#[cfg(not(target_os = "android"))]
+#[cfg(desktop)]
 fn portal_data_dir(app: &AppHandle) -> Option<std::path::PathBuf> {
     app.path()
         .app_data_dir()
@@ -112,7 +117,7 @@ fn portal_data_dir(app: &AppHandle) -> Option<std::path::PathBuf> {
 
 /// Build the persistent portal webview (its own data_directory so the Privy
 /// session survives restarts and is shared with the discovery/SSO calls).
-#[cfg(not(target_os = "android"))]
+#[cfg(desktop)]
 fn build_portal_window(app: &AppHandle, url: Url, visible: bool) -> tauri::Result<()> {
     let mut builder =
         WebviewWindowBuilder::new(app, PORTAL_WINDOW_LABEL, WebviewUrl::External(url))
@@ -126,30 +131,31 @@ fn build_portal_window(app: &AppHandle, url: Url, visible: bool) -> tauri::Resul
 }
 
 /// The portal's cookies, from wherever this platform keeps them (see the module note):
-/// the dedicated portal webview off-Android, the calling webview — reading the one
-/// app-global cookie store — on Android. Empty when there is no session yet.
+/// the dedicated portal webview on desktop, the calling webview — reading the one
+/// app-global cookie store — on mobile. Empty when there is no session yet.
+///
+/// Both arms go through `webview_cookies::cookies_for_base` rather than
+/// `cookies_for_url`. On Android that helper *is* `cookies_for_url`; on iOS/macOS it
+/// replaces wry's own filter, which compares `cookie.domain() == url.domain()` and so
+/// drops a parent-domain `Domain=.nousresearch.com` Privy cookie outright — and answers
+/// an IP-literal host with an empty list, which would matter for a self-hosted portal
+/// reached by address.
 fn portal_cookies(
     app: &AppHandle,
     webview: &WebviewWindow,
     portal_url: &Url,
 ) -> Vec<Cookie<'static>> {
-    #[cfg(target_os = "android")]
+    #[cfg(mobile)]
     {
         let _ = app;
 
-        webview
-            .cookies_for_url(portal_url.clone())
-            .unwrap_or_default()
+        crate::webview_cookies::cookies_for_base(webview, portal_url).unwrap_or_default()
     }
 
-    #[cfg(not(target_os = "android"))]
+    #[cfg(desktop)]
     {
         let _ = webview;
 
-        // Not `cookies_for_url`: on macOS/iOS that filter is wry's own and answers an
-        // IP-literal host with an empty list (see `webview_cookies`). The portal is
-        // always a real domain, so this one was never the broken caller — it shares the
-        // helper so it cannot become one against a self-hosted portal on an address.
         app.get_webview_window(PORTAL_WINDOW_LABEL)
             .and_then(|w| crate::webview_cookies::cookies_for_base(&w, portal_url).ok())
             .unwrap_or_default()
@@ -164,8 +170,8 @@ fn portal_signed_in(app: &AppHandle, webview: &WebviewWindow, portal_url: &Url) 
 /// Interactive portal sign-in: show the portal login page and wait until the Privy
 /// session cookie appears.
 ///
-/// Desktop/iOS open the dedicated portal window and hide it on success (its
-/// data_directory keeps the session for discovery + agent SSO). Android navigates the
+/// Desktop opens the dedicated portal window and hides it on success (its
+/// data_directory keeps the session for discovery + agent SSO). Mobile navigates the
 /// CALLING webview there and back — so, exactly like `oauth_login`, this destroys the JS
 /// context and never resolves for the caller; the frontend persists a one-shot marker
 /// first and picks the flow back up after the reload.
@@ -176,9 +182,10 @@ pub async fn portal_login(app: AppHandle, webview: WebviewWindow) -> Result<Port
         Url::parse(&format!("{base}/login")).map_err(|e| format!("bad portal URL: {e}"))?;
     let portal_url = Url::parse(&base).map_err(|e| format!("bad portal URL: {e}"))?;
 
-    #[cfg(target_os = "android")]
+    #[cfg(mobile)]
     {
-        // The Android cookie store is app-global AND persistent, so a Privy cookie the
+        // The mobile cookie store is app-global AND persistent — Android's
+        // `CookieManager`, iOS's default `WKWebsiteDataStore` — so a Privy cookie the
         // server has since revoked can still be sitting there. Accepting on mere presence
         // would return "signed in" before the user typed anything, and every call after
         // it would 401 — a sign-in loop with no way out. So require a value we did not
@@ -198,7 +205,7 @@ pub async fn portal_login(app: AppHandle, webview: WebviewWindow) -> Result<Port
             .map_err(|e| format!("could not open the portal sign-in page: {e}"))?;
 
         let deadline =
-            tokio::time::Instant::now() + Duration::from_secs(PORTAL_TIMEOUT_SECS_ANDROID);
+            tokio::time::Instant::now() + Duration::from_secs(PORTAL_TIMEOUT_SECS_MOBILE);
         let mut signed_in = false;
         while tokio::time::Instant::now() < deadline {
             tokio::time::sleep(Duration::from_millis(750)).await;
@@ -223,7 +230,7 @@ pub async fn portal_login(app: AppHandle, webview: WebviewWindow) -> Result<Port
         });
     }
 
-    #[cfg(not(target_os = "android"))]
+    #[cfg(desktop)]
     {
         // (Re)create the visible portal window on the main thread.
         let app_build = app.clone();
@@ -428,11 +435,11 @@ pub async fn portal_discover_agents(
 /// means there's nothing to clear.
 #[tauri::command]
 pub async fn portal_logout(app: AppHandle, webview: WebviewWindow) -> Result<(), String> {
-    #[cfg(target_os = "android")]
+    #[cfg(mobile)]
     {
         let _ = &app;
 
-        // ponytail: Android has ONE cookie store, so this drops the gateway session too.
+        // ponytail: mobile has ONE cookie store, so this drops the gateway session too.
         // Both callers are sign-outs (`signOut`, `cloudSignOut`), so that is at worst a
         // re-login; per-origin clearing is the upgrade path if it ever isn't.
         webview
@@ -442,7 +449,7 @@ pub async fn portal_logout(app: AppHandle, webview: WebviewWindow) -> Result<(),
         return Ok(());
     }
 
-    #[cfg(not(target_os = "android"))]
+    #[cfg(desktop)]
     {
         let _ = webview;
 
@@ -458,16 +465,16 @@ pub async fn portal_logout(app: AppHandle, webview: WebviewWindow) -> Result<(),
     }
 }
 
-/// Whether a live portal session exists, without prompting. Off-Android this ensures the
+/// Whether a live portal session exists, without prompting. On desktop this ensures the
 /// hidden portal webview exists first (it is what holds the persisted session); on
-/// Android there is no such webview — the session is in the app-global cookie store, so
+/// mobile there is no such webview — the session is in the app-global cookie store, so
 /// the read is immediate.
 #[tauri::command]
 pub async fn portal_status(app: AppHandle, webview: WebviewWindow) -> Result<PortalStatus, String> {
     let base = portal_base();
     let portal_url = Url::parse(&base).map_err(|e| format!("bad portal URL: {e}"))?;
 
-    #[cfg(not(target_os = "android"))]
+    #[cfg(desktop)]
     if app.get_webview_window(PORTAL_WINDOW_LABEL).is_none() {
         let app_build = app.clone();
         let url = portal_url.clone();
@@ -503,7 +510,7 @@ pub struct AgentSignInResult {
 /// session cookies land in the shared gateway (transport) jar, so the subsequent
 /// ws-ticket mint is authenticated exactly like a manual OAuth login.
 ///
-/// Android has no portal webview to drive, so it runs the authorize cascade in reqwest
+/// Mobile has no portal webview to drive, so it runs the authorize cascade in reqwest
 /// instead: the Privy cookies are copied out of the app-global store into the shared jar,
 /// and the redirect-following client walks `authorize → portal → agent callback` itself.
 /// Nothing navigates, so unlike `portal_login` this one really is silent there.
@@ -549,10 +556,10 @@ pub async fn portal_agent_sign_in(
     })
 }
 
-/// The authorize leg, desktop/iOS: drive it in the hidden portal webview (same
+/// The authorize leg, desktop: drive it in the hidden portal webview (same
 /// data_directory → the Privy session auto-approves) with a callback intercept, then
 /// complete the exchange over reqwest.
-#[cfg(not(target_os = "android"))]
+#[cfg(desktop)]
 async fn agent_sso(
     app: &AppHandle,
     webview: &WebviewWindow,
@@ -673,12 +680,16 @@ async fn agent_sso(
     Ok(done.status().is_redirection() || done.status().is_success())
 }
 
-/// The authorize leg, Android: there is no portal webview to drive, so bridge the Privy
+/// The authorize leg, mobile: there is no portal webview to drive, so bridge the Privy
 /// cookies out of the app-global store into the shared jar and let the
 /// redirect-FOLLOWING client walk the cascade itself. It ends at `{base}/auth/callback`,
 /// which drops the agent session cookie in that same jar — so unlike `portal_login`, this
 /// really is silent here: nothing navigates.
-#[cfg(target_os = "android")]
+///
+/// The trade-off, taken deliberately for iOS parity with Android: there is no
+/// reveal-on-stall. An expired or MFA-gated Privy session fails with an error on the
+/// Cloud card instead of surfacing a login, and the recovery is Sign out → Sign in.
+#[cfg(mobile)]
 async fn agent_sso(
     app: &AppHandle,
     webview: &WebviewWindow,

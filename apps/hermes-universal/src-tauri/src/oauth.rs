@@ -7,9 +7,9 @@
 //! redirect, ending in bearer tokens handed to us in a JSON body with no cookie
 //! anywhere. That is strictly better than the webview flow below:
 //!
-//!   * **No second webview.** The system browser is a separate app, so Android —
-//!     which cannot open a second webview window at all — needs no navigate-away
-//!     hack and no pending-marker resume for this path.
+//!   * **No second webview.** The system browser is a separate app, so mobile —
+//!     which cannot open a usable second webview window at all — needs no
+//!     navigate-away hack and no pending-marker resume for this path.
 //!   * **No cookie plumbing.** Nothing has to be scraped out of a webview jar and
 //!     replayed into reqwest; the gated middleware accepts
 //!     `Authorization: Bearer` on every non-public route, ws-ticket included.
@@ -55,30 +55,30 @@
 
 use serde::Serialize;
 use tauri::{AppHandle, Manager, State, Url, WebviewWindow};
-// Desktop/iOS open a dedicated sign-in window; Android reuses the CALLING webview
-// (see `oauth_login`), so these are only referenced off-Android.
-#[cfg(not(target_os = "android"))]
+// Desktop opens a dedicated sign-in window; mobile reuses the CALLING webview
+// (see `oauth_login`), so these are only referenced on desktop.
+#[cfg(desktop)]
 use tauri::{WebviewUrl, WebviewWindowBuilder};
-#[cfg(not(target_os = "android"))]
+#[cfg(desktop)]
 use tokio::sync::oneshot;
 
 use crate::transport::TransportState;
 
-/// The single label for the interactive sign-in window (desktop/iOS). Reused (closed +
-/// rebuilt) across attempts so a stale window never lingers. Not used on Android, which
+/// The single label for the interactive sign-in window (desktop). Reused (closed +
+/// rebuilt) across attempts so a stale window never lingers. Not used on mobile, which
 /// drives the login through the calling webview instead of a second window.
-#[cfg(not(target_os = "android"))]
+#[cfg(desktop)]
 const OAUTH_WINDOW_LABEL: &str = "hermes-oauth";
 
-/// How long to wait for the interactive login before giving up (desktop/iOS: the app UI
+/// How long to wait for the interactive login before giving up (desktop: the app UI
 /// stays put behind the sign-in window, so a generous window is fine).
-#[cfg(not(target_os = "android"))]
+#[cfg(desktop)]
 const OAUTH_TIMEOUT_SECS: u64 = 300;
 
-/// Android runs the login in the calling webview, which replaces the entire app UI for the
+/// Mobile runs the login in the calling webview, which replaces the entire app UI for the
 /// duration (no in-app cancel until this elapses), so keep the wait tighter than desktop.
-#[cfg(target_os = "android")]
-const OAUTH_TIMEOUT_SECS_ANDROID: u64 = 120;
+#[cfg(mobile)]
+const OAUTH_TIMEOUT_SECS_MOBILE: u64 = 120;
 
 fn normalize_base(raw: &str) -> String {
     raw.trim().trim_end_matches('/').to_string()
@@ -911,7 +911,7 @@ fn is_session_cookie(name: &str) -> bool {
 ///
 /// Returns `Ok(())` on a confirmed-live session, or `Err` on timeout. When the polled
 /// window disappears mid-flow this is an error only if `treat_missing_window_as_error`
-/// (desktop: the user closed the sign-in window; Android: the calling webview outlives
+/// (desktop: the user closed the sign-in window; mobile: the calling webview outlives
 /// the navigation, so a transient miss just retries).
 ///
 /// `cookies_for_base` reads the platform cookie store (HttpOnly cookies included, unlike
@@ -995,17 +995,21 @@ async fn poll_session_cookies(
 /// we then copy its session cookies into the shared reqwest jar so the caller (JS)
 /// can connect the gateway normally and the ws-ticket mint is authenticated.
 ///
-/// Desktop/iOS open a dedicated sign-in `WebviewWindow` that floats over the app.
-/// Android CANNOT: wry attaches its webview via `setContentView` (an Activity has one
-/// content view) and has no `Drop` to remove it, so a second window would replace the
-/// app and never close. Instead, on Android we navigate the CALLING webview to the login,
-/// poll the same cookies, then navigate it back — the SPA reload resumes the connect via
-/// a one-shot marker the frontend persisted before we navigated away.
+/// Desktop opens a dedicated sign-in `WebviewWindow` that floats over the app. Neither
+/// mobile OS can use one. On Android wry attaches its webview via `setContentView` (an
+/// Activity has one content view) and has no `Drop` to remove it, so a second window
+/// would replace the app and never close. On iOS tao builds the window as a `UIWindow`
+/// whose frame is the requested `inner_size` pinned to the screen's top-left, so it
+/// rendered as a partial overlay with no chrome to dismiss (see `cloud.rs`). Instead, on
+/// mobile we navigate the CALLING webview to the login, poll the same cookies, then
+/// navigate it back — the SPA reload resumes the connect via a one-shot marker the
+/// frontend persisted before we navigated away.
 ///
 /// `webview` is the caller, injected by Tauri. It matters on Android: the windowable
 /// surfaces (Settings, Command Center, …) run in their own native activity on a webview
 /// labelled `screen` (see `window.rs`), so driving a hardcoded `main` would load the login
-/// into a BACKGROUNDED activity — invisible to the user, and dead on arrival.
+/// into a BACKGROUNDED activity — invisible to the user, and dead on arrival. On iOS those
+/// surfaces are in-app overlays on `main`, so the same read is simply always correct.
 #[tauri::command]
 pub async fn oauth_login(
     app: AppHandle,
@@ -1047,9 +1051,9 @@ pub async fn oauth_login(
     let login_url =
         Url::parse(&login_url).map_err(|e| format!("invalid login URL {login_url:?}: {e}"))?;
 
-    #[cfg(not(target_os = "android"))]
+    #[cfg(desktop)]
     {
-        // The caller hosts the login only on Android; here we build our own window.
+        // The caller hosts the login only on mobile; here we build our own window.
         let _ = webview;
 
         // Build the window on the main thread (gtk/WKWebView requirement). A oneshot
@@ -1102,14 +1106,16 @@ pub async fn oauth_login(
         outcome
     }
 
-    #[cfg(target_os = "android")]
+    #[cfg(mobile)]
     {
         // Capture the app's current URL so we can return to it (dev serves from the Vite
-        // dev server, prod from http://tauri.localhost/ — never hardcode; and an activity
-        // screen carries `?win=activity#/settings`, which is how the user gets back to the
-        // page they started from). navigate/url are safe (and required) off the main
-        // thread; wrapping url() on the main thread would deadlock the MainPipe round-trip
-        // it makes internally.
+        // dev server, prod from http://tauri.localhost/ on Android and tauri://localhost/
+        // on iOS — never hardcode; and the app is a HashRouter, so the fragment carries
+        // the route — an Android activity screen `?win=activity#/settings`, an iOS
+        // in-app overlay `#/settings` — which is how the user gets back to the page they
+        // started from). navigate/url are safe (and required) off the main thread;
+        // wrapping url() on the main thread would deadlock the round-trip it makes
+        // internally (Android's MainPipe, the wry message loop on iOS).
         let label = webview.label().to_string();
         let return_url = webview
             .url()
@@ -1125,7 +1131,7 @@ pub async fn oauth_login(
             &base,
             &base_url,
             &label,
-            OAUTH_TIMEOUT_SECS_ANDROID,
+            OAUTH_TIMEOUT_SECS_MOBILE,
             false,
         )
         .await;
