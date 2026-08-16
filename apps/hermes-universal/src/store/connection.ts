@@ -17,7 +17,12 @@ import { persistSessionCookies } from '@/lib/session-persist'
 import { atom } from '@/store/atom'
 import { $gatewayState, closeGateway, connectGateway } from '@/store/gateway'
 import { chooseGatedAuth, type Connection } from '@/store/gateway-config'
-import { loadGatewayTarget, saveGatewayTarget, savePendingOAuth } from '@/store/gateway-restore'
+import {
+  loadGatewayTarget,
+  saveGatewayTarget,
+  savePendingOAuth,
+  takePendingOAuth
+} from '@/store/gateway-restore'
 import { getInstallationId } from '@/store/installation-id'
 import { spawnLocalBackend, stopLocalBackend } from '@/store/local-backend'
 import {
@@ -137,13 +142,32 @@ export async function probeStatus(rawUrl: string): Promise<StatusInfo> {
  * resolves here. We persist a one-shot resume marker FIRST so the post-reload boot
  * (`autoRestoreConnection`) finishes the connect. Callers must treat this as "may never
  * return" on mobile.
+ *
+ * Both mobile flows navigate away — the RFC 8252 one to `/auth/native/authorize`, the
+ * cookie cascade to `/auth/login` — so the marker is right for either.
  */
 async function beginOAuthLogin(base: string, provider?: string, username?: string): Promise<void> {
-  if (IS_NATIVE_MOBILE) {
-    savePendingOAuth({ base, provider, username })
+  if (!IS_NATIVE_MOBILE) {
+    await oauthLogin(base, provider)
+
+    return
   }
 
-  await oauthLogin(base, provider)
+  savePendingOAuth({ base, provider, username })
+
+  try {
+    await oauthLogin(base, provider)
+  } catch (err) {
+    // A REJECTION on mobile means we never navigated (Rust failed to bind the loopback
+    // listener, or the webview refused the load) — this JS context is still alive and
+    // the caller is about to surface the error. The marker we parked is now garbage
+    // that would otherwise sit in localStorage and fire on some unrelated later launch,
+    // seeding `$restoring` and sending the boot down the resume branch for a sign-in
+    // that never happened.
+    takePendingOAuth()
+
+    throw err
+  }
 }
 
 export async function connect(input: ConnectInput): Promise<void> {

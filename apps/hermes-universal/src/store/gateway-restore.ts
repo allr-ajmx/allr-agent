@@ -88,7 +88,8 @@ export function clearGatewayTarget(): void {
 // page and back (neither phone can host a dismissable second window — see
 // src-tauri/src/oauth.rs), which reloads the SPA and destroys the JS mid-connect. We
 // stash the connect intent here BEFORE navigating away so the fresh boot can finish it
-// (the Rust cookie jar is in-memory and survives the reload). localStorage is per-origin
+// (the session outlives the reload either way — the RFC 8252 bearer in the OS keyring,
+// or the gateway cookies in Rust's in-memory jar). localStorage is per-origin
 // and the app origin is unchanged across the round-trip, so the marker survives.
 // One-shot: the resume reads-and-clears it. The portal (Hermes Cloud) login does the same
 // round-trip and gets its own marker below.
@@ -240,11 +241,14 @@ export async function dialSavedTarget(target: GatewayTarget, interactive = false
  * there is no saved target — a genuine first run.
  */
 export async function autoRestoreConnection(): Promise<void> {
-  // Android OAuth resume: the sign-in navigated the main webview away and back, reloading
-  // us here. The Rust cookie jar (in-memory, survives the reload) now holds the session,
-  // so confirm it and finish the connect WITHOUT re-opening the login. The signedIn
-  // pre-check keeps a cancelled/expired login from re-navigating into a loop — it just
-  // falls through to the normal restore / connect screen (the marker is already cleared).
+  // Mobile OAuth resume: the sign-in navigated the calling webview away and back,
+  // reloading us here. Rust now holds the session — either the RFC 8252 bearer in the OS
+  // keyring, or the gateway cookies in the in-memory reqwest jar, depending on which flow
+  // ran. `oauthStatus` answers for both (it reads the keyring first, then probes
+  // /api/auth/me), so this does not have to know which. Confirm and finish the connect
+  // WITHOUT re-opening the login. The signedIn pre-check keeps a cancelled/expired login
+  // from re-navigating into a loop — it just falls through to the normal restore /
+  // connect screen (the marker is already cleared).
   const pending = takePendingOAuth()
 
   if (pending) {

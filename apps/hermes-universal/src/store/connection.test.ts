@@ -320,3 +320,74 @@ describe('connect — auto-reconnect target (D8)', () => {
     expect(localStorage.getItem('hermes.connection.last')).not.toBeNull()
   })
 })
+
+// The mobile sign-in contract. BOTH mobile flows navigate the calling webview away —
+// the RFC 8252 one to /auth/native/authorize, the cookie cascade to /auth/login — so
+// `oauthLogin` never resolves there and the marker parked before it is the only thing
+// that carries the user back through the reload. Getting either direction wrong is
+// silent: no marker and a completed sign-in lands on a blank picker; a stale marker
+// sends some unrelated later launch down the resume branch.
+describe('beginOAuthLogin — the mobile resume marker', () => {
+  const PENDING_OAUTH_KEY = 'hermes.oauth.pending'
+
+  // connection.ts reads IS_NATIVE_MOBILE at import time, so the platform has to be
+  // decided before the module loads. Same shape as store/cloud.test.ts.
+  const loadOn = async (nativeMobile: boolean) => {
+    vi.resetModules()
+    vi.doMock('@/lib/platform', () => ({ IS_NATIVE_MOBILE: nativeMobile }))
+
+    const auth = await import('@/lib/auth')
+    const { httpRequest } = await import('@/transport/http')
+    const conn = await import('./connection')
+
+    vi.mocked(httpRequest).mockResolvedValue({
+      status: 200,
+      headers: {},
+      body: JSON.stringify({ auth_required: true })
+    })
+    vi.mocked(auth.fetchAuthProviders).mockResolvedValue([oauthProvider])
+    vi.mocked(auth.oauthStatus).mockResolvedValue({ signedIn: false })
+
+    return { auth, conn }
+  }
+
+  afterEach(() => {
+    vi.doUnmock('@/lib/platform')
+    vi.resetModules()
+  })
+
+  it('parks the marker BEFORE handing off, since the hand-off destroys this context', async () => {
+    const { auth, conn } = await loadOn(true)
+    let parkedAtHandoff: null | string = null
+
+    vi.mocked(auth.oauthLogin).mockImplementation(async () => {
+      parkedAtHandoff = localStorage.getItem(PENDING_OAUTH_KEY)
+    })
+
+    await conn.connect({ url: 'gw.example.com' })
+
+    // Written before, not after: on a real device there is no "after".
+    expect(parkedAtHandoff).toContain('gw.example.com')
+  })
+
+  it('clears the marker when the sign-in rejects, because then we never navigated', async () => {
+    const { auth, conn } = await loadOn(true)
+
+    // A rejection can only reach us with the JS context intact — Rust failed before
+    // (or instead of) navigating. The parked marker is now garbage.
+    vi.mocked(auth.oauthLogin).mockRejectedValue(new Error('could not open a loopback listener'))
+
+    await expect(conn.connect({ url: 'gw.example.com' })).rejects.toThrow()
+    expect(localStorage.getItem(PENDING_OAUTH_KEY)).toBeNull()
+  })
+
+  it('parks nothing on desktop, where the promise resolves normally', async () => {
+    const { auth, conn } = await loadOn(false)
+
+    vi.mocked(auth.oauthLogin).mockResolvedValue(undefined)
+
+    await conn.connect({ url: 'gw.example.com' })
+
+    expect(localStorage.getItem(PENDING_OAUTH_KEY)).toBeNull()
+  })
+})

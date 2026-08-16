@@ -10,8 +10,9 @@ import { httpRequest } from '@/transport/http'
 // accepts the state-changing POSTs.
 //
 // A gateway that advertises `native_pkce` is signed into via RFC 8252 instead
-// (system browser + PKCE + loopback, run entirely in src-tauri/src/oauth.rs),
-// and that session has NO cookie — it authenticates with
+// (PKCE + a loopback listener, run entirely in src-tauri/src/oauth.rs — the system
+// browser on desktop, the calling webview on mobile), and that session has NO
+// cookie — it authenticates with
 // `Authorization: Bearer`. That header is attached by src-tauri/src/transport.rs
 // from the OS keyring, on the same request this file asks for; the bearer never
 // crosses IPC and nothing here has to know which credential is in play
@@ -118,11 +119,17 @@ export async function fetchAuthProviders(base: string): Promise<AuthProvider[]> 
  * Run the interactive gateway sign-in in Rust.
  *
  * Which flow runs is the gateway's call, not ours: when `/api/status` advertises
- * `native_pkce` the Rust command takes the RFC 8252 path (system browser, PKCE,
- * loopback listener, bearer into the OS keyring) and never opens a webview;
- * otherwise it falls back to the legacy webview-cookie cascade. Either way the
- * caller connects normally afterwards — the credential difference is invisible
- * from here except as `oauthStatus().sessionKind`.
+ * `native_pkce` the Rust command takes the RFC 8252 path (PKCE, loopback listener,
+ * bearer into the OS keyring); otherwise it falls back to the legacy webview-cookie
+ * cascade. Either way the caller connects normally afterwards — the credential
+ * difference is invisible from here except as `oauthStatus().sessionKind`.
+ *
+ * Where the user types their password differs by platform, and that difference is
+ * why this may never resolve. Desktop hands the authorize URL to the system browser,
+ * so nothing here is disturbed. Mobile drives the CALLING webview to it and back — an
+ * app that opens the system browser is suspended by iOS and cannot answer its own
+ * loopback listener (see src-tauri/src/oauth.rs). So on mobile BOTH flows destroy this
+ * JS context, and `beginOAuthLogin` parks a resume marker before calling either.
  */
 export async function oauthLogin(base: string, provider?: string): Promise<void> {
   await invoke('oauth_login', { base, provider: provider ?? null })
