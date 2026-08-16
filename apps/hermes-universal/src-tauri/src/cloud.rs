@@ -140,7 +140,7 @@ fn build_portal_window(app: &AppHandle, url: Url, visible: bool) -> tauri::Resul
 /// drops a parent-domain `Domain=.nousresearch.com` Privy cookie outright — and answers
 /// an IP-literal host with an empty list, which would matter for a self-hosted portal
 /// reached by address.
-fn portal_cookies(
+async fn portal_cookies(
     app: &AppHandle,
     webview: &WebviewWindow,
     portal_url: &Url,
@@ -149,22 +149,28 @@ fn portal_cookies(
     {
         let _ = app;
 
-        crate::webview_cookies::cookies_for_base(webview, portal_url).unwrap_or_default()
+        crate::webview_cookies::cookies_for_base(webview, portal_url)
+            .await
+            .unwrap_or_default()
     }
 
     #[cfg(desktop)]
     {
         let _ = webview;
 
-        app.get_webview_window(PORTAL_WINDOW_LABEL)
-            .and_then(|w| crate::webview_cookies::cookies_for_base(&w, portal_url).ok())
+        let Some(window) = app.get_webview_window(PORTAL_WINDOW_LABEL) else {
+            return Vec::new();
+        };
+
+        crate::webview_cookies::cookies_for_base(&window, portal_url)
+            .await
             .unwrap_or_default()
     }
 }
 
 /// Whether a live Privy session is present. False when no portal webview exists yet.
-fn portal_signed_in(app: &AppHandle, webview: &WebviewWindow, portal_url: &Url) -> bool {
-    has_privy_cookie(&portal_cookies(app, webview, portal_url))
+async fn portal_signed_in(app: &AppHandle, webview: &WebviewWindow, portal_url: &Url) -> bool {
+    has_privy_cookie(&portal_cookies(app, webview, portal_url).await)
 }
 
 /// Interactive portal sign-in: show the portal login page and wait until the Privy
@@ -195,7 +201,7 @@ pub async fn portal_login(app: AppHandle, webview: WebviewWindow) -> Result<Port
         // would return "signed in" before the user typed anything, and every call after
         // it would 401 — a sign-in loop with no way out. So require a value we did not
         // already have: a real login always mints a fresh one.
-        let known = privy_cookie_values(&portal_cookies(&app, &webview, &portal_url));
+        let known = privy_cookie_values(&portal_cookies(&app, &webview, &portal_url).await);
 
         // Same round-trip as oauth.rs: capture where we are, navigate, poll, come back.
         let return_url = webview
@@ -227,7 +233,7 @@ pub async fn portal_login(app: AppHandle, webview: WebviewWindow) -> Result<Port
                 tokio::time::Instant::now() + Duration::from_secs(PORTAL_TIMEOUT_SECS_MOBILE);
             while tokio::time::Instant::now() < deadline {
                 tokio::time::sleep(Duration::from_millis(750)).await;
-                let fresh = privy_cookie_values(&portal_cookies(&app, &webview, &portal_url));
+                let fresh = privy_cookie_values(&portal_cookies(&app, &webview, &portal_url).await);
                 if fresh.iter().any(|value| !known.contains(value)) {
                     return true;
                 }
@@ -291,7 +297,7 @@ pub async fn portal_login(app: AppHandle, webview: WebviewWindow) -> Result<Port
             if app.get_webview_window(PORTAL_WINDOW_LABEL).is_none() {
                 return Err("Portal sign-in window was closed before completing".to_string());
             }
-            if portal_signed_in(&app, &webview, &portal_url) {
+            if portal_signed_in(&app, &webview, &portal_url).await {
                 let app_hide = app.clone();
                 let _ = app.run_on_main_thread(move || {
                     if let Some(w) = app_hide.get_webview_window(PORTAL_WINDOW_LABEL) {
@@ -412,7 +418,7 @@ pub async fn portal_discover_agents(
     let base = portal_base();
     let portal_url = Url::parse(&base).map_err(|e| format!("bad portal URL: {e}"))?;
 
-    let cookies = portal_cookies(&app, &webview, &portal_url);
+    let cookies = portal_cookies(&app, &webview, &portal_url).await;
     if !has_privy_cookie(&cookies) {
         return Ok(DiscoverResult {
             needs_login: true,
@@ -528,7 +534,7 @@ pub async fn portal_status(app: AppHandle, webview: WebviewWindow) -> Result<Por
     }
 
     Ok(PortalStatus {
-        signed_in: portal_signed_in(&app, &webview, &portal_url),
+        signed_in: portal_signed_in(&app, &webview, &portal_url).await,
         portal_base_url: base,
     })
 }
@@ -739,7 +745,7 @@ async fn agent_sso(
     authorize_url: Url,
 ) -> Result<bool, String> {
     let portal_url = Url::parse(&portal_base()).map_err(|e| format!("bad portal URL: {e}"))?;
-    let cookies = portal_cookies(app, webview, &portal_url);
+    let cookies = portal_cookies(app, webview, &portal_url).await;
     if !has_privy_cookie(&cookies) {
         return Err("Not signed in to the Nous portal".to_string());
     }

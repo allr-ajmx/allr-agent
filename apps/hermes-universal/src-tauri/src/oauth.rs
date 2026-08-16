@@ -1479,10 +1479,15 @@ fn is_session_cookie(name: &str) -> bool {
 /// the navigation, so a transient miss just retries).
 ///
 /// `cookies_for_base` reads the platform cookie store (HttpOnly cookies included, unlike
-/// `document.cookie`) and is safe from this async (off-main) context. It is not
-/// `WebviewWindow::cookies_for_url` directly: that one answers an IP-addressed gateway
-/// with an empty list on macOS/iOS, which stranded every sign-in against a Tailscale or
-/// LAN address here until the whole budget ran out (see `webview_cookies`).
+/// `document.cookie`). It is not `WebviewWindow::cookies_for_url` directly: that one
+/// answers an IP-addressed gateway with an empty list on macOS/iOS, which stranded every
+/// sign-in against a Tailscale or LAN address here until the whole budget ran out (see
+/// `webview_cookies`).
+///
+/// This doc used to claim the read was "safe from this async (off-main) context". It was
+/// not, and that sentence is why the bug survived review: being off-main is precisely what
+/// routes the call through the event loop into a tao user callback, where wry's nested
+/// runloop aborts the process. `webview_cookies` now does the iOS read without blocking.
 async fn poll_session_cookies(
     app: &AppHandle,
     state: &TransportState,
@@ -1504,7 +1509,7 @@ async fn poll_session_cookies(
             };
 
             // Transient errors just retry on the next tick.
-            let Ok(cookies) = crate::webview_cookies::cookies_for_base(&win, base_url) else {
+            let Ok(cookies) = crate::webview_cookies::cookies_for_base(&win, base_url).await else {
                 continue;
             };
             if !cookies

@@ -314,3 +314,30 @@ windows-sys = { version = "0.61", features = [
 # `logger` feature (its `log::Log` impl) is used.
 [target.'cfg(target_os = "ios")'.dependencies]
 oslog = { version = "0.2.0", default-features = false, features = ["logger"] }
+
+# Reading WKHTTPCookieStore ourselves, without blocking the main thread
+# (src/webview_cookies.rs). wry's `WebView::cookies()` waits for the completion handler
+# by PUMPING A NESTED NSRunLoop in NSDefaultRunLoopMode — the exact mode tao attaches
+# its control-flow observers to — so it re-enters tao while tao is mid user-callback,
+# tao panics `unexpected state InUserCallback`, and an `extern "C"` panic aborts the
+# process. Every device crash report for this app is that one stack. See the module
+# note in webview_cookies.rs.
+#
+# These are not new crates: wry already pulls all four for `target_vendor = "apple"`,
+# with the same `WKHTTPCookieStore` feature, so naming them directly costs no extra
+# compilation. Kept minimal — only what the cookie read touches.
+objc2 = "0.6"
+block2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = [
+  "std",
+  "NSArray",
+  "NSDate",
+  "NSHTTPCookie",
+  "NSString",
+] }
+objc2-web-kit = { version = "0.3", default-features = false, features = [
+  "std",
+  "block2",
+  "WKHTTPCookieStore",
+  "WKWebsiteDataStore",
+] }

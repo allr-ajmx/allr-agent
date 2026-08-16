@@ -2496,6 +2496,7 @@ version = "0.0.1"
 dependencies = [
  "android_logger",
  "base64 0.22.1",
+ "block2",
  "cookie_store 0.21.1",
  "core-foundation",
  "core-foundation-sys",
@@ -2510,6 +2511,9 @@ dependencies = [
  "keepawake",
  "libloading 0.8.9",
  "log",
+ "objc2",
+ "objc2-foundation",
+ "objc2-web-kit",
  "opentelemetry",
  "opentelemetry-otlp",
  "opentelemetry_sdk",
