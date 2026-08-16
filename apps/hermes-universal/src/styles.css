@@ -1281,9 +1281,24 @@
    desktop styles.css composer block, minus the pop-out/drag/glow machinery
    (desktop-window-only). The geometry tokens live in :root above (phase 6). */
 
-/* Safe-area bottom padding for the docked overlay (mobile home indicator). */
+/* Bottom inset the docked composer (and the bars stacked on it) clears — the
+   mobile home indicator, but ONLY while that strip is actually exposed. With the
+   soft keyboard up the keyboard covers it, and `--keyboard-inset` already lifts
+   the shell by the FULL occluded height (home indicator included, since it is
+   measured off `innerHeight`), so keeping the safe-area term stacks a second
+   copy of it and leaves a phantom gap between the composer and the keyboard.
+   `var(--safe-area-inset-*)`, not raw `env()`: lib/safe-area.ts republishes the
+   resolved px on mobile, where env() reports 0 for the first frame(s). */
+:root {
+  --composer-dock-inset-bottom: var(--safe-area-inset-bottom);
+}
+
+:root[data-keyboard-open] {
+  --composer-dock-inset-bottom: 0px;
+}
+
 [data-slot='composer-root'] {
-  padding-bottom: calc(var(--composer-shell-pad-block-end) + env(safe-area-inset-bottom));
+  padding-bottom: calc(var(--composer-shell-pad-block-end) + var(--composer-dock-inset-bottom));
 }
 
 /* ── Mobile shell (html.is-mobile, set from IS_MOBILE in main.tsx) ───────────
@@ -1347,7 +1362,7 @@ html.is-mobile [data-slot='composer-root'] {
   position: absolute;
   left: 50%;
   transform: translateX(-50%);
-  bottom: calc(var(--composer-measured-height) + env(safe-area-inset-bottom));
+  bottom: calc(var(--composer-measured-height) + var(--composer-dock-inset-bottom));
   width: min(var(--composer-width), calc(100% - 2rem));
   z-index: 31;
   display: flex;
