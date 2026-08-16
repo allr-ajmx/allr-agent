@@ -40,9 +40,9 @@
 //!
 //!   1. Open a `WebviewWindow` at `{base}/auth/login?provider=X` (sets the
 //!      webview's own PKCE cookie and goes straight to the provider).
-//!   2. Poll `webview.cookies_for_url({base})` — on WebKitGTK this reads the
-//!      libsoup/WebKit cookie manager (HttpOnly cookies included, unlike
-//!      `document.cookie`) — until the session cookie appears.
+//!   2. Poll the webview's cookie jar for `{base}` (`webview_cookies::cookies_for_base`)
+//!      — on WebKitGTK this reads the libsoup/WebKit cookie manager (HttpOnly cookies
+//!      included, unlike `document.cookie`) — until the session cookie appears.
 //!   3. Import those cookies into the SHARED reqwest jar via `insert_raw`, so the
 //!      ws-ticket mint (driven from JS via `http_request`) is authenticated. Then
 //!      close the window.
@@ -914,9 +914,11 @@ fn is_session_cookie(name: &str) -> bool {
 /// (desktop: the user closed the sign-in window; Android: the calling webview outlives
 /// the navigation, so a transient miss just retries).
 ///
-/// `cookies_for_url` reads the platform cookie store (HttpOnly cookies included, unlike
-/// `document.cookie`) and is safe from this async (off-main) context — the same call the
-/// desktop flow has always used.
+/// `cookies_for_base` reads the platform cookie store (HttpOnly cookies included, unlike
+/// `document.cookie`) and is safe from this async (off-main) context. It is not
+/// `WebviewWindow::cookies_for_url` directly: that one answers an IP-addressed gateway
+/// with an empty list on macOS/iOS, which stranded every sign-in against a Tailscale or
+/// LAN address here until the whole budget ran out (see `webview_cookies`).
 async fn poll_session_cookies(
     app: &AppHandle,
     state: &TransportState,
@@ -938,7 +940,7 @@ async fn poll_session_cookies(
             };
 
             // Transient errors just retry on the next tick.
-            let Ok(cookies) = win.cookies_for_url(base_url.clone()) else {
+            let Ok(cookies) = crate::webview_cookies::cookies_for_base(&win, base_url) else {
                 continue;
             };
             if !cookies

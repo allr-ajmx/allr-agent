@@ -146,8 +146,12 @@ fn portal_cookies(
     {
         let _ = webview;
 
+        // Not `cookies_for_url`: on macOS/iOS that filter is wry's own and answers an
+        // IP-literal host with an empty list (see `webview_cookies`). The portal is
+        // always a real domain, so this one was never the broken caller — it shares the
+        // helper so it cannot become one against a self-hosted portal on an address.
         app.get_webview_window(PORTAL_WINDOW_LABEL)
-            .and_then(|w| w.cookies_for_url(portal_url.clone()).ok())
+            .and_then(|w| crate::webview_cookies::cookies_for_base(&w, portal_url).ok())
             .unwrap_or_default()
     }
 }

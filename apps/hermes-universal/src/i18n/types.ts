@@ -947,6 +947,10 @@ export interface Translations {
       modelInUse: string
       modelDefault: string
       modelInactiveHint: string
+      modelCustomBadge: string
+      modelCustomLabel: string
+      modelCustomPlaceholder: string
+      modelCustomSave: string
       modelSelectedTitle: string
       modelSelectedMessage: (model: string) => string
       failedSelectModel: (model: string) => string

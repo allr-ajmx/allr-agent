@@ -886,7 +886,11 @@ export const ar = defineLocale({
       postSetupCompleteMessage: step => `تم تثبيت ${step}.`,
       postSetupErrorTitle: 'انتهى الإعداد بأخطاء',
       postSetupErrorMessage: step => `تحقق من سجل ${step}.`,
-      postSetupFailed: step => `فشل تشغيل إعداد ${step}`
+      postSetupFailed: step => `فشل تشغيل إعداد ${step}`,
+      modelCustomBadge: 'مخصص',
+      modelCustomLabel: 'أو أدخل معرّف نموذج',
+      modelCustomPlaceholder: 'vendor/model-name',
+      modelCustomSave: 'استخدام'
     }
   },
   skills: {

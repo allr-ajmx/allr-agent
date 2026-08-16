@@ -1,4 +1,5 @@
-import { mediaExternalUrl } from '@/lib/media'
+import { mediaExternalUrl, resolveMediaDisplaySrc } from '@/lib/media'
+import { isFileMediaPath } from '@/lib/media-format'
 import type { SessionInfo, SessionMessage } from '@/types/hermes'
 
 export type ArtifactKind = 'image' | 'file' | 'link'
@@ -99,13 +100,31 @@ function artifactHref(value: string): string {
   return value
 }
 
-// Universal always talks to the gateway over HTTP, so any file/media path is
-// already resolved to a webview-loadable gateway download URL by `artifactHref`
-// (→ mediaExternalUrl). There is no Electron `readDesktopFileDataUrl` bridge
-// here, so the src is simply the href. Kept async for call-site parity with the
-// desktop source (the image card awaits it).
+// Gateway-local bytes come over the authenticated Rust transport, NOT as an
+// `<img src>` pointed at `artifactHref`'s /api/files/download URL. The webview
+// cannot authenticate that request under a gated gateway: `?token=` exists only
+// in token mode (the gateway does not even mint a session token behind the
+// gate), and the session cookie is SameSite=Lax, so a cross-site subresource
+// never carries it either — the fetch 401s and the card falls back to its
+// broken-image state. `resolveMediaDisplaySrc` is the same route chat media
+// already takes (→ /api/fs/read-data-url through the Rust HTTP client, which
+// holds the cookie jar and the native bearer).
+//
+// http(s)/data artifacts are somebody else's URL and pass straight through.
 export async function artifactImageSrc(value: string, href = artifactHref(value)): Promise<string> {
-  return href
+  if (!isFileMediaPath(value)) {
+    return href
+  }
+
+  const resolved = await resolveMediaDisplaySrc(value)
+
+  // An empty read is a failure the gateway answered rather than threw — reject so
+  // the card marks the image failed, exactly as a 404/401 `<img>` used to.
+  if (!resolved) {
+    throw new Error('Gateway returned no file data')
+  }
+
+  return resolved
 }
 
 function artifactLabel(value: string): string {

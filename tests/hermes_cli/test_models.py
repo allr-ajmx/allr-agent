@@ -566,3 +566,108 @@ class TestFormatPricePerMtok:
     def test_one_cent_boundary_stays_two_decimals(self):
         from hermes_cli.models import _format_price_per_mtok
         assert _format_price_per_mtok("0.00000001") == "$0.01"
+
+
+class TestFetchOpenRouterImageModels:
+    """OpenRouter's image models live behind /v1/images/models, not /v1/models.
+
+    Hardcoding a pair of ids is what left the image backend pinned to a model
+    most accounts cannot route, so the picker discovers them instead.
+    """
+
+    class _ImagesResp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self):
+            return (
+                b'{"data":['
+                b'{"id":"google/gemini-3-pro-image","name":"Gemini 3 Pro Image",'
+                b'"supported_parameters":{"resolution":{"type":"enum","values":["1K","2K","4K"]},'
+                b'"input_references":{"type":"range","min":0,"max":14}}},'
+                b'{"id":"black-forest-labs/flux.2-pro","name":"FLUX.2 Pro",'
+                b'"supported_parameters":{"input_references":{"type":"range","min":0,"max":8},'
+                b'"seed":true}}'
+                b']}'
+            )
+
+    def test_live_catalog_becomes_picker_rows(self, monkeypatch):
+        from hermes_cli.models import fetch_openrouter_image_models
+
+        monkeypatch.setattr(_models_mod, "_openrouter_image_catalog_cache", None)
+        with patch(
+            "hermes_cli.models._urlopen_model_catalog_request",
+            return_value=self._ImagesResp(),
+        ):
+            rows = fetch_openrouter_image_models(force_refresh=True)
+
+        assert [r["id"] for r in rows] == [
+            "google/gemini-3-pro-image",
+            "black-forest-labs/flux.2-pro",
+        ]
+        assert rows[0]["display"] == "Gemini 3 Pro Image"
+        # Strengths are derived from the live capability descriptors, so they
+        # cannot drift from what the model actually accepts.
+        assert rows[0]["strengths"] == "1K-4K · up to 14 reference images"
+        assert rows[1]["strengths"] == "up to 8 reference images · seeded"
+
+    def test_returns_empty_on_fetch_failure(self, monkeypatch):
+        """The caller substitutes its own defaults — only it knows which ids
+        are sane, so this must not invent one."""
+        from hermes_cli.models import fetch_openrouter_image_models
+
+        monkeypatch.setattr(_models_mod, "_openrouter_image_catalog_cache", None)
+        with patch(
+            "hermes_cli.models._urlopen_model_catalog_request",
+            side_effect=OSError("boom"),
+        ):
+            assert fetch_openrouter_image_models(force_refresh=True) == []
+
+    def test_malformed_payload_returns_empty(self, monkeypatch):
+        from hermes_cli.models import fetch_openrouter_image_models
+
+        class _Bad:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def read(self):
+                return b'{"error":{"message":"nope"}}'
+
+        monkeypatch.setattr(_models_mod, "_openrouter_image_catalog_cache", None)
+        with patch("hermes_cli.models._urlopen_model_catalog_request", return_value=_Bad()):
+            assert fetch_openrouter_image_models(force_refresh=True) == []
+
+    def test_second_call_is_served_from_cache(self, monkeypatch):
+        """Every picker open would otherwise pay the round trip."""
+        from hermes_cli.models import fetch_openrouter_image_models
+
+        monkeypatch.setattr(_models_mod, "_openrouter_image_catalog_cache", None)
+        with patch(
+            "hermes_cli.models._urlopen_model_catalog_request",
+            return_value=self._ImagesResp(),
+        ) as mock_open:
+            first = fetch_openrouter_image_models(force_refresh=True)
+            second = fetch_openrouter_image_models()
+
+        assert mock_open.call_count == 1
+        assert [r["id"] for r in second] == [r["id"] for r in first]
+
+    def test_rows_are_copies_so_callers_cannot_poison_the_cache(self, monkeypatch):
+        from hermes_cli.models import fetch_openrouter_image_models
+
+        monkeypatch.setattr(_models_mod, "_openrouter_image_catalog_cache", None)
+        with patch(
+            "hermes_cli.models._urlopen_model_catalog_request",
+            return_value=self._ImagesResp(),
+        ):
+            first = fetch_openrouter_image_models(force_refresh=True)
+            first[0]["display"] = "MUTATED"
+            second = fetch_openrouter_image_models()
+
+        assert second[0]["display"] == "Gemini 3 Pro Image"

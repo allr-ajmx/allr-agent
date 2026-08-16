@@ -1,6 +1,6 @@
 name: openrouter
-version: 1.0.0
-description: "OpenRouter + Nous Portal image generation (chat-completions image output; reference-grounded). Text-to-image and image-to-image."
+version: 1.1.0
+description: "OpenRouter image generation via the dedicated Images API (POST /v1/images) plus Nous Portal via chat-completions image output; reference-grounded. Text-to-image and image-to-image."
 author: Hermes Agent
 kind: backend
 requires_env:

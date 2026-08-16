@@ -5,19 +5,19 @@ import { type FC, useEffect, useState } from 'react'
 import { ZoomableImage } from '@/components/chat/zoomable-image'
 import { useI18n } from '@/i18n'
 import { generatedImageFromResult } from '@/lib/generated-images'
-import { mediaExternalUrl } from '@/lib/media'
+import { resolveMediaDisplaySrc } from '@/lib/media'
 import { cn } from '@/lib/utils'
 
 // Ported (simplified) from apps/desktop/src/components/chat/generated-image-result.tsx.
 //
-// FLAG(chat-port): universal's gateway emitting image bytes / host paths for the
-// `image_generate` tool is UNVERIFIED. This renderer paints the image when the
-// tool result carries an inline (data:/http) source or a media path that
-// resolves via `mediaExternalUrl`. The desktop version additionally read local
-// files through `window.hermesDesktop.readFileDataUrl` and proxied remote-gateway
-// media — both Electron-only, so they're dropped here. If universal only returns
-// non-resolvable sandbox paths, the frame will fail to load and render nothing
-// (the agent's prose carries the explanation), matching desktop's failure mode.
+// A generated image is written on the GATEWAY (~/.hermes/cache/images/…), so the
+// source is resolved through `resolveMediaDisplaySrc` — the authenticated Rust
+// transport — exactly like every other piece of gateway media. Pointing `<img>`
+// at the raw /api/files/download URL instead is what made a successful
+// generation render as NOTHING behind a gated gateway: the webview has no way to
+// authenticate that request (`?token=` only exists in token mode, and the
+// SameSite=Lax session cookie is never sent on a cross-site subresource), so it
+// 401s, `onError` fires, and this component returns null on failure.
 //
 // Also simplified: the desktop diffusion-canvas placeholder + download/lightbox
 // toolbar are replaced by a lightweight pulse placeholder and the shared
@@ -39,10 +39,6 @@ function hintedRatio(aspectRatio?: string): number {
   )
 }
 
-function isInlineSrc(path: string): boolean {
-  return /^(?:https?|data):/i.test(path)
-}
-
 export const GeneratedImage: FC<{ aspectRatio?: string; result?: unknown }> = ({ aspectRatio, result }) => {
   const { t } = useI18n()
   const image = result === undefined ? null : generatedImageFromResult(result)
@@ -51,6 +47,7 @@ export const GeneratedImage: FC<{ aspectRatio?: string; result?: unknown }> = ({
   const [ratio, setRatio] = useState(() => hintedRatio(aspectRatio))
   const [loaded, setLoaded] = useState(false)
   const [failed, setFailed] = useState(false)
+  const [src, setSrc] = useState('')
 
   useEffect(() => setRatio(hintedRatio(aspectRatio)), [aspectRatio])
 
@@ -59,13 +56,51 @@ export const GeneratedImage: FC<{ aspectRatio?: string; result?: unknown }> = ({
     setFailed(false)
   }, [image])
 
+  // Resolving is a fetch over the transport, so the src arrives a tick late: keep
+  // the pulse frame up until it does rather than flashing an empty box. A read
+  // that throws is a real failure (the file is gone, or the gateway refused it),
+  // which is the same outcome as an image that will not decode.
+  useEffect(() => {
+    if (!image) {
+      setSrc('')
+
+      return
+    }
+
+    let active = true
+    setSrc('')
+
+    void resolveMediaDisplaySrc(image)
+      .then(resolved => {
+        if (!active) {
+          return
+        }
+
+        // A read that comes back empty is a failure that did not throw (the
+        // gateway answered, with nothing). Without this the pulse frame would
+        // spin forever — strictly worse than the honest "render nothing".
+        if (resolved) {
+          setSrc(resolved)
+        } else {
+          setFailed(true)
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setFailed(true)
+        }
+      })
+
+    return () => {
+      active = false
+    }
+  }, [image])
+
   // Completed but no usable image (generation failed): the agent's prose carries
   // the explanation, so render nothing here.
   if (!pending && !image) {
     return null
   }
-
-  const src = image ? (isInlineSrc(image) ? image : mediaExternalUrl(image)) : ''
 
   if (failed) {
     return null
