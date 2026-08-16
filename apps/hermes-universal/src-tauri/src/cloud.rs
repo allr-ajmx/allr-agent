@@ -177,6 +177,11 @@ fn portal_signed_in(app: &AppHandle, webview: &WebviewWindow, portal_url: &Url) 
 /// first and picks the flow back up after the reload.
 #[tauri::command]
 pub async fn portal_login(app: AppHandle, webview: WebviewWindow) -> Result<PortalStatus, String> {
+    // Shared with `oauth_login` and held for the whole command: both drive the SAME
+    // webview, so a portal sign-in overlapping a gateway sign-in strands the user on a
+    // login page exactly as two gateway sign-ins would. See `oauth::SIGN_IN_IN_FLIGHT`.
+    let _lease = crate::oauth::claim_sign_in(webview.label())?;
+
     let base = portal_base();
     let login_url =
         Url::parse(&format!("{base}/login")).map_err(|e| format!("bad portal URL: {e}"))?;
@@ -196,11 +201,23 @@ pub async fn portal_login(app: AppHandle, webview: WebviewWindow) -> Result<Port
         let return_url = webview
             .url()
             .map_err(|e| format!("could not read current app URL: {e}"))?;
+        let nav_target = login_url.clone();
+
+        // What we just captured has to be the APP, not a login page — see
+        // `oauth::is_on_sign_in_page`.
+        if crate::oauth::is_on_sign_in_page(&return_url, &nav_target) {
+            log::warn!(
+                "[portal] webview {:?} is already at {return_url}; not signing in again",
+                webview.label()
+            );
+
+            return Err(crate::oauth::already_on_sign_in_page());
+        }
+
         log::info!(
             "[portal] navigating webview {:?} to sign-in; will return to {return_url}",
             webview.label()
         );
-        let nav_target = login_url.clone();
         webview
             .navigate(login_url)
             .map_err(|e| format!("could not open the portal sign-in page: {e}"))?;

@@ -169,6 +169,82 @@ pub(crate) fn navigation_refused(url: &Url) -> String {
     )
 }
 
+// ── One interactive sign-in at a time, per webview ───────────────────────────
+
+/// Webviews with an interactive sign-in already in flight.
+///
+/// The lock has to live HERE, in Rust, and not in the frontend: on mobile a sign-in
+/// destroys the JS context that would be holding it, so anything JS-side is released by
+/// the very act it is meant to guard.
+///
+/// It exists because three independent callers can drive a sign-in — the connect
+/// pre-flight, the connect reauth-retry, and the background reconnect supervisor — and
+/// nothing serialised them. Two overlapping on mobile is not merely wasteful: they share
+/// one webview, so the second reads `webview.url()` after the first has already navigated
+/// and captures the LOGIN PAGE as its "come back here afterwards" target. Whichever
+/// finishes last then restores the app to a login page, stranding the user with no way
+/// home. Observed on device (two `oauth_login` calls 122 ms apart), which is what this
+/// and `is_on_sign_in_page` below exist to make impossible.
+///
+/// Keyed by webview label rather than global: two windows signing in to two gateways is
+/// legitimate on desktop. Shared with `cloud.rs::portal_login`, which drives the same
+/// webview and so collides just as readily.
+static SIGN_IN_IN_FLIGHT: std::sync::Mutex<std::collections::BTreeSet<String>> =
+    std::sync::Mutex::new(std::collections::BTreeSet::new());
+
+/// Holds one webview's sign-in slot until dropped.
+///
+/// RAII rather than an explicit release: `oauth_login` has a dozen early returns across
+/// two platform arms, and a slot leaked on any one of them would wedge sign-in for the
+/// rest of the process with no way back.
+pub(crate) struct SignInLease(String);
+
+impl Drop for SignInLease {
+    fn drop(&mut self) {
+        if let Ok(mut in_flight) = SIGN_IN_IN_FLIGHT.lock() {
+            in_flight.remove(&self.0);
+        }
+    }
+}
+
+/// Claim `label`'s sign-in slot, or report that one is already running.
+pub(crate) fn claim_sign_in(label: &str) -> Result<SignInLease, String> {
+    let mut in_flight = SIGN_IN_IN_FLIGHT
+        .lock()
+        .map_err(|_| "the sign-in registry is unusable".to_string())?;
+
+    if !in_flight.insert(label.to_string()) {
+        log::warn!("[oauth] refusing a second sign-in for webview {label:?}");
+
+        return Err(
+            "A sign-in is already in progress. Finish or cancel it before starting another."
+                .to_string(),
+        );
+    }
+
+    Ok(SignInLease(label.to_string()))
+}
+
+/// Is the webview already sitting on the sign-in host?
+///
+/// Then the URL we are about to capture as "where to return to" is a login page rather
+/// than the app, and restoring to it would strand the user there.
+///
+/// `claim_sign_in` normally prevents this from arising at all. This closes the gap it
+/// cannot: `navigate` only QUEUES a load, so a flow can release its lease while its
+/// navigation back to the app is still in flight and the URL still reads as the login
+/// page. Cheap, and it makes the observed failure impossible regardless of caller.
+#[cfg(mobile)]
+pub(crate) fn is_on_sign_in_page(current: &Url, target: &Url) -> bool {
+    native::same_origin(current, target)
+}
+
+/// What `is_on_sign_in_page` reports when it refuses.
+#[cfg(mobile)]
+pub(crate) fn already_on_sign_in_page() -> String {
+    "The sign-in page is already open. Finish it, or go back, before signing in again.".to_string()
+}
+
 /// The pure half of the RFC 8252 native flow: everything that is a decision or a
 /// transformation rather than I/O. Split out precisely so it can be tested —
 /// `oauth_login` itself needs a webview, a socket and a browser, and none of the
@@ -1141,6 +1217,16 @@ async fn run_native_login(
         let authorize_url =
             Url::parse(&authorize).map_err(|e| format!("invalid authorize URL: {e}"))?;
 
+        // What we just captured has to be the APP, not a login page — see
+        // `is_on_sign_in_page`.
+        if is_on_sign_in_page(&return_url, &authorize_url) {
+            log::warn!(
+                "[oauth] webview {label:?} is already at {return_url}; not signing in again"
+            );
+
+            return Err(already_on_sign_in_page().into());
+        }
+
         log::info!(
             "[oauth] native sign-in: loopback on 127.0.0.1:{port}; navigating webview {label:?} \
              to authorize; will return to {return_url}"
@@ -1508,6 +1594,10 @@ pub async fn oauth_login(
     base: String,
     provider: Option<String>,
 ) -> Result<(), String> {
+    // Before anything else, and held for the whole command: three callers can drive a
+    // sign-in and none of them coordinate. See `SIGN_IN_IN_FLIGHT`.
+    let _lease = claim_sign_in(webview.label())?;
+
     let base = normalize_base(&base);
     let provider = provider.unwrap_or_else(|| "nous".to_string());
     let base_url = Url::parse(&base).map_err(|e| format!("invalid gateway URL {base:?}: {e}"))?;
@@ -1626,8 +1716,22 @@ pub async fn oauth_login(
         let return_url = webview
             .url()
             .map_err(|e| format!("could not read current app URL: {e}"))?;
-        log::info!("[oauth] navigating webview {label:?} to sign-in; will return to {return_url}");
         let nav_target = login_url.clone();
+
+        // What we just captured has to be the APP, not a login page — see
+        // `is_on_sign_in_page`.
+        if is_on_sign_in_page(&return_url, &nav_target) {
+            log::warn!(
+                "[oauth] webview {label:?} is already at {return_url}; not signing in again"
+            );
+
+            return Err(already_on_sign_in_page());
+        }
+
+        log::info!(
+            "[oauth] cookie cascade: navigating webview {label:?} to sign-in; \
+             will return to {return_url}"
+        );
         webview
             .navigate(login_url)
             .map_err(|e| format!("could not open sign-in page: {e}"))?;
@@ -1884,6 +1988,34 @@ mod tests {
         assert!(status.signed_in);
         assert_eq!(status.email, None);
         assert_eq!(status.session_kind, Some(SessionKind::Native));
+    }
+
+    // ── The sign-in lease ────────────────────────────────────────────────────
+    //
+    // Labels here are test-unique on purpose: the registry is a process-wide static and
+    // the test harness runs these concurrently.
+
+    #[test]
+    fn a_second_sign_in_for_the_same_webview_is_refused() {
+        let first = claim_sign_in("lease-test-main").expect("the first claim wins");
+
+        // The regression this exists for: two flows driving one webview, the second
+        // capturing the first's login page as its return target.
+        assert!(claim_sign_in("lease-test-main").is_err());
+
+        drop(first);
+
+        // And the slot is usable again afterwards — a lease that leaked on any of
+        // `oauth_login`'s early returns would wedge sign-in for the whole process.
+        assert!(claim_sign_in("lease-test-main").is_ok());
+    }
+
+    #[test]
+    fn a_different_webview_has_its_own_slot() {
+        // Desktop can legitimately sign two windows in to two gateways at once, so the
+        // lease must not be global.
+        let _a = claim_sign_in("lease-test-alpha").expect("alpha");
+        let _b = claim_sign_in("lease-test-beta").expect("beta is a separate webview");
     }
 
     // ── The loopback listener ────────────────────────────────────────────────
