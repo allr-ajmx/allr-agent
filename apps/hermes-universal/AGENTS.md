@@ -24,18 +24,27 @@ API and publishes it to `:root`:
 | `--visual-viewport-top`    | its offset from the top of the layout viewport |
 | `data-keyboard-open`       | on `<html>` while the keyboard is up (`keyboard-open:` variant) |
 
-The mobile shells lift their **in-flow** content with
-`margin-bottom: var(--keyboard-inset)`, so anything rendered inside a shell is
-handled for free. Two kinds of element are not:
+The phone's `#root` is **pinned to the visible rectangle** — `position: fixed`
+at `--visual-viewport-top`, `--visual-viewport-height` tall (`styles.css`,
+`html.is-mobile:not([data-hud]) #root`). WKWebView reveals a focused caret by
+*scrolling the visual viewport*, so a shell anchored to the layout viewport gets
+carried off the top of the screen; taking the rectangle instead means anything
+in flow inside a shell is handled for free, keyboard included, and the shells
+must NOT also lift themselves with a `--keyboard-inset` margin. Never give that
+rule a `transform` / `contain` / `filter` / `backdrop-filter` / `will-change` —
+it would become the containing block for the fixed surfaces below, which are
+already pinned to the same rectangle.
 
-1. **Anything `position: fixed`.** It is positioned against the layout viewport
-   and the shell's margin never reaches it. Anchor it with
-   `bottom: var(--keyboard-inset, 0px)`, or size it from
+Two kinds of element are not covered by it:
+
+1. **Anything `position: fixed`.** `#root` being fixed does not make it their
+   containing block, so they still resolve against the layout viewport. Anchor
+   one with `bottom: var(--keyboard-inset, 0px)`, or size it from
    `--visual-viewport-height` / `--visual-viewport-top` when it must fill the
    visible region.
 2. **Anything in a portal** — every Radix overlay (`Sheet`, `Dialog`,
-   `Popover`, `DropdownMenu`) mounts on `<body>`, outside the lifted subtree,
-   even when the JSX sits inside a shell.
+   `Popover`, `DropdownMenu`) mounts on `<body>`, outside `#root`, even when the
+   JSX sits inside a shell.
 
 `SheetContent side="bottom"` already does this; a bottom sheet needs nothing
 extra. A new fixed or portalled surface that can hold a focused field does — and
@@ -47,6 +56,8 @@ calc(var(--visual-viewport-height, 100vh) - <gutter>)` plus `overflow-y: auto`.
 
 Same shape, different inset: `lib/safe-area.ts` republishes
 `--safe-area-inset-*` because the webviews resolve `env()` a few frames late.
-Read the vars, never `env()` directly. Note that a chrome bar which already
-lifts by `--keyboard-inset` should not also pad by the bottom safe-area inset —
-the home indicator is behind the keyboard, and counting both leaves a dead band.
+Read the vars, never `env()` directly. Note that a bar sitting at the bottom of
+the visible rectangle (or lifted by `--keyboard-inset`) should not also pad by
+the bottom safe-area inset while the keyboard is up — the home indicator is
+behind the keyboard, and counting both leaves a dead band. `keyboard-open:` /
+`--composer-dock-inset-bottom` in `styles.css` is how the composer does it.

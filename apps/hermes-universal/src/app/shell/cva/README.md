@@ -49,7 +49,8 @@ Shared class strings live in `tokens.ts`. Hit-target helpers in `hit.ts`
 
 ## Contracts (from `apps/hermes-universal/AGENTS.md`)
 
-- In-flow shell content lifts with `margin-bottom: var(--keyboard-inset)`
+- Phone `#root` IS the visible rect (`--visual-viewport-top`/`-height`); in-flow
+  shell content needs no keyboard lift of its own
 - Fixed / portalled surfaces anchor with `bottom: var(--keyboard-inset)`
 - Chrome bar owns **top** safe-area only; tab bar owns **bottom**
 - Do not double-count bottom safe-area with keyboard lift
