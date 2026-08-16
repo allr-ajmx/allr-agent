@@ -1283,10 +1283,11 @@
 
 /* Bottom inset the docked composer (and the bars stacked on it) clears — the
    mobile home indicator, but ONLY while that strip is actually exposed. With the
-   soft keyboard up the keyboard covers it, and `--keyboard-inset` already lifts
-   the shell by the FULL occluded height (home indicator included, since it is
-   measured off `innerHeight`), so keeping the safe-area term stacks a second
-   copy of it and leaves a phantom gap between the composer and the keyboard.
+   soft keyboard up the keyboard covers it, and the phone's `#root` is sized to
+   the VISIBLE rectangle (see the `html.is-mobile … #root` rule below), whose
+   bottom edge already IS the top of the keyboard — so keeping the safe-area term
+   pads against a strip that is not on screen and leaves a phantom gap between
+   the composer and the keyboard.
    `var(--safe-area-inset-*)`, not raw `env()`: lib/safe-area.ts republishes the
    resolved px on mobile, where env() reports 0 for the first frame(s). */
 :root {
@@ -1308,6 +1309,44 @@
    Tailwind spacing, the --composer-* geometry) grows with it. */
 html.is-mobile {
   --dt-base-size: 1.125rem;
+}
+
+/* The phone's app root IS the visible rectangle, not the layout viewport.
+
+   `html`/`body`/`#root` are all `overflow: hidden` (@layer base above), so the
+   document is genuinely unscrollable — which leaves WKWebView no scroll
+   container to reveal a focused caret in, and it falls back to SCROLLING THE
+   VISUAL VIEWPORT instead of resizing the layout one. Write H = innerHeight,
+   V = visualViewport.height, T = visualViewport.offsetTop: the layout viewport
+   is then [0, H] while the visible band is [T, T+V], so layout-y appears at
+   screen-y − T. An in-flow shell starting at layout y=0 therefore starts T px
+   ABOVE the screen, carrying the top bar and the whole safe-area band off the
+   top. That is what tapping the composer did on iOS (Android reports T = 0,
+   which is why it was never visible there).
+
+   So take the rectangle rather than deriving it — exactly what MobileSidebar
+   and MobileWorkspace already do (a0ca9420c); this finishes that conversion at
+   the root, so all four mobile surfaces share ONE geometry model. The shells
+   consequently need NO `margin-bottom: var(--keyboard-inset)`: this box's
+   bottom edge already is the top of the keyboard, and lifting again would leave
+   a keyboard-tall dead band.
+
+   The fallbacks are the keyboard-closed state, so the frame before
+   use-keyboard-inset publishes gets today's box; `measure()` never publishes a
+   0px height (it falls back to innerHeight when visualViewport is absent), so a
+   collapsed #root is unreachable. `:not([data-hud])` keeps the HUD satellite —
+   which iPadOS can open, and which has its own #root rules below — out of it.
+
+   DO NOT add `transform`, `contain`, `filter`, `backdrop-filter` or
+   `will-change` here. Any of them makes #root the containing block for every
+   `position: fixed` descendant — MobileSidebar, MobileWorkspace, the floating
+   pet — all of which are ALREADY pinned to this same rectangle and would then
+   have the offset applied twice. styles.mobile-viewport.test.ts enforces this. */
+html.is-mobile:not([data-hud]) #root {
+  position: fixed;
+  inset-inline: 0;
+  top: var(--visual-viewport-top, 0px);
+  height: var(--visual-viewport-height, 100%);
 }
 
 /* The docked composer spans the full content width on phones, replacing the

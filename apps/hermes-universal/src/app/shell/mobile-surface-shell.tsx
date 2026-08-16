@@ -53,8 +53,9 @@ export function MobileSurfaceShell({
   /** Command Center route jumps (optional; in-app path wires `navigate`). */
   onNavigateRoute?: (path: string) => void
 }) {
-  // Publishes --keyboard-inset so the content lifts above the soft keyboard when an
-  // input (API keys, search) is focused.
+  // Publishes --visual-viewport-{height,top} / --keyboard-inset, which the phone's
+  // #root is sized from — so a focused input (API keys, search) leaves this surface
+  // bounded by the keyboard's top rather than pushed off the screen.
   useKeyboardInset()
   const { t } = useI18n()
   const { pathname } = useLocation()
@@ -125,8 +126,10 @@ export function MobileSurfaceShell({
         }
       />
 
-      {/* Routed surface. Lifts above the soft keyboard like the home shell. */}
-      <div className="flex min-h-0 flex-1 flex-col" style={{ marginBottom: 'var(--keyboard-inset, 0px)' }}>
+      {/* Routed surface. No keyboard margin, like the home shell:
+          `html.is-mobile #root` is the VISIBLE viewport (styles.css), so this
+          column already ends at the top of the keyboard. */}
+      <div className="flex min-h-0 flex-1 flex-col">
         {showSurface ? (
           surface === 'settings' ? (
             <SettingsView hideNav onClose={onHome} variant="fullscreen" />
