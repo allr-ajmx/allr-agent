@@ -88,13 +88,15 @@ export function MobileSurfaceShell({
   const showSurface = surface === 'settings' ? ready || hasConnected : ready || (switching && hasConnected)
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-background">
+    <div className="flex h-full min-h-0 flex-col bg-background" data-slot="mobile-surface-shell">
       <MobileChromeBar
         center={
           navRows.length > 0 ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <TitleMenuTrigger className="h-full w-full justify-start">{title}</TitleMenuTrigger>
+                <TitleMenuTrigger className="w-full justify-start" density="mobile">
+                  {title}
+                </TitleMenuTrigger>
               </DropdownMenuTrigger>
               {/* Aligned to the title, not centred on it: the trigger now fills
                   the row, so "centred on the trigger" put the menu in the middle
@@ -117,7 +119,7 @@ export function MobileSurfaceShell({
           )
         }
         left={
-          <TitlebarButton className="size-4" label={t.common.back} onClick={onHome}>
+          <TitlebarButton density="mobile" label={t.common.back} onClick={onHome}>
             <Codicon className="rtl:-scale-x-100" name="chevron-left" size="1.4rem" />
           </TitlebarButton>
         }

@@ -32,7 +32,7 @@ export function MobileShell() {
   const { openMobile, setOpenMobile, openMobileRight, setOpenMobileRight } = useSidebar()
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-background">
+    <div className="flex h-full min-h-0 flex-col bg-background" data-slot="mobile-shell">
       <MobileTopBar />
 
       {/* The routed content (chat view + full-page views). ChatScreen provides

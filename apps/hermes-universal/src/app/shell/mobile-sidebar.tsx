@@ -90,6 +90,7 @@ export function MobileSidebar({ onClose }: { onClose: () => void }) {
       // direction, short enough that it never sits between you and the list.
       // Enter only: an exit needs the surface to outlive its own unmount.
       className="animate-in slide-in-from-start fixed inset-x-0 z-50 flex flex-col bg-(--ui-sidebar-surface-background) duration-150"
+      data-slot="mobile-sidebar"
       style={{
         // The VISIBLE rectangle — see MobileWorkspace for why this is not
         // `inset-0` plus a keyboard margin.
@@ -102,7 +103,7 @@ export function MobileSidebar({ onClose }: { onClose: () => void }) {
       <MobileChromeBar
         center={<span className="block truncate text-xs text-muted-foreground">{t.sidebar.sessions}</span>}
         left={
-          <TitlebarButton className="size-4" label={t.mobileWorkspace.backToChat} onClick={onClose}>
+          <TitlebarButton density="mobile" label={t.mobileWorkspace.backToChat} onClick={onClose}>
             <Codicon className="rtl:-scale-x-100" name="chevron-left" size="1.4rem" />
           </TitlebarButton>
         }

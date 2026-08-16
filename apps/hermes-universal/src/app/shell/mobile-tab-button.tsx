@@ -1,14 +1,74 @@
+import { cva, type VariantProps } from 'class-variance-authority'
+
 import { Codicon } from '@/components/ui/codicon'
 import { triggerHaptic } from '@/lib/haptics'
 import { cn } from '@/lib/utils'
 
+import { shellAccent, shellChromeSurface, shellTabActive, shellTabIdle } from './cva/tokens'
+
+/**
+ * MobileTabButton / MobileTabBar CVA (MJXHRM-314).
+ */
+export const mobileTabButtonVariants = cva(
+  'relative flex min-h-11 min-w-14 flex-1 flex-col items-center justify-center gap-0.5 rounded-md px-1 py-1 transition-colors',
+  {
+    variants: {
+      active: {
+        true: shellTabActive,
+        false: shellTabIdle
+      }
+    },
+    defaultVariants: {
+      active: false
+    }
+  }
+)
+
+export const mobileTabBadgeVariants = cva(
+  'absolute -top-1 -end-2 rounded-full bg-(--ui-accent-primary) text-[0.5625rem] leading-none font-medium text-white',
+  {
+    variants: {
+      kind: {
+        dot: 'size-1.5',
+        count: 'min-w-3.5 px-1 py-0.5 text-center'
+      }
+    },
+    defaultVariants: {
+      kind: 'count'
+    }
+  }
+)
+
+export const mobileTabIndicatorVariants = cva('absolute inset-x-3 bottom-0 h-0.5 rounded-full', {
+  variants: {
+    active: {
+      true: shellAccent,
+      false: 'bg-transparent'
+    }
+  },
+  defaultVariants: {
+    active: false
+  }
+})
+
+export const mobileTabBarVariants = cva(
+  cn('shrink-0 border-t keyboard-open:hidden', shellChromeSurface),
+  {
+    variants: {
+      state: {
+        default: '',
+        hidden: 'hidden'
+      }
+    },
+    defaultVariants: {
+      state: 'default'
+    }
+  }
+)
+
+export type MobileTabButtonVariantProps = VariantProps<typeof mobileTabButtonVariants>
+
 // One entry in a phone surface's bottom bar.
-//
-// The bar is the primary navigation on a surface you drive one-handed, so it
-// lives in the thumb zone and its entries are icon-over-label — the shape every
-// phone OS uses for exactly this, and the reason it reads without being learned.
-// Shared by the Workspace's panel tabs and the sidebar's nav so the two bottom
-// bars are the same control rather than two that merely look alike.
 export function MobileTabButton({
   active,
   badge,
@@ -28,10 +88,9 @@ export function MobileTabButton({
   return (
     <button
       aria-current={active ? 'page' : undefined}
-      className={cn(
-        'relative flex min-h-11 min-w-14 flex-1 flex-col items-center justify-center gap-0.5 rounded-md px-1 py-1 transition-colors',
-        active ? 'text-foreground' : 'text-muted-foreground'
-      )}
+      className={mobileTabButtonVariants({ active: !!active })}
+      data-slot="mobile-tab-button"
+      data-state={active ? 'active' : 'default'}
       onClick={() => {
         void triggerHaptic('selection')
         onSelect()
@@ -41,48 +100,29 @@ export function MobileTabButton({
       <span className="relative">
         <Codicon name={icon} size="1.15rem" />
         {showBadge && (
-          <span
-            className={cn(
-              'absolute -top-1 -end-2 rounded-full bg-(--ui-accent-primary) text-[0.5625rem] leading-none font-medium text-white',
-              badge === true ? 'size-1.5' : 'min-w-3.5 px-1 py-0.5 text-center'
-            )}
-          >
+          <span className={mobileTabBadgeVariants({ kind: badge === true ? 'dot' : 'count' })}>
             {badge === true ? '' : badge}
           </span>
         )}
       </span>
       <span className="w-full truncate text-center text-[0.625rem] leading-none">{label}</span>
-      {/* The active marker is a bar rather than a filled pill: at this size a
-          pill crowds the label, and the bar reads at a glance. */}
-      <span
-        className={cn(
-          'absolute inset-x-3 bottom-0 h-0.5 rounded-full',
-          active ? 'bg-(--ui-accent-primary)' : 'bg-transparent'
-        )}
-      />
+      <span className={mobileTabIndicatorVariants({ active: !!active })} />
     </button>
   )
 }
 
 /**
  * The bar the buttons sit in — border, chrome fill and the bottom safe area.
- *
- * It stands down while the soft keyboard is up. On a phone the space left over
- * is small enough that navigation and typing cannot both have a bar: the editor
- * wants its accessory keys there, and the sidebar's search wants the results.
- * Driven off the `data-keyboard-open` attribute `use-keyboard-inset` already
- * sets on <html>, in CSS rather than through a subscription, so the bar goes on
- * the same frame the keyboard arrives with no render in between.
+ * Stands down while the soft keyboard is up (`keyboard-open:hidden`).
  */
 export function MobileTabBar({ ariaLabel, children }: { ariaLabel: string; children: React.ReactNode }) {
   return (
     <nav
       aria-label={ariaLabel}
-      className="shrink-0 border-t border-(--ui-stroke-tertiary) bg-(--ui-bg-chrome) keyboard-open:hidden"
+      className={mobileTabBarVariants()}
+      data-slot="mobile-tab-bar"
       style={{ paddingBottom: 'var(--safe-area-inset-bottom)' }}
     >
-      {/* Scrolls rather than crushes: a plugin can contribute a nav row, and five
-          entries is the comfortable count, not the maximum. */}
       <div className="flex items-stretch gap-0.5 overflow-x-auto px-1 py-0.5">{children}</div>
     </nav>
   )

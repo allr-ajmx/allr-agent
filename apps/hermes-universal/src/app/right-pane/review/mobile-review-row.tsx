@@ -1,3 +1,4 @@
+import { cva, type VariantProps } from 'class-variance-authority'
 import { useEffect, useRef, useState } from 'react'
 
 import { Codicon } from '@/components/ui/codicon'
@@ -8,16 +9,29 @@ import { directionSign } from '@/lib/direction'
 import { triggerHaptic } from '@/lib/haptics'
 import { cn } from '@/lib/utils'
 
-// One changed file, as a touch row.
-//
-// The desktop row hides stage/unstage/revert behind `group-hover` and keeps a
-// right-click menu as the only other way in — neither exists on a phone. So the
-// actions move onto the row itself as swipes (the Mail/Working Copy idiom):
-//
-//   swipe right → stage / unstage      swipe left → revert
-//
-// Long-press opens the same actions as a sheet, because a swipe is not
-// discoverable on its own and should never be the ONLY way to reach an action.
+// One changed file, as a touch row. (MJXHRM-323 Review Row + Diff)
+
+export const mobileReviewRowVariants = cva(
+  'relative flex min-h-[44px] touch-pan-y items-center gap-2 bg-(--ui-sidebar-surface-background) px-3 py-1.5 select-none',
+  {
+    variants: {
+      selected: {
+        true: 'bg-(--ui-row-active-background)',
+        false: ''
+      },
+      dragging: {
+        true: '',
+        false: 'transition-transform duration-150'
+      }
+    },
+    defaultVariants: {
+      selected: false,
+      dragging: false
+    }
+  }
+)
+
+export type MobileReviewRowVariantProps = VariantProps<typeof mobileReviewRowVariants>
 
 /** Past this much horizontal travel the gesture commits on release. */
 const COMMIT_PX = 64
@@ -241,11 +255,9 @@ export function MobileReviewRow({
 
       <div
         aria-selected={selected}
-        className={cn(
-          'relative flex min-h-[44px] touch-pan-y items-center gap-2 bg-(--ui-sidebar-surface-background) px-3 py-1.5 select-none',
-          selected && 'bg-(--ui-row-active-background)',
-          !dragging && 'transition-transform duration-150'
-        )}
+        className={mobileReviewRowVariants({ selected, dragging })}
+        data-slot="mobile-review-row"
+        data-state={selected ? 'selected' : 'default'}
         onClick={onClick}
         onContextMenu={event => {
           // Long-press on a touch device also raises the platform context menu;
