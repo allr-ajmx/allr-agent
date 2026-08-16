@@ -10,7 +10,7 @@
  * resolver takes a `SessionInfo` and there was none to give it).
  */
 
-import { render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { SessionInfo } from '@/types/hermes'
@@ -97,5 +97,66 @@ describe('BubbleRow draft naming', () => {
     render(<BubbleRow />)
 
     expect(screen.getByLabelText('New session')).toBeTruthy()
+  })
+})
+
+/**
+ * The gesture belongs to the ROW, not to the 32px dots inside it. Requiring the
+ * press to land on a bubble made the carousel something you had to aim at — a
+ * swipe begun in a gap did nothing, and drag-up-to-close was out of reach unless
+ * your thumb was already on the centred dot.
+ */
+describe('BubbleRow gesture surface', () => {
+  const track = () => document.querySelector('[data-slot="bubble-track"]') as HTMLElement
+
+  // The strip drives itself off window listeners once the press starts, so a
+  // gesture is: press the row, move, let go.
+  const drag = async (from: { x: number; y: number }, to: { x: number; y: number }) => {
+    fireEvent.pointerDown(track(), { button: 0, clientX: from.x, clientY: from.y })
+    fireEvent.pointerMove(window, { clientX: to.x, clientY: to.y })
+    // The move is rAF-coalesced; let the frame land before releasing.
+    await act(async () => {
+      await new Promise(resolve => requestAnimationFrame(() => resolve(null)))
+    })
+    fireEvent.pointerUp(window)
+  }
+
+  it('starts the gesture from empty track, not just from a bubble', () => {
+    $chatBubbles.set([{ storedSessionId: 'recent-1' }, { storedSessionId: 'older-2' }])
+    $sessions.set([row('recent-1', 'On the page'), row('older-2', 'Older chat')])
+    $activeStoredSessionId.set('recent-1')
+
+    render(<BubbleRow />)
+    fireEvent.pointerDown(track(), { button: 0, clientX: 10, clientY: 10 })
+
+    // The peek tooltip only exists while a press is live, so its title showing
+    // up is the row saying "I took the gesture".
+    expect(screen.getAllByText('On the page').length).toBeGreaterThan(0)
+
+    fireEvent.pointerUp(window)
+  })
+
+  it('closes the centred chat on a drag up that starts anywhere in the row', async () => {
+    $chatBubbles.set([{ storedSessionId: 'recent-1' }, { storedSessionId: 'older-2' }])
+    $sessions.set([row('recent-1', 'On the page'), row('older-2', 'Older chat')])
+    $activeStoredSessionId.set('older-2')
+
+    render(<BubbleRow />)
+    // Well past UP_CLOSE_PX, and more vertical than horizontal so it reads as a
+    // close rather than a switch.
+    await drag({ x: 10, y: 200 }, { x: 14, y: 120 })
+
+    expect($chatBubbles.get().map(b => b.storedSessionId)).toEqual(['recent-1'])
+  })
+
+  it('leaves the row alone when the same drag goes sideways', async () => {
+    $chatBubbles.set([{ storedSessionId: 'recent-1' }, { storedSessionId: 'older-2' }])
+    $sessions.set([row('recent-1', 'On the page'), row('older-2', 'Older chat')])
+    $activeStoredSessionId.set('older-2')
+
+    render(<BubbleRow />)
+    await drag({ x: 200, y: 200 }, { x: 120, y: 190 })
+
+    expect($chatBubbles.get()).toHaveLength(2)
   })
 })
