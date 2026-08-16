@@ -267,7 +267,13 @@ export function MobileController() {
             iOS fallback would try to close the primary window). The desktop floating-
             overlay path below is used off-mobile (and stays untouched). */}
         {IS_MOBILE && mobileSurfaceOpen && (
-          <div className="fixed inset-0 z-50">
+          // `absolute`, not `fixed`: the parent above is `relative h-full` inside
+          // a #root pinned to the VISIBLE viewport, so this fills the visible
+          // rectangle. A `fixed inset-0` here is anchored to the LAYOUT viewport
+          // and slides off the top of the screen the moment iOS reveals a caret —
+          // the same bug the #root rule fixes for the home shell. Stacking is
+          // unchanged: neither the parent nor #root creates a stacking context.
+          <div className="absolute inset-0 z-50">
             <SidebarProvider>
               <MobileSurfaceShell
                 onHome={closeOverlayToPreviousRoute}
