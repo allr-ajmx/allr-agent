@@ -15,7 +15,10 @@
   NSAppTransportSecurity lets the WEBVIEW load a cleartext gateway. Without it ATS
   refuses every http:// load in WKWebView silently — `webview.navigate()` returns Ok
   (the call only queues a message), the page never changes, and the interactive
-  sign-in polls for a cookie that can never arrive until its 120s budget runs out.
+  sign-in waits for a callback that can never arrive until its budget runs out.
+  It also covers the RFC 8252 sign-in's own `http://127.0.0.1:<port>/callback`, which
+  the WebView loads from the listener this process bound (src-tauri/src/oauth.rs) —
+  NSAllowsLocalNetworking would carry that one alone, but not the gateway.
   It looked like "tapping Sign in does nothing", and it is the one failure the Rust
   side cannot see: reqwest uses raw sockets, not NSURLSession, so ATS never touches
   it and /api/status, /api/auth/me and the whole gateway connection work over http

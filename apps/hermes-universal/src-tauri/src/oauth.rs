@@ -7,9 +7,9 @@
 //! redirect, ending in bearer tokens handed to us in a JSON body with no cookie
 //! anywhere. That is strictly better than the webview flow below:
 //!
-//!   * **No second webview.** The system browser is a separate app, so mobile —
-//!     which cannot open a usable second webview window at all — needs no
-//!     navigate-away hack and no pending-marker resume for this path.
+//!   * **No second webview.** On DESKTOP the system browser is a separate app, so
+//!     nothing has to be built, bound to a partition, or dismissed. Mobile cannot
+//!     use that shape at all — see below.
 //!   * **No cookie plumbing.** Nothing has to be scraped out of a webview jar and
 //!     replayed into reqwest; the gated middleware accepts
 //!     `Authorization: Bearer` on every non-public route, ws-ticket included.
@@ -22,6 +22,33 @@
 //! half of the client — PKCE, state, URL building, callback parsing, token
 //! parsing, refresh math — lives in [`native`] and is unit-tested; only the
 //! socket/browser/HTTP I/O sits out here.
+//!
+//! ## Where the user types their password (the platform split)
+//!
+//! Desktop hands the authorize URL to the SYSTEM BROWSER. Mobile must not, and this
+//! is the whole reason the flow was broken there: an app that opens Safari is
+//! backgrounded, and iOS then SUSPENDS it — there is no `UIBackgroundModes`, no
+//! `beginBackgroundTask` and `background.rs` is `cfg(desktop)`. A suspended process
+//! cannot accept on its own loopback listener, so the redirect the browser makes to
+//! `127.0.0.1:<port>` hangs until Safari gives up on an error page. Nothing brings
+//! the app back either: there is no deep-link plugin, no `CFBundleURLTypes` and no
+//! `BROWSABLE` intent-filter anywhere in this project, and `callback_response` can
+//! only ask the user to switch back by hand. The token never reached the keyring and
+//! the user was left in a browser.
+//!
+//! A custom-scheme redirect would fix the return leg, but the gateway will not take
+//! one: `_validate_loopback_redirect_uri` (`routes.py`) accepts ONLY
+//! `http://127.0.0.1[:port]/…` / `http://[::1][:port]/…` and rejects even `localhost`.
+//! So `ASWebAuthenticationSession` (which needs a custom callback scheme) is out
+//! without a server change.
+//!
+//! What the webview CAN do is load our own loopback URL. So on mobile we navigate the
+//! CALLING webview to the authorize URL, let the gateway 302 it to
+//! `http://127.0.0.1:<port>/callback`, answer that from the listener we already
+//! bound, and navigate back — the same navigate-away contract the cookie cascade
+//! below and `cloud.rs::portal_login` already use, one-shot resume marker included.
+//! The gateway's `hermes_session_pkce` broker cookie round-trips inside that webview
+//! for both hops, so nothing extra has to be plumbed.
 //!
 //! # Legacy webview-cookie flow (fallback)
 //!
@@ -76,9 +103,17 @@ const OAUTH_WINDOW_LABEL: &str = "hermes-oauth";
 const OAUTH_TIMEOUT_SECS: u64 = 300;
 
 /// Mobile runs the login in the calling webview, which replaces the entire app UI for the
-/// duration (no in-app cancel until this elapses), so keep the wait tighter than desktop.
+/// duration, so this is also how long the user can be stranded on a login page.
+///
+/// It was 120s, and that was too tight in the one case that matters: a real sign-in with an
+/// emailed one-time code means leaving for Mail, copying it and coming back. On iOS the app
+/// is BACKGROUNDED for that detour while the monotonic clock keeps running, so the whole
+/// detour is charged here. A premature timeout is indistinguishable to the user from the
+/// sign-in being broken. The abandon watcher in `native_login_after_navigate` is what makes
+/// a budget this long safe to carry — backing out of the login is noticed in ~2s rather
+/// than at the deadline.
 #[cfg(mobile)]
-const OAUTH_TIMEOUT_SECS_MOBILE: u64 = 120;
+const OAUTH_TIMEOUT_SECS_MOBILE: u64 = 240;
 
 fn normalize_base(raw: &str) -> String {
     raw.trim().trim_end_matches('/').to_string()
@@ -386,14 +421,36 @@ pub mod native {
         format!("nativeAuth:{}", base.trim_end_matches('/'))
     }
 
-    /// The one-page reply the browser shows after the redirect. It must never
-    /// contain the code — the browser has it in its address bar already, but the
-    /// page itself is the thing screen-shared or left open.
-    pub fn callback_response(ok: bool) -> String {
-        let body = if ok {
-            "<h1>Signed in</h1><p>You can close this tab and return to Hermes.</p>"
-        } else {
-            "<h1>Sign-in failed</h1><p>Return to Hermes and try again.</p>"
+    /// Are these two URLs the same origin (RFC 6454: scheme, host AND port)?
+    ///
+    /// The abandon watcher's whole safety argument. It fires when the sign-in webview
+    /// comes back to the APP's origin, which must never be confused with the loopback
+    /// callback page we serve ourselves: the app is `tauri://localhost` (iOS) or
+    /// `http://tauri.localhost` (Android), the callback is `http://127.0.0.1:<port>`,
+    /// and the gateway cannot redirect to the app scheme. Port is part of the test
+    /// because in dev the app is served from the Vite port on the same host a
+    /// loopback callback could use.
+    pub fn same_origin(a: &tauri::Url, b: &tauri::Url) -> bool {
+        a.scheme() == b.scheme()
+            && a.host_str() == b.host_str()
+            && a.port_or_known_default() == b.port_or_known_default()
+    }
+
+    /// The one-page reply shown after the redirect. It must never contain the code —
+    /// the client has it in its address bar already, but the page itself is the thing
+    /// screen-shared or left open.
+    ///
+    /// `in_app` is the mobile case, where the requester is our OWN webview and we
+    /// navigate it back a moment later. Telling that user to "close this tab" would be
+    /// a lie — there is no tab, and they are not the one who closes it.
+    pub fn callback_response(ok: bool, in_app: bool) -> String {
+        let body = match (ok, in_app) {
+            (true, true) => "<h1>Signed in</h1><p>Returning to Hermes…</p>",
+            (true, false) => {
+                "<h1>Signed in</h1><p>You can close this tab and return to Hermes.</p>"
+            }
+            (false, true) => "<h1>Sign-in failed</h1><p>Returning to Hermes…</p>",
+            (false, false) => "<h1>Sign-in failed</h1><p>Return to Hermes and try again.</p>",
         };
 
         format!(
@@ -586,20 +643,92 @@ pub mod native {
 
         #[test]
         fn the_browser_reply_never_echoes_the_authorization_code() {
-            let page = callback_response(true);
+            // Every variant, not just the desktop one: the in-app copy is rendered in
+            // our OWN webview, where a leaked code would sit in the app's page cache.
+            for (ok, in_app) in [(true, true), (true, false), (false, true), (false, false)] {
+                let page = callback_response(ok, in_app);
 
-            assert!(page.contains("Content-Length:"));
-            assert!(!page.contains("code="));
+                assert!(page.contains("Content-Length:"), "{page}");
+                assert!(!page.contains("code="), "{page}");
+            }
+        }
+
+        #[test]
+        fn the_in_app_reply_does_not_tell_the_user_to_close_a_tab() {
+            // On mobile the requester is the app's own webview and we navigate it back
+            // ourselves; "close this tab" would be an instruction nobody can follow.
+            assert!(!callback_response(true, true).contains("close this tab"));
+            assert!(callback_response(true, false).contains("close this tab"));
+        }
+
+        #[test]
+        fn the_app_origin_and_the_loopback_callback_are_never_the_same_origin() {
+            // The abandon watcher cancels the sign-in when the webview returns to the
+            // app. If it could not tell the app from our own callback page it would
+            // cancel every successful login at the last step.
+            let parse = |s: &str| tauri::Url::parse(s).unwrap();
+
+            assert!(!same_origin(
+                &parse("tauri://localhost/"),
+                &parse("http://127.0.0.1:51234/callback")
+            ));
+            assert!(!same_origin(
+                &parse("http://tauri.localhost/"),
+                &parse("http://127.0.0.1:51234/callback")
+            ));
+            // The gateway's own pages are not the app either.
+            assert!(!same_origin(
+                &parse("tauri://localhost/"),
+                &parse("https://gw.example.com/auth/login")
+            ));
+        }
+
+        #[test]
+        fn same_origin_ignores_the_path_and_fragment_but_not_the_port() {
+            let parse = |s: &str| tauri::Url::parse(s).unwrap();
+
+            // The app is a HashRouter, so the route rides in the fragment and the URL we
+            // compare against is never character-identical to the one we left from.
+            assert!(same_origin(
+                &parse("http://192.168.1.5:5176/"),
+                &parse("http://192.168.1.5:5176/index.html#/settings")
+            ));
+            // In dev the app and a loopback callback can share a host; only the port
+            // separates them.
+            assert!(!same_origin(
+                &parse("http://127.0.0.1:5176/"),
+                &parse("http://127.0.0.1:51234/callback")
+            ));
         }
     }
 }
 
 // ── RFC 8252 native flow: the I/O half ───────────────────────────────────────
 
-/// How long the loopback listener waits for the browser redirect. The user is in
-/// a browser tab, possibly signing in with a second factor — be generous, but
-/// never wait forever: an abandoned login must not pin a socket for the session.
+/// How long the loopback listener waits for the browser redirect, on DESKTOP. The
+/// user is in a browser tab, possibly signing in with a second factor, and the app
+/// window is still there to cancel from — be generous, but never wait forever: an
+/// abandoned login must not pin a socket for the session.
+#[cfg(desktop)]
 const NATIVE_LOGIN_TIMEOUT_SECS: u64 = 300;
+
+/// The same budget on mobile, where the sign-in has taken over the app's only webview.
+///
+/// Shorter than desktop's 300s because this is also how long the user can be stranded
+/// on a page that is not Hermes, and longer than the 120s this file used to carry
+/// everywhere because an emailed one-time code means a trip to Mail that is charged
+/// against it (see `OAUTH_TIMEOUT_SECS_MOBILE`). It must also stay comfortably under
+/// the gateway's own `_PENDING_TTL_SECONDS = 600` (`native_flow.py`), or we would sit
+/// waiting on a broker state the server has already dropped.
+#[cfg(mobile)]
+const MOBILE_NATIVE_TIMEOUT_SECS: u64 = 240;
+
+/// How long ONE loopback socket gets to send its request line.
+///
+/// Per-socket, not per-flow. A client that opens a speculative connection and never
+/// writes must not be able to hold a task (or, before the restructure below, the whole
+/// listener) for the entire login budget.
+const LOOPBACK_SOCKET_READ_SECS: u64 = 10;
 
 /// The keyring service the JS side already uses (`src/lib/secure-store.ts`).
 /// Shared deliberately: one service, one OS credential group the user can revoke.
@@ -622,12 +751,22 @@ fn keyring_ready(app: &AppHandle) -> bool {
         .is_ok()
 }
 
+/// Persist a token set, reporting whether it actually landed.
+///
+/// The `Result` matters on mobile and only there. Desktop keeps the token set alive in
+/// process memory via `register_bearer_base`, so a machine with no working keyring
+/// (a Linux box with no Secret Service) still gets a usable session for the run —
+/// which is why this used to be a bare `log::warn!`. Mobile has no such grace: the
+/// sign-in ends by reloading the SPA, and the boot that follows reads the KEYRING
+/// (`ensure_native_tokens` → `load_native_tokens`). A write that silently failed there
+/// presents as "I signed in and the token was never captured", with the reason buried
+/// in a warning nobody is streaming.
 fn store_native_tokens(
     app: &AppHandle,
     state: &TransportState,
     base: &str,
     tokens: &native::NativeTokenSet,
-) {
+) -> Result<(), String> {
     use tauri_plugin_keyring::{CredentialType, CredentialValue, KeyringExt};
 
     // Registered even when the keyring write below fails: the token set is live
@@ -635,22 +774,22 @@ fn store_native_tokens(
     state.register_bearer_base(base);
 
     if !keyring_ready(app) {
-        log::warn!("[oauth] keyring unavailable; native session will not survive restart");
-        return;
+        return Err("the OS keyring is unavailable".to_string());
     }
 
-    let Ok(json) = serde_json::to_string(tokens) else {
-        return;
-    };
+    let json = serde_json::to_string(tokens)
+        .map_err(|e| format!("could not serialize the token set: {e}"))?;
 
-    if let Err(e) = app.keyring().set(
-        &native::keyring_account(base),
-        CredentialType::Password,
-        CredentialValue::Password(json),
-    ) {
-        // Never log the payload — it IS the session. The error alone is enough.
-        log::warn!("[oauth] could not persist native tokens: {e}");
-    }
+    // Never log or quote the payload — it IS the session. The error alone is enough.
+    app.keyring()
+        .set(
+            &native::keyring_account(base),
+            CredentialType::Password,
+            CredentialValue::Password(json),
+        )
+        .map_err(|e| format!("the keyring refused the write: {e}"))?;
+
+    Ok(())
 }
 
 fn load_native_tokens(app: &AppHandle, base: &str) -> Option<native::NativeTokenSet> {
@@ -707,60 +846,102 @@ async fn advertises_native_flow(state: &TransportState, base: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// Serve exactly one loopback request and return its authorization code.
+/// Answer one loopback socket: read its request line, reply, and report whether it
+/// carried the authorization code.
 ///
 /// Only the request line is read — the code is in the target, and reading further
 /// would mean parsing a body we have no use for. The reply is a static page: the
-/// browser must never be handed anything that echoes the code back.
+/// client must never be handed anything that echoes the code back.
+///
+/// `None` means "not the callback" (a probe), and the caller keeps waiting.
+async fn serve_loopback_socket(
+    stream: tokio::net::TcpStream,
+    expected_state: &str,
+    in_app: bool,
+) -> Option<Result<String, String>> {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+
+    let mut reader = BufReader::new(stream);
+    let mut line = String::new();
+
+    // A socket that connects and never speaks gets its own short deadline; without one
+    // it would hold this task for the whole login budget.
+    let read = tokio::time::timeout(
+        std::time::Duration::from_secs(LOOPBACK_SOCKET_READ_SECS),
+        reader.read_line(&mut line),
+    )
+    .await;
+
+    if !matches!(read, Ok(Ok(_))) {
+        return None;
+    }
+
+    // "GET /callback?code=…&state=… HTTP/1.1"
+    let target = line.split_whitespace().nth(1).unwrap_or("").to_string();
+    let is_callback = target.starts_with(native::CALLBACK_PATH);
+
+    // Clients cheerfully probe /favicon.ico on the same origin; that is not the
+    // callback and must not resolve the wait.
+    let outcome = is_callback.then(|| native::parse_callback_target(&target, expected_state));
+
+    let mut stream = reader.into_inner();
+    let _ = stream
+        .write_all(native::callback_response(matches!(outcome, Some(Ok(_))), in_app).as_bytes())
+        .await;
+    // Flush and half-close before dropping. The reply is the only thing the user sees
+    // in the moment before we navigate the webview back, so it must actually leave.
+    let _ = stream.flush().await;
+    let _ = stream.shutdown().await;
+
+    outcome
+}
+
+/// Serve the loopback listener until the authorization code arrives.
+///
+/// Sockets are accepted and served CONCURRENTLY, which is not incidental. The
+/// original shape accepted one connection and then awaited its request line before
+/// accepting the next — so a client that opened a speculative connection and sent
+/// nothing on it stalled the real callback in the accept backlog for the entire
+/// budget, and the login died of a timeout with the code sitting unread in the
+/// kernel. Both a browser and a webview preconnect, and the webview does it while
+/// making the very top-level navigation we are waiting on.
+///
+/// The first socket to reach a verdict decides it, Ok or Err — the same one-shot
+/// policy as before; only the serialization is gone. Probes resolve nothing and the
+/// wait continues.
 async fn await_loopback_code(
     listener: tokio::net::TcpListener,
     expected_state: &str,
+    timeout_secs: u64,
+    in_app: bool,
 ) -> Result<String, String> {
-    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-
     let accept = async {
+        let mut sockets = tokio::task::JoinSet::new();
+
         loop {
-            let (stream, _) = listener
-                .accept()
-                .await
-                .map_err(|e| format!("loopback listener failed: {e}"))?;
+            tokio::select! {
+                incoming = listener.accept() => {
+                    let (stream, _) = incoming
+                        .map_err(|e| format!("loopback listener failed: {e}"))?;
+                    let expected = expected_state.to_string();
 
-            let mut reader = BufReader::new(stream);
-            let mut line = String::new();
-
-            if reader.read_line(&mut line).await.is_err() {
-                continue;
+                    sockets.spawn(async move {
+                        serve_loopback_socket(stream, &expected, in_app).await
+                    });
+                }
+                // Guarded: `join_next` on an empty set answers `None` immediately, and
+                // an unguarded non-matching branch would spin this loop.
+                Some(done) = sockets.join_next(), if !sockets.is_empty() => {
+                    // A probe (`None`) or a panicked task resolves nothing; keep waiting.
+                    if let Ok(Some(verdict)) = done {
+                        return verdict;
+                    }
+                }
             }
-
-            // "GET /callback?code=…&state=… HTTP/1.1"
-            let target = line.split_whitespace().nth(1).unwrap_or("").to_string();
-
-            // Browsers cheerfully probe /favicon.ico on the same origin; that is
-            // not the callback and must not consume the one-shot listener.
-            if !target.starts_with(native::CALLBACK_PATH) {
-                let _ = reader
-                    .into_inner()
-                    .write_all(native::callback_response(false).as_bytes())
-                    .await;
-                continue;
-            }
-
-            let outcome = native::parse_callback_target(&target, expected_state);
-            let _ = reader
-                .into_inner()
-                .write_all(native::callback_response(outcome.is_ok()).as_bytes())
-                .await;
-
-            return outcome;
         }
     };
 
-    match tokio::time::timeout(
-        std::time::Duration::from_secs(NATIVE_LOGIN_TIMEOUT_SECS),
-        accept,
-    )
-    .await
-    {
+    match tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), accept).await {
         Ok(inner) => inner,
         Err(_) => Err("Sign-in timed out before completing".to_string()),
     }
@@ -824,21 +1005,83 @@ async fn post_native_tokens(
     native::parse_token_response(&parsed)
 }
 
-/// Run the RFC 8252 login end to end: bind loopback, open the system browser,
-/// catch the redirect, exchange the code, persist the tokens.
+/// Why a native login failed, and whether it disturbed the app's UI on the way.
+///
+/// `navigated` is the entire reason this is a struct and not a `String`. On mobile the
+/// login runs in the app's ONLY webview, so a failure after the hand-off leaves the
+/// user looking at a page that is not Hermes. Falling back to the cookie cascade from
+/// there does not recover anything — it navigates them away a second time, to a
+/// different login page — which is precisely the "I ended up on some other login
+/// screen" this flow was reported for. See the match in `oauth_login`.
+struct NativeLoginError {
+    message: String,
+    /// Set once the hand-off has been ISSUED, which is not the same as the webview
+    /// having moved — a refused navigation counts too. That is deliberate: the cookie
+    /// cascade would ask the same webview for a page on the same unreachable host and
+    /// be refused identically, so falling back there buys a second failure and a
+    /// second wait.
+    navigated: bool,
+}
+
+impl From<String> for NativeLoginError {
+    /// Everything that can fail before the hand-off converts this way, so the shared
+    /// prologue below keeps using `?`. Anything that fails AFTER it has to say
+    /// `navigated: true` explicitly.
+    fn from(message: String) -> Self {
+        Self {
+            message,
+            navigated: false,
+        }
+    }
+}
+
+/// A mobile native login that failed after the hand-off was issued.
+///
+/// The extra bit is not the same question `NativeLoginError::navigated` answers.
+/// That one asks "may the cookie cascade run?" (no, in every case here). This one
+/// asks "is there anything to restore?" — and a navigation the platform REFUSED left
+/// the app exactly where it was, with its JS context alive and holding the connect
+/// screen that is about to render this error. Reloading it would throw that away and
+/// replace a nameable failure with a blank picker.
+#[cfg(mobile)]
+struct MobileNativeFailure {
+    message: String,
+    left_the_app: bool,
+}
+
+#[cfg(mobile)]
+impl From<String> for MobileNativeFailure {
+    /// The default is "we left", because everything that fails via `?` after the
+    /// hand-off — the loopback wait, the token POST, the keyring write — can only be
+    /// reached once the webview is already on the sign-in page.
+    fn from(message: String) -> Self {
+        Self {
+            message,
+            left_the_app: true,
+        }
+    }
+}
+
+/// Run the RFC 8252 login end to end: bind loopback, get the user to the authorize
+/// URL, catch the redirect, exchange the code, persist the tokens.
+///
+/// The prologue — PKCE, CSRF state, the loopback bind, the authorize URL — is shared,
+/// and every part of it fails before anything visible has happened. The platforms
+/// split only on *how the user reaches that URL and how they get back*: desktop hands
+/// it to the system browser, mobile drives the calling webview (see the module note
+/// for why mobile cannot use the browser).
 async fn run_native_login(
     app: &AppHandle,
+    webview: &WebviewWindow,
     state: &TransportState,
     base: &str,
     provider: &str,
-) -> Result<native::NativeTokenSet, String> {
-    use tauri_plugin_opener::OpenerExt;
-
+) -> Result<native::NativeTokenSet, NativeLoginError> {
     let pkce = native::generate_pkce()?;
     let csrf_state = native::generate_state()?;
 
-    // Bind BEFORE opening the browser: the redirect_uri has to name a port we are
-    // already listening on, or a fast IDP can beat us to the callback.
+    // Bind BEFORE handing off: the redirect_uri has to name a port we are already
+    // listening on, or a fast IDP can beat us to the callback.
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .map_err(|e| format!("could not open a loopback listener for sign-in: {e}"))?;
@@ -851,25 +1094,204 @@ async fn run_native_login(
     let authorize =
         native::build_authorize_url(base, &pkce.challenge, &redirect_uri, &csrf_state, provider);
 
-    log::info!("[oauth] native sign-in: loopback on 127.0.0.1:{port}, opening system browser");
+    #[cfg(desktop)]
+    {
+        use tauri_plugin_opener::OpenerExt;
 
-    // The opener plugin's Rust API, not the JS one: a Rust-internal call is not
-    // gated by the opener ACL/scope (same reason `open_external` in lib.rs uses it).
-    app.opener()
-        .open_url(authorize, None::<&str>)
-        .map_err(|e| format!("could not open the system browser: {e}"))?;
+        // The login happens in another application; ours is untouched.
+        let _ = webview;
 
-    let code = await_loopback_code(listener, &csrf_state).await?;
+        log::info!("[oauth] native sign-in: loopback on 127.0.0.1:{port}, opening system browser");
+
+        // The opener plugin's Rust API, not the JS one: a Rust-internal call is not
+        // gated by the opener ACL/scope (same reason `open_external` in lib.rs uses it).
+        app.opener()
+            .open_url(authorize, None::<&str>)
+            .map_err(|e| format!("could not open the system browser: {e}"))?;
+
+        let code =
+            await_loopback_code(listener, &csrf_state, NATIVE_LOGIN_TIMEOUT_SECS, false).await?;
+
+        let tokens = post_native_tokens(
+            state,
+            base,
+            "/auth/native/token",
+            serde_json::json!({ "code": code, "code_verifier": pkce.verifier }),
+        )
+        .await?;
+
+        // Survivable here: `register_bearer_base` keeps the session live for this run
+        // even on a machine with no working keyring, and nothing is about to reload and
+        // read it back. Mobile cannot say the same — see the other arm.
+        if let Err(e) = store_native_tokens(app, state, base, &tokens) {
+            log::warn!("[oauth] native session will not survive restart: {e}");
+        }
+
+        log::info!("[oauth] native sign-in complete for base={base}");
+
+        Ok(tokens)
+    }
+
+    #[cfg(mobile)]
+    {
+        let label = webview.label().to_string();
+        let return_url = webview
+            .url()
+            .map_err(|e| format!("could not read current app URL: {e}"))?;
+        let authorize_url =
+            Url::parse(&authorize).map_err(|e| format!("invalid authorize URL: {e}"))?;
+
+        log::info!(
+            "[oauth] native sign-in: loopback on 127.0.0.1:{port}; navigating webview {label:?} \
+             to authorize; will return to {return_url}"
+        );
+
+        // A navigate that fails to even queue has not moved anything.
+        webview
+            .navigate(authorize_url.clone())
+            .map_err(|e| format!("could not open the sign-in page: {e}"))?;
+
+        // Past this line the app's UI is gone, so every exit runs through the single
+        // restore below and reports `navigated: true`.
+        let outcome = native_login_after_navigate(
+            app,
+            state,
+            base,
+            webview,
+            &return_url,
+            &authorize_url,
+            listener,
+            &csrf_state,
+            &pkce.verifier,
+        )
+        .await;
+
+        // Restore the app — unless the navigation was refused, in which case we never
+        // left and the SPA is still live (the same call the cookie cascade and
+        // `cloud.rs::portal_login` skip for that case). On success the tokens are
+        // already in the keyring, which the reload this triggers is about to read.
+        let restore = match outcome.as_ref() {
+            Ok(_) => true,
+            Err(failure) => failure.left_the_app,
+        };
+
+        if restore {
+            let _ = webview.navigate(return_url);
+        }
+
+        outcome.map_err(|failure| NativeLoginError {
+            message: failure.message,
+            navigated: true,
+        })
+    }
+}
+
+/// Why the sign-in webview stopped being somewhere useful.
+#[cfg(mobile)]
+enum Departure {
+    /// It never left the app at all — the platform refused the load.
+    Refused,
+    /// It left, and then came back to the app on its own: the user backed out.
+    Abandoned,
+}
+
+/// Resolve only when the sign-in is no longer reachable, so the caller can stop
+/// waiting on a callback that is not coming.
+///
+/// Two distinct cases, and both used to cost the entire budget. A refusal is the
+/// existing `navigation_committed` check. An abandon is new and is what makes a
+/// four-minute budget tolerable: Android's hardware back pops the webview's history,
+/// which lands it back on the app's own origin, and there is no other way to cancel
+/// while the app UI is away.
+///
+/// Two consecutive readings before calling it, so a transient unreadable `url()`
+/// cannot cancel a live sign-in.
+#[cfg(mobile)]
+async fn watch_for_departure(webview: &WebviewWindow, app_url: &Url) -> Departure {
+    if !navigation_committed(webview, app_url).await {
+        return Departure::Refused;
+    }
+
+    let mut back_home = 0u8;
+
+    loop {
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+
+        match webview.url() {
+            Ok(now) if native::same_origin(&now, app_url) => {
+                back_home += 1;
+
+                if back_home >= 2 {
+                    return Departure::Abandoned;
+                }
+            }
+            _ => back_home = 0,
+        }
+    }
+}
+
+/// The half of the mobile native login that runs while the app's UI is away.
+///
+/// Split out so `run_native_login` has exactly one place that decides whether to
+/// restore the app, no matter which of these steps failed.
+#[cfg(mobile)]
+#[allow(clippy::too_many_arguments)]
+async fn native_login_after_navigate(
+    app: &AppHandle,
+    state: &TransportState,
+    base: &str,
+    webview: &WebviewWindow,
+    return_url: &Url,
+    authorize_url: &Url,
+    listener: tokio::net::TcpListener,
+    csrf_state: &str,
+    verifier: &str,
+) -> Result<native::NativeTokenSet, MobileNativeFailure> {
+    let wait = await_loopback_code(listener, csrf_state, MOBILE_NATIVE_TIMEOUT_SECS, true);
+    tokio::pin!(wait);
+
+    // The watcher only ever resolves on a dead end, so a sign-in that completes in two
+    // seconds is still noticed in two seconds.
+    let code = tokio::select! {
+        result = &mut wait => result?,
+        departure = watch_for_departure(webview, return_url) => {
+            return Err(match departure {
+                Departure::Refused => {
+                    log::warn!(
+                        "[oauth] authorize navigation to {authorize_url} never committed; giving up"
+                    );
+
+                    // The one case with nothing to restore.
+                    MobileNativeFailure {
+                        message: navigation_refused(authorize_url),
+                        left_the_app: false,
+                    }
+                }
+                Departure::Abandoned => {
+                    log::info!("[oauth] the sign-in page was left before completing; cancelling");
+
+                    "Sign-in was cancelled".to_string().into()
+                }
+            });
+        }
+    };
 
     let tokens = post_native_tokens(
         state,
         base,
         "/auth/native/token",
-        serde_json::json!({ "code": code, "code_verifier": pkce.verifier }),
+        serde_json::json!({ "code": code, "code_verifier": verifier }),
     )
     .await?;
 
-    store_native_tokens(app, state, base, &tokens);
+    // Written BEFORE the caller navigates back, and a failure here fails the sign-in.
+    // The restore reloads the SPA, whose boot calls `oauth_status` — i.e. reads this
+    // exact keyring entry — within a tick or two. A write that has not landed, or that
+    // silently did not happen, reads as "signed out" and drops the user on the connect
+    // screen holding a login they just completed.
+    store_native_tokens(app, state, base, &tokens)
+        .map_err(|e| format!("Signed in, but the credential could not be saved: {e}"))?;
+
     log::info!("[oauth] native sign-in complete for base={base}");
 
     Ok(tokens)
@@ -918,7 +1340,13 @@ async fn ensure_native_tokens(
     .await
     {
         Ok(rotated) => {
-            store_native_tokens(app, state, base, &rotated);
+            // A rotation that cannot be written back is survivable: the set we just
+            // received is live in memory for this run, and the next launch simply signs
+            // in again. Unlike a fresh login (see `run_native_login`), nothing is about
+            // to reload and read the keyring back.
+            if let Err(e) = store_native_tokens(app, state, base, &rotated) {
+                log::warn!("[oauth] could not persist rotated native tokens: {e}");
+            }
 
             Some(rotated)
         }
@@ -1041,9 +1469,21 @@ async fn poll_session_cookies(
     }
 }
 
-/// Run the interactive gateway OAuth flow. The webview completes the whole login;
-/// we then copy its session cookies into the shared reqwest jar so the caller (JS)
-/// can connect the gateway normally and the ws-ticket mint is authenticated.
+/// Run the interactive gateway OAuth flow — the RFC 8252 native flow when the gateway
+/// brokers one, the webview-cookie cascade otherwise.
+///
+/// Note the fall-through rule between them. A native attempt that failed WITHOUT
+/// touching the app UI drops through to the cascade, because a user who cannot sign in
+/// at all is worse than one who signs in the old way. A native attempt that already
+/// took the app's webview to a sign-in page does NOT: running the cascade after it
+/// would navigate away a second time, to a second login page, which is the failure this
+/// is supposed to prevent rather than a recovery from it.
+///
+/// ## The cookie cascade
+///
+/// The webview completes the whole login; we then copy its session cookies into the
+/// shared reqwest jar so the caller (JS) can connect the gateway normally and the
+/// ws-ticket mint is authenticated.
 ///
 /// Desktop opens a dedicated sign-in `WebviewWindow` that floats over the app. Neither
 /// mobile OS can use one. On Android wry attaches its webview via `setContentView` (an
@@ -1082,14 +1522,30 @@ pub async fn oauth_login(
             native::NATIVE_FLOW_ID
         );
 
-        match run_native_login(&app, state.inner(), &base, &provider).await {
+        match run_native_login(&app, &webview, state.inner(), &base, &provider).await {
             Ok(_) => return Ok(()),
-            // Fall through rather than fail: the cookie flow still works, and a
-            // user who cannot sign in at all is a worse outcome than one who signs
-            // in the old way. The reason is logged, never surfaced as a dead end.
-            Err(e) => {
-                log::warn!("[oauth] native sign-in failed, falling back to the webview flow: {e}")
+            // The app's own webview was sent to the sign-in page and brought back for
+            // this attempt. Falling back now would send it away AGAIN, to a different
+            // login page — which is not a recovery, it is the bug: the user completes a
+            // sign-in and finds themselves looking at another login screen. Report the
+            // real reason instead, from inside the app.
+            Err(e) if e.navigated => {
+                log::warn!(
+                    "[oauth] native sign-in failed after the webview round-trip; \
+                     not falling back: {}",
+                    e.message
+                );
+
+                return Err(e.message);
             }
+            // Nothing was disturbed (a bind/PKCE/URL failure, or desktop, where the
+            // login lives in another app entirely). Fall through rather than fail: the
+            // cookie flow still works, and a user who cannot sign in at all is a worse
+            // outcome than one who signs in the old way.
+            Err(e) => log::warn!(
+                "[oauth] native sign-in failed, falling back to the webview flow: {}",
+                e.message
+            ),
         }
     }
 
@@ -1428,5 +1884,104 @@ mod tests {
         assert!(status.signed_in);
         assert_eq!(status.email, None);
         assert_eq!(status.session_kind, Some(SessionKind::Native));
+    }
+
+    // ── The loopback listener ────────────────────────────────────────────────
+    //
+    // Reachable without a browser, a webview or a gateway: it is a TCP server, and a
+    // `TcpStream` is a perfectly good client. Worth testing directly, because this is
+    // the one part of the native flow whose failures are indistinguishable from "the
+    // user did not finish signing in".
+
+    async fn bound_listener() -> (tokio::net::TcpListener, u16) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        (listener, port)
+    }
+
+    /// Connect and send one request line, exactly as a browser or webview would. The
+    /// listener is already bound, so this lands in the accept backlog whether or not
+    /// `await_loopback_code` is polling yet.
+    async fn request(port: u16, target: &str) {
+        use tokio::io::AsyncWriteExt;
+
+        let mut stream = tokio::net::TcpStream::connect(("127.0.0.1", port))
+            .await
+            .unwrap();
+
+        stream
+            .write_all(format!("GET {target} HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n").as_bytes())
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_favicon_probe_does_not_resolve_the_wait() {
+        let (listener, port) = bound_listener().await;
+
+        request(port, "/favicon.ico").await;
+        request(port, "/callback?code=abc123&state=xyz").await;
+
+        let code = await_loopback_code(listener, "xyz", 10, false)
+            .await
+            .unwrap();
+
+        assert_eq!(code, "abc123");
+    }
+
+    /// The head-of-line regression, and the reason this listener serves sockets
+    /// concurrently.
+    ///
+    /// A client that opens a connection and sends nothing on it is ordinary — both
+    /// browsers and webviews preconnect, and a webview does it while making the very
+    /// navigation whose callback we are waiting for. Serving sockets one at a time
+    /// meant that socket pinned the listener, the real callback sat unread in the
+    /// backlog, and the login died of a timeout with the code already delivered.
+    #[tokio::test]
+    async fn a_silent_socket_cannot_stall_the_real_callback() {
+        let (listener, port) = bound_listener().await;
+
+        // Connected first, so it is first in the backlog. Held open for the duration.
+        let _silent = tokio::net::TcpStream::connect(("127.0.0.1", port))
+            .await
+            .unwrap();
+        request(port, "/callback?code=abc123&state=xyz").await;
+
+        // The assertion is the deadline, not the value: a serial listener would still
+        // answer eventually (once the per-socket read deadline lapsed), just far too
+        // late to be a sign-in.
+        let code = tokio::time::timeout(
+            std::time::Duration::from_secs(3),
+            await_loopback_code(listener, "xyz", 60, true),
+        )
+        .await
+        .expect("a silent socket must not delay the callback")
+        .unwrap();
+
+        assert_eq!(code, "abc123");
+    }
+
+    #[tokio::test]
+    async fn a_callback_whose_state_does_not_match_is_refused() {
+        // The CSRF boundary still decides per socket, so concurrency did not widen it.
+        let (listener, port) = bound_listener().await;
+
+        request(port, "/callback?code=abc123&state=someone-elses").await;
+
+        assert!(await_loopback_code(listener, "xyz", 10, false)
+            .await
+            .is_err());
+    }
+
+    #[tokio::test]
+    async fn the_wait_gives_up_rather_than_pinning_the_socket_forever() {
+        let (listener, _port) = bound_listener().await;
+
+        let err = await_loopback_code(listener, "xyz", 1, false)
+            .await
+            .unwrap_err();
+
+        assert!(err.contains("timed out"), "{err}");
     }
 }
