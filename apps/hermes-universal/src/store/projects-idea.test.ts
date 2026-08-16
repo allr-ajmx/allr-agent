@@ -4,11 +4,16 @@ import type * as DesktopFsModule from '@/lib/desktop-fs'
 import type * as GatewayModule from '@/store/gateway'
 import type * as NotificationsModule from '@/store/notifications'
 
-const { notifyError, requestGateway, writeDesktopFileText } = vi.hoisted(() => ({
-  notifyError: vi.fn(),
-  requestGateway: vi.fn(),
-  writeDesktopFileText: vi.fn()
-}))
+const { notify, notifyError, readDesktopDir, readDesktopFileText, requestGateway, writeDesktopFileText } = vi.hoisted(
+  () => ({
+    notify: vi.fn(),
+    notifyError: vi.fn(),
+    readDesktopDir: vi.fn(),
+    readDesktopFileText: vi.fn(),
+    requestGateway: vi.fn(),
+    writeDesktopFileText: vi.fn()
+  })
+)
 
 // Partial mocks throughout: store/connection subscribes to `$gatewayState` at
 // import time, and store/projects pulls several other helpers out of each of
@@ -20,11 +25,14 @@ vi.mock('@/store/gateway', async importOriginal => ({
 
 vi.mock('@/lib/desktop-fs', async importOriginal => ({
   ...(await importOriginal<typeof DesktopFsModule>()),
+  readDesktopDir,
+  readDesktopFileText,
   writeDesktopFileText
 }))
 
 vi.mock('@/store/notifications', async importOriginal => ({
   ...(await importOriginal<typeof NotificationsModule>()),
+  notify,
   notifyError
 }))
 
@@ -55,10 +63,18 @@ const createReturns = (created: ProjectInfo) => {
   )
 }
 
+// A directory entry as `/api/fs/read-dir` returns it.
+const entry = (dir: string, name: string) => ({ isDirectory: false, name, path: `${dir}/${name}` })
+
 beforeEach(() => {
   requestGateway.mockReset()
   writeDesktopFileText.mockReset()
   writeDesktopFileText.mockResolvedValue({ path: '' })
+  // Default: the project folder holds no IDEA.md yet.
+  readDesktopDir.mockReset()
+  readDesktopDir.mockResolvedValue({ entries: [] })
+  readDesktopFileText.mockReset()
+  notify.mockReset()
   notifyError.mockReset()
   $projects.set([])
   $projectTree.set([])
@@ -121,6 +137,88 @@ describe('createProject → IDEA.md', () => {
     await createProject({ idea: 'Nowhere to put it', name: 'Idea' })
 
     expect(writeDesktopFileText).not.toHaveBeenCalled()
+  })
+
+  it('appends to an IDEA.md that is already there instead of overwriting it', async () => {
+    createReturns(project())
+    readDesktopDir.mockResolvedValue({ entries: [entry('/www/idea', 'IDEA.md')] })
+    readDesktopFileText.mockResolvedValue({ path: '/www/idea/IDEA.md', text: 'The original brief.\n\n' })
+
+    await createProject({ folders: ['/www/idea'], idea: 'A second thought', name: 'Idea' })
+
+    expect(writeDesktopFileText).toHaveBeenCalledWith(
+      '/www/idea/IDEA.md',
+      'The original brief.\n\n---\n\nA second thought\n'
+    )
+    expect(notify).toHaveBeenCalledWith({
+      kind: 'info',
+      message: 'IDEA.md already existed — your idea was appended to it'
+    })
+  })
+
+  it('appends to a differently-cased idea file rather than shadowing it', async () => {
+    createReturns(project())
+    readDesktopDir.mockResolvedValue({ entries: [entry('/www/idea', 'Idea.md')] })
+    readDesktopFileText.mockResolvedValue({ path: '/www/idea/Idea.md', text: 'Kept' })
+
+    await createProject({ folders: ['/www/idea'], idea: 'Added', name: 'Idea' })
+
+    expect(readDesktopFileText).toHaveBeenCalledWith('/www/idea/Idea.md')
+    expect(writeDesktopFileText).toHaveBeenCalledWith('/www/idea/Idea.md', 'Kept\n\n---\n\nAdded\n')
+  })
+
+  it('overwrites an existing IDEA.md that holds nothing but whitespace', async () => {
+    createReturns(project())
+    readDesktopDir.mockResolvedValue({ entries: [entry('/www/idea', 'IDEA.md')] })
+    readDesktopFileText.mockResolvedValue({ path: '/www/idea/IDEA.md', text: '  \n\n' })
+
+    await createProject({ folders: ['/www/idea'], idea: 'Fresh start', name: 'Idea' })
+
+    expect(writeDesktopFileText).toHaveBeenCalledWith('/www/idea/IDEA.md', 'Fresh start\n')
+    expect(notify).not.toHaveBeenCalled()
+  })
+
+  it('leaves an IDEA.md alone when the read came back truncated or binary', async () => {
+    createReturns(project())
+    readDesktopDir.mockResolvedValue({ entries: [entry('/www/idea', 'IDEA.md')] })
+    readDesktopFileText.mockResolvedValue({ path: '/www/idea/IDEA.md', text: 'head of a huge file', truncated: true })
+
+    await createProject({ folders: ['/www/idea'], idea: 'Not worth the tail', name: 'Idea' })
+
+    expect(writeDesktopFileText).not.toHaveBeenCalled()
+    expect(notify).toHaveBeenCalledWith({
+      kind: 'warning',
+      message: 'IDEA.md was left untouched — it is too large or not text'
+    })
+
+    notify.mockClear()
+    readDesktopFileText.mockResolvedValue({ binary: true, path: '/www/idea/IDEA.md', text: '\u0000' })
+
+    await createProject({ folders: ['/www/idea'], idea: 'Still not', name: 'Idea' })
+
+    expect(writeDesktopFileText).not.toHaveBeenCalled()
+    expect(notify).toHaveBeenCalledTimes(1)
+  })
+
+  it('writes a fresh file when the folder cannot be listed at all', async () => {
+    createReturns(project())
+    readDesktopDir.mockRejectedValue(new Error('gateway down'))
+
+    await createProject({ folders: ['/www/idea'], idea: 'Optimistic', name: 'Idea' })
+
+    expect(writeDesktopFileText).toHaveBeenCalledWith('/www/idea/IDEA.md', 'Optimistic\n')
+  })
+
+  it('reports a failed read of the existing file instead of clobbering it', async () => {
+    createReturns(project())
+    readDesktopDir.mockResolvedValue({ entries: [entry('/www/idea', 'IDEA.md')] })
+    const err = new Error('GET /api/fs/read-text → HTTP 403: not readable')
+    readDesktopFileText.mockRejectedValue(err)
+
+    await createProject({ folders: ['/www/idea'], idea: 'Denied', name: 'Idea' })
+
+    expect(writeDesktopFileText).not.toHaveBeenCalled()
+    expect(notifyError).toHaveBeenCalledWith(err, 'Project created, but IDEA.md could not be saved')
   })
 
   it('still creates the project when the write fails, and says so', async () => {

@@ -1,4 +1,6 @@
 import { TITLEBAR_AREAS } from '@/app/contrib/surfaces'
+import { toggleHud } from '@/app/hud/hud'
+import { useCanUseHud } from '@/app/hud/use-hud-surface'
 import { Codicon } from '@/components/ui/codicon'
 import { Slot } from '@/contrib/react/slot'
 import { useI18n } from '@/i18n'
@@ -34,6 +36,7 @@ export function Titlebar({ connected }: { connected: boolean }) {
   // its own side of main, so a swap never leaves a button lying about its pane.
   const leftEdgeOpen = useStore($leftEdgeOpen)
   const rightEdgeOpen = useStore($rightEdgeOpen)
+  const hudAvailable = useCanUseHud()
 
   return (
     <div
@@ -99,6 +102,20 @@ export function Titlebar({ connected }: { connected: boolean }) {
           >
             <Codicon name={hapticsMuted ? 'mute' : 'unmute'} />
           </TitlebarButton>
+          {/* The HUD — the same conversation, over whatever you are working in
+              (MJXHRM-213). Sits next to the other view affordances rather than
+              in the layout menu: it is a different window, not a pane
+              arrangement. `actionId` makes the tooltip carry its live chord.
+
+              Behind the capability gate `lib/surface.ts` tells callers to read
+              before offering the affordance: where there is no floating surface
+              this button opens an ordinary window that sits BEHIND whatever the
+              user is working in, which is worse than not offering it at all. */}
+          {hudAvailable && (
+            <TitlebarButton actionId="view.toggleHud" label={t.titlebar.enterHud} onClick={() => void toggleHud()}>
+              <Codicon name="comment-discussion" />
+            </TitlebarButton>
+          )}
           <TitlebarButton
             actionId="keybinds.openPanel"
             label={t.titlebar.openKeybinds}

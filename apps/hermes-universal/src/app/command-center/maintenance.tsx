@@ -3,7 +3,6 @@ import { useCallback, useEffect, useState } from 'react'
 import { PageLoader } from '@/components/page-loader'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { writeClipboardText } from '@/components/ui/copy-button'
 import {
   type ActionResponse,
   type CuratorStatusResponse,
@@ -21,6 +20,7 @@ import {
   setCuratorPaused
 } from '@/hermes'
 import { useI18n } from '@/i18n'
+import { writeClipboardText } from '@/lib/clipboard'
 import { AlertCircle } from '@/lib/icons'
 import { cn } from '@/lib/utils'
 import { upsertDesktopActionTask } from '@/store/activity'
@@ -281,8 +281,8 @@ export function MaintenancePanel() {
                     !curator.enabled
                       ? 'bg-(--ui-bg-quinary) text-(--ui-text-tertiary)'
                       : curator.paused
-                        ? 'bg-amber-500/15 text-amber-400'
-                        : 'bg-emerald-500/15 text-emerald-400'
+                        ? 'bg-(--ui-yellow)/15 text-(--ui-yellow)'
+                        : 'bg-(--ui-green)/15 text-(--ui-green)'
                   )}
                 >
                   {!curator.enabled ? mm.curatorDisabled : curator.paused ? mm.curatorPaused : mm.curatorActive}
@@ -400,7 +400,7 @@ function MemoryFileRow({
     <div className="flex items-center justify-between gap-3 py-2">
       <div className="min-w-0">
         <span className="text-[length:var(--conversation-text-font-size)] font-medium">{label}</span>
-        <span className="ml-2 text-[length:var(--conversation-caption-font-size)] text-(--ui-text-tertiary)">
+        <span className="ms-2 text-[length:var(--conversation-caption-font-size)] text-(--ui-text-tertiary)">
           {sizeLabel}
         </span>
       </div>

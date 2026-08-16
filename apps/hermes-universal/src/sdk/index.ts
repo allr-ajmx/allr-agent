@@ -22,8 +22,16 @@
  *  - No `TitlebarTool`. Universal's titlebar is composed of TitlebarButton JSX,
  *    not descriptors, so `titleBar.left/center/right` are plain Slots — use a
  *    `render()` contribution. Same mechanism reaches the mobile top bar.
- *  - `ctx.rest` cannot upload (see `pluginRest`), and `ctx.socket` needs a
- *    token-mode connection (see `pluginSocket`).
+ *  - `ctx.rest` CAN upload and `ctx.socket` authenticates on every gateway mode
+ *    — both are wider here than the note that used to sit in this spot claimed.
+ *    `upload` is ONE file under the field name `file` (what a FastAPI
+ *    `UploadFile` parameter expects): no multi-file, no extra form fields, no
+ *    progress, and the whole file is held in memory. Desktop takes the same
+ *    shape but refuses an upload outright against an OAuth-gated backend.
+ *  - `ctx.os` has the same four members and the same result contract, but sits
+ *    over Tauri instead of the Electron preload bridge — so on mobile (and in a
+ *    plain-browser dev run) more of them resolve `false` than on the desktop
+ *    app. Branch on the result; never assume the door opened.
  */
 
 import { atom, type ReadableAtom } from 'nanostores'
@@ -135,6 +143,28 @@ export { type RouteContribution, ROUTES_AREA, SIDEBAR_NAV_AREA, type SidebarNavC
  *  canonical one lives in the settings primitives. Same component, same look. */
 export { EmptyState } from '@/app/settings/primitives'
 
+/**
+ * THE model catalog menu — the very component the chat composer's model pill
+ * renders, so a plugin that lets the user choose a model gets the app's search,
+ * provider grouping, `-fast` family collapse and thinking-depth submenu for
+ * free, and can never drift from the composer's.
+ *
+ * It renders and navigates; a `ModelMenuController` decides what a selection
+ * MEANS. The composer's writes through to the live session; a plugin's may just
+ * hold a detached value (a per-task override) — that seam is the whole point.
+ * Mount it inside a `DropdownMenuContent` and provide `ModelMenuCloseContext`
+ * so a committed row dismisses your dropdown.
+ */
+export {
+  ModelCatalogMenu,
+  type ModelChoice,
+  ModelMenuCloseContext,
+  type ModelMenuController
+} from '@/app/shell/model-catalog-menu'
+/** The reasoning levels the app offers, and what an unset effort resolves to —
+ *  so a plugin storing a thinking depth stores one the app agrees with. */
+export { DEFAULT_REASONING_EFFORT, REASONING_EFFORTS } from '@/app/shell/model-edit-submenu'
+
 // -- ui: the design language --------------------------------------------------
 
 export type { StatusbarItem } from '@/app/shell/statusbar-controls'
@@ -213,6 +243,8 @@ export type {
   HermesPlugin,
   PluginContext,
   PluginContribution,
+  PluginNativeNotificationInput,
+  PluginOs,
   PluginRestOptions,
   PluginStorage,
   PluginTile
@@ -247,6 +279,11 @@ export { triggerHaptic as haptic } from '@/lib/haptics'
 /** The app's icon set (RefreshCw, LayoutDashboard, Activity, …). */
 export * as icons from '@/lib/icons'
 export { type KeybindContribution, KEYBINDS_AREA } from '@/lib/keybinds/actions'
+/** Model-id presentation, shared with the composer and the status bar:
+ *  `displayModelName` for the friendly name, `modelDisplayParts` to split off a
+ *  variant tag, `reasoningEffortLabel` to render a thinking depth ('high' →
+ *  'High'). A plugin showing a model should never hand-roll these. */
+export { displayModelName, modelDisplayParts, reasoningEffortLabel } from '@/lib/model-status-label'
 
 export const PANES_AREA = 'panes'
 /** The app's deterministic identity color for a name (profiles, assignees,

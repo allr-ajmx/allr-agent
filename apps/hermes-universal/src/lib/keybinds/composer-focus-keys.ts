@@ -50,6 +50,20 @@ const BLOCKING_OVERLAY =
 // must not take the foreground composer's letter keys.
 const BLOCKING_IN_SURFACE = '[data-clarify-choices]'
 
+/**
+ * The ONE clarify card that owns its shortcut keys right now, or null.
+ *
+ * Keep-alive means every clarify card a zone ever showed is still MOUNTED, and a
+ * split can put two of them on screen at once — but only one can own a keystroke
+ * fired at the document. Resolving that here, once, is what lets the composer
+ * (which stands down for the card) and the card itself (which acts) agree about
+ * WHICH card it is. They used not to: the composer was already visible-scoped
+ * while every mounted card bound the document unconditionally, so a clarify
+ * parked in a background tab ate the foreground's letters and answered its own
+ * question with them.
+ */
+export const keyOwningClarifyCard = (): HTMLElement | null => queryVisible(BLOCKING_IN_SURFACE)
+
 /** True when the focused control would normally handle Enter itself. */
 export function isActivateOnEnterTarget(target: EventTarget | null): boolean {
   const el = target as HTMLElement | null
@@ -72,7 +86,7 @@ export function isActivateOnEnterTarget(target: EventTarget | null): boolean {
  * with no store coupling.
  */
 export function clarifyCardOwnsKey(event: KeyboardEvent): boolean {
-  const card = queryVisible(BLOCKING_IN_SURFACE)
+  const card = keyOwningClarifyCard()
 
   if (!card) {
     return false

@@ -1,0 +1,167 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+import {
+  $activeSessionCompacting,
+  $compactingSessions,
+  clearAllCompaction,
+  routeCompactionEvent,
+  sessionCompacting,
+  sessionCompactingSince,
+  setSessionCompacting,
+  turnCompacted
+} from '@/store/compaction'
+import {
+  $activeSessionKey,
+  $sessionStates,
+  dropSessionState,
+  emptySessionState,
+  publishSessionState,
+  rekeySession
+} from '@/store/session-state-types'
+import { beginTurn, clearAllTurns, getInflightTurn, settleTurn } from '@/store/turn-lifecycle'
+
+const status = (kind: string) => ({ kind })
+
+beforeEach(() => {
+  clearAllCompaction()
+  clearAllTurns()
+  $sessionStates.set({})
+  $activeSessionKey.set('s1')
+})
+
+describe('setSessionCompacting', () => {
+  it('is per session', () => {
+    setSessionCompacting('s1', true)
+
+    expect(sessionCompacting('s1').get()).toBe(true)
+    expect(sessionCompacting('s2').get()).toBe(false)
+    expect($activeSessionCompacting.get()).toBe(true)
+  })
+
+  it('mirrors onto the live turn record, so the two stores cannot disagree', () => {
+    beginTurn('s1', { prompt: 'a' })
+    setSessionCompacting('s1', true)
+
+    expect(getInflightTurn('s1')?.compacting).toBe(true)
+
+    setSessionCompacting('s1', false)
+
+    expect(getInflightTurn('s1')?.compacting).toBe(false)
+  })
+
+  it('ignores an empty key', () => {
+    setSessionCompacting('', true)
+    setSessionCompacting(null, true)
+
+    expect($compactingSessions.get()).toEqual({})
+  })
+})
+
+describe('routeCompactionEvent', () => {
+  it('starts on status.update{compacting} and ends on {compacted}', () => {
+    routeCompactionEvent('s1', 'status.update', status('compacting'))
+
+    expect(sessionCompacting('s1').get()).toBe(true)
+    expect(turnCompacted('s1')).toBe(true)
+
+    routeCompactionEvent('s1', 'status.update', status('compacted'))
+
+    expect(sessionCompacting('s1').get()).toBe(false)
+  })
+
+  // Mid-turn compaction emits no second message.start and no "compacted"
+  // status, so the first real output is the only end-signal on that path.
+  it('ends on the first output when no "compacted" status arrives', () => {
+    routeCompactionEvent('s1', 'status.update', status('compacting'))
+    routeCompactionEvent('s1', 'message.delta', {})
+
+    expect(sessionCompacting('s1').get()).toBe(false)
+    // But the turn is still marked as having compacted — that outlives the flag.
+    expect(turnCompacted('s1')).toBe(true)
+  })
+
+  it('does not treat output on a never-compacted turn as an end-signal', () => {
+    routeCompactionEvent('s2', 'message.delta', {})
+
+    expect(turnCompacted('s2')).toBe(false)
+    expect($compactingSessions.get()).toEqual({})
+  })
+
+  it('clears the whole turn mark on a fresh turn, a completion and an error', () => {
+    for (const terminal of ['message.start', 'message.complete', 'error']) {
+      routeCompactionEvent('s1', 'status.update', status('compacting'))
+      routeCompactionEvent('s1', terminal, {})
+
+      expect(sessionCompacting('s1').get()).toBe(false)
+      expect(turnCompacted('s1')).toBe(false)
+    }
+  })
+
+  it('ignores an unrelated status kind', () => {
+    routeCompactionEvent('s1', 'status.update', status('process'))
+
+    expect(sessionCompacting('s1').get()).toBe(false)
+  })
+})
+
+// A compaction interrupted by a disconnect must not leave the composer
+// permanently refusing to steer.
+describe('turn settle', () => {
+  it('releases the flag however the turn ends', () => {
+    beginTurn('s1', { prompt: 'a' })
+    routeCompactionEvent('s1', 'status.update', status('compacting'))
+
+    expect(sessionCompacting('s1').get()).toBe(true)
+
+    settleTurn('s1')
+
+    expect(sessionCompacting('s1').get()).toBe(false)
+    expect(turnCompacted('s1')).toBe(false)
+  })
+})
+
+// MJXHRM-308: compaction state is keyed by SESSION KEY, so it has to make the
+// same key moves the slice makes — the contract store/prompts.ts and
+// store/turn-lifecycle.ts already sign up to and this module never did. A
+// stale-runtime recovery rekeys on the first verb back after a sleep/wake, and
+// `reconcileSessionTurn` rekeys on any reconnect that finds a restarted gateway.
+describe('session key moves', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('carries the compacting flag and the turn mark onto the new key', () => {
+    vi.useFakeTimers()
+    routeCompactionEvent('s1', 'status.update', status('compacting'))
+    const startedAt = $compactingSessions.get().s1
+
+    // Time passes before the reconnect that moves the key.
+    vi.advanceTimersByTime(90_000)
+    rekeySession('s1', 's9')
+
+    expect(sessionCompacting('s9').get()).toBe(true)
+    expect(turnCompacted('s9')).toBe(true)
+    // The START TIME rides along. A reconnect that rekeys mid-compaction must
+    // not restart the clock the "Summarizing thread" hint is counting, or a
+    // three-minute wait reads as having just begun, twice.
+    expect(sessionCompactingSince('s9').get()).toBe(startedAt)
+    // Stranded under the dead key the flag reads FALSE for a session that is
+    // still summarizing — so the composer sends a correction as a redirect
+    // against a turn with no live model request to redirect — and the entry
+    // never expires, because the settle observer clears the LIVE key.
+    expect(sessionCompacting('s1').get()).toBe(false)
+    expect(turnCompacted('s1')).toBe(false)
+    expect(Object.keys($compactingSessions.get())).toEqual(['s9'])
+  })
+
+  it('releases both when the slice is evicted', () => {
+    publishSessionState('s1', emptySessionState('stored-1'))
+    routeCompactionEvent('s1', 'status.update', status('compacting'))
+
+    dropSessionState('s1')
+
+    expect(sessionCompacting('s1').get()).toBe(false)
+    expect(turnCompacted('s1')).toBe(false)
+    expect($compactingSessions.get()).toEqual({})
+  })
+})

@@ -10,10 +10,12 @@
 //! `exclude_paths`) read from Hermes config; results are POSTed to the gateway's
 //! `projects.record_repos`, which caches them so later reads never re-walk disk.
 //!
-//! Gating: this walks the *Tauri host's* filesystem, so `store/projects.ts` only
+//! Gating: this walks the *Tauri host's* filesystem, so `lib/desktop-git.ts` only
 //! calls it when the backend was spawned locally (gateway mode `local`). A remote
-//! gateway owns a different disk and Android has no crawlable one — that case
-//! needs a backend-side endpoint, tracked as MJX-207.
+//! gateway owns a different disk and Android has no crawlable one; those cases go
+//! to the gateway's own copy of this walk instead — `GET /api/git/scan-repos`
+//! (`hermes_cli/web_repo_scan.py`), whose roots come from the gateway's config
+//! rather than from the client.
 
 use serde::Serialize;
 
@@ -50,15 +52,36 @@ pub mod imp {
         "venv",
     ];
 
-    /// `$HOME` / `%USERPROFILE%`, falling back to the current directory so a
-    /// missing env var can't turn a relative root into a filesystem-root crawl.
-    pub fn home_dir() -> PathBuf {
-        std::env::var("HOME")
-            .or_else(|_| std::env::var("USERPROFILE"))
-            .ok()
+    /// Pick the home directory from values already read out of the environment,
+    /// falling back to the current directory so a missing env var can't turn a
+    /// relative root into a filesystem-root crawl. A blank `HOME` takes that
+    /// fallback rather than sliding through to `USERPROFILE`, matching the
+    /// `or`-then-`filter` order this replaced.
+    ///
+    /// Split out from `home_dir` so the rules are testable WITHOUT touching the
+    /// process environment — the same seam `plugins::plugin_root_under` uses, and
+    /// for the same reason: `cargo test` runs a crate's tests as threads in one
+    /// process, and on glibc a `setenv` can reallocate `environ` underneath a
+    /// concurrent `getenv`. That is a data race whatever values the assertions
+    /// expect, so the only safe answer is for no test to write env at all.
+    pub(super) fn resolve_home(
+        home: Option<String>,
+        user_profile: Option<String>,
+        cwd: impl FnOnce() -> PathBuf,
+    ) -> PathBuf {
+        home.or(user_profile)
             .filter(|value| !value.trim().is_empty())
             .map(PathBuf::from)
-            .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
+            .unwrap_or_else(cwd)
+    }
+
+    /// `$HOME` / `%USERPROFILE%`, falling back to the current directory.
+    pub fn home_dir() -> PathBuf {
+        resolve_home(
+            std::env::var("HOME").ok(),
+            std::env::var("USERPROFILE").ok(),
+            || std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
+        )
     }
 
     /// Lexical normalization (no symlink resolution, no disk access) — the Rust
@@ -179,23 +202,42 @@ pub mod imp {
         (false, children)
     }
 
-    /// Scan `roots` for git repositories.
+    /// Scan `roots` for git repositories, against this machine's home.
     ///
-    /// Disabled discovery returns before resolving home or touching the disk. An
-    /// empty root list preserves desktop's historical home-directory scan. The
-    /// walk is breadth-first by depth level, with each level fanned out over at
-    /// most `MAX_CONCURRENCY` threads (desktop's `mapLimit` equivalent).
+    /// Disabled discovery returns before resolving home or touching the disk.
     pub fn scan_git_repos(
         roots: &[String],
         max_depth: Option<u32>,
         enabled: Option<bool>,
         exclude_paths: &[String],
     ) -> Vec<RepoEntry> {
+        // Before `home_dir()`, so a disabled policy reads no environment and
+        // touches no disk.
         if enabled == Some(false) {
             return Vec::new();
         }
 
-        let home = home_dir();
+        scan_git_repos_in(&home_dir(), roots, max_depth, exclude_paths)
+    }
+
+    /// The walk itself, against an explicit `home`.
+    ///
+    /// A root list that is empty (or all blank) preserves desktop's historical
+    /// home-directory scan. The walk is breadth-first by depth level, with each
+    /// level fanned out over at most `MAX_CONCURRENCY` threads (desktop's
+    /// `mapLimit` equivalent).
+    ///
+    /// `home` is only ever the machine this crawl runs on: the command is gated
+    /// to locally-spawned gateways (see the module header), so the client's
+    /// `$HOME` and the gateway's home are the same directory. A remote gateway
+    /// answers from its own config via `GET /api/git/scan-repos` instead, and
+    /// never sees this value.
+    pub fn scan_git_repos_in(
+        home: &Path,
+        roots: &[String],
+        max_depth: Option<u32>,
+        exclude_paths: &[String],
+    ) -> Vec<RepoEntry> {
         let max_depth = max_depth.unwrap_or(DEFAULT_MAX_DEPTH);
 
         let requested: Vec<String> = if roots.iter().any(|root| !root.trim().is_empty()) {
@@ -210,7 +252,7 @@ pub mod imp {
         let mut level: Vec<PathBuf> = Vec::new();
 
         for root in &requested {
-            if let Some(path) = normalize_repo_scan_path(root, &home) {
+            if let Some(path) = normalize_repo_scan_path(root, home) {
                 if seen_roots.insert(path.key.clone(), ()).is_none() {
                     level.push(path.value);
                 }
@@ -219,7 +261,7 @@ pub mod imp {
 
         let exclusions: Vec<String> = exclude_paths
             .iter()
-            .filter_map(|excluded| normalize_repo_scan_path(excluded, &home))
+            .filter_map(|excluded| normalize_repo_scan_path(excluded, home))
             .map(|excluded| excluded.value.to_string_lossy().to_string())
             .collect();
 
@@ -228,7 +270,7 @@ pub mod imp {
 
             exclusions
                 .iter()
-                .any(|excluded| repo_scan_path_is_within(&candidate, excluded, &home))
+                .any(|excluded| repo_scan_path_is_within(&candidate, excluded, home))
         };
 
         let mut found: HashMap<String, RepoEntry> = HashMap::new();
@@ -267,7 +309,7 @@ pub mod imp {
 
             for (dir, is_repo, children) in results {
                 if is_repo {
-                    if let Some(path) = normalize_repo_scan_path(&dir.to_string_lossy(), &home) {
+                    if let Some(path) = normalize_repo_scan_path(&dir.to_string_lossy(), home) {
                         let label = path
                             .value
                             .file_name()
@@ -300,8 +342,9 @@ pub mod imp {
 }
 
 // --------------------------------------------------------------------------
-// Mobile: no crawlable local filesystem. Discovery has to happen backend-side
-// (MJX-207); the TS caller gates on gateway mode and never reaches this.
+// Mobile: no crawlable local filesystem. Discovery happens backend-side over
+// `GET /api/git/scan-repos`; the TS caller gates on gateway mode and never
+// reaches this.
 // --------------------------------------------------------------------------
 #[cfg(mobile)]
 pub mod imp {
@@ -349,11 +392,28 @@ pub async fn repo_scan_git_repos(
 
 #[cfg(all(test, desktop))]
 mod tests {
-    use super::imp::{normalize_repo_scan_path, repo_scan_path_is_within, scan_git_repos};
+    use super::imp::{
+        normalize_repo_scan_path, repo_scan_path_is_within, resolve_home, scan_git_repos,
+        scan_git_repos_in,
+    };
     use std::path::{Path, PathBuf};
     use std::sync::atomic::{AtomicU32, Ordering};
 
     static COUNTER: AtomicU32 = AtomicU32::new(0);
+
+    /// The walk consults `home` only to expand `~` and to absolutize a relative
+    /// root; every test below passes absolute roots, so pointing home at a path
+    /// that cannot exist keeps a regression that started consulting it loud
+    /// instead of letting it silently crawl the runner's real home directory.
+    ///
+    /// Nothing here writes the process environment, and that is the invariant:
+    /// `cargo test` runs a crate's tests as threads in one process, so a `setenv`
+    /// in any one of them races every `getenv` in all the others — including the
+    /// `std::env::temp_dir()` below and the ones inside `std`. Use the
+    /// `scan_git_repos_in` / `resolve_home` seams, never `set_var`.
+    fn unused_home() -> PathBuf {
+        PathBuf::from("/hermes-repo-scan-unused-home")
+    }
 
     /// Unique scratch directory — no `tempfile` dependency in this crate.
     fn scratch(name: &str) -> PathBuf {
@@ -383,6 +443,9 @@ mod tests {
         let root = scratch("disabled");
         make_repo(&root.join("alpha"));
 
+        // The only test that goes through `scan_git_repos`: the gate is what it
+        // asserts, and the gate returns before `home_dir()` reads the
+        // environment or the walk touches the disk.
         let found = scan_git_repos(
             &[root.to_string_lossy().to_string()],
             None,
@@ -403,7 +466,12 @@ mod tests {
         make_repo(&root.join("nested").join("beta"));
         std::fs::create_dir_all(root.join("plain")).unwrap();
 
-        let found = scan_git_repos(&[root.to_string_lossy().to_string()], None, None, &[]);
+        let found = scan_git_repos_in(
+            &unused_home(),
+            &[root.to_string_lossy().to_string()],
+            None,
+            &[],
+        );
         let roots = roots_of(&found);
 
         assert!(roots.contains(&root.join("alpha").to_string_lossy().to_string()));
@@ -429,7 +497,12 @@ mod tests {
         let root = scratch("head");
         std::fs::create_dir_all(root.join("broken").join(".git")).unwrap();
 
-        let found = scan_git_repos(&[root.to_string_lossy().to_string()], None, None, &[]);
+        let found = scan_git_repos_in(
+            &unused_home(),
+            &[root.to_string_lossy().to_string()],
+            None,
+            &[],
+        );
 
         assert!(found.is_empty());
     }
@@ -439,10 +512,20 @@ mod tests {
         let root = scratch("depth");
         make_repo(&root.join("a").join("b").join("c").join("deep"));
 
-        let shallow = scan_git_repos(&[root.to_string_lossy().to_string()], Some(1), None, &[]);
+        let shallow = scan_git_repos_in(
+            &unused_home(),
+            &[root.to_string_lossy().to_string()],
+            Some(1),
+            &[],
+        );
         assert!(shallow.is_empty());
 
-        let deep = scan_git_repos(&[root.to_string_lossy().to_string()], Some(4), None, &[]);
+        let deep = scan_git_repos_in(
+            &unused_home(),
+            &[root.to_string_lossy().to_string()],
+            Some(4),
+            &[],
+        );
         assert_eq!(deep.len(), 1);
     }
 
@@ -453,7 +536,12 @@ mod tests {
         make_repo(&root.join(".cache").join("thing"));
         make_repo(&root.join("keep"));
 
-        let found = scan_git_repos(&[root.to_string_lossy().to_string()], None, None, &[]);
+        let found = scan_git_repos_in(
+            &unused_home(),
+            &[root.to_string_lossy().to_string()],
+            None,
+            &[],
+        );
 
         assert_eq!(roots_of(&found), vec![root.join("keep").to_string_lossy()]);
     }
@@ -464,9 +552,9 @@ mod tests {
         make_repo(&root.join("skipped").join("alpha"));
         make_repo(&root.join("kept"));
 
-        let found = scan_git_repos(
+        let found = scan_git_repos_in(
+            &unused_home(),
             &[root.to_string_lossy().to_string()],
-            None,
             None,
             &[root.join("skipped").to_string_lossy().to_string()],
         );
@@ -475,22 +563,28 @@ mod tests {
     }
 
     #[test]
-    fn duplicate_and_nested_roots_are_deduped() {
+    fn duplicate_and_nested_roots_report_one_entry() {
         let root = scratch("dedupe");
         make_repo(&root.join("alpha"));
 
-        let found = scan_git_repos(
+        let found = scan_git_repos_in(
+            &unused_home(),
             &[
                 root.to_string_lossy().to_string(),
                 format!("{}/", root.to_string_lossy()),
                 root.join("alpha").to_string_lossy().to_string(),
             ],
             None,
-            None,
             &[],
         );
 
-        assert_eq!(found.len(), 1);
+        // What this pins is the OUTPUT: three overlapping config entries produce
+        // one project, not three. It deliberately does not claim to pin the
+        // root-level `seen_roots` dedupe — that is a walk-once optimization with
+        // no observable effect, since `found` is keyed by comparison path and
+        // would collapse the repeats anyway. Deleting `seen_roots` cannot make
+        // this test fail; it only makes the crawl walk the same tree twice.
+        assert_eq!(roots_of(&found), vec![root.join("alpha").to_string_lossy()]);
     }
 
     #[test]
@@ -498,18 +592,45 @@ mod tests {
         let home = scratch("home");
         make_repo(&home.join("alpha"));
 
-        // `home_dir()` reads $HOME, so point it at the scratch tree for this test.
-        let previous = std::env::var("HOME").ok();
-        std::env::set_var("HOME", &home);
-
-        let found = scan_git_repos(&[], None, None, &[]);
-
-        match previous {
-            Some(value) => std::env::set_var("HOME", value),
-            None => std::env::remove_var("HOME"),
-        }
+        // Home is injected, not installed in the environment: this used to swap
+        // $HOME and restore it, which raced every other `getenv` in the process.
+        let found = scan_git_repos_in(&home, &[], None, &[]);
 
         assert_eq!(roots_of(&found), vec![home.join("alpha").to_string_lossy()]);
+    }
+
+    #[test]
+    fn blank_roots_also_fall_back_to_home() {
+        let home = scratch("blank-roots");
+        make_repo(&home.join("alpha"));
+
+        // Whitespace-only config entries are not roots — the walk must treat the
+        // list as empty rather than skipping the fallback and scanning nothing.
+        let found = scan_git_repos_in(&home, &["   ".to_string(), String::new()], None, &[]);
+
+        assert_eq!(roots_of(&found), vec![home.join("alpha").to_string_lossy()]);
+    }
+
+    #[test]
+    fn home_resolves_from_env_values_without_touching_the_environment() {
+        let cwd = || PathBuf::from("/cwd");
+
+        assert_eq!(
+            resolve_home(Some("/h".into()), Some("/u".into()), cwd),
+            PathBuf::from("/h")
+        );
+        assert_eq!(
+            resolve_home(None, Some("/u".into()), cwd),
+            PathBuf::from("/u")
+        );
+        // No home at all falls back to the working directory, never to `/`.
+        assert_eq!(resolve_home(None, None, cwd), PathBuf::from("/cwd"));
+        // A blank HOME takes the cwd fallback and does NOT slide through to
+        // USERPROFILE — `var("HOME")` succeeding is what ends that chain.
+        assert_eq!(
+            resolve_home(Some("   ".into()), Some("/u".into()), cwd),
+            PathBuf::from("/cwd")
+        );
     }
 
     #[test]
@@ -521,7 +642,9 @@ mod tests {
             PathBuf::from("/home/tester/code")
         );
         assert_eq!(
-            normalize_repo_scan_path("code/../work", home).unwrap().value,
+            normalize_repo_scan_path("code/../work", home)
+                .unwrap()
+                .value,
             PathBuf::from("/home/tester/work")
         );
         assert!(normalize_repo_scan_path("   ", home).is_none());

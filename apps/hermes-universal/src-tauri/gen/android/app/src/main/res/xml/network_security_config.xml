@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Cleartext policy for RELEASE builds. The debug source set overrides this whole
+  file (see src/debug/res/xml/network_security_config.xml).
+
+  Why a config rather than the `usesCleartextTraffic` manifest flag: on API 24+ —
+  and minSdk here is 24 — `networkSecurityConfig` SUPERSEDES that flag entirely,
+  so the two cannot be mixed. The flag stays in the manifest for documentation
+  and is inert.
+
+  The one exception below is our own loopback. The RFC 8252 sign-in binds a
+  listener on 127.0.0.1:<random port> and the gateway redirects the WebView to it
+  (`src-tauri/src/oauth.rs`); with cleartext refused, that redirect fails and the
+  sign-in dies holding an authorization code it can never deliver. The redirect
+  URI cannot be https — it terminates inside this process, there is no
+  certificate to present — and it cannot be a custom scheme either, because the
+  gateway validates it as a loopback IP literal
+  (`_validate_loopback_redirect_uri` in hermes_cli/dashboard_auth/routes.py).
+
+  Scoped to the loopback addresses and nothing else: traffic that never leaves the
+  device is not the thing cleartext policy exists to protect. A plain-http GATEWAY
+  on a LAN or Tailscale address is still refused in release, which is the intended
+  posture — that is a real network hop.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">127.0.0.1</domain>
+        <domain includeSubdomains="false">::1</domain>
+    </domain-config>
+</network-security-config>

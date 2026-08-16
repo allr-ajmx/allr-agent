@@ -157,12 +157,20 @@ export function useSessionTileActions({ runtimeId, scope, storedSessionId }: Ses
       sessionId: string,
       attachments: ComposerAttachment[],
       options: { updateComposerAttachments?: boolean } = {}
-    ): Promise<ComposerAttachment[]> => {
+    ): Promise<{ attachments: ComposerAttachment[]; sessionId: string }> => {
       const remote = $connection.get()?.mode === 'remote'
+      let liveSessionId = sessionId
       const synced: ComposerAttachment[] = []
 
+      // A tile owns its own runtime binding, so a recovery here rebinds the
+      // tile's ref rather than the foreground session's.
+      const onSessionRecovered = (recoveredId: string) => {
+        liveSessionId = recoveredId
+        runtimeIdRef.current = recoveredId
+      }
+
       for (const attachment of attachments) {
-        if (!attachment.path || attachment.attachedSessionId === sessionId) {
+        if (!attachment.path || attachment.attachedSessionId === liveSessionId) {
           synced.push(attachment)
 
           continue
@@ -173,7 +181,9 @@ export function useSessionTileActions({ runtimeId, scope, storedSessionId }: Ses
             backendCwd: readState()?.cwd,
             remote,
             requestGateway,
-            sessionId
+            sessionId: liveSessionId,
+            storedSessionId: storedIdRef.current,
+            onSessionRecovered
           })
 
           if (options.updateComposerAttachments ?? true) {
@@ -188,7 +198,7 @@ export function useSessionTileActions({ runtimeId, scope, storedSessionId }: Ses
         synced.push(attachment)
       }
 
-      return synced
+      return { attachments: synced, sessionId: liveSessionId }
     },
     [requestGateway, scope.attachments]
   )
@@ -327,7 +337,12 @@ export function useSessionTileActions({ runtimeId, scope, storedSessionId }: Ses
           text
         })
 
-        if (result?.status === 'redirected') {
+        // `steered` is the same acceptance with a later delivery point: a tool
+        // was running, so the gateway put the correction on that tool's next
+        // result instead of killing it. Without this branch it falls through to
+        // `discardOptimisticMessage`, the caller queues the words, and the same
+        // correction is delivered twice (MJXHRM-410).
+        if (result?.status === 'redirected' || result?.status === 'steered') {
           triggerHaptic('submit')
 
           return true
@@ -357,7 +372,12 @@ export function useSessionTileActions({ runtimeId, scope, storedSessionId }: Ses
   // the primary chat so the two can't diverge.
   const submitRewind = useCallback(
     (text: string, truncateOrdinal: number | undefined, interruptFirst: boolean) =>
-      runRewindSubmit(requestGateway, runtimeIdRef.current, text, truncateOrdinal, interruptFirst),
+      runRewindSubmit(requestGateway, runtimeIdRef.current, text, truncateOrdinal, interruptFirst, {
+        storedSessionId: storedIdRef.current,
+        onSessionRecovered: recoveredId => {
+          runtimeIdRef.current = recoveredId
+        }
+      }),
     [requestGateway]
   )
 

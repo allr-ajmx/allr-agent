@@ -1,7 +1,9 @@
 import type { Unstable_TriggerAdapter, Unstable_TriggerItem } from '@assistant-ui/core'
 import { useCallback } from 'react'
 
+import { refChipLabel } from '@/components/assistant-ui/directive-text'
 import type { HermesGateway } from '@/hermes'
+import { cachedPathCompletion, hasCachedPathCompletion } from '@/lib/slash-completion-cache'
 import { normalize } from '@/lib/text'
 
 import type { CompletionEntry, CompletionPayload } from './use-live-completion-adapter'
@@ -60,7 +62,15 @@ function classify(entry: CompletionEntry): {
     return {
       type: kind,
       insertId: rest,
-      display: textValue(entry.display, rest || `@${kind}:`),
+      // The row must show exactly what picking it produces. The gateway's
+      // `display` is a BASENAME (`methods_complete.py` emits `entry + suffix`),
+      // while the chip this row inserts is labelled by `refChipLabel` off the
+      // full `@kind:value` — so taking `display` verbatim gave one folder two
+      // names: the list said `desktop/`, the editor said `apps/desktop/`. Worse
+      // on the fuzzy branch, which ranks matches from anywhere in the tree and
+      // returned every `index.ts` in the repo as the same undifferentiated row.
+      // Both ends derive from `refChipLabel` now, so they cannot drift.
+      display: rest ? refChipLabel(kind, rest) : textValue(entry.display, `@${kind}:`),
       meta: textValue(entry.meta)
     }
   }
@@ -82,6 +92,15 @@ export function useAtCompletions(options: {
   const { gateway, sessionId, cwd } = options
   const enabled = Boolean(gateway)
 
+  // The scope a listing is relative to. It namespaces the response cache below
+  // AND is handed to the adapter as its epoch — both are needed. The cache key
+  // alone protected nothing: the adapter answers a repeated query from the items
+  // it is already holding and never calls the fetcher, so `@src/` typed in one
+  // repo kept listing that repo's files after a session or project switch moved
+  // the cwd. Changing the epoch is what makes it ask again.
+  const scope = `${cwd ?? ''}|${sessionId ?? ''}`
+  const cacheKey = useCallback((query: string) => `${scope}|${query}`, [scope])
+
   const fetcher = useCallback(
     async (query: string): Promise<CompletionPayload> => {
       const starters = starterEntries(query)
@@ -102,7 +121,14 @@ export function useAtCompletions(options: {
       }
 
       try {
-        const result = await gateway.request<{ items?: CompletionEntry[] }>('complete.path', params)
+        // De-duplicated the same way `/` completions are. Walking a path is
+        // inherently repetitive — Tab into a folder, Backspace out, retype a
+        // segment — and every one of those steps was a fresh listing + rank on
+        // the backend.
+        const result = await cachedPathCompletion(cacheKey(query), () =>
+          gateway.request<{ items?: CompletionEntry[] }>('complete.path', params)
+        )
+
         const items = result.items ?? []
 
         return { items: items.length > 0 ? items : starters, query }
@@ -110,7 +136,7 @@ export function useAtCompletions(options: {
         return { items: starters, query }
       }
     },
-    [gateway, sessionId, cwd]
+    [cacheKey, gateway, sessionId, cwd]
   )
 
   const toItem = useCallback((entry: CompletionEntry, index: number): Unstable_TriggerItem => {
@@ -135,7 +161,13 @@ export function useAtCompletions(options: {
     }
   }, [])
 
-  return useLiveCompletionAdapter({ enabled, fetcher, toItem })
+  // A query already in cache skips both the debounce and the loading state.
+  // This is what makes walking a tree feel instant rather than merely fast:
+  // the 60ms debounce exists to avoid a request per keystroke, and it buys
+  // nothing when the answer is already in hand.
+  const isCached = useCallback((query: string) => hasCachedPathCompletion(cacheKey(query)), [cacheKey])
+
+  return useLiveCompletionAdapter({ enabled, epoch: scope, fetcher, isCached, toItem })
 }
 
 /** Re-export `classify` for use by the formatter (insertion side). */

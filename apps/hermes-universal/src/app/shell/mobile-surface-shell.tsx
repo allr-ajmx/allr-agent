@@ -9,6 +9,7 @@ import { SettingsFooter, SettingsView } from '@/app/settings/settings-view'
 import { MobileChromeBar } from '@/app/shell/mobile-chrome-bar'
 import { useSurfaceNavRows } from '@/app/shell/surface-nav'
 import { TitlebarButton } from '@/app/shell/titlebar-button'
+import { WebhooksView } from '@/app/webhooks'
 import { Codicon } from '@/components/ui/codicon'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { TitleMenuTrigger } from '@/components/ui/title-menu-trigger'
@@ -52,8 +53,9 @@ export function MobileSurfaceShell({
   /** Command Center route jumps (optional; in-app path wires `navigate`). */
   onNavigateRoute?: (path: string) => void
 }) {
-  // Publishes --keyboard-inset so the content lifts above the soft keyboard when an
-  // input (API keys, search) is focused.
+  // Publishes --visual-viewport-{height,top} / --keyboard-inset, which the phone's
+  // #root is sized from — so a focused input (API keys, search) leaves this surface
+  // bounded by the keyboard's top rather than pushed off the screen.
   useKeyboardInset()
   const { t } = useI18n()
   const { pathname } = useLocation()
@@ -76,7 +78,9 @@ export function MobileSurfaceShell({
           ? t.cron.title
           : surface === 'profiles'
             ? t.profiles.title
-            : t.commandCenter.settings
+            : surface === 'webhooks'
+              ? t.webhooks.title
+              : t.commandCenter.settings
 
   // Command Center / Cron / Profiles need a live connection for their data;
   // Settings can render once we've ever connected so it survives a reconnect. A
@@ -85,13 +89,15 @@ export function MobileSurfaceShell({
   const showSurface = surface === 'settings' ? ready || hasConnected : ready || (switching && hasConnected)
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-background">
+    <div className="flex h-full min-h-0 flex-col bg-background" data-slot="mobile-surface-shell">
       <MobileChromeBar
         center={
           navRows.length > 0 ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <TitleMenuTrigger className="h-full w-full justify-start">{title}</TitleMenuTrigger>
+                <TitleMenuTrigger className="w-full justify-start" density="mobile">
+                  {title}
+                </TitleMenuTrigger>
               </DropdownMenuTrigger>
               {/* Aligned to the title, not centred on it: the trigger now fills
                   the row, so "centred on the trigger" put the menu in the middle
@@ -114,14 +120,16 @@ export function MobileSurfaceShell({
           )
         }
         left={
-          <TitlebarButton className="size-4" label={t.common.back} onClick={onHome}>
-            <Codicon name="chevron-left" size="1.4rem" />
+          <TitlebarButton density="mobile" label={t.common.back} onClick={onHome}>
+            <Codicon className="rtl:-scale-x-100" name="chevron-left" size="1.4rem" />
           </TitlebarButton>
         }
       />
 
-      {/* Routed surface. Lifts above the soft keyboard like the home shell. */}
-      <div className="flex min-h-0 flex-1 flex-col" style={{ marginBottom: 'var(--keyboard-inset, 0px)' }}>
+      {/* Routed surface. No keyboard margin, like the home shell:
+          `html.is-mobile #root` is the VISIBLE viewport (styles.css), so this
+          column already ends at the top of the keyboard. */}
+      <div className="flex min-h-0 flex-1 flex-col">
         {showSurface ? (
           surface === 'settings' ? (
             <SettingsView hideNav onClose={onHome} variant="fullscreen" />
@@ -138,6 +146,8 @@ export function MobileSurfaceShell({
             <CronView onClose={onHome} onOpenSession={onOpenSession} variant="fullscreen" />
           ) : surface === 'agents' ? (
             <AgentsView onClose={onHome} variant="fullscreen" />
+          ) : surface === 'webhooks' ? (
+            <WebhooksView onClose={onHome} variant="fullscreen" />
           ) : (
             <ProfilesView onClose={onHome} variant="fullscreen" />
           )

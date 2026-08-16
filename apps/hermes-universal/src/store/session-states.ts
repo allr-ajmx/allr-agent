@@ -38,13 +38,17 @@ import {
 import { readJson, writeJson } from '@/lib/storage'
 import { discardDeltas, disposeStreamBatch, flushDeltas } from '@/lib/stream-batch'
 import { beginDetached, endSpan } from '@/observability'
+import { requestClose } from '@/store/close-confirm'
+import { clearAllCompaction } from '@/store/compaction'
 import { resetUnscopedStreamPin } from '@/store/event-router'
+import { clearLiveSessionStatuses } from '@/store/live-session-registry'
 import { $activeGatewayProfile, normalizeProfileKey } from '@/store/profile'
 import { clearAllPrompts } from '@/store/prompts'
 import {
   $activeStoredSessionId,
   $unreadFinishedSessionIds,
   newSession,
+  sameStoredSession,
   setActiveSessionStoredIdRotation
 } from '@/store/session'
 import {
@@ -65,7 +69,9 @@ import {
   setSessionTransitionHook,
   updateSession
 } from '@/store/session-state-types'
-import { isSecondaryWindow } from '@/store/windows'
+import { clearAllSubagents } from '@/store/subagents'
+import { clearAllTurns } from '@/store/turn-lifecycle'
+import { isSecondaryWindow, ownsPersistedAppState } from '@/store/windows'
 
 export { $activeSessionKey, $sessionStates }
 export type { ClientSessionState }
@@ -128,33 +134,6 @@ function clearWatchdog(runtimeId: string) {
   }
 }
 
-// --- Settle grace: keeps a just-finished session in the sidebar merge set ---
-const SESSION_SETTLE_GRACE_MS = 30 * 1000
-const settledExpiry = new Map<string, number>()
-
-function markSettled(storedId: string) {
-  settledExpiry.set(storedId, Date.now() + SESSION_SETTLE_GRACE_MS)
-}
-
-function clearSettled(storedId: string) {
-  settledExpiry.delete(storedId)
-}
-
-/** Stored ids whose turn ended within the grace window. Prunes expired. */
-export function getRecentlySettledSessionIds(now: number = Date.now()): string[] {
-  const live: string[] = []
-
-  for (const [id, expiry] of settledExpiry) {
-    if (expiry > now) {
-      live.push(id)
-    } else {
-      settledExpiry.delete(id)
-    }
-  }
-
-  return live
-}
-
 // --- Transition detection (called automatically from publishSessionState) ---
 function handleTransition(previous: ClientSessionState | null, next: ClientSessionState, key: string) {
   // Compression id rotation: signal the route-follow effect with enough
@@ -168,7 +147,6 @@ function handleTransition(previous: ClientSessionState | null, next: ClientSessi
       })
     }
 
-    clearSettled(previous.storedSessionId)
     setSessionStalled(previous.storedSessionId, false)
   }
 
@@ -197,19 +175,12 @@ function handleTransition(previous: ClientSessionState | null, next: ClientSessi
     return
   }
 
-  const wasWorking = previous?.busy ?? false
+  // The busy→idle EDGE is what marks a background session unread ("your turn").
+  if (!next.busy && (previous?.busy ?? false) && storedId !== $activeStoredSessionId.get()) {
+    const cur = $unreadFinishedSessionIds.get()
 
-  if (next.busy && !wasWorking) {
-    clearSettled(storedId)
-  } else if (!next.busy && wasWorking) {
-    markSettled(storedId)
-
-    if (storedId !== $activeStoredSessionId.get()) {
-      const cur = $unreadFinishedSessionIds.get()
-
-      if (!cur.includes(storedId)) {
-        $unreadFinishedSessionIds.set([...cur, storedId])
-      }
+    if (!cur.includes(storedId)) {
+      $unreadFinishedSessionIds.set([...cur, storedId])
     }
   }
 }
@@ -246,9 +217,37 @@ export function clearAllSessionStates() {
   }
 
   sessionWatchdogTimers.clear()
-  settledExpiry.clear()
   clearStoredIdIndex()
   clearAllPrompts()
+  // Liveness is scoped to the gateway that reported it: both callers are moving
+  // to a backend whose registry we have not read yet, so every row it named is
+  // as dead as the runtime ids above.
+  clearLiveSessionStatuses()
+  // Turns are keyed by the SAME session keys this wipes, and the map is not
+  // reachable through `dropSessionState` from here — the whole atom is replaced
+  // below rather than evicted key by key. Both callers (a profile switch, the
+  // soft gateway switch) are moving to a backend that never issued these runtime
+  // ids, so every record left behind is a turn nothing can settle, reconcile or
+  // find a slice for. `clearAllTurns` and not a per-key drop, deliberately: a
+  // drop settles the record, and `store/turn-hydration.ts` clears the crash
+  // journal on settle — a switch must not destroy the journal a later switch
+  // back would recover from.
+  clearAllTurns()
+  // The THIRD module keyed by session key, and the one this wipe forgot.
+  // `clearAllCompaction` was written for exactly this ("profile switch, gateway
+  // teardown") and had no caller at all — a compaction live at the moment of the
+  // switch was left in `$compactingSessions` under a runtime id the new backend
+  // will never issue, so nothing could ever clear it: the settle observer only
+  // fires for turns, and `clearAllTurns` above replaces the atom wholesale
+  // without emitting one. That is a permanently-set steer gate for any key that
+  // came back, and a leak for every one that didn't (MJXHRM-357).
+  clearAllCompaction()
+  // The FOURTH module keyed by session key, and the second one this wipe
+  // forgot (MJXHRM-401). The spawn tree is flattened across every session by
+  // `allSubagents`, so a leftover row is not merely inert: the Agents overlay
+  // renders it and the status-bar counter counts it as running work belonging
+  // to a gateway we have already left.
+  clearAllSubagents()
   disposeStreamBatch()
   $stalledSessionIds.set([])
   $sessionStates.set({})
@@ -343,7 +342,7 @@ export function pruneSessionStates(): void {
 let pruning = false
 let lastSliceCount = 0
 
-if (!isSecondaryWindow()) {
+if (ownsPersistedAppState()) {
   $sessionStates.subscribe(states => {
     const count = Object.keys(states).length
     const grew = count > lastSliceCount
@@ -364,13 +363,33 @@ if (!isSecondaryWindow()) {
 }
 
 /**
- * The gateway reconnected, so every runtime id it issued before is dead.
+ * The gateway reconnected: every turn we thought was live is now unverified, and
+ * the tile bindings and stream pin that named the previous socket's runs are
+ * dead.
  *
  * Sessions are NOT wiped: their transcripts are still what the user was reading,
  * and a draft has no runtime binding to lose at all — clearing the map here
  * would throw away an unsent draft, which is the one thing that cannot be
- * re-fetched. Instead the live bindings are dropped so the surfaces that show a
- * session (the active chat, tiles, bubbles) re-resume it on their own.
+ * re-fetched.
+ *
+ * The slice's `runtimeSessionId` is NOT cleared either, and that is the whole
+ * correction (MJXHRM-358). It used to be, on the reasoning that a reconnect
+ * re-issues runtime ids — but nothing ever put it back. A soft reconnect
+ * re-claims the SAME live record (`_claim_or_reuse_live`), so the id is usually
+ * still valid; when it genuinely is dead, `store/session-recovery.ts` rebinds it
+ * on the first verb that uses it, which is exactly what that resolver exists for
+ * and what tiles have always relied on. Nulling it instead made a persisted
+ * conversation indistinguishable from a DRAFT for the rest of the process:
+ * `ensureSession` saw no session id and answered the first message after any
+ * reconnect with `session.create`, forking the chat into a brand-new empty
+ * session under the old transcript. Handoff, `/branch`, the model picker, the
+ * context-usage read and the compaction id-rotation guard all read the same
+ * atom and went dead with it.
+ *
+ * What IS cleared is the liveness: `busy` and `turnStartedAt` describe a turn on
+ * a socket that no longer exists. `store/turn-lifecycle.ts#reconcileInflightTurns`
+ * re-arms them for a turn the gateway is still running, and `session.active_list`
+ * (store/live-session-status.ts) covers the sessions that had no local record.
  */
 export function invalidateRuntimeBindings(): void {
   resetUnscopedStreamPin()
@@ -378,8 +397,8 @@ export function invalidateRuntimeBindings(): void {
   resetTileRuntimeBindings()
 
   for (const [key, state] of Object.entries($sessionStates.get())) {
-    if (state.runtimeSessionId) {
-      updateSession(key, current => ({ ...current, runtimeSessionId: null, busy: false, turnStartedAt: null }))
+    if (state.busy || state.turnStartedAt !== null) {
+      updateSession(key, current => ({ ...current, busy: false, turnStartedAt: null }))
     }
   }
 }
@@ -463,7 +482,7 @@ const profileKey = () => normalizeProfileKey($activeGatewayProfile.get())
 export const $sessionTiles = atom<SessionTile[]>(isSecondaryWindow() ? [] : [...(tilesByProfile[profileKey()] ?? [])])
 
 function persistTiles() {
-  if (isSecondaryWindow()) {
+  if (!ownsPersistedAppState()) {
     return
   }
 
@@ -492,7 +511,7 @@ function saveTiles(tiles: SessionTile[]) {
 // another event, and whose ids could collide with the new profile's.
 let lastProfileKey = profileKey()
 
-if (!isSecondaryWindow()) {
+if (ownsPersistedAppState()) {
   $activeGatewayProfile.subscribe(() => {
     const next = profileKey()
 
@@ -551,7 +570,6 @@ export interface SessionTileDelegate {
   archiveSession(storedSessionId: string): Promise<void>
   branchSession(storedSessionId: string): Promise<void>
   deleteSession(storedSessionId: string): Promise<void>
-  executeSlash(rawCommand: string, sessionId: string): Promise<void>
   interruptSession(runtimeId: string): Promise<void>
   resumeTile(storedSessionId: string): Promise<string>
   submitToSession(runtimeId: string, text: string): Promise<void>
@@ -605,6 +623,37 @@ export function orderTilesByTree<T extends { storedSessionId: string }>(
   return next.some((t, i) => t !== tiles[i]) ? next : null
 }
 
+/**
+ * Keep the PERSISTED tile order in step with the order on screen.
+ *
+ * The layout tree owns where a tab sits; `$sessionTiles` is a parallel list that
+ * outlives it, and two consumers read that list's ORDER rather than the tree's:
+ *
+ *  - `stackSessionTilesIntoMain` — the layout-RESET handler
+ *    (`registerLayoutResetHandler`, app/contrib/controller.tsx) — restacks every
+ *    tile into the workspace zone by walking `$sessionTiles` front to back;
+ *  - `paneMirror` re-registers panes in array order, which is the order they
+ *    dock in when the tree holds no pane for them yet (a profile switch back, or
+ *    a tree that lost them).
+ *
+ * So a stale list is not cosmetic: drag three tabs into the order you want, hit
+ * Reset, and they come back in the order they were OPENED in.
+ *
+ * This ran from exactly one caller — `openSessionTile`'s move branch — and every
+ * OTHER way the on-screen order changes left the list behind: dragging a tab
+ * within a strip (`reorderTreePanes`), dragging one between zones
+ * (`moveTreePanes`), the zone menu's Move (`moveTreePane`), a shift-drag zone
+ * merge, and a preset application that re-homes panes. Hanging it off the tree
+ * itself covers all of them at once, including any future writer — the invariant
+ * belongs to the tree changing, not to the handful of callers that happened to
+ * be written first.
+ *
+ * Safe to run on every commit. `orderTilesByTree` returns `null` unless the
+ * order actually moved, so the common case costs one walk and no write; and a
+ * pure reorder of `$sessionTiles` registers and removes nothing in `paneMirror`
+ * (it diffs by key, then by title/accent), so this cannot drive the tree write
+ * that would re-enter it.
+ */
 function syncTileStripOrder() {
   const next = orderTilesByTree($layoutTree.get(), $sessionTiles.get())
 
@@ -612,6 +661,11 @@ function syncTileStripOrder() {
     saveTiles(next)
   }
 }
+
+// `listen`, not `subscribe`: the initial tree is mirrored into tiles by the
+// registrations that FOLLOW it, and firing before any pane exists would only
+// rank every tile `Infinity`.
+$layoutTree.listen(syncTileStripOrder)
 
 /**
  * Open spans for chats currently being opened, keyed by stored-session id.
@@ -645,8 +699,21 @@ export function noteSessionTileMounted(storedSessionId: string): void {
   requestAnimationFrame(() => endSpan(id))
 }
 
-/** Open a tile for a stored session, or MOVE an existing one to the new dock. The
- *  session LOADED IN MAIN never opens as a tile. */
+/**
+ * Open a tile for a stored session, or MOVE an existing one to the new dock. The
+ * session LOADED IN MAIN never opens as a tile.
+ *
+ * Both "is this already in main" and "is this already a tile" are asked by
+ * CONVERSATION, not by string. A tile keeps the id it was opened with while
+ * auto-compression rotates the session's live id, so the sidebar row for a
+ * compacted chat and the tile already showing it carry different ids — and
+ * matching on identity opened a second tab onto the same live slice, which then
+ * fought the first for its pane title and its close verb (MJXHRM-423).
+ *
+ * The existing tile's OWN key is what gets moved: its pane id and its
+ * `$sessionTiles` record are both keyed on it, and re-keying a live tile to the
+ * new id would strand the pane the layout tree already holds.
+ */
 export function openSessionTile(
   storedSessionId: string,
   dir: TileDock = 'right',
@@ -655,11 +722,13 @@ export function openSessionTile(
 ) {
   const tiles = $sessionTiles.get()
 
-  if (storedSessionId === $activeStoredSessionId.get()) {
+  if (sameStoredSession(storedSessionId, $activeStoredSessionId.get())) {
     return
   }
 
-  if (!tiles.some(t => t.storedSessionId === storedSessionId)) {
+  const open = tiles.find(tile => sameStoredSession(tile.storedSessionId, storedSessionId))
+
+  if (!open) {
     // No session id in the attributes — these spans end up in shared traces.
     opening.set(storedSessionId, beginDetached('chat.open', { dir }))
     saveTiles([...tiles, { anchor, before, dir, storedSessionId }])
@@ -671,10 +740,40 @@ export function openSessionTile(
   const target = tree ? findGroupOfPane(tree, anchor ?? WORKSPACE_PANE_ID)?.id : null
 
   if (target) {
-    moveTreePane(`${TILE_PANE_PREFIX}${storedSessionId}`, { before: before ?? null, groupId: target, pos: dir })
-    patchSessionTile(storedSessionId, { anchor, before: before ?? undefined, dir })
-    syncTileStripOrder()
+    // No explicit re-order here: `moveTreePane` commits the tree, and the tree
+    // is what `syncTileStripOrder` now listens to. `patchSessionTile` maps the
+    // list in place, so it cannot disturb the order that landed first.
+    moveTreePane(`${TILE_PANE_PREFIX}${open.storedSessionId}`, { before: before ?? null, groupId: target, pos: dir })
+    patchSessionTile(open.storedSessionId, { anchor, before: before ?? undefined, dir })
   }
+}
+
+/**
+ * Where a BRANCH lands: its own tab in the strip its PARENT is in, fronted.
+ *
+ * Both halves are load-bearing, and neither came for free:
+ *
+ *  - the ANCHOR. `openSessionTile` with none docks against the workspace, so a
+ *    branch of a chat that is itself a tile in a side zone appeared in the main
+ *    strip — a tab in a zone the user was not looking at. `newSessionTab`
+ *    already anchors ⌘T "in the strip you asked from"; a branch is the same act
+ *    with a seeded transcript.
+ *  - the FOCUS. Registering a tile only CONTRIBUTES a pane, and adoption is
+ *    deliberately silent (`insertAtGroup(..., activate: false)` — a tool panel
+ *    must not steal its zone's tab on boot), so the branch was stacked into the
+ *    strip BEHIND the chat it came from and nothing on screen changed. That is
+ *    the "never foregrounds the new tab" this ticket is named for, and it
+ *    outlived PR #125, which only stopped the branch claiming the main pane.
+ *    `focusOpenSession` is the explicit reveal every other on-screen jump uses.
+ */
+export function openBranchTile(branchStoredId: string, parentStoredId: null | string): void {
+  const anchor =
+    parentStoredId && $sessionTiles.get().some(t => t.storedSessionId === parentStoredId)
+      ? `${TILE_PANE_PREFIX}${parentStoredId}`
+      : WORKSPACE_PANE_ID
+
+  openSessionTile(branchStoredId, 'center', anchor)
+  focusOpenSession(branchStoredId)
 }
 
 /**
@@ -689,6 +788,9 @@ export function openSessionTile(
  *
  * ONE draft at a time: a second `+` on an empty draft fronts the one already
  * there rather than stacking up empty chats nobody sent a message in.
+ *
+ * Takes no directory: `resetChat` resolves the sidebar's project scope for every
+ * fresh draft (MJXHRM-393), so ⌘T inherits it without this having to be told.
  */
 export function newSessionTab(): void {
   newSession()
@@ -830,27 +932,34 @@ export function closeSessionTile(storedSessionId: string) {
   saveTiles($sessionTiles.get().filter(t => t.storedSessionId !== storedSessionId))
 }
 
-// The tile whose close needs confirming (still working / waiting on input). The
-// confirm UI (SessionTileCloseConfirm) lives in app/chat/session-tile.tsx; the
-// state + trigger live here so keybinds can close a tile without importing the
-// React component graph.
-export const $confirmCloseTile = atom<null | string>(null)
+/**
+ * Would closing this SLICE drop work in flight — a running turn, a reply on the
+ * way, or a prompt waiting on the user?
+ *
+ * Exported because a session is closeable from two unrelated surfaces (a
+ * layout-tree TILE and a mobile BUBBLE) and only one of them used to ask. The
+ * predicate is the thing they have to share; what they do with the answer goes
+ * through `requestClose` (store/close-confirm). It takes a runtime KEY rather
+ * than a stored id because the two surfaces resolve that key differently — a
+ * tile through `tileRuntimeKey`, a bubble through `bubbleRuntimeKey` — and
+ * forcing one resolver on both is how a bubble would end up reading the wrong
+ * session's busy flag.
+ */
+export function sessionKeyNeedsCloseConfirm(runtimeKey: null | string): boolean {
+  const state = runtimeKey ? $sessionStates.get()[runtimeKey] : undefined
 
-/** Close a tile — but confirm first if its session is still working / waiting. */
+  return Boolean(state?.busy || state?.awaitingResponse || state?.needsInput)
+}
+
+/** Close a tile — but confirm first if its session is still working / waiting.
+ *  The key is resolved through the reverse index rather than the tile's cached
+ *  runtimeId, so a session whose stored id rotated under a background compaction
+ *  is still recognised as busy instead of closing without a prompt (MJX-133). */
 export function requestCloseSessionTile(storedSessionId: string): void {
-  // Resolved through the reverse index rather than the tile's cached runtimeId,
-  // so a session whose stored id rotated under a background compaction is still
-  // recognised as busy instead of closing without a prompt (MJX-133).
-  const key = tileRuntimeKey(storedSessionId)
-  const state = key ? $sessionStates.get()[key] : undefined
-
-  if (state?.busy || state?.awaitingResponse || state?.needsInput) {
-    $confirmCloseTile.set(storedSessionId)
-
-    return
-  }
-
-  closeSessionTile(storedSessionId)
+  requestClose(
+    { close: () => closeSessionTile(storedSessionId), id: storedSessionId, kind: 'session' },
+    sessionKeyNeedsCloseConfirm(tileRuntimeKey(storedSessionId))
+  )
 }
 
 /** Drop a DEAD tile — a persisted tile whose session no longer exists (resume
@@ -865,23 +974,100 @@ export function discardSessionTile(storedSessionId: string) {
   saveTiles($sessionTiles.get().filter(t => t.storedSessionId !== storedSessionId))
 }
 
-/** ⌘⇧T — reopen the most recently closed tab where it was. */
+/** ⌘⇧T — reopen the most recently closed tab where it was, then FOCUS it.
+ *  Adoption alone is silent (it must not steal the active tab), so restore has
+ *  to front the pane explicitly or the tab comes back behind whatever you were
+ *  looking at. Skips conversations that are live again — reopened, or now the
+ *  primary — asked by CONVERSATION rather than by id, because the stack holds
+ *  the key the tile had when it CLOSED and a compaction since then has moved the
+ *  session on (MJXHRM-423). */
 export function reopenLastClosedTile(): void {
   const stack = closedStack()
 
   for (let tile = stack.pop(); tile; tile = stack.pop()) {
     const { storedSessionId } = tile
 
-    if (storedSessionId === $activeStoredSessionId.get()) {
+    if (sameStoredSession(storedSessionId, $activeStoredSessionId.get())) {
       continue
     }
 
-    if (!$sessionTiles.get().some(t => t.storedSessionId === storedSessionId)) {
+    if (!$sessionTiles.get().some(t => sameStoredSession(t.storedSessionId, storedSessionId))) {
       openSessionTile(storedSessionId, tile.dir, tile.anchor, tile.before)
+      focusOpenSession(storedSessionId)
 
       return
     }
   }
+}
+
+/** The open tab that is still an empty "New session" draft, if there is one.
+ *  That tab is the one the user would have typed into, so an open-from-nowhere
+ *  SPENDS it instead of stacking a second blank tab beside it. Most recent
+ *  wins; a tile whose runtime hasn't bound (or whose state hasn't published) is
+ *  unknown rather than empty, so it is left alone. */
+export function blankDraftTile(
+  tiles: readonly SessionTile[],
+  states: Record<string, ClientSessionState>
+): null | SessionTile {
+  // Reverse scan rather than `findLast` — this project's lib target predates it.
+  for (let i = tiles.length - 1; i >= 0; i--) {
+    const key = tileRuntimeKey(tiles[i].storedSessionId)
+    const state = key ? states[key] : undefined
+
+    if (state && !state.busy && state.messages.length === 0) {
+      return tiles[i]
+    }
+  }
+
+  return null
+}
+
+/** Hand an open blank draft tab over to `storedSessionId`, keeping its slot.
+ *  False when there is no such tab, so the caller can fall back. The spent
+ *  draft is DISCARDED rather than closed: it never held a conversation, so ⌘⇧T
+ *  resurrecting it would just restore an empty tab. */
+export function reuseBlankDraftTile(storedSessionId: string): boolean {
+  const tile = blankDraftTile($sessionTiles.get(), $sessionStates.get())
+
+  if (!tile || tile.storedSessionId === storedSessionId) {
+    return false
+  }
+
+  discardSessionTile(tile.storedSessionId)
+  openSessionTile(storedSessionId, tile.dir, tile.anchor, tile.before)
+  revealTreePane(`${TILE_PANE_PREFIX}${storedSessionId}`)
+
+  return true
+}
+
+/**
+ * The session tile that should shift INTO main when the workspace tab closes:
+ * the nearest chat tab in main's own strip, scanning right first and then left
+ * (the tab that fills the slot, then its neighbour). Null when main is the only
+ * chat in its zone — the caller then drops main to a fresh draft.
+ */
+export function nextSessionTileForWorkspace(): null | string {
+  const tree = $layoutTree.get()
+  const group = tree ? findGroupOfPane(tree, WORKSPACE_PANE_ID) : null
+
+  if (!group) {
+    return null
+  }
+
+  const tiles = $sessionTiles.get()
+  const idx = group.panes.indexOf(WORKSPACE_PANE_ID)
+  // After the workspace tab first, then the ones before it (nearest-out).
+  const ordered = [...group.panes.slice(idx + 1), ...group.panes.slice(0, idx).reverse()]
+
+  for (const paneId of ordered) {
+    const storedSessionId = storedIdFromTilePane(paneId)
+
+    if (storedSessionId && tiles.some(t => t.storedSessionId === storedSessionId)) {
+      return storedSessionId
+    }
+  }
+
+  return null
 }
 
 // ---------------------------------------------------------------------------

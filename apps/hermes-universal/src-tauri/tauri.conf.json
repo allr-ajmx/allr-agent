@@ -10,6 +10,7 @@
     "frontendDist": "../dist"
   },
   "app": {
+    "macOSPrivateApi": true,
     "windows": [
       {
         "label": "main",
@@ -21,7 +22,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; img-src 'self' data:; media-src 'self' data: blob: hermes-media: http://hermes-media.localhost https://hermes-media.localhost; style-src 'self' 'unsafe-inline'; script-src 'self' blob:; font-src 'self' data: tauri: asset: http://tauri.localhost https://tauri.localhost http://asset.localhost; connect-src 'self' ipc: http://ipc.localhost"
+      "csp": "default-src 'self'; img-src 'self' data:; media-src 'self' data: blob: hermes-media: http://hermes-media.localhost https://hermes-media.localhost; frame-src hermes-artifact: http://hermes-artifact.localhost https://hermes-artifact.localhost; style-src 'self' 'unsafe-inline'; script-src 'self' blob:; font-src 'self' data: tauri: asset: http://tauri.localhost https://tauri.localhost http://asset.localhost; connect-src 'self' ipc: http://ipc.localhost"
     },
     "withGlobalTauri": false
   },

@@ -114,7 +114,9 @@ pub fn encode_wav(samples: &[f32]) -> Result<(Vec<u8>, String), String> {
                 .write_sample(f32_to_i16(s))
                 .map_err(|e| format!("wav_write: {e}"))?;
         }
-        writer.finalize().map_err(|e| format!("wav_finalize: {e}"))?;
+        writer
+            .finalize()
+            .map_err(|e| format!("wav_finalize: {e}"))?;
     }
     Ok((cursor.into_inner(), "audio/wav".into()))
 }

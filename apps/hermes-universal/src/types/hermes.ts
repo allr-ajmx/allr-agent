@@ -208,6 +208,75 @@ export interface MessagingPlatformTestResponse {
   state?: null | string
 }
 
+// -- Webhooks (inbound subscription CRUD) ------------------------------------
+// Incoming HTTP event routes served by the webhook gateway platform. Backed by
+// the same JSON store the CLI/dashboard use (`hermes_cli/webhook.py`); per-route
+// HMAC secrets are redacted on read and surfaced EXACTLY ONCE, on create.
+//
+// Ported from apps/desktop/src/types/hermes.ts, plus the two summary fields
+// desktop's types never declared (so its page could not render them):
+// `created_at` and `script`.
+
+export interface WebhookRoute {
+  created_at: null | string
+  deliver: string
+  deliver_only: boolean
+  description: string
+  enabled: boolean
+  events: string[]
+  name: string
+  prompt: string
+  /** Local script the route runs on fire. Set via the CLI; read-only here. */
+  script: string
+  /** A secret EXISTS for this route — never the value (masked on read). */
+  secret_set: boolean
+  skills: string[]
+  url: string
+}
+
+export interface WebhooksResponse {
+  base_url: string
+  /** CONFIG state (`platforms.webhook.enabled`), NOT "the receiver is bound".
+   *  The live answer is the `webhook` platform's `state` on
+   *  `GET /api/messaging/platforms` — see `app/webhooks/index.tsx`. */
+  enabled: boolean
+  subscriptions: WebhookRoute[]
+}
+
+export interface WebhookCreatePayload {
+  deliver?: string
+  /** Target chat for a real delivery platform → stored as `deliver_extra.chat_id`. */
+  deliver_chat_id?: string
+  deliver_only?: boolean
+  description?: string
+  events?: string[]
+  name: string
+  prompt?: string
+  /** Omit and the gateway generates one, returned exactly once. Supply your own
+   *  and there is no one-time reveal to lose. */
+  secret?: string
+  skills?: string[]
+}
+
+/** Create echoes the route summary plus the one-time secret. */
+export interface WebhookCreateResponse extends WebhookRoute {
+  secret: string
+}
+
+export interface WebhookEnableResponse {
+  enabled: true
+  /** `!restart_started` — the backend's own derivation. */
+  needs_restart: boolean
+  ok: boolean
+  platform: 'webhook'
+  restart_action?: string
+  restart_error?: string
+  restart_pid?: null | number
+  /** A restart was SPAWNED — not that it finished, and not that the receiver
+   *  came up. Nothing in this response can promise that. */
+  restart_started?: boolean
+}
+
 export interface GatewayReadyPayload {
   skin?: unknown
 }
@@ -224,6 +293,9 @@ export interface HermesConfig {
   }
   terminal?: {
     cwd?: string
+    /** CSS family name (or an authored stack) for the integrated terminal;
+     *  empty/absent means the bundled default. See right-pane/terminal/terminal-font. */
+    font_family?: string
   }
   stt?: {
     enabled?: boolean
@@ -263,6 +335,11 @@ export interface ModelOptionProvider {
   slug: string
   total_models?: number
   warning?: string
+  /** Curated shortlist (one flagship per lab) the picker shows by default for
+   *  aggregator providers that serve dozens of models across many labs. Empty
+   *  for providers with no manifest entry — curation falls back to top-N. The
+   *  rest of `models` stays reachable via search / Edit Models. */
+  featured_models?: string[]
   /** True when the provider has usable credentials. False for canonical
    *  providers surfaced by `include_unconfigured` that the user hasn't set up
    *  yet — render these with a setup affordance instead of hiding them. */
@@ -327,6 +404,27 @@ export interface SessionCreateResponse {
   stored_session_id?: string
 }
 
+/**
+ * Response from `session.redirect` — the "stop and correct" RPC.
+ *
+ * `redirected` == the live model request was cancelled and rebuilt in place
+ * with this text; `steered` == a TOOL was running, so the gateway refused to
+ * kill it and deferred the correction to the next tool-result boundary — the
+ * reply on screen is NOT superseded and the model has not seen the words yet;
+ * `queued` == the correction arrived in the turn-build window (no agent to
+ * redirect yet) and becomes the NEXT turn's prompt; `rejected` == the runtime
+ * cannot redirect, and the caller must queue the words itself.
+ *
+ * `steered` used to answer `redirected` — `AIAgent.redirect()` degrades to
+ * `steer()` during tool execution and both came back `True` — which is how a
+ * correction ended up above a reply it had never touched. A deferred steer can
+ * still miss its window entirely; the gateway then pushes `steer.missed`.
+ */
+export interface SessionRedirectResponse {
+  status?: 'queued' | 'redirected' | 'rejected' | 'steered'
+  text?: string
+}
+
 export interface SessionInfo {
   archived?: boolean
   cwd?: null | string
@@ -346,6 +444,14 @@ export interface SessionInfo {
    *  continuation tip. Stable across compressions — used as the durable id for
    *  pins so a pinned conversation survives auto-compression. */
   _lineage_root_id?: null | string
+  /** Spend for the session, straight off the `sessions` row. `actual` is set
+   *  when the provider reported a price; `estimated` is the backend's own
+   *  pricing-table math. Both are 0 (or absent, on an older backend) on
+   *  subscription auth that never quotes a price, which is why the sidebar only
+   *  offers a cost sort when some session actually has spend — see
+   *  `$sessionsHaveCost` in `store/sidebar-archive.ts`. */
+  actual_cost_usd?: null | number
+  estimated_cost_usd?: null | number
   input_tokens: number
   is_active: boolean
   last_active: number
@@ -354,6 +460,12 @@ export interface SessionInfo {
   output_tokens: number
   /** Parent conversation when this row is a /branch fork. */
   parent_session_id?: null | string
+  /** The backend's DURABLE pin flag (`sessions.pinned`) — distinct from
+   *  universal's own localStorage pin list in `store/layout.ts`, which never
+   *  reaches the server. It is the reason a row can arrive PAST the requested
+   *  `limit`: the list endpoints back-fill pinned conversations the page window
+   *  left out, and `hermes.ts` keeps those rows rather than trimming them. */
+  pinned?: boolean
   preview: null | string
   source: null | string
   started_at: number
@@ -379,11 +491,27 @@ export interface SessionMessage {
   codex_reasoning_items?: unknown
   content: unknown
   context?: unknown
+  /** How this row should be PRESENTED, when it is not what its role suggests.
+   *
+   * `_history_to_messages` stamps it (and back-fills untyped legacy rows via
+   * `_legacy_display_kind`) so a surface renders a timeline event instead of
+   * the scaffolding text the model was actually fed. `hidden` never arrives —
+   * the gateway drops those rows. The tagged kinds are also OUT of the
+   * `truncate_before_user_ordinal` space (`methods_prompt.py`), so anything
+   * counting user turns for a rewind must skip them too. */
+  display_kind?: 'async_delegation_complete' | 'auto_continue' | 'model_switch' | 'skill_invocation' | string
+  /** Display-only per-message JSON the gateway forwards verbatim. Reactions
+   *  ride here rather than in a side table, so they survive the row rewrites
+   *  that rewind and compaction perform (`hermes_state.REACTIONS_METADATA_KEY`). */
+  display_metadata?: unknown
   name?: string
   reasoning?: null | string
   reasoning_content?: null | string
   reasoning_details?: unknown
   role: 'assistant' | 'system' | 'tool' | 'user'
+  /** Durable `messages.id`, stamped by the gateway's `_rows_to_conversation`.
+   *  The only stable handle on a specific persisted message. */
+  row_id?: number
   text?: unknown
   timestamp?: number
   tool_call_id?: null | string
@@ -397,6 +525,17 @@ export interface SessionMessagesResponse {
 }
 
 export interface SessionResumeResponse {
+  /** The gateway found a fresh crash-interrupted turn (`turn_marker.py`) and
+   *  scheduled its continuation. The turn is ALREADY starting over there — it
+   *  arrives as a normal `message.start` stream once the deferred agent build
+   *  finishes — so a client adopts it and must never resubmit alongside it.
+   *  The interrupted prompt itself rides `inflight.user`, which the cold
+   *  branches fill from the marker for exactly this case
+   *  (`_apply_auto_continue_resume_state` in tui_gateway/server.py). */
+  auto_continue?: {
+    attempt: number
+    interrupted_at: number
+  }
   // The turn that is STILL RUNNING on the gateway. Session history is committed
   // only when a turn finishes, so on a mid-turn resume this snapshot is the only
   // record of the live user/assistant pair (`_inflight_snapshot` in
@@ -404,12 +543,33 @@ export interface SessionResumeResponse {
   // waiting in gateway memory.
   inflight?: null | {
     assistant?: string
+    /** Mid-turn corrections the gateway accepted, oldest first. Carried
+     *  alongside `user` (never over it) so a resuming client can rebuild every
+     *  user bubble the turn produced. */
+    corrections?: string[]
+    /** A retained failed turn: the terminal frame was lost on the disconnect,
+     *  and this is the only record of the failure the client will get. */
+    error?: string
+    recoverable?: boolean
+    status?: string
     streaming?: boolean
     user?: string
   }
   info?: SessionRuntimeInfo
   message_count: number
   messages: SessionMessage[]
+  /** The blocking prompt this session is parked on RIGHT NOW, shaped as the
+   *  event that raised it (`_session_pending_prompt` in tui_gateway/server.py).
+   *  The gateway emits a `clarify.request` / `sudo.request` / `secret.request`
+   *  exactly once and keeps no replay buffer, and a parked turn is not in the
+   *  committed transcript either — so on a cold open this is the ONLY record of
+   *  the question, its choices and the `request_id` an answer must carry.
+   *  Without it the agent stays in the backend's `_block` until its timeout
+   *  while the client can show nothing but a contentless "needs input" dot. */
+  pending_prompt?: null | {
+    event: string
+    payload: Record<string, unknown>
+  }
   queued?: null | {
     user?: string
   }
@@ -575,9 +735,16 @@ export interface AnalyticsTotals {
 }
 
 export interface CronJob {
-  deliver?: null | string
+  // ONE comma-separated string on the wire ("local,telegram"). `string[]` is a
+  // legacy stored shape (hand-edited jobs.json, older MCP callers) that
+  // cron/scheduler.py `_normalize_deliver_value` still flattens — the app has
+  // to read it too, or an edit writes the routes away.
+  deliver?: null | string | string[]
   enabled: boolean
   id: string
+  // Delivery failures are tracked APART from last_error (cron/jobs.py
+  // mark_job_run): a job can run fine and still reach none of its targets.
+  last_delivery_error?: null | string
   last_error?: null | string
   last_run_at?: null | string
   model?: null | string
@@ -590,6 +757,18 @@ export interface CronJob {
   schedule_display?: null | string
   script?: null | string
   state?: null | string
+}
+
+// A cron delivery target from GET /api/cron/delivery-targets — the single
+// source of truth (cron.scheduler.cron_delivery_targets) for where a cron job
+// can auto-deliver. Only 'local' plus configured gateway platforms appear; a
+// configured platform without a cron home channel comes back with
+// home_target_set=false so the UI can flag it.
+export interface CronDeliveryTarget {
+  home_env_var: null | string
+  home_target_set: boolean
+  id: string
+  name: string
 }
 
 export interface CronJobCreatePayload {
@@ -615,6 +794,34 @@ export interface CronJobUpdates {
   prompt?: string
   provider?: null | string
   schedule?: string
+}
+
+// Automation Blueprints — parameterized cron templates with typed slots. The
+// backend (cron/blueprint_catalog.py) is the single source of truth; the app
+// renders each slot as a form field, then instantiates a real cron job via the
+// same create_job path as everything else. Shapes mirror the JSON from
+// GET /api/cron/blueprints (blueprint_catalog_entry).
+export interface AutomationBlueprintField {
+  name: string
+  type: 'enum' | 'text' | 'time' | 'weekdays'
+  label: string
+  default: null | string
+  options: string[]
+  optional: boolean
+  /** When false, options are suggestions — any value is accepted. */
+  strict?: boolean
+  help: string
+}
+
+export interface AutomationBlueprint {
+  key: string
+  title: string
+  description: string
+  category: string
+  tags: string[]
+  fields: AutomationBlueprintField[]
+  command: string
+  appUrl: string
 }
 
 export interface ProfileCreatePayload {
@@ -777,6 +984,11 @@ export interface ToolsetModelsResponse {
   models: ToolsetModel[]
   current: string | null
   default: string | null
+  /** True when the backend routes ids outside its own catalog (OpenRouter's
+   *  image catalog moves faster than we ship), so the panel offers free-text
+   *  entry. Backends with a closed id set stay list-only. Absent on older
+   *  gateways — treat undefined as false. */
+  accepts_custom_model?: boolean
 }
 
 /** Shape of `GET /api/tools/computer-use/status`.
@@ -853,19 +1065,42 @@ export interface PlatformStatus {
   updated_at: string
 }
 
+/**
+ * Whether the gateway's on-disk config is too old for the auto-migration ladder.
+ * The gateway computes this because only it can tell an ancient config (an
+ * explicit old `_config_version`) from a fresh minimal one (no key at all) —
+ * both arrive over HTTP as `config_version: 0`. Absent on a gateway that
+ * predates the field; the client falls back to its own approximation then.
+ */
+export interface ConfigFloorWarning {
+  below_floor: boolean
+  support_floor_version: number
+}
+
+/**
+ * `GET /api/status`.
+ *
+ * The fields marked optional are the absolute host paths and gateway PID that
+ * the backend only attaches on a loopback / `--insecure` bind (`if not
+ * auth_required`, `hermes_cli/web_server.py`) — deployment recon it refuses to
+ * hand an unauthenticated caller on a gated bind. Against an OAuth / cloud
+ * gateway they are simply absent, so they must not be typed as always-present:
+ * that is how a `undefined · config v34` readout got shipped.
+ */
 export interface StatusResponse {
   active_sessions: number
-  config_path: string
+  config_floor_warning?: ConfigFloorWarning | null
+  config_path?: string
   config_version: number
-  env_path: string
+  env_path?: string
   gateway_exit_reason: string | null
-  gateway_health_url: string | null
-  gateway_pid: number | null
+  gateway_health_url?: string | null
+  gateway_pid?: number | null
   gateway_platforms: Record<string, PlatformStatus>
   gateway_running: boolean
   gateway_state: string | null
   gateway_updated_at: string | null
-  hermes_home: string
+  hermes_home?: string
   latest_config_version: number
   release_date: string
   version: string
@@ -918,11 +1153,34 @@ export interface AuxiliaryModelsResponse {
   tasks: AuxiliaryTaskAssignment[]
 }
 
+/**
+ * One MoA slot — a reference model, or the aggregator.
+ *
+ * `enabled` and `reasoning_effort` are honoured by the backend
+ * (`hermes_cli/web_models.py` `MoaModelSlot`, `agent/moa_loop.py:1244` filters
+ * reference slots on `enabled`) and survive a save today because the settings
+ * page spreads the existing slot rather than rebuilding it. They were simply
+ * absent from this type, so no UI could offer them. Optional: a slot saved
+ * before either existed omits the key, and the backend reads a missing
+ * `enabled` as `true`.
+ */
 export interface MoaModelSlot {
   provider: string
   model: string
+  enabled?: boolean
+  reasoning_effort?: null | string
 }
 
+/**
+ * `GET /api/model/moa`, normalized by `hermes_cli/moa_config.normalize_moa_config`.
+ *
+ * The settings editor round-trips this whole object back to `PUT`, so every
+ * key the server emits must be declared: an undeclared field survives only by
+ * accident (object spread), and the first code path that rebuilds a preset
+ * instead of spreading it would erase it. `degraded_reference_policy`,
+ * `reference_timeout`, `reference_max_tokens` and `fanout` are hand-edited
+ * knobs with no control — declared so they are carried, not offered.
+ */
 export interface MoaConfigResponse {
   default_preset: string
   active_preset: string
@@ -931,18 +1189,26 @@ export interface MoaConfigResponse {
     {
       aggregator: MoaModelSlot
       aggregator_temperature: number
+      degraded_reference_policy: 'loud' | 'silent'
       enabled: boolean
+      /** Fan-out cadence (user_turn default | per_iteration | every_n:N) — round-tripped. */
+      fanout?: string
       max_tokens: number
+      /** Optional advisor output cap — round-tripped, not edited here. */
+      reference_max_tokens?: null | number
       reference_models: MoaModelSlot[]
       reference_temperature: number
+      reference_timeout: null | number
     }
   >
   aggregator: MoaModelSlot
   aggregator_temperature: number
+  degraded_reference_policy: 'loud' | 'silent'
   enabled: boolean
   max_tokens: number
   reference_models: MoaModelSlot[]
   reference_temperature: number
+  reference_timeout: null | number
 }
 
 export interface ModelAssignmentRequest {
@@ -1248,4 +1514,15 @@ export interface RepoStatus {
   added: number
   removed: number
   files: RepoStatusFile[]
+}
+
+/** One emoji reaction on a message. One per author, iOS-Tapback style — the
+ *  `message.react` RPC returns the authoritative list (lib/gateway-rpc.ts). */
+export interface MessageReaction {
+  emoji: string
+  author: 'agent' | 'user'
+  /** Epoch seconds. */
+  at: number
+  /** Set once the reaction has been shown; absent on a freshly written one. */
+  seen?: boolean
 }

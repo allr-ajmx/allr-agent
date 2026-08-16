@@ -52,14 +52,14 @@ export default function PairingPage() {
   }, [loadPairing]);
 
   const handleApprove = async (user: PairingUser) => {
-    if (!user.code) {
-      showToast("Missing pairing code", "error");
+    if (!user.request_id) {
+      showToast("Missing pairing request", "error");
       return;
     }
     const key = getUserKey(user);
     setApproving(key);
     try {
-      await api.approvePairing(user.platform, user.code);
+      await api.approvePairing(user.platform, user.request_id);
       showToast(`Approved: "${getUserLabel(user)}"`, "success");
       loadPairing();
     } catch (e) {
@@ -120,6 +120,10 @@ export default function PairingPage() {
     return () => {
       setEnd(null);
     };
+    // `handleClearPending` MUST stay out: it is a plain function with a fresh
+    // identity every render, and the effect body is a setState (`setEnd`
+    // stores a new element each call) — depending on it would render-loop the
+    // page. Only `clearing` changes what the button shows, so it is the dep.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [setEnd, clearing]);
 
@@ -179,15 +183,12 @@ export default function PairingPage() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1">
                     <Badge tone="outline">{user.platform}</Badge>
-                    {user.code && (
-                      <span className="font-mono text-sm">{user.code}</span>
-                    )}
+                    <span className="font-medium text-sm truncate">
+                      {getUserLabel(user)}
+                    </span>
                   </div>
                   <div className="flex items-center gap-4 text-xs text-muted-foreground">
                     <span className="truncate">{user.user_id}</span>
-                    {user.user_name && (
-                      <span className="truncate">{user.user_name}</span>
-                    )}
                     {typeof user.age_minutes === "number" && (
                       <span>{user.age_minutes}m ago</span>
                     )}
@@ -199,7 +200,7 @@ export default function PairingPage() {
                     size="sm"
                     className="uppercase"
                     onClick={() => handleApprove(user)}
-                    disabled={approving === key || !user.code}
+                    disabled={approving === key || !user.request_id}
                     prefix={
                       approving === key ? (
                         <Spinner />

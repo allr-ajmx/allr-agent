@@ -1,6 +1,6 @@
 import { atom, computed, type ReadableAtom } from 'nanostores'
 
-import { $activeSessionKey } from '@/store/session-state-types'
+import { $activeSessionKey, addSessionKeyHooks } from '@/store/session-state-types'
 
 // The blocking-prompt request shapes. They live HERE, not in store/chat.ts,
 // because this module is the single owner of prompt state for every session and
@@ -52,6 +52,8 @@ interface KeyedPromptStore<T> {
   clearAll: () => void
   /** A per-id readable atom (memoized) — the request for that session, or null. */
   forId: (id: string) => ReadableAtom<T | null>
+  /** Move a request onto a new session key (a resume rotated the runtime id). */
+  rekey: (fromId: string, toId: string) => void
   /** Set (or clear, when null) the request for a session. */
   set: (id: string, value: T | null) => void
 }
@@ -66,6 +68,17 @@ function keyedPromptStore<T>(): KeyedPromptStore<T> {
       if (Object.keys($all.get()).length > 0) {
         $all.set({})
       }
+    },
+    rekey(fromId, toId) {
+      const current = $all.get()
+
+      if (fromId === toId || !(fromId in current)) {
+        return
+      }
+
+      const { [fromId]: moving, ...rest } = current
+      $all.set({ ...rest, [toId]: moving })
+      perId.delete(fromId)
     },
     forId(id) {
       const existing = perId.get(id)
@@ -150,6 +163,29 @@ export function clearAllPrompts(id?: string): void {
   sudoStore.clearAll()
   secretStore.clearAll()
 }
+
+const promptStores = [approvalStore, clarifyStore, sudoStore, secretStore]
+
+/**
+ * Carry every blocking prompt across a session key move, and drop them when the
+ * slice is evicted.
+ *
+ * HYDRATION SAFETY (MJXHRM-207): a cold resume mints a NEW runtime session id
+ * for the same conversation, and the slice is rekeyed onto it. A clarify request
+ * left behind under the hydrating/draft key is unanswerable — the panel reads
+ * the active key and finds nothing, while the agent stays parked in `_block`
+ * until its 5-minute timeout. Moving with the slice is what keeps it answerable.
+ */
+addSessionKeyHooks({
+  drop(key) {
+    clearAllPrompts(key)
+  },
+  rekey(fromKey, toKey) {
+    for (const store of promptStores) {
+      store.rekey(fromKey, toKey)
+    }
+  }
+})
 
 /** Whether a specific (tiled) session's turn is parked on a blocking prompt. */
 export function sessionAwaitingInput(id: string): ReadableAtom<boolean> {

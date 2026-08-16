@@ -358,7 +358,11 @@ impl SshSession {
                     "The remote host did not run a command Hermes sent it. Its shell may be \
                      missing a `base64` decoder, which Hermes needs to send commands safely. \
                      ({} on {})",
-                    if out.stderr.trim().is_empty() { "no error output" } else { out.stderr.trim() },
+                    if out.stderr.trim().is_empty() {
+                        "no error output"
+                    } else {
+                        out.stderr.trim()
+                    },
                     self.target.label()
                 ),
             ));
@@ -607,9 +611,16 @@ mod tests {
             ..Default::default()
         };
         assert!(unfence(&mut started), "the begin marker was printed");
-        assert_eq!(started.stdout, format!("{FENCE_BEGIN}\nhalf a line"), "left as received");
+        assert_eq!(
+            started.stdout,
+            format!("{FENCE_BEGIN}\nhalf a line"),
+            "left as received"
+        );
 
-        let mut never_ran = ExecOutput { exit_status: Some(0), ..Default::default() };
+        let mut never_ran = ExecOutput {
+            exit_status: Some(0),
+            ..Default::default()
+        };
         assert!(!unfence(&mut never_ran), "nothing was printed at all");
     }
 
@@ -620,7 +631,9 @@ mod tests {
         use base64::Engine as _;
 
         let b64 = wrapped.rsplit(' ').next().expect("a base64 blob");
-        let bytes = base64::engine::general_purpose::STANDARD.decode(b64).expect("valid base64");
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(b64)
+            .expect("valid base64");
 
         String::from_utf8(bytes).expect("utf8 script")
     }
@@ -730,7 +743,10 @@ mod tests {
     /// reproduces the bug — the same "green because it never ran" trap the
     /// tests below exist to close.
     fn binary_available(name: &str) -> bool {
-        std::process::Command::new(name).arg("--version").output().is_ok_and(|out| out.status.success())
+        std::process::Command::new(name)
+            .arg("--version")
+            .output()
+            .is_ok_and(|out| out.status.success())
     }
 
     /// Run `wrapped` the way sshd does: hand the whole raw string to a login
@@ -749,7 +765,12 @@ mod tests {
             .spawn()
             .unwrap_or_else(|e| panic!("could not spawn {shell}: {e}"));
 
-        child.stdin.take().expect("piped stdin").write_all(stdin_data).expect("write stdin");
+        child
+            .stdin
+            .take()
+            .expect("piped stdin")
+            .write_all(stdin_data)
+            .expect("write stdin");
         let finished = child.wait_with_output().expect("wait for child");
 
         ExecOutput {
@@ -801,7 +822,11 @@ mod tests {
             let token = format!("secret-under-{shell}");
 
             let mut out = run_via(shell, &fence(&command), token.as_bytes());
-            assert!(unfence(&mut out), "begin marker missing under {shell}: {:?}", out.stderr);
+            assert!(
+                unfence(&mut out),
+                "begin marker missing under {shell}: {:?}",
+                out.stderr
+            );
             assert_eq!(out.exit_status, Some(0), "under {shell}: {:?}", out.stderr);
             assert_eq!(
                 std::fs::read_to_string(&token_path).expect("token file written"),

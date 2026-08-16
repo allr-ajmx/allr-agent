@@ -5,11 +5,15 @@
 // reproduces the same event contract with getUserMedia for plain-browser/vitest.
 
 /** Rust `VoiceStateKind`, serialized camelCase. */
-export type VoiceStateKind = 'opening' | 'idle' | 'armed' | 'recording' | 'finalizing' | 'closing' | 'closed'
+export type VoiceStateKind =
+  'opening' | 'idle' | 'wakeListening' | 'armed' | 'recording' | 'finalizing' | 'closing' | 'closed'
 
 export type VoiceEmptyReason = 'noSpeech' | 'tooShort' | 'noTranscript'
 
-export type VoiceArmMode = 'normal' | 'bargein'
+/** `monitor` arms the mic for its LEVEL only — Rust makes the onset threshold
+ *  unreachable and the idle window infinite, so no turn is ever captured or
+ *  transcribed. It is what the Voice settings meter runs on. */
+export type VoiceArmMode = 'normal' | 'bargein' | 'monitor'
 
 /** One event from a session, decoded from a `voice://{id}/{topic}` payload. */
 export type VoiceEvent =
@@ -19,10 +23,16 @@ export type VoiceEvent =
   | { type: 'transcript'; text: string; provider: string | null; durationMs: number }
   | { type: 'turnEmpty'; reason: VoiceEmptyReason }
   | { type: 'idleTimeout' }
+  /** One batch of wake audio, base64 int16 mono LE @16 kHz, ready for `wake.feed`.
+   *  Only while the session is `wakeListening`. */
+  | { type: 'wakeFrame'; pcm: string }
   | { type: 'error'; code: string; message: string }
 
 /** Optional VAD/turn overrides; omitted fields use Rust's tuned defaults. */
 export interface VoiceVad {
+  /** Mic gain on the level scale — scales the reported RMS only, never the PCM
+   *  that gets transcribed (Rust `VoiceConfig::level_gain`). */
+  levelGain?: number
   speechLevel?: number
   bargeinSpeechLevel?: number
   onsetMs?: number
@@ -46,7 +56,11 @@ export interface VoiceOpenOptions {
   format?: 'wav' | 'flac'
 }
 
-export type VoiceOwner = 'conversation' | 'dictation'
+/** Mic owners, most privileged first. `wake` is the standing background listener
+ *  and yields to anything the user asked for directly — including `meter`, the
+ *  Voice settings calibration meter, which only exists while the user is holding
+ *  a button down on that page. */
+export type VoiceOwner = 'conversation' | 'dictation' | 'meter' | 'wake'
 
 export type VoiceEventHandler = (event: VoiceEvent) => void
 
@@ -54,6 +68,9 @@ export type VoiceEventHandler = (event: VoiceEvent) => void
  * web engine has applied them); events arrive via `on`. */
 export interface VoiceLease {
   arm(mode?: VoiceArmMode): Promise<void>
+  /** Enter hands-free wake listening: emit `wakeFrame` batches instead of running
+   *  a turn. Rejects where the engine cannot capture wake audio (the web engine). */
+  wakeListen(): Promise<void>
   suspend(): Promise<void>
   forceTurn(): Promise<void>
   close(): Promise<void>

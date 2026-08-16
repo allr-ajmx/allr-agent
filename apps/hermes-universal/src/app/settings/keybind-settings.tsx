@@ -173,7 +173,7 @@ export function KeybindSettings() {
 function CategoryHeader({ label, onToggle, open }: { label: string; onToggle: () => void; open: boolean }) {
   return (
     <button
-      className="group/kbd-cat flex w-fit items-center gap-1 px-2.5 pb-1 pt-3 text-left leading-none"
+      className="group/kbd-cat flex w-fit items-center gap-1 px-2.5 pb-1 pt-3 text-start leading-none"
       onClick={onToggle}
       type="button"
     >
@@ -209,8 +209,21 @@ function KeybindRow({ action }: { action: KeybindActionMeta }) {
     <div className="group flex items-center gap-2.5 rounded-lg px-2.5 py-1 transition-colors hover:bg-(--chrome-action-hover)">
       <span className="min-w-0 flex-1 truncate text-[0.82rem] text-foreground/90">{label}</span>
 
+      {/* The one property of a shortcut that reaches outside this app: the OS is
+          asked to reserve it machine-wide at startup, so no other application
+          can use it. The first-run notice says it once
+          (`lib/keybinds/global-shortcut.ts`); this is where a user who dismissed
+          it — or arrived months later — can still find out which rows do it. */}
+      {action.global && (
+        <Tip label={k.globalTagHint}>
+          <span className="shrink-0 rounded border border-(--ui-stroke-tertiary) px-1 py-px text-[0.6rem] font-medium uppercase tracking-[0.08em] text-muted-foreground/80">
+            {k.globalTag}
+          </span>
+        </Tip>
+      )}
+
       {conflict && (
-        <span className="flex size-4 items-center justify-center text-amber-500/90" title={k.conflictWith(conflict)}>
+        <span className="flex size-4 items-center justify-center text-(--ui-yellow)/90" title={k.conflictWith(conflict)}>
           <Codicon name="warning" size="0.8125rem" />
         </span>
       )}

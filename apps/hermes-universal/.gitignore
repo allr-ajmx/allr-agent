@@ -4,13 +4,17 @@ node_modules/
 # scripts point CARGO_TARGET_DIR at `target-android/` / `target-ios/` so two
 # concurrent `tauri dev` runs never block each other on Cargo's build lock.
 src-tauri/target*/
-# Track the generated Android project (gen/android) so our native customizations
-# — activity subclasses, the Home bridge, manifest edits — are versioned and the
-# mobile build is reproducible. Its own gen/android/.gitignore excludes the build
-# output (build/, .gradle, .cxx, local.properties, …). Everything else under gen/
-# (e.g. gen/apple once initialized) stays ignored until we choose to track it.
+# Track both generated mobile projects so our native customizations — activity
+# subclasses, the Home bridge, manifest edits, the iOS asset catalog — are
+# versioned and the mobile builds are reproducible. Each has its own nested
+# .gitignore excluding the build output (gen/android: build/, .gradle, .cxx,
+# local.properties, …; gen/apple: build/, Externals/, assets/, xcuserdata/).
+# Tracking gen/apple is what makes an app-icon drift visible in a diff — the
+# Hermes rebrand shipped an iOS build wearing the old icon precisely because
+# nothing under gen/apple was reviewable. See scripts/sync-ios-icons.mjs.
 src-tauri/gen/*
 !src-tauri/gen/android/
+!src-tauri/gen/apple/
 
 # Vendored plugin build artifacts — the app's src-tauri/Cargo.lock is authoritative
 src-tauri/plugins/*/target/

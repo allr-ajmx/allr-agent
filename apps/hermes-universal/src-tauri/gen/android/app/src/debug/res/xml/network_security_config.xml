@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Cleartext policy for DEBUG builds: everything permitted.
+
+  Same filename as the one in src/main, which is the mechanism — Gradle's buildType
+  resource merge gives the debug source set priority, so this file replaces the
+  release policy wholesale for `assembleDebug` / `tauri android dev`.
+
+  It exists to preserve the status quo, not to add anything. `build.gradle.kts` has
+  always set `usesCleartextTraffic = true` for debug, and development is done against
+  self-hosted gateways on plain http (a LAN address, a Tailscale IP) that cannot carry
+  a publicly trusted certificate. Introducing the release config without this would
+  have silently broken every dev build, because on API 24+ a networkSecurityConfig
+  supersedes that flag rather than combining with it.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

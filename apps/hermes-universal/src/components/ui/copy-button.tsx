@@ -5,6 +5,12 @@ import { ContextMenuItem } from '@/components/ui/context-menu'
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu'
 import { Tip } from '@/components/ui/tooltip'
 import { useI18n } from '@/i18n'
+// The OS-first write seam. Desktop's counterpart is the Electron preload's
+// `window.hermesDesktop.writeClipboard`; universal's is the Tauri
+// clipboard-manager plugin (MJXHRM-415). It used to be defined in this file,
+// which is why five unrelated modules imported a *button component* to get at
+// it — it now lives in @/lib/clipboard with the read half.
+import { writeClipboardText } from '@/lib/clipboard'
 import { triggerHaptic } from '@/lib/haptics'
 import { Check, Copy, X } from '@/lib/icons'
 import { cn } from '@/lib/utils'
@@ -13,24 +19,6 @@ type CopyPayload = string | (() => Promise<string> | string)
 type CopyButtonAppearance = 'button' | 'icon' | 'inline' | 'menu-item' | 'context-menu-item' | 'tool-row'
 type CopyStatus = 'copied' | 'error' | 'idle'
 const COPIED_RESET_MS = 1_500
-
-// Verbatim copy of desktop's, minus its `window.hermesDesktop.writeClipboard`
-// branch: that is the Electron preload bridge, which has no counterpart in the
-// Tauri webview. Universal goes straight to the async Clipboard API, which is
-// the same fallback desktop lands on.
-export async function writeClipboardText(text: string) {
-  if (!text) {
-    return
-  }
-
-  if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(text)
-
-    return
-  }
-
-  throw new Error('Clipboard API is unavailable')
-}
 
 export interface CopyButtonProps {
   appearance?: CopyButtonAppearance

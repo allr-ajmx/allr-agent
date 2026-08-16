@@ -21,7 +21,7 @@ import { CustomEndpointsSettings } from './custom-endpoints-settings'
 import { SettingsCategoryHeading, useEnvCredentials } from './env-credentials'
 import { providerGroup, providerMeta, providerPriority } from './helpers'
 import { FEATURED_ID, providerTitle, sortProviders } from './oauth-provider-display'
-import { LoadingState, SettingsContent } from './primitives'
+import { SettingsContent, SettingsSkeleton } from './primitives'
 
 interface ProviderKeyGroup extends ProviderKeyRowGroup {
   priority: number
@@ -93,7 +93,7 @@ function ConnectedTag() {
 }
 
 const PROVIDER_ROW_CLASS =
-  'group flex w-full items-center justify-between gap-3 rounded-[6px] px-3 py-2.5 text-left transition-colors hover:bg-(--ui-control-hover-background)'
+  'group flex w-full items-center justify-between gap-3 rounded-[6px] px-3 py-2.5 text-start transition-colors hover:bg-(--ui-control-hover-background)'
 
 function FeaturedProviderRow({
   onSelect,
@@ -106,7 +106,7 @@ function FeaturedProviderRow({
 
   return (
     <button
-      className="group flex w-full items-center justify-between gap-4 rounded-[8px] bg-primary/[0.06] px-3 py-2.5 text-left transition-colors hover:bg-primary/10"
+      className="group flex w-full items-center justify-between gap-4 rounded-[8px] bg-primary/[0.06] px-3 py-2.5 text-start transition-colors hover:bg-primary/10"
       onClick={() => onSelect(provider)}
       type="button"
     >
@@ -121,8 +121,25 @@ function FeaturedProviderRow({
         </div>
         <p className="mt-1 text-xs leading-5 text-muted-foreground">{t.onboarding.featuredPitch}</p>
       </div>
-      <ChevronRight className="size-4 shrink-0 text-primary transition group-hover:translate-x-0.5" />
+      <ChevronRight className="size-4 shrink-0 text-primary transition group-hover:translate-x-[calc(0.125rem*var(--dir-flip-x))] rtl:-scale-x-100" />
     </button>
+  )
+}
+
+// Quick-key row for a promoted API-key provider. These are NOT OAuth accounts,
+// so they can't come out of `listOAuthProviders` — without an explicit row the
+// only way to reach them from this page is the "I have an API key" link, which
+// drops the user in an unsorted env-var catalog. Desktop keeps the same two
+// rows here (providers-settings.tsx) alongside the onboarding picker.
+function KeyProviderRow({ onClick, pitch, title }: { onClick: () => void; pitch: string; title: string }) {
+  return (
+    <RowButton className={PROVIDER_ROW_CLASS} onClick={onClick}>
+      <div className="min-w-0">
+        <span className="text-[length:var(--conversation-text-font-size)] font-semibold">{title}</span>
+        <p className="mt-1 text-xs leading-5 text-muted-foreground">{pitch}</p>
+      </div>
+      <ChevronRight className="size-4 text-muted-foreground transition group-hover:text-foreground rtl:-scale-x-100" />
+    </RowButton>
   )
 }
 
@@ -165,7 +182,7 @@ function ConnectedProviderRow({
 
   return (
     <div className="group grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1 rounded-[6px] transition-colors hover:bg-(--ui-control-hover-background)">
-      <RowButton className="min-w-0 px-3 py-2.5 text-left" onClick={() => onSelect(provider)}>
+      <RowButton className="min-w-0 px-3 py-2.5 text-start" onClick={() => onSelect(provider)}>
         <div className="flex min-w-0 items-center gap-2">
           <span className="truncate text-[length:var(--conversation-text-font-size)] font-semibold">{title}</span>
           <ConnectedTag />
@@ -177,7 +194,7 @@ function ConnectedProviderRow({
           </p>
         )}
       </RowButton>
-      <div className="flex items-center gap-1 pr-2">
+      <div className="flex items-center gap-1 pe-2">
         <Trail className="size-4 text-muted-foreground transition group-hover:text-foreground" />
         {canDisconnect && (
           <Tip label={`${t.common.remove} ${title}`}>
@@ -245,6 +262,8 @@ function OAuthPicker({
         {p.intro}
       </p>
       {featured && <FeaturedProviderRow onSelect={select} provider={featured} />}
+      {/* Slot #2 — always visible, mirroring CANONICAL_PROVIDERS (Nous → Fireworks). */}
+      <KeyProviderRow onClick={onWantApiKey} pitch={t.onboarding.fireworksPitch} title="Fireworks AI" />
       {connected.length > 0 && (
         <>
           <GroupLabel>{p.connected}</GroupLabel>
@@ -265,6 +284,7 @@ function OAuthPicker({
           {others.map(item => (
             <ProviderRow key={item.id} onSelect={select} provider={item} />
           ))}
+          <KeyProviderRow onClick={onWantApiKey} pitch={t.onboarding.openRouterPitch} title="OpenRouter" />
         </>
       )}
       {collapsible && (
@@ -375,7 +395,7 @@ export function ProvidersSection({ view }: { view: 'accounts' | 'custom-endpoint
   }
 
   if (!vars) {
-    return <LoadingState label={t.settings.providers.loading} />
+    return <SettingsSkeleton search={view === 'keys'} sections={[{ rows: 6 }]} />
   }
 
   const hasOauth = oauthProviders.length > 0

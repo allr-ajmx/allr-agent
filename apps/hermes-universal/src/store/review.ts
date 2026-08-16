@@ -2,6 +2,7 @@ import { atom, computed } from 'nanostores'
 
 import { SIDEBAR_COLLAPSE_MEDIA_QUERY } from '@/app/layout-constants'
 import { PANE_TOGGLE_REVEAL_EVENT } from '@/components/pane-shell'
+import { revealTreePane } from '@/components/pane-shell/tree/store'
 import type { HermesReviewFile, HermesReviewShipInfo } from '@/global'
 import { matchesQuery } from '@/hooks/use-media-query'
 import { desktopGit, type GitBridge } from '@/lib/desktop-git'
@@ -11,7 +12,9 @@ import { requestOneShot } from '@/lib/oneshot'
 import { Codecs, persistentAtom } from '@/lib/persisted'
 
 import { $busy } from './chat'
-import { refreshRepoStatus } from './coding-status'
+import { refreshRepoStatus, repoStatusForCwd } from './coding-status'
+import { stampSessionPrBranch } from './pull-requests'
+import { $activeStoredSessionId, $sessions } from './session'
 import { $effectiveCwd, $workspaceChangeTick } from './workspace-events'
 
 // State for the review pane: the working-tree changed-file list, the selected
@@ -293,13 +296,82 @@ export function toggleReview(): void {
   }
 }
 
+/**
+ * Show the review pane, without the toggle's "close it if it's already open"
+ * half — "take me to the diff" must never be the thing that hides it.
+ *
+ * No scope argument, unlike desktop. Desktop pins the pane to one worktree
+ * (`revealReview(scopeCwd)`) because its rails can each name a different repo;
+ * universal has one review pane reading `$effectiveCwd`, which already follows
+ * the FOCUSED tile. A caller inside a tile's transcript is a caller inside the
+ * focused tile, so the pane lands on that tile's worktree with no second
+ * scoping mechanism to keep in sync.
+ */
+export function revealReview(): void {
+  const wasOpen = $reviewOpen.get()
+
+  if (!wasOpen) {
+    openReview()
+  }
+
+  if (matchesQuery(SIDEBAR_COLLAPSE_MEDIA_QUERY)) {
+    // The reveal pin is a toggle, so only fire it when the overlay isn't
+    // already slid in — otherwise "show me the diff" would hide the pane.
+    if (!wasOpen) {
+      window.dispatchEvent(new CustomEvent(PANE_TOGGLE_REVEAL_EVENT, { detail: { id: REVIEW_PANE_ID } }))
+    }
+
+    return
+  }
+
+  revealTreePane(REVIEW_PANE_ID)
+}
+
+/** The changed file matching a tool-reported path (absolute or repo-relative). */
+function matchReviewFile(files: readonly HermesReviewFile[], path: string): HermesReviewFile | undefined {
+  const target = path.replace(/\\/g, '/').replace(/\/+$/, '')
+
+  if (!target) {
+    return undefined
+  }
+
+  return files.find(file => {
+    const candidate = file.path.replace(/\\/g, '/')
+
+    return candidate === target || target.endsWith(`/${candidate}`) || candidate.endsWith(`/${target}`)
+  })
+}
+
+/**
+ * Open the review pane on one file's diff. The path comes from a tool call, so
+ * it may be absolute while git reports repo-relative — match on the tail.
+ */
+export async function openReviewForPath(path: string): Promise<void> {
+  revealReview()
+  await refreshReview()
+
+  const file = matchReviewFile($reviewFiles.get(), path)
+
+  if (file) {
+    await selectReviewFile(file)
+  }
+}
+
 // ── Mutations ────────────────────────────────────────────────────────────────
 
 // Run a git mutation then re-sync both the review list and the rail's +/- (the
 // working tree changed). A failure is swallowed by the caller's notify wrapper.
-async function afterMutation(): Promise<void> {
+//
+// `cwd` is the repo the mutation actually ran in, threaded through rather than
+// re-read: `refreshRepoStatus()` with no argument re-probes `$currentCwd` — the
+// SIDEBAR's selection — while this pane operates on `$effectiveCwd`, the FOCUSED
+// tile's. With the two sitting in different worktrees (the case the per-cwd
+// store exists for) a stage/unstage/discard refreshed the wrong repo and left
+// the acting tile's rail on its pre-mutation ±. Capturing it before the awaits
+// also survives focus moving mid-mutation.
+async function afterMutation(cwd: null | string): Promise<void> {
   await refreshReview()
-  void refreshRepoStatus()
+  void refreshRepoStatus(cwd)
 
   const selected = $reviewSelectedPath.get()
   const file = selected ? $reviewFiles.get().find(f => f.path === selected) : null
@@ -311,18 +383,24 @@ async function afterMutation(): Promise<void> {
 }
 
 export async function stageReviewFile(path: null | string): Promise<void> {
-  await desktopGit()?.review?.stage(repoCwd() ?? '', path)
-  await afterMutation()
+  const cwd = repoCwd()
+
+  await desktopGit()?.review?.stage(cwd ?? '', path)
+  await afterMutation(cwd)
 }
 
 export async function unstageReviewFile(path: null | string): Promise<void> {
-  await desktopGit()?.review?.unstage(repoCwd() ?? '', path)
-  await afterMutation()
+  const cwd = repoCwd()
+
+  await desktopGit()?.review?.unstage(cwd ?? '', path)
+  await afterMutation(cwd)
 }
 
 export async function revertReviewFile(path: null | string): Promise<void> {
-  await desktopGit()?.review?.revert(repoCwd() ?? '', path)
-  await afterMutation()
+  const cwd = repoCwd()
+
+  await desktopGit()?.review?.revert(cwd ?? '', path)
+  await afterMutation(cwd)
 }
 
 // Revert is destructive (discards working-tree edits with no undo), so it always
@@ -374,7 +452,10 @@ export async function commitChanges(message: string, opts: { push?: boolean } = 
   await runShip(async () => {
     await ctx.review.commit(ctx.cwd, message.trim(), Boolean(opts.push))
     await refreshReview()
-    void refreshRepoStatus()
+    // The repo we just committed in — not the sidebar's. A commit is the biggest
+    // ± move there is (everything staged drops out, `ahead` climbs), so pointing
+    // this at the wrong worktree is the most visible form of the bug.
+    void refreshRepoStatus(ctx.cwd)
     void refreshShipInfo()
   })
 }
@@ -462,6 +543,17 @@ export async function createOrOpenPr(): Promise<void> {
 
     if (url) {
       void openExternalLink(url)
+    }
+
+    // The session recorded its branch when it started; the checkout may have
+    // moved since, so bind the conversation to the branch the PR actually came
+    // from — otherwise a session that began on trunk badges whatever else lives
+    // on trunk, or nothing.
+    const session = $sessions.get().find(s => s.id === $activeStoredSessionId.get())
+    const branch = repoStatusForCwd(ctx.cwd).get()?.branch
+
+    if (session?.git_repo_root && branch) {
+      stampSessionPrBranch(session.id, session.git_repo_root, branch)
     }
 
     void refreshShipInfo()

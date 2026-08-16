@@ -1,5 +1,5 @@
 export { TRANSLATIONS } from './catalog'
-export { type I18nContextValue, I18nProvider, LOCALE_META, useI18n } from './context'
+export { $locale as $appLocale, type I18nContextValue, I18nProvider, LOCALE_META, useI18n } from './context'
 export {
   DEFAULT_LOCALE,
   isLocale,

@@ -337,6 +337,8 @@
   --radius-2xl: calc(var(--radius-scalar) * 1.5rem);
   --radius-3xl: calc(var(--radius-scalar) * 2rem);
   --radius-4xl: calc(var(--radius-scalar) * 2.5rem);
+  --radius-5xl: calc(var(--radius-scalar) * 3rem);
+  --radius-6xl: calc(var(--radius-scalar) * 3.5rem);
 
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
@@ -451,6 +453,9 @@
       var(--theme-neutral-sidebar)
     );
     --ui-bg-editor: color-mix(in srgb, var(--theme-card-seed) var(--theme-mix-card), var(--theme-neutral-card));
+    /* One fill for the transcript's inline widgets (clarify, artifact card) so
+       they cannot drift apart into three near-identical surfaces. */
+    --ui-widget-surface-background: var(--ui-bg-editor);
     --ui-bg-elevated: color-mix(
       in srgb,
       var(--theme-elevated-seed) var(--theme-mix-elevated),
@@ -636,6 +641,9 @@
     /* Tight gap between tool rows inside a single action group, so a back-to-back
        run still reads as one cohesive sequence. */
     --tool-row-gap: 0.375rem;
+    /* Resting opacity of a disclosure caret — invisible until hover, except
+       where a surface opts into a faint hint of the affordance. */
+    --disclosure-caret-rest: 0;
     /* Paragraph spacing — vertical gap between prose paragraphs, both inside a
        markdown block and between consecutive prose parts. Single knob; tweak
        freely. */
@@ -708,7 +716,16 @@
     --z-over-modal-content: 210;
     --z-switcher-backdrop: 219;
     --z-switcher: 220;
-    /* Boot and blocking states, in the order they can stack. */
+    /* Boot and blocking states, in the order they can stack.
+
+       Universal consumes only `--z-crash` here. Desktop floats its connecting /
+       onboarding / boot-failure surfaces OVER the shell as `fixed inset-0`
+       overlays and needs the rungs; universal branches the whole tree instead
+       (`app/mobile-controller.tsx` swaps the shell for GatewayConnectingScreen /
+       ConnectScreen / OnboardingScreen), so those screens are in normal flow
+       with nothing above them to clear. The rungs stay for sync parity with
+       desktop's styles.css — an unconsumed rung is not a free slot: taking one
+       means the surface now floats, and it must clear `--z-crash` reasoning too. */
     --z-connecting: 1200;
     --z-onboarding: 1300;
     --z-onboarding-popover: 1310;
@@ -766,6 +783,12 @@
     --ui-inline-code-background: color-mix(in srgb, #ffffff 7%, transparent);
     --ui-inline-code-foreground: color-mix(in srgb, #ffffff 88%, transparent);
     --ui-selection-background: color-mix(in srgb, #ffd24a 38%, transparent);
+    /* A dark card sits ABOVE the chrome (#161618 over #0d0d0e), so an inline
+       widget wearing the raw card fill reads as a lit panel — the brightest
+       thing in the transcript. Take it down a touch: still clearly a surface,
+       no longer glowing. Derived from the card so every skin follows its own
+       seed. Ported alongside the light value, which shipped without it. */
+    --ui-widget-surface-background: color-mix(in srgb, var(--ui-bg-editor) 88%, #000);
   }
 
   * {
@@ -896,10 +919,112 @@
 /* ── Sidebar row visual states (ported from desktop styles.css) ──
    .dither  = the textured section-label dot.
    row-hover = shared instant-in / 100ms-out list-row highlight.
-   .arc-border = animated running-turn border on a working session row.
-   .quest-glow = amber "needs your input" pulse on a clarify-blocked dot. */
+   .arc-border = animated running-turn border on a working session row. */
 .dither {
   background: repeating-conic-gradient(currentColor 0% 25%, transparent 0% 50%) 0 0 / 0.125rem 0.125rem;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   INLINE REFERENCES — the one system for anything that points at something
+   from inside a run of text.
+
+   A pasted link, an `@file:` the user picked, a `/skill`, a `@session:` the
+   agent wrote: all the same species. They render the same way in the composer
+   and in a sent message, because they're the same thing before and after send.
+
+   A reference is TEXT, not a badge — colour and an optional icon, no fill, no
+   padding, no border. A pill turns every mention into a widget the eye has to
+   step over, and mid-sentence that's most of the sentence.
+
+   Usage: `class="ref"` plus `data-ref="<kind>"` for the accent. Kinds live in
+   `components/assistant-ui/reference-kinds.ts` (icon + label); their colour
+   lives here, so a theme restyles every reference at once and TS never ships a
+   hex. No `data-ref` = an ordinary link, which keeps the primary link colour.
+   ───────────────────────────────────────────────────────────────────────── */
+/* Kind → accent. Keyed on the attribute ALONE so anything can adopt a
+   reference's colour without also taking its inline-text layout (a completion
+   row's icon column wants the hue, not the margin). Grouped by what a
+   reference DOES, so the palette reads as meaning rather than decoration:
+     · things you point at (paths)          → neutral, they're the common case
+     · things you fetch (links, media)      → secondary
+     · things that act (commands, tools)    → accent
+     · things that change code (skills, git)→ warm */
+[data-ref] {
+  --ref-color: var(--dt-primary);
+}
+
+[data-ref='file'],
+[data-ref='folder'],
+[data-ref='line'],
+[data-ref='terminal'] {
+  --ref-color: var(--ui-text-secondary);
+}
+
+[data-ref='url'],
+[data-ref='image'],
+[data-ref='session'],
+[data-ref='theme'] {
+  --ref-color: color-mix(in srgb, var(--ui-accent-secondary) 82%, var(--foreground));
+}
+
+[data-ref='command'],
+[data-ref='tool'] {
+  --ref-color: color-mix(in srgb, var(--ui-accent) 82%, var(--foreground));
+}
+
+[data-ref='skill'],
+[data-ref='git'],
+[data-ref='diff'],
+[data-ref='staged'] {
+  --ref-color: color-mix(in srgb, var(--ui-warm) 82%, var(--foreground));
+}
+
+.ref {
+  --ref-color: var(--dt-primary);
+
+  /* Prose links inherit the surrounding text's weight. `@tailwindcss/typography`
+     sets `prose a { font-weight: 500 }`, which outranks a utility class on the
+     anchor — so the override belongs here, on the shared class. */
+  font-weight: inherit;
+  color: var(--ref-color);
+  /* Explicit: the base layer underlines every `a` (see the :where(a, …) reset). */
+  text-decoration: none;
+  /* A wrapped reference breaks per line fragment, not as one ragged box. */
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+
+/* Affordance without chrome: only the ones you can actually activate respond,
+   and they do it with an underline rather than a background. */
+:where(a, button).ref:hover {
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}
+
+/* The leading glyph. Sized in `em` so it tracks the text at any scale, and
+   spaced with `margin` — not flex `gap` — so `.ref` stays an inline box whose
+   label can wrap mid-word (a long URL has to break across lines like the prose
+   around it, which a flex container would prevent).
+
+   The margin is unconditional. A `:not(:only-child)` guard looks right and is
+   silently wrong: CSS counts ELEMENT siblings, so an icon followed by a bare
+   text-node label still matches `:only-child` — which is exactly how every
+   chip lost its spacer. Icon-only users take the hue via `[data-ref]` instead
+   of this class. */
+.ref > :where(svg, i.codicon) {
+  margin-inline-end: 0.25em;
+  opacity: 0.8;
+}
+
+.ref > svg {
+  display: inline-block;
+  width: 0.875em;
+  height: 0.875em;
+  vertical-align: -0.1em;
+}
+
+.ref > i.codicon {
+  font-size: 0.875em;
 }
 
 /* Brand-kit utilities, copied verbatim from @nous-research/ui/dist/ui/globals.css
@@ -1023,34 +1148,7 @@
   }
 }
 
-@keyframes quest-glow {
-  0%,
-  100% {
-    transform: scale(1);
-    box-shadow:
-      0 0 0.1875rem color-mix(in srgb, var(--color-amber-500, #f59e0b) 70%, transparent),
-      0 0 0.5rem color-mix(in srgb, var(--color-amber-500, #f59e0b) 45%, transparent);
-  }
-  50% {
-    transform: scale(1.18);
-    box-shadow:
-      0 0 0.3125rem color-mix(in srgb, var(--color-amber-500, #f59e0b) 90%, transparent),
-      0 0 0.875rem color-mix(in srgb, var(--color-amber-500, #f59e0b) 65%, transparent);
-  }
-}
-
-.quest-glow {
-  animation: quest-glow 1.8s ease-in-out infinite;
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .quest-glow {
-    animation: none;
-    box-shadow:
-      0 0 0.25rem color-mix(in srgb, var(--color-amber-500, #f59e0b) 80%, transparent),
-      0 0 0.625rem color-mix(in srgb, var(--color-amber-500, #f59e0b) 55%, transparent);
-  }
-
   .arc-border::before {
     animation: none;
   }
@@ -1183,9 +1281,25 @@
    desktop styles.css composer block, minus the pop-out/drag/glow machinery
    (desktop-window-only). The geometry tokens live in :root above (phase 6). */
 
-/* Safe-area bottom padding for the docked overlay (mobile home indicator). */
+/* Bottom inset the docked composer (and the bars stacked on it) clears — the
+   mobile home indicator, but ONLY while that strip is actually exposed. With the
+   soft keyboard up the keyboard covers it, and the phone's `#root` is sized to
+   the VISIBLE rectangle (see the `html.is-mobile … #root` rule below), whose
+   bottom edge already IS the top of the keyboard — so keeping the safe-area term
+   pads against a strip that is not on screen and leaves a phantom gap between
+   the composer and the keyboard.
+   `var(--safe-area-inset-*)`, not raw `env()`: lib/safe-area.ts republishes the
+   resolved px on mobile, where env() reports 0 for the first frame(s). */
+:root {
+  --composer-dock-inset-bottom: var(--safe-area-inset-bottom);
+}
+
+:root[data-keyboard-open] {
+  --composer-dock-inset-bottom: 0px;
+}
+
 [data-slot='composer-root'] {
-  padding-bottom: calc(var(--composer-shell-pad-block-end) + env(safe-area-inset-bottom));
+  padding-bottom: calc(var(--composer-shell-pad-block-end) + var(--composer-dock-inset-bottom));
 }
 
 /* ── Mobile shell (html.is-mobile, set from IS_MOBILE in main.tsx) ───────────
@@ -1195,6 +1309,44 @@
    Tailwind spacing, the --composer-* geometry) grows with it. */
 html.is-mobile {
   --dt-base-size: 1.125rem;
+}
+
+/* The phone's app root IS the visible rectangle, not the layout viewport.
+
+   `html`/`body`/`#root` are all `overflow: hidden` (@layer base above), so the
+   document is genuinely unscrollable — which leaves WKWebView no scroll
+   container to reveal a focused caret in, and it falls back to SCROLLING THE
+   VISUAL VIEWPORT instead of resizing the layout one. Write H = innerHeight,
+   V = visualViewport.height, T = visualViewport.offsetTop: the layout viewport
+   is then [0, H] while the visible band is [T, T+V], so layout-y appears at
+   screen-y − T. An in-flow shell starting at layout y=0 therefore starts T px
+   ABOVE the screen, carrying the top bar and the whole safe-area band off the
+   top. That is what tapping the composer did on iOS (Android reports T = 0,
+   which is why it was never visible there).
+
+   So take the rectangle rather than deriving it — exactly what MobileSidebar
+   and MobileWorkspace already do (a0ca9420c); this finishes that conversion at
+   the root, so all four mobile surfaces share ONE geometry model. The shells
+   consequently need NO `margin-bottom: var(--keyboard-inset)`: this box's
+   bottom edge already is the top of the keyboard, and lifting again would leave
+   a keyboard-tall dead band.
+
+   The fallbacks are the keyboard-closed state, so the frame before
+   use-keyboard-inset publishes gets today's box; `measure()` never publishes a
+   0px height (it falls back to innerHeight when visualViewport is absent), so a
+   collapsed #root is unreachable. `:not([data-hud])` keeps the HUD satellite —
+   which iPadOS can open, and which has its own #root rules below — out of it.
+
+   DO NOT add `transform`, `contain`, `filter`, `backdrop-filter` or
+   `will-change` here. Any of them makes #root the containing block for every
+   `position: fixed` descendant — MobileSidebar, MobileWorkspace, the floating
+   pet — all of which are ALREADY pinned to this same rectangle and would then
+   have the offset applied twice. styles.mobile-viewport.test.ts enforces this. */
+html.is-mobile:not([data-hud]) #root {
+  position: fixed;
+  inset-inline: 0;
+  top: var(--visual-viewport-top, 0px);
+  height: var(--visual-viewport-height, 100%);
 }
 
 /* The docked composer spans the full content width on phones, replacing the
@@ -1249,7 +1401,7 @@ html.is-mobile [data-slot='composer-root'] {
   position: absolute;
   left: 50%;
   transform: translateX(-50%);
-  bottom: calc(var(--composer-measured-height) + env(safe-area-inset-bottom));
+  bottom: calc(var(--composer-measured-height) + var(--composer-dock-inset-bottom));
   width: min(var(--composer-width), calc(100% - 2rem));
   z-index: 31;
   display: flex;
@@ -1287,7 +1439,20 @@ html {
    phase — ported now so the markup already carries its styling contract.
    ========================================================================== */
 
-/* Messages are selectable text even though buttons globally aren't. */
+/* Messages are selectable text even though buttons globally aren't.
+
+   The shell says `user-select: none` on <body> (it's an app, not a document),
+   so everything below is the carve-out list: the surfaces where a drag really
+   is meant to highlight. Editable elements are named explicitly rather than
+   left to the engine — CSS-UI says an editable element's `auto` resolves to
+   `contain` no matter what its ancestors say, but `-webkit-user-select` in
+   WebKit predates that rule and plain inherits, and universal's webview IS
+   WebKitGTK. `:not([contenteditable='false'])` keeps the carve-out off the
+   inert bits: a disabled composer renders `contenteditable="false"`, and every
+   committed `@`-chip is a `contenteditable="false"` span. */
+input,
+textarea,
+[contenteditable]:not([contenteditable='false']),
 [data-slot='aui_user-message-root'],
 [data-slot='aui_assistant-message-content'],
 [data-slot='aui_system-message-root'],
@@ -1297,8 +1462,57 @@ html {
   user-select: text;
 }
 
+/* The placeholder is a painted hint, not content: it must never end up in a
+   selection or on the clipboard. It needs saying here because the rule above
+   just made its host selectable, and WebKit lets generated content inherit. */
+[data-slot='composer-rich-input']:empty::before {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+button,
+[role='button'] {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* User bubbles are <button>s (click → edit), so the rule above would kill
+   drag-to-select and leave ⌘C with nothing to grab. Message text stays
+   selectable; chrome controls outside the bubble keep user-select: none.
+
+   THESE TWO RULES ARE ONE UNIT. The override exists only to undo the `none`
+   above it — ship the `none` without it and a sent prompt stops being
+   selectable; ship it without the `none` and it changes nothing. Moving or
+   deleting either one alone is always a bug. */
+[data-slot='aui_user-message-root'] button,
+[data-slot='aui_user-message-root'] [role='button'] {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+img,
+picture,
+video,
+canvas,
+svg {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* An image inside a reply is a passenger of the text around it. Without this a
+   press on one starts a native image drag instead of a text selection, so a
+   drag-select that begins on a picture — or on the icon inside a chip — never
+   selects anything at all. */
+img,
+video,
+canvas {
+  -webkit-user-drag: none;
+}
+
 [data-slot='aui_assistant-message-content'] {
-  padding-left: var(--message-text-indent);
+  /* Logical, not `padding-left`: this indent belongs to the side the text
+     STARTS on, which flips with the document's direction. */
+  padding-inline-start: var(--message-text-indent);
   font-size: var(--conversation-text-font-size);
   line-height: 1.5;
 }
@@ -1478,8 +1692,12 @@ html {
 [data-slot='aui_assistant-message-content'] .aui-md [data-slot='code-card'] {
   margin-block: var(--paragraph-gap) 0;
   position: relative;
+  /* No `border-color` here (nor in the streaming rule / keyframes below): the
+     card lost its border when the header chrome came off, so the glow is
+     box-shadow only. Tailwind's preflight leaves every element at
+     `border-width: 0`, so an animated border colour painted nothing — it just
+     kept a dead property on a 1.8s infinite alternate animation. */
   transition:
-    border-color 180ms ease-out,
     box-shadow 180ms ease-out,
     background-color 180ms ease-out;
 }
@@ -1488,7 +1706,6 @@ html {
   animation:
     code-card-stream-enter 180ms cubic-bezier(0.16, 1, 0.3, 1) both,
     code-card-stream-glow 1.8s ease-in-out 180ms infinite alternate;
-  border-color: color-mix(in srgb, var(--dt-ring) 24%, var(--ui-stroke-tertiary));
   box-shadow:
     0 0 0 0.0625rem color-mix(in srgb, var(--dt-ring) 10%, transparent),
     0 0.625rem 1.75rem color-mix(in srgb, var(--dt-ring) 8%, transparent);
@@ -1527,7 +1744,7 @@ html {
 }
 
 [data-slot='aui_assistant-message-content'] .aui-md .aui-md-table thead {
-  border-bottom-color: var(--dt-border) !important;
+  border-bottom-color: var(--ui-stroke-tertiary) !important;
 }
 
 /* Tool / thinking blocks are scaffolding around the model's reply — kept
@@ -1537,14 +1754,15 @@ html {
   background: transparent !important;
 }
 
-[data-slot='aui_assistant-message-content'] > [data-slot='aui_thinking-disclosure'],
+/* Tool rows still fade by selector; the thinking header opts in through
+   `data-conversation-scaffold` below, so it must NOT be named again here — two
+   rules setting the same opacity is two places to change it. */
 [data-slot='aui_assistant-message-content'] [data-slot='tool-block'][data-tool-row] {
   opacity: 0.67;
   transition: opacity 120ms ease-out;
 }
 
 /* Lift on hover or *keyboard* focus only. */
-[data-slot='aui_assistant-message-content'] > [data-slot='aui_thinking-disclosure']:is(:hover, :has(:focus-visible)),
 [data-slot='aui_assistant-message-content'] [data-slot='tool-block'][data-tool-row]:is(:hover, :has(:focus-visible)) {
   opacity: 1;
 }
@@ -1617,6 +1835,14 @@ html {
   margin-top: var(--paragraph-gap);
 }
 
+/* Thinking headers carry a faint resting caret. A run of them is the one place
+   the affordance isn't otherwise discoverable — every other disclosure sits in
+   a row you're already reaching for. The scaffold fade multiplies this, so the
+   painted value lands well under the number here. */
+[data-slot='aui_thinking-disclosure'] {
+  --disclosure-caret-rest: 0.4;
+}
+
 /* Message action bars — flat icon hits with default dim; only the hovered /
    focused control is full-strength. */
 [data-slot='aui_msg-actions'] button {
@@ -1659,12 +1885,63 @@ html {
   height: 0.875rem;
 }
 
-/* Live thinking preview window. Pairs with the ResizeObserver in
-   ThinkingDisclosure that pins scrollTop to the bottom — older lines fade
-   into the top mask while the latest tokens settle in below. */
-.thinking-preview {
-  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 28%, black 100%);
-  mask-image: linear-gradient(to bottom, transparent 0%, black 28%, black 100%);
+/* The reaction slot borrows the action bar's flat icon treatment but lives
+   OUTSIDE it, so a landed reaction doesn't ride the bar's hover opacity. */
+button[data-slot='aui_msg-reactions'] {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+  height: auto;
+  width: auto;
+  min-height: 0;
+  min-width: 0;
+  flex-shrink: 0;
+  cursor: pointer;
+  color: var(--color-muted-foreground);
+  opacity: 0.5;
+}
+
+button[data-slot='aui_msg-reactions']:hover,
+button[data-slot='aui_msg-reactions']:focus-visible,
+button[data-slot='aui_msg-reactions'][data-state='open'] {
+  background: transparent;
+  color: var(--color-foreground);
+  opacity: 1;
+}
+
+/* A landed reaction is content, not chrome: full strength, always. */
+button[data-slot='aui_msg-reactions'][data-reacted],
+[data-slot='aui_msg-reactions'] .reaction-pop,
+span[data-slot='aui_msg-reactions'] {
+  opacity: 1;
+}
+
+@keyframes reaction-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.18);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* Landing a reaction should feel like something — a small pop, scaled for an
+   inline glyph. */
+.reaction-pop {
+  animation: reaction-pop 260ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reaction-pop {
+    animation: none;
+  }
 }
 
 @keyframes code-card-stream-enter {
@@ -1681,14 +1958,12 @@ html {
 
 @keyframes code-card-stream-glow {
   from {
-    border-color: color-mix(in srgb, var(--dt-ring) 18%, var(--ui-stroke-tertiary));
     box-shadow:
       0 0 0 0.0625rem color-mix(in srgb, var(--dt-ring) 6%, transparent),
       0 0.5rem 1.5rem color-mix(in srgb, var(--dt-ring) 5%, transparent);
   }
 
   to {
-    border-color: color-mix(in srgb, var(--dt-ring) 32%, var(--ui-stroke-tertiary));
     box-shadow:
       0 0 0 0.0625rem color-mix(in srgb, var(--dt-ring) 12%, transparent),
       0 0.75rem 2rem color-mix(in srgb, var(--dt-ring) 10%, transparent);
@@ -1888,29 +2163,48 @@ html {
 /* Themed native scrollbars (desktop styles.css ~837), applied app-wide via
    `class="scrollbar-dt"` on #root (index.html) exactly as desktop does. Ported
    desktop components and the Radix portals in components/ui also class
-   themselves with these. */
+   themselves with these.
+
+   `.scrollbar-overlay` opts a single scroller back OUT (desktop #73670). Any
+   author rule — the standard `scrollbar-width`/`scrollbar-color` pair on
+   WebKitGTK, or `::-webkit-scrollbar` on WKWebView / WebView2 / the Android
+   Chromium webview — switches that scroller from the platform's overlay bar
+   (fades in on scroll, reserves no space) to a classic always-on gutter. In a
+   conversation code card that gutter is permanent chrome inside a slab that is
+   only a few lines tall, so the code blocks ask for the platform bar instead.
+   Both halves of the exclusion are needed because universal ships both halves
+   unconditionally (see the note above `html { scrollbar-width }`: WebKitGTK
+   honours only the standard props, the webkit rules only bite elsewhere). */
+/* Drag in progress (sash resize, tab drag): an iframe guest hit-tests on its
+   own and swallows the gesture the moment the pointer crosses it — the artifact
+   preview inside a preview tile, the transcript's video / social embeds. See
+   lib/guest-pointer-guard.ts. */
+body.guest-pointer-lock iframe {
+  pointer-events: none;
+}
+
 @layer components {
   .scrollbar-dt,
-  .scrollbar-dt * {
+  .scrollbar-dt *:not(.scrollbar-overlay) {
     scrollbar-width: thin;
     scrollbar-color: color-mix(in srgb, var(--dt-midground) 18%, transparent) transparent;
   }
 
   .scrollbar-dt::-webkit-scrollbar,
-  .scrollbar-dt *::-webkit-scrollbar {
+  .scrollbar-dt *:not(.scrollbar-overlay)::-webkit-scrollbar {
     width: 0.5rem;
     height: 0.5rem;
   }
 
   .scrollbar-dt::-webkit-scrollbar-track,
   .scrollbar-dt::-webkit-scrollbar-corner,
-  .scrollbar-dt *::-webkit-scrollbar-track,
-  .scrollbar-dt *::-webkit-scrollbar-corner {
+  .scrollbar-dt *:not(.scrollbar-overlay)::-webkit-scrollbar-track,
+  .scrollbar-dt *:not(.scrollbar-overlay)::-webkit-scrollbar-corner {
     background: transparent;
   }
 
   .scrollbar-dt::-webkit-scrollbar-thumb,
-  .scrollbar-dt *::-webkit-scrollbar-thumb {
+  .scrollbar-dt *:not(.scrollbar-overlay)::-webkit-scrollbar-thumb {
     background: color-mix(in srgb, var(--dt-midground) 18%, transparent);
     border-radius: 9999rem;
     border: 0.125rem solid transparent;
@@ -1918,13 +2212,13 @@ html {
   }
 
   .scrollbar-dt::-webkit-scrollbar-thumb:hover,
-  .scrollbar-dt *::-webkit-scrollbar-thumb:hover {
+  .scrollbar-dt *:not(.scrollbar-overlay)::-webkit-scrollbar-thumb:hover {
     background: color-mix(in srgb, var(--dt-midground) 40%, transparent);
     background-clip: padding-box;
   }
 
   .scrollbar-dt::-webkit-scrollbar-button,
-  .scrollbar-dt *::-webkit-scrollbar-button {
+  .scrollbar-dt *:not(.scrollbar-overlay)::-webkit-scrollbar-button {
     display: none;
   }
 
@@ -2435,3 +2729,352 @@ html {
   animation-play-state: paused !important;
   transition: none !important;
 }
+
+/* --------------------------------------------------------------------------
+   HUD mode (MJXHRM-213) — a floating surface over other applications.
+
+   Everything here is scoped to `html[data-hud]`, which only the HUD's own
+   window sets (`app/hud/use-hud-surface.ts`). The HUD renders the REAL chat
+   screen, so these rules reposition and quieten it rather than replacing it.
+   -------------------------------------------------------------------------- */
+
+/* A transparent window needs a transparent document. The window is created
+   `transparent`, which gets tao an RGBA visual and gets wry a zero-alpha
+   WebKitWebView background — but the app's own `body` paint would still cover
+   both, and it is the last one to run. */
+html[data-hud],
+html[data-hud] body,
+html[data-hud] #root {
+  background: transparent !important;
+}
+
+/* ── The layout inversion (MJXHRM-438) ──────────────────────────────────────
+   Everything below used to be scoped to `[data-slot='composer-bounds']`, which
+   ONLY `apps/desktop` renders — so the collapse-at-rest rule, the glance rule
+   and the focus-reveal rule had never matched anything, and what shipped was
+   `ChatScreen` verbatim in a 560x260 box: a miniature chat window. The rules
+   are rewritten here against slots this app actually produces, and
+   `styles.hud-contract.test.ts` fails on any selector in this block that does
+   not. Do not add one without checking that test still passes.
+
+   THE BAR IS THE HUD. In the chat screen the composer is docked over the bottom
+   of the transcript; here it is undocked and made the FIRST ROW in flow, so
+   everything else grows below it — which is the whole point of a spotlight bar
+   that answers underneath itself. */
+html[data-hud] [data-slot='composer-root'] {
+  position: relative;
+  order: -1;
+  inset: auto;
+  /* Tailwind v4 emits `-translate-x-1/2` as the `translate` PROPERTY rather
+     than as a `transform` function, so this really does undo it. */
+  translate: none !important;
+  width: 100% !important;
+  max-width: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  border-radius: var(--radius-6xl, 3rem);
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+html[data-hud] [data-slot='composer-surface'] {
+  border: none !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  outline: none !important;
+}
+
+html[data-hud] [data-slot='composer-fade'] {
+  padding-inline: 1rem !important;
+  padding-block: 0.375rem !important;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+html[data-hud] [data-slot='composer-rich-input'] {
+  padding-inline-start: 0.5rem !important;
+  padding-inline-end: 0.5rem !important;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+/* The response panel: a second rounded card BELOW the bar. Collapsed to nothing
+   at rest — and THAT state is the spotlight bar.
+
+   `max-block-size` rather than a height: a short reply should occupy a short
+   panel, and animating toward a measured height would need JS to measure it.
+   The cap is `--hud-band-max`, written by `hud-window.tsx` from the window's own
+   height. It has been computed there since the feature shipped and, until this
+   ticket, read by nothing. */
+html[data-hud] [data-slot='thread-root'] {
+  margin-block-start: 0.625rem;
+  border-radius: var(--radius-6xl, 3rem);
+  border: none !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  max-block-size: var(--hud-band-max, 21rem);
+  overflow: hidden;
+  transition:
+    max-block-size 180ms cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 270ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* The state React writes, rather than a `:has()` over the transcript: a value on
+   an element is assertable in jsdom, and an unassertable contract is precisely
+   how the last one rotted. */
+html[data-hud] [data-hud-band-state='collapsed'] [data-slot='thread-root'] {
+  max-block-size: 0;
+  opacity: 0;
+  border-width: 0;
+  margin-block-start: 0;
+  pointer-events: none;
+}
+
+/* Open state: stay fully visible when open, focused, hovered, or selecting text in the thread */
+html[data-hud] [data-hud-band-state='open'] [data-slot='thread-root'] {
+  opacity: 1;
+}
+
+html[data-hud] [data-hud-engaged] [data-hud-band-state='open'] [data-slot='thread-root'],
+html[data-hud] [data-hud-card]:has([data-slot='composer-rich-input']:focus) [data-slot='thread-root'],
+html[data-hud] [data-hud-card]:focus-within [data-slot='thread-root'],
+html[data-hud] [data-hud-card]:hover [data-slot='thread-root'],
+html[data-hud] [data-slot='thread-root']:focus-within,
+html[data-hud] [data-slot='thread-root']:hover {
+  opacity: 1;
+  transition-duration: 180ms, 110ms;
+}
+
+/* The transcript's own scroller is sized to leave room for the DOCKED composer
+   (`--thread-viewport-height`, list.tsx's `clampToComposer`). In the HUD the
+   composer is not over the thread at all — it is the row above it — so that
+   reservation is wrong, and on the layer-shell path it is a percentage of a box
+   the HUD deliberately leaves indefinite.
+
+   Handing the height back to flex is what makes the panel SCROLL rather than
+   clip: the panel's `max-block-size` is a definite bound, the flex item shrinks
+   to it, and the viewport inside gets a real overflow. Clipped instead, the top
+   of a long reply would be unreachable — which is the exact failure desktop's
+   own stylesheet comment warns about. */
+html[data-hud] [data-slot='thread-root'] > :has(> [data-slot='aui_thread-viewport']) {
+  block-size: auto;
+  min-block-size: 0;
+  flex: 1 1 auto;
+}
+
+/* Same reservation, same reason: a spacer sized for a composer that is no longer
+   underneath the transcript is a blank half-panel at the end of every reply. */
+html[data-hud] [data-slot='aui_composer-clearance'] {
+  display: none;
+}
+
+/* The prompt bars (approval / sudo / secret) float above the docked composer in
+   the chat screen. Pinned to a bottom that no longer means anything here, they
+   would sit over the panel — but they are NOT hidden: a HUD turn can block on an
+   approval exactly like any other, and a blocking prompt with no visible answer
+   is a conversation that hangs with no explanation. In flow, under the panel. */
+html[data-hud] .composer-bars {
+  position: static;
+  order: 1;
+  width: 100%;
+  transform: none;
+  margin-block-start: 0.5rem;
+}
+
+/* Chrome the HUD has no room for. The window has no titlebar, the timeline is a
+   navigation aid for a transcript shown a few lines at a time, and a
+   jump-to-bottom button on a panel that is always at the bottom is a button that
+   does nothing. */
+html[data-hud] [data-slot='thread-timeline'],
+html[data-hud] .thread-jump-button {
+  display: none !important;
+}
+
+/* User and AI message styling in HUD mode: compact, clean flow */
+html[data-hud] [data-slot='aui_user-message-root'] {
+  background: transparent !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  width: 100% !important;
+  position: static !important;
+}
+
+html[data-hud] .composer-human-message {
+  background: transparent !important;
+  border: none !important;
+  padding: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+html[data-hud] [data-slot='aui_assistant-message-content'] {
+  padding-inline-start: 0 !important;
+  padding-inline-end: 0 !important;
+}
+
+html[data-hud] [data-slot='aui_assistant-message-root'] {
+  padding-inline: 0 !important;
+}
+
+html[data-hud] [data-slot='aui_thread-viewport'] {
+  scroll-padding-top: 1.125rem;
+}
+
+html[data-hud] [data-slot='aui_thread-content'] {
+  padding-inline: 1.25rem !important;
+  padding-block-start: 1.125rem !important;
+  padding-block-end: 1rem !important;
+}
+
+/* User edit composer styling in HUD mode: transparent, no container background */
+html[data-hud] .composer-human-message-container,
+html[data-hud] [data-slot='aui_edit-composer-root'] .composer-human-message-container {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+
+html[data-hud] [data-slot='aui_edit-composer-root'] .ui-prompt-input__container {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  max-height: none !important;
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: flex-start !important;
+}
+
+html[data-hud] [data-slot='aui_edit-composer-root'] .ui-prompt-input-editor__input {
+  padding: 0 !important;
+  padding-inline-end: 2rem !important;
+  background: transparent !important;
+  line-height: 1.5rem !important;
+  min-height: 1.5rem !important;
+  flex: 1 1 auto !important;
+}
+
+html[data-hud] [data-slot='aui_edit-composer-root'] button {
+  inset-inline-end: 0 !important;
+  top: 0 !important;
+  bottom: auto !important;
+  height: 1.5rem !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+/* Prompt chevron prefix (codicon-chevron-right) in front of user message in HUD thread root (both read-only & edit mode) */
+html[data-hud] [data-slot='aui_user-inline-text']:first-child::before {
+  content: '\eab6';
+  font-family: codicon, sans-serif;
+  color: var(--color-primary, var(--dt-primary));
+  font-size: 0.95rem;
+  font-weight: 400;
+  line-height: 1;
+  display: inline-block;
+  vertical-align: -0.12em;
+  margin-inline-end: 0.35rem;
+}
+
+html[data-hud] [data-slot='aui_edit-composer-root'] .ui-prompt-input__container::before {
+  content: '\eab6';
+  font-family: codicon, sans-serif;
+  color: var(--color-primary, var(--dt-primary));
+  font-size: 0.95rem;
+  font-weight: 400;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 1.5rem;
+  margin-inline-end: 0.35rem;
+  flex-shrink: 0;
+}
+
+/* Remove highlight/selection background when the user prompt is selected in HUD mode */
+html[data-hud] [data-slot='aui_user-message-root'] *::selection,
+html[data-hud] [data-slot='aui_user-message-root']::selection,
+html[data-hud] [data-slot='aui_edit-composer-root'] *::selection,
+html[data-hud] [data-slot='aui_edit-composer-root']::selection {
+  background: transparent !important;
+  color: inherit !important;
+}
+
+/* Tailwind's backdrop-blur utilities inside the composer tree paint as visible
+   halos on a genuinely transparent window instead of disappearing the way they
+   do over an opaque app background. */
+html[data-hud] [data-hud-card] *,
+html[data-hud] [data-hud-card] {
+  backdrop-filter: none !important;
+  box-shadow: none !important;
+  text-shadow: none !important;
+}
+
+/* ---------------------------------------------------------------------------
+   RTL (MJXHRM-71)
+
+   Direction is set once, on <html>, by the i18n provider from the active
+   locale. Everything below is the small set of surfaces that must NOT follow it.
+
+   Component layout was converted to logical properties in MJXHRM-429 (ms-/ps-/
+   start-/end-/text-start/border-s), so panes, gutters and rails now mirror on
+   their own. What stays PHYSICAL, deliberately, is only: the surfaces pinned
+   below, chrome floating over them, device safe-area insets, and the
+   `left-1/2 + -translate-x-1/2` centring idiom (see --dir-flip-x).
+   --------------------------------------------------------------------------- */
+
+/* Physical transforms do NOT mirror with `dir`: `translate`, `rotate` and
+   `scale` are geometry, not layout, so a `-translate-x-1/2` used to straddle an
+   edge points the same way in both directions and lands on the wrong side of an
+   RTL element. Multiply the x component by this to make it follow the document.
+
+   It has to be a variable rather than an `rtl:` Tailwind variant because the
+   `rtl:` variant SORTS AFTER `group-hover:` and `group-data-[…]:` in Tailwind
+   v4's utility order, so an `rtl:`-flipped transform would also override the
+   hover/open state that is supposed to slide the element back to 0. A bare
+   `translate-x-[calc(…*var(--dir-flip-x))]` sorts before them and does not.
+
+   NOT for centring: `left-1/2` + `-translate-x-1/2` is already
+   direction-agnostic (left 50%, back by half your own width, in any direction)
+   and must be left exactly as it is. */
+:root {
+  --dir-flip-x: 1;
+}
+
+[dir='rtl'] {
+  --dir-flip-x: -1;
+}
+
+/* Source code, shell output and paths read left-to-right in every language.
+   An RTL document would otherwise reorder a command line, a diff hunk or a
+   stack trace into something that no longer means what it says.
+
+   `[data-slot='file-diff-panel']` is the windowed/side-by-side file diff. Only
+   the `<pre>` variant of the diff (`[data-slot='diff-lines']`) was covered by
+   the `pre` selector above; the windowed panel is a `<div>` grid whose line
+   numbers and overview ruler live OUTSIDE any `pre`, so it inherited RTL and
+   reordered its own gutter. */
+[dir='rtl'] :where(pre, code, kbd, samp, .xterm, .cm-editor, [data-slot='code-card'], [data-slot='file-diff-panel']) {
+  direction: ltr;
+  text-align: left;
+}
+
+/* The terminal is a grid the engine positions itself; an inherited RTL
+   direction moves the cursor and the scrollbar to the wrong edge of it. */
+[dir='rtl'] .xterm,
+[dir='rtl'] .xterm-viewport,
+[dir='rtl'] .xterm-screen {
+  direction: ltr;
+}
+
+/* A codicon/chevron is a glyph, not text: the direction-bearing ones are
+   flipped per-component where the meaning is known, never wholesale here. */

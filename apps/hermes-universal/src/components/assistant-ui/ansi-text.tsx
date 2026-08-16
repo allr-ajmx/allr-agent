@@ -1,5 +1,4 @@
-import type { FC } from 'react'
-import { useMemo } from 'react'
+import { memo, useMemo } from 'react'
 
 import { ansiColorClass, hasAnsiCodes, parseAnsi } from '@/lib/ansi'
 import { cn } from '@/lib/utils'
@@ -11,8 +10,12 @@ interface AnsiTextProps {
 
 /** Renders text with embedded ANSI SGR codes as colored / bold spans. Falls
  *  back to a plain string node when no codes are present so the parser cost
- *  is paid only when there's something to colorize. */
-export const AnsiText: FC<AnsiTextProps> = ({ className, text }) => {
+ *  is paid only when there's something to colorize.
+ *
+ *  Memoized (desktop parity): both props are strings, and one expanded tool row
+ *  mounts up to three of these (stdout, stderr, detail). Without the boundary an
+ *  unrelated re-render of the tool card re-walks every segment list it holds. */
+export const AnsiText = memo(function AnsiText({ className, text }: AnsiTextProps) {
   const segments = useMemo(() => (hasAnsiCodes(text) ? parseAnsi(text) : null), [text])
 
   if (!segments) {
@@ -31,4 +34,4 @@ export const AnsiText: FC<AnsiTextProps> = ({ className, text }) => {
       ))}
     </span>
   )
-}
+})

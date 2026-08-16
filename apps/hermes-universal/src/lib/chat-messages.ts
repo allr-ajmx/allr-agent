@@ -15,6 +15,8 @@
 // Ported from apps/desktop/src/lib/chat-messages.ts.
 
 import { renderMediaTags } from '@/lib/chat-media'
+import { dedupeGeneratedImageEchoesInParts } from '@/lib/generated-images'
+import type { MessageReaction } from '@/types/hermes'
 
 export type Role = 'assistant' | 'system' | 'user'
 
@@ -25,6 +27,24 @@ export interface TextPart {
 export interface ReasoningPart {
   type: 'reasoning'
   text: string
+  /**
+   * This block is CLOSED: it is one complete, attributed thought and nothing
+   * may be appended to it or written over it.
+   *
+   * Every other reasoning writer here walks backwards to the nearest reasoning
+   * part and either concatenates onto it (`appendStreamPart`) or swaps it out
+   * for the authoritative full text (`applySettledReasoning`) — the right rule
+   * for one model's own scratchpad, which arrives as tokens and then as a
+   * settled burst of the SAME thought.
+   *
+   * A MoA advisory block is not that. `moa.reference` carries a DIFFERENT
+   * model's finished answer under its own `◇ Reference k/n — label` header, and
+   * the aggregator's reasoning follows it immediately on the same session. With
+   * no seal, the aggregator's first reasoning token was concatenated onto the
+   * last advisor's body (misattributing it) and its settled burst replaced that
+   * body outright (deleting an advisor answer the user paid for).
+   */
+  sealed?: boolean
 }
 export interface ToolCallPart {
   type: 'tool-call'
@@ -42,6 +62,22 @@ export interface ChatMessage {
   parts: ChatPart[]
   /** Assistant message is still streaming. */
   pending?: boolean
+  /** Sealed mid-turn commentary (`message.interim`) — rendered without the
+   *  action-bar footer, so a turn that narrates itself across several
+   *  paragraphs doesn't grow a copy/read-aloud row under each one. */
+  interim?: boolean
+  /**
+   * The DURABLE `messages.id` this row was persisted as.
+   *
+   * The ids above are ephemeral and deliberately so — a live row, the same row
+   * rehydrated from history, and an optimistic one are all shaped differently,
+   * and a resume regenerates them. Anything that has to address one specific
+   * persisted message later (reactions) needs this instead. Absent until the
+   * row has round-tripped.
+   */
+  rowId?: number
+  /** Emoji tapbacks persisted against this row, one per author. */
+  reactions?: MessageReaction[]
   error?: string
 }
 
@@ -54,6 +90,110 @@ export function chatMessageText(message: ChatMessage): string {
     .filter((part): part is TextPart => part.type === 'text')
     .map(part => part.text)
     .join('')
+}
+
+/**
+ * Which user turn a message is, counted over the WHOLE transcript.
+ *
+ * The backend truncates a rewind by user ordinal, so the number has to be
+ * counted against the session's own message list — never against what the
+ * transcript happens to be rendering. assistant-ui is fed a WINDOWED tail
+ * (`app/chat/transcript-window.ts`), so an ordinal derived from the rendered
+ * thread is short by every user turn the window dropped, and handing that to
+ * `truncate_before_user_ordinal` rewinds the session to a turn the user never
+ * pointed at. Returns null when the id names no user turn.
+ */
+export function userTurnOrdinal(messages: readonly ChatMessage[], messageId: string): null | number {
+  let ordinal = 0
+
+  for (const message of messages) {
+    if (message.role !== 'user') {
+      continue
+    }
+
+    if (message.id === messageId) {
+      return ordinal
+    }
+
+    ordinal += 1
+  }
+
+  return null
+}
+
+export interface UnspokenTurnSpeech {
+  /** First unspoken assistant bubble — stable for the turn, the live speech session binds to it. */
+  id: string
+  /** Whether the newest assistant bubble is still streaming. */
+  pending: boolean
+  /** All unspoken assistant text in message order, bubbles joined on a blank line. */
+  text: string
+}
+
+/**
+ * Collect every unspoken assistant bubble after `lastSpokenId`, in order.
+ *
+ * A turn with tool calls produces several assistant bubbles — narration
+ * ("Let me check…") sealed as interims, then the final answer as a fresh
+ * bubble. The voice conversation speaks a turn through ONE growing string bound
+ * to one response id, so selecting only the newest bubble silently drops
+ * everything before it: a turn that narrated itself was heard as its last
+ * sentence only. The blank-line join is a sentence boundary for the chunker
+ * (lib/speech-chunker.ts), so a sealed bubble's tail is flushed as soon as the
+ * next bubble starts rather than waiting for the whole turn.
+ *
+ * The result is APPEND-ONLY across a turn: `id` pins to the first unspoken
+ * bubble and `text` only ever grows, which is what lets the controller feed the
+ * delta by `slice(sourceLength)`.
+ *
+ * Ported from apps/desktop/src/lib/chat-messages.ts (upstream 9859e1f7df).
+ */
+export function collectUnspokenTurnSpeech(
+  messages: ChatMessage[],
+  lastSpokenId: null | string
+): null | UnspokenTurnSpeech {
+  // `findLastIndex` is ES2023 and this project's lib target predates it; scan back.
+  let spokenIndex = -1
+
+  if (lastSpokenId) {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].id === lastSpokenId) {
+        spokenIndex = i
+
+        break
+      }
+    }
+  }
+
+  let id: null | string = null
+  let pending = false
+  const parts: string[] = []
+
+  for (const message of messages.slice(spokenIndex + 1)) {
+    // Universal's ChatMessage has no `hidden` field (desktop's does); the
+    // widening cast keeps the port honest if one is ever added.
+    if (message.role !== 'assistant' || (message as { hidden?: boolean }).hidden) {
+      continue
+    }
+
+    // Read from the NEWEST assistant bubble, text or not — an empty bubble that
+    // has only just opened is still "the turn is streaming".
+    pending = Boolean(message.pending)
+    const text = chatMessageText(message).trim()
+
+    if (!text) {
+      continue
+    }
+
+    id ??= message.id
+    parts.push(text)
+  }
+
+  if (!id) {
+    return null
+  }
+
+  return { id, pending, text: parts.join('\n\n') }
 }
 
 export function coerceText(value: unknown): string {
@@ -100,25 +240,25 @@ export function patchActive(messages: ChatMessage[], patch: (m: ChatMessage) => 
   return copy
 }
 
-// Append a streaming delta into the tail part when it's the same channel, else
-// open a new part.
-export function appendStreamPart(parts: ChatPart[], type: 'reasoning' | 'text', delta: string): ChatPart[] {
-  if (!delta) {
-    return parts
-  }
-
-  // Coalesce into the most recent same-type part within the current segment
-  // (bounded by non-streaming parts like tool calls). The opposite streaming
-  // channel (text<->reasoning) is TRANSPARENT — so a reasoning burst between two
-  // content deltas can't shred one sentence into text / Thinking / text.
+/**
+ * Which part a streaming delta of `type` belongs to, or -1 for "open a new one".
+ *
+ * Coalesce into the most recent same-type part within the current segment
+ * (bounded by non-streaming parts like tool calls). The opposite streaming
+ * channel (text<->reasoning) is TRANSPARENT — so a reasoning burst between two
+ * content deltas can't shred one sentence into text / Thinking / text.
+ *
+ * A SEALED reasoning part closes the reasoning segment: it is somebody else's
+ * finished thought, so the next reasoning delta opens its own block rather than
+ * continuing it. Text is unaffected — a sealed advisory sitting between two
+ * prose deltas must still not split the sentence.
+ */
+function streamTargetIndex(parts: ChatPart[], type: 'reasoning' | 'text'): number {
   for (let i = parts.length - 1; i >= 0; i--) {
     const part = parts[i]
 
     if (part.type === type) {
-      const copy = parts.slice()
-      copy[i] = { type, text: part.text + delta }
-
-      return copy
+      return part.type === 'reasoning' && part.sealed ? -1 : i
     }
 
     if (part.type !== 'text' && part.type !== 'reasoning') {
@@ -126,7 +266,52 @@ export function appendStreamPart(parts: ChatPart[], type: 'reasoning' | 'text', 
     }
   }
 
-  return [...parts, { type, text: delta }]
+  return -1
+}
+
+// Append a streaming delta into the tail part when it's the same channel, else
+// open a new part.
+export function appendStreamPart(parts: ChatPart[], type: 'reasoning' | 'text', delta: string): ChatPart[] {
+  if (!delta) {
+    return parts
+  }
+
+  const index = streamTargetIndex(parts, type)
+
+  if (index === -1) {
+    return [...parts, { type, text: delta }]
+  }
+
+  const copy = parts.slice()
+  copy[index] = { type, text: (parts[index] as ReasoningPart | TextPart).text + delta }
+
+  return copy
+}
+
+/**
+ * Append a reasoning delta and CLOSE the block it landed in.
+ *
+ * For chrome the model does not own — the `◇ MoA aggregating…` marker — where
+ * the line has to survive whatever the aggregator says next. Without the seal
+ * the marker is either swallowed by the aggregator's settled reasoning or, when
+ * it lands after the advisory blocks (the order `agent/moa_loop.py` actually
+ * emits in), glued onto the end of the last advisor's answer.
+ */
+export function appendSealedReasoning(parts: ChatPart[], delta: string): ChatPart[] {
+  if (!delta) {
+    return parts
+  }
+
+  const index = streamTargetIndex(parts, 'reasoning')
+
+  if (index === -1) {
+    return [...parts, { type: 'reasoning', text: delta, sealed: true }]
+  }
+
+  const copy = parts.slice()
+  copy[index] = { type: 'reasoning', text: (parts[index] as ReasoningPart).text + delta, sealed: true }
+
+  return copy
 }
 
 // Append an assistant text delta, then rewrite MEDIA: markers in the active text
@@ -176,6 +361,13 @@ export function appendAssistantTextPart(parts: ChatPart[], delta: string): ChatP
 //     swap in the authoritative full text.
 //  3. Prose or a tool call already followed → open a NEW block, preserving the
 //     chronology of the turn instead of clobbering the previous step.
+//
+// A SEALED block is case 3 as well, and for the same reason: it belongs to a
+// step that is over. The aggregator's settled reasoning arriving after a MoA
+// fan-out used to take case 2 and overwrite the LAST advisor's answer with it.
+// The dedupe in case 1 skips sealed blocks too — it asks "did we already stream
+// this very thought?", and another model's answer that happens to contain the
+// same words is not that thought.
 export function applySettledReasoning(parts: ChatPart[], text: string): ChatPart[] {
   const settled = text.trim()
 
@@ -183,21 +375,21 @@ export function applySettledReasoning(parts: ChatPart[], text: string): ChatPart
     return parts
   }
 
-  if (parts.some(part => part.type === 'reasoning' && part.text.trim().includes(settled))) {
+  if (parts.some(part => part.type === 'reasoning' && !part.sealed && part.text.trim().includes(settled))) {
     return parts
   }
 
   for (let i = parts.length - 1; i >= 0; i--) {
     const part = parts[i]
 
-    if (part.type === 'reasoning') {
+    if (part.type === 'reasoning' && !part.sealed) {
       const copy = parts.slice()
       copy[i] = { type: 'reasoning', text }
 
       return copy
     }
 
-    // Any prose or tool call closes the previous thinking block.
+    // Any prose, tool call or closed block ends the previous thinking block.
     break
   }
 
@@ -283,10 +475,17 @@ export function applyCompletion(messages: ChatMessage[], text: string): ChatMess
   const finalText = text.includes('MEDIA:') ? renderMediaTags(text) : text
   const error = completionErrorText(finalText)
 
+  // The authoritative final text is the model's own prose, restated generated
+  // image and all — so the de-dupe has to run AFTER it lands, or the settle at
+  // end of turn puts back the second copy the live pass removed.
   const settle = (message: ChatMessage): ChatMessage =>
     error
       ? { ...message, error, parts: message.parts.filter(part => part.type !== 'text'), pending: false }
-      : { ...message, parts: finalizeParts(message.parts, finalText), pending: false }
+      : {
+          ...message,
+          parts: dedupeGeneratedImageEchoesInParts(finalizeParts(message.parts, finalText)),
+          pending: false
+        }
 
   // An empty completion carries no authority (an interrupted turn reports no
   // final response) — settle whatever streamed instead of erasing it.

@@ -10,10 +10,12 @@ from typing import Iterable
 
 from hermes_cli.config import (
     check_config_version,
+    config_floor_refused,
     get_config_path,
     get_env_path,
     migrate_config,
 )
+from hermes_cli.config_migrations import support_floor_message
 from utils import env_var_enabled
 
 
@@ -57,6 +59,24 @@ def main() -> int:
 
     current_ver, latest_ver = check_config_version()
     if current_ver >= latest_ver:
+        return 0
+
+    # Below the auto-migration support floor: migrate_config() refuses (and
+    # leaves the file untouched), so don't run the backup/verify dance that
+    # would raise "did not advance config version" and block the boot.
+    # Warn-and-continue matches the CLI's fail-safe posture.
+    #
+    # This MUST ask the same predicate migrate_config() asks, not a local
+    # `current_ver < SUPPORT_FLOOR_VERSION`. It used to, and drifted: a config
+    # with no ``_config_version`` key coerces to 0, which the bare comparison
+    # refused while migrate_config() happily migrated it. A Docker boot with a
+    # hand-written or cloned config was told its brand-new config "predates
+    # version 12 (~2 years old)" and then never migrated or stamped it.
+    if config_floor_refused(current_ver, latest_ver):
+        print(
+            f"[config-migrate] WARNING: {support_floor_message()}",
+            file=sys.stderr,
+        )
         return 0
 
     backups = _backup_existing((get_config_path(), get_env_path()))

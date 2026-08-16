@@ -1,12 +1,11 @@
 'use client'
 
-import type { ReactNode } from 'react'
 import * as React from 'react'
-import { useShikiHighlighter } from 'react-shiki'
-import { type BundledLanguage, codeToTokens, type ShikiTransformer, type ThemedToken } from 'shiki'
+import type { BundledLanguage, ShikiTransformer, ThemedToken } from 'shiki'
 
 import { chunkLines, type LineChunk, useFixedRowWindow } from '@/components/chat/fixed-row-window'
-import { exceedsHighlightBudget, SHIKI_THEME } from '@/components/chat/shiki-highlighter'
+import { exceedsHighlightBudget } from '@/components/chat/shiki-highlighter'
+import { SHIKI_THEME } from '@/components/chat/shiki-theme'
 import { shikiLanguageForFilename } from '@/lib/markdown-code'
 import { cn } from '@/lib/utils'
 
@@ -41,15 +40,15 @@ interface ParsedHunk {
 // plain renderer; the Shiki path omits it so syntax colors win, layering only
 // the background + border.
 const DIFF_KIND_TINT: Record<DiffKind, string> = {
-  add: 'border-emerald-500 bg-emerald-500/12',
+  add: 'border-(--ui-green) bg-(--ui-green)/12',
   context: 'border-transparent',
-  remove: 'border-rose-500 bg-rose-500/12'
+  remove: 'border-(--ui-red) bg-(--ui-red)/12'
 }
 
 const DIFF_KIND_TEXT: Record<DiffKind, string> = {
-  add: 'text-emerald-800 dark:text-emerald-200',
+  add: 'text-(--ui-green)',
   context: '',
-  remove: 'text-rose-800 dark:text-rose-200'
+  remove: 'text-(--ui-red)'
 }
 
 // `diff-line` is a hook, not a style: it is the one handle every renderer here
@@ -387,7 +386,12 @@ function TokenizedDiffBody({
     let cancelled = false
 
     setTokens(null)
-    void codeToTokens(code, { lang: language as BundledLanguage, theme })
+    // Dynamic: `shiki` must not be reachable statically from the transcript, or
+    // the engine ships in the entry chunk however the fence highlighter is
+    // loaded (MJXHRM-380). This call was already async, so deferring the module
+    // with it costs nothing but one extra microtask on the first diff.
+    void import('shiki')
+      .then(({ codeToTokens }) => codeToTokens(code, { lang: language as BundledLanguage, theme }))
       .then(result => {
         if (!cancelled) {
           setTokens(result.tokens)
@@ -466,17 +470,23 @@ function diffLineTransformer(kinds: DiffKind[]): ShikiTransformer {
   }
 }
 
+/** `useShikiHighlighter` is a hook, so it cannot be deferred at its call site
+ *  the way `codeToTokens` can — it gets a module of its own instead. The plain
+ *  coloured diff is BOTH the Suspense fallback (while the chunk loads) and the
+ *  child's own fallback (while Shiki tokenizes), so the two waits look the same
+ *  and neither flashes. */
+const LazySyntaxDiff = React.lazy(() => import('@/components/chat/diff-lines-shiki'))
+
 function SyntaxDiff({ language, lines }: { language: string; lines: DiffLine[] }) {
   const code = React.useMemo(() => lines.map(line => line.text).join('\n'), [lines])
   const transformers = React.useMemo(() => [diffLineTransformer(lines.map(line => line.kind))], [lines])
+  const plain = <DiffBody lines={lines} />
 
-  const highlighted = useShikiHighlighter(code, language, SHIKI_THEME, {
-    defaultColor: 'light-dark()',
-    transformers
-  })
-
-  // Until Shiki resolves, show the plain colored diff so there's no flash.
-  return (highlighted as ReactNode) ?? <DiffBody lines={lines} />
+  return (
+    <React.Suspense fallback={plain}>
+      <LazySyntaxDiff code={code} fallback={plain} language={language} transformers={transformers} />
+    </React.Suspense>
+  )
 }
 
 interface DiffLinesProps extends Omit<React.ComponentProps<'pre'>, 'children'> {
@@ -533,6 +543,7 @@ function DiffOverviewRuler({ lines }: { lines: DiffLine[] }) {
   }
 
   return (
+    // eslint-disable-next-line better-tailwindcss/no-restricted-classes -- over a surface pinned left-to-right — see the [dir='rtl'] block in styles.css
     <div aria-hidden className="pointer-events-none absolute top-0 right-0 bottom-0 w-1.5 opacity-80">
       {/* Cap the tick field to the diff's natural height (rows × line px) so a
           short diff renders thin, line-aligned ticks instead of stretching a few
@@ -650,12 +661,14 @@ export function FileDiffPanel({
   return (
     <div className={cn(DIFF_BOX_CLASS, 'relative overflow-hidden', className)} data-slot="file-diff-panel">
       <div
+        // eslint-disable-next-line better-tailwindcss/no-restricted-classes -- this surface is itself pinned left-to-right — see the [dir='rtl'] block in styles.css
         className={cn('absolute inset-0 overflow-auto', showLineNumbers && 'pr-2.5')}
         onScroll={onScroll}
         ref={scrollerRef}
       >
         {showLineNumbers ? (
           <div className="grid min-w-max grid-cols-[auto_minmax(0,1fr)]">
+            {/* eslint-disable-next-line better-tailwindcss/no-restricted-classes -- this surface is itself pinned left-to-right — see the [dir='rtl'] block in styles.css */}
             <div className="sticky left-0 z-1 select-none bg-(--ui-editor-surface-background) py-3 text-muted-foreground/55">
               {beforeRows > 0 && <div aria-hidden style={{ height: beforeRows * PREVIEW_LINE_PX }} />}
               {visibleLineChunks.map(chunk => (
@@ -665,6 +678,7 @@ export function FileDiffPanel({
 
                     return (
                       <div
+                        // eslint-disable-next-line better-tailwindcss/no-restricted-classes -- this surface is itself pinned left-to-right — see the [dir='rtl'] block in styles.css
                         className="h-5 w-9 pr-2 text-right leading-5 tabular-nums"
                         key={`${index}-${line.oldNo}-${line.newNo}`}
                       >

@@ -12,7 +12,8 @@ import {
   useContext,
   useEffect,
   useMemo,
-  useRef
+  useRef,
+  useState
 } from 'react'
 
 import { useSessionView } from '@/app/chat/session-view'
@@ -27,6 +28,7 @@ import { ZoomableImage } from '@/components/chat/zoomable-image'
 import { Button } from '@/components/ui/button'
 import { Codicon } from '@/components/ui/codicon'
 import { CopyButton } from '@/components/ui/copy-button'
+import { DisclosureCaret } from '@/components/ui/disclosure-caret'
 import { FadeText } from '@/components/ui/fade-text'
 import { FileTypeIcon } from '@/components/ui/file-type-icon'
 import { GlyphSpinner } from '@/components/ui/glyph-spinner'
@@ -38,12 +40,13 @@ import { AlertCircle, CheckCircle2 } from '@/lib/icons'
 import { normalize } from '@/lib/text'
 import { useEnterAnimation } from '@/lib/use-enter-animation'
 import { cn } from '@/lib/utils'
-import { $sessionId as $activeSessionId, $currentCwd } from '@/store/chat'
+import { useDisplayPath } from '@/store/display-home'
+import { $focusRevealedRuns, $focusView, isFocusRunRevealed, revealFocusRun } from '@/store/focus-view'
 import { recordPreviewArtifact } from '@/store/preview-status'
 import { sessionApprovalRequest } from '@/store/prompts'
 import { $toolInlineDiffs } from '@/store/tool-diffs'
 import { $toolRowDismissed, dismissToolRow } from '@/store/tool-dismiss'
-import { $toolDisclosureOpen, $toolViewMode, setToolDisclosureOpen } from '@/store/tool-view'
+import { $anyToolDisclosureOpen, $toolDisclosureOpen, $toolViewMode, setToolDisclosureOpen } from '@/store/tool-view'
 
 import { PendingToolApproval } from './approval'
 import {
@@ -52,8 +55,10 @@ import {
   cleanVisibleText,
   countDiffLineStats,
   inlineDiffFromResult,
+  isCardTool,
   isFileEditTool,
   isPreviewableTarget,
+  isSilentTool,
   looksRedundant,
   type SearchResultRow,
   selectMessageRunning,
@@ -100,6 +105,49 @@ const TOOL_EXPANDED_SHELL_CLASS = 'rounded-[0.3125rem] border border-(--ui-strok
 
 const TOOL_SECTION_PRE_CLASS = cn(TOOL_SECTION_SURFACE_CLASS, 'font-mono text-[0.7rem] leading-relaxed')
 
+// Raw args/result dump — reference material, so a notch smaller than a body.
+const TOOL_PAYLOAD_PRE_CLASS = cn(TOOL_SECTION_SURFACE_CLASS, 'font-mono text-[0.65rem] leading-relaxed')
+
+/**
+ * Technical-mode raw payload, behind a chevron disclosure.
+ *
+ * Collapsed by default — in technical mode every tool row carries one, and
+ * expanding them all buries the transcript. Uses `DisclosureCaret` rather than
+ * a native `<details>`, whose marker is a browser-drawn triangle matching
+ * nothing else here.
+ *
+ * The trace is built HERE rather than on the view, so a payload nobody opens is
+ * never serialized: `buildToolView` runs on every stream delta of a running
+ * message, and a JSON.stringify of a 100KB read_file result per row per tick is
+ * the shape of cost the render budget exists to keep out of a turn.
+ */
+function ToolPayloadDisclosure({ args, result }: { args: unknown; result: unknown }) {
+  const [open, setOpen] = useState(false)
+
+  return (
+    // `py-0.5` tops up the parent's `p-1.5` to an even block on both edges.
+    <div className="max-w-full py-0.5">
+      <button
+        aria-expanded={open}
+        className={cn(
+          TOOL_SECTION_LABEL_CLASS,
+          'mb-0 flex items-center gap-1 bg-transparent transition-colors hover:text-(--ui-text-secondary)'
+        )}
+        onClick={() => setOpen(value => !value)}
+        type="button"
+      >
+        <DisclosureCaret className="text-(--ui-text-tertiary)" open={open} size="0.625rem" />
+        Tool payload
+      </button>
+      {open && (
+        <pre className={cn(TOOL_PAYLOAD_PRE_CLASS, 'mt-1 whitespace-pre-wrap wrap-anywhere')}>
+          {technicalTrace(args, result)}
+        </pre>
+      )}
+    </div>
+  )
+}
+
 interface ToolStatusCopy {
   statusDone: string
   statusError: string
@@ -107,23 +155,39 @@ interface ToolStatusCopy {
   statusRunning: string
 }
 
-function rawTechnicalTrace(args: unknown, result: unknown): string {
-  const parts = [args, result]
-    .filter(value => value !== undefined && value !== null)
-    .map(value => {
-      if (typeof value === 'string') {
-        return value
-      }
+function prettyTechnicalValue(value: unknown): string {
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
 
-      try {
-        return JSON.stringify(value)
-      } catch {
-        return String(value)
-      }
-    })
-    .filter(Boolean)
+    if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) {
+      return value
+    }
 
-  return clampForDisplay(parts.join('\n'))
+    try {
+      const parsed = JSON.parse(value)
+
+      return parsed && typeof parsed === 'object' ? JSON.stringify(parsed, null, 2) : value
+    } catch {
+      return value
+    }
+  }
+
+  try {
+    return JSON.stringify(value, null, 2)
+  } catch {
+    return String(value)
+  }
+}
+
+export function technicalTrace(args: unknown, result: unknown): string {
+  const parts = [
+    ['Arguments', args],
+    ['Result', result]
+  ]
+    .filter(([, value]) => value !== undefined && value !== null)
+    .map(([label, value]) => `${label}:\n${prettyTechnicalValue(value)}`)
+
+  return clampForDisplay(parts.join('\n\n'))
 }
 
 function statusGlyph(status: ToolStatus, copy: ToolStatusCopy): ReactNode {
@@ -143,14 +207,14 @@ function statusGlyph(status: ToolStatus, copy: ToolStatusCopy): ReactNode {
 
   if (status === 'warning') {
     return (
-      <AlertCircle aria-label={copy.statusRecovered} className="size-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
+      <AlertCircle aria-label={copy.statusRecovered} className="size-3.5 shrink-0 text-(--ui-yellow)" />
     )
   }
 
   return (
     <CheckCircle2
       aria-label={copy.statusDone}
-      className="size-3.5 shrink-0 text-emerald-600/85 dark:text-emerald-400/85"
+      className="size-3.5 shrink-0 text-(--ui-green)/85"
     />
   )
 }
@@ -238,7 +302,7 @@ function ToolTitle({
         TOOL_HEADER_TITLE_CLASS,
         isPending && 'text-(--ui-text-tertiary)',
         status === 'error' && 'text-destructive',
-        status === 'warning' && 'text-amber-700 dark:text-amber-300'
+        status === 'warning' && 'text-(--ui-yellow)'
       )}
     >
       {isPending && titleAction ? (
@@ -264,6 +328,17 @@ function useDisclosureOpen(disclosureId: string, fallbackOpen = false): boolean 
   return persistedOpen ?? fallbackOpen
 }
 
+/**
+ * A row's disclosure id, scoped to the message it was rendered in.
+ *
+ * Shared with the run that wraps the row: a live run has to know when one of
+ * its own rows has been opened, and both sides have to name it identically or
+ * the run never hears about it.
+ */
+function toolEntryDisclosureId(messageId: string, part: ToolPart): string {
+  return `tool-entry:${messageId}:${toolPartDisclosureId(part)}`
+}
+
 function ToolEntry({ part }: ToolEntryProps) {
   const { t } = useI18n()
   const copy = t.assistant.tool
@@ -284,13 +359,17 @@ function ToolEntry({ part }: ToolEntryProps) {
     [args, isError, result, toolCallId, toolName]
   )
 
-  const disclosureId = `tool-entry:${messageId}:${toolPartDisclosureId(stablePart)}`
+  const disclosureId = toolEntryDisclosureId(messageId, stablePart)
   const dismissed = useStore($toolRowDismissed(disclosureId))
   const isPending = messageRunning && result === undefined
   const liveDiffs = useStore($toolInlineDiffs)
   const sideDiff = toolCallId ? liveDiffs[toolCallId] || '' : ''
   const inlineDiff = stripInlineDiffChrome(sideDiff) || inlineDiffFromResult(result)
   const isFileEdit = isFileEditTool(toolName)
+  // A Read/Edit/Write row's tooltip is the file's path ON THE GATEWAY — the row
+  // itself shows only the basename, so this tooltip is the widest path string in
+  // the transcript (MJXHRM-394). Relative tool args pass through untouched.
+  const displayPath = useDisplayPath()
   const defaultOpen = Boolean(inlineDiff)
   const open = useDisclosureOpen(disclosureId, defaultOpen)
   const canDismiss = !isPending && !embedded
@@ -312,19 +391,30 @@ function ToolEntry({ part }: ToolEntryProps) {
 
   // Surface a previewable artifact (HTML file / localhost URL) as a compact link
   // in the composer status stack rather than a bulky inline card. Uses the same
-  // detected target the old inline card did, keyed to the active session the
-  // stack reads from. Idempotent + dedup'd, so re-renders don't churn.
-  const activeSessionId = useStore($activeSessionId)
-  const currentCwd = useStore($currentCwd)
+  // detected target the old inline card did. Idempotent + dedup'd, so re-renders
+  // don't churn.
   const previewTarget = view.previewTarget
+  // The session whose transcript this row is IN, which is not necessarily the
+  // primary one: a tool row inside a session tile must feed that tile's composer.
+  // Reading the global `$sessionId`/`$currentCwd` here filed a tile's preview
+  // under the main chat, where its own composer never showed it — and recorded
+  // the wrong session's cwd beside it, so a relative target resolved elsewhere.
+  const { $cwd: $sessionCwd, $runtimeId: $sessionRuntimeId } = useSessionView()
 
   useEffect(() => {
-    if (isPending || !activeSessionId || !previewTarget || !isPreviewableTarget(previewTarget)) {
+    if (isPending || !previewTarget || !isPreviewableTarget(previewTarget)) {
       return
     }
 
-    recordPreviewArtifact(activeSessionId, previewTarget, currentCwd || '')
-  }, [activeSessionId, currentCwd, isPending, previewTarget])
+    // Read (don't subscribe) session/cwd: this only fires when a previewable
+    // target appears, and subscribing re-rendered every tool row on any session
+    // or cwd change.
+    const sessionId = $sessionRuntimeId.get()
+
+    if (sessionId) {
+      recordPreviewArtifact(sessionId, previewTarget, $sessionCwd.get() || '')
+    }
+  }, [$sessionCwd, $sessionRuntimeId, isPending, previewTarget])
 
   const detailSections = useMemo(() => {
     if (!view.detail) {
@@ -355,7 +445,8 @@ function ToolEntry({ part }: ToolEntryProps) {
 
   const showDetail =
     !view.inlineDiff &&
-    ((view.status === 'error' && Boolean(detailSections.summary || detailSections.body)) ||
+    (Boolean(view.stdout || view.stderr) ||
+      (view.status === 'error' && Boolean(detailSections.summary || detailSections.body)) ||
       (view.status !== 'error' &&
         Boolean(view.detail) &&
         !looksRedundant(view.title, view.detail) &&
@@ -368,14 +459,16 @@ function ToolEntry({ part }: ToolEntryProps) {
   const hasSearchHits = Boolean(view.searchHits?.length)
   const searchResultsLabel = part.toolName === 'web_search' ? 'Search results' : view.detailLabel
 
-  const showRawSearchDrilldown =
-    part.toolName === 'web_search' &&
-    part.result !== undefined &&
-    toolViewMode !== 'technical' &&
-    Boolean(view.rawResult.trim())
-
   const hasExpandableContent = Boolean(
-    view.imageUrl || view.inlineDiff || showDetail || hasSearchHits || toolViewMode === 'technical'
+    view.imageUrl ||
+    view.inlineDiff ||
+    showDetail ||
+    hasSearchHits ||
+    view.stdout ||
+    view.stderr ||
+    view.terminalCommand ||
+    view.terminalExitCode !== undefined ||
+    toolViewMode === 'technical'
   )
 
   // copyAction reads the uncapped view.detail; clampForDisplay below only bounds
@@ -458,7 +551,7 @@ function ToolEntry({ part }: ToolEntryProps) {
         >
           <span
             className="flex min-w-0 items-center gap-1.5"
-            title={isFileEdit && view.subtitle ? view.subtitle : undefined}
+            title={isFileEdit && view.subtitle ? displayPath(view.subtitle) : undefined}
           >
             <ToolGlyph
               copy={copy}
@@ -471,10 +564,10 @@ function ToolEntry({ part }: ToolEntryProps) {
             {showDiffStats && diffStats && (
               <span className="flex shrink-0 items-center gap-1 font-mono text-[0.625rem] tabular-nums">
                 {diffStats.added > 0 && (
-                  <span className="text-emerald-600 dark:text-emerald-400">+{diffStats.added}</span>
+                  <span className="text-(--ui-green)">+{diffStats.added}</span>
                 )}
                 {diffStats.removed > 0 && (
-                  <span className="text-rose-600 dark:text-rose-400">−{diffStats.removed}</span>
+                  <span className="text-(--ui-red)">−{diffStats.removed}</span>
                 )}
               </span>
             )}
@@ -490,6 +583,7 @@ function ToolEntry({ part }: ToolEntryProps) {
           {copyAction.text && (
             <CopyButton
               appearance="inline"
+              // eslint-disable-next-line better-tailwindcss/no-restricted-classes -- over a surface pinned left-to-right — see the [dir='rtl'] block in styles.css
               className="absolute right-4 top-1.5 z-10 h-5 gap-0 rounded-md px-1 opacity-5 transition-opacity group-hover/tool-block:opacity-100 coarse:opacity-100 hover:opacity-100 focus-visible:opacity-100"
               iconClassName="size-3"
               label={copyAction.label}
@@ -499,6 +593,9 @@ function ToolEntry({ part }: ToolEntryProps) {
               text={copyAction.text}
             />
           )}
+          {part.toolName === 'terminal' && toolViewMode !== 'technical' && (
+            <TerminalTranscript command={view.terminalCommand} exitCode={view.terminalExitCode} />
+          )}
           {view.imageUrl && (
             <div className="max-w-72 overflow-hidden rounded-[0.25rem] border border-(--ui-stroke-tertiary)">
               <ZoomableImage alt={copy.outputAlt} className="h-auto w-full object-cover" src={view.imageUrl} />
@@ -506,6 +603,12 @@ function ToolEntry({ part }: ToolEntryProps) {
           )}
           {hasSearchHits && view.searchHits && (
             <div className="max-w-full text-xs leading-relaxed text-(--ui-text-secondary)">
+              {view.searchQuery && (
+                <p className="mb-1 flex min-w-0 gap-1.5 wrap-anywhere">
+                  <span className="shrink-0 font-medium text-(--ui-text-tertiary)">Search</span>
+                  <span>{view.searchQuery}</span>
+                </p>
+              )}
               {searchResultsLabel && <p className={TOOL_SECTION_LABEL_CLASS}>{searchResultsLabel}</p>}
               <SearchResultsList hits={view.searchHits} />
             </div>
@@ -584,52 +687,80 @@ function ToolEntry({ part }: ToolEntryProps) {
                 )}
               </div>
             ))}
-          {showRawSearchDrilldown && (
-            <details className="max-w-full">
-              <summary className={cn(TOOL_SECTION_LABEL_CLASS, 'mb-0')}>{copy.rawResponse}</summary>
-              <pre className={cn(TOOL_SECTION_PRE_CLASS, 'mt-1 whitespace-pre-wrap wrap-anywhere')}>
-                {view.rawResult}
-              </pre>
-            </details>
-          )}
-          {toolViewMode === 'technical' && !(isFileEdit && view.inlineDiff) && (
-            <pre className={cn(TOOL_SECTION_PRE_CLASS, 'whitespace-pre-wrap wrap-anywhere')}>
-              {rawTechnicalTrace(part.args, part.result)}
-            </pre>
-          )}
-          {toolViewMode === 'technical' && isFileEdit && view.inlineDiff && (
-            <details className="max-w-full">
-              <summary className={cn(TOOL_SECTION_LABEL_CLASS, 'mb-0 cursor-pointer')}>Tool payload</summary>
-              <pre className={cn(TOOL_SECTION_PRE_CLASS, 'mt-1 whitespace-pre-wrap wrap-anywhere')}>
-                {rawTechnicalTrace(part.args, part.result)}
-              </pre>
-            </details>
-          )}
+          {toolViewMode === 'technical' && <ToolPayloadDisclosure args={part.args} result={part.result} />}
         </div>
       )}
     </div>
   )
 }
 
-// Tools that must stay ON SCREEN rather than collapse into a run summary:
-//   - a file edit renders its own diff, which is usually the point of the turn;
-//   - `clarify`, `image_generate` and `delegate_task` bypass ToolEntry to render
-//     their own markup — a question the user has to answer, an image they asked
-//     for, the several agents a fan-out is running.
-//
-// Everything else is ephemeral activity — reads, searches, commands — which is
-// what a run summarizes and what the live ticker cycles through.
-const CARD_TOOLS = new Set(['clarify', 'delegate_task', 'image_generate'])
-
-export function isCardTool(toolName: string): boolean {
-  return CARD_TOOLS.has(toolName) || isFileEditTool(toolName)
+interface TerminalTranscriptProps {
+  command?: string
+  exitCode?: number
 }
+
+/**
+ * What a command was and how it ended, as the one line a terminal reader looks
+ * for first.
+ *
+ * A readout of a settled exec, NOT a second xterm: universal's terminal pane is
+ * a live gateway PTY (`/api/shell-pty`) with its own theme and selection
+ * behaviour, and a transcript of a finished tool call needs none of that.
+ *
+ * `exitCode` is deliberately conditional. The gateway reports one on every
+ * terminal result it produces (`tools/terminal_tool.py` — 0, the real
+ * returncode, 124 on timeout, 130 on a genuine interrupt, -1 on a backend
+ * failure), but a turn cancelled before `tool.complete` fires never gets a
+ * result at all: the row settles with a synthetic empty one. Rendering
+ * "exit 0" there would report a success for a command whose fate is unknown,
+ * so no code means no chip.
+ */
+function TerminalTranscript({ command, exitCode }: TerminalTranscriptProps) {
+  if (!command && exitCode === undefined) {
+    return null
+  }
+
+  return (
+    <div className="flex min-w-0 items-center gap-2 rounded-[0.25rem] border border-(--ui-stroke-tertiary) bg-(--ui-bg-quinary) px-2 py-1.5 font-mono text-[0.7rem] leading-relaxed">
+      {command && (
+        <code className="min-w-0 flex-1 whitespace-pre-wrap wrap-anywhere text-(--ui-text-secondary)">
+          <span aria-hidden className="select-none text-(--ui-accent-secondary)">
+            ${' '}
+          </span>
+          {command}
+        </code>
+      )}
+      {exitCode !== undefined && (
+        <span
+          className={cn(
+            'shrink-0 rounded bg-(--ui-bg-tertiary) px-1 py-px text-[0.6rem] tabular-nums',
+            exitCode === 0 ? 'text-(--ui-green)' : 'text-(--ui-yellow)'
+          )}
+        >
+          exit {exitCode}
+        </span>
+      )}
+    </div>
+  )
+}
+
+// Tools that draw their own surface and must never be folded into a run's
+// summary live in `@/lib/tool-render-class` (`isCardTool`) — the DOM render
+// budget prices a turn by the same rule, so both sides have to agree on which
+// rows collapse into a summary line and which mount their own markup.
+export { isCardTool }
 
 // A call still awaiting a result on one of these could be the one blocking on
 // an approval. Universal shows the approval in the composer's ApprovalBar
 // rather than inline, but the run still has to stay open so the command being
 // approved is visible next to the question.
 const APPROVAL_TOOLS = new Set(['terminal', 'execute_code'])
+
+// Ranges of parts travel through selectors as ONE joined string (see
+// ToolGroupSlot): assistant-ui compares selector results with `Object.is`, so a
+// fresh array would re-render the group on every streaming delta. NUL is the
+// separator because no tool name can contain one.
+const TOOL_KEY_SEPARATOR = String.fromCharCode(0)
 
 export type RunItem = { end: number; kind: 'run'; start: number } | { index: number; kind: 'card' }
 
@@ -692,6 +823,8 @@ function ToolRunHeader({
 
 interface ToolRunState {
   count: number
+  /** Disclosure id of each row in the run, so the run can tell when one is open. */
+  entryIds: readonly string[]
   key: string
   live: boolean
   /** A call still awaiting a result that could be the one blocking on approval. */
@@ -730,6 +863,7 @@ function useToolRun(startIndex: number, endIndex: number): ToolRunState {
         signature,
         value: {
           count: tools.length,
+          entryIds: tools.map(tool => toolEntryDisclosureId(state.message.id, tool)),
           key: tools[0]?.toolCallId ?? '',
           live,
           pendingApprovalTool: tools.some(tool => tool.result === undefined && APPROVAL_TOOLS.has(tool.toolName)),
@@ -762,11 +896,12 @@ const ToolRun: FC<PropsWithChildren<{ endIndex: number; startIndex: number }>> =
   startIndex
 }) => {
   const messageRunning = useAuiState(selectMessageRunning)
-  const { count, key, live, pendingApprovalTool, summary } = useToolRun(startIndex, endIndex)
+  const { count, entryIds, key, live, pendingApprovalTool, summary } = useToolRun(startIndex, endIndex)
   const sessionId = useStore(useSessionView().$runtimeId) ?? ''
   const approval = useStore(useMemo(() => sessionApprovalRequest(sessionId), [sessionId]))
   const disclosureId = `tool-run:${key}`
   const persistedOpen = useStore($toolDisclosureOpen(disclosureId))
+  const rowOpen = useStore(useMemo(() => $anyToolDisclosureOpen(entryIds), [entryIds]))
   const enterRef = useEnterAnimation(messageRunning, `tool-run:${key}`)
 
   // A lone call is already its own one-line summary; heading it with a second
@@ -775,11 +910,14 @@ const ToolRun: FC<PropsWithChildren<{ endIndex: number; startIndex: number }>> =
     return <>{children}</>
   }
 
-  // An approval is a question the user has to answer, and the ticker only ever
-  // shows one line — the row carrying the command could tick straight past it.
-  // Show the whole run until it's answered.
+  // Two things a one-line window can't hold. An approval is a question the
+  // user has to answer, and expanded output is one they went looking for —
+  // both would tick straight past, or be sliced to a single line, as the run
+  // keeps going. Either one hands the run back its full height until the run
+  // settles and the row can be reached through the summary instead.
   const blocked = Boolean(approval) && pendingApprovalTool
-  const expanded = live ? blocked : (persistedOpen ?? false)
+  const unfurled = blocked || rowOpen
+  const expanded = live ? unfurled : (persistedOpen ?? false)
 
   return (
     <div
@@ -794,7 +932,7 @@ const ToolRun: FC<PropsWithChildren<{ endIndex: number; startIndex: number }>> =
         open={expanded}
         summary={summary}
       />
-      {live && !blocked && <ToolRunTicker>{children}</ToolRunTicker>}
+      {live && !unfurled && <ToolRunTicker>{children}</ToolRunTicker>}
       {expanded && <div className="grid min-w-0 max-w-full gap-(--tool-row-gap)">{children}</div>}
     </div>
   )
@@ -828,11 +966,44 @@ export const ToolGroupSlot: FC<PropsWithChildren<{ endIndex: number; startIndex:
     state.message.parts
       .slice(Math.max(0, startIndex), endIndex + 1)
       .map(part => (part.type === 'tool-call' ? part.toolName : ''))
-      .join('\u0000')
+      .join(TOOL_KEY_SEPARATOR)
   )
 
-  const items = useMemo(() => splitRunItems(toolNameKey.split('\u0000')), [toolNameKey])
+  const toolNames = useMemo(() => toolNameKey.split(TOOL_KEY_SEPARATOR), [toolNameKey])
+  const items = useMemo(() => splitRunItems(toolNames), [toolNames])
   const rows = Children.toArray(children)
+
+  // Which of those calls FAILED, as its own short string for the same reason
+  // the names are joined into one: focus view refuses to hide an error row, and
+  // a tool name alone cannot say whether the call went wrong.
+  const toolFailedKey = useAuiState(state =>
+    state.message.parts
+      .slice(Math.max(0, startIndex), endIndex + 1)
+      .map(part => (part.type === 'tool-call' && part.isError ? '1' : '0'))
+      .join('')
+  )
+
+  const messageId = useAuiState(state => state.message.id)
+  const focusView = useStore($focusView)
+  const revealedRuns = useStore($focusRevealedRuns)
+
+  // Focus view stands one dim line in for the group's activity, expandable back
+  // into the real rows. Keyed by message + range, so revealing one run leaves
+  // the rest of the transcript hidden.
+  const runKey = `${messageId}:${startIndex}`
+
+  if (focusView && !isFocusRunRevealed(revealedRuns, runKey)) {
+    return (
+      <ToolEmbedContext.Provider value={false}>
+        <FocusHiddenRun
+          failedKey={toolFailedKey}
+          names={toolNames}
+          onReveal={() => revealFocusRun(runKey)}
+          rows={rows}
+        />
+      </ToolEmbedContext.Provider>
+    )
+  }
 
   return (
     <ToolEmbedContext.Provider value={false}>
@@ -846,6 +1017,66 @@ export const ToolGroupSlot: FC<PropsWithChildren<{ endIndex: number; startIndex:
         )
       )}
     </ToolEmbedContext.Provider>
+  )
+}
+
+/**
+ * A tool group under focus view: what was hidden, said once, in the group's own
+ * place and one click from the rows themselves.
+ *
+ * Two kinds of row are never hidden, for the same reason the gateway exempts
+ * them when it suppresses tool progress for a terminal
+ * (`_tool_lifecycle_required_for_ui`): a `clarify` card is a turn waiting on an
+ * answer, and a failed call is the one thing a reduced view must not swallow —
+ * "reduce the output" is not "hide the errors".
+ *
+ * Rows that render nothing anyway (`todo`, `react_to_message`) are folded away
+ * but NOT counted, so the number is what the reader would otherwise have seen.
+ *
+ * A command awaiting approval IS folded away, and safely: universal asks for
+ * approval in the composer's ApprovalBar, which prints the command itself — so
+ * unlike a terminal, nothing here can be approved unseen.
+ */
+const FocusHiddenRun: FC<{
+  failedKey: string
+  names: readonly string[]
+  onReveal: () => void
+  rows: readonly ReactNode[]
+}> = ({ failedKey, names, onReveal, rows }) => {
+  const { t } = useI18n()
+
+  const { hidden, kept } = useMemo(() => {
+    const shown: ReactNode[] = []
+    let count = 0
+
+    names.forEach((name, index) => {
+      if (failedKey[index] === '1' || name === 'clarify') {
+        shown.push(<Fragment key={`kept:${index}`}>{rows[index]}</Fragment>)
+
+        return
+      }
+
+      if (!isSilentTool(name)) {
+        count += 1
+      }
+    })
+
+    return { hidden: count, kept: shown }
+  }, [failedKey, names, rows])
+
+  return (
+    <>
+      {kept}
+      {hidden > 0 && (
+        <div data-conversation-scaffold="" data-focus-hidden="">
+          <ScaffoldRow onToggle={onReveal} open={false}>
+            <FadeText className={cn(SCAFFOLD_LABEL_CLASS, 'truncate')}>
+              {t.assistant.thread.focusHidden(hidden)}
+            </FadeText>
+          </ScaffoldRow>
+        </div>
+      )}
+    </>
   )
 }
 

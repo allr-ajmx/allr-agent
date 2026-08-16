@@ -70,4 +70,38 @@ describe('UserMessage', () => {
     renderClamped(20)
     expect(document.querySelector('.sticky-human-clamp')?.getAttribute('data-clamped')).toBeNull()
   })
+
+  // The bubble's HALF of MJXHRM-370: the affordance is gated on the handler
+  // being defined. Rendering it here WITH the prop proves the gate and nothing
+  // more — the defect was that `thread.tsx` mounted `UserMessage` with no props
+  // at all, which no test in this file can see. `thread.test.tsx` owns that.
+  it('hides the restore affordance with no handler, and calls it with one', () => {
+    render(<UserMessage />)
+    expect(screen.queryByRole('button', { name: 'Restore checkpoint' })).toBeNull()
+
+    cleanup()
+
+    const onRequestRestoreConfirm = vi.fn()
+    render(<UserMessage onRequestRestoreConfirm={onRequestRestoreConfirm} />)
+
+    act(() => screen.getByRole('button', { name: 'Restore checkpoint' }).click())
+
+    expect(onRequestRestoreConfirm).toHaveBeenCalledWith('m1', { text: 'a very long prompt' })
+  })
+
+  // MJXHRM-223: the bubble used to count its own user ordinal off
+  // `thread.messages` and hand it over as the backend's truncation index. That
+  // list is a WINDOWED tail (app/chat/transcript-window.ts), so on a long
+  // session the number named an earlier turn than the one clicked and the rewind
+  // discarded history nobody asked it to. The ordinal is resolved from the
+  // session store in `thread.tsx` now; the bubble must not supply one.
+  it('does not derive a store ordinal from the rendered thread', () => {
+    const onRequestRestoreConfirm = vi.fn()
+    render(<UserMessage onRequestRestoreConfirm={onRequestRestoreConfirm} />)
+
+    act(() => screen.getByRole('button', { name: 'Restore checkpoint' }).click())
+
+    const [, target] = onRequestRestoreConfirm.mock.calls[0] as [string, Record<string, unknown>]
+    expect(Object.keys(target)).toEqual(['text'])
+  })
 })

@@ -88,12 +88,7 @@ export function SearchableSelect({
           <Codicon className="shrink-0 opacity-60" name={open ? 'chevron-up' : 'chevron-down'} size="1rem" />
         </button>
       </PopoverTrigger>
-      <PopoverContent
-        align="start"
-        // Portaled to body — must clear the settings OverlayView (--z-modal: 130),
-        // same reason SelectContent carries this token.
-        className="z-(--z-modal-popover) w-[var(--radix-popover-trigger-width)] p-0"
-      >
+      <PopoverContent align="start" className="w-[var(--radix-popover-trigger-width)] p-0">
         <Command filter={rankSearchOption}>
           <CommandInput autoFocus placeholder={placeholder} />
           <CommandList>
@@ -101,13 +96,13 @@ export function SearchableSelect({
             <CommandGroup>
               {clearLabel && (
                 <CommandItem onSelect={() => handleSelect('')} value={clearLabel}>
-                  <Codicon className={cn('mr-2 size-4', value === '' ? 'opacity-100' : 'opacity-0')} name="check" />
+                  <Codicon className={cn('me-2 size-4', value === '' ? 'opacity-100' : 'opacity-0')} name="check" />
                   {clearLabel}
                 </CommandItem>
               )}
               {options.map(option => (
                 <CommandItem key={option} onSelect={() => handleSelect(option)} value={option}>
-                  <Codicon className={cn('mr-2 size-4', option === value ? 'opacity-100' : 'opacity-0')} name="check" />
+                  <Codicon className={cn('me-2 size-4', option === value ? 'opacity-100' : 'opacity-0')} name="check" />
                   {option}
                 </CommandItem>
               ))}

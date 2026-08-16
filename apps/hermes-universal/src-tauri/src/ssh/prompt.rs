@@ -87,7 +87,10 @@ pub struct ChannelPrompter {
 
 impl ChannelPrompter {
     pub fn new(tx: mpsc::Sender<PromptRequest>) -> Self {
-        Self { tx, timeout: PROMPT_TIMEOUT }
+        Self {
+            tx,
+            timeout: PROMPT_TIMEOUT,
+        }
     }
 
     pub fn with_timeout(tx: mpsc::Sender<PromptRequest>, timeout: Duration) -> Self {
@@ -103,18 +106,31 @@ impl Prompter for ChannelPrompter {
     ) -> Pin<Box<dyn Future<Output = Result<String, SshError>> + Send + 'a>> {
         Box::pin(async move {
             let (respond, answer) = oneshot::channel();
-            let request = PromptRequest { kind, label: label.to_string(), respond };
+            let request = PromptRequest {
+                kind,
+                label: label.to_string(),
+                respond,
+            };
 
             if self.tx.send(request).await.is_err() {
-                return Err(SshError::new(SshErrorKind::Cancelled, "No prompt listener is attached."));
+                return Err(SshError::new(
+                    SshErrorKind::Cancelled,
+                    "No prompt listener is attached.",
+                ));
             }
 
             match tokio::time::timeout(self.timeout, answer).await {
                 Ok(Ok(value)) => Ok(value),
                 // The dialog was dismissed.
-                Ok(Err(_)) => Err(SshError::new(SshErrorKind::Cancelled, "The prompt was dismissed.")),
+                Ok(Err(_)) => Err(SshError::new(
+                    SshErrorKind::Cancelled,
+                    "The prompt was dismissed.",
+                )),
                 // Nobody ever rendered it. Give up rather than hold the session open.
-                Err(_) => Err(SshError::new(SshErrorKind::Timeout, "Timed out waiting for an answer.")),
+                Err(_) => Err(SshError::new(
+                    SshErrorKind::Timeout,
+                    "Timed out waiting for an answer.",
+                )),
             }
         })
     }
@@ -137,7 +153,11 @@ mod tests {
         .expect_err("must decline");
 
         assert_eq!(err.kind, SshErrorKind::AuthFailed);
-        assert!(err.message.contains("Settings"), "the copy must say how to recover: {}", err.message);
+        assert!(
+            err.message.contains("Settings"),
+            "the copy must say how to recover: {}",
+            err.message
+        );
     }
 
     #[tokio::test]
@@ -151,7 +171,10 @@ mod tests {
             let _ = req.respond.send("hunter2".to_string());
         });
 
-        let answer = ChannelPrompter::new(tx).prompt(PromptKind::Passphrase, "Passphrase for /keys/id").await.unwrap();
+        let answer = ChannelPrompter::new(tx)
+            .prompt(PromptKind::Passphrase, "Passphrase for /keys/id")
+            .await
+            .unwrap();
         assert_eq!(answer, "hunter2");
     }
 
@@ -164,7 +187,10 @@ mod tests {
             let _ = rx.recv().await;
         });
 
-        let err = ChannelPrompter::new(tx).prompt(PromptKind::Password, "Password").await.unwrap_err();
+        let err = ChannelPrompter::new(tx)
+            .prompt(PromptKind::Password, "Password")
+            .await
+            .unwrap_err();
         assert_eq!(err.kind, SshErrorKind::Cancelled);
     }
 
@@ -175,7 +201,10 @@ mod tests {
         let (tx, _rx) = mpsc::channel::<PromptRequest>(1);
         let prompter = ChannelPrompter::with_timeout(tx, Duration::from_millis(30));
 
-        let err = prompter.prompt(PromptKind::Password, "Password").await.unwrap_err();
+        let err = prompter
+            .prompt(PromptKind::Password, "Password")
+            .await
+            .unwrap_err();
         assert_eq!(err.kind, SshErrorKind::Timeout);
     }
 
@@ -184,7 +213,10 @@ mod tests {
         let (tx, rx) = mpsc::channel::<PromptRequest>(1);
         drop(rx);
 
-        let err = ChannelPrompter::new(tx).prompt(PromptKind::Password, "Password").await.unwrap_err();
+        let err = ChannelPrompter::new(tx)
+            .prompt(PromptKind::Password, "Password")
+            .await
+            .unwrap_err();
         assert_eq!(err.kind, SshErrorKind::Cancelled);
     }
 }

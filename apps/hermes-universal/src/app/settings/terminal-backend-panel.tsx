@@ -123,7 +123,7 @@ export function TerminalBackendPanel({ onConfiguredChange }: TerminalBackendPane
           section level, not just on the row, because the user's mental model
           after clicking is "done" — and it isn't until a restart. */}
       {data.restart_required && data.configured && (
-        <p className="flex items-start gap-1 px-0.5 text-[0.68rem] text-amber-600 dark:text-amber-300">
+        <p className="flex items-start gap-1 px-0.5 text-[0.68rem] text-(--ui-yellow)">
           <AlertTriangle className="mt-0.5 size-3 shrink-0" />
           {copy.restartBanner(data.configured, data.active)}
         </p>
@@ -133,7 +133,7 @@ export function TerminalBackendPanel({ onConfiguredChange }: TerminalBackendPane
           <button
             aria-pressed={backend.active}
             className={cn(
-              'grid gap-0.5 rounded-lg border px-2.5 py-2 text-left transition',
+              'grid gap-0.5 rounded-lg border px-2.5 py-2 text-start transition',
               backend.active
                 ? 'border-(--ui-stroke-secondary) bg-(--ui-bg-tertiary)'
                 : 'border-transparent bg-background/55 hover:bg-accent/40'
@@ -163,7 +163,7 @@ export function TerminalBackendPanel({ onConfiguredChange }: TerminalBackendPane
             </span>
             <span className="text-[0.68rem] text-muted-foreground">{backend.description}</span>
             {backend.status !== 'ready' && backend.detail && (
-              <span className="flex items-start gap-1 text-[0.68rem] text-amber-600 dark:text-amber-300">
+              <span className="flex items-start gap-1 text-[0.68rem] text-(--ui-yellow)">
                 <AlertTriangle className="mt-0.5 size-3 shrink-0" />
                 {backend.detail}
                 {backend.active && ` ${copy.needsSetupHint}`}

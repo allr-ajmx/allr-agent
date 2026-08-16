@@ -1,6 +1,7 @@
 import { useStore } from '@nanostores/react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
+import { useSessionView } from '@/app/chat/session-view'
 import { ModelMenuCloseContext } from '@/app/shell/model-menu-panel'
 import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
@@ -10,13 +11,7 @@ import { useI18n } from '@/i18n'
 import { ChevronDown } from '@/lib/icons'
 import { formatModelStatusLabel } from '@/lib/model-status-label'
 import { cn } from '@/lib/utils'
-import {
-  $currentFastMode,
-  $currentModel,
-  $currentProvider,
-  $currentReasoningEffort,
-  setModelPickerOpen
-} from '@/store/model'
+import { setModelMenuDropdownOpen, setModelPickerOpen } from '@/store/model'
 
 import type { ChatBarState } from './types'
 
@@ -31,6 +26,12 @@ const PILL = cn(
  * Composer model selector — the relocated status-bar pill. Reuses the live
  * `model.options` dropdown (`modelMenuContent`) verbatim; falls back to the
  * full picker when the gateway is closed and no live menu exists.
+ *
+ * Display follows THIS surface's SessionView (primary or tile), never the
+ * primary-only globals — desktop parity. Reading `$currentModel` directly meant
+ * a tile's (and a detached window's) pill LABELLED the primary chat's model
+ * while every action on that surface targeted the tile's own session: the two
+ * halves of one control disagreeing about which chat they mean.
  */
 export function ModelPill({
   compact = false,
@@ -42,11 +43,24 @@ export function ModelPill({
   model: ChatBarState['model']
 }) {
   const copy = useI18n().t.shell.statusbar
-  const currentModel = useStore($currentModel)
-  const currentProvider = useStore($currentProvider)
-  const fastMode = useStore($currentFastMode)
-  const reasoningEffort = useStore($currentReasoningEffort)
+  const view = useSessionView()
+  // Prefer the chat-bar snapshot (already view-scoped by ChatComposer); fall
+  // back to the live SessionView atoms so a mid-flight session.info still
+  // paints — including the PENDING model a mid-turn pick was queued as.
+  const viewModel = useStore(view.$model)
+  const viewProvider = useStore(view.$provider)
+  const currentModel = model.model || viewModel
+  const currentProvider = model.provider || viewProvider
+  const fastMode = useStore(view.$fast)
+  const reasoningEffort = useStore(view.$reasoningEffort)
   const [open, setOpen] = useState(false)
+  const isHud = typeof document !== 'undefined' && document.documentElement.hasAttribute('data-hud')
+
+  useEffect(() => {
+    return () => {
+      setModelMenuDropdownOpen(false)
+    }
+  }, [])
 
   // The model resolves a beat after the gateway/session comes up. Rather than
   // flash a literal "No model", show a quiet loader (inherits the pill text
@@ -93,7 +107,13 @@ export function ModelPill({
   }
 
   return (
-    <DropdownMenu onOpenChange={setOpen} open={open}>
+    <DropdownMenu
+      onOpenChange={isOpen => {
+        setOpen(isOpen)
+        setModelMenuDropdownOpen(isOpen)
+      }}
+      open={open}
+    >
       <Tip label={title} side="top">
         <DropdownMenuTrigger asChild>
           <Button aria-label={title} className={pillClass} disabled={disabled} type="button" variant="ghost">
@@ -101,8 +121,13 @@ export function ModelPill({
           </Button>
         </DropdownMenuTrigger>
       </Tip>
-      <DropdownMenuContent align="end" className="w-64 p-0" side="top" sideOffset={8}>
-        <ModelMenuCloseContext.Provider value={() => setOpen(false)}>
+      <DropdownMenuContent align="end" className="w-64 p-0" side={isHud ? 'bottom' : 'top'} sideOffset={8}>
+        <ModelMenuCloseContext.Provider
+          value={() => {
+            setOpen(false)
+            setModelMenuDropdownOpen(false)
+          }}
+        >
           {model.modelMenuContent}
         </ModelMenuCloseContext.Provider>
       </DropdownMenuContent>

@@ -28,6 +28,8 @@ vi.mock('@/lib/external-link', () => ({ openExternalLink: vi.fn(async () => {}) 
 import { API_KEY_OPTIONS } from '@/app/onboarding/api-key-options'
 import {
   getGlobalModelOptions,
+  getRecommendedDefaultModel,
+  listOAuthProviders,
   setEnvVar,
   setModelAssignment,
   startOAuthLogin,
@@ -42,6 +44,8 @@ import {
   backToPicker,
   checkConfigured,
   confirmModel,
+  isCustomEndpointSlug,
+  resolveProviderSetup,
   saveApiKey,
   startProviderOAuth,
   submitOnboardingCode
@@ -64,8 +68,12 @@ const setEnv = vi.mocked(setEnvVar)
 const assign = vi.mocked(setModelAssignment)
 const validate = vi.mocked(validateProviderCredential)
 
+const recommend = vi.mocked(getRecommendedDefaultModel)
+
 const openrouter = API_KEY_OPTIONS.find(o => o.id === 'openrouter')!
 const local = API_KEY_OPTIONS.find(o => o.id === 'local')!
+const fireworks = API_KEY_OPTIONS.find(o => o.id === 'fireworks')!
+const openai = API_KEY_OPTIONS.find(o => o.id === 'openai')!
 
 describe('onboarding store', () => {
   beforeEach(() => {
@@ -121,6 +129,44 @@ describe('onboarding store', () => {
     expect($onboardingActive.get()).toBe(false)
   })
 
+  // `GET /api/model/recommended-default` answers 200 with `model: ""` when it
+  // cannot resolve one — it never errors — so the empty string is the shape the
+  // client actually has to survive.
+  it('falls back to the provider catalog when recommended-default answers with an empty model', async () => {
+    recommend.mockResolvedValueOnce({ provider: 'fireworks', model: '', free_tier: null })
+    options.mockResolvedValueOnce({
+      providers: [{ name: 'Fireworks AI', slug: 'fireworks', models: ['accounts/fireworks/models/kimi-k2'] }]
+    } as never)
+
+    await saveApiKey(fireworks, 'fw-test')
+
+    expect($onboarding.get().recommended).toEqual({
+      provider: 'fireworks',
+      model: 'accounts/fireworks/models/kimi-k2',
+      free_tier: null
+    })
+  })
+
+  it('recommends nothing — and assigns nothing — when no model can be resolved at all', async () => {
+    recommend.mockResolvedValueOnce({ provider: 'fireworks', model: '', free_tier: null })
+    options.mockResolvedValueOnce({ providers: [] } as never)
+
+    await saveApiKey(fireworks, 'fw-test')
+    expect($onboarding.get().recommended).toBeNull()
+
+    await confirmModel()
+    expect(assign).not.toHaveBeenCalled()
+  })
+
+  it('looks the OpenAI option up under the slug the backend actually uses', async () => {
+    recommend.mockResolvedValueOnce({ provider: 'openai-api', model: 'gpt-5', free_tier: null })
+
+    await saveApiKey(openai, 'sk-test')
+
+    expect(recommend).toHaveBeenCalledWith('openai-api')
+    expect($onboarding.get().providerSlug).toBe('openai-api')
+  })
+
   it('wires a local endpoint via validate + custom assignment', async () => {
     const ok = await saveApiKey(local, 'http://127.0.0.1:8000/v1', 'endpoint-key')
     expect(ok).toBe(true)
@@ -162,5 +208,53 @@ describe('onboarding store', () => {
     expect(ok).toBe(true)
     expect($onboarding.get().step).toBe('confirm')
     expect($onboarding.get().providerSlug).toBe('anthropic')
+  })
+})
+
+describe('resolveProviderSetup', () => {
+  const listProviders = vi.mocked(listOAuthProviders)
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    listProviders.mockResolvedValue({ providers: [oauthProvider('pkce')] } as never)
+  })
+
+  it.each(['custom', 'local', 'CUSTOM', ' Custom ', 'custom:my-box'])(
+    'treats %s as a custom endpoint without consulting the OAuth catalog',
+    async slug => {
+      await expect(resolveProviderSetup(slug)).resolves.toEqual({ kind: 'custom-endpoint' })
+      expect(listProviders).not.toHaveBeenCalled()
+    }
+  )
+
+  it('resolves a known provider slug to its OAuth connect target', async () => {
+    const target = await resolveProviderSetup('Anthropic')
+    expect(target.kind).toBe('oauth')
+    expect(target.kind === 'oauth' && target.provider.id).toBe('anthropic')
+  })
+
+  it('falls back to the picker for an unknown slug', async () => {
+    await expect(resolveProviderSetup('does-not-exist')).resolves.toEqual({ kind: 'picker' })
+  })
+
+  it('falls back to the picker for an empty slug, with no catalog call', async () => {
+    await expect(resolveProviderSetup('   ')).resolves.toEqual({ kind: 'picker' })
+    expect(listProviders).not.toHaveBeenCalled()
+  })
+
+  it('falls back to the picker when the OAuth catalog call fails', async () => {
+    listProviders.mockRejectedValueOnce(new Error('gateway down'))
+    await expect(resolveProviderSetup('anthropic')).resolves.toEqual({ kind: 'picker' })
+  })
+})
+
+describe('isCustomEndpointSlug', () => {
+  it('matches the custom/local family and nothing else', () => {
+    expect(isCustomEndpointSlug('custom')).toBe(true)
+    expect(isCustomEndpointSlug('local')).toBe(true)
+    expect(isCustomEndpointSlug('custom:vllm')).toBe(true)
+    expect(isCustomEndpointSlug('localai')).toBe(false)
+    expect(isCustomEndpointSlug('openrouter')).toBe(false)
+    expect(isCustomEndpointSlug('')).toBe(false)
   })
 })

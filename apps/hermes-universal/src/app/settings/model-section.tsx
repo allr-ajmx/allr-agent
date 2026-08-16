@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 
+import { useOnProfileSwitch } from '@/app/hooks/use-on-profile-switch'
+import { ModelPickerDialog } from '@/components/model-picker'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -19,8 +22,10 @@ import {
 import { useI18n } from '@/i18n'
 import { AlertTriangle, Cpu, Loader2 } from '@/lib/icons'
 import { cn } from '@/lib/utils'
+import { useStore } from '@/store/atom'
 import { notifyError } from '@/store/notifications'
-import { openOnboarding } from '@/store/onboarding'
+import { beginProviderConnect, openOnboarding, resolveProviderSetup } from '@/store/onboarding'
+import { $activeGatewayProfile } from '@/store/profile'
 import type {
   AuxiliaryModelsResponse,
   MoaConfigResponse,
@@ -37,9 +42,8 @@ import { invalidateHermesConfig, setHermesConfigCache, useHermesConfigRecord } f
 
 // Ported from apps/desktop/src/app/settings/model-settings.tsx (pixel-perfect).
 // Adaptations: types from `@/types/hermes`; config cache from `./use-config-record`;
-// "Set up provider" hands off to the universal onboarding wizard (`openOnboarding`);
-// desktop's profile-switch reload (`useOnProfileSwitch`) is dropped (no universal
-// equivalent) — the `profileEpoch` guards stay inert but harmless.
+// "Set up provider" routes per provider kind via `resolveProviderSetup` (see
+// startProviderSetup below).
 
 // Skeleton mirror of the Model settings DOM so the page keeps its shape while
 // the provider/model catalog loads, instead of collapsing to a centered
@@ -135,6 +139,24 @@ const NO_PROVIDERS: readonly ModelOptionProvider[] = [{ name: '—', slug: '', m
 export const withActive = (models: readonly string[], active: string): readonly string[] =>
   active && !models.includes(active) ? [active, ...models] : models
 
+// A slot is complete when both halves are chosen. Changing a slot's provider
+// intentionally clears its model (see updateMoaSlot), so every provider change
+// passes through an incomplete state while the user picks the new model.
+export const moaSlotComplete = (slot: MoaModelSlot): boolean => !!(slot.provider.trim() && slot.model.trim())
+
+// True when every slot in every preset is fully specified — the only state
+// that is safe to persist. The backend rejects configs with half-filled slots
+// (HTTP 422 from validate_moa_payload) instead of silently swapping the preset
+// for hardcoded defaults, so the autosave must wait for the edit to finish
+// rather than firing a payload the server will refuse.
+export const moaConfigComplete = (config: MoaConfigResponse): boolean =>
+  Object.values(config.presets).every(
+    preset =>
+      preset.reference_models.length > 0 &&
+      preset.reference_models.every(moaSlotComplete) &&
+      moaSlotComplete(preset.aggregator)
+  )
+
 interface StaleAuxWarningProps {
   applying: boolean
   onReset: () => void
@@ -156,7 +178,7 @@ function StaleAuxWarning({ applying, onReset, slots, taskLabel }: StaleAuxWarnin
   const names = slots.map(slot => taskLabel(slot.task)).join(', ')
 
   return (
-    <div className="flex flex-wrap items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+    <div className="flex flex-wrap items-center gap-2 rounded-md border border-(--ui-yellow)/40 bg-(--ui-yellow)/10 px-3 py-2 text-xs text-(--ui-yellow)">
       <AlertTriangle className="size-3.5 shrink-0" />
       <span className="grow">
         {slots.length} auxiliary task{slots.length === 1 ? '' : 's'} ({names}) still run on{' '}
@@ -177,6 +199,9 @@ interface ModelSettingsProps {
 export function ModelSettings({ onMainModelChanged }: ModelSettingsProps) {
   const { t } = useI18n()
   const m = t.settings.model
+  // Settings is route-driven in every host (overlay, mobile drill-in, Android
+  // activity), so a sibling settings page is a navigation, not a modal.
+  const navigate = useNavigate()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [mainModel, setMainModel] = useState<{ model: string; provider: string } | null>(null)
@@ -201,12 +226,24 @@ export function ModelSettings({ onMainModelChanged }: ModelSettingsProps) {
   // place — mirrors the onboarding ApiKeyForm but scoped to the model picker.
   const [apiKeyDraft, setApiKeyDraft] = useState('')
   const [activating, setActivating] = useState(false)
+  // The shared model picker (components/model-picker), reused here as its
+  // second call site: two chained <Select>s make you already know which
+  // provider a model lives under, while the picker is searchable across the
+  // whole catalog with the same keyboard nav the composer's ⌘⇧M gives.
+  const [pickerOpen, setPickerOpen] = useState(false)
+  // The catalog this page reads is profile-scoped (`getGlobalModelOptions` goes
+  // through `profileScoped()`), so the picker's cache key must name the ACTIVE
+  // profile. Left on the `'default'` fallback it filed another profile's
+  // providers under the default profile's key — an entry the composer, ⌘⇧M and
+  // Edit Models then read as their own, which is exactly what the profile
+  // segment of `modelOptionsQueryKey` exists to prevent.
+  const activeProfile = useStore($activeGatewayProfile)
 
-  // Retained from the desktop port; without profile-switching it stays 0, so the
-  // `epoch` guards below are inert (but harmless — keeps the port verbatim).
+  // Bumped on a profile switch so an in-flight request for the previous profile
+  // is discarded instead of painting its model over the new profile's.
   const profileEpoch = useRef(0)
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async ({ replaceSelection = false }: { replaceSelection?: boolean } = {}) => {
     const epoch = profileEpoch.current
     setLoading(true)
     setError('')
@@ -225,8 +262,15 @@ export function ModelSettings({ onMainModelChanged }: ModelSettingsProps) {
 
       setMainModel({ model: modelInfo.model, provider: modelInfo.provider })
       setProviders(modelOptions.providers || [])
-      setSelectedProvider(prev => prev || modelInfo.provider)
-      setSelectedModel(prev => prev || modelInfo.model)
+
+      if (replaceSelection) {
+        setSelectedProvider(modelInfo.provider)
+        setSelectedModel(modelInfo.model)
+      } else {
+        setSelectedProvider(prev => prev || modelInfo.provider)
+        setSelectedModel(prev => prev || modelInfo.model)
+      }
+
       setAuxiliary(auxiliaryModels)
       setMoa(moaModels)
 
@@ -251,6 +295,19 @@ export function ModelSettings({ onMainModelChanged }: ModelSettingsProps) {
   useEffect(() => {
     void refresh()
   }, [refresh])
+
+  // A profile switch swaps the backend under the mounted panel — reload for the
+  // new profile (bumping the epoch first so any in-flight A request is discarded).
+  useOnProfileSwitch(() => {
+    profileEpoch.current += 1
+    // The panel stays mounted across profile switches, so clear the previous
+    // profile's draft selection before loading the new profile's source of
+    // truth. Ordinary same-profile refreshes still preserve in-progress edits.
+    setSelectedProvider('')
+    setSelectedModel('')
+    setApiKeyDraft('')
+    void refresh({ replaceSelection: true })
+  })
 
   const providerOptions = providers.length ? providers : NO_PROVIDERS
 
@@ -304,6 +361,10 @@ export function ModelSettings({ onMainModelChanged }: ModelSettingsProps) {
   }, [moa])
 
   const moaSaveTimer = useRef<number | null>(null)
+  // Bumped by every scheduled or explicit MoA write. A response only repaints
+  // the editor if its own generation is still the newest, so a slow save can
+  // never overwrite an edit the user made while it was in flight.
+  const moaSaveGeneration = useRef(0)
 
   useEffect(
     () => () => {
@@ -318,15 +379,37 @@ export function ModelSettings({ onMainModelChanged }: ModelSettingsProps) {
   // autosave so slot/aggregator tweaks save themselves, matching the
   // preset-level ops (set default / add / delete) that already persist on
   // click. No `applying` spinner, so selecting stays responsive.
+  // A half-filled slot (provider just changed, model not picked yet) is
+  // HELD, not sent: the previous complete config stays on disk and the next
+  // edit that completes the slot flushes the whole preset. Every edit bumps
+  // the generation so an in-flight response from an older save can never
+  // repaint over the user's mid-edit state.
   const scheduleMoaSave = useCallback((next: MoaConfigResponse) => {
     if (moaSaveTimer.current) {
       window.clearTimeout(moaSaveTimer.current)
+      moaSaveTimer.current = null
+    }
+
+    const generation = moaSaveGeneration.current + 1
+
+    moaSaveGeneration.current = generation
+
+    if (!moaConfigComplete(next)) {
+      return
     }
 
     moaSaveTimer.current = window.setTimeout(() => {
       void saveMoaModels(next)
-        .then(setMoa)
-        .catch(err => setError(err instanceof Error ? err.message : String(err)))
+        .then(saved => {
+          if (moaSaveGeneration.current === generation) {
+            setMoa(saved)
+          }
+        })
+        .catch(err => {
+          if (moaSaveGeneration.current === generation) {
+            setError(err instanceof Error ? err.message : String(err))
+          }
+        })
     }, 600)
   }, [])
 
@@ -356,7 +439,10 @@ export function ModelSettings({ onMainModelChanged }: ModelSettingsProps) {
   const updateMoaSlot = useCallback((slot: MoaModelSlot, patch: Partial<MoaModelSlot>): MoaModelSlot => {
     const next = { ...slot, ...patch }
 
-    if (patch.provider) {
+    // Picking a new provider invalidates the model choice (models are
+    // per-provider). A same-provider update must not wipe the model — Radix
+    // filters same-value changes, but programmatic callers may not.
+    if (patch.provider && patch.provider !== slot.provider) {
       next.model = ''
     }
 
@@ -365,6 +451,16 @@ export function ModelSettings({ onMainModelChanged }: ModelSettingsProps) {
 
   const saveMoa = useCallback(async (next: MoaConfigResponse) => {
     const epoch = profileEpoch.current
+
+    // Explicit preset ops (set default / add / delete) supersede any pending
+    // debounced slot autosave — cancel it and invalidate in-flight responses
+    // so the two writers can't race each other's state.
+    if (moaSaveTimer.current) {
+      window.clearTimeout(moaSaveTimer.current)
+      moaSaveTimer.current = null
+    }
+
+    moaSaveGeneration.current += 1
     setApplying(true)
     setError('')
 
@@ -445,7 +541,9 @@ export function ModelSettings({ onMainModelChanged }: ModelSettingsProps) {
         notifyError(err, m.defaultsFailed)
       }
     },
-    [config, m.defaultsFailed]
+    // `setConfig` is a module-level import aliased above, not a state setter —
+    // naming it satisfies the rule without costing an identity change.
+    [config, m.defaultsFailed, setConfig]
   )
 
   // Paste an API key for the selected `api_key` provider, persist it, then
@@ -497,11 +595,26 @@ export function ModelSettings({ onMainModelChanged }: ModelSettingsProps) {
   }, [apiKeyDraft, selectedProviderRow])
 
   // OAuth / external providers can't be activated with a pasted key — hand off
-  // to the shared onboarding wizard (universal's `startProviderOAuth` takes an
-  // OAuthProvider object, not a slug, so the picker is the clean entry point).
+  // to the surface that can actually finish the setup. The generic wizard only
+  // knows OAuth providers and the curated env-key catalog, so sending every
+  // provider there dead-ended the custom/local endpoint on a picker that never
+  // lists it. Route by kind instead: custom endpoints to their own editor, a
+  // known OAuth provider straight into its connect overlay (which floats over
+  // this page rather than replacing it), and anything unrecognised to the
+  // wizard's picker.
   const startProviderSetup = useCallback(() => {
-    openOnboarding()
-  }, [])
+    const slug = (selectedProviderRow?.slug || selectedProvider).trim()
+
+    void resolveProviderSetup(slug).then(target => {
+      if (target.kind === 'custom-endpoint') {
+        navigate('/settings/providers/custom-endpoints', { replace: true })
+      } else if (target.kind === 'oauth') {
+        beginProviderConnect(target.provider)
+      } else {
+        openOnboarding()
+      }
+    })
+  }, [navigate, selectedProvider, selectedProviderRow])
 
   const applyMainModel = useCallback(async () => {
     if (!selectedProvider || !selectedModel) {
@@ -678,6 +791,9 @@ export function ModelSettings({ onMainModelChanged }: ModelSettingsProps) {
                   ))}
                 </SelectContent>
               </Select>
+              <Button onClick={() => setPickerOpen(true)} size="sm" variant="ghost">
+                {m.change}
+              </Button>
               <Button
                 disabled={!selectedProvider || !selectedModel || applying}
                 onClick={() => void applyMainModel()}
@@ -689,6 +805,24 @@ export function ModelSettings({ onMainModelChanged }: ModelSettingsProps) {
             </>
           )}
         </div>
+        {/* Sessionless: the profile default is what we are editing, so the
+            picker fetches the global catalog and only stages the pick — Apply
+            still owns the write. "Add provider…" goes to the sibling Providers
+            page, matching every other call site (the composer's model overlays
+            route there too); the full-screen first-run wizard would otherwise
+            tear down the settings surface the user is standing on. */}
+        <ModelPickerDialog
+          currentModel={selectedModel}
+          currentProvider={selectedProvider}
+          onOpenChange={setPickerOpen}
+          onOpenProviders={() => navigate('/settings/providers', { replace: true })}
+          onSelect={selection => {
+            setSelectedProvider(selection.provider)
+            setSelectedModel(selection.model)
+          }}
+          open={pickerOpen}
+          profile={activeProfile}
+        />
         {needsSetup && !setupIsApiKey && (
           <p className="mt-2 text-xs text-muted-foreground">
             {selectedProviderRow?.auth_type === 'api_key'
@@ -881,6 +1015,18 @@ export function ModelSettings({ onMainModelChanged }: ModelSettingsProps) {
                 ))}
               </SelectContent>
             </Select>
+            {/* Disabling a preset does not delete it: the fan-out is skipped and
+                the aggregator acts alone (agent/moa_loop.py), so the preset keeps
+                working as a plain single-model choice. */}
+            <label className="flex items-center gap-2 rounded-sm border border-border px-2 py-1 text-xs">
+              {m.moaEnabled}
+              <Switch
+                checked={currentMoaPreset.enabled !== false}
+                disabled={applying}
+                onCheckedChange={checked => updateMoaPreset(prev => ({ ...prev, enabled: checked }))}
+                size="xs"
+              />
+            </label>
             <Button
               disabled={applying}
               onClick={() => {
@@ -954,9 +1100,33 @@ export function ModelSettings({ onMainModelChanged }: ModelSettingsProps) {
           <div className="mb-2 text-xs text-muted-foreground">
             Default: <span className="font-mono">{moa.default_preset}</span>
           </div>
+          {/* The two `enabled` flags are not peers: a disabled preset zeroes the
+              whole fan-out (agent/moa_loop.py) whatever the per-slot switches
+              say. Say so, rather than leaving live-looking switches that cannot
+              change what runs. */}
+          {currentMoaPreset.enabled === false && (
+            <p className="mb-2 text-xs text-(--ui-yellow)">{m.moaPresetDisabledHint}</p>
+          )}
           <div className="grid gap-1">
             {currentMoaPreset.reference_models.map((slot, index) => (
               <ListRow
+                action={
+                  <Switch
+                    aria-label={
+                      slot.enabled !== false ? m.moaDisableReference(index + 1) : m.moaEnableReference(index + 1)
+                    }
+                    checked={slot.enabled !== false}
+                    disabled={applying}
+                    onCheckedChange={checked =>
+                      updateMoaPreset(prev => ({
+                        ...prev,
+                        reference_models: prev.reference_models.map((s, i) =>
+                          i === index ? { ...s, enabled: checked === true } : s
+                        )
+                      }))
+                    }
+                  />
+                }
                 below={
                   <div className="mt-2 flex flex-wrap items-center gap-2 pt-1">
                     <Select
@@ -974,11 +1144,18 @@ export function ModelSettings({ onMainModelChanged }: ModelSettingsProps) {
                         <SelectValue placeholder={m.provider} />
                       </SelectTrigger>
                       <SelectContent>
-                        {moaSlotProviderOptions.map(provider => (
-                          <SelectItem key={provider.slug || 'none'} value={provider.slug || 'none'}>
-                            {provider.name}
-                          </SelectItem>
-                        ))}
+                        {withActive(
+                          moaSlotProviderOptions.map(p => p.slug || 'none'),
+                          slot.provider
+                        ).map(slug => {
+                          const provider = moaSlotProviderOptions.find(p => (p.slug || 'none') === slug)
+
+                          return (
+                            <SelectItem key={slug} value={slug}>
+                              {provider?.name || slug}
+                            </SelectItem>
+                          )
+                        })}
                       </SelectContent>
                     </Select>
                     <Select
@@ -1018,19 +1195,26 @@ export function ModelSettings({ onMainModelChanged }: ModelSettingsProps) {
                     </Button>
                   </div>
                 }
+                className={cn(slot.enabled === false && 'opacity-60')}
                 description={
                   <span className="font-mono text-[0.68rem]">
-                    {slot.provider} · {slot.model}
+                    {slot.provider} · {slot.model || m.model}
                   </span>
                 }
-                key={`${selectedMoaPreset}-${slot.provider}-${slot.model}-${index}`}
+                // Keyed by position only: keying on the slot's own
+                // provider/model remounts the row on every edit, which tears
+                // down the very <Select> the user is interacting with.
+                key={`${selectedMoaPreset}-${index}`}
                 title={`Reference ${index + 1}`}
               />
             ))}
             <Button
               disabled={applying}
               onClick={() =>
-                updateMoaPreset(prev => ({ ...prev, reference_models: [...prev.reference_models, prev.aggregator] }))
+                updateMoaPreset(prev => ({
+                  ...prev,
+                  reference_models: [...prev.reference_models, { ...prev.aggregator, enabled: true }]
+                }))
               }
               size="sm"
               variant="textStrong"
@@ -1053,11 +1237,18 @@ export function ModelSettings({ onMainModelChanged }: ModelSettingsProps) {
                       <SelectValue placeholder={m.provider} />
                     </SelectTrigger>
                     <SelectContent>
-                      {moaSlotProviderOptions.map(provider => (
-                        <SelectItem key={provider.slug || 'none'} value={provider.slug || 'none'}>
-                          {provider.name}
-                        </SelectItem>
-                      ))}
+                      {withActive(
+                        moaSlotProviderOptions.map(p => p.slug || 'none'),
+                        currentMoaPreset.aggregator.provider
+                      ).map(slug => {
+                        const provider = moaSlotProviderOptions.find(p => (p.slug || 'none') === slug)
+
+                        return (
+                          <SelectItem key={slug} value={slug}>
+                            {provider?.name || slug}
+                          </SelectItem>
+                        )
+                      })}
                     </SelectContent>
                   </Select>
                   <Select

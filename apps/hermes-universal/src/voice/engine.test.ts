@@ -10,6 +10,7 @@ const h = vi.hoisted(() => {
   interface FakeLease {
     init: ReturnType<typeof vi.fn>
     arm: ReturnType<typeof vi.fn>
+    wakeListen: ReturnType<typeof vi.fn>
     suspend: ReturnType<typeof vi.fn>
     forceTurn: ReturnType<typeof vi.fn>
     close: ReturnType<typeof vi.fn>
@@ -25,6 +26,7 @@ const h = vi.hoisted(() => {
         onInit?.()
       }),
       arm: vi.fn(async () => undefined),
+      wakeListen: vi.fn(async () => undefined),
       suspend: vi.fn(async () => undefined),
       forceTurn: vi.fn(async () => undefined),
       close: vi.fn(async () => undefined),
@@ -98,6 +100,74 @@ describe('voice engine lease arbitration', () => {
     expect(voiceEngine.owner).toBe('conversation')
     // The preempted dictation lease was closed.
     expect(dictationLease.close).toHaveBeenCalled()
+
+    await conversation.close()
+  })
+
+  it('wake listening yields the device to anything the user asked for', async () => {
+    const wake = await voiceEngine.open('wake', OPTS)
+    const wakeLease = h.nativeCreated[0]
+    expect(voiceEngine.owner).toBe('wake')
+
+    // Wake is the standing background listener: a conversation preempts it
+    // outright rather than being refused.
+    const conversation = await voiceEngine.open('conversation', OPTS)
+    expect(voiceEngine.owner).toBe('conversation')
+    expect(wakeLease.close).toHaveBeenCalled()
+    expect(wake).toBeDefined()
+
+    // ...and it can never take the device back while one is live.
+    await expect(voiceEngine.open('wake', OPTS)).rejects.toBeInstanceOf(VoiceBusyError)
+
+    await conversation.close()
+  })
+
+  it('wake also yields to the momentary dictation button', async () => {
+    await voiceEngine.open('wake', OPTS)
+    const wakeLease = h.nativeCreated[0]
+
+    const dictation = await voiceEngine.open('dictation', OPTS)
+    expect(voiceEngine.owner).toBe('dictation')
+    expect(wakeLease.close).toHaveBeenCalled()
+
+    await dictation.close()
+  })
+
+  // The settings level meter is something the user pressed a button for, so it
+  // outranks the standing wake listener — but calibrating must never cut into a
+  // real turn, so it loses to both conversation and dictation.
+  it('the settings meter preempts wake but never a live turn', async () => {
+    await voiceEngine.open('wake', OPTS)
+    const wakeLease = h.nativeCreated[0]
+
+    const meter = await voiceEngine.open('meter', OPTS)
+    expect(voiceEngine.owner).toBe('meter')
+    expect(wakeLease.close).toHaveBeenCalled()
+
+    // ...and cannot be taken back while the user is calibrating. Ranking the two
+    // the SAME still lets the meter preempt wake, so this is the assertion that
+    // distinguishes a real ordering from a tie.
+    await expect(voiceEngine.open('wake', OPTS)).rejects.toBeInstanceOf(VoiceBusyError)
+    expect(voiceEngine.owner).toBe('meter')
+
+    await meter.close()
+
+    const conversation = await voiceEngine.open('conversation', OPTS)
+    await expect(voiceEngine.open('meter', OPTS)).rejects.toBeInstanceOf(VoiceBusyError)
+    await conversation.close()
+
+    const dictation = await voiceEngine.open('dictation', OPTS)
+    await expect(voiceEngine.open('meter', OPTS)).rejects.toBeInstanceOf(VoiceBusyError)
+    await dictation.close()
+  })
+
+  it('a conversation takes the device back from the meter', async () => {
+    await voiceEngine.open('meter', OPTS)
+    const meterLease = h.nativeCreated[0]
+
+    const conversation = await voiceEngine.open('conversation', OPTS)
+    expect(voiceEngine.owner).toBe('conversation')
+    expect(meterLease.close).toHaveBeenCalled()
 
     await conversation.close()
   })

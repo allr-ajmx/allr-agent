@@ -1,18 +1,17 @@
 import type * as React from 'react'
 import { useEffect, useRef, useState } from 'react'
 
+import {
+  type ActionItemSpec,
+  CONTEXT_KIT,
+  DROPDOWN_KIT,
+  type MenuKit,
+  renderActionItem
+} from '@/components/ui/actions-menu'
 import { Button } from '@/components/ui/button'
 import { Codicon } from '@/components/ui/codicon'
 import { ColorSwatches } from '@/components/ui/color-swatches'
-import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuSub,
-  ContextMenuSubContent,
-  ContextMenuSubTrigger,
-  ContextMenuTrigger
-} from '@/components/ui/context-menu'
+import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from '@/components/ui/context-menu'
 import {
   Dialog,
   DialogContent,
@@ -21,31 +20,21 @@ import {
   DialogHeader,
   DialogTitle
 } from '@/components/ui/dialog'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
-  DropdownMenuTrigger
-} from '@/components/ui/dropdown-menu'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
+import { type PaneTabCloseItemsOptions, paneTabCloseSpecs } from '@/components/ui/pane-tab'
 import { useI18n } from '@/i18n'
+import { writeClipboardText } from '@/lib/clipboard'
 import { triggerHaptic } from '@/lib/haptics'
 import { IS_MOBILE } from '@/lib/platform'
 import { PROFILE_SWATCHES } from '@/lib/profile-color'
 import { useStore } from '@/store/atom'
 import { addBubble } from '@/store/chat-bubbles'
 import { notify, notifyError } from '@/store/notifications'
-import {
-  $activeStoredSessionId,
-  $sessions,
-  renameSessionLocal,
-  sessionMatchesStoredId,
-  sessionPinId
-} from '@/store/session'
+import { $projects, moveSessionToProject } from '@/store/projects'
+import { $activeStoredSessionId, renameSessionLocal, sameStoredSession } from '@/store/session'
 import { $sessionColorOverrides, setSessionColorOverride } from '@/store/session-color'
+import { useSessionRowScalars } from '@/store/session-lookup'
 import { openSessionTile } from '@/store/session-states'
 import { canOpenSessionWindow, openSessionInNewWindow } from '@/store/windows'
 
@@ -64,37 +53,19 @@ interface SessionActions {
   onDelete?: () => void
   /** Branch this conversation into a new chat. */
   onBranch?: () => void
-  // TAB verbs — only present for a tile/tab (a sidebar row is not a tab). Their
-  // presence adds the tab close group (Close / Close others / Close to the
-  // right / Close all), mirroring desktop's `SessionTabMenu`.
-  onClose?: () => void
-  onCloseOthers?: () => void
-  onCloseToRight?: () => void
-  onCloseAll?: () => void
-}
-
-// The two menu surfaces this row menu renders on, reduced to the parts it uses.
-// Universal wires Radix's DropdownMenu*/ContextMenu* directly (desktop has a
-// MenuKit abstraction), so the kit is assembled at each call site below.
-interface MenuKit {
-  Item: typeof DropdownMenuItem | typeof ContextMenuItem
-  Sub: typeof DropdownMenuSub | typeof ContextMenuSub
-  SubContent: typeof DropdownMenuSubContent | typeof ContextMenuSubContent
-  SubTrigger: typeof DropdownMenuSubTrigger | typeof ContextMenuSubTrigger
-}
-
-const DROPDOWN_KIT: MenuKit = {
-  Item: DropdownMenuItem,
-  Sub: DropdownMenuSub,
-  SubContent: DropdownMenuSubContent,
-  SubTrigger: DropdownMenuSubTrigger
-}
-
-const CONTEXT_KIT: MenuKit = {
-  Item: ContextMenuItem,
-  Sub: ContextMenuSub,
-  SubContent: ContextMenuSubContent,
-  SubTrigger: ContextMenuSubTrigger
+  /** TAB verbs — set only for a tile/workspace tab (a sidebar row is not a tab).
+   *  Present, this menu grows Reload plus the shared four-verb close group from
+   *  `paneTabCloseSpecs`, so a session tab answers a right-click with the same
+   *  rows, in the same order, disabled the same way, as every other tab in the
+   *  app. Before MJXHRM-409 this file hand-rolled its own copy of that group. */
+  tab?: {
+    close: PaneTabCloseItemsOptions
+    /** Re-mount what is IN the tab — the zone menu's Reload, reachable from the
+     *  tab itself. Right-clicking a session tab opens THIS menu, not the zone's
+     *  (the tab is wrapped in its own trigger), so without it Reload was
+     *  unreachable from the one surface it names. */
+    onReload: () => void
+  }
 }
 
 // The color picker inside the session menu's Appearance submenu. Its own
@@ -104,8 +75,23 @@ const CONTEXT_KIT: MenuKit = {
 function SessionColorSwatches({ sessionId }: { sessionId: string }) {
   const { t } = useI18n()
   const overrides = useStore($sessionColorOverrides)
-  const session = useStore($sessions).find(s => sessionMatchesStoredId(s, sessionId))
-  const durableId = session ? sessionPinId(session) : sessionId
+  // The WIDE lookup, not `$sessions` alone (MJXHRM-386). `$sessions` is the
+  // paginated recents page, so for a session that had aged out of it the
+  // durable id fell back to the RAW id the caller was holding — while
+  // `resolveSessionColor` reads the override under `sessionPinId(session)`, the
+  // lineage root. For a conversation that has been auto-compacted those are
+  // DIFFERENT ids, so a colour picked for an older chat landed under a key
+  // nothing reads: the swatch showed nothing selected, the colour never
+  // appeared on any dot, and the dead entry persisted to disk forever.
+  //
+  // The same widening `tileTitle`, `TileTabLead` and the tab menu already took
+  // — and it is what makes "a colour is a function of a stable identity" true
+  // on the WRITE side, not only the read side.
+  //
+  // `useSessionRowScalars`, not `useSessionRow`: this needs one string, and one
+  // of these lives inside every open session menu. `pinId` is that string
+  // already, computed by the same rule the pin verbs use.
+  const durableId = useSessionRowScalars(sessionId).pinId
 
   return (
     <ColorSwatches
@@ -118,15 +104,6 @@ function SessionColorSwatches({ sessionId }: { sessionId: string }) {
   )
 }
 
-interface ItemSpec {
-  className?: string
-  disabled: boolean
-  icon: string
-  label: string
-  onSelect: (event: Event) => void
-  variant?: 'destructive'
-}
-
 /** A submenu entry in the otherwise-flat spec list, so its position stays
  *  declarative alongside the plain items rather than hard-coded in the render. */
 interface SubSpec {
@@ -134,12 +111,27 @@ interface SubSpec {
   icon: string
   kind: 'sub'
   label: string
-  render: () => React.ReactNode
+  /** Padding for the submenu body — a swatch GRID wants it, a list of menu
+   *  items must not have it or the rows inset away from the trigger. */
+  contentClassName?: string
+  /** Handed the kit so a submenu can render real menu items (the project list)
+   *  rather than only custom chrome (the color swatches). */
+  render: (kit: MenuKit) => React.ReactNode
 }
 
-type MenuSpec = ItemSpec | SubSpec
+// The plain rows are `ActionItemSpec`, the same shape `paneTabCloseSpecs`
+// returns and `renderActionItem` consumes — so the shared close verbs drop
+// straight into this list instead of being retyped into a local lookalike.
+type MenuSpec = ActionItemSpec | SubSpec
 
 const isSub = (spec: MenuSpec): spec is SubSpec => 'kind' in spec
+
+/** Every row in this menu buzzes before it acts; `paneTabCloseSpecs` knows
+ *  nothing about haptics, so the callbacks are wrapped on the way in. */
+const haptic = (run: () => void) => () => {
+  void triggerHaptic('selection')
+  run()
+}
 
 function useSessionActions({
   sessionId,
@@ -149,19 +141,35 @@ function useSessionActions({
   onArchive,
   onDelete,
   onBranch,
-  onClose,
-  onCloseOthers,
-  onCloseToRight,
-  onCloseAll
+  tab
 }: SessionActions) {
   const { t } = useI18n()
   const r = t.sidebar.row
   const activeStoredId = useStore($activeStoredSessionId)
+  const projects = useStore($projects)
   const [renameOpen, setRenameOpen] = useState(false)
+
+  // Destinations for a move: a project's primary folder, else its first. A
+  // project with no folder has no directory to adopt, so it is not offered.
+  const moveTargets = projects
+    .filter(project => !project.archived)
+    .map(project => ({
+      name: project.name,
+      path: project.primary_path ?? project.folders?.[0]?.path ?? ''
+    }))
+    .filter(target => target.path)
 
   // "Open in bubble" (mobile) / "Open in tile" (desktop) is meaningless for the
   // session already loaded in the workspace — hide it there.
-  const isActiveSession = Boolean(sessionId) && sessionId === activeStoredId
+  //
+  // By CONVERSATION, not by id. A tile tab's menu is handed the key its tile was
+  // opened with while main holds the same chat's live tip (or the reverse), and
+  // compared as strings the row was offered on the session already on screen —
+  // where `openSessionTile` / `addBubble` then no-op, so it did nothing at all
+  // (MJXHRM-423). The active id is already subscribed above; the row lookup
+  // inside is a read, and this menu re-renders on the write that would change
+  // the answer.
+  const isActiveSession = sameStoredSession(sessionId, activeStoredId)
 
   const specs: MenuSpec[] = [
     {
@@ -178,7 +186,7 @@ function useSessionActions({
       icon: 'copy',
       label: r.copyId,
       onSelect: () => {
-        void navigator.clipboard?.writeText(sessionId).catch(err => notifyError(err, r.copyIdFailed))
+        void writeClipboardText(sessionId).catch(err => notifyError(err, r.copyIdFailed))
       }
     },
     // Open this conversation ALONGSIDE the main thread — a mobile "bubble" (a
@@ -232,9 +240,40 @@ function useSessionActions({
       disabled: !sessionId,
       icon: 'symbol-color',
       kind: 'sub' as const,
+      contentClassName: 'p-2',
       label: t.sidebar.projects.menuAppearance,
       render: () => <SessionColorSwatches sessionId={sessionId} />
     },
+    // Move to another project — a chat created in the wrong directory is
+    // re-homed rather than recreated, so it keeps its history. Only offered when
+    // there is somewhere to move it TO: a folderless project has no cwd to
+    // adopt, so it is not a destination.
+    ...(moveTargets.length > 0
+      ? [
+          {
+            disabled: !sessionId,
+            icon: 'folder-library',
+            kind: 'sub' as const,
+            label: t.sidebar.row.moveToProject,
+            render: (kit: MenuKit) => (
+              <>
+                {moveTargets.map(target => (
+                  <kit.Item
+                    key={target.path}
+                    onSelect={() => {
+                      void triggerHaptic('selection')
+                      void moveSessionToProject(sessionId, target.path)
+                    }}
+                  >
+                    <Codicon name="folder" size="0.875rem" />
+                    <span className="truncate">{target.name}</span>
+                  </kit.Item>
+                ))}
+              </>
+            )
+          }
+        ]
+      : []),
     // Branch — only offered where a branch handler is wired (a tile tab). A
     // plain sidebar row doesn't pass one, so its menu is unchanged.
     ...(onBranch
@@ -270,60 +309,21 @@ function useSessionActions({
       },
       variant: 'destructive'
     },
-    // TAB close verbs — only when this menu wraps a tab (a tile/workspace), so
-    // the sidebar-row menu never grows a Close it can't honor. Each verb appears
-    // only where its handler is wired: the uncloseable workspace tab omits
-    // `onClose`, so it keeps Close others / to the right / all without Close.
-    ...(onClose
+    // TAB verbs — only when this menu wraps a tab (a tile/workspace), so the
+    // sidebar-row menu never grows a Close it can't honor. Reload first (it
+    // recovers a wedged surface, and the zone menu puts it first too), then the
+    // SHARED close group, which disables the verbs that would close nothing
+    // rather than dropping their rows.
+    ...(tab
       ? [
-          {
-            disabled: false,
-            icon: 'close',
-            label: t.common.close,
-            onSelect: () => {
-              void triggerHaptic('selection')
-              onClose()
-            }
-          }
-        ]
-      : []),
-    ...(onCloseOthers
-      ? [
-          {
-            disabled: false,
-            icon: 'close-all',
-            label: t.zones.closeOthers,
-            onSelect: () => {
-              void triggerHaptic('selection')
-              onCloseOthers()
-            }
-          }
-        ]
-      : []),
-    ...(onCloseToRight
-      ? [
-          {
-            disabled: false,
-            icon: 'arrow-right',
-            label: t.zones.closeToRight,
-            onSelect: () => {
-              void triggerHaptic('selection')
-              onCloseToRight()
-            }
-          }
-        ]
-      : []),
-    ...(onCloseAll
-      ? [
-          {
-            disabled: false,
-            icon: 'clear-all',
-            label: t.zones.closeAll,
-            onSelect: () => {
-              void triggerHaptic('selection')
-              onCloseAll()
-            }
-          }
+          { icon: 'refresh', label: t.zones.reload, onSelect: haptic(tab.onReload) },
+          ...paneTabCloseSpecs({
+            counts: tab.close.counts,
+            onClose: tab.close.onClose && haptic(tab.close.onClose),
+            onCloseAll: haptic(tab.close.onCloseAll),
+            onCloseOthers: haptic(tab.close.onCloseOthers),
+            onCloseToRight: haptic(tab.close.onCloseToRight)
+          })
         ]
       : [])
   ]
@@ -337,19 +337,10 @@ function useSessionActions({
               <Codicon name={spec.icon} size="0.875rem" />
               <span>{spec.label}</span>
             </kit.SubTrigger>
-            <kit.SubContent className="p-2">{spec.render()}</kit.SubContent>
+            <kit.SubContent className={spec.contentClassName}>{spec.render(kit)}</kit.SubContent>
           </kit.Sub>
         ) : (
-          <kit.Item
-            className={spec.className}
-            disabled={spec.disabled}
-            key={spec.label}
-            onSelect={spec.onSelect}
-            variant={spec.variant}
-          >
-            <Codicon name={spec.icon} size="0.875rem" />
-            <span>{spec.label}</span>
-          </kit.Item>
+          renderActionItem(kit, spec)
         )
       )}
     </>

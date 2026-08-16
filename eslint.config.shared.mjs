@@ -12,10 +12,8 @@
  */
 
 import js from '@eslint/js'
-import typescriptEslint from '@typescript-eslint/eslint-plugin'
-import typescriptParser from '@typescript-eslint/parser'
+import tseslint from 'typescript-eslint';
 import perfectionist from 'eslint-plugin-perfectionist'
-import reactPlugin from 'eslint-plugin-react'
 import hooksPlugin from 'eslint-plugin-react-hooks'
 import unusedImports from 'eslint-plugin-unused-imports'
 import globals from 'globals'
@@ -24,6 +22,19 @@ export default [
   {
     ignores: ['**/node_modules/**', '**/dist/**', 'src/**/*.js', '**/package-lock.json']
   },
+  {
+    // A disable directive is a documented decision about ONE rule hit. Once the
+    // code under it changes and the rule stops firing, the directive keeps
+    // sitting there looking like a decision somebody made about the code that
+    // is there NOW — which is how `exhaustive-deps` accumulated 67 suppressions
+    // repo-wide before anyone triaged them (MJXHRM-430).
+    // ESLint's flat-config default for this is `warn`, and no workspace here
+    // passes --max-warnings, so a stale directive was invisible in every one.
+    // `error` makes it fail the workspace's `lint` script instead. Audited when
+    // this landed: 0 unused directives across every workspace on this config,
+    // including apps/desktop's `src/ electron/`.
+    linterOptions: { reportUnusedDisableDirectives: 'error' }
+  },
   js.configs.recommended,
   {
     files: ['**/*.{ts,tsx}'],
@@ -31,7 +42,7 @@ export default [
       globals: {
         ...globals.node
       },
-      parser: typescriptParser,
+      parser: tseslint.parser,
       parserOptions: {
         ecmaFeatures: { jsx: true },
         ecmaVersion: 'latest',
@@ -39,9 +50,8 @@ export default [
       }
     },
     plugins: {
-      '@typescript-eslint': typescriptEslint,
+      '@typescript-eslint': tseslint.plugin,
       perfectionist,
-      react: reactPlugin,
       'react-hooks': hooksPlugin,
       'unused-imports': unusedImports
     },
@@ -95,9 +105,6 @@ export default [
       'react-hooks/exhaustive-deps': 'warn',
       'react-hooks/rules-of-hooks': 'error',
       'unused-imports/no-unused-imports': 'error'
-    },
-    settings: {
-      react: { version: 'detect' }
     }
   },
   {

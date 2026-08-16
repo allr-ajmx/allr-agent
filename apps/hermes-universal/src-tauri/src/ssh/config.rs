@@ -74,7 +74,10 @@ fn split_directive(line: &str) -> Option<(String, String)> {
     }
 
     let (key, value) = match line.find(['=', ' ', '\t']) {
-        Some(at) => (&line[..at], line[at + 1..].trim_start_matches(['=', ' ', '\t'])),
+        Some(at) => (
+            &line[..at],
+            line[at + 1..].trim_start_matches(['=', ' ', '\t']),
+        ),
         None => return None,
     };
 
@@ -91,7 +94,10 @@ fn split_directive(line: &str) -> Option<(String, String)> {
 /// to an implicit block matching everything, which is how OpenSSH treats them.
 fn parse_blocks(text: &str) -> Vec<HostBlock> {
     let mut blocks: Vec<HostBlock> = Vec::new();
-    let mut current = HostBlock { patterns: vec!["*".to_string()], entries: Vec::new() };
+    let mut current = HostBlock {
+        patterns: vec!["*".to_string()],
+        entries: Vec::new(),
+    };
 
     for raw in text.lines() {
         let Some((key, value)) = split_directive(raw) else {
@@ -100,8 +106,10 @@ fn parse_blocks(text: &str) -> Vec<HostBlock> {
 
         if key == "host" {
             blocks.push(current);
-            current =
-                HostBlock { patterns: value.split_whitespace().map(str::to_string).collect(), entries: Vec::new() };
+            current = HostBlock {
+                patterns: value.split_whitespace().map(str::to_string).collect(),
+                entries: Vec::new(),
+            };
             continue;
         }
 
@@ -256,10 +264,22 @@ fn collect_blocks(
 ///
 /// Wildcards and negations are skipped: they are rules, not hosts a user could
 /// pick from a list. Ported from `ssh-config.ts:14-44`.
-pub fn list_host_aliases(root: &Path, home: Option<&Path>, reader: &dyn ConfigReader) -> Vec<String> {
+pub fn list_host_aliases(
+    root: &Path,
+    home: Option<&Path>,
+    reader: &dyn ConfigReader,
+) -> Vec<String> {
     let ssh_dir = ssh_dir_for(home);
     let mut blocks = Vec::new();
-    collect_blocks(root, home, &ssh_dir, reader, 0, &mut HashSet::new(), &mut blocks);
+    collect_blocks(
+        root,
+        home,
+        &ssh_dir,
+        reader,
+        0,
+        &mut HashSet::new(),
+        &mut blocks,
+    );
 
     let mut seen = HashSet::new();
     let mut out = Vec::new();
@@ -284,10 +304,23 @@ pub fn list_host_aliases(root: &Path, home: Option<&Path>, reader: &dyn ConfigRe
 /// **First value wins**, per keyword, across the whole file graph — that is
 /// OpenSSH's rule and it is the opposite of most config formats, so a later
 /// `Host *` block cannot override an earlier specific one.
-pub fn resolve_host(host: &str, root: &Path, home: Option<&Path>, reader: &dyn ConfigReader) -> ResolvedHost {
+pub fn resolve_host(
+    host: &str,
+    root: &Path,
+    home: Option<&Path>,
+    reader: &dyn ConfigReader,
+) -> ResolvedHost {
     let ssh_dir = ssh_dir_for(home);
     let mut blocks = Vec::new();
-    collect_blocks(root, home, &ssh_dir, reader, 0, &mut HashSet::new(), &mut blocks);
+    collect_blocks(
+        root,
+        home,
+        &ssh_dir,
+        reader,
+        0,
+        &mut HashSet::new(),
+        &mut blocks,
+    );
 
     let mut out = ResolvedHost::default();
     let mut saw_match = false;
@@ -297,12 +330,16 @@ pub fn resolve_host(host: &str, root: &Path, home: Option<&Path>, reader: &dyn C
             match key.as_str() {
                 "hostname" if out.hostname.is_none() => out.hostname = Some(value.clone()),
                 "user" if out.user.is_none() => out.user = Some(value.clone()),
-                "port" if out.port.is_none() => out.port = value.parse::<u16>().ok().filter(|p| *p > 0),
+                "port" if out.port.is_none() => {
+                    out.port = value.parse::<u16>().ok().filter(|p| *p > 0)
+                }
                 "identityfile" if out.identity_file.is_none() => {
                     out.identity_file = Some(expand_tilde(value, home));
                 }
                 "proxyjump" if out.proxy_jump.is_none() => out.proxy_jump = Some(value.clone()),
-                "proxycommand" if out.proxy_command.is_none() => out.proxy_command = Some(value.clone()),
+                "proxycommand" if out.proxy_command.is_none() => {
+                    out.proxy_command = Some(value.clone())
+                }
                 "match" | "canonicalizehostname" => saw_match = true,
                 _ => {}
             }
@@ -339,7 +376,12 @@ mod tests {
 
     impl MapReader {
         fn new(files: &[(&str, &str)]) -> Self {
-            Self(files.iter().map(|(p, t)| (PathBuf::from(p), (*t).to_string())).collect())
+            Self(
+                files
+                    .iter()
+                    .map(|(p, t)| (PathBuf::from(p), (*t).to_string()))
+                    .collect(),
+            )
         }
     }
 
@@ -356,11 +398,20 @@ mod tests {
     }
 
     fn resolve(files: &[(&str, &str)], host: &str) -> ResolvedHost {
-        resolve_host(host, Path::new("/home/u/.ssh/config"), home(), &MapReader::new(files))
+        resolve_host(
+            host,
+            Path::new("/home/u/.ssh/config"),
+            home(),
+            &MapReader::new(files),
+        )
     }
 
     fn aliases(files: &[(&str, &str)]) -> Vec<String> {
-        list_host_aliases(Path::new("/home/u/.ssh/config"), home(), &MapReader::new(files))
+        list_host_aliases(
+            Path::new("/home/u/.ssh/config"),
+            home(),
+            &MapReader::new(files),
+        )
     }
 
     #[test]
@@ -372,8 +423,12 @@ mod tests {
 
     #[test]
     fn lists_concrete_aliases_only() {
-        let cfg = "Host alpha beta\n  User u\nHost *.internal\nHost !skip\nHost gam?a\nHost alpha\n";
-        assert_eq!(aliases(&[("/home/u/.ssh/config", cfg)]), vec!["alpha", "beta"]);
+        let cfg =
+            "Host alpha beta\n  User u\nHost *.internal\nHost !skip\nHost gam?a\nHost alpha\n";
+        assert_eq!(
+            aliases(&[("/home/u/.ssh/config", cfg)]),
+            vec!["alpha", "beta"]
+        );
     }
 
     #[test]
@@ -383,7 +438,11 @@ mod tests {
         assert_eq!(r.hostname.as_deref(), Some("10.0.0.5"));
         assert_eq!(r.user.as_deref(), Some("deploy"));
         assert_eq!(r.port, Some(2222));
-        assert_eq!(r.identity_file.as_deref(), Some("/home/u/.ssh/id_box"), "~ must expand");
+        assert_eq!(
+            r.identity_file.as_deref(),
+            Some("/home/u/.ssh/id_box"),
+            "~ must expand"
+        );
     }
 
     #[test]
@@ -409,17 +468,34 @@ mod tests {
     #[test]
     fn directives_before_any_host_line_apply_to_everything() {
         let cfg = "User global\nHost box\n  Port 2222\n";
-        assert_eq!(resolve(&[("/home/u/.ssh/config", cfg)], "box").user.as_deref(), Some("global"));
-        assert_eq!(resolve(&[("/home/u/.ssh/config", cfg)], "other").user.as_deref(), Some("global"));
+        assert_eq!(
+            resolve(&[("/home/u/.ssh/config", cfg)], "box")
+                .user
+                .as_deref(),
+            Some("global")
+        );
+        assert_eq!(
+            resolve(&[("/home/u/.ssh/config", cfg)], "other")
+                .user
+                .as_deref(),
+            Some("global")
+        );
     }
 
     #[test]
     fn wildcard_and_question_patterns_match() {
         let cfg = "Host *.internal\n  User wild\nHost gam?a\n  User single\n";
         let files = [("/home/u/.ssh/config", cfg)];
-        assert_eq!(resolve(&files, "web.internal").user.as_deref(), Some("wild"));
+        assert_eq!(
+            resolve(&files, "web.internal").user.as_deref(),
+            Some("wild")
+        );
         assert_eq!(resolve(&files, "gamma").user.as_deref(), Some("single"));
-        assert_eq!(resolve(&files, "gammma").user, None, "? matches exactly one char");
+        assert_eq!(
+            resolve(&files, "gammma").user,
+            None,
+            "? matches exactly one char"
+        );
         assert_eq!(resolve(&files, "web.external").user, None);
     }
 
@@ -427,8 +503,15 @@ mod tests {
     fn negation_vetoes_the_whole_block() {
         let cfg = "Host *.internal !secret.internal\n  User wild\n";
         let files = [("/home/u/.ssh/config", cfg)];
-        assert_eq!(resolve(&files, "web.internal").user.as_deref(), Some("wild"));
-        assert_eq!(resolve(&files, "secret.internal").user, None, "negation must veto");
+        assert_eq!(
+            resolve(&files, "web.internal").user.as_deref(),
+            Some("wild")
+        );
+        assert_eq!(
+            resolve(&files, "secret.internal").user,
+            None,
+            "negation must veto"
+        );
     }
 
     #[test]
@@ -444,16 +527,31 @@ mod tests {
     #[test]
     fn comments_and_blank_lines_are_ignored() {
         let cfg = "# a comment\n\n   \nHost box\n  # another\n  User deploy\n";
-        assert_eq!(resolve(&[("/home/u/.ssh/config", cfg)], "box").user.as_deref(), Some("deploy"));
+        assert_eq!(
+            resolve(&[("/home/u/.ssh/config", cfg)], "box")
+                .user
+                .as_deref(),
+            Some("deploy")
+        );
     }
 
     #[test]
     fn include_is_traversed_for_aliases_and_resolution() {
         let files = [
-            ("/home/u/.ssh/config", "Include conf.d/extra\nHost local\n  User l\n"),
-            ("/home/u/.ssh/conf.d/extra", "Host remote\n  User r\n  Port 2222\n"),
+            (
+                "/home/u/.ssh/config",
+                "Include conf.d/extra\nHost local\n  User l\n",
+            ),
+            (
+                "/home/u/.ssh/conf.d/extra",
+                "Host remote\n  User r\n  Port 2222\n",
+            ),
         ];
-        assert_eq!(aliases(&files), vec!["remote", "local"], "included blocks splice in where the directive was");
+        assert_eq!(
+            aliases(&files),
+            vec!["remote", "local"],
+            "included blocks splice in where the directive was"
+        );
         assert_eq!(resolve(&files, "remote").user.as_deref(), Some("r"));
         assert_eq!(resolve(&files, "local").user.as_deref(), Some("l"));
     }
@@ -461,7 +559,10 @@ mod tests {
     #[test]
     fn include_resolves_tilde_and_absolute_tokens() {
         let files = [
-            ("/home/u/.ssh/config", "Include ~/other/inc\nInclude /etc/ssh/global\n"),
+            (
+                "/home/u/.ssh/config",
+                "Include ~/other/inc\nInclude /etc/ssh/global\n",
+            ),
             ("/home/u/other/inc", "Host viatilde\n"),
             ("/etc/ssh/global", "Host viaabsolute\n"),
         ];
@@ -487,11 +588,21 @@ mod tests {
         let mut files: Vec<(String, String)> = Vec::new();
         files.push(("/home/u/.ssh/config".into(), "Include d0\n".into()));
         for i in 0..20 {
-            files.push((format!("/home/u/.ssh/d{i}"), format!("Include d{}\nHost h{i}\n", i + 1)));
+            files.push((
+                format!("/home/u/.ssh/d{i}"),
+                format!("Include d{}\nHost h{i}\n", i + 1),
+            ));
         }
-        let refs: Vec<(&str, &str)> = files.iter().map(|(a, b)| (a.as_str(), b.as_str())).collect();
+        let refs: Vec<(&str, &str)> = files
+            .iter()
+            .map(|(a, b)| (a.as_str(), b.as_str()))
+            .collect();
         let out = aliases(&refs);
-        assert!(out.len() <= MAX_INCLUDE_DEPTH as usize, "depth cap must bound the walk, got {}", out.len());
+        assert!(
+            out.len() <= MAX_INCLUDE_DEPTH as usize,
+            "depth cap must bound the walk, got {}",
+            out.len()
+        );
     }
 
     #[test]
@@ -499,30 +610,65 @@ mod tests {
         // Silently ignoring these would connect direct to a host the user expects
         // to be reachable only through a jump — a wrong-host bug, not a missing
         // feature. The caller must refuse.
-        let jump = resolve(&[("/home/u/.ssh/config", "Host box\n  ProxyJump bastion\n")], "box");
+        let jump = resolve(
+            &[("/home/u/.ssh/config", "Host box\n  ProxyJump bastion\n")],
+            "box",
+        );
         assert_eq!(jump.proxy_jump.as_deref(), Some("bastion"));
         assert!(jump.requires_unsupported_proxy());
 
-        let cmd = resolve(&[("/home/u/.ssh/config", "Host box\n  ProxyCommand nc %h %p\n")], "box");
+        let cmd = resolve(
+            &[("/home/u/.ssh/config", "Host box\n  ProxyCommand nc %h %p\n")],
+            "box",
+        );
         assert_eq!(cmd.proxy_command.as_deref(), Some("nc %h %p"));
         assert!(cmd.requires_unsupported_proxy());
 
-        assert!(!resolve(&[("/home/u/.ssh/config", "Host box\n  User u\n")], "box").requires_unsupported_proxy());
+        assert!(
+            !resolve(&[("/home/u/.ssh/config", "Host box\n  User u\n")], "box")
+                .requires_unsupported_proxy()
+        );
     }
 
     #[test]
     fn match_blocks_are_reported_as_unsupported() {
-        let r = resolve(&[("/home/u/.ssh/config", "Host box\n  User u\nMatch host box\n  User other\n")], "box");
-        assert!(r.unsupported.contains(&"Match".to_string()), "a Match block must be surfaced");
+        let r = resolve(
+            &[(
+                "/home/u/.ssh/config",
+                "Host box\n  User u\nMatch host box\n  User other\n",
+            )],
+            "box",
+        );
+        assert!(
+            r.unsupported.contains(&"Match".to_string()),
+            "a Match block must be surfaced"
+        );
         // We still return our best effort rather than nothing.
         assert_eq!(r.user.as_deref(), Some("u"));
     }
 
     #[test]
     fn invalid_port_is_dropped_rather_than_defaulted() {
-        assert_eq!(resolve(&[("/home/u/.ssh/config", "Host box\n  Port notaport\n")], "box").port, None);
-        assert_eq!(resolve(&[("/home/u/.ssh/config", "Host box\n  Port 0\n")], "box").port, None);
-        assert_eq!(resolve(&[("/home/u/.ssh/config", "Host box\n  Port 99999\n")], "box").port, None);
+        assert_eq!(
+            resolve(
+                &[("/home/u/.ssh/config", "Host box\n  Port notaport\n")],
+                "box"
+            )
+            .port,
+            None
+        );
+        assert_eq!(
+            resolve(&[("/home/u/.ssh/config", "Host box\n  Port 0\n")], "box").port,
+            None
+        );
+        assert_eq!(
+            resolve(
+                &[("/home/u/.ssh/config", "Host box\n  Port 99999\n")],
+                "box"
+            )
+            .port,
+            None
+        );
     }
 
     #[test]
@@ -533,12 +679,19 @@ mod tests {
         assert_eq!(expand_tilde("~/.ssh/id", home()), "/home/u/.ssh/id");
         assert_eq!(expand_tilde("~", home()), HOME);
         assert_eq!(expand_tilde("/abs/path", home()), "/abs/path");
-        assert_eq!(expand_tilde("~notauser/x", home()), "~notauser/x", "only ~/ and bare ~ expand");
+        assert_eq!(
+            expand_tilde("~notauser/x", home()),
+            "~notauser/x",
+            "only ~/ and bare ~ expand"
+        );
     }
 
     #[test]
     fn default_config_path_follows_home() {
-        assert_eq!(default_config_path(home()).unwrap(), PathBuf::from("/home/u/.ssh/config"));
+        assert_eq!(
+            default_config_path(home()).unwrap(),
+            PathBuf::from("/home/u/.ssh/config")
+        );
         assert!(default_config_path(None).is_none());
     }
 }

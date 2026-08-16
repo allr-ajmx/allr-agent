@@ -2,12 +2,14 @@ import { type RefObject, useEffect, useRef } from 'react'
 
 import { SLASH_COMMAND_RE } from '@/lib/chat-runtime'
 import { triggerHaptic } from '@/lib/haptics'
+import { hasClarifyRequest, skipClarifyRequest } from '@/store/clarify'
 import { clearSessionDraft, type ComposerAttachment } from '@/store/composer'
 import { resetBrowseState } from '@/store/composer-input-history'
 import { enqueueQueuedPrompt, type QueuedPromptEntry } from '@/store/composer-queue'
 
 import { cloneAttachments, type QueueEditState } from '../composer-utils'
 import { onComposerSubmitRequest } from '../focus'
+import { pathifyRefs } from '../path-refs'
 import { composerPlainText } from '../rich-editor'
 import { useComposerScope } from '../scope'
 import type { ChatBarProps } from '../types'
@@ -17,7 +19,9 @@ interface UseComposerSubmitArgs {
   activeQueueSessionKeyRef: RefObject<string | null>
   attachments: ComposerAttachment[]
   busy: boolean
-  canSteer: boolean
+  /** The turn is summarizing its own context — nothing to redirect, so a
+   *  correction typed here queues for the next turn instead. */
+  compacting: boolean
   clearDraft: () => void
   disabled: boolean
   draftRef: RefObject<string>
@@ -43,7 +47,8 @@ interface UseComposerSubmitArgs {
  * queue meet. `submitDraft` is the one decision tree (queue-edit save · slash-
  * now-while-busy · queue · drain · send · stop); `dispatchSubmit` is the shared
  * send-with-restore primitive (re-loads + re-stashes the draft if the gateway
- * rejects, so nothing is ever lost); `steerDraft` nudges the live turn. Reads
+ * rejects, so nothing is ever lost); `steerDraft` corrects the live turn and
+ * `queueDraft` lines the words up behind it. Reads
  * the draft + queue APIs; owns no state of its own beyond the stable
  * external-submit listener ref.
  */
@@ -52,7 +57,7 @@ export function useComposerSubmit({
   activeQueueSessionKeyRef,
   attachments,
   busy,
-  canSteer,
+  compacting,
   clearDraft,
   disabled,
   draftRef,
@@ -110,6 +115,73 @@ export function useComposerSubmit({
     [inputDisabled]
   )
 
+  /**
+   * Stop and correct the live turn. Clears the draft up front for snappy
+   * feedback; if the gateway will not take it (no live turn left, a runtime
+   * without redirect support) the words are queued instead, so nothing is lost
+   * either way.
+   *
+   * Re-validated from the LIVE draft rather than the rendered `canSteer`: that
+   * flag is derived from composer state, which lags the DOM by a render, and
+   * compaction can start between the last paint and this keystroke.
+   */
+  const steerDraft = () => {
+    const text = draftRef.current.trim()
+
+    if (!onSteer || !text || compacting || attachments.length > 0 || SLASH_COMMAND_RE.test(text)) {
+      return
+    }
+
+    triggerHaptic('submit')
+    clearDraft()
+
+    void Promise.resolve(onSteer(text)).then(accepted => {
+      if (!accepted && activeQueueSessionKey) {
+        enqueueQueuedPrompt(activeQueueSessionKey, { text, attachments: [] })
+      }
+    })
+  }
+
+  /** Pull the live editor text into `draftRef` / composer state. The AUI
+   *  composer state lags the DOM by a render, so every path that acts on the
+   *  draft from a keydown has to refresh it first. */
+  const syncDraftFromEditor = () => {
+    const editor = editorRef.current
+
+    if (!editor) {
+      return
+    }
+
+    const domText = composerPlainText(editor)
+
+    if (domText !== draftRef.current) {
+      draftRef.current = domText
+      setComposerText(domText)
+    }
+  }
+
+  /**
+   * Queue the draft for the next turn — the explicit "don't interrupt, line
+   * this up" gesture (mod+Enter, and the queue button beside the steer action).
+   *
+   * `queueCurrentDraft` reads `draftRef`, which lags the DOM by an input event,
+   * so the draft is re-synced from the editor first exactly as `submitDraft`
+   * does. Without it a fast mod+Enter — or an Enter that commits a WebKitGTK
+   * IME composition — queues the text MINUS its last keystrokes.
+   */
+  const queueDraft = () => {
+    // Compaction counts as occupied for the same reason `submitDraft` treats it
+    // that way: a summarize call has no live turn to correct, so the words have
+    // to queue rather than be swallowed by a preventDefault-ed keystroke.
+    if (disabled || !(busy || compacting)) {
+      return
+    }
+
+    syncDraftFromEditor()
+    queueCurrentDraft()
+    focusInput()
+  }
+
   const submitDraft = () => {
     if (disabled) {
       return
@@ -123,23 +195,40 @@ export function useComposerSubmit({
     // extra input event forces a state sync). draftRef is updated on every
     // input event; refresh it from the editor once more to also cover an
     // in-flight keystroke that hasn't fired its input event yet.
-    const editor = editorRef.current
+    syncDraftFromEditor()
 
-    if (editor) {
-      const domText = composerPlainText(editor)
+    // A path that never got its committing space (`@apps/hermes-universal/`
+    // left by a Tab descend, then Enter) is still the reference the user
+    // picked — promote it on the way out so it attaches instead of submitting
+    // as inert text.
+    const text = pathifyRefs(draftRef.current)
+    const payloadPresent = text.trim().length > 0 || attachments.length > 0
 
-      if (domText !== draftRef.current) {
-        draftRef.current = domText
-        setComposerText(domText)
-      }
+    // A clarify card parked on this session OWNS the turn: the agent is blocked
+    // inside its tool batch waiting on `clarify.respond`, so a follow-up routed
+    // through steer or queue sits undelivered until the clarify's own timeout
+    // (5 minutes by default) — the message looks sent and nothing happens.
+    // Typing a real message instead of picking an option IS the answer "none of
+    // these": skip the question so the tool returns, then route the words
+    // normally.
+    //
+    // Fire-and-forget on purpose. The skip clears the card synchronously and
+    // both RPCs ride the same socket in call order, so the gateway resolves the
+    // clarify before it sees the follow-up. Awaiting first would leave the
+    // draft live for a tick — long enough for a second Enter to send it twice.
+    if (payloadPresent && !queueEdit && hasClarifyRequest(activeQueueSessionKey)) {
+      void skipClarifyRequest(activeQueueSessionKey)
     }
 
-    const text = draftRef.current
-    const payloadPresent = text.trim().length > 0 || attachments.length > 0
+    // Compaction counts as busy even when the turn flag says otherwise: a
+    // manual `/compress` summarizes an idle session, and a prompt submitted
+    // into that window comes back "session busy" with the words already gone
+    // from the composer. Queuing instead is what upstream #69783 fixed.
+    const turnOccupied = busy || compacting
 
     if (queueEdit) {
       exitQueuedEdit('save')
-    } else if (busy) {
+    } else if (turnOccupied) {
       // Slash commands should execute immediately even while the agent is
       // busy — they're client-side operations (/yolo, /skin, /new, /help,
       // etc.) or self-contained gateway RPCs (/status, /compress).  onSubmit
@@ -151,7 +240,16 @@ export function useComposerSubmit({
         triggerHaptic('submit')
         clearDraft()
         dispatchSubmit(text)
+      } else if (!compacting && !attachments.length && text.trim()) {
+        // Cursor-style stop-and-correct: cancel the live model request and
+        // rebuild the turn with this text, keeping the reasoning and finished
+        // work on screen. If the turn already ended, steerDraft re-queues the
+        // words rather than losing them.
+        steerDraft()
       } else if (payloadPresent) {
+        // Attachments cannot ride a redirect (the gateway has no way to carry
+        // an image into a tool result), and a compacting turn has nothing to
+        // redirect — queue the whole payload for the next turn.
         queueCurrentDraft()
       } else {
         // Stop button (the only way to reach here while busy with an empty
@@ -173,25 +271,5 @@ export function useComposerSubmit({
     focusInput()
   }
 
-  // Steer the live turn (nudge without interrupting). Clears the draft up front
-  // for snappy feedback; if the gateway rejects (no live tool window) the words
-  // are re-queued so nothing is lost — same safety net as a plain queue.
-  const steerDraft = () => {
-    if (!onSteer || !canSteer) {
-      return
-    }
-
-    const text = draftRef.current.trim()
-
-    triggerHaptic('submit')
-    clearDraft()
-
-    void Promise.resolve(onSteer(text)).then(accepted => {
-      if (!accepted && activeQueueSessionKey) {
-        enqueueQueuedPrompt(activeQueueSessionKey, { text, attachments: [] })
-      }
-    })
-  }
-
-  return { dispatchSubmit, steerDraft, submitDraft }
+  return { dispatchSubmit, queueDraft, steerDraft, submitDraft }
 }

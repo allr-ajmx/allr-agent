@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2/capability",
   "identifier": "default",
-  "description": "Default capabilities for Hermes Universal. The webview makes no network calls itself — all HTTP/WS traffic runs in Rust and is surfaced via events + IPC commands.",
-  "windows": ["main", "session-*", "instance-*", "tile-*", "screen"],
+  "description": "Default capabilities for Hermes Universal. The webview makes no network calls itself — all HTTP/WS traffic runs in Rust and is surfaced via events + IPC commands. It also creates no windows: every window kind (session, instance, tile, screen, satellite) is built by a Rust command, so the label a window is opened under is never a value from the webview (MJXHRM-382). core:webview:allow-create-webview-window is deliberately absent and must not be re-added — it takes an arbitrary label and URL, which is what made the sat-* namespace forgeable. The `windows` globs below ARE the scope for every permission here: window.rs opens exactly main / instance-<n> / tile-<slug> / sat-<surface> / screen, and a label outside that list gets no IPC at all. For clipboard-manager that failure is silent — the reject lands in the same catch as 'plugin absent' in @/lib/clipboard and degrades to the web API — so the list must be kept in step with window.rs.",
+  "windows": ["main", "session-*", "instance-*", "tile-*", "sat-*", "screen"],
   "permissions": [
     "core:default",
     "core:event:default",
@@ -21,12 +21,15 @@
     "fs:allow-read-file",
     "fs:allow-write-text-file",
     "notification:default",
+    "clipboard-manager:allow-read-text",
+    "clipboard-manager:allow-write-text",
+    "clipboard-manager:allow-read-image",
     "core:window:allow-minimize",
     "core:window:allow-toggle-maximize",
     "core:window:allow-close",
+    "core:window:allow-set-position",
     "core:window:allow-start-dragging",
     "core:window:allow-is-maximized",
-    "core:webview:allow-set-webview-zoom",
-    "core:webview:allow-create-webview-window"
+    "core:webview:allow-set-webview-zoom"
   ]
 }

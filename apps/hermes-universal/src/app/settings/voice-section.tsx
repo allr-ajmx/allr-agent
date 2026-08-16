@@ -4,6 +4,7 @@ import { getElevenLabsVoices } from '@/hermes'
 
 import { ConfigSection } from './config-section'
 import { enumOptionsFor, voiceFieldVisible } from './helpers'
+import { VoiceLevelsPanel } from './voice-levels'
 
 const ELEVENLABS_VOICE_KEY = 'tts.elevenlabs.voice_id'
 
@@ -41,6 +42,11 @@ export function VoiceSection() {
   return (
     <ConfigSection
       fieldFilter={voiceFieldVisible}
+      // The levels panel goes in the header slot, not beside the section: it has
+      // to sit INSIDE the page's own scroll container, and it must stay mounted
+      // while the config schema loads (it is backed by the prefs store, not by
+      // the schema, so it has nothing to wait for).
+      headerSlot={<VoiceLevelsPanel />}
       resolveEnumOptions={(key, value, config) =>
         key === ELEVENLABS_VOICE_KEY
           ? enumOptionsFor(key, value, config, voiceOptions ?? undefined)

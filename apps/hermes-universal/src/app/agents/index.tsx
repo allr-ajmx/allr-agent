@@ -8,6 +8,7 @@ import { FadeText } from '@/components/ui/fade-text'
 import { GlyphSpinner } from '@/components/ui/glyph-spinner'
 import { type Translations, useI18n } from '@/i18n'
 import { compactNumber } from '@/lib/format'
+import { steerSubagent, type SubagentSteerReason } from '@/lib/gateway-rpc'
 import { AlertCircle, CheckCircle2 } from '@/lib/icons'
 import { useEnterAnimation } from '@/lib/use-enter-animation'
 import { cn } from '@/lib/utils'
@@ -15,6 +16,7 @@ import {
   $subagentsBySession,
   allSubagents,
   buildSubagentTree,
+  sessionOfSubagent,
   type SubagentNode,
   type SubagentStatus,
   type SubagentStreamEntry
@@ -40,7 +42,7 @@ function statusGlyph(status: SubagentStatus, a: Translations['agents']): ReactNo
     return <AlertCircle aria-label={a.failed} className="size-3.5 shrink-0 text-destructive" />
   }
 
-  return <CheckCircle2 aria-label={a.done} className="size-3.5 shrink-0 text-emerald-600/85 dark:text-emerald-400/85" />
+  return <CheckCircle2 aria-label={a.done} className="size-3.5 shrink-0 text-(--ui-green)/85" />
 }
 
 const STREAM_TONE: Record<SubagentStreamEntry['kind'], string> = {
@@ -60,7 +62,7 @@ function streamGlyph(entry: SubagentStreamEntry): ReactNode {
   }
 
   if (entry.kind === 'summary') {
-    return <CheckCircle2 aria-hidden className="mt-0.5 size-3 shrink-0 text-emerald-600/85 dark:text-emerald-400/85" />
+    return <CheckCircle2 aria-hidden className="mt-0.5 size-3 shrink-0 text-(--ui-green)/85" />
   }
 
   if (entry.kind === 'thinking') {
@@ -225,7 +227,7 @@ function SubagentTree({ tree }: { tree: SubagentNode[] }) {
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-hidden">
       <p className="shrink-0 text-[0.7rem] text-muted-foreground/70">{summary.join(' · ')}</p>
-      <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain pr-1">
+      <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain pe-1">
         <div className="flex min-w-0 flex-col gap-6">
           {groups.map(group => (
             <DelegationGroup group={group} key={group.id} nowMs={nowMs} />
@@ -285,11 +287,151 @@ function StreamLine({
         {active ? (
           <GlyphSpinner
             ariaLabel={t.agents.streaming}
-            className="ml-1 inline-block size-2.5 align-middle text-muted-foreground/70"
+            className="ms-1 inline-block size-2.5 align-middle text-muted-foreground/70"
             spinner="breathe"
           />
         ) : null}
       </span>
+    </div>
+  )
+}
+
+/**
+ * Which refusal the user is being told about.
+ *
+ * `subagent.steer` answers 200 for every one of these and names which in
+ * `reason`. They are not one message: "too late" is a race lost by a hair and
+ * worth retrying on the next child, while "not this chat's subagent" will never
+ * work from here however fast the user is. A gateway too old to send `reason`
+ * (and any value added after this build) falls back to the generic line.
+ */
+const steerRefusal = (reason: SubagentSteerReason | undefined, copy: Translations['agents']): string => {
+  switch (reason) {
+    case 'no_agent':
+
+    case 'unknown_subagent':
+      return copy.steerGone
+
+    case 'no_session_authority':
+
+    case 'not_owner':
+      return copy.steerNotOwned
+
+    default:
+      return copy.steerRejected
+  }
+}
+
+/**
+ * Redirect a live subagent without stopping it.
+ *
+ * `subagent.steer` answers 200 either way: `rejected` means the child is gone,
+ * is not ours, or is already past its last tool boundary. Nothing surfaced that
+ * before, so a steer that never landed looked exactly like one that did — hence
+ * the explicit outcome line rather than a fire-and-forget button.
+ *
+ * "Queued" is still not "delivered". A child that finishes before draining the
+ * text produces `missedSteer` on its row (see `SubagentRow`), which is the only
+ * retraction of the promise this control makes.
+ */
+function SteerControl({ node }: { node: SubagentNode }) {
+  const { t } = useI18n()
+  const a = t.agents
+  const [open, setOpen] = useState(false)
+  const [text, setText] = useState('')
+  const [sending, setSending] = useState(false)
+  const [outcome, setOutcome] = useState<null | { kind: 'error' | 'ok'; message: string }>(null)
+
+  const submit = async () => {
+    const trimmed = text.trim()
+    const sessionId = sessionOfSubagent(node.id)
+
+    if (!trimmed || !sessionId) {
+      return
+    }
+
+    setSending(true)
+
+    try {
+      const result = await steerSubagent({ sessionId, subagentId: node.id, text: trimmed })
+      const queued = result.status === 'queued'
+      setOutcome({
+        kind: queued ? 'ok' : 'error',
+        message: queued ? a.steerQueued : steerRefusal(result.reason, a)
+      })
+
+      if (queued) {
+        setText('')
+        setOpen(false)
+      }
+    } catch {
+      setOutcome({ kind: 'error', message: a.steerFailed })
+    } finally {
+      setSending(false)
+    }
+  }
+
+  return (
+    <div className="grid min-w-0 gap-1 ps-6">
+      {open ? (
+        <div className="flex min-w-0 items-center gap-1.5">
+          <input
+            autoFocus
+            className="min-w-0 flex-1 rounded-md border border-(--ui-stroke-tertiary) bg-transparent px-2 py-1 text-[0.72rem] outline-none focus:border-(--ui-stroke-secondary)"
+            disabled={sending}
+            onChange={event => setText(event.target.value)}
+            onKeyDown={event => {
+              if (event.key === 'Enter') {
+                event.preventDefault()
+                void submit()
+              } else if (event.key === 'Escape') {
+                event.preventDefault()
+                setOpen(false)
+              }
+            }}
+            placeholder={a.steerPlaceholder}
+            value={text}
+          />
+          <button
+            className="shrink-0 rounded-md px-2 py-1 text-[0.66rem] text-foreground/80 hover:text-foreground disabled:opacity-50"
+            disabled={sending || !text.trim()}
+            onClick={() => void submit()}
+            type="button"
+          >
+            {a.steerSend}
+          </button>
+          <button
+            className="shrink-0 rounded-md px-2 py-1 text-[0.66rem] text-muted-foreground/70 hover:text-foreground"
+            onClick={() => setOpen(false)}
+            type="button"
+          >
+            {a.steerCancel}
+          </button>
+        </div>
+      ) : (
+        <button
+          className="w-fit rounded-md text-[0.66rem] text-muted-foreground/70 hover:text-foreground"
+          onClick={() => {
+            setOutcome(null)
+            setOpen(true)
+          }}
+          type="button"
+        >
+          {a.steer}
+        </button>
+      )}
+
+      {outcome ? (
+        <p
+          className={cn(
+            'text-[0.62rem] leading-[0.95rem]',
+            outcome.kind === 'error' ? 'text-destructive' : 'text-muted-foreground/70'
+          )}
+          role="status"
+        >
+          {outcome.message}
+        </p>
+      ) : null}
     </div>
   )
 }
@@ -323,10 +465,10 @@ function SubagentRow({ node, depth = 0, nowMs }: { node: SubagentNode; depth?: n
   ].filter(Boolean)
 
   return (
-    <div className={cn('grid min-w-0 max-w-full gap-2', depth > 0 && 'pl-4')} data-slot="tool-block" ref={enterRef}>
+    <div className={cn('grid min-w-0 max-w-full gap-2', depth > 0 && 'ps-4')} data-slot="tool-block" ref={enterRef}>
       <button
         aria-expanded={open}
-        className="group flex w-full min-w-0 items-start gap-2.5 text-left"
+        className="group flex w-full min-w-0 items-start gap-2.5 text-start"
         onClick={() => setOpen(v => !v)}
         type="button"
       >
@@ -350,7 +492,7 @@ function SubagentRow({ node, depth = 0, nowMs }: { node: SubagentNode; depth?: n
       </button>
 
       {visibleRows.length > 0 ? (
-        <div className="grid min-w-0 gap-1 pl-6" data-selectable-text="true">
+        <div className="grid min-w-0 gap-1 ps-6" data-selectable-text="true">
           {visibleRows.map((entry, i) => (
             <StreamLine
               active={running && i === visibleRows.length - 1}
@@ -364,7 +506,7 @@ function SubagentRow({ node, depth = 0, nowMs }: { node: SubagentNode; depth?: n
       ) : null}
 
       {open && fileLines.length > 0 ? (
-        <div className="grid min-w-0 gap-0.5 pl-6" data-selectable-text="true">
+        <div className="grid min-w-0 gap-0.5 ps-6" data-selectable-text="true">
           <p className="text-[0.58rem] font-medium tracking-wider text-muted-foreground/60 uppercase">
             {t.agents.files}
           </p>
@@ -381,8 +523,19 @@ function SubagentRow({ node, depth = 0, nowMs }: { node: SubagentNode; depth?: n
         </div>
       ) : null}
 
+      {running ? <SteerControl node={node} /> : null}
+
+      {/* The other half of the steer contract: "queued" was never a delivery
+          receipt, and this row is where the promise is withdrawn. The gateway
+          only knows it at completion, so it always lands on a settled row. */}
+      {node.missedSteer ? (
+        <p className="ps-6 text-[0.62rem] leading-[0.95rem] text-destructive" data-selectable-text="true" role="status">
+          {t.agents.steerMissed(node.missedSteer)}
+        </p>
+      ) : null}
+
       {node.children.length > 0 ? (
-        <div className="grid min-w-0 gap-3 pl-6">
+        <div className="grid min-w-0 gap-3 ps-6">
           {node.children.map(child => (
             <SubagentRow depth={depth + 1} key={child.id} node={child} nowMs={nowMs} />
           ))}

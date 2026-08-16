@@ -78,7 +78,7 @@ export function ReviewShipBar() {
           fills the right edge on one row, then sticks to the top as it grows. */}
       <div className="relative">
         <Textarea
-          className="field-sizing-content max-h-40 min-h-0 resize-none pr-9"
+          className="field-sizing-content max-h-40 min-h-0 resize-none pe-9"
           disabled={generating}
           onChange={event => setMessage(event.target.value)}
           onKeyDown={event => {
@@ -93,7 +93,7 @@ export function ReviewShipBar() {
           value={message}
         />
         <GenerateButton
-          className="absolute top-px right-px h-6 w-8 rounded-l-none rounded-r-[2px]"
+          className="absolute top-px end-px h-6 w-8 rounded-s-none rounded-e-[2px]"
           disabled={!canGenerate}
           generating={generating}
           generatingLabel={c.stopGenerating}
@@ -135,7 +135,7 @@ export function ReviewShipBar() {
           <span className="truncate underline underline-offset-2">{c.agentShip}</span>
         </Button>
         <Tip label={ship.ghReady ? prLabel : c.ghMissing}>
-          <span className="absolute inset-y-0 right-0 flex items-center">
+          <span className="absolute inset-y-0 end-0 flex items-center">
             <Button
               aria-label={prLabel}
               className="size-7 text-muted-foreground/80 hover:text-foreground"

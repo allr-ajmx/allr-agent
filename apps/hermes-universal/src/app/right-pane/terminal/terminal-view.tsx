@@ -2,20 +2,20 @@ import '@xterm/xterm/css/xterm.css'
 
 import { FitAddon } from '@xterm/addon-fit'
 import { Unicode11Addon } from '@xterm/addon-unicode11'
-import { WebLinksAddon } from '@xterm/addon-web-links'
 import { WebglAddon } from '@xterm/addon-webgl'
 import { Terminal } from '@xterm/xterm'
 import { useEffect, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { type Translations, useI18n } from '@/i18n'
+import { readClipboardText, writeClipboardText } from '@/lib/clipboard'
 import { IS_MOBILE, LOCAL_MODE_SUPPORTED } from '@/lib/platform'
 import { throttleDuringResize } from '@/lib/resize-gesture'
 import { cn } from '@/lib/utils'
 import { useStore } from '@/store/atom'
 import { $connection } from '@/store/connection'
 import { forgetGatewayFeatures } from '@/store/gateway-features'
-import { $terminalHostPreference } from '@/store/terminals'
+import { $terminalHostPreference, noteTerminalCwd } from '@/store/terminals'
 import { $effectiveCwd } from '@/store/workspace-events'
 import { useTheme } from '@/themes/context'
 import type { DesktopTheme } from '@/themes/types'
@@ -28,8 +28,13 @@ import {
   type TerminalTransportKind
 } from '@/transport/terminal-transport'
 
+import { terminalClipboardIntent } from './clipboard'
+import { terminalLinkHandler, terminalWebLinksAddon } from './links'
 import { applyTerminalModifiers, MobileTerminalKeys, nextModifierState, type TerminalModifiers } from './mobile-keys'
+import { isMacPlatform, mirrorSelection } from './selection'
+import { $terminalFontFamily, applyTerminalFontFamily, resolveTerminalFontFamily } from './terminal-font'
 import { terminalTheme, withSurface } from './terminal-theme'
+import { useTerminalFontFromConfig } from './use-terminal-font-config'
 
 // The right-pane integrated terminal: an xterm bound to whichever shell the
 // workspace actually lives on. The transport is chosen at spawn by the gateway
@@ -109,6 +114,13 @@ export function TerminalView({ id }: { id: string }) {
 
   const connection = useStore($connection)
   const preference = useStore($terminalHostPreference)
+  const terminalFont = useStore($terminalFontFamily)
+
+  // The configured family, read off the SHARED config-record query rather than
+  // fetched once per mount — see ./use-terminal-font-config for why that cache
+  // IS the config→atom sync. Peer WebViews (a detached tile, the Android
+  // Settings activity) are covered by ./terminal-font-sync instead.
+  useTerminalFontFromConfig()
 
   const hostRef = useRef<HTMLDivElement | null>(null)
   const termRef = useRef<Terminal | null>(null)
@@ -155,6 +167,11 @@ export function TerminalView({ id }: { id: string }) {
 
     const term = new Terminal({
       allowProposedApi: true,
+      // ⌥-drag is the force-selection gesture over mouse-mode TUIs, and xterm's
+      // default alt-click-moves-cursor claims the same click — emitting one
+      // cursor left/right escape per column of travel. Shells that don't consume
+      // them echo the raw `^[[D` burst into the buffer. One gesture, one meaning.
+      altClickMovesCursor: false,
       // Opaque canvas: keeps WebGL crisp and gives the contrast clamp a real
       // background to measure against (withSurface paints the skin surface).
       allowTransparency: false,
@@ -163,7 +180,9 @@ export function TerminalView({ id }: { id: string }) {
       // Desktop's exact stack (apps/desktop/.../use-terminal-session.ts). It
       // needs no `ui-monospace` repair: every entry is a concrete family and
       // the bundled JetBrains Mono leads, so it resolves on every webview.
-      fontFamily: "'JetBrains Mono', 'Cascadia Code', 'SF Mono', Menlo, Consolas, monospace",
+      // Configurable via `terminal.font_family`; the bundled stack is always the
+      // tail of it, so an unavailable family still lands on a monospace face.
+      fontFamily: resolveTerminalFontFamily($terminalFontFamily.get()),
       // 12px is a desktop reading size held at desk distance. A handset gets a
       // point more as its floor, and pinch-to-zoom from there (below).
       fontSize: IS_MOBILE ? MOBILE_FONT_SIZE : 12,
@@ -172,6 +191,10 @@ export function TerminalView({ id }: { id: string }) {
       // on a light surface reads as candy. Clamping darkens/lightens each glyph
       // against the live surface at render time so every color stays legible.
       minimumContrastRatio: 4.5,
+      // Both link paths route through `openExternalLink` — xterm's default is
+      // `window.open()`, which a Tauri webview refuses for a remote origin, so a
+      // clicked URL simply did nothing and OSC 8 fronted a raw confirm().
+      linkHandler: terminalLinkHandler,
       scrollback: 5000,
       theme: buildTerminalTheme(appTheme, renderedMode)
     })
@@ -181,7 +204,7 @@ export function TerminalView({ id }: { id: string }) {
     const unicode = new Unicode11Addon()
     term.loadAddon(unicode)
     term.unicode.activeVersion = '11'
-    term.loadAddon(new WebLinksAddon())
+    term.loadAddon(terminalWebLinksAddon())
     term.open(host)
 
     // WebGL renders oversized cells on narrow/mobile hosts — canvas fallback there.
@@ -232,6 +255,43 @@ export function TerminalView({ id }: { id: string }) {
         /* face unavailable — the fallback measurement stands */
       })
 
+    // COPY / PASTE. xterm draws to a canvas, so the platform's own copy has no
+    // DOM selection to grab — the chords have to be claimed explicitly. VS Code's
+    // map: ⌘C/⌘V on macOS, Ctrl+Shift+C/V elsewhere, and a bare Ctrl+C copies
+    // ONLY while something is selected so interrupting a process never breaks.
+    term.attachCustomKeyEventHandler(event => {
+      const intent = terminalClipboardIntent(event, {
+        hasSelection: term.hasSelection(),
+        isMac: isMacPlatform()
+      })
+
+      if (!intent) {
+        return true
+      }
+
+      event.preventDefault()
+
+      if (intent === 'copy') {
+        void writeClipboardText(term.getSelection()).catch(() => {
+          /* engine refused the write — a failed copy is a no-op, not a dialog */
+        })
+      } else {
+        // Straight to the PTY: bracketed-paste framing is the shell's business,
+        // and xterm already advertises the mode to it.
+        void readClipboardText().then(text => text && sendRef.current(text))
+      }
+
+      // Swallowed — returning true would ALSO send the raw chord to the shell.
+      return false
+    })
+
+    // Mirror the canvas selection into xterm's hidden textarea so the webview's
+    // own copy paths (right-click menu, platform copy) see something. The mirror
+    // yields when focus is elsewhere or a foreign range is live — see
+    // ./selection: claiming the range unconditionally is what let a stale
+    // terminal scrap win ⌘C over text just selected in the chat.
+    const onSelection = term.onSelectionChange(() => mirrorSelection(host, term.getSelection()))
+
     const onData = term.onData(data => {
       if (SGR_MOUSE_RE.test(data)) {
         return
@@ -269,6 +329,7 @@ export function TerminalView({ id }: { id: string }) {
     return () => {
       disposed = true
       onData.dispose()
+      onSelection.dispose()
       onResize.dispose()
       cancelAnimationFrame(raf)
       ro.disconnect()
@@ -277,6 +338,11 @@ export function TerminalView({ id }: { id: string }) {
       fitRef.current = null
       webglRef.current = null
     }
+    // MOUNT ONCE. `appTheme` / `renderedMode` are read here only to paint the
+    // terminal's INITIAL theme; the effect further down repaints it in place on
+    // every later change. Depending on them here would dispose and rebuild the
+    // xterm instance — taking the attached PTY with it — on every theme switch.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // Spawn the shell once per attempt. The cwd and the connection are SNAPSHOTTED
@@ -308,10 +374,16 @@ export function TerminalView({ id }: { id: string }) {
       ? 'local'
       : resolveTerminalTransportKind(terminalTransportInputs(conn, $terminalHostPreference.get()))
 
+    // Snapshotted, and RECORDED: the entry keeps the directory it spawned in so
+    // switching chats can re-select the terminal that already belongs to that
+    // chat's project instead of leaving you in another project's shell.
+    const spawnCwd = $effectiveCwd.get()
+    noteTerminalCwd(id, spawnCwd)
+
     socketRef.current = createTerminalTransport(
       kind,
       conn,
-      { cols: term.cols, cwd: $effectiveCwd.get() || undefined, rows: term.rows, terminalId: id },
+      { cols: term.cols, cwd: spawnCwd || undefined, rows: term.rows, terminalId: id },
       {
         onData: data => termRef.current?.write(data),
         onEnd: reason => {
@@ -469,6 +541,39 @@ export function TerminalView({ id }: { id: string }) {
     }
   }, [])
 
+  // A font change applies to the LIVE terminal — the face is swapped, the grid
+  // re-fitted and the atlas dropped, with the xterm instance and its PTY left
+  // alone. Recreating them would respawn the user's shell (and, on the gateway
+  // transport, drop the /api/shell-pty socket) for a cosmetic setting.
+  useEffect(() => {
+    const fontFamily = resolveTerminalFontFamily(terminalFont)
+    const term = termRef.current
+
+    if (!term) {
+      return
+    }
+
+    let current = true
+
+    void applyTerminalFontFamily({
+      clearTextureAtlas: () => webglRef.current?.clearTextureAtlas(),
+      fit: () => {
+        try {
+          fitRef.current?.fit()
+        } catch {
+          /* host mid-transition */
+        }
+      },
+      fontFamily,
+      isCurrent: () => current && termRef.current === term,
+      term
+    })
+
+    return () => {
+      current = false
+    }
+  }, [terminalFont])
+
   // Re-apply the WHOLE profile (text, bg, cursor, selection, all 16 ANSI) when
   // the skin or painted mode changes — not just the background.
   useEffect(() => {
@@ -520,6 +625,7 @@ export function TerminalView({ id }: { id: string }) {
         />
 
         {status === 'connecting' && (
+          // eslint-disable-next-line better-tailwindcss/no-restricted-classes -- over a surface pinned left-to-right — see the [dir='rtl'] block in styles.css
           <div className="pointer-events-none absolute right-2 top-1 rounded bg-black/30 px-1.5 py-0.5 text-[0.65rem] text-white/80">
             {t.rightSidebar.terminalConnecting}
           </div>
@@ -528,6 +634,7 @@ export function TerminalView({ id }: { id: string }) {
         {/* An abnormal drop is being retried with backoff — the shell is kept alive
             server-side, so this is a wait, not a failure. */}
         {status === 'reconnecting' && (
+          // eslint-disable-next-line better-tailwindcss/no-restricted-classes -- over a surface pinned left-to-right — see the [dir='rtl'] block in styles.css
           <div className="pointer-events-none absolute right-2 top-1 rounded bg-black/30 px-1.5 py-0.5 text-[0.65rem] text-white/80">
             {t.rightSidebar.terminalReconnecting}
           </div>
@@ -535,6 +642,7 @@ export function TerminalView({ id }: { id: string }) {
 
         {/* One-shot after a reattach: the burst of replayed scrollback is expected. */}
         {status === 'reattached' && (
+          // eslint-disable-next-line better-tailwindcss/no-restricted-classes -- over a surface pinned left-to-right — see the [dir='rtl'] block in styles.css
           <div className="pointer-events-none absolute right-2 top-1 rounded bg-black/30 px-1.5 py-0.5 text-[0.65rem] text-white/80">
             {t.rightSidebar.terminalReattached}
           </div>
@@ -542,6 +650,7 @@ export function TerminalView({ id }: { id: string }) {
 
         {hostChip && (
           <div
+            // eslint-disable-next-line better-tailwindcss/no-restricted-classes -- over a surface pinned left-to-right — see the [dir='rtl'] block in styles.css
             className="pointer-events-none absolute right-2 top-1 max-w-[60%] truncate rounded bg-black/25 px-1.5 py-0.5 text-[0.65rem] text-white/70"
             title={t.rightSidebar.terminalHostChip(hostChip)}
           >
@@ -553,6 +662,7 @@ export function TerminalView({ id }: { id: string }) {
             not, so the mismatch has to keep being visible, not fade out. */}
         {fellBack && status === 'open' && (
           <div
+            // eslint-disable-next-line better-tailwindcss/no-restricted-classes -- over a surface pinned left-to-right — see the [dir='rtl'] block in styles.css
             className="pointer-events-none absolute right-2 top-1 max-w-[70%] truncate rounded bg-destructive/40 px-1.5 py-0.5 text-[0.65rem] text-white/90"
             title={t.rightSidebar.terminalLocalFallbackChip}
           >

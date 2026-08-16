@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 
-import { EmptyState, ListRow, LoadingState, Pill, SectionHeading, SettingsContent } from '@/app/settings/primitives'
+import { EmptyState, ListRow, Pill, SectionHeading, SettingsContent } from '@/app/settings/primitives'
 import { Button } from '@/components/ui/button'
 import { SegmentedControl } from '@/components/ui/segmented-control'
+import { Skeleton } from '@/components/ui/skeleton'
 import { useI18n } from '@/i18n'
 import { Loader2, Paw } from '@/lib/icons'
 import { selectableCardClass } from '@/lib/selectable-card'
@@ -121,10 +122,24 @@ export function PetPanel() {
                 spellCheck={false}
                 value={query}
               />
-              <div className="mt-3 h-72 overflow-y-auto pr-1">
-                {shown.length === 0 ? (
+              <div className="mt-3 h-72 overflow-y-auto pe-1">
+                {status === 'loading' && shown.length === 0 ? (
+                  // First load keeps the grid's shape rather than flashing the
+                  // "unreachable" copy before the gallery has even arrived.
+                  <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                    {Array.from({ length: 6 }, (_, index) => (
+                      <div className="flex items-center gap-2.5 px-2.5 py-2" key={index}>
+                        <Skeleton className="size-10 shrink-0 rounded-md" />
+                        <div className="min-w-0 flex-1 space-y-1.5">
+                          <Skeleton className="h-3.5 w-24 max-w-full" />
+                          <Skeleton className="h-3 w-16 max-w-full" />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : shown.length === 0 ? (
                   <p className="text-[length:var(--conversation-caption-font-size)] text-(--ui-text-tertiary)">
-                    {status === 'loading' ? t.commandCenter.pets.loading : q ? p.noMatch(q) : p.unreachable}
+                    {q ? p.noMatch(q) : p.unreachable}
                   </p>
                 ) : (
                   <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
@@ -135,7 +150,7 @@ export function PetPanel() {
                       return (
                         <button
                           className={cn(
-                            'flex w-full items-center gap-2.5 px-2.5 py-2 text-left disabled:opacity-50',
+                            'flex w-full items-center gap-2.5 px-2.5 py-2 text-start disabled:opacity-50',
                             selectableCardClass({ active: isActive, prominent: pet.installed })
                           )}
                           disabled={isBusy}
@@ -204,7 +219,7 @@ export function PetPanel() {
                   type="range"
                   value={scale}
                 />
-                <span className="w-9 text-right text-[length:var(--conversation-caption-font-size)] tabular-nums text-(--ui-text-tertiary)">
+                <span className="w-9 text-end text-[length:var(--conversation-caption-font-size)] tabular-nums text-(--ui-text-tertiary)">
                   {`${Math.round(scale * 100)}%`}
                 </span>
               </div>
@@ -237,10 +252,8 @@ export function PetSection() {
   const status = useStore($petGalleryStatus)
   const gallery = useStore($petGallery)
 
-  if (status === 'loading' && !gallery) {
-    return <LoadingState label={t.commandCenter.pets.loading} />
-  }
-
+  // No page-level spinner: the panel's gallery grid carries its own skeleton,
+  // so the page keeps its heading, intro and controls while the pets land.
   if (status === 'error' && !gallery) {
     return (
       <SettingsContent>

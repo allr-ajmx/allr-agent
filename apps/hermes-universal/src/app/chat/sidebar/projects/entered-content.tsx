@@ -14,9 +14,11 @@ import {
 } from '@/components/ui/dialog'
 import type { HermesGitWorktree } from '@/global'
 import { useI18n } from '@/i18n'
+import { useDisplayPath } from '@/store/display-home'
 import { $dismissedWorktreeIds, dismissWorktree, setWorkspaceNodeOpen } from '@/store/layout'
 import { notifyError } from '@/store/notifications'
 import { removeWorktreePath } from '@/store/projects'
+import { withoutTombstoned } from '@/store/session'
 import type { SessionInfo } from '@/types/hermes'
 
 import { SidebarRowStack } from '../chrome'
@@ -51,9 +53,13 @@ export function EnteredProjectContent({
   }
 
   // Home's rows aren't anchored to a folder, so there's no repo or worktree
-  // structure to show — just the chats.
+  // structure to show — just the chats. Tombstoned the same way a lane's rows
+  // are: these come from the backend tree snapshot, which still lists a session
+  // the user just deleted until its next refresh.
   if (project.isNoProject) {
-    return <>{renderRows(project.repos.flatMap(repo => repo.groups.flatMap(group => group.sessions)))}</>
+    return (
+      <>{renderRows(withoutTombstoned(project.repos.flatMap(repo => repo.groups.flatMap(group => group.sessions))))}</>
+    )
   }
 
   const single = project.repos.length === 1
@@ -91,6 +97,8 @@ function RepoFlatSection({
   const s = t.sidebar
   const [open, toggleOpen] = useWorkspaceNodeOpen(repo.id)
   const dismissedWorktrees = useStore($dismissedWorktreeIds)
+  // A repo root is a path on the GATEWAY's filesystem (MJXHRM-394).
+  const displayPath = useDisplayPath()
 
   // The repo's session lanes already come fully built from the backend; this
   // only injects empty VISUAL lanes from a live `git worktree list`.
@@ -252,9 +260,9 @@ function RepoFlatSection({
         label={repo.label}
         onToggle={toggleOpen}
         open={open}
-        title={repo.path ?? undefined}
+        title={repo.path ? displayPath(repo.path) : undefined}
       />
-      {open && <SidebarRowStack className="pl-2.5">{body}</SidebarRowStack>}
+      {open && <SidebarRowStack className="ps-2.5">{body}</SidebarRowStack>}
       {removeDialog}
     </SidebarRowStack>
   )

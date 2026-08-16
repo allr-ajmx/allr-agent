@@ -3,11 +3,25 @@
  *
  * A focused excerpt of the desktop sidebar's `projects/workspace-groups.ts`:
  * the pure path helpers plus `liveSessionProjectId` / `sessionProjectColor`.
- * Only the color-derivation slice is ported here (the full lane/kanban/worktree
- * grouping engine is not yet on universal). Keep this a faithful copy so the
- * pane-tab accent dots resolve to the SAME project color the desktop sidebar
- * would show; fold it back into a full `workspace-groups.ts` port when that
- * lands. FIXME(MJX-50/workspace-groups): full grouping engine not yet ported.
+ * Keep this a faithful copy so the pane-tab accent dots resolve to the SAME
+ * project color the desktop sidebar would show.
+ *
+ * A `FIXME(MJX-50/workspace-groups)` here said the "full lane/kanban/worktree
+ * grouping engine is not yet on universal" and asked for this file to be folded
+ * back once it landed. Both halves are stale:
+ *
+ *  - universal HAS `app/chat/sidebar/projects/workspace-groups.ts`, and it is
+ *    not a pending port. Session grouping is computed authoritatively on the
+ *    BACKEND (`tui_gateway/project_tree.py`, via `projects.tree`), so that
+ *    module is only the visual worktree enhancer layered over the backend's
+ *    answer. There is no engine left to port — the divergence is deliberate;
+ *  - the fold it asked for is done for the one piece that was genuinely
+ *    duplicated: `kanbanWorktreeDir` (and its regex) stood byte-identical in
+ *    both files and now has a single definition, HERE, because `lib/` may not
+ *    import from `app/` and this is therefore the side that can be shared.
+ *
+ * (`MJX-50` was a Linear id. That tracker is retired and its numbers did not
+ * carry over to Plane, so the reference named nothing by the time it was read.)
  */
 
 import type { ProjectInfo, SessionInfo } from '@/types/hermes'

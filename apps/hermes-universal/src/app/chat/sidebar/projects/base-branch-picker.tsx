@@ -14,7 +14,8 @@ import {
 } from '@/components/ui/dropdown-menu'
 import type { HermesGitBaseBranch } from '@/global'
 import { useI18n } from '@/i18n'
-import { $repoStatus } from '@/store/coding-status'
+import { registerRepoStatusCwd, repoStatusForCwd } from '@/store/coding-status'
+import { notifyError } from '@/store/notifications'
 import { listBaseBranches } from '@/store/projects'
 
 // Filterable picker for the base branch of a new worktree. Lists local +
@@ -41,13 +42,19 @@ export function BaseBranchPicker({
 }) {
   const { t } = useI18n()
   const p = t.sidebar.projects
-  const repoStatus = useStore($repoStatus)
+  // The dialog can be opened from a tile's rail, so the branch pinned to the top
+  // is the one checked out in THIS repo — not whatever the sidebar has selected.
+  const repoStatus = useStore(repoStatusForCwd(repoPath))
   const [branches, setBranches] = useState<HermesGitBaseBranch[]>([])
   const [loading, setLoading] = useState(false)
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
 
   const currentBranch = repoStatus?.detached ? null : (repoStatus?.branch ?? null)
+
+  // Nothing else guarantees this repo has been probed — the dialog can target a
+  // project root that no rail is sitting in — so ask for it while we're open.
+  useEffect(() => registerRepoStatusCwd(repoPath), [repoPath])
 
   const load = useCallback(async () => {
     if (!repoPath) {
@@ -66,12 +73,18 @@ export function BaseBranchPicker({
       const defaultBranch = list.find(branch => branch.isDefault)
 
       onValueChange(defaultBranch?.name ?? list[0]?.name ?? '')
-    } catch {
+    } catch (err) {
+      // Swallowing this left the trigger reading "branch off " with an empty
+      // value, and submitting then sent no `base` at all — so the new worktree
+      // was cut from whatever HEAD happened to be, not the trunk. A non-repo
+      // folder answers with an empty list rather than an error, so reaching here
+      // really does mean the call failed.
       setBranches([])
+      notifyError(err, p.branchesFailed)
     } finally {
       setLoading(false)
     }
-  }, [repoPath, onValueChange])
+  }, [onValueChange, p.branchesFailed, repoPath])
 
   // Load on mount so the default branch fills in before the user opens the
   // menu — otherwise the button reads "branch off " with nothing after it.
@@ -141,8 +154,7 @@ export function BaseBranchPicker({
         </DropdownMenuTrigger>
         <DropdownMenuContent
           align="start"
-          // Portaled to body — must clear WorktreeDialog (--z-modal: 130).
-          className="z-(--z-modal-popover) max-h-72 w-(--radix-dropdown-menu-trigger-width) min-w-56 overflow-y-auto p-0"
+          className="max-h-72 w-(--radix-dropdown-menu-trigger-width) min-w-56 overflow-y-auto p-0"
         >
           <DropdownMenuSearch
             aria-label={p.baseBranchPlaceholder}
@@ -172,7 +184,7 @@ export function BaseBranchPicker({
                 {branch.isDefault && <span className="shrink-0 text-[0.625rem] text-(--ui-text-tertiary)">★</span>}
                 <span className="truncate">{branch.name}</span>
                 {value === branch.name && (
-                  <Codicon className="ml-auto shrink-0 text-(--ui-accent)" name="check" size="0.8rem" />
+                  <Codicon className="ms-auto shrink-0 text-(--ui-accent)" name="check" size="0.8rem" />
                 )}
               </DropdownMenuItem>
             ))

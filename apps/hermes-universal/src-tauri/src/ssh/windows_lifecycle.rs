@@ -162,7 +162,12 @@ pub fn build_inspect_command(explicit_hermes_path: &str) -> String {
 
 /// Build a `hermes_cli.windows_ssh_runtime` invocation.
 pub fn build_helper_command(python: &str, operation: &str, args: &[String]) -> String {
-    let mut argv = vec![python.to_string(), "-m".into(), "hermes_cli.windows_ssh_runtime".into(), operation.into()];
+    let mut argv = vec![
+        python.to_string(),
+        "-m".into(),
+        "hermes_cli.windows_ssh_runtime".into(),
+        operation.into(),
+    ];
     argv.extend_from_slice(args);
 
     let quoted: Vec<String> = argv.iter().map(|a| ps_literal(a)).collect();
@@ -185,10 +190,19 @@ pub fn build_helper_command(python: &str, operation: &str, args: &[String]) -> S
 pub fn parse_helper_output(output: &str) -> Result<serde_json::Value, SshError> {
     let cleaned = output.trim_start_matches('\u{feff}').replace("\r\n", "\n");
 
-    let last = cleaned.lines().map(str::trim).filter(|l| !l.is_empty()).next_back().unwrap_or("null");
+    let last = cleaned
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .next_back()
+        .unwrap_or("null");
 
-    let value: serde_json::Value = serde_json::from_str(last)
-        .map_err(|e| SshError::new(SshErrorKind::Unknown, format!("The remote helper returned unreadable output: {e}")))?;
+    let value: serde_json::Value = serde_json::from_str(last).map_err(|e| {
+        SshError::new(
+            SshErrorKind::Unknown,
+            format!("The remote helper returned unreadable output: {e}"),
+        )
+    })?;
 
     if let Some(message) = value.get("error").and_then(|e| e.as_str()) {
         return Err(SshError::new(SshErrorKind::Unknown, message));
@@ -223,7 +237,12 @@ pub fn parse_windows_lock(value: &serde_json::Value, ownership_id: &str) -> Opti
         return None;
     }
 
-    if lock.token_fingerprint.len() != 32 || !lock.token_fingerprint.bytes().all(|b| b.is_ascii_hexdigit()) {
+    if lock.token_fingerprint.len() != 32
+        || !lock
+            .token_fingerprint
+            .bytes()
+            .all(|b| b.is_ascii_hexdigit())
+    {
         return None;
     }
 
@@ -282,7 +301,10 @@ pub async fn probe_windows_remote(
         .require_success("probing the remote Windows host")?;
 
     serde_json::from_str::<WindowsRuntime>(out.trim()).map_err(|e| {
-        SshError::new(SshErrorKind::UnsupportedPlatform, format!("Unreadable Windows probe result: {e}"))
+        SshError::new(
+            SshErrorKind::UnsupportedPlatform,
+            format!("Unreadable Windows probe result: {e}"),
+        )
     })
 }
 
@@ -301,13 +323,18 @@ pub async fn detect_remote_platform(
     println!("[ssh probe] detect_remote_platform: running fenced `uname -s; uname -m`");
     match session.exec_fenced("uname -s; uname -m", None).await {
         Ok(out) if out.succeeded() => {
-            println!("[ssh probe] detect_remote_platform: uname stdout {:?}", out.stdout);
+            println!(
+                "[ssh probe] detect_remote_platform: uname stdout {:?}",
+                out.stdout
+            );
             let mut lines = out.stdout.lines().map(str::trim).filter(|l| !l.is_empty());
             let os = lines.next().unwrap_or_default().to_string();
 
             if os == "Linux" || os == "Darwin" {
                 let arch = lines.next().unwrap_or_default().to_string();
-                println!("[ssh probe] detect_remote_platform: matched POSIX os={os:?} arch={arch:?}");
+                println!(
+                    "[ssh probe] detect_remote_platform: matched POSIX os={os:?} arch={arch:?}"
+                );
 
                 return Ok((RemotePlatform { os, arch }, None));
             }
@@ -328,15 +355,23 @@ pub async fn detect_remote_platform(
             return Err(err);
         }
         Err(err) => {
-            println!("[ssh probe] detect_remote_platform: non-transport error running uname: {err}");
+            println!(
+                "[ssh probe] detect_remote_platform: non-transport error running uname: {err}"
+            );
         }
     }
 
     println!("[ssh probe] detect_remote_platform: probing as a Windows remote");
     match probe_windows_remote(session, explicit_hermes_path).await {
         Ok(runtime) => {
-            let platform = RemotePlatform { os: "Windows".to_string(), arch: runtime.arch.clone() };
-            println!("[ssh probe] detect_remote_platform: Windows probe succeeded, arch={:?}", runtime.arch);
+            let platform = RemotePlatform {
+                os: "Windows".to_string(),
+                arch: runtime.arch.clone(),
+            };
+            println!(
+                "[ssh probe] detect_remote_platform: Windows probe succeeded, arch={:?}",
+                runtime.arch
+            );
 
             Ok((platform, Some(runtime)))
         }
@@ -347,15 +382,21 @@ pub async fn detect_remote_platform(
             println!("[ssh probe] detect_remote_platform: Windows probe failed too: {err}");
             // The probe's message is remote-controlled output on its way to the
             // UI: redact it, strip control characters, and cap the length.
-            let detail: String =
-                redact_secrets(&err.message).chars().map(|c| if c.is_control() { ' ' } else { c }).collect();
+            let detail: String = redact_secrets(&err.message)
+                .chars()
+                .map(|c| if c.is_control() { ' ' } else { c })
+                .collect();
             let detail = detail.trim().chars().take(300).collect::<String>();
 
             Err(SshError::new(
                 SshErrorKind::UnsupportedPlatform,
                 format!(
                     "The remote operating system is not supported by SSH gateway mode.{}",
-                    if detail.is_empty() { String::new() } else { format!(" (probe: {detail})") }
+                    if detail.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" (probe: {detail})")
+                    }
                 ),
             ))
         }
@@ -381,7 +422,10 @@ pub async fn helper(
         Ok(value) => Ok(value),
         Err(err) if out.succeeded() => Err(err),
         // A non-zero exit with unparseable output: prefer stderr.
-        Err(_) => Err(out.require_success(&format!("the remote `{operation}` helper")).map(|_| ()).unwrap_err()),
+        Err(_) => Err(out
+            .require_success(&format!("the remote `{operation}` helper"))
+            .map(|_| ())
+            .unwrap_err()),
     }
 }
 
@@ -439,7 +483,14 @@ pub async fn cleanup_owned(
         }
     }
 
-    let _ = helper(session, runtime, "remove-lock", &[ownership_id.to_string()], None).await;
+    let _ = helper(
+        session,
+        runtime,
+        "remove-lock",
+        &[ownership_id.to_string()],
+        None,
+    )
+    .await;
 
     Ok(())
 }
@@ -456,7 +507,11 @@ async fn read_log(
     helper(session, runtime, "read-log", &args, None)
         .await
         .ok()
-        .and_then(|v| v.get("content").and_then(|c| c.as_str()).map(str::to_string))
+        .and_then(|v| {
+            v.get("content")
+                .and_then(|c| c.as_str())
+                .map(str::to_string)
+        })
         .unwrap_or_default()
 }
 
@@ -485,7 +540,14 @@ pub async fn wait_ready(
 
         if spawn_definitely_failed(&state) {
             let detail = read_log(session, runtime, ownership_id, &lock.spawn_nonce).await;
-            let tail: String = detail.chars().rev().take(2000).collect::<Vec<_>>().into_iter().rev().collect();
+            let tail: String = detail
+                .chars()
+                .rev()
+                .take(2000)
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect();
 
             return Err(SshError::new(
                 SshErrorKind::Unknown,
@@ -516,7 +578,14 @@ pub async fn inspect_install(
     session: &SshSession,
     runtime: &mut WindowsRuntime,
 ) -> Result<String, SshError> {
-    let value = helper(session, runtime, "inspect", &[runtime.hermes_path.clone()], None).await?;
+    let value = helper(
+        session,
+        runtime,
+        "inspect",
+        &[runtime.hermes_path.clone()],
+        None,
+    )
+    .await?;
 
     let inspection: WindowsInspection = serde_json::from_value(value)
         .map_err(|e| transient(format!("Unreadable remote inspection result: {e}")))?;
@@ -541,7 +610,14 @@ pub async fn read_lock(
     runtime: &WindowsRuntime,
     ownership_id: &str,
 ) -> Result<Option<WindowsLock>, SshError> {
-    let value = helper(session, runtime, "read-lock", &[ownership_id.to_string()], None).await?;
+    let value = helper(
+        session,
+        runtime,
+        "read-lock",
+        &[ownership_id.to_string()],
+        None,
+    )
+    .await?;
 
     Ok(parse_windows_lock(&value, ownership_id))
 }
@@ -553,10 +629,21 @@ pub async fn write_lock(
     ownership_id: &str,
     lock: &WindowsLock,
 ) -> Result<(), SshError> {
-    let json = serde_json::to_string(lock)
-        .map_err(|e| SshError::new(SshErrorKind::Unknown, format!("Could not encode the lock record: {e}")))?;
+    let json = serde_json::to_string(lock).map_err(|e| {
+        SshError::new(
+            SshErrorKind::Unknown,
+            format!("Could not encode the lock record: {e}"),
+        )
+    })?;
 
-    helper(session, runtime, "write-lock", &[ownership_id.to_string()], Some(json.as_bytes())).await?;
+    helper(
+        session,
+        runtime,
+        "write-lock",
+        &[ownership_id.to_string()],
+        Some(json.as_bytes()),
+    )
+    .await?;
 
     Ok(())
 }
@@ -574,7 +661,14 @@ pub async fn spawn_backend(
     reporter.step(SshStep::UploadingToken);
 
     let token_args = [ownership_id.to_string(), spawn_nonce.to_string()];
-    helper(session, runtime, "upload-token", &token_args, Some(token.as_bytes())).await?;
+    helper(
+        session,
+        runtime,
+        "upload-token",
+        &token_args,
+        Some(token.as_bytes()),
+    )
+    .await?;
 
     reporter.step(SshStep::Spawning);
 
@@ -653,9 +747,19 @@ mod tests {
 
     #[test]
     fn ps_literal_neutralizes_powershell_metacharacters() {
-        for hostile in ["$(Get-Process)", "a; Remove-Item C:\\", "`n", "$env:PATH", "a|b"] {
+        for hostile in [
+            "$(Get-Process)",
+            "a; Remove-Item C:\\",
+            "`n",
+            "$env:PATH",
+            "a|b",
+        ] {
             let quoted = ps_literal(hostile);
-            assert_eq!(&quoted[1..quoted.len() - 1], hostile, "no quote to double in {hostile}");
+            assert_eq!(
+                &quoted[1..quoted.len() - 1],
+                hostile,
+                "no quote to double in {hostile}"
+            );
         }
     }
 
@@ -674,11 +778,15 @@ mod tests {
         use base64::Engine as _;
 
         for script in ["$x=1", "echo 'it''s'", "Write-Output \"héllo\"", "日本語"] {
-            let bytes = base64::engine::general_purpose::STANDARD.decode(encoded_powershell(script)).unwrap();
+            let bytes = base64::engine::general_purpose::STANDARD
+                .decode(encoded_powershell(script))
+                .unwrap();
             assert_eq!(bytes.len() % 2, 0, "UTF-16 is 2 bytes per code unit");
 
-            let units: Vec<u16> =
-                bytes.chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
+            let units: Vec<u16> = bytes
+                .chunks_exact(2)
+                .map(|c| u16::from_le_bytes([c[0], c[1]]))
+                .collect();
             assert_eq!(String::from_utf16(&units).unwrap(), script);
         }
     }
@@ -686,33 +794,56 @@ mod tests {
     #[test]
     fn powershell_command_carries_the_non_interactive_flags() {
         let cmd = powershell_command("$x=1");
-        assert!(cmd.starts_with("powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand "));
+        assert!(cmd.starts_with(
+            "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand "
+        ));
         // Encoding is what keeps the script free of SSH-command-line quoting.
-        assert!(!cmd.contains("$x=1"), "the script must be encoded, not inlined: {cmd}");
+        assert!(
+            !cmd.contains("$x=1"),
+            "the script must be encoded, not inlined: {cmd}"
+        );
     }
 
     #[test]
     fn helper_command_targets_the_shipped_runtime_module() {
         let cmd = build_helper_command("C:\\py\\python.exe", "read-lock", &[OWNER.to_string()]);
         let decoded = decode(&cmd);
-        assert!(decoded.contains("hermes_cli.windows_ssh_runtime"), "{decoded}");
+        assert!(
+            decoded.contains("hermes_cli.windows_ssh_runtime"),
+            "{decoded}"
+        );
         assert!(decoded.contains("'read-lock'"), "{decoded}");
         assert!(decoded.contains(&format!("'{OWNER}'")), "{decoded}");
-        assert!(decoded.contains("if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}"), "{decoded}");
+        assert!(
+            decoded.contains("if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}"),
+            "{decoded}"
+        );
     }
 
     #[test]
     fn helper_command_quotes_a_hostile_python_path() {
-        let decoded = decode(&build_helper_command("C:\\p'; Remove-Item C:\\ #", "inspect", &[]));
-        assert!(decoded.contains("'C:\\p''; Remove-Item C:\\ #'"), "{decoded}");
+        let decoded = decode(&build_helper_command(
+            "C:\\p'; Remove-Item C:\\ #",
+            "inspect",
+            &[],
+        ));
+        assert!(
+            decoded.contains("'C:\\p''; Remove-Item C:\\ #'"),
+            "{decoded}"
+        );
     }
 
     fn decode(cmd: &str) -> String {
         use base64::Engine as _;
 
         let b64 = cmd.rsplit(' ').next().unwrap();
-        let bytes = base64::engine::general_purpose::STANDARD.decode(b64).unwrap();
-        let units: Vec<u16> = bytes.chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(b64)
+            .unwrap();
+        let units: Vec<u16> = bytes
+            .chunks_exact(2)
+            .map(|c| u16::from_le_bytes([c[0], c[1]]))
+            .collect();
 
         String::from_utf16(&units).unwrap()
     }
@@ -722,16 +853,31 @@ mod tests {
         let decoded = decode(&build_inspect_command("C:\\custom\\hermes.exe"));
         assert!(decoded.contains("'C:\\custom\\hermes.exe'"), "{decoded}");
         // Never silently fall back to a different install than the one configured.
-        assert!(decoded.contains("if($explicit -and $hermes -ne $explicit){throw"), "{decoded}");
-        assert!(decoded.contains("python.exe"), "the sibling runtime is required: {decoded}");
+        assert!(
+            decoded.contains("if($explicit -and $hermes -ne $explicit){throw"),
+            "{decoded}"
+        );
+        assert!(
+            decoded.contains("python.exe"),
+            "the sibling runtime is required: {decoded}"
+        );
     }
 
     #[test]
     fn helper_output_takes_the_last_line_through_bom_and_crlf() {
         // PowerShell prepends a BOM, uses CRLF, and a banner may precede the payload.
-        assert_eq!(parse_helper_output("\u{feff}{\"ok\":true}\r\n").unwrap()["ok"], true);
-        assert_eq!(parse_helper_output("WARNING: something\r\n{\"ok\":true}\r\n").unwrap()["ok"], true);
-        assert_eq!(parse_helper_output("{\"ok\":true}\n\n\n").unwrap()["ok"], true);
+        assert_eq!(
+            parse_helper_output("\u{feff}{\"ok\":true}\r\n").unwrap()["ok"],
+            true
+        );
+        assert_eq!(
+            parse_helper_output("WARNING: something\r\n{\"ok\":true}\r\n").unwrap()["ok"],
+            true
+        );
+        assert_eq!(
+            parse_helper_output("{\"ok\":true}\n\n\n").unwrap()["ok"],
+            true
+        );
     }
 
     #[test]
@@ -796,23 +942,43 @@ mod tests {
     #[test]
     fn indeterminate_process_state_never_counts_as_failure() {
         // Safety rule 1. Getting this wrong destroys live backends.
-        let unknown = ProcessState { alive: false, owned: false, indeterminate: true };
-        assert!(!spawn_definitely_failed(&unknown), "an unknown state must never be treated as dead");
+        let unknown = ProcessState {
+            alive: false,
+            owned: false,
+            indeterminate: true,
+        };
+        assert!(
+            !spawn_definitely_failed(&unknown),
+            "an unknown state must never be treated as dead"
+        );
 
-        let dead = ProcessState { alive: false, owned: false, indeterminate: false };
+        let dead = ProcessState {
+            alive: false,
+            owned: false,
+            indeterminate: false,
+        };
         assert!(spawn_definitely_failed(&dead));
 
-        let not_ours = ProcessState { alive: true, owned: false, indeterminate: false };
+        let not_ours = ProcessState {
+            alive: true,
+            owned: false,
+            indeterminate: false,
+        };
         assert!(spawn_definitely_failed(&not_ours));
 
-        let healthy = ProcessState { alive: true, owned: true, indeterminate: false };
+        let healthy = ProcessState {
+            alive: true,
+            owned: true,
+            indeterminate: false,
+        };
         assert!(!spawn_definitely_failed(&healthy));
     }
 
     #[test]
     fn missing_process_state_fields_default_to_the_safe_answer() {
         // An older helper that omits `indeterminate` must not be read as "known".
-        let state: ProcessState = serde_json::from_value(serde_json::json!({"alive": true})).unwrap();
+        let state: ProcessState =
+            serde_json::from_value(serde_json::json!({"alive": true})).unwrap();
         assert!(state.alive && !state.owned && !state.indeterminate);
     }
 
@@ -826,45 +992,108 @@ mod tests {
         l.creation_time_ns = "1753747200123456789".to_string();
 
         let value = serde_json::to_value(&l).unwrap();
-        assert!(value["creationTimeNs"].is_string(), "must serialize as a string: {value}");
+        assert!(
+            value["creationTimeNs"].is_string(),
+            "must serialize as a string: {value}"
+        );
 
         let parsed = parse_windows_lock(&value, OWNER).unwrap();
-        assert_eq!(parsed.creation_time_ns, "1753747200123456789", "no precision may be lost");
+        assert_eq!(
+            parsed.creation_time_ns, "1753747200123456789",
+            "no precision may be lost"
+        );
 
         let as_number: i64 = parsed.creation_time_ns.parse().unwrap();
-        assert!(as_number > 9_007_199_254_740_991, "the value really is beyond JS's safe range");
+        assert!(
+            as_number > 9_007_199_254_740_991,
+            "the value really is beyond JS's safe range"
+        );
     }
 
     #[test]
     fn a_reusable_windows_lock_needs_every_clause() {
         const TOKEN: &str = "hunter2";
-        let healthy = ProcessState { alive: true, owned: true, indeterminate: false };
+        let healthy = ProcessState {
+            alive: true,
+            owned: true,
+            indeterminate: false,
+        };
 
         let mut l = lock();
         l.token_fingerprint = fingerprint_token(TOKEN);
 
-        assert!(lock_is_reusable(&l, &healthy, TOKEN, &l.hermes_path.clone(), &l.hermes_home.clone()));
+        assert!(lock_is_reusable(
+            &l,
+            &healthy,
+            TOKEN,
+            &l.hermes_path.clone(),
+            &l.hermes_home.clone()
+        ));
 
         // Dead, or alive-but-not-ours (a recycled pid).
         for state in [
-            ProcessState { alive: false, owned: true, indeterminate: false },
-            ProcessState { alive: true, owned: false, indeterminate: false },
+            ProcessState {
+                alive: false,
+                owned: true,
+                indeterminate: false,
+            },
+            ProcessState {
+                alive: true,
+                owned: false,
+                indeterminate: false,
+            },
         ] {
-            assert!(!lock_is_reusable(&l, &state, TOKEN, &l.hermes_path.clone(), &l.hermes_home.clone()));
+            assert!(!lock_is_reusable(
+                &l,
+                &state,
+                TOKEN,
+                &l.hermes_path.clone(),
+                &l.hermes_home.clone()
+            ));
         }
 
         // Pre-readiness record: an ownership proof, never something to attach to.
         let mut pending = l.clone();
         pending.port = 0;
-        assert!(!lock_is_reusable(&pending, &healthy, TOKEN, &l.hermes_path.clone(), &l.hermes_home.clone()));
+        assert!(!lock_is_reusable(
+            &pending,
+            &healthy,
+            TOKEN,
+            &l.hermes_path.clone(),
+            &l.hermes_home.clone()
+        ));
 
         // A token we no longer hold means we could not authenticate anyway.
-        assert!(!lock_is_reusable(&l, &healthy, "", &l.hermes_path.clone(), &l.hermes_home.clone()));
-        assert!(!lock_is_reusable(&l, &healthy, "other", &l.hermes_path.clone(), &l.hermes_home.clone()));
+        assert!(!lock_is_reusable(
+            &l,
+            &healthy,
+            "",
+            &l.hermes_path.clone(),
+            &l.hermes_home.clone()
+        ));
+        assert!(!lock_is_reusable(
+            &l,
+            &healthy,
+            "other",
+            &l.hermes_path.clone(),
+            &l.hermes_home.clone()
+        ));
 
         // Repointed at a different install or state directory since.
-        assert!(!lock_is_reusable(&l, &healthy, TOKEN, "C:\\other\\hermes.exe", &l.hermes_home.clone()));
-        assert!(!lock_is_reusable(&l, &healthy, TOKEN, &l.hermes_path.clone(), "C:\\other"));
+        assert!(!lock_is_reusable(
+            &l,
+            &healthy,
+            TOKEN,
+            "C:\\other\\hermes.exe",
+            &l.hermes_home.clone()
+        ));
+        assert!(!lock_is_reusable(
+            &l,
+            &healthy,
+            TOKEN,
+            &l.hermes_path.clone(),
+            "C:\\other"
+        ));
     }
 
     #[test]
@@ -875,8 +1104,18 @@ mod tests {
         let mut l = lock();
         l.token_fingerprint = fingerprint_token(TOKEN);
 
-        let unknown = ProcessState { alive: false, owned: false, indeterminate: true };
-        assert!(!lock_is_reusable(&l, &unknown, TOKEN, &l.hermes_path.clone(), &l.hermes_home.clone()));
+        let unknown = ProcessState {
+            alive: false,
+            owned: false,
+            indeterminate: true,
+        };
+        assert!(!lock_is_reusable(
+            &l,
+            &unknown,
+            TOKEN,
+            &l.hermes_path.clone(),
+            &l.hermes_home.clone()
+        ));
     }
 
     #[test]
@@ -889,16 +1128,18 @@ mod tests {
             "python": "C:\\hermes\\python.exe"
         });
 
-        let runtime: WindowsRuntime = serde_json::from_value(value).expect("the inspect payload must parse");
+        let runtime: WindowsRuntime =
+            serde_json::from_value(value).expect("the inspect payload must parse");
         assert_eq!(runtime.python, "C:\\hermes\\python.exe");
         assert_eq!(runtime.arch, "AMD64");
     }
 
     #[test]
     fn the_spawn_result_keeps_creation_time_as_a_string() {
-        let spawned: WindowsSpawned =
-            serde_json::from_value(serde_json::json!({"pid": 4242, "creationTimeNs": "133000000000000000"}))
-                .expect("the spawn payload must parse");
+        let spawned: WindowsSpawned = serde_json::from_value(
+            serde_json::json!({"pid": 4242, "creationTimeNs": "133000000000000000"}),
+        )
+        .expect("the spawn payload must parse");
 
         assert_eq!(spawned.pid, 4242);
         assert_eq!(spawned.creation_time_ns, "133000000000000000");
@@ -907,7 +1148,10 @@ mod tests {
     #[test]
     fn interactive_command_guards_the_cwd() {
         let cmd = build_interactive_command("C:\\work");
-        assert!(cmd.contains("Test-Path -LiteralPath 'C:\\work' -PathType Container"), "{cmd}");
+        assert!(
+            cmd.contains("Test-Path -LiteralPath 'C:\\work' -PathType Container"),
+            "{cmd}"
+        );
         assert!(cmd.ends_with("powershell.exe -NoLogo"), "{cmd}");
     }
 }

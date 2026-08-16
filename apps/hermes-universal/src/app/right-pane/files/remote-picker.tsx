@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/compone
 import { useI18n } from '@/i18n'
 import { readDesktopDir, setDesktopFsRemotePicker } from '@/lib/desktop-fs'
 import { cn } from '@/lib/utils'
+import { useDisplayPath } from '@/store/display-home'
 
 function clean(path: string) {
   return path.replace(/\/+$/, '') || '/'
@@ -43,6 +44,9 @@ export function RemoteFolderPicker() {
   const [entries, setEntries] = useState<Array<{ isDirectory: boolean; name: string; path: string }>>([])
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  // This picker browses the REMOTE (gateway) filesystem — the one place where
+  // `~` unambiguously means the gateway user's home (MJXHRM-394).
+  const displayPath = useDisplayPath()
 
   useEffect(() => {
     setDesktopFsRemotePicker({
@@ -184,7 +188,7 @@ export function RemoteFolderPicker() {
         </div>
 
         <div className="shrink-0 flex items-center justify-between gap-2 border-t border-border/70 px-4 py-3">
-          <div className="min-w-0 truncate text-xs text-muted-foreground">{currentPath}</div>
+          <div className="min-w-0 truncate text-xs text-muted-foreground">{displayPath(currentPath)}</div>
           <div className="flex shrink-0 items-center gap-2">
             <Button onClick={() => close()} size="sm" variant="ghost">
               {t.common.cancel}
@@ -214,7 +218,7 @@ function FolderRow({
 }) {
   return (
     <button
-      className="row-hover flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-(--ui-text-secondary) hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+      className="row-hover flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-start text-xs text-(--ui-text-secondary) hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
       disabled={disabled}
       onClick={onClick}
       type="button"

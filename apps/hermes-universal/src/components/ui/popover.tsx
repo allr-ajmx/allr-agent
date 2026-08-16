@@ -45,8 +45,12 @@ function PopoverContent({
         arrowPadding={arrowPadding}
         // Themed glass surface, viewport-aware (Radix flips/shifts off edges),
         // standard open/close motion. Border-only (no shadow).
+        //
+        // `--z-modal-popover`, not a bare `z-50` (MJXHRM-365): portaled to
+        // document.body, so this stacks against the dialog rung (130), not
+        // against its trigger. See dropdown-menu.tsx for the full reasoning.
         className={cn(
-          'z-50 w-72 origin-(--radix-popover-content-transform-origin) rounded-lg border border-(--ui-stroke-secondary) bg-[var(--popover-surface)] p-2 text-popover-foreground backdrop-blur-md outline-hidden data-[side=bottom]:slide-in-from-top-1 data-[side=left]:slide-in-from-right-1 data-[side=right]:slide-in-from-left-1 data-[side=top]:slide-in-from-bottom-1 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 [--popover-surface:color-mix(in_srgb,var(--ui-bg-elevated)_92%,transparent)]',
+          'z-(--z-modal-popover) w-72 origin-(--radix-popover-content-transform-origin) rounded-lg border border-(--ui-stroke-secondary) bg-[var(--popover-surface)] p-2 text-popover-foreground backdrop-blur-md outline-hidden data-[side=bottom]:slide-in-from-top-1 data-[side=left]:slide-in-from-right-1 data-[side=right]:slide-in-from-left-1 data-[side=top]:slide-in-from-bottom-1 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 [--popover-surface:color-mix(in_srgb,var(--ui-bg-elevated)_92%,transparent)]',
           className
         )}
         collisionPadding={collisionPadding}
@@ -65,6 +69,7 @@ function PopoverContent({
             the inner span and keep the solid --popover-surface. */}
         <PopoverPrimitive.Arrow asChild height={7} width={16}>
           <span className="relative block h-[7px] w-4 overflow-visible">
+            {/* eslint-disable-next-line better-tailwindcss/no-restricted-classes -- centring, not an edge — pairs with a physical -translate-x-1/2, and start-1/2 would resolve to right:50% while the transform still pulled left; and rotate-45 arrow geometry — two adjacent edges of a square, not an edge treatment */}
             <span className="absolute top-0 left-1/2 size-[11px] -translate-x-1/2 -translate-y-1/2 rotate-45 border-r border-b border-(--ui-stroke-secondary) bg-[var(--popover-surface)] backdrop-blur-md" />
           </span>
         </PopoverPrimitive.Arrow>

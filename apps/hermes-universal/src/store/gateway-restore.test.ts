@@ -92,7 +92,7 @@ describe('autoRestoreConnection', () => {
 // On Android the sign-in navigates ONE webview away and back, which reloads the SPA —
 // and that webview need not be the shell (Settings runs in its own activity). So the
 // resume has to re-home the others, or they keep serving the gateway we just left.
-describe('android oauth resume', () => {
+describe('mobile oauth resume', () => {
   it('finishes the connect and tells every other WebView', async () => {
     savePendingOAuth({ base: 'https://gw.b', username: 'admin' })
     vi.mocked(oauthStatus).mockResolvedValueOnce({ signedIn: true })
@@ -115,6 +115,23 @@ describe('android oauth resume', () => {
     await autoRestoreConnection()
 
     expect(broadcastGatewaySwitch).not.toHaveBeenCalled()
+    expect($restoring.get()).toBe(false)
+  })
+
+  // The resume must not care WHICH credential came back. A native (RFC 8252) sign-in
+  // leaves a bearer in the OS keyring and no cookie at all; the cookie cascade leaves
+  // the reverse. `oauth_status` collapses both to `signedIn`, and this pins that the
+  // frontend never looks past it — a resume that only understood cookies would send a
+  // user who just completed a native sign-in straight back through the login.
+  it('resumes a keyring-backed native session exactly like a cookie one', async () => {
+    savePendingOAuth({ base: 'https://gw.b', username: 'admin' })
+    vi.mocked(oauthStatus).mockResolvedValueOnce({ signedIn: true, sessionKind: 'native' })
+    saveGatewayTarget({ mode: 'remote', url: 'https://gw.b' })
+
+    await autoRestoreConnection()
+
+    expect(connect).toHaveBeenCalledWith({ url: 'https://gw.b', username: 'admin' })
+    expect(broadcastGatewaySwitch).toHaveBeenCalledWith('remote', expect.objectContaining({ url: 'https://gw.b' }))
     expect($restoring.get()).toBe(false)
   })
 

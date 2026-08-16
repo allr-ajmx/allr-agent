@@ -2,10 +2,17 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { registerTiles } from '@/components/pane-shell/tile/registry'
 import type { Tile } from '@/components/pane-shell/tile/types'
-import { group, split } from '@/components/pane-shell/tree/model'
-import { $activeTreeGroup, $layoutTree, noteActiveTreeGroup } from '@/components/pane-shell/tree/store'
+import { findGroup, group, split } from '@/components/pane-shell/tree/model'
+import {
+  $activeTreeGroup,
+  $layoutTree,
+  moveTreePane,
+  noteActiveTreeGroup,
+  reorderTreePanes
+} from '@/components/pane-shell/tree/store'
 import { isChatPaneId, sessionTilePaneId, WORKSPACE_PANE_ID } from '@/lib/pane-ids'
-import { $activeStoredSessionId } from '@/store/session'
+import { $compactingSessions, sessionCompacting, setSessionCompacting } from '@/store/compaction'
+import { $activeStoredSessionId, $sessions } from '@/store/session'
 import {
   $activeSessionKey,
   $sessionStates,
@@ -23,12 +30,20 @@ import {
   $focusedCwd,
   $sessionTiles,
   clearAllSessionStates,
+  closeSessionTile,
   focusOpenSession,
   focusWorkspaceSession,
+  invalidateRuntimeBindings,
   MAX_CACHED_SESSIONS,
-  pruneSessionStates
+  openBranchTile,
+  openSessionTile,
+  pruneSessionStates,
+  reopenLastClosedTile
 } from '@/store/session-states'
+import { $subagentsBySession, allSubagents, upsertSubagent } from '@/store/subagents'
+import { $inflightTurns, beginTurn, isTurnLive } from '@/store/turn-lifecycle'
 import { $effectiveCwd, $workspaceCwd } from '@/store/workspace-events'
+import type { SessionInfo } from '@/types/hermes'
 
 const seed = (key: string, patch: Partial<ReturnType<typeof emptySessionState>> = {}) =>
   publishSessionState(key, { ...emptySessionState(patch.storedSessionId ?? key), runtimeSessionId: key, ...patch })
@@ -269,6 +284,248 @@ describe('focusWorkspaceSession', () => {
     expect(focusOpenSession('loaded')).toBe(true)
     expect($activeTreeGroup.get()).toBe(CHAT_GROUP)
   })
+
+  /**
+   * WHERE A BRANCH LANDS (MJXHRM-388).
+   *
+   * Two failures, one helper. Contributing a tile only gets its pane ADOPTED,
+   * and adoption is silent by design (`insertAtGroup(..., activate: false)`), so
+   * the branch was stacked behind the chat it came from and the screen did not
+   * change — the "never foregrounds the new tab" this ticket is named for. And
+   * with no anchor a tile docks against the workspace, so branching a chat that
+   * is itself a tile in another zone put the branch where the user was not
+   * looking.
+   */
+  describe('openBranchTile', () => {
+    it('fronts the branch and claims its zone', () => {
+      const branch = sessionTilePaneId('branch-1')
+      seedTree([WORKSPACE_PANE_ID, branch], WORKSPACE_PANE_ID)
+
+      openBranchTile('branch-1', null)
+
+      expect(findGroup($layoutTree.get()!, CHAT_GROUP)?.active).toBe(branch)
+      expect($activeTreeGroup.get()).toBe(CHAT_GROUP)
+    })
+
+    it('anchors the branch to the PARENT strip when the parent is a tile', () => {
+      seedTree([WORKSPACE_PANE_ID])
+      $sessionTiles.set([{ dir: 'center', storedSessionId: 'parent-1' }])
+
+      openBranchTile('branch-1', 'parent-1')
+
+      expect($sessionTiles.get().find(t => t.storedSessionId === 'branch-1')).toMatchObject({
+        anchor: sessionTilePaneId('parent-1'),
+        dir: 'center'
+      })
+    })
+
+    it('falls back to the workspace strip when the parent is the main chat', () => {
+      seedTree([WORKSPACE_PANE_ID])
+
+      openBranchTile('branch-1', 'parent-1')
+
+      expect($sessionTiles.get().find(t => t.storedSessionId === 'branch-1')).toMatchObject({
+        anchor: WORKSPACE_PANE_ID,
+        dir: 'center'
+      })
+    })
+  })
+
+  /**
+   * MJXHRM-423 — "Open in tile" asks about a CONVERSATION, not an id.
+   *
+   * A tile keeps the id its chat was opened with; auto-compression rotates the
+   * live one. So the sidebar row of a compacted chat names it `tip` while the
+   * tile already showing it is keyed on `root` — and matching on identity
+   * contributed a SECOND pane onto the same `$sessionStates` slice, two tabs
+   * fighting over one live conversation.
+   */
+  describe('openSessionTile — one tile per conversation', () => {
+    afterEach(() => {
+      $sessions.set([])
+    })
+
+    it('reveals the tile already open under the lineage root rather than adding a second', () => {
+      seedTree([WORKSPACE_PANE_ID, sessionTilePaneId('root')], WORKSPACE_PANE_ID)
+      $sessions.set([{ _lineage_root_id: 'root', id: 'tip' } as SessionInfo])
+      $sessionTiles.set([{ dir: 'right', storedSessionId: 'root' }])
+
+      openSessionTile('tip', 'center')
+
+      expect($sessionTiles.get().map(t => t.storedSessionId)).toEqual(['root'])
+      // ...and the re-dock landed on the tile's OWN key: its pane id and its
+      // record are both on `root`, so patching under `tip` would have written a
+      // dock nothing reads.
+      expect($sessionTiles.get()[0].dir).toBe('center')
+    })
+
+    it('never opens a tile for the conversation already loaded in main', () => {
+      seedTree([WORKSPACE_PANE_ID])
+      $sessions.set([{ _lineage_root_id: 'root', id: 'tip' } as SessionInfo])
+      $activeStoredSessionId.set('tip')
+
+      openSessionTile('root')
+
+      expect($sessionTiles.get()).toEqual([])
+    })
+
+    it('still opens a tile for a genuinely different session', () => {
+      seedTree([WORKSPACE_PANE_ID])
+      $sessions.set([{ _lineage_root_id: 'root', id: 'tip' } as SessionInfo])
+      $sessionTiles.set([{ dir: 'right', storedSessionId: 'root' }])
+
+      openSessionTile('unrelated')
+
+      expect($sessionTiles.get().map(t => t.storedSessionId)).toEqual(['root', 'unrelated'])
+    })
+  })
+
+  /**
+   * ⌘⇧T asks the same question (MJXHRM-423). The closed-tab stack holds the key
+   * a tile had when it CLOSED, and a compaction since then moves the
+   * conversation onto a new id — so both of its "is this live again?" guards
+   * missed, and ⌘⇧T SPENT itself on a chat that was already on screen: the pop
+   * returned, and the tab the user actually wanted back stayed closed.
+   *
+   * That is what these assert. A duplicate tile is `openSessionTile`'s guard and
+   * is covered above; what only this function can get wrong is which entry of
+   * the stack the keystroke consumes, so each case stacks a second, genuinely
+   * closed tab UNDER the decoy and expects it back.
+   *
+   * The stack is module-level and LIFO, so each case pushes its own two entries
+   * immediately before reopening and names the key it expects rather than
+   * asserting on the whole list, which still carries whatever earlier tests left
+   * below.
+   */
+  describe('reopenLastClosedTile — one tab per conversation', () => {
+    afterEach(() => {
+      $sessions.set([])
+    })
+
+    /** A genuinely closed tab, then a compacted one closed on top of it. */
+    const stackDecoyOver = (wanted: string) => {
+      seedTree([WORKSPACE_PANE_ID])
+      $sessions.set([{ _lineage_root_id: 'root', id: 'tip' } as SessionInfo])
+      $sessionTiles.set([
+        { dir: 'right', storedSessionId: wanted },
+        { dir: 'right', storedSessionId: 'root' }
+      ])
+      closeSessionTile(wanted)
+      closeSessionTile('root')
+      $sessionTiles.set([])
+    }
+
+    it('moves past a tab whose conversation is open again under its live tip', () => {
+      stackDecoyOver('wanted-1')
+      $sessionTiles.set([{ dir: 'right', storedSessionId: 'tip' }])
+
+      reopenLastClosedTile()
+
+      expect($sessionTiles.get().map(t => t.storedSessionId)).toContain('wanted-1')
+    })
+
+    it('moves past a tab whose conversation is now the primary', () => {
+      stackDecoyOver('wanted-2')
+      $activeStoredSessionId.set('tip')
+
+      reopenLastClosedTile()
+
+      expect($sessionTiles.get().map(t => t.storedSessionId)).toContain('wanted-2')
+    })
+
+    it('still restores the top of the stack when its conversation is genuinely gone', () => {
+      stackDecoyOver('wanted-3')
+
+      reopenLastClosedTile()
+
+      expect($sessionTiles.get().map(t => t.storedSessionId)).toContain('root')
+      expect($sessionTiles.get().map(t => t.storedSessionId)).not.toContain('wanted-3')
+    })
+  })
+
+  /**
+   * MJXHRM-404 — the persisted tile list must follow the order on SCREEN.
+   *
+   * `$sessionTiles` is a second list beside the layout tree, and two things read
+   * its ORDER rather than the tree's: `stackSessionTilesIntoMain` (the layout
+   * RESET handler) restacks tiles by walking it front to back, and `paneMirror`
+   * docks panes in array order when the tree holds none for them.
+   *
+   * `syncTileStripOrder` existed for exactly that and ran from ONE caller —
+   * `openSessionTile`'s move branch — so every other way the on-screen order
+   * changes (drag a tab within a strip, drag one between zones, the zone menu's
+   * Move, a zone merge) left the list stale: arrange three tabs by hand, hit
+   * Reset, and they come back in the order they were OPENED in. It is now hung
+   * off `$layoutTree` itself, which is what these pin — the invariant belongs to
+   * the tree changing, not to the callers that happened to be written first.
+   */
+  describe('tile strip order follows the layout tree', () => {
+    const tiles = (...ids: string[]) =>
+      $sessionTiles.set(ids.map(id => ({ dir: 'right' as const, storedSessionId: id })))
+
+    const order = () => $sessionTiles.get().map(t => t.storedSessionId)
+
+    it('re-orders the persisted list when a tab is dragged within its strip', () => {
+      seedTree([WORKSPACE_PANE_ID, sessionTilePaneId('a'), sessionTilePaneId('b'), sessionTilePaneId('c')])
+      tiles('a', 'b', 'c')
+
+      // The drag a tab strip commits: move `c` in front of `a`.
+      reorderTreePanes(CHAT_GROUP, [sessionTilePaneId('c')], sessionTilePaneId('a'))
+
+      expect(order()).toEqual(['c', 'a', 'b'])
+    })
+
+    it('re-orders when a tab is moved into ANOTHER zone, reading both zones in tree order', () => {
+      seedTree([WORKSPACE_PANE_ID, sessionTilePaneId('a'), sessionTilePaneId('b')])
+      tiles('a', 'b')
+
+      // `a` leaves the chat zone for the tool zone, which the tree walks SECOND.
+      moveTreePane(sessionTilePaneId('a'), { groupId: TOOL_GROUP, pos: 'center' })
+
+      expect(order()).toEqual(['b', 'a'])
+    })
+
+    it('leaves the list untouched when a tree write moves no tile', () => {
+      seedTree([WORKSPACE_PANE_ID, sessionTilePaneId('a'), sessionTilePaneId('b')])
+      tiles('a', 'b')
+
+      const before = $sessionTiles.get()
+
+      reorderTreePanes(TOOL_GROUP, ['terminal'], null)
+
+      // Same ARRAY identity: `orderTilesByTree` answers null and nothing is
+      // written. A sync that rewrote the list on every commit would churn
+      // localStorage on every tab activate and every sash release.
+      expect($sessionTiles.get()).toBe(before)
+    })
+
+    it('keeps a tile the tree has no pane for, rather than dropping it', () => {
+      seedTree([WORKSPACE_PANE_ID, sessionTilePaneId('b')])
+      tiles('a', 'b')
+
+      reorderTreePanes(CHAT_GROUP, [sessionTilePaneId('b')], WORKSPACE_PANE_ID)
+
+      // `a` is mid-registration, or belongs to a pane the tree lost. It ranks
+      // LAST rather than vanishing: this function orders a list, and must never
+      // be the thing that closes a tab.
+      expect(order()).toEqual(['b', 'a'])
+    })
+
+    it('still re-orders when an open tile is re-docked — the branch that used to do it by hand', () => {
+      seedTree([WORKSPACE_PANE_ID, sessionTilePaneId('a'), sessionTilePaneId('b')], WORKSPACE_PANE_ID)
+      // Seeded DISAGREEING with the tree on purpose. Seeding it already-correct
+      // made this case pass with the sync torn out entirely — it asserted an
+      // order that was there before the act under test.
+      tiles('b', 'a')
+
+      // Re-dock `a` ahead of the workspace tab. The tree moves, so the list has
+      // to follow even though `openSessionTile` no longer re-orders itself.
+      openSessionTile('a', 'left', WORKSPACE_PANE_ID, WORKSPACE_PANE_ID)
+
+      expect(order()).toEqual(['a', 'b'])
+      expect($sessionTiles.get().find(t => t.storedSessionId === 'a')?.dir).toBe('left')
+    })
+  })
 })
 
 // The directory the workspace surfaces (file tree, review, terminal, statusbar)
@@ -363,5 +620,87 @@ describe('$focusedCwd', () => {
       noteActiveTreeGroup(null)
       expect($focusedChatPane.get()).toBe(WORKSPACE_PANE_ID)
     })
+  })
+})
+
+// Both callers of the wipe — a profile switch and the soft gateway switch — are
+// moving to a backend that never issued these runtime ids, so any turn record
+// left behind is one nothing can settle, reconcile or find a slice for.
+describe('clearAllSessionStates', () => {
+  it('takes the in-flight turns with it', () => {
+    seed('runtime-1', { storedSessionId: 'stored-1' })
+    beginTurn('runtime-1', { prompt: 'still running' })
+
+    expect(isTurnLive('runtime-1')).toBe(true)
+
+    clearAllSessionStates()
+
+    expect($inflightTurns.get()).toEqual({})
+    expect(isTurnLive('runtime-1')).toBe(false)
+  })
+
+  // MJXHRM-357: the THIRD keyed side-store, and the one this wipe forgot.
+  // Nothing else could ever release it — the settle observer only fires for
+  // turns, and the turn wipe above replaces its atom wholesale without emitting
+  // one — so a compaction live at the moment of a profile switch stayed set
+  // forever under a runtime id the new backend will never issue.
+  it('takes the compaction state with it', () => {
+    seed('runtime-1', { storedSessionId: 'stored-1' })
+    setSessionCompacting('runtime-1', true)
+
+    expect(sessionCompacting('runtime-1').get()).toBe(true)
+
+    clearAllSessionStates()
+
+    expect(sessionCompacting('runtime-1').get()).toBe(false)
+    expect($compactingSessions.get()).toEqual({})
+  })
+
+  // MJXHRM-401: the FOURTH, and the second one this wipe forgot. Worse than
+  // inert — `allSubagents` flattens the map across every session, so the Agents
+  // overlay went on rendering the previous profile's children (still spinning,
+  // since nothing can complete them any more) and the status bar went on
+  // counting them as work in flight.
+  it('takes the spawn tree with it', () => {
+    seed('runtime-1', { storedSessionId: 'stored-1' })
+    upsertSubagent('runtime-1', { subagent_id: 'a', goal: 'digging', status: 'running' }, true, 'subagent.start')
+
+    expect(allSubagents($subagentsBySession.get())).toHaveLength(1)
+
+    clearAllSessionStates()
+
+    expect($subagentsBySession.get()).toEqual({})
+  })
+})
+
+// MJXHRM-358. This runs on every WS re-open. It used to null every slice's
+// `runtimeSessionId` on the theory that each surface would re-resume its own
+// session — but the main pane has no such path, the tile path short-circuits on
+// a warm slice without touching the field, and nothing else ever wrote it back.
+// A persisted conversation was then indistinguishable from a DRAFT for the rest
+// of the process, and `ensureSession` answered the next message with
+// `session.create`.
+describe('invalidateRuntimeBindings', () => {
+  it('keeps the runtime binding and clears only the stale liveness', () => {
+    seed('runtime-1', { storedSessionId: 'stored-1', busy: true, turnStartedAt: 1_000 })
+
+    invalidateRuntimeBindings()
+
+    expect($sessionStates.get()['runtime-1']).toMatchObject({
+      runtimeSessionId: 'runtime-1',
+      storedSessionId: 'stored-1',
+      busy: false,
+      turnStartedAt: null
+    })
+  })
+
+  // A draft carries a turn too (`beginTurn` fires before the submit leaves), and
+  // its spinner is just as stranded by a drop as a bound session's.
+  it('clears the liveness of a slice that has no runtime id yet', () => {
+    seed('draft:9', { runtimeSessionId: null, storedSessionId: null, busy: true, turnStartedAt: 2_000 })
+
+    invalidateRuntimeBindings()
+
+    expect($sessionStates.get()['draft:9']).toMatchObject({ busy: false, turnStartedAt: null })
   })
 })

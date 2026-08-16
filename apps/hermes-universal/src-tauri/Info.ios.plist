@@ -11,11 +11,46 @@
   programmatically, so only the "supports multiple scenes" flag is needed here; no
   UISceneConfigurations entry. `app.supports_multiple_windows()` and tao's
   scene-request path both read this key.
+
+  NSAppTransportSecurity lets the WEBVIEW load a cleartext gateway. Without it ATS
+  refuses every http:// load in WKWebView silently — `webview.navigate()` returns Ok
+  (the call only queues a message), the page never changes, and the interactive
+  sign-in waits for a callback that can never arrive until its budget runs out.
+  It also covers the RFC 8252 sign-in's own `http://127.0.0.1:<port>/callback`, which
+  the WebView loads from the listener this process bound (src-tauri/src/oauth.rs) —
+  NSAllowsLocalNetworking would carry that one alone, but not the gateway.
+  It looked like "tapping Sign in does nothing", and it is the one failure the Rust
+  side cannot see: reqwest uses raw sockets, not NSURLSession, so ATS never touches
+  it and /api/status, /api/auth/me and the whole gateway connection work over http
+  regardless. Only the login page was blocked.
+
+  Android has had the same opt-in all along — gen/android/app/build.gradle.kts sets
+  `usesCleartextTraffic` true for the debug buildType — which is precisely why this
+  flow worked there and not here.
+
+  NSAllowsArbitraryLoadsInWebContent is the narrowest key that can work: it lifts ATS
+  for WKWebView ONLY, leaving NSURLSession under full ATS. NSExceptionDomains is not
+  an option — the gateway host is whatever the user typed (any LAN address, any
+  Tailscale name), so there is no static list to write. NSAllowsLocalNetworking does
+  not cover it either: it reaches .local, unqualified names and loopback, but not raw
+  private-IP literals, and Tailscale's 100.64.0.0/10 is CGNAT rather than local
+  networking at all. It is kept alongside for the .local / loopback cases.
+
+  App Store note: NSAllowsArbitraryLoadsInWebContent can draw a justification request
+  at review. The justification is real — this app connects to gateways its user runs
+  on their own private network, which cannot carry a publicly trusted certificate.
 -->
 <plist version="1.0">
 <dict>
   <key>NSMicrophoneUsageDescription</key>
   <string>Hermes uses the microphone for voice conversations.</string>
+  <key>NSAppTransportSecurity</key>
+  <dict>
+    <key>NSAllowsArbitraryLoadsInWebContent</key>
+    <true/>
+    <key>NSAllowsLocalNetworking</key>
+    <true/>
+  </dict>
   <key>UIApplicationSceneManifest</key>
   <dict>
     <key>UIApplicationSupportsMultipleScenes</key>

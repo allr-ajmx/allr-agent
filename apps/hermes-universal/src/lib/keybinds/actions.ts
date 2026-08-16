@@ -30,6 +30,13 @@ export interface KeybindActionMeta {
   defaults: readonly string[]
   /** Display label for CONTRIBUTED actions (built-ins use i18n). */
   label?: string
+  /**
+   * Claim this action's combo from the OPERATING SYSTEM, so it fires while
+   * Hermes is in the background (`lib/keybinds/global-shortcut.ts`). Desktop
+   * only, and exclusive machine-wide — which is exactly why it goes through this
+   * registry: a chord taken from every other app has to be rebindable.
+   */
+  global?: boolean
 }
 
 // Positional switch slots for *named* profiles: ⌘1…⌘9 for profiles 1-9, then
@@ -63,7 +70,11 @@ export const KEYBIND_ACTIONS: readonly KeybindActionMeta[] = [
   // Soft defaults: gated by `composerFocusKeysAllowed` so dialogs, menus, the
   // terminal and a live clarify card keep those keys.
   { id: 'composer.focus', category: 'composer', defaults: ['/', 'enter'] },
-  { id: 'composer.modelPicker', category: 'composer', defaults: [] },
+  // ⌘⇧M — "m" for model; the convention chat apps converged on (LibreChat,
+  // Open WebUI and Cherry Studio all ship the same chord). It shipped UNBOUND
+  // here only because universal had no picker to raise; `ModelPickerOverlay`
+  // (app/model-picker-overlay) is that surface, so the chord is live again.
+  { id: 'composer.modelPicker', category: 'composer', defaults: ['mod+shift+m'] },
   // Voice conversation toggle — ⌥B, keeping the "b" of the documented
   // `voice.record_key` but on Alt rather than Control. `ctrl+b` folds to `mod`
   // off macOS, where it IS the ⌘B/Ctrl+B sidebar chord, so it could only ever
@@ -97,6 +108,10 @@ export const KEYBIND_ACTIONS: readonly KeybindActionMeta[] = [
   { id: 'session.togglePin', category: 'session', defaults: [] },
   // ⌘⇧B — "b" for branch: spin up a new git worktree from the active repo.
   { id: 'workspace.newWorktree', category: 'session', defaults: ['mod+shift+b'] },
+  // ⌘O — the editor's universal "open" chord. Desktop reaches this from its
+  // native File menu too; universal has no menu bar, so the keybind and the ⌘K
+  // row are the two doors.
+  { id: 'workspace.openFolder', category: 'session', defaults: ['mod+o'] },
 
   // ── Navigation ───────────────────────────────────────────────────────────
   { id: 'nav.commandPalette', category: 'navigation', defaults: ['mod+k', 'mod+p'] },
@@ -118,6 +133,13 @@ export const KEYBIND_ACTIONS: readonly KeybindActionMeta[] = [
   // ⌘G — "g" for git; the review pane is the source-control view.
   { id: 'view.toggleReview', category: 'view', defaults: ['mod+g'] },
   { id: 'view.showFiles', category: 'view', defaults: [] },
+  // ⌘F — find in the rendered page (the engine's own search, not a DOM scan).
+  // ⌘G / ⌘⇧G step while the bar is open; those two are handled by the bar
+  // itself (see `findBarClaimsCombo`) rather than as registry actions, because
+  // ⌘G already belongs to the review pane when the bar is closed.
+  { id: 'view.findInPage', category: 'view', defaults: ['mod+f'] },
+  { id: 'view.findNext', category: 'view', defaults: [] },
+  { id: 'view.findPrevious', category: 'view', defaults: [] },
   // Control+` everywhere (literal `ctrl`, NOT `mod`): ⌘` is macOS-reserved for
   // cycling app windows, so VS Code/Cursor/Zed bind the terminal to Ctrl+` on
   // every platform. Off macOS `ctrl` folds to `mod` (= Ctrl), so it's unchanged.
@@ -125,7 +147,8 @@ export const KEYBIND_ACTIONS: readonly KeybindActionMeta[] = [
   { id: 'view.showTerminal', category: 'view', defaults: ['ctrl+`'] },
   { id: 'view.newTerminal', category: 'view', defaults: ['ctrl+shift+`'] },
   // Same Ctrl(+Shift) terminal family: arrows walk the (vertical) tab rail, W
-  // kills the active one. ⌘W is taken (close preview tab) and ⌘⇧[ ] are profiles,
+  // kills the active one. ⌘W is taken (close the focused ZONE's tab — a preview
+  // tab is one of those now, so it has no rung of its own) and ⌘⇧[ ] are profiles,
   // so these stay on `ctrl` — distinct on macOS, folding to Ctrl elsewhere.
   { id: 'view.nextTerminal', category: 'view', defaults: ['ctrl+shift+down'] },
   { id: 'view.prevTerminal', category: 'view', defaults: ['ctrl+shift+up'] },
@@ -139,6 +162,26 @@ export const KEYBIND_ACTIONS: readonly KeybindActionMeta[] = [
   { id: 'view.closeTab', category: 'view', defaults: ['mod+w'] },
   { id: 'view.reopenTab', category: 'view', defaults: ['mod+shift+t'] },
   { id: 'appearance.toggleMode', category: 'view', defaults: ['shift+x'] },
+  // Summon the HUD — the floating second surface (MJXHRM-213). `global` claims
+  // the chord from the OS so it answers from inside another application, which
+  // is the entire point of that surface.
+  //
+  // Bound by default since MJXHRM-213 gave it a surface worth summoning. A
+  // default chord taken from every other app on the machine has to buy
+  // something, and by then it did.
+  { id: 'view.toggleHud', category: 'view', defaults: ['mod+shift+h'], global: true },
+  // Summon Quick Entry — the one-line capture surface (MJXHRM-384). `global` for
+  // the same reason the HUD's is: a composer you can only reach from inside
+  // Hermes is the composer Hermes already has.
+  //
+  // Shipped UNBOUND. Desktop's default was CommandOrControl+Shift+Space, which
+  // on this platform set is Spotlight's neighbour, several input-method
+  // switchers, and at least one screen recorder — and unlike an in-app binding,
+  // a global claim takes the chord from every other application on the machine.
+  // Universal already has the right place to choose one: Settings ▸ Keyboard
+  // shortcuts binds this row, validates the combo and shows conflicts, which is
+  // also why this port has no bespoke shortcut field of its own.
+  { id: 'view.toggleQuickEntry', category: 'view', defaults: [], global: true },
   { id: 'keybinds.openPanel', category: 'view', defaults: ['mod+/'] }
 ]
 
@@ -185,6 +228,11 @@ export function allKeybindActions(): KeybindActionMeta[] {
   ]
 }
 
+/** The actions whose combos are claimed from the OS rather than the DOM. */
+export function globalKeybindActions(): KeybindActionMeta[] {
+  return allKeybindActions().filter(action => action.global)
+}
+
 export function keybindAction(id: string): KeybindActionMeta | undefined {
   return ACTION_BY_ID.get(id) ?? allKeybindActions().find(action => action.id === id)
 }
@@ -213,7 +261,11 @@ export interface KeybindReadonly {
 export const KEYBIND_READONLY: readonly KeybindReadonly[] = [
   { id: 'composer.send', category: 'composer', keys: ['enter'] },
   { id: 'composer.newline', category: 'composer', keys: ['shift+enter'] },
-  { id: 'composer.steer', category: 'composer', keys: ['mod+enter'] },
+  // Enter is overloaded on purpose: it SENDS an idle chat and STEERS a running
+  // one, so the primary key always does the primary thing. mod+Enter is the
+  // explicit "don't interrupt, line this up next".
+  { id: 'composer.steer', category: 'composer', keys: ['enter'] },
+  { id: 'composer.queue', category: 'composer', keys: ['mod+enter'] },
   { id: 'composer.sendQueued', category: 'composer', keys: ['mod+shift+k'] },
   { id: 'composer.mention', category: 'composer', keys: ['@'] },
   { id: 'composer.slash', category: 'composer', keys: ['/'] },

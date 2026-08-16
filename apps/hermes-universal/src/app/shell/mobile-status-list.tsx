@@ -1,3 +1,5 @@
+import { cva } from 'class-variance-authority'
+import { useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { useStatusbarContributions } from '@/app/contrib/surfaces'
@@ -9,6 +11,11 @@ import { useI18n } from '@/i18n'
 import { Settings, Users } from '@/lib/icons'
 import { cn } from '@/lib/utils'
 import { openProfilesScreen, openSettingsScreen } from '@/store/windows'
+
+/** MobileStatusList CVA (MJXHRM-315). */
+export const mobileStatusListVariants = cva('flex min-h-0 flex-1 flex-col overflow-y-auto px-2.5 py-2')
+export const mobileStatusSectionVariants = cva('pt-4 first:pt-2')
+export const mobileStatusRowsVariants = cva('flex flex-col gap-px')
 
 // Bar-layout class that only makes sense as a compact icon-only square; stripped
 // when re-rendering those items as full-width rows.
@@ -71,6 +78,41 @@ function toRow(item: StatusbarItem): StatusbarItem {
   return { ...item, className, label }
 }
 
+/**
+ * One row of the list.
+ *
+ * This component exists ONLY to give the reshaped descriptor a stable identity
+ * (MJXHRM-303). `toRow` spreads its input, so calling it inline in the list body
+ * handed `StatusbarItemView` a brand-new object on every render — discarding, at
+ * the very last hop, the whole per-item restructure `useStatusbarItems` does
+ * upstream. The phone never mounts `<Statusbar/>`, so this list is the only
+ * surface those items reach on mobile: the memo was dead in the one root that
+ * matters there, on every one of the ~20 stores the hook subscribes to.
+ *
+ * Deliberately NOT wrapped in `memo()`. Re-running two `useMemo` lookups is
+ * cheap, and `StatusbarItemView`'s own memo is the boundary that bails — one
+ * comparison per row, in the place the ticket put it.
+ */
+function MobileStatusRow({
+  item,
+  light,
+  navigate
+}: {
+  item: StatusbarItem
+  /** Sections whose labels read calmer (see LIGHT_LABEL_SECTIONS). */
+  light: boolean
+  navigate: ReturnType<typeof useNavigate>
+}) {
+  const rowItem = useMemo(() => toRow(item), [item])
+
+  const finalItem = useMemo(
+    () => (light ? { ...rowItem, className: cn(rowItem.className, 'font-normal') } : rowItem),
+    [light, rowItem]
+  )
+
+  return <StatusbarItemView item={finalItem} navigate={navigate} row />
+}
+
 // The mobile Status tab: the full status-bar inventory (see useStatusbarItems,
 // `rich`) as vertical nav-styled rows, grouped into Session / Status / System
 // sections with sidebar-style headers.
@@ -92,73 +134,86 @@ export function MobileStatusList() {
 
   // Open Settings — appended to the System section (opens the Settings activity on
   // Android, the in-app overlay elsewhere). A synthetic action item so it renders
-  // identically to the other System rows (command-center).
-  const openSettingsRow: StatusbarItem = {
-    icon: <Settings className="size-3.5" />,
-    id: 'open-settings',
-    label: t.titlebar.openSettings,
-    onSelect: () => void openSettingsScreen(),
-    title: t.titlebar.openSettings,
-    variant: 'action'
-  }
+  // identically to the other System rows (command-center). Memoized like every
+  // other descriptor here: these two go straight into `StatusbarItemView`, so a
+  // fresh literal per render is a guaranteed memo miss (MJXHRM-303).
+  const openSettingsRow: StatusbarItem = useMemo(
+    () => ({
+      icon: <Settings className="size-3.5" />,
+      id: 'open-settings',
+      label: t.titlebar.openSettings,
+      onSelect: () => void openSettingsScreen(),
+      title: t.titlebar.openSettings,
+      variant: 'action'
+    }),
+    [t.titlebar.openSettings]
+  )
 
   // Profiles — the third windowable screen; opens the Profiles surface (native
   // screen activity on Android, in-app overlay elsewhere).
-  const openProfilesRow: StatusbarItem = {
-    icon: <Users className="size-3.5" />,
-    id: 'open-profiles',
-    label: t.profiles.title,
-    onSelect: () => void openProfilesScreen(),
-    title: t.profiles.title,
-    variant: 'action'
-  }
+  const openProfilesRow: StatusbarItem = useMemo(
+    () => ({
+      icon: <Users className="size-3.5" />,
+      id: 'open-profiles',
+      label: t.profiles.title,
+      onSelect: () => void openProfilesScreen(),
+      title: t.profiles.title,
+      variant: 'action'
+    }),
+    [t.profiles.title]
+  )
 
-  const byId = new Map<string, StatusbarItem>()
+  // Section assembly, memoized on the two groups. It allocates a Map, a Set and
+  // four arrays, and the hook above re-runs on ~20 stores — the groups only
+  // change identity when an item in them actually changed, so this now runs once
+  // per real change instead of once per store write.
+  const sections = useMemo(() => {
+    const byId = new Map<string, StatusbarItem>()
 
-  for (const item of [...leftStatusbarItems, ...statusbarItems]) {
-    if (!item.hidden) {
-      byId.set(item.id, item)
+    for (const item of [...leftStatusbarItems, ...statusbarItems]) {
+      if (!item.hidden) {
+        byId.set(item.id, item)
+      }
     }
-  }
 
-  const claimed = new Set(SECTIONS.flatMap(section => section.ids))
+    const claimed = new Set(SECTIONS.flatMap(section => section.ids))
 
-  // Anything not claimed by a SECTION used to be dropped silently. SECTIONS covers
-  // every other core id useStatusbarItems emits, so this bucket is the core
-  // `plugins` row — pinned first, whichever group it came from — followed by the
-  // `statusBar.*` contributions in insertion order (left group, then right).
-  const unclaimed = [...byId.values()].filter(item => !claimed.has(item.id) && !HIDDEN_IDS.has(item.id))
-  const manageRow = unclaimed.find(item => item.id === 'plugins')
+    // Anything not claimed by a SECTION used to be dropped silently. SECTIONS covers
+    // every other core id useStatusbarItems emits, so this bucket is the core
+    // `plugins` row — pinned first, whichever group it came from — followed by the
+    // `statusBar.*` contributions in insertion order (left group, then right).
+    const unclaimed = [...byId.values()].filter(item => !claimed.has(item.id) && !HIDDEN_IDS.has(item.id))
+    const manageRow = unclaimed.find(item => item.id === 'plugins')
 
-  const contributed = [...(manageRow ? [manageRow] : []), ...unclaimed.filter(item => item.id !== 'plugins')]
+    const contributed = [...(manageRow ? [manageRow] : []), ...unclaimed.filter(item => item.id !== 'plugins')]
 
-  const sections = [
-    ...SECTIONS.map(section => ({
-      title: section.title,
-      items: section.ids.map(id => byId.get(id)).filter((item): item is StatusbarItem => Boolean(item))
-    })),
-    { title: PLUGINS_SECTION, items: contributed }
-  ].filter(section => section.items.length > 0)
+    return [
+      ...SECTIONS.map(section => ({
+        title: section.title,
+        items: section.ids.map(id => byId.get(id)).filter((item): item is StatusbarItem => Boolean(item))
+      })),
+      { title: PLUGINS_SECTION, items: contributed }
+    ].filter(section => section.items.length > 0)
+  }, [leftStatusbarItems, statusbarItems])
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-2.5 py-2">
+    <div className={mobileStatusListVariants()} data-slot="mobile-status-list">
       {sections.map(section => (
         // Extra top space separates a section's heading from the previous
         // section's rows; the first section keeps a smaller gap under the tab bar.
-        <div className="pt-4 first:pt-2" key={section.title}>
+        <div className={mobileStatusSectionVariants()} key={section.title}>
           <div className="flex shrink-0 items-center pb-2 pt-1.5">
             <SidebarPanelLabel>{section.title}</SidebarPanelLabel>
           </div>
-          <div className="flex flex-col gap-px">
-            {section.items.map(item => {
-              const rowItem = toRow(item)
-
-              const finalItem = LIGHT_LABEL_SECTIONS.has(section.title)
-                ? { ...rowItem, className: cn(rowItem.className, 'font-normal') }
-                : rowItem
-
-              return <StatusbarItemView item={finalItem} key={item.id} navigate={navigate} row />
-            })}
+          <div className={mobileStatusRowsVariants()}>
+            {section.items.map(item => (
+              <MobileStatusRow
+                item={item}
+                key={item.id}
+                light={LIGHT_LABEL_SECTIONS.has(section.title)}
+                navigate={navigate}
+              />
+            ))}
             {/* The screen switcher (Open Settings · Profiles) sits at the end of
                 the System section, next to Command Center. */}
             {section.title === 'System' && (

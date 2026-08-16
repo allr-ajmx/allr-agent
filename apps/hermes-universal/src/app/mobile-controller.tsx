@@ -6,6 +6,7 @@ import { CommandCenterView } from '@/app/command-center'
 import { ConnectScreen } from '@/app/connect-screen'
 import { CronView } from '@/app/cron'
 import { GatewayConnectingScreen } from '@/app/gateway/gateway-connecting-screen'
+import { ModelPickerOverlay } from '@/app/model-picker-overlay'
 import { ModelVisibilityOverlay } from '@/app/model-visibility-overlay'
 import { OnboardingScreen } from '@/app/onboarding/onboarding-screen'
 import { FloatingPet } from '@/app/pet/floating-pet'
@@ -13,13 +14,16 @@ import { ProfilesView } from '@/app/profiles'
 import { ProviderConnectOverlay } from '@/app/settings/provider-connect-overlay'
 import { SettingsView } from '@/app/settings/settings-view'
 import { StarmapView } from '@/app/starmap'
+import { WebhooksView } from '@/app/webhooks'
 import { NotificationStack } from '@/components/notifications'
+import { useKeyboardInset } from '@/hooks/use-keyboard-inset'
 import { useMediaQuery } from '@/hooks/use-media-query'
 import { IS_DESKTOP, IS_MOBILE } from '@/lib/platform'
 import { useStore } from '@/store/atom'
 import { $connectionPhase, $hasConnected } from '@/store/connection'
 import { $restoring } from '@/store/gateway-restore'
 import { $gatewaySwitching } from '@/store/gateway-switch'
+import { startLiveSessionSync } from '@/store/live-session-status'
 import { $onboardingActive, checkConfigured } from '@/store/onboarding'
 import { syncPetInfo } from '@/store/pet-gallery'
 import { deleteSessionLocal } from '@/store/session'
@@ -51,6 +55,18 @@ export function MobileController() {
   const hasConnected = useStore($hasConnected)
   const switching = useStore($gatewaySwitching)
   const statusbarVisible = useStore($statusbarVisible)
+
+  // Publishes --visual-viewport-{height,top} / --keyboard-inset /
+  // data-keyboard-open for the WHOLE mobile app, not just the shells.
+  // `html.is-mobile #root` is sized from those vars (styles.css), and
+  // ConnectScreen / GatewayConnectingScreen / OnboardingScreen all render OUTSIDE
+  // MobileShell below while holding focusable fields — so measuring only inside
+  // the shells left those screens on the layout viewport, and a disconnect while
+  // typing (which swaps the shell for the connecting screen) stripped the vars
+  // out from under #root mid-keyboard. Inert off-mobile: desktop reports
+  // offsetTop 0 and a visual viewport the size of the layout one. The hook
+  // refcounts ONE module-level subscription, so the shells' own calls stay free.
+  useKeyboardInset()
 
   // UI scale: apply the persisted zoom once, and wire Cmd/Ctrl +/-/0 shortcuts.
   // Zoom stays outside the rebindable registry — desktop keeps it out too.
@@ -88,6 +104,14 @@ export function MobileController() {
     }
   }, [phase])
 
+  // Live-session rehydration + the coalesced session-list refresh
+  // (store/live-session-status). Started HERE, not in app/contrib/controller:
+  // that module is also imported by the tile and HUD satellite windows, and a
+  // per-window poller would multiply the traffic this ticket exists to remove.
+  // The store owns its own gateway gating, so it is armed once for the window's
+  // whole life rather than per connection phase.
+  useEffect(() => startLiveSessionSync(), [])
+
   // A soft gateway switch (store/gateway-switch.ts) drops the socket for a moment
   // while it re-dials. Treat that window as live so the shell — and the surface
   // driving the switch (Settings, the statusbar gateway popover) — stays mounted
@@ -118,7 +142,8 @@ export function MobileController() {
     profilesOpen,
     returnPathRef,
     starmapOpen,
-    settingsOpen
+    settingsOpen,
+    webhooksOpen
   } = useOverlayRouting()
 
   // The single global listener for every rebindable hotkey, plus the keybind
@@ -141,7 +166,7 @@ export function MobileController() {
   // the Gateway page; the others need a live connection).
   const mobileSurfaceOpen =
     (settingsOpen && (connected || settingsGatewayOpen)) ||
-    (connected && (agentsOpen || commandCenterOpen || cronOpen || profilesOpen))
+    (connected && (agentsOpen || commandCenterOpen || cronOpen || profilesOpen || webhooksOpen))
 
   let content: ReactNode
 
@@ -182,6 +207,8 @@ export function MobileController() {
             view not on the 4-item sidebar rail, plus sessions, settings fields,
             themes and plugin commands. */}
         <CommandPalette />
+        {/* The ⌘F find bar is NOT here: it mounts once per WINDOW in app.tsx, so
+            a detached tile / HUD / activity root gets it too (MJXHRM-387). */}
         {/* ⌃Tab session switcher HUD — keyboard-driven from useKeybinds. */}
         <SessionSwitcher />
         {/* Layout fork, mobile-first so a phone NEVER falls into the docked
@@ -240,7 +267,13 @@ export function MobileController() {
             iOS fallback would try to close the primary window). The desktop floating-
             overlay path below is used off-mobile (and stays untouched). */}
         {IS_MOBILE && mobileSurfaceOpen && (
-          <div className="fixed inset-0 z-50">
+          // `absolute`, not `fixed`: the parent above is `relative h-full` inside
+          // a #root pinned to the VISIBLE viewport, so this fills the visible
+          // rectangle. A `fixed inset-0` here is anchored to the LAYOUT viewport
+          // and slides off the top of the screen the moment iOS reveals a caret —
+          // the same bug the #root rule fixes for the home shell. Stacking is
+          // unchanged: neither the parent nor #root creates a stacking context.
+          <div className="absolute inset-0 z-50">
             <SidebarProvider>
               <MobileSurfaceShell
                 onHome={closeOverlayToPreviousRoute}
@@ -284,6 +317,10 @@ export function MobileController() {
         )}
         {/* Profiles overlay — desktop's profile CRUD + soul editor master/detail. */}
         {!IS_MOBILE && connected && profilesOpen && <ProfilesView onClose={closeOverlayToPreviousRoute} />}
+        {/* Webhooks overlay — inbound HTTP event subscriptions (create / enable /
+            disable / delete) plus the receiver's real runtime state. Like cron and
+            profiles it becomes a windowable surface on a phone. */}
+        {!IS_MOBILE && connected && webhooksOpen && <WebhooksView onClose={closeOverlayToPreviousRoute} />}
         {/* Star map overlay — the radial "what Hermes has learned" map. */}
         {connected && starmapOpen && <StarmapView onClose={closeOverlayToPreviousRoute} />}
         {/* Provider-connect overlay — a focused per-provider sign-in card that
@@ -294,6 +331,10 @@ export function MobileController() {
             model menu ("Edit models"). Self-gates on $modelVisibilityOpen +
             gateway-open; "Add provider…" routes to Providers → Accounts. */}
         {connected && <ModelVisibilityOverlay onOpenProviders={() => openAppRoute('/settings/providers')} />}
+        {/* Full model picker — the ⌘⇧M surface (composer.modelPicker) and the
+            composer pill's fallback when there is no live dropdown. Self-gates
+            on $modelPickerOpen + gateway-open, same as the dialog above. */}
+        {connected && <ModelPickerOverlay onOpenProviders={() => openAppRoute('/settings/providers')} />}
         {/* Floating pet — a top-level draggable + roaming mascot that floats over
             ALL routes. It patrols the Settings overlay's edge when open.
 
@@ -305,7 +346,9 @@ export function MobileController() {
             patrol doesn't exist there. */}
         {connected && !(IS_MOBILE && mobileSurfaceOpen) && (
           <FloatingPet
-            overlayOpen={settingsOpen || agentsOpen || commandCenterOpen || cronOpen || profilesOpen || starmapOpen}
+            overlayOpen={
+              settingsOpen || agentsOpen || commandCenterOpen || cronOpen || profilesOpen || starmapOpen || webhooksOpen
+            }
           />
         )}
       </div>

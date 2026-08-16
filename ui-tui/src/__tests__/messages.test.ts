@@ -5,8 +5,9 @@ import React from 'react'
 import { describe, expect, it } from 'vitest'
 
 import { MessageLine } from '../components/messageLine.js'
+import { MAX_HISTORY } from '../config/limits.js'
 import { toTranscriptMessages } from '../domain/messages.js'
-import { upsert } from '../lib/messages.js'
+import { capTranscriptHistory, upsert } from '../lib/messages.js'
 import { stripAnsi } from '../lib/text.js'
 import { DEFAULT_THEME } from '../theme.js'
 
@@ -50,6 +51,21 @@ describe('toTranscriptMessages', () => {
     expect(result.map(msg => [msg.kind, msg.role, msg.text])).toEqual([
       [undefined, 'user', 'hello'],
       ['event', 'system', 'model changed'],
+      [undefined, 'assistant', 'hi']
+    ])
+  })
+
+  it('projects personality_switch as an event, not an opaque user bubble', () => {
+    const rows = [
+      { role: 'user', text: 'hello' },
+      { role: 'user', text: '[System: personality changed to hermes]', display_kind: 'personality_switch' },
+      { role: 'assistant', text: 'hi' }
+    ]
+
+    const result = toTranscriptMessages(rows)
+    expect(result.map(msg => [msg.kind, msg.role, msg.text])).toEqual([
+      [undefined, 'user', 'hello'],
+      ['event', 'system', 'personality changed'],
       [undefined, 'assistant', 'hi']
     ])
   })
@@ -146,5 +162,18 @@ describe('upsert', () => {
     const prev = [{ role: 'user' as const, text: 'hi' }]
     upsert(prev, 'assistant', 'yo')
     expect(prev).toHaveLength(1)
+  })
+})
+
+describe('capTranscriptHistory', () => {
+  it('keeps the intro and the newest bounded display rows', () => {
+    const intro = { kind: 'intro' as const, role: 'system' as const, text: '' }
+    const rows = Array.from({ length: 1_005 }, (_, index) => ({ role: 'user' as const, text: `m${index}` }))
+    const capped = capTranscriptHistory([intro, ...rows])
+
+    expect(capped).toHaveLength(MAX_HISTORY)
+    expect(capped[0]).toBe(intro)
+    expect(capped[1]?.text).toBe(`m${rows.length - (MAX_HISTORY - 1)}`)
+    expect(capped.at(-1)?.text).toBe('m1004')
   })
 })

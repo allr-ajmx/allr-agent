@@ -79,3 +79,42 @@ describe('applyCompletion', () => {
     expect(textOf(messages[0].parts)).toBe('one\n\n\ntwo  \nthree')
   })
 })
+
+// MJXHRM-363. The gateway's authoritative final_response is the model's own
+// prose, restated image and all — so settling a turn put back the duplicate the
+// tool slot already shows. `dedupeGeneratedImageEchoesInParts` was ported and
+// left with no callers; this is the completion half of wiring it in.
+describe('applyCompletion and generated images', () => {
+  const generated = (): ChatMessage[] => [
+    {
+      id: 'a1',
+      pending: true,
+      role: 'assistant',
+      parts: [
+        { type: 'text', text: 'Rendering…' },
+        {
+          type: 'tool-call',
+          toolCallId: 'g1',
+          toolName: 'image_generate',
+          result: { host_image: '/host/p.png', image: '/host/p.png', success: true }
+        }
+      ]
+    }
+  ]
+
+  it('strips the image the final response restates, keeping the prose', () => {
+    const messages = applyCompletion(generated(), 'Here is your peacock! ![peacock](/host/p.png) Enjoy.')
+
+    expect(textOf(messages[0].parts)).toBe('Here is your peacock! Enjoy.')
+    expect(messages[0].parts.some(part => part.type === 'tool-call')).toBe(true)
+  })
+
+  it('leaves the final response alone when nothing was generated', () => {
+    const messages = applyCompletion(
+      [{ id: 'a1', pending: true, role: 'assistant', parts: [{ type: 'text', text: 'x' }] }],
+      'look at ![chart](/host/c.png)'
+    )
+
+    expect(textOf(messages[0].parts)).toBe('look at ![chart](/host/c.png)')
+  })
+})

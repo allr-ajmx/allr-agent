@@ -1,7 +1,7 @@
+use crate::models::{CredentialType, CredentialValue};
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use keyring_core::Entry;
 use std::sync::OnceLock;
-use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
-use crate::models::{CredentialType, CredentialValue};
 
 static SERVICE_NAME: OnceLock<String> = OnceLock::new();
 
@@ -35,15 +35,17 @@ impl KeyringImplementation {
     /// Initialize the service name for keyring entries
     pub fn initialize_service(service_name: String) -> crate::Result<()> {
         tauri_plugin_log::log::info!("Initializing keyring service: {}", service_name);
-        SERVICE_NAME.set(service_name)
+        SERVICE_NAME
+            .set(service_name)
             .map_err(|_| crate::Error::InvalidInput("Service name already initialized".into()))?;
         Ok(())
     }
 
     /// Get the initialized service name
     fn get_service_name() -> crate::Result<&'static String> {
-        SERVICE_NAME.get()
-            .ok_or(crate::Error::InvalidInput("Service name not initialized".into()))
+        SERVICE_NAME.get().ok_or(crate::Error::InvalidInput(
+            "Service name not initialized".into(),
+        ))
     }
 
     /// Create a keyring entry with the format: service_name/username/credential_type
@@ -60,24 +62,35 @@ impl KeyringImplementation {
     }
 
     /// Set a credential (password or secret)
-    pub fn set(&self, username: &str, credential_type: CredentialType, value: CredentialValue) -> crate::Result<()> {
+    pub fn set(
+        &self,
+        username: &str,
+        credential_type: CredentialType,
+        value: CredentialValue,
+    ) -> crate::Result<()> {
         tauri_plugin_log::log::debug!("Setting {} for user: {}", credential_type, username);
         let entry = Self::create_entry(username, &credential_type)?;
 
         match (credential_type, value) {
             (CredentialType::Password, CredentialValue::Password(password)) => {
                 entry.set_password(&password).map_err(Into::into)
-            },
+            }
             (CredentialType::Secret, CredentialValue::Secret(secret)) => {
                 let encoded = BASE64.encode(&secret);
                 entry.set_secret(encoded.as_bytes()).map_err(Into::into)
-            },
-            _ => Err(crate::Error::InvalidInput("Credential type and value type mismatch".into()))
+            }
+            _ => Err(crate::Error::InvalidInput(
+                "Credential type and value type mismatch".into(),
+            )),
         }
     }
 
     /// Get a credential (password or secret)
-    pub fn get(&self, username: &str, credential_type: CredentialType) -> crate::Result<CredentialValue> {
+    pub fn get(
+        &self,
+        username: &str,
+        credential_type: CredentialType,
+    ) -> crate::Result<CredentialValue> {
         tauri_plugin_log::log::debug!("Getting {} for user: {}", credential_type, username);
         let entry = Self::create_entry(username, &credential_type)?;
 
@@ -85,12 +98,13 @@ impl KeyringImplementation {
             CredentialType::Password => {
                 let password = entry.get_password().map_err(crate::Error::from)?;
                 Ok(CredentialValue::Password(password))
-            },
+            }
             CredentialType::Secret => {
                 let encoded_bytes = entry.get_secret().map_err(crate::Error::from)?;
-                let encoded_str = String::from_utf8(encoded_bytes)
-                    .map_err(|_| crate::Error::InvalidUtf8)?;
-                let secret = BASE64.decode(encoded_str)
+                let encoded_str =
+                    String::from_utf8(encoded_bytes).map_err(|_| crate::Error::InvalidUtf8)?;
+                let secret = BASE64
+                    .decode(encoded_str)
                     .map_err(|_| crate::Error::InvalidInput("Invalid base64 data".into()))?;
                 Ok(CredentialValue::Secret(secret))
             }
@@ -107,14 +121,18 @@ impl KeyringImplementation {
             Err(keyring_core::Error::NoEntry) => {
                 tauri_plugin_log::log::debug!("Entry already doesn't exist for user: {}", username);
                 Ok(())
-            },
+            }
             Err(e) => Err(e.into()),
         }
     }
 
     /// Check if a credential exists
     pub fn exists(&self, username: &str, credential_type: CredentialType) -> crate::Result<bool> {
-        tauri_plugin_log::log::debug!("Checking existence of {} for user: {}", credential_type, username);
+        tauri_plugin_log::log::debug!(
+            "Checking existence of {} for user: {}",
+            credential_type,
+            username
+        );
         let entry = Self::create_entry(username, &credential_type)?;
         match entry.get_credential() {
             Ok(_) => Ok(true),
@@ -160,29 +178,44 @@ mod tests {
     }
 
     /// Create a test entry directly using the service name
-    fn create_test_entry(service_name: &str, username: &str, credential_type: &CredentialType) -> crate::Result<Entry> {
+    fn create_test_entry(
+        service_name: &str,
+        username: &str,
+        credential_type: &CredentialType,
+    ) -> crate::Result<Entry> {
         let entry_username = format!("{}/{}/{}", service_name, username, credential_type);
         Entry::new(service_name, &entry_username).map_err(Into::into)
     }
 
     /// Set credential for testing (bypasses static service name)
-    fn test_set(service_name: &str, username: &str, credential_type: CredentialType, value: CredentialValue) -> crate::Result<()> {
+    fn test_set(
+        service_name: &str,
+        username: &str,
+        credential_type: CredentialType,
+        value: CredentialValue,
+    ) -> crate::Result<()> {
         let entry = create_test_entry(service_name, username, &credential_type)?;
 
         match (credential_type, value) {
             (CredentialType::Password, CredentialValue::Password(password)) => {
                 entry.set_password(&password).map_err(Into::into)
-            },
+            }
             (CredentialType::Secret, CredentialValue::Secret(secret)) => {
                 let encoded = BASE64.encode(&secret);
                 entry.set_secret(encoded.as_bytes()).map_err(Into::into)
-            },
-            _ => Err(crate::Error::InvalidInput("Credential type and value type mismatch".into()))
+            }
+            _ => Err(crate::Error::InvalidInput(
+                "Credential type and value type mismatch".into(),
+            )),
         }
     }
 
     /// Get credential for testing (bypasses static service name)
-    fn test_get(service_name: &str, username: &str, credential_type: CredentialType) -> crate::Result<CredentialValue> {
+    fn test_get(
+        service_name: &str,
+        username: &str,
+        credential_type: CredentialType,
+    ) -> crate::Result<CredentialValue> {
         let entry = create_test_entry(service_name, username, &credential_type)?;
 
         match credential_type {
@@ -195,7 +228,7 @@ mod tests {
                     }
                 })?;
                 Ok(CredentialValue::Password(password))
-            },
+            }
             CredentialType::Secret => {
                 let encoded = entry.get_secret().map_err(|e| {
                     if matches!(e, keyring_core::Error::NoEntry) {
@@ -204,15 +237,20 @@ mod tests {
                         crate::Error::from(e)
                     }
                 })?;
-                let secret = BASE64.decode(&encoded)
-                    .map_err(|e| crate::Error::InvalidInput(format!("Base64 decode error: {}", e)))?;
+                let secret = BASE64.decode(&encoded).map_err(|e| {
+                    crate::Error::InvalidInput(format!("Base64 decode error: {}", e))
+                })?;
                 Ok(CredentialValue::Secret(secret))
             }
         }
     }
 
     /// Delete credential for testing (bypasses static service name)
-    fn test_delete(service_name: &str, username: &str, credential_type: CredentialType) -> crate::Result<()> {
+    fn test_delete(
+        service_name: &str,
+        username: &str,
+        credential_type: CredentialType,
+    ) -> crate::Result<()> {
         let entry = create_test_entry(service_name, username, &credential_type)?;
 
         match entry.delete_credential() {
@@ -223,7 +261,11 @@ mod tests {
     }
 
     /// Check if credential exists for testing (bypasses static service name)
-    fn test_exists(service_name: &str, username: &str, credential_type: CredentialType) -> crate::Result<bool> {
+    fn test_exists(
+        service_name: &str,
+        username: &str,
+        credential_type: CredentialType,
+    ) -> crate::Result<bool> {
         match test_get(service_name, username, credential_type) {
             Ok(_) => Ok(true),
             Err(crate::Error::EntryNotFound) => Ok(false),
@@ -314,7 +356,8 @@ mod tests {
             username,
             CredentialType::Password,
             CredentialValue::Password("password123".to_string()),
-        ).unwrap();
+        )
+        .unwrap();
 
         // Set a secret for the same user (should be separate entries)
         test_set(
@@ -322,7 +365,8 @@ mod tests {
             username,
             CredentialType::Secret,
             CredentialValue::Secret(vec![1, 2, 3]),
-        ).unwrap();
+        )
+        .unwrap();
 
         // Both should exist independently
         assert!(test_exists(&service_name, username, CredentialType::Password).unwrap());
@@ -351,7 +395,8 @@ mod tests {
             username,
             CredentialType::Password,
             CredentialValue::Password("test".to_string()),
-        ).unwrap();
+        )
+        .unwrap();
 
         // Password should exist, secret should not
         assert!(test_exists(&service_name, username, CredentialType::Password).unwrap());
@@ -369,7 +414,8 @@ mod tests {
             username,
             CredentialType::Password,
             CredentialValue::Password("test".to_string()),
-        ).unwrap();
+        )
+        .unwrap();
 
         // Verify it exists
         assert!(test_exists(&service_name, username, CredentialType::Password).unwrap());
@@ -419,7 +465,8 @@ mod tests {
             username,
             CredentialType::Secret,
             CredentialValue::Secret(binary_data.clone()),
-        ).unwrap();
+        )
+        .unwrap();
 
         let retrieved = test_get(&service_name, username, CredentialType::Secret).unwrap();
         match retrieved {
@@ -435,9 +482,27 @@ mod tests {
         let service_name = setup_with_unique_service().unwrap();
 
         // Set credentials for multiple users
-        test_set(&service_name, "user1", CredentialType::Password, CredentialValue::Password("pass1".to_string())).unwrap();
-        test_set(&service_name, "user2", CredentialType::Password, CredentialValue::Password("pass2".to_string())).unwrap();
-        test_set(&service_name, "user3", CredentialType::Secret, CredentialValue::Secret(vec![1, 2, 3])).unwrap();
+        test_set(
+            &service_name,
+            "user1",
+            CredentialType::Password,
+            CredentialValue::Password("pass1".to_string()),
+        )
+        .unwrap();
+        test_set(
+            &service_name,
+            "user2",
+            CredentialType::Password,
+            CredentialValue::Password("pass2".to_string()),
+        )
+        .unwrap();
+        test_set(
+            &service_name,
+            "user3",
+            CredentialType::Secret,
+            CredentialValue::Secret(vec![1, 2, 3]),
+        )
+        .unwrap();
 
         // Verify all exist independently
         assert!(test_exists(&service_name, "user1", CredentialType::Password).unwrap());
@@ -470,7 +535,8 @@ mod tests {
             username,
             CredentialType::Password,
             CredentialValue::Password("test".to_string()),
-        ).unwrap();
+        )
+        .unwrap();
 
         // If our formatting is correct, this should work
         assert!(test_exists(&service_name, username, CredentialType::Password).unwrap());
@@ -481,10 +547,14 @@ mod tests {
         setup_mock_keyring().unwrap();
 
         // Test that we can only initialize once
-        assert!(KeyringImplementation::initialize_service("com.test.app.static1".to_string()).is_ok());
+        assert!(
+            KeyringImplementation::initialize_service("com.test.app.static1".to_string()).is_ok()
+        );
 
         // Second initialization should fail
-        assert!(KeyringImplementation::initialize_service("com.test.app.static2".to_string()).is_err());
+        assert!(
+            KeyringImplementation::initialize_service("com.test.app.static2".to_string()).is_err()
+        );
     }
 
     #[test]

@@ -2,18 +2,42 @@ import type { SidebarProjectTree } from '@/app/chat/sidebar/projects/model'
 import type { HermesGitBaseBranch, HermesGitBranch } from '@/global'
 import { getHermesConfig } from '@/hermes'
 import { translateNow } from '@/i18n'
-import { copyTextToClipboard, desktopDefaultCwd, selectDesktopPaths, writeDesktopFileText } from '@/lib/desktop-fs'
+import {
+  copyTextToClipboard,
+  desktopDefaultCwd,
+  readDesktopDir,
+  readDesktopFileText,
+  selectDesktopPaths,
+  writeDesktopFileText
+} from '@/lib/desktop-fs'
 import { desktopGit } from '@/lib/desktop-git'
-import { persistentAtom } from '@/lib/persisted'
+import { isMissingRpcMethod, moveSessionWorkspace } from '@/lib/gateway-rpc'
+import { isUnderPath } from '@/lib/path-compare'
 import { revealPathInFileManager } from '@/lib/reveal-path'
+import { reuseUnchanged } from '@/lib/structural-share'
 import { atom } from '@/store/atom'
 import { $sessionId } from '@/store/chat'
 import { $connection } from '@/store/connection'
 import { requestGateway } from '@/store/gateway'
-import { setSidebarAgentsGrouped } from '@/store/layout'
+import { setSidebarAgentsGrouped, type SidebarGrouping } from '@/store/layout'
 import { notify, notifyError } from '@/store/notifications'
-import { newSession } from '@/store/session'
+import { $projectScope, $projectTree, ALL_PROJECTS } from '@/store/project-scope'
+import { knownSessionProfile, newSession, pruneSessionTombstones, refreshSessions, setSessions } from '@/store/session'
 import type { ProjectInfo, ProjectsPayload } from '@/types/hermes'
+
+// The scope atom, the tree it resolves against and `resolveNewSessionCwd` live
+// in `store/project-scope` — a leaf, so `store/chat` can read the resolver where
+// a fresh draft is actually minted. This module imports `store/chat` and
+// `store/session`, so it can never be that leaf. Re-exported here because this
+// is still the module the app asks for a project.
+export {
+  $projectScope,
+  $projectTree,
+  ALL_PROJECTS,
+  NO_PROJECT_ID,
+  projectRootCwd,
+  resolveNewSessionCwd
+} from '@/store/project-scope'
 
 // First-class per-profile Projects, served by the gateway `projects.*` JSON-RPC
 // methods (backed by projects.db). Ported/adapted from desktop `store/projects.ts`.
@@ -26,16 +50,9 @@ import type { ProjectInfo, ProjectsPayload } from '@/types/hermes'
 
 export const $projects = atom<ProjectInfo[]>([])
 export const $activeProjectId = atom<null | string>(null)
-export const $projectTree = atom<SidebarProjectTree[]>([])
 export const $projectTreeLoading = atom(false)
 // False when the backend predates the projects.* surface; null until first probe.
 export const $projectsRpcAvailable = atom<boolean | null>(null)
-
-function isMissingRpcMethod(err: unknown): boolean {
-  const msg = (err instanceof Error ? err.message : String(err)).toLowerCase()
-
-  return msg.includes('method not found') || msg.includes('-32601') || msg.includes('unknown method')
-}
 
 function markRpcSuccess(): void {
   $projectsRpcAvailable.set(true)
@@ -76,8 +93,18 @@ export async function refreshProjectTree(): Promise<void> {
 
   try {
     const res = await requestGateway<ProjectTreePayload>('projects.tree', { preview_limit: 3 })
-    $projectTree.set(res.projects ?? [])
+    // Identity-shared (MJXHRM-383). The tree is re-pulled on every window focus
+    // and on entering the grouped view, and its `previewSessions` are rendered
+    // by the same memoized `SidebarSessionRow` the flat list uses — a verbatim
+    // store of the JSON-parsed payload re-renders every project's preview rows
+    // on a refresh that changed nothing.
+    $projectTree.set(reuseUnchanged($projectTree.get(), res.projects ?? []))
     $activeProjectId.set(res.active_id ?? null)
+    // The tree is the authority on what still exists, so it is what LIFTS a
+    // delete/archive tombstone: an id it no longer scopes is genuinely gone.
+    // Until then the tombstone keeps the row evicted from the recents list, so
+    // a snapshot taken before the mutation landed can't flash it back.
+    pruneSessionTombstones(res.scoped_session_ids ?? [])
     markRpcSuccess()
   } catch (err) {
     markRpcFailure(err)
@@ -99,12 +126,9 @@ export async function fetchProjectSessions(projectId: string): Promise<SidebarPr
 }
 
 // ── Project scope (the "you're inside a project" view) ──────────────────────
-export const ALL_PROJECTS = '__all_projects__'
-
-export const $projectScope = persistentAtom<string>('hermes.projectScope', ALL_PROJECTS, {
-  decode: raw => raw || ALL_PROJECTS,
-  encode: value => value || ALL_PROJECTS
-})
+// `$projectScope`, `$projectTree`, `ALL_PROJECTS`, `NO_PROJECT_ID`,
+// `projectRootCwd` and `resolveNewSessionCwd` are defined in
+// `store/project-scope` and re-exported at the top of this file.
 
 export function enterProject(id: string): void {
   $projectScope.set(id)
@@ -116,6 +140,55 @@ export function enterProject(id: string): void {
 
 export function exitProjectScope(): void {
   $projectScope.set(ALL_PROJECTS)
+}
+
+/**
+ * Switch the sidebar between the flat session list and the project tree.
+ *
+ * Lives here rather than in `store/layout` because leaving the project view has
+ * to drop the entered-project SCOPE as well as the grouping flag: the header
+ * toggle and the filter menu's Grouping submenu both go through this, so a
+ * user who groups → enters a project → ungroups doesn't come back later to a
+ * flat list still silently scoped to that project.
+ */
+export function setSidebarGrouping(grouping: SidebarGrouping): void {
+  if (grouping !== 'project') {
+    exitProjectScope()
+  }
+
+  setSidebarAgentsGrouped(grouping === 'project')
+}
+
+/** Enter a project by id (the palette's Projects rows), grouping the sidebar so
+ *  the scope switch is visible where the user is looking. */
+export function goToProject(id: string): void {
+  setSidebarAgentsGrouped(true)
+  enterProject(id)
+}
+
+// The id of the project that OWNS `cwd` (longest path match), or null when the
+// cwd sits in no project. Match project + repo roots AND each worktree-lane
+// path: a linked worktree (e.g. `<repo>/.worktrees/<branch>`, or a sibling
+// `repo-retry`) can live outside the repo root, so root-prefix matching alone
+// would miss it — but it's still part of the project.
+export function projectIdForCwd(cwd: string): null | string {
+  let best: null | string = null
+  let bestLen = -1
+
+  for (const project of $projectTree.get()) {
+    const paths = [project.path, ...project.repos.flatMap(repo => [repo.path, ...repo.groups.map(group => group.path)])]
+
+    for (const path of paths) {
+      const p = (path || '').trim()
+
+      if (p && isUnderPath(p, cwd) && p.length > bestLen) {
+        bestLen = p.length
+        best = project.id
+      }
+    }
+  }
+
+  return best
 }
 
 // ── Optimistic cache layer ──────────────────────────────────────────────────
@@ -219,14 +292,50 @@ export async function generateProjectIdea(name: string, seed = ''): Promise<stri
   }
 }
 
-// Write IDEA.md to a project's primary folder. Ported from desktop
-// `store/projects.ts`, but the write is REPORTED rather than swallowed: every
-// universal fs write is a gateway round trip (there is no local-fs branch), so
-// it can fail for reasons the user can act on — and the create dialog promises
-// in so many words that the idea is "saved to IDEA.md". A silent failure would
-// be the same broken promise this replaced. The project is created either way.
+const IDEA_FILE = 'IDEA.md'
+
+/**
+ * The idea file already sitting in `dir`, or null when there is none.
+ *
+ * Matched case-INSENSITIVELY and answered with the entry's own path: on a
+ * case-folding filesystem (macOS, Windows) an existing `Idea.md` IS the file
+ * `IDEA.md` names, so writing the canonical spelling would overwrite it while
+ * looking like a fresh create.
+ *
+ * A directory that can't be listed (missing, unreadable, gateway down) answers
+ * null — the write that follows is what reports the real reason.
+ */
+async function existingIdeaPath(dir: string): Promise<null | string> {
+  try {
+    const listing = await readDesktopDir(dir)
+
+    return listing.entries.find(e => !e.isDirectory && e.name.toLowerCase() === IDEA_FILE.toLowerCase())?.path ?? null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Save the create-dialog's idea into the project's primary folder as IDEA.md.
+ *
+ * Ported from desktop `store/projects.ts` with two deliberate divergences:
+ *
+ * 1. The write is REPORTED rather than swallowed. Every universal fs write is a
+ *    gateway round trip (there is no local-fs branch), so it can fail for
+ *    reasons the user can act on — and the dialog promises in so many words
+ *    that the idea is "saved to IDEA.md". A silent failure would be the same
+ *    broken promise this replaced. The project is created either way.
+ * 2. An IDEA.md that is ALREADY there is never clobbered. Adopting an existing
+ *    folder as a project is the ordinary case, and IDEA.md is a hermes
+ *    convention agents read, so the odds of one already being there are high;
+ *    desktop's unconditional write destroys it with no undo (the backend does
+ *    temp + os.replace, so the old bytes are simply gone). The new idea is
+ *    appended under a rule instead. A file we could not read back WHOLE
+ *    (preview-truncated over 512 KiB, or non-UTF-8) is left strictly alone —
+ *    writing back a partial read would drop everything we never saw.
+ */
 async function writeProjectIdea(folder: null | string | undefined, idea: string): Promise<void> {
-  const dir = (folder || '').trim()
+  const dir = (folder || '').trim().replace(/[/\\]+$/, '')
   const body = idea.trim()
 
   if (!dir || !body) {
@@ -234,7 +343,33 @@ async function writeProjectIdea(folder: null | string | undefined, idea: string)
   }
 
   try {
-    await writeDesktopFileText(`${dir.replace(/[/\\]+$/, '')}/IDEA.md`, `${body}\n`)
+    const existing = await existingIdeaPath(dir)
+
+    if (!existing) {
+      await writeDesktopFileText(`${dir}/${IDEA_FILE}`, `${body}\n`)
+
+      return
+    }
+
+    const current = await readDesktopFileText(existing)
+
+    if (current.truncated || current.binary) {
+      notify({ kind: 'warning', message: translateNow('sidebar.projects.ideaKeptExisting') })
+
+      return
+    }
+
+    const kept = (current.text || '').replace(/\s+$/, '')
+
+    // An empty (or whitespace-only) file holds nothing to lose.
+    if (!kept) {
+      await writeDesktopFileText(existing, `${body}\n`)
+
+      return
+    }
+
+    await writeDesktopFileText(existing, `${kept}\n\n---\n\n${body}\n`)
+    notify({ kind: 'info', message: translateNow('sidebar.projects.ideaAppended') })
   } catch (err) {
     notifyError(err, translateNow('sidebar.projects.ideaWriteFailed'))
   }
@@ -295,6 +430,67 @@ export async function createProject(input: CreateProjectInput): Promise<ProjectI
   reconcile()
 
   return created
+}
+
+/**
+ * Re-home a stored session into another project's folder — the fix for a chat
+ * created in the wrong directory, without recreating it and losing its history.
+ *
+ * The backend REPLACES the row's git branch/root columns rather than enriching
+ * them: which project claims a session is exactly what is changing, and a stale
+ * `git_repo_root` would keep it grouped under the project it just left. A live
+ * agent bound to the row follows, so its tools re-anchor immediately; a session
+ * mid-turn is refused by the backend rather than having the workspace pulled out
+ * from under a running tool, so the error is surfaced rather than swallowed.
+ *
+ * Both list views are refreshed because they are separate reads: the flat
+ * recents come from the session list, the lanes from `projects.tree`, and a move
+ * changes which lane the row belongs to.
+ */
+export async function moveSessionToProject(sessionId: string, cwd: string): Promise<boolean> {
+  const target = cwd.trim()
+
+  if (!sessionId || !target) {
+    return false
+  }
+
+  // The conversation's LIVE id, not whatever alias the calling surface holds. A
+  // tile tab and a mobile bubble keep the id their chat was OPENED with, and
+  // auto-compression rotates it; `session.workspace.move` writes `cwd` /
+  // `git_repo_root` onto ONE row while the session list surfaces the TIP's,
+  // so a move addressed to the lineage root updated a hidden ancestor and the
+  // row never left its old project (MJXHRM-423 — the same asymmetry as rename).
+  //
+  // Dynamic import: `store/session-lookup` reads `$projectTree`, which lives in
+  // this module.
+  const { liveSessionIdFor } = await import('@/store/session-lookup')
+  const liveId = liveSessionIdFor(sessionId)
+
+  try {
+    const moved = await moveSessionWorkspace({
+      cwd: target,
+      profile: knownSessionProfile(liveId) ?? null,
+      sessionKey: liveId
+    })
+
+    // Optimistic, from the backend's OWN resolution (`~` expanded, absolute) —
+    // echoing the requested path would show a `~` the row never had.
+    setSessions(prev =>
+      prev.map(session =>
+        session.id === liveId
+          ? { ...session, cwd: moved.cwd ?? target, git_repo_root: moved.git_repo_root ?? null }
+          : session
+      )
+    )
+
+    await Promise.all([refreshSessions(), refreshProjectTree()])
+
+    return true
+  } catch (err) {
+    notifyError(err, 'Failed to move the session')
+
+    return false
+  }
 }
 
 export async function renameProject(id: string, name: string): Promise<void> {
@@ -454,6 +650,53 @@ export async function pickProjectFolder(): Promise<null | string> {
   return dir || null
 }
 
+/**
+ * ⌘O: adopt a folder as a project and start working in it. `dir` skips the
+ * picker (a path typed straight into the palette).
+ *
+ * Desktop reaches Electron's native dialog here; universal goes through
+ * `pickProjectFolder`, which is remote-aware — a Tauri desktop opens the OS
+ * dialog, everything else browses the BACKEND filesystem, where the session is
+ * actually going to run.
+ */
+export async function openFolderAsProject(dir?: string): Promise<void> {
+  const target = (dir ?? (await pickProjectFolder()) ?? '').trim()
+
+  if (!target) {
+    return
+  }
+
+  // Refresh first so the membership check runs against live truth — a repo
+  // cloned since the last scan should enter its auto project, not double-create.
+  await refreshProjectTree()
+
+  const existing = projectIdForCwd(target)
+
+  if (existing) {
+    goToProject(existing)
+  } else {
+    const name =
+      target
+        .replace(/[/\\]+$/, '')
+        .split(/[/\\]/)
+        .pop() || target
+
+    try {
+      const created = await createProject({ folders: [target], name, primaryPath: target, use: true })
+
+      if (created) {
+        goToProject(created.id)
+      }
+    } catch (err) {
+      // Stale backend (no projects.* RPC) or a failed write: still open the
+      // folder as a plain workspace session below — the project row can wait.
+      notify({ kind: 'warning', message: err instanceof Error ? err.message : String(err) })
+    }
+  }
+
+  requestStartWorkSession(target)
+}
+
 // Reveal a project/worktree path in the OS file manager (git-GUI standard).
 // Desktop routes this through its Electron bridge; universal uses the Tauri
 // `reveal_in_file_manager` command, which no-ops off Tauri. Note the path only
@@ -479,10 +722,12 @@ export async function copyPath(path: null | string): Promise<void> {
 // caches them (`projects.record_repos`) and merges them with session-derived
 // repos, so a repo shows up in Projects before it has ever hosted a session.
 //
-// The crawl runs against the Tauri host's disk (`lib/desktop-git.ts` →
-// `store/repo-scan.ts` → Rust), so it only speaks for the gateway when the
-// backend was spawned locally; elsewhere `scanRepos` returns `[]` and the
-// backend keeps serving session-derived repos alone (FIXME(MJX-207)).
+// `scanRepos` (`lib/desktop-git.ts`) crawls wherever the repos actually live:
+// the Tauri host's disk via Rust when the backend was spawned locally, otherwise
+// the gateway's own disk via `GET /api/git/scan-repos`. That remote crawl takes
+// no roots from us and uses the gateway's configured policy — the same
+// `desktop.repo_scan_*` block resolved below, since this config IS that
+// gateway's.
 //
 // Desktop keys the throttle state per gateway (it can hold several); universal
 // has exactly one connection at a time, so module-level state plus a reset on
@@ -701,15 +946,26 @@ export interface StartWorkSessionRequest {
 
 export const $startWorkSessionRequest = atom<StartWorkSessionRequest | null>(null)
 
-// Keyboard-driven "spin up a new worktree" intent. The composer's coding row
-// owns the name dialog (it has the active repo + branch context), so a global
-// hotkey just bumps this token; the row opens its branch-off dialog in response.
-// A monotonic token re-fires even on repeat presses. No-ops off a repo (the row
-// isn't mounted), which is the right "nothing to branch" outcome.
-export const $newWorktreeRequest = atom(0)
+// The "make a new worktree" intent, from the keyboard or a menu. ONE dialog is
+// mounted, in the sidebar beside ProjectDialog, and it reads this atom. This
+// mirrors $projectDialog. It used to be a monotonic token that every mounted
+// coding rail subscribed to, so N composers on screen gave N stacked dialogs
+// for one ⌘⇧B, and dismissing the top one revealed an identical empty one
+// behind it. One mount cannot double-open.
+//
+// `repoPath` is resolved when the dialog opens (see resolveWorktreeRepoPath in
+// store/coding-status.ts), not read from the rail that received the key, so the
+// dialog always targets the surface the user is looking at.
+export interface WorktreeDialogState {
+  repoPath: string
+  /** The base branch selected in a "branch off from X" menu. */
+  base?: string
+}
 
-export function requestNewWorktree(): void {
-  $newWorktreeRequest.set($newWorktreeRequest.get() + 1)
+export const $worktreeDialog = atom<null | WorktreeDialogState>(null)
+
+export function closeWorktreeDialog(): void {
+  $worktreeDialog.set(null)
 }
 
 let startWorkToken = 0

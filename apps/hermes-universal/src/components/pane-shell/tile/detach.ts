@@ -27,6 +27,7 @@
 import { atom } from 'nanostores'
 
 import { storedIdFromTilePane } from '@/lib/pane-ids'
+import { requestPeerComposerFlush } from '@/store/composer'
 import { closeTileWindow, openTileWindow, TILE_WINDOW_CLOSED_EVENT } from '@/store/windows'
 
 import type { TileId } from './types'
@@ -70,13 +71,34 @@ export async function detachTile(id: TileId): Promise<void> {
   }
 }
 
-/** Put a tile back in its slot and close the window that was hosting it. */
+/**
+ * Put a tile back in its slot and close the window that was hosting it.
+ *
+ * The draft comes home first, and it has to happen in that order (MJXHRM-398).
+ * Two things below would each strand a half-typed message on their own: filling
+ * the slot back in mounts a composer that seeds itself from the shared stash,
+ * which is only as current as the host window's last 400 ms debounce; and
+ * closing that window destroys a webview from OUTSIDE it, which runs no JS there
+ * at all — the same reason the close has to be announced from Rust. So the host
+ * is ASKED, and the ask is awaited: `requestPeerComposerFlush` resolves once that
+ * window says the text is on disk, and takes it into this window's map.
+ *
+ * The mirror of dismissing the HUD (MJXHRM-424, `app/hud/hud.ts`) — one verb in
+ * this window, the text in another — and addressed by tile rather than by
+ * satellite surface, because a tile window is not a satellite.
+ *
+ * An unanswered flush is not fatal. It means the window was already gone, or had
+ * no bus; the draft is unrecoverable either way, and refusing to reattach a tile
+ * the user asked for would be the worse failure.
+ */
 export async function reattachTile(id: TileId): Promise<void> {
   const label = $detachedTiles.get().get(id)
 
   if (label === undefined) {
     return
   }
+
+  await requestPeerComposerFlush({ surface: null, tile: id })
 
   setDetached(id, null)
   await closeTileWindow(label)

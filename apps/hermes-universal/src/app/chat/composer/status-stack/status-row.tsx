@@ -35,29 +35,43 @@ function leadingGlyph(item: SubagentProgress, s: Translations['statusStack']): R
       aria-hidden
       className={cn(
         'size-1.5 rounded-full',
-        item.status === 'failed' || item.status === 'interrupted' ? 'bg-destructive/80' : 'bg-emerald-500/70'
+        item.status === 'failed' || item.status === 'interrupted' ? 'bg-destructive/80' : 'bg-(--ui-green)/70'
       )}
     />
   )
 }
 
+/**
+ * `onOpen` takes the subagent's session id rather than closing over it, so the
+ * caller can pass ONE stable callback for every row instead of a fresh arrow per
+ * row per render. Without that this component is memoized in name only: a new
+ * function identity on every render means the comparator never bails, which is
+ * the same silent-inert-memo class MJXHRM-383 fixed in the sidebar (MJXHRM-45).
+ *
+ * `canOpen` is the caller's gate (desktop-only, not from a pop-out); the row
+ * still requires the item to actually name a session.
+ */
 export const StatusItemRow = memo(function StatusItemRow({
+  canOpen = false,
   item,
   onOpen
 }: {
+  canOpen?: boolean
   item: SubagentProgress
-  onOpen?: () => void
+  onOpen?: (sessionId: string) => void
 }) {
   const { t } = useI18n()
   const s = t.statusStack
   const failed = item.status === 'failed' || item.status === 'interrupted'
+  const openable = canOpen && Boolean(onOpen) && Boolean(item.sessionId)
+  const activate = openable ? () => onOpen?.(item.sessionId!) : undefined
 
   return (
     <StatusRow
       leading={leadingGlyph(item, s)}
-      onActivate={onOpen}
+      onActivate={activate}
       trailing={
-        onOpen ? (
+        openable ? (
           <Codicon aria-hidden className="text-muted-foreground/55" name="link-external" size="0.85rem" />
         ) : undefined
       }

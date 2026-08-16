@@ -1,4 +1,6 @@
 import { execFileSync } from 'node:child_process'
+import fs from 'node:fs'
+import type { IncomingMessage, ServerResponse } from 'node:http'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -121,11 +123,63 @@ const storeNamePlugin = {
   }
 }
 
-export default defineConfig({
+// The emoji picker (frimousse) fetches `<emojibaseUrl>/<locale>/data.json` at
+// runtime, defaulting to a CDN. The app's CSP has no `connect-src` for one, and
+// a client that has to reach the internet to draw a picker is broken on a
+// plane — so serve the bundled `emojibase-data` at a stable local path instead:
+// middleware in dev, emitted assets in the build, only the files a locale needs.
+const emojibaseDir = dirname(require.resolve('emojibase-data/package.json'))
+
+const EMOJIBASE_PATH = /^[a-z-]+\/(data|messages|shortcodes\/emojibase)\.json$/
+
+const emojibaseAssets = () => ({
+  name: 'hermes:emojibase-assets',
+  configureServer(server: {
+    middlewares: {
+      use: (route: string, handler: (req: IncomingMessage, res: ServerResponse, next: () => void) => void) => void
+    }
+  }) {
+    server.middlewares.use('/emojibase', (req, res, next) => {
+      const rel = (req.url ?? '').split('?')[0].replace(/^\/+/, '')
+
+      if (!EMOJIBASE_PATH.test(rel)) {
+        return next()
+      }
+
+      fs.readFile(join(emojibaseDir, rel), (err, buf) => {
+        if (err) {
+          return next()
+        }
+
+        res.setHeader('Content-Type', 'application/json')
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable')
+        res.end(buf)
+      })
+    })
+  },
+  generateBundle(this: { emitFile: (asset: { fileName: string; source: Uint8Array; type: 'asset' }) => void }) {
+    for (const rel of ['en/data.json', 'en/messages.json', 'en/shortcodes/emojibase.json']) {
+      this.emitFile({ fileName: `emojibase/${rel}`, source: fs.readFileSync(join(emojibaseDir, rel)), type: 'asset' })
+    }
+  }
+})
+
+// The dev-only render counter (src/debug) must be imported STATICALLY above
+// react-dom — react-dom captures the devtools hook at module init, so a dynamic
+// import lands too late and observes zero commits. A static side-effect import
+// can't be tree-shaken, so instead the whole graph is aliased out of any non-dev
+// build. `command === 'serve'` covers `vite dev`; vitest also reports 'serve',
+// and never imports main.tsx, so nothing is loaded there either way.
+const debugEntry = (command: string) =>
+  fileURLToPath(
+    new URL(command === 'serve' ? './src/debug/dev-only.ts' : './src/debug/dev-only.noop.ts', import.meta.url)
+  )
+
+export default defineConfig(({ command }) => ({
   define: {
     __TRACE_RUN_DEFAULT__: JSON.stringify(traceRunDefault())
   },
-  plugins: [react(), tailwindcss(), ...(STORE_TRACING ? [storeNamePlugin] : [])],
+  plugins: [react(), tailwindcss(), emojibaseAssets(), ...(STORE_TRACING ? [storeNamePlugin] : [])],
   // Tailwind v4 is handled entirely by `@tailwindcss/vite`; pin an explicit
   // empty PostCSS config so Vite doesn't walk UP the filesystem and pick up a
   // stray postcss/tailwind config from the install location (see desktop
@@ -133,6 +187,8 @@ export default defineConfig({
   css: { postcss: { plugins: [] } },
   resolve: {
     alias: {
+      // Exact-match key, declared first so it wins over the `@` prefix below.
+      '@/debug/dev-only': debugEntry(command),
       // Store autocapture — see storeNamePlugin above for why this is two
       // entries. Order matters only for readability; the keys are exact.
       ...(STORE_TRACING
@@ -178,8 +234,10 @@ export default defineConfig({
     // second copy anywhere in the graph emits the whole set twice — measured at
     // ~19.8 MB of byte-identical chunks, a third of the release bundle. That is
     // exactly what `@streamdown/code` (`shiki: ^3.19.0`) did until the root
-    // package.json pinned it forward with an override; this line is the guard that
-    // keeps a future nested copy from silently doing it again.
+    // package.json pinned it forward with an override — that package is gone from
+    // this app now (see markdown-text.tsx), but `react-shiki` declares the same
+    // kind of range, so this line stays as the guard that keeps a future nested
+    // copy from silently doing it again.
     dedupe: ['react', 'react-dom', 'shiki']
   },
   clearScreen: false,
@@ -249,12 +307,41 @@ export default defineConfig({
   // graph over the phone link on Android — so a lazy route silently converts
   // "navigate to Skills" into "boot the app again".
   //
-  // Every entry here is a real dependency of this package that the production build
-  // proves lives outside the entry chunk: the CodeMirror and xterm specifiers do not
-  // appear in `index-*.js` at all, and mermaid/katex land in chunks of their own.
-  // Deps reached statically from the entry (shiki, react-shiki, the assistant-ui
-  // stack) are deliberately absent — the scanner already finds those on cold start,
-  // and listing them would only be noise to keep in sync.
+  // Every entry here is a real dependency of this package. Do NOT read the list as
+  // a claim about the production chunk graph — an earlier version of this comment
+  // did, and it was wrong on three of five entries (corrected in MJXHRM-45 against
+  // an actual `vite build`):
+  //   • `mermaid` is genuinely lazy-only (`embeds/registry.tsx`) and does land in
+  //     its own chunk;
+  //   • `@codemirror/*` is split into a chunk, but the ENTRY statically imports
+  //     that chunk (profiles / starmap / profile-switcher / preview-file all
+  //     import `CodeEditor` eagerly), so it is split without being deferred;
+  //   • `@xterm/*` and `katex` have no lazy boundary anywhere and are inlined
+  //     straight into `index-*.js`.
+  // Desktop imports all three the same way, so this is parity, not a port gap —
+  // but pre-bundling them still costs nothing and keeps dev-server behaviour
+  // stable, so the entries stay. Deps reached statically from the entry (the
+  // assistant-ui stack) are deliberately absent: the scanner already finds those
+  // on cold start.
+  //
+  // `shiki` and `react-shiki` MOVED into this list in MJXHRM-380, which put a
+  // `lazy()` / dynamic `import()` in front of all four of OUR entry points to
+  // them — exactly the shape the reload hazard above describes: without these
+  // entries the first code fence in a conversation would re-run the optimiser and
+  // reload the page mid-reply.
+  //
+  // MJXHRM-45 then found the seam was still defeated by a fifth importer we do
+  // not own — `@streamdown/code` statically imports shiki, and
+  // `markdown-text.tsx` statically imported that — and deferred it to first
+  // markdown mount. MJXHRM-380's follow-up removed that dependency outright
+  // instead: supplying `components.SyntaxHighlighter` makes assistant-ui replace
+  // streamdown's own code block, and `plugins.code` feeds nothing else, so the
+  // plugin was downloading all of shiki (plus a second regex engine) for a dead
+  // branch. See the comment above `MARKDOWN_PLUGINS` in markdown-text.tsx.
+  //
+  // What keeps this honest is a test, not this comment:
+  // `src/entry-graph.test.ts` walks the static import graph from `main.tsx` and
+  // fails if anything puts shiki back on it.
   optimizeDeps: {
     include: [
       '@codemirror/commands',
@@ -269,7 +356,9 @@ export default defineConfig({
       '@xterm/addon-webgl',
       '@xterm/xterm',
       'katex',
-      'mermaid'
+      'mermaid',
+      'react-shiki',
+      'shiki'
     ]
   },
   build: {
@@ -282,8 +371,14 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: ['./src/test-setup.ts'],
+    // Vitest's default `include` is rooted at this config's directory, so it
+    // never reaches the shared sample plugins — which tsconfig and eslint DO
+    // cover. A bundled plugin ships in this app's build; its tests belong in
+    // this app's run, or the SDK's only real third-party-shaped consumer is
+    // the one thing nothing verifies.
+    include: ['src/**/*.test.{ts,tsx}', '../../packages/hermes-sample-plugins/**/*.test.{ts,tsx}'],
     // Components don't import CSS (styles.css is loaded once in main.tsx), so
     // skip stylesheet processing in tests.
     css: false
   }
-})
+}))

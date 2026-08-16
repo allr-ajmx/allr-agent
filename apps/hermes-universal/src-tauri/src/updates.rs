@@ -246,7 +246,8 @@ mod imp {
     #[cfg(target_os = "android")]
     pub async fn check(identifier: &str, current: &str) -> UpdateStatus {
         let mut status = status_for("play", current);
-        let listing = format!("https://play.google.com/store/apps/details?id={identifier}&hl=en&gl=US");
+        let listing =
+            format!("https://play.google.com/store/apps/details?id={identifier}&hl=en&gl=US");
 
         status.notes_url = Some(listing.clone());
         status.download_url = Some(format!("market://details?id={identifier}"));
@@ -345,7 +346,11 @@ mod imp {
     #[allow(dead_code)]
     pub fn parse_github(body: &str) -> Option<GithubRelease> {
         let release: GithubReleaseJson = serde_json::from_str(body).ok()?;
-        let version = release.tag_name.trim().trim_start_matches(['v', 'V']).to_string();
+        let version = release
+            .tag_name
+            .trim()
+            .trim_start_matches(['v', 'V'])
+            .to_string();
 
         if version.is_empty() {
             return None;

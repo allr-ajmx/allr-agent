@@ -22,7 +22,16 @@ vi.mock('@/store/chat', () => ({ resetChat: vi.fn() }))
 vi.mock('@/store/cron', () => ({ setCronJobs: vi.fn() }))
 vi.mock('@/store/workspace-events', () => ({ resetWorkspaceCwd: vi.fn() }))
 vi.mock('@/store/session-states', () => ({ clearAllSessionStates: vi.fn(), resetTileRuntimeBindings: vi.fn() }))
+// Both of these key their caches by the GATEWAY's absolute repo paths. What the
+// clearing actually does is asserted in their own suites; here the question is
+// whether the wipe calls them at all.
+vi.mock('@/store/coding-status', () => ({ resetRepoStatusForBackendSwitch: vi.fn() }))
+vi.mock('@/store/pull-requests', () => ({ resetPullRequestsForBackendSwitch: vi.fn() }))
 vi.mock('@/lib/query-client', () => ({ queryClient: { invalidateQueries: vi.fn() } }))
+// NOT mocked: `@/store/artifacts` runs for real below, because "the wipe drops the
+// artifact registry" is only worth asserting against the real registry. It reaches
+// the native staging commands through `invoke`, which needs a stub outside Tauri.
+vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(async () => undefined) }))
 vi.mock('@/store/session', async () => {
   const { atom } = await import('@/store/atom')
 
@@ -34,6 +43,10 @@ vi.mock('@/store/session', async () => {
     $sessionsLoading: atom(false),
     $sessionsTotal: atom(0),
     $unreadFinishedSessionIds: atom<string[]>([]),
+    // The pinned-row cache is gateway-bound like the list itself. What the
+    // clearing does to the atom and its persisted copy is asserted in
+    // store/session.test.ts; here the question is whether the wipe calls it.
+    clearPinnedSessionCache: vi.fn(),
     refreshMessagingSessions: vi.fn().mockResolvedValue(undefined),
     refreshSessions: vi.fn().mockResolvedValue(undefined),
     resetSessionsPaging: vi.fn(),
@@ -44,12 +57,16 @@ vi.mock('@/store/session', async () => {
   }
 })
 
+import { resetChat } from '@/store/chat'
+import { resetRepoStatusForBackendSwitch } from '@/store/coding-status'
 import { $connection, beginGatewaySwitch, disconnect, endGatewaySwitch } from '@/store/connection'
 import { closeGateway } from '@/store/gateway'
 import type { Connection } from '@/store/gateway-config'
 import { dialSavedTarget, type GatewayTarget, loadGatewayTarget } from '@/store/gateway-restore'
 import { stopLocalBackend } from '@/store/local-backend'
 import { notify, notifyError } from '@/store/notifications'
+import { $projectTree } from '@/store/project-scope'
+import { resetPullRequestsForBackendSwitch } from '@/store/pull-requests'
 import {
   $activeStoredSessionId,
   $messagingSessions,
@@ -57,14 +74,18 @@ import {
   $sessionsLoading,
   $sessionsTotal,
   $unreadFinishedSessionIds,
+  clearPinnedSessionCache,
   refreshMessagingSessions,
   refreshSessions
 } from '@/store/session'
 import { clearAllSessionStates } from '@/store/session-states'
 import type { SessionInfo } from '@/types/hermes'
 
+import { artifactsForSession, openArtifact, upsertArtifact } from './artifacts'
 import { sessionMissingFromCurrentGateway, softSwitchGateway } from './gateway-soft-switch'
 import { $gatewayMode, $gatewaySwitching } from './gateway-switch'
+import { $activePreviewPath, $previewTabs, setPreviewTarget } from './preview'
+import { $dirtyPreviewPaths, setPreviewDirty } from './preview-edit'
 
 // Only the fields the wipe / switch actually read.
 const session = { id: 's1' } as unknown as SessionInfo
@@ -116,6 +137,96 @@ describe('gateway soft switch', () => {
     expect(clearAllSessionStates).toHaveBeenCalledOnce()
     // Skeletons stop once the refresh has landed.
     expect($sessionsLoading.get()).toBe(false)
+  })
+
+  // Emptying `$sessions` is not enough on its own: the Pinned section falls back
+  // to the cached ROW for every pin precisely so it survives an empty list, so
+  // without this it goes on rendering the previous gateway's conversations under
+  // the new one — rows the new backend has never heard of and cannot open.
+  it('drops the cached pinned rows, which belong to the old gateway', async () => {
+    let clearedDuringDial = false
+
+    await softSwitchGateway('remote', async () => {
+      clearedDuringDial = vi.mocked(clearPinnedSessionCache).mock.calls.length > 0
+    })
+
+    expect(clearedDuringDial).toBe(true)
+  })
+
+  // A repo path is not gateway-scoped: `/home/me/work` exists on the laptop AND
+  // on the box being switched to, and they are different repos on different
+  // branches. Carried across, the coding rails paint the previous gateway's
+  // branch and ± under the new one's paths, and the is-this-a-repo memo (no TTL)
+  // keeps answering for a repo that only ever existed over there.
+  it('drops the git + PR caches keyed by the old gateway’s paths, before dialling', async () => {
+    let clearedDuringDial = false
+
+    await softSwitchGateway('remote', async () => {
+      clearedDuringDial =
+        vi.mocked(resetRepoStatusForBackendSwitch).mock.calls.length === 1 &&
+        vi.mocked(resetPullRequestsForBackendSwitch).mock.calls.length === 1
+    })
+
+    expect(clearedDuringDial).toBe(true)
+  })
+
+  // Same story one level up: `projects.tree` is a gateway RPC, so every path in
+  // it belongs to the old backend's filesystem — and the FIRST CHAT on the new
+  // gateway resolves its directory out of that tree (store/project-scope). The
+  // ordering is the assertion: cleared after `resetChat` would seed the fresh
+  // draft inside the old gateway's checkout, and no later refresh could take it
+  // back.
+  it('drops the old gateway’s project tree before the fresh chat is minted', async () => {
+    let treeWhenChatReset: unknown[] | null = null
+
+    $projectTree.set([{ id: 'p_1', label: 'one', path: '/repos/one', repos: [], sessionCount: 0 }])
+    // `Once`: this file's `clearAllMocks` clears calls, not implementations, so a
+    // sticky one would follow the switch into every later test.
+    vi.mocked(resetChat).mockImplementationOnce(() => {
+      treeWhenChatReset = $projectTree.get()
+    })
+
+    await softSwitchGateway('remote', vi.fn().mockResolvedValue(undefined))
+
+    expect(treeWhenChatReset).toEqual([])
+    expect($projectTree.get()).toEqual([])
+  })
+
+  // Artifacts are keyed by sessions on the gateway that produced them. Carried
+  // across a switch, an open artifact tab names an id the new backend has never
+  // heard of — and the registry keeps the old backend's generated pages alive
+  // for the rest of the process.
+  it('drops the artifact registry and its tabs', async () => {
+    const artifact = upsertArtifact('s1', { kind: 'html', language: 'html', title: 'Dashboard' }, '<html>v1</html>')!
+
+    openArtifact(artifact.artifactId)
+
+    expect($previewTabs.get()).toHaveLength(1)
+
+    await softSwitchGateway('remote', vi.fn().mockResolvedValue(undefined))
+
+    expect(artifactsForSession('s1')).toEqual([])
+    expect($previewTabs.get()).toEqual([])
+    expect($activePreviewPath.get()).toBeNull()
+  })
+
+  // The FILE half of the same problem, and the one the artifact wipe above does
+  // NOT cover: a preview tab is an absolute path read and written over
+  // `/api/fs/*` on whichever gateway is current, so a tab that survives the
+  // switch shows the old backend's bytes over the new backend's path — and its
+  // save either recreates a file that only existed over there or overwrites a
+  // same-named one here.
+  it('closes file preview tabs, which name paths on the old gateway', async () => {
+    setPreviewTarget('/srv/project/config.ts')
+    setPreviewDirty('/srv/project/config.ts', true)
+
+    expect($previewTabs.get()).toHaveLength(1)
+
+    await softSwitchGateway('remote', vi.fn().mockResolvedValue(undefined))
+
+    expect($previewTabs.get()).toEqual([])
+    expect($activePreviewPath.get()).toBeNull()
+    expect($dirtyPreviewPaths.get().has('/srv/project/config.ts')).toBe(false)
   })
 
   it('holds $gatewaySwitching for the length of the dial', async () => {

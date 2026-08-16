@@ -54,9 +54,45 @@ these files live outside both apps' `src/` and compile in either.
 match it. The build script copies it verbatim. It exists to show exactly what
 an agent (or a compiler) writes into `$HERMES_HOME/desktop-plugins/<name>/plugin.js`.
 
+## Reaching the OS
+
+`ctx.os` is the only sanctioned way out of the app window — `notify`,
+`openExternal`, `revealPath`, `writeClipboard`. Both apps present the identical
+contract over different machinery (desktop: the Electron preload bridge;
+universal: Tauri), so a plugin written against one runs unmodified on the other.
+
+Every member is **result-shaped, never throwing**: the three async doors resolve
+`false` when the platform can't honour the call, and `notify` is fire-and-forget.
+That is what makes the same code safe on a phone, where `revealPath` has no file
+manager to reveal into and the clipboard may be refused outright. Branch on the
+result; never assume the door opened.
+
+```ts
+if (!(await ctx.os.openExternal(url))) {
+  host.notify({ kind: 'info', message: 'Copy this link: ' + url })
+}
+```
+
+`ctx.os.notify` is the native OS notification, gated by Settings ▸ Notifications
+▸ "Plugin notifications", throttled per plugin, and fires only while the user is
+away from Hermes. For anything the user should see *while looking at the app*,
+use `host.notify` — the in-app toast.
+
 kanban talks to `/api/plugins/kanban`, served by the Python dashboard plugin at
 `plugins/kanban/dashboard/plugin_api.py` in this repo — a separate plugin
 system that meets this one only at that namespace. With the backend disabled
-the board shows a message rather than a blank pane. Its live updates currently
-fall back to polling on universal: `ctx.socket` is a no-op outside token-mode
-connections (`FIXME(MJX-53/ws-ticket)` in `contrib/plugin.ts`).
+the board shows a message rather than a blank pane.
+
+`ctx.socket` carries its live updates on both apps, but they are not equal. On
+universal it mints a ws-ticket on ticket/oauth gateways rather than requiring a
+`token=` query, and it **follows `$connection`** (`lib/plugin-transport.ts`):
+opening it before the app has dialled is the normal case — plugins register from
+a module body, the app dials afterwards — and it re-homes itself when the user
+soft-switches gateways, so it never streams the previous backend's data into a
+plugin whose `ctx.rest` has already moved. Desktop's door is still token-mode
+only and resolves to nothing on an OAuth remote (`apps/desktop/src/hermes.ts`).
+
+Either way it is an **accelerator over your polling, never a replacement** — a
+socket can always drop, a ticket mint can fail on an expired session, and
+neither failure is reported back to the plugin, so every consumer needs the
+polling fallback anyway.

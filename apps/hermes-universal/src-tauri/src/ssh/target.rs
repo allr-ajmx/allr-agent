@@ -78,7 +78,9 @@ fn err(message: &str) -> SshError {
 /// shell commands via `shq`.
 fn reject_control_chars(field: &str, value: &str) -> Result<(), SshError> {
     if value.chars().any(|c| c.is_control()) {
-        return Err(err(&format!("Unsafe SSH target: {field} contains control characters.")));
+        return Err(err(&format!(
+            "Unsafe SSH target: {field} contains control characters."
+        )));
     }
 
     Ok(())
@@ -147,7 +149,12 @@ pub fn normalize_ssh_target(input: &SshTargetInput) -> Result<Option<SshTarget>,
         *p > 0 && *p != DEFAULT_SSH_PORT
     });
 
-    let key_path = input.key_path.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(str::to_string);
+    let key_path = input
+        .key_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
 
     if let Some(k) = &key_path {
         reject_control_chars("key path", k)?;
@@ -164,7 +171,13 @@ pub fn normalize_ssh_target(input: &SshTargetInput) -> Result<Option<SshTarget>,
         reject_control_chars("remote hermes path", p)?;
     }
 
-    Ok(Some(SshTarget { host, user, port, key_path, remote_hermes_path }))
+    Ok(Some(SshTarget {
+        host,
+        user,
+        port,
+        key_path,
+        remote_hermes_path,
+    }))
 }
 
 /// Split `[inner]` / `[inner]:port`. Returns `None` when the string is not
@@ -197,11 +210,16 @@ mod tests {
     use super::*;
 
     fn input(host: &str) -> SshTargetInput {
-        SshTargetInput { host: host.to_string(), ..Default::default() }
+        SshTargetInput {
+            host: host.to_string(),
+            ..Default::default()
+        }
     }
 
     fn normalize(host: &str) -> SshTarget {
-        normalize_ssh_target(&input(host)).expect("valid").expect("some")
+        normalize_ssh_target(&input(host))
+            .expect("valid")
+            .expect("some")
     }
 
     #[test]
@@ -237,7 +255,11 @@ mod tests {
         // The whole point: an unset port lets a `Port` directive in
         // ~/.ssh/config apply. Storing 22 would silently override it.
         assert_eq!(normalize("box.example:22").port, None);
-        let explicit = SshTargetInput { host: "box.example".into(), port: Some(22), ..Default::default() };
+        let explicit = SshTargetInput {
+            host: "box.example".into(),
+            port: Some(22),
+            ..Default::default()
+        };
         assert_eq!(normalize_ssh_target(&explicit).unwrap().unwrap().port, None);
         assert_eq!(normalize("box.example:22").effective_port(), 22);
     }
@@ -308,14 +330,25 @@ mod tests {
         assert!(normalize_ssh_target(&input("box\nexample")).is_err());
         assert!(normalize_ssh_target(&input("box\u{0}example")).is_err());
 
-        let bad_user = SshTargetInput { host: "box".into(), user: Some("a\nb".into()), ..Default::default() };
+        let bad_user = SshTargetInput {
+            host: "box".into(),
+            user: Some("a\nb".into()),
+            ..Default::default()
+        };
         assert!(normalize_ssh_target(&bad_user).is_err());
 
-        let bad_key = SshTargetInput { host: "box".into(), key_path: Some("/k\ny".into()), ..Default::default() };
+        let bad_key = SshTargetInput {
+            host: "box".into(),
+            key_path: Some("/k\ny".into()),
+            ..Default::default()
+        };
         assert!(normalize_ssh_target(&bad_key).is_err());
 
-        let bad_path =
-            SshTargetInput { host: "box".into(), remote_hermes_path: Some("/h\rx".into()), ..Default::default() };
+        let bad_path = SshTargetInput {
+            host: "box".into(),
+            remote_hermes_path: Some("/h\rx".into()),
+            ..Default::default()
+        };
         assert!(normalize_ssh_target(&bad_path).is_err());
     }
 
@@ -324,7 +357,9 @@ mod tests {
         // Desktop rejected this because it built `spawn('ssh', argv)`. russh takes
         // a typed host + port, so there is no option to smuggle. Kept as a test so
         // the rationale is not re-litigated by a future reader.
-        let t = normalize_ssh_target(&input("-box.example")).unwrap().unwrap();
+        let t = normalize_ssh_target(&input("-box.example"))
+            .unwrap()
+            .unwrap();
         assert_eq!(t.host, "-box.example");
     }
 

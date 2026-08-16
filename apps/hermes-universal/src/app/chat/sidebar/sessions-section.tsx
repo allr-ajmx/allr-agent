@@ -1,4 +1,5 @@
 import type * as React from 'react'
+import { useCallback } from 'react'
 
 import { SidebarPanelLabel } from '@/app/shell/sidebar-label'
 import { DisclosureCaret } from '@/components/ui/disclosure-caret'
@@ -54,7 +55,7 @@ function SidebarSectionHeader({
     <div className="group/section flex shrink-0 items-center justify-between gap-1 pb-1 pt-1.5">
       {collapsible ? (
         <button
-          className="group/section-label flex w-fit items-center gap-1 bg-transparent text-left leading-none"
+          className="group/section-label flex w-fit items-center gap-1 bg-transparent text-start leading-none"
           onClick={onToggle}
           type="button"
         >
@@ -96,6 +97,22 @@ export interface SidebarSessionsSectionProps {
   sortable?: boolean
   /** Owning-profile chips on every row (all-profiles browse scope). */
   showProfileTags?: boolean
+  /**
+   * The filter menu's row predicate, or `undefined` when nothing narrows.
+   *
+   * Applies to the PROJECT-LANE rows only — the flat `sessions` prop arrives
+   * already narrowed by the caller, because that list is also what the section
+   * counts and hands the virtualizer. Lanes cannot be pre-narrowed the same
+   * way: their sessions live inside the backend's `projects.tree` snapshot, and
+   * rebuilding those objects to filter them would mint new `SessionInfo`
+   * references and break `SidebarSessionRow`'s memo for every row in the tree.
+   *
+   * MUST be `undefined` rather than a `() => true` when inactive — it is a
+   * dependency of `renderProjectRows` below, and a fresh function per render
+   * would rebuild that callback (and with it every lane) on any unrelated store
+   * write. That is the exact regression MJXHRM-219 fixed.
+   */
+  sessionFilter?: (session: SessionInfo) => boolean
   /** Per-profile lanes, rendered instead of the flat list when present. */
   groups?: SidebarSessionGroup[]
   onNewSessionInProfile?: (profileKey: string) => void
@@ -140,6 +157,7 @@ export function SidebarSessionsSection(props: SidebarSessionsSectionProps) {
     collapsible = true,
     sortable = false,
     showProfileTags = false,
+    sessionFilter,
     groups,
     onNewSessionInProfile,
     onReorderSessions,
@@ -172,28 +190,60 @@ export function SidebarSessionsSection(props: SidebarSessionsSectionProps) {
     !hasGroups &&
     sessions.length >= VIRTUALIZE_THRESHOLD
 
-  const renderRow = (session: SessionInfo, draggable: boolean) => {
-    const rowProps = {
-      isPinned: pinned,
-      isSelected: session.id === activeSessionId,
-      isWorking: workingSessionIdSet.has(session.id),
-      onArchive: () => onArchiveSession(session.id),
-      onDelete: () => onDeleteSession(session.id),
-      onPin: () => onTogglePin(sessionPinId(session)),
-      onResume: () => onResumeSession(session.id),
-      session,
-      showProfile: showProfileTags
-    }
+  // Memoized so the identity is stable for any future memoized consumer. It does
+  // NOT skip work today and never did (MJXHRM-383): every consumer — the flat
+  // branches below, `renderProjectRows`, `profile-group`, `overview-row`,
+  // `workspace-group`, `entered-content` — CALLS this during its own render, and
+  // none of them is a `memo()`. `VirtualSessionList` never receives it at all; it
+  // takes the raw handlers and builds its own rows.
+  //
+  // What makes an unrelated store write cheap is one layer down —
+  // `SidebarSessionRow`'s memo — and that depends on the row OBJECT surviving,
+  // not on this. See `lib/structural-share.ts`.
+  //
+  // The dependency list is still the row's real inputs; anything missing here is
+  // a stale row.
+  const renderRow = useCallback(
+    (session: SessionInfo, draggable: boolean) => {
+      const rowProps = {
+        isPinned: pinned,
+        isSelected: session.id === activeSessionId,
+        isWorking: workingSessionIdSet.has(session.id),
+        onArchive: () => onArchiveSession(session.id),
+        onDelete: () => onDeleteSession(session.id),
+        onPin: () => onTogglePin(sessionPinId(session)),
+        onResume: () => onResumeSession(session.id),
+        session,
+        showProfile: showProfileTags
+      }
 
-    return draggable ? (
-      <SortableSidebarSessionRow key={session.id} {...rowProps} />
-    ) : (
-      <SidebarSessionRow key={session.id} {...rowProps} />
-    )
-  }
+      return draggable ? (
+        <SortableSidebarSessionRow key={session.id} {...rowProps} />
+      ) : (
+        <SidebarSessionRow key={session.id} {...rowProps} />
+      )
+    },
+    [
+      activeSessionId,
+      onArchiveSession,
+      onDeleteSession,
+      onResumeSession,
+      onTogglePin,
+      pinned,
+      showProfileTags,
+      workingSessionIdSet
+    ]
+  )
 
-  // Static (non-draggable) rows for project previews + entered-project sessions.
-  const renderProjectRows = (items: SessionInfo[]) => items.map(session => renderRow(session, false))
+  // Static (non-draggable) rows for project previews + entered-project sessions,
+  // narrowed here because this is the ONE funnel every lane's rows pass through
+  // (`profile-group`, `overview-row`, `workspace-group`, `entered-content` all
+  // call it). `sessionFilter` is `undefined` unless the user has switched a
+  // filter on, so the default view's identity is exactly what it was.
+  const renderProjectRows = useCallback(
+    (items: SessionInfo[]) => (sessionFilter ? items.filter(sessionFilter) : items).map(s => renderRow(s, false)),
+    [renderRow, sessionFilter]
+  )
 
   const showProjectsSkeleton =
     projectsLoading && !hasProjectOverview && !hasProjectContent && !projectContent && !hasGroups

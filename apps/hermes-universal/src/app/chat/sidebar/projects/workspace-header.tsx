@@ -1,5 +1,4 @@
 import type * as React from 'react'
-import { useState } from 'react'
 
 import { ActionsContextMenu, ActionsMenu, type MenuKit, renderActionItem } from '@/components/ui/actions-menu'
 import { Codicon } from '@/components/ui/codicon'
@@ -7,11 +6,10 @@ import { DisclosureCaret } from '@/components/ui/disclosure-caret'
 import { Tip } from '@/components/ui/tooltip'
 import { useI18n } from '@/i18n'
 import { cn } from '@/lib/utils'
+import { openWorktreeDialog } from '@/store/coding-status'
 import { copyPath, revealPath } from '@/store/projects'
 
 import { SidebarRowLead } from '../chrome'
-
-import { WorktreeDialog } from './worktree-dialog'
 
 // Branch/worktree labels routinely share a long prefix (`bb/coding-context-…`),
 // so plain end-truncation (`truncate`) hides exactly the suffix that tells two
@@ -64,7 +62,7 @@ export function WorkspaceShowMoreButton({
     <Tip label={text}>
       <button
         aria-label={text}
-        className="ml-auto grid size-5 place-items-center rounded-sm bg-transparent text-(--ui-text-tertiary) transition-colors hover:bg-(--ui-control-hover-background) hover:text-foreground"
+        className="ms-auto grid size-5 place-items-center rounded-sm bg-transparent text-(--ui-text-tertiary) transition-colors hover:bg-(--ui-control-hover-background) hover:text-foreground"
         onClick={onClick}
         type="button"
       >
@@ -156,25 +154,23 @@ export function WorkspaceContextMenu({
 // inside it. Naming is explicit — no auto-generated `hermes/work-<ts>` trees.
 // The base branch defaults to the remote default (origin/HEAD); the user can
 // pick any local or remote-tracking branch.
-export function StartWorkButton({ repoPath, onStarted }: { repoPath: string; onStarted: (path: string) => void }) {
+export function StartWorkButton({ repoPath }: { repoPath: string }) {
   const { t } = useI18n()
   const p = t.sidebar.projects
-  const [open, setOpen] = useState(false)
 
   return (
-    <>
-      <Tip label={p.startWork}>
-        <button
-          aria-label={p.startWork}
-          className="grid size-4 shrink-0 place-items-center rounded-sm bg-transparent text-(--ui-text-quaternary) opacity-0 transition-opacity group-hover/section:opacity-100 coarse:opacity-100 hover:bg-(--ui-control-hover-background) hover:text-foreground focus-visible:opacity-100"
-          onClick={() => setOpen(true)}
-          type="button"
-        >
-          <Codicon name="git-branch" size="0.75rem" />
-        </button>
-      </Tip>
-      <WorktreeDialog onOpenChange={setOpen} onStarted={onStarted} open={open} repoPath={repoPath} />
-    </>
+    <Tip label={p.startWork}>
+      <button
+        aria-label={p.startWork}
+        className="grid size-4 shrink-0 place-items-center rounded-sm bg-transparent text-(--ui-text-quaternary) opacity-0 transition-opacity group-hover/section:opacity-100 coarse:opacity-100 hover:bg-(--ui-control-hover-background) hover:text-foreground focus-visible:opacity-100"
+        // Publish the intent; the one WorktreeDialog in the sidebar renders it.
+        // This button pins its own repo, so it targets this section.
+        onClick={() => void openWorktreeDialog({ repoPath })}
+        type="button"
+      >
+        <Codicon name="git-branch" size="0.75rem" />
+      </button>
+    </Tip>
   )
 }
 
@@ -211,7 +207,7 @@ export function WorkspaceHeader({
     >
       <button
         className={cn(
-          'flex min-w-0 flex-1 items-center gap-1.5 bg-transparent text-left',
+          'flex min-w-0 flex-1 items-center gap-1.5 bg-transparent text-start',
           emphasis ? 'hover:text-foreground' : 'hover:text-(--ui-text-secondary)'
         )}
         onClick={onToggle}

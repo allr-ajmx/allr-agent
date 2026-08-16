@@ -9,6 +9,8 @@
 import { useStore } from '@nanostores/react'
 import { type PointerEvent as ReactPointerEvent, useCallback, useMemo, useRef, useSyncExternalStore } from 'react'
 
+import { directionSign } from '@/lib/direction'
+import { guardGuestPointers } from '@/lib/guest-pointer-guard'
 import { rafCoalesce } from '@/lib/raf-coalesce'
 import { beginResizeGesture, endResizeGesture } from '@/lib/resize-gesture'
 import { cn } from '@/lib/utils'
@@ -63,6 +65,10 @@ function useSubtreeOverrides(paneIds: readonly string[]): TrackContext['override
     }
 
     return cache.current.value
+    // `key` (the joined ids) stands in for `paneIds`, which is a fresh array
+    // every render. Depending on the array itself would hand
+    // `useSyncExternalStore` a new getSnapshot each render and defeat the
+    // signature gate this whole hook exists to provide.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key])
 
@@ -246,6 +252,10 @@ export function TreeSplit({
 
       document.body.style.cursor = horizontal ? 'col-resize' : 'row-resize'
       document.body.style.userSelect = 'none'
+      // An iframe guest must not swallow the gesture: it hit-tests on its own,
+      // so the drag froze the moment the pointer crossed an artifact preview or
+      // a transcript embed and the seam could only move a few px per press.
+      const releaseGuests = guardGuestPointers()
       // Open the resize gesture: it suppresses the :root geometry-var writes
       // (geometry.ts — each restyles the whole document) and throttles every
       // ResizeObserver reaction downstream of the width change, both of which
@@ -327,13 +337,28 @@ export function TreeSplit({
       // pointermove outpaces 60fps, so coalesce to one PREVIEW per frame.
       const resize = rafCoalesce(previewShift)
       let lastShift: null | number = null
+      let done = false
 
       const onMove = (ev: PointerEvent) => {
-        lastShift = Math.max(lo, Math.min(hi, (horizontal ? ev.clientX : ev.clientY) - start))
+        // `clientX` grows rightward in every locale; the seam's two sides have
+        // swapped under `dir=rtl`, so an unsigned delta would grow the zone the
+        // drag is shrinking. `lo`/`hi` are already in the seam's own frame.
+        const delta = horizontal ? (ev.clientX - start) * directionSign(handle) : ev.clientY - start
+        lastShift = Math.max(lo, Math.min(hi, delta))
         resize.push(lastShift)
       }
 
+      // Ends through several racing paths (pointerup, pointercancel, window
+      // blur, lostpointercapture — `releasePointerCapture` below fires the
+      // latter re-entrantly), so it must run exactly once: a second pass would
+      // re-commit `lastShift` against already-committed sizes and re-publish
+      // the geometry vars the first pass just settled.
       const cleanup = () => {
+        if (done) {
+          return
+        }
+
+        done = true
         resize.finish()
 
         if (lastShift !== null) {
@@ -364,6 +389,7 @@ export function TreeSplit({
         // immediately after. Ordering is load-bearing, and it is also what makes
         // the throttle's end-of-gesture flush see the committed sizes.
         endResizeGesture()
+        releaseGuests()
         document.body.style.cursor = restoreCursor
         document.body.style.userSelect = restoreSelect
 
@@ -376,12 +402,21 @@ export function TreeSplit({
         window.removeEventListener('pointermove', onMove, true)
         window.removeEventListener('pointerup', cleanup, true)
         window.removeEventListener('pointercancel', cleanup, true)
+        window.removeEventListener('blur', cleanup)
+        handle.removeEventListener('lostpointercapture', cleanup)
         persistTree()
       }
 
       window.addEventListener('pointermove', onMove, true)
       window.addEventListener('pointerup', cleanup, true)
       window.addEventListener('pointercancel', cleanup, true)
+      // The gesture can also end without a pointerup: the window loses focus
+      // mid-drag, or capture is taken away. Without these the seam stayed glued
+      // to the cursor with `col-resize` and `user-select: none` still pinned on
+      // the body, and the resize gesture never closed — every ResizeObserver
+      // downstream stayed throttled for the rest of the session.
+      window.addEventListener('blur', cleanup)
+      handle.addEventListener('lostpointercapture', cleanup)
     },
     // trackCtx is derived state rebuilt per render; the drag captures it once.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -462,6 +497,11 @@ export function TreeSplit({
 
       setTreeSplitWeights(node.id, !preset && !pinned ? weights.map(() => 1) : weights)
     },
+    // Same substitution as `startSash` above: `trackCtx` and `paneFor` are
+    // rebuilt every render, so this array lists their INPUTS instead —
+    // `trackCtx` is `{ paneFor, paneGone, overrides }`, `paneFor` reads `byId`,
+    // and `paneGone` adds `editMode`/`hiddenPanes`/`narrow`. All five are here,
+    // so the callback's behaviour is fully covered without churning identity.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [axis, editMode, horizontal, node.children, node.id, node.weights, hiddenPanes, narrow, overrides, byId]
   )
@@ -606,7 +646,13 @@ function Sash({
     <div
       className={cn(
         'group absolute z-20 [-webkit-app-region:no-drag]',
-        horizontal ? 'inset-y-0 left-0 w-[9px] -translate-x-1/2' : 'inset-x-0 top-0 h-[9px] -translate-y-1/2',
+        // A flex row already mirrors under `dir=rtl`, so the sash follows with a
+        // logical inset. Its half-width straddle is a transform, which does not
+        // mirror — hence the sign. (The hairline and hover strip below stay
+        // `left-1/2 -translate-x-1/2`: that pair is centring, not an edge.)
+        horizontal
+          ? 'inset-y-0 start-0 w-[9px] translate-x-[calc(-50%*var(--dir-flip-x))]'
+          : 'inset-x-0 top-0 h-[9px] -translate-y-1/2',
         disabled ? 'pointer-events-none' : horizontal ? 'cursor-col-resize' : 'cursor-row-resize'
       )}
       onDoubleClick={disabled ? undefined : onDoubleClick}
@@ -619,6 +665,7 @@ function Sash({
       <span
         className={cn(
           'absolute bg-(--ui-stroke-secondary)',
+          // eslint-disable-next-line better-tailwindcss/no-restricted-classes -- centring, not an edge — pairs with a physical -translate-x-1/2, and start-1/2 would resolve to right:50% while the transform still pulled left
           horizontal ? 'inset-y-0 left-1/2 w-px -translate-x-1/2' : 'inset-x-0 top-1/2 h-px -translate-y-1/2'
         )}
       />
@@ -627,6 +674,7 @@ function Sash({
           className={cn(
             'absolute bg-(--ui-sash-hover-border) opacity-0 transition-opacity duration-100 group-hover:opacity-100',
             horizontal
+              // eslint-disable-next-line better-tailwindcss/no-restricted-classes -- centring, not an edge — pairs with a physical -translate-x-1/2, and start-1/2 would resolve to right:50% while the transform still pulled left
               ? 'inset-y-0 left-1/2 w-(--vscode-sash-hover-size,0.25rem) -translate-x-1/2'
               : 'inset-x-0 top-1/2 h-(--vscode-sash-hover-size,0.25rem) -translate-y-1/2'
           )}

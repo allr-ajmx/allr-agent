@@ -7,25 +7,25 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub enum Error {
     #[error("No default keyring store has been configured")]
     NoDefaultStore,
-    
+
     #[error("Entry not found in keyring")]
     EntryNotFound,
-    
+
     #[error("Multiple matching entries found")]
     AmbiguousEntry,
-    
+
     #[error("Invalid input: {0}")]
     InvalidInput(String),
-    
+
     #[error("Platform error: {0}")]
     PlatformError(String),
-    
+
     #[error("Invalid UTF-8 data")]
     InvalidUtf8,
-    
+
     #[error("IO error: {0}")]
     Io(String),
-    
+
     #[cfg(mobile)]
     #[error("Plugin invocation error: {0}")]
     PluginInvoke(String),

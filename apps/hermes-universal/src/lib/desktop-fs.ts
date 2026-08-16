@@ -1,11 +1,11 @@
 import { open as openDialog } from '@tauri-apps/plugin-dialog'
 
-import { writeClipboardText } from '@/components/ui/copy-button'
 import { getDefaultCwd, getFileDiff, getGitRoot, readDir, readFileDataUrl, readFileText, writeFileText } from '@/hermes'
 import { translateNow } from '@/i18n'
+import { writeClipboardText } from '@/lib/clipboard'
 import { IS_DESKTOP } from '@/lib/platform'
 import { $connection } from '@/store/connection'
-import { connectionCacheKey } from '@/store/gateway-config'
+import { type Connection, connectionCacheKey } from '@/store/gateway-config'
 import type { ReadDirResult, ReadFileTextResult } from '@/types/hermes'
 
 // Ported from apps/desktop/src/lib/desktop-fs.ts — its REMOTE branch only.
@@ -116,16 +116,39 @@ export async function desktopFileDiff(repoRoot: string, filePath: string): Promi
 }
 
 /**
- * Pick paths, remote-aware. A directory pick on a Tauri desktop uses the native
- * dialog; everything else browses the BACKEND filesystem through the registered
- * remote picker, since that's where sessions actually run — a locally-picked
- * path would be meaningless to a remote gateway.
+ * True when this window's OS filesystem IS the gateway's — a Tauri desktop
+ * talking to a backend it spawned itself (`mode: 'local'`).
+ *
+ * `ssh` is deliberately excluded even though it authenticates like local: the
+ * tunnel terminates on ANOTHER host's filesystem. So are `remote`/`cloud`, and
+ * so is a connection with no mode at all (treated as remote everywhere else
+ * too — see `modeIsRemoteLike` in store/gateway-config.ts).
+ *
+ * `connection` is a parameter so a React caller can hand over the value it
+ * already subscribes to (`useStore($connection)`) and re-render when the
+ * gateway switches, instead of re-deriving `mode === 'local'` on the side — a
+ * second copy of this rule is exactly how the two drift apart.
+ */
+export function gatewayOwnsLocalFs(connection: Connection | null = $connection.get()): boolean {
+  return IS_DESKTOP && connection?.mode === 'local'
+}
+
+/**
+ * Pick paths, remote-aware. A directory pick uses the native OS dialog only
+ * when {@link gatewayOwnsLocalFs}; everything else browses the BACKEND
+ * filesystem through the registered remote picker, since that's where sessions
+ * actually run — and where every path the app then hands the gateway (a project
+ * folder, its IDEA.md, a worktree root) is resolved.
+ *
+ * Handing a locally-picked path to a gateway on another machine is worse than a
+ * dead path: `/home/me/work` very often exists on both, so the backend silently
+ * reads and writes the WRONG directory.
  *
  * Empty when nothing is registered and there is no native dialog (plain web,
  * vitest), which callers treat the same as "cancelled".
  */
 export async function selectDesktopPaths(options?: SelectPathsOptions): Promise<string[]> {
-  if (options?.directories && IS_DESKTOP) {
+  if (options?.directories && gatewayOwnsLocalFs()) {
     try {
       const dir = await openDialog({ defaultPath: options.defaultPath, directory: true, multiple: false })
 

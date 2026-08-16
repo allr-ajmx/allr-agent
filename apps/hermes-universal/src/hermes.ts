@@ -6,10 +6,12 @@ import type {
   AnalyticsResponse,
   AudioSpeakResponse,
   AudioTranscriptionResponse,
+  AutomationBlueprint,
   AuxiliaryModelsResponse,
   BackendUpdateCheckResponse,
   ComputerUseStatus,
   ConfigSchemaResponse,
+  CronDeliveryTarget,
   CronJob,
   CronJobCreatePayload,
   CronJobUpdates,
@@ -65,7 +67,11 @@ import type {
   TerminalBackendsResponse,
   ToolsetConfig,
   ToolsetInfo,
-  ToolsetModelsResponse
+  ToolsetModelsResponse,
+  WebhookCreatePayload,
+  WebhookCreateResponse,
+  WebhookEnableResponse,
+  WebhooksResponse
 } from '@/types/hermes'
 
 // Desktop startup fires a burst of read-only data calls (config, profiles,
@@ -103,6 +109,8 @@ export type {
   AnalyticsTotals,
   AudioSpeakResponse,
   AudioTranscriptionResponse,
+  AutomationBlueprint,
+  AutomationBlueprintField,
   AuxiliaryModelsResponse,
   BackendUpdateCheckResponse,
   ComputerUseCheck,
@@ -110,6 +118,7 @@ export type {
   ComputerUseStatus,
   ConfigFieldSchema,
   ConfigSchemaResponse,
+  CronDeliveryTarget,
   CronJob,
   CronJobCreatePayload,
   CronJobSchedule,
@@ -178,7 +187,12 @@ export type {
   ToolsetConfig,
   ToolsetInfo,
   ToolsetModel,
-  ToolsetModelsResponse
+  ToolsetModelsResponse,
+  WebhookCreatePayload,
+  WebhookCreateResponse,
+  WebhookEnableResponse,
+  WebhookRoute,
+  WebhooksResponse
 } from '@/types/hermes'
 
 export class HermesGateway extends JsonRpcGatewayClient {
@@ -205,6 +219,14 @@ export function setApiRequestProfile(profile: null | string): void {
   _apiProfile = profile || null
 }
 
+/** The profile REST calls are currently scoped to, for the few callers that
+ *  live outside this module and must hit a profile-scoped route under the same
+ *  scope — `lib/desktop-git.ts`'s repo scan reads the gateway's config, so it
+ *  has to read the config of the profile the rest of the app is looking at. */
+export function apiRequestProfile(): null | string {
+  return _apiProfile
+}
+
 function profileScoped(): { profile?: string } {
   return _apiProfile ? { profile: _apiProfile } : {}
 }
@@ -219,24 +241,64 @@ function profileScoped(): { profile?: string } {
 export interface PluginRestOptions {
   method?: string
   body?: unknown
-  /** Single-file multipart upload. NOT supported on universal — see `pluginRest`.
-   *  Kept in the type so a plugin's types are identical across both apps. */
+  /** Single-file multipart upload, sent under the field name `file`. */
   upload?: { filename: string; contentType?: string; bytes: ArrayBuffer }
   timeoutMs?: number
 }
 
-// Normalize `path` to a leading-slash suffix relative to `/api/plugins/<id>`.
-// The namespace is the boundary — reject `..` so a relative segment can't
-// normalize out into another plugin's API or a core route. Check the path
-// portion only (before any query/hash).
-function pluginPathSuffix(caller: string, path: string): string {
-  const suffix = path.startsWith('/') ? path : `/${path}`
+/** A plugin id may be ONE ordinary path segment. It is interpolated straight
+ *  into `/api/plugins/<id>`, so an id carrying a separator or a dot-segment
+ *  would relocate the namespace itself — and it is equally the `plugin:<id>`
+ *  source tag, the `hermes.plugin.<id>.*` storage prefix and the contribution
+ *  id prefix, none of which survive a `/` either. */
+const PLUGIN_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
 
-  if (suffix.split(/[?#]/, 1)[0].split('/').includes('..')) {
+/** The only base a plugin path is ever resolved against here. Opaque host: it
+ *  exists so `new URL` will resolve, and nothing reads it back. */
+const PLUGIN_PATH_BASE = 'http://plugin.invalid'
+
+/**
+ * The plugin namespace path — `/api/plugins/<id>` plus a caller-supplied
+ * relative `path`, and the ONE place that boundary is computed.
+ *
+ * The check is containment after URL resolution, not a substring test for
+ * `..`, because the two do not agree. WHATWG (which is what both the webview
+ * and Rust's `url` crate implement) also treats `%2e%2e`, `%2E%2E`, `.%2e`,
+ * `%2e.` as double-dot segments AND `\` as a path separator — so
+ * `/%2e%2e/%2e%2e/api/fs/read` and `/..\..\api/fs/read` each leave the
+ * namespace while containing no literal `..` path segment at all. A string
+ * test passed both; `POST`ing to a core route with the app's session
+ * credentials attached is what came out the other side, and MJXHRM-403's new
+ * `upload` extended that to an authenticated multipart POST anywhere on the
+ * gateway.
+ *
+ * Resolving here is exact rather than approximate: the string returned is
+ * parsed downstream with the same rules, so what this function accepts is
+ * literally what goes on the wire.
+ *
+ * Only the path portion is a boundary — `..` inside a query or fragment is
+ * the caller's data and passes through untouched.
+ */
+function pluginNamespacePath(caller: string, pluginId: string, path: string): string {
+  if (!PLUGIN_ID_RE.test(pluginId)) {
+    throw new Error(`${caller}: illegal plugin id "${pluginId}"`)
+  }
+
+  const base = `/api/plugins/${pluginId}`
+  const full = `${base}${path.startsWith('/') ? path : `/${path}`}`
+  let resolved: URL
+
+  try {
+    resolved = new URL(full, PLUGIN_PATH_BASE)
+  } catch {
+    throw new Error(`${caller}: unresolvable path "${path}"`)
+  }
+
+  if (resolved.pathname !== base && !resolved.pathname.startsWith(`${base}/`)) {
     throw new Error(`${caller}: illegal path traversal in "${path}"`)
   }
 
-  return suffix
+  return full
 }
 
 /** The plugin REST door. Every call is scoped BY CONSTRUCTION to the plugin's
@@ -246,23 +308,17 @@ function pluginPathSuffix(caller: string, path: string): string {
  *  call. Broader reach (core endpoints, another namespace) is the future
  *  declared-capability seam; today the namespace IS the boundary.
  *
- *  `opts.upload` THROWS here: universal's REST runs through the Rust
- *  `http_request` command, which sends a JSON body and has no multipart path.
- *  Dropping the file silently would corrupt the plugin's POST, and removing the
- *  field from the type wouldn't protect a runtime-loaded plugin compiled
- *  elsewhere — so the failure is explicit. FIXME(MJX-53/upload): add a multipart
- *  `http_request` variant. */
+ *  `opts.upload` is a single-file `multipart/form-data` POST under the field
+ *  name `file` — the shape a FastAPI `UploadFile` parameter expects, and what
+ *  the shipped kanban sample's attachments use. It rides the same Rust
+ *  `http_request` command as every other call here; the form is assembled in
+ *  Rust, so the webview never builds a boundary by hand. */
 export async function pluginRest<T>(pluginId: string, path: string, opts: PluginRestOptions = {}): Promise<T> {
-  const suffix = pluginPathSuffix('pluginRest', path)
-
-  if (opts.upload) {
-    throw new Error('pluginRest: file upload is not supported on this client')
-  }
-
   return api<T>({
-    path: `/api/plugins/${pluginId}${suffix}`,
+    path: pluginNamespacePath('pluginRest', pluginId, path),
     method: opts.method,
     body: opts.body,
+    upload: opts.upload,
     timeoutMs: opts.timeoutMs,
     ...profileScoped()
   })
@@ -270,7 +326,29 @@ export async function pluginRest<T>(pluginId: string, path: string, opts: Plugin
 
 /** Shared by `pluginSocket` (lib/plugin-transport.ts), which lives outside this
  *  module because it needs a store import this file deliberately avoids. */
-export { pluginPathSuffix }
+export { pluginNamespacePath }
+
+/**
+ * Trim a page to its window WITHOUT discarding pinned rows.
+ *
+ * Both list endpoints pass `include_pinned=True`, which deliberately back-fills
+ * pinned conversations PAST the LIMIT and appends them after the recency window
+ * (`hermes_state.py` `list_sessions_rich`). A pin means "always reachable", so
+ * an aged-out pinned chat arriving past `limit` is the contract working, not a
+ * paging accident — and a plain `slice(0, limit)` threw exactly those rows away
+ * again, since they are precisely the ones at the tail.
+ *
+ * Ported from apps/desktop/src/hermes.ts `pageWindow`.
+ */
+function pageWindow(sessions: SessionInfo[], limit: number): SessionInfo[] {
+  if (sessions.length <= limit) {
+    return sessions
+  }
+
+  const recent = sessions.slice(0, limit)
+
+  return [...recent, ...sessions.slice(limit).filter(session => session.pinned)]
+}
 
 export async function listSessions(
   limit = 40,
@@ -290,7 +368,7 @@ export async function listSessions(
 
   return {
     ...result,
-    sessions: result.sessions.slice(0, limit),
+    sessions: pageWindow(result.sessions, limit),
     offset: from
   }
 }
@@ -343,7 +421,7 @@ export async function listAllProfileSessions(
 
   return {
     ...result,
-    sessions: result.sessions.slice(0, limit),
+    sessions: pageWindow(result.sessions, limit),
     offset: from
   }
 }
@@ -358,6 +436,30 @@ export function setSessionArchived(id: string, archived: boolean, profile?: stri
     path: `/api/sessions/${encodeURIComponent(id)}`,
     method: 'PATCH',
     body: { archived }
+  })
+}
+
+/**
+ * Write the backend's durable pin ("keep") flag — `sessions.pinned` in the
+ * owning profile's state.db.
+ *
+ * This is what a pin actually IS on the server: the `sessions.auto_archive`
+ * sweep skips pinned rows (`hermes_state.py` `archive_stale_sessions`), and
+ * both list endpoints back-fill pinned conversations past their LIMIT
+ * (`include_pinned=True`) so a pinned chat stays reachable however far it has
+ * aged. A client-side pin list can do neither, which is why the sidebar's pins
+ * mirror here rather than living only in this app.
+ *
+ * `profile` routes the PATCH at the profile that owns the row, exactly like
+ * `setSessionArchived` — a pin on another profile's session would otherwise
+ * 404 against the active one.
+ */
+export function setSessionPinnedRemote(id: string, pinned: boolean, profile?: string | null): Promise<{ ok: boolean }> {
+  return api<{ ok: boolean }>({
+    ...(profile ? { profile } : {}),
+    path: `/api/sessions/${encodeURIComponent(id)}`,
+    method: 'PATCH',
+    body: { pinned }
   })
 }
 
@@ -921,6 +1023,55 @@ export function testMessagingPlatform(platformId: string): Promise<MessagingPlat
   })
 }
 
+// -- Webhooks (inbound subscription CRUD) ------------------------------------
+// The webhook receiver is its own gateway platform; subscriptions live in a JSON
+// store the CLI and dashboard also drive. Enable mutates config and best-effort
+// restarts the gateway; subscription changes hot-reload.
+//
+// Deliberately NOT `profileScoped()` (desktop scopes all five). Desktop's
+// `?profile=` picks which backend PROCESS answers; universal's `api()` turns it
+// into a `?profile=` query, and none of these five FastAPI handlers declares that
+// parameter — so it would be silently dropped and the client would advertise a
+// scoping it does not have. These routes always read the gateway's own
+// HERMES_HOME.
+
+export function getWebhooks(): Promise<WebhooksResponse> {
+  return api<WebhooksResponse>({ path: '/api/webhooks' })
+}
+
+export function enableWebhooks(): Promise<WebhookEnableResponse> {
+  return api<WebhookEnableResponse>({
+    path: '/api/webhooks/enable',
+    method: 'POST'
+  })
+}
+
+export function createWebhook(body: WebhookCreatePayload): Promise<WebhookCreateResponse> {
+  return api<WebhookCreateResponse>({
+    path: '/api/webhooks',
+    method: 'POST',
+    body
+  })
+}
+
+export function deleteWebhook(name: string): Promise<{ ok: boolean }> {
+  return api<{ ok: boolean }>({
+    path: `/api/webhooks/${encodeURIComponent(name)}`,
+    method: 'DELETE'
+  })
+}
+
+export function setWebhookEnabled(
+  name: string,
+  enabled: boolean
+): Promise<{ enabled: boolean; name: string; ok: boolean }> {
+  return api<{ enabled: boolean; name: string; ok: boolean }>({
+    path: `/api/webhooks/${encodeURIComponent(name)}/enabled`,
+    method: 'PUT',
+    body: { enabled }
+  })
+}
+
 export function getCronJobs(profile?: string): Promise<CronJob[]> {
   const suffix = profile ? `?profile=${encodeURIComponent(profile)}` : ''
 
@@ -942,6 +1093,15 @@ export async function getCronJobRuns(jobId: string, limit = 20): Promise<Session
   })
 
   return runs ?? []
+}
+
+// The single source of truth for cron delivery targets (local + configured
+// gateways). The editor uses this rather than a hardcoded platform list so it
+// never offers a platform that isn't connected. Mirrors the dashboard.
+export async function getCronDeliveryTargets(): Promise<CronDeliveryTarget[]> {
+  const { targets } = await api<{ targets: CronDeliveryTarget[] }>({ path: '/api/cron/delivery-targets' })
+
+  return targets ?? []
 }
 
 export function createCronJob(body: CronJobCreatePayload): Promise<CronJob> {
@@ -985,6 +1145,40 @@ export function deleteCronJob(jobId: string): Promise<{ ok: boolean }> {
   return api<{ ok: boolean }>({
     path: `/api/cron/jobs/${encodeURIComponent(jobId)}`,
     method: 'DELETE'
+  })
+}
+
+// Automation Blueprints — parameterized cron templates the backend serves from
+// cron/blueprint_catalog.py. getAutomationBlueprints returns the gallery
+// (deliver options already rewritten to this machine's configured gateways);
+// instantiateAutomationBlueprint fills the slots and creates a real cron job via
+// the same create_job path as createCronJob.
+//
+// Profile-scoping is intentionally asymmetric: the GET catalog is global (the
+// list endpoint takes no profile — only deliver options are rewritten from the
+// configured gateways). instantiate creates a real per-profile job, so it names
+// the target profile explicitly via ?profile=.
+//
+// Seam vs desktop: desktop spreads profileScoped() into both calls for backend
+// routing; universal's api() already threads the active profile itself (see
+// setApiRequestProfile / lib/api.ts withProfile), so neither takes a profile
+// argument for routing — instantiate's ?profile= is the WRITE TARGET, which is
+// a different thing and stays an explicit parameter.
+export function getAutomationBlueprints(): Promise<{ blueprints: AutomationBlueprint[] }> {
+  return api<{ blueprints: AutomationBlueprint[] }>({
+    path: '/api/cron/blueprints',
+    timeoutMs: STARTUP_REQUEST_TIMEOUT_MS
+  })
+}
+
+export function instantiateAutomationBlueprint(
+  body: { blueprint: string; values: Record<string, string> },
+  profile: string
+): Promise<CronJob> {
+  return api<CronJob>({
+    path: `/api/cron/blueprints/instantiate?profile=${encodeURIComponent(profile)}`,
+    method: 'POST',
+    body
   })
 }
 

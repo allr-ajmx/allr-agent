@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -17,6 +17,16 @@ const win = vi.hoisted(() => ({
 
 vi.mock('@tauri-apps/api/window', () => ({ getCurrentWindow: () => win }))
 
+// The floating-surface capability query. Settable, because whether this
+// platform can put a window over other applications is what decides whether the
+// HUD button belongs in the chrome at all.
+const caps = vi.hoisted(() => ({ floatingSurface: true }))
+
+vi.mock('@/lib/surface', () => ({
+  setSurfaceInteractiveRect: vi.fn(),
+  surfaceCapabilities: async () => caps
+}))
+
 import { Titlebar } from './titlebar'
 
 const renderTitlebar = () =>
@@ -32,6 +42,34 @@ afterEach(() => {
   setSidebarOpen(true)
   $rightSidebarOpen.set(false)
   $panesFlipped.set(false)
+  caps.floatingSurface = true
+})
+
+describe('the HUD affordance', () => {
+  // `lib/surface.ts`: read `floatingSurface` to decide whether to offer the UI
+  // at all. Where there is none, this button opens an ordinary window that sits
+  // BEHIND whatever the user is working in — the opposite of what it promises.
+  it('offers the HUD where the platform can float a window', async () => {
+    renderTitlebar()
+
+    expect(await screen.findByRole('button', { name: 'HUD mode' })).toBeInTheDocument()
+  })
+
+  it('does not offer it where the platform cannot', async () => {
+    caps.floatingSurface = false
+
+    renderTitlebar()
+
+    // Settle the capability probe, then check — asserting on the first frame
+    // would pass for the wrong reason, since the button starts hidden either way.
+    await screen.findByRole('button', { name: 'Open settings' })
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(screen.queryByRole('button', { name: 'HUD mode' })).not.toBeInTheDocument()
+  })
 })
 
 describe('Titlebar sidebar toggles', () => {

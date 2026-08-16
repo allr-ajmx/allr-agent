@@ -9,33 +9,35 @@ import {
 import { useStore } from '@nanostores/react'
 import { type FC, useCallback, useMemo, useState } from 'react'
 
+import { branchSourceOf, useSessionView } from '@/app/chat/session-view'
+import { ChangedFilesCard } from '@/components/assistant-ui/thread/changed-files-card'
 import {
   contentHasVisibleText,
   messageContentText,
   pickPrimaryPreviewTarget
 } from '@/components/assistant-ui/thread/content'
 import { MESSAGE_PARTS_COMPONENTS } from '@/components/assistant-ui/thread/message-parts'
+import { ReactionPicker } from '@/components/assistant-ui/thread/message-reactions'
 import { StreamStallIndicator } from '@/components/assistant-ui/thread/status'
 import { formatMessageTimestamp } from '@/components/assistant-ui/thread/timestamp'
+import { useMessageReactions, useTapbackDoubleClick } from '@/components/assistant-ui/thread/use-message-reactions'
 import { TooltipIconButton } from '@/components/assistant-ui/tooltip-icon-button'
 import { PreviewAttachment } from '@/components/chat/preview-attachment'
 import { Codicon } from '@/components/ui/codicon'
 import { CopyButton } from '@/components/ui/copy-button'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuTrigger
-} from '@/components/ui/dropdown-menu'
 import { useI18n } from '@/i18n'
-import { GitBranchIcon, Loader2Icon, Volume2Icon, VolumeXIcon, XIcon } from '@/lib/icons'
+import { triggerHaptic } from '@/lib/haptics'
+import { AudioLines, GitForkIcon, Loader2Icon, SmilePlus, VolumeXIcon, XIcon } from '@/lib/icons'
 import { extractPreviewTargets } from '@/lib/preview-targets'
+import { formatAgo } from '@/lib/time'
 import { cn } from '@/lib/utils'
 import { playSpeechText, stopVoicePlayback } from '@/lib/voice-playback'
 import { notifyError } from '@/store/notifications'
 import { branchCurrentSession } from '@/store/session'
 import { $voicePlayback } from '@/store/voice-playback'
+
+// Stable empty slice for the changed-files selector while a turn is running.
+const EMPTY_PARTS: readonly unknown[] = []
 
 interface MessageActionProps {
   messageId: string
@@ -64,6 +66,10 @@ export const AssistantMessage: FC<{
   const isRunning = messageStatus === 'running'
   const isPlaceholder = useAuiState(s => s.message.status?.type === 'running' && s.message.content.length === 0)
   const hasVisibleText = useAuiState(s => contentHasVisibleText(s.message.content))
+  // Sealed mid-turn commentary keeps its text but not the footer, so a
+  // tool-heavy turn doesn't grow a copy/read-aloud bar per paragraph. The seal
+  // itself is `lib/live-tail`'s call, applied in the session reducer.
+  const isInterim = useAuiState(s => s.message.metadata?.custom?.interim === true)
 
   // Previewable links in a SETTLED reply. Reading '' while running keeps this
   // component off the streaming text (see the PERF note above) — the scan runs
@@ -82,6 +88,25 @@ export const AssistantMessage: FC<{
 
   const getMessageText = useCallback(() => messageContentText(messageRuntime.getState().content), [messageRuntime])
 
+  // Cursor's changed-files card only appears once the turn settles: while the
+  // agent is still editing, the tool rows narrate each patch and a card that
+  // grew a row per write would thrash the transcript. `[]` while running keeps
+  // this selector referentially stable across the 30 Hz delta stream.
+  //
+  // It also only rides the LAST turn. The card is a "here's what just landed"
+  // summary, not a per-turn artifact: leaving one behind on every reply would
+  // stack a wall of stale cards down the transcript. Sending the next message
+  // retires it — the working tree it describes is already history by then.
+  const settledParts = useAuiState(s => {
+    const isLastMessage = s.thread.messages[s.thread.messages.length - 1]?.id === s.message.id
+
+    return s.message.status?.type === 'running' || !isLastMessage ? EMPTY_PARTS : s.message.parts
+  })
+
+  // Double-click the reply to heart it (iMessage). Undefined while reactions
+  // are off, so the root carries no listener at all.
+  const onDoubleClick = useTapbackDoubleClick(messageId, 'assistant')
+
   // NOTE: the desktop one-shot enter animation is deliberately omitted here to
   // avoid pulling the whole message subtree into a render key; the reasoning
   // disclosures still animate via useEnterAnimation. Not a gap — see MJX-205.
@@ -96,6 +121,7 @@ export const AssistantMessage: FC<{
       data-role="assistant"
       data-slot="aui_assistant-message-root"
       data-streaming={isRunning ? 'true' : undefined}
+      onDoubleClick={onDoubleClick}
     >
       <div
         className="wrap-anywhere min-w-0 max-w-full overflow-hidden text-pretty text-[length:var(--conversation-text-font-size)] leading-(--dt-line-height) text-foreground"
@@ -129,9 +155,12 @@ export const AssistantMessage: FC<{
           </ErrorPrimitive.Root>
         </MessagePrimitive.Error>
       </div>
-      {hasVisibleText && (
+      {hasVisibleText && !isInterim && (
         <AssistantFooter getMessageText={getMessageText} messageId={messageId} onBranchInNewChat={onBranchInNewChat} />
       )}
+      {/* Last thing in the turn — under the action bar, the way Cursor ends a
+          turn on its summary rather than burying it above the controls. */}
+      <ChangedFilesCard parts={settledParts} />
     </MessagePrimitive.Root>
   )
 }
@@ -139,16 +168,33 @@ export const AssistantMessage: FC<{
 const AssistantActionBar: FC<MessageActionProps> = ({ messageId, getMessageText, onBranchInNewChat }) => {
   const { t } = useI18n()
   const copy = t.assistant.thread
-  const [menuOpen, setMenuOpen] = useState(false)
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const { enabled: reactionsEnabled, react, reactions: shownReactions } = useMessageReactions(messageId, 'assistant')
 
-  // Fork this message's turn into its own chat (same path as `/branch`), unless
-  // the host supplied its own handler.
-  const branchInNewChat = onBranchInNewChat ?? ((id: string) => void branchCurrentSession(id))
+  const pickEmoji = useCallback(
+    (emoji: null | string) => {
+      setPickerOpen(false)
+      react(emoji)
+    },
+    [react]
+  )
+
+  // Fork the conversation up to this message into its own chat (same path as
+  // `/branch`), unless the host supplied its own handler.
+  //
+  // Bound to THIS thread's session, not the foreground one. Hydrated message ids
+  // are positional (`h3-assistant`, see lib/session-history), so branching by id
+  // against the primary chat's transcript found the same-numbered message in a
+  // DIFFERENT conversation and forked that one — silently, because the id
+  // resolved (MJXHRM-388).
+  const view = useSessionView()
+
+  const branchInNewChat = onBranchInNewChat ?? ((id: string) => void branchCurrentSession(id, branchSourceOf(view)))
 
   return (
-    <div className="relative flex w-full shrink-0 justify-end">
+    <div className="relative flex w-full shrink-0 items-center justify-end gap-1.5">
       <ActionBarPrimitive.Root
-        className={cn(
+        className={
           // NOTE: intentionally NOT `hideWhenRunning`. That prop unmounts the
           // bar while the thread streams, which collapses every completed
           // assistant message's footer by this bar's height and shifts the
@@ -157,40 +203,75 @@ const AssistantActionBar: FC<MessageActionProps> = ({ messageId, getMessageText,
           // hover), so keeping it mounted reserves stable layout height with
           // no visual change during streaming.
           //
-          // On a coarse pointer it is simply visible: copy and the ⋯ menu
-          // (branch a new chat, read aloud, timestamp) are otherwise
-          // unreachable on every message in the thread. Height is already
-          // reserved either way, so this changes visibility, not layout.
-          'relative flex flex-row items-center justify-end gap-2 py-1.5 opacity-0 pointer-events-none group-hover:pointer-events-auto group-hover:opacity-100 coarse:pointer-events-auto coarse:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100',
-          menuOpen && 'pointer-events-auto opacity-100 [&_button]:opacity-100'
-        )}
+          // On a coarse pointer it is simply visible: there is no ⋯ menu to
+          // fall back on any more, so hover-only would put every action out of
+          // reach on touch. Height is already reserved either way, so this
+          // changes visibility, not layout.
+          'relative flex flex-row items-center justify-end gap-1.5 py-1.5 opacity-0 pointer-events-none group-hover:pointer-events-auto group-hover:opacity-100 coarse:pointer-events-auto coarse:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100'
+        }
         data-slot="aui_msg-actions"
       >
+        <MessageAge />
+        <TooltipIconButton
+          onClick={() => {
+            triggerHaptic('selection')
+            branchInNewChat(messageId)
+          }}
+          tooltip={copy.branchNewChat}
+        >
+          <GitForkIcon className="size-3.5" />
+        </TooltipIconButton>
         <CopyButton appearance="icon" buttonSize="icon" label={copy.copy} text={getMessageText} />
+        <ReadAloudButton getText={getMessageText} messageId={messageId} />
         {/* BLOCKED(MJX-205): reload/regenerate needs runtime branching — the stock
             useExternalStoreRuntime has no reload, so the desktop
             ActionBarPrimitive.Reload button is omitted here. */}
-        <DropdownMenu onOpenChange={setMenuOpen} open={menuOpen}>
-          <DropdownMenuTrigger asChild>
-            <TooltipIconButton tooltip={copy.moreActions}>
-              <Codicon name="ellipsis" />
-            </TooltipIconButton>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" onCloseAutoFocus={e => e.preventDefault()} sideOffset={6}>
-            <MessageTimestamp />
-            <DropdownMenuItem onSelect={() => branchInNewChat(messageId)}>
-              <GitBranchIcon />
-              {copy.branchNewChat}
-            </DropdownMenuItem>
-            <ReadAloudItem getText={getMessageText} messageId={messageId} />
-          </DropdownMenuContent>
-        </DropdownMenu>
       </ActionBarPrimitive.Root>
+      {/* ONE slot, Slack-style: the picker trigger and the landed reaction are
+          the same element, so reacting never shifts layout. Empty → ☺, hidden
+          until hover like its action-bar neighbours. Reacted → the emoji
+          itself, always visible, and clicking it reopens the picker to switch
+          or retract. Outside ActionBarPrimitive.Root so a landed reaction
+          doesn't ride the bar's hover opacity. */}
+      {(reactionsEnabled || shownReactions.length > 0) && (
+        <ReactionPicker
+          onOpenChange={setPickerOpen}
+          onSelect={pickEmoji}
+          open={pickerOpen}
+          selected={shownReactions.find(reaction => reaction.author === 'user')?.emoji}
+        >
+          <TooltipIconButton
+            className={cn(
+              'transition-opacity',
+              shownReactions.length > 0
+                ? 'opacity-100'
+                : 'opacity-0 group-hover:opacity-100 coarse:opacity-100 focus-visible:opacity-100'
+            )}
+            data-reacted={shownReactions.length > 0 || undefined}
+            data-slot="aui_msg-reactions"
+            data-state={pickerOpen ? 'open' : undefined}
+            onClick={reactionsEnabled ? () => setPickerOpen(open => !open) : undefined}
+            tooltip={copy.react}
+          >
+            {shownReactions.length > 0 ? (
+              <span className="flex items-center gap-0.5 text-[0.8125rem] leading-none">
+                {shownReactions.map(reaction => (
+                  <span className="reaction-pop" key={`${reaction.author}-${reaction.emoji}`}>
+                    {reaction.emoji}
+                  </span>
+                ))}
+              </span>
+            ) : (
+              <SmilePlus className="size-3.5" />
+            )}
+          </TooltipIconButton>
+        </ReactionPicker>
+      )}
     </div>
   )
 }
 
-const ReadAloudItem: FC<{ getText: () => string; messageId: string }> = ({ getText, messageId }) => {
+const ReadAloudButton: FC<{ getText: () => string; messageId: string }> = ({ getText, messageId }) => {
   const { t } = useI18n()
   const copy = t.assistant.thread
   const voicePlayback = useStore($voicePlayback)
@@ -201,7 +282,8 @@ const ReadAloudItem: FC<{ getText: () => string; messageId: string }> = ({ getTe
   const isPreparing = readAloudStatus === 'preparing'
   const isSpeaking = readAloudStatus === 'speaking'
   const anyPlaybackActive = voicePlayback.status !== 'idle'
-  const Icon = isPreparing ? Loader2Icon : isSpeaking ? VolumeXIcon : Volume2Icon
+  const Icon = isPreparing ? Loader2Icon : isSpeaking ? VolumeXIcon : AudioLines
+  const tooltip = isPreparing ? copy.preparingAudio : isSpeaking ? copy.stopReading : copy.readAloud
 
   const read = useCallback(async () => {
     const text = getText()
@@ -218,33 +300,41 @@ const ReadAloudItem: FC<{ getText: () => string; messageId: string }> = ({ getTe
   }, [copy.readAloudFailed, getText, messageId])
 
   return (
-    <DropdownMenuItem
+    <TooltipIconButton
       disabled={isPreparing || (!isSpeaking && anyPlaybackActive)}
-      onSelect={e => {
-        e.preventDefault()
+      onClick={() => {
+        triggerHaptic('selection')
         void (isSpeaking ? stopVoicePlayback() : read())
       }}
+      tooltip={tooltip}
     >
-      <Icon className={isPreparing ? 'animate-spin' : undefined} />
-      {isPreparing ? copy.preparingAudio : isSpeaking ? copy.stopReading : copy.readAloud}
-    </DropdownMenuItem>
+      <Icon className={cn('size-3.5', isPreparing && 'animate-spin')} />
+    </TooltipIconButton>
   )
 }
 
-const MessageTimestamp: FC = () => {
+const MessageAge: FC = () => {
   const { t } = useI18n()
   const createdAt = useAuiState(s => s.message.createdAt)
-  const label = formatMessageTimestamp(createdAt, t.assistant.thread)
+  const date = createdAt ? new Date(createdAt) : null
 
-  if (!label) {
+  if (!date || Number.isNaN(date.getTime())) {
     return null
   }
 
-  return <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">{label}</DropdownMenuLabel>
+  // Compact "2h ago" (shared util) with the absolute time on hover.
+  return (
+    <span
+      className="px-0.5 text-[0.6875rem] tabular-nums text-muted-foreground"
+      title={formatMessageTimestamp(date, t.assistant.thread) || undefined}
+    >
+      {formatAgo(date.getTime(), t.agents)}
+    </span>
+  )
 }
 
 const AssistantFooter: FC<MessageActionProps> = props => (
-  <div className="flex min-h-6 flex-col items-end gap-1 pr-(--message-text-indent) pl-(--message-text-indent)">
+  <div className="flex min-h-6 flex-col items-end gap-1 pe-(--message-text-indent) ps-(--message-text-indent)">
     {/* BLOCKED(MJX-205): branch picker needs an incremental runtime. Under
         the stock external-store runtime hideWhenSingleBranch renders nothing —
         the markup is kept so it lights up once branching lands. */}
@@ -253,13 +343,13 @@ const AssistantFooter: FC<MessageActionProps> = props => (
       hideWhenSingleBranch
     >
       <BranchPickerPrimitive.Previous className="grid size-6 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-default disabled:opacity-35">
-        <Codicon name="chevron-left" size="0.875rem" />
+        <Codicon className="rtl:-scale-x-100" name="chevron-left" size="0.875rem" />
       </BranchPickerPrimitive.Previous>
       <span className="tabular-nums">
         <BranchPickerPrimitive.Number /> / <BranchPickerPrimitive.Count />
       </span>
       <BranchPickerPrimitive.Next className="grid size-6 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-default disabled:opacity-35">
-        <Codicon name="chevron-right" size="0.875rem" />
+        <Codicon className="rtl:-scale-x-100" name="chevron-right" size="0.875rem" />
       </BranchPickerPrimitive.Next>
     </BranchPickerPrimitive.Root>
     <AssistantActionBar {...props} />

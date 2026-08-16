@@ -2,6 +2,7 @@ import { useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { useI18n } from '@/i18n'
+import { writeClipboardText } from '@/lib/clipboard'
 import { openExternalLink } from '@/lib/external-link'
 import { Loader2 } from '@/lib/icons'
 import { recheckExternalSignin } from '@/store/onboarding'
@@ -21,9 +22,12 @@ export function ExternalCliCommand({ command }: { command: string }) {
   const { t } = useI18n()
   const [copied, setCopied] = useState(false)
 
+  // Through the OS seam rather than `navigator.clipboard`: on WebKitGTK — the
+  // engine on the Linux desktop build — the web API is refused in cases Chromium
+  // allows, and this command IS the sign-in flow. A copy that silently does
+  // nothing here strands the user (MJXHRM-415).
   const copy = () =>
-    void navigator.clipboard
-      ?.writeText(command)
+    void writeClipboardText(command)
       .then(() => {
         setCopied(true)
         setTimeout(() => setCopied(false), 1500)

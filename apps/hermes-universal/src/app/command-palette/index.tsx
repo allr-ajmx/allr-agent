@@ -5,15 +5,23 @@ import '@/app/shell/nav-contrib'
 
 import { useQuery } from '@tanstack/react-query'
 import { Dialog as DialogPrimitive } from 'radix-ui'
-import { memo, useCallback, useEffect, useMemo, useState } from 'react'
+import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 
-import { HUD_HEADING, HUD_ITEM, HUD_POSITION, HUD_SURFACE, HUD_TEXT } from '@/app/floating-hud'
-import { setTerminalTakeover } from '@/app/right-pane/store'
+import {
+  HUD_HEADING,
+  HUD_ITEM,
+  HUD_NOTE,
+  HUD_NOTE_VARIANT,
+  HUD_POSITION,
+  HUD_SURFACE,
+  HUD_TEXT
+} from '@/app/floating-hud'
 import { COMMAND_CENTER_ROUTE, PET_SETTINGS_ROUTE, sessionRoute, SETTINGS_ROUTE, SKILLS_ROUTE } from '@/app/routes'
 import { FIELD_LABELS, SECTIONS } from '@/app/settings/constants'
 import { fieldCopyForSchemaKey } from '@/app/settings/field-copy'
 import { prettyName } from '@/app/settings/helpers'
 import { Command, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command'
+import { HighlightMatches } from '@/components/ui/highlight-matches'
 import { KbdCombo } from '@/components/ui/kbd'
 import { getHermesConfigRecord, listAllProfileSessions } from '@/hermes'
 import { useI18n } from '@/i18n'
@@ -28,6 +36,7 @@ import {
   ChevronRight,
   Download,
   Egg,
+  FolderOpen,
   GitBranch,
   Globe,
   type IconComponent,
@@ -41,6 +50,7 @@ import {
   Paw,
   Plug,
   RefreshCw,
+  Search,
   Settings2,
   SlidersHorizontal,
   Sun,
@@ -58,9 +68,11 @@ import {
   closeCommandPalette,
   setCommandPaletteOpen
 } from '@/store/command-palette'
+import { findInPageSupported, openFindBar } from '@/store/find-in-page'
 import { $bindings, bindingsFor } from '@/store/keybinds'
+import { $dismissedAutoProjectIds, $terminalOpen, setTerminalOpen } from '@/store/layout'
 import { openPetGenerate } from '@/store/pet-generate'
-import { requestStartWorkSession } from '@/store/projects'
+import { $projectTree, goToProject, openFolderAsProject, requestStartWorkSession } from '@/store/projects'
 import { runGatewayRestart } from '@/store/system-status'
 import { canOpenNewWindow, openAppRoute, openNewWindow } from '@/store/windows'
 import { luminance } from '@/themes/color'
@@ -84,14 +96,73 @@ interface SessionEntry {
   title: string
 }
 
+const EMPTY_GROUPS: PaletteGroup[] = []
+
+/**
+ * The palette's row list, split out so an OPENING palette paints before it
+ * renders rows. This component mounts with the portal, so `useDeferredValue`'s
+ * initial value applies per open: the first commit is the frame + input
+ * (instant), and the several-hundred-row list arrives in an interruptible
+ * follow-up render. Opening ⌘K must never wait on building the list.
+ */
+const PaletteGroups = memo(function PaletteGroups({
+  bindings,
+  groups,
+  noResultsLabel,
+  onSelectItem,
+  search
+}: {
+  bindings: Record<string, string[]>
+  groups: PaletteGroup[]
+  noResultsLabel: string
+  onSelectItem: (item: PaletteItem) => void
+  search: string
+}) {
+  const deferred = useDeferredValue(groups, EMPTY_GROUPS)
+  // The deferral is for the OPEN, and only for the open. `deferred` catching up
+  // with `groups` is the signal that the frame has painted; past that the rows
+  // render synchronously, because cmdk auto-selects the first row whenever the
+  // query changes and a list that lands a render LATER leaves nothing
+  // highlighted — Enter would then commit nothing.
+  const painted = useRef(false)
+
+  if (deferred === groups) {
+    painted.current = true
+  }
+
+  const rows = painted.current ? groups : deferred
+  // While the rows are still catching up, an empty list means "not rendered
+  // yet", not "nothing matched" — don't flash the empty state on open.
+  const pending = rows !== groups
+
+  return (
+    <>
+      {/* Filtering happens in rankGroups, so cmdk's own CommandEmpty
+          (keyed to its internal filter count) would never fire. */}
+      {rows.length === 0 && !pending && (
+        <div className="py-6 text-center text-sm text-muted-foreground">{noResultsLabel}</div>
+      )}
+      {rows.map((group, index) => (
+        <CommandGroup className={HUD_HEADING} heading={group.heading} key={group.heading ?? `palette-group-${index}`}>
+          {group.items.map(item => (
+            <PaletteRow bindings={bindings} item={item} key={item.id} onSelectItem={onSelectItem} search={search} />
+          ))}
+        </CommandGroup>
+      ))}
+    </>
+  )
+})
+
 const PaletteRow = memo(function PaletteRow({
   bindings,
   item,
-  onSelectItem
+  onSelectItem,
+  search
 }: {
   bindings: Record<string, string[]>
   item: PaletteItem
   onSelectItem: (item: PaletteItem) => void
+  search: string
 }) {
   const Icon = item.icon
   // bindingsFor, not a raw lookup: $bindings holds only the user's overrides —
@@ -106,11 +177,17 @@ const PaletteRow = memo(function PaletteRow({
       value={paletteValue(item)}
     >
       <Icon className="size-3.5 shrink-0 text-muted-foreground" />
-      <span className="truncate">{item.label}</span>
-      {item.detail && <span className="truncate text-muted-foreground/80">{item.detail}</span>}
-      {combo && <KbdCombo className="ml-auto opacity-55" combo={combo} size="sm" />}
-      {item.to && <ChevronRight className={cn('size-3.5 shrink-0 text-muted-foreground/70', !combo && 'ml-auto')} />}
-      {item.active && <Check className={cn('size-3.5 shrink-0 text-primary', !combo && !item.to && 'ml-auto')} />}
+      <span className="truncate">
+        {/* Same per-term split as scoreItem's AND matcher, so the emphasis shows
+            exactly which words earned the row its rank. */}
+        <HighlightMatches query={search.split(/\s+/)} text={item.label} />
+      </span>
+      {item.detail && (
+        <span className={cn(HUD_NOTE, HUD_NOTE_VARIANT[item.detailVariant ?? 'muted'])}>{item.detail}</span>
+      )}
+      {combo && <KbdCombo className="ms-auto opacity-55" combo={combo} size="sm" />}
+      {item.to && <ChevronRight className={cn('size-3.5 shrink-0 text-muted-foreground/70 rtl:-scale-x-100', !combo && 'ms-auto')} />}
+      {item.active && <Check className={cn('size-3.5 shrink-0 text-primary', !combo && !item.to && 'ms-auto')} />}
     </CommandItem>
   )
 })
@@ -118,6 +195,12 @@ const PaletteRow = memo(function PaletteRow({
 // Hermes session ids: <YYYYMMDD>_<HHMMSS>_<6 hex>. Used to offer a direct
 // "Go to session ‹id›" jump for ids that aren't in the recent list.
 const SESSION_ID_RE = /^\d{8}_\d{6}_[a-f0-9]{6}$/
+
+// A typed/pasted folder path: absolute (`/…`) or a Windows drive (`C:\…`).
+// Deliberately NOT `~/…`: the upsert's membership check (projectIdForCwd)
+// compares literal strings against the tree's absolute paths, so an unexpanded
+// home path would always miss and double-create.
+const FOLDER_PATH_RE = /^(\/|[A-Za-z]:[/\\]).+/
 
 // The palette mounts on phones too, where a few hundred rows of session history
 // is a needless round trip over the gateway on every open.
@@ -229,34 +312,99 @@ function themeSupportsMode(name: string, target: 'dark' | 'light'): boolean {
   return target === 'dark' ? luminance(background) <= 0.5 : luminance(background) > 0.5
 }
 
+// The exit animation finishing is what retires the body; this is only the
+// backstop for environments where animations never run (jsdom, `animation:
+// none`). Deliberately longer than any plausible exit so it never races the real
+// signal and truncates the fade.
+const EXIT_FALLBACK_MS = 1000
+
+/**
+ * ⌘K is an overlay that is stateful to itself: pressing it must open a frame
+ * immediately, and must not be held up by whatever else the shell is doing. So
+ * the mounted cost of a CLOSED palette is one store subscription and nothing
+ * else.
+ *
+ * Everything expensive — a dozen store subscriptions (keybinds, worktrees,
+ * projects, theme, i18n, contributions), three server queries, and the group
+ * builders that assemble a few hundred rows — lives in `CommandPaletteBody`,
+ * which only exists while the palette is on screen.
+ *
+ * `mounted` lags `open` by the close animation rather than tracking it exactly.
+ * Unmounting the body the instant `open` flips false would rip the content out
+ * of the tree before Radix could play `data-[state=closed]`, so the overlay
+ * would vanish instead of closing. The body reports its own exit via `onExited`
+ * (the content's real `animationend`), so nothing here has to know how long that
+ * animation is — the CSS owns the duration.
+ *
+ * The `openCount` key remounts the body per open, which is what lets local
+ * search/sub-page state reset without a close effect.
+ */
 export function CommandPalette() {
-  const { t } = useI18n()
   const open = useStore($commandPaletteOpen)
+  const [mounted, setMounted] = useState(open)
+  const [openCount, setOpenCount] = useState(0)
+
+  const retire = useCallback(() => {
+    // Only retire the body if the palette is still closed — a reopen mid-fade
+    // must not unmount the fresh instance.
+    if (!$commandPaletteOpen.get()) {
+      setMounted(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (open) {
+      setOpenCount(count => count + 1)
+      setMounted(true)
+
+      return
+    }
+
+    const timer = setTimeout(retire, EXIT_FALLBACK_MS)
+
+    return () => clearTimeout(timer)
+  }, [open, retire])
+
+  return (
+    <DialogPrimitive.Root onOpenChange={setCommandPaletteOpen} open={open}>
+      {mounted && <CommandPaletteBody key={openCount} onExited={retire} />}
+    </DialogPrimitive.Root>
+  )
+}
+
+function CommandPaletteBody({ onExited }: { onExited: () => void }) {
+  const { t } = useI18n()
   const pendingPage = useStore($commandPalettePage)
   const bindings = useStore($bindings)
   const worktrees = useStore($repoWorktrees)
+  const projectTree = useStore($projectTree)
+  const dismissedProjects = useStore($dismissedAutoProjectIds)
+  const terminalOpen = useStore($terminalOpen)
   const { availableThemes, mode, resolvedMode, setMode, setTheme, themeName } = useTheme()
   const [search, setSearch] = useState('')
   const [page, setPage] = useState<null | string>(null)
+  // A deliberate re-read trigger, not a value: a `keepOpen` row stays on screen
+  // after it runs, so anything it reports (a toggle's on/off) has to be read
+  // again or the note keeps showing the previous state.
+  const [selectTick, setSelectTick] = useState(0)
 
-  // Server-backed sources for the type-to-search groups, fetched lazily while
-  // the palette is open. react-query handles caching/dedup/staleness.
+  // Server-backed sources for the type-to-search groups. This component only
+  // exists while the palette is open, so the queries are inherently lazy — no
+  // `enabled` gate needed. react-query handles caching/dedup/staleness, so a
+  // reopen paints from cache and revalidates in the background.
   const configQuery = useQuery({
     queryKey: ['command-palette', 'config'],
-    queryFn: getHermesConfigRecord,
-    enabled: open
+    queryFn: getHermesConfigRecord
   })
 
   const sessionsQuery = useQuery({
     queryKey: ['command-palette', 'sessions', SESSION_LIMIT],
-    queryFn: () => listAllProfileSessions(SESSION_LIMIT, 1, 'exclude'),
-    enabled: open
+    queryFn: () => listAllProfileSessions(SESSION_LIMIT, 1, 'exclude')
   })
 
   const archivedQuery = useQuery({
     queryKey: ['command-palette', 'archived', SESSION_LIMIT],
-    queryFn: () => listAllProfileSessions(SESSION_LIMIT, 0, 'only'),
-    enabled: open
+    queryFn: () => listAllProfileSessions(SESSION_LIMIT, 0, 'only')
   })
 
   const mcpServers = useMemo(() => {
@@ -270,21 +418,14 @@ export function CommandPalette() {
   const sessions = useMemo(() => (sessionsQuery.data?.sessions ?? []).map(toSessionEntry), [sessionsQuery.data])
   const archivedSessions = useMemo(() => (archivedQuery.data?.sessions ?? []).map(toSessionEntry), [archivedQuery.data])
 
-  // Reset the query/sub-page on close so it reopens clean.
+  // Deep-link into a nested page. (Resetting search/page on close is what the
+  // `openCount` remount in `CommandPalette` does — this body is per-open.)
   useEffect(() => {
-    if (!open) {
-      setSearch('')
-      setPage(null)
-    }
-  }, [open])
-
-  // Deep-link into a nested page.
-  useEffect(() => {
-    if (open && pendingPage) {
+    if (pendingPage) {
       setPage(pendingPage)
       $commandPalettePage.set(null)
     }
-  }, [open, pendingPage])
+  }, [pendingPage])
 
   // One door for every destination: openAppRoute promotes Settings, Command
   // Center and Profiles to their native Android activity and navigates in-app
@@ -325,10 +466,16 @@ export function CommandPalette() {
     // their own group below.
     const isCore = (source?: string) => (source ?? 'core') === 'core'
 
+    // `detail` is a function on the contribution because the row registers once
+    // at boot while the state it reports keeps moving. Called here, not stored,
+    // so every rebuild (open, and every keepOpen run via selectTick) re-reads it.
     const toItem = (row: (typeof contributedItems)[number]): PaletteItem => ({
       action: row.action,
+      detail: row.detail?.(),
+      detailVariant: row.detailVariant,
       icon: row.icon ?? Plug,
       id: row.key,
+      keepOpen: row.keepOpen,
       keywords: row.keywords,
       label: row.label,
       run: row.run
@@ -361,6 +508,33 @@ export function CommandPalette() {
           ]
         : []
 
+    // Projects are how work is scoped, so they're jumpable from ⌘K: selecting
+    // one enters its scope (the sidebar follows). The pinned "Open folder…" row
+    // is the same upsert ⌘O runs. Auto (git-derived) projects the user dismissed
+    // from the sidebar stay out — hiding a row there should hide it here too.
+    const projectGroup: PaletteGroup = {
+      heading: cc.projects,
+      items: [
+        {
+          action: 'workspace.openFolder',
+          icon: FolderOpen,
+          id: 'project-open-folder',
+          keywords: ['open', 'folder', 'directory', 'project', 'add', 'import', 'workspace'],
+          label: cc.openFolder,
+          run: () => void openFolderAsProject()
+        },
+        ...projectTree
+          .filter(project => !project.isNoProject && !(project.isAuto && dismissedProjects.includes(project.id)))
+          .map(project => ({
+            icon: FolderOpen,
+            id: `project-${project.id}`,
+            keywords: ['project', 'workspace', 'go to', project.label, ...(project.path ? [project.path] : [])],
+            label: project.label,
+            run: () => goToProject(project.id)
+          }))
+      ]
+    }
+
     return [
       {
         heading: cc.goTo,
@@ -368,6 +542,24 @@ export function CommandPalette() {
           ...coreRows,
           // Not destinations, so they can't be module-load registrations: both
           // depend on runtime capability rather than on a route existing.
+          // Find-in-page had exactly ONE way in: the ⌘F keybind. That is not an
+          // affordance on a phone, so the feature MJXHRM-387 shipped for Android
+          // could not be opened there at all. This row is the touch door — the
+          // palette itself is reachable from the drawer and the titlebar search
+          // button — and it doubles as the discoverable one on desktop, where
+          // `action` renders the live (rebindable) combo beside it.
+          ...(findInPageSupported()
+            ? [
+                {
+                  action: 'view.findInPage',
+                  icon: Search,
+                  id: 'view-find-in-page',
+                  keywords: ['find', 'search', 'page', 'text', 'transcript', 'highlight'],
+                  label: t.keybinds.actions['view.findInPage'],
+                  run: () => openFindBar()
+                }
+              ]
+            : []),
           ...(canOpenNewWindow()
             ? [
                 {
@@ -384,16 +576,24 @@ export function CommandPalette() {
             ? [
                 {
                   action: 'view.showTerminal',
+                  // Shows its live state and stays open: this row used to be a
+                  // one-way "open" that could never put the terminal away — and
+                  // it drove `$terminalTakeover`, a different atom from the one
+                  // ⌃` toggles, so the same action id moved two things.
+                  detail: terminalOpen ? 'on' : 'off',
+                  detailVariant: 'state' as const,
                   icon: Terminal,
                   id: 'nav-terminal',
-                  keywords: ['terminal', 'shell', 'console'],
+                  keepOpen: true,
+                  keywords: ['terminal', 'shell', 'console', 'on', 'off', 'enable', 'disable'],
                   label: t.keybinds.actions['view.showTerminal'],
-                  run: () => setTerminalTakeover(true)
+                  run: () => setTerminalOpen(!$terminalOpen.get())
                 }
               ]
             : [])
         ]
       },
+      projectGroup,
       ...branchGroup,
       {
         heading: cc.commandCenter,
@@ -497,7 +697,21 @@ export function CommandPalette() {
       // Plugin-contributed rows — one group, omitted while nothing contributes.
       ...(pluginRows.length > 0 ? [{ heading: cc.commands, items: pluginRows }] : [])
     ]
-  }, [contributedItems, go, settingsSectionLabel, t, worktrees])
+    // `selectTick` is a deliberate re-read trigger, not a value: a `keepOpen`
+    // row's `detail` is a live state read, so the rows have to be rebuilt after
+    // one runs or the note keeps reporting where the setting used to stand.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    contributedItems,
+    dismissedProjects,
+    go,
+    projectTree,
+    selectTick,
+    settingsSectionLabel,
+    t,
+    terminalOpen,
+    worktrees
+  ])
 
   // The long, granular lists (settings fields, MCP servers, archived chats)
   // only surface once the user types — otherwise they'd bury the navigation
@@ -522,6 +736,22 @@ export function CommandPalette() {
             keywords: ['session', 'id', 'go to', directId],
             label: `${t.commandCenter.goToSession} ${directId}`,
             run: goSession(directId)
+          }
+        ]
+      })
+    }
+
+    // Paste/type an absolute folder path → open it as a project directly (the
+    // ⌘O upsert without the picker). Same reflex as the raw-session-id row.
+    if (FOLDER_PATH_RE.test(directId)) {
+      result.push({
+        items: [
+          {
+            icon: FolderOpen,
+            id: `open-folder-${directId}`,
+            keywords: ['open', 'folder', 'project', directId],
+            label: t.commandCenter.openFolderAt(directId),
+            run: () => void openFolderAsProject(directId)
           }
         ]
       })
@@ -743,7 +973,15 @@ export function CommandPalette() {
   const visibleGroups = useMemo(() => rankGroups(unrankedGroups, search), [unrankedGroups, search])
   const placeholder = activePage ? activePage.placeholder : t.commandCenter.searchPlaceholder
 
-  const handleSelect = (item: PaletteItem) => {
+  // STABLE (MJXHRM-45). `PaletteGroups` and `PaletteRow` are both `memo()`d and
+  // both take this as a prop, so a bare function declared in the body handed
+  // every row a fresh identity on every render and neither comparator could ever
+  // bail — memoized in name only. The palette re-renders on far more than
+  // typing: `$bindings`, the theme store, the plugin registry and `selectTick`
+  // all move under it while several hundred rows are mounted. Closes over
+  // setState updaters and module-level actions only, so the dependency list is
+  // genuinely empty rather than defensively so.
+  const handleSelect = useCallback((item: PaletteItem) => {
     if (item.to) {
       setPage(item.to)
       setSearch('')
@@ -763,78 +1001,82 @@ export function CommandPalette() {
       // A contributed row is plugin code — it must not take the palette down.
       console.error('[plugins] palette command failed', item.id, err)
     }
-  }
+
+    // Staying open means the rows are still on screen — re-read anything they
+    // report (a toggle's on/off) so the note isn't showing the previous state.
+    if (item.keepOpen) {
+      setSelectTick(tick => tick + 1)
+    }
+  }, [])
 
   return (
-    <DialogPrimitive.Root onOpenChange={setCommandPaletteOpen} open={open}>
-      <DialogPrimitive.Portal>
-        {/* Transparent overlay: keeps click-away + focus trap, but no dim/blur. */}
-        <DialogPrimitive.Overlay className="fixed inset-0 z-(--z-over-modal)" />
-        <DialogPrimitive.Content
-          aria-describedby={undefined}
-          className={cn(
-            HUD_POSITION,
-            HUD_SURFACE,
-            'z-(--z-over-modal-content) w-[min(34rem,calc(100vw-2rem))] overflow-hidden duration-150 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:slide-in-from-top-2 data-[state=open]:zoom-in-95'
+    <DialogPrimitive.Portal>
+      {/* Transparent overlay: keeps click-away + focus trap, but no dim/blur. */}
+      <DialogPrimitive.Overlay className="fixed inset-0 z-(--z-over-modal)" />
+      <DialogPrimitive.Content
+        aria-describedby={undefined}
+        className={cn(
+          HUD_POSITION,
+          HUD_SURFACE,
+          'z-(--z-over-modal-content) w-[min(34rem,calc(100vw-2rem))] overflow-hidden duration-150 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:slide-in-from-top-2 data-[state=open]:zoom-in-95'
+        )}
+        // The close animation finishing is what retires this whole subtree — the
+        // CSS owns the duration, not a hardcoded timer. Guarded on the content
+        // itself (descendants animate too) and on the closed state, so an OPEN
+        // animation never unmounts the palette we just opened.
+        onAnimationEnd={event => {
+          if (event.target === event.currentTarget && event.currentTarget.dataset.state === 'closed') {
+            onExited()
+          }
+        }}
+      >
+        <DialogPrimitive.Title className="sr-only">{t.commandCenter.paletteTitle}</DialogPrimitive.Title>
+        <Command className="bg-transparent" loop shouldFilter={false}>
+          {activePage && (
+            <button
+              className="flex w-full items-center gap-1.5 border-b border-border px-3 py-1.5 text-start text-xs text-muted-foreground transition-colors hover:text-foreground"
+              onClick={goBack}
+              type="button"
+            >
+              <ChevronLeft className="size-3.5 rtl:-scale-x-100" />
+              <span>{t.commandCenter.back}</span>
+              <span className="text-muted-foreground/50">/</span>
+              <span className="font-medium text-foreground">{activePage.title}</span>
+            </button>
           )}
-        >
-          <DialogPrimitive.Title className="sr-only">{t.commandCenter.paletteTitle}</DialogPrimitive.Title>
-          <Command className="bg-transparent" loop shouldFilter={false}>
-            {activePage && (
-              <button
-                className="flex w-full items-center gap-1.5 border-b border-border px-3 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:text-foreground"
-                onClick={goBack}
-                type="button"
-              >
-                <ChevronLeft className="size-3.5" />
-                <span>{t.commandCenter.back}</span>
-                <span className="text-muted-foreground/50">/</span>
-                <span className="font-medium text-foreground">{activePage.title}</span>
-              </button>
-            )}
-            <CommandInput
-              className={HUD_TEXT}
-              onKeyDown={event => {
-                if (!activePage) {
-                  return
-                }
+          <CommandInput
+            className={HUD_TEXT}
+            onKeyDown={event => {
+              if (!activePage) {
+                return
+              }
 
-                // In a submenu: Esc and empty-input Backspace step back out
-                // instead of closing the whole palette.
-                if (event.key === 'Escape' || (event.key === 'Backspace' && search === '')) {
-                  event.preventDefault()
-                  event.stopPropagation()
-                  goBack()
-                }
-              }}
-              onValueChange={setSearch}
-              placeholder={placeholder}
-              value={search}
+              // In a submenu: Esc and empty-input Backspace step back out
+              // instead of closing the whole palette.
+              if (event.key === 'Escape' || (event.key === 'Backspace' && search === '')) {
+                event.preventDefault()
+                event.stopPropagation()
+                goBack()
+              }
+            }}
+            onValueChange={setSearch}
+            placeholder={placeholder}
+            value={search}
+          />
+          {/* Explicit max height: cmdk sizes the list with a ResizeObserver, and
+              a --cmdk-list-height that fails to resolve should degrade to a
+              scrollable box, never an invisible one. */}
+          <CommandList className="dt-portal-scrollbar max-h-[min(20rem,56vh)]">
+            <PaletteGroups
+              bindings={bindings}
+              groups={visibleGroups}
+              noResultsLabel={t.commandCenter.noResults}
+              onSelectItem={handleSelect}
+              search={search}
             />
-            {/* Explicit max height: cmdk sizes the list with a ResizeObserver, and
-                a --cmdk-list-height that fails to resolve should degrade to a
-                scrollable box, never an invisible one. */}
-            <CommandList className="dt-portal-scrollbar max-h-[min(20rem,56vh)]">
-              {/* Filtering happens in rankGroups, so cmdk's own CommandEmpty
-                  (keyed to its internal filter count) would never fire. */}
-              {visibleGroups.length === 0 && (
-                <div className="py-6 text-center text-sm text-muted-foreground">{t.commandCenter.noResults}</div>
-              )}
-              {visibleGroups.map((group, index) => (
-                <CommandGroup
-                  className={HUD_HEADING}
-                  heading={group.heading}
-                  key={group.heading ?? `palette-group-${index}`}
-                >
-                  {group.items.map(item => (
-                    <PaletteRow bindings={bindings} item={item} key={item.id} onSelectItem={handleSelect} />
-                  ))}
-                </CommandGroup>
-              ))}
-            </CommandList>
-          </Command>
-        </DialogPrimitive.Content>
-      </DialogPrimitive.Portal>
-    </DialogPrimitive.Root>
+          </CommandList>
+        </Command>
+      </DialogPrimitive.Content>
+    </DialogPrimitive.Portal>
   )
 }

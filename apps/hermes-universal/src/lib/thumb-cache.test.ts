@@ -38,7 +38,14 @@ describe('thumb-cache', () => {
   it('survives a quota error without throwing', () => {
     writeThumb('old', 'uri-old')
 
-    const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+    // Spy wherever `setItem` actually lives, because that differs by Node major.
+    // jsdom's Storage inherits it from `Storage.prototype` and ignores an own
+    // property planted on the instance; the in-memory shim we install on Node 26
+    // (src/test-setup.ts) owns it outright and never consults the prototype.
+    // Spy the wrong one and this test passes while asserting nothing.
+    const owner = Object.prototype.hasOwnProperty.call(localStorage, 'setItem') ? localStorage : Storage.prototype
+
+    const setItem = vi.spyOn(owner, 'setItem').mockImplementation(() => {
       throw new Error('QuotaExceededError')
     })
 

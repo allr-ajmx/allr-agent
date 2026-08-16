@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -26,7 +26,7 @@ import type {
   ToolsetModelsResponse
 } from '@/types/hermes'
 
-import { EnvVarActionsMenu, EnvVarActionsTrigger } from './env-var-actions-menu'
+import { EnvVarActionsMenu, EnvVarActionsTrigger, EnvVarContextMenu } from './env-var-actions-menu'
 import { Pill } from './primitives'
 
 interface ToolsetConfigPanelProps {
@@ -39,6 +39,29 @@ interface ToolsetConfigPanelProps {
 /** Toolsets whose backends expose a selectable model catalog (mirrors the
  *  backend's _MODEL_CATALOG_TOOLSETS map). */
 const MODEL_CATALOG_TOOLSETS = new Set(['image_gen', 'video_gen'])
+
+/**
+ * The in-use model id when it was typed by hand rather than picked, else null.
+ *
+ * A hand-entered id is absent from the catalog by definition, so without its
+ * own row the panel would render every catalog entry as unselected and look
+ * like nothing is configured. Only backends that accept custom ids can have
+ * one — for the rest, an id outside the catalog is stale config the gateway
+ * already resolves back to the default.
+ */
+export function customSelectedModel(catalog: ToolsetModelsResponse): string | null {
+  if (catalog.accepts_custom_model !== true) {
+    return null
+  }
+
+  const selected = catalog.current ?? catalog.default
+
+  if (selected === null || catalog.models.some(m => m.id === selected)) {
+    return null
+  }
+
+  return selected
+}
 
 function providerConfigured(provider: ToolProvider, envState: Record<string, boolean>): boolean {
   if (provider.env_vars.length === 0) {
@@ -117,63 +140,67 @@ function EnvVarField({ envVar, isSet, onSaved, onCleared }: EnvVarFieldProps) {
     }
   }
 
+  const actionProps = {
+    clearDisabled: busy,
+    docsUrl: envVar.url,
+    isRevealed: revealed !== null,
+    isSet,
+    label: envVar.key,
+    onClear: () => void handleClear(),
+    onEdit: () => setEditing(true),
+    onReveal: () => void handleReveal()
+  }
+
   return (
-    <div className="grid gap-2 rounded-lg bg-background/55 p-2.5">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="font-mono text-xs font-medium">{envVar.key}</span>
-            <Pill tone={isSet ? 'primary' : 'muted'}>
-              {isSet && <Check className="size-3" />}
-              {isSet ? copy.set : copy.notSet}
-            </Pill>
+    <EnvVarContextMenu {...actionProps}>
+      <div className="grid gap-2 rounded-lg bg-background/55 p-2.5">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-mono text-xs font-medium">{envVar.key}</span>
+              <Pill tone={isSet ? 'primary' : 'muted'}>
+                {isSet && <Check className="size-3" />}
+                {isSet ? copy.set : copy.notSet}
+              </Pill>
+            </div>
+            {envVar.prompt && envVar.prompt !== envVar.key && (
+              <p className="mt-0.5 text-[0.7rem] text-muted-foreground">{envVar.prompt}</p>
+            )}
           </div>
-          {envVar.prompt && envVar.prompt !== envVar.key && (
-            <p className="mt-0.5 text-[0.7rem] text-muted-foreground">{envVar.prompt}</p>
+          {!editing && (
+            <EnvVarActionsMenu {...actionProps}>
+              <EnvVarActionsTrigger label={envVar.key} onClick={event => event.stopPropagation()} />
+            </EnvVarActionsMenu>
           )}
         </div>
-        {!editing && (
-          <EnvVarActionsMenu
-            clearDisabled={busy}
-            docsUrl={envVar.url}
-            isRevealed={revealed !== null}
-            isSet={isSet}
-            label={envVar.key}
-            onClear={() => void handleClear()}
-            onEdit={() => setEditing(true)}
-            onReveal={() => void handleReveal()}
-          >
-            <EnvVarActionsTrigger label={envVar.key} onClick={event => event.stopPropagation()} />
-          </EnvVarActionsMenu>
+
+        {isSet && revealed !== null && (
+          <div className="rounded-md bg-background px-2.5 py-1.5 font-mono text-xs text-foreground">
+            {revealed || '---'}
+          </div>
+        )}
+
+        {editing && (
+          <div className="flex flex-wrap items-center gap-2">
+            <Input
+              autoFocus
+              className="min-w-52 flex-1 font-mono"
+              onChange={e => setValue(e.target.value)}
+              placeholder={envVar.prompt || envVar.key}
+              type={envVar.default ? 'text' : 'password'}
+              value={value}
+            />
+            <Button disabled={busy || !value} onClick={() => void handleSave()} size="sm">
+              {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Save />}
+              {t.common.save}
+            </Button>
+            <Button onClick={() => setEditing(false)} size="sm" variant="text">
+              {t.common.cancel}
+            </Button>
+          </div>
         )}
       </div>
-
-      {isSet && revealed !== null && (
-        <div className="rounded-md bg-background px-2.5 py-1.5 font-mono text-xs text-foreground">
-          {revealed || '---'}
-        </div>
-      )}
-
-      {editing && (
-        <div className="flex flex-wrap items-center gap-2">
-          <Input
-            autoFocus
-            className="min-w-52 flex-1 font-mono"
-            onChange={e => setValue(e.target.value)}
-            placeholder={envVar.prompt || envVar.key}
-            type={envVar.default ? 'text' : 'password'}
-            value={value}
-          />
-          <Button disabled={busy || !value} onClick={() => void handleSave()} size="sm">
-            {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Save />}
-            {t.common.save}
-          </Button>
-          <Button onClick={() => setEditing(false)} size="sm" variant="text">
-            {t.common.cancel}
-          </Button>
-        </div>
-      )}
-    </div>
+    </EnvVarContextMenu>
   )
 }
 
@@ -316,6 +343,8 @@ function ModelCatalogPicker({ toolset, providerName, isActiveBackend }: ModelCat
   const [catalog, setCatalog] = useState<ToolsetModelsResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState<string | null>(null)
+  const [customId, setCustomId] = useState('')
+  const customFieldId = useId()
 
   useEffect(() => {
     let cancelled = false
@@ -343,15 +372,21 @@ function ModelCatalogPicker({ toolset, providerName, isActiveBackend }: ModelCat
     return () => void (cancelled = true)
   }, [toolset, providerName])
 
-  const pick = async (modelId: string) => {
+  const pick = async (modelId: string): Promise<boolean> => {
     setSaving(modelId)
 
     try {
       await selectToolsetModel(toolset, modelId, providerName)
       setCatalog(current => (current ? { ...current, current: modelId } : current))
       notify({ kind: 'success', title: copy.modelSelectedTitle, message: copy.modelSelectedMessage(modelId) })
+
+      return true
     } catch (err) {
+      // The gateway rejects ids a closed-catalog backend can't route — keep the
+      // typed value in the field so it can be corrected rather than retyped.
       notifyError(err, copy.failedSelectModel(modelId))
+
+      return false
     } finally {
       setSaving(null)
     }
@@ -366,11 +401,14 @@ function ModelCatalogPicker({ toolset, providerName, isActiveBackend }: ModelCat
     )
   }
 
-  if (!catalog || !catalog.has_models || catalog.models.length === 0) {
+  const acceptsCustom = catalog?.accepts_custom_model === true
+
+  if (!catalog || (!acceptsCustom && (!catalog.has_models || catalog.models.length === 0))) {
     return null
   }
 
   const selected = catalog.current ?? catalog.default
+  const customSelected = customSelectedModel(catalog)
 
   return (
     <div className="grid gap-1.5">
@@ -380,6 +418,18 @@ function ModelCatalogPicker({ toolset, providerName, isActiveBackend }: ModelCat
       </div>
       {!isActiveBackend && <p className="px-0.5 text-[0.68rem] text-muted-foreground">{copy.modelInactiveHint}</p>}
       <div className="grid gap-1">
+        {customSelected && (
+          <div className="grid gap-0.5 rounded-lg border border-(--ui-stroke-secondary) bg-(--ui-bg-tertiary) px-2.5 py-2">
+            <span className="flex flex-wrap items-center gap-2">
+              <span className="font-mono text-xs font-medium">{customSelected}</span>
+              <Pill tone="primary">
+                <Check className="size-3" />
+                {copy.modelInUse}
+              </Pill>
+              <Pill>{copy.modelCustomBadge}</Pill>
+            </span>
+          </div>
+        )}
         {catalog.models.map(model => {
           const isSelected = selected === model.id
           const isDefault = catalog.default === model.id
@@ -388,7 +438,7 @@ function ModelCatalogPicker({ toolset, providerName, isActiveBackend }: ModelCat
             <button
               aria-pressed={isSelected}
               className={cn(
-                'grid gap-0.5 rounded-lg border px-2.5 py-2 text-left transition',
+                'grid gap-0.5 rounded-lg border px-2.5 py-2 text-start transition',
                 isSelected
                   ? 'border-(--ui-stroke-secondary) bg-(--ui-bg-tertiary)'
                   : 'border-transparent bg-background/55 hover:bg-accent/40',
@@ -419,6 +469,52 @@ function ModelCatalogPicker({ toolset, providerName, isActiveBackend }: ModelCat
           )
         })}
       </div>
+      {acceptsCustom && (
+        <form
+          className="grid gap-1 px-0.5"
+          onSubmit={event => {
+            event.preventDefault()
+            const next = customId.trim()
+
+            if (next) {
+              void pick(next).then(ok => {
+                if (ok) {
+                  setCustomId('')
+                }
+              })
+            }
+          }}
+        >
+          <label className="text-[0.68rem] text-muted-foreground" htmlFor={customFieldId}>
+            {copy.modelCustomLabel}
+          </label>
+          <div className="flex items-center gap-1.5">
+            <Input
+              autoComplete="off"
+              className="h-7 font-mono text-xs"
+              disabled={saving !== null || !isActiveBackend}
+              id={customFieldId}
+              onChange={event => setCustomId(event.target.value)}
+              placeholder={copy.modelCustomPlaceholder}
+              spellCheck={false}
+              value={customId}
+            />
+            <Button
+              disabled={saving !== null || !isActiveBackend || customId.trim() === ''}
+              size="sm"
+              type="submit"
+              variant="secondary"
+            >
+              {saving !== null && saving === customId.trim() ? (
+                <Loader2 className="size-3 animate-spin" />
+              ) : (
+                <Save className="size-3" />
+              )}
+              {copy.modelCustomSave}
+            </Button>
+          </div>
+        </form>
+      )}
     </div>
   )
 }
@@ -545,7 +641,7 @@ export function ToolsetConfigPanel({ toolset, onConfiguredChange }: ToolsetConfi
             <button
               aria-pressed={isActive}
               className={cn(
-                'flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left transition hover:bg-accent/50',
+                'flex w-full items-center justify-between gap-3 px-3 py-2.5 text-start transition hover:bg-accent/50',
                 isActive && 'bg-accent/40'
               )}
               onClick={() => void handleSelect(provider)}

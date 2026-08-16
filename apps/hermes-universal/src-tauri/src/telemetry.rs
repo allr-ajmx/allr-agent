@@ -102,7 +102,10 @@ mod imp {
     use std::sync::OnceLock;
 
     use opentelemetry::{
-        trace::{SpanContext, SpanId, TraceContextExt, TraceFlags, TraceId, TraceState, TracerProvider as _},
+        trace::{
+            SpanContext, SpanId, TraceContextExt, TraceFlags, TraceId, TraceState,
+            TracerProvider as _,
+        },
         Context, KeyValue,
     };
     use opentelemetry_otlp::WithExportConfig;
@@ -292,7 +295,11 @@ mod imp {
         }
 
         let _ = PROVIDER.set(provider);
-        eprintln!("[hermes/trace] exporting to {} as run \"{}\"", endpoint(), run_label());
+        eprintln!(
+            "[hermes/trace] exporting to {} as run \"{}\"",
+            endpoint(),
+            run_label()
+        );
     }
 
     pub fn shutdown() {

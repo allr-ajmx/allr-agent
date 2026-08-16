@@ -1,33 +1,37 @@
 import { TextMessagePartProvider, useAuiState, useMessagePartText } from '@assistant-ui/react'
 import {
-  parseMarkdownIntoBlocks,
   type StreamdownTextComponents,
   StreamdownTextPrimitive,
   type SyntaxHighlighterProps,
   tailBoundedRemend
 } from '@assistant-ui/react-streamdown'
-import { code } from '@streamdown/code'
 import type { Element as HastElement } from 'hast'
-import { type ComponentProps, memo, useEffect, useMemo, useState } from 'react'
+import { type ComponentProps, createContext, memo, useContext, useEffect, useMemo, useState } from 'react'
 
+import { ArtifactCard } from '@/components/assistant-ui/artifact-card'
 import { ExpandableBlock } from '@/components/chat/expandable-block'
 import { chunkByLines, SyntaxHighlighter } from '@/components/chat/shiki-highlighter'
 import { ZoomableImage } from '@/components/chat/zoomable-image'
+import { detectArtifact } from '@/lib/artifact-detect'
 import { normalizeExternalUrl, openExternalLink, PrettyLink } from '@/lib/external-link'
 import { createMemoizedMathPlugin, KATEX_HTML_TAG } from '@/lib/katex-memo'
+import { parseMarkdownIntoBlocksCached } from '@/lib/markdown-blocks'
 import { preprocessMarkdown } from '@/lib/markdown-preprocess'
 import {
   downloadGatewayMediaFile,
   gatewayMediaDataUrl,
+  isInlineMediaSrc,
   mediaKind,
   mediaName,
   mediaPathFromMarkdownHref,
   resolveMediaDisplaySrc
 } from '@/lib/media'
 import { isMediaStreamUrl } from '@/lib/media-stream'
+import { sessionRefFromMarkdownHref } from '@/lib/session-refs'
 import { cn } from '@/lib/utils'
 import { span } from '@/observability'
 
+import { SessionRefLink } from './directive-content'
 import { detectEmbed, extractAlert, MarkdownAlert, RichCodeBlock, UrlEmbed } from './embeds'
 
 // Math rendering plugin (KaTeX). Configured once at module scope — the plugin
@@ -45,6 +49,35 @@ import { detectEmbed, extractAlert, MarkdownAlert, RichCodeBlock, UrlEmbed } fro
 // `singleDollarTextMath: true` enables `$x^2$` inline math (the de-facto LLM
 // convention); the default only accepts `$$…$$`.
 const mathPlugin = createMemoizedMathPlugin({ singleDollarTextMath: true })
+
+// NO `plugins.code` — deliberately, and the reason is not obvious enough to
+// rediscover by accident. Shiki here comes from ONE place: the
+// `SyntaxHighlighter` slot in `MARKDOWN_COMPONENTS` below, which reaches
+// `react-shiki` through `lazy(() => import('./shiki-block'))`.
+//
+// Supplying a `SyntaxHighlighter` component makes
+// `@assistant-ui/react-streamdown` install its code adapter — see
+// `shouldUseCodeAdapter` / `useAdaptedComponents` in that package — which sets
+// `components.code = AdaptedCode`, REPLACING streamdown's own `code` slot for
+// every fenced block. And `plugins.code` has exactly one consumer in the whole
+// of streamdown: `useCodeHighlighter()` inside `HighlightedCodeBlockBody`,
+// which only ever renders under streamdown's own `CodeBlock` — the component
+// the adapter just replaced. So a code plugin passed here is constructed,
+// carried down the context, and read by nothing.
+//
+// That is not free. `@streamdown/code` statically imports ALL of shiki — every
+// grammar, every theme, plus its own JavaScript regex engine, a SECOND engine
+// next to the Oniguruma one `react-shiki` uses — so passing it downloaded the
+// single largest payload in the renderer to feed a dead branch. MJXHRM-380 put
+// lazy boundaries in front of all four of OUR shiki entry points; MJXHRM-45
+// then found a fifth importer defeating them and deferred it to first markdown
+// mount. Deferred was still wrong: the right amount of `@streamdown/code` is
+// none, so the dependency is gone from package.json entirely.
+//
+// If a future change removes the `SyntaxHighlighter` slot, streamdown's own
+// code block comes back — and THEN it needs a code plugin, or fences render
+// unhighlighted. Re-add both together or neither.
+const MARKDOWN_PLUGINS = { math: mathPlugin }
 
 // Renderer for the single node katex-memo emits per equation. See that file for
 // why an equation is one node and not ~65.
@@ -157,9 +190,14 @@ const preprocessWithTailRepair = memoizeByText(
   TEXT_CACHE_LIMIT
 )
 
-// Memoized block splitter. Streamdown lexes the whole message on every REMOUNT
-// (virtualizer scroll, session switch); the LRU removes those repeat parses.
-const parseMarkdownIntoBlocksCached = memoizeByText('markdown.block-lex', parseMarkdownIntoBlocks, TEXT_CACHE_LIMIT)
+// Block splitting now lives in `lib/markdown-blocks.ts` (ported from desktop —
+// MJXHRM-45). The exact-string LRU this file used to build here only covered
+// REMOUNTS; a streaming message misses it by construction, because every flush
+// is a new string. That is precisely the case that costs: `parseMarkdownIntoBlocks`
+// is a full `marked` lex of the entire message, ~3.4-9.6ms at 64-192KB, paid
+// ~30×/s on a long reply. The ported module keeps the exact cache AND adds the
+// streaming-append cache that reuses everything before the settled boundary and
+// re-lexes only the tail, falling back to a full lex on any doubt.
 
 function childrenToText(children: unknown): string {
   if (typeof children === 'string' || typeof children === 'number') {
@@ -200,7 +238,7 @@ function OpenMediaButton({ kind, path }: { kind: 'audio' | 'video'; path: string
   return (
     <span className="block">
       <button
-        className="mt-2 bg-transparent text-xs font-medium text-muted-foreground underline underline-offset-4 decoration-current/20 hover:text-foreground"
+        className="mt-2 ref bg-transparent text-xs font-medium text-muted-foreground hover:text-foreground"
         onClick={open}
         type="button"
       >
@@ -285,7 +323,7 @@ function MediaAttachment({ path }: { path: string }) {
 
   if (kind === 'audio' && src) {
     return (
-      <span className="my-3 block max-w-md rounded-xl border border-border bg-muted/35 p-3">
+      <span className="my-3 block max-w-md rounded-xl border border-(--ui-stroke-tertiary) bg-muted/35 p-3">
         <span className="mb-2 block truncate text-xs font-medium text-muted-foreground">{name}</span>
         <audio className="block w-full" controls onError={handleMediaError} preload="metadata" src={src} />
         {failed && <OpenMediaButton kind="audio" path={path} />}
@@ -295,7 +333,7 @@ function MediaAttachment({ path }: { path: string }) {
 
   if (kind === 'video' && src) {
     return (
-      <span className="my-3 block max-w-2xl rounded-xl border border-border bg-muted/35 p-3">
+      <span className="my-3 block max-w-2xl rounded-xl border border-(--ui-stroke-tertiary) bg-muted/35 p-3">
         <span className="mb-2 block truncate text-xs font-medium text-muted-foreground">{name}</span>
         <video className="block max-h-112 w-full rounded-lg bg-black" controls onError={handleMediaError} src={src} />
         {failed && <OpenMediaButton kind="video" path={path} />}
@@ -306,7 +344,7 @@ function MediaAttachment({ path }: { path: string }) {
   return (
     <span className="wrap-anywhere">
       <a
-        className="font-semibold text-foreground underline underline-offset-4 decoration-current/20 wrap-anywhere"
+        className="ref wrap-anywhere"
         href="#"
         onClick={event => {
           event.preventDefault()
@@ -320,10 +358,10 @@ function MediaAttachment({ path }: { path: string }) {
   )
 }
 
-// `#media:` hrefs render as inline attachments; everything else routes through
-// rich URL embeds / PrettyLink. (The link-preview TOGGLE for a settled reply is
-// separate and lives on the message footer — see `PreviewAttachment`, wired in
-// thread/assistant-message.tsx.)
+// `#media:` hrefs render as inline attachments, `#session/` hrefs as session
+// links; everything else routes through rich URL embeds / PrettyLink. (The
+// link-preview TOGGLE for a settled reply is separate and lives on the message
+// footer — see `PreviewAttachment`, wired in thread/assistant-message.tsx.)
 function MarkdownLink({ children, className, href, ...props }: ComponentProps<'a'>) {
   const mediaPath = mediaPathFromMarkdownHref(href)
 
@@ -331,15 +369,22 @@ function MarkdownLink({ children, className, href, ...props }: ComponentProps<'a
     return <MediaAttachment path={mediaPath} />
   }
 
+  // An `@session:` ref the agent wrote, rewritten to a fragment href by
+  // `preprocessMarkdown`. It has to be claimed BEFORE the generic branch below,
+  // which would hand a `#session/...` fragment to `openExternalLink` — asking
+  // the OS to open a URL that means nothing outside this app.
+  const sessionRef = sessionRefFromMarkdownHref(href)
+
+  if (sessionRef) {
+    return <SessionRefLink value={sessionRef} />
+  }
+
   const target = href ? normalizeExternalUrl(href) : href
 
   if (!target || !/^https?:\/\//i.test(target)) {
     return (
       <a
-        className={cn(
-          'font-semibold text-foreground underline underline-offset-4 decoration-current/20 wrap-anywhere',
-          className
-        )}
+        className={cn('ref wrap-anywhere', className)}
         href={href}
         onClick={event => {
           if (href) {
@@ -376,13 +421,91 @@ function MarkdownLink({ children, className, href, ...props }: ComponentProps<'a
   )
 }
 
-function MarkdownImage({ className, src, alt, ...props }: ComponentProps<'img'>) {
-  // Rendered images (data:/http/gateway) open in the shared pan/zoom viewer.
-  // `#media:` hrefs (incl. file:// media) are dispatched by MarkdownLink →
-  // MediaAttachment, which resolves gateway bytes to a data URL and renders
-  // here with a real src.
-  if (!src) {
+/**
+ * A markdown image the model wrote itself — `![alt](src)`.
+ *
+ * `#media:` hrefs never reach here (MarkdownLink dispatches those to
+ * MediaAttachment). What DOES reach here is whatever the model typed, and it is
+ * routinely not an image: generated clips arrive as `![clip](clip.mp4)`, and an
+ * `<img>` with a video source paints a broken-image glyph over a perfectly good
+ * file. So the source's KIND picks the element, exactly as it does for a
+ * `#media:` attachment.
+ */
+function MarkdownImage(props: ComponentProps<'img'>) {
+  const rawSrc = typeof props.src === 'string' ? props.src : ''
+  const kind = rawSrc ? mediaKind(rawSrc) : 'file'
+
+  if (kind === 'audio' || kind === 'video') {
+    return <MediaAttachment path={rawSrc} />
+  }
+
+  return <MarkdownImageContent {...props} />
+}
+
+/**
+ * The image itself, resolved.
+ *
+ * A bare filesystem path is the GATEWAY's path, not this device's — universal is
+ * always a remote-gateway client — so handing it to `<img src>` asks the webview
+ * to resolve it against the app origin, which 404s. It has to come back over the
+ * authenticated fs bridge, the same route `MediaAttachment` uses. `data:`/`http`
+ * sources are already displayable and are set on the first paint, so an inline
+ * image never flashes a placeholder.
+ */
+function MarkdownImageContent({ className, src, alt, ...props }: ComponentProps<'img'>) {
+  const rawSrc = typeof src === 'string' ? src : ''
+  const [resolvedSrc, setResolvedSrc] = useState(() => (rawSrc && isInlineMediaSrc(rawSrc) ? rawSrc : ''))
+  const [failed, setFailed] = useState(false)
+  const { open, openFailed } = useOpenMediaFile(rawSrc)
+  const name = mediaName(rawSrc || String(alt || 'image'))
+
+  useEffect(() => {
+    let cancelled = false
+
+    setFailed(false)
+    setResolvedSrc(rawSrc && isInlineMediaSrc(rawSrc) ? rawSrc : '')
+
+    if (!rawSrc || isInlineMediaSrc(rawSrc)) {
+      return () => {
+        cancelled = true
+      }
+    }
+
+    void resolveMediaDisplaySrc(rawSrc)
+      .then(value => {
+        if (!cancelled) {
+          setResolvedSrc(value)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setFailed(true)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [rawSrc])
+
+  if (!rawSrc) {
     return null
+  }
+
+  if (failed) {
+    return (
+      <span className="my-2 block text-sm text-muted-foreground">
+        Couldn&apos;t load {name}.{' '}
+        <button className="ref font-medium text-foreground" onClick={open} type="button">
+          Open image
+        </button>
+        {openFailed && <OpenMediaFailedNote name={name} />}
+      </span>
+    )
+  }
+
+  if (!resolvedSrc) {
+    return <span className="my-2 block text-sm text-muted-foreground">Loading {name}...</span>
   }
 
   return (
@@ -392,7 +515,7 @@ function MarkdownImage({ className, src, alt, ...props }: ComponentProps<'img'>)
         'm-0 block h-auto w-auto max-h-(--image-preview-height) max-w-[min(100%,var(--image-preview-max-width))] rounded-lg object-contain',
         className
       )}
-      src={typeof src === 'string' ? src : ''}
+      src={resolvedSrc}
       {...props}
     />
   )
@@ -403,6 +526,17 @@ interface MarkdownTextSurfaceProps {
   containerProps?: ComponentProps<'div'>
   defer?: boolean
 }
+
+/**
+ * Whether fences in this subtree may be promoted to artifact cards.
+ *
+ * A CONTEXT rather than a prop threaded into the components map, because the
+ * map has to stay a module constant: streamdown's Block comparator does a
+ * per-key shallow compare of it, so rebuilding the map for a flag would
+ * re-parse and re-render every block in a message at the moment it settles.
+ * Same reasoning as the streaming flag two components down.
+ */
+const ArtifactsDisabledContext = createContext(false)
 
 // Headings shrink to chat scale rather than the prose default (h1≈xl).
 const HEADING_SIZES: Record<'h1' | 'h2' | 'h3' | 'h4', string> = {
@@ -416,6 +550,18 @@ const MARKDOWN_CONTAINER_CLASS_NAME = cn(
   'aui-md prose w-full max-w-none overflow-hidden text-[length:var(--conversation-text-font-size)] leading-(--dt-line-height) text-foreground',
   'prose-p:leading-(--dt-line-height) prose-li:leading-(--dt-line-height)',
   'prose-headings:text-foreground prose-strong:text-foreground',
+  // @tailwindcss/typography styles `pre` as a DARK slab: light text
+  // (`--tw-prose-pre-code`, gray-200) on a dark background. `SyntaxHighlighter`
+  // strips the background for our own light code card, but the near-white
+  // foreground survives on the `<pre>`. Shiki's opaque per-token spans normally
+  // hide it — so it only shows where text renders with NO spans, and MJXHRM-380
+  // added one of those places: the `Suspense` fallback while the shiki chunk is
+  // in flight, alongside the streaming `defer` window and budget-exceeded
+  // blocks. Unreadable in light mode without this. Same fix upstream made on
+  // desktop in 3bd844edf1 (which this fork does not carry yet); the utility
+  // layer is emitted after typography's base rule, so it wins on source order at
+  // equal specificity.
+  'prose-pre:text-foreground',
   'prose-a:break-words prose-p:[overflow-wrap:anywhere]',
   'prose-li:marker:text-muted-foreground/70',
   'prose-code:rounded-[0.25rem] prose-code:px-[0.1875rem] prose-code:py-px prose-code:font-mono prose-code:text-[0.9em] prose-code:font-normal prose-code:before:content-none prose-code:after:content-none',
@@ -430,7 +576,7 @@ function HugeTextFallback({ containerClassName, text }: { containerClassName?: s
   return (
     <div
       className={cn(
-        'aui-md w-full max-w-none overflow-hidden rounded-[0.625rem] border border-border font-mono text-[0.7rem] leading-relaxed text-foreground/90',
+        'aui-md w-full max-w-none overflow-hidden rounded-[0.625rem] border border-(--ui-stroke-tertiary) font-mono text-[0.7rem] leading-relaxed text-foreground/90',
         containerClassName
       )}
     >
@@ -461,6 +607,7 @@ function HugeTextFallback({ containerClassName, text }: { containerClassName?: s
 // heaviest. Same class of bug as the `components`/`loadingIndicator` literals
 // fixed in thread.tsx.
 function MarkdownSyntaxHighlighter(props: SyntaxHighlighterProps) {
+  const artifactsDisabled = useContext(ArtifactsDisabledContext)
   // Select the BOOLEAN, not the part. `useMessagePartText()` returns `s.part`,
   // which is a fresh object every token — subscribing to it here would
   // re-render every code block on every token of a streaming message, and a
@@ -468,6 +615,15 @@ function MarkdownSyntaxHighlighter(props: SyntaxHighlighterProps) {
   // Block memo above can't stop it. Selecting a primitive means Object.is
   // compares equal until the run actually starts or ends.
   const isStreaming = useAuiState(state => state.part.status?.type === 'running')
+  // A fence big enough to be a document, a standalone graphic, or a file's
+  // worth of code stops being something to read in the flow of a reply and
+  // becomes something to open. The card stands in for it; the content itself
+  // moves to the artifact registry and the right pane.
+  const artifact = artifactsDisabled ? null : detectArtifact(props.language, props.code)
+
+  if (artifact) {
+    return <ArtifactCard code={props.code} detection={artifact} streaming={isStreaming} />
+  }
 
   return (
     <RichCodeBlock
@@ -478,11 +634,6 @@ function MarkdownSyntaxHighlighter(props: SyntaxHighlighterProps) {
     />
   )
 }
-
-// Code parsing stays enabled while streaming so incomplete fences still render
-// as code cards; the Shiki pass is deferred by SyntaxHighlighter instead.
-// Module scope, like the components map, so the prop identity never changes.
-const MARKDOWN_PLUGINS = { math: mathPlugin, code }
 
 // `StreamdownTextComponents` is unsatisfiable by any object literal: it's an
 // intersection of a `[key: string]: ComponentType<Record<string, unknown> &
@@ -531,7 +682,7 @@ const MARKDOWN_COMPONENTS = {
 
     return (
       <blockquote
-        className={cn('border-s-2 border-border ps-3 text-muted-foreground italic', className)}
+        className={cn('border-s-2 border-(--ui-stroke-tertiary) ps-3 text-muted-foreground italic', className)}
         dir="auto"
         {...props}
       >
@@ -549,10 +700,10 @@ const MARKDOWN_COMPONENTS = {
     <li className={cn('leading-(--dt-line-height)', className)} {...props} />
   ),
   table: ({ className, ...props }: ComponentProps<'table'>) => (
-    <div className="aui-md-table my-2 max-w-full overflow-x-auto rounded-[0.375rem] border border-border">
+    <div className="aui-md-table my-2 max-w-full overflow-x-auto rounded-[0.375rem] border border-(--ui-stroke-tertiary)">
       <table
         className={cn(
-          'm-0 w-full min-w-[18rem] border-collapse text-[0.8125rem] [&_tr]:border-b [&_tr]:border-border last:[&_tr]:border-0',
+          'm-0 w-full min-w-[18rem] border-collapse text-[0.8125rem] [&_tr]:border-b [&_tr]:border-(--ui-stroke-tertiary) last:[&_tr]:border-0',
           className
         )}
         {...props}
@@ -565,7 +716,7 @@ const MARKDOWN_COMPONENTS = {
   th: ({ className, ...props }: ComponentProps<'th'>) => (
     <th
       className={cn(
-        'whitespace-nowrap px-2.5 py-1.5 text-left align-middle text-[0.75rem] font-medium text-muted-foreground',
+        'whitespace-nowrap px-2.5 py-1.5 text-start align-middle text-[0.75rem] font-medium text-muted-foreground',
         className
       )}
       {...props}
@@ -606,16 +757,21 @@ function MarkdownTextSurface({ containerClassName, containerProps, defer }: Mark
 }
 
 interface MarkdownTextContentProps extends MarkdownTextSurfaceProps {
+  /** Reasoning is the model thinking out loud; a fence there is a draft, not a
+   *  deliverable, so it never graduates into an artifact. */
+  disableArtifacts?: boolean
   isRunning: boolean
   text: string
 }
 
 // Reasoning-text variant (no smoothing — matches the answer's plain append).
-export function MarkdownTextContent({ isRunning, text, ...surfaceProps }: MarkdownTextContentProps) {
+export function MarkdownTextContent({ disableArtifacts, isRunning, text, ...surfaceProps }: MarkdownTextContentProps) {
   return (
-    <TextMessagePartProvider isRunning={isRunning} text={text}>
-      <MarkdownTextSurface defer {...surfaceProps} />
-    </TextMessagePartProvider>
+    <ArtifactsDisabledContext.Provider value={Boolean(disableArtifacts)}>
+      <TextMessagePartProvider isRunning={isRunning} text={text}>
+        <MarkdownTextSurface defer {...surfaceProps} />
+      </TextMessagePartProvider>
+    </ArtifactsDisabledContext.Provider>
   )
 }
 

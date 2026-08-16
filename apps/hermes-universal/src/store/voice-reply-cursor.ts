@@ -1,5 +1,5 @@
 import type { SessionView } from '@/app/chat/session-view'
-import { chatMessageText } from '@/lib/chat-messages'
+import { chatMessageText, collectUnspokenTurnSpeech } from '@/lib/chat-messages'
 
 // The shared "last spoken reply" cursor, dedupe between the voice-conversation
 // loop and `useAutoSpeakReplies` so a reply is never read aloud twice. Keyed per
@@ -39,6 +39,19 @@ export function lastReply(view: SessionView): VoiceReply | null {
   }
 
   return { id: last.id, pending: Boolean(last.pending), text }
+}
+
+/**
+ * The WHOLE unspoken turn — every assistant bubble since the cursor, joined —
+ * not just the newest one.
+ *
+ * This is what the conversation loop narrates. `lastReply` above stays the
+ * auto-speak selector: a read-aloud backlog deliberately collapses to the newest
+ * reply, while a hands-free turn must be heard in full (narration interims AND
+ * the final answer). See `collectUnspokenTurnSpeech`.
+ */
+export function unspokenTurn(view: SessionView): null | VoiceReply {
+  return collectUnspokenTurnSpeech(view.$messages.get(), spokenByView.get(view) ?? null)
 }
 
 /** Mark the current last reply as spoken (dedupe cursor advance). */

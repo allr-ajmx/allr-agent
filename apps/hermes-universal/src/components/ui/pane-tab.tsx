@@ -1,5 +1,10 @@
 import * as React from 'react'
 
+import { type ActionItemSpec, type MenuKit, renderActionItem } from '@/components/ui/actions-menu'
+import { Button } from '@/components/ui/button'
+import { Tip } from '@/components/ui/tooltip'
+import { translateNow } from '@/i18n'
+import { isMetaClose, middleClickHandlers } from '@/lib/middle-click'
 import { cn } from '@/lib/utils'
 
 /** Inset bottom stroke for a horizontal tab strip — titlebar color, cut by the active tab. */
@@ -24,23 +29,26 @@ const TAB_ACTIVE = 'text-foreground [--tab-bg:var(--pane-tab-active-bg,var(--ui-
 const TAB_IDLE =
   'text-(--ui-text-tertiary) [--tab-bg:var(--pane-tab-strip-bg,var(--theme-card-seed))] hover:shadow-[inset_0_0_0_100vmax_color-mix(in_srgb,var(--ui-base)_4%,transparent)] hover:text-(--ui-text-secondary)'
 
+// A tab riding a multi-tab selection: an accent wash over whatever surface the
+// tab sits on. A background-image gradient (not a shadow) so it stacks cleanly
+// over `--tab-bg` without fighting the idle hover shadow.
+const TAB_SELECTED =
+  '[background-image:linear-gradient(color-mix(in_srgb,var(--ui-accent)_14%,transparent),color-mix(in_srgb,var(--ui-accent)_14%,transparent))] text-foreground'
+
 interface PaneTabProps extends React.ComponentProps<'div'> {
   active?: boolean
   dirty?: boolean
   /** Close gesture, no hover X (too easy to hit on small tabs): middle-click,
    *  or ⌘-click as the trackpad-friendly Mac equivalent. */
   onClose?: () => void
+  /** Part of a multi-tab selection (⌥/Ctrl-click, Shift-click) — an accent
+   *  wash marks every tab that a drag would carry, Chrome-style. */
+  selected?: boolean
   /** Vertical rail form (collapsed sidebar zones). */
   vertical?: boolean
   /** Content-facing edge of a vertical rail — the strip line the active tab cuts. */
   side?: 'left' | 'right'
 }
-
-/** ⌘-click (metaKey + primary button) — the Mac has no middle button, so this
- *  is the trackpad equivalent of middle-click-to-close. Guarded on metaKey so
- *  it never collides with left-click (activate/drag) or ⌃-click (macOS context
- *  menu). */
-const isMetaClose = (event: { button: number; metaKey: boolean }) => event.button === 0 && event.metaKey
 
 /**
  * Editor tab shell — preview rail + zone headers + collapsed vertical rails.
@@ -54,10 +62,11 @@ export const PaneTab = React.forwardRef<HTMLDivElement, PaneTabProps>(function P
     active = false,
     dirty = false,
     onClose,
-    onAuxClick,
     onMouseDown,
     onPointerDown,
+    onPointerUp,
     onClickCapture,
+    selected = false,
     vertical = false,
     side = 'left',
     children,
@@ -68,7 +77,12 @@ export const PaneTab = React.forwardRef<HTMLDivElement, PaneTabProps>(function P
 ) {
   // Content-facing edge: horizontal cuts the bottom strip line; vertical cuts
   // the side that faces the editor (left rail → right edge, right rail → left).
-  const edge = vertical ? (side === 'right' ? 'border-l' : 'border-r') : 'border-b'
+  const edge = vertical ? (side === 'right' ? 'border-s' : 'border-e') : 'border-b'
+  // Middle-click through the pointer-pair gesture, not `auxclick`: a tab strip
+  // is a scroller, and a middle press inside one starts the autoscroll pan on
+  // Windows/Linux — the mouseup ends the pan instead of completing a click, so
+  // `auxclick` never arrives and the gesture only worked on macOS.
+  const middle = middleClickHandlers(onClose)
 
   return (
     <div
@@ -77,20 +91,12 @@ export const PaneTab = React.forwardRef<HTMLDivElement, PaneTabProps>(function P
         vertical ? TAB_VERTICAL : TAB_HORIZONTAL,
         edge,
         active ? TAB_ACTIVE : cn(TAB_IDLE, `${edge}-(--ui-stroke-tertiary)`),
+        selected && TAB_SELECTED,
         className
       )}
       data-active={active}
+      data-selected={selected || undefined}
       data-vertical={vertical || undefined}
-      onAuxClick={event => {
-        // Middle-click closes (browser/IDE). Swallow mousedown so Chromium
-        // doesn't autoscroll.
-        if (onClose && event.button === 1) {
-          event.preventDefault()
-          onClose()
-        }
-
-        onAuxClick?.(event)
-      }}
       onClickCapture={event => {
         // Sites whose tab activates on the label's own onClick (the preview
         // rail) fire it AFTER our pointerdown close — swallow that stray click
@@ -103,13 +109,12 @@ export const PaneTab = React.forwardRef<HTMLDivElement, PaneTabProps>(function P
         onClickCapture?.(event)
       }}
       onMouseDown={event => {
-        if (onClose && event.button === 1) {
-          event.preventDefault()
-        }
-
+        middle.onMouseDown(event)
         onMouseDown?.(event)
       }}
       onPointerDown={event => {
+        middle.onPointerDown(event)
+
         // ⌘-click closes. Preempt here — the tab strips activate/drag on
         // pointerdown (drag-session onTap), so we must claim the press before
         // the shell's own handler starts a drag, and skip it entirely.
@@ -123,6 +128,10 @@ export const PaneTab = React.forwardRef<HTMLDivElement, PaneTabProps>(function P
 
         onPointerDown?.(event)
       }}
+      onPointerUp={event => {
+        middle.onPointerUp(event)
+        onPointerUp?.(event)
+      }}
       ref={ref}
       {...props}
     >
@@ -132,10 +141,11 @@ export const PaneTab = React.forwardRef<HTMLDivElement, PaneTabProps>(function P
           aria-hidden
           className={cn(
             'pointer-events-none absolute grid size-4 place-items-center',
-            vertical ? 'bottom-1.5 left-1/2 -translate-x-1/2' : 'right-1.5 top-1/2 -translate-y-1/2'
+            // eslint-disable-next-line better-tailwindcss/no-restricted-classes -- centring, not an edge — pairs with a physical -translate-x-1/2, and start-1/2 would resolve to right:50% while the transform still pulled left
+            vertical ? 'bottom-1.5 left-1/2 -translate-x-1/2' : 'end-1.5 top-1/2 -translate-y-1/2'
           )}
         >
-          <span className="size-2 rounded-full bg-amber-500 shadow-[0_0_0_2px_var(--tab-bg),0_1px_2px_rgba(0,0,0,0.45)] dark:bg-amber-400" />
+          <span className="size-2 rounded-full bg-(--ui-yellow) shadow-[0_0_0_2px_var(--tab-bg),0_1px_2px_rgba(0,0,0,0.45)]" />
         </span>
       )}
     </div>
@@ -158,7 +168,7 @@ export const PaneTabLabel = React.forwardRef<HTMLElement, PaneTabLabelProps>(fun
 
   return (
     <Comp
-      className="flex h-full min-w-0 max-w-full items-center overflow-hidden px-2 text-left outline-none group-data-[vertical]/tab:h-auto group-data-[vertical]/tab:w-full group-data-[vertical]/tab:justify-center group-data-[vertical]/tab:py-2"
+      className="flex h-full min-w-0 max-w-full items-center overflow-hidden px-2 text-start outline-none group-data-[vertical]/tab:h-auto group-data-[vertical]/tab:w-full group-data-[vertical]/tab:justify-center group-data-[vertical]/tab:py-2"
       ref={ref}
       {...props}
     >
@@ -168,3 +178,157 @@ export const PaneTabLabel = React.forwardRef<HTMLElement, PaneTabLabelProps>(fun
     </Comp>
   )
 })
+
+interface PaneTabStripProps extends React.ComponentProps<'div'> {
+  /** The scrolling tab list — receives `role="tablist"`. */
+  children: React.ReactNode
+  /** Ref on the scroller itself, for `useActiveTabVisible`. */
+  listRef?: React.Ref<HTMLDivElement>
+  /** Non-scrolling trailing chrome pinned to the right (strip glyphs, the `+`,
+   *  the minimize chevron). Outside the scroller on purpose: inside it they were
+   *  scroll content, so the moment the tabs overflowed they slid off the end. */
+  trailing?: React.ReactNode
+}
+
+/**
+ * The horizontal tab bar every strip in the app sits in. Owns the bar's height
+ * and surface, the scroll behaviour (hidden scrollbars) and the pinned trailing
+ * slot — so a new strip inherits all of it instead of re-deriving the geometry
+ * and drifting out of alignment.
+ *
+ * Tabs go in `children` as `PaneTab`s; per-strip extras (drag handlers,
+ * `data-zone-tabstrip`, drop carets) ride on the usual div props.
+ */
+export const PaneTabStrip = React.forwardRef<HTMLDivElement, PaneTabStripProps>(function PaneTabStrip(
+  { children, className, listRef, trailing, ...props },
+  ref
+) {
+  return (
+    <div
+      // Active = sidebar surface (merges into the body). Strip =
+      // `--theme-card-seed` (VS Code `tab.inactiveBackground`). The active tab
+      // cuts through PANE_TAB_STRIP_LINE.
+      className={cn(
+        'group/pane-header relative flex h-7 shrink-0 select-none bg-(--pane-tab-strip-bg) [-webkit-app-region:no-drag] [--pane-tab-active-bg:var(--ui-sidebar-surface-background)] [--pane-tab-strip-bg:var(--theme-card-seed)]',
+        PANE_TAB_STRIP_LINE,
+        className
+      )}
+      ref={ref}
+      {...props}
+    >
+      <div
+        className="flex min-w-0 flex-1 overflow-x-auto overflow-y-hidden overscroll-x-contain [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        ref={listRef}
+        role="tablist"
+      >
+        {children}
+      </div>
+      {trailing}
+    </div>
+  )
+})
+
+/** A glyph button on a tab strip: the `+` and anything a tile contributes (a
+ *  preview's view-mode switch). Callers pass DATA, never classes — so every
+ *  glyph on every strip matches, and a tile never grows its own button styling
+ *  to drift from the rest. */
+export interface PaneStripTool {
+  active?: boolean
+  disabled?: boolean
+  icon: React.ReactNode
+  id: string
+  /** Tooltip text and accessible name. */
+  label: string
+  onSelect: () => void
+}
+
+/**
+ * Renders one `PaneStripTool`: ghost variant, no active background — state reads
+ * from the glyph's own opacity, with `aria-pressed` carrying it for a11y.
+ *
+ * Pointerdown is claimed here so a click can never also activate or drag the
+ * zone behind the strip.
+ */
+export function PaneStripGlyph({ active, disabled, icon, label, onSelect }: Omit<PaneStripTool, 'id'>) {
+  return (
+    <Tip label={label}>
+      <Button
+        aria-label={label}
+        aria-pressed={active ?? undefined}
+        className={cn(
+          'self-center bg-transparent select-none',
+          active ? 'opacity-100' : 'opacity-60 hover:opacity-100'
+        )}
+        disabled={disabled}
+        onClick={onSelect}
+        onPointerDown={event => event.stopPropagation()}
+        size="icon-xs"
+        type="button"
+        variant="ghost"
+      >
+        {icon}
+      </Button>
+    </Tip>
+  )
+}
+
+/** Close-verb enablement for `paneTabCloseItems` — how many tabs each verb hits. */
+export interface PaneTabCloseCounts {
+  all: number
+  others: number
+  right: number
+}
+
+export interface PaneTabCloseItemsOptions {
+  counts: PaneTabCloseCounts
+  /** Omit to hide Close entirely (an uncloseable tab shows no dead action). */
+  onClose?: () => void
+  onCloseAll: () => void
+  onCloseOthers: () => void
+  onCloseToRight: () => void
+}
+
+/**
+ * The four close verbs every tab menu offers — Close / others / to the right /
+ * all — AS DATA, so the surfaces whose menus are assembled from specs (the
+ * session tab menu, which interleaves them with the session verbs) share the
+ * one definition with the ones assembled from JSX.
+ *
+ * The counts matter as much as the callbacks. A verb that would close nothing
+ * is DISABLED, never omitted: a menu whose rows appear and disappear with the
+ * tab count makes the same right-click land on a different item each time, and
+ * that is what the surfaces that hand-rolled this all got wrong in their own
+ * way.
+ */
+export function paneTabCloseSpecs({
+  counts,
+  onClose,
+  onCloseAll,
+  onCloseOthers,
+  onCloseToRight
+}: PaneTabCloseItemsOptions): ActionItemSpec[] {
+  return [
+    // No ⌘W hint on Close: the keybind closes the FOCUSED zone's active tab, so
+    // it would be a lie on the inactive tab the user actually right-clicked.
+    ...(onClose ? [{ icon: 'close', label: translateNow('common.close'), onSelect: onClose }] : []),
+    {
+      disabled: !counts.others,
+      icon: 'close-all',
+      label: translateNow('zones.closeOthers'),
+      onSelect: onCloseOthers
+    },
+    {
+      disabled: !counts.right,
+      icon: 'arrow-right',
+      label: translateNow('zones.closeToRight'),
+      onSelect: onCloseToRight
+    },
+    { disabled: !counts.all, icon: 'clear-all', label: translateNow('zones.closeAll'), onSelect: onCloseAll }
+  ]
+}
+
+/** `paneTabCloseSpecs` rendered with a menu kit — the form a JSX-assembled
+ *  menu (the zone menu, the terminal rail, the preview rail) wants. */
+export function paneTabCloseItems(kit: MenuKit, options: PaneTabCloseItemsOptions) {
+  return <>{paneTabCloseSpecs(options).map(spec => renderActionItem(kit, spec))}</>
+}

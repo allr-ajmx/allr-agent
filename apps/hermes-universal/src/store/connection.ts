@@ -10,13 +10,19 @@ import {
 } from '@/lib/auth'
 import { errorText } from '@/lib/error-text'
 import { loadString, saveString } from '@/lib/persist'
-import { IS_ANDROID } from '@/lib/platform'
+import { IS_NATIVE_MOBILE } from '@/lib/platform'
+import { reconnectBackoffDelayMs } from '@/lib/reconnect-backoff'
 import { clearSecrets, loadSecrets, loadSshSecrets, saveSecrets, type Secrets } from '@/lib/secure-store'
 import { persistSessionCookies } from '@/lib/session-persist'
 import { atom } from '@/store/atom'
 import { $gatewayState, closeGateway, connectGateway } from '@/store/gateway'
 import { chooseGatedAuth, type Connection } from '@/store/gateway-config'
-import { loadGatewayTarget, saveGatewayTarget, savePendingOAuth } from '@/store/gateway-restore'
+import {
+  loadGatewayTarget,
+  saveGatewayTarget,
+  savePendingOAuth,
+  takePendingOAuth
+} from '@/store/gateway-restore'
 import { getInstallationId } from '@/store/installation-id'
 import { spawnLocalBackend, stopLocalBackend } from '@/store/local-backend'
 import {
@@ -53,6 +59,13 @@ export interface StatusInfo {
   version?: string
   auth_required?: boolean
   auth_providers?: string[]
+  /** Which sign-in flows this gateway can run — `"cookie"` always when gated,
+   *  `"native_pkce"` only when a provider can broker an RFC 8252 native login
+   *  (`hermes_cli/web_server.py`). Absent on gateways older than those routes,
+   *  which is the compatibility mechanism: see `lib/native-auth-decisions.ts`.
+   *  Rust re-probes this itself before choosing a flow (`oauth.rs`); the field is
+   *  declared here so surfaces can say WHICH way the user is signed in. */
+  auth_flows?: string[]
   [key: string]: unknown
 }
 
@@ -122,19 +135,39 @@ export async function probeStatus(rawUrl: string): Promise<StatusInfo> {
 /**
  * Drive the interactive gateway OAuth sign-in.
  *
- * On desktop/iOS this opens a dedicated sign-in window and the promise resolves when the
- * session lands. On ANDROID the Rust command navigates the MAIN webview to the login and
- * back (a second window can't be dismissed there — see src-tauri/src/oauth.rs); that
- * navigation destroys this JS context, so `oauthLogin` never resolves here. We persist a
- * one-shot resume marker FIRST so the post-reload boot (`autoRestoreConnection`) finishes
- * the connect. Callers must treat this as "may never return" on Android.
+ * On desktop this opens a dedicated sign-in window and the promise resolves when the
+ * session lands. On ANDROID AND iOS the Rust command navigates the CALLING webview to the
+ * login and back (neither phone can host a dismissable second window — see
+ * src-tauri/src/oauth.rs); that navigation destroys this JS context, so `oauthLogin` never
+ * resolves here. We persist a one-shot resume marker FIRST so the post-reload boot
+ * (`autoRestoreConnection`) finishes the connect. Callers must treat this as "may never
+ * return" on mobile.
+ *
+ * Both mobile flows navigate away — the RFC 8252 one to `/auth/native/authorize`, the
+ * cookie cascade to `/auth/login` — so the marker is right for either.
  */
 async function beginOAuthLogin(base: string, provider?: string, username?: string): Promise<void> {
-  if (IS_ANDROID) {
-    savePendingOAuth({ base, provider, username })
+  if (!IS_NATIVE_MOBILE) {
+    await oauthLogin(base, provider)
+
+    return
   }
 
-  await oauthLogin(base, provider)
+  savePendingOAuth({ base, provider, username })
+
+  try {
+    await oauthLogin(base, provider)
+  } catch (err) {
+    // A REJECTION on mobile means we never navigated (Rust failed to bind the loopback
+    // listener, or the webview refused the load) — this JS context is still alive and
+    // the caller is about to surface the error. The marker we parked is now garbage
+    // that would otherwise sit in localStorage and fire on some unrelated later launch,
+    // seeding `$restoring` and sending the boot down the resume branch for a sign-in
+    // that never happened.
+    takePendingOAuth()
+
+    throw err
+  }
 }
 
 export async function connect(input: ConnectInput): Promise<void> {
@@ -174,7 +207,7 @@ export async function connect(input: ConnectInput): Promise<void> {
         const live = await oauthStatus(base).catch(() => ({ signedIn: false }))
 
         if (!live.signedIn) {
-          // On Android this navigates the app away and never returns here — the reload
+          // On mobile this navigates the app away and never returns here — the reload
           // resumes via the pending marker (see beginOAuthLogin / autoRestoreConnection).
           await beginOAuthLogin(base, oauthProvider, input.username)
         }
@@ -533,10 +566,16 @@ async function rebootstrapSsh(profile: null | string): Promise<void> {
 // --------------------------------------------------------------------------
 // The vendored client has no reconnect logic, so a dropped socket (sleep/wake,
 // network blip, expired session) leaves the app 'closed'. This watches
-// $gatewayState and, on an UNEXPECTED close, re-dials with capped backoff:
-// connectGateway re-mints a FRESH ws-ticket each attempt, and on an expired OAuth
-// session it re-drives sign-in first. Guards against re-dialling a user-initiated
-// disconnect and against re-entrant loops (the close a reconnect itself triggers).
+// $gatewayState and, on an UNEXPECTED close, re-dials with FULL-JITTER capped
+// backoff (lib/reconnect-backoff): connectGateway re-mints a FRESH ws-ticket
+// each attempt, and on an expired OAuth session it re-drives sign-in first.
+// Guards against re-dialling a user-initiated disconnect and against re-entrant
+// loops (the close a reconnect itself triggers).
+//
+// Jitter matters because a gateway restart drops every app pointed at it in the
+// same instant; a deterministic ladder then has them all redial in the same
+// instant too, which can exhaust the gateway's descriptors while it is still
+// coming back up.
 //
 // FIXME(D7): reconnect re-opens the socket; it does not respawn a local backend
 // whose process actually died, nor replay an interrupted streaming turn.
@@ -570,9 +609,24 @@ export function endGatewaySwitch(): void {
   switching = false
 }
 
-const reconnectDelay = (attempt: number): number => Math.min(30_000, 2 ** attempt * 1000)
+/**
+ * Once the loop has been failing continuously for this long, publish the last
+ * failure on `$connectionError`. That is what reveals the embedded gateway
+ * configurator on the connecting screen (see gateway-connecting-screen.tsx), so
+ * a gateway that never comes back stops being a spinner with no way out.
+ *
+ * Time-based rather than attempt-count-based, because full jitter makes attempt
+ * counts a meaningless clock: six jittered attempts can elapse in ~9s, while
+ * the old deterministic 1→30s ladder took ~45s to reach six failures. 45s keeps
+ * that original calibration (matching desktop's RECONNECT_ESCALATE_AFTER_MS).
+ */
+const RECONNECT_ESCALATE_AFTER_MS = 45_000
+
+const reconnectDelay = (attempt: number): number => reconnectBackoffDelayMs(attempt)
 const wait = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms))
 
+// DESKTOP ONLY — see the reauth branch in the loop for why mobile must never reach here.
+//
 // Unreachable for `ssh`: that mode is always authMode 'token', and the loop only
 // calls this on a GatewayReauthRequiredError, which the ticket/oauth paths raise.
 // A dropped SSH TUNNEL is a different failure and is not handled here — see the
@@ -581,7 +635,8 @@ async function reauthForReconnect(conn: Connection): Promise<void> {
   if (conn.mode === 'cloud') {
     await portalAgentSignIn(conn.baseUrl)
   } else {
-    // Android: navigates the app away and reloads; the pending marker resumes the dial.
+    // Opens a dedicated sign-in window beside the app and resolves when the session
+    // lands, so the dial below can simply continue.
     await beginOAuthLogin(conn.baseUrl)
   }
 }
@@ -589,6 +644,10 @@ async function reauthForReconnect(conn: Connection): Promise<void> {
 async function runReconnectLoop(): Promise<void> {
   reconnecting = true
   let attempt = 0
+  // Wall-clock start of this disconnect episode (the first FAILED reconnect),
+  // null while we have not failed yet. Drives the escalation below. Episode-
+  // scoped by construction: the loop is re-entered fresh per episode.
+  let failingSince: null | number = null
 
   while (!intentionalClose && !switching) {
     const conn = $connection.get()
@@ -627,20 +686,68 @@ async function runReconnectLoop(): Promise<void> {
         break
       }
 
+      $connectionError.set(null)
       $connectionPhase.set('ready')
 
       break
     } catch (err) {
       if (conn.authMode === 'oauth' && isGatewayReauthRequired(err)) {
+        // On mobile an interactive sign-in is a ONE-WAY DOOR: it navigates the app's only
+        // webview to the login page and never returns (see `beginOAuthLogin`). This loop
+        // is a BACKGROUND actor — it wakes on any dropped socket, with no user intent — so
+        // walking through that door hijacks the whole app at an arbitrary moment, most
+        // cruelly right as the user brings it back from the background.
+        //
+        // Worse, it does not hold the webview against anyone else. A user tapping Sign in
+        // on the connect screen starts a second flow, which reads `webview.url()` AFTER
+        // this one has already navigated and so captures the LOGIN PAGE as its "return
+        // here afterwards" target. Whichever finishes last then restores the app to the
+        // login page, and there is no way home. That is a real crash-and-strand seen on
+        // device, not a theoretical race.
+        //
+        // So: report it and stand down. The user gets one deliberate, foreground sign-in.
+        // `$connectionError` is what reveals the embedded configurator on the connecting
+        // screen (gateway-connecting-screen.tsx), and `mintWsTicket` has already phrased
+        // this for a human — "Session expired — sign in again".
+        //
+        // Published immediately rather than after RECONNECT_ESCALATE_AFTER_MS: that window
+        // exists to let a transient failure resolve itself, and a refused credential is not
+        // transient. Nothing is gained by making the user watch a spinner for 45s first.
+        //
+        // Two carve-outs, both because the door is not one-way for them:
+        //   * DESKTOP opens a dedicated sign-in window beside the app and resolves, so the
+        //     supervisor can re-auth without the user ever knowing.
+        //   * CLOUD re-auths through `portalAgentSignIn`, which on mobile is the silent
+        //     reqwest cascade (`cloud.rs::agent_sso`) — nothing navigates, so it is safe to
+        //     drive from the background and blocking it would be a pointless regression.
+        if (IS_NATIVE_MOBILE && conn.mode !== 'cloud') {
+          $connectionError.set(errorText(err))
+
+          break
+        }
+
         try {
           await reauthForReconnect(conn)
           await connectGateway(conn)
+          $connectionError.set(null)
           $connectionPhase.set('ready')
 
           break
         } catch {
           // fall through to backoff
         }
+      }
+
+      if (failingSince === null) {
+        failingSince = Date.now()
+      }
+
+      // Past the escalation window, stop swallowing the failure: publishing it
+      // reveals the configurator on the connecting screen, so a gateway that is
+      // never coming back has a way out instead of an endless spinner. The last
+      // error is used verbatim — it says WHY, which a generic string cannot.
+      if (Date.now() - failingSince >= RECONNECT_ESCALATE_AFTER_MS) {
+        $connectionError.set(errorText(err))
       }
 
       attempt++

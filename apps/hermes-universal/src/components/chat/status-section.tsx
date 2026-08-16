@@ -18,9 +18,9 @@ export function StatusSection({ accessory, children, defaultCollapsed = true, ic
 
   return (
     <div>
-      <div className="flex items-center gap-1 pr-1">
+      <div className="flex items-center gap-1 pe-1">
         <button
-          className="flex min-w-0 flex-1 items-center gap-1.5 px-2 py-1 text-left text-xs font-normal text-muted-foreground/92 transition-colors hover:text-foreground/90"
+          className="flex min-w-0 flex-1 items-center gap-1.5 px-2 py-1 text-start text-xs font-normal text-muted-foreground/92 transition-colors hover:text-foreground/90"
           onClick={() => setCollapsed(open => !open)}
           type="button"
         >

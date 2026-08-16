@@ -1,7 +1,16 @@
 import { useCallback } from 'react'
 
+import { requestComposerInsert } from '@/app/chat/composer/focus'
+import { useComposerScope } from '@/app/chat/composer/scope'
+import { branchSourceOf, useSessionView } from '@/app/chat/session-view'
+import { submitPromptToSurface } from '@/app/chat/surface-submit'
 import { PET_SETTINGS_ROUTE, STARMAP_ROUTE } from '@/app/routes'
-import type { BrowserManageResponse, SessionTitleResponse, SlashExecResponse } from '@/app/types'
+import type {
+  BrowserManageResponse,
+  SessionCompressResponse,
+  SessionTitleResponse,
+  SlashExecResponse
+} from '@/app/types'
 import { getProfiles } from '@/hermes'
 import { useI18n } from '@/i18n'
 import { parseCommandDispatch, parseSlashCommand, sessionTitle } from '@/lib/chat-runtime'
@@ -13,21 +22,27 @@ import {
   isDesktopSlashCommand,
   resolveDesktopCommand
 } from '@/lib/desktop-slash-commands'
+import { FOCUS_USAGE, formatFocusStatus, formatFocusToggleMessage, resolveFocusArg } from '@/lib/focus-view'
+import { isMissingRpcMethod } from '@/lib/gateway-rpc'
 import { navigateTo } from '@/lib/route-nav'
+import { toChatMessages } from '@/lib/session-history'
 import { isSessionIdCandidate, renderCommandsCatalog, slashStatusText } from '@/lib/slash-utils'
 import { setSessionYolo } from '@/lib/yolo-session'
-import { $busy, $sessionId, appendSystemMessage, ensureSession, sendPrompt } from '@/store/chat'
-import { setComposerDraft } from '@/store/composer'
+import { syncApprovalModeForProfile } from '@/store/approval-mode'
+import { appendSessionSystemMessage, ensureSession } from '@/store/chat'
+import { setSessionCompacting } from '@/store/compaction'
 import { $connection } from '@/store/connection'
+import { $focusView, pushFocusView } from '@/store/focus-view'
 import { requestGateway } from '@/store/gateway'
 import { handoffSession } from '@/store/handoff'
 import { setModelPickerOpen } from '@/store/model'
 import { startNewSession } from '@/store/new-session'
-import { notify, notifyError } from '@/store/notifications'
+import { dismissNotification, notify, notifyError } from '@/store/notifications'
 import { setPetScale } from '@/store/pet-gallery'
 import { openPetGenerate } from '@/store/pet-generate'
 import { $activeGatewayProfile, normalizeProfileKey, selectProfile } from '@/store/profile'
 import {
+  $activeStoredSessionId,
   $sessions,
   $yoloActive,
   branchCurrentSession,
@@ -36,8 +51,24 @@ import {
   setSessionPickerOpen,
   setSessions
 } from '@/store/session'
+import { withSessionNotFoundResume } from '@/store/session-recovery'
+import { $activeSessionKey, $sessionStates, updateSession } from '@/store/session-state-types'
 import { openAppRoute } from '@/store/windows'
 import { useSkinCommand } from '@/themes'
+import type { UsageStats } from '@/types/hermes'
+
+/**
+ * `session.compress` is an LLM call over the whole conversation — minutes on a
+ * large session. The default WS timeout would abandon it long before the
+ * gateway answers, which is the whole reason it is not an exec command.
+ */
+const SESSION_COMPRESS_TIMEOUT_MS = 120_000
+
+/** In-flight compress claims, by runtime session id. Module-level so a remount
+ *  mid-compression can't fire a second summarize call for the same session. */
+const compressInFlight = new Set<string>()
+
+const EMPTY_USAGE: UsageStats = { calls: 0, input: 0, output: 0, total: 0 }
 
 /** Everything a slash handler needs about the invocation it's serving. */
 interface SlashActionCtx {
@@ -49,23 +80,58 @@ interface SlashActionCtx {
 
 /**
  * The `/slash` command dispatcher — ported from desktop's
- * app/session/hooks/use-prompt-actions/slash.ts. Universal keeps exactly one
- * live thread, so desktop's per-session plumbing (`activeSessionIdRef`,
- * `sessionHint`, `appendSessionTextMessage(sessionId, …)`) collapses onto the
- * chat store's active session + `appendSystemMessage`.
+ * app/session/hooks/use-prompt-actions/slash.ts.
+ *
+ * The TARGET is the session of the surface this hook is mounted in, read through
+ * `useSessionView()` — the same context the composer around it, its prompt bars
+ * and its transcript already read from. It used to be the ACTIVE session
+ * unconditionally, which was true while universal had one thread and false from
+ * the moment tiles landed: a tile's composer runs this hook under the tile's
+ * view, so `/compress` typed into a tile summarized the MAIN pane's session and
+ * replaced the main pane's transcript with the result. Every other session-bound
+ * command (`/title`, `/yolo`, `/handoff`, `/browser`, `slash.exec`,
+ * `command.dispatch`) was misrouted the same way, and their output printed into
+ * the main pane too (MJXHRM-357).
+ *
+ * `store/session-tile-delegate.ts` used to expose an `executeSlash` for this,
+ * from before the local dispatcher was ported. It never gained a caller and is
+ * now deleted: it submitted the raw command as PROMPT TEXT, so `/model`, `/new`
+ * and the other client-side verbs would have reached the agent as words instead
+ * of running. Every slash on every surface comes through here.
  */
 export function useSlashCommand() {
   const { t } = useI18n()
   const copy = t.desktop
   const handleSkinCommand = useSkinCommand()
+  const view = useSessionView()
+  // Which composer on the insert bus is THIS surface's ('main' | 'tile:<id>').
+  // Commands that hand text back (`/undo`'s prefill, the degenerate-slash
+  // restore) must address it, not the foreground one.
+  const composerTarget = useComposerScope().target
 
   return useCallback(
     async (rawCommand: string, options?: { recordInput?: boolean }) => {
+      /** The session KEY this command acts on — the surface's own, never the
+       *  foreground one. Read per call, not captured: `ensureSession()` rekeys a
+       *  draft onto its runtime id mid-command. */
+      const targetKey = (): string => view.$runtimeId.get() || $activeSessionKey.get()
+
+      /** Its WIRE id, or null for a draft that has never been created. */
+      const targetSessionId = (): null | string => $sessionStates.get()[targetKey()]?.runtimeSessionId ?? null
+
+      const appendTargetSystemMessage = (text: string) => appendSessionSystemMessage(targetKey(), text)
+
       const ensureSessionId = async (): Promise<string | null> => {
-        const existing = $sessionId.get()
+        const existing = targetSessionId()
 
         if (existing) {
           return existing
+        }
+
+        // Only the primary surface can conjure a session: a tile is a view of one
+        // that already exists, and `ensureSession` creates against the ACTIVE key.
+        if (view.kind !== 'primary') {
+          return null
         }
 
         try {
@@ -90,7 +156,7 @@ export function useSlashCommand() {
         }
 
         const render = (text: string) =>
-          appendSystemMessage(ctx.recordInput ? slashStatusText(ctx.command, text) : text)
+          appendTargetSystemMessage(ctx.recordInput ? slashStatusText(ctx.command, text) : text)
 
         return { render, sessionId }
       }
@@ -141,9 +207,16 @@ export function useSlashCommand() {
 
           // /undo returns a prefill directive: drop the backed-up message into
           // the composer for editing instead of submitting it immediately.
+          //
+          // Through the insert bus, addressed to THIS surface's composer. It
+          // used to call `setComposerDraft`, which writes `$composerDraft` — an
+          // atom no mounted composer has ever read (the draft engine keeps its
+          // text in the contentEditable plus `stashSessionDraft`). So the
+          // backed-up message was written to a dead store and `/undo` silently
+          // destroyed the very text it exists to give back.
           if (dispatch.type === 'prefill') {
             if (message) {
-              setComposerDraft(message)
+              requestComposerInsert(message, { target: composerTarget })
             }
 
             return
@@ -161,20 +234,39 @@ export function useSlashCommand() {
             renderSlashOutput(`⚡ loading skill: ${dispatch.name}`)
           }
 
-          if ($busy.get()) {
+          if ($sessionStates.get()[targetKey()]?.busy) {
             renderSlashOutput('session busy — /interrupt the current turn before sending this command')
 
             return
           }
 
-          await sendPrompt(message)
+          // The SURFACE's own session, like every other session-bound act in
+          // this file. A bare `sendPrompt` here submitted to the foreground
+          // chat and was gated on the foreground chat's busy flag, so from a
+          // tile this either opened the turn on the wrong conversation or —
+          // whenever the main pane was mid-turn — dropped the directive in
+          // silence, which is the "no turn, no busy state" this ticket is
+          // named for (MJXHRM-419).
+          await submitPromptToSurface(view, message)
         }
 
         try {
-          const result = await requestGateway<unknown>('slash.exec', {
-            session_id: sessionId,
-            command: command.replace(/^\/+/, '')
-          })
+          // Recovered like `/compress` below, and for a stronger reason: this is
+          // the door `/undo` and `/retry` come through, and both rewrite session
+          // history destructively. The gateway resolves `slash.exec` through
+          // `_sess()`, so a runtime it dropped over a sleep/wake answers "session
+          // not found" — and an exec that was REJECTED never ran, which is what
+          // makes the single retry safe. `handleDispatch` reads `targetKey()` as
+          // a function, so it already follows the slice a recovery moves.
+          const { result } = await withSessionNotFoundResume(
+            sessionId,
+            $sessionStates.get()[targetKey()]?.storedSessionId ?? $activeStoredSessionId.get(),
+            live =>
+              requestGateway<unknown>('slash.exec', {
+                session_id: live,
+                command: command.replace(/^\/+/, '')
+              })
+          )
 
           const dispatch = parseCommandDispatch(result)
 
@@ -219,14 +311,187 @@ export function useSlashCommand() {
         new: async () => {
           startNewSession()
         },
+        // /approvals shows or sets the PROFILE-WIDE dangerous-command approval
+        // mode. The mode itself is the backend's: `slash.exec` runs the CLI's
+        // own handler, which is the only place managed-scope policy ("this
+        // setting is managed and cannot be changed") is enforced — so this is
+        // exec plus one step, not a local reimplementation.
+        //
+        // That one step is the point. `approvals.mode` has a SECOND surface in
+        // this app — the statusbar's Zap menu — and it renders from
+        // `$approvalModes`, a cache `syncApprovalModeForProfile` fills once when
+        // the item mounts. Nothing invalidates it, so `/approvals off` moved the
+        // gateway's config while the bar kept saying Smart for the rest of the
+        // session, and the menu's next pick wrote the stale value back. Re-read
+        // after the command instead of trusting its text: `config.get` is what
+        // the menu itself trusts, so the two cannot disagree, and a REFUSED set
+        // (managed config) reconciles to the unchanged mode rather than to what
+        // was asked for. Bare `/approvals` re-reads too — it is a read, and a
+        // read is exactly when the two surfaces must not print different modes.
+        approvals: async ctx => {
+          await runExec(ctx)
+          await syncApprovalModeForProfile(requestGateway, $activeGatewayProfile.get()).catch(() => undefined)
+        },
+        // The SURFACE's own chat, exactly like every other handler here (see
+        // `targetKey` above). `/branch` typed into a tile's composer forked the
+        // MAIN pane's conversation and left the tile untouched (MJXHRM-388).
         branch: async () => {
-          await branchCurrentSession()
+          await branchCurrentSession(undefined, branchSourceOf(view))
+        },
+        // /compress (alias /compact) runs the gateway's dedicated
+        // `session.compress` RPC — the TUI's own path. It must NOT go through
+        // runExec: summarizing a large session outlives the slash worker's pipe
+        // timeout (45s) and the WS default, and the resulting slash.exec error
+        // cascades into command.dispatch's misleading "not a quick/plugin/skill
+        // command: compress".
+        //
+        // The RPC hands back the POST-compress history (the same shape
+        // session.resume returns), so the transcript is replaced from it —
+        // otherwise the bubbles that were just summarized away stay on screen
+        // forever. Scoped to the submitting session KEY, so a late result after
+        // a chat switch refreshes its own slice instead of the foreground one.
+        compress: async ctx => {
+          const resolved = await withSlashOutput(ctx)
+
+          if (!resolved) {
+            return
+          }
+
+          const { render: renderSlashOutput, sessionId } = resolved
+          // MUTABLE: a stale-runtime recovery below rekeys the slice onto the
+          // recovered runtime id, and everything after the await — the
+          // transcript replacement, the usage fold, and the `finally` that
+          // releases the compacting flag — has to address the session where it
+          // now lives (MJXHRM-308).
+          let key = targetKey()
+          const focusTopic = ctx.arg.trim()
+          const noticeId = `session-compress:${sessionId}`
+
+          // Coalesce concurrent requests for one session, so a double-Enter
+          // can't fire two summarize calls against the same conversation.
+          if (compressInFlight.has(sessionId)) {
+            return
+          }
+
+          compressInFlight.add(sessionId)
+          // The composer gates on this too: a correction typed while the
+          // context is being summarized has no live model request to redirect,
+          // so it queues instead of being dropped.
+          setSessionCompacting(key, true)
+          notify({
+            durationMs: 0,
+            id: noticeId,
+            kind: 'info',
+            message: focusTopic ? copy.compress.workingOn(focusTopic) : copy.compress.working
+          })
+
+          try {
+            // A compress after sleep/wake used to surface a raw "session not
+            // found": the runtime id is dead while the STORED session is fine.
+            // One shared resolver rebinds it and retries once (MJXHRM-219).
+            // `alsoTimeout` stays off — compress is an LLM call over the whole
+            // conversation, and re-firing a slow one would double the work.
+            //
+            // The stored id comes from the SUBMITTING slice, not from
+            // `$activeStoredSessionId`: they differ for anything resumed (the
+            // sidebar selection is not the slice's own durable id), and this
+            // value is what the recovery resumes FROM — the same latent bug
+            // PR #102 fixed for `ensureSession()`.
+            const {
+              recovered,
+              result,
+              sessionId: recoveredId
+            } = await withSessionNotFoundResume(
+              sessionId,
+              $sessionStates.get()[key]?.storedSessionId ?? $activeStoredSessionId.get(),
+              live =>
+                requestGateway<SessionCompressResponse>(
+                  'session.compress',
+                  { session_id: live, ...(focusTopic && { focus_topic: focusTopic }) },
+                  SESSION_COMPRESS_TIMEOUT_MS
+                )
+            )
+
+            // The slice moved. Writing to the key we started on would resurrect
+            // an EMPTY ghost slice under a dead key (`updateSession` creates on
+            // demand) and land the summarized history there, leaving the real
+            // session showing the very bubbles the compaction just removed.
+            if (recovered) {
+              key = recoveredId
+            }
+
+            if (Array.isArray(result?.messages)) {
+              const messages = toChatMessages(result.messages)
+              updateSession(key, state => ({ ...state, messages }))
+            }
+
+            const usage = { ...result?.usage, ...result?.info?.usage }
+
+            if (Object.keys(usage).length > 0) {
+              updateSession(key, state => ({ ...state, usage: { ...EMPTY_USAGE, ...state.usage, ...usage } }))
+            }
+
+            if (result?.info?.title !== undefined) {
+              const title = result.info.title || null
+              setSessions(prev => prev.map(s => (s.id === sessionId ? { ...s, title } : s)))
+            }
+
+            const lines = [result?.summary?.headline, result?.summary?.token_line, result?.summary?.note].filter(
+              (line): line is string => Boolean(line)
+            )
+
+            if (result?.summary?.headline) {
+              const aborted = result.status === 'aborted' || result.summary.aborted === true
+
+              // A successful compression earns a durable system line; an abort
+              // stays transient, because appending an error to the transcript
+              // reads as a state change that did not happen.
+              if (!aborted) {
+                renderSlashOutput(lines.join('\n'))
+              }
+
+              notify({
+                durationMs: 5_000,
+                id: noticeId,
+                kind: aborted ? 'error' : 'success',
+                message: lines.join('\n')
+              })
+
+              return
+            }
+
+            const hostOutput = result?.host_ack?.output?.trim()
+            const removed = result?.removed ?? 0
+
+            const message =
+              hostOutput || (removed > 0 ? copy.compress.removed(removed) : copy.compress.nothingToCompress)
+
+            renderSlashOutput(message)
+            notify({ durationMs: 5_000, id: noticeId, kind: 'success', message })
+          } catch (err) {
+            dismissNotification(noticeId)
+
+            // App and gateway update independently: an older gateway that has
+            // not shipped session.compress must not turn a once-working command
+            // into "method not found". It cannot offer the longer timeout, but
+            // the slash-worker path still summarizes.
+            if (isMissingRpcMethod(err)) {
+              await runExec(ctx)
+
+              return
+            }
+
+            renderSlashOutput(`error: ${err instanceof Error ? err.message : String(err)}`)
+          } finally {
+            compressInFlight.delete(sessionId)
+            setSessionCompacting(key, false)
+          }
         },
         // /yolo is a per-session approval bypass, same scope as the TUI's
         // Shift+Tab. With no session yet we arm it locally; the session-create
         // path applies it on the first message.
         yolo: async () => {
-          const sid = $sessionId.get()
+          const sid = targetSessionId()
           const next = !$yoloActive.get()
 
           if (!sid) {
@@ -238,7 +503,7 @@ export function useSlashCommand() {
 
           try {
             const active = await setSessionYolo(requestGateway, sid, next)
-            appendSystemMessage(copy.yoloSystem(active))
+            appendTargetSystemMessage(copy.yoloSystem(active))
           } catch {
             notify({ kind: 'error', title: copy.yoloTitle, message: copy.yoloToggleFailed })
           }
@@ -257,7 +522,7 @@ export function useSlashCommand() {
             return
           }
 
-          const sid = $sessionId.get()
+          const sid = targetSessionId()
 
           if (!sid) {
             notify({ kind: 'error', title: copy.sessionUnavailable, message: copy.createSessionFailed })
@@ -268,7 +533,59 @@ export function useSlashCommand() {
           const result = await handoffSession(platform, { sessionId: sid })
 
           if (!result.ok && result.error) {
-            appendSystemMessage(recordInput ? slashStatusText(command, result.error) : result.error)
+            appendTargetSystemMessage(recordInput ? slashStatusText(command, result.error) : result.error)
+          }
+        },
+        // /focus is the reduced-output display mode. It runs LOCALLY (the
+        // transcript hides tool rows and offers them back per run) and then
+        // records the shared `display.focus_view` flag so the mode travels to
+        // the CLI. It must never reach slash.exec: the gateway's own /focus
+        // answers by pinning tool progress off, which stops the tool events
+        // this client renders from — and needs — arriving at all.
+        focus: async ctx => {
+          // No session yet: toast it rather than spinning up a backend session
+          // just to print a line about how this app renders. Same call `/skin`
+          // makes, for the same reason.
+          const renderSlashOutput = targetSessionId()
+            ? ((await withSlashOutput(ctx))?.render ?? ((message: string) => notify({ kind: 'success', message })))
+            : (message: string) => notify({ kind: 'success', message })
+
+          const { action, target } = resolveFocusArg(ctx.arg, $focusView.get())
+
+          if (action === 'usage') {
+            renderSlashOutput(FOCUS_USAGE)
+
+            return
+          }
+
+          if (action === 'status' || target === null) {
+            renderSlashOutput(formatFocusStatus($focusView.get()))
+
+            return
+          }
+
+          if (target === $focusView.get()) {
+            // Idempotent explicit set — report without writing config.
+            renderSlashOutput(formatFocusToggleMessage(target))
+
+            return
+          }
+
+          try {
+            const { displayOnly, enabled } = await pushFocusView(requestGateway, target)
+
+            const note = displayOnly
+              ? ''
+              : '\nThis gateway also stopped sending tool activity for this session, so new turns will have nothing to reveal.'
+
+            renderSlashOutput(`${formatFocusToggleMessage(enabled)}${note}`)
+          } catch (err) {
+            // The local half already applied — say so, and say what didn't.
+            renderSlashOutput(
+              `${formatFocusToggleMessage($focusView.get())} (this app only — the gateway did not record it: ${
+                err instanceof Error ? err.message : String(err)
+              })`
+            )
           }
         },
         // /profile switches which profile the app operates as. Desktop points
@@ -310,13 +627,13 @@ export function useSlashCommand() {
 
           // No session to print into yet — surface it as a toast instead of
           // spinning up a backend session just to change the theme.
-          if (!$sessionId.get()) {
+          if (!targetSessionId()) {
             notify({ kind: 'success', message })
 
             return
           }
 
-          appendSystemMessage(recordInput ? slashStatusText(command, message) : message)
+          appendTargetSystemMessage(recordInput ? slashStatusText(command, message) : message)
         },
         // /title <name> renames via the gateway's session.title RPC — the same
         // path the TUI uses, NOT REST renameSession (which 404s on runtime ids).
@@ -557,12 +874,14 @@ export function useSlashCommand() {
           // The composer draft was already cleared on submit, and slash input
           // never lands in the Up-arrow history ring (it derives from sent user
           // messages) — so without this restore, any payload after a degenerate
-          // slash (`/ text`, `/` + newline) is lost forever. Hand it back.
+          // slash (`/ text`, `/` + newline) is lost forever. Hand it back to the
+          // composer it was typed in — `setComposerDraft` wrote an atom no
+          // composer reads, so this "restore" restored nothing.
           if (command.replace(/^\/+/, '').trim()) {
-            setComposerDraft(command)
+            requestComposerInsert(command, { target: composerTarget })
           }
 
-          appendSystemMessage(copy.emptySlashCommand)
+          appendTargetSystemMessage(copy.emptySlashCommand)
 
           return
         }
@@ -592,6 +911,6 @@ export function useSlashCommand() {
 
       await runSlash(rawCommand, options?.recordInput ?? true)
     },
-    [copy, handleSkinCommand]
+    [composerTarget, copy, handleSkinCommand, view]
   )
 }

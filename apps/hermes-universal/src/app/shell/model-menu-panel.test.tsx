@@ -4,6 +4,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 
 import { DropdownMenu, DropdownMenuContent } from '@/components/ui/dropdown-menu'
 import { I18nProvider } from '@/i18n'
+import type * as Windows from '@/store/windows'
 import type { ModelOptionsResponse } from '@/types/hermes'
 
 // The panel fetches its catalog through requestModelOptions (gateway-first);
@@ -11,8 +12,29 @@ import type { ModelOptionsResponse } from '@/types/hermes'
 const requestModelOptions = vi.fn<() => Promise<ModelOptionsResponse>>()
 
 vi.mock('@/lib/model-options', () => ({
+  modelOptionsQueryKey: (profile: null | string | undefined, sessionId?: null | string) => [
+    'model-options',
+    (profile ?? '').trim() || 'default',
+    sessionId || 'global'
+  ],
   requestModelOptions: (...args: unknown[]) => requestModelOptions(...(args as []))
 }))
+
+// Which SHAPE of the app the menu is inside. The real predicate reads `?win=`
+// off this window's URL; stubbing just that one export keeps the flag from
+// leaking into the other URL-derived predicates (`isSecondaryWindow`,
+// `ownsPersistedAppState`) that the rest of this file renders under.
+const satellite = vi.hoisted(() => ({ on: false }))
+
+vi.mock('@/store/windows', async importOriginal => ({
+  ...(await importOriginal<typeof Windows>()),
+  isSatelliteWindow: () => satellite.on
+}))
+
+/** Render the next panel as the HUD does — a satellite window. */
+function asSatelliteWindow(): void {
+  satellite.on = true
+}
 
 import { $currentModel, $currentProvider } from '@/store/model'
 import { $collapsedProviders, toggleCollapsedProvider } from '@/store/provider-collapse'
@@ -48,6 +70,7 @@ beforeEach(() => {
   $currentModel.set('')
   $currentProvider.set('')
   $collapsedProviders.set([])
+  satellite.on = false
   requestModelOptions.mockResolvedValue({ providers: MOCK_PROVIDERS } as ModelOptionsResponse)
 })
 
@@ -74,13 +97,20 @@ function renderPanel(onSelectModel = vi.fn()) {
   return { content, onSelectModel }
 }
 
+// Model rows render their label through <HighlightMatches>, which splits the
+// label into a <mark> plus sibling text nodes as soon as a search matches — so
+// `queryByText` (which compares a single node's own text) stops seeing it.
+// Assert on the rendered text of the whole (portalled) menu instead.
+const showsModel = (content: ReturnType<typeof render>, label: string) =>
+  (content.baseElement.textContent ?? '').includes(label)
+
 describe('ModelMenuPanel provider collapse', () => {
   it('shows all provider models by default (none collapsed)', async () => {
     const { content } = renderPanel()
 
     await content.findByText('DeepSeek')
-    expect(content.queryByText('Deepseek V4 Pro')).not.toBeNull()
-    expect(content.queryByText('Deepseek Chat')).not.toBeNull()
+    expect(showsModel(content, 'Deepseek V4 Pro')).toBe(true)
+    expect(showsModel(content, 'Deepseek Chat')).toBe(true)
   })
 
   it('collapses provider models when the header is clicked', async () => {
@@ -90,7 +120,7 @@ describe('ModelMenuPanel provider collapse', () => {
     fireEvent.click(header)
 
     // Models disappear but the header stays.
-    expect(content.queryByText('Deepseek V4 Pro')).toBeNull()
+    expect(showsModel(content, 'Deepseek V4 Pro')).toBe(false)
     expect(content.queryByText('DeepSeek')).not.toBeNull()
   })
 
@@ -99,11 +129,11 @@ describe('ModelMenuPanel provider collapse', () => {
 
     const header = await content.findByText('DeepSeek')
     fireEvent.click(header)
-    expect(content.queryByText('Deepseek V4 Pro')).toBeNull()
+    expect(showsModel(content, 'Deepseek V4 Pro')).toBe(false)
 
     fireEvent.click(header)
     await vi.waitFor(() => {
-      expect(content.queryByText('Deepseek V4 Pro')).not.toBeNull()
+      expect(showsModel(content, 'Deepseek V4 Pro')).toBe(true)
     })
   })
 
@@ -118,7 +148,7 @@ describe('ModelMenuPanel provider collapse', () => {
     // The current provider is collapsible like any other — clicking its header
     // hides its models rather than forcing them to stay open.
     await vi.waitFor(() => {
-      expect(content.queryByText('Deepseek V4 Pro')).toBeNull()
+      expect(showsModel(content, 'Deepseek V4 Pro')).toBe(false)
     })
   })
 
@@ -127,7 +157,7 @@ describe('ModelMenuPanel provider collapse', () => {
 
     const header = await content.findByText('DeepSeek')
     fireEvent.click(header)
-    expect(content.queryByText('Deepseek V4 Pro')).toBeNull()
+    expect(showsModel(content, 'Deepseek V4 Pro')).toBe(false)
 
     // Type in the search bar (auto-focused by DropdownMenuSearch).
     const input = screen.getByRole('textbox', { name: 'Search models' })
@@ -135,7 +165,7 @@ describe('ModelMenuPanel provider collapse', () => {
 
     // Search spans every model regardless of stored collapse state.
     await vi.waitFor(() => {
-      expect(content.queryByText('Deepseek V4 Pro')).not.toBeNull()
+      expect(showsModel(content, 'Deepseek V4 Pro')).toBe(true)
     })
   })
 
@@ -146,7 +176,7 @@ describe('ModelMenuPanel provider collapse', () => {
     // Radix DropdownMenuItem fires onSelect on Enter via the onKeyDown handler.
     fireEvent.keyDown(header.closest('[role="menuitem"]') ?? header, { key: 'Enter' })
 
-    expect(content.queryByText('Deepseek V4 Pro')).toBeNull()
+    expect(showsModel(content, 'Deepseek V4 Pro')).toBe(false)
   })
 
   // The collapsed set is a global presentation preference
@@ -173,5 +203,33 @@ describe('ModelMenuPanel provider collapse', () => {
     await b.content.findByText('DeepSeek')
 
     expect($collapsedProviders.get()).toEqual(['deepseek', 'google'])
+  })
+})
+
+// "Edit Models…" raises a DIALOG, and the dialog is mounted by the full window
+// roots (`MobileController`, `TileWindowRoot`). A satellite — the HUD — renders
+// neither `ModelVisibilityOverlay` nor `ModelPickerOverlay`, so the row was a
+// click that did nothing at all there.
+describe('ModelMenuPanel curation row', () => {
+  it('offers Edit Models in an ordinary window', async () => {
+    const { content } = renderPanel()
+
+    await content.findByText('DeepSeek')
+    expect(showsModel(content, 'Edit Models')).toBe(true)
+  })
+
+  it('hides it in a satellite, where the dialog has no mount point', async () => {
+    // The satellite flag lives in the URL and is read once per window, so the
+    // window kind is set the way the real one is — before the menu renders.
+    asSatelliteWindow()
+
+    const { content } = renderPanel()
+
+    await content.findByText('DeepSeek')
+    // Hidden, not disabled: the choice is not unavailable, it is somewhere else
+    // — and the shortlist the HUD shows is still the curated one.
+    expect(showsModel(content, 'Edit Models')).toBe(false)
+    // The catalog itself is untouched; only the row below it is gone.
+    expect(showsModel(content, 'Deepseek V4 Pro')).toBe(true)
   })
 })

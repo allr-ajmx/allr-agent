@@ -2,13 +2,16 @@ import type {
   HermesGitBaseBranch,
   HermesGitBranch,
   HermesGitWorktree,
+  HermesRepoPullRequests,
   HermesRepoStatus,
   HermesReviewList,
   HermesReviewScope,
   HermesReviewShipInfo
 } from '@/global'
+import { apiRequestProfile } from '@/hermes'
 import { api } from '@/lib/api'
-import { localRepoScanSupported, scanLocalGitRepos } from '@/store/repo-scan'
+import { listRepoPullRequests } from '@/lib/gateway-rest'
+import { localRepoScanSupported, scanLocalGitRepos, type ScannedRepo } from '@/store/repo-scan'
 
 // Ported from apps/desktop/src/lib/desktop-git.ts — specifically its `remoteGit`
 // branch. Desktop runs git through Electron when it owns the filesystem, and
@@ -55,6 +58,9 @@ export interface GitBridge {
     commitContext: (repoPath: string) => Promise<{ diff: string; recent: string }>
     push: (repoPath: string) => Promise<{ ok: boolean }>
     shipInfo: (repoPath: string) => Promise<HermesReviewShipInfo>
+    /** The repo's PRs for these branches (and/or explicit numbers), via `gh`.
+     *  Both lists are deduped and capped backend-side. */
+    prList: (repoPath: string, branches: string[], numbers?: number[]) => Promise<HermesRepoPullRequests>
     createPr: (repoPath: string) => Promise<{ url: string }>
   }
   scanRepos: (
@@ -126,18 +132,37 @@ const remoteGit: GitBridge = {
 
     shipInfo: repoPath => gitGet<HermesReviewShipInfo>('review/ship-info', { path: repoPath }),
 
+    // The one PR client: gateway-rest owns the /api/git/review/pr-list call, and
+    // this exposes it on the same facade every other git op goes through.
+    prList: (repoPath, branches, numbers) => listRepoPullRequests(repoPath, branches, numbers),
+
     createPr: repoPath => gitPost('review/create-pr', { path: repoPath })
   },
 
-  // Repo discovery is a local-disk crawl, not a git command, so it has no
-  // `/api/git/*` counterpart: it runs in Rust against THIS machine's filesystem
-  // (store/repo-scan.ts → src-tauri/src/repo_scan.rs). That is only the gateway's
-  // filesystem when the backend was spawned locally; on a remote/cloud gateway
-  // (and on mobile, which has no crawlable disk) we return nothing rather than
-  // recording repos that don't exist over there. The backend still merges
-  // session-derived repos, so discovery degrades instead of breaking.
-  // FIXME(MJX-207): a gateway-side `/api/git/scan-repos` would cover those cases.
-  scanRepos: async (roots, options) => (localRepoScanSupported() ? await scanLocalGitRepos(roots, options ?? {}) : [])
+  // Repo discovery is a disk crawl, not a git command, so it has two backing
+  // implementations of the same walk — the rule is to crawl where the repos
+  // actually are:
+  //
+  //   • backend spawned locally → the Rust walk over THIS machine's filesystem
+  //     (store/repo-scan.ts → src-tauri/src/repo_scan.rs), no round-trip.
+  //   • everything else (remote/cloud gateway; mobile, which has no crawlable
+  //     disk at all) → `GET /api/git/scan-repos`, the identical walk running on
+  //     the gateway, where the sessions and the repos live.
+  //
+  // The endpoint takes NO roots from us: it reads the gateway's own
+  // `desktop.repo_scan_*` policy, so a client cannot aim a server-side walk at a
+  // path the operator never configured. `roots`/`options` therefore describe the
+  // local crawl only. We pass the active profile so the crawl reads the same
+  // profile's config that the caller derived its policy from.
+  scanRepos: async (roots, options) =>
+    localRepoScanSupported()
+      ? await scanLocalGitRepos(roots, options ?? {})
+      : (
+          await api<{ repos: ScannedRepo[] }>({
+            path: '/api/git/scan-repos',
+            profile: apiRequestProfile()
+          })
+        ).repos
 }
 
 export function desktopGit(): GitBridge | undefined {

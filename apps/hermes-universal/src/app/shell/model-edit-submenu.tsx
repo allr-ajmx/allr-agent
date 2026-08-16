@@ -1,5 +1,3 @@
-import { useStore } from '@nanostores/react'
-
 import {
   DropdownMenuItem,
   DropdownMenuLabel,
@@ -13,22 +11,14 @@ import {
 import { Switch } from '@/components/ui/switch'
 import { useI18n } from '@/i18n'
 import { normalize } from '@/lib/text'
-import { $sessionId as $activeSessionId } from '@/store/chat'
-import { setCurrentFastMode, setCurrentReasoningEffort } from '@/store/model'
-import { setModelPreset } from '@/store/model-presets'
-import { notifyError } from '@/store/notifications'
 
-// Hermes' real reasoning levels (see VALID_REASONING_EFFORTS); `none` is owned
-// by the Thinking toggle, not the radio.
-const EFFORT_OPTIONS = [
-  { value: 'minimal', labelKey: 'minimal' },
-  { value: 'low', labelKey: 'low' },
-  { value: 'medium', labelKey: 'medium' },
-  { value: 'high', labelKey: 'high' },
-  { value: 'xhigh', labelKey: 'xhigh' },
-  { value: 'max', labelKey: 'max' },
-  { value: 'ultra', labelKey: 'ultra' }
-] as const
+/** Hermes' real reasoning levels (see VALID_REASONING_EFFORTS); `none` is owned
+ *  by the Thinking toggle, not the radio. Each value doubles as its
+ *  `t.shell.modelOptions` copy key. */
+export const REASONING_EFFORTS = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'] as const
+
+/** What an unset effort means everywhere in the app. */
+export const DEFAULT_REASONING_EFFORT = 'medium'
 
 /** How "fast" is achieved for a given model — two different mechanisms:
  *  - `param`: the Anthropic/OpenAI `speed=fast` request parameter.
@@ -81,70 +71,38 @@ interface ModelEditSubmenuProps {
   fastControl: FastControl
   /** Whether this row's model is the active one. */
   isActive: boolean
-  /** This row's model id — edits persist as its global preset. */
-  model: string
   /** Switch to a specific model id (used to swap base ⇄ -fast variant). */
-  onSelectModel: (model: string) => Promise<boolean> | void
-  /** This row's provider slug — edits persist as its global preset. */
-  provider: string
+  onSelectModel: (model: string) => Promise<boolean | void> | void
+  /** Report an option change. This submenu is PURE: it never writes to a
+   *  session, a preset store, or the gateway itself — the owning surface's
+   *  controller decides what an edit means. That is what lets the same submenu
+   *  drive a live chat session and a detached per-task override. */
+  onSetOptions: (patch: { effort?: string; fast?: boolean }) => void
   /** Whether this model supports reasoning effort. */
   reasoning: boolean
-  requestGateway: <T>(method: string, params?: Record<string, unknown>) => Promise<T>
 }
 
 export function ModelEditSubmenu({
   effort,
   fastControl,
   isActive,
-  model,
   onSelectModel,
-  provider,
-  reasoning,
-  requestGateway
+  onSetOptions,
+  reasoning
 }: ModelEditSubmenuProps) {
   const { t } = useI18n()
   const copy = t.shell.modelOptions
-  const activeSessionId = useStore($activeSessionId)
 
   const effortValue = normalizeEffort(effort)
   const thinkingOn = isThinkingEnabled(effort)
 
-  // Editing always records the model's global preset; the active model also gets
-  // it pushed onto the live session. Non-active edits stay preset-only — they do
-  // not switch you to that model.
-  const patchReasoning = async (next: string) => {
-    setModelPreset(provider, model, { effort: next })
-
-    if (!isActive) {
-      return
-    }
-
-    setCurrentReasoningEffort(next)
-
-    // Preset-only without a session: `isActive` holds for the global/default
-    // row pre-session, and the gateway's `config.set` falls back to global
-    // config when none matches — so don't reach it (preset + optimistic store
-    // are the whole effect). Same guard in applyModelPreset / toggleFast.
-    if (!activeSessionId) {
-      return
-    }
-
-    try {
-      await requestGateway('config.set', { key: 'reasoning', session_id: activeSessionId, value: next })
-    } catch (err) {
-      setCurrentReasoningEffort(effort)
-      setModelPreset(provider, model, { effort })
-      notifyError(err, copy.updateFailed)
-    }
-  }
-
-  const toggleFast = (enabled: boolean) => {
+  const setFast = (enabled: boolean) => {
     if (fastControl.kind === 'variant') {
-      // Fast is a separate model id. Record the choice on the base model's
-      // preset (selectFamily picks the `-fast` sibling later when set), and
-      // only swap models now if this is the active row — inactive edits must
-      // stay preset-only, same as the param path below.
-      setModelPreset(provider, fastControl.baseId, { fast: enabled })
+      // Fast is a separate model id. Report the choice so the controller can
+      // record it against the base model (selectFamily picks the `-fast`
+      // sibling later when set), and only swap models now if this is the active
+      // row — inactive edits stay preference-only, same as the param path.
+      onSetOptions({ fast: enabled })
 
       if (isActive) {
         void onSelectModel(enabled ? fastControl.fastId : fastControl.baseId)
@@ -154,31 +112,7 @@ export function ModelEditSubmenu({
     }
 
     if (fastControl.kind === 'param') {
-      setModelPreset(provider, model, { fast: enabled })
-
-      if (!isActive) {
-        return
-      }
-
-      setCurrentFastMode(enabled)
-
-      // Preset-only without a session (see patchReasoning).
-      if (!activeSessionId) {
-        return
-      }
-      void (async () => {
-        try {
-          await requestGateway('config.set', {
-            key: 'fast',
-            session_id: activeSessionId,
-            value: enabled ? 'fast' : 'normal'
-          })
-        } catch (err) {
-          setCurrentFastMode(!enabled)
-          setModelPreset(provider, model, { fast: !enabled })
-          notifyError(err, copy.fastFailed)
-        }
-      })()
+      onSetOptions({ fast: enabled })
     }
   }
 
@@ -197,8 +131,10 @@ export function ModelEditSubmenu({
               {copy.thinking}
               <Switch
                 checked={thinkingOn}
-                className="ml-auto"
-                onCheckedChange={checked => void patchReasoning(checked ? effortValue || 'medium' : 'none')}
+                className="ms-auto"
+                onCheckedChange={checked =>
+                  onSetOptions({ effort: checked ? effortValue || DEFAULT_REASONING_EFFORT : 'none' })
+                }
                 size="xs"
               />
             </DropdownMenuItem>
@@ -206,22 +142,22 @@ export function ModelEditSubmenu({
           {hasFast ? (
             <DropdownMenuItem className={dropdownMenuRow} onSelect={event => event.preventDefault()}>
               {copy.fast}
-              <Switch checked={fastOn} className="ml-auto" onCheckedChange={toggleFast} size="xs" />
+              <Switch checked={fastOn} className="ms-auto" onCheckedChange={setFast} size="xs" />
             </DropdownMenuItem>
           ) : null}
           {reasoning ? (
             <>
               <DropdownMenuSeparator className="mx-0" />
               <DropdownMenuLabel className={dropdownMenuSectionLabel}>{copy.effort}</DropdownMenuLabel>
-              <DropdownMenuRadioGroup onValueChange={value => void patchReasoning(value)} value={effortValue}>
-                {EFFORT_OPTIONS.map(option => (
+              <DropdownMenuRadioGroup onValueChange={value => onSetOptions({ effort: value })} value={effortValue}>
+                {REASONING_EFFORTS.map(value => (
                   <DropdownMenuRadioItem
                     className={dropdownMenuRow}
-                    key={option.value}
+                    key={value}
                     onSelect={event => event.preventDefault()}
-                    value={option.value}
+                    value={value}
                   >
-                    {copy[option.labelKey]}
+                    {copy[value]}
                   </DropdownMenuRadioItem>
                 ))}
               </DropdownMenuRadioGroup>
@@ -235,16 +171,16 @@ export function ModelEditSubmenu({
 
 function isThinkingEnabled(effort: string): boolean {
   // Empty = Hermes default (medium) = on; only an explicit "none" is off.
-  return normalize(effort || 'medium') !== 'none'
+  return normalize(effort || DEFAULT_REASONING_EFFORT) !== 'none'
 }
 
 function normalizeEffort(effort: string): string {
-  const value = normalize(effort || 'medium')
+  const value = normalize(effort || DEFAULT_REASONING_EFFORT)
 
   // Thinking off → no effort selected in the radio group.
   if (value === 'none') {
     return ''
   }
 
-  return EFFORT_OPTIONS.some(option => option.value === value) ? value : 'medium'
+  return (REASONING_EFFORTS as readonly string[]).includes(value) ? value : DEFAULT_REASONING_EFFORT
 }

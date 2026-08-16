@@ -1,4 +1,5 @@
 import { render } from '@testing-library/react'
+import { atom, computed } from 'nanostores'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -13,14 +14,20 @@ vi.mock('@/store/gateway', async () => {
   }
 })
 
+import { onComposerInsertRequest } from '@/app/chat/composer/focus'
+import { type ComposerScope, ComposerScopeProvider, MAIN_COMPOSER_SCOPE } from '@/app/chat/composer/scope'
+import { type SessionView, SessionViewProvider } from '@/app/chat/session-view'
+import { GatewayRpcError } from '@/gateway/rpc-error'
+import { $approvalModes } from '@/store/approval-mode'
 import type * as ChatStoreModule from '@/store/chat'
 import { $messages, $sessionId, resetChat, sendPrompt } from '@/store/chat'
-import { $composerDraft } from '@/store/composer'
+import { $compactingSessions, sessionCompacting } from '@/store/compaction'
 import { requestGateway } from '@/store/gateway'
 import { $modelPickerOpen } from '@/store/model'
 import { $sessions } from '@/store/session'
-import { updateSession } from '@/store/session-state-types'
-import { seedActiveSession } from '@/test-sessions'
+import { $sessionStates, emptySessionState, publishSessionState, updateSession } from '@/store/session-state-types'
+import { type SessionTileDelegate, setSessionTileDelegate } from '@/store/session-states'
+import { resetSessionStates, seedActiveSession } from '@/test-sessions'
 import { ThemeProvider } from '@/themes/context'
 
 import { useSlashCommand } from './use-slash-command'
@@ -54,6 +61,22 @@ function mount() {
   )
 }
 
+/**
+ * Text handed back to a composer, and WHICH composer got it.
+ *
+ * The real insert bus, not a mock of it: `setComposerDraft` used to write a
+ * `$composerDraft` atom that no mounted composer has ever read, so the old
+ * assertions here passed while `/undo` and the degenerate-slash restore threw
+ * the user's text away (MJXHRM-419). Reading the bus is what makes the
+ * difference visible — and it carries the target, which is the other half of
+ * the bug: a tile's text must not land in the main composer.
+ */
+const inserts: { target: string; text: string }[] = []
+let stopListening: () => void = () => undefined
+
+/** The bus defers a macrotask so click/keydown handlers finish first. */
+const flushInsertBus = () => new Promise(resolve => setTimeout(resolve, 0))
+
 /** Text of every system line currently in the transcript. */
 const systemLines = () =>
   $messages
@@ -62,9 +85,19 @@ const systemLines = () =>
     .map(m => m.parts.map(p => ('text' in p ? p.text : '')).join(''))
 
 beforeEach(() => {
+  // Wipe the map first, for the reason the tile suite below already wipes it:
+  // `resetChat()` leaves a fresh DRAFT slice behind on every call, drafts are
+  // placeholder keys and so are never evictable, and once the map crosses
+  // MAX_CACHED_SESSIONS (12) the pruner takes the only evictable thing left —
+  // `sess-1`, the session every test in this file is about. That made the file
+  // silently length-limited: from the 19th test on, `/branch` and `/handoff`
+  // bailed before their first RPC because their session had been evicted, while
+  // still asserting on calls nothing had made.
+  resetSessionStates()
   resetChat()
   seedActiveSession('sess-1')
-  $composerDraft.set('')
+  inserts.length = 0
+  stopListening = onComposerInsertRequest(({ target, text }) => inserts.push({ target, text }))
   $modelPickerOpen.set(false)
   vi.mocked(requestGateway).mockReset()
   vi.mocked(sendPrompt).mockClear()
@@ -72,6 +105,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  stopListening()
   $sessions.set([])
   updateSession('sess-1', s => ({ ...s, busy: false }))
 })
@@ -137,9 +171,65 @@ describe('useSlashCommand', () => {
     vi.mocked(requestGateway).mockResolvedValue({ type: 'prefill', message: 'restored text' } as never)
 
     await run('/undo')
+    await flushInsertBus()
 
-    expect($composerDraft.get()).toBe('restored text')
+    expect(inserts).toEqual([{ target: 'main', text: 'restored text' }])
     expect(sendPrompt).not.toHaveBeenCalled()
+  })
+
+  // MJXHRM-399. `/approvals` and the statusbar's Zap menu are two surfaces onto
+  // ONE setting. The menu renders from `$approvalModes`, a cache
+  // `syncApprovalModeForProfile` fills once when the item mounts and nothing
+  // invalidates — so a mode changed by the command left the bar reporting the
+  // old one for the rest of the session, and the bar's next pick wrote that
+  // stale value back over it.
+  describe('/approvals agrees with the statusbar control', () => {
+    it('re-reads the mode from the gateway after setting it', async () => {
+      vi.mocked(requestGateway).mockImplementation(async (method: string) =>
+        method === 'config.get'
+          ? ({ value: 'off' } as never)
+          : ({ output: 'Approval mode: off (persistent profile setting).' } as never)
+      )
+
+      await run('/approvals off')
+
+      expect(vi.mocked(requestGateway).mock.calls.map(call => call[0])).toEqual(['slash.exec', 'config.get'])
+      expect(vi.mocked(requestGateway).mock.calls[0][1]).toMatchObject({ command: 'approvals off' })
+      expect(vi.mocked(requestGateway).mock.calls[1][1]).toMatchObject({ key: 'approvals.mode' })
+      // The cache the Zap menu renders from, under the key it reads.
+      expect($approvalModes.get()).toMatchObject({ default: 'off' })
+      expect(systemLines().at(-1)).toContain('Approval mode: off')
+    })
+
+    // The backend refuses a managed-scope write and keeps the mode it had. The
+    // cache must land on THAT, not on the mode that was asked for — so the
+    // starting value here is deliberately the requested one, which is what an
+    // optimistic write (or a cache stale since the last session) would leave
+    // behind, and which passing this test cannot mean.
+    it('reconciles to the mode the gateway kept when the write was refused', async () => {
+      $approvalModes.set({ default: 'off' })
+      vi.mocked(requestGateway).mockImplementation(async (method: string) =>
+        method === 'config.get'
+          ? ({ value: 'smart' } as never)
+          : ({ output: 'Approval mode is managed and cannot be changed.' } as never)
+      )
+
+      await run('/approvals off')
+
+      expect($approvalModes.get()).toMatchObject({ default: 'smart' })
+    })
+
+    // A bare read is exactly when the two surfaces must not print different
+    // modes side by side, so it re-reads too.
+    it('re-reads on a bare /approvals as well', async () => {
+      vi.mocked(requestGateway).mockImplementation(async (method: string) =>
+        method === 'config.get' ? ({ value: 'manual' } as never) : ({ output: 'Approval mode: manual' } as never)
+      )
+
+      await run('/approvals')
+
+      expect($approvalModes.get()).toMatchObject({ default: 'manual' })
+    })
   })
 
   it('runs a client action (/new) without touching the gateway', async () => {
@@ -204,8 +294,288 @@ describe('useSlashCommand', () => {
 
   it('restores the payload of a degenerate slash and reports it', async () => {
     await run('/ some text')
+    await flushInsertBus()
 
-    expect($composerDraft.get()).toBe('/ some text')
+    expect(inserts).toEqual([{ target: 'main', text: '/ some text' }])
     expect(systemLines()).toEqual(['empty slash command'])
+  })
+  // MJXHRM-308: the recovery resolver's default `onRecovered` REKEYS the slice
+  // onto the recovered runtime id (PR #117 changed it from a no-op alias), so
+  // `/compress` — which captures the session key before its minutes-long await
+  // — was writing the summarized transcript to a key nothing reads any more.
+  // `updateSession` creates on demand, so that write RESURRECTED an empty ghost
+  // slice under the dead key and the real session kept showing the very bubbles
+  // the compaction had just removed.
+  describe('/compress after the gateway dropped the runtime', () => {
+    const forgetsTheRuntime = () =>
+      vi
+        .mocked(requestGateway)
+        .mockRejectedValueOnce(new Error('session not found'))
+        .mockResolvedValueOnce({ session_id: 'compress-2' } as never)
+        .mockResolvedValueOnce({
+          messages: [{ role: 'user', content: 'the summary' }],
+          summary: { headline: 'compacted' }
+        } as never)
+
+    it('lands the compressed transcript on the key the recovery moved the slice to', async () => {
+      seedActiveSession('sess-1', { storedSessionId: 'stored-compress' })
+      forgetsTheRuntime()
+
+      await run('/compress')
+
+      expect(vi.mocked(requestGateway).mock.calls.map(call => call[0])).toEqual([
+        'session.compress',
+        'session.resume',
+        'session.compress'
+      ])
+      // The resume names the slice's OWN stored id, not the sidebar selection —
+      // the two differ for anything resumed, and this is what it resumes FROM.
+      expect(vi.mocked(requestGateway).mock.calls[1][1]).toMatchObject({ session_id: 'stored-compress' })
+
+      const states = $sessionStates.get()
+
+      // No ghost slice resurrected under the dead key, and the POST-compress
+      // history landed on the live one (this command's own system line follows).
+      expect(states['sess-1']).toBeUndefined()
+      expect(states['compress-2']?.messages[0]).toMatchObject({
+        role: 'user',
+        parts: [{ type: 'text', text: 'the summary' }]
+      })
+      // And the compacting gate is released on the key that actually holds it,
+      // or every later correction queues instead of steering, forever.
+      expect(sessionCompacting('compress-2').get()).toBe(false)
+      expect($compactingSessions.get()).toEqual({})
+    })
+  })
+
+  // `session.compress` is newer than gateways people are still pointed at, and
+  // this branch is the whole reason /compress keeps working on them. It had no
+  // test, and the copy of the missing-method predicate that used to guard it had
+  // silently lost `-32601` (MJXHRM-205) — which is exactly the failure a test
+  // here would have caught: the command printing `error: ...` instead of
+  // summarizing through the slash worker.
+  describe('/compress on a gateway that never shipped it', () => {
+    it('falls back to the slash worker instead of printing the RPC error', async () => {
+      vi.mocked(requestGateway)
+        .mockRejectedValueOnce(new GatewayRpcError('unknown method: session.compress', -32601))
+        .mockResolvedValueOnce({ output: 'compacted 4 messages' } as never)
+
+      await run('/compress')
+
+      expect(vi.mocked(requestGateway).mock.calls.map(call => call[0])).toEqual(['session.compress', 'slash.exec'])
+      expect(requestGateway).toHaveBeenLastCalledWith('slash.exec', { session_id: 'sess-1', command: 'compress' })
+      expect(systemLines().join('\n')).toContain('compacted 4 messages')
+      expect(systemLines().join('\n')).not.toContain('error:')
+    })
+
+    it('still shows a genuine compress failure rather than quietly re-running it', async () => {
+      vi.mocked(requestGateway).mockRejectedValue(new GatewayRpcError('session busy', 4009))
+
+      await run('/compress')
+
+      expect(vi.mocked(requestGateway).mock.calls.map(call => call[0])).toEqual(['session.compress'])
+      expect(systemLines().join('\n')).toContain('error: session busy')
+    })
+  })
+
+  // MJXHRM-367: `/compress` was the only exec path through this hook that
+  // recovered. `slash.exec` is the door `/undo` and `/retry` come through, and
+  // both rewrite session history destructively — so a runtime the gateway had
+  // dropped over a sleep/wake turned them into a bare "session not found" line.
+  it('resumes a dropped runtime and re-runs the slash command on the fresh id', async () => {
+    seedActiveSession('sess-1', { storedSessionId: 'stored-slash' })
+    vi.mocked(requestGateway)
+      .mockRejectedValueOnce(new Error('session not found'))
+      .mockResolvedValueOnce({ session_id: 'slash-2' } as never)
+      .mockResolvedValueOnce({ output: 'undone' } as never)
+
+    await run('/undo')
+
+    expect(vi.mocked(requestGateway).mock.calls.map(call => call[0])).toEqual([
+      'slash.exec',
+      'session.resume',
+      'slash.exec'
+    ])
+    expect(vi.mocked(requestGateway).mock.calls[1][1]).toMatchObject({ session_id: 'stored-slash' })
+    expect(vi.mocked(requestGateway).mock.calls[2][1]).toMatchObject({ command: 'undo', session_id: 'slash-2' })
+  })
+})
+
+/**
+ * MJXHRM-357. The dispatcher used to resolve its target as the ACTIVE session,
+ * full stop — true while universal had one thread, false from the moment tiles
+ * landed. A tile's composer mounts this hook under the TILE's session view, so
+ * `/compress` typed into a tile ran `session.compress` against the main pane's
+ * session and replaced the main pane's transcript with the summary.
+ */
+describe('a slash command typed in a tile', () => {
+  function TileHarness() {
+    run = useSlashCommand()
+
+    return null
+  }
+
+  const tileView = (key: string): SessionView => ({
+    kind: 'tile',
+    $runtimeId: atom<string | null>(key),
+    $storedId: atom<string | null>(null),
+    $messages: computed($sessionStates, states => states[key]?.messages ?? []),
+    $busy: computed($sessionStates, states => Boolean(states[key]?.busy)),
+    $awaitingResponse: atom(false),
+    $messagesEmpty: atom(false),
+    $lastVisibleIsUser: atom(false),
+    $statusLine: atom(''),
+    $cwd: atom(''),
+    $model: atom(''),
+    $provider: atom(''),
+    $fast: atom(false),
+    $reasoningEffort: atom('')
+  })
+
+  /** The tile's composer on the focus/insert bus — what session-tile.tsx
+   *  provides alongside the tile's session view. */
+  const tileScope: ComposerScope = { ...MAIN_COMPOSER_SCOPE, popoutAllowed: false, target: 'tile:stored-tile' }
+
+  /** Submits the tile delegate received. The delegate is the tile's half of
+   *  `submitPromptToSurface`; its turn/busy behaviour is pinned in
+   *  store/session-tile-delegate.test.ts. */
+  let submitted: [string, string][]
+
+  /** The TILE's system lines. `systemLines()` reads `$messages`, which is the
+   *  foreground chat — a tile's slash output must never appear there. */
+  const tileSystemLines = () =>
+    ($sessionStates.get()['tile-1']?.messages ?? [])
+      .filter(m => m.role === 'system')
+      .map(m => m.parts.map(p => ('text' in p ? p.text : '')).join(''))
+
+  beforeEach(() => {
+    // Only these two slices: `resetChat` leaves a draft behind per test, and the
+    // LRU cap would otherwise evict the very sessions under test.
+    resetSessionStates()
+    seedActiveSession('sess-1')
+    // A second, background session — the tile's — beside the active one.
+    publishSessionState('tile-1', { ...emptySessionState('stored-tile'), runtimeSessionId: 'tile-1' })
+
+    submitted = []
+    setSessionTileDelegate({
+      submitToSession: async (runtimeId: string, text: string) => {
+        submitted.push([runtimeId, text])
+      }
+    } as unknown as SessionTileDelegate)
+
+    render(
+      <MemoryRouter>
+        <ThemeProvider>
+          <SessionViewProvider value={tileView('tile-1')}>
+            <ComposerScopeProvider value={tileScope}>
+              <TileHarness />
+            </ComposerScopeProvider>
+          </SessionViewProvider>
+        </ThemeProvider>
+      </MemoryRouter>
+    )
+  })
+
+  it('compresses the tile session, not the chat in the foreground', async () => {
+    vi.mocked(requestGateway).mockResolvedValue({
+      messages: [{ role: 'user', content: 'the summary' }],
+      summary: { headline: 'compacted' }
+    } as never)
+
+    await run('/compress')
+
+    expect(vi.mocked(requestGateway).mock.calls[0][0]).toBe('session.compress')
+    expect(vi.mocked(requestGateway).mock.calls[0][1]).toMatchObject({ session_id: 'tile-1' })
+
+    const states = $sessionStates.get()
+
+    // The summarized transcript AND the command's own system line land on the
+    // tile; the foreground chat is untouched.
+    expect(states['tile-1'].messages[0]).toMatchObject({ role: 'user', parts: [{ type: 'text', text: 'the summary' }] })
+    expect(states['tile-1'].messages.some(m => m.role === 'system')).toBe(true)
+    expect(states['sess-1'].messages).toEqual([])
+  })
+
+  // MJXHRM-388: the same defect as `/compress` above, one command over.
+  // `/branch` read the primary atoms, so branching from a tile forked the MAIN
+  // pane's conversation and left the tile it was typed in untouched.
+  it('branches the tile session, not the chat in the foreground', async () => {
+    const said = (text: string) => [{ id: 'm1', role: 'assistant' as const, parts: [{ type: 'text' as const, text }] }]
+
+    updateSession('sess-1', s => ({ ...s, messages: said('foreground answer') }))
+    updateSession('tile-1', s => ({ ...s, messages: said('tile answer') }))
+    vi.mocked(requestGateway).mockResolvedValue({ session_id: 'runtime-2', stored_session_id: 'stored-2' } as never)
+
+    await run('/branch')
+
+    expect(vi.mocked(requestGateway).mock.calls[0][0]).toBe('session.create')
+    expect(vi.mocked(requestGateway).mock.calls[0][1]).toMatchObject({
+      messages: [{ content: 'tile answer', role: 'assistant' }]
+    })
+    // ...and the foreground transcript is still its own.
+    expect($sessionStates.get()['sess-1'].messages).toEqual(said('foreground answer'))
+  })
+
+  // MJXHRM-419, the ticket's own shape. A `send` directive went out through the
+  // bare `sendPrompt`, which submits to `$activeSessionKey` and opens with
+  // `if (!trimmed || $busy.get()) return` over the FOREGROUND chat's busy flag.
+  // From a tile that meant the turn opened on the main pane — or, when the main
+  // pane was mid-turn, nothing happened anywhere and nothing said so.
+  it('submits a send directive to the tile, not the chat in the foreground', async () => {
+    vi.mocked(requestGateway).mockResolvedValue({ type: 'send', message: 'do the thing' } as never)
+
+    await run('/goal ship it')
+
+    expect(submitted).toEqual([['tile-1', 'do the thing']])
+    expect(sendPrompt).not.toHaveBeenCalled()
+  })
+
+  it('still submits a send directive while the FOREGROUND chat is mid-turn', async () => {
+    updateSession('sess-1', s => ({ ...s, busy: true }))
+    vi.mocked(requestGateway).mockResolvedValue({ type: 'send', message: 'do the thing' } as never)
+
+    await run('/goal ship it')
+
+    // The tile is idle, so its own busy guard does not fire and the directive
+    // must land. `sendPrompt` would have dropped it on the foreground's flag.
+    expect(submitted).toEqual([['tile-1', 'do the thing']])
+    expect(tileSystemLines().every(line => !line.includes('session busy'))).toBe(true)
+  })
+
+  it('refuses a send directive when the TILE is the one mid-turn', async () => {
+    updateSession('tile-1', s => ({ ...s, busy: true }))
+    vi.mocked(requestGateway).mockResolvedValue({ type: 'send', message: 'do the thing' } as never)
+
+    await run('/goal ship it')
+
+    expect(submitted).toEqual([])
+    expect(tileSystemLines().at(-1)).toContain('session busy')
+  })
+
+  it('hands a prefill back to the tile composer, not the main one', async () => {
+    vi.mocked(requestGateway).mockResolvedValue({ type: 'prefill', message: 'restored text' } as never)
+
+    await run('/undo')
+    await flushInsertBus()
+
+    expect(inserts).toEqual([{ target: 'tile:stored-tile', text: 'restored text' }])
+  })
+
+  it('marks the tile as compacting while it runs, and releases it after', async () => {
+    let seenOnTile = false
+    let seenOnActive = false
+
+    vi.mocked(requestGateway).mockImplementation(async () => {
+      seenOnTile = sessionCompacting('tile-1').get()
+      seenOnActive = sessionCompacting('sess-1').get()
+
+      return { summary: { headline: 'compacted' } } as never
+    })
+
+    await run('/compress')
+
+    expect(seenOnTile).toBe(true)
+    expect(seenOnActive).toBe(false)
+    expect($compactingSessions.get()).toEqual({})
   })
 })

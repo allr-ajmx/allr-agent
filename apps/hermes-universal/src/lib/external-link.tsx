@@ -1,6 +1,7 @@
 import type { ComponentProps, ReactNode } from 'react'
 import { useEffect, useMemo, useState } from 'react'
 
+import { resolveBrandIcon } from '@/lib/brand-icon'
 import { ArrowUpRight } from '@/lib/icons'
 import { IS_TAURI } from '@/lib/platform'
 import { cn } from '@/lib/utils'
@@ -19,20 +20,50 @@ const DOMAIN_RE = /^(?:www\.)?[a-z0-9](?:[a-z0-9-]*\.)+[a-z]{2,}(?::\d+)?(?:[/?#
 const SKIP_PROTO_RE = /^(?:file|data|mailto|javascript|blob|chrome|about|hermes):/i
 const LOCAL_HOST_RE = /^(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(?::\d+)?$/i
 
-// Open a URL in the system browser. In a Tauri webview a plain <a> or
-// window.open would navigate the app away (or no-op), so links route through a
-// native Rust command (`open_external`) that calls the opener plugin's Rust API.
-// Off Tauri (plain-web dev / vitest) it falls back to window.open.
-export async function openExternalLink(url: string): Promise<void> {
-  if (IS_TAURI) {
-    try {
-      const { invoke } = await import('@tauri-apps/api/core')
-      await invoke('open_external', { url })
+// A fetched <title> that describes the FETCH rather than the page. Naming a
+// link "Just a moment…" or "Page not found" is worse than no title at all, so
+// these fall back to the URL slug instead.
+const ERROR_TITLE_RE =
+  /\b(?:access denied|attention required|captcha|error|forbidden|just a moment|not found|request blocked|too many requests)\b/i
 
-      return
-    } catch {
-      // Native command unavailable — fall through to window.open.
-    }
+// Hand a URL to the OS default handler, REPORTING whether it was taken. In a
+// Tauri webview a plain <a> or window.open would navigate the app away (or
+// no-op), so this routes through the native Rust command `open_external`, which
+// calls the opener plugin's Rust API.
+//
+// The Rust command is the only working door, not a stylistic preference. Its JS
+// counterpart (`@tauri-apps/plugin-opener`'s `openUrl`) is ACL-SCOPED: the
+// `opener:allow-open-url` permission this app grants enables the command
+// "without any pre-configured scope", and the plugin's `open_url` answers
+// `Err(ForbiddenUrl)` unless some scope entry MATCHES the url. No scope is
+// declared anywhere in `capabilities/` or `tauri.conf.json`, so the allow-list is
+// empty and every url is forbidden — the JS path fails for all of them, on every
+// platform. A Rust-internal `app.opener().open_url(..)` is not scope-checked at
+// all. See `open_external` in `src-tauri/src/lib.rs`; eslint bans the JS import
+// so this cannot be rediscovered a third time.
+//
+// False off Tauri (plain-web dev / vitest) — there is no OS door there to report on.
+export async function tryOpenExternalLink(url: string): Promise<boolean> {
+  if (!IS_TAURI) {
+    return false
+  }
+
+  try {
+    const { invoke } = await import('@tauri-apps/api/core')
+    await invoke('open_external', { url })
+
+    return true
+  } catch {
+    return false
+  }
+}
+
+// Fire-and-forget twin for UI callers (links, menu items) with nothing to say
+// about a failure: off Tauri, or when the native command is unavailable, it falls
+// back to window.open rather than reporting anything.
+export async function openExternalLink(url: string): Promise<void> {
+  if (await tryOpenExternalLink(url)) {
+    return
   }
 
   try {
@@ -172,8 +203,9 @@ export function fetchLinkTitle(url: string): Promise<string> {
     try {
       const { invoke } = await import('@tauri-apps/api/core')
       const raw = await invoke<string>('fetch_link_title', { url: normalizedUrl })
+      const clean = (raw || '').replace(/\s+/g, ' ').trim()
 
-      return (raw || '').replace(/\s+/g, ' ').trim()
+      return clean && !ERROR_TITLE_RE.test(clean) ? clean : ''
     } catch {
       return ''
     }
@@ -227,7 +259,23 @@ interface ExternalLinkProps extends Omit<ComponentProps<'a'>, 'href' | 'target'>
 }
 
 export function ExternalLinkIcon({ className }: { className?: string }) {
-  return <ArrowUpRight aria-hidden className={cn('ml-1 inline size-[0.78em] align-[-0.08em] opacity-70', className)} />
+  return <ArrowUpRight aria-hidden className={cn('ms-1 inline size-[0.78em] align-[-0.08em] opacity-70 rtl:-scale-x-100', className)} />
+}
+
+// Brand mark for a known host, sized in `em` so it tracks the surrounding text
+// at any font size. It paints in `currentColor` rather than the brand hex —
+// several brand colors (GitHub's near-black, Unity's white) vanish against one
+// theme or the other.
+//
+// `title=""` is load-bearing: Simple Icons always renders a <title> defaulting
+// to the brand name, which lands in the anchor's textContent and accessible
+// name — a PR link would read "GitHub#123".
+export function LinkBrandIcon({ className, href }: { className?: string; href: string }) {
+  const Icon = resolveBrandIcon(shortHostLabel(href))
+
+  return Icon ? (
+    <Icon aria-hidden className={cn('me-1 inline size-[0.85em] align-[-0.12em] opacity-80', className)} title="" />
+  ) : null
 }
 
 export function ExternalLink({
@@ -235,14 +283,14 @@ export function ExternalLink({
   className,
   href,
   onClick,
-  showExternalIcon = true,
+  showExternalIcon = false,
   ...rest
 }: ExternalLinkProps) {
   const target = normalizeExternalUrl(href)
 
   return (
     <a
-      className={cn('font-semibold text-foreground underline underline-offset-4 decoration-current/20', className)}
+      className={cn('ref', className)}
       href={target}
       onClick={event => {
         event.stopPropagation()
@@ -271,14 +319,18 @@ interface PrettyLinkProps extends Omit<ComponentProps<'a'>, 'href' | 'target'> {
   fallbackLabel?: string
 }
 
+// Title resolution is a fallback, not an override. Both props carry authored
+// text — chat markdown passes `fallbackLabel` — so either one skips the fetch.
 export function PrettyLink({ className, fallbackLabel, href, label, ...rest }: PrettyLinkProps) {
   const target = useMemo(() => normalizeExternalUrl(href), [href])
-  const fetched = useLinkTitle(label ? null : target)
-  const display = fetched || label?.trim() || fallbackLabel?.trim() || urlSlugTitleLabel(target)
+  const authoredLabel = label?.trim() || fallbackLabel?.trim()
+  const fetched = useLinkTitle(authoredLabel ? null : target)
+  const display = authoredLabel || fetched || urlSlugTitleLabel(target)
 
   return (
     <ExternalLink className={cn('wrap-break-word', className)} href={target} title={target} {...rest}>
-      <span className="font-medium">{display}</span>
+      <LinkBrandIcon href={target} />
+      {display}
     </ExternalLink>
   )
 }

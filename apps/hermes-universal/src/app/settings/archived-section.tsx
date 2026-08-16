@@ -13,17 +13,18 @@ import {
 import { Tip } from '@/components/ui/tooltip'
 import { deleteSession, getDefaultCwd, listSessions, setSessionArchived } from '@/hermes'
 import { useI18n } from '@/i18n'
+import { pathLeaf } from '@/lib/display-path'
 import { Archive, ArchiveOff, FolderOpen, Loader2, Trash } from '@/lib/icons'
 import { IS_DESKTOP } from '@/lib/platform'
-import { workspaceLabel } from '@/lib/workspace-path'
 import { useStore } from '@/store/atom'
 import { $defaultProjectDir, setDefaultProjectDir } from '@/store/default-project-dir'
+import { useDisplayPath } from '@/store/display-home'
 import { notify, notifyError } from '@/store/notifications'
 import { pickProjectFolder } from '@/store/projects'
 import { refreshSessions } from '@/store/session'
 import type { SessionInfo } from '@/types/hermes'
 
-import { EmptyState, ListRow, LoadingState, SectionHeading, SettingsContent } from './primitives'
+import { EmptyState, ListRow, SectionHeading, SettingsContent, SettingsSkeleton } from './primitives'
 import { useDeepLinkHighlight } from './use-deep-link-highlight'
 
 // Shared by the row wrapper and the deep-link lookup so a palette jump can
@@ -45,6 +46,9 @@ function DefaultProjectDirSetting() {
   const s = t.settings.sessions
   const dir = useStore($defaultProjectDir)
   const [fallback, setFallback] = useState('~')
+  // Both the configured dir and the backend cwd it defaults to are paths on the
+  // GATEWAY's filesystem (`getDefaultCwd` asks the backend) — MJXHRM-394.
+  const displayPath = useDisplayPath()
   const [busy, setBusy] = useState(false)
 
   // Best-effort backend cwd for the "Defaults to …" hint when unset.
@@ -108,8 +112,8 @@ function DefaultProjectDirSetting() {
             ) : null}
           </div>
         }
-        description={dir || s.defaultsTo(fallback)}
-        title={dir || s.notSet}
+        description={displayPath(dir) || s.defaultsTo(displayPath(fallback))}
+        title={displayPath(dir) || s.notSet}
       />
     </div>
   )
@@ -184,7 +188,11 @@ export function ArchivedSection() {
   }
 
   if (!sessions && !failed) {
-    return <LoadingState label={s.loading} />
+    return (
+      <SettingsSkeleton
+        sections={IS_DESKTOP ? [{ rows: 1 }, { heading: true, rows: 4 }] : [{ heading: true, rows: 4 }]}
+      />
+    )
   }
 
   const list = sessions ?? []
@@ -203,7 +211,7 @@ export function ArchivedSection() {
       ) : (
         <div className="grid gap-1">
           {list.map(session => {
-            const label = workspaceLabel(session.cwd)
+            const label = pathLeaf(session.cwd)
             const meta = label ? `${label} · ${s.messages(session.message_count)}` : s.messages(session.message_count)
 
             return (

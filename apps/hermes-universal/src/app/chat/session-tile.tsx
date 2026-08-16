@@ -13,28 +13,34 @@ import {
   $layoutTree,
   closeAllTreeTabs,
   closeOtherTreeTabs,
+  closeTabPane,
   closeTreeTabsToRight,
   moveTreePane,
+  reloadTreePane,
   treeTabCloseTargets
 } from '@/components/pane-shell/tree/store'
-import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { translateNow, useI18n } from '@/i18n'
 import { sessionTitle } from '@/lib/chat-runtime'
 import { DRAFT_TILE_KEY, isDraftTileKey, sessionTilePaneId, WORKSPACE_PANE_ID } from '@/lib/pane-ids'
+import { useStoreSelector } from '@/lib/use-session-slice'
 import { useStore } from '@/store/atom'
 import { type ChatMessage } from '@/store/chat'
-import { createComposerAttachmentScope } from '@/store/composer'
+import { $draftTitles, createComposerAttachmentScope, draftTitleFor } from '@/store/composer'
 import { $gatewayState } from '@/store/gateway'
 import { $pinnedSessionIds, pinSession, unpinSession } from '@/store/layout'
 import { startNewSessionTab } from '@/store/new-session'
 import { sessionAwaitingInput } from '@/store/prompts'
-import { $activeStoredSessionId, $sessions, sessionMatchesStoredId, sessionPinId } from '@/store/session'
-import { $sessionColorById, sessionColorFor } from '@/store/session-color'
+import { $activeStoredSessionId } from '@/store/session'
+import {
+  chatTabTitle,
+  SESSION_ROW_SOURCES,
+  sessionRowFor,
+  useSessionRow,
+  useSessionRowScalars
+} from '@/store/session-lookup'
 import { $sessionStates } from '@/store/session-state-types'
 import {
-  $confirmCloseTile,
   $sessionTiles,
-  closeSessionTile,
   discardSessionTile,
   noteSessionTileMounted,
   patchSessionTile,
@@ -44,6 +50,7 @@ import {
   tileRuntimeKey
 } from '@/store/session-states'
 
+import { SessionStatusDot } from './session-status-dot'
 import { SessionContextMenu } from './sidebar/session-actions-menu'
 
 const NO_MESSAGES: ChatMessage[] = []
@@ -93,26 +100,27 @@ function buildTileView(storedSessionId: string): SessionView {
 /** Mounts the shared ChatScreen under the tile's view + a per-tile composer
  *  scope (its own attachment set, awaiting-input edge, and `tile:<id>` focus-bus
  *  target), so N tiled composers coexist without touching the main one. */
-function TileChat({
-  runtimeId,
-  storedSessionId,
-  view
-}: {
-  runtimeId: string
-  storedSessionId: string
-  view: SessionView
-}) {
+function TileChat({ storedSessionId, view }: { storedSessionId: string; view: SessionView }) {
   const attachments = useRef(createComposerAttachmentScope()).current
+  // The tile's LIVE key, read reactively — NOT the runtime id its tile record
+  // was bound with. A stale-runtime recovery rekeys the slice onto a fresh
+  // runtime id (store/session-recovery.ts) and `store/prompts.ts` carries the
+  // blocking prompts across with it, but nothing patches the tile record, so a
+  // captured id left this composer's awaiting-input edge subscribed to a key
+  // nothing writes any more. Esc would then interrupt a turn that is actually
+  // parked on a clarify — discarding the question instead of leaving it
+  // answerable (MJXHRM-308).
+  const runtimeKey = useStore(view.$runtimeId) ?? ''
 
   const scope: ComposerScope = useMemo(
     () => ({
-      $awaitingInput: sessionAwaitingInput(runtimeId),
+      $awaitingInput: sessionAwaitingInput(runtimeKey),
       attachments,
       popoutAllowed: false,
       readMessages: () => view.$messages.get(),
       target: `tile:${storedSessionId}`
     }),
-    [attachments, runtimeId, storedSessionId, view]
+    [attachments, runtimeKey, storedSessionId, view]
   )
 
   return (
@@ -153,7 +161,7 @@ function DraftTilePane() {
     return null
   }
 
-  return <TileChat runtimeId={runtimeId} storedSessionId={DRAFT_TILE_KEY} view={view} />
+  return <TileChat storedSessionId={DRAFT_TILE_KEY} view={view} />
 }
 
 /** A session tile pane: resumes the stored session into its own state slice on
@@ -161,8 +169,13 @@ function DraftTilePane() {
  *  terminal resume failure, or a spinner while the runtime binds. */
 export function SessionTilePane({ storedSessionId }: { storedSessionId: string }) {
   const { t } = useI18n()
-  const tiles = useStore($sessionTiles)
-  const tile = tiles.find(item => item.storedSessionId === storedSessionId)
+  // NARROWED to this tile's own entry (MJXHRM-45). One instance of this
+  // component mounts per open tile, and each one carries a whole `ChatScreen` +
+  // composer subtree — so subscribing to the `$sessionTiles` ARRAY meant tile
+  // A's resume / error / reconnect patch re-rendered tiles B, C and D too.
+  // `patchSessionTile` maps the array and replaces only the matching entry, so
+  // every unrelated tile object keeps its reference and this selector bails.
+  const tile = useStoreSelector($sessionTiles, tiles => tiles.find(item => item.storedSessionId === storedSessionId))
   const runtimeId = tile?.runtimeId
   const gatewayOpen = useStore($gatewayState) === 'open'
   const view = useMemo(() => buildTileView(storedSessionId), [storedSessionId])
@@ -208,6 +221,12 @@ export function SessionTilePane({ storedSessionId }: { storedSessionId: string }
     if (gatewayOpen && tile?.error) {
       patchSessionTile(storedSessionId, { error: undefined })
     }
+    // RECONNECT EDGE only. `tile?.error` is read but must not be depended on:
+    // the resume effect above bails while an error is set, so clearing on the
+    // error's own edge would resume → fail → clear → resume in a loop for as
+    // long as the gateway stays up. `storedSessionId` is fixed for the life of
+    // this instance — the pane id embeds it (`session-tile:<id>`), so React
+    // never reuses one instance for another tile.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gatewayOpen])
 
@@ -236,7 +255,7 @@ export function SessionTilePane({ storedSessionId }: { storedSessionId: string }
     )
   }
 
-  return <TileChat runtimeId={runtimeId} storedSessionId={storedSessionId} view={view} />
+  return <TileChat storedSessionId={storedSessionId} view={view} />
 }
 
 // ---------------------------------------------------------------------------
@@ -244,44 +263,82 @@ export function SessionTilePane({ storedSessionId }: { storedSessionId: string }
 // ---------------------------------------------------------------------------
 
 function tileTitle(storedSessionId: string): string {
-  // The draft names no session, so there is nothing to look up — it reads as the
-  // same "New session" the workspace tab shows for an unsaved chat.
-  if (isDraftTileKey(storedSessionId)) {
-    return translateNow('sidebar.nav.new-session')
-  }
+  // `chatTabTitle` is the shared resolver — the main workspace tab names itself
+  // with the same call, so a draft cannot be named in a tile and anonymous in
+  // the pane beside it. The wider row lookup goes with it: a tab can outlive the
+  // recents page it was opened from (MJXHRM-386).
+  //
+  // The draft names no session, so there is nothing to look up — it takes its
+  // name from what has been typed into it. Universal reads the title here and
+  // re-syncs on `$draftTitles` rather than rendering desktop's self-subscribing
+  // `SessionDraftTitle` in the label slot: `paneMirror`'s `title` is a string,
+  // and widening it to a node would reshape the pane-shell tab contract for one
+  // caller. The cost is bounded — the stash is debounced, and `publishDraftTitle`
+  // writes only when the DERIVED title changes, which stops happening once the
+  // draft passes 48 chars.
+  const draft = isDraftTileKey(storedSessionId)
 
-  const stored = $sessions.get().find(s => sessionMatchesStoredId(s, storedSessionId))
-
-  return stored ? sessionTitle(stored) : 'Session'
+  return chatTabTitle({
+    // The composer stashes under the tile's RUNTIME key, which for the draft is
+    // the live placeholder slice — the same resolution its view and busy state
+    // already go through.
+    draftTitle: draft ? draftTitleFor(tileRuntimeKey(storedSessionId)) : undefined,
+    selected: draft ? null : storedSessionId,
+    stored: draft ? null : sessionRowFor(storedSessionId)
+  })
 }
 
-function tileAccent(storedSessionId: string): string | undefined {
-  const stored = $sessions.get().find(s => sessionMatchesStoredId(s, storedSessionId))
+/** The tile tab's lead — the SAME primitive the sidebar row, the switcher and
+ *  the mobile bubble strip render, so a session's status can never disagree
+ *  between surfaces. It is a NODE rather than the older `accent` string because
+ *  it subscribes for itself: a turn starting repaints the dot without the pane
+ *  mirror re-registering the tile. A draft tile names no session, so it passes
+ *  the null id and gets the draft dot.
+ *
+ *  `useSessionRow`, not a `$sessions` lookup: the row is only needed to resolve
+ *  the IDLE dot's project colour, and a tab can outlive the recents page it was
+ *  opened from (MJXHRM-386). Subscribing to the recents page alone would leave
+ *  an older session's tab permanently uncoloured. */
+function TileTabLead({ storedSessionId }: { storedSessionId: string }) {
+  const draft = isDraftTileKey(storedSessionId)
+  const stored = useSessionRow(draft ? null : storedSessionId)
 
-  return sessionColorFor(stored)
+  return <SessionStatusDot session={stored} storedSessionId={draft ? null : storedSessionId} />
 }
 
 /** The `@session` drag payload for a tile's own tab — same identity a sidebar
  *  row drags, so a tile tab drops with the same stack/split/link language. */
 function tileDragPayload(storedSessionId: string): SessionDragPayload {
-  const stored = $sessions.get().find(s => sessionMatchesStoredId(s, storedSessionId))
+  const stored = sessionRowFor(storedSessionId)
 
   return {
     id: storedSessionId,
     profile: stored?.profile || 'default',
-    title: stored ? sessionTitle(stored) : 'Session'
+    title: stored ? sessionTitle(stored) : tileTitle(storedSessionId)
   }
 }
 
-/** Mirror `$sessionTiles` into layout-tree panes (title/accent live-refresh via
- *  `also`). `tabDrag` gives a tile's own tab the session drop language
- *  (stack / split / composer-link) via the shared pointer drag session — a
- *  sub-threshold release stays the tab's tap/double-tap. `tabWrap` gives the
- *  tab its right-click session menu (pin / copy / branch / rename / archive /
- *  delete + the tab close verbs). */
+/** Mirror `$sessionTiles` into layout-tree panes (title live-refresh via
+ *  `also` — the lead dot subscribes for itself, so colour and status no longer
+ *  re-register the tile). `tabDrag` gives a tile's own tab the session drop
+ *  language (stack / split / composer-link) via the shared pointer drag
+ *  session — a sub-threshold release stays the tab's tap/double-tap. `tabWrap`
+ *  gives the tab its right-click session menu (pin / copy / branch / rename /
+ *  archive / delete + the tab close verbs). */
 export const watchSessionTiles = paneMirror<SessionTile>({
   source: $sessionTiles,
-  also: [$sessions, $sessionColorById],
+  // Every source `sessionRowFor` reads, so a tab TITLED from the pinned cache or
+  // the project tree refreshes when the real row lands — the point of the wider
+  // lookup is lost if the strip only re-syncs on `$sessions`.
+  //
+  // No `$sessionColorById`: the lead dot resolves colour and status for itself,
+  // so a recolour repaints it without re-registering the tile.
+  //
+  // `$draftTitles` is here so the DRAFT tab takes its name from what has been
+  // typed into it. It writes only when the derived title actually changes (see
+  // `publishDraftTitle`), on the stash's own debounce, and stops changing once
+  // the draft passes the 48-character cut.
+  also: [...SESSION_ROW_SOURCES, $draftTitles],
   key: tile => tile.storedSessionId,
   kind: 'chat',
   linkTarget: true,
@@ -292,7 +349,7 @@ export const watchSessionTiles = paneMirror<SessionTile>({
   before: tile => tile.before,
   minWidth: '20rem',
   title: tileTitle,
-  accent: tileAccent,
+  tabLead: storedSessionId => <TileTabLead storedSessionId={storedSessionId} />,
   render: storedSessionId =>
     isDraftTileKey(storedSessionId) ? <DraftTilePane /> : <SessionTilePane storedSessionId={storedSessionId} />,
   // The draft has no session to pin, branch, rename, archive or delete, so its
@@ -336,32 +393,61 @@ export const watchSessionTiles = paneMirror<SessionTile>({
 // ---------------------------------------------------------------------------
 
 /** Right-click menu for a session tab — a TILE tab or the WORKSPACE tab. Both
- *  carry the session verbs (pin / copy / branch / rename / archive / delete);
- *  as a layout-tree tab they also carry the TAB close group (Close / Close
+ *  carry the session verbs (pin / copy / branch / rename / archive / delete)
+ *  and, as a layout-tree tab, Reload plus the shared close group (Close / Close
  *  others / Close to the right / Close all). `paneId` is the tab's tree pane id
- *  (a tile = `session-tile:<id>`, the workspace = `workspace`); `canClose`
- *  gates the plain Close — the uncloseable workspace omits it but keeps the
- *  "close others/right/all" verbs for its zone. */
+ *  (a tile = `session-tile:<id>`, the workspace = `workspace`). */
 export function SessionTabMenu({
   children,
   storedSessionId,
-  paneId,
-  canClose = true
+  paneId
 }: {
   children: ReactNode
   storedSessionId: string
   paneId: string
-  canClose?: boolean
 }) {
-  const stored = useStore($sessions).find(s => sessionMatchesStoredId(s, storedSessionId))
-  const pinned = useStore($pinnedSessionIds)
-  const title = stored ? sessionTitle(stored) : 'Session'
-  const pinId = stored ? sessionPinId(stored) : storedSessionId
-  const isPinned = pinned.includes(pinId)
+  // `useSessionRow`, not `$sessions` alone — the same widening `tileTitle` and
+  // `TileTabLead` already took (MJXHRM-386/MJXHRM-423). Two consequences, and
+  // only the first is cosmetic:
+  //
+  //  - the tab and its own right-click menu disagreed about the session's name,
+  //    the menu falling back to the untranslated literal `'Session'`;
+  //  - `pinId` fell back to the RAW stored id, so pinning a session that had
+  //    aged out of the recents page wrote the pin under the live tip id instead
+  //    of the durable lineage root — the id-mismatch class MJXHRM-414 had to
+  //    defend against on the delete path. The sidebar row keys pins by
+  //    `sessionPinId`, so the two surfaces would have pinned to different keys.
+  //
+  // The hook form matters: this is a component, and a tab whose zone mounts
+  // before the project tree lands must retitle itself when that source arrives
+  // rather than resolving once and staying on the fallback.
+  //
+  // NARROWED (MJXHRM-45): the scalar face of `useSessionRow`, not the row. One
+  // of these wrappers is mounted per open tab, permanently, for a menu that is
+  // almost never open — subscribing to all three sources whole re-rendered every
+  // tab's wrapper on any recents poll or any OTHER session's title update.
+  //
+  // `storedSessionId` STAYS the id passed down to the verbs, and that is
+  // deliberate. It is this tab's layout key — the tile record, the pane id and
+  // `closeSessionTile` are all keyed on it — and after an auto-compaction it is
+  // the lineage ROOT rather than the conversation's live id. Every verb that
+  // leaves for the backend now resolves that alias at its own funnel
+  // (`liveSessionIdFor` in store/session-lookup), because a menu is not the only
+  // surface holding a stale id: mobile bubbles, restored panes and the Command
+  // Center hold them too, and fixing it here would have fixed exactly one of
+  // them. Widening the RESOLUTION and leaving the ACTIONS on the raw id is what
+  // made rename and move-to-project silently no-op from this menu while the
+  // dialog showed the correct current title (MJXHRM-423).
+  const { pinId, title: storedTitle } = useSessionRowScalars(storedSessionId)
+  // Same reasoning one level down: the pin LIST reference changes whenever any
+  // session is pinned or unpinned; this tab only cares about its own membership.
+  const isPinned = useStoreSelector($pinnedSessionIds, ids => ids.includes(pinId))
+  const title = storedTitle ?? translateNow('common.loading')
 
-  // Offer only the close verbs that would actually close something, so the menu
-  // never shows "Close to the right" on the rightmost tab or "Close others" on
-  // a lone one.
+  // How many tabs each verb would hit. The shared group DISABLES a verb that
+  // would close nothing rather than dropping its row — this menu used to drop
+  // them, so the same right-click landed on a different item depending on how
+  // many tabs happened to be open.
   //
   // Read, not subscribed. This only ever renders as a tab strip's `tabWrap`,
   // i.e. inside a TreeGroup under LayoutTreeRoot — which already subscribes, so
@@ -374,14 +460,28 @@ export function SessionTabMenu({
     <SessionContextMenu
       onArchive={() => void sessionTileDelegate()?.archiveSession(storedSessionId)}
       onBranch={() => void sessionTileDelegate()?.branchSession(storedSessionId)}
-      onClose={canClose ? () => requestCloseSessionTile(storedSessionId) : undefined}
-      onCloseAll={closeTargets.all > 0 ? () => closeAllTreeTabs(paneId) : undefined}
-      onCloseOthers={closeTargets.others > 0 ? () => closeOtherTreeTabs(paneId) : undefined}
-      onCloseToRight={closeTargets.right > 0 ? () => closeTreeTabsToRight(paneId) : undefined}
       onDelete={() => void sessionTileDelegate()?.deleteSession(storedSessionId)}
       onPin={() => (isPinned ? unpinSession(pinId) : pinSession(pinId))}
       pinned={isPinned}
       sessionId={storedSessionId}
+      tab={{
+        close: {
+          counts: closeTargets,
+          // The workspace tab's Close runs the closer registered for it in
+          // contrib/controller — the same one ⌘W / ⌘-click / middle-click have
+          // always run, which EMPTIES main by promoting the next stacked
+          // session into it. Withholding the menu row only hid a verb the
+          // gestures already performed (desktop offers it).
+          onClose:
+            paneId === WORKSPACE_PANE_ID
+              ? () => closeTabPane(WORKSPACE_PANE_ID)
+              : () => requestCloseSessionTile(storedSessionId),
+          onCloseAll: () => closeAllTreeTabs(paneId),
+          onCloseOthers: () => closeOtherTreeTabs(paneId),
+          onCloseToRight: () => closeTreeTabsToRight(paneId)
+        },
+        onReload: () => reloadTreePane(paneId)
+      }}
       title={title}
     >
       {children}
@@ -389,9 +489,8 @@ export function SessionTabMenu({
   )
 }
 
-/** Right-click menu for the WORKSPACE (primary) tab — the loaded session's verbs
- *  minus Close (the workspace is the one tab the app can't lose), or a plain
- *  passthrough on a fresh draft with nothing to act on. */
+/** Right-click menu for the WORKSPACE (primary) tab — the loaded session's full
+ *  verb set, or a plain passthrough on a fresh draft with nothing to act on. */
 export function WorkspaceTabMenu({ children }: { children: React.ReactNode }) {
   const selected = useStore($activeStoredSessionId)
 
@@ -400,41 +499,17 @@ export function WorkspaceTabMenu({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <SessionTabMenu canClose={false} paneId={WORKSPACE_PANE_ID} storedSessionId={selected}>
+    <SessionTabMenu paneId={WORKSPACE_PANE_ID} storedSessionId={selected}>
       {children}
     </SessionTabMenu>
   )
 }
 
-// ---------------------------------------------------------------------------
-// Close confirmation for a still-running tile ($confirmCloseTile +
-// requestCloseSessionTile live in store/session-states so keybinds can reach
-// them; the confirm UI is here).
-// ---------------------------------------------------------------------------
-
-/** Mounted once at the shell root — the "Close running tab?" gate. */
-export function SessionTileCloseConfirm() {
-  const { t } = useI18n()
-  const pending = useStore($confirmCloseTile)
-
-  return (
-    <ConfirmDialog
-      confirmLabel={t.zones.closeRunningConfirm}
-      description={t.zones.closeRunningBody}
-      dismissOnConfirm
-      onClose={() => $confirmCloseTile.set(null)}
-      onConfirm={() => {
-        if (pending) {
-          closeSessionTile(pending)
-        }
-
-        $confirmCloseTile.set(null)
-      }}
-      open={Boolean(pending)}
-      title={t.zones.closeRunningTitle}
-    />
-  )
-}
+// The "Close running tab?" gate used to live here, mounted from
+// `ContribController` — i.e. only in the docked tile tree, so the phone and the
+// narrow-window shell had no way to draw it. It is now `app/close-confirm.tsx`,
+// mounted per WINDOW from `app.tsx`, and shared with the mobile bubble strip and
+// the unsaved-file close (MJXHRM-390).
 
 /** Layout-reset handler: collapse every tile into the workspace zone as a tab
  *  (instead of re-scattering them across the fresh preset). */

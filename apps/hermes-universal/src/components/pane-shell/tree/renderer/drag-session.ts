@@ -32,11 +32,13 @@ import type { PointerEvent as ReactPointerEvent } from 'react'
 
 import { createDragGhost, type DragGhost } from '@/lib/drag-ghost'
 import { ESCAPE_PRIORITY, pushEscapeLayer } from '@/lib/escape-layers'
+import { guardGuestPointers } from '@/lib/guest-pointer-guard'
 import { reorderCommitHaptic, reorderStepHaptic } from '@/lib/reorder'
 import { dragSlopPx, LONG_PRESS_MS, TAP_MAX_MS } from '@/lib/touch'
 
 import type { DropPosition } from '../model'
-import { $dropHint, $treeDragging, type DropHint, mergeTreeZones, moveTreePane, reorderTreePane } from '../store'
+import { $dropHint, $treeDragging, type DropHint, mergeTreeZones, moveTreePanes, reorderTreePanes } from '../store'
+import { clearTabSelection } from '../tab-selection'
 import { type EngineZone, HighlightedZones, primaryZone, type ZoneRect } from '../zones-engine'
 
 /** Normalized radius of the elliptical CENTER region (stack/link). Outside it
@@ -95,10 +97,18 @@ const stripSlots = (strip: HTMLElement): StripSlot[] =>
   })
 
 /** Insertion slot from the pointer x against the OTHER tabs' midpoints:
- *  stack BEFORE the returned pane id (`null` = append). */
-export function slotBefore(slots: StripSlot[], x: number, excludePaneId = ''): { before: null | string } {
+ *  stack BEFORE the returned pane id (`null` = append). `exclude` is the
+ *  dragged tab — or the whole selection on a multi-tab drag, so the block
+ *  can't target a slot inside itself. */
+export function slotBefore(
+  slots: StripSlot[],
+  x: number,
+  exclude: readonly string[] | string = ''
+): { before: null | string } {
+  const excluded = typeof exclude === 'string' ? [exclude] : exclude
+
   for (const slot of slots) {
-    if (slot.id === excludePaneId) {
+    if (excluded.includes(slot.id)) {
       continue
     }
 
@@ -216,6 +226,18 @@ function suppressDragClick(committed: boolean) {
  * resolver owns targeting and the machinery owns everything else. Esc aborts
  * instantly: the session registers as the TOP escape layer, tears down
  * synchronously, and nothing commits.
+ *
+ * EVERY WAY A DRAG CAN END HAS TO END IT. A drag holds four global locks —
+ * `body`'s cursor and `user-select`, the guest-pointer lock that makes every
+ * iframe in the app inert, and the top escape layer — plus window-level
+ * pointer listeners, a ghost chip and whatever the spec dimmed. Ending only on
+ * pointerup / pointercancel / Esc left the whole set pinned whenever the WINDOW
+ * lost the gesture instead: Alt-Tab (or clicking another window, or a native
+ * menu taking the pointer) mid-drag delivers no pointerup here, so the app came
+ * back with `grabbing` glued to the cursor, no text selectable anywhere, every
+ * embed unclickable, Escape dead app-wide — and the next click landed as a DROP
+ * at wherever the pointer happened to be. `blur` and `lostpointercapture` close
+ * that, exactly as the sash resize already does (lib/resize-gesture).
  */
 /** Is this point outside the window's own viewport? The pointer keeps
  *  reporting through a held drag (capture is taken on engage), so it reads
@@ -248,7 +270,13 @@ export function startDragSession(e: ReactPointerEvent<HTMLElement>, spec: DragSe
   const startedAt = Date.now()
   let scrolling = false
   let engaged = false
+  // The session ends exactly ONCE. It now has five exits and two of them race
+  // each other by construction — `releasePointerCapture` below synthesizes
+  // `lostpointercapture` from inside the teardown — so without this a commit
+  // would run its spec twice.
+  let ended = false
   let releaseEscapeLayer: (() => void) | null = null
+  let releaseGuests: (() => void) | null = null
   let ghost: DragGhost | null = null
   let cursor: string | null = null
   // rAF-coalesced move processing: the raw handler only records the latest
@@ -292,6 +320,9 @@ export function startDragSession(e: ReactPointerEvent<HTMLElement>, spec: DragSe
 
     setCursor('grabbing')
     document.body.style.userSelect = 'none'
+    // An iframe guest hit-tests on its own — dragging a tab across the artifact
+    // preview or a transcript embed would go silent without this.
+    releaseGuests = guardGuestPointers()
     // While dragging, Esc belongs to the drag ALONE — lower layers (edit
     // mode, overlays) must not also fire on the same press.
     releaseEscapeLayer = pushEscapeLayer(ESCAPE_PRIORITY.drag)
@@ -349,7 +380,13 @@ export function startDragSession(e: ReactPointerEvent<HTMLElement>, spec: DragSe
     raf ||= requestAnimationFrame(flushMove)
   }
 
-  const finish = (commit: boolean) => {
+  const finish = (commit: boolean, lostPointer = false) => {
+    if (ended) {
+      return
+    }
+
+    ended = true
+
     if (raf) {
       cancelAnimationFrame(raf)
       raf = 0
@@ -368,6 +405,8 @@ export function startDragSession(e: ReactPointerEvent<HTMLElement>, spec: DragSe
     ghost = null
     releaseEscapeLayer?.()
     releaseEscapeLayer = null
+    releaseGuests?.()
+    releaseGuests = null
 
     try {
       handle.releasePointerCapture?.(pointerId)
@@ -379,9 +418,16 @@ export function startDragSession(e: ReactPointerEvent<HTMLElement>, spec: DragSe
     window.removeEventListener('pointerup', onUp, true)
     window.removeEventListener('pointercancel', onCancel, true)
     window.removeEventListener('keydown', onKey, true)
+    window.removeEventListener('blur', onLost)
+    handle.removeEventListener('lostpointercapture', onLost)
 
     if (engaged) {
-      suppressDragClick(commit)
+      // A gesture the window LOST synthesizes no click here — the release
+      // happened somewhere else entirely. Arming the swallow would only eat the
+      // first real click the user makes when they come back.
+      if (!lostPointer) {
+        suppressDragClick(commit)
+      }
 
       if (commit && tearingOff) {
         spec.tearOff?.()
@@ -407,6 +453,12 @@ export function startDragSession(e: ReactPointerEvent<HTMLElement>, spec: DragSe
 
   const onUp = () => finish(true)
   const onCancel = () => finish(false)
+  // The window stopped owning the gesture: focus went to another window (the
+  // pointerup will be delivered THERE, never here) or the capture was revoked —
+  // including by the handle itself leaving the DOM, which is what a source tab
+  // closing mid-drag looks like. Abort, never commit: the last hint was
+  // resolved against a pointer position that no longer means anything.
+  const onLost = () => finish(false, true)
 
   // Esc aborts the drag — the target selection vanishes and nothing moves,
   // the universal "never mind" for an in-flight drag. Capture-phase + stop so
@@ -424,6 +476,10 @@ export function startDragSession(e: ReactPointerEvent<HTMLElement>, spec: DragSe
   window.addEventListener('pointerup', onUp, true)
   window.addEventListener('pointercancel', onCancel, true)
   window.addEventListener('keydown', onKey, true)
+  // Non-capture on purpose: a bubbling-phase `blur` on `window` is the WINDOW
+  // losing focus, not an element inside it handing focus to a sibling.
+  window.addEventListener('blur', onLost)
+  handle.addEventListener('lostpointercapture', onLost)
 }
 
 // ---------------------------------------------------------------------------
@@ -463,7 +519,11 @@ export function startPaneDrag(
   reorder?: ReorderContext,
   double?: DoubleTapContext,
   ghostLabel?: string,
-  tearOff?: () => void
+  tearOff?: () => void,
+  /** Multi-tab selection riding this drag (strip order, includes `paneId`).
+   *  The whole block moves/reorders together; `paneId` stays the pressed tab
+   *  (it fronts at the destination). */
+  selection?: readonly string[]
 ) {
   if (e.button !== 0) {
     return
@@ -472,17 +532,28 @@ export function startPaneDrag(
   e.preventDefault()
   e.stopPropagation()
 
+  // The moving block: the selection when the pressed tab rides one, else just
+  // the pressed tab. Order is strip order (selectionFor guarantees it).
+  const moving: readonly string[] = selection && selection.length > 1 ? selection : [paneId]
+
   const highlighted = new HighlightedZones()
   let zones: EngineZone[] = []
   let strips: StripSnapshot[] = []
   let mode: 'reorder' | 'zone' | null = null
-  let dimmed: HTMLElement | null = null
+  let dimmed: HTMLElement[] = []
 
   const markSource = () => {
-    // The dragged tab dims for the drag's life — the divider says where it
-    // GOES, the dim says what MOVES. No live shuffle (placement-on-release).
-    dimmed ??= reorder?.strip.querySelector<HTMLElement>(`[data-tree-tab="${CSS.escape(paneId)}"]`) ?? null
-    dimmed?.style.setProperty('opacity', '0.45')
+    // Every dragged tab dims for the drag's life — the divider says where they
+    // GO, the dim says what MOVES. No live shuffle (placement-on-release).
+    if (dimmed.length === 0 && reorder) {
+      dimmed = moving
+        .map(id => reorder.strip.querySelector<HTMLElement>(`[data-tree-tab="${CSS.escape(id)}"]`))
+        .filter((el): el is HTMLElement => el !== null)
+    }
+
+    for (const el of dimmed) {
+      el.style.setProperty('opacity', '0.45')
+    }
   }
 
   const enterZoneMode = () => {
@@ -536,7 +607,7 @@ export function startPaneDrag(
             groupId: reorder!.groupId,
             groupIds: [reorder!.groupId],
             pos: 'center',
-            stack: slotBefore(reorderStrip().slots, x, paneId)
+            stack: slotBefore(reorderStrip().slots, x, moving)
           }
         }
 
@@ -567,7 +638,7 @@ export function startPaneDrag(
       const strip =
         groupIds.length === 1 && groupId ? strips.find(s => s.groupId === groupId && rectContains(s.rect, x, y)) : null
 
-      const stack = strip ? slotBefore(strip.slots, x, paneId) : undefined
+      const stack = strip ? slotBefore(strip.slots, x, moving) : undefined
 
       const pos: DropPosition = stack
         ? 'center'
@@ -579,18 +650,23 @@ export function startPaneDrag(
     },
 
     onCommit(hint) {
-      if (mode === 'reorder' && reorder && hint?.stack !== undefined) {
-        // Slot -> index among the OTHER tabs (reorderPaneInGroup inserts there).
-        const others = [...reorder.strip.querySelectorAll<HTMLElement>('[data-tree-tab]')]
-          .map(el => el.dataset.treeTab)
-          .filter((id): id is string => Boolean(id) && id !== paneId)
-
-        const toIndex = hint.stack.before ? others.indexOf(hint.stack.before) : others.length
-
-        if (toIndex >= 0) {
-          reorderTreePane(reorder.groupId, paneId, toIndex)
-          reorderCommitHaptic()
+      // A multi-tab selection is spent by a LANDED drop (reorder or zone) —
+      // a deny-area release keeps it, so a missed drop can just be retried.
+      const spendSelection = () => {
+        if (moving.length > 1) {
+          clearTabSelection()
         }
+      }
+
+      if (mode === 'reorder' && reorder && hint?.stack !== undefined) {
+        // The caret's slot goes through AS THE ANCHOR TAB'S ID. It used to be
+        // converted here into an index over the strip's DOM tabs — a different
+        // index space from `group.panes` the moment the zone holds a pane the
+        // strip doesn't draw (a store-hidden tile, or a disabled plugin's pane,
+        // which stays in the tree by design). See `reorderPanesInGroup`.
+        reorderTreePanes(reorder.groupId, moving, hint.stack.before)
+        reorderCommitHaptic()
+        spendSelection()
       }
 
       if (mode === 'zone') {
@@ -601,18 +677,28 @@ export function startPaneDrag(
         const targets = hint?.groupIds ?? []
 
         if (targets.length > 1) {
-          // Shift-span: merge the highlighted zones, dropping the pane across them.
-          mergeTreeZones([...targets], paneId, hint?.groupId ?? null)
+          // Shift-span: merge the highlighted zones, dropping the block across them.
+          mergeTreeZones([...targets], moving, hint?.groupId ?? null)
+          spendSelection()
         } else if (hint?.groupId) {
           // strip = stack at the divider slot; center = join the stack;
-          // an edge = split the zone and land there.
-          moveTreePane(paneId, { groupId: hint.groupId, pos: hint.pos ?? 'center', before: hint.stack?.before })
+          // an edge = split the zone and land there. The whole selection
+          // rides — the pressed tab fronts at the destination.
+          moveTreePanes(
+            moving,
+            { groupId: hint.groupId, pos: hint.pos ?? 'center', before: hint.stack?.before },
+            paneId
+          )
+          spendSelection()
         }
       }
     },
 
     onEnd() {
-      dimmed?.style.removeProperty('opacity')
+      for (const el of dimmed) {
+        el.style.removeProperty('opacity')
+      }
+
       highlighted.reset()
     }
   })

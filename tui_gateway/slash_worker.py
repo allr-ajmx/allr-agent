@@ -20,6 +20,7 @@ import argparse
 import contextlib
 import io
 import json
+import logging
 import os
 import sys
 import threading
@@ -48,6 +49,7 @@ def _env_float(name: str, default: float) -> float:
 _WATCHDOG_POLL_S = max(0.05, _env_float("HERMES_SLASH_WATCHDOG_POLL_S", 2.0))
 _ORPHAN_GRACE_S = max(0.0, _env_float("HERMES_SLASH_WATCHDOG_GRACE_S", 5.0))
 _in_flight = threading.Event()  # set while a command is executing
+logger = logging.getLogger(__name__)
 
 
 def _is_orphaned(original_ppid, getppid=os.getppid) -> bool:
@@ -88,12 +90,34 @@ def _start_parent_death_watchdog(original_ppid) -> None:
     threading.Thread(target=_loop, daemon=True).start()
 
 
-def _run(cli: HermesCLI, command: str) -> str:
+def _apply_command_cwd(cwd: object) -> None:
+    """Point directory-sensitive commands at the calling session's cwd.
+
+    ``TERMINAL_CWD`` is the CLI's contract for "the directory this session works
+    in" (``cli.py`` force-exports it from ``terminal.cwd``); ``/diff`` and the
+    checkpoint commands read it before falling back to ``os.getcwd()``. This
+    worker is spawned in the gateway's launch directory, so without this a
+    ``/diff`` from a GUI session pointed at another project silently rendered
+    the wrong repository's changes — a wrong answer, not an error.
+
+    Deliberately NOT ``os.chdir``: HermesCLI is built once per worker and holds
+    state resolved against the process cwd, so moving the process itself would
+    change far more than the one env var the command contract names.
+    """
+    path = str(cwd or "").strip()
+    if not path or not os.path.isdir(path):
+        return
+    os.environ["TERMINAL_CWD"] = path
+
+
+def _run(cli: HermesCLI, command: str, cwd: object = None) -> str:
     cmd = (command or "").strip()
     if not cmd:
         return ""
     if not cmd.startswith("/"):
         cmd = f"/{cmd}"
+
+    _apply_command_cwd(cwd)
 
     buf = io.StringIO()
 
@@ -165,7 +189,7 @@ def main():
         try:
             req = json.loads(line)
             rid = req.get("id")
-            out = _run(cli, req.get("command", ""))
+            out = _run(cli, req.get("command", ""), req.get("cwd"))
             sys.stdout.write(json.dumps({"id": rid, "ok": True, "output": out}) + "\n")
             sys.stdout.flush()
         except Exception as e:
@@ -173,6 +197,21 @@ def main():
             sys.stdout.flush()
         finally:
             _in_flight.clear()
+            # Workers persist for the TUI session, so release allocator pages at
+            # the same command boundary as other long-lived gateway processes.
+            # trim_memory's shared cooldown coalesces this with nearby activity.
+            try:
+                from hermes_cli.mem_trim import trim_memory
+
+                trim_memory(reason="slash worker command completion")
+            except Exception as exc:
+                # debug, not warning — a persistent failure would repeat on
+                # every slash command forever.
+                logger.debug(
+                    "slash worker memory trim failed: %s: %s",
+                    type(exc).__name__,
+                    exc,
+                )
 
 
 if __name__ == "__main__":

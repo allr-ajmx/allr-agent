@@ -3,7 +3,9 @@ import { type FC, type ReactNode, useCallback, useRef, useState } from 'react'
 
 import { DirectiveContent } from '@/components/assistant-ui/directive-content'
 import { messageAttachmentRefs, messageContentText } from '@/components/assistant-ui/thread/content'
+import { ReactionBadge, ReactionPicker } from '@/components/assistant-ui/thread/message-reactions'
 import { type RestoreMessageTarget } from '@/components/assistant-ui/thread/types'
+import { useMessageReactions } from '@/components/assistant-ui/thread/use-message-reactions'
 import { UserMessageText } from '@/components/assistant-ui/thread/user-message-text'
 import { Codicon } from '@/components/ui/codicon'
 import { Tip } from '@/components/ui/tooltip'
@@ -13,6 +15,15 @@ import { triggerHaptic } from '@/lib/haptics'
 import { StopFilled } from '@/lib/icons'
 import { cn } from '@/lib/utils'
 import { notifyThreadEditOpen } from '@/store/thread-scroll'
+
+/** A live highlight beats every click gesture on the bubble: finishing a
+ *  drag-select must not open the editor and throw the selection away, and it
+ *  must not summon the reaction picker instead of the native copy menu. */
+export function hasTextSelection(): boolean {
+  const selection = window.getSelection()
+
+  return Boolean(selection && !selection.isCollapsed && selection.toString().length > 0)
+}
 
 export function StickyHumanMessageContainer({
   attachments,
@@ -51,7 +62,7 @@ export function StickyHumanMessageContainer({
 // Electron compositor concern; harmless (no-op) in the Tauri webview, kept for
 // parity with the shared bubble class.
 export const USER_BUBBLE_BASE_CLASS =
-  'composer-human-message standalone-glass relative flex w-full min-w-0 max-w-full flex-col gap-1.5 overflow-y-auto rounded-xl border bg-(--dt-user-bubble) px-3 py-2 text-left [-webkit-app-region:no-drag]'
+  'composer-human-message standalone-glass relative flex w-full min-w-0 max-w-full flex-col gap-1.5 overflow-y-auto rounded-xl border bg-(--dt-user-bubble) px-3 py-2 text-start [-webkit-app-region:no-drag]'
 
 export const USER_ACTION_ICON_BUTTON_CLASS =
   'grid place-items-center rounded-md bg-transparent text-(--ui-text-secondary) transition-colors hover:bg-(--ui-control-active-background) hover:text-foreground disabled:cursor-default disabled:text-(--ui-text-quaternary) disabled:opacity-70'
@@ -79,7 +90,7 @@ const ProcessNotificationNote: FC<{ text: string }> = ({ text }) => {
         <span className="wrap-anywhere">{headline}</span>
       </span>
       {detail && (
-        <details className="pl-[1.3125rem]">
+        <details className="ps-[1.3125rem]">
           <summary className="cursor-pointer select-none text-muted-foreground/45 hover:text-muted-foreground/70">
             output
           </summary>
@@ -125,24 +136,6 @@ export const UserMessage: FC<{
     return null
   })
 
-  const runtimeUserOrdinal = useAuiState(s => {
-    let ordinal = 0
-
-    for (const message of s.thread.messages) {
-      if (message.role !== 'user') {
-        continue
-      }
-
-      if (message.id === s.message.id) {
-        return ordinal
-      }
-
-      ordinal += 1
-    }
-
-    return null
-  })
-
   // Sticky human bubbles clamp to ~2 lines with a soft fade so a long prompt
   // doesn't dominate the viewport while the response streams underneath; the
   // clamp lifts on hover / focus (see styles.css). We measure the *unclamped*
@@ -150,6 +143,17 @@ export const UserMessage: FC<{
   // changes, not on every frame while the outer max-height animates open.
   const clampInnerRef = useRef<HTMLDivElement | null>(null)
   const [bodyClamped, setBodyClamped] = useState(false)
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const { enabled: reactionsEnabled, react, reactions: shownReactions } = useMessageReactions(messageId, 'user')
+
+  const pickEmoji = useCallback(
+    (emoji: null | string) => {
+      setPickerOpen(false)
+      react(emoji)
+    },
+    [react]
+  )
+
   const lastClampHeightRef = useRef(-1)
   const lineHeightRef = useRef(0)
 
@@ -211,7 +215,7 @@ export const UserMessage: FC<{
 
   const bubbleClassName = cn(
     USER_BUBBLE_BASE_CLASS,
-    'cursor-pointer pr-9 text-[length:var(--conversation-text-font-size)] leading-(--dt-line-height) text-foreground/95 transition-colors',
+    'cursor-pointer pe-9 text-[length:var(--conversation-text-font-size)] leading-(--dt-line-height) text-foreground/95 transition-colors',
     'border-(--ui-stroke-tertiary) hover:border-(--ui-stroke-secondary)'
   )
 
@@ -245,74 +249,130 @@ export const UserMessage: FC<{
       >
         <ActionBarPrimitive.Root className="relative w-full max-w-full" data-slot="aui_user-bubble-actions">
           <div className="human-message-with-todos-wrapper flex w-full flex-col gap-0">
-            <div className="relative w-full">
-              {/* Always editable — clicking opens the inline edit composer even
+            <ReactionPicker
+              onOpenChange={setPickerOpen}
+              onSelect={pickEmoji}
+              open={pickerOpen}
+              selected={shownReactions.find(reaction => reaction.author === 'user')?.emoji}
+            >
+              <div
+                className="relative w-full"
+                onContextMenu={
+                  // Right-click is the desktop stand-in for iOS touch-and-hold —
+                  // but only when there's nothing selected. A live highlight
+                  // keeps the native Copy menu (and ⌘C) instead of the picker.
+                  reactionsEnabled
+                    ? event => {
+                        if (hasTextSelection()) {
+                          return
+                        }
+
+                        event.preventDefault()
+                        setPickerOpen(true)
+                      }
+                    : undefined
+                }
+              >
+                {/* Always editable — clicking opens the inline edit composer even
                   while a turn streams; sending the edit reverts (interrupt +
                   rewind, see submitEditedPrompt). The editor shows the full
                   prompt, which is also how a clamped bubble is read in full.
                   FLAG(chat-port): desktop's watch-window read-only spectator
                   mode (isWatchWindow) is a multi-window concern, dropped here. */}
-              <ActionBarPrimitive.Edit asChild>
-                <button
-                  aria-label={copy.editMessage}
-                  className={bubbleClassName}
-                  onClick={() => void triggerHaptic('selection')}
-                  onPointerDown={() => notifyThreadEditOpen()}
-                  // No tip: this is the whole message bubble behind an
-                  // ActionBarPrimitive.Edit asChild trigger — a tooltip over
-                  // the entire bubble is noise, and Tip can't compose onto the
-                  // same child. aria-label already names the action.
-                  type="button"
-                >
-                  {bubbleContent}
-                </button>
-              </ActionBarPrimitive.Edit>
-              {(showStop || showRestore) && (
-                <div className="pointer-events-none absolute right-2 bottom-2 z-10 flex items-center justify-center opacity-0 transition-opacity group-hover/user-message:opacity-100 coarse:opacity-100 group-focus-within/user-message:opacity-100">
-                  {showStop ? (
-                    <Tip label={copy.stop}>
-                      <button
-                        aria-label={copy.stop}
-                        className={cn('pointer-events-auto size-5', USER_ACTION_ICON_BUTTON_CLASS)}
-                        onClick={event => {
-                          event.preventDefault()
-                          event.stopPropagation()
-                          void onCancel?.()
-                        }}
-                        type="button"
-                      >
-                        {StopGlyph}
-                      </button>
-                    </Tip>
-                  ) : (
-                    <Tip label={copy.restoreFromHere}>
-                      <button
-                        aria-label={copy.restoreCheckpoint}
-                        className={cn('pointer-events-auto size-6', USER_ACTION_ICON_BUTTON_CLASS)}
-                        onClick={event => {
-                          event.preventDefault()
-                          event.stopPropagation()
-                          void triggerHaptic('selection')
-                          onRequestRestoreConfirm?.(messageId, {
-                            text: messageText,
-                            userOrdinal: runtimeUserOrdinal
-                          })
-                        }}
-                        onPointerDown={event => {
-                          event.preventDefault()
-                          event.stopPropagation()
-                        }}
-                        type="button"
-                      >
-                        <Codicon name="discard" size="0.875rem" />
-                      </button>
-                    </Tip>
-                  )}
-                </div>
-              )}
-            </div>
+                <ActionBarPrimitive.Edit asChild>
+                  <button
+                    aria-label={copy.editMessage}
+                    className={bubbleClassName}
+                    onClick={event => {
+                      if (hasTextSelection()) {
+                        event.preventDefault()
+                        event.stopPropagation()
+
+                        return
+                      }
+
+                      void triggerHaptic('selection')
+                    }}
+                    onPointerDown={() => {
+                      // Skip the notify, but let the press keep its DEFAULT.
+                      // Cancelling it suppresses the compatibility mouse
+                      // events, and mousedown's default is the only thing that
+                      // collapses a live selection — so a bubble pressed while
+                      // ANY text was highlighted (typically in the reply above
+                      // it) both did nothing and left the highlight standing,
+                      // which made the very next press do nothing either. The
+                      // bubble stayed dead until the user clicked some other
+                      // surface. Letting the default run collapses the stale
+                      // highlight, so `onClick` below sees none and the editor
+                      // opens; a highlight made by dragging INSIDE the bubble
+                      // is still live at click time and still wins.
+                      if (hasTextSelection()) {
+                        return
+                      }
+
+                      notifyThreadEditOpen()
+                    }}
+                    // No tip: this is the whole message bubble behind an
+                    // ActionBarPrimitive.Edit asChild trigger — a tooltip over
+                    // the entire bubble is noise, and Tip can't compose onto the
+                    // same child. aria-label already names the action.
+                    type="button"
+                  >
+                    {bubbleContent}
+                  </button>
+                </ActionBarPrimitive.Edit>
+                {(showStop || showRestore) && (
+                  <div className="pointer-events-none absolute end-2 bottom-2 z-10 flex items-center justify-center opacity-0 transition-opacity group-hover/user-message:opacity-100 coarse:opacity-100 group-focus-within/user-message:opacity-100">
+                    {showStop ? (
+                      <Tip label={copy.stop}>
+                        <button
+                          aria-label={copy.stop}
+                          className={cn('pointer-events-auto size-5', USER_ACTION_ICON_BUTTON_CLASS)}
+                          onClick={event => {
+                            event.preventDefault()
+                            event.stopPropagation()
+                            void onCancel?.()
+                          }}
+                          type="button"
+                        >
+                          {StopGlyph}
+                        </button>
+                      </Tip>
+                    ) : (
+                      <Tip label={copy.restoreFromHere}>
+                        <button
+                          aria-label={copy.restoreCheckpoint}
+                          className={cn('pointer-events-auto size-6', USER_ACTION_ICON_BUTTON_CLASS)}
+                          onClick={event => {
+                            event.preventDefault()
+                            event.stopPropagation()
+                            void triggerHaptic('selection')
+                            onRequestRestoreConfirm?.(messageId, { text: messageText })
+                          }}
+                          onPointerDown={event => {
+                            event.preventDefault()
+                            event.stopPropagation()
+                          }}
+                          type="button"
+                        >
+                          <Codicon name="discard" size="0.875rem" />
+                        </button>
+                      </Tip>
+                    )}
+                  </div>
+                )}
+              </div>
+            </ReactionPicker>
+            {/* Below the bubble, same register as the assistant action row:
+                same emoji size, same vertical padding, right-aligned to the
+                sent bubble. Overlaying the corner read badly in practice. */}
+            <ReactionBadge
+              className="justify-end gap-1.5 py-1.5 pe-1.5"
+              onRetract={() => react(null)}
+              reactions={shownReactions}
+            />
             <BranchPickerPrimitive.Root
-              className="checkpoint-container flex items-center gap-1 pb-0 pt-1 pl-1.5 text-[0.75rem] leading-none text-(--ui-text-tertiary)"
+              className="checkpoint-container flex items-center gap-1 pb-0 pt-1 ps-1.5 text-[0.75rem] leading-none text-(--ui-text-tertiary)"
               hideWhenSingleBranch
             >
               <span aria-hidden className="checkpoint-icon size-1.5 rounded-full border border-current" />

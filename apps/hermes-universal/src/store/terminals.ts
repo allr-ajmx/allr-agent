@@ -26,6 +26,12 @@ export function setTerminalHostPreference(preference: TerminalHostPreference): v
 export interface TerminalEntry {
   id: string
   title: string
+  /** The directory this shell was SPAWNED in, recorded by the view once the
+   *  transport settles. A terminal keeps the directory it was opened in, so this
+   *  is a spawn-time fact, not a live `pwd` — the shell may have `cd`-ed since
+   *  and we have no way to know. It exists so switching chats can re-select the
+   *  terminal that already belongs to that chat's project. */
+  cwd?: string
 }
 
 let counter = 0
@@ -48,6 +54,43 @@ export function ensureTerminal(): void {
     createTerminal()
   } else if (!$activeTerminalId.get()) {
     $activeTerminalId.set($terminals.get()[0].id)
+  }
+}
+
+/** Record the directory a terminal actually spawned in (called by the view once
+ *  its transport is up). Idempotent. */
+export function noteTerminalCwd(id: string, cwd: string): void {
+  const terminals = $terminals.get()
+  const current = terminals.find(term => term.id === id)
+
+  if (!current || current.cwd === cwd) {
+    return
+  }
+
+  $terminals.set(terminals.map(term => (term.id === id ? { ...term, cwd } : term)))
+}
+
+/**
+ * Front the terminal belonging to `cwd`, if one exists.
+ *
+ * Called when the focused chat changes, so moving between two projects moves
+ * between their shells instead of leaving you typing into the other project's
+ * directory. Deliberately conservative in two ways: it never SPAWNS a terminal
+ * (switching chats must not start shells the user did not ask for), and it does
+ * nothing when no terminal matches — an unrelated chat leaves whatever you were
+ * looking at exactly where it was, rather than yanking you to terminal 1.
+ */
+export function selectTerminalForCwd(cwd: string): void {
+  const target = cwd.trim()
+
+  if (!target) {
+    return
+  }
+
+  const match = $terminals.get().find(term => term.cwd === target)
+
+  if (match && match.id !== $activeTerminalId.get()) {
+    $activeTerminalId.set(match.id)
   }
 }
 
@@ -76,10 +119,46 @@ export function closeTerminal(id: string): void {
   )
 }
 
+/** Close every terminal but this one. Through `afterRemoval` like the other
+ *  three verbs: it was the one that rewrote the list itself, so with an id no
+ *  longer in the list it emptied the rail and left the terminal AREA open on
+ *  nothing — `⌃\`` then read as "hide" while showing a blank pane. */
 export function closeOtherTerminals(id: string): void {
   const keep = $terminals.get().filter(term => term.id === id)
-  $terminals.set(keep)
-  $activeTerminalId.set(keep.length ? id : null)
+
+  afterRemoval(keep, !keep.some(term => term.id === $activeTerminalId.get()))
+}
+
+/** The fourth verb of the shared tab close group. The rail's list is ORDERED
+ *  (the numbered `1. …` labels are that order), so "to the right" means the
+ *  same thing here as on a tab strip; the rail simply never offered it. */
+export function closeTerminalsToRight(id: string): void {
+  const terminals = $terminals.get()
+  const at = terminals.findIndex(term => term.id === id)
+
+  if (at < 0) {
+    return
+  }
+
+  const keep = terminals.slice(0, at + 1)
+
+  if (keep.length === terminals.length) {
+    return
+  }
+
+  afterRemoval(keep, !keep.some(term => term.id === $activeTerminalId.get()))
+}
+
+/** How many terminals each close verb would hit — the rail's `PaneTabCloseCounts`. */
+export function terminalCloseTargets(id: string): { all: number; others: number; right: number } {
+  const terminals = $terminals.get()
+  const at = terminals.findIndex(term => term.id === id)
+
+  return {
+    all: terminals.length,
+    others: at < 0 ? 0 : terminals.length - 1,
+    right: at < 0 ? 0 : terminals.length - 1 - at
+  }
 }
 
 // ── Keybind entry points (view.nextTerminal / prevTerminal / closeTerminal) ──

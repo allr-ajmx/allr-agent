@@ -3,17 +3,43 @@ import { type FC } from 'react'
 
 import { messageContentText } from '@/components/assistant-ui/thread/content'
 import { Codicon } from '@/components/ui/codicon'
+import { useI18n } from '@/i18n'
 import { LinkifiedText } from '@/lib/external-link'
 import { cn } from '@/lib/utils'
+import { MISSED_STEER_NOTE } from '@/store/chat'
 
 const SLASH_STATUS_RE = /^slash:(?<command>\/[^\n]+)\n(?<output>[\s\S]*)$/
 const STEER_NOTE_RE = /^steer:(?<text>[\s\S]+)$/
+/** Written by `store/chat.ts` `noteMissedSteer` when the gateway pushes
+ *  `steer.missed`: the correction was accepted as a deferred steer, the turn
+ *  ended before any tool result could carry it, and it has been requeued as a
+ *  fresh turn instead. Distinct from `steer:` above — that one says the words
+ *  LANDED. Built from the producer's own constant so the two cannot drift. */
+const MISSED_STEER_NOTE_RE = new RegExp(`^${MISSED_STEER_NOTE}(?<text>[\\s\\S]+)$`)
 
 export const SystemMessage: FC = () => {
+  const { t } = useI18n()
   const text = useAuiState(s => messageContentText(s.message.content))
 
   if (!text) {
     return null
+  }
+
+  const missedSteer = text.match(MISSED_STEER_NOTE_RE)
+
+  if (missedSteer?.groups) {
+    return (
+      <MessagePrimitive.Root
+        className="flex max-w-[min(86%,44rem)] items-center gap-1.5 self-center px-2 py-0.5 text-[0.6875rem] leading-5 text-muted-foreground/60"
+        data-role="system"
+        data-slot="aui_system-message-root"
+      >
+        <Codicon className="text-destructive/70" name="compass" size="0.75rem" />
+        <span className="text-destructive/70">{t.assistant.thread.steerMissed}</span>
+        <span className="text-muted-foreground/35">·</span>
+        <span className="whitespace-pre-wrap">{missedSteer.groups.text.trim()}</span>
+      </MessagePrimitive.Root>
+    )
   }
 
   const steerNote = text.match(STEER_NOTE_RE)
@@ -46,7 +72,7 @@ export const SystemMessage: FC = () => {
       <MessagePrimitive.Root
         className={cn(
           'w-[60%] max-w-[44rem] self-center px-2 py-0.5 text-[0.6875rem] leading-5 text-muted-foreground/60',
-          multiline ? 'text-left' : 'text-center'
+          multiline ? 'text-start' : 'text-center'
         )}
         data-role="system"
         data-slot="aui_system-message-root"
@@ -70,7 +96,7 @@ export const SystemMessage: FC = () => {
     <MessagePrimitive.Root
       className={cn(
         'w-[60%] max-w-[44rem] self-center px-2 py-0.5 text-[0.6875rem] leading-5 text-muted-foreground/55',
-        multiline ? 'text-left' : 'text-center'
+        multiline ? 'text-start' : 'text-center'
       )}
       data-role="system"
       data-slot="aui_system-message-root"

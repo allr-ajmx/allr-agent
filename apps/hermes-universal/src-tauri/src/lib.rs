@@ -10,7 +10,10 @@
 //! `build.rs` to avoid a wry 0.55 crash on cookie polling — see that file.)
 
 mod appearance;
+mod artifact;
+mod background;
 mod cloud;
+mod find_in_page;
 mod keep_awake;
 mod link_title;
 mod local_backend;
@@ -20,39 +23,56 @@ mod oauth;
 mod plugins;
 mod pty;
 mod repo_scan;
+mod shortcuts;
 mod ssh;
+mod surface;
 mod telemetry;
 mod transport;
+mod tray;
 mod updates;
 mod voice;
+mod webview_cookies;
 mod window;
 
 use appearance::set_window_translucency;
-use keep_awake::{set_keep_awake, KeepAwakeState};
-use link_title::fetch_link_title;
-use marketplace::{marketplace_fetch, marketplace_search};
-use media::{media_set_target, MediaState, MEDIA_SCHEME};
+use artifact::{artifact_release, artifact_stage, ArtifactState, ARTIFACT_SCHEME};
+use background::{get_background_mode, quit_app, set_background_mode, BackgroundState};
 use cloud::{
     portal_agent_sign_in, portal_discover_agents, portal_login, portal_logout, portal_status,
 };
-use local_backend::{local_backend_spawn, local_backend_status, local_backend_stop, LocalBackendState};
+use find_in_page::{find_in_page, stop_find_in_page};
+use keep_awake::{set_keep_awake, KeepAwakeState};
+use link_title::fetch_link_title;
+use local_backend::{
+    local_backend_spawn, local_backend_status, local_backend_stop, LocalBackendState,
+};
+use marketplace::{marketplace_fetch, marketplace_search};
+use media::{media_set_target, MediaState, MEDIA_SCHEME};
 use oauth::{oauth_login, oauth_logout, oauth_status};
 use plugins::{plugins_list, plugins_read, plugins_root};
 use pty::{pty_kill, pty_resize, pty_spawn, pty_write, PtyState};
 use repo_scan::repo_scan_git_repos;
+use shortcuts::{global_shortcut_take_pending, global_shortcuts_sync, ShortcutState};
 use ssh::{
     ssh_answer_prompt, ssh_cancel, ssh_connect, ssh_disconnect, ssh_list_config_hosts,
     ssh_resolve_host, ssh_test, ssh_trust_host_key, SshState,
 };
+use surface::below::read_window_below;
+use surface::{surface_capabilities, surface_set_interactive_rect};
 use transport::{
     cookies_export, cookies_import, http_request, ws_close, ws_open, ws_send, TransportState,
 };
+use tray::{tray_set_labels, tray_set_status, TrayState};
 use updates::{update_check, update_open_download, UpdateState};
 use voice::{
     voice_arm, voice_close, voice_force_turn, voice_open, voice_suspend, voice_update_auth,
-    VoiceState,
+    voice_wake_listen, VoiceState,
 };
-use window::{open_instance_window, open_screen_window, open_session_window, open_tile_window};
+use window::{
+    close_this_window, hide_satellite_window, hide_this_window, is_satellite_window_visible,
+    open_instance_window, open_satellite_window, open_screen_window, open_session_window,
+    open_tile_window, resize_satellite_window, show_app_window,
+};
 
 /// Open a URL in the system browser. Routed through the opener plugin's Rust API
 /// rather than its JS `openUrl` command: a Rust-internal call isn't gated by the
@@ -80,14 +100,35 @@ fn reveal_in_file_manager(app: tauri::AppHandle, path: String) -> Result<(), Str
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Route Rust `log::` output to logcat on Android (tao doesn't reliably install
-    // a logger, so diagnostics were invisible). Idempotent via `init_once`.
+    // Route Rust `log::` output somewhere a person can read it on mobile (tao
+    // doesn't reliably install a logger, so diagnostics were invisible).
     #[cfg(target_os = "android")]
     android_logger::init_once(
         android_logger::Config::default()
             .with_max_level(log::LevelFilter::Info)
             .with_tag("hermes"),
     );
+
+    // The iOS half, added because its absence hid a real bug for a whole debugging
+    // session: an ATS-blocked sign-in navigation is reported ONLY as a `log::error!`
+    // from inside wry's event loop, and with no logger installed that line — and
+    // every `[oauth]`/`[portal]` breadcrumb next to it — went nowhere. The symptom
+    // was "the button does nothing", with no way to tell a refused navigation from a
+    // command that never ran.
+    //
+    // Deliberately fire-and-forget, exactly like `init_once` above: `telemetry::init`
+    // below may install `tracing_log::LogTracer` as the global logger first, and
+    // losing that race must cost us a log sink, never the app. (This is also why the
+    // richer `tauri-plugin-log` is not used here — it installs its logger from plugin
+    // setup and turns the same race into a failed build.)
+    // The subsystem is the iOS bundle identifier (tauri.conf.json `identifier`), so
+    // `log stream --predicate 'subsystem == "com.jaxmatrix.mjx-unofficial-hermes"'`
+    // filters to just this app. Note the hyphens — the Android namespace above spells
+    // the same id with underscores, and only this form matches the iOS bundle.
+    #[cfg(target_os = "ios")]
+    let _ = oslog::OsLogger::new("com.jaxmatrix.mjx-unofficial-hermes")
+        .level_filter(log::LevelFilter::Info)
+        .init();
 
     // Span tracing. FIRST, so boot itself lands inside the trace rather than
     // before it. Compiled out entirely without `--features tracing`, and inert
@@ -103,7 +144,18 @@ pub fn run() {
     // is idempotent — ignore the Err when something already installed one.
     let _ = rustls::crypto::ring::default_provider().install_default();
 
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+
+    // OS-level hotkeys (MJXHRM-55). Desktop only — no mobile OS lets an app claim
+    // a system-wide chord, and the crate isn't in the mobile dependency set at
+    // all, so this is a compile-time branch rather than a runtime capability
+    // check. Which chords get registered is decided by the frontend from the
+    // rebindable keybind registry (`lib/keybinds/global-shortcut.ts`); nothing is
+    // hardcoded here.
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    let builder = builder.plugin(tauri_plugin_global_shortcut::Builder::new().build());
+
+    builder
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_keyring::init())
         .plugin(tauri_plugin_mic::init())
@@ -112,8 +164,10 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .manage(TransportState::new())
         .manage(MediaState::default())
+        .manage(ArtifactState::default())
         .manage(LocalBackendState::default())
         .manage(PtyState::default())
         // The one system-sleep inhibitor. It releases on drop, so quitting frees
@@ -124,11 +178,30 @@ pub fn run() {
         // Live SSH sessions. Unlike desktop's on-disk control socket, nothing
         // here outlives the process, so there is no stale master to evict.
         .manage(SshState::default())
+        // Background mode's two flags — the mirrored preference, and the
+        // one-way "the user asked to quit" latch that stops `ExitRequested`
+        // from preventing the app's own exit (background.rs).
+        .manage(BackgroundState::default())
+        // The tray's live menu rows, so their text can be replaced when the
+        // webview pushes the translated catalog. Managed on both targets so
+        // the builder chain is the same shape; the mobile `TrayState` is an
+        // empty struct nothing reads.
+        .manage(TrayState::default())
+        // The OS-hotkey registry. Rust holds the claims now, not a webview
+        // (MJXHRM-437), so this outlives every window — which is the point:
+        // background mode makes "no window is visible" the state the chord has
+        // to work in. Managed on both targets so the builder chain is the same
+        // shape; the mobile `ShortcutState` is an empty struct nothing reads.
+        .manage(ShortcutState::default())
         // Inline audio/video streams through here instead of loading as a base64
         // data URL — see media.rs. Registered on the BUILDER, not in `.setup()`:
         // on Linux, wry registers custom schemes into the WebContext when the
         // webview is created, so a later registration would never take.
         .register_asynchronous_uri_scheme_protocol(MEDIA_SCHEME, media::handle)
+        // Model-generated HTML gets an ORIGIN of its own rather than running
+        // inside the app document — see artifact.rs. Same builder-time
+        // registration for the same wry/Linux reason as above.
+        .register_asynchronous_uri_scheme_protocol(ARTIFACT_SCHEME, artifact::handle)
         .setup(|app| {
             // WebKitGTK (Linux desktop) auto-denies `getUserMedia` unless the
             // embedder answers the WebView's `permission-request` signal — wry
@@ -166,6 +239,21 @@ pub fn run() {
                 }
             }
 
+            // The tray. Desktop only, and deliberately not fatal: a machine
+            // with no StatusNotifier host (a bare sway/wlroots session with no
+            // waybar and no xembed tray) is a perfectly good machine to run
+            // Hermes on — it just cannot run it hidden, so the flag below is
+            // what makes `set_background_mode` refuse to arm rather than
+            // stranding a live process with no window and no icon.
+            #[cfg(desktop)]
+            {
+                use tauri::Manager;
+
+                let ready = tray::install(app.handle());
+
+                app.state::<BackgroundState>().set_tray_ready(ready);
+            }
+
             let _ = app;
             Ok(())
         })
@@ -186,6 +274,7 @@ pub fn run() {
             repo_scan_git_repos,
             voice_open,
             voice_arm,
+            voice_wake_listen,
             voice_suspend,
             voice_force_turn,
             voice_update_auth,
@@ -196,6 +285,8 @@ pub fn run() {
             set_keep_awake,
             marketplace_search,
             marketplace_fetch,
+            artifact_release,
+            artifact_stage,
             media_set_target,
             fetch_link_title,
             oauth_login,
@@ -218,6 +309,10 @@ pub fn run() {
             open_instance_window,
             open_tile_window,
             open_screen_window,
+            open_satellite_window,
+            hide_satellite_window,
+            is_satellite_window_visible,
+            resize_satellite_window,
             update_check,
             update_open_download,
             ssh_connect,
@@ -227,7 +322,22 @@ pub fn run() {
             ssh_list_config_hosts,
             ssh_resolve_host,
             ssh_answer_prompt,
-            ssh_trust_host_key
+            ssh_trust_host_key,
+            find_in_page,
+            stop_find_in_page,
+            surface_capabilities,
+            surface_set_interactive_rect,
+            read_window_below,
+            set_background_mode,
+            get_background_mode,
+            quit_app,
+            show_app_window,
+            hide_this_window,
+            close_this_window,
+            tray_set_labels,
+            tray_set_status,
+            global_shortcuts_sync,
+            global_shortcut_take_pending
         ]))
         // `.build(...).run(closure)` (rather than the terminal `.run(context)`) so
         // we can observe `RunEvent`s. On iOS this catches scenes the *system*
@@ -244,20 +354,71 @@ pub fn run() {
                 window::fill_requested_scene(app_handle);
             }
 
-            // A detached tile's window went away — tell the app so the tile goes
-            // back in its slot (MJXHRM-173). This lives here rather than in the
+            // A second window went away. Both arms live here rather than in the
             // closing webview because a torn-down WebKitGTK view is the least
             // reliable place to send a message from; tao reports the destroy
             // whether or not the page got a chance to run anything.
+            //
+            //  • a detached tile: so the tile goes back in its slot (MJXHRM-173)
+            //  • a satellite: so the main window can reclaim the gateway stream
+            //    the HUD was holding (MJXHRM-371)
+            //  • ANY window: so the shells it spawned die with it (MJXHRM-373).
+            //    `pty_kill` is only ever called by the terminal component's
+            //    unmount cleanup, and that never runs for a natively closed
+            //    window — so a detached terminal tile left one orphaned shell
+            //    per close, running for the rest of the app's life.
+            //  • ANY window: and so do the WebSockets it opened (MJXHRM-405).
+            //    `ws_close` has exactly the same problem — it only ever runs
+            //    from a JS disposer — while the socket itself lives in Rust and
+            //    outlives the WebView, still reading frames and emitting events
+            //    at a window that is gone.
             if let tauri::RunEvent::WindowEvent {
                 label,
                 event: tauri::WindowEvent::Destroyed,
                 ..
             } = &event
             {
+                use tauri::Emitter;
+
+                #[cfg(desktop)]
+                pty::reap_window_ptys(app_handle, label);
+
+                transport::reap_window_sockets(app_handle, label);
+
                 if window::is_tile_window_label(label) {
-                    use tauri::Emitter;
                     let _ = app_handle.emit(window::TILE_WINDOW_CLOSED_EVENT, label.clone());
+                }
+                if window::is_satellite_window_label(label) {
+                    let _ = app_handle.emit(window::SATELLITE_WINDOW_CLOSED_EVENT, label.clone());
+                }
+            }
+
+            // Background mode's hold on the process (MJXHRM-436).
+            //
+            // tao raises `ExitRequested` the moment the window map empties —
+            // `tauri-runtime-wry` fires it from `TaoWindowEvent::Destroyed` and
+            // then sets `ControlFlow::Exit` unless something prevents it — so
+            // without this arm destroying the last window ends the process, and
+            // "keep running in the background" would end at the first close that
+            // was not a hide.
+            //
+            // It is NOT the hide mechanism. Close-to-hide is decided in JS, in
+            // `installWindowCloseGuard`, because Tauri's core calls
+            // `prevent_close()` for any window that has a JS
+            // `tauri://close-requested` listener — so a Rust `CloseRequested` arm
+            // would be fighting a handler that has already won. This arm is the
+            // guard for every other route to zero windows: the macOS
+            // last-window-closed quit, a window destroyed natively by the
+            // compositor, a satellite teardown that took the last one with it.
+            //
+            // The `quit_requested` half is what keeps Tray → Quit working:
+            // `AppHandle::exit` raises this same event.
+            #[cfg(desktop)]
+            if let tauri::RunEvent::ExitRequested { api, .. } = &event {
+                use tauri::Manager;
+
+                if app_handle.state::<BackgroundState>().should_prevent_exit() {
+                    api.prevent_exit();
                 }
             }
 

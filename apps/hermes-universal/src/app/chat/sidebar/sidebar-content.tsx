@@ -2,14 +2,18 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { PlatformAvatar } from '@/app/messaging/platform-icon'
-import { CRON_ROUTE, sessionRoute } from '@/app/routes'
+import { cronJobRoute, sessionRoute } from '@/app/routes'
 import { Codicon } from '@/components/ui/codicon'
 import { GlyphSpinner } from '@/components/ui/glyph-spinner'
 import { SearchField } from '@/components/ui/search-field'
 import { Tip } from '@/components/ui/tooltip'
+import type { HermesBranchPullRequest } from '@/global'
 import { useI18n } from '@/i18n'
 import { profileColor } from '@/lib/profile-color'
+import { liveSessionProjectId } from '@/lib/session-membership'
 import { sessionMatchesSearch } from '@/lib/session-search'
+import { reuseUnchanged } from '@/lib/structural-share'
+import { useStoreSelector } from '@/lib/use-session-slice'
 import { useStore } from '@/store/atom'
 import { $busy, $sessionId } from '@/store/chat'
 import { $cronJobs, refreshCronJobs, triggerCron } from '@/store/cron'
@@ -18,11 +22,16 @@ import {
   $pinnedSessionIds,
   $sidebarAgentsGrouped,
   $sidebarMessagingOpenIds,
+  $sidebarOrdering,
   $sidebarPinsOpen,
+  $sidebarPrFilter,
+  $sidebarProjectFilter,
   $sidebarProjectOrderIds,
   $sidebarRecentsOpen,
   $sidebarSessionOrderIds,
   $sidebarSessionOrderManual,
+  $sidebarShowArchived,
+  $sidebarStatusFilter,
   pinSession,
   SESSION_SEARCH_FOCUS_EVENT,
   setPinnedSessionOrder,
@@ -32,15 +41,18 @@ import {
   setSidebarRecentsOpen,
   setSidebarSessionOrderIds,
   setSidebarSessionOrderManual,
+  type SidebarOrdering,
   toggleSidebarMessagingOpen,
   unpinSession
 } from '@/store/layout'
 import { $sidebarCronOpen, setSidebarCronOpen } from '@/store/layout'
-import { startNewSession } from '@/store/new-session'
+import { $changeEventsAvailable, $cronChangeTick, livePollIntervalMs } from '@/store/live-sync'
+import { newSessionInProfile, startNewSession } from '@/store/new-session'
 import { $profileScope, ALL_PROFILES, normalizeProfileKey } from '@/store/profile'
-import { $profiles, setActiveProfile } from '@/store/profiles'
+import { $profiles } from '@/store/profiles'
 import {
   $activeProjectId,
+  $projects,
   $projectScope,
   $projectTree,
   $projectTreeLoading,
@@ -56,8 +68,17 @@ import {
   scanAndRecordRepos
 } from '@/store/projects'
 import {
+  $prBranchBySession,
+  $pullRequestsByBranch,
+  pullRequestBucket,
+  recoverSessionPullRequests,
+  refreshPullRequests,
+  sessionPrKey
+} from '@/store/pull-requests'
+import {
   $activeStoredSessionId,
   $messagingSessions,
+  $pinnedSessionCache,
   $searchLoading,
   $sessions,
   $sessionSearch,
@@ -70,17 +91,21 @@ import {
   loadMoreSessions,
   messagingSourceLabel,
   openSession,
+  pinnedSessionRows,
   refreshMessagingSessions,
   refreshSessions,
   resetSessionsPaging,
   searchSessionsQuery,
   sessionPinId
 } from '@/store/session'
+import { $sessionDotStateById, sessionStatusBucket, sessionStatusRank } from '@/store/session-dot-state'
+import { $archivedSessions, loadArchivedSessions, sessionCostUsd } from '@/store/sidebar-archive'
 import { openAppRoute } from '@/store/windows'
 import type { SessionInfo, SessionSearchResult } from '@/types/hermes'
 
 import { countLabel } from './chrome'
 import { SidebarCronJobsSection } from './cron-jobs-section'
+import { SidebarFilterMenu } from './filter-menu'
 import { SidebarLoadMoreButton, SidebarLoadMoreRow } from './load-more-row'
 import { ProjectDialog } from './project-dialog'
 import {
@@ -91,7 +116,9 @@ import {
 } from './projects/model'
 import { ProjectBackRow } from './projects/overview-row'
 import { StartWorkButton } from './projects/workspace-header'
+import { WorktreeDialog } from './projects/worktree-dialog'
 import { SidebarPinnedEmptyState } from './section-states'
+import type { SessionDotState } from './session-row-state'
 import { SidebarSessionsSection } from './sessions-section'
 
 // Synthesize a minimal row for a server search hit not in the loaded page.
@@ -122,6 +149,46 @@ function togglePin(pinId: string): void {
   }
 }
 
+// Stable "nothing selected" values for the two HOT stores the filter reads.
+// `$sessionDotStateById` republishes on every status edge anywhere in the app
+// and `$pullRequestsByBranch` on every per-repo `gh` refresh; subscribing this
+// component to either unconditionally would repaint the whole sidebar body for
+// state the default view never reads. Returned from a `useStoreSelector` when
+// the corresponding control is off, so the snapshot stays `Object.is`-identical
+// and React bails out (MJXHRM-219 / MJXHRM-383 are the same lesson a layer down).
+const NO_DOT_STATES: Record<string, SessionDotState | undefined> = {}
+const NO_PULL_REQUESTS: Record<string, HermesBranchPullRequest> = {}
+
+/** The comparator behind each sort key. `updated` is the default and matches
+ *  what the row itself prints as its age (`last_active || started_at`);
+ *  `created` is the session's own birth time. */
+function compareSessions(
+  ordering: SidebarOrdering,
+  dotStates: Record<string, SessionDotState | undefined>
+): (a: SessionInfo, b: SessionInfo) => number {
+  const updatedAt = (s: SessionInfo) => s.last_active || s.started_at || 0
+  const byUpdated = (a: SessionInfo, b: SessionInfo) => updatedAt(b) - updatedAt(a)
+
+  switch (ordering) {
+    case 'created':
+      return (a, b) => (b.started_at || 0) - (a.started_at || 0)
+
+    case 'status':
+      // Loudest first, then newest within a status — a flat rank alone would
+      // shuffle the idle tail into whatever order the backend page arrived in.
+      return (a, b) => sessionStatusRank(dotStates[a.id]) - sessionStatusRank(dotStates[b.id]) || byUpdated(a, b)
+
+    case 'tokens':
+      return (a, b) => b.input_tokens + b.output_tokens - (a.input_tokens + a.output_tokens) || byUpdated(a, b)
+
+    case 'cost':
+      return (a, b) => sessionCostUsd(b) - sessionCostUsd(a) || byUpdated(a, b)
+
+    default:
+      return byUpdated
+  }
+}
+
 // Reconcile a manual drag order over the current rows: dragged ids keep their
 // stored order; any newer item (not yet in the order) surfaces on top.
 function applyManualOrder<T extends { id: string }>(items: T[], ids: string[]): T[] {
@@ -133,13 +200,23 @@ function applyManualOrder<T extends { id: string }>(items: T[], ids: string[]): 
 }
 
 const SESSIONS_CONTENT_CLASS =
-  'flex min-h-0 flex-1 flex-col gap-px overflow-y-auto overflow-x-hidden overscroll-contain pb-1 pr-1.5'
+  'flex min-h-0 flex-1 flex-col gap-px overflow-y-auto overflow-x-hidden overscroll-contain pb-1 pe-1.5'
 
 // All-profiles lanes need breathing room between group headers; the flat list
 // packs rows at gap-px.
 const SESSIONS_CONTENT_GROUPED_CLASS = SESSIONS_CONTENT_CLASS.replace('gap-px', 'gap-3')
 
 const SESSIONS_ROOT_CLASS = 'flex min-h-0 flex-1 flex-col p-0'
+
+// Legacy cadences, kept for a gateway that does not broadcast change events;
+// on one that does, the same fetch becomes a slow backstop behind the ticks.
+const MESSAGING_POLL_MS = 10_000
+const MESSAGING_BACKSTOP_MS = 120_000
+// The transcript recovery scan reads every unscanned session's state.db, so it
+// waits for the first paint rather than competing with it.
+const PR_RECOVERY_WARM_MS = 1_500
+const CRON_POLL_MS = 30_000
+const CRON_BACKSTOP_MS = 180_000
 
 // The entered project's sessions, remembered across mounts.
 //
@@ -168,20 +245,39 @@ export function SidebarScrollBody({
   const total = useStore($sessionsTotal)
   const sessionsLoading = useStore($sessionsLoading)
   const activeId = useStore($activeStoredSessionId)
+  const changeEventsAvailable = useStore($changeEventsAvailable)
+  const cronChangeTick = useStore($cronChangeTick)
   const working = useStore($workingSessionIds)
   const serverResults = useStore($sessionSearch)
   const searching = useStore($searchLoading)
   const pinnedIds = useStore($pinnedSessionIds)
+  // Subscribed, not read directly: `pinnedSessionRows` reads the cache with
+  // `.get()`, so the section needs a reason to re-render when it changes.
+  const pinnedCache = useStore($pinnedSessionCache)
   const pinsOpen = useStore($sidebarPinsOpen)
   const recentsOpen = useStore($sidebarRecentsOpen)
   const orderManual = useStore($sidebarSessionOrderManual)
   const orderIds = useStore($sidebarSessionOrderIds)
-  const grouped = useStore($sidebarAgentsGrouped)
+  const ordering = useStore($sidebarOrdering)
+  const statusFilter = useStore($sidebarStatusFilter)
+  const projectFilter = useStore($sidebarProjectFilter)
+  const prFilter = useStore($sidebarPrFilter)
+  const showArchived = useStore($sidebarShowArchived)
+  const archivedSessions = useStore($archivedSessions)
+  const explicitProjects = useStore($projects)
+  const groupedPref = useStore($sidebarAgentsGrouped)
+  // Archived rows come from their own query and have no project tree behind
+  // them, so the Archived view is always the flat list — same call desktop
+  // makes, for the same reason.
+  const grouped = groupedPref && !showArchived
   const scope = useStore($projectScope)
   const projectTree = useStore($projectTree)
   const projectsLoading = useStore($projectTreeLoading)
   const reposScanning = useStore($reposScanning)
   const activeProjectId = useStore($activeProjectId)
+  // Subscribed, not read directly: `sessionPrKey` reads it with `.get()`, so the
+  // lookup map needs a reason to rebuild when a scan stamps a new key.
+  const prBranchOverrides = useStore($prBranchBySession)
   const dismissedProjects = useStore($dismissedAutoProjectIds)
   const projectOrder = useStore($sidebarProjectOrderIds)
   const messagingSessions = useStore($messagingSessions)
@@ -198,10 +294,25 @@ export function SidebarScrollBody({
     cachedEnteredProject?.scope === scope ? cachedEnteredProject.project : null
   )
 
+  // Mirrors `enteredProject` so the setter can share identities without reading
+  // state through its closure (which would re-mint it on every render and
+  // re-trigger the effects that list it).
+  const enteredProjectRef = useRef(enteredProject)
+
   const setEnteredProject = useCallback(
     (project: null | SidebarProjectTree) => {
-      cachedEnteredProject = { project, scope }
-      setEnteredProjectState(project)
+      // Identity-shared against what is already on screen (MJXHRM-383). This
+      // lands from `fetchProjectSessions`, which is re-run on every turn settle
+      // and every tree change; its lanes carry the same memoized
+      // `SidebarSessionRow` the flat list does, and a JSON-parsed snapshot has a
+      // brand-new object for every row. Reusing the unchanged ones is what lets
+      // the row memo bail — and an identical refetch does not re-render at all,
+      // because `useState` skips a set of the same reference.
+      const shared = reuseUnchanged(enteredProjectRef.current, project)
+
+      enteredProjectRef.current = shared
+      cachedEnteredProject = { project: shared, scope }
+      setEnteredProjectState(shared)
     },
     [scope]
   )
@@ -210,24 +321,38 @@ export function SidebarScrollBody({
   const searchInputRef = useRef<HTMLInputElement>(null)
   const navigate = useNavigate()
 
-  // Messaging platform sessions poll every 10s (their own slice, so a busy
-  // platform never crowds out recents).
+  // Messaging platform sessions: their own slice, so a busy platform never
+  // crowds out recents. Seeded on mount, then the 10s poll (slowed to a backstop
+  // on a broadcasting backend).
+  //
+  // NOT keyed on `sessionsChangeTick`. `sessions.changed` fires on every
+  // state.db write during a streaming turn — floored to 2s server-side — and
+  // this fetch asks for 100 rows, so tick-keying it turned the 10s poll it
+  // replaced into a 2s one. The tick-driven refresh is coalesced onto a 10s
+  // trailing gap in store/live-session-status instead, which also re-pulls the
+  // recents list the same broadcast can invalidate.
   useEffect(() => {
     void refreshMessagingSessions()
-    const timer = setInterval(() => void refreshMessagingSessions(), 10_000)
+
+    const timer = setInterval(
+      () => void refreshMessagingSessions(),
+      livePollIntervalMs(MESSAGING_POLL_MS, MESSAGING_BACKSTOP_MS)
+    )
 
     return () => clearInterval(timer)
-  }, [])
+  }, [changeEventsAvailable])
 
-  // Cron jobs poll every 30s (list is small; countdowns tick client-side), scoped
-  // to the browse scope like the cron overlay is.
+  // Cron jobs: same shape. `cron.changed` fires on create/edit/pause/remove AND
+  // on the scheduler's own last_run/next_run bookkeeping, which is exactly when
+  // the countdowns need re-reading. Scoped to the browse scope like the overlay.
   useEffect(() => {
     const cronScope = profileScope === ALL_PROFILES ? 'all' : profileScope
     void refreshCronJobs(cronScope)
-    const timer = setInterval(() => void refreshCronJobs(cronScope), 30_000)
+
+    const timer = setInterval(() => void refreshCronJobs(cronScope), livePollIntervalMs(CRON_POLL_MS, CRON_BACKSTOP_MS))
 
     return () => clearInterval(timer)
-  }, [profileScope])
+  }, [changeEventsAvailable, cronChangeTick, profileScope])
 
   // A big all-profiles page must not carry over into one small profile — but only
   // on an actual switch. On a phone the sidebar is a drawer that unmounts when it
@@ -332,6 +457,55 @@ export function SidebarScrollBody({
     return () => window.removeEventListener(SESSION_SEARCH_FOCUS_EVENT, onFocus)
   }, [])
 
+  // ── The filter menu's narrowing layer ──────────────────────────────────────
+  const filtersNarrow = statusFilter.length > 0 || projectFilter.length > 0 || prFilter.length > 0
+  const needsDotStates = statusFilter.length > 0 || ordering === 'status'
+  // Gated so the default view pays nothing — see NO_DOT_STATES above.
+  const dotStates = useStoreSelector($sessionDotStateById, states => (needsDotStates ? states : NO_DOT_STATES))
+  const pullRequests = useStoreSelector($pullRequestsByBranch, prs => (prFilter.length ? prs : NO_PULL_REQUESTS))
+
+  // Archived is a view of its OWN set rather than a filter over the live one:
+  // archived rows are excluded from the sessions query, so they arrive from a
+  // separate fetch that only runs while the toggle is on.
+  useEffect(() => {
+    if (showArchived) {
+      void loadArchivedSessions()
+    }
+  }, [showArchived])
+
+  const pool = showArchived ? archivedSessions : sessions
+
+  // ONE predicate for the status/PR/project filters, so the flat list and the
+  // project lanes narrow by the same rule. A project lane holds rows the loaded
+  // page may not, so it has to be answerable per session rather than by
+  // membership in some pre-filtered set.
+  const sessionMatchesFilters = useCallback(
+    (session: SessionInfo) => {
+      if (statusFilter.length && !statusFilter.includes(sessionStatusBucket(dotStates[session.id]))) {
+        return false
+      }
+
+      if (prFilter.length) {
+        const key = sessionPrKey(session)
+
+        if (!prFilter.includes(pullRequestBucket(key ? pullRequests[key] : undefined))) {
+          return false
+        }
+      }
+
+      // Same membership the sidebar groups and colors by, so a filtered row
+      // lands in the lane the user picked it from.
+      return !projectFilter.length || projectFilter.includes(liveSessionProjectId(session, explicitProjects) ?? '')
+    },
+    [statusFilter, projectFilter, prFilter, pullRequests, explicitProjects, dotStates]
+  )
+
+  // `undefined` — not a no-op predicate — whenever nothing narrows. That keeps
+  // the prop referentially constant for every user who never opens the menu, so
+  // `renderProjectRows` downstream keeps the memoized identity MJXHRM-219 paid
+  // for. A `() => true` would be a fresh function every render instead.
+  const sessionFilter = filtersNarrow ? sessionMatchesFilters : undefined
+
   const trimmed = query.trim()
 
   const results = useMemo(() => {
@@ -345,26 +519,46 @@ export function SidebarScrollBody({
     return [...clientMatches, ...serverResults.filter(r => !seen.has(r.session_id)).map(searchResultToSession)]
   }, [trimmed, sessions, serverResults])
 
-  // Pinned = loaded sessions whose durable id is pinned, in the stored pin order.
+  // Pinned, in the stored pin order — EVERY pin, not just the ones the current
+  // page happens to cover. A pinned chat that has fallen past the loaded window
+  // resolves from its last-known row (`$pinnedSessionCache`) instead of silently
+  // disappearing from the section while its pin is still stored.
   const pinnedSessions = useMemo(() => {
-    const byPinId = new Map(sessions.map(session => [sessionPinId(session), session]))
+    // Resolved from the LIVE pool even in the Archived view, and always before
+    // the filter runs. Both matter: `pinnedSessionRows` falls back to
+    // `$pinnedSessionCache` for a pin that has fallen past the loaded page, so
+    // handing it a narrowed list would make the cache RESURRECT the very rows
+    // the filter just removed. Narrowing the resolved rows instead gives
+    // desktop's behaviour (Pinned obeys the filters) with none of that.
+    const rows = pinnedSessionRows(sessions, pinnedIds)
 
-    return pinnedIds.map(id => byPinId.get(id)).filter((s): s is SessionInfo => Boolean(s))
-  }, [sessions, pinnedIds])
+    return filtersNarrow ? rows.filter(sessionMatchesFilters) : rows
+    // `pinnedCache` looks unnecessary to the linter and is not: the memo body
+    // never names it, but `pinnedSessionRows` reads `$pinnedSessionCache` with
+    // `.get()`, so this is what makes the rows recompute when the cache moves —
+    // in lockstep with these two by store/session.ts's subscriptions.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessions, pinnedIds, pinnedCache, filtersNarrow, sessionMatchesFilters])
 
-  // Recents = loaded sessions minus pinned, newest-first (or the manual order).
+  // Recents = the pool minus pinned, sorted by the chosen key (or the manual
+  // drag order), narrowed by whatever the filter menu has switched on.
   const recents = useMemo(() => {
     const pinnedSet = new Set(pinnedIds)
 
-    const base = sessions
+    let base = pool
       .filter(session => !pinnedSet.has(sessionPinId(session)))
       // Cron runs + messaging-platform threads have their own sidebar regions
       // (the Cron section + per-platform groups), so keep them out of recents.
       .filter(session => session.source !== 'cron' && !isMessagingSource(session.source))
-      .sort((a, b) => (b.started_at || 0) - (a.started_at || 0))
+
+    if (filtersNarrow) {
+      base = base.filter(sessionMatchesFilters)
+    }
+
+    base.sort(compareSessions(ordering, dotStates))
 
     return orderManual && orderIds.length ? applyManualOrder(base, orderIds) : base
-  }, [sessions, pinnedIds, orderManual, orderIds])
+  }, [pool, pinnedIds, orderManual, orderIds, ordering, dotStates, filtersNarrow, sessionMatchesFilters])
 
   // Per-platform messaging groups (Discord, Telegram, …), busiest first.
   const messagingGroups = useMemo(() => {
@@ -451,6 +645,76 @@ export function SidebarScrollBody({
     return () => window.removeEventListener('focus', onFocus)
   }, [inProject])
 
+  // A session that started on trunk but did the work in a worktree recorded no
+  // usable branch, so the join below can never find its PR. Recover those from
+  // the transcripts once, off the critical path — the store remembers every id
+  // it looked at, so this settles to a no-op from the second pass on.
+  useEffect(() => {
+    if (sessions.length === 0) {
+      return
+    }
+
+    const warm = window.setTimeout(() => void recoverSessionPullRequests(sessions), PR_RECOVERY_WARM_MS)
+
+    return () => window.clearTimeout(warm)
+  }, [sessions])
+
+  // Ask about the branches ON SCREEN, not the repo at large, so a busy repo's
+  // newer PRs can't crowd out the ones these rows need.
+  const prLookupsByRepo = useMemo(() => {
+    const byRepo: Record<string, string[]> = {}
+
+    for (const session of sessions) {
+      // The row's own key, so a session stamped with a branch (or a PR number)
+      // asks about THAT, not the branch it started on.
+      const [root, lookup] = sessionPrKey(session)?.split('\n') ?? []
+
+      if (root && lookup && !byRepo[root]?.includes(lookup)) {
+        byRepo[root] = [...(byRepo[root] ?? []), lookup]
+      }
+    }
+
+    return byRepo
+    // prBranchOverrides is what `sessionPrKey` reads through — a recovered PR
+    // has to re-ask with the key it just learned.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- see above
+  }, [sessions, prBranchOverrides])
+
+  // A stable identity for "the same question as last time", so a re-render that
+  // rebuilds the map doesn't re-ask GitHub.
+  const prQueryKey = JSON.stringify(
+    Object.entries(prLookupsByRepo)
+      .map(([root, lookups]) => [root, [...lookups].sort()] as const)
+      .sort(([a], [b]) => a.localeCompare(b))
+  )
+
+  useEffect(() => {
+    if (prQueryKey === '[]') {
+      return
+    }
+
+    const byRepo = Object.fromEntries(JSON.parse(prQueryKey) as [string, string[]][])
+
+    void refreshPullRequests(byRepo)
+
+    // A PR opens, merges or gets closed on github.com, not in here — so like the
+    // project tree, re-pull when the window comes back. The store's own
+    // staleness window keeps a flurry of focus events to one call per repo.
+    const onActive = () => {
+      if (document.visibilityState !== 'hidden') {
+        void refreshPullRequests(byRepo)
+      }
+    }
+
+    window.addEventListener('focus', onActive)
+    document.addEventListener('visibilitychange', onActive)
+
+    return () => {
+      window.removeEventListener('focus', onActive)
+      document.removeEventListener('visibilitychange', onActive)
+    }
+  }, [prQueryKey])
+
   // "+" on a repo or worktree lane: open a fresh chat anchored to that path,
   // carrying no draft (unlike the composer's branch-off hand-off).
   const newSessionInWorkspace = useCallback((path: null | string) => {
@@ -471,28 +735,53 @@ export function SidebarScrollBody({
     return projectOrder.length ? applyManualOrder(sorted, projectOrder) : sorted
   }, [showAllProfiles, projectTree, dismissedProjects, activeProjectId, projectOrder])
 
-  // The per-lane "+" in the browse view: point the app at that profile and start
-  // a fresh chat, WITHOUT calling selectProfile — that clears $showAllProfiles and
-  // would collapse the browse view the user is standing in.
-  const startSessionInProfile = (profileKey: string) => {
-    setActiveProfile(profileKey === 'default' ? null : profileKey)
-    startNewSession()
-  }
+  // The per-lane "+" in the browse view uses the shared `newSessionInProfile`
+  // (store/new-session) — which deliberately does NOT call `selectProfile`, so
+  // the browse view the user is standing in survives the click.
 
-  const rowHandlers = {
-    activeSessionId: activeId,
-    onArchiveSession: (id: string) => void archiveSessionLocal(id),
-    onDeleteSession: (id: string) => void deleteSessionLocal(id),
-    onResumeSession: (id: string) => {
+  // Stable identities, so `renderRow` one layer down (`sessions-section`) — a
+  // `useCallback` listing all three — keeps its identity too.
+  //
+  // BE PRECISE about what this buys, because the first pass at MJXHRM-383 was
+  // not: `renderRow` is INVOKED during render by every consumer
+  // (`sessions-section` itself, `profile-group`, `overview-row`,
+  // `workspace-group`, `entered-content`) and none of them is memoized, so a
+  // stable `renderRow` skips nothing on its own today. It is correct, it is free
+  // and it stops being a lie the moment anything above the row is memoized — but
+  // it is not why rows re-render.
+  //
+  // What actually decides that is `SidebarSessionRow`'s own memo, whose
+  // comparator deliberately IGNORES these handlers and resolves the row down to
+  // `Object.is(prev.session, next.session)`. Which is why the fix that made the
+  // memo hit had to land in the STORES: see `reuseUnchanged` and its use in
+  // `store/session.ts` / `store/projects.ts`.
+  const onArchiveSession = useCallback((id: string) => void archiveSessionLocal(id), [])
+  const onDeleteSession = useCallback((id: string) => void deleteSessionLocal(id), [])
+
+  const onResumeSession = useCallback(
+    (id: string) => {
       void openSession(id)
       // Route back to the session so a page view (Capabilities/Messaging/
       // Artifacts) unmounts and the resumed chat is actually shown.
       navigate(sessionRoute(id))
       onNavigate?.()
     },
-    onTogglePin: togglePin,
-    workingSessionIdSet: working
-  }
+    [navigate, onNavigate]
+  )
+
+  // `activeId` and `working` legitimately change what a row renders, so they
+  // are not stabilized — they are the inputs `renderRow` SHOULD re-run for.
+  const rowHandlers = useMemo(
+    () => ({
+      activeSessionId: activeId,
+      onArchiveSession,
+      onDeleteSession,
+      onResumeSession,
+      onTogglePin: togglePin,
+      workingSessionIdSet: working
+    }),
+    [activeId, onArchiveSession, onDeleteSession, onResumeSession, working]
+  )
 
   const hasMore = sessions.length < total
 
@@ -568,9 +857,7 @@ export function SidebarScrollBody({
               <div className="flex shrink-0 items-center gap-0.5">
                 {/* Inside a project: spin up a worktree off its repo root. The
                     same dialog the composer's ⌘⇧B opens. */}
-                {inProject && enteredProject?.path && (
-                  <StartWorkButton onStarted={newSessionInWorkspace} repoPath={enteredProject.path} />
-                )}
+                {inProject && enteredProject?.path && <StartWorkButton repoPath={enteredProject.path} />}
                 {grouped && !inProject && (
                   <Tip label={s.projects.newButton}>
                     <button
@@ -599,6 +886,15 @@ export function SidebarScrollBody({
                     <Codicon name={grouped ? 'list-unordered' : 'root-folder'} size="0.75rem" />
                   </button>
                 </Tip>
+                {/* Same placement and same gate as desktop: the view menu sits
+                    last in the header cluster, and the all-profiles browse
+                    scope hides it — its grouping, ordering and project filter
+                    all describe a single-profile list. */}
+                {!showAllProfiles && (
+                  <div className="grid size-5 place-items-center">
+                    <SidebarFilterMenu className="text-(--ui-text-tertiary) opacity-70 transition-opacity hover:bg-(--ui-control-hover-background) hover:text-foreground hover:opacity-100 focus-visible:opacity-100" />
+                  </div>
+                )}
               </div>
             }
             label={
@@ -621,7 +917,7 @@ export function SidebarScrollBody({
               )
             }
             onEnterProject={enterProject}
-            onNewSessionInProfile={startSessionInProfile}
+            onNewSessionInProfile={newSessionInProfile}
             onNewSessionInWorkspace={newSessionInWorkspace}
             onReorderProjects={showAllProfiles ? undefined : ids => setSidebarProjectOrderIds(ids)}
             onReorderSessions={
@@ -643,6 +939,7 @@ export function SidebarScrollBody({
             projectRepoWorktrees={scopedRepoWorktrees}
             projectsLoading={grouped ? projectsLoading : false}
             rootClassName={SESSIONS_ROOT_CLASS}
+            sessionFilter={sessionFilter}
             sessions={grouped || showAllProfiles ? [] : recents}
             showProfileTags={showAllProfiles}
             sortable={!grouped && !showAllProfiles}
@@ -693,7 +990,10 @@ export function SidebarScrollBody({
             <SidebarCronJobsSection
               jobs={cronJobs}
               label={s.cronJobs}
-              onManageJob={() => openAppRoute(CRON_ROUTE)}
+              // Carry the row's job into the cron surface, or "Manage" on ANY
+              // row lands on whichever job sorts first — the kebab acting on
+              // someone else's job.
+              onManageJob={jobId => openAppRoute(cronJobRoute(jobId))}
               onOpenRun={id => {
                 void openSession(id)
                 navigate(sessionRoute(id))
@@ -710,6 +1010,8 @@ export function SidebarScrollBody({
       {searchPlacement === 'bottom' && searchField}
 
       <ProjectDialog />
+      {/* One mount for the whole app — see the WorktreeDialog header for why. */}
+      <WorktreeDialog />
     </div>
   )
 }

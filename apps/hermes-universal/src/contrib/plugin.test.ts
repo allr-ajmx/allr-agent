@@ -1,8 +1,23 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('@/lib/plugin-transport', () => ({ pluginSocket: vi.fn(() => () => {}) }))
+import type * as PlatformModule from '@/lib/platform'
 
+vi.mock('@/lib/plugin-transport', () => ({ pluginSocket: vi.fn(() => () => {}) }))
+// Pretend we're inside the Tauri webview — several modules in this graph gate on it.
+vi.mock('@/lib/platform', async importOriginal => ({
+  ...(await importOriginal<typeof PlatformModule>()),
+  IS_TAURI: true
+}))
+vi.mock('@/lib/external-link', () => ({ tryOpenExternalLink: vi.fn(async () => true) }))
+vi.mock('@/lib/reveal-path', () => ({ tryRevealPathInFileManager: vi.fn(async () => true) }))
+vi.mock('@/lib/clipboard', () => ({ writeClipboardText: vi.fn(async () => {}) }))
+vi.mock('@/store/native-notifications', () => ({ dispatchPluginNativeNotification: vi.fn() }))
+
+import { writeClipboardText } from '@/lib/clipboard'
+import { tryOpenExternalLink } from '@/lib/external-link'
 import { pluginSocket } from '@/lib/plugin-transport'
+import { tryRevealPathInFileManager } from '@/lib/reveal-path'
+import { dispatchPluginNativeNotification } from '@/store/native-notifications'
 
 import { createPluginContext } from './plugin'
 import { registry } from './registry'
@@ -118,5 +133,46 @@ describe('createPluginContext', () => {
     ctx.socket('/events', onMessage)
 
     expect(pluginSocket).toHaveBeenCalledWith('kanban', '/events', onMessage)
+  })
+})
+
+describe('ctx.os — the curated OS door', () => {
+  it('routes each door to the app capability behind it, attributed to the plugin', async () => {
+    const ctx = createPluginContext('kanban')
+
+    ctx.os.notify({ title: 'Board moved', body: 'to Done' })
+
+    expect(dispatchPluginNativeNotification).toHaveBeenCalledWith('kanban', { title: 'Board moved', body: 'to Done' })
+    // The app's native `open_external` seam, NOT the opener plugin's JS `openUrl`
+    // — that command is ACL-scoped and this app declares no scope, so it refuses
+    // every url and `openExternal` could only ever have resolved false.
+    await expect(ctx.os.openExternal('https://example.com')).resolves.toBe(true)
+    expect(tryOpenExternalLink).toHaveBeenCalledWith('https://example.com')
+    await expect(ctx.os.revealPath('/tmp/board.json')).resolves.toBe(true)
+    expect(tryRevealPathInFileManager).toHaveBeenCalledWith('/tmp/board.json')
+    await expect(ctx.os.writeClipboard('copied')).resolves.toBe(true)
+    expect(writeClipboardText).toHaveBeenCalledWith('copied')
+  })
+
+  it('resolves false instead of throwing when a capability is unavailable', async () => {
+    // What Android and a plain-browser dev run look like: the door is there, the
+    // platform underneath is not. A plugin must be able to branch, not crash.
+    vi.mocked(tryOpenExternalLink).mockResolvedValueOnce(false)
+    vi.mocked(tryRevealPathInFileManager).mockResolvedValueOnce(false)
+    vi.mocked(writeClipboardText).mockRejectedValueOnce(new Error('clipboard refused'))
+
+    const ctx = createPluginContext('kanban')
+
+    await expect(ctx.os.openExternal('https://example.com')).resolves.toBe(false)
+    await expect(ctx.os.revealPath('/tmp/board.json')).resolves.toBe(false)
+    await expect(ctx.os.writeClipboard('copied')).resolves.toBe(false)
+  })
+
+  it('swallows a notification the host refuses rather than breaking the caller', () => {
+    vi.mocked(dispatchPluginNativeNotification).mockImplementationOnce(() => {
+      throw new Error('notification host gone')
+    })
+
+    expect(() => createPluginContext('kanban').os.notify({ title: 'boom' })).not.toThrow()
   })
 })

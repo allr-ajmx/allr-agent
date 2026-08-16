@@ -1,5 +1,5 @@
 import type * as React from 'react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { ZoomableImage } from '@/components/chat/zoomable-image'
@@ -28,9 +28,12 @@ import {
   useLinkTitle
 } from '@/lib/external-link'
 import { FileImage, FileText, FolderOpen, Link2, Loader2, RefreshCw } from '@/lib/icons'
+import { downloadGatewayMediaFile } from '@/lib/media'
+import { isFileMediaPath } from '@/lib/media-format'
 import { normalize } from '@/lib/text'
 import { fmtDayTime } from '@/lib/time'
 import { cn } from '@/lib/utils'
+import { useDisplayPath } from '@/store/display-home'
 import { notifyError } from '@/store/notifications'
 
 import { useRefreshHotkey } from '../hooks/use-refresh-hotkey'
@@ -89,12 +92,14 @@ function paginationItems(page: number, pageCount: number): Array<number | 'ellip
 }
 
 type CellCtx = {
-  onOpen: (href: string) => void | Promise<void>
+  /** The whole record, not its href: opening a gateway-local artifact goes
+   *  through the transport off `value`, and only a link uses `href`. */
+  onOpen: (artifact: ArtifactRecord) => void | Promise<void>
   onOpenChat: (sessionId: string) => void
 }
 
 interface ArtifactColumn {
-  Cell: (props: { artifact: ArtifactRecord; ctx: CellCtx }) => React.ReactElement
+  Cell: React.ComponentType<{ artifact: ArtifactRecord; ctx: CellCtx }>
   bodyClassName: string
   header: (filter: ArtifactFilter, a: Translations['artifacts']) => string
   id: 'location' | 'primary' | 'session'
@@ -242,13 +247,21 @@ export function ArtifactsView({ setStatusbarItemGroup: _setStatusbarItemGroup, .
   }, [artifacts])
 
   const openArtifact = useCallback(
-    async (href: string) => {
+    async (artifact: ArtifactRecord) => {
       try {
-        // Every artifact href is already a webview-openable URL: http/https/data
-        // pass through, and file/media paths are resolved to a gateway HTTP
-        // download URL by artifactHref (→ mediaExternalUrl). So there is no
-        // Electron open-external / gateway-download bridge to route through here.
-        await openExternalLink(href)
+        // A gateway-local artifact is bytes on the GATEWAY's disk, so it is
+        // fetched over the authenticated Rust transport and handed to the webview
+        // as a download. Sending the browser to `artifact.href` instead — the raw
+        // /api/files/download URL — cannot work behind a gated gateway: nothing
+        // outside the transport can authenticate that request, and it comes back
+        // 401. http(s) artifacts are somebody else's URL and still open outside.
+        if (isFileMediaPath(artifact.value)) {
+          await downloadGatewayMediaFile(artifact.value)
+
+          return
+        }
+
+        await openExternalLink(artifact.href)
       } catch (err) {
         notifyError(err, a.openFailed)
       }
@@ -266,10 +279,13 @@ export function ArtifactsView({ setStatusbarItemGroup: _setStatusbarItemGroup, .
     })
   }, [])
 
-  const cellCtx: CellCtx = {
-    onOpen: openArtifact,
-    onOpenChat: sessionId => navigate(sessionRoute(sessionId))
-  }
+  const openChat = useCallback((sessionId: string) => navigate(sessionRoute(sessionId)), [navigate])
+
+  // Stable, because it is the prop every memoized cell compares. A fresh object
+  // (or a fresh inline `onOpenChat`) here would make those memo boundaries dead
+  // code — the table is up to 100 rows × 3 cells, so this is the half of the
+  // change that does the work.
+  const cellCtx = useMemo<CellCtx>(() => ({ onOpen: openArtifact, onOpenChat: openChat }), [openArtifact, openChat])
 
   return (
     <PageSearchShell
@@ -318,7 +334,7 @@ export function ArtifactsView({ setStatusbarItemGroup: _setStatusbarItemGroup, .
               <section className="flex flex-col">
                 <div className="sticky top-0 z-10 -mx-3 flex h-7 items-center gap-3 overflow-x-auto bg-background px-3">
                   <ArtifactsPagination
-                    className="ml-auto justify-end px-0"
+                    className="ms-auto justify-end px-0"
                     itemLabel={a.itemsImage}
                     onPageChange={setImagePage}
                     page={currentImagePage}
@@ -333,7 +349,7 @@ export function ArtifactsView({ setStatusbarItemGroup: _setStatusbarItemGroup, .
                       failedImage={failedImageIds.has(artifact.id)}
                       key={artifact.id}
                       onImageError={markImageFailed}
-                      onOpenChat={sessionId => navigate(sessionRoute(sessionId))}
+                      onOpenChat={openChat}
                     />
                   ))}
                 </div>
@@ -344,7 +360,7 @@ export function ArtifactsView({ setStatusbarItemGroup: _setStatusbarItemGroup, .
               <section className="flex flex-col">
                 <div className="sticky top-0 z-10 -mx-3 flex h-7 items-center gap-3 overflow-x-auto bg-background px-3">
                   <ArtifactsPagination
-                    className="ml-auto justify-end px-0"
+                    className="ms-auto justify-end px-0"
                     itemLabel={itemsLabel(kindFilter, a)}
                     onPageChange={setFilePage}
                     page={currentFilePage}
@@ -517,7 +533,7 @@ function ArtifactCellAction({
   if (href) {
     return (
       <ExternalLink
-        className="flex h-full w-full min-w-0 items-center gap-2 px-2.5 py-1.5 text-left text-[length:var(--conversation-caption-font-size)] leading-(--conversation-caption-line-height) font-normal text-(--ui-text-secondary) no-underline underline-offset-4 decoration-current/20 transition-colors hover:text-foreground hover:underline"
+        className="flex h-full w-full min-w-0 items-center gap-2 px-2.5 py-1.5 text-start text-[length:var(--conversation-caption-font-size)] leading-(--conversation-caption-line-height) font-normal text-(--ui-text-secondary) no-underline underline-offset-4 decoration-current/20 transition-colors hover:text-foreground hover:underline"
         href={href}
         showExternalIcon={false}
         title={title}
@@ -529,7 +545,7 @@ function ArtifactCellAction({
 
   return (
     <RowButton
-      className="flex h-full w-full min-w-0 items-center gap-2 px-2.5 py-1.5 text-left text-[length:var(--conversation-caption-font-size)] leading-(--conversation-caption-line-height) font-normal text-(--ui-text-secondary) no-underline underline-offset-4 decoration-current/20 transition-colors hover:text-foreground hover:underline"
+      className="flex h-full w-full min-w-0 items-center gap-2 px-2.5 py-1.5 text-start text-[length:var(--conversation-caption-font-size)] leading-(--conversation-caption-line-height) font-normal text-(--ui-text-secondary) no-underline underline-offset-4 decoration-current/20 transition-colors hover:text-foreground hover:underline"
       onClick={onClick}
     >
       {children}
@@ -537,7 +553,11 @@ function ArtifactCellAction({
   )
 }
 
-function PrimaryCell({ artifact, ctx }: { artifact: ArtifactRecord; ctx: CellCtx }) {
+// The three cells below are memoized (desktop parity). Both props are stable —
+// `artifact` is an element of the fetched array, `ctx` is memoized above — so
+// re-rendering the view for a search keystroke or a page change no longer
+// re-runs every cell of every row that did not move.
+const PrimaryCell = memo(function PrimaryCell({ artifact, ctx }: { artifact: ArtifactRecord; ctx: CellCtx }) {
   const isLink = artifact.kind === 'link'
   const Icon = isLink ? Link2 : FileText
   const fetchedTitle = useLinkTitle(isLink ? artifact.href : null)
@@ -546,7 +566,7 @@ function PrimaryCell({ artifact, ctx }: { artifact: ArtifactRecord; ctx: CellCtx
   return (
     <ArtifactCellAction
       href={isLink ? artifact.href : undefined}
-      onClick={isLink ? undefined : () => void ctx.onOpen(artifact.href)}
+      onClick={isLink ? undefined : () => void ctx.onOpen(artifact)}
       title={label}
     >
       <span className="mt-0.5 grid size-6 shrink-0 place-items-center self-start rounded-md bg-(--ui-bg-tertiary) text-(--ui-text-tertiary)">
@@ -558,17 +578,21 @@ function PrimaryCell({ artifact, ctx }: { artifact: ArtifactRecord; ctx: CellCtx
       </span>
     </ArtifactCellAction>
   )
-}
+})
 
-function LocationCell({ artifact }: { artifact: ArtifactRecord; ctx: CellCtx }) {
+const LocationCell = memo(function LocationCell({ artifact }: { artifact: ArtifactRecord; ctx: CellCtx }) {
   const { t } = useI18n()
+  // A non-link artifact's location is a path on the GATEWAY's filesystem — that
+  // is where the run that produced it wrote the file (MJXHRM-394). Links keep
+  // their host/path shortening; a URL has no home to collapse.
+  const displayPath = useDisplayPath()
   const isLink = artifact.kind === 'link'
-  const value = isLink ? hostPathLabel(artifact.value) : artifact.value
+  const value = isLink ? hostPathLabel(artifact.value) : displayPath(artifact.value)
   const copyLabel = isLink ? t.artifacts.copyUrl : t.artifacts.copyPath
 
   return (
     <div className="group/location flex min-w-0 items-center gap-1.5">
-      <Tip label={artifact.value}>
+      <Tip label={value}>
         <div
           className={cn(
             'min-w-0 flex-1 truncate text-[length:var(--conversation-caption-font-size)] text-(--ui-text-tertiary)',
@@ -589,9 +613,9 @@ function LocationCell({ artifact }: { artifact: ArtifactRecord; ctx: CellCtx }) 
       />
     </div>
   )
-}
+})
 
-function SessionCell({ artifact, ctx }: { artifact: ArtifactRecord; ctx: CellCtx }) {
+const SessionCell = memo(function SessionCell({ artifact, ctx }: { artifact: ArtifactRecord; ctx: CellCtx }) {
   return (
     <ArtifactCellAction onClick={() => ctx.onOpenChat(artifact.sessionId)} title={artifact.sessionTitle}>
       <span className="flex min-w-0 flex-col">
@@ -602,7 +626,7 @@ function SessionCell({ artifact, ctx }: { artifact: ArtifactRecord; ctx: CellCtx
       </span>
     </ArtifactCellAction>
   )
-}
+})
 
 const ARTIFACT_COLUMNS: readonly ArtifactColumn[] = [
   {
@@ -642,7 +666,7 @@ function ArtifactTable({
   const { t } = useI18n()
 
   return (
-    <table className="w-full min-w-176 table-fixed text-left text-[length:var(--conversation-caption-font-size)]">
+    <table className="w-full min-w-176 table-fixed text-start text-[length:var(--conversation-caption-font-size)]">
       <thead className="border-b border-(--ui-stroke-tertiary) bg-(--ui-bg-quinary) text-[0.625rem] uppercase tracking-[0.08em] text-(--ui-text-tertiary)">
         <tr>
           {ARTIFACT_COLUMNS.map(col => (

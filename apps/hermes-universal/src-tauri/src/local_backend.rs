@@ -104,8 +104,13 @@ mod imp {
         let token = random_token();
         let program = std::env::var("HERMES_BIN").unwrap_or_else(|_| "hermes".to_string());
 
-        let mut args: Vec<String> =
-            vec!["serve".into(), "--host".into(), "127.0.0.1".into(), "--port".into(), "0".into()];
+        let mut args: Vec<String> = vec![
+            "serve".into(),
+            "--host".into(),
+            "127.0.0.1".into(),
+            "--port".into(),
+            "0".into(),
+        ];
         if let Some(p) = profile.as_deref().filter(|p| !p.is_empty()) {
             // Profile flag goes before the subcommand, matching the desktop CLI.
             args.splice(0..0, ["--profile".to_string(), p.to_string()]);
@@ -122,11 +127,14 @@ mod imp {
             cmd.env("HERMES_HOME", home);
         }
 
-        let mut child = cmd
-            .spawn()
-            .map_err(|e| format!("could not start `{program}`: {e}. Is the Hermes CLI installed / on PATH?"))?;
+        let mut child = cmd.spawn().map_err(|e| {
+            format!("could not start `{program}`: {e}. Is the Hermes CLI installed / on PATH?")
+        })?;
 
-        let stdout = child.stdout.take().ok_or("failed to capture backend stdout")?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or("failed to capture backend stdout")?;
         let mut lines = BufReader::new(stdout).lines();
 
         // Stage 1: wait (≤90s) for the port announcement on stdout.
@@ -153,15 +161,24 @@ mod imp {
         let backend = LocalBackend {
             base_url: base_url.clone(),
             token: token.clone(),
-            ws_url: format!("{}/api/ws?token={token}", base_url.replacen("http", "ws", 1)),
+            ws_url: format!(
+                "{}/api/ws?token={token}",
+                base_url.replacen("http", "ws", 1)
+            ),
         };
-        *state.0.lock().await = Some(Running { child, backend: backend.clone() });
+        *state.0.lock().await = Some(Running {
+            child,
+            backend: backend.clone(),
+        });
         Ok(backend)
     }
 
     pub async fn status(state: &LocalBackendState) -> LocalBackendStatus {
         match &*state.0.lock().await {
-            Some(r) => LocalBackendStatus { running: true, base_url: Some(r.backend.base_url.clone()) },
+            Some(r) => LocalBackendStatus {
+                running: true,
+                base_url: Some(r.backend.base_url.clone()),
+            },
             None => LocalBackendStatus::default(),
         }
     }
@@ -178,6 +195,17 @@ mod imp {
 // --------------------------------------------------------------------------
 #[cfg(desktop)]
 pub use imp::LocalBackendState;
+
+/// Kill the spawned `hermes serve` child, for callers that are not a command.
+///
+/// The tray's Keep Running row is the one such caller: turning background mode
+/// off means the process is about to stop being resident, and a child gateway
+/// left behind would outlive the app that spawned it with nothing in the UI able
+/// to reach it. `imp` stays private — this is the one door out of it.
+#[cfg(desktop)]
+pub async fn stop(state: &imp::LocalBackendState) {
+    imp::stop(state).await;
+}
 
 #[cfg(desktop)]
 #[tauri::command]
@@ -242,8 +270,14 @@ mod tests {
 
     #[test]
     fn parses_backend_and_dashboard_ready_lines() {
-        assert_eq!(parse_ready_port("HERMES_BACKEND_READY port=54321"), Some(54321));
-        assert_eq!(parse_ready_port("HERMES_DASHBOARD_READY port=8788"), Some(8788));
+        assert_eq!(
+            parse_ready_port("HERMES_BACKEND_READY port=54321"),
+            Some(54321)
+        );
+        assert_eq!(
+            parse_ready_port("HERMES_DASHBOARD_READY port=8788"),
+            Some(8788)
+        );
     }
 
     #[test]

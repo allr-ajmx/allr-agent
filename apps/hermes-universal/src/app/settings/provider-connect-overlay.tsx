@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useI18n } from '@/i18n'
+import { writeClipboardText } from '@/lib/clipboard'
 import { openExternalLink } from '@/lib/external-link'
 import { Loader2, X } from '@/lib/icons'
 import { useStore } from '@/store/atom'
@@ -34,7 +35,10 @@ export function ProviderConnectOverlay() {
   const title = providerTitle(provider)
   const oauth = state.oauth
 
-  const copyCode = () => void navigator.clipboard?.writeText(oauth?.userCode ?? '').catch(() => {})
+  // OS seam, not `navigator.clipboard`: WebKitGTK refuses the web API in cases
+  // Chromium allows, and the device code is the only way through this step
+  // (MJXHRM-415).
+  const copyCode = () => void writeClipboardText(oauth?.userCode ?? '').catch(() => {})
 
   let body: React.ReactNode
 
@@ -44,14 +48,18 @@ export function ProviderConnectOverlay() {
         <div className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
           {t.onboarding.defaultModel}
         </div>
-        <div className="mt-1 rounded-lg border border-border bg-muted/40 p-3">
-          <div className="text-sm font-medium text-foreground">
-            {state.recommended?.model ?? t.onboarding.recommended}
+        {/* Same contract as the onboarding confirm step: with no resolved model
+            `confirmModel()` assigns nothing, so don't name one. */}
+        {state.recommended?.model ? (
+          <div className="mt-1 rounded-lg border border-border bg-muted/40 p-3">
+            <div className="text-sm font-medium text-foreground">{state.recommended.model}</div>
+            {state.recommended.provider && (
+              <div className="text-xs text-muted-foreground">{state.recommended.provider}</div>
+            )}
           </div>
-          {state.recommended?.provider && (
-            <div className="text-xs text-muted-foreground">{state.recommended.provider}</div>
-          )}
-        </div>
+        ) : (
+          <p className="mt-1 text-sm text-muted-foreground">{t.onboarding.noDefaultModel}</p>
+        )}
         {state.error && <p className="mt-2 text-xs text-destructive">{state.error}</p>}
         <Button
           className="mt-4 w-full"
@@ -159,14 +167,14 @@ export function ProviderConnectOverlay() {
       <div className="relative w-full max-w-md rounded-xl border border-border bg-card p-5 shadow-lg">
         <button
           aria-label={t.common.close}
-          className="absolute right-3 top-3 rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          className="absolute end-3 top-3 rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
           onClick={() => cancelProviderConnect()}
           type="button"
         >
           <X className="size-4" />
         </button>
 
-        <div className="mb-3 pr-6 text-base font-medium text-foreground">{t.onboarding.signInWith(title)}</div>
+        <div className="mb-3 pe-6 text-base font-medium text-foreground">{t.onboarding.signInWith(title)}</div>
         {body}
       </div>
     </div>

@@ -1,21 +1,39 @@
+import { cva, type VariantProps } from 'class-variance-authority'
+
 import { Codicon } from '@/components/ui/codicon'
 import { triggerHaptic } from '@/lib/haptics'
-import { cn } from '@/lib/utils'
 
-// The terminal's extra-keys row.
-//
-// A phone keyboard cannot send Esc, Tab, Ctrl or an arrow key, which is most of
-// what a shell is driven by — so every mobile terminal worth using (Termux,
-// Termius, Blink) grows a row like this. The layout follows their consensus set
-// rather than inventing one.
-//
-// Ctrl and Alt are STICKY modifiers, not keys: tap arms them for the next
-// keystroke (including one typed on the system keyboard), tap again locks them,
-// tap a third time clears. That is the only way a modifier can work when the
-// modifier and the letter come from two different keyboards.
+// The terminal's extra-keys row. (MJXHRM-326 TerminalChrome + MobileTerminalKeys)
 
 /** Written as escapes, never as raw control bytes in the source. */
 const ESC = '\u001b'
+
+export const mobileTerminalKeyVariants = cva(
+  'flex min-h-9 shrink-0 items-center justify-center rounded-md border font-code text-sm active:bg-(--chrome-action-hover)',
+  {
+    variants: {
+      width: {
+        default: 'w-9',
+        wide: 'px-2.5'
+      },
+      state: {
+        off: 'border-(--ui-stroke-tertiary) bg-(--ui-bg-tertiary) text-foreground',
+        armed: 'border-(--ui-accent-primary) bg-(--ui-accent-primary)/15 text-(--ui-accent-primary)',
+        locked: 'border-(--ui-accent-primary) bg-(--ui-accent-primary) text-white'
+      }
+    },
+    defaultVariants: {
+      width: 'default',
+      state: 'off'
+    }
+  }
+)
+
+export type MobileTerminalKeyVariantProps = VariantProps<typeof mobileTerminalKeyVariants>
+
+export const mobileTerminalKeysBarVariants = cva(
+  'flex shrink-0 items-stretch gap-1 border-t border-(--ui-stroke-tertiary) bg-(--ui-bg-chrome) px-1 py-1'
+)
 
 export interface TerminalModifiers {
   alt: 'armed' | 'locked' | 'off'
@@ -64,7 +82,8 @@ export function MobileTerminalKeys({ modifiers, onCycleModifier, onSend }: Mobil
 
   return (
     <div
-      className="flex shrink-0 items-stretch gap-1 border-t border-(--ui-stroke-tertiary) bg-(--ui-bg-chrome) px-1 py-1"
+      className={mobileTerminalKeysBarVariants()}
+      data-slot="mobile-terminal-keys"
       // Never take focus: the terminal's textarea has to keep it, or the system
       // keyboard closes on every key-row tap.
       onPointerDown={event => event.preventDefault()}
@@ -82,7 +101,7 @@ export function MobileTerminalKeys({ modifiers, onCycleModifier, onSend }: Mobil
 
       {/* Arrows stay pinned: history and line editing are what the row is for,
           and they can't be allowed to scroll away. */}
-      <div className="flex shrink-0 gap-1 border-l border-(--ui-stroke-tertiary) pl-1">
+      <div className="flex shrink-0 gap-1 border-s border-(--ui-stroke-tertiary) ps-1">
         <Key icon="arrow-left" label="Left" onPress={send(`${ESC}[D`)} />
         <Key icon="arrow-up" label="Up" onPress={send(`${ESC}[A`)} />
         <Key icon="arrow-down" label="Down" onPress={send(`${ESC}[B`)} />
@@ -110,17 +129,9 @@ function Key({
     <button
       aria-label={label}
       aria-pressed={state === 'off' ? undefined : true}
-      className={cn(
-        'flex min-h-9 shrink-0 items-center justify-center rounded-md border font-code text-sm active:bg-(--chrome-action-hover)',
-        wide ? 'px-2.5' : 'w-9',
-        state === 'off'
-          ? 'border-(--ui-stroke-tertiary) bg-(--ui-bg-tertiary) text-foreground'
-          : // Armed reads as a highlight, locked as a filled key — a one-shot and
-            // a lock have to be distinguishable at a glance or Ctrl gets stuck.
-            state === 'armed'
-            ? 'border-(--ui-accent-primary) bg-(--ui-accent-primary)/15 text-(--ui-accent-primary)'
-            : 'border-(--ui-accent-primary) bg-(--ui-accent-primary) text-white'
-      )}
+      className={mobileTerminalKeyVariants({ state, width: wide ? 'wide' : 'default' })}
+      data-slot="mobile-terminal-key"
+      data-state={state}
       onClick={onPress}
       type="button"
     >

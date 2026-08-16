@@ -1,22 +1,37 @@
+import { cva, type VariantProps } from 'class-variance-authority'
 import { useEffect, useRef, useState } from 'react'
 
 import { Codicon } from '@/components/ui/codicon'
 import { DiffCount } from '@/components/ui/diff-count'
 import type { HermesReviewFile } from '@/global'
 import { useI18n } from '@/i18n'
+import { directionSign } from '@/lib/direction'
 import { triggerHaptic } from '@/lib/haptics'
 import { cn } from '@/lib/utils'
 
-// One changed file, as a touch row.
-//
-// The desktop row hides stage/unstage/revert behind `group-hover` and keeps a
-// right-click menu as the only other way in — neither exists on a phone. So the
-// actions move onto the row itself as swipes (the Mail/Working Copy idiom):
-//
-//   swipe right → stage / unstage      swipe left → revert
-//
-// Long-press opens the same actions as a sheet, because a swipe is not
-// discoverable on its own and should never be the ONLY way to reach an action.
+// One changed file, as a touch row. (MJXHRM-323 Review Row + Diff)
+
+export const mobileReviewRowVariants = cva(
+  'relative flex min-h-[44px] touch-pan-y items-center gap-2 bg-(--ui-sidebar-surface-background) px-3 py-1.5 select-none',
+  {
+    variants: {
+      selected: {
+        true: 'bg-(--ui-row-active-background)',
+        false: ''
+      },
+      dragging: {
+        true: '',
+        false: 'transition-transform duration-150'
+      }
+    },
+    defaultVariants: {
+      selected: false,
+      dragging: false
+    }
+  }
+)
+
+export type MobileReviewRowVariantProps = VariantProps<typeof mobileReviewRowVariants>
 
 /** Past this much horizontal travel the gesture commits on release. */
 const COMMIT_PX = 64
@@ -43,8 +58,8 @@ const STATUS_GLYPH: Record<string, { icon: string; tone: string }> = {
   A: { icon: 'diff-added', tone: 'text-(--ui-green)' },
   C: { icon: 'diff-added', tone: 'text-(--ui-green)' },
   D: { icon: 'diff-removed', tone: 'text-(--ui-red)' },
-  M: { icon: 'diff-modified', tone: 'text-amber-500/85' },
-  R: { icon: 'diff-renamed', tone: 'text-sky-500/85' },
+  M: { icon: 'diff-modified', tone: 'text-(--ui-yellow)/85' },
+  R: { icon: 'diff-renamed', tone: 'text-(--ui-cyan)/85' },
   U: { icon: 'warning', tone: 'text-(--ui-red)' },
   '?': { icon: 'diff-added', tone: 'text-muted-foreground/60' }
 }
@@ -164,7 +179,12 @@ export function MobileReviewRow({
     const clamped = Math.max(-MAX_PX, Math.min(MAX_PX, moveX))
     setDx(clamped)
 
-    const next: Armed = clamped >= COMMIT_PX ? 'stage' : clamped <= -COMMIT_PX ? 'revert' : 'none'
+    // `clamped` stays PHYSICAL — it drives `translateX`, which does not mirror —
+    // but which action it arms is read in the row's own inline frame, so the
+    // backdrops (start = stage, end = revert) stay under the edge the row
+    // actually uncovers. In LTR the sign is 1 and this is the old expression.
+    const inline = clamped * directionSign(event.currentTarget)
+    const next: Armed = inline >= COMMIT_PX ? 'stage' : inline <= -COMMIT_PX ? 'revert' : 'none'
 
     if (next !== armed) {
       setArmed(next)
@@ -218,7 +238,7 @@ export function MobileReviewRow({
           colour itself is the "let go now" signal. */}
       <div
         className={cn(
-          'absolute inset-y-0 left-0 flex w-24 items-center justify-start pl-4 transition-colors',
+          'absolute inset-y-0 start-0 flex w-24 items-center justify-start ps-4 transition-colors',
           armed === 'stage' ? 'bg-(--ui-green)/25 text-(--ui-green)' : 'bg-(--ui-green)/10 text-(--ui-green)/60'
         )}
       >
@@ -226,7 +246,7 @@ export function MobileReviewRow({
       </div>
       <div
         className={cn(
-          'absolute inset-y-0 right-0 flex w-24 items-center justify-end pr-4 transition-colors',
+          'absolute inset-y-0 end-0 flex w-24 items-center justify-end pe-4 transition-colors',
           armed === 'revert' ? 'bg-(--ui-red)/25 text-(--ui-red)' : 'bg-(--ui-red)/10 text-(--ui-red)/60'
         )}
       >
@@ -235,11 +255,9 @@ export function MobileReviewRow({
 
       <div
         aria-selected={selected}
-        className={cn(
-          'relative flex min-h-[44px] touch-pan-y items-center gap-2 bg-(--ui-sidebar-surface-background) px-3 py-1.5 select-none',
-          selected && 'bg-(--ui-row-active-background)',
-          !dragging && 'transition-transform duration-150'
-        )}
+        className={mobileReviewRowVariants({ selected, dragging })}
+        data-slot="mobile-review-row"
+        data-state={selected ? 'selected' : 'default'}
         onClick={onClick}
         onContextMenu={event => {
           // Long-press on a touch device also raises the platform context menu;

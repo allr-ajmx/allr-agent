@@ -47,6 +47,7 @@ import { httpRequest } from '@/transport/http'
 
 import {
   $connection,
+  $connectionError,
   beginGatewaySwitch,
   connect,
   connectCloud,
@@ -222,6 +223,65 @@ describe('auto-reconnect', () => {
     await vi.advanceTimersByTimeAsync(1500)
     expect(connectGateway).toHaveBeenCalled()
   })
+
+  // The schedule is full jitter (lib/reconnect-backoff), so the FIRST retry now
+  // lands inside the 300ms base ceiling rather than at the old fixed 1s floor.
+  // Pinning Math.random makes the ceiling directly observable.
+  it('re-dials on the jittered schedule, not the old fixed 1s ladder', async () => {
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0.5)
+
+    try {
+      await connectCloud('https://gw')
+      vi.mocked(connectGateway).mockClear()
+      $gatewayState.set('closed')
+
+      // 0.5 * 300ms ceiling = 150ms. The old ladder would still be waiting.
+      await vi.advanceTimersByTimeAsync(100)
+      expect(connectGateway).not.toHaveBeenCalled()
+
+      await vi.advanceTimersByTimeAsync(100)
+      expect(connectGateway).toHaveBeenCalled()
+    } finally {
+      random.mockRestore()
+    }
+  })
+
+  // A gateway that never comes back must not be an endless spinner: past the
+  // escalation window the loop publishes the failure, which is what reveals the
+  // configurator on the connecting screen.
+  it('publishes the failure once the loop has been failing for the escalation window', async () => {
+    const random = vi.spyOn(Math, 'random').mockReturnValue(1)
+
+    try {
+      await connectCloud('https://gw')
+      $connectionError.set(null)
+      vi.mocked(connectGateway).mockRejectedValue(new Error('gateway is down'))
+      $gatewayState.set('closed')
+
+      // Still inside the window: failures stay quiet so a brief blip never
+      // throws the user out of the app.
+      await vi.advanceTimersByTimeAsync(20_000)
+      expect($connectionError.get()).toBeNull()
+
+      await vi.advanceTimersByTimeAsync(45_000)
+      expect($connectionError.get()).toBe('gateway is down')
+    } finally {
+      random.mockRestore()
+      vi.mocked(connectGateway).mockReset()
+      vi.mocked(connectGateway).mockResolvedValue(undefined)
+      // Let the supervisor reach a success and exit; a loop left mid-backoff
+      // holds the re-entrancy guard shut for every test after this one.
+      await vi.advanceTimersByTimeAsync(30_000)
+    }
+  })
+
+  it('clears a published failure once a reconnect succeeds', async () => {
+    await connectCloud('https://gw')
+    $connectionError.set('stale failure')
+    $gatewayState.set('closed')
+    await vi.advanceTimersByTimeAsync(1000)
+    expect($connectionError.get()).toBeNull()
+  })
 })
 
 describe('connect — secure credential storage', () => {
@@ -258,5 +318,76 @@ describe('connect — auto-reconnect target (D8)', () => {
     $connection.set({ baseUrl: 'https://gw', mode: 'remote', authMode: 'oauth' })
     await signOut()
     expect(localStorage.getItem('hermes.connection.last')).not.toBeNull()
+  })
+})
+
+// The mobile sign-in contract. BOTH mobile flows navigate the calling webview away —
+// the RFC 8252 one to /auth/native/authorize, the cookie cascade to /auth/login — so
+// `oauthLogin` never resolves there and the marker parked before it is the only thing
+// that carries the user back through the reload. Getting either direction wrong is
+// silent: no marker and a completed sign-in lands on a blank picker; a stale marker
+// sends some unrelated later launch down the resume branch.
+describe('beginOAuthLogin — the mobile resume marker', () => {
+  const PENDING_OAUTH_KEY = 'hermes.oauth.pending'
+
+  // connection.ts reads IS_NATIVE_MOBILE at import time, so the platform has to be
+  // decided before the module loads. Same shape as store/cloud.test.ts.
+  const loadOn = async (nativeMobile: boolean) => {
+    vi.resetModules()
+    vi.doMock('@/lib/platform', () => ({ IS_NATIVE_MOBILE: nativeMobile }))
+
+    const auth = await import('@/lib/auth')
+    const { httpRequest } = await import('@/transport/http')
+    const conn = await import('./connection')
+
+    vi.mocked(httpRequest).mockResolvedValue({
+      status: 200,
+      headers: {},
+      body: JSON.stringify({ auth_required: true })
+    })
+    vi.mocked(auth.fetchAuthProviders).mockResolvedValue([oauthProvider])
+    vi.mocked(auth.oauthStatus).mockResolvedValue({ signedIn: false })
+
+    return { auth, conn }
+  }
+
+  afterEach(() => {
+    vi.doUnmock('@/lib/platform')
+    vi.resetModules()
+  })
+
+  it('parks the marker BEFORE handing off, since the hand-off destroys this context', async () => {
+    const { auth, conn } = await loadOn(true)
+    let parkedAtHandoff: null | string = null
+
+    vi.mocked(auth.oauthLogin).mockImplementation(async () => {
+      parkedAtHandoff = localStorage.getItem(PENDING_OAUTH_KEY)
+    })
+
+    await conn.connect({ url: 'gw.example.com' })
+
+    // Written before, not after: on a real device there is no "after".
+    expect(parkedAtHandoff).toContain('gw.example.com')
+  })
+
+  it('clears the marker when the sign-in rejects, because then we never navigated', async () => {
+    const { auth, conn } = await loadOn(true)
+
+    // A rejection can only reach us with the JS context intact — Rust failed before
+    // (or instead of) navigating. The parked marker is now garbage.
+    vi.mocked(auth.oauthLogin).mockRejectedValue(new Error('could not open a loopback listener'))
+
+    await expect(conn.connect({ url: 'gw.example.com' })).rejects.toThrow()
+    expect(localStorage.getItem(PENDING_OAUTH_KEY)).toBeNull()
+  })
+
+  it('parks nothing on desktop, where the promise resolves normally', async () => {
+    const { auth, conn } = await loadOn(false)
+
+    vi.mocked(auth.oauthLogin).mockResolvedValue(undefined)
+
+    await conn.connect({ url: 'gw.example.com' })
+
+    expect(localStorage.getItem(PENDING_OAUTH_KEY)).toBeNull()
   })
 })

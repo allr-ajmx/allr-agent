@@ -52,23 +52,23 @@ function trustTone(level: string): string {
       return 'bg-(--ui-bg-tertiary) text-(--ui-text-secondary)'
 
     case 'trusted':
-      return 'bg-emerald-500/15 text-emerald-400'
+      return 'bg-(--ui-green)/15 text-(--ui-green)'
 
     default:
-      return 'bg-amber-500/15 text-amber-400'
+      return 'bg-(--ui-yellow)/15 text-(--ui-yellow)'
   }
 }
 
 function verdictTone(policy: string): string {
   switch (policy) {
     case 'allow':
-      return 'text-emerald-400'
+      return 'text-(--ui-green)'
 
     case 'block':
       return 'text-destructive'
 
     default:
-      return 'text-amber-400'
+      return 'text-(--ui-yellow)'
   }
 }
 
@@ -112,7 +112,7 @@ function HubSkillRow({
           <span className={cn('rounded px-1.5 py-0.5 text-[0.6rem]', trustTone(skill.trust_level))}>
             {h.trust[skill.trust_level] ?? skill.trust_level}
           </span>
-          {installed && <span className="text-[0.6rem] text-emerald-400">{h.installed}</span>}
+          {installed && <span className="text-[0.6rem] text-(--ui-green)">{h.installed}</span>}
         </div>
         <p className="mt-0.5 line-clamp-2 text-[0.68rem] text-muted-foreground/70">{skill.description}</p>
       </div>
@@ -297,7 +297,9 @@ export function SkillsHub({ query }: SkillsHubProps) {
                   <span
                     className={cn(
                       'relative rounded px-1.5 py-0.5 text-[0.6rem] transition-opacity',
-                      degraded ? 'bg-amber-500/15 text-amber-400' : 'bg-(--ui-bg-tertiary) text-(--ui-text-secondary)',
+                      degraded
+                        ? 'bg-(--ui-yellow)/15 text-(--ui-yellow)'
+                        : 'bg-(--ui-bg-tertiary) text-(--ui-text-secondary)',
                       // While searching, un-hit sources dim so the active ones read clearly.
                       term.length > 0 && !fetching && !state?.failed && 'opacity-55'
                     )}
@@ -324,7 +326,7 @@ export function SkillsHub({ query }: SkillsHubProps) {
           <span className="min-w-0 truncate">
             {term.length > 0 ? h.resultCount(results.length, null) : h.featured}
             {anyFetching && results.length > 0 && (
-              <span className="ml-2 text-(--ui-text-quaternary)">{h.searching}</span>
+              <span className="ms-2 text-(--ui-text-quaternary)">{h.searching}</span>
             )}
           </span>
 

@@ -11,11 +11,20 @@ Active selection
 The active provider is chosen by ``image_gen.provider`` in ``config.yaml``.
 If unset, :func:`get_active_provider` applies fallback logic:
 
-1. If exactly one provider is registered, use it.
-2. Otherwise if a provider named ``fal`` is registered, use it (legacy
+1. The provider whose name matches the active LLM runtime provider, when it
+   has credentials — the user already pays that vendor for inference, so
+   this cannot produce a surprise bill.
+2. Otherwise if exactly one registered provider is available, use it.
+3. Otherwise if a provider named ``fal`` is available, use it (legacy
    default — matches pre-plugin behavior).
-3. Otherwise return ``None`` (the tool surfaces a helpful error pointing
+4. Otherwise return ``None`` (the tool surfaces a helpful error pointing
    the user at ``hermes tools``).
+
+Rule 1 exists because holding a key is not consent: a bare credential for
+some unrelated vendor must never opt a user into paid image generation, but
+refusing to resolve *anything* left the tool unavailable to everyone who had
+not run ``hermes tools`` — which is how image generation ended up silently
+switched off for users with a perfectly good OpenRouter or Nous credential.
 """
 
 from __future__ import annotations
@@ -91,9 +100,9 @@ def get_active_provider() -> Optional[ImageGenProvider]:
     """
     configured: Optional[str] = None
     try:
-        from hermes_cli.config import load_config
+        from hermes_cli.config import load_config_readonly
 
-        cfg = load_config()
+        cfg = load_config_readonly()
         section = cfg.get("image_gen") if isinstance(cfg, dict) else None
         if isinstance(section, dict):
             raw = section.get("provider")
@@ -125,13 +134,33 @@ def get_active_provider() -> Optional[ImageGenProvider]:
             configured,
         )
 
-    # 2. Fallback: single registered provider — but only if it's actually
+    # 2. Fallback: the image backend belonging to the user's active LLM
+    #    provider. They already pay that vendor for inference, so image
+    #    billing is not a surprise; every *other* credential they happen to
+    #    hold stays strictly opt-in (rules 3 and 4 never match on a bare key).
+    #
+    #    resolve_requested_provider() — not resolve_runtime_provider(), whose
+    #    tail resolves *any* unmatched request (including the literal "auto")
+    #    to openrouter and would opt an unconfigured user into its billing.
+    #    "auto" matches no registered image provider, so it falls through.
+    try:
+        from hermes_cli.runtime_provider import resolve_requested_provider
+
+        runtime_name = (resolve_requested_provider() or "").strip().lower()
+    except Exception as exc:  # noqa: BLE001 - resolution is best-effort
+        logger.debug("could not resolve the active runtime provider: %s", exc)
+        runtime_name = ""
+    runtime_match = snapshot.get(runtime_name) if runtime_name else None
+    if runtime_match is not None and _is_available_safe(runtime_match):
+        return runtime_match
+
+    # 3. Fallback: single registered provider — but only if it's actually
     #    available (no credentials = don't surface it as "active").
     available = [p for p in snapshot.values() if _is_available_safe(p)]
     if len(available) == 1:
         return available[0]
 
-    # 3. Fallback: prefer legacy FAL for backward compat, when available.
+    # 4. Fallback: prefer legacy FAL for backward compat, when available.
     fal = snapshot.get("fal")
     if fal is not None and _is_available_safe(fal):
         return fal

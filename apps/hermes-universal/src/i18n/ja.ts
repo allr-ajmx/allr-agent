@@ -57,13 +57,21 @@ export const ja = defineLocale({
     profiles: 'プロファイル',
     settings: '設定',
     files: 'ファイル',
-    review: 'レビュー'
+    review: 'レビュー',
+    webhooks: 'Webhook'
   },
 
   // The read-only `shortcuts` reference became the full rebindable `keybinds`
   // panel; only its title is translated here, the rest falls back to English.
   keybinds: {
-    title: 'キーボードショートカット'
+    title: 'キーボードショートカット',
+    globalTag: 'システム全体',
+    globalTagHint:
+      '起動時にオペレーティングシステムから予約されます。Hermes がバックグラウンドにあるときも動作し、このコンピューター上の他のアプリはこのキーを使えません。',
+    globalClaimTitle: 'ショートカットをシステム全体で予約しました',
+    globalClaimMessage: combos =>
+      `Hermes はオペレーティングシステムから ${combos} を予約しました。他のアプリが手前にあるときも反応します。Hermes の実行中は他のアプリがこのキーを使えません。`,
+    globalClaimAction: '変更する'
   },
 
   files: {
@@ -99,52 +107,6 @@ export const ja = defineLocale({
     deleteTitle: name => `${name} を削除しますか？`,
     deleteBody: 'ゴミ箱に移動します。そこから復元できます。',
     pathCopied: 'パスをコピーしました'
-  },
-
-  boot: {
-    ready: 'Hermes Desktop の準備ができました',
-    desktopBootFailedWithMessage: message => `デスクトップの起動に失敗しました: ${message}`,
-    steps: {
-      connectingGateway: 'ライブデスクトップゲートウェイに接続中',
-      loadingSettings: 'Hermes の設定を読み込み中',
-      loadingSessions: '最近のセッションを読み込み中',
-      startingDesktopConnection: 'デスクトップ接続を開始中',
-      startingHermesDesktop: 'Hermes Desktop を起動中…'
-    },
-    errors: {
-      backgroundExited: 'Hermes バックグラウンドプロセスが終了しました。',
-      backgroundExitedDuringStartup: '起動中に Hermes バックグラウンドプロセスが終了しました。',
-      backendStopped: 'バックエンドが停止しました',
-      desktopBootFailed: 'デスクトップの起動に失敗しました',
-      gatewayConnectionLost: 'ゲートウェイへの接続が切断されました',
-      gatewaySignInRequired: 'ゲートウェイへのサインインが必要です',
-      ipcBridgeUnavailable: 'デスクトップ IPC ブリッジが利用できません。'
-    },
-    failure: {
-      title: 'Hermes を起動できませんでした',
-      description:
-        'バックグラウンドゲートウェイが起動しませんでした。以下の回復手順をお試しください。チャットや設定は削除されません。',
-      remoteTitle: 'リモートゲートウェイへのサインインが必要です',
-      remoteDescription:
-        'リモートゲートウェイのセッションが期限切れです。再接続するにはもう一度サインインしてください。チャットや設定は削除されません。',
-      retry: '再試行',
-      repairInstall: 'インストールを修復',
-      useLocalGateway: 'ローカルゲートウェイを使用',
-      openLogs: 'ログを開く',
-      repairHint: '修復はインストーラーを再実行します。新しいマシンでは数分かかる場合があります。',
-      remoteSignInHint:
-        'ゲートウェイのログインウィンドウを開きます。代わりにバンドルされたバックエンドに切り替えるには「ローカルゲートウェイを使用」を選択してください。',
-      hideRecentLogs: '最近のログを非表示',
-      showRecentLogs: '最近のログを表示',
-      signedInTitle: 'サインインしました',
-      signedInMessage: 'リモートゲートウェイに再接続中…',
-      signInIncompleteTitle: 'サインインが完了していません',
-      signInIncompleteMessage: '認証が完了する前にログインウィンドウが閉じられました。',
-      signInFailed: 'サインインに失敗しました',
-      signInToRemoteGateway: 'リモートゲートウェイにサインイン',
-      signInWithProvider: provider => `${provider} でサインイン`,
-      identityProvider: 'ID プロバイダー'
-    }
   },
 
   notifications: {
@@ -188,6 +150,7 @@ export const ja = defineLocale({
       microphoneUnsupported: 'このランタイムはマイク録音をサポートしていません。',
       noMicrophone: 'マイクが見つかりませんでした。',
       noSpeechDetected: '音声が検出されませんでした',
+      sayStopToEnd: '「stop」と言うと音声チャットを終了します。',
       playbackFailed: '音声再生に失敗しました',
       recordingFailed: '音声録音に失敗しました',
       transcriptionFailed: '音声文字起こしに失敗しました',
@@ -205,8 +168,18 @@ export const ja = defineLocale({
       turnDoneBody: '応答の準備ができました。',
       turnErrorTitle: 'ターンが失敗しました',
       backgroundDoneTitle: 'バックグラウンドタスクが完了しました',
-      backgroundFailedTitle: 'バックグラウンドタスクが失敗しました'
+      backgroundFailedTitle: 'バックグラウンドタスクが失敗しました',
+      creditsTitle: 'クレジット'
     }
+  },
+
+  billingBlock: {
+    titleNous: 'Nous クレジットが不足しています',
+    titleProvider: provider => `クレジット不足 — ${provider}`,
+    fallbackMessage: 'アカウントのクレジットが不足しています。続行するにはクレジットを追加してください。',
+    openBilling: '請求を開く',
+    addCredits: 'クレジットを追加',
+    dismiss: '閉じる'
   },
 
   remoteDisplayBanner: {
@@ -231,6 +204,12 @@ export const ja = defineLocale({
     maximize: '最大化',
     restore: '元のサイズに戻す',
     close: '閉じる'
+  },
+  hud: {
+    connecting: 'Hermes に接続中…',
+    connectionFailed: 'Hermes はゲートウェイに接続できませんでした。',
+    expandReply: '返信を表示',
+    collapseReply: '返信を非表示'
   },
 
   language: {
@@ -285,7 +264,20 @@ export const ja = defineLocale({
       sourceNone: '利用できるプラグインフォルダーがありません',
       gatewayDoor: '接続中のバックエンドからプラグインを読み込む',
       gatewayDoorHint: 'バックエンド由来のプラグインコードは、アプリ本体と同じ権限で実行されます。',
-      gatewayDoorUnavailable: 'このバックエンドはプラグインフォルダーを報告しませんでした。'
+      gatewayDoorUnavailable: 'このバックエンドはプラグインフォルダーを報告しませんでした。',
+      agent: {
+        title: 'エージェントプラグイン',
+        blurb:
+          'Hermes バックエンドで動作します — ツール、スキル、MCP サーバー、フック、スラッシュコマンド。「ポータブル」は Agent Plugins パッケージ（他のエージェントでも使えるスキル + MCP のバンドル）です。切り替えは新しいセッションから有効になります。',
+        empty: 'エージェントプラグインはまだインストールされていません。',
+        loadFailed: 'エージェントプラグインを読み込めませんでした',
+        portable: 'ポータブル',
+        search: 'プラグインを検索…',
+        noMatches: '一致するプラグインはありません。',
+        toggleFailed: (name: string) => `${name} を切り替えられませんでした`,
+        updateBackendToManage: 'ここからオン・オフを切り替えるには Hermes バックエンドを更新してください。',
+        sources: { bundled: '内蔵', entrypoint: 'pip', git: 'git', project: 'プロジェクト', user: 'ユーザー' }
+      }
     },
     notifications: {
       title: '通知',
@@ -313,6 +305,14 @@ export const ja = defineLocale({
         backgroundDone: {
           label: 'バックグラウンドタスク完了',
           description: 'バックグラウンドのターミナルコマンドが完了しました。'
+        },
+        credits: {
+          label: 'クレジット通知',
+          description: 'アカウントのクレジットが不足した、または復旧しました。'
+        },
+        plugin: {
+          label: 'プラグイン通知',
+          description: 'Hermes がバックグラウンドのときにプラグインが通知を送信しました。'
         }
       },
       test: 'テスト通知を送信',
@@ -324,6 +324,34 @@ export const ja = defineLocale({
       completionSoundTitle: '完了サウンド',
       completionSoundDesc: 'エージェントのターン終了時に再生されます。プリセットを選んでここで試聴できます。',
       completionSoundPreview: '試聴'
+    },
+    voiceLevels: {
+      title: 'レベル',
+      intro:
+        'Hermes があなたの声をどれだけ拾い、どれだけ大きく話し返すかを調整します。エコーキャンセルはないため、スピーカーの音量を上回る割り込みしきい値を設定することが、Hermes が自分の声で割り込むのを防ぐ唯一の方法です。',
+      meterTitle: '入力メーター',
+      meterDesc: 'マイクを開いて、下のしきい値に対する自分のレベルを確認します。録音も送信も行いません。',
+      meterRunningDesc:
+        '待ち受け中です。普段どおり話し、入力しきい値を発話のすぐ下に設定してください。1 分後に自動で停止します。',
+      meterStart: 'マイクをテスト',
+      meterStop: '停止',
+      meterLevel: (percent: string) => `レベル ${percent}`,
+      meterPeak: (percent: string) => `ピーク ${percent}`,
+      meterBusy: 'マイクは既に使用中です',
+      meterFailed: 'マイクを開けませんでした',
+      saveFailed: '音声レベルを保存できませんでした',
+      gainTitle: '入力ゲイン',
+      gainDesc:
+        '測定レベルを倍率で持ち上げ、音の小さいマイクでもしきい値に届くようにします。文字起こしされる音声そのものは変わりません。',
+      thresholdTitle: '入力しきい値',
+      thresholdDesc:
+        'Hermes が発話の開始とみなす音の大きさです。低すぎると環境音で反応し、高すぎるとまったく聞き取れません。',
+      bargeinTitle: '割り込みしきい値',
+      bargeinDesc:
+        'Hermes が話している間に適用される高い方のゲートです。スピーカーの音だけが鳴っているときのメーター表示より高く保ってください。',
+      outputSectionTitle: '出力',
+      outputTitle: '読み上げ音量',
+      outputDesc: '読み上げの再生音量です。'
     },
     sections: {
       model: 'モデル',
@@ -358,9 +386,18 @@ export const ja = defineLocale({
       toolViewDesc: 'プロダクト表示は生のツールペイロードを隠し、テクニカル表示は入出力をすべて表示します。',
       backdropTitle: 'チャットの背景',
       backdropDesc: '会話の背後にうっすら見える彫像の画像。',
+      reactionsTitle: 'メッセージリアクション',
+      reactionsDesc:
+        'iMessage 風の絵文字リアクション — メッセージにリアクションでき、Hermes もあなたのメッセージにリアクションできます。',
       uiScaleTitle: 'UI スケール',
       uiScaleDesc: (percent: number) =>
         `アプリ全体の文字と UI を拡大縮小します。Cmd/Ctrl と +、-、0 でも変更できます。現在: ${percent}%`,
+      terminalFontTitle: 'ターミナルフォント',
+      terminalFontDesc:
+        '統合ターミナルで使用するインストール済みフォントを選びます。Nerd Font は Powerlevel10k とシェルアイコンを表示できます。空欄では内蔵の JetBrains Mono を使用します。',
+      terminalFontPlaceholder: 'MesloLGS NF または CSS フォントスタック',
+      terminalFontPreview: 'グリフのプレビュー',
+      terminalFontReset: '既定値を使用',
       translucencyTitle: 'ウィンドウの透過',
       translucencyDesc: 'ウィンドウ全体を透過させてデスクトップを表示します。macOS と Windows のみ。',
       embedsTitle: 'インライン埋め込み',
@@ -672,6 +709,7 @@ export const ja = defineLocale({
     config: {
       none: 'なし',
       noneParen: '(なし)',
+      builtinOnly: '内蔵のみ',
       notSet: '未設定',
       commaSeparated: 'カンマ区切りの値',
       searchPlaceholder: '検索…',
@@ -685,7 +723,12 @@ export const ja = defineLocale({
       imported: '設定をインポートしました',
       invalidJson: '設定 JSON が無効です',
       keepAwakeTitle: 'コンピューターをスリープさせない',
-      keepAwakeDesc: '本体のスリープを防ぎ、長時間や夜通しの実行を継続します。画面は暗転できます。'
+      keepAwakeDesc: '本体のスリープを防ぎ、長時間や夜通しの実行を継続します。画面は暗転できます。',
+      keepAwakeFailed: 'このコンピューターのスリープを抑止できませんでした',
+      backgroundModeTitle: 'バックグラウンドで実行を続ける',
+      backgroundModeDesc:
+        'ウィンドウを閉じても終了せず、Hermes をしまうだけになります。実行中の応答はそのまま続きます。再表示や終了はトレイアイコンから行えます。',
+      backgroundModeFailed: 'Hermes をバックグラウンドで実行し続けられませんでした'
     },
     credentials: {
       pasteKey: 'キーを貼り付け',
@@ -739,6 +782,11 @@ export const ja = defineLocale({
       signOut: 'サインアウト',
       signInWith: provider => `${provider} でサインイン`,
       authTitle: '認証',
+      sessionKindNative: 'システムブラウザ',
+      sessionKindNativeHint:
+        'システムブラウザでサインインしました。トークンはこの端末のキーリングに保管され、アプリの WebView には入りません。',
+      sessionKindCookie: 'アプリ内',
+      sessionKindCookieHint: 'アプリ内でサインインしました。セッション Cookie はアプリが保持し、自動的に更新されます。',
       authSignedInPassword:
         'このゲートウェイはユーザー名とパスワードを使用します。サインイン済みです。セッションは自動的に更新されます。',
       authSignedInOauth:
@@ -758,6 +806,8 @@ export const ja = defineLocale({
       saveAndReconnect: '保存して再接続',
       diagnostics: '診断',
       diagnosticsDesc: '接続状態と最近のゲートウェイログ。ゲートウェイの動作がおかしいときに役立ちます。',
+      configFloorWarning: (version, floor) =>
+        `設定 v${version} はサポート下限 v${floor} より古く、自動移行されません。上記の Hermes ホームにある config.yaml をバックアップして \`hermes setup\` を実行するか、変更履歴を確認のうえ _config_version: ${floor} を設定してください。`,
       openLogs: 'ログを開く',
       incompleteTitle: 'リモートゲートウェイの設定が不完全です',
       incompleteSignIn: 'リモートに切り替える前にリモート URL を入力してサインインしてください。',
@@ -850,6 +900,11 @@ export const ja = defineLocale({
       change: '変更',
       autoUseMain: '自動 · メインモデルを使用',
       providerDefault: '(プロバイダーのデフォルト)',
+      moaEnabled: '有効',
+      moaPresetDisabledHint:
+        'このプリセットは無効です — 下のスイッチに関係なくアグリゲーターのみが応答し、リファレンスモデルは実行されません。',
+      moaDisableReference: index => `リファレンス ${index} を無効化`,
+      moaEnableReference: index => `リファレンス ${index} を有効化`,
       tasks: {
         vision: { label: 'ビジョン', hint: '画像分析' },
         web_extract: { label: 'ウェブ抽出', hint: 'ページの要約' },
@@ -979,7 +1034,11 @@ export const ja = defineLocale({
       postSetupCompleteMessage: step => `${step} をインストールしました。`,
       postSetupErrorTitle: 'セットアップはエラーで終了しました',
       postSetupErrorMessage: step => `${step} のログを確認してください。`,
-      postSetupFailed: step => `${step} のセットアップの実行に失敗しました`
+      postSetupFailed: step => `${step} のセットアップの実行に失敗しました`,
+      modelCustomBadge: 'カスタム',
+      modelCustomLabel: 'またはモデル ID を入力',
+      modelCustomPlaceholder: 'vendor/model-name',
+      modelCustomSave: '使用する'
     }
   },
 
@@ -1099,9 +1158,20 @@ export const ja = defineLocale({
     ageSeconds: seconds => `${seconds}秒前`,
     ageMinutes: minutes => `${minutes}分前`,
     ageHours: hours => `${hours}時間前`,
+    ageDays: days => `${days}日前`,
     durationSeconds: seconds => `${seconds}秒`,
     durationMinutes: (minutes, seconds) => `${minutes}分 ${seconds}秒`,
-    tokens: value => `${value} トーク`
+    tokens: value => `${value} トーク`,
+    steer: '誘導',
+    steerPlaceholder: 'このサブエージェントの方向を変える…',
+    steerSend: '送信',
+    steerCancel: 'キャンセル',
+    steerQueued: '次のステップに向けてキューに入れました',
+    steerRejected: '誘導するには遅すぎます — このサブエージェントは最後のステップを過ぎています',
+    steerFailed: 'ゲートウェイに接続できませんでした',
+    steerGone: 'このサブエージェントはもう実行されていません',
+    steerNotOwned: 'このサブエージェントは別のチャットのものです — そちらから誘導してください',
+    steerMissed: (text: string) => `誘導は届きませんでした — サブエージェントが先に終了しました: ${text}`
   },
 
   commandCenter: {
@@ -1111,6 +1181,9 @@ export const ja = defineLocale({
     searchPlaceholder: 'セッション、ビュー、アクションを検索',
     goTo: '移動',
     goToSession: 'セッションへ移動',
+    projects: 'プロジェクト',
+    openFolder: 'フォルダをプロジェクトとして開く…',
+    openFolderAt: path => `フォルダをプロジェクトとして開く — ${path}`,
     branches: 'ブランチ',
     startInBranch: branch => `${branch} で新しい会話`,
     commandCenter: 'コマンドセンター',
@@ -1408,6 +1481,14 @@ export const ja = defineLocale({
     renameMenu: '名前を変更…',
     editSoul: 'SOUL.md を編集…',
     copySetup: 'セットアップをコピー',
+    exportProfile: 'プロファイルをエクスポート…',
+    importProfile: 'プロファイルをインポート…',
+    exporting: 'エクスポート中…',
+    exported: 'プロファイルをエクスポートしました',
+    imported: 'プロファイルをインポートしました',
+    failedExport: 'プロファイルをエクスポートできませんでした',
+    failedImport: 'プロファイルをインポートできませんでした',
+    shareHint: 'スキル・設定・SOUL.md をテーマとレイアウトと一緒にまとめます。認証情報は含まれません。',
     copying: 'コピー中...',
     modelLabel: 'モデル',
     skillsLabel: 'スキル',
@@ -1562,6 +1643,8 @@ export const ja = defineLocale({
     promptPlaceholder: '実行ごとにエージェントが行う内容は？',
     frequencyLabel: '頻度',
     deliverLabel: '配信先',
+    deliverNeedsHomeChannel: '先にホームチャンネルを設定してください',
+    deliveryFailed: '配信に失敗しました',
     modelLabel: 'モデル',
     modelDefault: 'デフォルト（グローバルモデル）',
     customScheduleLabel: 'カスタムスケジュール',
@@ -1573,7 +1656,15 @@ export const ja = defineLocale({
     scheduleRequired: 'スケジュールは必須です。',
     scriptOnlyEditHint: 'スクリプトのみのジョブ（AI プロンプトなし）。ジョブ ID:',
     saveChanges: '変更を保存',
-    createAction: 'Cron を作成'
+    createAction: 'Cron を作成',
+    blueprints: {
+      startFrom: 'ここから開始',
+      custom: 'カスタム',
+      scheduleIt: 'スケジュールする',
+      scheduling: 'スケジュール中...',
+      scheduled: 'ブループリントをスケジュールしました',
+      failedLoad: 'ブループリントの読み込みに失敗しました'
+    }
   },
 
   artifacts: {
@@ -1638,6 +1729,41 @@ export const ja = defineLocale({
     noProject: 'プロジェクトなし',
     projectEmpty: 'セッションはまだありません',
     noSessions: 'セッションはまだありません',
+    filters: {
+      trigger: 'フィルター',
+      grouping: 'グループ化',
+      groupingSessions: 'セッション',
+      groupingProject: 'プロジェクト',
+      ordering: '並び順',
+      orderUpdated: '更新日時',
+      orderCreated: '作成日時',
+      orderStatus: 'ステータス',
+      orderTokens: 'トークン',
+      orderCost: 'コスト',
+      orderManual: '手動',
+      show: '表示',
+      metaUpdated: '更新日時',
+      metaTokens: 'トークン',
+      metaCost: 'コスト',
+      sectionLabel: 'フィルター',
+      status: 'ステータス',
+      statusNeedsInput: '応答待ち',
+      statusWorking: '実行中',
+      statusUnread: '未読',
+      statusIdle: 'アイドル',
+      pullRequest: 'プルリクエスト',
+      prOpen: 'オープン',
+      prDraft: 'ドラフト',
+      prMerged: 'マージ済み',
+      prClosed: 'クローズ',
+      prNone: 'PR なし',
+      project: 'プロジェクト',
+      archived: 'アーカイブ済み',
+      reset: '既定に戻す',
+      collapseAll: 'すべて折りたたむ',
+      expandAll: 'すべて展開',
+      markAllRead: 'すべて既読にする'
+    },
     projects: {
       sectionLabel: 'プロジェクト',
       newButton: '新規プロジェクト',
@@ -1654,6 +1780,8 @@ export const ja = defineLocale({
       ideaShuffle: 'テンプレートをシャッフル',
       ideaFailed: 'アイデアを生成できませんでした',
       ideaWriteFailed: 'プロジェクトは作成されましたが、IDEA.md を保存できませんでした',
+      ideaAppended: 'IDEA.md がすでにあったため、アイデアを末尾に追記しました',
+      ideaKeptExisting: 'IDEA.md はそのままにしました（サイズが大きすぎるかテキストではありません）',
       noFolders: 'まだフォルダがありません。',
       addFolder: 'フォルダを追加',
       primaryBadge: 'メイン',
@@ -1690,8 +1818,13 @@ export const ja = defineLocale({
       branchOpenExisting: '開く',
       branchSwitchHome: 'ホームを切替',
       branchCreateWorktree: '新しいワークツリー',
+      branchTrackRemote: 'リモートを追跡',
+      worktreeProjectLabel: 'プロジェクト',
+      worktreeProjectPlaceholder: 'プロジェクトを検索…',
+      worktreeProjectNone: 'フォルダのあるプロジェクトがありません',
       branchesLoading: 'ブランチを読み込み中…',
       noBranches: 'ブランチが見つかりません',
+      branchesFailed: 'ブランチを読み込めませんでした',
       removeWorktree: 'ワークツリーを削除',
       removeWorktreeFailed: 'ワークツリーを削除できませんでした（コミットされていない変更？）',
       removeWorktreeConfirm:
@@ -1712,6 +1845,7 @@ export const ja = defineLocale({
       copyId: 'ID をコピー',
       export: 'エクスポート',
       branchFrom: '分岐',
+      moveToProject: 'プロジェクトへ移動',
       rename: '名前を変更',
       archive: 'アーカイブ',
       newWindow: '新しいウィンドウ',
@@ -1723,6 +1857,7 @@ export const ja = defineLocale({
       needsInput: '入力が必要です',
       waitingForAnswer: '回答を待っています',
       finishedUnread: '完了 — 未読',
+      draftSession: '下書き — 未送信',
       handoffOrigin: platform => `${platform} から引き継ぎ`,
       renamed: '名前を変更しました',
       renameFailed: '名前の変更に失敗しました',
@@ -1780,10 +1915,21 @@ export const ja = defineLocale({
     voiceDictation: '音声口述',
     speakReplies: '返信を読み上げる',
     stopSpeakingReplies: '返信の読み上げを停止',
+    wakeWordClientCapture: (phrase: string) =>
+      `ウェイクワードはオフ — クリックで「${phrase}」を待機。このバックエンドにはマイクがないため、この端末のマイク音声を送信します。`,
+    wakeWordListening: (phrase: string) => `「${phrase}」を待機中 — クリックで停止`,
+    wakeWordNeedsConfirm: (phrase: string) =>
+      `「${phrase}」にはこの端末のマイクが必要です — クリックしてバックエンドへの送信を開始`,
+    wakeWordOff: (phrase: string) => `ウェイクワードはオフ — クリックで「${phrase}」を待機`,
+    wakeWordPausedVoice: (phrase: string) => `音声チャット中は「${phrase}」を一時停止`,
+    wakeWordStreaming: (phrase: string) =>
+      `「${phrase}」を待機中 — この端末のマイク音声をバックエンドへ送信中。クリックで停止。`,
+    wakeWordUnavailable: 'このゲートウェイではウェイクワードを利用できません',
     lookupLoading: '検索中…',
     lookupNoMatches: '一致なし。',
     lookupTry: '試す',
     lookupOr: 'または',
+    openDirective: '開く',
     commonCommands: '一般的なコマンド',
     hotkeys: 'ホットキー',
     helpFooter: 'フルパネルを開く · Backspace で閉じる',
@@ -1811,6 +1957,7 @@ export const ja = defineLocale({
     urlHintPre: '完全な URL を入力してください。例: ',
     attach: '添付',
     queued: count => `${count} 件キュー済み`,
+    queuedPaused: count => `${count} 件キュー済み — 一時停止中`,
     attachmentOnly: '添付のみのターン',
     emptyTurn: '空のターン',
     attachments: count => `${count} 件の添付`,
@@ -1820,6 +1967,8 @@ export const ja = defineLocale({
     queueSendNext: '次に送信',
     queueSend: '送信',
     queueDelete: '削除',
+    queueResume: '再開',
+    queueResumeTip: '停止により一時停止中 — キュー済みターンの送信を再開します',
     queueStuckTitle: 'キュー内のメッセージを送信できません',
     queueStuckBody:
       'キューに入れたターンの送信が繰り返し失敗しました。まだキューに残っています。もう一度送信してください。',
@@ -1836,6 +1985,8 @@ export const ja = defineLocale({
     themeTryPre: '試してみる: ',
     themeTryPost: '。',
     attachLabel: '添付',
+    attachFailed: label => `${label} を添付できませんでした`,
+    attachNoRef: 'ゲートウェイはこのファイルを保存しませんでした。',
     files: 'ファイル…',
     folder: 'フォルダー…',
     back: '戻る',
@@ -2094,6 +2245,8 @@ export const ja = defineLocale({
     reopenVerification: '確認ページを再度開く',
     copy: 'コピー',
     defaultModel: 'デフォルトモデル',
+    noDefaultModel:
+      'このプロバイダーのデフォルトモデルを決定できませんでした。認証情報は保存済みです — 設定 → モデルで選んでください。',
     freeTier: '無料プラン',
     pro: 'Pro',
     free: '無料',
@@ -2274,17 +2427,12 @@ export const ja = defineLocale({
     terminalHide: 'ターミナルを非表示',
     terminalsAria: 'ターミナル',
     terminalNew: '新しいターミナル',
-    terminalCloseOthers: '他を閉じる',
-    terminalCloseAll: 'すべて閉じる',
     addToChat: 'チャットに追加'
   },
 
   preview: {
     tab: 'プレビュー',
     closeTab: label => `${label} を閉じる`,
-    closeOthers: '他を閉じる',
-    closeToRight: '右側を閉じる',
-    closeAll: 'すべて閉じる',
     closePane: 'プレビューペインを閉じる',
     loading: 'プレビューを読み込み中',
     unavailable: 'プレビューは利用できません',
@@ -2315,6 +2463,9 @@ export const ja = defineLocale({
       'このファイルは開いてから変更されています。あなたの版で上書きするか、編集を破棄して再読み込みしますか？',
     overwrite: '上書き',
     discardReload: '破棄して再読み込み',
+    closeDirtyTitle: '未保存の変更を破棄しますか？',
+    closeDirtyBody: 'このファイルには保存されていない編集があります。タブを閉じると破棄されます。',
+    closeDirtyConfirm: '破棄して閉じる',
     console: {
       deselect: 'エントリーの選択を解除',
       select: 'エントリーを選択',
@@ -2378,19 +2529,27 @@ export const ja = defineLocale({
     thread: {
       loadingSession: 'セッションを読み込み中',
       showEarlier: '以前のメッセージを表示',
+      steerMissed: '誘導は届かず',
       loadingResponse: 'Hermes が応答を読み込み中',
+      compacting: 'スレッドを要約中',
       resumeWhenBackgroundDone: count =>
         count === 1
           ? 'バックグラウンドタスクの完了後に再開します'
           : `${count} 件のバックグラウンドタスクの完了後に再開します`,
       thinking: '考え中',
+      thought: '思考済み',
+      thoughtBriefly: '少し思考',
+      thoughtFor: duration => `${duration} 思考`,
       today: time => `今日 ${time}`,
       yesterday: time => `昨日 ${time}`,
       copy: 'コピー',
       refresh: '更新',
       moreActions: 'その他のアクション',
+      react: 'リアクション',
       branchNewChat: '新しいチャットでブランチ',
       dismissError: 'エラーを閉じる',
+      filesChanged: count => `${count} 件のファイルを変更`,
+      reviewChanges: 'レビュー',
       readAloudFailed: '読み上げに失敗しました',
       preparingAudio: '音声を準備中...',
       stopReading: '読み上げを停止',
@@ -2432,7 +2591,11 @@ export const ja = defineLocale({
       placeholder: '回答を入力…',
       skip: 'スキップ',
       continueLabel: '続行',
-      skipped: 'スキップ'
+      skipped: 'スキップ',
+      lateAnswer: (question, choice) => `「${question}」について — 私の回答: ${choice}`,
+      lateAnswerTip: 'この回答をフォローアップメッセージとして下書きする',
+      lateAnswerHint: 'この質問はもう回答を待っていません。選択するとフォローアップメッセージとして下書きされます。',
+      expiredAnswer: 'この質問は回答が届く前にタイムアウトしました — フォローアップメッセージとして下書きしました。'
     },
     tool: {
       code: 'コード',
@@ -2447,7 +2610,6 @@ export const ja = defineLocale({
       copyFile: 'ファイルをコピー',
       copyPath: 'パスをコピー',
       outputAlt: 'ツール出力',
-      rawResponse: '生の応答',
       copyActivity: 'アクティビティをコピー',
       recoveredOne: '1 つの失敗したステップの後に回復しました',
       recoveredMany: count => `${count} つの失敗したステップの後に回復しました`,
@@ -2457,6 +2619,7 @@ export const ja = defineLocale({
       statusError: 'エラー',
       statusRecovered: '回復しました',
       statusDone: '完了',
+      memoryWriteNoted: 'メモリへの書き込みを記録',
       actions: {
         read: '読み取り完了',
         reading: '読み取り中',
@@ -2510,6 +2673,11 @@ export const ja = defineLocale({
           done: 'ファイルを一覧表示しました',
           pending: 'ファイルを一覧表示中',
           pendingAction: '一覧表示中'
+        },
+        memory: {
+          done: 'メモリに保存しました',
+          pending: 'メモリに保存中',
+          pendingAction: '保存中'
         },
         patch: {
           done: 'ファイルにパッチを適用しました',
@@ -2575,6 +2743,9 @@ export const ja = defineLocale({
     stopFailed: '停止に失敗しました',
     regenerateFailed: '再生成に失敗しました',
     editFailed: '編集に失敗しました',
+    restoreMissing: '復元するメッセージが見つかりません。',
+    restoreEmpty: '空のメッセージは復元できません。',
+    restoreNoSession: '復元できるアクティブなセッションがありません。',
     resumeFailed: '再開に失敗しました',
     resumeStrandedTitle: 'このセッションを読み込めませんでした',
     resumeStrandedBody:
@@ -2614,6 +2785,12 @@ export const ja = defineLocale({
     noClipboardImage: 'クリップボードに画像が見つかりません',
     clipboardPasteFailed: 'クリップボードからの貼り付けに失敗しました',
     dropFiles: 'ファイルをドロップ',
+    compress: {
+      working: 'コンテキストを圧縮しています…',
+      workingOn: topic => `次のトピックについてコンテキストを圧縮しています: ${topic}`,
+      removed: count => `${count} 件のメッセージを圧縮しました`,
+      nothingToCompress: '圧縮するものはありません'
+    },
     handoff: {
       pickPlatform: '送信先を選択',
       success: platform => `${platform} に引き継ぎました。いつでもここで再開できます。`,
@@ -2646,6 +2823,199 @@ export const ja = defineLocale({
       title: 'サイドバー',
       description: 'モバイルサイドバーを表示します。',
       toggle: 'サイドバーを切り替え'
+    }
+  },
+
+  zones: {
+    showHeader: 'ヘッダーを表示',
+    hideHeader: 'ヘッダーを非表示',
+    minimize: '最小化',
+    restore: '元に戻す',
+    closeRunningTitle: '実行中のタブを閉じますか？',
+    closeRunningBody:
+      'このチャットはまだ実行中です（または入力を待っています）。タブを閉じても非表示になるだけで、セッションは進行状況を保持し、サイドバーから再度開けます。',
+    closeRunningConfirm: 'タブを閉じる',
+    closeOthers: '他を閉じる',
+    closeToRight: '右側を閉じる',
+    closeAll: 'すべて閉じる',
+    newTab: '新しいチャット',
+    reload: '再読み込み',
+    tabCount: count => `${count} 個のタブ`,
+    split: dir => `${dir}に分割`,
+    move: dir => `${dir}に移動`,
+    dirUp: '上',
+    dirDown: '下',
+    dirLeft: '左',
+    dirRight: '右',
+    pluginDisabled: pluginId => `プラグイン「${pluginId}」は無効です`,
+    pluginDisabledBody: '設定 → プラグイン で再度有効にすると、ペインが戻ります。',
+    missingPane: paneId => `ペインが見つかりません: ${paneId}`,
+    detach: '新しいウィンドウで開く',
+    reattach: '元に戻す',
+    detachedBody: title => `${title} は別のウィンドウで開いています。`,
+    detachedMissing: 'このタイルはこのウィンドウでは利用できません。',
+    editTitle: 'レイアウト',
+    editHint: 'レイアウトを選ぶか、ゾーン間でペインをドラッグします。ゾーンを右クリックすると分割できます。',
+    reset: 'リセット',
+    templates: 'テンプレート',
+    custom: 'カスタム',
+    newGridLayout: '新しいグリッドレイアウト',
+    saveCurrentAs: '現在の配置をテンプレートとして保存',
+    nameLayoutPlaceholder: 'このレイアウトの名前…',
+    deletePreset: name => `${name} を削除`,
+    zoneEditorTitle: 'ゾーンエディター',
+    editorHintPre: 'クリックで分割 · ',
+    editorHintPost: ' で分割線を反転 · ゾーンをまたいでドラッグすると結合 · 共有する辺をドラッグしてサイズ変更',
+    templateColumns: '列',
+    templateRows: '行',
+    templateGrid: 'グリッド',
+    templatePriority: '優先',
+    zoneTag: index => `ゾーン ${index}`,
+    mergeZones: count => `${count} 個のゾーンを結合`,
+    customZoneName: count => `カスタム ${count} ゾーン`,
+    layoutNamePlaceholder: fallback => `レイアウト名（${fallback}）`,
+    saveApply: '保存して適用',
+    notExpressible: 'この配置はかみ合っています（風車型）— 入れ子の分割としてはまだ表現できません',
+    zoneCount: count => `${count} 個のゾーン`
+  },
+
+  tray: {
+    show: 'Hermes を表示',
+    hud: 'HUD を開く',
+    quit: 'Hermes を終了',
+    keepRunning: 'バックグラウンドで実行',
+    tooltip: 'Hermes (MJX)',
+    closeDialogTitle: 'Hermes をバックグラウンドに残しますか？',
+    closeDialogDesc:
+      'このウィンドウを閉じたあとも Hermes をバックグラウンドで実行し続けるか、完全に終了するかを選べます。設定またはトレイメニューからいつでも変更できます。',
+    keepInBackground: 'バックグラウンドに残す',
+    closeApp: 'Hermes を終了',
+    status: {
+      idle: '未接続',
+      probing: 'ゲートウェイを確認中…',
+      connecting: '接続中…',
+      ready: '接続済み',
+      error: '接続に失敗しました'
+    }
+  },
+  quickEntry: {
+    label: 'クイック入力',
+    placeholder: 'Hermes に質問…',
+    notConnected: '未接続 — Hermes を開いて再接続してください',
+    sendTo: '送信先',
+    currentChat: '現在のチャット',
+    newSession: '新しいセッション',
+    targetLabel: '対象セッション',
+    settingsTitle: 'クイック入力',
+    settingsDesc:
+      'グローバルショートカットで小さな入力欄をどこからでも呼び出し、Hermes を開かずにプロンプトを送信します。',
+    shortcutHint: 'ショートカットは「キーボードショートカット」で割り当ててください。'
+  },
+  webhooks: {
+    title: 'Webhook',
+    loading: 'Webhook を読み込み中…',
+    loadFailed: 'Webhook の読み込みに失敗しました',
+    search: 'サブスクリプションを検索…',
+    noMatches: '一致するサブスクリプションはありません。',
+    tabInbound: '受信',
+    tabOutbound: '送信',
+    outboundSubtitle: 'config.yaml で設定',
+    outboundTitle: '送信 Webhook',
+    outboundBody:
+      'Hermes はセッションのライフサイクルフックで、HMAC 署名付きイベントを任意の URL に POST できます。設定は config.yaml の `hooks.outbound:` にあり、ゲートウェイに API はないため、ここから管理することはまだできません。',
+    emptyTitle: 'サブスクリプションはまだありません',
+    emptyDesc:
+      'サブスクリプションは外部サービスにイベントを POST する URL を与え、受信時にエージェントが何をするかを決めます。',
+    emptyDescDisabled:
+      'サブスクリプションを作る前に Webhook レシーバーを有効にしてください。プラットフォームが無効な間、ゲートウェイは作成を拒否します。',
+    newSubscription: '新しいサブスクリプション',
+    enableFirst: 'まず Webhook レシーバーを有効にしてください。',
+    rowActions: 'サブスクリプションの操作',
+    enableRow: '有効化',
+    disableRow: '無効化',
+    showSecret: 'シークレットを表示',
+    secretUnsaved: 'シークレット未保存',
+    deliverOnly: '配信のみ',
+    allEvents: '（すべてのイベント）',
+    webhookUrl: 'Webhook URL',
+    fieldName: '名前',
+    fieldNamePlaceholder: '例: github-push',
+    fieldDescription: '説明',
+    fieldDescriptionPlaceholder: 'このサブスクリプションの用途（任意）',
+    fieldPrompt: 'プロンプト',
+    fieldPromptPlaceholder: '発火時にエージェントが行うこと（任意）',
+    fieldEvents: 'イベント',
+    fieldEventsPlaceholder: 'カンマ区切り。空ならすべてのイベントに一致',
+    fieldSkills: 'スキル',
+    fieldSkillsPlaceholder: 'カンマ区切りのスキル名（任意）',
+    fieldDeliver: '配信先',
+    fieldDeliverChatId: '配信チャット ID',
+    fieldDeliverChatPlaceholder: '配信先のチャット / チャンネル ID（任意）',
+    fieldDeliverChatDisabled: '先に配信先を選んでください',
+    fieldDeliverOnly: 'ペイロードのみ配信',
+    fieldDeliverOnlyHint: 'エージェントを実行せず、生のイベントを配信先へ転送します。',
+    fieldSecret: '署名シークレット',
+    fieldSecretPlaceholder: '空にすると自動生成されます',
+    fieldSecretHint:
+      '自動生成されたシークレットは一度しか表示されません。自分で指定すれば最初から手元に控えを残せます。',
+    fieldCreated: '作成日時',
+    fieldScript: 'スクリプト',
+    secretSet: '設定済み（非表示）',
+    secretMissing: '未設定',
+    createHint: '名前は URL のパスになるため、小文字化され、空白はハイフンになります。',
+    create: '作成',
+    creating: '作成中…',
+    createFailed: 'サブスクリプションを作成できませんでした',
+    created: (name: string) => `「${name}」を作成しました`,
+    nameRequired: '名前は必須です。',
+    nameInvalid: '英小文字・数字・ハイフン・アンダースコアを使い、英数字で始めてください。',
+    nameNormalized: (name: string) => `「${name}」として作成されます。`,
+    deliverOnlyNeedsTarget: 'ペイロードのみの配信には実際の配信先が必要です。ログ以外を選んでください。',
+    createdTitle: (name: string) => `「${name}」のシークレット`,
+    secretOnce: '署名シークレット',
+    secretOnceWarning: 'このシークレットが表示されるのはこの一度だけです。以降ゲートウェイは読み取りのたびに隠します。',
+    secretCopiedHint: 'クリップボードにコピーしました。閉じる前に安全な場所へ貼り付けてください。',
+    secretNotCopiedHint: 'まだコピーしていません。クリップボードが使えない場合は値を選択して手動でコピーしてください。',
+    secretRecovery:
+      '失くしましたか？ このサブスクリプションを削除して作り直すか、次回は自分でシークレットを指定してください。',
+    secretLater: 'あとで',
+    secretSaved: '保存しました',
+    enabledRow: (name: string) => `「${name}」を有効化しました`,
+    disabledRow: (name: string) => `「${name}」を無効化しました`,
+    toggleFailed: (name: string) => `「${name}」を変更できませんでした`,
+    deleteTitle: 'サブスクリプションを削除',
+    deleteDescPrefix: '次を完全に削除します: ',
+    deleteDescSuffix: '。署名シークレットも一緒に消えます。元に戻せません。',
+    deleting: '削除中…',
+    deleted: 'サブスクリプションを削除しました',
+    deleteFailed: (name: string) => `「${name}」を削除できませんでした`,
+    disabledTitle: 'Webhook レシーバーは停止中です',
+    disabledBody:
+      'Webhook は独立したゲートウェイプラットフォームです。有効にすると受信 HTTP イベントを受け付けます。チャットチャンネルはサブスクリプションがそこへ配信する場合にのみ必要です。',
+    enable: 'Webhook を有効にする',
+    enabling: '有効化中…',
+    enableFailed: 'Webhook プラットフォームを有効にできませんでした',
+    enabledRestartStarted:
+      '設定上は有効になり、ゲートウェイの再起動を開始しました。再起動が完了するまでレシーバーはイベントを受け付けません。',
+    restartNotStarted: (detail: string) =>
+      `設定上は有効になりましたが、ゲートウェイの再起動を開始できませんでした${detail} レシーバーが起動するには手動で再起動してください。`,
+    restartGateway: 'ゲートウェイを再起動',
+    restarting: '再起動中…',
+    receiverNotLiveTitle: 'レシーバーはイベントを受け付けていません',
+    receiverNotLive: (state: string) =>
+      `ゲートウェイは Webhook プラットフォームを「${state}」と報告しています。下のサブスクリプションは保存されていますが、まだ待ち受けていません。`,
+    receiverUnknown:
+      'このゲートウェイはプラットフォームの状態を報告しないため、レシーバーが実際に待ち受けているかはここでは確認できません。設定上有効であることだけが分かります。',
+    pendingRestartBody:
+      'Webhook は設定上有効ですが、稼働中のゲートウェイはその変更より前に起動しており、レシーバーを開いていません。再起動してください。',
+    unknownState: '不明',
+    deliverOptions: {
+      log: 'ログ',
+      telegram: 'Telegram',
+      discord: 'Discord',
+      slack: 'Slack',
+      email: 'メール',
+      github_comment: 'GitHub コメント'
     }
   }
 })

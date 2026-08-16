@@ -63,7 +63,22 @@ pub struct VoiceVadOverrides {
     pub max_turn_ms: Option<u64>,
     pub min_turn_ms: Option<u64>,
     pub preroll_ms: Option<u64>,
+    /// Mic gain on the level scale (`VoiceConfig::level_gain`).
+    pub level_gain: Option<f32>,
 }
+
+/// Accept a float override only if it is a real number, and hold it inside the
+/// range the rest of the machine assumes. Rust is the authority here, not the
+/// webview: a NaN threshold makes `rms >= level` false forever (a mic that never
+/// hears anything) and a zero/negative gain makes every level zero — both are
+/// user-visible "voice is broken" states reachable from one bad persisted value.
+fn clamped(value: f32, lo: f32, hi: f32) -> Option<f32> {
+    value.is_finite().then(|| value.clamp(lo, hi))
+}
+
+/// Widest gain the UI may ask for. 0.25× tames a hot headset; 20× lifts a very
+/// quiet laptop mic onto the same scale the thresholds live on.
+const LEVEL_GAIN_RANGE: (f32, f32) = (0.25, 20.0);
 
 /// The one live voice session (at most one device open at a time — the single-
 /// authority invariant). Cleared on `voice_close` / shutdown.
@@ -83,11 +98,17 @@ struct VoiceHandle {
 fn build_config(vad: Option<VoiceVadOverrides>, format: Option<String>) -> VoiceConfig {
     let mut cfg = VoiceConfig::tuned();
     if let Some(v) = vad {
-        if let Some(x) = v.speech_level {
+        if let Some(x) = v.speech_level.and_then(|x| clamped(x, 0.0, 1.0)) {
             cfg.speech_level = x;
         }
-        if let Some(x) = v.bargein_speech_level {
+        if let Some(x) = v.bargein_speech_level.and_then(|x| clamped(x, 0.0, 1.0)) {
             cfg.bargein_speech_level = x;
+        }
+        if let Some(x) = v
+            .level_gain
+            .and_then(|x| clamped(x, LEVEL_GAIN_RANGE.0, LEVEL_GAIN_RANGE.1))
+        {
+            cfg.level_gain = x;
         }
         if let Some(x) = v.onset_ms {
             cfg.onset_ms = x;
@@ -141,7 +162,10 @@ pub async fn voice_open(
 
     let cfg = build_config(vad, format);
     let target = Arc::new(RwLock::new(target));
-    let ctx = TranscribeCtx { client: transport.client().clone(), target: target.clone() };
+    let ctx = TranscribeCtx {
+        client: transport.client().clone(),
+        target: target.clone(),
+    };
 
     let (tx, join) = capture::open_session(app, id.clone(), cfg, ctx)?;
 
@@ -153,14 +177,22 @@ pub async fn voice_open(
         let _ = join.join();
         return Err("already_open".into());
     }
-    *guard = Some(VoiceHandle { id, tx, join, target });
+    *guard = Some(VoiceHandle {
+        id,
+        tx,
+        join,
+        target,
+    });
     Ok(())
 }
 
 fn send_cmd(voice: &State<'_, VoiceState>, cmd: VoiceCmd) -> Result<(), String> {
     let guard = voice.0.lock().map_err(|_| "voice_state_poisoned")?;
     match guard.as_ref() {
-        Some(h) => h.tx.send(VoiceMsg::Cmd(cmd)).map_err(|_| "voice_session_gone".into()),
+        Some(h) => {
+            h.tx.send(VoiceMsg::Cmd(cmd))
+                .map_err(|_| "voice_session_gone".into())
+        }
         None => Err("not_open".into()),
     }
 }
@@ -169,9 +201,21 @@ fn send_cmd(voice: &State<'_, VoiceState>, cmd: VoiceCmd) -> Result<(), String> 
 pub async fn voice_arm(voice: State<'_, VoiceState>, mode: Option<String>) -> Result<(), String> {
     let mode = match mode.as_deref() {
         Some("bargein") => ArmMode::BargeIn,
+        // Level meter only — hot mic, no turn, no transcription (MJXHRM-90).
+        Some("monitor") => ArmMode::Monitor,
         _ => ArmMode::Normal,
     };
     send_cmd(&voice, VoiceCmd::Arm(mode))
+}
+
+/// Enter hands-free wake listening: the device stays open and batches of 16 kHz
+/// int16 arrive as `voice://{id}/wakeFrame` (base64), which the frontend pushes at
+/// the gateway's `wake.feed`. Only meaningful from `Idle` — a live turn keeps the
+/// device. Detection is the gateway's; it comes back as a `wake.detected` event,
+/// and the frontend answers with `voice_arm`.
+#[tauri::command]
+pub async fn voice_wake_listen(voice: State<'_, VoiceState>) -> Result<(), String> {
+    send_cmd(&voice, VoiceCmd::WakeListen)
 }
 
 #[tauri::command]
@@ -197,6 +241,74 @@ pub async fn voice_update_auth(
             Ok(())
         }
         None => Err("not_open".into()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use machine::DEFAULT_LEVEL_GAIN;
+
+    fn overrides() -> VoiceVadOverrides {
+        VoiceVadOverrides::default()
+    }
+
+    #[test]
+    fn no_overrides_keeps_every_tuned_default() {
+        let cfg = build_config(None, None);
+        let tuned = VoiceConfig::tuned();
+        assert_eq!(cfg.speech_level, tuned.speech_level);
+        assert_eq!(cfg.bargein_speech_level, tuned.bargein_speech_level);
+        assert_eq!(cfg.level_gain, DEFAULT_LEVEL_GAIN);
+    }
+
+    #[test]
+    fn level_gain_is_applied() {
+        let cfg = build_config(
+            Some(VoiceVadOverrides {
+                level_gain: Some(6.0),
+                ..overrides()
+            }),
+            None,
+        );
+        assert_eq!(cfg.level_gain, 6.0);
+    }
+
+    #[test]
+    fn a_nan_threshold_is_refused_rather_than_stored() {
+        // `rms >= NaN` is false for every block, i.e. a microphone that can never
+        // hear anything — reachable from one bad persisted value.
+        let cfg = build_config(
+            Some(VoiceVadOverrides {
+                speech_level: Some(f32::NAN),
+                bargein_speech_level: Some(f32::NAN),
+                level_gain: Some(f32::NAN),
+                ..overrides()
+            }),
+            None,
+        );
+        let tuned = VoiceConfig::tuned();
+        assert_eq!(cfg.speech_level, tuned.speech_level);
+        assert_eq!(cfg.bargein_speech_level, tuned.bargein_speech_level);
+        assert_eq!(cfg.level_gain, DEFAULT_LEVEL_GAIN);
+    }
+
+    #[test]
+    fn out_of_range_values_are_clamped_into_a_usable_band() {
+        let cfg = build_config(
+            Some(VoiceVadOverrides {
+                speech_level: Some(-1.0),
+                bargein_speech_level: Some(9.0),
+                level_gain: Some(0.0),
+                ..overrides()
+            }),
+            None,
+        );
+        assert_eq!(cfg.speech_level, 0.0);
+        // Above 1.0 the barge-in gate could never fire (the host clamps to 1.0).
+        assert_eq!(cfg.bargein_speech_level, 1.0);
+        // Zero gain is a permanently silent meter.
+        assert_eq!(cfg.level_gain, LEVEL_GAIN_RANGE.0);
     }
 }
 

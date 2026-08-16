@@ -120,7 +120,7 @@ export function AboutSection() {
               {statusTone === 'available' ? (
                 <Download className="mt-0.5 size-4 shrink-0 text-primary" />
               ) : statusTone === 'error' ? null : (
-                <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-(--ui-green)" />
               )}
               <div className="min-w-0">
                 <p className="font-medium">{statusLine}</p>

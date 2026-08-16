@@ -28,6 +28,8 @@ import { IS_MOBILE } from '@/lib/platform'
 import { navigateTo } from '@/lib/route-nav'
 import { newChatBubble } from '@/store/chat-bubbles'
 import { NEW_SESSION_FLASH_EVENT } from '@/store/layout'
+import { normalizeProfileKey } from '@/store/profile'
+import { setActiveProfile } from '@/store/profiles'
 import { newSession, startSessionInWorkspace } from '@/store/session'
 import { focusWorkspaceSession, newSessionTab } from '@/store/session-states'
 
@@ -63,6 +65,14 @@ function landOnNewSession(surface: { composer: ComposerTarget; focusZone: () => 
  * `cwd` anchors the draft to a repo or worktree (the sidebar's `+`). An anchored
  * chat replaces the one on screen on every platform: a mobile bubble cannot
  * carry the anchor.
+ *
+ * With no explicit anchor the draft still takes the sidebar's PROJECT SCOPE
+ * (MJXHRM-393) — standing inside a project and pressing ⌘N used to open a chat
+ * detached from it. It is NOT resolved here: `resetChat` resolves it for every
+ * fresh draft in the app, which is what makes the MOBILE branch below inherit it
+ * too. The first pass resolved it at this call site only, so ⌘N on a phone — and
+ * the bubble strip's own new-chat gesture, which never comes through here at
+ * all — stayed detached exactly as before.
  */
 export function startNewSession({ cwd }: { cwd?: string } = {}): void {
   if (cwd?.trim()) {
@@ -78,6 +88,29 @@ export function startNewSession({ cwd }: { cwd?: string } = {}): void {
   // The fresh chat loads in MAIN — on phones too, where the only composer scope
   // is the default one (session tiles, the other scope, are desktop-only).
   landOnNewSession({ composer: 'main', focusZone: focusWorkspaceSession })
+}
+
+/**
+ * Start a fresh chat in ANOTHER profile: point the app at it, then create the
+ * session (desktop's `newSessionInProfile`, `store/profile.ts`).
+ *
+ * `setActiveProfile` (plural `store/profiles`) rather than `selectProfile`
+ * (singular `store/profile`) on purpose — `selectProfile` also clears
+ * `$showAllProfiles`, which would collapse the unified browse view out from
+ * under a user standing in it. Both callers want the profile pointed, not the
+ * sidebar rearranged.
+ *
+ * ORDER MATTERS: the profile has to be active BEFORE the draft is created, or
+ * the fresh chat resolves its cwd and its project scope under the outgoing
+ * profile.
+ *
+ * What this does NOT do is move the live chat socket — see
+ * `store/profile-chat-scope`. Callers who have a user in front of them say so;
+ * this stays a pure act.
+ */
+export function newSessionInProfile(name: string): void {
+  setActiveProfile(normalizeProfileKey(name) === 'default' ? null : name)
+  startNewSession()
 }
 
 /**

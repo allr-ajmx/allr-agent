@@ -18,6 +18,7 @@
 
 import type { ReactElement, ReactNode, PointerEvent as ReactPointerEvent } from 'react'
 
+import type { PaneStripTool } from '@/components/ui/pane-tab'
 import type { ContributionSource } from '@/contrib/types'
 
 import type { PanePlacementHint } from '../tree/grid-to-tree'
@@ -97,6 +98,21 @@ export interface TileChrome {
    *  color). Generic — any tile may contribute one; the strip just renders a
    *  tinted dot before the label. Live: re-registered when the color changes. */
   accent?: string
+  /**
+   * A lead NODE for this tile's TAB, rendered before the label — the richer
+   * sibling of `accent`, and the one that wins when both are set.
+   *
+   * `accent` can only ever say "this tile has a colour", because it is a STRING
+   * captured at registration: anything that moves faster than re-registration
+   * (a session's turn starting, an approval blocking it) cannot be expressed in
+   * it, and the pane mirror's re-register-on-change is exactly what MJXHRM-45
+   * is trying to stop doing. A node is SELF-SUBSCRIBING — a session tile passes
+   * its live `SessionStatusDot` — so the tab shows status without the strip
+   * re-syncing at all.
+   *
+   * Ported from desktop `PaneChrome.tabLead` (`track-model.ts`).
+   */
+  tabLead?: () => ReactNode
   /** Where a re-adopted tile docks. */
   dock?: TileDockHint
   /** Spawn corner for `placement: 'floating'` (default `'top-right'`). A
@@ -108,6 +124,17 @@ export interface TileChrome {
    *  pin/branch/rename/archive/delete). The wrapper must render `tab` as its
    *  interactive child; the zone's own strip menu still owns non-tab space. */
   tabWrap?: (tab: ReactElement) => ReactNode
+  /**
+   * Glyph buttons this tile contributes to its zone's STRIP, after the last tab
+   * (where `+` sits), while it is the ACTIVE tile — e.g. a preview's
+   * source/rendered/diff switch.
+   *
+   * DATA, not markup: the strip's `PaneStripGlyph` owns the styling, so a tile
+   * cannot grow its own button look. Read during the strip's render rather than
+   * captured at registration, so a tool's `active`/`disabled` can move faster
+   * than tile re-registration — call `invalidateStripTools()` when it does.
+   */
+  stripTools?: () => readonly PaneStripTool[]
   /** Override this tile's TAB drag (a session tab drags like a sidebar row —
    *  stack / split / composer-link — not the generic pane move). Given the
    *  tab's tap (activate) + double-tap (hide header) so those gestures survive.

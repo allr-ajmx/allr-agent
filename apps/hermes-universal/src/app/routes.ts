@@ -22,6 +22,7 @@ export const CRON_ROUTE = '/cron'
 export const PROFILES_ROUTE = '/profiles'
 export const AGENTS_ROUTE = '/agents'
 export const STARMAP_ROUTE = '/starmap'
+export const WEBHOOKS_ROUTE = '/webhooks'
 
 export type AppView =
   | 'agents'
@@ -36,6 +37,7 @@ export type AppView =
   | 'settings'
   | 'skills'
   | 'starmap'
+  | 'webhooks'
 
 export type AppRouteId =
   | 'agents'
@@ -48,6 +50,7 @@ export type AppRouteId =
   | 'settings'
   | 'skills'
   | 'starmap'
+  | 'webhooks'
 
 export interface AppRoute {
   id: AppRouteId
@@ -65,7 +68,8 @@ export const APP_ROUTES = [
   { id: 'cron', path: CRON_ROUTE, view: 'cron' },
   { id: 'profiles', path: PROFILES_ROUTE, view: 'profiles' },
   { id: 'agents', path: AGENTS_ROUTE, view: 'agents' },
-  { id: 'starmap', path: STARMAP_ROUTE, view: 'starmap' }
+  { id: 'starmap', path: STARMAP_ROUTE, view: 'starmap' },
+  { id: 'webhooks', path: WEBHOOKS_ROUTE, view: 'webhooks' }
 ] as const satisfies readonly AppRoute[]
 
 const APP_VIEW_BY_PATH = new Map<string, AppView>(APP_ROUTES.map(route => [route.path, route.view]))
@@ -162,7 +166,8 @@ export const OVERLAY_VIEWS: ReadonlySet<AppView> = new Set([
   'cron',
   'profiles',
   'settings',
-  'starmap'
+  'starmap',
+  'webhooks'
 ])
 
 export function isOverlayView(view: AppView): boolean {
@@ -185,6 +190,27 @@ export function routeSessionId(pathname: string): string | null {
 
 export function sessionRoute(sessionId: string): string {
   return `${SESSION_ROUTE_PREFIX}${encodeURIComponent(sessionId)}`
+}
+
+/**
+ * Deep link to the cron surface with ONE job selected — what "Manage" on a cron
+ * row opens.
+ *
+ * The id rides in the URL rather than in a module atom because on Android the
+ * cron surface opens as a native screen activity: a SECOND WebView with its own
+ * JS heap (`store/windows.ts` → `open_screen_window`). Nothing an atom holds
+ * crosses that boundary, so an atom-carried selection is dropped on the one
+ * platform this affordance was filed for. The route IS the carrier both WebViews
+ * read, and `activity_route` (src-tauri/src/window.rs) forwards a query string
+ * verbatim.
+ */
+export function cronJobRoute(jobId: string): string {
+  return `${CRON_ROUTE}?job=${encodeURIComponent(jobId)}`
+}
+
+/** The job a `/cron` route asks to select, read from `location.search`. */
+export function routeCronJobId(search: string): null | string {
+  return new URLSearchParams(search).get('job') || null
 }
 
 export function appViewForPath(pathname: string): AppView {

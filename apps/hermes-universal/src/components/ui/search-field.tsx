@@ -1,3 +1,4 @@
+import { cva, type VariantProps } from 'class-variance-authority'
 import { type ReactNode, type RefObject, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
@@ -25,6 +26,27 @@ interface SearchFieldProps {
   trailingAction?: ReactNode
   'aria-label'?: string
 }
+
+/**
+ * SearchField CVA (MJXHRM-328).
+ */
+export const searchFieldVariants = cva(
+  'inline-flex min-w-0 max-w-full items-center gap-1.5 border-b border-transparent px-0.5 transition-[color,border-color,opacity]',
+  {
+    variants: {
+      state: {
+        idle: 'opacity-30 focus-within:opacity-100',
+        filled: 'opacity-100',
+        focus: 'opacity-100'
+      }
+    },
+    defaultVariants: {
+      state: 'idle'
+    }
+  }
+)
+
+export type SearchFieldVariantProps = VariantProps<typeof searchFieldVariants>
 
 /**
  * Shared search field used everywhere (sessions sidebar, pages, overlays,
@@ -56,24 +78,14 @@ export function SearchField({
 
   return (
     <div
-      className={cn(
-        // min-w-0 is load-bearing: without it the content-sized input sets the
-        // container's flex min-width and the field bulldozes its siblings
-        // instead of shrinking to fit its context.
-        'inline-flex min-w-0 max-w-full items-center gap-1.5 border-b border-transparent px-0.5 transition-[color,border-color,opacity]',
-        // Recede until the user reaches for it.
-        !value && 'opacity-30 focus-within:opacity-100',
-        containerClassName
-      )}
+      className={cn(searchFieldVariants({ state: value ? 'filled' : 'idle' }), containerClassName)}
+      data-slot="search-field"
+      data-state={value ? 'filled' : 'idle'}
     >
       <Search className="pointer-events-none size-3.5 shrink-0 text-muted-foreground/70" />
       <input
         aria-label={ariaLabel ?? placeholder}
         className={cn(
-          // `field-sizing: content` grows the input to fit the placeholder/typed
-          // text; min-w-0 lets it shrink back below content size when the
-          // context is narrower — long queries scroll inside the field.
-          // text-xs matches the form controls (Input/Select via controlVariants).
           'h-7 min-w-0 max-w-full bg-transparent text-xs text-foreground [field-sizing:content] placeholder:text-muted-foreground focus:outline-none',
           inputClassName
         )}

@@ -20,6 +20,11 @@
  *     hangs that agent until it times out.
  */
 
+// Side-effect import: wires live-tail reconciliation and the crash journal to
+// the session store. It has no call site of its own, and the router is the
+// module guaranteed to be loaded whenever a turn can run.
+import '@/store/turn-hydration'
+
 import { burstVibeHearts } from '@/components/chat/vibe-hearts'
 import type { GatewayEvent } from '@/gateway'
 import { translateNow } from '@/i18n'
@@ -29,19 +34,41 @@ import { type GatewayToolPayload, toolIdFromPayload } from '@/lib/chat-tool-part
 import { playCompletionSound } from '@/lib/completion-sound'
 import { resolveGatewayEventSessionId } from '@/lib/gateway-events'
 import { triggerHaptic } from '@/lib/haptics'
+import { queryClient } from '@/lib/query-client'
 import { invalidateSlashCompletions } from '@/lib/slash-completion-cache'
 import { type DeltaChannel, flushDeltas, queueDelta, setStreamBatchSink } from '@/lib/stream-batch'
 import { stopSpeaking } from '@/lib/tts'
+import { type AgentNoticePayload, clearAgentNotice, nativeNoticeInput, showAgentNotice } from '@/store/agent-notices'
+import { clearBillingBlock, surfaceBillingBlock } from '@/store/billing-block'
+import { noteMissedSteer } from '@/store/chat'
+import { readChoices } from '@/store/clarify'
+import { routeCompactionEvent } from '@/store/compaction'
 import { addGatewayEventListener, requestGateway } from '@/store/gateway'
+import {
+  notifyCronChanged,
+  notifyPairingChanged,
+  notifyPetChanged,
+  notifyPlatformsChanged,
+  notifySessionsChanged,
+  type PetChangeMeta,
+  setChangeEventsAvailable
+} from '@/store/live-sync'
 import { dispatchNativeNotification } from '@/store/native-notifications'
 import { flashPetActivity, setPetActivity } from '@/store/pet'
 import {
   clearAllPrompts,
+  clearSessionClarify,
+  clearSessionSecret,
+  clearSessionSudo,
+  sessionAwaitingInput,
+  sessionSecretRequest,
+  sessionSudoRequest,
   setSessionApproval,
   setSessionClarify,
   setSessionSecret,
   setSessionSudo
 } from '@/store/prompts'
+import { applyReactionEvent } from '@/store/reactions'
 import { reduceSessionState } from '@/store/session-reducer'
 import {
   $activeSessionKey,
@@ -50,13 +77,14 @@ import {
   runtimeKeyForStoredSession,
   updateSession
 } from '@/store/session-state-types'
-import { upsertSubagent } from '@/store/subagents'
+import { pruneFinishedSessionSubagents, upsertSubagent } from '@/store/subagents'
 import { recordToolDiff } from '@/store/tool-diffs'
+import { routeTurnEvent, startTurnReconciler } from '@/store/turn-lifecycle'
 // Leaf import (not the `@/themes` barrel) to keep the ThemeProvider module graph
 // out of the gateway event hot path — same reason desktop does it.
 import { ingestBackendSkin } from '@/themes/backend-sync'
 import type { HermesSkin } from '@/themes/skin-contract'
-import type { ContextBreakdown, UsageStats } from '@/types/hermes'
+import type { ContextBreakdown, MessageReaction, UsageStats } from '@/types/hermes'
 
 // Self-register at import. Nothing else consumes the gateway's event stream, so
 // if this module is loaded but not listening the app silently receives nothing —
@@ -79,7 +107,33 @@ export function resetUnscopedStreamPin(): void {
 
 /** Events that are about the app, not about one conversation — they are handled
  *  whether or not their session is known to us. */
-const GLOBAL_EVENT_TYPES = new Set(['gateway.ready', 'session.title', 'sessions.changed', 'skin.changed'])
+const GLOBAL_EVENT_TYPES = new Set([
+  'cron.changed',
+  'gateway.ready',
+  // Agent notices (credits usage / depleted / restored) describe the ACCOUNT, not
+  // a conversation. The gateway still stamps them with whichever session happened
+  // to trigger them, so routing them per-session would let the fail-closed
+  // unknown-session guard swallow the very notice that says the account is out of
+  // money. Handled globally, exactly as desktop shows them regardless of focus.
+  'notification.clear',
+  'notification.show',
+  'pairing.changed',
+  'pet.changed',
+  'platforms.changed',
+  'session.title',
+  'sessions.changed',
+  'skin.changed'
+])
+
+/** The change watcher's broadcasts (`tui_gateway/server.py`
+ *  `_broadcast_watched_changes`), mapped to the live-sync tick each one bumps.
+ *  `pet.changed` is handled on its own — it is the only one with a payload. */
+const CHANGE_EVENT_NOTIFIERS: Record<string, (() => void) | undefined> = {
+  'cron.changed': notifyCronChanged,
+  'pairing.changed': notifyPairingChanged,
+  'platforms.changed': notifyPlatformsChanged,
+  'sessions.changed': notifySessionsChanged
+}
 
 /** Blocking prompts: never dropped, because the agent is parked waiting. */
 const BLOCKING_PROMPT_TYPES = new Set(['approval.request', 'clarify.request', 'secret.request', 'sudo.request'])
@@ -173,12 +227,64 @@ function applySessionTitle(payload: Record<string, unknown>): void {
 
 /** Fold one gateway event into the session that owns it. */
 export function routeGatewayEvent(event: GatewayEvent): void {
+  // Arm reconnect reconciliation on the first frame rather than at import.
+  // A socket that drops mid-turn and comes back is the window where a terminal
+  // frame goes missing, and this is the first moment we know there is a socket
+  // at all — modules that import the router without ever seeing an event (the
+  // store tests, which partially mock `@/store/gateway`) never subscribe.
+  startTurnReconciler()
+
   const payload = (event.payload ?? {}) as Record<string, unknown>
 
   if (GLOBAL_EVENT_TYPES.has(event.type)) {
-    if (event.type === 'session.title') {
+    const notifyChanged = CHANGE_EVENT_NOTIFIERS[event.type]
+
+    if (notifyChanged) {
+      // A watched on-disk signature moved. Bump the tick the former pollers now
+      // subscribe to (store/live-sync.ts) — the payload is empty for all of
+      // these, the event itself IS the information.
+      notifyChanged()
+    } else if (event.type === 'pet.changed') {
+      // The one change event with a payload: `pet.info.meta`-shaped, so the pet
+      // can skip the heavy spritesheet refetch when it already says enabled=false.
+      notifyPetChanged(payload as unknown as PetChangeMeta)
+    } else if (event.type === 'session.title') {
       applySessionTitle(payload)
+    } else if (event.type === 'notification.show') {
+      // Driver-agnostic agent notice (credits usage / grant / depleted /
+      // restored from `agent/credits_tracker.py`). The Ink TUI renders these in
+      // its status bar; we render them as toasts. The notice key doubles as the
+      // toast id, so the escalating 50→75→90 credits line replaces in place
+      // instead of stacking.
+      const notice = payload as AgentNoticePayload
+
+      showAgentNotice(notice)
+
+      // The urgent pair (access paused / restored) also breaks through as a
+      // native OS notification when Hermes is backgrounded; dispatch is gated by
+      // the user's notification prefs + the backgrounded check.
+      const native = nativeNoticeInput(notice, translateNow('notifications.native.creditsTitle'))
+
+      if (native) {
+        dispatchNativeNotification(native)
+      }
+
+      // A credits crossing moves the account balance. Settings → Billing polls
+      // `billing.state` every 30s; nudge it so the page reflects the crossing
+      // immediately instead of up to 30s late.
+      if (notice.key?.startsWith('credits.')) {
+        void queryClient.invalidateQueries({ queryKey: ['billing', 'state'] })
+      }
+    } else if (event.type === 'notification.clear') {
+      // Key-matched dismissal (e.g. credits restored clears the depleted
+      // notice). notify() keys the toast by the notice key, so this maps
+      // straight to dismissNotification(key).
+      clearAgentNotice((payload as AgentNoticePayload).key)
     } else if (event.type === 'gateway.ready') {
+      // Does this backend broadcast change events at all? Consumers drop to a
+      // slow backstop poll when it does and keep the legacy cadence when it
+      // doesn't, so an older gateway never goes dark.
+      setChangeEventsAvailable((payload as { change_events?: boolean }).change_events === true)
       // Seed the active skin into the theme registry WITHOUT applying, so a fresh
       // connect never overrides the user's persisted theme. Note the shape: here
       // the skin is nested, on `skin.changed` the payload IS the skin.
@@ -221,6 +327,18 @@ export function routeGatewayEvent(event: GatewayEvent): void {
   }
 
   const isActive = key === $activeSessionKey.get()
+
+  // The in-flight TURN is folded before anything else, including the batched
+  // deltas below — a consumer reacting to a transcript write (the crash journal,
+  // the compaction gate) must see the turn state that matches the frame it is
+  // reacting to, not the one from the frame before. Cheap: the fold returns the
+  // same record unless something actually changed (store/turn-lifecycle.ts).
+  routeTurnEvent(key, event)
+  // Compaction is silent on the wire — no `message.start`, no visible output —
+  // so its start/end is inferred from `status.update` kinds plus the first real
+  // output that follows (store/compaction.ts). Folded here, before the delta
+  // short-circuit, because that first output is usually a delta.
+  routeCompactionEvent(key, event.type, payload)
 
   // Streaming text is BATCHED (lib/stream-batch) — one React commit per flush
   // window instead of one per token, which matters most when several sessions
@@ -268,7 +386,10 @@ export function routeGatewayEvent(event: GatewayEvent): void {
       const question = coerceText(payload.question) || coerceText(payload.prompt) || coerceText(payload.message)
 
       if (requestId && question) {
-        setSessionClarify(key, { requestId, question, choices: coerceStringList(payload.choices) })
+        // Normalized here, not in the panel: this is the PRIMARY source for the
+        // choice list (`tool.start` ships no args), so a blank / multi-line /
+        // 4KB entry from a sloppy tool call would reach the renderer unguarded.
+        setSessionClarify(key, { requestId, question, choices: readChoices('gateway', question, payload.choices) })
         dispatchNativeNotification({
           kind: 'input',
           title: translateNow('notifications.native.inputTitle'),
@@ -297,9 +418,77 @@ export function routeGatewayEvent(event: GatewayEvent): void {
       })
 
       break
+    // The gateway TELLS us when a blocking prompt dies. `_block()` emits
+    // `<name>.expire` for every request type whose responder is `allow_expired`
+    // (`tui_gateway/server.py`) the moment its wait gives up and the tool is
+    // handed an empty answer. Nothing here consumed it, so the bar sat there
+    // over a tool that had already been cancelled — and, worse,
+    // `$activeSessionAwaitingInput` kept calling the turn "parked on the user",
+    // which is exactly what makes Esc refuse to interrupt (see the clarify clear
+    // on `tool.complete` below, which fixed the same thing one prompt over).
+    //
+    // Matched on request_id so a SECOND prompt that arrived while the first was
+    // expiring is never torn down with it. `sudo.request` / `secret.request` are
+    // the only two of the six expiring types with a UI here; `clarify.expire` is
+    // deliberately NOT handled — `tool.complete` already clears that request,
+    // and dropping it out from under a live inline panel would strand it on its
+    // loading spinner in the one case the event exists for (a reconnect that ate
+    // `tool.complete`), where the panel today still routes a late answer into
+    // the composer.
+    case 'secret.expire': {
+      const requestId = coerceText(payload.request_id)
+
+      if (requestId && sessionSecretRequest(key).get()?.requestId === requestId) {
+        clearSessionSecret(key)
+      }
+
+      break
+    }
+
+    case 'sudo.expire': {
+      const requestId = coerceText(payload.request_id)
+
+      if (requestId && sessionSudoRequest(key).get()?.requestId === requestId) {
+        clearSessionSudo(key)
+      }
+
+      break
+    }
+
+    case 'message.start':
+      // A fresh turn on this session optimistically clears its billing wall; if
+      // credits are still exhausted the next failure re-raises it.
+      clearBillingBlock(key)
+
+      // Retire the previous turn's settled subagents from the spawn tree.
+      // Nothing else removes a row short of leaving the session, so without
+      // this a long-lived session's tree grows for every subagent it ever ran.
+      // Background subagents still running are kept — they outlive the turn
+      // that spawned them and must keep receiving progress events.
+      pruneFinishedSessionSubagents(key)
+
+      break
+
+    // A correction the gateway ACCEPTED as a deferred steer and never got to
+    // deliver: the turn ended before another tool batch ran, so the words are
+    // requeued as a fresh turn instead. Scoped to the session that emitted it —
+    // the bubble to move lives in THAT transcript, not the visible one.
+    case 'steer.missed':
+      noteMissedSteer(key, coerceText(payload.text))
+
+      break
 
     case 'message.complete':
       clearAllPrompts(key)
+
+      // Structured billing wall forwarded by the gateway (out of credits /
+      // payment required) — `tui_gateway/server.py` attaches the descriptor built
+      // by `agent/billing_links.py` as `payload.billing`. Cached + toasted by the
+      // store; detection stays backend-only, we never re-classify error prose.
+      if (payload.billing) {
+        surfaceBillingBlock(key, payload.billing)
+      }
+
       dispatchNativeNotification({
         kind: 'turnDone',
         title: translateNow('notifications.native.turnDoneTitle'),
@@ -343,10 +532,43 @@ export function routeGatewayEvent(event: GatewayEvent): void {
         invalidateSlashCompletions()
       }
 
+      // The clarify tool RETURNING is its request's terminal event, and the one
+      // signal every ending shares: answered, timed out (`_block` gives up and
+      // returns ""), or released by `session.interrupt`'s `_clear_pending`.
+      // Only the answered path cleared the request (`respondClarify`), so the
+      // other two left a phantom parked clarify until `message.complete` — and
+      // `$activeSessionAwaitingInput` is what makes Esc decline to interrupt a
+      // turn that is "waiting on the user", so Esc stayed dead for the rest of a
+      // turn whose question had already expired. The settled row renders from
+      // its own result, so nothing on screen still needs the request.
+      if (payload.name === 'clarify') {
+        clearSessionClarify(key)
+      }
+
       // A file-mutating tool just finished — nudge the git-mirroring surfaces
       // (coding rail, review pane, file tree) to refresh. Event-driven, not
       // polled: fires exactly when the agent touches the tree.
       void notifyWorkspaceChangeFromTool(payload)
+
+      break
+    }
+
+    // The agent reacted to a message through its own `react_to_message` tool.
+    // Already persisted server-side — this only paints it now rather than at
+    // the next resume. Scoped to the session that emitted it, like every other
+    // transcript write above: a background agent's tapback belongs on ITS
+    // transcript, not on whichever chat happens to be open.
+    case 'message.reaction': {
+      const rowId = payload.row_id
+
+      if (typeof rowId === 'number') {
+        applyReactionEvent(
+          key,
+          rowId,
+          payload.role === 'assistant' ? 'assistant' : 'user',
+          Array.isArray(payload.reactions) ? (payload.reactions as MessageReaction[]) : []
+        )
+      }
 
       break
     }
@@ -386,6 +608,15 @@ export function routeGatewayEvent(event: GatewayEvent): void {
 
     case 'reasoning.delta':
 
+    // The whole MoA family is thinking, not tool work — including the two
+    // progress frames, which are the only sign of life during a fan-out that
+    // emits no reference bodies until every reference has returned.
+    case 'moa.aggregating':
+
+    case 'moa.phase':
+
+    case 'moa.progress':
+
     case 'moa.reference':
       setPetActivity({ reasoning: true }) // pet: thinking pose
 
@@ -421,6 +652,20 @@ export function routeGatewayEvent(event: GatewayEvent): void {
 
     case 'sudo.request':
       setPetActivity({ awaitingInput: true }) // pet: waiting pose (blocked on user)
+
+      break
+
+    case 'secret.expire':
+
+    case 'sudo.expire':
+      // The waiting pose is set by the four `*.request` events above and dropped
+      // when one is ANSWERED (`clearAwaitingInputPose` in store/chat.ts). A
+      // prompt that died unanswered took its bar with it a moment ago, so the
+      // pet would otherwise keep waiting for input nobody will ever give. Guard
+      // on the aggregate: this session may still have another prompt open.
+      if (!sessionAwaitingInput(key).get()) {
+        setPetActivity({ awaitingInput: false })
+      }
 
       break
 

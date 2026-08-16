@@ -1,43 +1,40 @@
 import type { SyntaxHighlighterProps } from '@assistant-ui/react-streamdown'
-import { type FC, type ReactNode, useEffect, useMemo, useRef } from 'react'
-import ShikiHighlighter from 'react-shiki'
+import { type FC, lazy, type ReactNode, Suspense, useEffect, useMemo, useRef } from 'react'
 
-import {
-  CodeCard,
-  CodeCardBody,
-  CodeCardHeader,
-  CodeCardIcon,
-  CodeCardSubtitle,
-  CodeCardTitle
-} from '@/components/chat/code-card'
+import { CodeCard, CodeCardBody } from '@/components/chat/code-card'
 import { ExpandableBlock } from '@/components/chat/expandable-block'
 import { CopyButton } from '@/components/ui/copy-button'
 import { useI18n } from '@/i18n'
-import { codiconForLanguage, isLikelyProseCodeBlock, sanitizeLanguageTag } from '@/lib/markdown-code'
+import { isLikelyProseCodeBlock, sanitizeLanguageTag } from '@/lib/markdown-code'
 import { isRecording, recordSpan } from '@/observability'
 
 /**
  * Streamdown's code adapter renders header + body as inline siblings, so we
  * own the wrapping `<CodeCard>` here and neutralize the upstream
- * `data-streamdown="code-block"` chrome from styles.css.
+ * `data-streamdown="code-block"` chrome from styles.css. The card is
+ * background-only — no header row, no language label — so a fence reads as a
+ * tinted slab of the reply; copy is a hover-reveal control in the corner.
  *
  * `react-shiki` full bundle so all `bundledLanguages` work; theme switches
  * follow the document `color-scheme` via `defaultColor="light-dark()"`.
+ *
+ * The engine is reached through ONE lazy boundary (`./shiki-block`), matching
+ * desktop's `lazy(() => import('./shiki-block'))`. Everything above that
+ * boundary — the card, the copy button, the budget fallback — stays eager, so a
+ * fence paints its slab immediately and fills in highlighted once the chunk
+ * lands. `PlainCode` is the Suspense fallback for exactly that reason: it is
+ * already what an over-budget or still-streaming fence renders, so the
+ * un-highlighted → highlighted transition is one the transcript already makes.
  */
 interface HermesSyntaxHighlighterProps extends SyntaxHighlighterProps {
   defer?: boolean
 }
 
-// `github-dark-dimmed` is GitHub's lower-contrast dark palette — the vivid
-// `github-dark-default` tokens read harsh at our small code size. Shared by the
-// inline diff renderer too (see diff-lines.tsx) so code + diffs match.
-export const SHIKI_THEME = { dark: 'github-dark-dimmed', light: 'github-light-default' } as const
+// Re-exported so existing importers keep working; the values now live in
+// `shiki-theme.ts`, which is safe to import without pulling in the engine.
+export { SHIKI_THEME } from '@/components/chat/shiki-theme'
 
-// `github-light-default` colors comments `#6e7781` — borderline unreadable at
-// our 11px code size. Remap light-mode comments to GitHub's darker muted gray.
-const SHIKI_COLOR_REPLACEMENTS: Record<string, Record<string, string>> = {
-  'github-light-default': { '#6e7781': '#57606a' }
-}
+const ShikiBlock = lazy(() => import('@/components/chat/shiki-block'))
 
 const MAX_HIGHLIGHT_CHARS = 150_000
 const MAX_HIGHLIGHT_LINES = 3_000
@@ -166,46 +163,31 @@ export const SyntaxHighlighter: FC<HermesSyntaxHighlighterProps> = ({
     return <div className="aui-prose-fence whitespace-pre-wrap wrap-anywhere text-foreground">{trimmed}</div>
   }
 
+  // Trace label only — the card shows no language chip any more.
   const cleanLanguage = sanitizeLanguageTag(language || '')
-  const label = cleanLanguage && cleanLanguage !== 'unknown' ? cleanLanguage : ''
   const plain = defer || exceedsHighlightBudget(trimmed)
 
   return (
     <CodeCard data-streaming={defer ? 'true' : undefined}>
-      <CodeCardHeader>
-        <CodeCardTitle>
-          <CodeCardIcon name={codiconForLanguage(label)} />
-          {t.assistant.tool.code}
-          {label && <CodeCardSubtitle> · {label}</CodeCardSubtitle>}
-        </CodeCardTitle>
-        <CopyButton
-          appearance="inline"
-          className="-my-1 -mr-1 h-5 px-1 opacity-55 hover:opacity-100"
-          iconClassName="size-2.5"
-          label={t.assistant.tool.copyCode}
-          showLabel={false}
-          text={trimmed}
-        />
-      </CodeCardHeader>
-      <CodeCardBody>
+      <CopyButton
+        appearance="inline"
+        // eslint-disable-next-line better-tailwindcss/no-restricted-classes -- over a surface pinned left-to-right — see the [dir='rtl'] block in styles.css
+        className="absolute right-1.5 top-1.5 z-10 h-5 gap-0 rounded-md px-1 opacity-0 transition-opacity group-hover/code:opacity-100 focus-visible:opacity-100"
+        iconClassName="size-2.5"
+        label={t.assistant.tool.copyCode}
+        showLabel={false}
+        text={trimmed}
+      />
+      <CodeCardBody className="[&_pre]:px-3 [&_pre]:py-2.5">
         <ExpandableBlock>
           <Pre className="aui-shiki m-0 overflow-hidden bg-transparent p-0">
             {plain ? (
               <PlainCode code={trimmed} />
             ) : (
               <HighlightTimer language={cleanLanguage || 'text'}>
-                <ShikiHighlighter
-                  addDefaultStyles={false}
-                  as="div"
-                  colorReplacements={SHIKI_COLOR_REPLACEMENTS}
-                  defaultColor="light-dark()"
-                  delay={120}
-                  language={language || 'text'}
-                  showLanguage={false}
-                  theme={SHIKI_THEME}
-                >
-                  {trimmed}
-                </ShikiHighlighter>
+                <Suspense fallback={<PlainCode code={trimmed} />}>
+                  <ShikiBlock language={language || 'text'}>{trimmed}</ShikiBlock>
+                </Suspense>
               </HighlightTimer>
             )}
           </Pre>

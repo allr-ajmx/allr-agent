@@ -43,10 +43,16 @@ export {
   IconCommand as Command,
   // Chat rendering pipeline (chat-session UI port)
   IconCopy as Copy,
+  // Queue row's send-now action: the return glyph states the keybind that
+  // double-Enter uses, so the row and the shortcut say the same thing.
+  IconCornerDownLeft as CornerDownLeft,
   IconCpu as Cpu,
   // Billing settings port (MJX-56)
   IconCreditCard as CreditCard,
   IconDownload as Download,
+  // Wake word ("hey Hermes") composer toggle
+  IconEar as Ear,
+  IconEarOff as EarOff,
   // Memory provider panels (config sections port)
   IconEgg as Egg,
   IconExternalLink as ExternalLink,
@@ -59,6 +65,8 @@ export {
   IconFolderOpen as FolderOpen,
   IconGitBranch as GitBranch,
   IconGitBranch as GitBranchIcon,
+  IconGitFork as GitFork,
+  IconGitFork as GitForkIcon,
   // Language switcher / theme picker (Track I). Globe = IconGlobe to match the
   // desktop `@/lib/icons` alias exactly (the meridian globe, not IconWorld).
   IconGlobe as Globe,
@@ -118,6 +126,8 @@ export {
   IconSettings as Settings,
   IconSettings2 as Settings2,
   IconAdjustmentsHorizontal as SlidersHorizontal,
+  IconMoodPlus as SmilePlus,
+  IconMoodPlus as SmilePlusIcon,
   IconSparkles as Sparkles,
   IconSquare as Square,
   IconSquareFilled as SquareFilled,
@@ -135,6 +145,7 @@ export {
   IconVolume as Volume2Icon,
   IconVolumeOff as VolumeX,
   IconVolumeOff as VolumeXIcon,
+  IconWebhook as Webhook,
   IconTool as Wrench,
   IconX as X,
   IconX as XIcon,

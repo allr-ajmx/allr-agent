@@ -1,4 +1,4 @@
-import { type ComponentProps, type ReactNode, useMemo, useState } from 'react'
+import { type ComponentProps, memo, type ReactNode, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { NAV_ROW_BASE, NAV_ROW_ICON, NAV_ROW_LAYOUT } from '@/app/shell/nav-row'
@@ -12,7 +12,7 @@ import {
   ContextMenuTrigger
 } from '@/components/ui/context-menu'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import { Tip, TipKeybindLabel, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { Tip, TipKeybindLabel, Tooltip, TooltipContent, TooltipScope, TooltipTrigger } from '@/components/ui/tooltip'
 import { useI18n } from '@/i18n'
 import { useKeybindHint } from '@/lib/keybinds/use-keybind-hint'
 import { cn } from '@/lib/utils'
@@ -195,10 +195,25 @@ function StatusbarVisibilityMenu({
 function StatusbarHideHint() {
   const hint = useKeybindHint('view.toggleStatusbar')
 
-  return <span className="ml-auto pl-2 text-(--ui-text-quaternary)">{hint}</span>
+  return <span className="ms-auto ps-2 text-(--ui-text-quaternary)">{hint}</span>
 }
 
-export function StatusbarItemView({
+/**
+ * One statusbar segment.
+ *
+ * Memoized (MJXHRM-303) — and this only works because `useStatusbarItems` was
+ * restructured first to give each item a stable identity. Desktop measured
+ * 1,446 wasted renders of 2,174 here during a five-tab streaming run; before
+ * that restructure a memo on this component could not have hit once, because
+ * every item, icon element and `onSelect` closure was rebuilt per render.
+ *
+ * Reference equality on the three props is the whole comparator. No custom
+ * `propsEqual` is needed: `item` is now stable per item, `navigate` is stable
+ * from `useNavigate`, and `row` is a literal. If a future prop breaks that,
+ * `rowPropsEqual` in `app/chat/sidebar/session-row.tsx` is the local precedent
+ * for writing one — but prefer fixing the identity over widening the compare.
+ */
+function StatusbarItemViewImpl({
   item,
   navigate,
   row = false
@@ -230,7 +245,7 @@ export function StatusbarItemView({
   const content = row ? (
     <>
       <span className={NAV_ROW_ICON}>{item.icon}</span>
-      {item.label && <span className="min-w-0 flex-1 truncate text-left">{item.label}</span>}
+      {item.label && <span className="min-w-0 flex-1 truncate text-start">{item.label}</span>}
       {item.detail && <span className="truncate text-(--ui-text-tertiary)">{item.detail}</span>}
     </>
   ) : (
@@ -257,12 +272,12 @@ export function StatusbarItemView({
     return (
       <DropdownMenu onOpenChange={setMenuOpen} open={menuOpen}>
         {item.title ? (
-          <TooltipProvider delayDuration={0}>
+          <TooltipScope>
             <Tooltip>
               <TooltipTrigger asChild>{trigger}</TooltipTrigger>
               <TooltipContent>{tooltipLabel}</TooltipContent>
             </Tooltip>
-          </TooltipProvider>
+          </TooltipScope>
         ) : (
           trigger
         )}
@@ -351,3 +366,5 @@ export function StatusbarItemView({
     </Tip>
   )
 }
+
+export const StatusbarItemView = memo(StatusbarItemViewImpl)

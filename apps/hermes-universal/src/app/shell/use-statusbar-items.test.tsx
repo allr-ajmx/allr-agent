@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, renderHook, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -20,8 +20,11 @@ import { registry } from '@/contrib/registry'
 import { resetChat } from '@/store/chat'
 import { $gatewayState } from '@/store/gateway'
 import { $statusbarHiddenIds, STATUSBAR_HIDDEN_BY_DEFAULT } from '@/store/statusbar-prefs'
+import { $statusSnapshot } from '@/store/system-status'
+import { $workspaceCwd } from '@/store/workspace-events'
 import { seedActiveSession } from '@/test-sessions'
 
+import { useStatusbarItems } from './hooks/use-statusbar-items'
 import { Statusbar } from './statusbar'
 
 const renderStatusbar = () =>
@@ -41,7 +44,60 @@ beforeEach(() => {
 afterEach(() => {
   $gatewayState.set('idle')
   $statusbarHiddenIds.set([...STATUSBAR_HIDDEN_BY_DEFAULT])
+  $statusSnapshot.set(null)
+  $workspaceCwd.set('')
   resetChat()
+})
+
+// MJXHRM-394. The bar's cwd surfaces (the mobile list's value, the segment's own
+// tooltip, and the tooltip on each workspace menu entry) are the widest path
+// strings in the chrome, and `/home/<user>/` is the part of them that carries no
+// information. Asserted on the ASSEMBLED items rather than the rendered bar
+// because every one of these is a Radix tooltip that only mounts on hover.
+describe('workspace cwd is tildified against the GATEWAY’s home', () => {
+  const workspaceItem = (cwd: string, hermesHome: null | string) => {
+    $workspaceCwd.set(cwd)
+    $statusSnapshot.set(hermesHome === null ? null : ({ hermes_home: hermesHome } as never))
+
+    const { result } = renderHook(() => useStatusbarItems({ includeAll: true, rich: true }), {
+      wrapper: ({ children }) => <MemoryRouter>{children}</MemoryRouter>
+    })
+
+    const item = result.current.leftStatusbarItems.find(entry => entry.id === 'workspace-cwd')
+
+    if (!item) {
+      throw new Error('the bar assembled no workspace-cwd item')
+    }
+
+    return item
+  }
+
+  it('collapses the gateway user’s home in the detail, the tooltip and every menu entry', () => {
+    const item = workspaceItem('/home/deploy/www/hermes-agent', '/home/deploy/.hermes')
+
+    expect(item.detail).toBe('~/www/hermes-agent')
+    expect(item.title).toBe('~/www/hermes-agent')
+    expect(item.menuItems?.map(entry => entry.title)).toEqual([
+      '~/www/hermes-agent',
+      '~/www/hermes-agent',
+      '~/www/hermes-agent'
+    ])
+  })
+
+  it('leaves a path under a DIFFERENT user’s home fully spelled out', () => {
+    const item = workspaceItem('/home/alice/www/hermes-agent', '/home/deploy/.hermes')
+
+    expect(item.detail).toBe('/home/alice/www/hermes-agent')
+    expect(item.title).toBe('/home/alice/www/hermes-agent')
+  })
+
+  it('leaves a path outside any home alone', () => {
+    expect(workspaceItem('/srv/checkouts/app', '/home/deploy/.hermes').title).toBe('/srv/checkouts/app')
+  })
+
+  it('keeps the compact bar label a leaf, not a path', () => {
+    expect(workspaceItem('/home/deploy/www/hermes-agent', '/home/deploy/.hermes').label).toBe('hermes-agent')
+  })
 })
 
 describe('useStatusbarItems (rendered via <Statusbar/>)', () => {

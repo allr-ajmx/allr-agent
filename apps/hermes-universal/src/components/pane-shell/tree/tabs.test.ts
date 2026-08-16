@@ -18,9 +18,16 @@ import { group, split } from '@/components/pane-shell/tree/model'
 import {
   $layoutTree,
   activateTreeTabSlot,
+  closeAllTreeTabs,
   closeFocusedTabInZone,
+  closeOtherTreeTabs,
+  closeTabPane,
+  closeTreePane,
+  closeTreeTabsToRight,
   cycleTreeTabInFocusedZone,
   noteActiveTreeGroup,
+  noteHoveredTreeGroup,
+  registerPaneCloser,
   setTreePaneHidden,
   treeTabCloseTargets
 } from '@/components/pane-shell/tree/store'
@@ -96,6 +103,9 @@ const panesOf = (groupId: string): string[] => groupIn(groupId)?.panes ?? []
 beforeEach(() => {
   $layoutTree.set(null)
   noteActiveTreeGroup(null)
+  // Both rungs of the ladder are module atoms; every test above this line is
+  // asserting the FOCUSED rung, which only holds while hover is clear.
+  noteHoveredTreeGroup(null)
 })
 
 afterEach(() => {
@@ -261,23 +271,238 @@ describe('closeFocusedTabInZone (⌘W)', () => {
   })
 })
 
+/**
+ * ONE CLOSE VERB (MJXHRM-390).
+ *
+ * A TOOL PANEL's closer is its visibility store, so running the closer alone
+ * only collapses its zone to a rail and leaves the tab sitting in the strip —
+ * Close reads as a no-op. `closeTabPane` exists to dismiss the pane FIRST, and
+ * every trigger (the zone menu, ⌘W, ⌘-click, middle-click, the bulk verbs) has
+ * to go through it.
+ *
+ * This is the divergence the ticket was filed for, and it shipped with no test:
+ * collapsing `closeTabPane` back into `closeTreePane` — the exact bug — left
+ * every other tree test green.
+ */
+describe('closeTabPane routes by tab KIND', () => {
+  let closes: string[] = []
+  let disposeToolTiles: (() => void) | null = null
+
+  /** `terminal` as a real tool panel: `chrome.toolPanel` is what
+   *  `isCollapsePane` reads, and the closer is what its store registers. */
+  const seedToolPanel = () => {
+    disposeToolTiles = registerTiles([
+      {
+        id: WORKSPACE_PANE_ID,
+        kind: 'chat',
+        title: WORKSPACE_PANE_ID,
+        render: () => null,
+        placement: 'main',
+        chrome: { uncloseable: true }
+      },
+      {
+        id: 'terminal',
+        kind: 'tool',
+        title: 'terminal',
+        render: () => null,
+        placement: 'bottom',
+        chrome: { toolPanel: true }
+      },
+      { id: 'logs', kind: 'tool', title: 'logs', render: () => null, placement: 'bottom' }
+    ])
+
+    $layoutTree.set(
+      split('row', [
+        group([WORKSPACE_PANE_ID], { active: WORKSPACE_PANE_ID, id: CHAT_GROUP }),
+        // `terminal` sits to the RIGHT of `logs` so the fourth verb has a real
+        // target here rather than a contrived one.
+        group(['logs', 'terminal'], { active: 'terminal', id: TOOL_GROUP })
+      ])
+    )
+
+    registerPaneCloser('terminal', () => closes.push('terminal'))
+  }
+
+  beforeEach(() => {
+    closes = []
+    seedToolPanel()
+  })
+
+  afterEach(() => {
+    registerPaneCloser('terminal')
+    disposeToolTiles?.()
+    disposeToolTiles = null
+  })
+
+  it('takes a tool panel OUT of the strip and syncs its toggle', () => {
+    closeTabPane('terminal')
+
+    expect(panesOf(TOOL_GROUP)).not.toContain('terminal')
+    expect(closes).toEqual(['terminal'])
+  })
+
+  // The narrower primitive, pinned so the difference stays visible: it runs the
+  // closer and deliberately leaves the pane in the tree (that is the ⌃` toggle
+  // route). Routing a TAB verb through it is what made Close look dead.
+  it('closeTreePane alone leaves the tab where it was', () => {
+    closeTreePane('terminal')
+
+    expect(panesOf(TOOL_GROUP)).toContain('terminal')
+    expect(closes).toEqual(['terminal'])
+  })
+
+  it.each([
+    ['⌘W', () => (noteActiveTreeGroup(TOOL_GROUP), closeFocusedTabInZone())],
+    ['close others', () => closeOtherTreeTabs('logs')],
+    ['close to the right', () => closeTreeTabsToRight('logs')],
+    ['close all', () => closeAllTreeTabs('logs')]
+  ])('%s reaches a tool panel through the same routing', (_name, run) => {
+    run()
+
+    expect(panesOf(TOOL_GROUP)).not.toContain('terminal')
+    expect(closes).toEqual(['terminal'])
+  })
+})
+
+/**
+ * THE POINTER RUNG. Every verb above resolves its zone through one ladder —
+ * hovered, then focused, then the main tile's — and each rung has to be able to
+ * SERVE the verb before it claims the keys. Ported from upstream's
+ * `hovered-zone-tabs.test.ts` (15a55cbff1), which the original port left
+ * behind: the hover rung shipped with no coverage at all, which is how a
+ * headline feature ends up wired but dead.
+ */
+describe('the hovered zone outranks the focused one', () => {
+  it('⌥2 switches the zone under the POINTER while the other holds focus', () => {
+    seedTree([WORKSPACE_PANE_ID, tile('a'), tile('b')])
+    noteActiveTreeGroup(CHAT_GROUP)
+    noteHoveredTreeGroup(TOOL_GROUP)
+
+    expect(activateTreeTabSlot(2)).toBe(true)
+    expect(activePaneOf(TOOL_GROUP)).toBe('logs')
+    // The focused zone is untouched — the pointer won the target, not both.
+    expect(activePaneOf(CHAT_GROUP)).toBe(WORKSPACE_PANE_ID)
+
+    // Same key, pointer moved: the other zone's slot 2.
+    noteHoveredTreeGroup(CHAT_GROUP)
+    expect(activateTreeTabSlot(2)).toBe(true)
+    expect(activePaneOf(CHAT_GROUP)).toBe(tile('a'))
+  })
+
+  it('⌃Tab follows the pointer the same way', () => {
+    seedTree([WORKSPACE_PANE_ID, tile('a')])
+    noteActiveTreeGroup(CHAT_GROUP)
+    noteHoveredTreeGroup(TOOL_GROUP)
+
+    expect(cycleTreeTabInFocusedZone(1)).toBe(true)
+    expect(activePaneOf(TOOL_GROUP)).toBe('logs')
+    expect(activePaneOf(CHAT_GROUP)).toBe(WORKSPACE_PANE_ID)
+  })
+
+  it('⌘W closes the hovered zone tab, not the focused one', () => {
+    seedTree([WORKSPACE_PANE_ID, tile('a')], tile('a'))
+    noteActiveTreeGroup(CHAT_GROUP)
+    noteHoveredTreeGroup(TOOL_GROUP)
+
+    expect(closeFocusedTabInZone()).toBe(true)
+    expect(panesOf(TOOL_GROUP)).not.toContain('terminal')
+    expect(panesOf(CHAT_GROUP)).toEqual([WORKSPACE_PANE_ID, tile('a')])
+  })
+
+  // The rung has to be ELIGIBLE, not merely hovered — otherwise a pointer
+  // parked on a zone that cannot serve the verb swallows the keystroke.
+  it('hands the verb down when the hovered zone cannot serve it', () => {
+    seedTree([WORKSPACE_PANE_ID, tile('a'), tile('b')])
+    // The tool zone collapsed to one tab: nothing to cycle or index there.
+    setTreePaneHidden('logs', true)
+    noteActiveTreeGroup(CHAT_GROUP)
+    noteHoveredTreeGroup(TOOL_GROUP)
+
+    expect(activateTreeTabSlot(2)).toBe(true)
+    expect(activePaneOf(CHAT_GROUP)).toBe(tile('a'))
+
+    expect(cycleTreeTabInFocusedZone(1)).toBe(true)
+    expect(activePaneOf(CHAT_GROUP)).toBe(tile('b'))
+  })
+
+  /**
+   * THE THIRD RUNG (MJXHRM-406). Hover and focus were both pinned above; the
+   * fallback under them was not — deleting `return main && eligible(main) ...`
+   * outright left this whole file green. It is the rung a COLD START runs on:
+   * nothing has been clicked, so no zone is active, and the pointer is wherever
+   * the window opened it. Without it ⌥2, ⌃Tab and ⌘W are all dead until the
+   * user clicks into a pane first, which is exactly the kind of "wired but
+   * unreachable" the hover rung shipped as.
+   */
+  it('falls back to the zone holding the MAIN tile when nothing is hovered or focused', () => {
+    seedTree([WORKSPACE_PANE_ID, tile('a'), tile('b')])
+    noteActiveTreeGroup(null)
+    noteHoveredTreeGroup(null)
+
+    expect(activateTreeTabSlot(2)).toBe(true)
+    expect(activePaneOf(CHAT_GROUP)).toBe(tile('a'))
+
+    expect(cycleTreeTabInFocusedZone(1)).toBe(true)
+    expect(activePaneOf(CHAT_GROUP)).toBe(tile('b'))
+  })
+
+  it('⌘W closes the main zone tab on a cold start', () => {
+    seedTree([WORKSPACE_PANE_ID, tile('a')], tile('a'))
+    noteActiveTreeGroup(null)
+    noteHoveredTreeGroup(null)
+
+    expect(closeFocusedTabInZone()).toBe(true)
+    expect(panesOf(CHAT_GROUP)).toEqual([WORKSPACE_PANE_ID])
+  })
+
+  it('reaches the main rung when BOTH the hovered and the focused zone are ineligible', () => {
+    seedTree([WORKSPACE_PANE_ID, tile('a'), tile('b')])
+    // The tool zone collapsed to one tab, and it is both hovered and focused —
+    // so neither of the first two rungs can serve the verb.
+    setTreePaneHidden('logs', true)
+    noteActiveTreeGroup(TOOL_GROUP)
+    noteHoveredTreeGroup(TOOL_GROUP)
+
+    expect(activateTreeTabSlot(2)).toBe(true)
+    expect(activePaneOf(CHAT_GROUP)).toBe(tile('a'))
+    expect(activePaneOf(TOOL_GROUP)).toBe('terminal')
+  })
+
+  it('reverts to the focused zone once the pointer leaves every zone', () => {
+    seedTree([WORKSPACE_PANE_ID, tile('a')])
+    noteActiveTreeGroup(CHAT_GROUP)
+    noteHoveredTreeGroup(TOOL_GROUP)
+    // pointerleave / window blur clear the override (trackActiveTreeGroup).
+    noteHoveredTreeGroup(null)
+
+    expect(activateTreeTabSlot(2)).toBe(true)
+    expect(activePaneOf(CHAT_GROUP)).toBe(tile('a'))
+    expect(activePaneOf(TOOL_GROUP)).toBe('terminal')
+  })
+})
+
 describe('treeTabCloseTargets', () => {
-  // Drives menu enablement: a verb that would close nothing is not offered.
+  // Drives menu enablement: a verb that would close nothing is DISABLED (never
+  // dropped — see paneTabCloseSpecs). All three counts matter, so all three are
+  // asserted: `all` was the one the terminal and preview equivalents pinned and
+  // this one did not, which left the workspace exemption below unguarded.
   it('counts what each close verb would actually close', () => {
     seedTree([WORKSPACE_PANE_ID, tile('a'), tile('b')])
 
-    const middle = treeTabCloseTargets(tile('a'))
-    expect(middle.others).toBe(1) // b — the workspace declares `uncloseable`
-    expect(middle.right).toBe(1) // b
+    // a + b. The workspace declares `uncloseable`, so it is not a close target
+    // of anyone's "Close all" — including its own tab's.
+    expect(treeTabCloseTargets(tile('a'))).toEqual({ all: 2, others: 1, right: 1 })
+    expect(treeTabCloseTargets(WORKSPACE_PANE_ID)).toEqual({ all: 2, others: 2, right: 2 })
 
     // The rightmost tab has nothing to its right.
-    expect(treeTabCloseTargets(tile('b')).right).toBe(0)
+    expect(treeTabCloseTargets(tile('b'))).toEqual({ all: 2, others: 1, right: 0 })
   })
 
   it('reports nothing for a lone uncloseable tab', () => {
     seedTree([WORKSPACE_PANE_ID])
 
-    expect(treeTabCloseTargets(WORKSPACE_PANE_ID).others).toBe(0)
-    expect(treeTabCloseTargets(WORKSPACE_PANE_ID).right).toBe(0)
+    // Every verb dead, `all` included: there is nothing in this zone the menu
+    // could close, so "Close all" greys out rather than reading as a live verb.
+    expect(treeTabCloseTargets(WORKSPACE_PANE_ID)).toEqual({ all: 0, others: 0, right: 0 })
   })
 })

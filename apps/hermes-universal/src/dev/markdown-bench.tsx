@@ -191,7 +191,7 @@ export function MarkdownBench() {
         <thead className="text-muted-foreground">
           <tr>
             {['run', 'commit ms', 'nodes', 'katex', 'relayout ms', 'worst frame ms'].map(head => (
-              <th className="border border-border px-2 py-1 text-left" key={head}>
+              <th className="border border-border px-2 py-1 text-start" key={head}>
                 {head}
               </th>
             ))}
@@ -201,11 +201,11 @@ export function MarkdownBench() {
           {samples.map((sample, index) => (
             <tr key={index}>
               <td className="border border-border px-2 py-1">{sample.label}</td>
-              <td className="border border-border px-2 py-1 text-right">{sample.commitMs.toFixed(1)}</td>
-              <td className="border border-border px-2 py-1 text-right">{sample.nodes.toLocaleString()}</td>
-              <td className="border border-border px-2 py-1 text-right">{sample.katexCount}</td>
-              <td className="border border-border px-2 py-1 text-right">{sample.relayoutMs.toFixed(1)}</td>
-              <td className="border border-border px-2 py-1 text-right">{sample.worstFrameMs.toFixed(1)}</td>
+              <td className="border border-border px-2 py-1 text-end">{sample.commitMs.toFixed(1)}</td>
+              <td className="border border-border px-2 py-1 text-end">{sample.nodes.toLocaleString()}</td>
+              <td className="border border-border px-2 py-1 text-end">{sample.katexCount}</td>
+              <td className="border border-border px-2 py-1 text-end">{sample.relayoutMs.toFixed(1)}</td>
+              <td className="border border-border px-2 py-1 text-end">{sample.worstFrameMs.toFixed(1)}</td>
             </tr>
           ))}
         </tbody>

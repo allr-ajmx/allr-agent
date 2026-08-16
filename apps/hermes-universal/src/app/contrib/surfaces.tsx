@@ -15,6 +15,8 @@
  * mobile top bar.
  */
 
+import { useMemo } from 'react'
+
 import { ContribBoundary, ContribRender } from '@/contrib/react/boundary'
 import { useContributions } from '@/contrib/react/use-contributions'
 
@@ -33,22 +35,36 @@ export const TITLEBAR_AREAS = {
 
 /** Collect statusbar contributions for one side. A `render()` contribution
  *  becomes a render-item (arbitrary stateful node); otherwise the declarative
- *  `data` payload is the StatusbarItem. */
-export function useStatusbarContributions(side: StatusbarItemSide): StatusbarItem[] {
+ *  `data` payload is the StatusbarItem.
+ *
+ *  MEMOIZED on the registry snapshot (MJXHRM-303). `useContributions` already
+ *  hands back a reference-stable array — `registry.getArea` caches per area and
+ *  `EMPTY` covers the empty case — but mapping it inline minted a fresh array
+ *  (and a fresh render-item, with a fresh `render` closure) on EVERY render of
+ *  the caller. Both callers pass the result straight into `useStatusbarItems` as
+ *  `extraLeftItems`/`extraRightItems`, so that hook's returned arrays were
+ *  re-minted unconditionally — with zero plugins installed as much as with one —
+ *  and every contributed chip missed `StatusbarItemView`'s memo on every one of
+ *  the ~20 stores the bar subscribes to. */
+export function useStatusbarContributions(side: StatusbarItemSide): readonly StatusbarItem[] {
   const items = useContributions(STATUSBAR_AREAS[side])
 
-  return items
-    .map(c =>
-      c.render
-        ? ({
-            id: c.id,
-            render: () => (
-              <ContribBoundary id={c.id} variant="chip">
-                <ContribRender render={c.render} />
-              </ContribBoundary>
-            )
-          } satisfies StatusbarItem)
-        : (c.data as StatusbarItem)
-    )
-    .filter(Boolean)
+  return useMemo(
+    () =>
+      items
+        .map(c =>
+          c.render
+            ? ({
+                id: c.id,
+                render: () => (
+                  <ContribBoundary id={c.id} variant="chip">
+                    <ContribRender render={c.render} />
+                  </ContribBoundary>
+                )
+              } satisfies StatusbarItem)
+            : (c.data as StatusbarItem)
+        )
+        .filter(Boolean),
+    [items]
+  )
 }

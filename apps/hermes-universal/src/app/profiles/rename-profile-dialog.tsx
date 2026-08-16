@@ -14,9 +14,8 @@ import { Input } from '@/components/ui/input'
 import { renameProfile } from '@/hermes'
 import { useI18n } from '@/i18n'
 import { AlertTriangle } from '@/lib/icons'
+import { isValidProfileName } from '@/lib/profile-name'
 import { cn } from '@/lib/utils'
-
-import { isValidProfileName } from './create-profile-dialog'
 
 // Self-contained rename (owns the renameProfile call) so every caller just
 // reacts via onRenamed. Unchanged name is a no-op close.

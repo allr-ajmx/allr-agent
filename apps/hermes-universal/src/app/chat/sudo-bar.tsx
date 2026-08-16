@@ -4,13 +4,39 @@ import { RequestBar, RequestBarActions, RequestBarDescription } from '@/app/chat
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { respondSudo, type SudoRequest } from '@/store/chat'
+import { notify, notifyError } from '@/store/notifications'
 
 export function SudoBar({ request, sessionKey }: { request: SudoRequest; sessionKey: string }) {
   const [password, setPassword] = useState('')
+  // The bar stays until the gateway has the answer (MJXHRM-418): a swallowed
+  // rejection used to tear it down while the sudo prompt was still blocking the
+  // agent, with no way to answer it a second time.
+  const [sending, setSending] = useState(false)
+
+  const send = async (value: string) => {
+    setSending(true)
+
+    try {
+      // `sudo.respond` is `allow_expired`: once the tool's own wait has given up
+      // the gateway takes the password and drops it on the floor, answering
+      // `{"status": "expired"}`. Say so — the command it was for is already
+      // cancelled, and a bar that just vanishes reads as "password accepted".
+      if ((await respondSudo(value, sessionKey)) === 'expired') {
+        notify({
+          kind: 'warning',
+          message: 'That sudo prompt had already timed out — the command was cancelled, so the password went nowhere.'
+        })
+      }
+    } catch (error) {
+      notifyError(error, 'Sudo response failed to send')
+    } finally {
+      setSending(false)
+    }
+  }
 
   const submit = () => {
     if (password) {
-      void respondSudo(password, sessionKey)
+      void send(password)
     }
   }
 
@@ -26,10 +52,10 @@ export function SudoBar({ request, sessionKey }: { request: SudoRequest; session
         value={password}
       />
       <RequestBarActions>
-        <Button disabled={!password} onClick={submit} size="sm">
+        <Button disabled={!password || sending} onClick={submit} size="sm">
           Submit
         </Button>
-        <Button onClick={() => void respondSudo('', sessionKey)} size="sm" variant="outline">
+        <Button disabled={sending} onClick={() => void send('')} size="sm" variant="outline">
           Cancel
         </Button>
       </RequestBarActions>

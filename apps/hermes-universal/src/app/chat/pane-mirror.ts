@@ -12,6 +12,7 @@ import type { ReactElement, ReactNode, PointerEvent as ReactPointerEvent } from 
 import { registerTile } from '@/components/pane-shell/tile/registry'
 import type { DoubleTapContext } from '@/components/pane-shell/tree/renderer/drag-session'
 import { registerPaneCloser, removeTreePane, treePanesWithPrefix } from '@/components/pane-shell/tree/store'
+import type { PaneStripTool } from '@/components/ui/pane-tab'
 import { isRecording, recordSpan } from '@/observability'
 import type { TileDock } from '@/store/session-states'
 
@@ -48,7 +49,16 @@ export interface PaneMirror<T> {
   /** Lead-dot color for the tile's tab (e.g. a session's project color). Re-read
    *  on every `also` change, so pass the color source in `also` to keep it live. */
   accent?: (key: string) => string | undefined
+  /** Custom lead NODE for the tile's tab, rendered before the label. Unlike
+   *  `accent` it is a SELF-SUBSCRIBING component (a session's status dot), so
+   *  the strip needn't re-sync when status or colour move — only `title` drives
+   *  re-registration. Wins over `accent` when both are given. */
+  tabLead?: (key: string) => ReactNode
   render: (key: string) => ReactNode
+  /** Glyph buttons the tile contributes to its zone's strip while it is the
+   *  ACTIVE tile — e.g. a preview's source/rendered/diff switch. DATA, not
+   *  markup: `PaneStripGlyph` owns the styling (see TileChrome.stripTools). */
+  stripTools?: (key: string) => readonly PaneStripTool[]
   /** Wrap the tile's TAB (domain context menu — session verbs). */
   tabWrap?: (key: string, tab: ReactElement) => ReactNode
   /** Override the tile's TAB drag (session drop language: stack/split/link).
@@ -113,6 +123,8 @@ export function paneMirror<T>(cfg: PaneMirror<T>): () => void {
           // leaves it with nowhere to put the ✕.
           linkTarget: cfg.linkTarget,
           loneHeader: true,
+          stripTools: cfg.stripTools ? () => cfg.stripTools!(key) : undefined,
+          tabLead: cfg.tabLead ? () => cfg.tabLead!(key) : undefined,
           tabDrag: cfg.tabDrag
             ? (event: ReactPointerEvent<HTMLElement>, onTap: () => void, double?: DoubleTapContext) =>
                 cfg.tabDrag!(key, event, onTap, double)
@@ -136,6 +148,12 @@ export function paneMirror<T>(cfg: PaneMirror<T>): () => void {
       if (!wanted.has(key)) {
         entry.dispose()
         registered.delete(key)
+        // Hand the closer back. It is registered per pane id and was never taken
+        // back, so `paneClosers` — and `$panesWithCloser`, rebuilt from its keys
+        // on every registration — grew by one entry for every tab ever opened
+        // and never shrank, each pinning a closure over a session that is gone.
+        // Closing must release what opening took (MJXHRM-390).
+        registerPaneCloser(paneId(key))
         removeTreePane(paneId(key))
         removals += 1
       }
@@ -147,6 +165,7 @@ export function paneMirror<T>(cfg: PaneMirror<T>): () => void {
     // reload, so the loop above can't catch these.)
     for (const id of treePanesWithPrefix(`${cfg.prefix}:`)) {
       if (!wanted.has(id.slice(cfg.prefix.length + 1))) {
+        registerPaneCloser(id)
         removeTreePane(id)
         removals += 1
       }

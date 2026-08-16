@@ -12,8 +12,8 @@ import {
   type ChatMessage
 } from '@/store/chat'
 import { $currentFastMode, $currentModel, $currentProvider, $currentReasoningEffort } from '@/store/model'
-import { $activeStoredSessionId } from '@/store/session'
-import { $activeSessionKey } from '@/store/session-state-types'
+import { $activeStoredSessionId, type BranchSource } from '@/store/session'
+import { $activeSessionKey, $sessionStates } from '@/store/session-state-types'
 
 /**
  * The store-surface a `ChatScreen` renders from — every field is a
@@ -68,6 +68,27 @@ export const PRIMARY_SESSION_VIEW: SessionView = {
   $provider: $currentProvider,
   $fast: $currentFastMode,
   $reasoningEffort: $currentReasoningEffort
+}
+
+/**
+ * The view, as the branch path wants it — a snapshot read at action time.
+ *
+ * `$runtimeId` is the slice KEY; `session.create`'s parent link and the "is
+ * there anything to branch" refusal both want the WIRE id, which a draft — and
+ * a slice still hydrating under a placeholder key — does not have. Resolved
+ * exactly as `use-slash-command`'s `targetSessionId` resolves it, so the two
+ * agree about when a surface has a session at all.
+ */
+export function branchSourceOf(view: SessionView): BranchSource {
+  const key = view.$runtimeId.get()
+
+  return {
+    busy: view.$busy.get(),
+    cwd: view.$cwd.get(),
+    messages: view.$messages.get(),
+    runtimeId: (key && $sessionStates.get()[key]?.runtimeSessionId) || null,
+    storedId: view.$storedId.get()
+  }
 }
 
 const SessionViewContext = createContext<SessionView>(PRIMARY_SESSION_VIEW)

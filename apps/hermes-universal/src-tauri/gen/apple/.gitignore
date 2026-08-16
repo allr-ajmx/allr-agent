@@ -1,0 +1,11 @@
+xcuserdata/
+build/
+Externals/
+
+# `tauri ios build` copies the frontend `dist/` in here.
+assets/
+
+.tauri/
+Pods/
+Podfile.lock
+.DS_Store

@@ -27,6 +27,12 @@ const envVar = (over: Partial<EnvVarInfo>): EnvVarInfo => ({
 })
 
 vi.mock('@/hermes', () => ({
+  // Whole-module mock, so EVERY `@/hermes` export this file's import graph
+  // touches has to be listed. `store/profiles` calls `setApiRequestProfile` at
+  // module scope, and reaching it through the component tree made the mock
+  // incomplete — the file then threw on import and vitest reported "no tests",
+  // which reads as a pass in a run summary rather than as lost coverage.
+  setApiRequestProfile: vi.fn(),
   listOAuthProviders: vi.fn(async () => ({ providers: [] as OAuthProvider[] })),
   disconnectOAuthProvider: vi.fn(async () => ({ ok: true, provider: 'x' })),
   getEnvVars: vi.fn(async () => ({}) as Record<string, EnvVarInfo>),
@@ -86,6 +92,34 @@ describe('ProvidersSection', () => {
     // Clicking the featured row hands off to the onboarding OAuth flow.
     fireEvent.click(featured)
     expect(vi.mocked(beginProviderConnect)).toHaveBeenCalledWith(expect.objectContaining({ id: 'nous' }))
+  })
+
+  // Fireworks and OpenRouter are API-key providers, so they never come back from
+  // listOAuthProviders — without explicit rows this page offers no way to reach
+  // the promoted provider at all. Desktop keeps both rows here too.
+  it('accounts view: offers the promoted key providers alongside the OAuth accounts', async () => {
+    providers.mockResolvedValue({
+      providers: [
+        oauthProvider({ id: 'nous', name: 'Nous', flow: 'device_code' }),
+        oauthProvider({ id: 'anthropic', name: 'Anthropic' })
+      ]
+    })
+
+    renderProviders('accounts')
+
+    const featured = await screen.findByRole('button', { name: /Nous Portal/ })
+    const fireworks = screen.getByRole('button', { name: /Fireworks AI/ })
+
+    // Slot #2: directly after the featured Nous row.
+    expect(featured.compareDocumentPosition(fireworks) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(fireworks).toHaveTextContent('Direct model API — Fireworks-hosted frontier models')
+
+    // OpenRouter sits with the rest, behind the disclosure.
+    expect(screen.queryByRole('button', { name: /OpenRouter/ })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Other providers/ }))
+    expect(screen.getByRole('button', { name: /OpenRouter/ })).toHaveTextContent(
+      'One key, hundreds of models — a solid default'
+    )
   })
 
   it('accounts view: disconnect calls the RPC after confirm', async () => {

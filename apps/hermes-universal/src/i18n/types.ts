@@ -5,7 +5,7 @@
 // partial locales should use `defineLocale()` so missing desktop-only strings
 // fall back to English while new keys remain type-checked.
 
-export type Locale = 'en' | 'zh' | 'zh-hant' | 'ja'
+export type Locale = 'ar' | 'en' | 'ja' | 'zh' | 'zh-hant'
 
 export type ToolTitleKey =
   | 'browser_click'
@@ -20,6 +20,7 @@ export type ToolTitleKey =
   | 'execute_code'
   | 'image_generate'
   | 'list_files'
+  | 'memory'
   | 'patch'
   | 'read_file'
   | 'search_files'
@@ -105,6 +106,7 @@ export interface Translations {
     settings: string
     files: string
     review: string
+    webhooks: string
   }
 
   // The code-review / git-diff view.
@@ -143,49 +145,6 @@ export interface Translations {
     deleteTitle: (name: string) => string
     deleteBody: string
     pathCopied: string
-  }
-
-  boot: {
-    ready: string
-    desktopBootFailedWithMessage: (message: string) => string
-    steps: {
-      connectingGateway: string
-      loadingSettings: string
-      loadingSessions: string
-      startingDesktopConnection: string
-      startingHermesDesktop: string
-    }
-    errors: {
-      backgroundExited: string
-      backgroundExitedDuringStartup: string
-      backendStopped: string
-      desktopBootFailed: string
-      gatewayConnectionLost: string
-      gatewaySignInRequired: string
-      ipcBridgeUnavailable: string
-    }
-    failure: {
-      title: string
-      description: string
-      remoteTitle: string
-      remoteDescription: string
-      retry: string
-      repairInstall: string
-      useLocalGateway: string
-      openLogs: string
-      repairHint: string
-      remoteSignInHint: string
-      hideRecentLogs: string
-      showRecentLogs: string
-      signedInTitle: string
-      signedInMessage: string
-      signInIncompleteTitle: string
-      signInIncompleteMessage: string
-      signInFailed: string
-      signInToRemoteGateway: string
-      signInWithProvider: (provider: string) => string
-      identityProvider: string
-    }
   }
 
   notifications: {
@@ -227,6 +186,7 @@ export interface Translations {
       microphoneUnsupported: string
       noMicrophone: string
       noSpeechDetected: string
+      sayStopToEnd: string
       playbackFailed: string
       recordingFailed: string
       transcriptionFailed: string
@@ -247,7 +207,17 @@ export interface Translations {
       turnErrorTitle: string
       backgroundDoneTitle: string
       backgroundFailedTitle: string
+      creditsTitle: string
     }
+  }
+
+  billingBlock: {
+    titleNous: string
+    titleProvider: (provider: string) => string
+    fallbackMessage: string
+    openBilling: string
+    addCredits: string
+    dismiss: string
   }
 
   remoteDisplayBanner: {
@@ -268,10 +238,27 @@ export interface Translations {
     openSettings: string
     openStarmap: string
     openKeybinds: string
+    enterHud: string
+    exitHud: string
     minimize: string
     maximize: string
     restore: string
     close: string
+  }
+
+  // The HUD — a spotlight bar summoned over other applications (MJXHRM-438).
+  hud: {
+    connecting: string
+    connectionFailed: string
+    expandReply: string
+    collapseReply: string
+  }
+
+  // The find-in-page bar (⌘F) — the engine's own search over the rendered page.
+  findInPage: {
+    title: string
+    next: string
+    previous: string
   }
 
   // The rebindable keyboard-shortcuts panel (Settings → Keyboard shortcuts).
@@ -286,6 +273,12 @@ export interface Translations {
     pressKey: string
     set: string
     conflictWith: (label: string) => string
+    /** Marker on a shortcut the OS has been asked to reserve machine-wide. */
+    globalTag: string
+    globalTagHint: string
+    globalClaimTitle: string
+    globalClaimMessage: (combos: string) => string
+    globalClaimAction: string
     categories: Record<string, string>
     actions: Record<string, string>
   }
@@ -342,6 +335,18 @@ export interface Translations {
       gatewayDoor: string
       gatewayDoorHint: string
       gatewayDoorUnavailable: string
+      agent: {
+        title: string
+        blurb: string
+        empty: string
+        loadFailed: string
+        portable: string
+        search: string
+        noMatches: string
+        toggleFailed: (name: string) => string
+        updateBackendToManage: string
+        sources: Record<string, string>
+      }
     }
     notifications: {
       title: string
@@ -350,7 +355,7 @@ export interface Translations {
       enableAllDesc: string
       focusedHint: string
       kinds: Record<
-        'approval' | 'backgroundDone' | 'input' | 'turnDone' | 'turnError',
+        'approval' | 'backgroundDone' | 'credits' | 'input' | 'plugin' | 'turnDone' | 'turnError',
         { label: string; description: string }
       >
       test: string
@@ -369,6 +374,31 @@ export interface Translations {
       terminalHostDevice: string
       terminalHostGateway: string
     }
+    // Settings → Voice → Levels: mic gain, the two input thresholds with their
+    // live meter, and TTS output volume.
+    voiceLevels: {
+      title: string
+      intro: string
+      meterTitle: string
+      meterDesc: string
+      meterRunningDesc: string
+      meterStart: string
+      meterStop: string
+      meterLevel: (percent: string) => string
+      meterPeak: (percent: string) => string
+      meterBusy: string
+      meterFailed: string
+      saveFailed: string
+      gainTitle: string
+      gainDesc: string
+      thresholdTitle: string
+      thresholdDesc: string
+      bargeinTitle: string
+      bargeinDesc: string
+      outputSectionTitle: string
+      outputTitle: string
+      outputDesc: string
+    }
     sections: Record<string, string>
     searchPlaceholder: Record<'about' | 'config' | 'gateway' | 'keys' | 'mcp' | 'sessions', string>
     modeOptions: Record<'light' | 'dark' | 'system', ModeOptionCopy>
@@ -381,8 +411,15 @@ export interface Translations {
       toolViewDesc: string
       backdropTitle: string
       backdropDesc: string
+      reactionsTitle: string
+      reactionsDesc: string
       uiScaleTitle: string
       uiScaleDesc: (percent: number) => string
+      terminalFontTitle: string
+      terminalFontDesc: string
+      terminalFontPlaceholder: string
+      terminalFontPreview: string
+      terminalFontReset: string
       translucencyTitle: string
       translucencyDesc: string
       embedsTitle: string
@@ -489,6 +526,7 @@ export interface Translations {
     config: {
       none: string
       noneParen: string
+      builtinOnly: string
       notSet: string
       commaSeparated: string
       searchPlaceholder: string
@@ -503,6 +541,13 @@ export interface Translations {
       invalidJson: string
       keepAwakeTitle: string
       keepAwakeDesc: string
+      /** Shown when the OS refuses the inhibitor — the switch flips back off with it. */
+      keepAwakeFailed: string
+      backgroundModeTitle: string
+      backgroundModeDesc: string
+      /** Shown when the machine has no system tray, so hiding the window would
+       *  leave a process with nothing to reach it by — the switch flips back off. */
+      backgroundModeFailed: string
     }
     credentials: {
       pasteKey: string
@@ -627,6 +672,12 @@ export interface Translations {
       signOut: string
       signInWith: (provider: string) => string
       authTitle: string
+      /** Which credential backs the live session — the two sign-in routes are
+       *  otherwise indistinguishable once you are in. */
+      sessionKindNative: string
+      sessionKindNativeHint: string
+      sessionKindCookie: string
+      sessionKindCookieHint: string
       authSignedInPassword: string
       authSignedInOauth: string
       authNeedsPassword: string
@@ -641,6 +692,7 @@ export interface Translations {
       saveAndReconnect: string
       diagnostics: string
       diagnosticsDesc: string
+      configFloorWarning: (version: number, floor: number) => string
       openLogs: string
       incompleteTitle: string
       incompleteSignIn: string
@@ -759,6 +811,15 @@ export interface Translations {
       providerDefault: string
       fallbackAdd: string
       fallbackEmpty: string
+      /** Label on the Mixture-of-Agents preset enable/disable switch. */
+      moaEnabled: string
+      /** Shown when the selected preset is off: the per-slot switches cannot
+       *  change what runs until the preset itself is re-enabled. */
+      moaPresetDisabledHint: string
+      /** Accessible name for a reference slot's switch while the slot is on. */
+      moaDisableReference: (index: number) => string
+      /** Accessible name for a reference slot's switch while the slot is off. */
+      moaEnableReference: (index: number) => string
       tasks: Record<string, AuxTaskCopy>
     }
     providers: {
@@ -886,6 +947,10 @@ export interface Translations {
       modelInUse: string
       modelDefault: string
       modelInactiveHint: string
+      modelCustomBadge: string
+      modelCustomLabel: string
+      modelCustomPlaceholder: string
+      modelCustomSave: string
       modelSelectedTitle: string
       modelSelectedMessage: (model: string) => string
       failedSelectModel: (model: string) => string
@@ -1077,9 +1142,20 @@ export interface Translations {
     ageSeconds: (seconds: number) => string
     ageMinutes: (minutes: number) => string
     ageHours: (hours: number) => string
+    ageDays: (days: number) => string
     durationSeconds: (seconds: string) => string
     durationMinutes: (minutes: number, seconds: number) => string
     tokens: (value: number | string) => string
+    steer: string
+    steerPlaceholder: string
+    steerSend: string
+    steerCancel: string
+    steerQueued: string
+    steerRejected: string
+    steerFailed: string
+    steerGone: string
+    steerNotOwned: string
+    steerMissed: (text: string) => string
   }
 
   commandCenter: {
@@ -1089,6 +1165,9 @@ export interface Translations {
     searchPlaceholder: string
     goTo: string
     goToSession: string
+    projects: string
+    openFolder: string
+    openFolderAt: (path: string) => string
     branches: string
     startInBranch: (branch: string) => string
     commandCenter: string
@@ -1322,6 +1401,14 @@ export interface Translations {
     renameMenu: string
     editSoul: string
     copySetup: string
+    exportProfile: string
+    importProfile: string
+    exporting: string
+    exported: string
+    imported: string
+    failedExport: string
+    failedImport: string
+    shareHint: string
     copying: string
     modelLabel: string
     skillsLabel: string
@@ -1434,6 +1521,8 @@ export interface Translations {
     promptPlaceholder: string
     frequencyLabel: string
     deliverLabel: string
+    deliverNeedsHomeChannel: string
+    deliveryFailed: string
     modelLabel: string
     modelDefault: string
     customScheduleLabel: string
@@ -1446,6 +1535,16 @@ export interface Translations {
     scriptOnlyEditHint: string
     saveChanges: string
     createAction: string
+    // Automation Blueprints — the create dialog's "Start from" gallery and the
+    // typed-slot form it swaps in.
+    blueprints: {
+      startFrom: string
+      custom: string
+      scheduleIt: string
+      scheduling: string
+      scheduled: string
+      failedLoad: string
+    }
   }
 
   artifacts: {
@@ -1505,6 +1604,42 @@ export interface Translations {
     noProject: string
     projectEmpty: string
     noSessions: string
+    /** The sidebar header's filter/view menu. */
+    filters: {
+      trigger: string
+      grouping: string
+      groupingSessions: string
+      groupingProject: string
+      ordering: string
+      orderUpdated: string
+      orderCreated: string
+      orderStatus: string
+      orderTokens: string
+      orderCost: string
+      orderManual: string
+      show: string
+      metaUpdated: string
+      metaTokens: string
+      metaCost: string
+      sectionLabel: string
+      status: string
+      statusNeedsInput: string
+      statusWorking: string
+      statusUnread: string
+      statusIdle: string
+      pullRequest: string
+      prOpen: string
+      prDraft: string
+      prMerged: string
+      prClosed: string
+      prNone: string
+      project: string
+      archived: string
+      reset: string
+      collapseAll: string
+      expandAll: string
+      markAllRead: string
+    }
     projects: {
       sectionLabel: string
       newButton: string
@@ -1521,6 +1656,8 @@ export interface Translations {
       ideaShuffle: string
       ideaFailed: string
       ideaWriteFailed: string
+      ideaAppended: string
+      ideaKeptExisting: string
       noFolders: string
       addFolder: string
       folderPath: string
@@ -1558,8 +1695,13 @@ export interface Translations {
       branchOpenExisting: string
       branchSwitchHome: string
       branchCreateWorktree: string
+      branchTrackRemote: string
+      worktreeProjectLabel: string
+      worktreeProjectPlaceholder: string
+      worktreeProjectNone: string
       branchesLoading: string
       noBranches: string
+      branchesFailed: string
       removeWorktree: string
       removeWorktreeFailed: string
       removeWorktreeConfirm: string
@@ -1583,6 +1725,7 @@ export interface Translations {
       openInBubble: string
       export: string
       branchFrom: string
+      moveToProject: string
       rename: string
       archive: string
       newWindow: string
@@ -1594,6 +1737,7 @@ export interface Translations {
       needsInput: string
       waitingForAnswer: string
       finishedUnread: string
+      draftSession: string
       handoffOrigin: (platform: string) => string
       renamed: string
       renameFailed: string
@@ -1640,10 +1784,19 @@ export interface Translations {
     voiceDictation: string
     speakReplies: string
     stopSpeakingReplies: string
+    wakeWordClientCapture: (phrase: string) => string
+    wakeWordListening: (phrase: string) => string
+    wakeWordNeedsConfirm: (phrase: string) => string
+    wakeWordOff: (phrase: string) => string
+    wakeWordPausedVoice: (phrase: string) => string
+    wakeWordStreaming: (phrase: string) => string
+    wakeWordUnavailable: string
     lookupLoading: string
     lookupNoMatches: string
     lookupTry: string
     lookupOr: string
+    /** The hover pill over an actionable directive chip in the composer. */
+    openDirective: string
     commonCommands: string
     hotkeys: string
     helpFooter: string
@@ -1655,6 +1808,7 @@ export interface Translations {
     urlHintPre: string
     attach: string
     queued: (count: number) => string
+    queuedPaused: (count: number) => string
     attachmentOnly: string
     emptyTurn: string
     attachments: (count: number) => string
@@ -1664,6 +1818,8 @@ export interface Translations {
     queueSendNext: string
     queueSend: string
     queueDelete: string
+    queueResume: string
+    queueResumeTip: string
     queueStuckTitle: string
     queueStuckBody: string
     previewUnavailable: string
@@ -1679,6 +1835,8 @@ export interface Translations {
     themeTryPre: string
     themeTryPost: string
     attachLabel: string
+    attachFailed: (label: string) => string
+    attachNoRef: string
     files: string
     folder: string
     back: string
@@ -1873,6 +2031,7 @@ export interface Translations {
     reopenVerification: string
     copy: string
     defaultModel: string
+    noDefaultModel: string
     freeTier: string
     pro: string
     free: string
@@ -1979,6 +2138,9 @@ export interface Translations {
       hideTerminal: string
       keepAwakeOn: string
       keepAwakeOff: string
+      /** Focus-view badge: shown only while the reduced-output mode is on. */
+      focusView: string
+      focusViewTitle: string
       gateway: string
       gatewayReady: string
       gatewayNeedsSetup: string
@@ -2102,8 +2264,6 @@ export interface Translations {
     terminalEndErrorBody: string
     terminalsAria: string
     terminalNew: string
-    terminalCloseOthers: string
-    terminalCloseAll: string
     addToChat: string
   }
 
@@ -2142,12 +2302,30 @@ export interface Translations {
     status: string
   }
 
+  artifactCard: {
+    kind: { code: string; html: string; svg: string }
+    generating: (lines: number) => string
+    versionBadge: (count: number) => string
+    open: string
+  }
+
+  artifactPreview: {
+    versionOf: (current: number, total: number) => string
+    olderVersion: string
+    newerVersion: string
+    latest: string
+    rendered: string
+    source: string
+    copyContent: string
+    download: string
+    renderUnavailable: string
+    missingTitle: string
+    missingBody: string
+  }
+
   preview: {
     tab: string
     closeTab: (label: string) => string
-    closeOthers: string
-    closeToRight: string
-    closeAll: string
     closePane: string
     loading: string
     unavailable: string
@@ -2177,6 +2355,9 @@ export interface Translations {
     diskChangedBody: string
     overwrite: string
     discardReload: string
+    closeDirtyTitle: string
+    closeDirtyBody: string
+    closeDirtyConfirm: string
     console: {
       deselect: string
       select: string
@@ -2237,16 +2418,26 @@ export interface Translations {
     thread: {
       loadingSession: string
       showEarlier: string
+      steerMissed: string
       loadingResponse: string
+      compacting: string
       resumeWhenBackgroundDone: (count: number) => string
       thinking: string
+      thought: string
+      thoughtBriefly: string
+      thoughtFor: (duration: string) => string
       today: (time: string) => string
       yesterday: (time: string) => string
       copy: string
       refresh: string
       moreActions: string
+      react: string
       branchNewChat: string
       dismissError: string
+      filesChanged: (count: number) => string
+      /** Focus view: how many tool rows this run is holding back. */
+      focusHidden: (count: number) => string
+      reviewChanges: string
       readAloudFailed: string
       preparingAudio: string
       stopReading: string
@@ -2290,6 +2481,10 @@ export interface Translations {
       skip: string
       continueLabel: string
       skipped: string
+      lateAnswer: (question: string, choice: string) => string
+      lateAnswerTip: string
+      lateAnswerHint: string
+      expiredAnswer: string
     }
     tool: {
       code: string
@@ -2304,7 +2499,6 @@ export interface Translations {
       copyFile: string
       copyPath: string
       outputAlt: string
-      rawResponse: string
       copyActivity: string
       recoveredOne: string
       recoveredMany: (count: number) => string
@@ -2314,6 +2508,7 @@ export interface Translations {
       statusError: string
       statusRecovered: string
       statusDone: string
+      memoryWriteNoted: string
       actions: {
         read: string
         reading: string
@@ -2379,6 +2574,9 @@ export interface Translations {
     stopFailed: string
     regenerateFailed: string
     editFailed: string
+    restoreMissing: string
+    restoreEmpty: string
+    restoreNoSession: string
     resumeFailed: string
     resumeStrandedTitle: string
     resumeStrandedBody: string
@@ -2416,6 +2614,12 @@ export interface Translations {
     noClipboardImage: string
     clipboardPasteFailed: string
     dropFiles: string
+    compress: {
+      working: string
+      workingOn: (topic: string) => string
+      removed: (count: number) => string
+      nothingToCompress: string
+    }
     handoff: {
       pickPlatform: string
       success: (platform: string) => string
@@ -2462,6 +2666,9 @@ export interface Translations {
     closeToRight: string
     closeAll: string
     newTab: string
+    reload: string
+    /** Drag-ghost label for a multi-tab block. */
+    tabCount: (count: number) => string
     split: (dir: string) => string
     move: (dir: string) => string
     dirUp: string
@@ -2502,5 +2709,146 @@ export interface Translations {
     saveApply: string
     notExpressible: string
     zoneCount: (count: number) => string
+  }
+
+  /** Quick Entry — the global-chord capture window (MJXHRM-384), plus its one
+   *  settings row. Kept as ONE top-level block rather than split across
+   *  `settings.*`: the window's copy and the switch that enables it are the
+   *  same feature, and the surface has no other home in the tree. */
+  /** The system tray's menu (desktop). Native copy, so it is PUSHED down from
+   *  `store/tray.ts` — `src-tauri/src/tray.rs` builds the menu with English
+   *  literals and cannot read this catalog. */
+  tray: {
+    show: string
+    /** Summon the HUD from the tray — the only route to it on a machine where
+     *  another application already owns the chord. */
+    hud: string
+    quit: string
+    /** The tray's checkable Keep Running row — background mode's second control
+     *  surface, and the only one a hidden Hermes still offers. */
+    keepRunning: string
+    /** Hover text on the tray icon itself. */
+    tooltip: string
+    /** The first close asks, once, which of the two "close" means. */
+    closeDialogTitle: string
+    closeDialogDesc: string
+    /** Answer 1: hide the window, keep the process resident. */
+    keepInBackground: string
+    /** Answer 2: end the app, gateway child and all. */
+    closeApp: string
+    /** The disabled readout row, one string per `ConnectionPhase`. */
+    status: {
+      idle: string
+      probing: string
+      connecting: string
+      ready: string
+      error: string
+    }
+  }
+  quickEntry: {
+    /** Accessible name of the single-line input. */
+    label: string
+    placeholder: string
+    /** Shown in the input when the primary window reports no gateway. */
+    notConnected: string
+    sendTo: string
+    currentChat: string
+    newSession: string
+    /** Accessible name of the target picker. */
+    targetLabel: string
+    settingsTitle: string
+    settingsDesc: string
+    /** Where to bind the chord, since this port ships it unbound. */
+    shortcutHint: string
+  }
+  /** Inbound webhook subscriptions — the Webhooks overlay (app/webhooks). */
+  webhooks: {
+    title: string
+    loading: string
+    loadFailed: string
+    search: string
+    noMatches: string
+    tabInbound: string
+    tabOutbound: string
+    outboundSubtitle: string
+    outboundTitle: string
+    outboundBody: string
+    emptyTitle: string
+    emptyDesc: string
+    emptyDescDisabled: string
+    newSubscription: string
+    enableFirst: string
+    rowActions: string
+    enableRow: string
+    disableRow: string
+    showSecret: string
+    secretUnsaved: string
+    deliverOnly: string
+    allEvents: string
+    webhookUrl: string
+    fieldName: string
+    fieldNamePlaceholder: string
+    fieldDescription: string
+    fieldDescriptionPlaceholder: string
+    fieldPrompt: string
+    fieldPromptPlaceholder: string
+    fieldEvents: string
+    fieldEventsPlaceholder: string
+    fieldSkills: string
+    fieldSkillsPlaceholder: string
+    fieldDeliver: string
+    fieldDeliverChatId: string
+    fieldDeliverChatPlaceholder: string
+    fieldDeliverChatDisabled: string
+    fieldDeliverOnly: string
+    fieldDeliverOnlyHint: string
+    fieldSecret: string
+    fieldSecretPlaceholder: string
+    fieldSecretHint: string
+    fieldCreated: string
+    fieldScript: string
+    secretSet: string
+    secretMissing: string
+    createHint: string
+    create: string
+    creating: string
+    createFailed: string
+    created: (name: string) => string
+    nameRequired: string
+    nameInvalid: string
+    nameNormalized: (name: string) => string
+    deliverOnlyNeedsTarget: string
+    createdTitle: (name: string) => string
+    secretOnce: string
+    secretOnceWarning: string
+    secretCopiedHint: string
+    secretNotCopiedHint: string
+    secretRecovery: string
+    secretLater: string
+    secretSaved: string
+    enabledRow: (name: string) => string
+    disabledRow: (name: string) => string
+    toggleFailed: (name: string) => string
+    deleteTitle: string
+    deleteDescPrefix: string
+    deleteDescSuffix: string
+    deleting: string
+    deleted: string
+    deleteFailed: (name: string) => string
+    disabledTitle: string
+    disabledBody: string
+    enable: string
+    enabling: string
+    enableFailed: string
+    enabledRestartStarted: string
+    restartNotStarted: (detail: string) => string
+    restartGateway: string
+    restarting: string
+    receiverNotLiveTitle: string
+    receiverNotLive: (state: string) => string
+    receiverUnknown: string
+    pendingRestartBody: string
+    unknownState: string
+    deliverOptions: Record<string, string>
   }
 }

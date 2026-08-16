@@ -1,6 +1,7 @@
 import { Link, useParams } from 'react-router-dom'
 
 import { PetSection } from '@/app/pet/pet-section'
+import { QuickEntryRow } from '@/app/quick-entry/quick-entry-row'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { useI18n } from '@/i18n'
@@ -8,6 +9,7 @@ import { triggerHaptic } from '@/lib/haptics'
 import { ChevronLeft } from '@/lib/icons'
 import { IS_DESKTOP } from '@/lib/platform'
 import { useStore } from '@/store/atom'
+import { $backgroundMode, setBackgroundMode } from '@/store/background-mode'
 import { $keepAwake, setKeepAwake } from '@/store/keep-awake'
 import { $terminalHostPreference, setTerminalHostPreference } from '@/store/terminals'
 import type { TerminalHostPreference } from '@/transport/terminal-transport'
@@ -92,6 +94,41 @@ function KeepAwakeRow() {
   )
 }
 
+// Background mode sits beside keep-awake because it is the same KIND of setting:
+// a device-local switch over a native lever, with nothing to send to the gateway.
+// It is also the same SHAPE — the atom follows what Rust reports, so a machine
+// with no system tray flips this back off rather than promising a resident app
+// the user would have no way to reach (store/background-mode.ts). Desktop-only:
+// there is nothing to hide behind on a phone, so `IS_DESKTOP` below keeps the row
+// off mobile entirely.
+//
+// The atom is TRI-state — `null` means the user has not been asked yet, which
+// the first window close does — and a switch has two positions, so unanswered
+// renders as off. That is the honest reading: until it is answered, closing the
+// window does not keep Hermes running.
+function BackgroundModeRow() {
+  const { t } = useI18n()
+  const copy = t.settings.config
+  const backgroundMode = useStore($backgroundMode)
+
+  return (
+    <ListRow
+      action={
+        <Switch
+          aria-label={copy.backgroundModeTitle}
+          checked={backgroundMode === true}
+          onCheckedChange={on => {
+            triggerHaptic('selection')
+            setBackgroundMode(on)
+          }}
+        />
+      }
+      description={copy.backgroundModeDesc}
+      title={copy.backgroundModeTitle}
+    />
+  )
+}
+
 // The per-section body. Each Track-J chunk replaces its placeholder case with a
 // real renderer (Jc8 appearance, Jc9 notifications, Jc10 keys, …). Exported so
 // the desktop-style SettingsView overlay renders the active section here too.
@@ -109,10 +146,25 @@ export function SectionBody({ section }: { section: string }) {
     case 'safety':
       return <ConfigSection sectionId={group} />
 
-    // Advanced: schema fields plus the device-local keep-awake toggle, which has
-    // no config key (desktop parity — `ac9a1014a6` homes it here).
+    // Advanced: schema fields plus the device-local keep-awake and Quick Entry
+    // toggles, neither of which has a config key (desktop parity — `ac9a1014a6`
+    // homes keep-awake here and desktop's config-settings.tsx puts Quick Entry
+    // in the same block, for the same reason: this-computer-only power knobs).
     case 'advanced':
-      return <ConfigSection headerSlot={IS_DESKTOP ? <KeepAwakeRow /> : undefined} sectionId={group} />
+      return (
+        <ConfigSection
+          headerSlot={
+            IS_DESKTOP ? (
+              <>
+                <KeepAwakeRow />
+                <BackgroundModeRow />
+                <QuickEntryRow />
+              </>
+            ) : undefined
+          }
+          sectionId={group}
+        />
+      )
 
     // Workspace: schema fields plus the "Shell runs on" device-local override,
     // which isn't a schema key (nothing to send to the gateway).
@@ -138,8 +190,8 @@ export function SectionBody({ section }: { section: string }) {
       return <MemorySection />
 
     // Model (Jc7): default-model picker, the model schema fields, MoA and
-    // auxiliary. FIXME(MJX-105): local-endpoint onboarding is still missing —
-    // desktop's `startManualLocalEndpoint` has no universal counterpart.
+    // auxiliary. "Set up <provider>" routes per provider kind (custom endpoint /
+    // OAuth / picker) — see `resolveProviderSetup` in store/onboarding.ts.
     case 'model':
       return <ModelSection />
 
@@ -156,7 +208,7 @@ export function SectionBody({ section }: { section: string }) {
     case 'keys':
       return <KeysSection view={sub === 'settings' ? 'settings' : 'tools'} />
 
-    // Billing (MJX-56): balance / plan / usage overview, the in-app plans
+    // Billing (MJXHRM-126): balance / plan / usage overview, the in-app plans
     // catalog (`?bview=plans`), top-up, auto-refill and the downgrade → undo
     // flow. Ported from apps/desktop/src/app/settings/billing.
     case 'billing':
@@ -167,6 +219,11 @@ export function SectionBody({ section }: { section: string }) {
       return <GatewaySection />
 
     // Keyboard shortcuts — the full rebindable panel, ported from desktop.
+    // Desktop's nav id for this page is `keybinds`; universal spells it
+    // `shortcuts`. Both resolve so a desktop-shaped deep link (or a plugin
+    // contribution copied from desktop) doesn't land on the empty state.
+    case 'keybinds':
+
     case 'shortcuts':
       return <KeybindSettings />
 
@@ -174,7 +231,7 @@ export function SectionBody({ section }: { section: string }) {
     case 'pet':
       return <PetSection />
 
-    // Plugins (MJX-53): the runtime plugin inventory + the disk-door switch.
+    // Plugins (MJXHRM-129): the runtime plugin inventory + the disk-door switch.
     case 'plugins':
       return <PluginsSettings />
 
@@ -190,9 +247,8 @@ export function SectionBody({ section }: { section: string }) {
       return <AboutSection />
 
     default:
-      // Unknown / deep-linked-only ids land here. Reachable today only for
-      // desktop's `keybinds` nav id, which this switch spells `shortcuts` —
-      // FIXME(MJX-105).
+      // Genuinely unknown ids land here (a stale deep link, a typo'd route).
+      // Every id either nav surface can produce is handled above.
       return (
         <SettingsContent>
           <EmptyState description={t.settings.config.emptyDesc} title={t.settings.config.emptyTitle} />
@@ -212,10 +268,10 @@ export function SettingsSection() {
       <header className="flex items-center gap-1 border-b border-border p-3">
         <Link
           aria-label="Back"
-          className="-ml-1 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          className="-ms-1 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
           to="/settings"
         >
-          <ChevronLeft className="size-5" />
+          <ChevronLeft className="size-5 rtl:-scale-x-100" />
         </Link>
         <h1 className="text-base font-semibold text-foreground">{title}</h1>
       </header>

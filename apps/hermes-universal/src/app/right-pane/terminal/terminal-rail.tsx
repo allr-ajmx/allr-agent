@@ -1,3 +1,4 @@
+import { CONTEXT_KIT } from '@/components/ui/actions-menu'
 import { Codicon } from '@/components/ui/codicon'
 import {
   ContextMenu,
@@ -6,8 +7,10 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger
 } from '@/components/ui/context-menu'
+import { paneTabCloseItems } from '@/components/ui/pane-tab'
 import { Tip } from '@/components/ui/tooltip'
 import { useI18n } from '@/i18n'
+import { isMetaClose, middleClickHandlers } from '@/lib/middle-click'
 import { cn } from '@/lib/utils'
 import { useStore } from '@/store/atom'
 import { setTerminalOpen } from '@/store/layout'
@@ -17,8 +20,10 @@ import {
   closeAllTerminals,
   closeOtherTerminals,
   closeTerminal,
+  closeTerminalsToRight,
   createTerminal,
   selectTerminal,
+  terminalCloseTargets,
   type TerminalEntry
 } from '@/store/terminals'
 
@@ -35,20 +40,14 @@ export function TerminalRail() {
   const activeId = useStore($activeTerminalId)
 
   return (
-    <div className="flex h-full w-9 shrink-0 flex-col items-center border-l border-(--ui-stroke-tertiary) bg-(--ui-editor-surface-background)">
+    <div className="flex h-full w-9 shrink-0 flex-col items-center border-s border-(--ui-stroke-tertiary) bg-(--ui-editor-surface-background)">
       <ul
         aria-label={t.rightSidebar.terminalsAria}
         className="flex min-h-0 flex-1 flex-col items-center gap-0.5 self-stretch overflow-y-auto overflow-x-hidden py-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         role="tablist"
       >
         {terminals.map((term, index) => (
-          <TerminalRailItem
-            active={term.id === activeId}
-            canCloseOthers={terminals.length > 1}
-            index={index}
-            key={term.id}
-            term={term}
-          />
+          <TerminalRailItem active={term.id === activeId} index={index} key={term.id} term={term} />
         ))}
         <li className="flex w-full justify-center">
           <Tip label={t.rightSidebar.terminalNew}>
@@ -80,17 +79,7 @@ export function TerminalRail() {
   )
 }
 
-function TerminalRailItem({
-  active,
-  canCloseOthers,
-  index,
-  term
-}: {
-  active: boolean
-  canCloseOthers: boolean
-  index: number
-  term: TerminalEntry
-}) {
+function TerminalRailItem({ active, index, term }: { active: boolean; index: number; term: TerminalEntry }) {
   const { t } = useI18n()
   const label = `${index + 1}. ${term.title}`
 
@@ -99,7 +88,7 @@ function TerminalRailItem({
       <ContextMenuTrigger asChild>
         <li className="relative flex w-full justify-center">
           {active && (
-            <span aria-hidden className="absolute inset-y-0.5 right-0 w-0.5 rounded-l-sm bg-(--ui-stroke-primary)" />
+            <span aria-hidden className="absolute inset-y-0.5 end-0 w-0.5 rounded-s-sm bg-(--ui-stroke-primary)" />
           )}
           <Tip label={label}>
             <button
@@ -111,13 +100,24 @@ function TerminalRailItem({
                   ? 'bg-(--chrome-action-hover) text-foreground'
                   : 'text-(--ui-text-tertiary) hover:bg-(--chrome-action-hover) hover:text-foreground'
               )}
-              onAuxClick={event => {
-                if (event.button === 1) {
+              // Middle-click closes — through `middleClickHandlers`, not
+              // `auxclick`: the rail is a SCROLLER, and a middle press inside a
+              // scroller starts the autoscroll pan on Windows/Linux, so the
+              // mouseup is spent stopping the pan and `auxclick` never fires.
+              // The gesture only ever worked on macOS, where there is no pan.
+              {...middleClickHandlers(() => closeTerminal(term.id))}
+              onClick={event => {
+                // ⌘-click closes too — the Mac has no middle button, so this is
+                // the trackpad equivalent, matching every tab strip in the app.
+                if (isMetaClose(event)) {
                   event.preventDefault()
                   closeTerminal(term.id)
+
+                  return
                 }
+
+                selectTerminal(term.id)
               }}
-              onClick={() => selectTerminal(term.id)}
               role="tab"
               type="button"
             >
@@ -127,11 +127,18 @@ function TerminalRailItem({
         </li>
       </ContextMenuTrigger>
       <ContextMenuContent>
-        <ContextMenuItem onSelect={() => closeTerminal(term.id)}>{t.common.close}</ContextMenuItem>
-        <ContextMenuItem disabled={!canCloseOthers} onSelect={() => closeOtherTerminals(term.id)}>
-          {t.rightSidebar.terminalCloseOthers}
-        </ContextMenuItem>
-        <ContextMenuItem onSelect={closeAllTerminals}>{t.rightSidebar.terminalCloseAll}</ContextMenuItem>
+        {/* The SAME four close verbs, in the same order, disabled the same way,
+            as every tab strip in the app — this rail used to hand-roll three of
+            them under its own translation keys and never offered "to the
+            right" at all. Hide stays below the separator: it is a verb about
+            the RAIL, not about this terminal. */}
+        {paneTabCloseItems(CONTEXT_KIT, {
+          counts: terminalCloseTargets(term.id),
+          onClose: () => closeTerminal(term.id),
+          onCloseAll: closeAllTerminals,
+          onCloseOthers: () => closeOtherTerminals(term.id),
+          onCloseToRight: () => closeTerminalsToRight(term.id)
+        })}
         <ContextMenuSeparator />
         <ContextMenuItem onSelect={() => setTerminalOpen(false)}>{t.rightSidebar.terminalHide}</ContextMenuItem>
       </ContextMenuContent>

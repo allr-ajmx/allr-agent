@@ -1,4 +1,5 @@
 import type { HermesGitWorktree } from '@/global'
+import { kanbanWorktreeDir } from '@/lib/session-membership'
 import { normalize } from '@/lib/text'
 import type { SessionInfo } from '@/types/hermes'
 
@@ -34,21 +35,25 @@ const normalizePath = (path: null | string | undefined): string => (path ?? '').
 /** Last path segment. */
 export const baseName = (path: string): string | undefined => segments(path).pop()
 
-// The `.worktrees` dir for a KANBAN-TASK worktree path, else null. Only matches
-// task worktrees (`<repo>/.worktrees/t_<hex>`, the `t_…` id kanban_db mints) so
-// the many ephemeral task worktrees collapse into one lane — while user-named
-// "New worktree" dirs (`<repo>/.worktrees/<slug>`) stay as their own lanes.
-const KANBAN_DIR_RE = /^(.*[/\\]\.worktrees)[/\\]t_[0-9a-f]+[/\\]?$/
-
-export function kanbanWorktreeDir(path: string): null | string {
-  return path.match(KANBAN_DIR_RE)?.[1] ?? null
-}
+// The `.worktrees` dir for a KANBAN-TASK worktree path, else null.
+//
+// ONE definition, in `lib/session-membership`, re-exported here so this module's
+// consumers keep asking it for its own vocabulary. It stood byte-identical in
+// both files — same regex, same doc comment — and the two are not independent:
+// membership uses it to refuse to place a kanban-task session, this module uses
+// it to collapse those worktrees into one lane, and the two answers have to be
+// the same answer or a session lands in a lane its color says it is not in.
+export { kanbanWorktreeDir }
 
 /** Label for a main-checkout lane whose session recorded no branch. */
 export const DEFAULT_BRANCH_LABEL = 'main'
 
-/** Id of the Home bucket (must match the backend tree's `NO_PROJECT_ID`). */
-export const NO_PROJECT_ID = '__no_project__'
+/** Id of the Home bucket (must match the backend tree's `NO_PROJECT_ID`).
+ *
+ *  Defined in `store/project-scope` — `resolveNewSessionCwd` is the code that
+ *  gives it meaning, and a store must not import a VALUE out of `app/` to get
+ *  it. Re-exported here so the sidebar keeps asking its own module for it. */
+export { NO_PROJECT_ID } from '@/store/project-scope'
 
 /** The one definition of a main-checkout lane id (must match the backend tree). */
 export const branchLaneId = (repoRoot: string, branch?: string): string =>

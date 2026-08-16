@@ -2,10 +2,10 @@ import { invoke } from '@tauri-apps/api/core'
 
 import { portalAgentSignIn, portalLogout } from '@/lib/auth'
 import { errorText } from '@/lib/error-text'
-import { IS_ANDROID } from '@/lib/platform'
+import { IS_NATIVE_MOBILE } from '@/lib/platform'
 import { atom } from '@/store/atom'
 import { connectCloud } from '@/store/connection'
-import { saveGatewayTarget, savePendingPortal } from '@/store/gateway-restore'
+import { saveGatewayTarget, savePendingPortal, takePendingPortal } from '@/store/gateway-restore'
 
 // Nous Cloud store (E5). Portal login + agent discovery + connect. The Privy
 // portal session + per-agent SSO live in Rust (src-tauri/src/cloud.rs); this holds
@@ -49,6 +49,17 @@ export const $cloudOrg = atom<CloudOrg | null>(null)
 export const $cloudDiscover = atom<CloudDiscover>('idle')
 export const $cloudError = atom<string | null>(null)
 export const $cloudConnectingId = atom<string | null>(null)
+
+/**
+ * Set for this run when the boot followed a mobile portal sign-in round-trip, so
+ * the next gateway panel to open lands on the Cloud card instead of whatever mode
+ * was persisted. Read (and cleared) by GatewayConfigurator.
+ *
+ * In memory on purpose. The durable half of this is the `hermes.portal.pending`
+ * marker, and it is consumed by `resumePortalSignIn` at boot — see there for why
+ * the configurator must not be the thing that consumes it.
+ */
+export const $portalResume = atom(false)
 
 const portalStatus = () => invoke<PortalStatus>('portal_status')
 const portalLogin = () => invoke<PortalStatus>('portal_login')
@@ -110,17 +121,48 @@ export async function refreshCloud(): Promise<void> {
 }
 
 /**
+ * Finish a mobile portal sign-in that came back through a page reload.
+ *
+ * `cloudSignIn` parks a one-shot marker before handing off to Rust, because the
+ * round-trip destroys this JS context (see there). Something has to pick it back up,
+ * and that something must be the BOOT — not a component.
+ *
+ * It used to be a `GatewayConfigurator` mount effect, which holds only when the
+ * sign-in was started from a surface the reload rebuilds: Settings, or the connect
+ * screen. Started from the statusbar gateway popover the reload closes it, no
+ * configurator mounts, and the marker was never read at all — so the user came back
+ * to the chat with no Cloud card, no agent list and nothing to show for the login
+ * they had just completed, and the marker sat in localStorage until some unrelated
+ * later visit to Settings silently jumped to Cloud on the strength of it.
+ *
+ * Called once from `main.tsx`. Everything up to the first await runs synchronously,
+ * so `$portalResume` is already set before the first render reads it.
+ */
+export async function resumePortalSignIn(): Promise<void> {
+  if (!takePendingPortal()) {
+    return
+  }
+
+  $portalResume.set(true)
+
+  // Populate the card while the user is still finding their way back to it: the
+  // portal session is live as of a second ago, so this is the agent list they
+  // signed in to see.
+  await refreshCloud()
+}
+
+/**
  * Interactive portal sign-in, then discover.
  *
- * On ANDROID this may never return: the Rust command navigates the calling webview to the
- * portal and back, which destroys this JS context (same round-trip as the gateway OAuth —
- * see store/connection.ts `beginOAuthLogin`). The marker persisted first is what puts the
- * gateway panel back on the cloud card after the reload.
+ * On ANDROID AND iOS this may never return: the Rust command navigates the calling webview
+ * to the portal and back, which destroys this JS context (same round-trip as the gateway
+ * OAuth — see store/connection.ts `beginOAuthLogin`). The marker persisted first is what
+ * puts the gateway panel back on the cloud card after the reload.
  */
 export async function cloudSignIn(): Promise<void> {
   $cloudError.set(null)
 
-  if (IS_ANDROID) {
+  if (IS_NATIVE_MOBILE) {
     savePendingPortal()
   }
 

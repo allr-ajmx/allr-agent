@@ -1,4 +1,4 @@
-import { API_KEY_OPTIONS, type ApiKeyOption, LOCAL_ENV_KEY } from '@/app/onboarding/api-key-options'
+import { API_KEY_OPTIONS, type ApiKeyOption, LOCAL_ENV_KEY, optionSlug } from '@/app/onboarding/api-key-options'
 import {
   cancelOAuthSession,
   getGlobalModelOptions,
@@ -84,9 +84,31 @@ function stopPolling() {
   pollSession = null
 }
 
+// `GET /api/model/recommended-default` answers 200 with `model: ""` whenever it
+// can't resolve one — a slug outside CANONICAL_PROVIDERS, a catalog that hasn't
+// warmed, a provider the freshly-written credential hasn't made "configured"
+// yet. That is a success SHAPE meaning nothing, and taking it at face value is
+// how the confirm step ends up naming no model and `confirmModel()` ends up
+// assigning none. So: treat an empty model as unresolved and fall back to the
+// provider's own curated list, the way desktop `fetchProviderDefaultModel` does.
+// Returns null when nothing can be resolved — callers must not pretend.
+async function resolveDefaultModel(slug: string): Promise<RecommendedDefaultModel | null> {
+  const recommended = await getRecommendedDefaultModel(slug).catch(() => null)
+
+  if (recommended?.model) {
+    return recommended
+  }
+
+  const options = await getGlobalModelOptions({ explicitOnly: false }).catch(() => null)
+  const row = (options?.providers ?? []).find(p => p.slug?.toLowerCase() === slug.toLowerCase())
+  const model = row?.models?.[0]
+
+  return model && row ? { provider: row.slug, model, free_tier: null } : null
+}
+
 async function onProviderConnected(provider: OAuthProvider) {
   stopPolling()
-  const recommended = await getRecommendedDefaultModel(provider.id).catch(() => null)
+  const recommended = await resolveDefaultModel(provider.id)
   patch({ step: 'confirm', providerSlug: provider.id, recommended, oauth: null, busy: false, error: null })
 }
 
@@ -247,6 +269,55 @@ export function beginProviderConnect(provider: OAuthProvider): void {
   void startProviderOAuth(provider)
 }
 
+/** Where a "Set up <provider>" hand-off should land.
+ *
+ *  `custom-endpoint` — an OpenAI-compatible base URL (Ollama, vLLM, llama.cpp…).
+ *  It is not an OAuth provider and has no curated env key, so the generic picker
+ *  dead-ends it (desktop hit the same "booted back to the first screen" loop and
+ *  answered it with `startManualLocalEndpoint`; universal already owns a richer
+ *  answer — the Providers → Custom endpoints editor, which does CRUD + validate
+ *  + activate in one page).
+ *  `oauth` — a provider the gateway can sign in; jump straight into its connect
+ *  overlay instead of making the user find it again in the picker.
+ *  `picker` — no trustworthy auth metadata; open the generic wizard. */
+export type ProviderSetupTarget =
+  { kind: 'custom-endpoint' } | { kind: 'oauth'; provider: OAuthProvider } | { kind: 'picker' }
+
+/** `custom`, `local`, and the `custom:<id>` rows the endpoint store synthesises. */
+export function isCustomEndpointSlug(slug: string): boolean {
+  const s = slug.trim().toLowerCase()
+
+  return s === 'custom' || s === 'local' || s.startsWith('custom:')
+}
+
+/** Resolve where a provider slug's setup flow lives. A failed provider lookup
+ *  falls back to the picker rather than throwing — setup must stay reachable
+ *  even when the OAuth catalog call fails. */
+export async function resolveProviderSetup(slug: string): Promise<ProviderSetupTarget> {
+  const wanted = slug.trim().toLowerCase()
+
+  if (!wanted) {
+    return { kind: 'picker' }
+  }
+
+  if (isCustomEndpointSlug(wanted)) {
+    return { kind: 'custom-endpoint' }
+  }
+
+  try {
+    const { providers } = await listOAuthProviders()
+    const match = providers.find(p => p.id.trim().toLowerCase() === wanted)
+
+    if (match) {
+      return { kind: 'oauth', provider: match }
+    }
+  } catch {
+    // Catalog unreachable — the generic picker still gets the user somewhere.
+  }
+
+  return { kind: 'picker' }
+}
+
 /** Dismiss the connect overlay: cancel any live session, reset flow state. */
 export function cancelProviderConnect(): void {
   stopPolling()
@@ -365,8 +436,13 @@ export async function saveApiKey(option: ApiKeyOption, value: string, localApiKe
     }
 
     await setEnvVar(option.envKey, trimmed)
-    const recommended = await getRecommendedDefaultModel(option.id).catch(() => null)
-    patch({ busy: false, step: 'confirm', providerSlug: option.id, recommended })
+    // The key lands in `.env`; the backend only sees it once its process env is
+    // refreshed, and the model lookup below is the first thing that depends on
+    // it. Best-effort — the same reload the external-CLI recheck path runs.
+    await requestGateway('reload.env').catch(() => {})
+    const slug = optionSlug(option)
+    const recommended = await resolveDefaultModel(slug)
+    patch({ busy: false, step: 'confirm', providerSlug: slug, recommended })
 
     return true
   } catch (err) {

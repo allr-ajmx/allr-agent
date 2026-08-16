@@ -49,6 +49,50 @@ describe('registerTile / findTile', () => {
     expect(findTile('files')).toBeUndefined()
   })
 
+  // MJXHRM-385. `tabLead` is a FUNCTION on the payload, and a session tab losing
+  // it means losing its status dot while every other field survives.
+  it('round-trips the tabLead slot — a node, not a colour string', () => {
+    const lead = () => null
+    const dispose = registerTile(base('session-tile:abc', { chrome: { accent: '#f00', tabLead: lead } }))
+
+    expect(tileChrome(findTile('session-tile:abc')).tabLead).toBe(lead)
+    // `accent` still round-trips beside it: the two are a slot and its
+    // string-only fallback, not alternatives the registry has to choose between.
+    expect(tileChrome(findTile('session-tile:abc')).accent).toBe('#f00')
+
+    dispose()
+  })
+
+  // The test above goes through `registerTile`, which writes the STRUCTURED
+  // payload — and `readPayload` returns that verbatim, never consulting the key
+  // list at all. So it passed with `tabLead` deleted from `CHROME_KEYS`, which
+  // is the one thing its comment claimed to guard. The list only governs the
+  // FLAT (plugin SDK) shape, so that is what has to be registered to test it.
+  it('copies every chrome key off a FLAT plugin payload, tabLead included', () => {
+    const lead = () => null
+    const wrap = (tab: never) => tab
+
+    const flat = {
+      accent: '#f00',
+      // The three keys that WERE being dropped: added to `TileChrome` long after
+      // the key list was written, and never listed in it.
+      linkTarget: true,
+      tabLead: lead,
+      tabWrap: wrap,
+      toolPanel: true,
+      width: '200px'
+    }
+
+    const tile = toTile({ area: PANES_AREA, data: flat, id: 'plugin-pane', render: () => null, source: 'plugin' })
+
+    expect(tileChrome(tile).tabLead).toBe(lead)
+    expect(tileChrome(tile).tabWrap).toBe(wrap)
+    expect(tileChrome(tile).accent).toBe('#f00')
+    expect(tileChrome(tile).linkTarget).toBe(true)
+    expect(tileChrome(tile).toolPanel).toBe(true)
+    expect(tileSizing(tile).width).toBe('200px')
+  })
+
   it('titles default to the id, so a tab is never blank', () => {
     const dispose = registerTile({ id: 'terminal', kind: 'terminal', title: '', render: () => null })
 

@@ -20,11 +20,15 @@ import { useSidebar } from './sidebar'
 // natural way — the `--dt-base-size` rem token is bumped for `html.is-mobile`
 // in styles.css, so every rem-based size reflows larger (not a CSS zoom, which
 // scales unevenly). Safe area: the top bar owns the top inset; the composer owns
-// its own bottom (home indicator) and side insets; the soft keyboard lifts the
-// content via --keyboard-inset.
+// its own bottom (home indicator) and side insets. The soft keyboard needs
+// nothing here — `html.is-mobile #root` is pinned to the VISIBLE viewport
+// (styles.css), so this whole column is already bounded by the keyboard's top.
 
 export function MobileShell() {
-  // Publishes --keyboard-inset / data-keyboard-open, consumed by the lift below.
+  // Publishes --visual-viewport-{height,top} / --keyboard-inset /
+  // data-keyboard-open. MobileController mounts this too (the hook refcounts one
+  // module-level subscription); kept here because this shell's geometry depends
+  // on it, and a reader of this file should see that.
   useKeyboardInset()
   // Opens the chat you were last in once the gateway is up, instead of leaving
   // the phone on the blank new session it always cold-starts with.
@@ -32,14 +36,16 @@ export function MobileShell() {
   const { openMobile, setOpenMobile, openMobileRight, setOpenMobileRight } = useSidebar()
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-background">
+    <div className="flex h-full min-h-0 flex-col bg-background" data-slot="mobile-shell">
       <MobileTopBar />
 
       {/* The routed content (chat view + full-page views). ChatScreen provides
-          its own `.chat` positioning context for the docked composer; the
-          margin-bottom lifts the whole view — composer included — above the soft
-          keyboard when it's open. */}
-      <div className="flex min-h-0 flex-1 flex-col" style={{ marginBottom: 'var(--keyboard-inset, 0px)' }}>
+          its own `.chat` positioning context for the docked composer. No
+          keyboard margin: `html.is-mobile #root` is sized to the VISIBLE
+          viewport (styles.css), so this column's bottom edge already is the top
+          of the keyboard — lifting it again would leave a keyboard-tall dead
+          band. */}
+      <div className="flex min-h-0 flex-1 flex-col">
         <WorkspaceRoutes />
       </div>
 

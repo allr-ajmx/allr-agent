@@ -1,11 +1,14 @@
+import { useStore } from '@nanostores/react'
 import type * as React from 'react'
 import { useState } from 'react'
 
 import { Codicon } from '@/components/ui/codicon'
 import { useI18n } from '@/i18n'
+import { useDisplayPath } from '@/store/display-home'
 import { setWorkspaceNodeOpen } from '@/store/layout'
 import { notifyError } from '@/store/notifications'
 import { switchBranchInRepo } from '@/store/projects'
+import { $removedSessionIds, withoutTombstoned } from '@/store/session'
 import type { SessionInfo } from '@/types/hermes'
 
 import { SidebarRowStack } from '../chrome'
@@ -35,15 +38,23 @@ interface SidebarWorkspaceGroupProps {
 export function SidebarWorkspaceGroup({ group, renderRows, onNewSession, onRemove }: SidebarWorkspaceGroupProps) {
   const { t } = useI18n()
   const s = t.sidebar
+  // The lane's rows come from the backend tree snapshot, which still lists a
+  // session the user just deleted or archived until its next refresh — so the
+  // optimistic tombstones evict it here too, keeping the lane and the flat
+  // recents list in lockstep.
+  useStore($removedSessionIds)
+  const sessions = withoutTombstoned(group.sessions)
   // Empty worktree/branch lanes start collapsed — they only show a "No sessions
   // yet" placeholder, so defaulting them open just adds noise. Lanes that
   // already hold sessions default open.
-  const defaultOpen = group.sessions.length > 0
+  const defaultOpen = sessions.length > 0
   const [open, toggleOpen] = useWorkspaceNodeOpen(group.id, defaultOpen)
   const [visibleCount, setVisibleCount] = useState(SIDEBAR_GROUP_PAGE)
+  // A lane path is a repo/worktree root on the GATEWAY's filesystem (MJXHRM-394).
+  const displayPath = useDisplayPath()
 
-  const visibleSessions = group.sessions.slice(0, visibleCount)
-  const hiddenCount = Math.max(0, group.sessions.length - visibleSessions.length)
+  const visibleSessions = sessions.slice(0, visibleCount)
+  const hiddenCount = Math.max(0, sessions.length - visibleSessions.length)
   const nextCount = Math.min(SIDEBAR_GROUP_PAGE, hiddenCount)
 
   // Leading glyph: a home mark for the repo's primary checkout (labeled by its
@@ -102,13 +113,13 @@ export function SidebarWorkspaceGroup({ group, renderRows, onNewSession, onRemov
           label={group.label}
           onToggle={toggleOpen}
           open={open}
-          title={group.path ?? undefined}
+          title={group.path ? displayPath(group.path) : undefined}
         />
       </WorkspaceContextMenu>
       {open && (
         <>
           {visibleSessions.length === 0 ? (
-            <div className="min-h-7 pl-2 text-[0.75rem] leading-7 text-(--ui-text-quaternary)">{s.noSessions}</div>
+            <div className="min-h-7 ps-2 text-[0.75rem] leading-7 text-(--ui-text-quaternary)">{s.noSessions}</div>
           ) : (
             renderRows(visibleSessions)
           )}

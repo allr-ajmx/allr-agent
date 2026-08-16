@@ -111,7 +111,7 @@ export function NarrowOverlays() {
       {/* Hover-intent strips on each edge that has a collapsed pane. */}
       {sides.map(side => (
         <div
-          className={cn('absolute inset-y-0 z-30 w-1.5', side === 'left' ? 'left-0' : 'right-0')}
+          className={cn('absolute inset-y-0 z-30 w-1.5', side === 'left' ? 'start-0' : 'end-0')}
           key={side}
           onMouseEnter={() => {
             const first = collapsibles.find(p => sideOf(p) === side)
@@ -128,8 +128,8 @@ export function NarrowOverlays() {
           className={cn(
             'absolute inset-y-0 z-40 flex flex-col overflow-hidden bg-(--ui-sidebar-surface-background) shadow-2xl',
             sideOf(revealed) === 'left'
-              ? 'left-0 border-r border-(--ui-stroke-secondary)'
-              : 'right-0 border-l border-(--ui-stroke-secondary)'
+              ? 'start-0 border-e border-(--ui-stroke-secondary)'
+              : 'end-0 border-s border-(--ui-stroke-secondary)'
           )}
           onMouseLeave={() => setReveal(current => (current?.pinned ? current : null))}
           // Match the pane's docked width (sessions ~237px, files its rail

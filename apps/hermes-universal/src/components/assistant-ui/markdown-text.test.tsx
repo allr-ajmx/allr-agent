@@ -1,7 +1,18 @@
-import { render, screen, waitFor } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+
+// The session-ref link opens through the shared door; booting the real one
+// would drag the profile / REST stack into a markdown render test.
+const openSessionRefMock = vi.fn()
+
+vi.mock('@/app/open-session', () => ({
+  openSessionRef: (...args: unknown[]) => openSessionRefMock(...args)
+}))
 
 import fixture from '@/dev/fixtures/latex-heavy.md?raw'
+import { __resetSessionLinkTitleCache } from '@/lib/session-link-title'
+import { $sessions } from '@/store/session'
+import type { SessionInfo } from '@/types/hermes'
 
 import { MarkdownTextContent } from './markdown-text'
 
@@ -93,7 +104,42 @@ describe('MarkdownTextContent math rendering', () => {
       <MarkdownTextContent isRunning={false} text={'Here:\n\n```python\nprint("hi")\n```\n'} />
     )
 
-    await waitFor(() => expect(container.textContent).toContain('python'))
+    // Assert on the fence's CONTENT, not its language tag: the code card is
+    // background-only now (no header row, no language label), so `python`
+    // never appears as text.
+    await waitFor(() => expect(container.textContent).toContain('print("hi")'))
+
+    // …and that it arrived through OUR `SyntaxHighlighter` slot. That slot is
+    // load-bearing in a way the text assertion above cannot see: supplying it is
+    // what makes assistant-ui replace streamdown's own code component, which is
+    // why this app passes no `plugins.code` at all (see `MARKDOWN_PLUGINS`).
+    // Drop the slot and streamdown renders the fence itself, with no code
+    // plugin to highlight it — every fence permanently unhighlighted, while
+    // `print("hi")` still appears and every other test still passes.
+    expect(container.querySelector('[data-slot="code-card"]')).not.toBeNull()
+  })
+
+  // The fence above renders through the SUSPENSE FALLBACK: `ShikiBlock` is
+  // `lazy(() => import('./shiki-block'))`, so the first paint of every fence has
+  // no Shiki token spans and inherits its colour from `.prose :where(pre)` —
+  // @tailwindcss/typography's near-white `--tw-prose-pre-code`, sitting on our
+  // light code card. Same for the streaming `defer` window and over-budget
+  // blocks. jsdom loads no stylesheet, so the container class is what can be
+  // asserted; without it the fence is unreadable in light mode until the chunk
+  // lands (upstream desktop 3bd844edf1).
+  it('overrides typography’s pale pre foreground so an un-highlighted fence stays readable', async () => {
+    const { container } = render(<MarkdownTextContent isRunning={false} text={'```python\nprint("hi")\n```\n'} />)
+
+    await waitFor(() => expect(container.textContent).toContain('print("hi")'))
+
+    const pre = container.querySelector('pre')
+
+    expect(pre).not.toBeNull()
+
+    const host = pre?.closest('.aui-md')
+
+    expect(host).not.toBeNull()
+    expect(host?.className).toContain('prose-pre:text-foreground')
   })
 
   it('keeps the whole LaTeX-heavy fixture on one node per equation', async () => {
@@ -115,5 +161,82 @@ describe('MarkdownTextContent math rendering', () => {
     expect(screen.getByText(/Randles circuit is used to model EIS data/)).toBeInTheDocument()
     expect(container.querySelector('table')).not.toBeNull()
     expect(container.textContent).toContain('Warburg Impedance')
+  })
+})
+
+// The agent-authored half of `@session:` links. `session_search` hands the model
+// a `@session:<profile>/<id>` value and tells it to use the link as a noun
+// mid-sentence (tools/session_search_tool.py), so the ref arrives inside an
+// ASSISTANT turn — markdown, not composer directive segments. Nothing in the
+// directive renderer ever sees it: it has to survive preprocessMarkdown ->
+// streamdown -> MarkdownLink and come out as a link titled after the session.
+describe('MarkdownTextContent session refs', () => {
+  const sessionRow = (patch: Partial<SessionInfo>): SessionInfo => ({ id: 'x', ...patch }) as SessionInfo
+
+  afterEach(() => {
+    $sessions.set([])
+    __resetSessionLinkTitleCache()
+    openSessionRefMock.mockClear()
+  })
+
+  it('renders an agent-written @session ref as a link showing the session title', async () => {
+    $sessions.set([sessionRow({ id: '20260101_abc123', profile: 'work', title: 'Branch plan' })])
+
+    const { container } = render(
+      <MarkdownTextContent isRunning={false} text="Context lives in @session:work/20260101_abc123 today." />
+    )
+
+    const link = await waitFor(() => {
+      const found = container.querySelector('[data-slot="aui_session-ref-link"]')
+
+      expect(found).not.toBeNull()
+
+      return found as HTMLElement
+    })
+
+    expect(link.tagName).toBe('A')
+    expect(link.textContent).toBe('Branch plan')
+    expect(container.textContent).not.toContain('@session:')
+  })
+
+  it('falls back to a short id when the session is unknown', async () => {
+    const { container } = render(
+      <MarkdownTextContent isRunning={false} text="See @session:work/20260101_abc123 for context." />
+    )
+
+    const link = await waitFor(() => {
+      const found = container.querySelector('[data-slot="aui_session-ref-link"]')
+
+      expect(found).not.toBeNull()
+
+      return found as HTMLElement
+    })
+
+    expect(link.textContent).toBe('20260101…')
+  })
+
+  // Opening it BESIDE, never in place: the link sits inside a conversation the
+  // user is reading, which may itself be mid-turn.
+  it('opens the session it names beside the chat it was read in', async () => {
+    const { container } = render(<MarkdownTextContent isRunning={false} text="Picked up in @session:work/s_abc." />)
+
+    const link = await waitFor(() => {
+      const found = container.querySelector('[data-slot="aui_session-ref-link"]')
+
+      expect(found).not.toBeNull()
+
+      return found as HTMLElement
+    })
+
+    fireEvent.click(link)
+
+    expect(openSessionRefMock).toHaveBeenCalledWith('s_abc', 'tab')
+  })
+
+  it('leaves a ref inside inline code as literal text', () => {
+    const { container } = render(<MarkdownTextContent isRunning={false} text="Pass `@session:work/s_abc` verbatim." />)
+
+    expect(container.querySelector('[data-slot="aui_session-ref-link"]')).toBeNull()
+    expect(container.textContent).toContain('@session:work/s_abc')
   })
 })

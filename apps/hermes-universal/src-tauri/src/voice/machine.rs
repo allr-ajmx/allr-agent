@@ -8,7 +8,7 @@
 //! capture thread, and applies the returned `VoiceEffect`s — it is the *single
 //! emitter*, so effect order is the wire order the frontend observes.
 //!
-//! Rust's seven `VoiceStateKind`s are not the same as React's `ConversationStatus`
+//! Rust's eight `VoiceStateKind`s are not the same as React's `ConversationStatus`
 //! (there is deliberately no `Speaking` here — playback is React's concern). See
 //! the MJX-96 plan.
 
@@ -27,6 +27,13 @@ use crate::voice::vad::{Vad, VadConfig, VadEvent, LEVEL_EMIT_MS};
 pub enum VoiceStateKind {
     Opening,
     Idle,
+    /// Hands-free wake listening: the device is hot but nothing is captured for a
+    /// turn. Batches of raw audio are handed to the host, which resamples them to
+    /// 16 kHz int16 and pushes them at the gateway's `wake.feed` — openWakeWord
+    /// runs server-side, this end only supplies the microphone it doesn't have.
+    /// Detection comes back as a `wake.detected` gateway event, and the frontend
+    /// turns that into an `Arm` (see `on_arm`).
+    WakeListening,
     Armed,
     Recording,
     Finalizing,
@@ -38,6 +45,13 @@ pub enum VoiceStateKind {
 pub enum ArmMode {
     Normal,
     BargeIn,
+    /// Level-meter only (MJXHRM-90): the device is hot and `level` events flow,
+    /// but the turn machinery is disabled — the onset threshold is unreachable
+    /// and the idle window is infinite, so the session can never start
+    /// recording, never finalizes, and never POSTs audio anywhere. This is what
+    /// lets the Voice settings page show a calibration meter without opening a
+    /// transcription session against the user's speech.
+    Monitor,
 }
 
 /// Output container format. Lives here (dependency-free) so `VoiceConfig` can name
@@ -64,9 +78,15 @@ pub enum EmptyReason {
 /// `VoiceInput::TurnFinished`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TurnOutcome {
-    Transcript { text: String, provider: Option<String> },
+    Transcript {
+        text: String,
+        provider: Option<String>,
+    },
     Empty(EmptyReason),
-    Error { code: String, message: String },
+    Error {
+        code: String,
+        message: String,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -113,6 +133,11 @@ pub enum VoiceEffect {
     Emit(&'static str, EmitPayload),
     /// Resample + encode + POST this turn off-thread, then reply `TurnFinished`.
     Finalize(FinalizeJob),
+    /// One `wake_batch_ms` batch of raw device-rate mono, for the host to resample
+    /// to 16 kHz int16 and forward to `wake.feed`. Deliberately NOT an `Emit`: the
+    /// payload is audio and needs the host's resampler/encoder before it can cross
+    /// IPC, and keeping the conversion out here is what keeps this module pure.
+    WakeAudio(Vec<f32>),
     /// The capture loop should drop the cpal stream and exit.
     Shutdown,
 }
@@ -120,12 +145,20 @@ pub enum VoiceEffect {
 pub enum VoiceInput<'a> {
     /// One cpal callback's worth of mono frames at the device's native rate, plus
     /// that block's normalized RMS.
-    Frames { mono: &'a [f32], rms: f32 },
+    Frames {
+        mono: &'a [f32],
+        rms: f32,
+    },
     Arm(ArmMode),
+    /// Enter hands-free wake listening (only meaningful from `Idle`).
+    WakeListen,
     Suspend,
     ForceTurn,
     Close,
-    TurnFinished { turn_id: u64, outcome: TurnOutcome },
+    TurnFinished {
+        turn_id: u64,
+        outcome: TurnOutcome,
+    },
     StreamError(String),
 }
 
@@ -145,8 +178,25 @@ pub struct VoiceConfig {
     /// Clips shorter than this yield `turnEmpty(TooShort)` and never hit the network.
     pub min_turn_ms: u64,
     pub preroll_ms: u64,
+    /// How much audio one `WakeAudio` batch carries. 320 ms is four of the
+    /// detector's 80 ms frames — the same batching desktop's `wake-client-capture`
+    /// uses, which keeps `wake.feed` at ~3 RPCs/s while adding a detection latency
+    /// nobody can hear.
+    pub wake_batch_ms: u64,
+    /// Multiplier applied to the captured block RMS before it becomes the `level`
+    /// the VAD compares against `speech_level` (see `DEFAULT_LEVEL_GAIN`). User
+    /// controllable so a quiet mic can be lifted onto the same 0..1 scale the
+    /// thresholds live on (MJXHRM-90).
+    pub level_gain: f32,
     pub format: ClipFormat,
 }
+
+/// Default mic gain: maps f32 RMS onto the 0..1 scale the VAD thresholds are
+/// calibrated for. Ported from `audio.rs::LEVEL_GAIN` (the old browser meter
+/// normalized 8-bit-centered RMS by /42; the f32 equivalent is ~×(128/42) ≈ 3.0).
+/// Not load-bearing on its own — `speech_level` is a relative threshold on this
+/// same scale — which is exactly why the two are exposed together.
+pub const DEFAULT_LEVEL_GAIN: f32 = 3.0;
 
 impl VoiceConfig {
     /// The tuned defaults, matching `use-voice-conversation.ts` (`silenceLevel
@@ -162,6 +212,8 @@ impl VoiceConfig {
             max_turn_ms: 60_000,
             min_turn_ms: 250,
             preroll_ms: 300,
+            wake_batch_ms: 320,
+            level_gain: DEFAULT_LEVEL_GAIN,
             format: ClipFormat::Wav,
         }
     }
@@ -170,6 +222,9 @@ impl VoiceConfig {
         match mode {
             ArmMode::Normal => self.speech_level,
             ArmMode::BargeIn => self.bargein_speech_level,
+            // Unreachable by construction: the host clamps the emitted level to
+            // 1.0, so no block can ever satisfy `rms >= INFINITY`.
+            ArmMode::Monitor => f32::INFINITY,
         }
     }
 
@@ -177,6 +232,15 @@ impl VoiceConfig {
         match mode {
             ArmMode::Normal => self.onset_ms,
             ArmMode::BargeIn => self.bargein_onset_ms,
+            ArmMode::Monitor => 0,
+        }
+    }
+
+    fn idle_silence_for(&self, mode: ArmMode) -> u64 {
+        match mode {
+            // A meter is not a turn: it must not be reaped for "no speech".
+            ArmMode::Monitor => u64::MAX,
+            _ => self.idle_silence_ms,
         }
     }
 }
@@ -195,7 +259,10 @@ struct PreRoll {
 
 impl PreRoll {
     fn new(cap: usize) -> Self {
-        Self { buf: VecDeque::with_capacity(cap + 4096), cap }
+        Self {
+            buf: VecDeque::with_capacity(cap + 4096),
+            cap,
+        }
     }
 
     fn set_cap(&mut self, cap: usize) {
@@ -240,6 +307,10 @@ pub struct VoiceMachine {
     pending_arm: Option<ArmMode>,
     preroll: PreRoll,
     turn: Vec<f32>,
+    /// Accumulates device-rate audio while `WakeListening`, flushed as one
+    /// `WakeAudio` effect every `wake_batch_ms`.
+    wake_buf: Vec<f32>,
+    wake_batch_samples: usize,
     turn_id: u64,
     samples_seen: u64,
     last_level_ms: u64,
@@ -264,6 +335,7 @@ impl VoiceMachine {
             max_turn_ms: cfg.max_turn_ms,
         });
         let cap = preroll_cap(src_rate, cfg.preroll_ms + cfg.onset_ms);
+        let wake_batch_samples = (src_rate as u64 * cfg.wake_batch_ms / 1_000).max(1) as usize;
         Self {
             cfg,
             src_rate,
@@ -273,6 +345,8 @@ impl VoiceMachine {
             pending_arm: None,
             preroll: PreRoll::new(cap),
             turn: Vec::new(),
+            wake_buf: Vec::with_capacity(wake_batch_samples + 4096),
+            wake_batch_samples,
             turn_id: 0,
             samples_seen: 0,
             last_level_ms: 0,
@@ -300,6 +374,7 @@ impl VoiceMachine {
         match input {
             VoiceInput::Frames { mono, rms } => self.on_frames(mono, rms, out),
             VoiceInput::Arm(mode) => self.on_arm(mode, out),
+            VoiceInput::WakeListen => self.on_wake_listen(out),
             VoiceInput::Suspend => self.on_suspend(out),
             VoiceInput::ForceTurn => self.on_force_turn(out),
             VoiceInput::Close => self.on_close(out),
@@ -331,8 +406,10 @@ impl VoiceMachine {
         let now = self.now_ms();
 
         // Throttled level meter, only while the mic is "hot" (Armed/Recording).
-        if matches!(self.state, VoiceStateKind::Armed | VoiceStateKind::Recording)
-            && now.saturating_sub(self.last_level_ms) >= LEVEL_EMIT_MS
+        if matches!(
+            self.state,
+            VoiceStateKind::Armed | VoiceStateKind::Recording
+        ) && now.saturating_sub(self.last_level_ms) >= LEVEL_EMIT_MS
         {
             self.last_level_ms = now;
             out.push(VoiceEffect::Emit("level", EmitPayload::Level(rms)));
@@ -372,6 +449,16 @@ impl VoiceMachine {
                     self.finalize_turn(out);
                 }
             }
+            VoiceStateKind::WakeListening => {
+                // No VAD here: the wake detector is the gateway's, and a local VAD
+                // gate would starve it of the quiet frames it needs. Batch and
+                // forward, nothing else — in particular there is no idle timeout,
+                // because hands-free listening is meant to last indefinitely.
+                self.wake_buf.extend_from_slice(mono);
+                if self.wake_buf.len() >= self.wake_batch_samples {
+                    out.push(VoiceEffect::WakeAudio(std::mem::take(&mut self.wake_buf)));
+                }
+            }
             // Idle / Opening / Finalizing / Closing / Closed: discard audio.
             _ => {}
         }
@@ -383,7 +470,9 @@ impl VoiceMachine {
         // a turn always ends with ~silence_ms of trailing silence, so total length
         // is never short. This rejects a stray blip that tripped onset then went
         // quiet, without paying for a network round trip.
-        let voiced_samples = self.last_voice_samples.saturating_sub(self.recording_start_samples);
+        let voiced_samples = self
+            .last_voice_samples
+            .saturating_sub(self.recording_start_samples);
         let voiced_ms = self.samples_to_ms(voiced_samples as usize);
         if voiced_ms < self.cfg.min_turn_ms {
             self.turn.clear();
@@ -407,6 +496,13 @@ impl VoiceMachine {
     fn on_arm(&mut self, mode: ArmMode, out: &mut Vec<VoiceEffect>) {
         match self.state {
             VoiceStateKind::Idle => self.do_arm(mode, out),
+            // The wake word fired: the frontend saw `wake.detected` and is turning
+            // hands-free listening into a real turn. Drop the un-flushed wake batch
+            // — it is the wake phrase itself, which the agent must not be asked.
+            VoiceStateKind::WakeListening => {
+                self.wake_buf.clear();
+                self.do_arm(mode, out);
+            }
             VoiceStateKind::Armed => {
                 // Already listening: adjust thresholds if the mode changed, but do
                 // not emit a redundant state transition.
@@ -434,14 +530,37 @@ impl VoiceMachine {
         self.cur_speech_level = self.cfg.level_for(mode);
         self.vad
             .set_thresholds(self.cfg.level_for(mode), self.cfg.onset_for(mode));
-        self.preroll
-            .set_cap(preroll_cap(self.src_rate, self.cfg.preroll_ms + self.cfg.onset_for(mode)));
+        self.vad
+            .set_idle_silence_ms(self.cfg.idle_silence_for(mode));
+        self.preroll.set_cap(preroll_cap(
+            self.src_rate,
+            self.cfg.preroll_ms + self.cfg.onset_for(mode),
+        ));
+    }
+
+    /// Enter hands-free wake listening. Only from `Idle`: a live turn (Armed /
+    /// Recording / Finalizing) outranks the wake listener, and letting wake grab
+    /// the device mid-turn is exactly the mic contention this machine exists to
+    /// make impossible.
+    fn on_wake_listen(&mut self, out: &mut Vec<VoiceEffect>) {
+        if self.state != VoiceStateKind::Idle {
+            return;
+        }
+        self.turn.clear();
+        self.preroll.clear();
+        self.wake_buf.clear();
+        self.state = VoiceStateKind::WakeListening;
+        out.push(emit_state(VoiceStateKind::WakeListening));
     }
 
     fn on_suspend(&mut self, out: &mut Vec<VoiceEffect>) {
-        if matches!(self.state, VoiceStateKind::Armed | VoiceStateKind::Recording) {
+        if matches!(
+            self.state,
+            VoiceStateKind::Armed | VoiceStateKind::Recording | VoiceStateKind::WakeListening
+        ) {
             self.turn.clear();
             self.preroll.clear();
+            self.wake_buf.clear();
             self.state = VoiceStateKind::Idle;
             out.push(emit_state(VoiceStateKind::Idle));
         }
@@ -461,6 +580,7 @@ impl VoiceMachine {
         }
         self.turn.clear();
         self.preroll.clear();
+        self.wake_buf.clear();
         self.pending_arm = None;
         self.state = VoiceStateKind::Closing;
         out.push(emit_state(VoiceStateKind::Closing));
@@ -469,12 +589,7 @@ impl VoiceMachine {
         out.push(VoiceEffect::Shutdown);
     }
 
-    fn on_turn_finished(
-        &mut self,
-        turn_id: u64,
-        outcome: TurnOutcome,
-        out: &mut Vec<VoiceEffect>,
-    ) {
+    fn on_turn_finished(&mut self, turn_id: u64, outcome: TurnOutcome, out: &mut Vec<VoiceEffect>) {
         // Drop a result for a turn that was superseded (a newer turn, or a
         // suspend/close cleared Finalizing). This is the old `id_mismatch` class,
         // now a pure branch.
@@ -512,10 +627,14 @@ impl VoiceMachine {
     fn on_stream_error(&mut self, message: String, out: &mut Vec<VoiceEffect>) {
         out.push(VoiceEffect::Emit(
             "error",
-            EmitPayload::Error { code: "device_lost".into(), message },
+            EmitPayload::Error {
+                code: "device_lost".into(),
+                message,
+            },
         ));
         self.turn.clear();
         self.preroll.clear();
+        self.wake_buf.clear();
         self.pending_arm = None;
         self.state = VoiceStateKind::Closing;
         out.push(emit_state(VoiceStateKind::Closing));
@@ -529,7 +648,10 @@ impl VoiceMachine {
     /// is told to re-arm. Applies any `pending_arm` queued during Finalizing.
     fn go_idle(&mut self, out: &mut Vec<VoiceEffect>, empty: Option<EmptyReason>) {
         if let Some(reason) = empty {
-            out.push(VoiceEffect::Emit("turnEmpty", EmitPayload::TurnEmpty { reason }));
+            out.push(VoiceEffect::Emit(
+                "turnEmpty",
+                EmitPayload::TurnEmpty { reason },
+            ));
         }
         self.state = VoiceStateKind::Idle;
         out.push(emit_state(VoiceStateKind::Idle));
@@ -623,13 +745,25 @@ mod tests {
         let pre_amp = 0.01f32;
         let pre = vec![pre_amp; (RATE / 10) as usize];
         out.clear();
-        m.step(VoiceInput::Frames { mono: &pre, rms: pre_amp }, &mut out);
+        m.step(
+            VoiceInput::Frames {
+                mono: &pre,
+                rms: pre_amp,
+            },
+            &mut out,
+        );
         assert_eq!(m.kind(), VoiceStateKind::Armed);
 
         // Loud onset block.
         let loud = vec![LOUD; (RATE / 50) as usize]; // 20 ms
         out.clear();
-        m.step(VoiceInput::Frames { mono: &loud, rms: LOUD }, &mut out);
+        m.step(
+            VoiceInput::Frames {
+                mono: &loud,
+                rms: LOUD,
+            },
+            &mut out,
+        );
         assert_eq!(m.kind(), VoiceStateKind::Recording);
 
         // Drive to end-of-turn (silence) and capture the FinalizeJob.
@@ -672,7 +806,10 @@ mod tests {
         m.step(
             VoiceInput::TurnFinished {
                 turn_id: 1,
-                outcome: TurnOutcome::Transcript { text: "hi".into(), provider: None },
+                outcome: TurnOutcome::Transcript {
+                    text: "hi".into(),
+                    provider: None,
+                },
             },
             &mut out,
         );
@@ -702,7 +839,12 @@ mod tests {
         let i_empty = topics(&e).iter().position(|t| *t == "turnEmpty").unwrap();
         let i_idle = e
             .iter()
-            .position(|eff| matches!(eff, VoiceEffect::Emit("state", EmitPayload::State(VoiceStateKind::Idle))))
+            .position(|eff| {
+                matches!(
+                    eff,
+                    VoiceEffect::Emit("state", EmitPayload::State(VoiceStateKind::Idle))
+                )
+            })
             .unwrap();
         assert!(i_empty < i_idle);
         assert_eq!(m.kind(), VoiceStateKind::Idle);
@@ -719,7 +861,12 @@ mod tests {
         assert_eq!(
             out,
             vec![
-                VoiceEffect::Emit("turnEmpty", EmitPayload::TurnEmpty { reason: EmptyReason::NoSpeech }),
+                VoiceEffect::Emit(
+                    "turnEmpty",
+                    EmitPayload::TurnEmpty {
+                        reason: EmptyReason::NoSpeech
+                    }
+                ),
                 emit_state(VoiceStateKind::Idle),
             ]
         );
@@ -750,7 +897,7 @@ mod tests {
         m.step(VoiceInput::Arm(ArmMode::Normal), &mut out);
         feed(&mut m, 20, LOUD);
         drive_to_finalize(&mut m); // turn_id == 1, state Finalizing
-        // Close mid-finalize.
+                                   // Close mid-finalize.
         out.clear();
         m.step(VoiceInput::Close, &mut out);
         assert_eq!(m.kind(), VoiceStateKind::Closed);
@@ -759,7 +906,10 @@ mod tests {
         m.step(
             VoiceInput::TurnFinished {
                 turn_id: 1,
-                outcome: TurnOutcome::Transcript { text: "late".into(), provider: None },
+                outcome: TurnOutcome::Transcript {
+                    text: "late".into(),
+                    provider: None,
+                },
             },
             &mut out,
         );
@@ -777,7 +927,10 @@ mod tests {
         m.step(
             VoiceInput::TurnFinished {
                 turn_id: 1,
-                outcome: TurnOutcome::Transcript { text: "  hello  ".into(), provider: Some("groq".into()) },
+                outcome: TurnOutcome::Transcript {
+                    text: "  hello  ".into(),
+                    provider: Some("groq".into()),
+                },
             },
             &mut out,
         );
@@ -821,14 +974,22 @@ mod tests {
         m.step(
             VoiceInput::TurnFinished {
                 turn_id: 1,
-                outcome: TurnOutcome::Transcript { text: "   ".into(), provider: None },
+                outcome: TurnOutcome::Transcript {
+                    text: "   ".into(),
+                    provider: None,
+                },
             },
             &mut out,
         );
         assert_eq!(
             out,
             vec![
-                VoiceEffect::Emit("turnEmpty", EmitPayload::TurnEmpty { reason: EmptyReason::NoTranscript }),
+                VoiceEffect::Emit(
+                    "turnEmpty",
+                    EmitPayload::TurnEmpty {
+                        reason: EmptyReason::NoTranscript
+                    }
+                ),
                 emit_state(VoiceStateKind::Idle),
             ]
         );
@@ -841,7 +1002,7 @@ mod tests {
         m.step(VoiceInput::Arm(ArmMode::Normal), &mut out);
         feed(&mut m, 20, LOUD);
         drive_to_finalize(&mut m); // Finalizing
-        // Arm while Finalizing → no immediate state emit.
+                                   // Arm while Finalizing → no immediate state emit.
         out.clear();
         m.step(VoiceInput::Arm(ArmMode::BargeIn), &mut out);
         assert_eq!(out, Vec::new());
@@ -850,7 +1011,10 @@ mod tests {
         m.step(
             VoiceInput::TurnFinished {
                 turn_id: 1,
-                outcome: TurnOutcome::Transcript { text: "hi".into(), provider: None },
+                outcome: TurnOutcome::Transcript {
+                    text: "hi".into(),
+                    provider: None,
+                },
             },
             &mut out,
         );
@@ -859,6 +1023,71 @@ mod tests {
             vec![VoiceStateKind::Idle, VoiceStateKind::Armed]
         );
         assert_eq!(m.kind(), VoiceStateKind::Armed);
+    }
+
+    // --- monitor (settings level meter, MJXHRM-90) --------------------------
+
+    fn levels(effects: &[VoiceEffect]) -> Vec<f32> {
+        effects
+            .iter()
+            .filter_map(|e| match e {
+                VoiceEffect::Emit("level", EmitPayload::Level(v)) => Some(*v),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn monitor_reports_levels_without_ever_recording() {
+        let mut m = machine();
+        let mut out = Vec::new();
+        m.step(VoiceInput::Arm(ArmMode::Monitor), &mut out);
+        assert_eq!(states(&out), vec![VoiceStateKind::Armed]);
+
+        // The loudest possible block (the host clamps `rms` to 1.0) still must
+        // not trip onset: a calibration meter that starts a turn would ship the
+        // user's test speech to the transcription provider.
+        let e = feed(&mut m, 100, 1.0);
+        assert_eq!(m.kind(), VoiceStateKind::Armed);
+        assert_eq!(levels(&e), vec![1.0]);
+        assert!(!topics(&e).contains(&"speechStart"));
+        assert!(!e.iter().any(|x| matches!(x, VoiceEffect::Finalize(_))));
+    }
+
+    #[test]
+    fn monitor_never_idle_times_out() {
+        let mut m = machine();
+        let mut out = Vec::new();
+        m.step(VoiceInput::Arm(ArmMode::Monitor), &mut out);
+        // Far past `idle_silence_ms` (12 s) — a normal arm would have reaped.
+        let e = feed(&mut m, 60_000, QUIET);
+        assert!(!topics(&e).contains(&"idleTimeout"));
+        assert_eq!(m.kind(), VoiceStateKind::Armed);
+    }
+
+    #[test]
+    fn leaving_monitor_restores_the_real_thresholds() {
+        let mut m = machine();
+        let mut out = Vec::new();
+        m.step(VoiceInput::Arm(ArmMode::Monitor), &mut out);
+        feed(&mut m, 100, LOUD);
+        assert_eq!(m.kind(), VoiceStateKind::Armed);
+        // Re-arming normally must un-do BOTH monitor overrides, or the session
+        // that follows a calibration pass would be permanently deaf.
+        out.clear();
+        m.step(VoiceInput::Arm(ArmMode::Normal), &mut out);
+        feed(&mut m, 20, LOUD);
+        assert_eq!(m.kind(), VoiceStateKind::Recording);
+    }
+
+    #[test]
+    fn leaving_monitor_restores_the_idle_window() {
+        let mut m = machine();
+        let mut out = Vec::new();
+        m.step(VoiceInput::Arm(ArmMode::Monitor), &mut out);
+        m.step(VoiceInput::Arm(ArmMode::Normal), &mut out);
+        let e = feed(&mut m, 12_000, QUIET);
+        assert!(topics(&e).contains(&"idleTimeout"));
     }
 
     #[test]
@@ -872,6 +1101,129 @@ mod tests {
         assert_eq!(m.kind(), VoiceStateKind::Armed);
     }
 
+    // --- wake listening ----------------------------------------------------
+
+    fn wake_batches(effects: &[VoiceEffect]) -> Vec<usize> {
+        effects
+            .iter()
+            .filter_map(|e| match e {
+                VoiceEffect::WakeAudio(pcm) => Some(pcm.len()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn wake_listen_from_idle_announces_the_state() {
+        let mut m = machine();
+        let mut out = Vec::new();
+        m.step(VoiceInput::WakeListen, &mut out);
+        assert_eq!(states(&out), vec![VoiceStateKind::WakeListening]);
+        assert_eq!(m.kind(), VoiceStateKind::WakeListening);
+    }
+
+    #[test]
+    fn wake_listen_never_steals_the_device_from_a_live_turn() {
+        for setup in [ArmMode::Normal, ArmMode::BargeIn] {
+            let mut m = machine();
+            let mut out = Vec::new();
+            m.step(VoiceInput::Arm(setup), &mut out);
+            out.clear();
+            m.step(VoiceInput::WakeListen, &mut out);
+            assert_eq!(out, Vec::new());
+            assert_eq!(m.kind(), VoiceStateKind::Armed);
+        }
+
+        // Mid-recording it must be just as inert.
+        let mut m = machine();
+        let mut out = Vec::new();
+        m.step(VoiceInput::Arm(ArmMode::Normal), &mut out);
+        feed(&mut m, 20, LOUD);
+        assert_eq!(m.kind(), VoiceStateKind::Recording);
+        out.clear();
+        m.step(VoiceInput::WakeListen, &mut out);
+        assert_eq!(out, Vec::new());
+        assert_eq!(m.kind(), VoiceStateKind::Recording);
+    }
+
+    #[test]
+    fn wake_listening_batches_audio_every_wake_batch_ms() {
+        let mut m = machine();
+        let mut out = Vec::new();
+        m.step(VoiceInput::WakeListen, &mut out);
+
+        // A third of a batch: nothing yet.
+        let e = feed(&mut m, 100, QUIET);
+        assert_eq!(wake_batches(&e), Vec::<usize>::new());
+
+        // Crossing 320 ms flushes exactly one batch of everything buffered.
+        let e = feed(&mut m, 100, QUIET);
+        assert_eq!(wake_batches(&e), Vec::<usize>::new());
+        let e = feed(&mut m, 150, QUIET);
+        assert_eq!(wake_batches(&e), vec![(RATE as u64 * 350 / 1_000) as usize]);
+
+        // The buffer restarts empty, so the next batch needs a fresh 320 ms.
+        let e = feed(&mut m, 100, QUIET);
+        assert_eq!(wake_batches(&e), Vec::<usize>::new());
+    }
+
+    #[test]
+    fn wake_listening_emits_no_level_or_speech_events() {
+        // The gateway owns detection; a local VAD gate here would starve it, and a
+        // level meter would paint a listening UI for a mode that has none.
+        let mut m = machine();
+        let mut out = Vec::new();
+        m.step(VoiceInput::WakeListen, &mut out);
+
+        let e = feed(&mut m, 500, LOUD);
+        assert_eq!(topics(&e), Vec::<&str>::new());
+        assert_eq!(m.kind(), VoiceStateKind::WakeListening);
+    }
+
+    #[test]
+    fn detection_arms_and_drops_the_wake_phrase_audio() {
+        let mut m = machine();
+        let mut out = Vec::new();
+        m.step(VoiceInput::WakeListen, &mut out);
+        feed(&mut m, 100, LOUD); // buffered, un-flushed: this IS "hey hermes"
+
+        out.clear();
+        m.step(VoiceInput::Arm(ArmMode::Normal), &mut out);
+        assert_eq!(states(&out), vec![VoiceStateKind::Armed]);
+
+        // The partial batch must not resurface once we are recording a real turn.
+        let e = feed(&mut m, 20, LOUD);
+        assert_eq!(wake_batches(&e), Vec::<usize>::new());
+        assert_eq!(m.kind(), VoiceStateKind::Recording);
+    }
+
+    #[test]
+    fn suspend_leaves_wake_listening_for_idle() {
+        let mut m = machine();
+        let mut out = Vec::new();
+        m.step(VoiceInput::WakeListen, &mut out);
+        feed(&mut m, 100, QUIET);
+
+        out.clear();
+        m.step(VoiceInput::Suspend, &mut out);
+        assert_eq!(states(&out), vec![VoiceStateKind::Idle]);
+
+        // Audio after the suspend is discarded, not appended to the old batch.
+        let e = feed(&mut m, 500, QUIET);
+        assert_eq!(wake_batches(&e), Vec::<usize>::new());
+    }
+
+    #[test]
+    fn force_turn_while_wake_listening_is_inert() {
+        let mut m = machine();
+        let mut out = Vec::new();
+        m.step(VoiceInput::WakeListen, &mut out);
+        out.clear();
+        m.step(VoiceInput::ForceTurn, &mut out);
+        assert_eq!(out, Vec::new());
+        assert_eq!(m.kind(), VoiceStateKind::WakeListening);
+    }
+
     #[test]
     fn stream_error_closes_with_device_lost() {
         let mut m = machine();
@@ -879,10 +1231,7 @@ mod tests {
         m.step(VoiceInput::Arm(ArmMode::Normal), &mut out);
         out.clear();
         m.step(VoiceInput::StreamError("alsa boom".into()), &mut out);
-        assert_eq!(
-            topics(&out),
-            vec!["error", "state", "state"]
-        );
+        assert_eq!(topics(&out), vec!["error", "state", "state"]);
         assert!(matches!(out.last(), Some(VoiceEffect::Shutdown)));
         assert_eq!(m.kind(), VoiceStateKind::Closed);
     }

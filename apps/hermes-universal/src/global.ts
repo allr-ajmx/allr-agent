@@ -13,11 +13,16 @@ export interface HermesGitWorktree {
   locked: boolean
 }
 
-// A local branch as offered by the "convert a branch into a worktree" picker.
-// `checkedOut` means selecting opens that checkout; `isDefault` means selecting
-// switches the main checkout instead of creating `.worktrees/main`.
+// A branch as offered by the "convert a branch into a worktree" picker: local
+// heads plus branches that exist only on a remote. `checkedOut` means selecting
+// opens that checkout; `isDefault` means selecting switches the main checkout
+// instead of creating `.worktrees/main`. `isRemote` marks an `origin/foo` entry
+// with no local head — selecting it creates a local `foo` tracking it, so
+// `checkedOut`/`worktreePath` are never set on those. Optional because an older
+// gateway omits the field.
 export interface HermesGitBranch {
   name: string
+  isRemote?: boolean
   checkedOut: boolean
   isDefault: boolean
   worktreePath: null | string
@@ -25,7 +30,10 @@ export interface HermesGitBranch {
 
 // A branch the new worktree can be based on: local heads + remote-tracking
 // refs. `isRemote` distinguishes `origin/main` from a local `main`; `isDefault`
-// flags origin/HEAD so the dialog can preselect it.
+// flags the branch a remote's HEAD points at — whichever remote that is, not
+// necessarily `origin` — so the dialog can preselect it. That preselection is
+// the `base` every new worktree is cut from, so a wrong flag branches the work
+// off the wrong commit rather than merely mis-highlighting a row.
 export interface HermesGitBaseBranch {
   name: string
   isRemote: boolean
@@ -99,4 +107,23 @@ export interface HermesReviewPr {
 export interface HermesReviewShipInfo {
   ghReady: boolean
   pr: HermesReviewPr | null
+}
+
+// One repo's PRs as reported by `gh pr list`, each tied to the branch it was
+// opened from — how a session row finds its own PR.
+export interface HermesBranchPullRequest {
+  branch: string
+  draft: boolean
+  number: number
+  /** `open` | `closed` | `merged`, lowercased from gh. */
+  state: string
+  title: string
+  url: string
+}
+
+export interface HermesRepoPullRequests {
+  /** False whenever `gh` is missing, unauthenticated, or the query failed — in
+   *  which case `prs` is empty and means "unknown", not "none". */
+  ghReady: boolean
+  prs: HermesBranchPullRequest[]
 }

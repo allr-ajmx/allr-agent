@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { composerPanelCard } from '@/components/chat/composer-dock'
 import { Button } from '@/components/ui/button'
@@ -28,12 +28,32 @@ import {
   Monitor
 } from '@/lib/icons'
 import { cn } from '@/lib/utils'
+import { setAttachmentMenuDropdownOpen } from '@/store/composer'
 
 import { useComposerAttachmentProviders } from './contrib'
 import { GHOST_ICON_BTN } from './controls'
 import type { ChatBarState } from './types'
 
 const SNIPPET_KEYS = ['codeReview', 'implementationPlan', 'explainThis']
+
+/** What the root `Files…` / `Folder…` row does when clicked.
+ *
+ *  Both handlers present → fan out to the `← Back / Local… / Remote…` view.
+ *  Exactly one → run it, no detour: a two-item choice with one item permanently
+ *  greyed out reads as a bug, and it is a real state — off a local-mode gateway
+ *  the composer withholds the LOCAL folder pick, because a local path is not the
+ *  folder the backend would resolve (see chat-composer.tsx). */
+export type AttachRoute = { kind: 'fan-out' } | { kind: 'none' } | { kind: 'run'; run: (event: Event) => void }
+
+export function attachRoute(local?: (event: Event) => void, remote?: (event: Event) => void): AttachRoute {
+  if (local && remote) {
+    return { kind: 'fan-out' }
+  }
+
+  const only = local ?? remote
+
+  return only ? { kind: 'run', run: only } : { kind: 'none' }
+}
 
 export function ContextMenu({
   state,
@@ -57,6 +77,15 @@ export function ContextMenu({
   // browser). Same submenu-positioning bug as snippets, so instead of a Radix
   // sub the menu content swaps in place and Back returns to the root view.
   const [view, setView] = useState<'root' | 'files' | 'folder'>('root')
+  const [open, setOpen] = useState(false)
+  const isHud = typeof document !== 'undefined' && document.documentElement.hasAttribute('data-hud')
+
+  useEffect(() => {
+    return () => {
+      setAttachmentMenuDropdownOpen(false)
+    }
+  }, [])
+
   // `composer.attachments` contributions — plugin/core-registered rows that
   // extend this menu through the same registry as every other surface.
   const attachmentProviders = useComposerAttachmentProviders()
@@ -67,9 +96,27 @@ export function ContextMenu({
     fn()
   }
 
+  const filesRoute = attachRoute(onPickFiles, onPickRemoteFiles)
+  const folderRoute = attachRoute(onPickFolders, onPickRemoteFolders)
+
+  // The root row either steps into the Local/Remote view or runs the only pick
+  // that exists. `stay` (preventDefault) is for the step; a real pick closes the
+  // menu, exactly as `Images…`/`URL…` do.
+  const rootSelect = (route: AttachRoute, view: 'files' | 'folder') =>
+    route.kind === 'fan-out' ? stay(() => setView(view)) : route.kind === 'run' ? route.run : undefined
+
   return (
     <>
-      <DropdownMenu onOpenChange={open => !open && setView('root')}>
+      <DropdownMenu
+        onOpenChange={isOpen => {
+          setOpen(isOpen)
+          if (!isOpen) {
+            setView('root')
+          }
+          setAttachmentMenuDropdownOpen(isOpen)
+        }}
+        open={open}
+      >
         <Tip label={state.tools.label} side="top">
           <DropdownMenuTrigger asChild>
             <Button
@@ -87,7 +134,12 @@ export function ContextMenu({
             </Button>
           </DropdownMenuTrigger>
         </Tip>
-        <DropdownMenuContent align="start" className={cn('w-60', composerPanelCard)} side="top" sideOffset={6}>
+        <DropdownMenuContent
+          align="start"
+          className={cn('w-60', composerPanelCard)}
+          side={isHud ? 'bottom' : 'top'}
+          sideOffset={isHud ? 8 : 6}
+        >
           {view !== 'root' ? (
             <>
               <DropdownMenuLabel className="px-2 pb-0.5 pt-0.5 text-[0.625rem] font-semibold uppercase tracking-wider text-(--ui-text-tertiary)">
@@ -120,16 +172,16 @@ export function ContextMenu({
                 {c.attachLabel}
               </DropdownMenuLabel>
               <ContextMenuItem
-                disabled={!onPickFiles && !onPickRemoteFiles}
+                disabled={filesRoute.kind === 'none'}
                 icon={FileText}
-                onSelect={stay(() => setView('files'))}
+                onSelect={rootSelect(filesRoute, 'files')}
               >
                 {c.files}
               </ContextMenuItem>
               <ContextMenuItem
-                disabled={!onPickFolders && !onPickRemoteFolders}
+                disabled={folderRoute.kind === 'none'}
                 icon={FolderOpen}
-                onSelect={stay(() => setView('folder'))}
+                onSelect={rootSelect(folderRoute, 'folder')}
               >
                 {c.folder}
               </ContextMenuItem>
@@ -200,7 +252,7 @@ function PromptSnippetsDialog({ onInsertText, onOpenChange, open }: PromptSnippe
             return (
               <li key={key}>
                 <button
-                  className="group/snippet flex w-full cursor-pointer items-start gap-2.5 rounded-md border border-transparent px-2.5 py-2 text-left transition-colors hover:border-(--ui-stroke-tertiary) hover:bg-(--ui-control-hover-background) focus-visible:border-(--ui-stroke-tertiary) focus-visible:bg-(--ui-control-hover-background) focus-visible:outline-none"
+                  className="group/snippet flex w-full cursor-pointer items-start gap-2.5 rounded-md border border-transparent px-2.5 py-2 text-start transition-colors hover:border-(--ui-stroke-tertiary) hover:bg-(--ui-control-hover-background) focus-visible:border-(--ui-stroke-tertiary) focus-visible:bg-(--ui-control-hover-background) focus-visible:outline-none"
                   onClick={() => {
                     onInsertText(snippet.text)
                     onOpenChange(false)

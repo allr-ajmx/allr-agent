@@ -88,13 +88,21 @@ pub async fn open(session: Arc<SshSession>, remote_port: u16) -> Result<PortForw
     // remote's loopback precisely so that the tunnel is the only way in;
     // binding our end to a routable address would undo that and republish it to
     // this machine's network.
-    let listener = TcpListener::bind(("127.0.0.1", 0))
-        .await
-        .map_err(|e| SshError::new(SshErrorKind::Unknown, format!("Could not open a local tunnel port: {e}")))?;
+    let listener = TcpListener::bind(("127.0.0.1", 0)).await.map_err(|e| {
+        SshError::new(
+            SshErrorKind::Unknown,
+            format!("Could not open a local tunnel port: {e}"),
+        )
+    })?;
 
     let local_port = listener
         .local_addr()
-        .map_err(|e| SshError::new(SshErrorKind::Unknown, format!("Could not read the local tunnel port: {e}")))?
+        .map_err(|e| {
+            SshError::new(
+                SshErrorKind::Unknown,
+                format!("Could not read the local tunnel port: {e}"),
+            )
+        })?
         .port();
 
     let cancel = CancellationToken::new();
@@ -109,7 +117,12 @@ pub async fn open(session: Arc<SshSession>, remote_port: u16) -> Result<PortForw
         Arc::clone(&stats),
     ));
 
-    Ok(PortForward { local_port, remote_port, cancel, stats })
+    Ok(PortForward {
+        local_port,
+        remote_port,
+        cancel,
+        stats,
+    })
 }
 
 /// Accept local connections until cancelled, pumping each over its own channel.
@@ -140,7 +153,12 @@ async fn accept_loop(
         // ordinary short REST calls.
         let channel = match session
             .handle()
-            .channel_open_direct_tcpip("127.0.0.1", remote_port as u32, "127.0.0.1", local_port as u32)
+            .channel_open_direct_tcpip(
+                "127.0.0.1",
+                remote_port as u32,
+                "127.0.0.1",
+                local_port as u32,
+            )
             .await
         {
             Ok(channel) => channel,
@@ -266,7 +284,11 @@ mod tests {
     }
 
     /// The cancellation half of `accept_loop`, without the SSH dependency.
-    async fn drain_until_cancelled(listener: TcpListener, cancel: CancellationToken, _stats: Arc<ForwardStats>) {
+    async fn drain_until_cancelled(
+        listener: TcpListener,
+        cancel: CancellationToken,
+        _stats: Arc<ForwardStats>,
+    ) {
         loop {
             tokio::select! {
                 biased;

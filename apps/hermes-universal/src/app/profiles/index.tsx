@@ -27,11 +27,14 @@ import {
 import { useI18n } from '@/i18n'
 import { AlertTriangle, Save } from '@/lib/icons'
 import { profileColorSoft, resolveProfileColor } from '@/lib/profile-color'
+import { isValidProfileName } from '@/lib/profile-name'
 import { slug } from '@/lib/sanitize'
 import { normalize } from '@/lib/text'
 import { cn } from '@/lib/utils'
+import { useDisplayPath } from '@/store/display-home'
 import { notify, notifyError } from '@/store/notifications'
 import { $profileColors, refreshProfiles } from '@/store/profile'
+import { runExportProfileFlow, runImportProfileFlow } from '@/store/profile-share'
 
 import { useRefreshHotkey } from '../hooks/use-refresh-hotkey'
 import type { OverlayVariant } from '../overlays/overlay-view'
@@ -44,17 +47,11 @@ import {
   PanelHeader,
   PanelList,
   PanelListRow,
+  type PanelMenuItem,
   PanelMeta,
   PanelPill,
-  PanelRowMenu,
   PanelSectionLabel
 } from '../overlays/panel'
-
-const PROFILE_NAME_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/
-
-function isValidProfileName(name: string): boolean {
-  return PROFILE_NAME_RE.test(name.trim())
-}
 
 interface ProfilesViewProps {
   onClose: () => void
@@ -72,6 +69,9 @@ export function ProfilesView({ onClose, variant }: ProfilesViewProps) {
   const [pendingRename, setPendingRename] = useState<null | ProfileInfo>(null)
   const [pendingDelete, setPendingDelete] = useState<null | ProfileInfo>(null)
   const [deleting, setDeleting] = useState(false)
+  // The profile whose export is in flight. Archiving a large profile is tar +
+  // filesystem work on the backend and can take a while, so the row says so.
+  const [exporting, setExporting] = useState<null | string>(null)
 
   const refresh = useCallback(async () => {
     try {
@@ -114,6 +114,27 @@ export function ProfilesView({ onClose, variant }: ProfilesViewProps) {
       profile => profile.name.toLowerCase().includes(q) || (profile.model ?? '').toLowerCase().includes(q)
     )
   }, [profiles, query])
+
+  // Share doors. The store owns the toasts (and the "where did it land" path),
+  // so these only guard against a double-fire and refresh the list afterwards.
+  const exportOne = useCallback(async (name: string) => {
+    setExporting(current => current ?? name)
+
+    try {
+      await runExportProfileFlow(name)
+    } finally {
+      setExporting(null)
+    }
+  }, [])
+
+  const importOne = useCallback(async () => {
+    const name = await runImportProfileFlow()
+
+    if (name) {
+      setSelectedName(name)
+      await refresh()
+    }
+  }, [refresh])
 
   const handleCreate = useCallback(
     async (name: string, cloneFrom: null | string) => {
@@ -200,28 +221,34 @@ export function ProfilesView({ onClose, variant }: ProfilesViewProps) {
                 <ProfileRow
                   active={selected?.name === profile.name}
                   key={profile.name}
-                  menu={
-                    <PanelRowMenu
-                      items={
-                        profile.is_default
-                          ? []
-                          : [
-                              { icon: 'edit', label: p.renameMenu, onSelect: () => setPendingRename(profile) },
-                              {
-                                icon: 'trash',
-                                label: t.common.delete,
-                                onSelect: () => setPendingDelete(profile),
-                                tone: 'danger'
-                              }
-                            ]
-                      }
-                    />
-                  }
+                  menuItems={[
+                    // Export is offered for the default profile too — it is
+                    // the one every single-profile user actually has.
+                    {
+                      icon: 'package',
+                      label: exporting === profile.name ? p.exporting : p.exportProfile,
+                      onSelect: () => void exportOne(profile.name)
+                    },
+                    ...(profile.is_default
+                      ? []
+                      : [
+                          { icon: 'edit', label: p.renameMenu, onSelect: () => setPendingRename(profile) },
+                          {
+                            icon: 'trash',
+                            label: t.common.delete,
+                            onSelect: () => setPendingDelete(profile),
+                            tone: 'danger' as const
+                          }
+                        ])
+                  ]}
                   onSelect={() => setSelectedName(profile.name)}
                   profile={profile}
                 />
               ))}
               <PanelAddButton label={p.newProfile} onClick={() => setCreateOpen(true)} />
+              {/* Import lands beside create: a shared bundle is the other way a
+                  profile comes into existence. */}
+              <PanelAddButton icon="cloud-download" label={p.importProfile} onClick={() => void importOne()} />
             </PanelList>
 
             {selected ? (
@@ -284,12 +311,12 @@ export function ProfilesView({ onClose, variant }: ProfilesViewProps) {
 
 function ProfileRow({
   active,
-  menu,
+  menuItems,
   onSelect,
   profile
 }: {
   active: boolean
-  menu?: React.ReactNode
+  menuItems?: PanelMenuItem[]
   onSelect: () => void
   profile: ProfileInfo
 }) {
@@ -305,7 +332,8 @@ function ProfileRow({
           name={profile.name}
         />
       }
-      menu={menu}
+      menuItems={menuItems}
+      menuLabel={profile.name}
       onSelect={onSelect}
       rowKey={profile.name}
       title={profile.name}
@@ -343,6 +371,9 @@ function ProfileGlyph({ color, isDefault, name }: { color: null | string; isDefa
 function ProfileDetail({ profile }: { profile: ProfileInfo }) {
   const { t } = useI18n()
   const p = t.profiles
+  // A profile lives under the GATEWAY's HERMES_HOME, so `~` here is the gateway
+  // user's home — never this client's (MJXHRM-394).
+  const displayPath = useDisplayPath()
 
   return (
     <PanelDetail>
@@ -353,8 +384,11 @@ function ProfileDetail({ profile }: { profile: ProfileInfo }) {
             {profile.is_default && <PanelPill tone="good">{p.defaultBadge}</PanelPill>}
             {profile.has_env && <PanelPill tone="muted">.env</PanelPill>}
           </div>
-          <p className="mt-1 truncate font-mono text-[0.66rem] text-muted-foreground/55" title={profile.path}>
-            {profile.path}
+          <p
+            className="mt-1 truncate font-mono text-[0.66rem] text-muted-foreground/55"
+            title={displayPath(profile.path)}
+          >
+            {displayPath(profile.path)}
           </p>
         </div>
 

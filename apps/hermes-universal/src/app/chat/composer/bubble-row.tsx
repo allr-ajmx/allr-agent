@@ -9,20 +9,24 @@ import {
 } from 'react'
 
 import { useI18n } from '@/i18n'
-import { sessionTitle } from '@/lib/chat-runtime'
 import { triggerHaptic } from '@/lib/haptics'
 import { MessageCircle, Plus } from '@/lib/icons'
 import { rafCoalesce } from '@/lib/raf-coalesce'
 import { cn } from '@/lib/utils'
 import { useStore } from '@/store/atom'
-import { $chatBubbles, type ChatBubble, newChatBubble, removeBubble, switchToBubble } from '@/store/chat-bubbles'
 import {
-  $activeStoredSessionId,
-  $sessions,
-  $unreadFinishedSessionIds,
-  $workingSessionIds,
-  refreshSessions
-} from '@/store/session'
+  $chatBubbles,
+  bubbleRuntimeKey,
+  type ChatBubble,
+  newChatBubble,
+  requestRemoveBubble,
+  switchToBubble
+} from '@/store/chat-bubbles'
+import { $draftTitles, draftTitleIn } from '@/store/composer'
+import { $activeStoredSessionId, refreshSessions } from '@/store/session'
+import { chatTabTitle, useSessionRowLookup } from '@/store/session-lookup'
+
+import { SessionStatusDot } from '../session-status-dot'
 
 import { newSessionProgress, type NewSessionSide, resolveDrag, type TrackBounds } from './bubble-drag'
 
@@ -59,19 +63,26 @@ interface Preview {
 /**
  * MOBILE parallel-chat CAROUSEL, mounted just above the composer (outside its
  * box). The active chat is pinned to the horizontal center; the others fan out
- * left/right. Press a bubble to reveal its title (a tooltip above the row, shown
- * only while the press is active); drag left/right to slide the strip and release
- * to switch (the new active animates back to center); drag up to arm (red) and
- * release to close it (non-destructive — see store/chat-bubbles). Hidden until
- * there are 2+ chats.
+ * left/right.
+ *
+ * The whole row is the gesture surface — anywhere in it, dot or gap or the empty
+ * track past the ends. Press to reveal the centred chat's title (a tooltip above
+ * the row, shown only while the press is active); drag left/right to slide the
+ * strip and release to switch (the new active animates back to center); drag up
+ * to arm the centred bubble (red) and release to close it (non-destructive — see
+ * store/chat-bubbles). Hidden until there are 2+ chats.
  */
 export function BubbleRow() {
   const { t } = useI18n()
   const bubbles = useStore($chatBubbles)
   const activeId = useStore($activeStoredSessionId)
-  const sessions = useStore($sessions)
-  const unread = useStore($unreadFinishedSessionIds)
-  const working = useStore($workingSessionIds)
+  // The WIDE lookup, not a `$sessions.find(...)`. The recents page is
+  // paginated, so a bubble for an older chat resolved to nothing: a title
+  // permanently stuck on "Loading…" (MJXHRM-386's own symptom, which the tile
+  // tab and the workspace tab were moved off this find for) and — now that the
+  // shared status dot renders here — no project colour on its idle dot either.
+  // The lookup form, because hooks cannot run inside the bubble `map`.
+  const rowFor = useSessionRowLookup()
 
   // The active id arrives a beat after the persisted bubbles do, so on a cold
   // load `findIndex` is -1 for a moment. Centre the first bubble meanwhile —
@@ -93,26 +104,34 @@ export function BubbleRow() {
   const stateRef = useRef<GestureState | null>(null)
   activeIndexRef.current = activeIndex
 
+  // The strip IS this phone's tab bar, so it names a chat the way a tab does —
+  // including the draft, which is named after what has been typed into it (the
+  // peek label is the only place a bubble says anything at all, so an unsent
+  // message is the only thing that can tell the two blank ones apart).
+  const draftTitles = useStore($draftTitles)
+
   const titleOf = useCallback(
     (bubble: ChatBubble | undefined): string => {
       // Only a bubble with no stored id is genuinely a new chat. An id we cannot
       // resolve is a loaded chat whose title has not arrived — saying "New
       // session" for it made every bubble claim to be one on a cold start.
-      if (!bubble || bubble.storedSessionId === null) {
-        return t.sidebar.nav['new-session']
-      }
+      const storedSessionId = bubble?.storedSessionId ?? null
 
-      const session = sessions.find(s => s.id === bubble.storedSessionId)
-
-      return session ? sessionTitle(session) : t.common.loading
+      return chatTabTitle({
+        // `bubbleRuntimeKey(null)` is the live draft slice — the key the
+        // composer stashes this chat's text under.
+        draftTitle: storedSessionId ? undefined : draftTitleIn(draftTitles, bubbleRuntimeKey(null)),
+        selected: storedSessionId,
+        stored: rowFor(storedSessionId)
+      })
     },
-    [sessions, t]
+    [draftTitles, rowFor]
   )
 
   // Bubble titles come from the session list, and on a phone nothing else pulls
   // it — the sidebar is a separate surface that may never have been opened. So
   // the row asks for it when it holds ids it cannot name.
-  const unresolved = bubbles.some(b => b.storedSessionId !== null && !sessions.some(s => s.id === b.storedSessionId))
+  const unresolved = bubbles.some(b => b.storedSessionId !== null && !rowFor(b.storedSessionId))
 
   useEffect(() => {
     if (unresolved) {
@@ -287,9 +306,12 @@ export function BubbleRow() {
 
     if (st.armed) {
       // Close removes a bubble; the list shrinks and the layout effect re-homes
-      // on the new active bubble — nothing to snap to here.
+      // on the new active bubble — nothing to snap to here. The REQUEST form:
+      // a chat still working gets the same "Close running tab?" prompt the
+      // desktop tile close has always shown, so the row shrinks only once the
+      // answer is in (MJXHRM-390).
       if (target) {
-        removeBubble(target.storedSessionId)
+        requestRemoveBubble(target.storedSessionId)
       }
 
       return
@@ -324,8 +346,15 @@ export function BubbleRow() {
     setTranslate(centerTranslate(st.peeked))
   }, [centerTranslate, mover, onMove])
 
+  // Bound to the ROW, not to each bubble. The bubbles are 32px dots with 10px
+  // gaps and empty track either side of them, so requiring the press to land on
+  // one made the carousel a gesture you had to aim at: a swipe that started in a
+  // gap did nothing, and the close gesture was unreachable unless your thumb
+  // happened to be on the centred dot. The gesture never needed the bubble you
+  // touched anyway — it slides the strip and acts on whatever is centred — so
+  // anywhere in the row is a valid place to start it.
   const onPointerDown = useCallback(
-    (event: ReactPointerEvent<HTMLButtonElement>) => {
+    (event: ReactPointerEvent<HTMLDivElement>) => {
       if (event.button !== 0) {
         return
       }
@@ -381,6 +410,7 @@ export function BubbleRow() {
       {dragging && (
         <div
           className={cn(
+            // eslint-disable-next-line better-tailwindcss/no-restricted-classes -- centring, not an edge — pairs with a physical -translate-x-1/2, and start-1/2 would resolve to right:50% while the transform still pulled left
             'pointer-events-none absolute -top-9 left-1/2 z-10 max-w-[70%] -translate-x-1/2 truncate rounded-md px-2 py-0.5 text-[0.7rem] font-medium shadow-sm',
             preview?.closeArmed
               ? 'bg-destructive/15 text-destructive'
@@ -403,7 +433,12 @@ export function BubbleRow() {
           the other is `hidden`) and the strip must clip horizontally, so the
           enlarged bubble was being shaved top and bottom. The padding moved here
           off the wrapper, so the row's total height is unchanged. */}
-      <div className="relative w-full touch-none overflow-hidden py-1" ref={containerRef}>
+      <div
+        className="relative w-full touch-none overflow-hidden py-1"
+        data-slot="bubble-track"
+        onPointerDown={onPointerDown}
+        ref={containerRef}
+      >
         <div
           className={cn(
             'relative flex w-max items-center gap-2.5 will-change-transform',
@@ -422,8 +457,7 @@ export function BubbleRow() {
           {bubbles.map((bubble, index) => {
             const isCentered = index === centeredIndex
             const armed = isCentered && preview?.closeArmed
-            const isUnread = bubble.storedSessionId !== null && unread.includes(bubble.storedSessionId)
-            const isWorking = bubble.storedSessionId !== null && working.has(bubble.storedSessionId)
+            const session = rowFor(bubble.storedSessionId)
 
             return (
               <button
@@ -437,21 +471,23 @@ export function BubbleRow() {
                       : 'scale-90 text-(--ui-text-tertiary)'
                 )}
                 key={bubble.storedSessionId ?? 'draft'}
-                onPointerDown={onPointerDown}
                 ref={el => {
                   buttonRefs.current[index] = el
                 }}
                 type="button"
               >
                 <MessageCircle size={18} />
-                {(isUnread || isWorking) && (
-                  <span
-                    className={cn(
-                      'absolute top-0.5 right-0.5 size-1.5 rounded-full',
-                      isWorking ? 'bg-amber-400' : 'bg-(--ui-red)'
-                    )}
-                  />
-                )}
+                {/* The SAME status dot the sidebar row, the pane tabs and the
+                    switcher render — this badge used to paint amber for a
+                    RUNNING turn and red for an unread one, which is the amber
+                    every other surface reserves for "needs your input" and a
+                    colour nothing else uses. A bubble is a session; it says
+                    what a session says. */}
+                <SessionStatusDot
+                  className="absolute top-0.5 end-0.5"
+                  session={session}
+                  storedSessionId={bubble.storedSessionId}
+                />
               </button>
             )
           })}
@@ -480,7 +516,7 @@ function NewSessionGhost({ armed, progress, side }: { armed: boolean; progress: 
       aria-hidden
       className={cn(
         'pointer-events-none absolute top-1/2 flex size-8 items-center justify-center rounded-full',
-        side === 'start' ? '-left-[2.625rem]' : '-right-[2.625rem]',
+        side === 'start' ? '-start-[2.625rem]' : '-end-[2.625rem]',
         armed ? 'bg-primary text-primary-foreground' : 'bg-primary/15 text-primary'
       )}
       style={{

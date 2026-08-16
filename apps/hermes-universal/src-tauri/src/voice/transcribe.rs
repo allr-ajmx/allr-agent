@@ -37,7 +37,11 @@ struct TranscribeResp {
 
 /// Spawn the finalize pipeline; the outcome comes back over `reply` as
 /// `VoiceMsg::TurnFinished { turn_id, .. }`.
-pub fn spawn_finalize(ctx: &TranscribeCtx, job: FinalizeJob, reply: std::sync::mpsc::Sender<VoiceMsg>) {
+pub fn spawn_finalize(
+    ctx: &TranscribeCtx,
+    job: FinalizeJob,
+    reply: std::sync::mpsc::Sender<VoiceMsg>,
+) {
     let ctx = ctx.clone();
     tauri::async_runtime::spawn(async move {
         let turn_id = job.turn_id;
@@ -48,20 +52,34 @@ pub fn spawn_finalize(ctx: &TranscribeCtx, job: FinalizeJob, reply: std::sync::m
 
 async fn finalize(ctx: &TranscribeCtx, job: FinalizeJob) -> TurnOutcome {
     // 1. CPU-bound: resample → encode → data URL, on a blocking worker.
-    let FinalizeJob { pcm, src_rate, format, .. } = job;
-    let encoded = tauri::async_runtime::spawn_blocking(move || -> Result<(String, String), String> {
-        let mono16k = codec::resample_to_16k(&pcm, src_rate)?;
-        let (bytes, mime) = codec::encode(&mono16k, format)?;
-        let data_url = codec::to_data_url(&bytes, &mime)?;
-        Ok((data_url, mime))
-    })
-    .await;
+    let FinalizeJob {
+        pcm,
+        src_rate,
+        format,
+        ..
+    } = job;
+    let encoded =
+        tauri::async_runtime::spawn_blocking(move || -> Result<(String, String), String> {
+            let mono16k = codec::resample_to_16k(&pcm, src_rate)?;
+            let (bytes, mime) = codec::encode(&mono16k, format)?;
+            let data_url = codec::to_data_url(&bytes, &mime)?;
+            Ok((data_url, mime))
+        })
+        .await;
 
     let (data_url, mime) = match encoded {
         Ok(Ok(v)) => v,
-        Ok(Err(e)) => return TurnOutcome::Error { code: "encode_failed".into(), message: e },
+        Ok(Err(e)) => {
+            return TurnOutcome::Error {
+                code: "encode_failed".into(),
+                message: e,
+            }
+        }
         Err(e) => {
-            return TurnOutcome::Error { code: "encode_panicked".into(), message: e.to_string() }
+            return TurnOutcome::Error {
+                code: "encode_panicked".into(),
+                message: e.to_string(),
+            }
         }
     };
 
@@ -92,7 +110,10 @@ async fn finalize(ctx: &TranscribeCtx, job: FinalizeJob) -> TurnOutcome {
     let resp = match req.send().await {
         Ok(r) => r,
         Err(e) => {
-            return TurnOutcome::Error { code: "transcribe_send_failed".into(), message: e.to_string() }
+            return TurnOutcome::Error {
+                code: "transcribe_send_failed".into(),
+                message: e.to_string(),
+            }
         }
     };
 
@@ -111,11 +132,15 @@ async fn finalize(ctx: &TranscribeCtx, job: FinalizeJob) -> TurnOutcome {
         // Empty/whitespace transcript → let the machine map it to turnEmpty; a
         // present transcript flows straight through (the machine trims).
         Ok(r) => match r.transcript {
-            Some(text) if !text.trim().is_empty() => {
-                TurnOutcome::Transcript { text, provider: r.provider }
-            }
+            Some(text) if !text.trim().is_empty() => TurnOutcome::Transcript {
+                text,
+                provider: r.provider,
+            },
             _ => TurnOutcome::Empty(EmptyReason::NoTranscript),
         },
-        Err(e) => TurnOutcome::Error { code: "transcribe_bad_json".into(), message: e.to_string() },
+        Err(e) => TurnOutcome::Error {
+            code: "transcribe_bad_json".into(),
+            message: e.to_string(),
+        },
     }
 }

@@ -20,13 +20,18 @@ import { toTileContribution } from '@/components/pane-shell/tile/registry'
 import type { Tile } from '@/components/pane-shell/tile/types'
 import { pluginRest, type PluginRestOptions } from '@/hermes'
 import { createPluginI18n, type PluginI18n } from '@/i18n'
+import { writeClipboardText } from '@/lib/clipboard'
+import { tryOpenExternalLink } from '@/lib/external-link'
 import { pluginSocket } from '@/lib/plugin-transport'
+import { tryRevealPathInFileManager } from '@/lib/reveal-path'
 import { readKey, writeKey } from '@/lib/storage'
+import { dispatchPluginNativeNotification, type PluginNativeNotificationInput } from '@/store/native-notifications'
 
 import { registry } from './registry'
 import type { Contribution } from './types'
 
 export type { PluginRestOptions } from '@/hermes'
+export type { PluginNativeNotificationInput } from '@/store/native-notifications'
 
 /** A contribution as a plugin author writes it — provenance + id scoping are
  *  the host's job, so those fields are off-limits here. */
@@ -42,6 +47,29 @@ export interface PluginStorage {
   get<T>(key: string, fallback: T): T
   set(key: string, value: unknown): void
   remove(key: string): void
+}
+
+/** The curated OS door — every way a plugin reaches outside the app window, in
+ *  one attributed namespace. The desktop app's identical contract sits over the
+ *  Electron preload bridge; here each member sits over the Tauri capability that
+ *  matches it. Every member resolves a result instead of throwing when the
+ *  capability can't apply (plain-web dev, Android, an older shell), so callers
+ *  branch on the return value rather than sniffing the platform. */
+export interface PluginOs {
+  /** Native OS notification, attributed to this plugin. Gated by Settings ▸
+   *  Notifications ▸ "Plugin notifications" and fires only while the user is
+   *  away from Hermes — use `host.notify` for the in-app toast. Throttled per
+   *  plugin; reserve it for genuinely notable events. */
+  notify: (input: PluginNativeNotificationInput) => void
+  /** Open a URL with the OS default handler (browser, mail client, custom
+   *  schemes like `spotify:`). Resolves false when the shell can't. */
+  openExternal: (url: string) => Promise<boolean>
+  /** Reveal a path in the OS file manager (Finder / Explorer). Resolves false
+   *  when unavailable — including on mobile, which has no file manager to
+   *  reveal into. */
+  revealPath: (path: string) => Promise<boolean>
+  /** Write text to the system clipboard. Resolves false when unavailable. */
+  writeClipboard: (text: string) => Promise<boolean>
 }
 
 export interface PluginContext {
@@ -67,9 +95,18 @@ export interface PluginContext {
   rest: <T>(path: string, opts?: PluginRestOptions) => Promise<T>
   /** Live twin of `rest`: a WebSocket to this plugin's own namespace
    *  ('/events'), JSON frames to `onMessage`, auto-reconnect, disposer
-   *  returned. Resolves to a no-op unless the connection is token-mode — treat
-   *  it as an accelerator over your polling, never a replacement. */
+   *  returned. Authenticates on EVERY gateway mode (a ws-ticket where there is
+   *  no `token` — see lib/plugin-transport), and FOLLOWS the connection like
+   *  `rest` does: call it whenever you like — before the app has dialled is
+   *  normal, since plugins register first — and it re-homes itself onto the
+   *  gateway the user switches to. Still treat it as an accelerator over your
+   *  polling and never a replacement: a socket can always drop, a ticket mint
+   *  can fail on an expired session, and neither is reported back to you. */
   socket: (path: string, onMessage: (data: unknown) => void) => () => void
+  /** The curated OS door: native notification, open-external, reveal-in-file-
+   *  manager, clipboard — attributed to this plugin, result-shaped (never throws
+   *  for a missing capability). */
+  os: PluginOs
   /** Plugin-scoped persistence. */
   storage: PluginStorage
   /** Plugin-scoped i18n: ship + register locale bundles under this plugin,
@@ -82,6 +119,9 @@ export interface HermesPlugin {
   id: string
   /** Human name for settings / about UI. */
   name?: string
+  /** One line on what the plugin does, shown under its name in Settings ▸
+   *  Plugins. Write it for a user deciding whether to switch this on. */
+  description?: string
   /** Registers on load when the user hasn't chosen (default true). Set false
    *  for opt-in plugins: they inventory in Settings ▸ Plugins, off until the
    *  user flips the switch. */
@@ -112,6 +152,49 @@ function createPluginStorage(pluginId: string): PluginStorage {
   }
 }
 
+// Never throws for a missing capability: this SDK runs in the Tauri webview on
+// desktop, in the Android WebView, and in a plain browser during dev — three
+// hosts with three different answers for each door. So every door degrades to a
+// false result the plugin branches on, and a plugin written against the desktop
+// app's `ctx.os` runs here unmodified.
+function createPluginOs(pluginId: string): PluginOs {
+  const attempt = async (run: () => Promise<unknown>): Promise<boolean> => {
+    try {
+      await run()
+
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  return {
+    notify: input => {
+      try {
+        dispatchPluginNativeNotification(pluginId, input)
+      } catch {
+        // A notification the OS won't take must not break the plugin's caller.
+      }
+    },
+    // The app's own native door (`open_external`), in its result-shaped form.
+    //
+    // NOT the opener plugin's JS `openUrl`: `opener:allow-open-url` enables that
+    // command "without any pre-configured scope", and the plugin refuses every
+    // url that no scope entry matches — with an empty allow-list that is ALL of
+    // them, on every platform. Routing a plugin through it made `openExternal`
+    // resolve `false` always, which this contract renders as "the platform can't
+    // do this" rather than as the bug it was. `lib/external-link` explains the
+    // ACL in full.
+    openExternal: url => tryOpenExternalLink(url),
+    revealPath: path => tryRevealPathInFileManager(path),
+    // The app's single clipboard write seam (@/lib/clipboard), which throws only
+    // when BOTH the OS plugin and the engine refuse — WebKitGTK gates the async
+    // Clipboard API more tightly than Chromium does, and that refusal is what
+    // `false` means here.
+    writeClipboard: text => attempt(() => writeClipboardText(text))
+  }
+}
+
 /** Build the scoped context handed to a plugin's `register`. `onDispose`
  *  receives every registration's disposer (the loader's unload/reload hook). */
 export function createPluginContext(pluginId: string, onDispose?: (dispose: () => void) => void): PluginContext {
@@ -137,6 +220,7 @@ export function createPluginContext(pluginId: string, onDispose?: (dispose: () =
     onDispose: fn => void track(fn),
     rest: <T>(path: string, opts?: PluginRestOptions) => pluginRest<T>(pluginId, path, opts),
     socket: (path, onMessage) => track(pluginSocket(pluginId, path, onMessage)),
+    os: createPluginOs(pluginId),
     storage: createPluginStorage(pluginId),
     i18n: createPluginI18n(pluginId, track)
   }

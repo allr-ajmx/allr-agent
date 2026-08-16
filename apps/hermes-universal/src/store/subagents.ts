@@ -1,5 +1,6 @@
 import { capitalize } from '@/lib/text'
 import { atom } from '@/store/atom'
+import { addSessionKeyHooks } from '@/store/session-state-types'
 
 // Ported verbatim from apps/desktop/src/store/subagents.ts (imports swapped to
 // the mobile seams). Pure reducer over subagent.* gateway events — no native or
@@ -36,6 +37,17 @@ export interface SubagentProgress {
   stream: SubagentStreamEntry[]
   summary?: string
   currentTool?: string
+  /**
+   * A steer this child ACCEPTED and then never delivered: it finished before
+   * another tool result could carry the text, so the gateway names it on
+   * `subagent.complete` as `missed_steer`.
+   *
+   * `subagent.steer` answering `queued` is not a delivery receipt, and this is
+   * the only signal that the difference mattered — without it the overlay's
+   * "Queued for the next step" was the last thing the user ever heard about a
+   * correction the subagent never saw.
+   */
+  missedSteer?: string
 }
 
 export interface SubagentNode extends SubagentProgress {
@@ -56,8 +68,37 @@ const str = (v: unknown) => (isStr(v) ? v : '')
 const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : undefined)
 const strList = (v: unknown) => (Array.isArray(v) ? v.filter(isStr) : [])
 
-const asStatus = (v: unknown): SubagentStatus =>
-  v === 'completed' || v === 'failed' || v === 'interrupted' || v === 'queued' ? v : 'running'
+/**
+ * The gateway's status vocabulary is WIDER than this store's.
+ *
+ * `tools/delegate_tool.py` relays five terminal values on `subagent.complete`:
+ * `completed` / `failed` / `interrupted` (the normal exits, line 2559-2566) and
+ * `timeout` / `error` (the future-timeout and orchestrator-exception exits, line
+ * 2402). `tui_gateway/server.py` forwards whatever it is given verbatim
+ * (`payload["status"] = str(_kwargs["status"])`), and the TUI declares all seven
+ * as first-class (`ui-tui/src/types.ts:21`).
+ *
+ * Anything unrecognised used to fall through to `running`, which made a
+ * timed-out or crashed child PERMANENTLY live to this client: never terminal, so
+ * `pruneFinishedSessionSubagents` kept it forever; never counted by
+ * `failedSubagentCount`, so the status bar reported it as work in flight; and
+ * still spinning in the Agents overlay with an elapsed timer that never stopped.
+ * A configured subagent timeout (Settings → "Subagent Timeout") is enough to
+ * reach it, so the accumulation this store exists to prevent survived the prune.
+ *
+ * Both extra values are failures, so they collapse onto `failed` rather than
+ * widening the union: every surface here has one failure tone, and the detail
+ * ("Timed out after 300s") still arrives as the summary stream line.
+ */
+export const normalizeSubagentStatus = (v: unknown): SubagentStatus => {
+  if (v === 'completed' || v === 'failed' || v === 'interrupted' || v === 'queued') {
+    return v
+  }
+
+  return v === 'timeout' || v === 'error' ? 'failed' : 'running'
+}
+
+const asStatus = normalizeSubagentStatus
 
 const compact = (text: string, max = PREVIEW_MAX) => {
   const line = text.replace(/\s+/g, ' ').trim()
@@ -175,7 +216,8 @@ function toProgress(payload: SubagentPayload, prev: SubagentProgress | undefined
     filesWritten: filesWritten.length ? filesWritten : (prev?.filesWritten ?? []),
     stream,
     summary: str(payload.summary) || prev?.summary,
-    currentTool: TERMINAL.has(status) ? undefined : tool || prev?.currentTool
+    currentTool: TERMINAL.has(status) ? undefined : tool || prev?.currentTool,
+    missedSteer: str(payload.missed_steer) || prev?.missedSteer
   }
 }
 
@@ -188,6 +230,117 @@ export function clearSessionSubagents(sid: string) {
 
   const { [sid]: _drop, ...rest } = map
   $subagentsBySession.set(rest)
+}
+
+/**
+ * Drop every session's rows at once — the profile switch and the soft gateway
+ * switch, where every runtime id this map is keyed by belongs to a backend we
+ * are leaving.
+ *
+ * `clearAllSessionStates` wipes the slices, the prompts, the turns and the
+ * compactions keyed the same way, and forgot this map (the same shape as
+ * MJXHRM-357's compaction leak). Nothing else could reach the leftovers: a
+ * per-session clear needs a live slice to hang off, and the prune only runs at a
+ * `message.start` on a key the new backend will never issue. So the Agents
+ * overlay — which flattens EVERY session (`allSubagents`) — and the status bar
+ * counter kept reporting the previous profile's subagents, spinning, forever.
+ */
+export function clearAllSubagents() {
+  if (Object.keys($subagentsBySession.get()).length > 0) {
+    $subagentsBySession.set({})
+  }
+}
+
+/**
+ * Follow the session key.
+ *
+ * `drop`: a session's slice being evicted (closing a tile, closing a bubble,
+ * deleting/archiving a chat, abandoning a draft) leaves its rows orphaned in a
+ * map nothing else indexes by that key — permanently visible in the overlay and
+ * permanently counted by the status bar.
+ *
+ * `rekey`: draft→runtime at submit, hydrating→runtime on a cold open, and the
+ * fresh runtime id a stale-session recovery mints mid-verb (`interruptSession`
+ * rekeys from inside `onRecovered`) all move the slice. Rows left under the old
+ * key vanish from the session-scoped surfaces — the composer status stack and
+ * the delegate card both read `$subagentsBySession[runtimeKey]` — while still
+ * being counted by the flattened ones. Merging rather than replacing keeps
+ * whichever rows the destination key already collected.
+ */
+addSessionKeyHooks({
+  drop(key) {
+    clearSessionSubagents(key)
+  },
+  rekey(fromKey, toKey) {
+    const map = $subagentsBySession.get()
+    const moving = map[fromKey]
+
+    if (!moving?.length || fromKey === toKey) {
+      return
+    }
+
+    const { [fromKey]: _moved, ...rest } = map
+    const existing = map[toKey] ?? []
+    const seen = new Set(existing.map(item => item.id))
+
+    $subagentsBySession.set({ ...rest, [toKey]: [...existing, ...moving.filter(item => !seen.has(item.id))] })
+  }
+})
+
+/**
+ * Which session owns a subagent, by its id.
+ *
+ * The Agents overlay flattens every session's rows into one tree so a
+ * background session's work is still visible, which loses the owning session —
+ * yet `subagent.steer` needs it, because the gateway checks that the invoking
+ * session actually owns the child before queueing anything.
+ */
+export function sessionOfSubagent(id: string): string | undefined {
+  for (const [sid, list] of Object.entries($subagentsBySession.get())) {
+    if (list.some(item => item.id === id)) {
+      return sid
+    }
+  }
+
+  return undefined
+}
+
+/**
+ * Drop a session's settled subagent rows, keeping only the ones still working.
+ *
+ * Called at the `message.start` boundary, so the *previous* turn's finished
+ * rows leave the spawn tree while a background subagent that outlived its
+ * spawning turn stays visible and still accepts late progress/complete events.
+ * Without it the tree only ever grew: nothing removed a row until
+ * `clearSessionSubagents` wiped the whole session on switch, so a long-lived
+ * session accumulated every subagent it had ever run.
+ *
+ * Distinct from `clearSessionSubagents`, which drops the running rows too. On
+ * desktop that is what Stop calls; universal deliberately does NOT, because a
+ * `delegate_task` here can dispatch in BACKGROUND mode
+ * (`tools/delegate_tool.py` `dispatch_async_delegation_batch`) and those
+ * children keep running after the turn the user stopped. Dropping their rows
+ * would also deafen them: `upsertSubagent` refuses to recreate a row from
+ * `subagent.progress`/`subagent.complete` (`createIfMissing` is false for
+ * everything but spawn/start), so they could never come back. The gateway
+ * relays `status: "interrupted"` for the children an interrupt really kills,
+ * and this prune retires those on the next turn.
+ */
+export function pruneFinishedSessionSubagents(sid: string) {
+  const map = $subagentsBySession.get()
+  const list = map[sid]
+
+  if (!list?.length) {
+    return
+  }
+
+  const next = list.filter(item => item.status === 'running' || item.status === 'queued')
+
+  if (next.length === list.length) {
+    return
+  }
+
+  $subagentsBySession.set({ ...map, [sid]: next })
 }
 
 export function upsertSubagent(sid: string, payload: SubagentPayload, createIfMissing = true, eventType?: string) {

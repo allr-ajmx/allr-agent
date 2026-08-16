@@ -1,14 +1,21 @@
 import { translateNow } from '@/i18n'
 import { queryClient } from '@/lib/query-client'
+import { clearArtifactRegistry } from '@/store/artifacts'
 import { resetChat } from '@/store/chat'
+import { resetRepoStatusForBackendSwitch } from '@/store/coding-status'
 import { $connection, beginGatewaySwitch, disconnect, endGatewaySwitch } from '@/store/connection'
 import { setCronJobs } from '@/store/cron'
 import { closeGateway } from '@/store/gateway'
 import type { Connection, GatewayMode } from '@/store/gateway-config'
 import { dialSavedTarget, type GatewayTarget, loadGatewayTarget } from '@/store/gateway-restore'
 import { $gatewayMode, $gatewaySwitching } from '@/store/gateway-switch'
+import { resetLiveRuntimeTracking } from '@/store/live-session-status'
+import { resetLiveSync } from '@/store/live-sync'
 import { stopLocalBackend } from '@/store/local-backend'
 import { notify, notifyError } from '@/store/notifications'
+import { closeAllPreviewTabs } from '@/store/preview'
+import { $projectTree } from '@/store/project-scope'
+import { resetPullRequestsForBackendSwitch } from '@/store/pull-requests'
 import {
   $activeStoredSessionId,
   $messagingSessions,
@@ -17,12 +24,15 @@ import {
   $sessionsLoading,
   $sessionsTotal,
   $unreadFinishedSessionIds,
+  clearPinnedSessionCache,
   refreshMessagingSessions,
   refreshSessions,
   resetSessionsPaging,
   sessionMatchesStoredId
 } from '@/store/session'
+import { resetSessionPinMirror } from '@/store/session-pin-sync'
 import { clearAllSessionStates, resetTileRuntimeBindings } from '@/store/session-states'
+import { resetArchivedSessionsForBackendSwitch } from '@/store/sidebar-archive'
 import { resetWorkspaceCwd } from '@/store/workspace-events'
 
 // The soft gateway switch: re-home the running app onto another gateway in place.
@@ -43,6 +53,19 @@ import { resetWorkspaceCwd } from '@/store/workspace-events'
  * cleared in place and the URL is left alone.
  */
 export function wipeSessionListsForGatewaySwitch(): void {
+  // Pins are mirrored per-backend. The next gateway has its own state.db and has
+  // never seen them, so drop the "already pushed" bookkeeping and let the next
+  // reconcile re-assert the whole set against the new backend — otherwise the
+  // pins silently fail to reach it and its auto-archive sweep is free to hide
+  // the conversations they protect.
+  resetSessionPinMirror()
+  // …and the cached pinned ROWS with it. `$sessions` being emptied is not
+  // enough: the Pinned section falls back to this cache precisely so it survives
+  // an empty list, so without the wipe it goes on rendering the PREVIOUS
+  // gateway's conversations under the new one — rows the new backend has never
+  // heard of and cannot open. The pin IDS deliberately stay (the durable flag on
+  // each gateway re-asserts its own set, in both directions).
+  clearPinnedSessionCache()
   $sessions.set([])
   $sessionsTotal.set(0)
   $sessionSearch.set([])
@@ -54,12 +77,60 @@ export function wipeSessionListsForGatewaySwitch(): void {
   clearAllSessionStates()
   // Runtime ids belong to the old backend — tiles must re-bind against the new one.
   resetTileRuntimeBindings()
+  // The new gateway re-advertises `change_events` on its own gateway.ready. A
+  // stale `true` would leave every consumer on its slow backstop against a
+  // backend that never broadcasts (store/live-sync.ts).
+  resetLiveSync()
+  // The live-runtime ids the rehydrate snapshot remembers belong to the old
+  // backend's registry, and `clearAllSessionStates()` just dropped the slices
+  // they point at — keeping them could only reap sessions that no longer exist.
+  resetLiveRuntimeTracking()
   resetSessionsPaging()
+  // Artifacts are keyed by sessions on the PREVIOUS backend, so both the
+  // registry and any preview tab pointing into it go with them. Without this an
+  // artifact tab survives the switch naming an id the new gateway has never
+  // heard of, and re-opens as "artifact unavailable" — or worse, silently
+  // collides with a same-shaped id over there.
+  clearArtifactRegistry()
+
+  // BEFORE `resetChat`, which reads it. The project tree is the OLD gateway's
+  // filesystem — `projects.tree` is a gateway RPC — and the sidebar only
+  // re-pulls it on window focus or on entering the grouped view, so a switch
+  // could leave it standing for a long time. Every path in it is absolute and
+  // therefore not gateway-scoped, exactly like the repo-status caches below:
+  // `/home/me/work` exists on both hosts and is a different repo on each. The
+  // fresh chat `resetChat` is about to mint resolves its directory from this
+  // tree (store/project-scope), so a stale one would create the first session on
+  // the new gateway inside the old one's checkout.
+  //
+  // The SCOPE deliberately stays: it is where the user is standing, not the
+  // backend's data. It re-resolves against the new tree when that lands, and
+  // resolves to nothing in the meantime.
+  $projectTree.set([])
 
   $activeStoredSessionId.set(null)
   resetChat()
   // The workspace root came from the old backend's filesystem.
   resetWorkspaceCwd()
+  // …and so did every cached `git status`, worktree list and is-this-a-repo
+  // verdict. Those are keyed by ABSOLUTE PATH, which is not gateway-scoped:
+  // `/home/me/work` exists on both hosts and is a different repo on each, so
+  // without this the coding rails paint the old gateway's branch and ± under the
+  // new one's paths. The `gh` PR cache is the same story — it runs on the
+  // gateway, keyed by the gateway's repo roots.
+  resetRepoStatusForBackendSwitch()
+  resetPullRequestsForBackendSwitch()
+  // The Archived view is its own fetch against the old backend's session list,
+  // and nothing else re-fetches it — without this it keeps showing the previous
+  // gateway's archived rows until the user toggles the filter off and back on.
+  resetArchivedSessionsForBackendSwitch()
+  // …and so did every open preview tab. A preview reads and WRITES through
+  // `/api/fs/*` on whichever gateway is current, so a surviving tab shows the
+  // old backend's bytes over the new backend's path: hitting save either
+  // recreates a file that only existed over there or overwrites a same-named
+  // one here. The artifact half of this was already handled above
+  // (`clearArtifactRegistry`); file tabs were the half that wasn't.
+  closeAllPreviewTabs()
 
   // Sidebar skeletons until refreshSessions lands.
   $sessionsLoading.set(true)

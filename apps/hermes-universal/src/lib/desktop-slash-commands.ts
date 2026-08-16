@@ -44,8 +44,11 @@ export interface DesktopThemeCommandOption {
  * keyed by the id.
  */
 export type DesktopActionId =
+  | 'approvals'
   | 'branch'
   | 'browser'
+  | 'compress'
+  | 'focus'
   | 'handoff'
   | 'hatch'
   | 'help'
@@ -100,6 +103,18 @@ export interface DesktopCommandSpec {
    * that argument step instead of committing — mirroring typing `/<cmd> ` by hand.
    */
   args?: boolean
+  /**
+   * The command accepts free text after its token (`/goal ship it`, `/title A
+   * better name`). Nothing completes that text — this flag exists so the
+   * composer knows the tail may be prose, and therefore that the command must
+   * not be committed as a pill with a stranded tail sitting beside it.
+   *
+   * Desktop folds this and `args` into one `argumentMode: 'text' | 'mixed' |
+   * 'options'`. Two booleans is the shape universal's catalog already had, and
+   * widening it changes what the popover expands on — so this stays additive.
+   * `args` alone still means "has an options screen".
+   */
+  takesFreeText?: boolean
 }
 
 const exec = (): DesktopCommandSurface => ({ kind: 'exec' })
@@ -129,8 +144,20 @@ const DESKTOP_COMMAND_SPECS: readonly DesktopCommandSpec[] = [
     args: true
   },
   { name: '/profile', description: 'Switch the active Hermes profile', surface: action('profile') },
+  // Reduced-output mode. An ACTION, not exec: the gateway's own /focus answers
+  // by pinning tool progress off, which makes it stop SENDING tool events —
+  // right for a TUI that cannot un-print a line, wrong here, where the same
+  // events feed the todo panel and changed-files card and where "hidden" has to
+  // stay one click from shown. This client hides the rows itself and writes the
+  // shared `display.focus_view` flag display-only (store/focus-view.ts).
+  {
+    name: '/focus',
+    description: 'Reduce output to your prompt and the reply [on|off|status]',
+    surface: action('focus'),
+    args: true
+  },
   { name: '/skin', description: 'Switch desktop theme or cycle to the next one', surface: action('skin'), args: true },
-  { name: '/title', description: 'Rename the current session', surface: action('title') },
+  { name: '/title', description: 'Rename the current session', surface: action('title'), takesFreeText: true },
   { name: '/help', description: 'Show desktop slash commands', aliases: ['/commands'], surface: action('help') },
   {
     name: '/browser',
@@ -155,6 +182,21 @@ const DESKTOP_COMMAND_SPECS: readonly DesktopCommandSpec[] = [
     args: true
   },
 
+  {
+    // The backend owns the write (`slash.exec` → the CLI's own /approvals,
+    // which is where managed-scope policy is enforced), so this is an exec at
+    // heart — but it is registered as an ACTION because the answer has to come
+    // back to this client too. `approvals.mode` is ALSO shown and set by the
+    // statusbar's Zap menu, which reads a cached atom (`store/approval-mode`)
+    // that only syncs when it mounts. Exec alone left the two surfaces printing
+    // different modes until a reload; the handler re-reads the mode after the
+    // command runs. Desktop's `argumentMode: 'options'` → `args: true`.
+    name: '/approvals',
+    description: 'Show or set approval mode [manual|smart|off]',
+    surface: action('approvals'),
+    args: true
+  },
+
   // Backend-executed commands that render useful inline output
   {
     name: '/agents',
@@ -162,10 +204,43 @@ const DESKTOP_COMMAND_SPECS: readonly DesktopCommandSpec[] = [
     aliases: ['/tasks'],
     surface: exec()
   },
-  { name: '/background', description: 'Run a prompt in the background', aliases: ['/bg', '/btw'], surface: exec() },
-  { name: '/compress', description: 'Compress this conversation context', surface: exec() },
+  {
+    name: '/background',
+    description: 'Run a prompt in the background',
+    aliases: ['/bg', '/btw'],
+    surface: exec(),
+    takesFreeText: true
+  },
+  // /compress must be an ACTION (the session.compress RPC), never exec: the
+  // slash-worker route times out on a large session (45s pipe / 30s WS) long
+  // before the summarize call finishes, and command.dispatch then reports the
+  // misleading "not a quick/plugin/skill command: compress".
+  {
+    name: '/compress',
+    description: 'Compress this conversation context',
+    aliases: ['/compact'],
+    surface: action('compress'),
+    takesFreeText: true
+  },
   { name: '/debug', description: 'Create a debug report', surface: exec() },
-  { name: '/goal', description: 'Manage the standing goal for this session', surface: exec() },
+  // Cross-surface git diff (tools/working_diff.py). Plain exec: the backend
+  // resolves the repo from the session's own cwd and renders the diff itself,
+  // so it works unchanged against a remote gateway where this client has no
+  // filesystem at all.
+  {
+    name: '/diff',
+    description: 'Show git changes in the working directory [staged|all|session] [--stat] [path…]',
+    surface: exec(),
+    args: true,
+    takesFreeText: true
+  },
+  {
+    name: '/goal',
+    description: 'Manage the standing goal for this session',
+    surface: exec(),
+    args: true,
+    takesFreeText: true
+  },
   { name: '/personality', description: 'Switch personality for this session', surface: exec(), args: true },
   {
     name: '/pet',
@@ -179,12 +254,23 @@ const DESKTOP_COMMAND_SPECS: readonly DesktopCommandSpec[] = [
     aliases: ['/generate-pet'],
     surface: action('hatch')
   },
-  { name: '/queue', description: 'Queue a prompt for the next turn', aliases: ['/q'], surface: exec() },
+  {
+    name: '/queue',
+    description: 'Queue a prompt for the next turn',
+    aliases: ['/q'],
+    surface: exec(),
+    takesFreeText: true
+  },
   { name: '/retry', description: 'Retry the last user message', surface: exec() },
   { name: '/rollback', description: 'List or restore filesystem checkpoints', surface: exec() },
   { name: '/save', description: 'Save the current transcript to JSON', surface: exec() },
   { name: '/status', description: 'Show current session status', surface: exec() },
-  { name: '/steer', description: 'Steer the current run after the next tool call', surface: exec() },
+  {
+    name: '/steer',
+    description: 'Steer the current run after the next tool call',
+    surface: exec(),
+    takesFreeText: true
+  },
   { name: '/stop', description: 'Stop running background processes', surface: exec() },
   { name: '/tools', description: 'List or toggle tools available to the agent', surface: exec(), args: true },
   { name: '/undo', description: 'Remove the last user/assistant exchange', surface: exec() },
@@ -202,7 +288,6 @@ const NO_DESKTOP_SURFACE: Record<DesktopUnavailableReason, readonly string[]> = 
   terminal: [
     '/busy',
     '/clear',
-    '/compact',
     '/config',
     '/copy',
     '/cron',
@@ -382,6 +467,18 @@ export function desktopSlashDescription(command: string, fallback = ''): string 
  */
 export function desktopSlashCommandTakesArgs(command: string): boolean {
   return resolveDesktopCommand(command)?.args ?? false
+}
+
+/**
+ * True when anything at all may follow the command token — an options pick or
+ * free text. The composer uses this to decide a command can be committed as a
+ * pill: only a command whose committed form is exactly the bare `/name` has an
+ * unambiguous boundary.
+ */
+export function desktopSlashCommandTakesArgument(command: string): boolean {
+  const spec = resolveDesktopCommand(command)
+
+  return Boolean(spec?.args || spec?.takesFreeText)
 }
 
 export function desktopSkinSlashCompletions(

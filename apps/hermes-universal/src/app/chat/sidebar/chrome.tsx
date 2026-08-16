@@ -1,3 +1,4 @@
+import { cva } from 'class-variance-authority'
 import type * as React from 'react'
 
 import { Codicon } from '@/components/ui/codicon'
@@ -7,6 +8,7 @@ import { cn } from '@/lib/utils'
 // Shared, content-agnostic sidebar chrome — used by the flat session sections and
 // the project/workspace tree, so it lives outside either to keep imports
 // one-directional. Ported from desktop `app/chat/sidebar/chrome.tsx`.
+// SessionRow CVA surface (MJXHRM-317).
 
 /** `loaded/total` when there's more on the server, else just the loaded count. */
 export const countLabel = (loaded: number, total: number): string =>
@@ -19,11 +21,27 @@ export function SidebarCount({ children }: { children: React.ReactNode }) {
 
 // ── Row geometry (session row is canonical — everything composes these) ─────
 const rowMinH = 'min-h-[1.625rem]'
-const rowPadX = 'pl-2 pr-1'
+const rowPadX = 'ps-2 pe-1'
 const rowGap = 'gap-1.5'
 const rowLead = 'grid size-3.5 shrink-0 place-items-center'
 const rowInset = cn(rowPadX, rowGap, 'flex h-full min-w-0 items-center self-stretch py-0.5')
 const rowLabel = 'min-w-0 truncate text-[0.8125rem] leading-none text-(--ui-text-secondary)'
+
+export const sidebarRowShellVariants = cva(
+  cn(rowMinH, 'grid grid-cols-[minmax(0,1fr)_auto] items-stretch rounded-md'),
+  {
+    variants: {
+      state: {
+        default: '',
+        selected: 'bg-(--ui-row-active-background)',
+        dragging: 'opacity-60'
+      }
+    },
+    defaultVariants: {
+      state: 'default'
+    }
+  }
+)
 
 /** Codicon size in sidebar row leads — matches the file tree. */
 export const SIDEBAR_LEAD_ICON_SIZE = '0.875rem' as const
@@ -35,7 +53,7 @@ export function SidebarRowStack({ className, ...props }: React.ComponentProps<'d
 
 /** Nested rows (session previews, worktree bodies). */
 export function SidebarRowNest({ className, ...props }: React.ComponentProps<'div'>) {
-  return <SidebarRowStack className={cn('pb-1 pl-4', className)} {...props} />
+  return <SidebarRowStack className={cn('pb-1 ps-4', className)} {...props} />
 }
 
 /** Outer grid — sole owner of row height. */
@@ -46,7 +64,11 @@ export function SidebarRowShell({
   ...props
 }: React.ComponentProps<'div'> & { actions?: React.ReactNode }) {
   return (
-    <div className={cn(rowMinH, 'grid grid-cols-[minmax(0,1fr)_auto] items-stretch rounded-md', className)} {...props}>
+    <div
+      className={cn(sidebarRowShellVariants(), className)}
+      data-slot="sidebar-row-shell"
+      {...props}
+    >
       {children}
       {actions ? <div className="flex shrink-0 items-center self-center">{actions}</div> : null}
     </div>
@@ -60,7 +82,7 @@ export function SidebarRowCluster({ className, ...props }: React.ComponentProps<
 
 /** Session row main tap target. */
 export function SidebarRowBody({ className, ...props }: React.ComponentProps<'button'>) {
-  return <RowButton className={cn(rowInset, 'bg-transparent text-left', className)} {...props} />
+  return <RowButton className={cn(rowInset, 'bg-transparent text-start', className)} {...props} />
 }
 
 /** Tappable label — underline/truncate live on the inner span, not the button. */
@@ -71,7 +93,7 @@ export function SidebarRowLink({
   ...props
 }: React.ComponentProps<'button'> & { labelClassName?: string }) {
   return (
-    <RowButton className={cn('min-w-0 shrink bg-transparent p-0 text-left', className)} {...props}>
+    <RowButton className={cn('min-w-0 shrink bg-transparent p-0 text-start', className)} {...props}>
       <span className={cn(rowLabel, labelClassName)}>{children}</span>
     </RowButton>
   )

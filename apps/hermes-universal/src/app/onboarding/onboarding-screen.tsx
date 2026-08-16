@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useI18n } from '@/i18n'
+import { writeClipboardText } from '@/lib/clipboard'
 import { openExternalLink } from '@/lib/external-link'
 import { ChevronLeft, ChevronRight, Terminal } from '@/lib/icons'
 import { useStore } from '@/store/atom'
@@ -57,7 +58,7 @@ function Picker() {
       <div className="flex flex-col gap-2">
         {oauthProviders.map(provider => (
           <button
-            className="flex items-center gap-3 rounded-lg border border-border bg-card p-3 text-left transition-colors hover:border-primary"
+            className="flex items-center gap-3 rounded-lg border border-border bg-card p-3 text-start transition-colors hover:border-primary"
             key={provider.id}
             onClick={() => void startProviderOAuth(provider)}
             type="button"
@@ -74,7 +75,7 @@ function Picker() {
             {provider.flow === 'external' ? (
               <Terminal className="size-4 shrink-0 text-muted-foreground" />
             ) : (
-              <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+              <ChevronRight className="size-4 shrink-0 text-muted-foreground rtl:-scale-x-100" />
             )}
           </button>
         ))}
@@ -87,7 +88,7 @@ function Picker() {
 
           return (
             <button
-              className="flex items-center gap-3 rounded-lg border border-border bg-card p-3 text-left transition-colors hover:border-primary"
+              className="flex items-center gap-3 rounded-lg border border-border bg-card p-3 text-start transition-colors hover:border-primary"
               key={option.id}
               onClick={() => selectApiKeyProvider(option)}
               type="button"
@@ -103,7 +104,7 @@ function Picker() {
                 </span>
                 {description && <span className="mt-0.5 block text-xs text-muted-foreground">{description}</span>}
               </span>
-              <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+              <ChevronRight className="size-4 shrink-0 text-muted-foreground rtl:-scale-x-100" />
             </button>
           )
         })}
@@ -133,11 +134,11 @@ function ApiKeyForm({ option }: { option: ApiKeyOption | null }) {
   return (
     <div className="flex flex-1 flex-col">
       <button
-        className="-ml-1 mb-3 inline-flex items-center gap-1 text-sm text-muted-foreground"
+        className="-ms-1 mb-3 inline-flex items-center gap-1 text-sm text-muted-foreground"
         onClick={() => backToPicker()}
         type="button"
       >
-        <ChevronLeft className="size-4" />
+        <ChevronLeft className="size-4 rtl:-scale-x-100" />
         {t.onboarding.backToSignIn}
       </button>
 
@@ -190,15 +191,18 @@ function OAuthPanel() {
   }
 
   const providerName = providerTitle(oauth.provider)
-  const copyCode = () => void navigator.clipboard?.writeText(oauth.userCode ?? '').catch(() => {})
+  // OS seam, not `navigator.clipboard`: WebKitGTK refuses the web API in cases
+  // Chromium allows, and the device code is the only way through this step
+  // (MJXHRM-415).
+  const copyCode = () => void writeClipboardText(oauth.userCode ?? '').catch(() => {})
 
   const backRow = (
     <button
-      className="-ml-1 mb-3 inline-flex items-center gap-1 text-sm text-muted-foreground"
+      className="-ms-1 mb-3 inline-flex items-center gap-1 text-sm text-muted-foreground"
       onClick={() => backToPicker()}
       type="button"
     >
-      <ChevronLeft className="size-4" />
+      <ChevronLeft className="size-4 rtl:-scale-x-100" />
       {t.onboarding.pickDifferentProvider}
     </button>
   )
@@ -289,14 +293,19 @@ function ConfirmModel() {
       <div className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
         {t.onboarding.defaultModel}
       </div>
-      <div className="mt-1 rounded-lg border border-border bg-card p-3">
-        <div className="text-sm font-medium text-foreground">
-          {state.recommended?.model ?? t.onboarding.recommended}
+      {/* No model resolved ⇒ `confirmModel()` assigns nothing. Say so, rather
+          than filling the card with a placeholder that reads like a model name
+          the user is about to confirm. */}
+      {state.recommended?.model ? (
+        <div className="mt-1 rounded-lg border border-border bg-card p-3">
+          <div className="text-sm font-medium text-foreground">{state.recommended.model}</div>
+          {state.recommended.provider && (
+            <div className="text-xs text-muted-foreground">{state.recommended.provider}</div>
+          )}
         </div>
-        {state.recommended?.provider && (
-          <div className="text-xs text-muted-foreground">{state.recommended.provider}</div>
-        )}
-      </div>
+      ) : (
+        <p className="mt-1 text-sm text-muted-foreground">{t.onboarding.noDefaultModel}</p>
+      )}
 
       {state.error && <p className="mt-2 text-xs text-destructive">{state.error}</p>}
 

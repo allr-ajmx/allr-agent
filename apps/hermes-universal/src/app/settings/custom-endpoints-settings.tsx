@@ -17,7 +17,7 @@ import { cn } from '@/lib/utils'
 import { notify, notifyError } from '@/store/notifications'
 import type { CustomEndpoint, CustomEndpointUpdate } from '@/types/hermes'
 
-import { EmptyState, LoadingState, Pill, SectionHeading, SettingsContent } from './primitives'
+import { EmptyState, Pill, SectionHeading, SettingsContent, SettingsSkeleton } from './primitives'
 
 interface CustomEndpointsSettingsProps {
   onConfigSaved?: () => void
@@ -223,7 +223,7 @@ export function CustomEndpointsSettings({ onConfigSaved, onMainModelChanged }: C
   }
 
   if (loading) {
-    return <LoadingState label={copy.loading} />
+    return <SettingsSkeleton sections={[{ heading: true, rows: 3 }]} />
   }
 
   const allModelOptions = Array.from(new Set([...discoveredModels, form.model].filter(Boolean)))
@@ -239,7 +239,7 @@ export function CustomEndpointsSettings({ onConfigSaved, onMainModelChanged }: C
               endpoints.map(endpoint => (
                 <div className="grid gap-3 p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center" key={endpoint.id}>
                   <button
-                    className="min-w-0 text-left"
+                    className="min-w-0 text-start"
                     onClick={() => {
                       setForm(formFromEndpoint(endpoint))
                       setDiscoveredModels(endpoint.models)

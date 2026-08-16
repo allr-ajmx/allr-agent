@@ -22,8 +22,20 @@ interface Tuning {
 
 const DEFAULT_NORMAL: Tuning = { speechLevel: 0.075, silenceMs: 1_250, idleSilenceMs: 12_000 }
 
+/** Mirrors Rust's `DEFAULT_LEVEL_GAIN`. The analyser gives an 8-bit-centered RMS,
+ *  so dividing by 128 puts it on the same f32 0..1 scale the gain then scales —
+ *  at the default that is the `/42` this file used to hard-code. */
+const LEVEL_DIVISOR = 128
+
 function tuningFor(mode: VoiceArmMode, vad: VoiceVad | undefined): Tuning {
   const base = DEFAULT_NORMAL
+
+  // Meter-only: no threshold can be crossed and no idle reap can fire, matching
+  // Rust's `ArmMode::Monitor`. Anything else here would mean the settings meter
+  // silently recorded and transcribed the user on the fallback engine.
+  if (mode === 'monitor') {
+    return { speechLevel: Infinity, silenceMs: Infinity, idleSilenceMs: Infinity }
+  }
 
   const speechLevel = mode === 'bargein' ? (vad?.bargeinSpeechLevel ?? 0.16) : (vad?.speechLevel ?? base.speechLevel)
 
@@ -59,7 +71,11 @@ class WebVoiceLease implements EngineLease {
   private mimeType = ''
 
   private vad: VoiceVad | undefined
+  private levelGain = 3
   private tuning: Tuning = DEFAULT_NORMAL
+  /** Meter-only arm: no MediaRecorder is started, so there is nothing to
+   *  finalize and nothing to send anywhere. */
+  private monitoring = false
   private phase: 'idle' | 'armed' | 'recording' | 'finalizing' | 'closed' = 'idle'
   private heardSpeech = false
   private idleEmitted = false
@@ -71,6 +87,7 @@ class WebVoiceLease implements EngineLease {
 
   async init(opts: VoiceOpenOptions): Promise<void> {
     this.vad = opts.vad
+    this.levelGain = opts.vad?.levelGain ?? 3
 
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
       throw new Error('microphone_unsupported')
@@ -113,25 +130,39 @@ class WebVoiceLease implements EngineLease {
     }
 
     this.tuning = tuningFor(mode, this.vad)
+    this.monitoring = mode === 'monitor'
     this.heardSpeech = false
     this.idleEmitted = false
     this.silenceStartedAt = null
     this.armedAt = Date.now()
     this.chunks = []
 
-    this.recorder = new MediaRecorder(this.stream, this.mimeType ? { mimeType: this.mimeType } : undefined)
+    if (!this.monitoring) {
+      this.recorder = new MediaRecorder(this.stream, this.mimeType ? { mimeType: this.mimeType } : undefined)
 
-    this.recorder.ondataavailable = event => {
-      if (event.data.size > 0) {
-        this.chunks.push(event.data)
+      this.recorder.ondataavailable = event => {
+        if (event.data.size > 0) {
+          this.chunks.push(event.data)
+        }
       }
-    }
 
-    this.recorder.start(250)
+      this.recorder.start(250)
+    }
 
     this.phase = 'armed'
     this.emit({ type: 'state', state: 'armed' })
     this.startMeter()
+  }
+
+  async wakeListen(): Promise<void> {
+    // Client-side wake capture needs a 16 kHz int16 downsampler feeding
+    // `wake.feed`; this fallback engine has only MediaRecorder's opaque
+    // container. Wake still works here whenever the BACKEND owns the mic
+    // (`wake.start` answering `capture: "local"`) — which is the normal case;
+    // only a headless gateway needs client capture, and that needs the native
+    // engine. Rejecting is what lets the wake store report it rather than
+    // silently arming a detector nothing will ever feed.
+    throw new Error('wake_capture_unsupported')
   }
 
   async suspend(): Promise<void> {
@@ -200,7 +231,7 @@ class WebVoiceLease implements EngineLease {
         sum += centered * centered
       }
 
-      const normalized = Math.min(1, Math.sqrt(sum / data.length) / 42)
+      const normalized = Math.min(1, (Math.sqrt(sum / data.length) / LEVEL_DIVISOR) * this.levelGain)
       const now = Date.now()
       this.emit({ type: 'level', level: normalized })
 

@@ -27,6 +27,10 @@ function RuntimeChip() {
 export default {
   id: 'hello-runtime',
   name: 'Hello Runtime',
+  // Explicit, like every other sample: `pluginActive` falls back to `?? true`,
+  // so a demo that leaves this out silently ships enabled once it lands in the
+  // on-disk door.
+  defaultEnabled: false,
   register(ctx) {
     ctx.register({
       id: 'chip',

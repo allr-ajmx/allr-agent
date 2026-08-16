@@ -1,18 +1,25 @@
 /**
  * The two plugin transport doors. What matters here is the BOUNDARY: `path` is
  * relative to `/api/plugins/<id>` and must not be able to normalize out of that
- * namespace, and the socket must refuse to half-work when it has no credential
- * it may use.
+ * namespace, whichever door it is asked through.
+ *
+ * The socket's LIFECYCLE — which gateway it is bound to, and when it redials —
+ * is in plugin-transport.test.ts.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const httpRequest = vi.hoisted(() => vi.fn())
+
 const sockets = vi.hoisted(
   () => [] as Array<{ url: string; listeners: Map<string, (e: unknown) => void>; closed: boolean }>
 )
 
+const mintWsTicket = vi.hoisted(() => vi.fn())
+
 vi.mock('@/transport/http', () => ({ getJson: vi.fn(), httpRequest }))
+
+vi.mock('@/lib/auth', () => ({ mintWsTicket }))
 
 vi.mock('@/transport/tauri-websocket', () => ({
   TauriWebSocket: class {
@@ -40,10 +47,16 @@ import { pluginSocket } from './plugin-transport'
 
 const lastPath = () => String(httpRequest.mock.calls.at(-1)?.[1] ?? '')
 
+// `pluginSocket` resolves its upgrade credential before constructing the
+// socket, so nothing exists until the microtask queue drains.
+const flush = () => new Promise(resolve => setTimeout(resolve, 0))
+
 beforeEach(() => {
   httpRequest.mockResolvedValue({ body: '{"ok":true}', headers: {}, status: 200 })
   $connection.set({ authMode: 'token', baseUrl: 'http://gw.local', token: 'tok' })
   setApiRequestProfile(null)
+  mintWsTicket.mockReset()
+  mintWsTicket.mockResolvedValue('tkt')
   sockets.length = 0
 })
 
@@ -73,6 +86,38 @@ describe('pluginRest', () => {
     expect(httpRequest).not.toHaveBeenCalled()
   })
 
+  // The spellings a `..`-substring test misses. WHATWG — which is what BOTH the
+  // webview and Rust's `url` crate parse this with — also collapses `%2e%2e`
+  // (either case), `.%2e` and `%2e.` as double-dot segments, and treats `\` as
+  // a path separator on an http(s) URL. Each of these left the namespace with
+  // the app's session credentials attached, and MJXHRM-403's `upload` made that
+  // an authenticated multipart POST to any core route.
+  it('rejects traversal spelled so a substring test misses it', async () => {
+    for (const path of [
+      '/%2e%2e/%2e%2e/api/fs/read',
+      '/%2E%2E/other',
+      '/.%2e/other',
+      '/%2e./other',
+      '/..\\..\\api/fs/read',
+      '/a/%2e%2e/%2e%2e/%2e%2e/api/sessions'
+    ]) {
+      await expect(pluginRest('kanban', path)).rejects.toThrow(/illegal path traversal/)
+    }
+
+    expect(httpRequest).not.toHaveBeenCalled()
+  })
+
+  // The id is interpolated straight into `/api/plugins/<id>`, so an id that is
+  // not one plain segment relocates the namespace itself — the same escape from
+  // the other end, available to any plugin that simply declares it.
+  it('refuses a plugin id that is not one plain path segment', async () => {
+    for (const id of ['a/../..', '..', '.', 'a/b', 'a\\b', '%2e%2e', '']) {
+      await expect(pluginRest(id, '/board')).rejects.toThrow(/illegal plugin id/)
+    }
+
+    expect(httpRequest).not.toHaveBeenCalled()
+  })
+
   it('allows `..` inside a query string — only the path portion is the boundary', async () => {
     await pluginRest('kanban', '/search?q=../x')
 
@@ -86,12 +131,16 @@ describe('pluginRest', () => {
     expect(lastPath()).toContain('profile=work')
   })
 
-  it('throws on upload rather than silently dropping the file', async () => {
-    await expect(
-      pluginRest('kanban', '/import', { upload: { bytes: new ArrayBuffer(4), filename: 'a.csv' } })
-    ).rejects.toThrow(/upload is not supported/)
+  // Was a hard throw until the Rust `http_request` grew a multipart path
+  // (MJXHRM-403); the kanban sample's attachments depend on it.
+  it('forwards an upload to the transport', async () => {
+    const upload = { bytes: new ArrayBuffer(4), filename: 'a.csv' }
+    await pluginRest('kanban', '/import', { method: 'POST', upload })
 
-    expect(httpRequest).not.toHaveBeenCalled()
+    const [, , opts] = httpRequest.mock.calls.at(-1) as [string, string, { upload?: unknown }]
+
+    expect(opts.upload).toBe(upload)
+    expect(lastPath()).toContain('/api/plugins/kanban/import')
   })
 
   it('passes method and body through', async () => {
@@ -105,53 +154,81 @@ describe('pluginRest', () => {
 })
 
 describe('pluginSocket', () => {
-  it('opens a namespace-scoped ws URL carrying the session token', () => {
-    pluginSocket('kanban', '/events', () => {})
+  // Every socket now subscribes to `$connection` for its lifetime, so one left
+  // open would redial into the NEXT test's `sockets` array when `beforeEach`
+  // re-sets the connection.
+  const disposers: Array<() => void> = []
+
+  const open = (pluginId: string, path: string, onMessage: (data: unknown) => void = () => {}) => {
+    const dispose = pluginSocket(pluginId, path, onMessage)
+
+    disposers.push(dispose)
+
+    return dispose
+  }
+
+  afterEach(() => disposers.splice(0).forEach(dispose => dispose()))
+
+  it('opens a namespace-scoped ws URL carrying the session token', async () => {
+    open('kanban', '/events')
+    await flush()
 
     expect(sockets).toHaveLength(1)
     expect(sockets[0].url).toBe('ws://gw.local/api/plugins/kanban/events?token=tok')
   })
 
-  it('joins with & when the path already has a query', () => {
-    pluginSocket('kanban', '/events?since=1', () => {})
+  it('joins with & when the path already has a query', async () => {
+    open('kanban', '/events?since=1')
+    await flush()
 
     expect(sockets[0].url).toContain('/events?since=1&token=tok')
   })
 
   it('rejects traversal before opening anything', () => {
     expect(() => pluginSocket('kanban', '/../other', () => {})).toThrow(/illegal path traversal/)
+    expect(() => pluginSocket('kanban', '/%2e%2e/other', () => {})).toThrow(/illegal path traversal/)
+    expect(() => pluginSocket('kanban', '/..\\..\\api/ws', () => {})).toThrow(/illegal path traversal/)
+    expect(() => pluginSocket('a/../..', '/events', () => {})).toThrow(/illegal plugin id/)
     expect(sockets).toHaveLength(0)
   })
 
-  // ticket / oauth modes mint a single-use, core-managed ticket per connect that
-  // a plugin cannot borrow — no socket beats a half-working one.
-  it('no-ops without a usable token instead of opening a doomed socket', () => {
+  // A gated gateway rejects `?token=` outright and only token mode has one, so
+  // requiring a token made this a permanent no-op there (MJXHRM-405). It mints
+  // its own single-use ws-ticket instead — the same credential the core uses.
+  it('mints a ws ticket on a gated gateway instead of giving up', async () => {
     $connection.set({ authMode: 'oauth', baseUrl: 'http://gw.local' })
-    const dispose = pluginSocket('kanban', '/events', () => {})
+    const dispose = open('kanban', '/events')
+    await flush()
 
-    expect(sockets).toHaveLength(0)
+    expect(mintWsTicket).toHaveBeenCalledWith('http://gw.local')
+    expect(sockets[0].url).toBe('ws://gw.local/api/plugins/kanban/events?ticket=tkt')
     expect(() => dispose()).not.toThrow()
   })
 
-  it('no-ops with no connection at all', () => {
-    $connection.set(null)
-    pluginSocket('kanban', '/events', () => {})
+  // A mint that fails means the session expired — no socket beats a doomed one.
+  it('opens nothing when the ticket mint fails', async () => {
+    mintWsTicket.mockRejectedValue(new Error('Session expired'))
+    $connection.set({ authMode: 'oauth', baseUrl: 'http://gw.local' })
+    open('kanban', '/events')
+    await flush()
 
     expect(sockets).toHaveLength(0)
   })
 
-  it('delivers parsed JSON frames', () => {
+  it('delivers parsed JSON frames', async () => {
     const onMessage = vi.fn()
-    pluginSocket('kanban', '/events', onMessage)
+    open('kanban', '/events', onMessage)
+    await flush()
 
     sockets[0].listeners.get('message')?.({ data: '{"type":"moved"}' })
 
     expect(onMessage).toHaveBeenCalledWith({ type: 'moved' })
   })
 
-  it('skips a non-JSON frame without killing the socket', () => {
+  it('skips a non-JSON frame without killing the socket', async () => {
     const onMessage = vi.fn()
-    pluginSocket('kanban', '/events', onMessage)
+    open('kanban', '/events', onMessage)
+    await flush()
 
     const deliver = sockets[0].listeners.get('message')
 
@@ -162,18 +239,21 @@ describe('pluginSocket', () => {
     expect(onMessage).toHaveBeenCalledWith({ ok: 1 })
   })
 
-  it('reconnects with backoff after a close, and stops once disposed', () => {
+  it('reconnects with backoff after a close, and stops once disposed', async () => {
     vi.useFakeTimers()
 
-    const dispose = pluginSocket('kanban', '/events', () => {})
-    sockets[0].listeners.get('close')?.({})
+    // `advanceTimersByTimeAsync` also drains the microtask queue, which the
+    // credential resolution ahead of each connect now sits on.
+    const dispose = open('kanban', '/events')
+    await vi.advanceTimersByTimeAsync(0)
 
-    vi.advanceTimersByTime(2_000)
+    sockets[0].listeners.get('close')?.({})
+    await vi.advanceTimersByTimeAsync(2_000)
     expect(sockets).toHaveLength(2)
 
     dispose()
     sockets[1].listeners.get('close')?.({})
-    vi.advanceTimersByTime(60_000)
+    await vi.advanceTimersByTimeAsync(60_000)
 
     // No third socket: the disposer stops the reconnect loop.
     expect(sockets).toHaveLength(2)
@@ -181,8 +261,9 @@ describe('pluginSocket', () => {
     vi.useRealTimers()
   })
 
-  it('closes the live socket on dispose', () => {
-    const dispose = pluginSocket('kanban', '/events', () => {})
+  it('closes the live socket on dispose', async () => {
+    const dispose = open('kanban', '/events')
+    await flush()
     dispose()
 
     expect(sockets[0].closed).toBe(true)

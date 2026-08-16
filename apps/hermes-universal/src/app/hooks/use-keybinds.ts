@@ -1,17 +1,28 @@
 import { useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 
+import { toggleHud } from '@/app/hud/hud'
+import { toggleQuickEntry } from '@/app/quick-entry/quick-entry'
 import {
   activateTreeTabSlot,
   closeFocusedTabInZone,
   cycleTreeTabInFocusedZone
 } from '@/components/pane-shell/tree/store'
+import { onReleaseTypingFocus } from '@/components/ui/keyboard-first'
+import { findBarClaimsCombo } from '@/lib/find-in-page'
 import { contributedKeybindHandler, PROFILE_SLOT_COUNT, SESSION_SLOT_COUNT } from '@/lib/keybinds/actions'
 import { comboAllowedInInput, comboFromEvent, isEditableTarget, isShiftPrintableCombo } from '@/lib/keybinds/combo'
 import { composerFocusKeysAllowed, isComposerFocusSoftCombo, typeToFocusChar } from '@/lib/keybinds/composer-focus-keys'
-import { $repoStatus } from '@/store/coding-status'
+import { setGlobalShortcutDispatch, startGlobalShortcuts } from '@/lib/keybinds/global-shortcut'
+import { openWorktreeDialog } from '@/store/coding-status'
 import { toggleCommandPalette } from '@/store/command-palette'
-import { $capture, $comboIndex, endCapture, setBinding } from '@/store/keybinds'
+import {
+  $findInPage,
+  findNext as findNextMatch,
+  findPrevious as findPreviousMatch,
+  openFindBar
+} from '@/store/find-in-page'
+import { $capture, $comboIndex, endCapture, registerKeybindDispatcher, setBinding } from '@/store/keybinds'
 import {
   $terminalOpen,
   FILE_TREE_PANE_ID,
@@ -31,16 +42,10 @@ import {
   switchToDefaultProfile,
   toggleShowAllProfiles
 } from '@/store/profile'
-import { requestNewWorktree } from '@/store/projects'
+import { openFolderAsProject } from '@/store/projects'
 import { toggleReview } from '@/store/review'
-import { toggleSelectedPin } from '@/store/session'
-import {
-  $focusedStoredSessionId,
-  $sessionTiles,
-  focusOpenSession,
-  reopenLastClosedTile,
-  requestCloseSessionTile
-} from '@/store/session-states'
+import { toggleSelectedPin } from '@/store/session-lookup'
+import { focusOpenSession, reopenLastClosedTile } from '@/store/session-states'
 import {
   $switcherOpen,
   closeSwitcher,
@@ -192,11 +197,14 @@ export function useKeybinds(deps: KeybindRuntimeDeps): void {
     ...sessionSlotHandlers,
     'session.focusSearch': requestSessionSearchFocus,
     'session.togglePin': toggleSelectedPin,
-    // ⌘⇧B spins up a new git worktree from the active repo. Only meaningful
-    // inside one — a no-op otherwise, so the key falls through. The composer's
-    // coding row owns the dialog (it has the repo + branch context) and opens it
-    // in response to the token.
-    'workspace.newWorktree': () => void ($repoStatus.get() && requestNewWorktree()),
+    // ⌘⇧B spins up a new git worktree. openWorktreeDialog resolves the target
+    // (the focused surface's cwd, else the entered project's root) and publishes
+    // it to the ONE mounted dialog, so this no longer tests $repoStatus first and
+    // works from a detached session inside a project. With no repo in reach,
+    // openWorktreeDialog does nothing.
+    'workspace.newWorktree': () => void openWorktreeDialog(),
+    // ⌘O — pick a folder and adopt it as a project, then start working in it.
+    'workspace.openFolder': () => void openFolderAsProject(),
 
     // Narrow-viewport reveal is handled inside the store toggles now.
     // Both are POSITIONAL (see `store/layout.ts`): ⌘B drives whatever sits on the
@@ -208,6 +216,13 @@ export function useKeybinds(deps: KeybindRuntimeDeps): void {
     'view.toggleReview': toggleReview,
     'view.toggleStatusbar': toggleStatusbarVisible,
     'view.showFiles': showFiles,
+    // ⌘F opens the bar; ⌘G / ⌘⇧G step from anywhere once it is open (the bar
+    // owns those — see findBarClaimsCombo). These two rows exist so a user who
+    // wants dedicated step chords can bind them, and they are no-ops with the
+    // bar closed.
+    'view.findInPage': openFindBar,
+    'view.findNext': findNextMatch,
+    'view.findPrevious': findPreviousMatch,
     'view.showTerminal': () => setTerminalOpen(!$terminalOpen.get()),
     // Create first so the area's open-effect ensure sees a non-empty set and
     // doesn't also spawn one — net effect is exactly one fresh terminal.
@@ -231,22 +246,30 @@ export function useKeybinds(deps: KeybindRuntimeDeps): void {
     'session.newTab': startNewSessionTab,
     // Fall-through chain, and it deliberately bottoms out in a no-op: ⌘W must
     // never close the window.
-    'view.closeTab': () => {
-      const id = $focusedStoredSessionId.get()
-
-      // A tile goes through requestCloseSessionTile so a running or
-      // input-blocked session still gets its confirmation.
-      if (id && $sessionTiles.get().some(t => t.storedSessionId === id)) {
-        requestCloseSessionTile(id)
-
-        return
-      }
-
-      closeFocusedTabInZone()
-    },
+    // Closes THE TAB THE POINTER IS OVER, not the focused session: the zone
+    // ladder inside `closeFocusedTabInZone` is hover-first, so ⌘W over a
+    // background pane closes that pane's tab rather than the one the last click
+    // happened to focus.
+    //
+    // Nothing tile-shaped here on purpose. ⌘W used to resolve the target,
+    // recognise a `session-tile:` pane and call `requestCloseSessionTile`
+    // itself — a private second copy of the routing that `closeTabPane` already
+    // performs, since a tile's registered pane closer IS
+    // `requestCloseSessionTile` (app/chat/session-tile.tsx). One close verb
+    // means the keybind names the verb and nothing else (MJXHRM-390).
+    'view.closeTab': closeFocusedTabInZone,
     'view.reopenTab': reopenLastClosedTile,
 
     'appearance.toggleMode': () => setMode(resolvedMode === 'dark' ? 'light' : 'dark'),
+    // Summon/dismiss the floating HUD window. Shipped unbound (see actions.ts) —
+    // MJXHRM-213 renders the surface and gives it a default chord. The lifecycle
+    // is already whole: opening twice focuses, closing the main window takes it
+    // down with it.
+    'view.toggleHud': () => void toggleHud(),
+    // Summon/dismiss Quick Entry — the one-line capture window (MJXHRM-384).
+    // Ships unbound (see actions.ts): a machine-wide chord is the user's to
+    // choose, and Settings ▸ Keyboard shortcuts is where they choose it.
+    'view.toggleQuickEntry': () => void toggleQuickEntry(),
 
     'profile.default': switchToDefaultProfile,
     ...profileSwitchHandlers,
@@ -256,6 +279,35 @@ export function useKeybinds(deps: KeybindRuntimeDeps): void {
     // The rail owns the create dialog; this just asks it to open (MJX-108).
     'profile.create': requestProfileCreate
   }
+
+  // A keyboard-first overlay (⌘K, the model picker) hands the keyboard back
+  // here when it closes — the composer bus lives on this side, so the primitive
+  // stays ignorant of what "typing" means on any given surface.
+  //
+  // Deferred one frame and skipped when something else editable has claimed
+  // focus, because a palette action can legitimately open a dialog or navigate
+  // — the release must never steal focus from the surface it just opened.
+  useEffect(
+    () =>
+      onReleaseTypingFocus(() =>
+        requestAnimationFrame(() => {
+          if (!isEditableTarget(document.activeElement)) {
+            requestComposerFocus('active')
+          }
+        })
+      ),
+    []
+  )
+
+  // OS-level hotkeys go through the same handler map as the in-app ones — an
+  // action's behaviour must not depend on which side of the window boundary the
+  // keypress came from. Only the CLAIM differs, and that lives in
+  // `lib/keybinds/global-shortcut.ts`.
+  useEffect(() => {
+    setGlobalShortcutDispatch(actionId => handlersRef.current[actionId]?.())
+
+    return startGlobalShortcuts()
+  }, [])
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -298,6 +350,16 @@ export function useKeybinds(deps: KeybindRuntimeDeps): void {
       const combo = comboFromEvent(event)
 
       if (!combo) {
+        return
+      }
+
+      // An OPEN find bar owns ⌘G / ⌘⇧G / Escape. It listens on `window` in the
+      // capture phase like this dispatcher does, and propagation control cannot
+      // suppress a sibling listener on the same target — so ownership has to be
+      // decided here, by the single owner of combo dispatch. Otherwise ⌘G would
+      // also toggle the review pane and Escape would abort a running turn while
+      // the user only meant to dismiss the bar.
+      if ($findInPage.get().active && findBarClaimsCombo(combo)) {
         return
       }
 
@@ -376,12 +438,18 @@ export function useKeybinds(deps: KeybindRuntimeDeps): void {
       }
     }
 
+    // Announce that THIS window has a combo dispatcher, so a surface that
+    // installs its own fallback listener for satellite roots (the find bar)
+    // stands down here instead of handling the same combo twice.
+    const releaseDispatcher = registerKeybindDispatcher()
+
     window.addEventListener('keydown', onKeyDown, { capture: true })
     window.addEventListener('keyup', onKeyUp, { capture: true })
     window.addEventListener('blur', onBlur)
     window.addEventListener('contextmenu', onContextMenu, { capture: true })
 
     return () => {
+      releaseDispatcher()
       window.removeEventListener('keydown', onKeyDown, { capture: true })
       window.removeEventListener('keyup', onKeyUp, { capture: true })
       window.removeEventListener('blur', onBlur)

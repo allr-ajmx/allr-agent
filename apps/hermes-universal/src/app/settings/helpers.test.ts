@@ -7,6 +7,7 @@ import {
   enumOptionsFor,
   getNested,
   providerGroup,
+  sectionFieldEntries,
   setNested,
   stripToolsetLabel,
   toolsetDisplayLabel,
@@ -14,10 +15,13 @@ import {
 } from './helpers'
 
 describe('settings helpers', () => {
-  it('lists Hindsight as a built-in memory provider option', () => {
-    const options = enumOptionsFor('memory.provider', '', {})
-
-    expect(options).toContain('hindsight')
+  it('does not shadow the backend schema options for memory.provider', () => {
+    // memory.provider options are discovery-driven and served by the backend
+    // config schema (merged per-request); enumOptionsFor must return undefined
+    // so config-field consumes schema.options instead of a stale static list —
+    // otherwise a user-installed or pip-provided memory backend is unpickable.
+    expect(enumOptionsFor('memory.provider', '', {})).toBeUndefined()
+    expect(enumOptionsFor('memory.provider', 'honcho', {})).toBeUndefined()
   })
 
   describe('defineFieldCopy', () => {
@@ -200,6 +204,46 @@ describe('settings helpers', () => {
       const opts = enumOptionsFor('tts.provider', 'my-custom-command-tts', config)
       expect(opts).toContain('my-custom-command-tts')
       expect(opts).toContain('xai')
+    })
+  })
+
+  describe('sectionFieldEntries', () => {
+    // Row existence is gated on config presence, not on the backend schema:
+    // universal points at whatever gateway the user configures, and a schema
+    // that hides `memory.provider` (as the backend did once the web dashboard's
+    // Plugins page took it over) must not delete the row along with the memory
+    // OAuth connect affordance and provider config panel mounted on it.
+    it('renders memory.provider from config even when the backend schema omits it', () => {
+      const schema = { 'memory.memory_enabled': { type: 'boolean' as const } }
+      const config: HermesConfigRecord = { memory: { memory_enabled: true, provider: '' } }
+
+      const memoryKeys = (sectionFieldEntries(schema, config).get('memory') ?? []).map(([key]) => key)
+
+      expect(memoryKeys).toContain('memory.provider')
+    })
+
+    it('infers the field type from the config value when the schema omits the key', () => {
+      const config: HermesConfigRecord = { memory: { memory_char_limit: 2200, memory_enabled: true, provider: '' } }
+
+      const fields = new Map(sectionFieldEntries({}, config).get('memory') ?? [])
+
+      expect(fields.get('memory.provider')?.type).toBe('string')
+      expect(fields.get('memory.memory_enabled')?.type).toBe('boolean')
+      expect(fields.get('memory.memory_char_limit')?.type).toBe('number')
+    })
+
+    it('prefers the backend schema entry over inference when both exist', () => {
+      const schema = { 'memory.provider': { options: ['honcho'], type: 'select' as const } }
+      const config: HermesConfigRecord = { memory: { provider: 'honcho' } }
+
+      const field = new Map(sectionFieldEntries(schema, config).get('memory') ?? []).get('memory.provider')
+
+      expect(field?.type).toBe('select')
+      expect(field?.options).toEqual(['honcho'])
+    })
+
+    it('hides declared keys absent from both schema and config', () => {
+      expect(sectionFieldEntries({}, {}).get('memory') ?? []).toHaveLength(0)
     })
   })
 })

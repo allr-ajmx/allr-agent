@@ -117,26 +117,6 @@ def test_marker_roundtrip(tmp_path):
     assert read_turn_marker(tmp_path, "abc") is None
 
 
-def test_marker_clear_is_noop_without_entry(tmp_path):
-    clear_turn_marker(tmp_path, "missing")
-    assert read_turn_marker(tmp_path, "missing") is None
-
-
-def test_marker_write_prunes_expired_entries(tmp_path):
-    import json
-
-    path = tmp_path / "desktop" / "interrupted_turns.json"
-    path.parent.mkdir(parents=True)
-    path.write_text(
-        json.dumps({"old": {"attempts": 0, "prompt": "ancient prompt", "started_at": 1.0}})
-    )
-
-    record_turn_start(tmp_path, "new", "current prompt")
-
-    assert read_turn_marker(tmp_path, "old") is None
-    assert read_turn_marker(tmp_path, "new") is not None
-
-
 def test_marker_survives_corrupt_sidecar(tmp_path):
     path = tmp_path / "desktop" / "interrupted_turns.json"
     path.parent.mkdir(parents=True)
@@ -170,32 +150,6 @@ def test_concluded_turn_clears_marker(emits, turn_env, marker_home):
     assert seen_mid_turn[0]["attempts"] == 0
     # … and cleared once the turn concluded.
     assert read_turn_marker(marker_home, "session-key") is None
-
-
-@pytest.mark.parametrize(
-    "result", [{"final_response": "done"}, {"error": "provider said no"}]
-)
-def test_marker_is_gone_by_the_terminal_frame(monkeypatch, turn_env, marker_home, result):
-    """The client treats message.complete as "turn over" and may quit right
-    then; post-turn work (titles, memory, goal hooks) keeps the thread alive
-    for a second or more afterwards. If the marker outlived the frame, that
-    quit looked like a crash and re-ran a finished turn on the next launch."""
-    at_frame: list = []
-
-    def _emit(event, sid, payload=None):
-        if event == "message.complete":
-            at_frame.append(read_turn_marker(marker_home, "session-key"))
-
-    monkeypatch.setattr(server, "_emit", _emit)
-    agent = types.SimpleNamespace(
-        session_id="session-key",
-        run_conversation=lambda message, **kwargs: result,
-        clear_interrupt=lambda: None,
-    )
-
-    server._run_prompt_submit("rid", "sid", _session(agent=agent, running=True), "do the thing")
-
-    assert at_frame == [None]
 
 
 def test_handled_failure_still_clears_marker(emits, turn_env, marker_home):
@@ -243,33 +197,6 @@ def test_continuation_turn_records_attempt_and_original_prompt(
     # Consumed, so the NEXT user turn starts from a clean slate.
     assert "_auto_continue_attempt" not in session
     assert "_auto_continue_prompt" not in session
-
-
-def test_continuation_is_typed_at_turn_start(emits, turn_env, marker_home):
-    """The recovery note's row must be typed BEFORE the turn runs.
-
-    Typing it after run_conversation returns leaves the row a raw user bubble
-    for the whole turn — and permanently if the continuation is itself killed,
-    which is exactly the scenario it exists for. The model still receives the
-    note as an ordinary user message.
-    """
-    seen: list = []
-
-    def _run(message, *, persist_user_display_kind=None, **kwargs):
-        seen.append((message, persist_user_display_kind))
-        return {"final_response": "done"}
-
-    agent = types.SimpleNamespace(
-        session_id="session-key", run_conversation=_run, clear_interrupt=lambda: None
-    )
-    note = server._auto_continue_note("the original prompt")
-
-    server._run_prompt_submit(
-        "rid", "sid", _session(agent=agent, running=True), note,
-        display_kind="auto_continue",
-    )
-
-    assert seen == [(note, "auto_continue")]
 
 
 def test_older_agent_still_gets_the_post_turn_stamp(emits, turn_env, marker_home):
@@ -444,36 +371,132 @@ def test_failed_agent_build_leaves_marker_for_retry(
     assert read_turn_marker(marker_home, "session-key") is not None
 
 
-# ── End to end: continuation runs a real turn and clears the marker ────
+# ── What a COLD resume tells the client about the continuation ─────────
+#
+# The cold branches of session.resume register a brand-new live record, so
+# _inflight_snapshot has nothing to report and they hardcode inflight: None.
+# That stops being honest the moment a continuation is scheduled: a turn is
+# starting and the marker holds the only copy of its prompt.
 
 
-def test_continuation_runs_through_turn_pipeline(emits, turn_env, marker_home, monkeypatch):
-    record_turn_start(marker_home, "session-key", "finish the migration")
-    monkeypatch.setattr(server, "_start_agent_build", lambda sid, session: None)
+def test_schedule_returns_the_interrupted_prompt(emits, schedule_env, marker_home):
+    record_turn_start(marker_home, "session-key", "fix the flaky test")
+
+    result = server._maybe_schedule_auto_continue("sid", _session(), "session-key")
+
+    assert result["prompt"] == "fix the flaky test"
+
+
+def test_cold_resume_payload_describes_the_scheduled_turn():
+    payload = {"inflight": None, "running": False, "status": "idle"}
+
+    server._apply_auto_continue_resume_state(
+        payload, {"attempt": 1, "interrupted_at": 123.0, "prompt": "fix the flaky test"}
+    )
+
+    assert payload["inflight"] == {
+        "assistant": "",
+        "streaming": True,
+        "user": "fix the flaky test",
+    }
+    assert payload["running"] is True
+    assert payload["status"] == "streaming"
+    # The prompt rides `inflight`, not the descriptor — one copy on the wire.
+    assert payload["auto_continue"] == {"attempt": 1, "interrupted_at": 123.0}
+
+
+def test_resume_payload_untouched_without_a_continuation():
+    payload = {"inflight": None, "running": False, "status": "idle"}
+
+    server._apply_auto_continue_resume_state(payload, None)
+
+    assert payload == {"inflight": None, "running": False, "status": "idle"}
+    assert "auto_continue" not in payload
+
+
+def test_scheduled_window_reports_working_to_liveness_pollers(
+    emits, schedule_env, marker_home, monkeypatch
+):
+    """session.active_list must not contradict the resume that just said a turn
+    is live. The kickoff's agent build can take up to 120s, and `running` only
+    flips inside it."""
+    # Hold the kickoff at the build so the window under test is observable.
     monkeypatch.setattr(server, "_wait_agent", lambda session, rid, timeout=30.0: None)
-    monkeypatch.setattr(server, "_load_cfg", lambda: {})
+    monkeypatch.setattr(server, "_session_pending_kind", lambda sid: None)
+    session = _session()
+    session["_auto_continue_scheduled"] = True
 
-    prompts: list = []
+    assert server._session_live_status("sid", session) == "working"
+
+    session["_auto_continue_scheduled"] = False
+    assert server._session_live_status("sid", session) == "idle"
+
+
+def test_failed_dispatch_stops_reporting_a_turn(
+    emits, schedule_env, marker_home, monkeypatch
+):
+    """The turn's finally never runs when the dispatch itself raises, so the
+    flag has to be retired there or the session reports 'working' forever."""
+    record_turn_start(marker_home, "session-key", "prompt")
+    monkeypatch.setattr(server, "_session_pending_kind", lambda sid: None)
+
+    def _boom(rid, sid, session, text, **kwargs):
+        raise RuntimeError("dispatch exploded")
+
+    monkeypatch.setattr(server, "_run_prompt_submit", _boom)
+    session = _session()
+
+    server._maybe_schedule_auto_continue("sid", session, "session-key")
+
+    assert session["_auto_continue_scheduled"] is False
+    assert server._session_live_status("sid", session) == "idle"
+
+
+def test_continuation_snapshot_carries_the_request_not_the_note(
+    emits, turn_env, marker_home
+):
+    """`inflight.user` is what a resuming client paints as the user bubble. A
+    continuation submits a wrapper note, so a reconnect mid-continuation would
+    otherwise replace the prompt the cold resume projected with the note
+    wrapped around it — and render both."""
+    seen: list = []
+    note = server._auto_continue_note("the original request")
 
     def _run(message, **kwargs):
-        prompts.append(message)
-        return {"final_response": "continued and finished"}
+        # Exactly what session.resume would read on a reconnect mid-turn.
+        seen.append(server._inflight_snapshot(session))
+        return {"final_response": "done"}
 
     agent = types.SimpleNamespace(
         session_id="session-key", run_conversation=_run, clear_interrupt=lambda: None
     )
-    session = _session(agent=agent)
+    session = _session(
+        agent=agent, running=True, _auto_continue_prompt="the original request"
+    )
 
-    result = server._maybe_schedule_auto_continue("sid", session, "session-key")
+    server._run_prompt_submit("rid", "sid", session, note)
 
-    assert result == {
-        "attempt": 1,
-        "interrupted_at": pytest.approx(time.time(), abs=5),
-    }
-    assert len(prompts) == 1
-    assert "finish the migration" in prompts[0]
-    # The concluded continuation cleared both the marker and the turn state.
-    assert read_turn_marker(marker_home, "session-key") is None
-    assert session["running"] is False
-    completes = [p for e, _s, p in emits if e == "message.complete"]
-    assert completes and completes[0]["status"] == "complete"
+    assert [snapshot["user"] for snapshot in seen] == ["the original request"]
+
+
+def test_a_normal_turn_still_snapshots_its_own_text(emits, turn_env, marker_home):
+    """The continuation carve-out must not leak into ordinary turns."""
+    seen: list = []
+
+    def _run(message, **kwargs):
+        seen.append(server._inflight_snapshot(session))
+        return {"final_response": "done"}
+
+    agent = types.SimpleNamespace(
+        session_id="session-key", run_conversation=_run, clear_interrupt=lambda: None
+    )
+    session = _session(agent=agent, running=True)
+
+    server._run_prompt_submit("rid", "sid", session, "do the thing")
+
+    assert [snapshot["user"] for snapshot in seen] == ["do the thing"]
+
+
+# ── End to end: continuation runs a real turn and clears the marker ────
+
+

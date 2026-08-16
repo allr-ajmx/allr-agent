@@ -2,6 +2,7 @@ import { useAui, useAuiState, useComposerRuntime } from '@assistant-ui/react'
 import { type RefObject, useCallback, useEffect, useRef, useState } from 'react'
 
 import { SLASH_COMMAND_RE } from '@/lib/chat-runtime'
+import { onComposerDraftSyncRequest } from '@/lib/composer-draft-bus'
 import { type ComposerAttachment, stashSessionDraft, takeSessionDraft } from '@/store/composer'
 import { isBrowsingHistory } from '@/store/composer-input-history'
 
@@ -123,7 +124,11 @@ export function useComposerDraft({
       const editor = editorRef.current
 
       if (editor) {
-        renderComposerContents(editor, next)
+        // Inert by construction: this paints text the user is not mid-typing —
+        // a restore, an insert, a programmatic clear. A `/command` ending it is
+        // therefore FINISHED, so it commits to a chip rather than staying an
+        // editable trailing token the next keystroke would extend.
+        renderComposerContents(editor, next, { trailingCommitted: true })
         placeCaretEnd(editor)
       }
 
@@ -270,7 +275,9 @@ export function useComposerDraft({
       const editor = editorRef.current
 
       if (editor && document.activeElement !== editor && composerPlainText(editor) !== text) {
-        renderComposerContents(editor, text)
+        // The editor is NOT the one being typed into (that is the guard right
+        // above), so this text is finished and its trailing `/command` chips.
+        renderComposerContents(editor, text, { trailingCommitted: true })
       }
 
       if (isBrowsingHistory(sessionIdRef.current) || queueEditRef.current) {
@@ -302,7 +309,11 @@ export function useComposerDraft({
       unsubscribe()
       window.clearTimeout(draftPersistTimerRef.current)
     }
-  }, [composerRuntime, queueEditRef])
+    // `stashAt` is deliberately omitted: it is redeclared every render but reads
+    // everything through refs and the scope context, so its behaviour never
+    // changes — while depending on it would resubscribe the composer runtime on
+    // every keystroke and cancel the pending draft write each time.
+  }, [composerRuntime, queueEditRef]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const insertText = (text: string) => {
     const base = draftRef.current
@@ -371,7 +382,55 @@ export function useComposerDraft({
         stashAt(activeQueueSessionKey, latestText)
       }
     }
+    // `sessionId` is deliberately the STALE (outgoing) one — do NOT "fix" this
+    // to `sessionIdRef.current` for consistency with the rest of the file. This
+    // cleanup persists the draft of the session being LEFT, under the outgoing
+    // `activeQueueSessionKey`, so the browse guard has to ask about that same
+    // session; the ref holds the incoming one by the time cleanup runs.
+    // `loadIntoComposer` / `stashAt` are redeclared every render (they read
+    // through live refs), so listing them would make a session-swap effect fire
+    // per keystroke — stashing and reloading the composer mid-typing.
   }, [activeQueueSessionKey]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // A draft moving BETWEEN WINDOWS (MJXHRM-213). The HUD and the main window are
+  // separate webviews sharing one `localStorage` draft stash, so a handoff is two
+  // moments: flush what is in this editor before the other window reads it, and
+  // repaint from the stash after the other window has written.
+  //
+  // The focus guard on `reload` is the load-bearing half: repainting an editor
+  // someone is typing in would drop their keystrokes and move their caret, and
+  // "the window you are looking at wins" is the only rule that cannot surprise
+  // anyone.
+  useEffect(() => {
+    return onComposerDraftSyncRequest(mode => {
+      const scope = draftScopeRef.current
+
+      if (isBrowsingHistory(sessionIdRef.current) || queueEditStateRef.current?.sessionKey === scope) {
+        return
+      }
+
+      if (mode === 'flush') {
+        pendingDraftPersistRef.current = null
+        stashAt(scope, syncDraftFromEditor())
+
+        return
+      }
+
+      const editor = editorRef.current
+
+      if (editor && document.activeElement === editor) {
+        return
+      }
+
+      const { attachments, text } = takeSessionDraft(scope)
+
+      if (text !== draftRef.current) {
+        loadIntoComposer(text, attachments)
+      }
+    })
+    // `stashAt` / `loadIntoComposer` are recreated every render (they close over
+    // live refs by design), so listing them would resubscribe on every keystroke.
+  }, [syncDraftFromEditor]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // pagehide is load-bearing: React skips effect cleanups on reload, so Cmd+R
   // inside the debounce/rAF window would drop trailing keystrokes without this.
@@ -395,7 +454,10 @@ export function useComposerDraft({
       window.removeEventListener('pagehide', flushPendingDraftPersist)
       flushPendingDraftPersist()
     }
-  }, [syncDraftFromEditor])
+    // `stashAt` is deliberately omitted, as above — and it matters more here,
+    // because this cleanup PERSISTS the draft. Re-running the effect on every
+    // render would stash on every keystroke rather than on the way out.
+  }, [syncDraftFromEditor]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return {
     activeQueueSessionKeyRef,
@@ -412,6 +474,7 @@ export function useComposerDraft({
     requestMainFocus,
     sessionIdRef,
     setComposerText,
-    stashAt
+    stashAt,
+    syncDraftFromEditor
   }
 }

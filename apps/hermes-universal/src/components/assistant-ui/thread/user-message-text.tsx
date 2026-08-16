@@ -2,6 +2,7 @@ import type { FC } from 'react'
 import { Fragment, useMemo } from 'react'
 
 import { DirectiveContent } from '@/components/assistant-ui/directive-content'
+import { referenceRe } from '@/components/assistant-ui/reference-kinds'
 import { cn } from '@/lib/utils'
 
 // User messages should render the bare-minimum of markdown: backtick `code`
@@ -11,8 +12,8 @@ import { cn } from '@/lib/utils'
 // adds a lot of runtime cost per bubble.
 //
 // Directive chips (`@file:`, `@image:`, …) resolve via DirectiveContent inside
-// the plain-text segments (fenced/inline code is split out first, so directives
-// are never parsed inside code).
+// the plain-text segments (fenced code is split out first, so directives are
+// never parsed inside a fence).
 
 interface FenceSegment {
   kind: 'fence'
@@ -69,11 +70,34 @@ function splitFences(text: string): TopSegment[] {
   return segments
 }
 
+// A directive's value is BACKTICK-QUOTED by the composer (`quoteRefValue` in
+// rich-editor.ts quotes unconditionally, so every `@url:`/`@file:` chip ships
+// its value in backticks). The inline-code scanner would claim those backticks
+// first and split one reference into a bare `@url:` plus a code span — the
+// composer's chip, flattened on send. Directives win: this is syntax the
+// composer wrote, not something the user typed as code.
+
+/** Inline-code matches that don't overlap a directive, so a quoted directive
+ *  value reaches DirectiveContent whole. */
+function inlineCodeOutsideDirectives(text: string): RegExpMatchArray[] {
+  const directives = Array.from(text.matchAll(referenceRe())).map(match => ({
+    end: (match.index ?? 0) + match[0].length,
+    start: match.index ?? 0
+  }))
+
+  return Array.from(text.matchAll(INLINE_CODE_RE)).filter(match => {
+    const start = match.index ?? 0
+    const end = start + match[0].length
+
+    return !directives.some(directive => start < directive.end && end > directive.start)
+  })
+}
+
 function splitInlineCode(text: string): InlineNode[] {
   const nodes: InlineNode[] = []
   let cursor = 0
 
-  for (const match of text.matchAll(INLINE_CODE_RE)) {
+  for (const match of inlineCodeOutsideDirectives(text)) {
     const start = match.index ?? 0
 
     if (start > cursor) {
@@ -105,7 +129,7 @@ export const UserMessageText: FC<UserMessageTextProps> = ({ className, text }) =
         if (segment.kind === 'fence') {
           return (
             <pre
-              className="my-1.5 max-w-full overflow-x-auto rounded-md border border-border/45 bg-[color-mix(in_srgb,currentColor_5%,transparent)] px-2.5 py-2 font-mono text-[0.86em] leading-snug"
+              className="my-1.5 max-w-full overflow-x-auto rounded-md border border-(--ui-stroke-tertiary) bg-[color-mix(in_srgb,currentColor_5%,transparent)] px-2.5 py-2 font-mono text-[0.86em] leading-snug"
               data-slot="aui_user-fence"
               key={`fence-${segmentIndex}`}
             >

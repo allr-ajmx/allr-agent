@@ -57,7 +57,8 @@ export const en: Translations = {
     profiles: 'Profiles',
     settings: 'Settings',
     files: 'Files',
-    review: 'Review'
+    review: 'Review',
+    webhooks: 'Webhooks'
   },
 
   files: {
@@ -94,51 +95,6 @@ export const en: Translations = {
     deleteTitle: name => `Delete ${name}?`,
     deleteBody: 'It will be moved to the Trash — you can restore it from there.',
     pathCopied: 'Path copied'
-  },
-
-  boot: {
-    ready: 'Hermes Desktop is ready',
-    desktopBootFailedWithMessage: message => `Desktop boot failed: ${message}`,
-    steps: {
-      connectingGateway: 'Connecting live desktop gateway',
-      loadingSettings: 'Loading Hermes settings',
-      loadingSessions: 'Loading recent sessions',
-      startingDesktopConnection: 'Starting desktop connection',
-      startingHermesDesktop: 'Starting Hermes Desktop…'
-    },
-    errors: {
-      backgroundExited: 'Hermes background process exited.',
-      backgroundExitedDuringStartup: 'Hermes background process exited during startup.',
-      backendStopped: 'Backend stopped',
-      desktopBootFailed: 'Desktop boot failed',
-      gatewayConnectionLost: 'Lost connection to the gateway',
-      gatewaySignInRequired: 'Gateway sign-in required',
-      ipcBridgeUnavailable: 'Desktop IPC bridge is unavailable.'
-    },
-    failure: {
-      title: "Hermes couldn't start",
-      description:
-        "The background gateway didn't come up. Try one of the recovery steps below. Nothing here deletes your chats or settings.",
-      remoteTitle: 'Remote gateway sign-in required',
-      remoteDescription:
-        'Your remote gateway session has expired. Sign in again to reconnect. Nothing here deletes your chats or settings.',
-      retry: 'Retry',
-      repairInstall: 'Repair install',
-      useLocalGateway: 'Use local gateway',
-      openLogs: 'Open logs',
-      repairHint: 'Repair re-runs the installer and can take a few minutes on a fresh machine.',
-      remoteSignInHint: 'Opens the gateway login window. Use local gateway to switch to the bundled backend instead.',
-      hideRecentLogs: 'Hide recent logs',
-      showRecentLogs: 'Show recent logs',
-      signedInTitle: 'Signed in',
-      signedInMessage: 'Reconnecting to the remote gateway…',
-      signInIncompleteTitle: 'Sign-in incomplete',
-      signInIncompleteMessage: 'The login window closed before authentication finished.',
-      signInFailed: 'Sign-in failed',
-      signInToRemoteGateway: 'Sign in to remote gateway',
-      signInWithProvider: provider => `Sign in with ${provider}`,
-      identityProvider: 'your identity provider'
-    }
   },
 
   notifications: {
@@ -182,6 +138,7 @@ export const en: Translations = {
       microphoneUnsupported: 'This runtime does not support microphone recording.',
       noMicrophone: 'No microphone was found.',
       noSpeechDetected: 'No speech detected',
+      sayStopToEnd: 'Say “stop” to end the voice chat.',
       playbackFailed: 'Voice playback failed',
       recordingFailed: 'Voice recording failed',
       transcriptionFailed: 'Voice transcription failed',
@@ -199,8 +156,18 @@ export const en: Translations = {
       turnDoneBody: 'The response is ready.',
       turnErrorTitle: 'Turn failed',
       backgroundDoneTitle: 'Background task finished',
-      backgroundFailedTitle: 'Background task failed'
+      backgroundFailedTitle: 'Background task failed',
+      creditsTitle: 'Credits'
     }
+  },
+
+  billingBlock: {
+    titleNous: 'Out of Nous credits',
+    titleProvider: provider => `Out of credits — ${provider}`,
+    fallbackMessage: 'Your account is out of credits. Add credits to keep going.',
+    openBilling: 'Open billing',
+    addCredits: 'Add credits',
+    dismiss: 'Dismiss'
   },
 
   remoteDisplayBanner: {
@@ -222,10 +189,24 @@ export const en: Translations = {
     openSettings: 'Open settings',
     openStarmap: 'Open memory graph',
     openKeybinds: 'Keyboard shortcuts',
+    enterHud: 'HUD mode',
+    exitHud: 'Exit HUD mode',
     minimize: 'Minimize',
     maximize: 'Maximize',
     restore: 'Restore',
     close: 'Close'
+  },
+  hud: {
+    connecting: 'Connecting to Hermes…',
+    connectionFailed: 'Hermes could not reach its gateway.',
+    expandReply: 'Show the reply',
+    collapseReply: 'Hide the reply'
+  },
+
+  findInPage: {
+    title: 'Find in page',
+    next: 'Next match',
+    previous: 'Previous match'
   },
 
   keybinds: {
@@ -238,6 +219,13 @@ export const en: Translations = {
     pressKey: 'Press a key…',
     set: 'set',
     conflictWith: label => `Also bound to “${label}”`,
+    globalTag: 'System-wide',
+    globalTagHint:
+      'Claimed from the operating system at startup: it fires while Hermes is in the background, and no other app on this computer can use this chord.',
+    globalClaimTitle: 'A shortcut is now reserved system-wide',
+    globalClaimMessage: combos =>
+      `Hermes claimed ${combos} from the operating system, so it answers while another app is in front. No other app can use it while Hermes is running.`,
+    globalClaimAction: 'Change it',
     categories: {
       composer: 'Composer',
       profiles: 'Profiles',
@@ -272,12 +260,18 @@ export const en: Translations = {
       'session.focusSearch': 'Search sessions',
       'session.togglePin': 'Pin / unpin current session',
       'workspace.newWorktree': 'New worktree',
+      'workspace.openFolder': 'Open folder as project',
+      'view.toggleHud': 'Toggle HUD window',
+      'view.toggleQuickEntry': 'Toggle Quick Entry',
       'composer.focus': 'Focus composer',
       'composer.modelPicker': 'Open model picker',
       'composer.voice': 'Start / stop voice conversation',
       'view.toggleSidebar': 'Toggle sessions sidebar',
       'view.toggleRightSidebar': 'Toggle file browser',
       'view.toggleReview': 'Toggle review pane',
+      'view.findInPage': 'Find in page',
+      'view.findNext': 'Find next',
+      'view.findPrevious': 'Find previous',
       'view.showFiles': 'Show file browser',
       'view.showTerminal': 'Toggle terminal',
       'view.toggleStatusbar': 'Toggle status bar',
@@ -315,6 +309,7 @@ export const en: Translations = {
       'composer.send': 'Send message',
       'composer.newline': 'Insert newline',
       'composer.steer': 'Steer the running turn',
+      'composer.queue': 'Queue for the next turn',
       'composer.sendQueued': 'Send next queued turn',
       'composer.mention': 'Reference files, folders, URLs',
       'composer.slash': 'Slash command palette',
@@ -376,7 +371,20 @@ export const en: Translations = {
       sourceNone: 'No plugin folder available',
       gatewayDoor: 'Load plugins from the connected backend',
       gatewayDoorHint: 'Plugin code from the backend runs with the same access as the app itself.',
-      gatewayDoorUnavailable: 'This backend did not report a plugins folder.'
+      gatewayDoorUnavailable: 'This backend did not report a plugins folder.',
+      agent: {
+        title: 'Agent plugins',
+        blurb:
+          'Run in the Hermes backend — tools, skills, MCP servers, hooks, and slash commands. Portable ones are Agent Plugins packages (skills + MCP bundles that work in other agents too). Toggles apply to new sessions.',
+        empty: 'No agent plugins installed yet.',
+        loadFailed: 'Could not load agent plugins',
+        portable: 'portable',
+        search: 'Search plugins…',
+        noMatches: 'No plugins match your search.',
+        toggleFailed: (name: string) => `Could not toggle ${name}`,
+        updateBackendToManage: 'Update the Hermes backend to turn this one on or off from here.',
+        sources: { bundled: 'bundled', entrypoint: 'pip', git: 'git', project: 'project', user: 'user' }
+      }
     },
     notifications: {
       title: 'Notifications',
@@ -405,6 +413,14 @@ export const en: Translations = {
         backgroundDone: {
           label: 'Background task finished',
           description: 'A backgrounded terminal command completed.'
+        },
+        credits: {
+          label: 'Credit alerts',
+          description: 'Your account ran out of credits, or credits were restored.'
+        },
+        plugin: {
+          label: 'Plugin notifications',
+          description: 'A plugin sent a notification while Hermes was in the background.'
         }
       },
       test: 'Send test notification',
@@ -422,6 +438,34 @@ export const en: Translations = {
       terminalHostAuto: 'Automatic (follow gateway)',
       terminalHostDevice: 'This device',
       terminalHostGateway: 'Gateway / workspace host'
+    },
+    voiceLevels: {
+      title: 'Levels',
+      intro:
+        'Tune how loudly Hermes hears you and how loudly it speaks back. There is no echo cancellation here, so a barge-in threshold set above what your speakers register is what stops Hermes interrupting itself.',
+      meterTitle: 'Input meter',
+      meterDesc: 'Open the microphone to see your level against the thresholds below. Nothing is recorded or sent.',
+      meterRunningDesc:
+        'Listening. Speak normally, then set the input threshold just below your speech. Stops on its own after a minute.',
+      meterStart: 'Test microphone',
+      meterStop: 'Stop',
+      meterLevel: (percent: string) => `Level ${percent}`,
+      meterPeak: (percent: string) => `Peak ${percent}`,
+      meterBusy: 'The microphone is already in use',
+      meterFailed: 'Could not open the microphone',
+      saveFailed: 'Could not save the voice level',
+      gainTitle: 'Input gain',
+      gainDesc:
+        'Multiplies the measured level so a quiet microphone can reach the thresholds. Does not change the audio that is transcribed.',
+      thresholdTitle: 'Input threshold',
+      thresholdDesc:
+        'How loud a sound must be before Hermes treats it as the start of your turn. Too low and room noise triggers it; too high and it never hears you.',
+      bargeinTitle: 'Barge-in threshold',
+      bargeinDesc:
+        'The higher gate that applies while Hermes is speaking. Keep it above whatever the meter shows when only your speakers are playing.',
+      outputSectionTitle: 'Output',
+      outputTitle: 'Speech volume',
+      outputDesc: 'How loudly spoken replies are played.'
     },
     sections: {
       model: 'Model',
@@ -456,9 +500,17 @@ export const en: Translations = {
       toolViewDesc: 'Product hides raw tool payloads; Technical shows full input/output.',
       backdropTitle: 'Chat Backdrop',
       backdropDesc: 'The faint statue image behind the conversation.',
+      reactionsTitle: 'Message Reactions',
+      reactionsDesc: 'iMessage-style emoji tapbacks — react to messages, and Hermes can react to yours.',
       uiScaleTitle: 'UI Scale',
       uiScaleDesc: (percent: number) =>
         `Scales text and controls across the whole app. Cmd/Ctrl with +, - and 0 also works. Current: ${percent}%.`,
+      terminalFontTitle: 'Terminal Font',
+      terminalFontDesc:
+        'Choose an installed font for the integrated terminal. Nerd Fonts render Powerlevel10k and shell icons; leave blank to use bundled JetBrains Mono.',
+      terminalFontPlaceholder: 'MesloLGS NF or a CSS font stack',
+      terminalFontPreview: 'Glyph preview',
+      terminalFontReset: 'Use default',
       translucencyTitle: 'Window Translucency',
       translucencyDesc: 'See your desktop through the whole window. macOS and Windows only.',
       embedsTitle: 'Inline Embeds',
@@ -577,6 +629,7 @@ export const en: Translations = {
     config: {
       none: 'None',
       noneParen: '(none)',
+      builtinOnly: 'Built-in only',
       notSet: 'Not set',
       commaSeparated: 'comma-separated values',
       searchPlaceholder: 'Search…',
@@ -590,8 +643,12 @@ export const en: Translations = {
       imported: 'Config imported',
       invalidJson: 'Invalid config JSON',
       keepAwakeTitle: 'Keep computer awake',
-      keepAwakeDesc:
-        'Stop this machine from sleeping so long or overnight runs keep going. The display can still dim.'
+      keepAwakeDesc: 'Stop this machine from sleeping so long or overnight runs keep going. The display can still dim.',
+      keepAwakeFailed: "Couldn't keep this computer awake",
+      backgroundModeTitle: 'Keep running in the background',
+      backgroundModeDesc:
+        'Closing the window puts Hermes away instead of quitting it, so a running turn keeps streaming. Use the tray icon to bring it back or to quit.',
+      backgroundModeFailed: "Couldn't keep Hermes running in the background"
     },
     credentials: {
       pasteKey: 'Paste key',
@@ -732,6 +789,12 @@ export const en: Translations = {
       signOut: 'Sign out',
       signInWith: provider => `Sign in with ${provider}`,
       authTitle: 'Authentication',
+      sessionKindNative: 'System browser',
+      sessionKindNativeHint:
+        'You signed in through your system browser. The token is kept in this device’s keyring and never enters the app.',
+      sessionKindCookie: 'In-app',
+      sessionKindCookieHint:
+        'You signed in inside the app. The session cookie is kept by the app and refreshes itself.',
       authSignedInPassword:
         'This gateway uses a username and password. You are signed in; the session refreshes automatically.',
       authSignedInOauth: 'This gateway uses OAuth. You are signed in; the session refreshes automatically.',
@@ -747,6 +810,8 @@ export const en: Translations = {
       saveAndReconnect: 'Save and reconnect',
       diagnostics: 'Diagnostics',
       diagnosticsDesc: 'Connection status and recent gateway logs — useful when the gateway misbehaves.',
+      configFloorWarning: (version, floor) =>
+        `Config v${version} predates the v${floor} support floor and no longer migrates automatically. Back up config.yaml in the Hermes home above and run \`hermes setup\` to regenerate, or set _config_version: ${floor} after reviewing the changelog.`,
       openLogs: 'Open logs',
       incompleteTitle: 'Remote gateway incomplete',
       incompleteSignIn: 'Enter a remote URL and sign in before switching to remote.',
@@ -866,6 +931,11 @@ export const en: Translations = {
       providerDefault: '(provider default)',
       fallbackAdd: 'Add fallback',
       fallbackEmpty: 'No fallback models — the default model is used unless it fails.',
+      moaEnabled: 'Enabled',
+      moaPresetDisabledHint:
+        'This preset is disabled — the aggregator answers on its own and no reference model runs, whatever the switches below say.',
+      moaDisableReference: index => `Disable reference ${index}`,
+      moaEnableReference: index => `Enable reference ${index}`,
       tasks: {
         vision: { label: 'Vision', hint: 'Image analysis' },
         web_extract: { label: 'Web extract', hint: 'Page summarization' },
@@ -1007,6 +1077,10 @@ export const en: Translations = {
       modelInUse: 'In use',
       modelDefault: 'default',
       modelInactiveHint: 'Select this backend first to change its model.',
+      modelCustomBadge: 'custom',
+      modelCustomLabel: 'Or enter a model id',
+      modelCustomPlaceholder: 'vendor/model-name',
+      modelCustomSave: 'Use',
       modelSelectedTitle: 'Model selected',
       modelSelectedMessage: model => `${model} applies to new sessions.`,
       failedSelectModel: model => `Failed to select ${model}`,
@@ -1211,9 +1285,20 @@ export const en: Translations = {
     ageSeconds: seconds => `${seconds}s ago`,
     ageMinutes: minutes => `${minutes}m ago`,
     ageHours: hours => `${hours}h ago`,
+    ageDays: days => `${days}d ago`,
     durationSeconds: seconds => `${seconds}s`,
     durationMinutes: (minutes, seconds) => `${minutes}m ${seconds}s`,
-    tokens: value => `${value} tok`
+    tokens: value => `${value} tok`,
+    steer: 'Steer',
+    steerPlaceholder: 'Redirect this subagent…',
+    steerSend: 'Send',
+    steerCancel: 'Cancel',
+    steerQueued: 'Queued for the next step',
+    steerRejected: 'Too late to steer — this subagent is already past its last step',
+    steerFailed: 'Could not reach the gateway',
+    steerGone: 'That subagent is no longer running',
+    steerNotOwned: 'That subagent belongs to another chat — steer it from there',
+    steerMissed: (text: string) => `Steer never landed — this subagent finished first: ${text}`
   },
 
   commandCenter: {
@@ -1223,6 +1308,9 @@ export const en: Translations = {
     searchPlaceholder: 'Search sessions, views, and actions',
     goTo: 'Go to',
     goToSession: 'Go to session',
+    projects: 'Projects',
+    openFolder: 'Open folder as project…',
+    openFolderAt: path => `Open folder as project — ${path}`,
     branches: 'Branches',
     startInBranch: branch => `New conversation in ${branch}`,
     commandCenter: 'Command Center',
@@ -1563,6 +1651,14 @@ export const en: Translations = {
     renameMenu: 'Rename…',
     editSoul: 'Edit SOUL.md…',
     copySetup: 'Copy setup',
+    exportProfile: 'Export profile…',
+    importProfile: 'Import profile…',
+    exporting: 'Exporting…',
+    exported: 'Profile exported',
+    imported: 'Profile imported',
+    failedExport: 'Could not export the profile',
+    failedImport: 'Could not import the profile',
+    shareHint: 'Bundles skills, config and SOUL.md with your theme and layout. Credentials are never included.',
     copying: 'Copying...',
     modelLabel: 'Model',
     skillsLabel: 'Skills',
@@ -1715,6 +1811,8 @@ export const en: Translations = {
     promptPlaceholder: 'Summarize my unread Slack threads and email me the top 5...',
     frequencyLabel: 'Frequency',
     deliverLabel: 'Deliver to',
+    deliverNeedsHomeChannel: 'set a home channel first',
+    deliveryFailed: 'Delivery failed',
     modelLabel: 'Model',
     modelDefault: 'Default (global model)',
     customScheduleLabel: 'Custom schedule',
@@ -1726,7 +1824,15 @@ export const en: Translations = {
     scheduleRequired: 'Schedule is required.',
     scriptOnlyEditHint: 'Script-only job (no AI prompt). Job id:',
     saveChanges: 'Save changes',
-    createAction: 'Create cron'
+    createAction: 'Create cron',
+    blueprints: {
+      startFrom: 'Start from',
+      custom: 'Custom',
+      scheduleIt: 'Schedule it',
+      scheduling: 'Scheduling...',
+      scheduled: 'Blueprint scheduled',
+      failedLoad: 'Failed to load blueprints'
+    }
   },
 
   artifacts: {
@@ -1791,6 +1897,41 @@ export const en: Translations = {
     noProject: 'No project',
     projectEmpty: 'No sessions yet',
     noSessions: 'No sessions yet',
+    filters: {
+      trigger: 'Filters',
+      grouping: 'Grouping',
+      groupingSessions: 'Sessions',
+      groupingProject: 'Projects',
+      ordering: 'Ordering',
+      orderUpdated: 'Updated',
+      orderCreated: 'Created',
+      orderStatus: 'Status',
+      orderTokens: 'Tokens',
+      orderCost: 'Cost',
+      orderManual: 'Manual',
+      show: 'Show',
+      metaUpdated: 'Updated',
+      metaTokens: 'Tokens',
+      metaCost: 'Cost',
+      sectionLabel: 'Filters',
+      status: 'Status',
+      statusNeedsInput: 'Needs input',
+      statusWorking: 'Working',
+      statusUnread: 'Unread',
+      statusIdle: 'Idle',
+      pullRequest: 'Pull request',
+      prOpen: 'Open',
+      prDraft: 'Draft',
+      prMerged: 'Merged',
+      prClosed: 'Closed',
+      prNone: 'No PR',
+      project: 'Project',
+      archived: 'Archived',
+      reset: 'Reset to defaults',
+      collapseAll: 'Collapse all',
+      expandAll: 'Expand all',
+      markAllRead: 'Mark all as read'
+    },
     projects: {
       sectionLabel: 'Projects',
       newButton: 'New project',
@@ -1807,6 +1948,8 @@ export const en: Translations = {
       ideaShuffle: 'Shuffle templates',
       ideaFailed: 'Could not generate an idea',
       ideaWriteFailed: 'Project created, but IDEA.md could not be saved',
+      ideaAppended: 'IDEA.md already existed — your idea was appended to it',
+      ideaKeptExisting: 'IDEA.md was left untouched — it is too large or not text',
       noFolders: 'No folders added yet.',
       addFolder: 'Add folder',
       folderPath: 'Paste a folder path',
@@ -1843,8 +1986,13 @@ export const en: Translations = {
       branchOpenExisting: 'open',
       branchSwitchHome: 'switch home',
       branchCreateWorktree: 'new worktree',
+      branchTrackRemote: 'track remote',
+      worktreeProjectLabel: 'Project',
+      worktreeProjectPlaceholder: 'Search projects…',
+      worktreeProjectNone: 'No projects with a folder',
       branchesLoading: 'Loading branches…',
       noBranches: 'No branches found',
+      branchesFailed: 'Could not load branches',
       removeWorktree: 'Remove worktree',
       removeWorktreeFailed: 'Could not remove worktree (uncommitted changes?)',
       removeWorktreeConfirm:
@@ -1870,6 +2018,7 @@ export const en: Translations = {
       openInBubble: 'Open in bubble',
       export: 'Export',
       branchFrom: 'Branch',
+      moveToProject: 'Move to project',
       rename: 'Rename',
       archive: 'Archive',
       newWindow: 'New window',
@@ -1881,6 +2030,7 @@ export const en: Translations = {
       needsInput: 'Needs your input',
       waitingForAnswer: 'Waiting for your answer',
       finishedUnread: 'Finished — unread',
+      draftSession: 'Draft — nothing sent yet',
       handoffOrigin: platform => `Handed off from ${platform}`,
       renamed: 'Renamed',
       renameFailed: 'Rename failed',
@@ -1943,10 +2093,21 @@ export const en: Translations = {
     voiceDictation: 'Voice dictation',
     speakReplies: 'Read replies aloud',
     stopSpeakingReplies: 'Stop reading replies aloud',
+    wakeWordClientCapture: (phrase: string) =>
+      `Wake word off — click to listen for “${phrase}”. This backend has no microphone, so your device streams its own.`,
+    wakeWordListening: (phrase: string) => `Listening for “${phrase}” — click to stop`,
+    wakeWordNeedsConfirm: (phrase: string) =>
+      `“${phrase}” needs your device’s microphone — click to start streaming it to the backend`,
+    wakeWordOff: (phrase: string) => `Wake word off — click to listen for “${phrase}”`,
+    wakeWordPausedVoice: (phrase: string) => `“${phrase}” paused while the voice chat is open`,
+    wakeWordStreaming: (phrase: string) =>
+      `Listening for “${phrase}” — your device’s microphone is streaming to the backend. Click to stop.`,
+    wakeWordUnavailable: 'Wake word is unavailable on this gateway',
     lookupLoading: 'Looking up…',
     lookupNoMatches: 'No matches.',
     lookupTry: 'Try',
     lookupOr: 'or',
+    openDirective: 'Open',
     commonCommands: 'Common commands',
     hotkeys: 'Hotkeys',
     helpFooter: 'opens the full panel · backspace dismisses',
@@ -1974,6 +2135,7 @@ export const en: Translations = {
     urlHintPre: 'Include the full URL, e.g. ',
     attach: 'Attach',
     queued: count => `${count} Queued`,
+    queuedPaused: count => `${count} Queued — paused`,
     attachmentOnly: 'Attachment-only turn',
     emptyTurn: 'Empty turn',
     attachments: count => `${count} attachment${count === 1 ? '' : 's'}`,
@@ -1983,6 +2145,8 @@ export const en: Translations = {
     queueSendNext: 'Next',
     queueSend: 'Send',
     queueDelete: 'Delete',
+    queueResume: 'Resume',
+    queueResumeTip: 'Paused by Stop — resume sending the queued turns',
     queueStuckTitle: 'Queued message not sent',
     queueStuckBody: 'A queued turn kept failing to send. It is still in the queue — try sending it again.',
     previewUnavailable: 'Preview unavailable',
@@ -1998,6 +2162,8 @@ export const en: Translations = {
     themeTryPre: 'Try ',
     themeTryPost: '.',
     attachLabel: 'Attach',
+    attachFailed: label => `Could not attach ${label}`,
+    attachNoRef: 'The gateway staged nothing for this file.',
     files: 'Files…',
     folder: 'Folder…',
     back: 'Back',
@@ -2254,6 +2420,8 @@ export const en: Translations = {
     reopenVerification: 'Re-open verification page',
     copy: 'Copy',
     defaultModel: 'Default model',
+    noDefaultModel:
+      'Hermes could not pick a default model for this provider. Your credentials are saved — choose one in Settings → Model.',
     freeTier: 'Free tier',
     pro: 'Pro',
     free: 'Free',
@@ -2360,6 +2528,8 @@ export const en: Translations = {
       hideTerminal: 'Hide terminal',
       keepAwakeOn: 'Keeping awake — click to allow sleep',
       keepAwakeOff: 'Keep computer awake',
+      focusView: 'focus',
+      focusViewTitle: 'Focus view — tool activity is hidden. Click to show it again.',
       gateway: 'Gateway',
       gatewayReady: 'ready',
       gatewayNeedsSetup: 'needs setup',
@@ -2485,8 +2655,6 @@ export const en: Translations = {
     terminalEndErrorBody: 'The shell connection failed.',
     terminalsAria: 'Terminals',
     terminalNew: 'New terminal',
-    terminalCloseOthers: 'Close others',
-    terminalCloseAll: 'Close all',
     addToChat: 'Add to chat'
   },
 
@@ -2525,12 +2693,30 @@ export const en: Translations = {
     status: 'Status'
   },
 
+  artifactCard: {
+    kind: { code: 'Code', html: 'Interactive page', svg: 'Graphic' },
+    generating: lines => `Generating… ${lines} lines`,
+    versionBadge: count => `${count} versions`,
+    open: 'Open'
+  },
+
+  artifactPreview: {
+    versionOf: (current, total) => `v${current} of ${total}`,
+    olderVersion: 'Older version',
+    newerVersion: 'Newer version',
+    latest: 'Latest',
+    rendered: 'PREVIEW',
+    source: 'SOURCE',
+    copyContent: 'Copy content',
+    download: 'Download',
+    renderUnavailable: 'Live preview needs the desktop or mobile app.',
+    missingTitle: 'Artifact unavailable',
+    missingBody: 'This artifact is no longer in the local registry.'
+  },
+
   preview: {
     tab: 'Preview',
     closeTab: label => `Close ${label}`,
-    closeOthers: 'Close others',
-    closeToRight: 'Close to the right',
-    closeAll: 'Close all',
     closePane: 'Close preview pane',
     loading: 'Loading preview',
     unavailable: 'Preview unavailable',
@@ -2561,6 +2747,9 @@ export const en: Translations = {
       'This file changed since you opened it. Overwrite it with your version, or discard your edits and reload?',
     overwrite: 'Overwrite',
     discardReload: 'Discard & reload',
+    closeDirtyTitle: 'Discard unsaved changes?',
+    closeDirtyBody: 'This file has edits that were never saved. Closing the tab discards them.',
+    closeDirtyConfirm: 'Discard & close',
     console: {
       deselect: 'Deselect entry',
       select: 'Select entry',
@@ -2623,19 +2812,28 @@ export const en: Translations = {
     thread: {
       loadingSession: 'Loading session',
       showEarlier: 'Show earlier messages',
+      steerMissed: 'steer missed',
       loadingResponse: 'Hermes is loading a response',
+      compacting: 'Summarizing thread',
       resumeWhenBackgroundDone: count =>
         count === 1
           ? 'Will resume when the background task finishes'
           : `Will resume when ${count} background tasks finish`,
       thinking: 'Thinking',
+      thought: 'Thought',
+      thoughtBriefly: 'Thought briefly',
+      thoughtFor: duration => `Thought for ${duration}`,
       today: time => `Today, ${time}`,
       yesterday: time => `Yesterday, ${time}`,
       copy: 'Copy',
       refresh: 'Refresh',
       moreActions: 'More actions',
+      react: 'React',
       branchNewChat: 'Branch in new chat',
       dismissError: 'Dismiss error',
+      filesChanged: count => (count === 1 ? '1 file changed' : `${count} files changed`),
+      focusHidden: count => (count === 1 ? '⋯ 1 tool line hidden' : `⋯ ${count} tool lines hidden`),
+      reviewChanges: 'Review',
       readAloudFailed: 'Read aloud failed',
       preparingAudio: 'Preparing audio...',
       stopReading: 'Stop reading',
@@ -2680,7 +2878,11 @@ export const en: Translations = {
       placeholder: 'Type your answer…',
       skip: 'Skip',
       continueLabel: 'Continue',
-      skipped: 'Skipped'
+      skipped: 'Skipped',
+      lateAnswer: (question, choice) => `Re: "${question}" — my answer: ${choice}`,
+      lateAnswerTip: 'Draft this answer as a follow-up message',
+      lateAnswerHint: 'This prompt is no longer waiting. Pick an option to draft it as a follow-up message.',
+      expiredAnswer: 'This question timed out before your answer reached it — drafted as a follow-up message instead.'
     },
     tool: {
       code: 'Code',
@@ -2695,7 +2897,6 @@ export const en: Translations = {
       copyFile: 'Copy file',
       copyPath: 'Copy path',
       outputAlt: 'Tool output',
-      rawResponse: 'Raw response',
       copyActivity: 'Copy activity',
       recoveredOne: 'Recovered after 1 failed step',
       recoveredMany: count => `Recovered after ${count} failed steps`,
@@ -2705,6 +2906,7 @@ export const en: Translations = {
       statusError: 'Error',
       statusRecovered: 'Recovered',
       statusDone: 'Done',
+      memoryWriteNoted: 'Memory write noted',
       actions: {
         read: 'Read',
         reading: 'Reading',
@@ -2751,6 +2953,7 @@ export const en: Translations = {
         execute_code: { done: 'Ran code', pending: 'Scripting', pendingAction: 'Scripting' },
         image_generate: { done: 'Generated image', pending: 'Generating image', pendingAction: 'Generating' },
         list_files: { done: 'Listed files', pending: 'Listing files', pendingAction: 'Listing' },
+        memory: { done: 'Saved to memory', pending: 'Saving to memory', pendingAction: 'Saving' },
         patch: { done: 'Patched file', pending: 'Patching file', pendingAction: 'Patching' },
         read_file: { done: 'Read file', pending: 'Reading file', pendingAction: 'Reading' },
         search_files: { done: 'Searched files', pending: 'Searching files', pendingAction: 'Searching' },
@@ -2806,6 +3009,9 @@ export const en: Translations = {
     stopFailed: 'Stop failed',
     regenerateFailed: 'Regenerate failed',
     editFailed: 'Edit failed',
+    restoreMissing: 'Could not find the message to restore.',
+    restoreEmpty: 'Cannot restore an empty message.',
+    restoreNoSession: 'No active session to restore.',
     resumeFailed: 'Resume failed',
     resumeStrandedTitle: "Couldn't load this session",
     resumeStrandedBody:
@@ -2844,6 +3050,12 @@ export const en: Translations = {
     noClipboardImage: 'No image found in clipboard',
     clipboardPasteFailed: 'Clipboard paste failed',
     dropFiles: 'Drop files',
+    compress: {
+      working: 'Compressing context…',
+      workingOn: topic => `Compressing context for: ${topic}`,
+      removed: count => `Compressed ${count} message${count === 1 ? '' : 's'}`,
+      nothingToCompress: 'Nothing to compress'
+    },
     handoff: {
       pickPlatform: 'Choose a destination',
       success: platform => `Handed off to ${platform}. Resume here anytime.`,
@@ -2891,6 +3103,8 @@ export const en: Translations = {
     closeToRight: 'Close to the right',
     closeAll: 'Close all',
     newTab: 'New chat',
+    reload: 'Reload',
+    tabCount: count => `${count} tabs`,
     split: dir => `Split ${dir}`,
     move: dir => `Move ${dir}`,
     dirUp: 'up',
@@ -2927,5 +3141,143 @@ export const en: Translations = {
     saveApply: 'Save & apply',
     notExpressible: 'this arrangement interlocks (pinwheel) — not expressible as nested splits yet',
     zoneCount: count => `${count} zones`
+  },
+
+  tray: {
+    show: 'Show Hermes',
+    hud: 'Open HUD',
+    quit: 'Quit Hermes',
+    keepRunning: 'Keep Running',
+    tooltip: 'Hermes (MJX)',
+    closeDialogTitle: 'Keep Hermes in the background?',
+    closeDialogDesc:
+      'Keep Hermes running in the background when you close this window, or quit completely. You can change this any time in Settings or from the tray menu.',
+    keepInBackground: 'Keep in Background',
+    closeApp: 'Quit Hermes',
+    status: {
+      idle: 'Not connected',
+      probing: 'Checking gateway…',
+      connecting: 'Connecting…',
+      ready: 'Connected',
+      error: 'Connection failed'
+    }
+  },
+  quickEntry: {
+    label: 'Quick Entry',
+    placeholder: 'Ask Hermes…',
+    notConnected: 'Not connected — open Hermes to reconnect',
+    sendTo: 'Send to',
+    currentChat: 'Current chat',
+    newSession: 'New session',
+    targetLabel: 'Target session',
+    settingsTitle: 'Quick Entry',
+    settingsDesc:
+      'Summon a small composer from anywhere with a global shortcut and fire a prompt without opening Hermes.',
+    shortcutHint: 'Assign its shortcut under Keyboard shortcuts.'
+  },
+  webhooks: {
+    title: 'Webhooks',
+    loading: 'Loading webhooks…',
+    loadFailed: 'Webhooks failed to load',
+    search: 'Search subscriptions…',
+    noMatches: 'No subscriptions match that search.',
+    tabInbound: 'Inbound',
+    tabOutbound: 'Outbound',
+    outboundSubtitle: 'Configured in config.yaml',
+    outboundTitle: 'Outbound webhooks',
+    outboundBody:
+      'Hermes can POST HMAC-signed events to your own URLs on session lifecycle hooks. They are configured in config.yaml under `hooks.outbound:` — the gateway exposes no API for them, so there is nothing to manage from here yet.',
+    emptyTitle: 'No subscriptions yet',
+    emptyDesc:
+      'A subscription gives an external service a URL to POST events to, and tells the agent what to do when one arrives.',
+    emptyDescDisabled:
+      'Turn the webhook receiver on before creating a subscription — the gateway refuses to create one while the platform is off.',
+    newSubscription: 'New subscription',
+    enableFirst: 'Turn the webhook receiver on first.',
+    rowActions: 'Subscription actions',
+    enableRow: 'Enable',
+    disableRow: 'Disable',
+    showSecret: 'Show secret',
+    secretUnsaved: 'secret not saved',
+    deliverOnly: 'deliver only',
+    allEvents: '(all events)',
+    webhookUrl: 'Webhook URL',
+    fieldName: 'Name',
+    fieldNamePlaceholder: 'e.g. github-push',
+    fieldDescription: 'Description',
+    fieldDescriptionPlaceholder: 'What this subscription is for (optional)',
+    fieldPrompt: 'Prompt',
+    fieldPromptPlaceholder: 'What the agent should do when this fires (optional)',
+    fieldEvents: 'Events',
+    fieldEventsPlaceholder: 'comma-separated; empty matches every event',
+    fieldSkills: 'Skills',
+    fieldSkillsPlaceholder: 'comma-separated skill names (optional)',
+    fieldDeliver: 'Deliver to',
+    fieldDeliverChatId: 'Delivery chat ID',
+    fieldDeliverChatPlaceholder: 'Chat / channel id to deliver into (optional)',
+    fieldDeliverChatDisabled: 'Pick a delivery target first',
+    fieldDeliverOnly: 'Deliver the payload only',
+    fieldDeliverOnlyHint: 'Forward the raw event to the target without running the agent.',
+    fieldSecret: 'Signing secret',
+    fieldSecretPlaceholder: 'leave empty to generate one',
+    fieldSecretHint: 'A generated secret is shown once and never again. Supply your own to keep a copy from the start.',
+    fieldCreated: 'Created',
+    fieldScript: 'Script',
+    secretSet: 'set (hidden)',
+    secretMissing: 'not set',
+    createHint: 'The name becomes the URL path, so it is lowercased and spaces become hyphens.',
+    create: 'Create',
+    creating: 'Creating…',
+    createFailed: 'Could not create the subscription',
+    created: (name: string) => `Created "${name}"`,
+    nameRequired: 'A name is required.',
+    nameInvalid: 'Use lowercase letters, digits, hyphens and underscores, starting with a letter or digit.',
+    nameNormalized: (name: string) => `Will be created as "${name}".`,
+    deliverOnlyNeedsTarget: 'Delivering the payload only needs a real target — pick something other than Log.',
+    createdTitle: (name: string) => `Secret for "${name}"`,
+    secretOnce: 'Signing secret',
+    secretOnceWarning: 'This is the only time this secret is shown. The gateway hides it on every read after this one.',
+    secretCopiedHint: 'Copied to the clipboard. Paste it somewhere safe before you close this.',
+    secretNotCopiedHint: 'Not copied yet. If the clipboard is unavailable, select the value and copy it by hand.',
+    secretRecovery: 'Lost it? Delete this subscription and create it again — or supply your own secret next time.',
+    secretLater: 'Not yet',
+    secretSaved: 'I have saved it',
+    enabledRow: (name: string) => `Enabled "${name}"`,
+    disabledRow: (name: string) => `Disabled "${name}"`,
+    toggleFailed: (name: string) => `Could not change "${name}"`,
+    deleteTitle: 'Delete subscription',
+    deleteDescPrefix: 'This permanently removes ',
+    deleteDescSuffix: ', along with its signing secret. This cannot be undone.',
+    deleting: 'Deleting…',
+    deleted: 'Subscription deleted',
+    deleteFailed: (name: string) => `Could not delete "${name}"`,
+    disabledTitle: 'Webhook receiver is off',
+    disabledBody:
+      'Webhooks are their own gateway platform. Turn it on to accept incoming HTTP events; chat channels are only needed when a subscription delivers to one.',
+    enable: 'Turn on webhooks',
+    enabling: 'Turning on…',
+    enableFailed: 'Could not turn on the webhook platform',
+    enabledRestartStarted:
+      'Enabled in the config, and a gateway restart was started. The receiver is not accepting events until that restart finishes.',
+    restartNotStarted: (detail: string) =>
+      `Enabled in the config, but the gateway restart did not start${detail} Restart it yourself before the receiver can come online.`,
+    restartGateway: 'Restart gateway',
+    restarting: 'Restarting…',
+    receiverNotLiveTitle: 'Receiver is not accepting events',
+    receiverNotLive: (state: string) =>
+      `The gateway reports the webhook platform as "${state}". Subscriptions below are stored, but nothing is listening yet.`,
+    receiverUnknown:
+      'This gateway does not report platform status, so whether the receiver is actually listening cannot be confirmed here — only that it is enabled in the config.',
+    pendingRestartBody:
+      'Webhooks are enabled in the config, but the running gateway started before that change and has not opened the receiver. Restart it.',
+    unknownState: 'unknown',
+    deliverOptions: {
+      log: 'Log',
+      telegram: 'Telegram',
+      discord: 'Discord',
+      slack: 'Slack',
+      email: 'Email',
+      github_comment: 'GitHub comment'
+    }
   }
 }

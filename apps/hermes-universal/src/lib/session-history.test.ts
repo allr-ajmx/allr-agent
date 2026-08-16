@@ -79,6 +79,149 @@ describe('toChatMessages', () => {
     expect(ids).toHaveLength(2)
     expect(new Set(ids).size).toBe(2)
   })
+
+  // MJXHRM-363. `lib/generated-images.ts` was ported with the rest of the media
+  // layer and then never called: a reloaded transcript showed a generated image
+  // TWICE — once in the tool slot, once as the markdown the model wrote to
+  // announce it. The prose around it has to survive.
+  describe('generated-image echoes', () => {
+    const generation = (prose: string) => [
+      msg({
+        role: 'assistant',
+        content: prose,
+        tool_calls: [{ id: 'g1', function: { name: 'image_generate', arguments: { prompt: 'a peacock' } } }]
+      }),
+      msg({
+        role: 'tool',
+        tool_call_id: 'g1',
+        content: JSON.stringify({ host_image: '/host/p.png', image: '/host/p.png', success: true })
+      })
+    ]
+
+    it('drops the image the model restated in prose, keeping its words', () => {
+      const out = toChatMessages(generation('Here is your peacock! ![peacock](/host/p.png) Enjoy.'))
+
+      expect(texts(out.flatMap(m => m.parts))).toEqual(['Here is your peacock! Enjoy.'])
+      expect(tools(out.flatMap(m => m.parts))).toHaveLength(1)
+    })
+
+    it('leaves prose alone when the generation failed, so nothing is silently eaten', () => {
+      const failed = [
+        msg({
+          role: 'assistant',
+          content: 'It refused: ![peacock](/host/p.png)',
+          tool_calls: [{ id: 'g1', function: { name: 'image_generate' } }]
+        }),
+        msg({ role: 'tool', tool_call_id: 'g1', content: JSON.stringify({ success: false }) })
+      ]
+
+      expect(texts(toChatMessages(failed).flatMap(m => m.parts))).toEqual(['It refused: ![peacock](/host/p.png)'])
+    })
+
+    it('leaves an ordinary tool turn’s markdown image alone', () => {
+      const out = toChatMessages([
+        msg({
+          role: 'assistant',
+          content: 'see ![chart](/host/c.png)',
+          tool_calls: [{ id: 't1', function: { name: 'read_file' } }]
+        }),
+        msg({ role: 'tool', tool_call_id: 't1', content: 'ok' })
+      ])
+
+      expect(texts(out.flatMap(m => m.parts))).toEqual(['see ![chart](/host/c.png)'])
+    })
+  })
+})
+
+// Scaffolding the model was fed, persisted as role:'user' and TAGGED by the
+// gateway so a surface renders the event rather than the text. Universal
+// rendered all three as the user's own words — and, because it counts the user
+// rows it renders to build `truncate_before_user_ordinal`, every rewind after
+// one of them cut at the wrong turn.
+describe('display-only timeline rows', () => {
+  it('renders the crash-recovery note as an event, not the user speaking', () => {
+    const out = toChatMessages([
+      msg({ role: 'user', content: 'first prompt' }),
+      msg({
+        role: 'user',
+        content: '[System note: Your previous turn was interrupted mid-run — …]\n\nfirst prompt',
+        display_kind: 'auto_continue'
+      }),
+      msg({ role: 'assistant', content: 'done' })
+    ])
+
+    expect(out.map(m => m.role)).toEqual(['user', 'system', 'assistant'])
+    expect(texts(out[1].parts)).toEqual(['resumed interrupted turn'])
+    // The ordinal space the gateway rewinds by counts one user turn here, and
+    // so does the transcript now.
+    expect(out.filter(m => m.role === 'user')).toHaveLength(1)
+  })
+
+  it('names a model switch and a delegation batch', () => {
+    const out = toChatMessages([
+      msg({ role: 'user', content: '[System: model changed to x]', display_kind: 'model_switch' }),
+      msg({
+        role: 'user',
+        content: 'background work finished',
+        display_kind: 'async_delegation_complete',
+        display_metadata: { task_count: 3 }
+      }),
+      msg({
+        role: 'user',
+        content: 'background work finished',
+        display_kind: 'async_delegation_complete'
+      })
+    ])
+
+    expect(out.map(m => m.role)).toEqual(['system', 'system', 'system'])
+    expect(out.flatMap(m => texts(m.parts))).toEqual([
+      'model changed',
+      '3 background agents finished',
+      'background agent work finished'
+    ])
+  })
+
+  // The gateway counts these in the ordinal space, so universal must keep
+  // rendering them as user turns or the two disagree again in the other
+  // direction.
+  it('leaves a skill invocation as the user turn it is', () => {
+    const out = toChatMessages([msg({ role: 'user', content: '/review', display_kind: 'skill_invocation' })])
+
+    expect(out.map(m => m.role)).toEqual(['user'])
+    expect(texts(out[0].parts)).toEqual(['/review'])
+  })
+
+  // The gateway's ordinal rule is "any STORED display_kind is scaffolding", so a
+  // kind this build has not learned is still outside the ordinal space. Rendered
+  // as the user's own words it would put a row in OUR count that the gateway's
+  // does not have, and every rewind after it would cut a later turn than the one
+  // clicked — MJXHRM-207 again, on the next kind the gateway ships.
+  it('keeps a display kind it does not recognise out of the user-turn space', () => {
+    const out = toChatMessages([
+      msg({ role: 'user', content: 'first prompt' }),
+      msg({ role: 'user', content: '[System: personality changed]', display_kind: 'personality_switch' }),
+      msg({ role: 'user', content: 'second prompt' })
+    ])
+
+    expect(out.map(m => m.role)).toEqual(['user', 'system', 'user'])
+    expect(texts(out[1].parts)).toEqual(['[System: personality changed]'])
+    // "second prompt" is user ordinal 1, exactly as the gateway counts it.
+    expect(out.filter(m => m.role === 'user')).toHaveLength(2)
+  })
+
+  it('keeps a timeline event from swallowing the tool calls around it', () => {
+    const out = toChatMessages([
+      msg({ role: 'assistant', content: '', tool_calls: [{ id: 't1', function: { name: 'grep', arguments: {} } }] }),
+      msg({ role: 'tool', tool_call_id: 't1', content: 'ok' }),
+      msg({ role: 'user', content: '[System: model changed]', display_kind: 'model_switch' }),
+      msg({ role: 'assistant', content: 'after' })
+    ])
+
+    expect(out.map(m => m.role)).toEqual(['assistant', 'system', 'assistant'])
+    expect(tools(out[0].parts)).toHaveLength(1)
+    // The later reply must not inherit the earlier turn's tool row.
+    expect(tools(out[2].parts)).toHaveLength(0)
+  })
 })
 
 describe('appendLiveSessionProjection', () => {
@@ -103,6 +246,48 @@ describe('appendLiveSessionProjection', () => {
     ])
   })
 
+  // A correction accepted mid-turn lives on the snapshot ALONGSIDE the prompt
+  // that started the turn, never over it. Dropping it here repainted the thread
+  // on reconnect with the user's correction missing — "my message vanished".
+  it('rebuilds mid-turn corrections between the prompt and the reply', () => {
+    const out = appendLiveSessionProjection([], {
+      inflight: { corrections: ['actually do this', '  '], streaming: true, user: 'do the thing' },
+      session_id: 's1'
+    })
+
+    expect(out.map(m => m.role)).toEqual(['user', 'user', 'assistant'])
+    expect(out[0]).toMatchObject({ parts: [{ type: 'text', text: 'do the thing' }] })
+    expect(out[1]).toMatchObject({ parts: [{ type: 'text', text: 'actually do this' }] })
+  })
+
+  // A correction can be the ONLY thing the snapshot carries (the prompt itself
+  // already committed to history before the turn was redirected).
+  it('projects a correction even with nothing else in flight', () => {
+    const out = appendLiveSessionProjection([], {
+      inflight: { corrections: ['actually do this'] },
+      session_id: 's1'
+    })
+
+    expect(out.map(m => m.role)).toEqual(['user', 'assistant'])
+  })
+
+  // MJXHRM-358: the projection now also runs on RECONNECT, against a slice that
+  // already holds the corrections the user typed in this process. Re-appending
+  // them would render every correction again on each drop / re-open.
+  it('does not re-project a correction the transcript already shows', () => {
+    const messages = [
+      { id: 'u1', role: 'user' as const, parts: [{ type: 'text' as const, text: 'do the thing' }] },
+      { id: 'u2', role: 'user' as const, parts: [{ type: 'text' as const, text: 'actually do this' }] }
+    ]
+
+    const out = appendLiveSessionProjection(messages, {
+      inflight: { corrections: ['actually do this'], streaming: true, user: 'do the thing' },
+      session_id: 's1'
+    })
+
+    expect(out.filter(m => m.role === 'user')).toHaveLength(2)
+  })
+
   it('projects an accepted queued prompt after the running turn', () => {
     const out = appendLiveSessionProjection([], {
       inflight: { streaming: true, user: 'first' },
@@ -112,6 +297,38 @@ describe('appendLiveSessionProjection', () => {
 
     expect(out.map(m => m.role)).toEqual(['user', 'assistant', 'user'])
     expect(out[2]).toMatchObject({ parts: [{ type: 'text', text: 'second' }] })
+  })
+
+  // MJXHRM-358. `_fail_inflight_turn` retains a failed turn precisely because
+  // its terminal `error` frame can die with the socket, so on a reconnect this
+  // snapshot is the ONLY copy of that failure the client gets. The row it forces
+  // into existence carried no error at all, so the turn came back looking like a
+  // healthy (truncated) reply with the spinner cleared.
+  it('carries a retained failure onto the projected row', () => {
+    const out = appendLiveSessionProjection([], {
+      inflight: {
+        assistant: 'I started to',
+        error: 'provider connection reset',
+        streaming: false,
+        user: 'do the thing'
+      },
+      session_id: 's1'
+    })
+
+    expect(out.map(m => m.role)).toEqual(['user', 'assistant'])
+    expect(out[1]).toMatchObject({ error: 'provider connection reset', pending: false })
+  })
+
+  // The partial text is optional — a turn can fail before it says anything, and
+  // the failure still has to reach the transcript.
+  it('projects a failure with no partial text at all', () => {
+    const out = appendLiveSessionProjection([], {
+      inflight: { assistant: '', error: 'context length exceeded', streaming: false, user: '' },
+      session_id: 's1'
+    })
+
+    expect(out).toHaveLength(1)
+    expect(out[0]).toMatchObject({ role: 'assistant', error: 'context length exceeded' })
   })
 })
 
@@ -227,5 +444,57 @@ describe('attached context', () => {
     const out = toChatMessages([msg({ role: 'user', content: 'hi\n--- Context Warnings ---\ntoo big' })])
 
     expect(texts(out[0].parts)).toEqual(['hi'])
+  })
+})
+
+describe('durable identity and reactions', () => {
+  const heart = { at: 1, author: 'user' as const, emoji: '❤️' }
+
+  it('carries the durable row id onto the hydrated message', () => {
+    const out = toChatMessages([msg({ role: 'user', content: 'hi', row_id: 41 })])
+
+    expect(out[0].rowId).toBe(41)
+  })
+
+  // Reactions ride the shared per-message JSON column rather than a side table,
+  // so they survive the row rewrites that rewind and compaction perform.
+  it('hydrates reactions out of display_metadata', () => {
+    const out = toChatMessages([
+      msg({ role: 'user', content: 'hi', row_id: 41, display_metadata: { reactions: [heart] } })
+    ])
+
+    expect(out[0].reactions).toEqual([heart])
+  })
+
+  it('ignores malformed reaction entries rather than rendering junk', () => {
+    const out = toChatMessages([
+      msg({
+        role: 'user',
+        content: 'hi',
+        display_metadata: { reactions: [heart, { emoji: 5 }, null, { author: 'bot', emoji: '🤖' }] }
+      })
+    ])
+
+    expect(out[0].reactions).toEqual([heart])
+  })
+
+  it('leaves both absent when the row carries neither', () => {
+    const out = toChatMessages([msg({ role: 'user', content: 'hi' })])
+
+    expect(out[0].rowId).toBeUndefined()
+    expect(out[0].reactions).toBeUndefined()
+  })
+
+  // Several stored rows fold into one assistant bubble. The bubble's durable
+  // identity has to be the FIRST row's — that is the row a reaction on it was
+  // written against — or a tapback would address the wrong message.
+  it('keeps the first row id when later rows fold into the same bubble', () => {
+    const out = toChatMessages([
+      msg({ role: 'assistant', content: 'working', row_id: 10, tool_calls: [{ function: { name: 'read_file' } }] }),
+      msg({ role: 'assistant', content: 'done', row_id: 11 })
+    ])
+
+    expect(out).toHaveLength(1)
+    expect(out[0].rowId).toBe(10)
   })
 })

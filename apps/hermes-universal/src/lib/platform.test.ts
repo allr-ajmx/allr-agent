@@ -1,6 +1,13 @@
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { detectMobileDevice, IS_ANDROID, IS_MOBILE, LOCAL_MODE_SUPPORTED, PLATFORM } from './platform'
+import {
+  detectMobileDevice,
+  IS_ANDROID,
+  IS_MOBILE,
+  IS_NATIVE_MOBILE,
+  LOCAL_MODE_SUPPORTED,
+  PLATFORM
+} from './platform'
 
 // In jsdom there is no Tauri runtime, so platform() throws and the helper falls
 // back to 'unknown'. jsdom's UA names no mobile device and maxTouchPoints is 0
@@ -14,10 +21,54 @@ describe('platform gating (no Tauri runtime)', () => {
   it('is not detected as mobile', () => {
     expect(IS_ANDROID).toBe(false)
     expect(IS_MOBILE).toBe(false)
+    expect(IS_NATIVE_MOBILE).toBe(false)
   })
 
   it('allows local mode off-device', () => {
     expect(LOCAL_MODE_SUPPORTED).toBe(true)
+  })
+})
+
+// IS_NATIVE_MOBILE gates the sign-in flows that navigate the app away and back
+// (store/cloud.ts `cloudSignIn`, store/connection.ts `beginOAuthLogin`). Getting it
+// wrong on either side is silent and costly: false-negative loses the resume marker, so
+// the user finishes a login and lands back on a blank picker; false-positive parks a
+// marker on desktop, where the promise DOES resolve, and the next boot jumps to a Cloud
+// card nobody asked for. So pin both named phones and the unnamed device separately.
+describe('IS_NATIVE_MOBILE', () => {
+  const loadOn = async (ua: string, maxTouchPoints: number, width: number) => {
+    vi.resetModules()
+    vi.stubGlobal('navigator', { maxTouchPoints, userAgent: ua })
+    vi.stubGlobal('window', { ...globalThis.window, innerWidth: width })
+
+    return import('./platform')
+  }
+
+  beforeEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('is true for iOS — the platform this gate was widened for', async () => {
+    const m = await loadOn('Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)', 5, 390)
+
+    expect(m.IS_IOS).toBe(true)
+    expect(m.IS_NATIVE_MOBILE).toBe(true)
+  })
+
+  it('is true for Android', async () => {
+    const m = await loadOn('Mozilla/5.0 (Linux; Android 14; Pixel 8)', 5, 412)
+
+    expect(m.IS_ANDROID).toBe(true)
+    expect(m.IS_NATIVE_MOBILE).toBe(true)
+  })
+
+  // 'generic' means the sniff saw a touch device it could NOT name. IS_MOBILE takes it
+  // (layout is safe to get wrong); a native bridge is not, so this one must stay false.
+  it('is false for an unnamed thin touch device, which IS_MOBILE still takes', async () => {
+    const m = await loadOn('Some/UA', 5, 400)
+
+    expect(m.IS_MOBILE).toBe(true)
+    expect(m.IS_NATIVE_MOBILE).toBe(false)
   })
 })
 

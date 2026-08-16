@@ -136,9 +136,9 @@ describe('RemotePtySocket reattach', () => {
     instances[0].handlers.onOpen()
     // What the server actually sends: the whole sentence as a coloured text frame…
     instances[0].handlers.onText(
-      '\r\n[31mTerminal unavailable: the gateway is network-exposed and the shell backend ' +
+      '\r\n\u001b[31mTerminal unavailable: the gateway is network-exposed and the shell backend ' +
         'is unsandboxed (terminal.backend: local). Set terminal.backend to docker/ssh, bind the ' +
-        'dashboard to loopback, or set terminal.allow_unsandboxed_shell: true.[0m\r\n'
+        'dashboard to loopback, or set terminal.allow_unsandboxed_shell: true.\u001b[0m\r\n'
     )
     // …then the same text on the close frame, clipped mid-word by the 123-byte cap.
     instances[0].handlers.onClose(
@@ -153,7 +153,7 @@ describe('RemotePtySocket reattach', () => {
     expect(end.detail).toContain('allow_unsandboxed_shell')
     expect(end.detail).not.toContain('...')
     // ANSI colouring is stripped — this goes into a text panel, not a terminal.
-    expect(end.detail).not.toContain('[')
+    expect(end.detail).not.toContain('\u001b[')
   })
 
   it('falls back to the close reason when no banner was sent', async () => {

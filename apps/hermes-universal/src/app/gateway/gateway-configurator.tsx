@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Tip } from '@/components/ui/tooltip'
 import { type Translations, useI18n } from '@/i18n'
-import { type AuthProvider, fetchAuthProviders } from '@/lib/auth'
+import { $oauthSession, type AuthProvider, fetchAuthProviders } from '@/lib/auth'
 import { openExternalLink } from '@/lib/external-link'
 import { AlertCircle, Check, Cloud, Globe, HelpCircle, Loader2, LogIn, Monitor, RefreshCw, Terminal } from '@/lib/icons'
 import { LOCAL_MODE_SUPPORTED } from '@/lib/platform'
@@ -23,6 +23,7 @@ import {
   $cloudError,
   $cloudOrg,
   $cloudOrgs,
+  $portalResume,
   $portalSignedIn,
   changeCloudOrg,
   type CloudAgent,
@@ -46,7 +47,7 @@ import {
   signOut
 } from '@/store/connection'
 import { type Connection, type GatewayMode } from '@/store/gateway-config'
-import { loadGatewayTarget, saveGatewayTarget, takePendingPortal } from '@/store/gateway-restore'
+import { loadGatewayTarget, saveGatewayTarget } from '@/store/gateway-restore'
 import { softSwitchGateway } from '@/store/gateway-soft-switch'
 import { $gatewayMode, setGatewayMode } from '@/store/gateway-switch'
 import { broadcastGatewaySwitch } from '@/store/gateway-switch-broadcast'
@@ -99,7 +100,7 @@ function ModeCard({
   return (
     <button
       className={cn(
-        'flex h-full min-h-0 w-full flex-col p-3 text-left disabled:cursor-not-allowed disabled:opacity-50',
+        'flex h-full min-h-0 w-full flex-col p-3 text-start disabled:cursor-not-allowed disabled:opacity-50',
         selectableCardClass({ active, prominent: true })
       )}
       onClick={onSelect}
@@ -118,7 +119,7 @@ function ModeCard({
             </span>
           </Tip>
         ) : null}
-        {active ? <Check className="ml-auto size-3.5 shrink-0 text-primary" /> : null}
+        {active ? <Check className="ms-auto size-3.5 shrink-0 text-primary" /> : null}
       </div>
       <p className="mt-1.5 flex-1 text-[length:var(--conversation-caption-font-size)] leading-(--conversation-caption-line-height) text-(--ui-text-tertiary)">
         {description}
@@ -130,9 +131,9 @@ function ModeCard({
 type ProbeStatus = 'idle' | 'probing' | 'done' | 'error'
 
 const CLOUD_STATUS_DOT: Record<string, string> = {
-  active: 'bg-green-500',
-  degraded: 'bg-yellow-500',
-  down: 'bg-red-500',
+  active: 'bg-(--ui-green)',
+  degraded: 'bg-(--ui-yellow)',
+  down: 'bg-(--ui-red)',
   unknown: 'bg-muted-foreground'
 }
 
@@ -151,6 +152,7 @@ export function GatewayConfigurator({
 
   const connection = useStore($connection)
   const phase = useStore($connectionPhase)
+  const oauthSession = useStore($oauthSession)
 
   // Desktop parity: the selected mode is *pending* local state (seeded from the
   // persisted mode), not a live switch. Nothing disconnects on card select; the
@@ -160,11 +162,16 @@ export function GatewayConfigurator({
   // ...with one exception: an Android portal sign-in coming back. That round-trip reloaded
   // the SPA, and $gatewayMode still holds whatever we were connected to — so without this
   // the user returns from the portal to the *remote* card, with no sign that the login
-  // they just completed went anywhere. Consumed in an effect rather than the state
-  // initializer above because the marker is one-shot and initializers can run twice.
-  // Selecting cloud is enough; the `pendingMode === 'cloud'` effect below discovers.
+  // they just completed went anywhere.
+  //
+  // The durable marker is read at BOOT (store/cloud.ts `resumePortalSignIn`), not here:
+  // this effect only runs when a configurator mounts, and the sign-in can be started from
+  // the statusbar popover, which the reload closes. What is left here is the in-memory
+  // verdict, cleared on the first mount that acts on it. Selecting cloud is enough — the
+  // `pendingMode === 'cloud'` effect below discovers.
   useEffect(() => {
-    if (takePendingPortal()) {
+    if ($portalResume.get()) {
+      $portalResume.set(false)
       setPendingMode('cloud')
     }
   }, [])
@@ -348,6 +355,12 @@ export function GatewayConfigurator({
   // are leaving — and hides the Sign-in button for the one you are trying to reach.
   const oauthConnected =
     remoteReady && connection?.authMode === 'oauth' && normalizeBaseUrl(trimmedUrl) === connection.baseUrl
+
+  // WHICH way you are signed in. Two sign-in routes now exist — the system browser
+  // (RFC 8252, token in the OS keyring) and the in-app cookie cascade — and once
+  // you are through, nothing on this screen distinguished them. Gated on the same
+  // base comparison as `oauthConnected` for the same reason.
+  const sessionKind = oauthConnected && oauthSession?.base === connection?.baseUrl ? oauthSession.kind : null
 
   // Which auth control the remote panel shows. Desktop parity: derive it from a
   // live probe while the user edits a URL, ELSE from the live connection, ELSE from
@@ -781,6 +794,13 @@ export function GatewayConfigurator({
                     <Pill tone="primary">
                       <Check className="size-3" /> {g.signedIn}
                     </Pill>
+                    {sessionKind ? (
+                      <Tip label={sessionKind === 'native' ? g.sessionKindNativeHint : g.sessionKindCookieHint}>
+                        <span className="cursor-help">
+                          <Pill>{sessionKind === 'native' ? g.sessionKindNative : g.sessionKindCookie}</Pill>
+                        </span>
+                      </Tip>
+                    ) : null}
                     <Button disabled={busy} onClick={() => void doSignOut()} variant="outline">
                       {busy ? <Loader2 className="animate-spin" /> : null}
                       {g.signOut}
@@ -834,7 +854,7 @@ export function GatewayConfigurator({
         <div className={cn('flex flex-wrap items-center justify-end gap-4', isEmbedded ? 'mt-4' : 'mt-6')}>
           {pendingMode === 'remote' ? (
             <Button
-              className="mr-auto"
+              className="me-auto"
               disabled={testing || !trimmedUrl}
               onClick={() => void testRemote()}
               size="sm"
@@ -846,7 +866,7 @@ export function GatewayConfigurator({
           ) : null}
           {pendingMode === 'ssh' ? (
             <Button
-              className="mr-auto"
+              className="me-auto"
               disabled={testing || !trimmedSshHost}
               onClick={() => void testSsh()}
               size="sm"
@@ -1055,7 +1075,7 @@ function CloudPanel({
                         action={
                           connected ? (
                             <Pill tone="primary">
-                              <Check className="mr-1 inline size-3" />
+                              <Check className="me-1 inline size-3" />
                               {g.cloudConnectedPill}
                             </Pill>
                           ) : (

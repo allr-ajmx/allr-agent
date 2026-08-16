@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
+import { useOnProfileSwitch } from '@/app/hooks/use-on-profile-switch'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -9,23 +10,18 @@ import { Textarea } from '@/components/ui/textarea'
 import { getHermesConfigSchema, saveHermesConfig } from '@/hermes'
 import { useI18n } from '@/i18n'
 import { cn } from '@/lib/utils'
+import { reconcileApprovalModeForProfile } from '@/store/approval-mode'
 import { notifyError } from '@/store/notifications'
+import { $activeGatewayProfile } from '@/store/profile'
 import { repoDiscoveryPolicyFromConfig, repoDiscoveryPolicySignature, scanAndRecordRepos } from '@/store/projects'
 import type { ConfigFieldSchema, HermesConfigRecord } from '@/types/hermes'
 
 import { ComboboxInput } from './combobox-input'
-import {
-  CONTROL_TEXT,
-  EMPTY_SELECT_VALUE,
-  FIELD_DESCRIPTIONS,
-  FIELD_LABELS,
-  FREE_INPUT_KEYS,
-  SECTIONS
-} from './constants'
+import { CONTROL_TEXT, EMPTY_SELECT_VALUE, FIELD_DESCRIPTIONS, FIELD_LABELS, FREE_INPUT_KEYS } from './constants'
 import { FallbackModelsField } from './fallback-models-field'
 import { fieldCopyForSchemaKey } from './field-copy'
-import { enumOptionsFor, getNested, prettyName, setNested } from './helpers'
-import { EmptyState, ListRow, LoadingState, SettingsContent } from './primitives'
+import { enumOptionsFor, getNested, prettyName, sectionFieldEntries, setNested } from './helpers'
+import { EmptyState, ListRow, SettingsContent, SettingsSkeleton } from './primitives'
 import { SearchableSelect } from './searchable-select'
 import { setHermesConfigCache, useHermesConfigRecord } from './use-config-record'
 import { useDeepLinkHighlight } from './use-deep-link-highlight'
@@ -33,6 +29,28 @@ import { useDeepLinkHighlight } from './use-deep-link-highlight'
 // Shared by the row wrapper and the deep-link lookup so a palette jump can
 // never drift from the id the row actually renders.
 const fieldElementId = (key: string) => `setting-field-${key}`
+
+/**
+ * Approval mode has three writers in this app — Settings → Safety (this file,
+ * `PUT /api/config`), the statusbar's Zap menu (`config.set`), and `/approvals`
+ * (`slash.exec`) — and exactly one cached reader, `$approvalModes`, which the
+ * menu fills once when it mounts and nothing else ever invalidates. So a mode
+ * changed here left the bar reporting the old one for the rest of the session,
+ * and the bar's next pick wrote that stale value straight back over this save.
+ *
+ * The record we just persisted IS the new truth, so reconcile from it rather
+ * than spending a round trip. Only when it actually carries a value: a config
+ * with the key unset must keep whatever default the gateway resolves (which is
+ * NOT this cache's), or every save of an unrelated section would slam the bar to
+ * the normalizer's fallback.
+ */
+function reconcileSavedApprovalMode(config: HermesConfigRecord): void {
+  const saved = getNested(config, 'approvals.mode')
+
+  if (typeof saved === 'string' && saved.trim()) {
+    reconcileApprovalModeForProfile($activeGatewayProfile.get(), saved)
+  }
+}
 
 // The schema-driven config field: renders the right control for the schema type
 // and calls onChange with the parsed value. Ported from desktop config-settings.tsx.
@@ -155,7 +173,12 @@ export function ConfigField({
                 ? (optionLabels?.[option] ?? prettyName(option))
                 : schemaKey === 'display.personality'
                   ? c.none
-                  : c.noneParen}
+                  : // The empty `memory.provider` sentinel means built-in memory, not
+                    // "memory off" — built-in is not a provider plugin (#49513), so
+                    // "(none)" reads as a disabled subsystem it never was.
+                    schemaKey === 'memory.provider'
+                    ? c.builtinOnly
+                    : c.noneParen}
             </SelectItem>
           ))}
         </SelectContent>
@@ -283,6 +306,7 @@ export function ConfigSection({
   const configSeeded = useRef(false)
 
   // Seed the local draft once, the first time the shared record lands.
+  // Background refetches thereafter must not clobber in-progress edits.
   useEffect(() => {
     if (loadedConfig && !configSeeded.current) {
       configSeeded.current = true
@@ -290,6 +314,20 @@ export function ConfigSection({
       setConfig(loadedConfig)
     }
   }, [loadedConfig])
+
+  // A profile switch invalidates (but doesn't clear) the shared config query and
+  // leaves this panel mounted, so the local draft would otherwise keep profile
+  // A's data and autosave it into B — and `saveHermesConfig` REPLACES the whole
+  // record, so that is B's config overwritten wholesale, not a merge. Drop the
+  // seed + draft (re-seeds from B's refetch) and zero saveVersion so the pending
+  // debounced autosave is cancelled by its effect cleanup.
+  useOnProfileSwitch(() => {
+    configSeeded.current = false
+    savedDiscoverySignatureRef.current = undefined
+    setConfig(null)
+    saveVersionRef.current = 0
+    setSaveVersion(0)
+  })
 
   // Debounced autosave. saveHermesConfig REPLACES the whole record, so the draft
   // (a full clone edited via setNested) is what we persist.
@@ -305,6 +343,7 @@ export function ConfigSection({
         try {
           await saveHermesConfig(config)
           setHermesConfigCache(config)
+          reconcileSavedApprovalMode(config)
 
           if (saveVersionRef.current === v) {
             const discoverySignature = repoDiscoveryPolicySignature(repoDiscoveryPolicyFromConfig(config))
@@ -333,14 +372,12 @@ export function ConfigSection({
   }
 
   const sectionFields = useMemo(() => {
-    if (!schema) {
+    if (!schema || !config) {
       return [] as [string, ConfigFieldSchema][]
     }
 
-    const section = SECTIONS.find(s => s.id === sectionId)
-
-    return (section?.keys ?? []).flatMap(k => (schema[k] ? [[k, schema[k]] as [string, ConfigFieldSchema]] : []))
-  }, [schema, sectionId])
+    return sectionFieldEntries(schema, config).get(sectionId) ?? []
+  }, [schema, config, sectionId])
 
   // Deep-link target from the command palette (?field=<key>).
   const fieldReady = useCallback((key: string) => sectionFields.some(([k]) => k === key), [sectionFields])
@@ -367,7 +404,13 @@ export function ConfigSection({
       )
     }
 
-    return <LoadingState label={c.loading} />
+    // The header slot (Settings -> Model) owns its own DOM-shaped skeleton, so
+    // keep it mounted and let it load in parallel with the schema.
+    return (
+      <SettingsSkeleton sections={[{ rows: 6 }]}>
+        {headerSlot && <div className="pt-1">{headerSlot}</div>}
+      </SettingsSkeleton>
+    )
   }
 
   const visibleFields = fieldFilter ? sectionFields.filter(([key]) => fieldFilter(key, config)) : sectionFields

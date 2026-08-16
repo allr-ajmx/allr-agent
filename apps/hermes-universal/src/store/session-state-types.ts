@@ -161,6 +161,47 @@ export function setSessionDisposeHook(hook: (key: string, state: ClientSessionSt
   disposeHook = hook
 }
 
+/**
+ * State keyed by session key that lives OUTSIDE the slice — the in-flight turn
+ * (store/turn-lifecycle.ts) and the blocking prompts (store/prompts.ts).
+ *
+ * They need the same key moves the slice makes: a resume mints a fresh runtime
+ * id for the same conversation, and anything still keyed on the old id is
+ * stranded under a key nothing reads. That is how a clarify request survived
+ * the reconnect on the wire but vanished from the UI — the agent stayed parked
+ * in `_block` with no way to answer it.
+ *
+ * A hook rather than a direct call because those modules import THIS one; the
+ * dependency has to point one way.
+ */
+interface SessionKeyHooks {
+  drop: (key: string) => void
+  /** `previous` is the slice AS IT WAS before the move — the only copy of the
+   *  turn the outgoing key was mid-way through, which a hydrating rekey
+   *  overwrites with the backend's answer. */
+  rekey: (fromKey: string, toKey: string, previous: ClientSessionState) => void
+}
+
+const sessionKeyHooks = new Set<SessionKeyHooks>()
+
+export function addSessionKeyHooks(hooks: SessionKeyHooks): () => void {
+  sessionKeyHooks.add(hooks)
+
+  return () => {
+    sessionKeyHooks.delete(hooks)
+  }
+}
+
+function fireSessionKeyHook(run: (hooks: SessionKeyHooks) => void): void {
+  for (const hooks of sessionKeyHooks) {
+    try {
+      run(hooks)
+    } catch {
+      /* keyed side-state must never break the slice write */
+    }
+  }
+}
+
 // --- Stored id → session key reverse index --------------------------------
 //
 // Callers navigate by STORED id (a sidebar row, a tile, a bubble) but slices are
@@ -308,12 +349,31 @@ export function rekeySession(fromKey: string, toKey: string, patch?: Partial<Cli
   const prevAtTarget = states[toKey] ?? null
   const next = { ...moving, ...patch, lastTouchedAt: Date.now() }
   const { [fromKey]: _moved, ...rest } = states
-  $sessionStates.set({ ...rest, [toKey]: next })
 
-  // Carry every alias across, not just the current stored id — a session that
-  // rotated before being rekeyed still has callers holding its older ids.
+  // BEFORE the publish, not after. The reverse index is not an atom — it is a
+  // plain map that subscribers CONSULT while they react to the publish, and
+  // `$sessionStates.set` notifies synchronously. Remapping afterwards meant
+  // every `runtimeKeyForStoredSession` call made from inside that notification
+  // resolved the stored id to the OLD key, found it missing from the map it had
+  // just been handed, and took the self-healing branch — which DELETES the index
+  // entry. The remap below then had nothing left to move, and although
+  // `indexStoredId` re-seeded the entry a statement later, the damage was
+  // already done: `tileRuntimeKey` / `bubbleRuntimeKey` / `$focusedRuntimeId`
+  // are memoized computeds, so each one had already latched its fallback (a
+  // tile's cached `runtimeId`, i.e. the DEAD key) and would not recompute until
+  // some unrelated write touched the map again. A tile recovered while idle
+  // therefore went blank — the promise this function is named for, "no
+  // subscriber ever observes a frame where the session exists under neither
+  // key", held for the map and not for the index that addresses it (MJXHRM-308).
+  //
+  // Nothing observes the window between these two statements: neither writes an
+  // atom, so there is no notification to run a reader in it.
   remapStoredIdIndex(fromKey, toKey)
   indexStoredId(prevAtTarget, next, toKey)
+
+  $sessionStates.set({ ...rest, [toKey]: next })
+
+  fireSessionKeyHook(hooks => hooks.rekey(fromKey, toKey, moving))
 
   if ($activeSessionKey.get() === fromKey) {
     $activeSessionKey.set(toKey)
@@ -338,5 +398,6 @@ export function dropSessionState(key: string): void {
 
   const { [key]: _dropped, ...rest } = current
   $sessionStates.set(rest)
+  fireSessionKeyHook(hooks => hooks.drop(key))
   disposeHook?.(key, state)
 }

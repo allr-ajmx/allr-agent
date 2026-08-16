@@ -1,0 +1,76 @@
+import { type FC, useMemo } from 'react'
+
+import { deriveChangedFiles } from '@/components/assistant-ui/thread/changed-files'
+import { WIDGET_SHELL_CLASS } from '@/components/chat/widget-shell'
+import { DiffCount } from '@/components/ui/diff-count'
+import { FadeScroll } from '@/components/ui/fade-scroll'
+import { FileTypeIcon } from '@/components/ui/file-type-icon'
+import { Tip } from '@/components/ui/tooltip'
+import { useI18n } from '@/i18n'
+import { cn } from '@/lib/utils'
+import { useDisplayPath } from '@/store/display-home'
+import { openReviewForPath, revealReview } from '@/store/review'
+
+// ~5 rows. A turn that rewrites twenty files should still read as one card in
+// the transcript, not a wall the user has to scroll past to reach the composer.
+const MAX_ROWS_HEIGHT = '9.375rem'
+
+/**
+ * Cursor-style "N files changed" summary closing out the newest assistant turn:
+ * one row per file it edited with that file's +/-, and a Review action opening
+ * the diff pane (⌘G). A row click opens that file's diff directly.
+ *
+ * Wears the shared `WIDGET_SHELL_CLASS` so it reads as the same panel as the
+ * transcript's other inline widgets rather than inventing its own chrome.
+ *
+ * No worktree scope argument, unlike desktop: `revealReview` / `openReviewForPath`
+ * target `$effectiveCwd`, which already follows the focused tile — see the
+ * comment on `revealReview` in store/review.ts.
+ */
+export const ChangedFilesCard: FC<{ parts: readonly unknown[] }> = ({ parts }) => {
+  const { t } = useI18n()
+  const copy = t.assistant.thread
+  const files = useMemo(() => deriveChangedFiles(parts), [parts])
+  // Bound to the GATEWAY's home: the run edited these files on its machine.
+  const displayPath = useDisplayPath()
+
+  if (files.length === 0) {
+    return null
+  }
+
+  return (
+    <div
+      className={cn(WIDGET_SHELL_CLASS, 'mt-1.5 text-[length:var(--conversation-tool-font-size)]')}
+      data-slot="aui_changed-files"
+    >
+      <div className="flex items-center gap-2">
+        <span className="min-w-0 flex-1 truncate text-(--ui-text-primary)">{copy.filesChanged(files.length)}</span>
+        <button
+          className="shrink-0 cursor-pointer text-(--ui-text-tertiary) transition-colors hover:text-(--ui-text-primary)"
+          onClick={() => revealReview()}
+          type="button"
+        >
+          {copy.reviewChanges}
+        </button>
+      </div>
+      <FadeScroll className="-mx-1.5 mt-1.5 flex flex-col px-1.5" maxHeight={MAX_ROWS_HEIGHT}>
+        {files.map(file => (
+          // Tip, not a native title=: universal renders in WebKitGTK and on
+          // touch, where a native tooltip is either mistimed or unreachable
+          // (there's a test enforcing this on every button).
+          <Tip key={file.path} label={displayPath(file.path)}>
+            <button
+              className="row-hover flex shrink-0 items-center gap-2 rounded-md px-1.5 py-1 text-start"
+              onClick={() => void openReviewForPath(file.path)}
+              type="button"
+            >
+              <FileTypeIcon className="shrink-0 text-(--ui-text-tertiary)" path={file.path} size="0.875rem" />
+              <span className="min-w-0 flex-1 truncate text-(--ui-text-secondary)">{file.name}</span>
+              <DiffCount added={file.added} removed={file.removed} />
+            </button>
+          </Tip>
+        ))}
+      </FadeScroll>
+    </div>
+  )
+}

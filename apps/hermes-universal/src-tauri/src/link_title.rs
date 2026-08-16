@@ -103,9 +103,16 @@ fn og_title(html: &str) -> Option<String> {
     while let Some(rel) = lower[from..].find("og:title") {
         let pos = from + rel;
         let tag_start = lower[..pos].rfind('<').unwrap_or(0);
-        let tag_end = lower[pos..].find('>').map(|end| pos + end).unwrap_or(lower.len());
+        let tag_end = lower[pos..]
+            .find('>')
+            .map(|end| pos + end)
+            .unwrap_or(lower.len());
 
-        if let Some(content) = attr_value(&lower[tag_start..tag_end], &html[tag_start..tag_end], "content") {
+        if let Some(content) = attr_value(
+            &lower[tag_start..tag_end],
+            &html[tag_start..tag_end],
+            "content",
+        ) {
             let value = content.trim();
 
             if !value.is_empty() {
@@ -140,7 +147,9 @@ fn attr_value(tag_lower: &str, tag_orig: &str, name: &str) -> Option<String> {
         Some(tag_orig[value_start..value_start + end_rel].to_string())
     } else {
         let rest = &tag_orig[start..];
-        let end = rest.find(|c: char| c.is_whitespace() || c == '>').unwrap_or(rest.len());
+        let end = rest
+            .find(|c: char| c.is_whitespace() || c == '>')
+            .unwrap_or(rest.len());
 
         Some(rest[..end].to_string())
     }
@@ -175,12 +184,18 @@ mod tests {
 
     #[test]
     fn reads_the_title_tag() {
-        assert_eq!(extract_title("<html><head><TITLE>Hello  World</TITLE></head>"), "Hello  World");
+        assert_eq!(
+            extract_title("<html><head><TITLE>Hello  World</TITLE></head>"),
+            "Hello  World"
+        );
     }
 
     #[test]
     fn decodes_entities() {
-        assert_eq!(extract_title("<title>Tom &amp; Jerry &lt;3</title>"), "Tom & Jerry <3");
+        assert_eq!(
+            extract_title("<title>Tom &amp; Jerry &lt;3</title>"),
+            "Tom & Jerry <3"
+        );
     }
 
     #[test]
