@@ -2,7 +2,7 @@ import { invoke } from '@tauri-apps/api/core'
 
 import { portalAgentSignIn, portalLogout } from '@/lib/auth'
 import { errorText } from '@/lib/error-text'
-import { IS_ANDROID } from '@/lib/platform'
+import { IS_NATIVE_MOBILE } from '@/lib/platform'
 import { atom } from '@/store/atom'
 import { connectCloud } from '@/store/connection'
 import { saveGatewayTarget, savePendingPortal, takePendingPortal } from '@/store/gateway-restore'
@@ -51,7 +51,7 @@ export const $cloudError = atom<string | null>(null)
 export const $cloudConnectingId = atom<string | null>(null)
 
 /**
- * Set for this run when the boot followed an Android portal sign-in round-trip, so
+ * Set for this run when the boot followed a mobile portal sign-in round-trip, so
  * the next gateway panel to open lands on the Cloud card instead of whatever mode
  * was persisted. Read (and cleared) by GatewayConfigurator.
  *
@@ -121,7 +121,7 @@ export async function refreshCloud(): Promise<void> {
 }
 
 /**
- * Finish an Android portal sign-in that came back through a page reload.
+ * Finish a mobile portal sign-in that came back through a page reload.
  *
  * `cloudSignIn` parks a one-shot marker before handing off to Rust, because the
  * round-trip destroys this JS context (see there). Something has to pick it back up,
@@ -154,15 +154,15 @@ export async function resumePortalSignIn(): Promise<void> {
 /**
  * Interactive portal sign-in, then discover.
  *
- * On ANDROID this may never return: the Rust command navigates the calling webview to the
- * portal and back, which destroys this JS context (same round-trip as the gateway OAuth —
- * see store/connection.ts `beginOAuthLogin`). The marker persisted first is what puts the
- * gateway panel back on the cloud card after the reload.
+ * On ANDROID AND iOS this may never return: the Rust command navigates the calling webview
+ * to the portal and back, which destroys this JS context (same round-trip as the gateway
+ * OAuth — see store/connection.ts `beginOAuthLogin`). The marker persisted first is what
+ * puts the gateway panel back on the cloud card after the reload.
  */
 export async function cloudSignIn(): Promise<void> {
   $cloudError.set(null)
 
-  if (IS_ANDROID) {
+  if (IS_NATIVE_MOBILE) {
     savePendingPortal()
   }
 

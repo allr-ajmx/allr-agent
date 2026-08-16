@@ -74,6 +74,19 @@ const MOBILE_DEVICE: 'ios' | 'android' | 'generic' | null =
 export const IS_ANDROID = MOBILE_DEVICE === 'android'
 export const IS_IOS = MOBILE_DEVICE === 'ios'
 export const IS_MOBILE = MOBILE_DEVICE !== null
+
+// The OSes where an interactive sign-in TAKES OVER the calling webview instead of
+// opening a window beside it. Neither phone can host a usable second webview window —
+// Android's wry attaches via `setContentView` and could never close one; iOS's tao sizes
+// the UIWindow to the requested `inner_size` pinned top-left, which rendered the login as
+// a partial overlay with no chrome. So Rust navigates the app away to the login page and
+// back (src-tauri/src/{oauth,cloud}.rs), which destroys this JS context — and every
+// caller of such a sign-in must park a one-shot resume marker BEFORE handing off.
+//
+// Built from the PRECISE flags rather than IS_MOBILE on purpose: 'generic' means the UA
+// sniff saw a thin touch device it could not name, and a device we cannot name is one
+// whose native bridge we must not assume.
+export const IS_NATIVE_MOBILE = IS_ANDROID || IS_IOS
 // True when a real Tauri runtime is present (any target). `platform()` only
 // returns 'unknown' when it throws for lack of a runtime (plain-browser dev /
 // vitest), so this cleanly distinguishes "native app" from "web/test".

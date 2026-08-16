@@ -10,7 +10,7 @@ import {
 } from '@/lib/auth'
 import { errorText } from '@/lib/error-text'
 import { loadString, saveString } from '@/lib/persist'
-import { IS_ANDROID } from '@/lib/platform'
+import { IS_NATIVE_MOBILE } from '@/lib/platform'
 import { reconnectBackoffDelayMs } from '@/lib/reconnect-backoff'
 import { clearSecrets, loadSecrets, loadSshSecrets, saveSecrets, type Secrets } from '@/lib/secure-store'
 import { persistSessionCookies } from '@/lib/session-persist'
@@ -130,15 +130,16 @@ export async function probeStatus(rawUrl: string): Promise<StatusInfo> {
 /**
  * Drive the interactive gateway OAuth sign-in.
  *
- * On desktop/iOS this opens a dedicated sign-in window and the promise resolves when the
- * session lands. On ANDROID the Rust command navigates the MAIN webview to the login and
- * back (a second window can't be dismissed there — see src-tauri/src/oauth.rs); that
- * navigation destroys this JS context, so `oauthLogin` never resolves here. We persist a
- * one-shot resume marker FIRST so the post-reload boot (`autoRestoreConnection`) finishes
- * the connect. Callers must treat this as "may never return" on Android.
+ * On desktop this opens a dedicated sign-in window and the promise resolves when the
+ * session lands. On ANDROID AND iOS the Rust command navigates the CALLING webview to the
+ * login and back (neither phone can host a dismissable second window — see
+ * src-tauri/src/oauth.rs); that navigation destroys this JS context, so `oauthLogin` never
+ * resolves here. We persist a one-shot resume marker FIRST so the post-reload boot
+ * (`autoRestoreConnection`) finishes the connect. Callers must treat this as "may never
+ * return" on mobile.
  */
 async function beginOAuthLogin(base: string, provider?: string, username?: string): Promise<void> {
-  if (IS_ANDROID) {
+  if (IS_NATIVE_MOBILE) {
     savePendingOAuth({ base, provider, username })
   }
 
@@ -182,7 +183,7 @@ export async function connect(input: ConnectInput): Promise<void> {
         const live = await oauthStatus(base).catch(() => ({ signedIn: false }))
 
         if (!live.signedIn) {
-          // On Android this navigates the app away and never returns here — the reload
+          // On mobile this navigates the app away and never returns here — the reload
           // resumes via the pending marker (see beginOAuthLogin / autoRestoreConnection).
           await beginOAuthLogin(base, oauthProvider, input.username)
         }

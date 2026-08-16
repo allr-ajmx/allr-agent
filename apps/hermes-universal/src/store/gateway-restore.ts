@@ -83,15 +83,15 @@ export function clearGatewayTarget(): void {
   removeKey(TARGET_KEY)
 }
 
-// --- Android OAuth resume marker --------------------------------------------------
-// On Android an interactive sign-in navigates the CALLING webview to the login page and
-// back (a second window can't be dismissed there — see src-tauri/src/oauth.rs), which
-// reloads the SPA and destroys the JS mid-connect. We stash the connect intent here
-// BEFORE navigating away so the fresh boot can finish it (the Rust cookie jar is
-// in-memory and survives the reload). localStorage is per-origin and the app origin is
-// unchanged across the round-trip, so the marker survives. One-shot: the resume
-// reads-and-clears it. The portal (Hermes Cloud) login does the same round-trip and gets
-// its own marker below.
+// --- Mobile OAuth resume marker -----------------------------------------------------
+// On Android AND iOS an interactive sign-in navigates the CALLING webview to the login
+// page and back (neither phone can host a dismissable second window — see
+// src-tauri/src/oauth.rs), which reloads the SPA and destroys the JS mid-connect. We
+// stash the connect intent here BEFORE navigating away so the fresh boot can finish it
+// (the Rust cookie jar is in-memory and survives the reload). localStorage is per-origin
+// and the app origin is unchanged across the round-trip, so the marker survives.
+// One-shot: the resume reads-and-clears it. The portal (Hermes Cloud) login does the same
+// round-trip and gets its own marker below.
 
 const PENDING_OAUTH_KEY = 'hermes.oauth.pending'
 
@@ -101,7 +101,7 @@ export interface PendingOAuth {
   username?: string
 }
 
-/** Queue an OAuth resume for the next boot (best-effort). Android only. */
+/** Queue an OAuth resume for the next boot (best-effort). Mobile only. */
 export function savePendingOAuth(pending: PendingOAuth): void {
   try {
     saveString(PENDING_OAUTH_KEY, JSON.stringify(pending))
@@ -139,7 +139,7 @@ export function hasPendingOAuth(): boolean {
 // of dropping the user on whatever mode was persisted.
 const PENDING_PORTAL_KEY = 'hermes.portal.pending'
 
-/** Queue a portal-sign-in resume for the next boot (best-effort). Android only. */
+/** Queue a portal-sign-in resume for the next boot (best-effort). Mobile only. */
 export function savePendingPortal(): void {
   try {
     saveString(PENDING_PORTAL_KEY, '1')
@@ -164,7 +164,7 @@ export function hasSavedTarget(): boolean {
 
 /**
  * True while the boot-time auto-connect is dialing. Seeded synchronously from the saved
- * target — or a pending Android OAuth resume — so `MobileController` shows the connecting
+ * target — or a pending mobile OAuth resume — so `MobileController` shows the connecting
  * screen (not the connect picker) on the very first render when a restore is pending.
  */
 export const $restoring = atom(hasSavedTarget() || hasPendingOAuth())

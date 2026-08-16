@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
 vi.mock('@/store/connection', () => ({ connectCloud: vi.fn().mockResolvedValue(undefined) }))
@@ -84,6 +84,53 @@ describe('refreshCloud', () => {
     await refreshCloud()
     expect($portalSignedIn.get()).toBe(true)
     expect($cloudAgents.get()).toHaveLength(1)
+  })
+})
+
+// The other half of the round-trip. On both phones `portal_login` navigates the calling
+// webview to the portal and back, which destroys this JS context — so the promise never
+// resolves and the marker parked BEFORE the invoke is the only thing that carries the
+// user back to the Cloud card. iOS used to take the desktop path — a 520x720 window that
+// tao rendered as a partial overlay — so this gate was `IS_ANDROID` and iOS parked no
+// marker. Now both phones navigate away, and both must park one.
+describe('cloudSignIn parks the resume marker', () => {
+  // The module reads IS_NATIVE_MOBILE at import time, so the platform has to be decided
+  // before `./cloud` is loaded. Same shape as lib/artifact-frame.test.ts.
+  const loadOn = async (nativeMobile: boolean) => {
+    vi.resetModules()
+    vi.doMock('@/lib/platform', () => ({ IS_NATIVE_MOBILE: nativeMobile }))
+
+    return import('./cloud')
+  }
+
+  const signedIn = (cmd: string) =>
+    cmd === 'portal_login'
+      ? Promise.resolve({ signedIn: true, portalBaseUrl: 'https://portal' })
+      : Promise.resolve({ agents: [agent], orgs: [], needsLogin: false, needsOrgSelection: false })
+
+  afterEach(() => {
+    vi.doUnmock('@/lib/platform')
+    vi.resetModules()
+  })
+
+  it('parks it on mobile, where the sign-in never returns', async () => {
+    setImpl(signedIn)
+
+    const { cloudSignIn } = await loadOn(true)
+    await cloudSignIn()
+
+    expect(localStorage.getItem(PENDING_PORTAL_KEY)).toBe('1')
+  })
+
+  // Desktop's promise DOES resolve, so a marker here would survive to the next boot and
+  // jump some unrelated later visit to the Cloud card on its own.
+  it('does not park it on desktop, where it resolves normally', async () => {
+    setImpl(signedIn)
+
+    const { cloudSignIn } = await loadOn(false)
+    await cloudSignIn()
+
+    expect(localStorage.getItem(PENDING_PORTAL_KEY)).toBeNull()
   })
 })
 
