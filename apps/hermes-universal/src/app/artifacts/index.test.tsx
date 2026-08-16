@@ -9,10 +9,20 @@ import { artifactImageSrc, collectArtifactsForSession } from './artifact-utils'
 const getSessionMessages = vi.fn()
 const listAllProfileSessions = vi.fn()
 
+const DATA_URL = 'data:image/jpeg;base64,Ynl0ZXM='
+const readDesktopFileDataUrl = vi.fn(async (_path: string) => DATA_URL)
+
 vi.mock('@/hermes', async importOriginal => ({
   ...((await importOriginal()) as Record<string, unknown>),
   getSessionMessages: (...args: unknown[]) => getSessionMessages(...args),
   listAllProfileSessions: (...args: unknown[]) => listAllProfileSessions(...args)
+}))
+
+// The fs bridge is the transport-backed read (/api/fs/read-data-url); stubbing it
+// is what lets the src assertions below distinguish it from the raw download URL.
+vi.mock('@/lib/desktop-fs', async importOriginal => ({
+  ...((await importOriginal()) as Record<string, unknown>),
+  readDesktopFileDataUrl: (path: string) => readDesktopFileDataUrl(path)
 }))
 
 const { ArtifactsView } = await import('./index')
@@ -77,13 +87,25 @@ describe('collectArtifactsForSession', () => {
     })
   })
 
-  // Universal loads images straight from the gateway HTTP URL — there is no
-  // Electron read-data-url bridge — so artifactImageSrc is the resolved href.
-  it('resolves an image src to its gateway download href', async () => {
+  // The regression this pins: a gateway-local image must come over the
+  // authenticated transport, NOT from the raw /api/files/download href. Nothing
+  // outside the transport can authenticate that URL behind a gated gateway, so
+  // pointing `<img>` at it renders a broken card and a 401 in the network log.
+  it('reads a gateway-local image over the authenticated transport, not its download href', async () => {
     const path = '/Users/me/.hermes/skills/x/images/step.jpeg'
     const downloadHref = `https://gw/api/files/download?path=${encodeURIComponent(path)}&token=secret`
 
-    await expect(artifactImageSrc(path, downloadHref)).resolves.toBe(downloadHref)
+    await expect(artifactImageSrc(path, downloadHref)).resolves.toBe(DATA_URL)
+    expect(readDesktopFileDataUrl).toHaveBeenCalledWith(path)
+  })
+
+  // …while a link artifact is somebody else's URL: it must NOT be handed to the
+  // fs bridge, which would ask the gateway to read a path that does not exist.
+  it('passes an http artifact through untouched', async () => {
+    const href = 'https://example.com/diagram.png'
+
+    await expect(artifactImageSrc(href, href)).resolves.toBe(href)
+    expect(readDesktopFileDataUrl).not.toHaveBeenCalled()
   })
 })
 

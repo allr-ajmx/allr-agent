@@ -28,6 +28,8 @@ import {
   useLinkTitle
 } from '@/lib/external-link'
 import { FileImage, FileText, FolderOpen, Link2, Loader2, RefreshCw } from '@/lib/icons'
+import { downloadGatewayMediaFile } from '@/lib/media'
+import { isFileMediaPath } from '@/lib/media-format'
 import { normalize } from '@/lib/text'
 import { fmtDayTime } from '@/lib/time'
 import { cn } from '@/lib/utils'
@@ -90,7 +92,9 @@ function paginationItems(page: number, pageCount: number): Array<number | 'ellip
 }
 
 type CellCtx = {
-  onOpen: (href: string) => void | Promise<void>
+  /** The whole record, not its href: opening a gateway-local artifact goes
+   *  through the transport off `value`, and only a link uses `href`. */
+  onOpen: (artifact: ArtifactRecord) => void | Promise<void>
   onOpenChat: (sessionId: string) => void
 }
 
@@ -243,13 +247,21 @@ export function ArtifactsView({ setStatusbarItemGroup: _setStatusbarItemGroup, .
   }, [artifacts])
 
   const openArtifact = useCallback(
-    async (href: string) => {
+    async (artifact: ArtifactRecord) => {
       try {
-        // Every artifact href is already a webview-openable URL: http/https/data
-        // pass through, and file/media paths are resolved to a gateway HTTP
-        // download URL by artifactHref (→ mediaExternalUrl). So there is no
-        // Electron open-external / gateway-download bridge to route through here.
-        await openExternalLink(href)
+        // A gateway-local artifact is bytes on the GATEWAY's disk, so it is
+        // fetched over the authenticated Rust transport and handed to the webview
+        // as a download. Sending the browser to `artifact.href` instead — the raw
+        // /api/files/download URL — cannot work behind a gated gateway: nothing
+        // outside the transport can authenticate that request, and it comes back
+        // 401. http(s) artifacts are somebody else's URL and still open outside.
+        if (isFileMediaPath(artifact.value)) {
+          await downloadGatewayMediaFile(artifact.value)
+
+          return
+        }
+
+        await openExternalLink(artifact.href)
       } catch (err) {
         notifyError(err, a.openFailed)
       }
@@ -554,7 +566,7 @@ const PrimaryCell = memo(function PrimaryCell({ artifact, ctx }: { artifact: Art
   return (
     <ArtifactCellAction
       href={isLink ? artifact.href : undefined}
-      onClick={isLink ? undefined : () => void ctx.onOpen(artifact.href)}
+      onClick={isLink ? undefined : () => void ctx.onOpen(artifact)}
       title={label}
     >
       <span className="mt-0.5 grid size-6 shrink-0 place-items-center self-start rounded-md bg-(--ui-bg-tertiary) text-(--ui-text-tertiary)">
