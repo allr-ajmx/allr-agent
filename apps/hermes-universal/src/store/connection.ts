@@ -625,6 +625,8 @@ const RECONNECT_ESCALATE_AFTER_MS = 45_000
 const reconnectDelay = (attempt: number): number => reconnectBackoffDelayMs(attempt)
 const wait = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms))
 
+// DESKTOP ONLY — see the reauth branch in the loop for why mobile must never reach here.
+//
 // Unreachable for `ssh`: that mode is always authMode 'token', and the loop only
 // calls this on a GatewayReauthRequiredError, which the ticket/oauth paths raise.
 // A dropped SSH TUNNEL is a different failure and is not handled here — see the
@@ -633,7 +635,8 @@ async function reauthForReconnect(conn: Connection): Promise<void> {
   if (conn.mode === 'cloud') {
     await portalAgentSignIn(conn.baseUrl)
   } else {
-    // Android: navigates the app away and reloads; the pending marker resumes the dial.
+    // Opens a dedicated sign-in window beside the app and resolves when the session
+    // lands, so the dial below can simply continue.
     await beginOAuthLogin(conn.baseUrl)
   }
 }
@@ -689,6 +692,40 @@ async function runReconnectLoop(): Promise<void> {
       break
     } catch (err) {
       if (conn.authMode === 'oauth' && isGatewayReauthRequired(err)) {
+        // On mobile an interactive sign-in is a ONE-WAY DOOR: it navigates the app's only
+        // webview to the login page and never returns (see `beginOAuthLogin`). This loop
+        // is a BACKGROUND actor — it wakes on any dropped socket, with no user intent — so
+        // walking through that door hijacks the whole app at an arbitrary moment, most
+        // cruelly right as the user brings it back from the background.
+        //
+        // Worse, it does not hold the webview against anyone else. A user tapping Sign in
+        // on the connect screen starts a second flow, which reads `webview.url()` AFTER
+        // this one has already navigated and so captures the LOGIN PAGE as its "return
+        // here afterwards" target. Whichever finishes last then restores the app to the
+        // login page, and there is no way home. That is a real crash-and-strand seen on
+        // device, not a theoretical race.
+        //
+        // So: report it and stand down. The user gets one deliberate, foreground sign-in.
+        // `$connectionError` is what reveals the embedded configurator on the connecting
+        // screen (gateway-connecting-screen.tsx), and `mintWsTicket` has already phrased
+        // this for a human — "Session expired — sign in again".
+        //
+        // Published immediately rather than after RECONNECT_ESCALATE_AFTER_MS: that window
+        // exists to let a transient failure resolve itself, and a refused credential is not
+        // transient. Nothing is gained by making the user watch a spinner for 45s first.
+        //
+        // Two carve-outs, both because the door is not one-way for them:
+        //   * DESKTOP opens a dedicated sign-in window beside the app and resolves, so the
+        //     supervisor can re-auth without the user ever knowing.
+        //   * CLOUD re-auths through `portalAgentSignIn`, which on mobile is the silent
+        //     reqwest cascade (`cloud.rs::agent_sso`) — nothing navigates, so it is safe to
+        //     drive from the background and blocking it would be a pointless regression.
+        if (IS_NATIVE_MOBILE && conn.mode !== 'cloud') {
+          $connectionError.set(errorText(err))
+
+          break
+        }
+
         try {
           await reauthForReconnect(conn)
           await connectGateway(conn)
