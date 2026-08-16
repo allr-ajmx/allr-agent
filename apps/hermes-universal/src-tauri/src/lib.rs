@@ -100,14 +100,35 @@ fn reveal_in_file_manager(app: tauri::AppHandle, path: String) -> Result<(), Str
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Route Rust `log::` output to logcat on Android (tao doesn't reliably install
-    // a logger, so diagnostics were invisible). Idempotent via `init_once`.
+    // Route Rust `log::` output somewhere a person can read it on mobile (tao
+    // doesn't reliably install a logger, so diagnostics were invisible).
     #[cfg(target_os = "android")]
     android_logger::init_once(
         android_logger::Config::default()
             .with_max_level(log::LevelFilter::Info)
             .with_tag("hermes"),
     );
+
+    // The iOS half, added because its absence hid a real bug for a whole debugging
+    // session: an ATS-blocked sign-in navigation is reported ONLY as a `log::error!`
+    // from inside wry's event loop, and with no logger installed that line — and
+    // every `[oauth]`/`[portal]` breadcrumb next to it — went nowhere. The symptom
+    // was "the button does nothing", with no way to tell a refused navigation from a
+    // command that never ran.
+    //
+    // Deliberately fire-and-forget, exactly like `init_once` above: `telemetry::init`
+    // below may install `tracing_log::LogTracer` as the global logger first, and
+    // losing that race must cost us a log sink, never the app. (This is also why the
+    // richer `tauri-plugin-log` is not used here — it installs its logger from plugin
+    // setup and turns the same race into a failed build.)
+    // The subsystem is the iOS bundle identifier (tauri.conf.json `identifier`), so
+    // `log stream --predicate 'subsystem == "com.jaxmatrix.mjx-unofficial-hermes"'`
+    // filters to just this app. Note the hyphens — the Android namespace above spells
+    // the same id with underscores, and only this form matches the iOS bundle.
+    #[cfg(target_os = "ios")]
+    let _ = oslog::OsLogger::new("com.jaxmatrix.mjx-unofficial-hermes")
+        .level_filter(log::LevelFilter::Info)
+        .init();
 
     // Span tracing. FIRST, so boot itself lands inside the trace rather than
     // before it. Compiled out entirely without `--features tracing`, and inert

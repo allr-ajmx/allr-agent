@@ -236,8 +236,11 @@ tauri-plugin-global-shortcut = "2"
 
 # Route Rust `log::` output to logcat on Android. tao does not reliably install a
 # logger, so our connect/OAuth diagnostics were invisible; init it ourselves in
-# `run()`. Android-only — desktop uses stdout. cpal's Android backend (oboe) needs
-# the NDK/oboe toolchain — see the cpal note under [dependencies].
+# `run()`. See the `oslog` entry below for the iOS half. (Desktop still installs no
+# logger — the comment here used to claim "desktop uses stdout", which was never
+# true; nothing bridges `log::` there outside the optional `tracing` feature.)
+# cpal's Android backend (oboe) needs the NDK/oboe toolchain — see the cpal note
+# under [dependencies].
 [target.'cfg(target_os = "android")'.dependencies]
 android_logger = "0.15"
 # cpal on Android speaks to AAudio/OpenSL ES via the C++ `oboe` library; the
@@ -294,3 +297,20 @@ windows-sys = { version = "0.61", features = [
   "Win32_System_Threading",
   "Win32_UI_WindowsAndMessaging",
 ] }
+
+# Route Rust `log::` output to os_log on iOS — the exact counterpart of the
+# `android_logger` entry above, and added for a concrete failure: iOS installed no
+# logger at all, so every diagnostic (ours AND wry's "failed to navigate to url"
+# error) was dropped on the floor. An ATS-blocked sign-in therefore looked like
+# "tapping the button does nothing" with not one line anywhere to say why.
+#
+# `oslog` rather than `tauri-plugin-log`: the plugin is the richer answer (it covers
+# Android and desktop too) but it ships a Swift package, which would change the iOS
+# Xcode project this repo tracks under gen/apple. This is a pure-Rust FFI shim, so
+# it needs no project regeneration. Records surface in Console.app, Xcode, and
+# `xcrun simctl spawn booted log stream --predicate 'subsystem == "…"'`.
+#
+# `default-features = false` drops the crate's own `OsLog` wrapper types; only the
+# `logger` feature (its `log::Log` impl) is used.
+[target.'cfg(target_os = "ios")'.dependencies]
+oslog = { version = "0.2.0", default-features = false, features = ["logger"] }
