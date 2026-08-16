@@ -5,6 +5,7 @@ import { ProviderConnectOverlay } from '@/app/settings/provider-connect-overlay'
 import { MobileSurfaceShell } from '@/app/shell/mobile-surface-shell'
 import { SidebarProvider } from '@/app/shell/sidebar'
 import { NotificationStack } from '@/components/notifications'
+import { useKeyboardInset } from '@/hooks/use-keyboard-inset'
 import { useStore } from '@/store/atom'
 import { $onboardingActive } from '@/store/onboarding'
 import { returnHome } from '@/store/windows'
@@ -24,6 +25,12 @@ import { returnHome } from '@/store/windows'
 // `main.tsx` auto-reconnects on boot, so — like SecondaryWindowRoot —
 // `MobileSurfaceShell` waits for `$connectionPhase` before rendering the surface.
 export function ActivityScreenRoot() {
+  // Publishes the visual-viewport vars `html.is-mobile #root` is sized from
+  // (styles.css). Mounted HERE rather than left to `MobileSurfaceShell`: the
+  // onboarding branch below returns before that shell, and its API-key fields are
+  // exactly the kind of focused input that moves the visual viewport.
+  useKeyboardInset()
+
   // Opening a session belongs in the main chat activity, so "open session" here just
   // returns Home (the sessions activity) rather than routing within this scene.
   const goHome = useCallback(() => {

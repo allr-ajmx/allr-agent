@@ -16,6 +16,7 @@ import { SettingsView } from '@/app/settings/settings-view'
 import { StarmapView } from '@/app/starmap'
 import { WebhooksView } from '@/app/webhooks'
 import { NotificationStack } from '@/components/notifications'
+import { useKeyboardInset } from '@/hooks/use-keyboard-inset'
 import { useMediaQuery } from '@/hooks/use-media-query'
 import { IS_DESKTOP, IS_MOBILE } from '@/lib/platform'
 import { useStore } from '@/store/atom'
@@ -54,6 +55,18 @@ export function MobileController() {
   const hasConnected = useStore($hasConnected)
   const switching = useStore($gatewaySwitching)
   const statusbarVisible = useStore($statusbarVisible)
+
+  // Publishes --visual-viewport-{height,top} / --keyboard-inset /
+  // data-keyboard-open for the WHOLE mobile app, not just the shells.
+  // `html.is-mobile #root` is sized from those vars (styles.css), and
+  // ConnectScreen / GatewayConnectingScreen / OnboardingScreen all render OUTSIDE
+  // MobileShell below while holding focusable fields — so measuring only inside
+  // the shells left those screens on the layout viewport, and a disconnect while
+  // typing (which swaps the shell for the connecting screen) stripped the vars
+  // out from under #root mid-keyboard. Inert off-mobile: desktop reports
+  // offsetTop 0 and a visual viewport the size of the layout one. The hook
+  // refcounts ONE module-level subscription, so the shells' own calls stay free.
+  useKeyboardInset()
 
   // UI scale: apply the persisted zoom once, and wire Cmd/Ctrl +/-/0 shortcuts.
   // Zoom stays outside the rebindable registry — desktop keeps it out too.
