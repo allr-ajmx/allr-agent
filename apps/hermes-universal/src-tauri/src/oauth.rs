@@ -84,6 +84,56 @@ fn normalize_base(raw: &str) -> String {
     raw.trim().trim_end_matches('/').to_string()
 }
 
+/// How long a mobile sign-in navigation gets to at least *commit* before we call it
+/// refused.
+///
+/// Generous on purpose. The check below is a false-positive risk, not a false-negative
+/// one: a slow gateway that simply hasn't answered yet must never be reported as
+/// blocked. Ten seconds is far longer than any reachable host needs to commit a
+/// navigation, and still turns a dead sign-in from a two-minute silence into an
+/// immediate, nameable error.
+#[cfg(mobile)]
+const NAVIGATION_SETTLE_SECS: u64 = 10;
+
+/// Did the webview actually leave the app for the sign-in page?
+///
+/// A refused navigation is otherwise completely silent. `WebviewWindow::navigate`
+/// returns `Ok(())` as soon as the message is queued — the load result never comes back
+/// to the caller, and the only trace is a `log::error!` from inside wry's event loop.
+/// So a login the platform refused outright looks exactly like a login the user simply
+/// hasn't finished, and the flow spends its whole timeout polling for a cookie that can
+/// never arrive.
+///
+/// The concrete case this was written for: iOS App Transport Security silently refuses
+/// every cleartext `http://` load in WKWebView, which is most self-hosted gateways
+/// (a LAN address, a Tailscale IP). `Info.ios.plist` now carries the
+/// `NSAllowsArbitraryLoadsInWebContent` exception, so that specific cause is fixed —
+/// this stays because "the webview would not go there" has other causes (an untrusted
+/// certificate, a host that never answers) and all of them presented identically.
+///
+/// Answers "did it move", not "did it load". Both platforms set the webview URL when a
+/// navigation *commits*, well before the page finishes, and a page that commits and then
+/// fails is a normal failure the poll handles. Only a URL that never changed at all
+/// means the navigation was rejected before it began.
+#[cfg(mobile)]
+pub(crate) async fn navigation_committed(webview: &tauri::WebviewWindow, from: &Url) -> bool {
+    tokio::time::sleep(std::time::Duration::from_secs(NAVIGATION_SETTLE_SECS)).await;
+
+    // An unreadable URL is not evidence of a refusal — say "committed" and let the
+    // normal poll and its timeout have the final word.
+    webview.url().map(|now| now != *from).unwrap_or(true)
+}
+
+/// The error a refused navigation reports, in place of a bare timeout.
+#[cfg(mobile)]
+pub(crate) fn navigation_refused(url: &Url) -> String {
+    format!(
+        "The sign-in page at {url} could not be opened. The system webview refused to \
+         load it — most often an untrusted certificate, or a host that cannot be reached \
+         from this device."
+    )
+}
+
 /// The pure half of the RFC 8252 native flow: everything that is a decision or a
 /// transformation rather than I/O. Split out precisely so it can be tested —
 /// `oauth_login` itself needs a webview, a socket and a browser, and none of the
@@ -1121,11 +1171,12 @@ pub async fn oauth_login(
             .url()
             .map_err(|e| format!("could not read current app URL: {e}"))?;
         log::info!("[oauth] navigating webview {label:?} to sign-in; will return to {return_url}");
+        let nav_target = login_url.clone();
         webview
             .navigate(login_url)
             .map_err(|e| format!("could not open sign-in page: {e}"))?;
 
-        let outcome = poll_session_cookies(
+        let poll = poll_session_cookies(
             &app,
             state.inner(),
             &base,
@@ -1133,8 +1184,27 @@ pub async fn oauth_login(
             &label,
             OAUTH_TIMEOUT_SECS_MOBILE,
             false,
-        )
-        .await;
+        );
+        tokio::pin!(poll);
+
+        // Race the poll against "did we even get there". The guard only ever resolves on
+        // a refusal — when the navigation did commit it parks forever and the poll runs
+        // its normal course, so the happy path is completely unaffected.
+        let outcome = tokio::select! {
+            result = &mut poll => result,
+            () = async {
+                if navigation_committed(&webview, &return_url).await {
+                    std::future::pending::<()>().await
+                }
+            } => {
+                // We never left the app, so there is nothing to restore and the SPA is
+                // still live — return the real reason instead of spending the remaining
+                // ~110s polling for a cookie that cannot arrive.
+                log::warn!("[oauth] navigation to {nav_target} never committed; giving up");
+
+                return Err(navigation_refused(&nav_target));
+            }
+        };
 
         // Restore the app regardless of outcome: the SPA reload auto-resumes the connect
         // (on success) or lands on the connect screen (on cancel/timeout).

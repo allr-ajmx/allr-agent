@@ -200,21 +200,45 @@ pub async fn portal_login(app: AppHandle, webview: WebviewWindow) -> Result<Port
             "[portal] navigating webview {:?} to sign-in; will return to {return_url}",
             webview.label()
         );
+        let nav_target = login_url.clone();
         webview
             .navigate(login_url)
             .map_err(|e| format!("could not open the portal sign-in page: {e}"))?;
 
-        let deadline =
-            tokio::time::Instant::now() + Duration::from_secs(PORTAL_TIMEOUT_SECS_MOBILE);
-        let mut signed_in = false;
-        while tokio::time::Instant::now() < deadline {
-            tokio::time::sleep(Duration::from_millis(750)).await;
-            let fresh = privy_cookie_values(&portal_cookies(&app, &webview, &portal_url));
-            if fresh.iter().any(|value| !known.contains(value)) {
-                signed_in = true;
-                break;
+        let poll = async {
+            let deadline =
+                tokio::time::Instant::now() + Duration::from_secs(PORTAL_TIMEOUT_SECS_MOBILE);
+            while tokio::time::Instant::now() < deadline {
+                tokio::time::sleep(Duration::from_millis(750)).await;
+                let fresh = privy_cookie_values(&portal_cookies(&app, &webview, &portal_url));
+                if fresh.iter().any(|value| !known.contains(value)) {
+                    return true;
+                }
             }
-        }
+
+            false
+        };
+        tokio::pin!(poll);
+
+        // Same guard as `oauth_login`, and raced against the poll for the same reason:
+        // a navigation the webview refused outright is otherwise indistinguishable from
+        // a login the user simply hasn't finished, and costs the whole 120s to find out.
+        // The guard only resolves on a refusal — a committed navigation parks it forever,
+        // so a sign-in completed in two seconds is still noticed in two seconds. See
+        // `navigation_committed` for why the test is "did the URL move", not "did it load".
+        let signed_in = tokio::select! {
+            result = &mut poll => result,
+            () = async {
+                if crate::oauth::navigation_committed(&webview, &return_url).await {
+                    std::future::pending::<()>().await
+                }
+            } => {
+                log::warn!("[portal] navigation to {nav_target} never committed; giving up");
+
+                // Nothing to restore — we never left the app.
+                return Err(crate::oauth::navigation_refused(&nav_target));
+            }
+        };
 
         // Restore the app either way — on success the reload resumes into cloud mode, on
         // timeout it lands back on the gateway panel.
