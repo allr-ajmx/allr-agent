@@ -37,6 +37,7 @@ pub mod clock;
 pub mod config;
 pub mod error;
 pub mod forward;
+pub mod install;
 pub mod known_hosts;
 pub mod ownership;
 pub mod posix_lifecycle;
@@ -486,6 +487,84 @@ pub async fn ssh_test(
         platform,
         arch,
     })
+}
+
+/// Install Hermes on the remote host.
+///
+/// A separate command rather than a branch inside `establish`, on purpose. The
+/// user confirms this AFTER a connect has already failed with `HermesNotFound`,
+/// so nothing on the path every existing SSH connection takes changes — and
+/// installing onto someone else's machine stays an explicit, deliberate act
+/// rather than something a mistyped hostname can trigger.
+///
+/// Shaped like `ssh_test`: resolve, arm prompts (so a key passphrase or password
+/// can still be asked for), open a session that exists only for this job, and
+/// close it when done. Progress rides the same `hermes-install://{id}/event`
+/// channel as the local install, so the frontend reducer is shared.
+#[tauri::command]
+pub async fn ssh_install(
+    app: AppHandle,
+    state: State<'_, SshState>,
+    attempt_id: String,
+    config: SshConnectConfig,
+    repo: crate::local_install::script::Repo,
+    branch: Option<String>,
+) -> Result<(), SshError> {
+    let branch = branch
+        .map(|b| b.trim().to_string())
+        .filter(|b| !b.is_empty())
+        .unwrap_or_else(|| crate::local_install::DEFAULT_BRANCH.to_string());
+
+    let (target, user, mut credentials) = resolve_target(&config.target)?;
+
+    credentials.private_key_pem = config.private_key_pem.clone();
+    credentials.passphrase = config.passphrase.clone();
+    credentials.password = config.password.clone();
+
+    let (prompter, policy, _attempt) =
+        arm_prompts(&app, &state, &attempt_id, config.interactive).await;
+    let known_hosts_path = known_hosts_path(&app)?;
+
+    let options = ConnectOptions {
+        credentials,
+        policy,
+        known_hosts_path,
+        home: home_dir(),
+        connect_timeout: DEFAULT_CONNECT_TIMEOUT,
+    };
+
+    let result = async {
+        let session = SshSession::open(target, user, options, prompter.as_ref()).await?;
+        let outcome = install::install_remote(&session, &app, &attempt_id, repo, &branch).await;
+
+        // Close regardless: the tunnel this install enables is dialled by a
+        // separate, later connect.
+        let _ = session.close().await;
+
+        outcome
+    }
+    .await;
+
+    state.attempts.lock().await.remove(&attempt_id);
+
+    match result {
+        Ok(_) => Ok(()),
+        Err(error) => {
+            use tauri::Emitter;
+
+            // `install_remote` already emitted a stage-scoped Failed for anything
+            // it reached; this covers the rest (auth, host key, transport).
+            let _ = app.emit(
+                &crate::local_install::events::InstallEvent::channel(&attempt_id),
+                crate::local_install::events::InstallEvent::Failed {
+                    stage: None,
+                    error: error.message.clone(),
+                },
+            );
+
+            Err(error)
+        }
+    }
 }
 
 /// Every concrete `Host` alias in `~/.ssh/config`, for the settings dropdown.
