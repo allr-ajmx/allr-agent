@@ -15,8 +15,11 @@
       {
         "label": "main",
         "title": "Hermes (MJX)",
-        "width": 420,
-        "height": 900,
+        "width": 1280,
+        "height": 960,
+        "minWidth": 640,
+        "minHeight": 480,
+        "center": true,
         "resizable": true,
         "decorations": false
       }
