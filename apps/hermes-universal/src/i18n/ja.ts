@@ -751,6 +751,11 @@ export const ja = defineLocale({
       clear: 'クリア'
     },
     gateway: {
+      sshInstallTitle: host => `${host} に Hermes をインストールしますか？`,
+      sshInstallBody: 'Hermes はそのホストのユーザーアカウント内にインストールされます。管理者権限は不要です。',
+      sshInstallCancel: '後で',
+      sshInstallDoneTitle: 'そのホストに Hermes をインストールしました',
+      sshInstallDoneBody: '「保存して再接続」を押して接続してください。',
       loading: 'ゲートウェイ設定を読み込み中...',
       unavailableTitle: 'ゲートウェイ設定は利用できません',
       unavailableDesc: 'デスクトップ IPC ブリッジはゲートウェイ設定を公開していません。',
@@ -2175,6 +2180,33 @@ export const ja = defineLocale({
     copiedOutput: 'コピーしました！',
     copyOutput: '出力をコピー',
     reloadRetry: '再読み込みして再試行'
+  },
+
+  connect: {
+    welcomeTitle: 'Hermes へようこそ',
+    welcomeBody:
+      'Hermes は必要な場所で動作します — このマシン上、クラウド、あるいは SSH で接続するマシン上。ゲートウェイを選んで接続しましょう。',
+    getStarted: 'はじめる',
+    chooseTitle: 'ゲートウェイを選択',
+    chooseBody: 'これは後から設定で変更できます。',
+    back: '戻る',
+    local: {
+      detecting: 'ローカルインストールを検索中…',
+      foundTitle: 'Hermes はインストール済みです',
+      foundVersion: version => `バージョン ${version}`,
+      missingTitle: 'ローカルインストールが見つかりません',
+      missingBody: 'このマシンにインストールする Hermes Agent のビルドを選択してください。',
+      upstreamTitle: 'NousResearch Hermes Agent',
+      upstreamDesc: 'NousResearch による公式の Hermes Agent。',
+      forkTitle: 'Hermes Agent の MJX フォーク',
+      forkDesc: 'Hermes Agent の実験的機能をテストするために作られたフォーク。',
+      install: 'インストール',
+      retry: '再試行',
+      doneTitle: 'Hermes の準備ができました',
+      doneBody: 'セットアップは次のフェーズで対応します。今すぐ Hermes を使い始められます。',
+      done: '完了',
+      continue: '続ける'
+    }
   },
 
   onboarding: {

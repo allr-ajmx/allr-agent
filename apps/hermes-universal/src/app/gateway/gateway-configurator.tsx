@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { GatewayDiagnostics } from '@/app/gateway/gateway-diagnostics'
+import { LocalInstallPanel } from '@/app/gateway/local-install-panel'
 import { sshErrorMessage, sshStepLabel } from '@/app/gateway/ssh-copy'
+import { SshInstallOffer } from '@/app/gateway/ssh-install-offer'
 import { EMPTY_SSH_FORM, type SshFormState, SshPanel, sshTargetFromForm } from '@/app/gateway/ssh-panel'
 import { ListRow, Pill } from '@/app/settings/primitives'
 import { Button } from '@/components/ui/button'
@@ -10,7 +12,19 @@ import { Tip } from '@/components/ui/tooltip'
 import { type Translations, useI18n } from '@/i18n'
 import { $oauthSession, type AuthProvider, fetchAuthProviders } from '@/lib/auth'
 import { openExternalLink } from '@/lib/external-link'
-import { AlertCircle, Check, Cloud, Globe, HelpCircle, Loader2, LogIn, Monitor, RefreshCw, Terminal } from '@/lib/icons'
+import {
+  AlertCircle,
+  Check,
+  ChevronLeft,
+  Cloud,
+  Globe,
+  HelpCircle,
+  Loader2,
+  LogIn,
+  Monitor,
+  RefreshCw,
+  Terminal
+} from '@/lib/icons'
 import { LOCAL_MODE_SUPPORTED } from '@/lib/platform'
 import { loadSshSecrets, mergeSshSecrets, saveSecrets } from '@/lib/secure-store'
 import { selectableCardClass } from '@/lib/selectable-card'
@@ -51,9 +65,11 @@ import { loadGatewayTarget, saveGatewayTarget } from '@/store/gateway-restore'
 import { softSwitchGateway } from '@/store/gateway-soft-switch'
 import { $gatewayMode, setGatewayMode } from '@/store/gateway-switch'
 import { broadcastGatewaySwitch } from '@/store/gateway-switch-broadcast'
+import { stepBackInLocalInstall } from '@/store/local-install'
 import { notify, notifyError } from '@/store/notifications'
 import {
   answerSshPrompt,
+  isSshError,
   newAttemptId,
   onSshHostKey,
   onSshProgress,
@@ -63,6 +79,7 @@ import {
   testSshBackend,
   trustSshHostKey
 } from '@/store/ssh-backend'
+import { offerSshInstall } from '@/store/ssh-install'
 
 // Shared gateway configurator — the single mode-grid + per-mode connect surface
 // used by BOTH Settings → Gateway (`variant="settings"`) and the first-run connect
@@ -183,6 +200,33 @@ export function GatewayConfigurator({
   // and only needs the tighter layout it gets here.
   const isSettings = variant === 'settings'
   const isEmbedded = variant === 'embedded'
+
+  // `onboarding` is the first-run wizard (ConnectScreen owns the welcome step
+  // before it). It renders the SAME surfaces as the other variants, just one
+  // step at a time: pick a gateway, then configure only that one. Settings and
+  // embedded keep showing the grid and the panel together on one page.
+  const isOnboarding = variant === 'onboarding'
+  const [onboardingStep, setOnboardingStep] = useState<'configure' | 'select'>('select')
+  const showModes = !isOnboarding || onboardingStep === 'select'
+  const showPanels = !isOnboarding || onboardingStep === 'configure'
+  const showLocalInstall = isOnboarding && showPanels && pendingMode === 'local'
+
+  // Selecting a card advances the wizard. It stays *pending* either way — going
+  // back does not disconnect, and nothing commits until "Save & reconnect".
+  const selectMode = (mode: GatewayMode) => {
+    setPendingMode(mode)
+
+    if (isOnboarding) {
+      setOnboardingStep('configure')
+    }
+  }
+
+  const MODE_TITLES: Record<GatewayMode, string> = {
+    cloud: g.cloudTitle,
+    local: g.localTitle,
+    remote: g.remoteTitle,
+    ssh: g.sshTitle
+  }
 
   // Remote-mode form state (local — universal has no saved per-scope config).
   const [remoteUrl, setRemoteUrl] = useState(() => lastUrl())
@@ -547,6 +591,13 @@ export function GatewayConfigurator({
       )
       notify({ kind: 'success', title: g.savedTitle, message: g.savedMessage })
     } catch (err) {
+      // A remote with no Hermes is the one SSH failure we can actually fix, and
+      // the user is already authenticated to that machine. Offer the install
+      // instead of only reporting the dead end.
+      if (isSshError(err) && err.kind === 'hermes-not-found') {
+        offerSshInstall(trimmedSshHost)
+      }
+
       notifyError(sshErrorMessage(err, g), g.saveFailed)
     } finally {
       setBusy(false)
@@ -672,62 +723,109 @@ export function GatewayConfigurator({
       ) : null}
 
       {/* Connection mode */}
-      <div className={cn('grid gap-2', isEmbedded ? 'mb-3' : 'mb-5')}>
-        <div className="text-[length:var(--conversation-caption-font-size)] font-medium text-(--ui-text-secondary)">
-          {g.modeTitle}
-        </div>
-        {/* Tailwind cannot see a computed class name, so the column count is
-            picked from literals: four cards on desktop, three when Local is
-            hidden (mobile cannot spawn a backend, but it CAN dial SSH). The
-            breakpoint is a VIEWPORT media query, so in a narrow host (a ~350px
-            popover, the 420px connect card) it would crush the cards into the
-            width — embedded stays single-column at every window size. */}
-        <div
-          className={cn(
-            'grid auto-rows-fr grid-cols-1 gap-2',
-            !isEmbedded && (LOCAL_MODE_SUPPORTED ? 'min-[42rem]:grid-cols-4' : 'min-[42rem]:grid-cols-3')
+      {showModes ? (
+        <div className={cn('grid gap-2', isEmbedded ? 'mb-3' : 'mb-5')}>
+          {isOnboarding ? (
+            <>
+              <h1 className="connect-title">{t.connect.chooseTitle}</h1>
+              <p className="connect-body">{t.connect.chooseBody}</p>
+            </>
+          ) : (
+            <div className="text-[length:var(--conversation-caption-font-size)] font-medium text-(--ui-text-secondary)">
+              {g.modeTitle}
+            </div>
           )}
-        >
-          {LOCAL_MODE_SUPPORTED ? (
+          {/* Tailwind cannot see a computed class name, so the column count is
+              picked from literals: four cards on desktop, three when Local is
+              hidden (mobile cannot spawn a backend, but it CAN dial SSH). The
+              breakpoint is a VIEWPORT media query, so in a narrow host (a ~350px
+              popover, the 420px connect card) it would crush the cards into the
+              width — only settings, which has the page width to spare, goes
+              multi-column. */}
+          <div
+            className={cn(
+              'grid auto-rows-fr grid-cols-1 gap-2',
+              isSettings && (LOCAL_MODE_SUPPORTED ? 'min-[42rem]:grid-cols-4' : 'min-[42rem]:grid-cols-3')
+            )}
+          >
+            {LOCAL_MODE_SUPPORTED ? (
+              <ModeCard
+                active={pendingMode === 'local'}
+                description={g.localDesc}
+                icon={Monitor}
+                onSelect={() => selectMode('local')}
+                title={g.localTitle}
+              />
+            ) : null}
             <ModeCard
-              active={pendingMode === 'local'}
-              description={g.localDesc}
-              icon={Monitor}
-              onSelect={() => setPendingMode('local')}
-              title={g.localTitle}
+              active={pendingMode === 'cloud'}
+              description={g.cloudDesc}
+              icon={Cloud}
+              onSelect={() => selectMode('cloud')}
+              title={g.cloudTitle}
             />
-          ) : null}
-          <ModeCard
-            active={pendingMode === 'cloud'}
-            description={g.cloudDesc}
-            icon={Cloud}
-            onSelect={() => setPendingMode('cloud')}
-            title={g.cloudTitle}
-          />
-          <ModeCard
-            active={pendingMode === 'remote'}
-            description={g.remoteDesc}
-            hint={g.remoteAuthHint}
-            icon={Globe}
-            onSelect={() => setPendingMode('remote')}
-            title={g.remoteTitle}
-          />
-          <ModeCard
-            active={pendingMode === 'ssh'}
-            description={g.sshDesc}
-            hint={g.sshTrustHint}
-            icon={Terminal}
-            onSelect={() => setPendingMode('ssh')}
-            title={g.sshTitle}
-          />
+            <ModeCard
+              active={pendingMode === 'remote'}
+              description={g.remoteDesc}
+              hint={g.remoteAuthHint}
+              icon={Globe}
+              onSelect={() => selectMode('remote')}
+              title={g.remoteTitle}
+            />
+            <ModeCard
+              active={pendingMode === 'ssh'}
+              description={g.sshDesc}
+              hint={g.sshTrustHint}
+              icon={Terminal}
+              onSelect={() => selectMode('ssh')}
+              title={g.sshTitle}
+            />
+          </div>
         </div>
-      </div>
+      ) : null}
+
+      {/* Step header for the onboarding wizard's configure step. Back only
+          rewinds the wizard — the selection stays pending, nothing disconnects.
+
+          This is the ONLY Back in the wizard. A panel with its own sub-steps
+          (local, which can be showing a repo's description) gets first refusal
+          on the press, so it can step back one level instead of stacking a
+          second Back button underneath this one. */}
+      {isOnboarding && showPanels ? (
+        <div className="connect-step-head">
+          <Button
+            className="-ms-1"
+            onClick={() => {
+              if (showLocalInstall && stepBackInLocalInstall()) {
+                return
+              }
+
+              setOnboardingStep('select')
+            }}
+            size="sm"
+            variant="text"
+          >
+            <ChevronLeft className="size-4 rtl:rotate-180" />
+            {t.connect.back}
+          </Button>
+          <h1 className="connect-title">{MODE_TITLES[pendingMode]}</h1>
+        </div>
+      ) : null}
+
+      {/* Local panel — first-run only. Local is the one mode with nothing to
+          type, so instead of a bare connect button the wizard asks whether
+          Hermes is installed at all and offers to install it. Settings and the
+          embedded recovery card keep the plain action bar: they are for a user
+          who already has a working install and wants to switch back to it. */}
+      {showLocalInstall ? <LocalInstallPanel onContinue={() => void doConnectLocal()} /> : null}
 
       {/* Hermes Cloud panel */}
-      {pendingMode === 'cloud' ? <CloudPanel connectAgent={connectAgent} connection={connection} g={g} /> : null}
+      {showPanels && pendingMode === 'cloud' ? (
+        <CloudPanel connectAgent={connectAgent} connection={connection} g={g} />
+      ) : null}
 
       {/* SSH panel */}
-      {pendingMode === 'ssh' ? (
+      {showPanels && pendingMode === 'ssh' ? (
         <SshPanel
           form={sshForm}
           g={g}
@@ -755,8 +853,12 @@ export function GatewayConfigurator({
         />
       ) : null}
 
+      {/* Sits beside the SSH panel rather than inside it: the offer is
+          about the remote HOST, not about the connection form. */}
+      {showPanels && pendingMode === 'ssh' ? <SshInstallOffer target={sshTargetFromForm(sshForm)} /> : null}
+
       {/* Remote panel */}
-      {pendingMode === 'remote' ? (
+      {showPanels && pendingMode === 'remote' ? (
         <div className={cn('grid gap-1', isEmbedded ? 'mt-3' : 'mt-5')}>
           <ListRow
             action={
@@ -847,10 +949,11 @@ export function GatewayConfigurator({
         </div>
       ) : null}
 
-      {lastTest ? <div className="mt-4 text-xs text-primary">{lastTest}</div> : null}
+      {showPanels && lastTest ? <div className="mt-4 text-xs text-primary">{lastTest}</div> : null}
 
-      {/* Action bar (local + remote). Cloud connects via the agent picker above. */}
-      {pendingMode !== 'cloud' ? (
+      {/* Action bar (local + remote). Cloud connects via the agent picker above,
+          and the first-run local panel owns its own Continue/Install actions. */}
+      {showPanels && pendingMode !== 'cloud' && !showLocalInstall ? (
         <div className={cn('flex flex-wrap items-center justify-end gap-4', isEmbedded ? 'mt-4' : 'mt-6')}>
           {pendingMode === 'remote' ? (
             <Button
