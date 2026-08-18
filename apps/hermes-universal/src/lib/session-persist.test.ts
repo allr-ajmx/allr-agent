@@ -9,8 +9,9 @@ import { persistSessionCookies, restoreSessionCookies } from './session-persist'
 
 const mockInvoke = vi.mocked(invoke)
 
-// Both the transport commands (cookies_export/import) and the keyring plugin
-// (plugin:keyring|*) route through invoke; drive them from one implementation.
+// Both the transport commands (cookies_export/import) and the credential store
+// (secrets_get/secrets_set) route through invoke; drive them from one
+// implementation.
 type Impl = (cmd: string, args?: Record<string, unknown>) => Promise<unknown>
 const setImpl = (fn: Impl) => mockInvoke.mockImplementation(fn as never)
 
@@ -26,16 +27,13 @@ describe('session-persist', () => {
         return Promise.resolve(jar)
       }
 
-      return Promise.resolve() // keyring init + set
+      return Promise.resolve() // secrets_set
     })
 
     await persistSessionCookies()
 
     expect(mockInvoke).toHaveBeenCalledWith('cookies_export')
-    expect(mockInvoke).toHaveBeenCalledWith('plugin:keyring|set_password', {
-      username: 'cookies',
-      password: jar
-    })
+    expect(mockInvoke).toHaveBeenCalledWith('secrets_set', { key: 'cookies', value: jar })
   })
 
   it('persist stores nothing when the jar is empty', async () => {
@@ -44,28 +42,18 @@ describe('session-persist', () => {
     await persistSessionCookies()
 
     expect(mockInvoke).toHaveBeenCalledWith('cookies_export')
-    expect(mockInvoke).not.toHaveBeenCalledWith(
-      'plugin:keyring|set_password',
-      expect.objectContaining({ username: 'cookies' })
-    )
+    expect(mockInvoke).not.toHaveBeenCalledWith('secrets_set', expect.objectContaining({ key: 'cookies' }))
   })
 
   it('restore reads the keyring blob and imports it into the jar', async () => {
     const jar = '[{"raw_cookie":"hermes_session_rt=abc"}]'
     setImpl(cmd => {
-      if (cmd === 'plugin:keyring|has_password') {
-        return Promise.resolve(true)
-      }
-
-      if (cmd === 'plugin:keyring|get_password') {
+      // One read, not a has-then-get pair: a missing entry comes back null.
+      if (cmd === 'secrets_get') {
         return Promise.resolve(jar)
       }
 
-      if (cmd === 'cookies_import') {
-        return Promise.resolve()
-      }
-
-      return Promise.resolve() // init
+      return Promise.resolve()
     })
 
     await restoreSessionCookies()
@@ -74,7 +62,7 @@ describe('session-persist', () => {
   })
 
   it('restore imports nothing when no blob is saved', async () => {
-    setImpl(cmd => (cmd === 'plugin:keyring|has_password' ? Promise.resolve(false) : Promise.resolve()))
+    setImpl(cmd => (cmd === 'secrets_get' ? Promise.resolve(null) : Promise.resolve()))
 
     await restoreSessionCookies()
 

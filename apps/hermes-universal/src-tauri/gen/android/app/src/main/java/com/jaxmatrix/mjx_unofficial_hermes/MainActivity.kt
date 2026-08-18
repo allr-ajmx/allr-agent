@@ -7,5 +7,8 @@ class MainActivity : TauriActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     enableEdgeToEdge()
     super.onCreate(savedInstanceState)
+    // After super: the native library must be loaded before the JNI
+    // symbol this resolves exists. See KeyringInit.
+    KeyringInit.ensure(this)
   }
 }

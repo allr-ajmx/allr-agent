@@ -75,13 +75,19 @@ log = "0.4"
 # build so it can gate mobile-only behaviour (e.g. hide Local gateway mode).
 tauri-plugin-os = "2"
 
-# Secure credential storage (D1): real OS-native keystore via keyring-core 1.0 —
-# Android SharedPreferences encrypted by the Android Keystore, iOS/macOS Keychain,
-# Windows Credential Manager, Linux Secret Service. Silent (no biometric prompt).
-# VENDORED under plugins/ (from charlesportwoodii/tauri-plugin-keyring) to drop its
-# unused specta scaffold deps, which don't build on stable Rust — see that crate's
-# Cargo.toml. FIXME(D1): switch to a crates.io release once one exists.
-tauri-plugin-keyring = { path = "plugins/tauri-plugin-keyring" }
+# Secure credential storage (D1): the OS-native keystore, driven from our own
+# src/secrets/ rather than through a plugin — Android Keystore, iOS/macOS
+# Keychain, Windows Credential Manager, Linux Secret Service.
+#
+# This replaced a vendored copy of charlesportwoodii/tauri-plugin-keyring. That
+# repository carries NO license file, so there is no grant to redistribute it,
+# and it was being compiled into a shipping binary. keyring-core and all four
+# platform stores below are MIT/Apache-2.0, so talking to them directly removes
+# the problem instead of documenting it. Binding a credential to a device unlock
+# (kSecAccessControl, setUserAuthenticationRequired) also needs a layer a generic
+# get/set wrapper cannot express. The per-platform store crates are declared in
+# their own [target.…] sections further down.
+keyring-core = "1.0"
 
 # Microphone OS-permission (R10, voice). In-tree plugin: durably declares Android
 # RECORD_AUDIO/MODIFY_AUDIO_SETTINGS (merged from a committed manifest, since gen/
@@ -243,6 +249,12 @@ tauri-plugin-global-shortcut = "2"
 # under [dependencies].
 [target.'cfg(target_os = "android")'.dependencies]
 android_logger = "0.15"
+# The OS credential store behind src/secrets/. All MIT/Apache-2.0, unlike the
+# plugin that used to wrap them — see the keyring-core note under [dependencies].
+# Reads its Context/JavaVM from the global `ndk_context`, which Tauri does NOT
+# populate — MainActivity does it, via this crate's own JNI entry point. See
+# gen/android/.../KeyringInit.kt.
+android-native-keyring-store = "1.0"
 # cpal on Android speaks to AAudio/OpenSL ES via the C++ `oboe` library; the
 # `oboe-shared-stdcxx` feature links libc++_shared from the NDK. Requires the NDK
 # on the build host (the user drives Android builds — MJX-96).
@@ -252,6 +264,11 @@ cpal = { version = "0.15", features = ["oboe-shared-stdcxx"] }
 # (appearance.rs). Version pinned to Tauri's gtk to avoid a duplicate in the tree.
 [target.'cfg(target_os = "linux")'.dependencies]
 gtk = "0.18"
+# The OS credential store behind src/secrets/. All MIT/Apache-2.0, unlike the
+# plugin that used to wrap them — see the keyring-core note under [dependencies].
+# `crypto-rust` keeps the D-Bus session encryption off OpenSSL, matching the
+# rustls choice elsewhere — the Android cross-build has no OpenSSL to link.
+dbus-secret-service-keyring-store = { version = "1.0", features = ["crypto-rust"] }
 # gtk-layer-shell is loaded at RUNTIME (src/surface/layer_shell.rs), never linked:
 # it is absent as a -dev package on plenty of machines and useless on X11 and
 # GNOME-on-Wayland, so making it a build dependency would trade a capability
@@ -282,6 +299,11 @@ webkit2gtk = { version = "2.0", features = ["v2_8"] }
 # CGWindowListCopyWindowInfo needs NO grant for owner/bounds/z-order, and titles
 # need Screen Recording. This build PREFLIGHTS that grant and never requests it.
 [target.'cfg(target_os = "macos")'.dependencies]
+# The OS credential store behind src/secrets/. All MIT/Apache-2.0, unlike the
+# plugin that used to wrap them — see the keyring-core note under [dependencies].
+# `protected` selects the Protected Data keychain. Required on iOS (the crate
+# errors without it) and used on macOS too, so both Apple targets store alike.
+apple-native-keyring-store = { version = "1.0", features = ["protected"] }
 core-graphics = "0.25"
 core-foundation = "0.10"
 core-foundation-sys = "0.8"
@@ -291,6 +313,9 @@ core-foundation-sys = "0.8"
 # Windows stack; these features are declaration-only bindings, so enabling them
 # adds no crate and no runtime cost.
 [target.'cfg(target_os = "windows")'.dependencies]
+# The OS credential store behind src/secrets/. All MIT/Apache-2.0, unlike the
+# plugin that used to wrap them — see the keyring-core note under [dependencies].
+windows-native-keyring-store = "1.1"
 windows-sys = { version = "0.61", features = [
   "Win32_Foundation",
   "Win32_Graphics_Dwm",
@@ -313,6 +338,9 @@ windows-sys = { version = "0.61", features = [
 # `default-features = false` drops the crate's own `OsLog` wrapper types; only the
 # `logger` feature (its `log::Log` impl) is used.
 [target.'cfg(target_os = "ios")'.dependencies]
+# The OS credential store behind src/secrets/. All MIT/Apache-2.0, unlike the
+# plugin that used to wrap them — see the keyring-core note under [dependencies].
+apple-native-keyring-store = { version = "1.0", features = ["protected"] }
 oslog = { version = "0.2.0", default-features = false, features = ["logger"] }
 
 # Reading WKHTTPCookieStore ourselves, without blocking the main thread

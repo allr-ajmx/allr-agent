@@ -25,6 +25,7 @@ mod oauth;
 mod plugins;
 mod pty;
 mod repo_scan;
+mod secrets;
 mod shortcuts;
 mod ssh;
 mod surface;
@@ -56,6 +57,7 @@ use oauth::{oauth_login, oauth_logout, oauth_status};
 use plugins::{plugins_list, plugins_read, plugins_root};
 use pty::{pty_kill, pty_resize, pty_spawn, pty_write, PtyState};
 use repo_scan::repo_scan_git_repos;
+use secrets::{secrets_clear, secrets_delete, secrets_get, secrets_set, secrets_status};
 use shortcuts::{global_shortcut_take_pending, global_shortcuts_sync, ShortcutState};
 use ssh::{
     ssh_answer_prompt, ssh_cancel, ssh_connect, ssh_disconnect, ssh_install, ssh_list_config_hosts,
@@ -161,7 +163,6 @@ pub fn run() {
 
     builder
         .plugin(tauri_plugin_os::init())
-        .plugin(tauri_plugin_keyring::init())
         .plugin(tauri_plugin_mic::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_haptics::init())
@@ -334,6 +335,11 @@ pub fn run() {
             ssh_answer_prompt,
             ssh_trust_host_key,
             ssh_install,
+            secrets_get,
+            secrets_set,
+            secrets_delete,
+            secrets_clear,
+            secrets_status,
             find_in_page,
             stop_find_in_page,
             surface_capabilities,
