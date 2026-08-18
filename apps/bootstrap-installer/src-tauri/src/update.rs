@@ -3,16 +3,15 @@
 //! Driven when the installer is launched as `Hermes-Setup.exe --update` (see
 //! `AppMode` in lib.rs). The desktop app hands off to us — it exits, then we:
 //!
-//!   1. wait for the old Hermes desktop process to fully exit (so both the
+//!   1. wait for the old desktop process to fully exit (so both the
 //!      venv shim and packaged app.asar are free; otherwise `hermes update`
 //!      or repair bootstrap can race locked files),
 //!   2. run `hermes update --yes --gateway` (Python/repo update; this does NOT
-//!      rebuild apps/desktop by design — see cmd_update in hermes_cli/main.py),
-//!   3. run `hermes desktop --build-only` (the rebuild step update skips),
-//!   4. launch the freshly-built desktop (reuses bootstrap::launch logic).
+//!      touch the app bundles by design — see cmd_update in hermes_cli/main.py),
+//!   3. launch the installed desktop app (reuses bootstrap::launch logic).
 //!
 //! We reuse the `BootstrapEvent` channel + the existing progress UI by
-//! emitting a synthetic multi-stage manifest (handoff → update → rebuild, plus
+//! emitting a synthetic multi-stage manifest (handoff → update, plus
 //! an install stage on macOS). To the frontend an update looks like a short
 //! bootstrap, broken into the real operations run_update performs so the user
 //! sees discrete steps (with the live log underneath) instead of one bar.
@@ -122,7 +121,7 @@ struct UpdateMarkerGuard {
 }
 
 /// Never treat a marker older than this as a live update. Mirrors
-/// UPDATE_MARKER_MAX_AGE_MS in apps/desktop/electron/update-marker.ts and
+/// UPDATE_MARKER_MAX_AGE_MS in the desktop app and
 /// UPDATE_MARKER_MAX_AGE_SECONDS in hermes_cli/update_lock.py — all three read
 /// this one file, so a shorter ceiling in any of them would steal a lock the
 /// others still consider live.
@@ -480,75 +479,6 @@ async fn run_update(app: AppHandle) -> Result<()> {
         }
     }
 
-    // ---- stage 3: hermes desktop --build-only ----------------------------
-    // `hermes update` deliberately does NOT build apps/desktop (it installs
-    // repo-root deps with --workspaces=false). This is the rebuild it skips.
-    emit_stage(&app, "rebuild", StageState::Running, None, None);
-    let started = Instant::now();
-    let rebuild_args: Vec<String> = vec!["desktop".into(), "--build-only".into()];
-    let mut rebuild = run_streamed(
-        &app,
-        &hermes,
-        &rebuild_args,
-        &install_root,
-        &child_env,
-        Some("rebuild"),
-    )
-    .await?;
-
-    // Retry-once: the first `--build-only` can return nonzero on a still-settling
-    // post-update tree or a network-blocked Electron fetch that our self-heal
-    // repaired mid-run. A second attempt then builds clean off the healed dist
-    // (the content-hash stamp makes it a near-no-op when the first actually
-    // succeeded). Without this the updater bails here and never reaches the
-    // relaunch below — the app updates but doesn't restart. Matches the
-    // retry-once `hermes update` already does above, and `hermes update`'s own
-    // desktop rebuild in cmd_update.
-    if rebuild_needs_retry(rebuild.exit_code) {
-        emit_log(
-            &app,
-            Some("rebuild"),
-            LogStream::Stdout,
-            "[rebuild] first desktop rebuild failed; retrying once (a self-healed \
-             Electron download builds clean on the second run)…",
-        );
-        rebuild = run_streamed(
-            &app,
-            &hermes,
-            &rebuild_args,
-            &install_root,
-            &child_env,
-            Some("rebuild"),
-        )
-        .await?;
-    }
-    let rebuild_ms = started.elapsed().as_millis() as u64;
-
-    if rebuild.exit_code != Some(0) {
-        let msg = format!(
-            "Rebuilding the desktop app failed (exit {:?}). The update was \
-             applied but the app could not be rebuilt; run `hermes desktop` \
-             from a terminal to see the error.",
-            rebuild.exit_code
-        );
-        emit_stage(
-            &app,
-            "rebuild",
-            StageState::Failed,
-            Some(rebuild_ms),
-            Some(msg.clone()),
-        );
-        emit(
-            &app,
-            BootstrapEvent::Failed {
-                stage: Some("rebuild".into()),
-                error: msg.clone(),
-            },
-        );
-        return Err(anyhow!(msg));
-    }
-    emit_stage(&app, "rebuild", StageState::Succeeded, Some(rebuild_ms), None);
-
     let launch_target = if let Some(target_app) = target_app {
         let started = Instant::now();
         emit_stage(&app, "install", StageState::Running, None, None);
@@ -785,14 +715,6 @@ fn is_locked(path: &Path) -> bool {
     }
 }
 
-/// Whether the `desktop --build-only` rebuild should be retried once. Any
-/// non-success exit qualifies: the common cause is a transient first-attempt
-/// failure (still-settling tree / self-healed Electron download) that a clean
-/// second run resolves.
-fn rebuild_needs_retry(exit_code: Option<i32>) -> bool {
-    exit_code != Some(0)
-}
-
 /// Spawn `hermes <args>` from `cwd`, stream stdout/stderr as Log events on the
 /// bootstrap channel, and return the exit code. Mirrors powershell::run_script
 /// but for an arbitrary command (no install.ps1 -File wrapping).
@@ -994,12 +916,8 @@ async fn install_macos_app_update(
         ));
     }
 
-    let rebuilt_app = crate::bootstrap::resolve_hermes_desktop_app(install_root).ok_or_else(|| {
-        anyhow!(
-            "desktop rebuild succeeded but no Hermes.app was found under {}",
-            install_root.join("apps").join("desktop").join("release").display()
-        )
-    })?;
+    let rebuilt_app = crate::bootstrap::resolve_installed_app()
+        .ok_or_else(|| anyhow!("update succeeded but no installed Allr app was found"))?;
 
     let same = match (rebuilt_app.canonicalize(), target_app.canonicalize()) {
         (Ok(a), Ok(b)) => a == b,
@@ -1154,7 +1072,6 @@ fn update_stages(include_install: bool) -> Vec<StageInfo> {
     let mut stages = vec![
         stage_info("handoff", "Preparing to update"),
         stage_info("update", "Downloading the latest version"),
-        stage_info("rebuild", "Rebuilding the desktop app"),
     ];
     if include_install {
         stages.push(stage_info("install", "Installing the update"));
@@ -1507,8 +1424,8 @@ mod tests {
             "the lock-wait must surface as the first visible step"
         );
         assert!(
-            base.iter().any(|s| s.name == "update") && base.iter().any(|s| s.name == "rebuild"),
-            "update + rebuild remain distinct stages"
+            base.iter().any(|s| s.name == "update"),
+            "the update download remains a distinct stage"
         );
         assert!(
             base.iter().all(|s| s.name != "install"),
@@ -1525,16 +1442,6 @@ mod tests {
             with_install.len(),
             base.len() + 1,
             "include_install adds exactly one stage"
-        );
-    }
-
-    #[test]
-    fn rebuild_retries_only_on_failure() {
-        assert!(!rebuild_needs_retry(Some(0)), "a clean rebuild must not retry");
-        assert!(rebuild_needs_retry(Some(1)), "a failed rebuild retries once");
-        assert!(
-            rebuild_needs_retry(None),
-            "a killed/signalled rebuild (no exit code) retries once"
         );
     }
 

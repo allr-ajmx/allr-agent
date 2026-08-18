@@ -7,7 +7,7 @@ import path from 'node:path'
 //
 // Port 5175 keeps us out of the way of:
 //   web       (vite default 5173)
-//   apps/desktop dev     (5174 per its package.json)
+//   the former apps/desktop dev     (5174 per its package.json)
 //
 // `clearScreen: false` is the Tauri convention — they spawn vite as a child
 // process and want our errors to stay visible.

@@ -5,10 +5,10 @@ import { cn } from '../lib/utils'
 /*
  * Loader — the desktop's "Fourier Flow" curve, ported standalone.
  *
- * The shim can't import apps/desktop's 559-line multi-curve <Loader> (cross-app
+ * The shim can't import the former apps/desktop's 559-line multi-curve <Loader> (cross-app
  * coupling + bundle bloat that defeats the point of a lightweight installer), so
  * this is just the one curve the installer uses. Math + tuning lifted verbatim
- * from apps/desktop/src/components/ui/loader.tsx ('fourier-flow'); rotation is
+ * from the former apps/desktop/src/components/ui/loader.tsx ('fourier-flow'); rotation is
  * dropped because that curve never rotates. Keep the constants in sync if the
  * desktop's curve is retuned.
  */
