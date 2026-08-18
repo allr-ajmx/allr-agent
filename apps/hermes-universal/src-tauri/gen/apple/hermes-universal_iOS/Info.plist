@@ -41,9 +41,9 @@
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Hermes uses the microphone for voice conversations.</string>
+	<string>Allr uses the microphone for voice conversations.</string>
 	<key>NSFaceIDUsageDescription</key>
-	<string>Hermes uses Face ID to unlock your saved gateway and SSH credentials.</string>
+	<string>Allr uses Face ID to unlock your saved gateway and SSH credentials.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

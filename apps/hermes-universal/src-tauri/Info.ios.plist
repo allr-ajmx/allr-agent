@@ -39,6 +39,13 @@
   App Store note: NSAllowsArbitraryLoadsInWebContent can draw a justification request
   at review. The justification is real — this app connects to gateways its user runs
   on their own private network, which cannot carry a publicly trusted certificate.
+
+  NSFaceIDUsageDescription is required for the credential unlock gate
+  (src/secrets/gate.rs -> LAContext): evaluating a policy without it does not fail,
+  it CRASHES the app. It lived only in the generated gen/apple/.../Info.plist until
+  now, which made it two bugs at once: it still named the old brand on every
+  unlock, and because gen/ is regenerated from this file it would have vanished on
+  the next `tauri ios init`, taking the crash guard with it. It belongs here.
 -->
 <plist version="1.0">
 <dict>
@@ -56,5 +63,7 @@
     <key>UIApplicationSupportsMultipleScenes</key>
     <true/>
   </dict>
+  <key>NSFaceIDUsageDescription</key>
+  <string>Allr uses Face ID to unlock your saved gateway and SSH credentials.</string>
 </dict>
 </plist>
