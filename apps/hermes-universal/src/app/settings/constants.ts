@@ -26,7 +26,7 @@ export const PROVIDER_GROUPS: ProviderPrefix[] = [
   {
     prefix: 'NOUS_',
     name: 'Nous Portal',
-    description: 'Hosted Allr & Nous-trained models',
+    description: 'Hosted Hermes & Nous-trained models', // rebrand:keep — Nous's model family, not our brand
     docsUrl: 'https://portal.nousresearch.com',
     priority: 0
   },
