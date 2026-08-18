@@ -27,6 +27,7 @@ from aiohttp import web
 from aiohttp.test_utils import TestClient, TestServer
 
 from gateway.config import GatewayConfig, Platform, PlatformConfig
+from gateway.platforms import api_server
 from gateway.platforms.api_server import (
     APIServerAdapter,
     ResponseStore,
@@ -2368,6 +2369,54 @@ class TestSessionIdHeader:
 
 
 # ---------------------------------------------------------------------------
+class TestBrandedRequestHeaders:
+    """``_branded_header`` reads either spelling of an ``X-Allr-*`` request header.
+
+    The Allr rename swept these names on both sides at once, which silently
+    dropped session continuity and memory scoping for every caller that ships
+    separately from this server -- a wake delivery from a gateway on another
+    release, an Open WebUI deployment, a script written against last year's docs.
+    The request still succeeded; it just no longer carried the session it named.
+    """
+
+    @staticmethod
+    def _request(headers):
+        return type("R", (), {"headers": headers})()
+
+    def test_the_current_spelling_is_read(self):
+        req = self._request({"X-Allr-Session-Id": "sess-1"})
+
+        assert api_server._branded_header(req, "X-Allr-Session-Id") == "sess-1"
+
+    def test_the_pre_rename_spelling_is_read(self):
+        req = self._request({"X-Hermes-Session-Id": "sess-1"})
+
+        assert api_server._branded_header(req, "X-Allr-Session-Id") == "sess-1"
+
+    def test_the_current_spelling_wins_when_both_are_sent(self):
+        # Clients that send both (this codebase does, outbound) must resolve to
+        # the canonical one rather than depending on dict ordering.
+        req = self._request(
+            {"X-Allr-Session-Id": "current", "X-Hermes-Session-Id": "legacy"}
+        )
+
+        assert api_server._branded_header(req, "X-Allr-Session-Id") == "current"
+
+    def test_an_absent_header_reads_as_empty(self):
+        assert api_server._branded_header(self._request({}), "X-Allr-Session-Id") == ""
+
+    def test_whitespace_only_falls_through_to_the_legacy_name(self):
+        # A blank canonical header is not an answer; it must not mask a real
+        # value under the older name.
+        req = self._request(
+            {"X-Allr-Session-Key": "   ", "X-Hermes-Session-Key": "webui:chan-1"}
+        )
+
+        assert (
+            api_server._branded_header(req, "X-Allr-Session-Key") == "webui:chan-1"
+        )
+
+
 # X-Allr-Session-Key header (long-term memory scoping)
 # ---------------------------------------------------------------------------
 

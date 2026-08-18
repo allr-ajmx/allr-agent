@@ -125,7 +125,13 @@ async def _self_post_chat_completion(
     url = f"http://{host}:{port}/v1/chat/completions"
     headers = {
         "Authorization": f"Bearer {api_key}",
+        # Both spellings: the API server on the other end is a separate install on
+        # its own release cadence, and one from before the Allr rename reads only
+        # the second. A header it does not recognise is ignored; a session id it
+        # never sees means the wake lands in a NEW session instead of the one the
+        # user is talking in, which is silent and looks like memory loss.
         "X-Allr-Session-Id": session_id,
+        "X-Hermes-Session-Id": session_id,  # rebrand:keep
     }
     payload = {
         "model": str(getattr(adapter, "_model_name", "") or "allr-agent"),

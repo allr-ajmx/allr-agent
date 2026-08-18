@@ -158,6 +158,27 @@ RESPONSES_AUTO_TRUNCATION_HISTORY_LIMIT = 100
 _COMPRESSED_SUMMARY_METADATA_KEY = "_compressed_summary"
 
 
+def _branded_header(request, name: str) -> str:
+    """Read an ``X-Allr-*`` request header, falling back to its pre-rename spelling.
+
+    The header names are an on-wire contract with callers we do not ship — a wake
+    delivery from a gateway on a different release, an Open WebUI deployment, a
+    script someone wrote against the docs a year ago. They were renamed from
+    ``X-Hermes-*`` wholesale, which silently dropped session continuity and memory
+    scoping for every one of those callers: the header simply stopped being read,
+    and the request still succeeded, just without the session it named.
+
+    Reading both costs one dict lookup on the miss path. Responses keep emitting the
+    canonical name only — those are consumed by our own SPA and app, which ship with
+    the server.
+    """
+    value = request.headers.get(name, "").strip()
+    if value:
+        return value
+
+    return request.headers.get(name.replace("X-Allr-", "X-Hermes-", 1), "").strip()  # rebrand:keep
+
+
 class ThreadSafeAsyncQueue(asyncio.Queue):
     """An ``asyncio.Queue`` that a non-loop thread can push into safely.
 
@@ -2123,7 +2144,7 @@ class APIServerAdapter(BasePlatformAdapter):
         unauthenticated client on a local-only server can't inject itself
         into another user's long-term memory scope by guessing a key.
         """
-        raw = request.headers.get("X-Allr-Session-Key", "").strip()
+        raw = _branded_header(request, "X-Allr-Session-Key")
         if not raw:
             return None, None
 
@@ -4097,7 +4118,7 @@ class APIServerAdapter(BasePlatformAdapter):
         # only allowed when the API key is configured and the request is
         # authenticated.  Without this gate, any unauthenticated client could
         # read arbitrary session history by guessing/enumerating session IDs.
-        provided_session_id = request.headers.get("X-Allr-Session-Id", "").strip()
+        provided_session_id = _branded_header(request, "X-Allr-Session-Id")
         if provided_session_id:
             if not self._api_key:
                 logger.warning(

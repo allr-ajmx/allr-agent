@@ -24686,7 +24686,10 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
         if proxy_key:
             headers["Authorization"] = f"Bearer {proxy_key}"
         if session_id:
+            # Both spellings — see gateway/wake.py. The proxy target is its own
+            # install and may predate the Allr rename.
             headers["X-Allr-Session-Id"] = session_id
+            headers["X-Hermes-Session-Id"] = session_id  # rebrand:keep
 
         body = {
             "model": "allr-agent",
