@@ -419,7 +419,7 @@ class TestCmdlineCapture:
              patch("subprocess.run", side_effect=fake_run):
             argv = live._dashboard_cmdline_for_pid(888)
 
-        assert argv == ["hermes", "serve", "--port", "8300"]
+        assert argv == ["allr", "serve", "--port", "8300"]
 
     def test_returns_none_on_windows(self, monkeypatch):
         live = self._live()

@@ -89,6 +89,9 @@ def test_systemd_install_calls_linger_helper(monkeypatch, tmp_path, capsys):
     helper_calls = []
     monkeypatch.setattr(gateway.subprocess, "run", fake_run)
     monkeypatch.setattr(gateway, "_ensure_linger_enabled", lambda: helper_calls.append(True))
+    # Do not let a real pre-rename unit on the dev box divert install into the
+    # legacy-migration prompt.
+    monkeypatch.setattr(gateway, "_legacy_unit_search_paths", list)
 
     gateway.systemd_install(force=False)
 

@@ -43,7 +43,7 @@ def test_create_get_list(conn):
     proj = pdb.get_project(conn, pid)
 
     assert proj is not None
-    assert proj.slug == "allr-agent"
+    assert proj.slug == "allr"
     assert proj.name == "Allr"
     # First folder becomes primary.
     assert proj.primary_path == "/tmp/hermes"
@@ -51,7 +51,7 @@ def test_create_get_list(conn):
     assert proj.folders[0].is_primary is True
 
     # Lookup by slug too.
-    assert pdb.get_project(conn, "allr-agent").id == pid
+    assert pdb.get_project(conn, "allr").id == pid
     assert len(pdb.list_projects(conn)) == 1
 
 
