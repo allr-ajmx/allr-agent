@@ -8,7 +8,7 @@
 //!   3. Network: download from GitHub raw at a pinned commit or branch.
 //!      Commit pins are immutable; branch pins are HEAD-tracking.
 //!
-//! Mirrors `apps/desktop/electron/bootstrap-runner.ts`'s `resolveInstallScript`,
+//! Mirrors `the former apps/desktop/electron/bootstrap-runner.ts`'s `resolveInstallScript`,
 //! but the dev-checkout resolution is driven by an env var rather than the
 //! Electron app's APP_ROOT/../.. trick, because Hermes-Setup.exe is meant
 //! to live OUTSIDE any repo checkout.

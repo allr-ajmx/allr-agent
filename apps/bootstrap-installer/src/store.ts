@@ -5,7 +5,7 @@ import { atom, computed } from 'nanostores'
 /*
  * Bootstrap state store — single source of truth for installer screens.
  *
- * Lives in nanostores per the project's TypeScript guidelines (apps/desktop
+ * Lives in nanostores per the project's TypeScript guidelines (the app
  * AGENTS.md): "Prefer small nanostores over component state when state is
  * shared, reused, or read by distant UI."
  *
@@ -316,7 +316,6 @@ export async function startInstall(opts?: { branch?: string }): Promise<void> {
     args: {
       commit: null,
       branch: opts?.branch ?? null,
-      include_desktop: true,
       hermes_home: null
     }
   })
@@ -391,14 +390,12 @@ const FAKE_INSTALL_STAGES: FakeStage[] = [
   { name: 'python', title: 'Python environment' },
   { name: 'repo', title: 'Hermes repository' },
   { name: 'dependencies', title: 'Python dependencies' },
-  { name: 'node', title: 'Node runtime' },
-  { name: 'desktop', title: 'Desktop app' }
+  { name: 'node', title: 'Node runtime' }
 ]
 
 const FAKE_UPDATE_STAGES: FakeStage[] = [
   { name: 'handoff', title: 'Preparing to update' },
   { name: 'update', title: 'Downloading the latest version' },
-  { name: 'rebuild', title: 'Rebuilding the desktop app' },
   { name: 'install', title: 'Installing the update' }
 ]
 

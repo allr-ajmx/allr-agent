@@ -16,7 +16,7 @@ import { getCurrentWindow, type Theme } from '@tauri-apps/api/window'
  *      `vite preview`).
  *
  * We only flip the `.dark` class + `color-scheme`; the dark seed values live in
- * styles.css (:root.dark), mirroring apps/desktop's applyTheme() palette.
+ * styles.css (:root.dark), mirroring the former apps/desktop's applyTheme() palette.
  */
 
 const prefersDark = (): boolean => window.matchMedia('(prefers-color-scheme: dark)').matches
