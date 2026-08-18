@@ -89,7 +89,7 @@ def remove_path_from_shell_configs():
             if new_content != original_content:
                 from utils import atomic_write_text
 
-                # This is the user's own shell rc, not a Allr-owned file, and
+                # This is the user's own shell rc, not an Allr-owned file, and
                 # nothing in this function backs it up. A bare write_text()
                 # truncates it before the new content lands, so a crash or
                 # SIGINT mid-write leaves the user with an empty or truncated
@@ -836,7 +836,7 @@ def _perform_uninstall(
         print(color("Reload your shell to complete the process:", Colors.YELLOW))
         print("  source ~/.bashrc  # or ~/.zshrc")
     print()
-    print("Thank you for using Allr! ⚕")
+    print("Thank you for using Allr!")
     print()
 
 

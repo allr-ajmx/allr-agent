@@ -1,7 +1,7 @@
 """Auto-installation of LSP server binaries.
 
 Tries to install missing servers using whatever package manager is
-appropriate.  All installs go to a Allr-owned bin staging dir,
+appropriate.  All installs go to an Allr-owned bin staging dir,
 ``<ALLR_HOME>/lsp/bin/``, so we don't pollute the user's global
 toolchain.
 

@@ -527,7 +527,7 @@ def _chat_messages_to_responses_input(
                             # returns 404.  The encrypted_content blob is
                             # self-contained for reasoning chain continuity.
                             # Also strip the internal "_issuer_kind" stamp;
-                            # it is a Allr-side metadata key and not part
+                            # it is an Allr-side metadata key and not part
                             # of the Responses API schema.
                             replay_item = {
                                 k: v for k, v in ri.items()

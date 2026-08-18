@@ -1245,7 +1245,7 @@ def _log_wal_reset_bug_once(
         )
     else:
         action = "using journal_mode=DELETE instead of enabling WAL"
-    # Check whether this is a Allr-managed install (uv-managed venv)
+    # Check whether this is an Allr-managed install (uv-managed venv)
     # so the warning doesn't promise a repair path that doesn't exist
     # for git/pip/system Python installs (#75153).
     repair_hint = _wal_reset_repair_hint()
@@ -10182,7 +10182,7 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
     ) -> None:
         """Bind one Telegram DM topic thread to one Allr session.
 
-        A Allr session may only be linked to one Telegram topic in MVP.
+        An Allr session may only be linked to one Telegram topic in MVP.
         Rebinding the same topic to the same session is idempotent; trying to
         link the same session to a different topic raises ValueError.
         """
@@ -10235,7 +10235,7 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
         self._execute_write(_do)
 
     def is_telegram_session_linked_to_topic(self, *, session_id: str) -> bool:
-        """Return True if a Allr session is already bound to any Telegram DM topic.
+        """Return True if an Allr session is already bound to any Telegram DM topic.
 
         Read-only: does NOT trigger the telegram-topic migration. If the
         topic-mode tables have not been created yet (i.e. nobody has run

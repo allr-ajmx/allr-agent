@@ -268,7 +268,7 @@ mod imp {
     /// stopped promising to bring anything back.
     ///
     /// Satellites count as "on screen". A user who turns this off while the HUD
-    /// is up still has a Allr in front of them, and when that one goes away
+    /// is up still has an Allr in front of them, and when that one goes away
     /// `ExitRequested` finds `enabled == false` and lets the app end on its own.
     fn toggle_keep_running(app: &AppHandle) {
         let Some(state) = app.try_state::<crate::background::BackgroundState>() else {

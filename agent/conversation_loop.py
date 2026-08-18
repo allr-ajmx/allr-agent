@@ -3179,7 +3179,7 @@ def run_conversation(
                     )
                     _refusal_response = (
                         "⚠️  The model declined to respond to this request "
-                        "(safety refusal — not a Allr/gateway failure).\n\n"
+                        "(safety refusal — not an Allr/gateway failure).\n\n"
                         f"{_refusal_detail}\n\n"
                         f"{_CONTENT_POLICY_RECOVERY_HINT}"
                     )
@@ -5647,7 +5647,7 @@ def run_conversation(
                     if classified.reason == FailoverReason.content_policy_blocked:
                         _policy_response = (
                             "⚠️  The model provider's safety filter blocked this request "
-                            "(not a Allr/gateway failure).\n\n"
+                            "(not an Allr/gateway failure).\n\n"
                             f"Provider message: {_nonretryable_summary}\n\n"
                             f"{_CONTENT_POLICY_RECOVERY_HINT}"
                         )

@@ -1890,7 +1890,7 @@ class WhatsAppCloudAdapter(WhatsAppBehaviorMixin, BasePlatformAdapter):
         contacts_by_waid: Dict[str, str],
         metadata: Dict[str, Any],
     ) -> Optional[MessageEvent]:
-        """Convert a Cloud-API message object into a Allr MessageEvent.
+        """Convert a Cloud-API message object into an Allr MessageEvent.
 
         Phase 4 expands beyond text to download inbound media (image,
         video, audio/voice, document, sticker) by ``media_id`` via the

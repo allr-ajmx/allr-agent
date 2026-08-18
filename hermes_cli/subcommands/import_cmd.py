@@ -16,7 +16,7 @@ def build_import_cmd_parser(subparsers, *, cmd_import: Callable) -> None:
     # =========================================================================
     import_parser = subparsers.add_parser(
         "import",
-        help="Restore a Allr backup from a zip file",
+        help="Restore an Allr backup from a zip file",
         description="Extract a previously created Allr backup into your "
         "Allr home directory, restoring configuration, skills, "
         "sessions, and data",

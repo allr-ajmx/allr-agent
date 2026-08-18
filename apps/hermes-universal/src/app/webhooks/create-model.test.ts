@@ -60,8 +60,8 @@ describe('create failures stay legible', () => {
   })
 
   it('falls back to the whole message when there is no detail', () => {
-    expect(readableCreateError(new Error('Not connected to a Allr backend'))).toBe(
-      'Not connected to a Allr backend'
+    expect(readableCreateError(new Error('Not connected to an Allr backend'))).toBe(
+      'Not connected to an Allr backend'
     )
   })
 })

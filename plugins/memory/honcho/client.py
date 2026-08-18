@@ -37,7 +37,7 @@ HOST = "hermes"
 
 
 def profile_host_key(profile: str | None) -> str:
-    """Return the safe Honcho host key for a Allr profile."""
+    """Return the safe Honcho host key for an Allr profile."""
     if not profile or profile in {"default", "custom"}:
         return HOST
     sanitized = "".join(c if c.isalnum() or c in "_-" else "_" for c in profile).strip("_")

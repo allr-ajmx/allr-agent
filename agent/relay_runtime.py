@@ -28,7 +28,7 @@ _PROFILE_KEY_CACHE: dict[str, str] = {}
 
 @dataclass
 class RelaySession:
-    """One isolated Relay scope stack owned by a Allr session."""
+    """One isolated Relay scope stack owned by an Allr session."""
 
     session_id: str
     parent_session_id: str = ""
@@ -67,7 +67,7 @@ class RelayRuntime:
             self._execution_consumers.discard(consumer)
 
     def managed_execution_enabled(self) -> bool:
-        """Return whether a Allr-managed consumer needs the Relay pipeline."""
+        """Return whether an Allr-managed consumer needs the Relay pipeline."""
         with self._execution_consumers_lock:
             return bool(self._execution_consumers)
 
@@ -184,7 +184,7 @@ class RelayRuntime:
             return None if session.closing else session
 
     def get_session_handle(self, session_id: str) -> Any:
-        """Return the Relay parent handle for a Allr session, if active."""
+        """Return the Relay parent handle for an Allr session, if active."""
         session = self.get_session(session_id)
         return None if session is None else session.handle
 
@@ -493,7 +493,7 @@ _CURRENT_TURN: contextvars.ContextVar[RelayTurnContext | None] = contextvars.Con
 )
 
 # Depth of managed Relay callbacks executing on the current logical call path.
-# Set >0 while the native Relay pipeline is mid-dispatch of a Allr callback
+# Set >0 while the native Relay pipeline is mid-dispatch of an Allr callback
 # (tool or LLM). Nested managed execution inside that window is structurally
 # broken — the native pipeline binds its Futures to the outer, blocked event
 # loop — so resolve_execution_context() bypasses Relay while the flag is set.
@@ -874,7 +874,7 @@ def resolve_execution_context(
     if _MANAGED_CALLBACK_DEPTH.get() > 0:
         # A managed Relay callback is already executing on this logical call
         # path (e.g. the native ``tools.execute`` pipeline is mid-dispatch of
-        # a Allr tool). Nested managed execution here is structurally
+        # an Allr tool). Nested managed execution here is structurally
         # impossible: the native pipeline binds its Futures to the OUTER
         # call's event loop, which is blocked inside the synchronous tool
         # callback until the tool returns. A nested managed LLM call (the
@@ -919,7 +919,7 @@ def emit_mark(
     data: Any = None,
     metadata: Any = None,
 ) -> bool:
-    """Emit a fail-open Relay mark under a Allr session."""
+    """Emit a fail-open Relay mark under an Allr session."""
     runtime = get_runtime(create=False)
     if runtime is None:
         return False

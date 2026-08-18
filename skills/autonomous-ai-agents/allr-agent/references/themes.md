@@ -1,6 +1,6 @@
-# Themes / Skins — Author a Allr Color Theme
+# Themes / Skins — Author an Allr Color Theme
 
-Author a Allr **skin** — one YAML file that themes the CLI, the TUI, and the
+Author an Allr **skin** — one YAML file that themes the CLI, the TUI, and the
 desktop GUI at once. The skin engine (`hermes_cli/skin_engine.py`) resolves the
 active skin and the gateway pushes it to every surface, so a file dropped in
 `~/.allr/skins/` is the theme analogue of a plugin: no code, all surfaces. This

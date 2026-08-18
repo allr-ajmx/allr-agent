@@ -114,7 +114,7 @@ def make_approval_callback(
     timeout: float = 60.0,
 ) -> Callable[..., str]:
     """
-    Return a Allr-compatible approval callback that bridges to ACP.
+    Return an Allr-compatible approval callback that bridges to ACP.
 
     The callback accepts ``command`` and ``description`` plus optional
     keyword arguments such as ``allow_permanent`` used by

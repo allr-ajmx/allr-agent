@@ -274,7 +274,7 @@ def _check_via_local_git(repo_dir: Path) -> Optional[int]:
 
 
 def check_for_updates() -> Optional[int]:
-    """Check whether a Allr update is available.
+    """Check whether an Allr update is available.
 
     Two paths: if ``ALLR_REVISION`` is set (nix builds embed it), compare
     it to upstream main via ``git ls-remote``. Otherwise look for a local

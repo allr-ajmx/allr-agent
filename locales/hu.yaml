@@ -105,7 +105,7 @@ gateway:
     header:                "**Hibakeresési jelentés feltöltve:**"
     auto_delete:           "⏱ A beillesztések 6 óra múlva automatikusan törlődnek."
     full_logs_hint:        "Teljes naplók feltöltéséhez használd a `allr debug share` parancsot a CLI-ből."
-    share_hint:            "Oszd meg ezeket a hivatkozásokat a Allr csapattal támogatásért."
+    share_hint:            "Oszd meg ezeket a hivatkozásokat az Allr csapattal támogatásért."
 
   deny:
     stale:                 "❌ Parancs elutasítva (a jóváhagyás elavult)."
@@ -363,7 +363,7 @@ Future messages in this room will use that transcript until `/reset` or another 
   update:
     platform_not_messaging:  "✗ A /update csak üzenetküldő platformokról érhető el. Futtasd a `allr update` parancsot a terminálból."
     not_git_repo:            "✗ Nem git-tárhely — frissítés nem lehetséges."
-    hermes_cmd_not_found:    "✗ Nem sikerült megtalálni a `hermes` parancsot. A Allr fut, de a frissítőparancs nem találta a futtatható fájlt a PATH-on vagy a jelenlegi Python interpreteren keresztül. Próbáld futtatni a `allr update` parancsot manuálisan a terminálban."
+    hermes_cmd_not_found:    "✗ Nem sikerült megtalálni a `hermes` parancsot. Az Allr fut, de a frissítőparancs nem találta a futtatható fájlt a PATH-on vagy a jelenlegi Python interpreteren keresztül. Próbáld futtatni a `allr update` parancsot manuálisan a terminálban."
     start_failed:            "✗ Nem sikerült elindítani a frissítést: {error}"
     starting:                "Allr frissítés indítása… A folyamatot itt fogom közvetíteni."
 

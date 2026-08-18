@@ -452,7 +452,7 @@ get_command_link_display_dir() {
     fi
 }
 
-# Point a Allr-managed Node's `npm install -g` at a directory that is on
+# Point an Allr-managed Node's `npm install -g` at a directory that is on
 # PATH. npm's default global prefix for a bundled Node is the Node dir itself,
 # so global package binaries land in $ALLR_HOME/node/bin — which is NOT on
 # PATH (only the command link dir is) and is wiped on every Node upgrade.
@@ -826,7 +826,7 @@ check_node() {
         return
     fi
 
-    # Prefer a Allr-managed Node from a previous run over a too-old system one.
+    # Prefer an Allr-managed Node from a previous run over a too-old system one.
     if [ -x "$ALLR_HOME/node/bin/node" ] && node_satisfies_build "$("$ALLR_HOME/node/bin/node" --version)"; then
         export PATH="$ALLR_HOME/node/bin:$PATH"
         log_success "Node.js $("$ALLR_HOME/node/bin/node" --version) found (Allr-managed)"

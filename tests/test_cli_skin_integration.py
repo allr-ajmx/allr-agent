@@ -82,7 +82,7 @@ class TestCliSkinPromptIntegration:
 
 class TestCompactBannerSkinIntegration:
 
-    def test_poseidon_compact_banner_uses_skin_branding_instead_of_nous_hermes(self):
+    def test_poseidon_compact_banner_uses_skin_branding_instead_of_default_wordmark(self):
         set_active_skin("poseidon")
 
         with patch("cli.shutil.get_terminal_size", return_value=SimpleNamespace(columns=90)), \
@@ -90,7 +90,7 @@ class TestCompactBannerSkinIntegration:
             banner = _build_compact_banner()
 
         assert "Poseidon Agent" in banner
-        assert "NOUS ALLR" not in banner
+        assert "ALLR - AI Agent Framework" not in banner
 
     def test_poseidon_compact_banner_uses_skin_colors(self):
         set_active_skin("poseidon")

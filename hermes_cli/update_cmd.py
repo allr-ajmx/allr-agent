@@ -3093,7 +3093,7 @@ def _orphaned_desktop_backend_pids(
 
     A holder qualifies only when BOTH hold:
 
-    - its cmdline is a Allr backend (``hermes_cli.main`` + ``serve`` /
+    - its cmdline is an Allr backend (``hermes_cli.main`` + ``serve`` /
       ``dashboard``), and
     - its supervising parent is demonstrably gone: the parent PID no longer
       exists, or the PID was reused (parent created *after* the child).

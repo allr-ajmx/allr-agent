@@ -4467,7 +4467,7 @@ def _recent_upstream_commits(n: int = 20) -> List[Dict[str, Any]]:
 
 @app.get("/api/hermes/update/check")
 async def check_hermes_update(force: bool = False):
-    """Report whether a Allr update is available, without applying it.
+    """Report whether an Allr update is available, without applying it.
 
     Powers the dashboard's "check before you update" flow: the System page
     shows the commit-behind count and asks the user to confirm before

@@ -466,7 +466,7 @@ class TestValidateCodexAutoCorrection:
 # -- probe_api_models — Cloudflare UA mitigation --------------------------------
 
 class TestProbeApiModelsUserAgent:
-    """Probing custom /v1/models must send a Allr User-Agent.
+    """Probing custom /v1/models must send an Allr User-Agent.
 
     Some custom Claude proxies (e.g. ``packyapi.com``) sit behind Cloudflare with
     Browser Integrity Check enabled. The default ``Python-urllib/3.x`` signature

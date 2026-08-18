@@ -73,7 +73,7 @@ export async function api<T = unknown>({
   const conn = $connection.get()
 
   if (!conn) {
-    throw new Error('Not connected to a Allr backend')
+    throw new Error('Not connected to an Allr backend')
   }
 
   const headers: Record<string, string> = {}

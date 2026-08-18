@@ -1,6 +1,6 @@
 //! SSH gateway transport (MJX-55).
 //!
-//! Reaches a Allr backend on a remote host over SSH. The shape, ported from the
+//! Reaches an Allr backend on a remote host over SSH. The shape, ported from the
 //! Electron desktop app (`apps/desktop/electron/{ssh-connection,remote-lifecycle,
 //! windows-remote-lifecycle}.ts`):
 //!

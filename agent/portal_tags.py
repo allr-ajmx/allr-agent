@@ -104,7 +104,7 @@ def hermes_client_tag() -> str:
 
 
 def conversation_tag(session_id: str) -> str:
-    """Return the ``conversation=...`` tag for a Allr session/conversation.
+    """Return the ``conversation=...`` tag for an Allr session/conversation.
 
     Format: ``conversation=<session_id>``. ``session_id`` is the canonical
     Allr conversation identifier (``AIAgent.session_id``) — the same value

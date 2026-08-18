@@ -1270,7 +1270,7 @@ function Install-Git {
         } else {
             Write-Warn "Git is on PATH, but its Git Bash installation could not be located."
         }
-        Write-Info "Trying a Allr-managed PortableGit install instead..."
+        Write-Info "Trying an Allr-managed PortableGit install instead..."
     }
 
     # Download PortableGit into $HermesHome\git.  Always works as long as
@@ -1493,7 +1493,7 @@ function Test-Node {
         Write-Warn "Node.js $version is too old (Allr requires Node >=26)"
     }
 
-    # Prefer a Allr-managed Node from a previous run over a too-old system one.
+    # Prefer an Allr-managed Node from a previous run over a too-old system one.
     $managedNode = "$HermesHome\node\node.exe"
     if ((Test-Path $managedNode) -and (Test-NodeVersionOk (& $managedNode --version))) {
         $version = & $managedNode --version
