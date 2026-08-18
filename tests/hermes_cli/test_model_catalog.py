@@ -137,7 +137,7 @@ class TestFallbackChain:
     releases (opus 4.8, etc.) never reach the picker.
     """
 
-    PRIMARY = "https://allr.work/docs/api/model-catalog.json"
+    PRIMARY = "https://hermes-agent.nousresearch.com/docs/api/model-catalog.json"  # rebrand:keep
     FALLBACK = (
         "https://raw.githubusercontent.com/NousResearch/hermes-agent"
         "/main/website/static/api/model-catalog.json"

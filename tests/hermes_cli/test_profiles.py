@@ -551,7 +551,7 @@ class TestRenameProfile:
         honcho_path = tmp_path / ".allr" / "honcho.json"
         honcho_path.write_text(json.dumps({
             "hosts": {
-                "allr.ssi_health": {
+                "hermes.ssi_health": {  # rebrand:keep
                     "recallMode": "hybrid",
                     "writeFrequency": "async",
                     "sessionStrategy": "per-session",
@@ -568,7 +568,7 @@ class TestRenameProfile:
             rename_profile("ssi_health", "heimdall")
 
         cfg = json.loads(honcho_path.read_text())
-        assert "allr.ssi_health" not in cfg["hosts"]
+        assert "hermes.ssi_health" not in cfg["hosts"]  # rebrand:keep
         assert cfg["hosts"]["hermes_heimdall"]["aiPeer"] == "ssi_health"
         assert cfg["hosts"]["hermes_heimdall"]["peerName"] == "user-peer"
 

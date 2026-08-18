@@ -52,7 +52,7 @@ class TestBuildLearnPrompt:
         # #3 platforms gating against OS-bound primitives.
         assert "platforms" in std
         # author is always the literal Allr, never the host/OS identity (#52368).
-        assert "author: always the literal value `hermes`" in std
+        assert "author: always the literal value `allr`" in std
         assert "never fill it from the host" in std
         # #2 Allr-tool framing names the wrapped tools, not shell utilities.
         for tool in ("read_file", "search_files", "patch", "write_file"):

@@ -233,7 +233,7 @@ def test_find_project_by_name_case_insensitive(monkeypatch: pytest.MonkeyPatch) 
     def fake_get(url: str, **kwargs: Any) -> _FakeResponse:
         return _FakeResponse(json_body={"data": [
             {"id": "p1", "name": "Other"},
-            {"id": "p2", "name": "hermes agent"},
+            {"id": "p2", "name": "allr"},
         ]})
 
     monkeypatch.setattr(photon_auth.httpx, "get", fake_get)
