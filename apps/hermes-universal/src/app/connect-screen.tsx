@@ -1,4 +1,6 @@
 import { GatewayConfigurator } from '@/app/gateway/gateway-configurator'
+import { BRAND } from '@/brand'
+import { Wordmark } from '@/components/brand/wordmark'
 import { useStore } from '@/store/atom'
 import { $connectionError } from '@/store/connection'
 
@@ -13,8 +15,8 @@ export function ConnectScreen() {
   return (
     <main className="connect">
       <div className="connect-card">
-        <div className="brand">Allr</div>
-        <h1 className="connect-title">Connect to Allr</h1>
+        <Wordmark />
+        <h1 className="connect-title">Connect to {BRAND}</h1>
         {connectError && <div className="text-[0.8125rem] text-destructive">{connectError}</div>}
         <GatewayConfigurator variant="onboarding" />
       </div>
