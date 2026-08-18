@@ -558,9 +558,9 @@ Three dashboard-auth providers ship in the box. For a remote Allr Desktop connec
 | `ALLR_DESKTOP_ALLR_ROOT` | Desktop source-checkout override used by `hermes desktop --hermes-root`; checked before the packaged first-launch install or an existing `hermes` on `PATH`. |
 | `ALLR_DESKTOP_IGNORE_EXISTING` | Set to `1` to make Desktop ignore an existing `hermes` on `PATH` during backend resolution. Equivalent to `hermes desktop --ignore-existing`. |
 | `ALLR_DESKTOP_CWD` | Initial project directory for Desktop chat sessions. Set by `hermes desktop --cwd`. |
-| `ALLR_DESKTOP_PYTHON` | Absolute path to a Python interpreter for the backend, checked before Electron auto-resolves one for the source checkout. Used by worktree dev helpers (see [TUI & Desktop from Worktrees](../developer-guide/worktree-ui-dev.md)) to reuse a shared venv. |
+| `ALLR_DESKTOP_PYTHON` | Absolute path to a Python interpreter for the backend, checked before Electron auto-resolves one for the source checkout. Used by worktree dev helpers (see [TUI from Worktrees](../developer-guide/worktree-ui-dev.md)) to reuse a shared venv. |
 | `ALLR_DESKTOP_DEV_SERVER` | Vite dev-server URL the Electron shell loads instead of the packaged bundle (e.g. `http://127.0.0.1:5174`). Set automatically by `npm run dev`; only relevant when hacking on the app. |
-| `ALLR_DESKTOP_CDP_PORT` | Overrides the Chrome DevTools Protocol port the renderer exposes on `127.0.0.1` for DOM/CSS inspection tooling (default `9222`). Dev-server runs (`npm run dev`, `hgui`) open it automatically; a packaged app never does, and no value here changes that. Set to `off` to disable it on a dev run. Anything that can reach the port can execute code in the renderer. |
+| `ALLR_DESKTOP_CDP_PORT` | Overrides the Chrome DevTools Protocol port the renderer exposes on `127.0.0.1` for DOM/CSS inspection tooling (default `9222`). Dev-server runs (`npm run dev`) open it automatically; a packaged app never does, and no value here changes that. Set to `off` to disable it on a dev run. Anything that can reach the port can execute code in the renderer. |
 
 ### Microsoft Graph (Teams Meetings)
 
