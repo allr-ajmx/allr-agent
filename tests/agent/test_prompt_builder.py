@@ -594,6 +594,15 @@ class TestFindHermesMd:
         (tmp_path / ".hermes.md").write_text("rules")
         assert _find_hermes_md(tmp_path) == tmp_path / ".hermes.md"
 
+    def test_finds_allr_md(self, tmp_path):
+        (tmp_path / ".allr.md").write_text("rules")
+        assert _find_hermes_md(tmp_path) == tmp_path / ".allr.md"
+
+    def test_allr_md_wins_over_legacy_hermes_md(self, tmp_path):
+        (tmp_path / ".allr.md").write_text("new")
+        (tmp_path / ".hermes.md").write_text("legacy")
+        assert _find_hermes_md(tmp_path) == tmp_path / ".allr.md"
+
 
 
     def test_walks_to_git_root(self, tmp_path):
