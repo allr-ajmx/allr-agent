@@ -1,6 +1,6 @@
 name: hermes-universal
 options:
-  bundleIdPrefix: com.jaxmatrix.mjx-unofficial-hermes
+  bundleIdPrefix: work.allr.app
   deploymentTarget:
     iOS: 14.0
 fileGroups: [../../src]
@@ -10,8 +10,8 @@ configs:
 settingGroups:
   app:
     base:
-      PRODUCT_NAME: Hermes
-      PRODUCT_BUNDLE_IDENTIFIER: com.jaxmatrix.mjx-unofficial-hermes
+      PRODUCT_NAME: Allr
+      PRODUCT_BUNDLE_IDENTIFIER: work.allr.app
       DEVELOPMENT_TEAM: 6M43WS4436
 targetTemplates:
   app:
