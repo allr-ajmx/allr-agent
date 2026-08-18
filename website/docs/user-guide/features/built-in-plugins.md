@@ -9,7 +9,7 @@ description: "Plugins shipped with Allr that run automatically via lifecycle hoo
 
 Allr ships a small set of plugins bundled with the repository. They live under `<repo>/plugins/<name>/` and load automatically alongside user-installed plugins in `~/.allr/plugins/`. They use the same plugin surface as third-party plugins — hooks, tools, slash commands — just maintained in-tree.
 
-See the [Plugins](/user-guide/features/plugins) page for the general plugin system, and [Build a Allr Plugin](/developer-guide/plugins) to write your own.
+See the [Plugins](/user-guide/features/plugins) page for the general plugin system, and [Build an Allr Plugin](/developer-guide/plugins) to write your own.
 
 ## How discovery works
 
@@ -287,7 +287,7 @@ Adds a **Steam-style achievements tab to the dashboard** — 60+ collectible, ti
 
 ## Adding a bundled plugin
 
-Bundled plugins are written exactly like any other Allr plugin — see [Build a Allr Plugin](/developer-guide/plugins). The only differences are:
+Bundled plugins are written exactly like any other Allr plugin — see [Build an Allr Plugin](/developer-guide/plugins). The only differences are:
 
 - Directory lives at `<repo>/plugins/<name>/` instead of `~/.allr/plugins/<name>/`
 - Manifest source is reported as `bundled` in `allr plugins list`

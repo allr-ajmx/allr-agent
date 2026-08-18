@@ -8,7 +8,7 @@ description: "Set up Allr as a Mattermost bot"
 
 Allr integrates with Mattermost as a bot, letting you chat with your AI assistant through direct messages or team channels. Mattermost is a self-hosted, open-source Slack alternative — you run it on your own infrastructure, keeping full control of your data. The bot connects via Mattermost's REST API (v4) and WebSocket for real-time events, processes messages through the Allr pipeline (including tool use, memory, and reasoning), and responds in real time. It supports text, file attachments, images, and slash commands.
 
-No external Mattermost library is required — the adapter uses `aiohttp`, which is already a Allr dependency.
+No external Mattermost library is required — the adapter uses `aiohttp`, which is already an Allr dependency.
 
 Before setup, here's the part most people want to know: how Allr behaves once it's in your Mattermost instance.
 

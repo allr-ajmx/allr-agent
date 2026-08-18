@@ -15,7 +15,7 @@ Allr is a large repository, and most contributions touch exactly one subsystem. 
 | Built-in tools | `tools/` | [Adding Tools](adding-tools.md), [Tools Runtime](tools-runtime.md) |
 | Messaging gateway | `gateway/`, `plugins/platforms/` | [Gateway Internals](gateway-internals.md), [Adding Platform Adapters](adding-platform-adapters.md) |
 | CLI | `hermes_cli/` | [Extending the CLI](extending-the-cli.md) |
-| Plugins system | `plugins/` | [Build a Allr Plugin](plugins/index.md) |
+| Plugins system | `plugins/` | [Build an Allr Plugin](plugins/index.md) |
 | Skills (bundled & optional) | `skills/`, `optional-skills/` | [Creating Skills](creating-skills.md) |
 | Cron / scheduled jobs | `cron/` | [Cron Internals](cron-internals.md) |
 | Session storage | `hermes_state.py` | [Session Storage](session-storage.md) |

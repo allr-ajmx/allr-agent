@@ -27,7 +27,7 @@ desktop app** (`hermes desktop`) SDK — the `@hermes/plugin-sdk` module and
 its own, unrelated plugin system on `window.__ALLR_PLUGIN_SDK__` with a
 `manifest.json` — documented at
 [Extending the Dashboard](/user-guide/features/extending-the-dashboard). Python
-CLI/gateway plugins are documented at [Build a Allr Plugin](/developer-guide/plugins).
+CLI/gateway plugins are documented at [Build an Allr Plugin](/developer-guide/plugins).
 The three do not share code, APIs, or delivery. Only the backend `plugin_api.py`
 namespace (`/api/plugins/<id>`) is shared between the desktop and dashboard SDKs.
 :::

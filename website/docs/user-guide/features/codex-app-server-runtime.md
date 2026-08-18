@@ -169,7 +169,7 @@ uses:
 
 ## Enabling
 
-In a Allr session:
+In an Allr session:
 
 ```
 /codex-runtime codex_app_server

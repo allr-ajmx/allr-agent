@@ -102,7 +102,7 @@ Allr has **two** model commands that serve different purposes:
 | Command | Where to run | What it does |
 |---------|-------------|--------------|
 | **`allr model`** | Your terminal (outside any session) | Full setup wizard — add providers, run OAuth, enter API keys, configure endpoints |
-| **`/model`** | Inside a Allr chat session | Quick switch between **already-configured** providers and models |
+| **`/model`** | Inside an Allr chat session | Quick switch between **already-configured** providers and models |
 
 If you're trying to switch to a provider you haven't set up yet (e.g. you only have OpenRouter configured and want to use Anthropic), you need `allr model`, not `/model`. Exit your session first (`Ctrl+C` or `/quit`), run `allr model`, complete the provider setup, then start a new session.
 

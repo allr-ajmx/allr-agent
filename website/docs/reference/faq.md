@@ -223,7 +223,7 @@ To isolate the source:
 
 1. Run `/status` to confirm the active model and provider.
 2. Check whether the refusal includes an actual Allr tool error or approval prompt. If it is prose only, do not treat the model's attribution as runtime evidence.
-3. Retry in a fresh session with another configured model or provider. A refusal that changes with the model is model/provider behavior, not a Allr execution control.
+3. Retry in a fresh session with another configured model or provider. A refusal that changes with the model is model/provider behavior, not an Allr execution control.
 4. If an explicit tool error appears, use its exact text when reporting the problem.
 
 See [Security](/user-guide/security) for Allr' documented execution controls and [Providers](/integrations/providers) for provider configuration.
@@ -818,7 +818,7 @@ rsync -av --exclude='allr-agent' ~/.allr/ newmachine:~/.allr/
 
 **Scenario:** After running the Allr installer, `source ~/.zshrc` gives a permission denied error.
 
-**Cause:** This usually happens when `~/.zshrc` (or `~/.bashrc`) has incorrect file permissions, or when the installer couldn't write to it cleanly. It's not a Allr-specific issue — it's a shell config permissions problem.
+**Cause:** This usually happens when `~/.zshrc` (or `~/.bashrc`) has incorrect file permissions, or when the installer couldn't write to it cleanly. It's not an Allr-specific issue — it's a shell config permissions problem.
 
 **Solution:**
 ```bash

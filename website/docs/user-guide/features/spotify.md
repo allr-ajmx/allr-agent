@@ -185,7 +185,7 @@ Read-only tools work on Free accounts. Anything that mutates playback or the que
 
 ## Scheduling: Spotify + cron
 
-Because Spotify tools are regular Allr tools, a cron job running in a Allr session can trigger playback on any schedule. No new code needed.
+Because Spotify tools are regular Allr tools, a cron job running in an Allr session can trigger playback on any schedule. No new code needed.
 
 ### Morning wake-up playlist
 

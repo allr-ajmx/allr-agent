@@ -121,7 +121,7 @@ SECTIONS: list[tuple[str, list[tuple[str, str, str | None]]]] = [
         ("guides/use-mcp-with-hermes", "Use MCP with Allr", None),
         ("guides/use-voice-mode-with-hermes", "Use Voice Mode with Allr", None),
         ("guides/use-soul-with-hermes", "Use SOUL.md with Allr", None),
-        ("guides/build-a-hermes-plugin", "Build a Allr Plugin", None),
+        ("guides/build-a-hermes-plugin", "Build an Allr Plugin", None),
         ("guides/automate-with-cron", "Automate with Cron", None),
         ("guides/work-with-skills", "Work with Skills", None),
         ("guides/delegation-patterns", "Delegation Patterns", None),

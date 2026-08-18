@@ -9,7 +9,7 @@ Supersedes: PR #31781 (prompt_toolkit `allr profile wizard`)
 PR #31781 added a keyboard-driven `allr profile wizard` in the terminal.
 The decision is to **not** build the profile-creation experience in the CLI.
 The dashboard already owns mature, separate pages for every element a profile
-needs, and a profile is just a ALLR_HOME directory — so the dashboard is the
+needs, and a profile is just an ALLR_HOME directory — so the dashboard is the
 right home for a full-featured builder, and it can reuse everything that
 already exists.
 

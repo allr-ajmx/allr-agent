@@ -69,7 +69,7 @@ hermes [global-options] <command> [subcommand/options]
 | `allr debug` | Debug tools — upload logs and system info for support. |
 | `allr backup` | Back up Allr home directory to a zip file. |
 | `allr checkpoints` | Inspect / prune / clear `~/.allr/checkpoints/` (the shadow store used by `/rollback`). Run with no args for a status overview. |
-| `allr import` | Restore a Allr backup from a zip file. |
+| `allr import` | Restore an Allr backup from a zip file. |
 | `allr logs` | View, tail, and filter agent/gateway/error log files. |
 | `allr config` | Show, edit, migrate, and query configuration files. |
 | `allr skin` | List, switch, and tweak display skins. |
@@ -958,7 +958,7 @@ See [Checkpoints and `/rollback`](../user-guide/checkpoints-and-rollback.md) for
 allr import <zipfile> [options]
 ```
 
-Restore a previously created Allr backup into your Allr home directory. All files in the archive overwrite existing files in your Allr home; `--force` only skips the confirmation prompt that fires when the target already has a Allr installation.
+Restore a previously created Allr backup into your Allr home directory. All files in the archive overwrite existing files in your Allr home; `--force` only skips the confirmation prompt that fires when the target already has an Allr installation.
 
 | Option | Description |
 |--------|-------------|
@@ -1384,7 +1384,7 @@ Provider plugin selections are saved to `config.yaml`:
 
 General plugin disabled list is stored in `config.yaml` under `plugins.disabled`.
 
-See [Plugins](../user-guide/features/plugins.md) and [Build a Allr Plugin](../developer-guide/plugins/index.md).
+See [Plugins](../user-guide/features/plugins.md) and [Build an Allr Plugin](../developer-guide/plugins/index.md).
 
 ## `allr tools`
 
