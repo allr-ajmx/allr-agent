@@ -59,9 +59,14 @@ Headers::
 
     Content-Type:            application/json
     User-Agent:              Allr-Outbound-Webhook
-    X-Allr-Event:          <hook event name>
-    X-Allr-Delivery:       <delivery_id>
-    X-Allr-Signature-256:  sha256=<hmac hexdigest>   # only when secret set
+    X-Allr-Event:            <hook event name>
+    X-Allr-Delivery:         <delivery_id>
+    X-Allr-Signature-256:    sha256=<hmac hexdigest>   # only when secret set
+
+Every ``X-Allr-*`` header above is also sent under its pre-rename spelling
+(``X-Hermes-Event``, ``X-Hermes-Delivery``, ``X-Hermes-Signature-256``) with an
+identical value, so receivers written against either name keep working.  Verify
+the signature against whichever one you read.
 """
 
 from __future__ import annotations
@@ -434,17 +439,27 @@ def _serialize_payload(
 def _build_delivery(
     event: str, target: WebhookTarget, body: bytes, delivery_id: str,
 ) -> Dict[str, Any]:
+    # Both brand spellings go out on every delivery. These headers are consumed by
+    # receivers we do not ship or control -- a Zapier hook, someone's Flask endpoint,
+    # a script pinned to the header names in the docs a year ago. Renaming them
+    # wholesale silently broke every such receiver that dispatched on ``X-Hermes-Event``
+    # or verified ``X-Hermes-Signature-256``; the delivery still arrived, it just no
+    # longer looked like anything the receiver recognised. The duplicates carry
+    # identical values, so a receiver reading either one is correct.
     headers = {
         "Content-Type": "application/json",
         "User-Agent": "Allr-Outbound-Webhook",
         "X-Allr-Event": event,
         "X-Allr-Delivery": delivery_id,
+        "X-Hermes-Event": event,  # rebrand:keep
+        "X-Hermes-Delivery": delivery_id,  # rebrand:keep
     }
     if target.secret:
         digest = hmac.new(
             target.secret.encode("utf-8"), body, hashlib.sha256
         ).hexdigest()
         headers["X-Allr-Signature-256"] = f"sha256={digest}"
+        headers["X-Hermes-Signature-256"] = f"sha256={digest}"  # rebrand:keep
     return {
         "url": target.url,
         "label": target.label,

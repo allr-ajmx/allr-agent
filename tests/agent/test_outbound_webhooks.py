@@ -390,6 +390,20 @@ class TestDelivery:
         ).hexdigest()
         assert req["headers"]["X-Allr-Signature-256"] == f"sha256={expected}"
 
+        # And the pre-rename spelling of each, with identical values. Receivers
+        # are other people's code, pinned to whichever name the docs showed them;
+        # the Allr rename renamed these out from under all of them at once, and a
+        # webhook that stops being recognised does not fail loudly -- it just
+        # stops doing anything.
+        assert req["headers"]["X-Hermes-Event"] == req["headers"]["X-Allr-Event"]
+        assert (
+            req["headers"]["X-Hermes-Delivery"] == req["headers"]["X-Allr-Delivery"]
+        )
+        assert (
+            req["headers"]["X-Hermes-Signature-256"]
+            == req["headers"]["X-Allr-Signature-256"]
+        )
+
     def test_unsigned_delivery_has_no_signature_header(self, http_server):
         cfg = _cfg({"url": _url(http_server), "events": ["on_session_end"]})
         outbound_webhooks.register_from_config(cfg)
@@ -401,6 +415,9 @@ class TestDelivery:
 
         assert len(http_server.captured) == 1
         assert "X-Allr-Signature-256" not in http_server.captured[0]["headers"]
+        # Neither spelling: an unsigned delivery must not look signed to a
+        # receiver reading either name.
+        assert "X-Hermes-Signature-256" not in http_server.captured[0]["headers"]
 
     def test_matcher_filters_tool_events(self, http_server):
         cfg = _cfg(
