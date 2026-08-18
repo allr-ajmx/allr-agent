@@ -29,6 +29,12 @@ DELIBERATE NON-SCOPE — these keep the word "hermes" on purpose:
 * Upstream repository links (`NousResearch/hermes-agent`,
   `jaxmatrix/mjx-hermes-agent`) and Nous model names (`Hermes 4`,
   `hermes-4-405b`) — those name someone else's project, not ours.
+* The dashboard-auth session cookies (`hermes_session_at`/`_rt`/`_pkce`/`_provider`,
+  `hermes_sso_attempt`) and every `X-Hermes-*` HTTP header. These are contracts with
+  peers that upgrade on their own schedule — a gateway deployed last year, a webhook
+  receiver someone else wrote — and renaming them does not fail loudly, it just stops
+  authenticating. The current code writes the `allr_*` / `X-Allr-*` names and READS
+  both; these patterns keep the legacy half readable.
 * `metadata.hermes.*`, `.hermes.md`, `HERMES.md`, `.hermes-kanban-*` CSS classes,
   `.hermes-bootstrap-complete` / `.hermes-runtime` / `.hermes-update-*` state
   markers, `hermes.service` (a systemd unit filename), `services.hermes-agent`
@@ -109,6 +115,19 @@ PROTECT_PARTS = [
     # as-is (skills index, model catalog). Doc links on the same host still move.
     r"hermes-agent\.nousresearch\.com/docs/api/[\w./-]*",
     # On-disk / on-wire contracts.
+    # The dashboard-auth session cookies and the HTTP headers below are the two
+    # this list learned the hard way. Renaming them shipped a client that could
+    # not sign in to any already-deployed gateway: the login completed, the
+    # gateway set `hermes_session_at`, and the desktop polled for a name that
+    # would never arrive until it timed out. Same shape for the headers —
+    # token-mode auth, webhook receivers and the API server's session continuity
+    # all went quiet rather than failing loudly.
+    r"hermes_session_\w+",
+    r"hermes_sso_attempt",
+    # Trailing part optional so prose that writes the family as `X-Hermes-*` is
+    # masked too — otherwise the sweep renames the very paragraph explaining why
+    # the header must not be renamed.
+    r"[Xx]-[Hh]ermes(?:-[\w-]*)?",
     r"metadata\.hermes\.\w+",
     r"\.hermes\.md",
     r"\bHERMES\.md\b",
@@ -409,6 +428,16 @@ KEEP = [
     'legacy = os.environ["HERMES_HOME"]  # rebrand:keep',
     "description: 'Hosted Hermes & Nous-trained models', // rebrand:keep",
     'URL = "https://hermes-agent.nousresearch.com/docs/api/model-catalog.json"',
+    # On-wire contracts. The cookie line used to sit in CHANGE below, asserting the
+    # rename that broke sign-in against every deployed gateway — the bug encoded as a
+    # passing test. It belongs here.
+    'cookie("hermes_session_at")',
+    'at = request.cookies.get("hermes_session_rt")',
+    'LEGACY_PKCE_COOKIE = "hermes_session_pkce"',
+    'SSO_ATTEMPT_COOKIE = "hermes_sso_attempt"',
+    'headers["X-Hermes-Session-Token"] = token',
+    'req.headers["x-hermes-sidecar-token"]',
+    '"X-Hermes-Signature-256": f"sha256={digest}"',
 ]
 
 # (input, expected) — one per rule.
@@ -437,7 +466,6 @@ CHANGE = [
     ('name = "Hermes-Setup"', 'name = "Allr-Setup"'),
     (r'"%LOCALAPPDATA%\bin\hermes.exe"', r'"%LOCALAPPDATA%\bin\allr.exe"'),
     ("ln -s ~/.local/bin/hermes", "ln -s ~/.local/bin/allr"),
-    ('cookie("hermes_session_at")', 'cookie("allr_session_at")'),
     ('parser = ArgumentParser(prog="hermes")', 'parser = ArgumentParser(prog="allr")'),
     ('const KEYRING_SERVICE: &str = "hermes";', 'const KEYRING_SERVICE: &str = "allr";'),
     ("const SERVICE = 'hermes'", "const SERVICE = 'allr'"),
