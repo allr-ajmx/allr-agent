@@ -14,7 +14,8 @@
 // Outbound (Allr -> gRPC): `/send` drives `space.send(...)`; `/typing`
 //   sends the documented `typing("start" | "stop")` content builder.
 //
-// Protocol (all requests require `X-Allr-Sidecar-Token: ${TOKEN}`):
+// Protocol (all requests require `X-Allr-Sidecar-Token: ${TOKEN}`, or its
+// pre-rename spelling `X-Hermes-Sidecar-Token`):
 //   - GET  /inbound    -> 200 NDJSON stream; one JSON event per line, blank
 //                         lines are heartbeats. One consumer at a time.
 //   - POST /healthz     -> {"ok": true}
@@ -969,7 +970,14 @@ function isHttpUrl(value) {
 }
 
 const server = http.createServer(async (req, res) => {
-  if (!tokenOk(req.headers["x-allr-sidecar-token"])) {
+  // Either spelling: an adapter from before the Allr rename sends only the
+  // second, and a long-running sidecar outlives the process that started it.
+  if (
+    !tokenOk(
+      req.headers["x-allr-sidecar-token"] ??
+        req.headers["x-hermes-sidecar-token"], // rebrand:keep
+    )
+  ) {
     return unauthorized(res);
   }
   // Long-lived inbound NDJSON stream.

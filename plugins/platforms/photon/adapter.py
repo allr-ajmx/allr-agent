@@ -71,6 +71,20 @@ from agent.secret_scope import UnscopedSecretError as _UnscopedSecretError
 from agent.secret_scope import get_secret as _scoped_get_secret
 
 
+def _sidecar_headers(token: str) -> Dict[str, str]:
+    """Auth headers for the sidecar, in both brand spellings.
+
+    The sidecar is normally spawned by this adapter, but it can also be one that
+    was already running -- started by an install from before the Allr rename, which
+    reads only ``X-Hermes-Sidecar-Token``. Sending both means a long-lived sidecar
+    keeps answering across an upgrade instead of 401ing every request.
+    """
+    return {
+        "X-Allr-Sidecar-Token": token,
+        "X-Hermes-Sidecar-Token": token,  # rebrand:keep
+    }
+
+
 def _get_scoped_secret(name, default=None):
     """Scope-aware credential read with the default-profile startup fallback.
 
@@ -1037,7 +1051,7 @@ class PhotonAdapter(BasePlatformAdapter):
         if client is None:
             return
         url = f"http://{self._sidecar_bind}:{self._sidecar_port}/inbound"
-        headers = {"X-Allr-Sidecar-Token": self._sidecar_token}
+        headers = _sidecar_headers(self._sidecar_token)
         backoff = 1.0
         while self._inbound_running:
             try:
@@ -1506,7 +1520,7 @@ class PhotonAdapter(BasePlatformAdapter):
             async with httpx.AsyncClient(timeout=2.0, trust_env=False) as client:
                 await client.post(
                     f"http://{self._sidecar_bind}:{self._sidecar_port}/healthz",
-                    headers={"X-Allr-Sidecar-Token": self._sidecar_token},
+                    headers=_sidecar_headers(self._sidecar_token),
                 )
         except httpx.RequestError:
             return  # nothing listening — the normal case
@@ -1675,7 +1689,7 @@ class PhotonAdapter(BasePlatformAdapter):
                 try:
                     resp = await client.post(
                         f"http://{self._sidecar_bind}:{self._sidecar_port}/healthz",
-                        headers={"X-Allr-Sidecar-Token": self._sidecar_token},
+                        headers=_sidecar_headers(self._sidecar_token),
                     )
                     if resp.status_code == 200:
                         # Persist port/token/pid so out-of-process senders
@@ -1743,7 +1757,7 @@ class PhotonAdapter(BasePlatformAdapter):
                 try:
                     await self._http_client.post(
                         f"http://{self._sidecar_bind}:{self._sidecar_port}/shutdown",
-                        headers={"X-Allr-Sidecar-Token": self._sidecar_token},
+                        headers=_sidecar_headers(self._sidecar_token),
                         timeout=2.0,
                     )
                 except Exception:
@@ -1827,7 +1841,7 @@ class PhotonAdapter(BasePlatformAdapter):
         try:
             resp = await client.post(
                 url,
-                headers={"X-Allr-Sidecar-Token": self._sidecar_token},
+                headers=_sidecar_headers(self._sidecar_token),
                 timeout=self._probe_timeout,
             )
         except asyncio.CancelledError:
@@ -2604,7 +2618,7 @@ class PhotonAdapter(BasePlatformAdapter):
         # send_message_tool).  The inbound streaming loop continues to use
         # _http_client directly — it always runs on the gateway's loop.
         url = f"http://{self._sidecar_bind}:{self._sidecar_port}{path}"
-        headers = {"X-Allr-Sidecar-Token": self._sidecar_token}
+        headers = _sidecar_headers(self._sidecar_token)
         async with httpx.AsyncClient(timeout=30.0, trust_env=False) as client:
             resp = await client.post(url, json=body, headers=headers)
         if resp.status_code != 200:
@@ -2783,7 +2797,7 @@ async def _standalone_send(
                 )
             }
     base = f"http://{_DEFAULT_SIDECAR_BIND}:{port}"
-    headers = {"X-Allr-Sidecar-Token": token}
+    headers = _sidecar_headers(token)
     last_message_id: Optional[str] = None
     try:
         async with httpx.AsyncClient(timeout=30.0, trust_env=False) as client:
