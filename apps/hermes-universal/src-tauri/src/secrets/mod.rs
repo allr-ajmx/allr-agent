@@ -176,16 +176,17 @@ pub struct SecretsStatus {
 
 /// Whether reading a credential requires a device unlock.
 ///
-/// **Off, deliberately, until every platform has a gate.** `gate::available()` is
-/// false on Linux and Android today, and the agreed policy for "no gate" is to
-/// stop persisting secrets — so switching this on now would take credential
-/// persistence away from those users to protect them with a mechanism that does
-/// not exist yet. Apple is implemented; Windows is written but uncompiled.
+/// On, now that every platform has an implementation behind `gate::available()`.
 ///
-/// Flip this to `true` in the same commit that lands the last platform, not
-/// before, and not per-platform: an uneven posture is harder to state honestly
-/// than either "on" or "off".
-const ENFORCE_UNLOCK: bool = false;
+/// Note what this does NOT do: a device with a working credential store but no
+/// unlock method configured — a Windows box without Hello, a Mac with no
+/// passcode, a Linux install with no polkit policy — keeps storing credentials
+/// ungated rather than refusing to store them. The store is still protected by
+/// the OS user account in every one of those cases, and refusing would lock
+/// people out of their own app over a lock-screen preference. Refusal is
+/// reserved for there being no protected store at all, which `store::ensure`
+/// already reports.
+const ENFORCE_UNLOCK: bool = true;
 
 /// Whether this read has to be authorized right now.
 ///
@@ -346,12 +347,34 @@ mod tests {
     }
 
     #[test]
-    fn enforcement_stays_off_until_every_platform_has_a_gate() {
-        // A deliberate tripwire. Turning this on while gate::available() is
-        // false on Linux and Android would, under the agreed "no gate → do not
-        // persist" policy, take credential storage away from those users to
-        // protect them with a mechanism that does not exist yet.
-        assert!(!ENFORCE_UNLOCK, "see the note on ENFORCE_UNLOCK");
+    fn a_locked_device_refuses_the_read_rather_than_returning_nothing() {
+        // Only meaningful where the device HAS an unlock method — otherwise the
+        // gate correctly does not apply. "Locked" must never look like "no
+        // credential stored": the SSH surfaces branch on that difference.
+        if !gate::available() {
+            return;
+        }
+
+        let _guard = gate::test_guard();
+        gate::grant_for_test();
+        write(SecretKey::SshPassword, "pw").unwrap();
+
+        gate::lock();
+        let refused = read(SecretKey::SshPassword).expect_err("a locked read must fail");
+        assert_eq!(refused.kind, error::SecretsErrorKind::Locked);
+
+        gate::grant_for_test();
+        assert_eq!(read(SecretKey::SshPassword).unwrap().as_deref(), Some("pw"));
+    }
+
+    #[test]
+    fn a_device_with_no_unlock_method_still_reaches_its_credentials() {
+        // Enforcement is on, but it is conditioned on the device actually having
+        // an unlock method. Without this, a Windows box with no Hello PIN or a
+        // Mac with no passcode would be locked out of credentials it stored
+        // perfectly well — the store is user-bound either way.
+        assert!(!gate_applies(true, false, SecretKey::SshKey));
+        assert!(gate_applies(true, true, SecretKey::SshKey));
     }
 
     #[test]
@@ -376,6 +399,11 @@ mod tests {
 
     #[test]
     fn a_round_trip_reads_back_what_was_written() {
+        // Reads are gated, and whether this machine has a passcode is not
+        // something a storage test should depend on.
+        let _guard = gate::test_guard();
+        gate::grant_for_test();
+
         write(SecretKey::SshPassphrase, "hunter2").unwrap();
         assert_eq!(
             read(SecretKey::SshPassphrase).unwrap().as_deref(),
@@ -390,6 +418,9 @@ mod tests {
 
     #[test]
     fn a_missing_entry_reads_as_none_rather_than_an_error() {
+        let _guard = gate::test_guard();
+        gate::grant_for_test();
+
         remove(SecretKey::Cookies).unwrap();
         assert_eq!(read(SecretKey::Cookies).unwrap(), None);
         // Deleting something already absent is not a failure either.
@@ -398,6 +429,10 @@ mod tests {
 
     #[test]
     fn owned_entries_round_trip_per_scope() {
+        // `read_owned` bypasses the gate by design, but it shares the mock store
+        // with the tests above; keep them off each other's toes.
+        let _guard = gate::test_guard();
+
         write_owned(OwnedKey::NativeAuth, "https://a.example", "token-a").unwrap();
         write_owned(OwnedKey::NativeAuth, "https://b.example", "token-b").unwrap();
 

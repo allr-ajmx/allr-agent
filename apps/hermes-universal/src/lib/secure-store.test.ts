@@ -26,6 +26,11 @@ function stubStore(values: Record<string, string>) {
   // `InvokeArgs` is a union that includes ArrayBuffer/number[], so narrow inside
   // rather than annotating the parameter as a record.
   mockInvoke.mockImplementation(async (command, args) => {
+    // Reads consult the gate first. Ungated here — the gate has its own tests.
+    if (command === 'secrets_status') {
+      return { available: true, gateAvailable: false, gateEnforced: false, unlocked: false }
+    }
+
     if (command === 'secrets_get') {
       const key = (args as undefined | { key?: string })?.key ?? ''
 
@@ -92,6 +97,69 @@ describe('secure-store (keystore)', () => {
 
     mockInvoke.mockResolvedValue({ available: true })
     await expect(secureStoreUnavailableReason()).resolves.toBeNull()
+  })
+})
+
+describe('the unlock gate', () => {
+  /** Status first (ensureUnlocked reads it), then whatever the read returns. */
+  function stubGate(status: Record<string, unknown>, values: Record<string, string> = {}) {
+    mockInvoke.mockImplementation(async (command, args) => {
+      if (command === 'secrets_status') {
+        return status
+      }
+
+      if (command === 'secrets_get') {
+        return values[(args as undefined | { key?: string })?.key ?? ''] ?? null
+      }
+
+      return undefined
+    })
+  }
+
+  it('unlocks before reading credentials, so the boot restore prompts once', async () => {
+    stubGate({ available: true, gateAvailable: true, gateEnforced: true, unlocked: false }, { sshKey: 'PEM' })
+
+    await loadSshSecrets()
+
+    expect(mockInvoke).toHaveBeenCalledWith('secrets_unlock', { reason: null })
+  })
+
+  it('does not prompt again inside an open lease', async () => {
+    // One connect reads the PEM, the passphrase and the password. Prompting per
+    // key would put three biometric dialogs in front of a single action.
+    stubGate({ available: true, gateAvailable: true, gateEnforced: true, unlocked: true })
+
+    await loadSshSecrets()
+
+    expect(mockInvoke).not.toHaveBeenCalledWith('secrets_unlock', expect.anything())
+  })
+
+  it('does not prompt on a device with no unlock method', async () => {
+    // A Windows box with no Hello PIN stores credentials perfectly well; asking
+    // it to unlock would be a dialog that cannot be satisfied.
+    stubGate({ available: true, gateAvailable: false, gateEnforced: true, unlocked: false })
+
+    await loadSshSecrets()
+
+    expect(mockInvoke).not.toHaveBeenCalledWith('secrets_unlock', expect.anything())
+  })
+
+  it('yields no credentials when the unlock is declined', async () => {
+    mockInvoke.mockImplementation(async (command: string) => {
+      if (command === 'secrets_status') {
+        return { available: true, gateAvailable: true, gateEnforced: true, unlocked: false }
+      }
+
+      if (command === 'secrets_unlock') {
+        throw new Error('the unlock was refused')
+      }
+
+      return null
+    })
+
+    // Degrades to "nothing stored" rather than surfacing a raw rejection — the
+    // same shape as an unavailable keystore, which every caller already handles.
+    await expect(loadSshSecrets()).resolves.toEqual({})
   })
 })
 

@@ -48,6 +48,11 @@ describe('session-persist', () => {
   it('restore reads the keyring blob and imports it into the jar', async () => {
     const jar = '[{"raw_cookie":"hermes_session_rt=abc"}]'
     setImpl(cmd => {
+      // Reads consult the unlock gate first; ungated here.
+      if (cmd === 'secrets_status') {
+        return Promise.resolve({ available: true, gateAvailable: false, gateEnforced: false, unlocked: false })
+      }
+
       // One read, not a has-then-get pair: a missing entry comes back null.
       if (cmd === 'secrets_get') {
         return Promise.resolve(jar)
@@ -62,7 +67,13 @@ describe('session-persist', () => {
   })
 
   it('restore imports nothing when no blob is saved', async () => {
-    setImpl(cmd => (cmd === 'secrets_get' ? Promise.resolve(null) : Promise.resolve()))
+    setImpl(cmd => {
+      if (cmd === 'secrets_status') {
+        return Promise.resolve({ available: true, gateAvailable: false, gateEnforced: false, unlocked: false })
+      }
+
+      return Promise.resolve(cmd === 'secrets_get' ? null : undefined)
+    })
 
     await restoreSessionCookies()
 

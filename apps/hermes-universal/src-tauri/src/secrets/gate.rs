@@ -66,6 +66,33 @@ fn grant() {
     *lease() = Some(Instant::now() + LEASE);
 }
 
+/// Serializes tests that touch the lease.
+///
+/// The lease is process-wide state, and Rust runs tests in parallel — one test
+/// calling `lock()` while another is mid-read makes both of them flaky in a way
+/// that looks like a real bug in the gate.
+#[cfg(test)]
+pub static TEST_LOCK: Mutex<()> = Mutex::new(());
+
+/// Take {@link TEST_LOCK}, surviving a poisoned mutex from an earlier failure.
+#[cfg(test)]
+pub fn test_guard() -> std::sync::MutexGuard<'static, ()> {
+    TEST_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// Open a lease without prompting.
+///
+/// Test seam. Storage tests are about storage, and whether they need a lease at
+/// all would otherwise depend on whether the machine running them has a passcode
+/// set — which is exactly the kind of environment-dependent flake that is
+/// miserable to chase down later.
+#[cfg(test)]
+pub fn grant_for_test() {
+    grant();
+}
+
 /// End it now.
 ///
 /// Called on background/suspend as well as on an explicit lock: the whole point
@@ -468,6 +495,8 @@ mod tests {
 
     #[test]
     fn a_lease_expires_rather_than_lasting_the_session() {
+        let _guard = test_guard();
+
         lock();
         assert!(!is_unlocked());
 
@@ -482,6 +511,8 @@ mod tests {
 
     #[test]
     fn an_elapsed_lease_reads_as_locked() {
+        let _guard = test_guard();
+
         *lease() = Some(Instant::now() - Duration::from_secs(1));
         assert!(!is_unlocked());
         // ...and is cleared, so nothing has to sweep it later.

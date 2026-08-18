@@ -137,6 +137,29 @@ export async function lockSecrets(): Promise<void> {
   await safe(async () => invoke<void>('secrets_lock'), undefined)
 }
 
+/**
+ * Open a lease if this device needs one, before reading credentials.
+ *
+ * Every credential read goes through here, which is what makes the boot restore
+ * work: it reads the saved SSH secrets on launch, so the unlock prompt appears
+ * exactly once, at exactly the moment the credentials are actually wanted —
+ * rather than as a dialog in front of app startup that has to explain itself.
+ *
+ * Without it a gated device would read nothing and report an SSH auth failure,
+ * sending the user to check their key when what actually happened is that
+ * nobody had unlocked the machine. One call per read group, not per key: a
+ * connect wants the PEM, the passphrase and the password together.
+ */
+async function ensureUnlocked(): Promise<void> {
+  const status = await secureStoreStatus()
+
+  if (!status.available || !status.gateEnforced || !status.gateAvailable || status.unlocked) {
+    return
+  }
+
+  await invoke<void>('secrets_unlock', { reason: null })
+}
+
 /** Persist secrets. Returns false if the keystore is unavailable (nothing stored). */
 export async function saveSecrets(secrets: Secrets): Promise<boolean> {
   return safe(async () => {
@@ -150,6 +173,8 @@ export async function saveSecrets(secrets: Secrets): Promise<boolean> {
 /** Read secrets, or null when the keystore is unavailable / nothing saved. */
 export async function loadSecrets(): Promise<Secrets | null> {
   return safe(async () => {
+    await ensureUnlocked()
+
     const [token, password] = await Promise.all([kGet('token'), kGet('password')])
 
     if (!token && !password) {
@@ -222,6 +247,8 @@ export async function mergeSshSecrets(patch: SshSecrets): Promise<boolean> {
  *  `kGet` collapses blank to null, so it cannot come back from here. */
 export async function loadSshSecrets(): Promise<SshSecrets> {
   return safe<SshSecrets>(async () => {
+    await ensureUnlocked()
+
     const [privateKeyPem, passphrase, password] = await Promise.all([
       kGet('sshKey'),
       kGet('sshPassphrase'),
@@ -265,5 +292,9 @@ export async function saveSessionCookies(json: string): Promise<boolean> {
 
 /** Read the persisted cookie jar blob, or null when unavailable / none saved. */
 export async function loadSessionCookies(): Promise<string | null> {
-  return safe(async () => kGet('cookies'), null)
+  return safe(async () => {
+    await ensureUnlocked()
+
+    return kGet('cookies')
+  }, null)
 }
