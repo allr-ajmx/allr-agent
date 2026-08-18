@@ -1,12 +1,12 @@
 ---
-title: "Allr — Use, configure, theme, extend, and orchestrate Allr"
-sidebar_label: "Allr"
+title: "Allr Agent — Use, configure, theme, extend, and orchestrate Allr"
+sidebar_label: "Allr Agent"
 description: "Use, configure, theme, extend, and orchestrate Allr"
 ---
 
 {/* This page is auto-generated from the skill's SKILL.md by website/scripts/generate-skill-docs.py. Edit the source SKILL.md, not this page. */}
 
-# Allr
+# Allr Agent
 
 Use, configure, theme, extend, and orchestrate Allr.
 
