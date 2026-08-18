@@ -105,8 +105,12 @@ export function loadSavedLogin(): Promise<Secrets | null> {
   return loadSecrets()
 }
 
-/** Forget the saved secrets (e.g. a "sign out everywhere" affordance). */
-export function forgetSavedLogin(): Promise<void> {
+/** Forget the saved secrets (e.g. a "sign out everywhere" affordance).
+ *
+ *  Resolves false when the wipe did not land — the keystore was unreachable, or
+ *  it refused. Callers that tell the user they are signed out everywhere should
+ *  check: a failed wipe used to be indistinguishable from a clean one. */
+export function forgetSavedLogin(): Promise<boolean> {
   return clearSecrets()
 }
 

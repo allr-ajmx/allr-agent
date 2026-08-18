@@ -734,6 +734,11 @@ export const zhHant = defineLocale({
       clear: '清除'
     },
     gateway: {
+      sshInstallTitle: host => `在 ${host} 上安裝 Hermes？`,
+      sshInstallBody: 'Hermes 將安裝在該主機的使用者帳戶中，不需要管理員權限。',
+      sshInstallCancel: '暫不',
+      sshInstallDoneTitle: '已在該主機上安裝 Hermes',
+      sshInstallDoneBody: '點擊「儲存並重新連線」以連線。',
       loading: '正在載入閘道設定...',
       unavailableTitle: '閘道設定不可用',
       unavailableDesc: '桌面 IPC 橋接器未公開閘道設定。',
@@ -2110,6 +2115,32 @@ export const zhHant = defineLocale({
     copiedOutput: '已複製！',
     copyOutput: '複製輸出',
     reloadRetry: '重新載入並重試'
+  },
+
+  connect: {
+    welcomeTitle: '歡迎使用 Hermes',
+    welcomeBody: 'Hermes 可以執行在你需要的任何地方——本機、雲端，或透過 SSH 連線的機器。選擇一個閘道，我們來完成連線。',
+    getStarted: '開始使用',
+    chooseTitle: '選擇閘道',
+    chooseBody: '稍後可在設定中變更。',
+    back: '返回',
+    local: {
+      detecting: '正在尋找本機安裝…',
+      foundTitle: 'Hermes 已安裝',
+      foundVersion: version => `版本 ${version}`,
+      missingTitle: '找不到本機安裝',
+      missingBody: '選擇要安裝到這台電腦的 Hermes Agent 版本。',
+      upstreamTitle: 'NousResearch Hermes Agent',
+      upstreamDesc: '來自 NousResearch 的官方 Hermes Agent。',
+      forkTitle: 'Hermes Agent 的 MJX 分支',
+      forkDesc: '用於測試 Hermes Agent 實驗性功能的分支版本。',
+      install: '安裝',
+      retry: '重試',
+      doneTitle: 'Hermes 已就緒',
+      doneBody: '設定將在下一階段推出。你現在就可以開始使用 Hermes。',
+      done: '完成',
+      continue: '繼續'
+    }
   },
 
   onboarding: {

@@ -33,19 +33,19 @@ pub enum PromptKind {
     KeyboardInteractive,
 }
 
-impl PromptKind {
-    /// Whether the answer may be echoed as it is typed. Always false today, but
-    /// keyboard-interactive can legitimately ask non-secret questions, so the
-    /// UI is told rather than assuming.
-    pub fn is_secret(self) -> bool {
-        true
-    }
-}
-
 /// A question awaiting an answer.
 pub struct PromptRequest {
     pub kind: PromptKind,
     pub label: String,
+    /// Whether the answer must be masked as it is typed.
+    ///
+    /// Per-question, not per-kind: keyboard-interactive is the one exchange that
+    /// legitimately asks non-secret things ("Verification code for user@host?",
+    /// an acknowledgement), and the server tells us which by clearing the
+    /// protocol's `echo` flag. Answering that with a constant `true` — which is
+    /// what a `PromptKind::is_secret()` could only do — masks text the server
+    /// asked to be shown.
+    pub secret: bool,
     pub respond: oneshot::Sender<String>,
 }
 
@@ -55,6 +55,7 @@ pub trait Prompter: Send + Sync {
         &'a self,
         kind: PromptKind,
         label: &'a str,
+        secret: bool,
     ) -> Pin<Box<dyn Future<Output = Result<String, SshError>> + Send + 'a>>;
 }
 
@@ -69,6 +70,7 @@ impl Prompter for NoPrompter {
         &'a self,
         _kind: PromptKind,
         _label: &'a str,
+        _secret: bool,
     ) -> Pin<Box<dyn Future<Output = Result<String, SshError>> + Send + 'a>> {
         Box::pin(async {
             Err(SshError::new(
@@ -103,12 +105,14 @@ impl Prompter for ChannelPrompter {
         &'a self,
         kind: PromptKind,
         label: &'a str,
+        secret: bool,
     ) -> Pin<Box<dyn Future<Output = Result<String, SshError>> + Send + 'a>> {
         Box::pin(async move {
             let (respond, answer) = oneshot::channel();
             let request = PromptRequest {
                 kind,
                 label: label.to_string(),
+                secret,
                 respond,
             };
 
@@ -146,7 +150,7 @@ mod tests {
         // not mounted. If this ever blocks, app startup hangs.
         let err = tokio::time::timeout(
             Duration::from_millis(50),
-            NoPrompter.prompt(PromptKind::Passphrase, "Passphrase"),
+            NoPrompter.prompt(PromptKind::Passphrase, "Passphrase", true),
         )
         .await
         .expect("must not block")
@@ -172,7 +176,7 @@ mod tests {
         });
 
         let answer = ChannelPrompter::new(tx)
-            .prompt(PromptKind::Passphrase, "Passphrase for /keys/id")
+            .prompt(PromptKind::Passphrase, "Passphrase for /keys/id", true)
             .await
             .unwrap();
         assert_eq!(answer, "hunter2");
@@ -188,7 +192,7 @@ mod tests {
         });
 
         let err = ChannelPrompter::new(tx)
-            .prompt(PromptKind::Password, "Password")
+            .prompt(PromptKind::Password, "Password", true)
             .await
             .unwrap_err();
         assert_eq!(err.kind, SshErrorKind::Cancelled);
@@ -202,7 +206,7 @@ mod tests {
         let prompter = ChannelPrompter::with_timeout(tx, Duration::from_millis(30));
 
         let err = prompter
-            .prompt(PromptKind::Password, "Password")
+            .prompt(PromptKind::Password, "Password", true)
             .await
             .unwrap_err();
         assert_eq!(err.kind, SshErrorKind::Timeout);
@@ -214,7 +218,7 @@ mod tests {
         drop(rx);
 
         let err = ChannelPrompter::new(tx)
-            .prompt(PromptKind::Password, "Password")
+            .prompt(PromptKind::Password, "Password", true)
             .await
             .unwrap_err();
         assert_eq!(err.kind, SshErrorKind::Cancelled);

@@ -1,5 +1,0 @@
-{
-  "android": {
-    "kotlin": "com.charlesportwoodii.tauri.plugin.keyring.KeyringPlugin"
-  }
-}

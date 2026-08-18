@@ -27,10 +27,11 @@ vi.mock('@/store/connection', async importActual => ({
 }))
 vi.mock('@/store/ssh-backend', async importActual => ({
   ...(await importActual<typeof SshBackendModule>()),
+  // Both prompt channels now go through one helper, so that is what has to be
+  // stubbed — the underlying listeners are no longer called from the component.
+  attachSshPrompts: vi.fn().mockResolvedValue(() => {}),
   newAttemptId: () => 'attempt-1',
-  onSshHostKey: vi.fn().mockResolvedValue(() => {}),
   onSshProgress: vi.fn().mockResolvedValue(() => {}),
-  onSshPrompt: vi.fn().mockResolvedValue(() => {}),
   testSshBackend: vi.fn().mockResolvedValue({ hostLabel: 'box', platform: 'linux' })
 }))
 
@@ -40,6 +41,7 @@ import { connectSsh } from '@/store/connection'
 import { saveGatewayTarget } from '@/store/gateway-restore'
 import { softSwitchGateway } from '@/store/gateway-soft-switch'
 import { broadcastGatewaySwitch } from '@/store/gateway-switch-broadcast'
+import { testSshBackend } from '@/store/ssh-backend'
 
 import { GatewayConfigurator } from './gateway-configurator'
 
@@ -93,5 +95,57 @@ describe('GatewayConfigurator — SSH connect', () => {
 
     await waitFor(() => expect(broadcastGatewaySwitch).toHaveBeenCalledOnce())
     expect(vi.mocked(broadcastGatewaySwitch).mock.calls[0][0]).toBe('ssh')
+  })
+})
+
+describe('GatewayConfigurator — SSH test', () => {
+  it('sends the credentials typed in the form, not the target alone', async () => {
+    // The bug this pins down: Test sent only host/user/port/keyPath, so a
+    // password or passphrase entered directly above the button never reached
+    // Rust. Test therefore prompted for a credential the form was already
+    // holding, and the one that was typed looked like it had been ignored. On
+    // mobile it was worse — a pasted PEM is the only credential there is.
+    const { container } = renderConfigurator()
+
+    fireEvent.click(screen.getByRole('button', { name: /^SSH/ }))
+    fireEvent.change(screen.getByPlaceholderText('user@example.com'), { target: { value: 'deploy@box' } })
+    fireEvent.change(screen.getByPlaceholderText('~/.ssh/id_ed25519'), { target: { value: '~/.ssh/work' } })
+
+    // The panel's only masked rows, in order: key passphrase, then login
+    // password. They are deliberately two fields — a login password typed into
+    // the passphrase row does nothing at all.
+    const [passphrase, password] = container.querySelectorAll('input[type="password"]')
+    fireEvent.change(passphrase, { target: { value: 'unlock-the-key' } })
+    fireEvent.change(password, { target: { value: 'login-secret' } })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Test SSH' }))
+
+    await waitFor(() => expect(testSshBackend).toHaveBeenCalledOnce())
+
+    expect(vi.mocked(testSshBackend).mock.calls[0][1]).toMatchObject({
+      host: 'deploy@box',
+      interactive: true,
+      keyPath: '~/.ssh/work',
+      passphrase: 'unlock-the-key',
+      password: 'login-secret'
+    })
+  })
+
+  it('leaves an untouched secret row undefined rather than blank', async () => {
+    // `Some("")` is not `None` in Rust: an empty passphrase makes russh attempt
+    // a decrypt instead of reporting that the key needs one, which silently
+    // discarded every encrypted key.
+    renderConfigurator()
+
+    fireEvent.click(screen.getByRole('button', { name: /^SSH/ }))
+    fireEvent.change(screen.getByPlaceholderText('user@example.com'), { target: { value: 'box' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Test SSH' }))
+
+    await waitFor(() => expect(testSshBackend).toHaveBeenCalledOnce())
+
+    const config = vi.mocked(testSshBackend).mock.calls[0][1]
+    expect(config.passphrase).toBeUndefined()
+    expect(config.password).toBeUndefined()
+    expect(config.privateKeyPem).toBeUndefined()
   })
 })

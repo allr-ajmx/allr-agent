@@ -652,6 +652,11 @@ export const ar = defineLocale({
       clear: 'مسح'
     },
     gateway: {
+      sshInstallTitle: host => `تثبيت Hermes على ${host}؟`,
+      sshInstallBody: 'سيُثبَّت Hermes داخل حساب المستخدم على ذلك الجهاز. لا حاجة إلى صلاحيات المسؤول.',
+      sshInstallCancel: 'ليس الآن',
+      sshInstallDoneTitle: 'تم تثبيت Hermes على ذلك الجهاز',
+      sshInstallDoneBody: 'اضغط «حفظ وإعادة الاتصال» للاتصال به.',
       loading: 'جار تحميل إعدادات البوابة...',
       unavailableTitle: 'إعدادات البوابة غير متاحة',
       unavailableDesc: 'جسر IPC في سطح المكتب لا يوفّر إعدادات البوابة.',
@@ -1944,6 +1949,33 @@ export const ar = defineLocale({
     copyOutput: 'نسخ المخرجات',
     reloadRetry: 'إعادة التحميل وإعادة المحاولة'
   },
+  connect: {
+    welcomeTitle: 'مرحبًا بك في Hermes',
+    welcomeBody:
+      'يعمل Hermes أينما احتجت إليه — على هذا الجهاز، أو في السحابة، أو على جهاز تصل إليه عبر SSH. اختر بوابة ولنبدأ الاتصال.',
+    getStarted: 'هيا نبدأ',
+    chooseTitle: 'اختر بوابة',
+    chooseBody: 'يمكنك تغيير ذلك لاحقًا من الإعدادات.',
+    back: 'رجوع',
+    local: {
+      detecting: 'جارٍ البحث عن تثبيت محلي…',
+      foundTitle: 'Hermes مثبَّت',
+      foundVersion: version => `الإصدار ${version}`,
+      missingTitle: 'لم يُعثر على تثبيت محلي',
+      missingBody: 'اختر نسخة Hermes Agent التي تريد تثبيتها على هذا الجهاز.',
+      upstreamTitle: 'NousResearch Hermes Agent',
+      upstreamDesc: 'إصدار Hermes Agent الرسمي من NousResearch.',
+      forkTitle: 'نسخة MJX من Hermes Agent',
+      forkDesc: 'نسخة معدّلة من Hermes Agent مخصّصة لاختبار الميزات التجريبية.',
+      install: 'تثبيت',
+      retry: 'أعد المحاولة',
+      doneTitle: 'Hermes جاهز',
+      doneBody: 'سيأتي الإعداد في المرحلة التالية. يمكنك بدء استخدام Hermes الآن.',
+      done: 'تم',
+      continue: 'متابعة'
+    }
+  },
+
   onboarding: {
     headerTitle: 'لنُعِدّ لك Hermes Agent',
     headerDesc: 'اربط مزوّد نماذج لبدء المحادثة. معظم الخيارات تتطلب نقرة واحدة.',
