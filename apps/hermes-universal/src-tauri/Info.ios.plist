@@ -43,7 +43,7 @@
 <plist version="1.0">
 <dict>
   <key>NSMicrophoneUsageDescription</key>
-  <string>Hermes uses the microphone for voice conversations.</string>
+  <string>Allr uses the microphone for voice conversations.</string>
   <key>NSAppTransportSecurity</key>
   <dict>
     <key>NSAllowsArbitraryLoadsInWebContent</key>

@@ -122,11 +122,11 @@ pub fn run() {
     // richer `tauri-plugin-log` is not used here — it installs its logger from plugin
     // setup and turns the same race into a failed build.)
     // The subsystem is the iOS bundle identifier (tauri.conf.json `identifier`), so
-    // `log stream --predicate 'subsystem == "com.jaxmatrix.mjx-unofficial-hermes"'`
+    // `log stream --predicate 'subsystem == "work.allr.app"'`
     // filters to just this app. Note the hyphens — the Android namespace above spells
     // the same id with underscores, and only this form matches the iOS bundle.
     #[cfg(target_os = "ios")]
-    let _ = oslog::OsLogger::new("com.jaxmatrix.mjx-unofficial-hermes")
+    let _ = oslog::OsLogger::new("work.allr.app")
         .level_filter(log::LevelFilter::Info)
         .init();
 

@@ -51,7 +51,7 @@ mod imp {
     const DEFAULT_QUIT: &str = "Quit Hermes";
     const DEFAULT_KEEP_RUNNING: &str = "Keep Running";
     const DEFAULT_STATUS: &str = "Not connected";
-    const DEFAULT_TOOLTIP: &str = "Hermes (MJX)";
+    const DEFAULT_TOOLTIP: &str = "Allr";
 
     /// The live menu rows, kept so their text can be replaced in place.
     ///
