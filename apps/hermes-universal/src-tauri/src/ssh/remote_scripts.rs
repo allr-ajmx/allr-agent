@@ -266,10 +266,7 @@ mod tests {
         let script = script_of(&upload_token("~/x.token"));
 
         assert!(script.contains("sys.stdin.buffer.read()"), "{script}");
-        assert!(
-            !script.contains("ALLR_DASHBOARD_SESSION_TOKEN"),
-            "{script}"
-        );
+        assert!(!script.contains("ALLR_DASHBOARD_SESSION_TOKEN"), "{script}");
     }
 
     #[test]

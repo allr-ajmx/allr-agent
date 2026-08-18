@@ -1021,8 +1021,7 @@ mod tests {
     fn spawn_command_binds_loopback_with_an_ephemeral_port() {
         // Non-negotiable: the remote backend must never be reachable from the
         // remote's own network — the tunnel is the only route in.
-        let out =
-            build_spawn_command("/usr/local/bin/allr", None, "~/x.log", None, None).unwrap();
+        let out = build_spawn_command("/usr/local/bin/allr", None, "~/x.log", None, None).unwrap();
         assert!(out.contains("--host 127.0.0.1"), "{out}");
         assert!(out.contains("--port 0"), "{out}");
         assert!(!out.contains("0.0.0.0"), "{out}");
@@ -1030,8 +1029,7 @@ mod tests {
 
     #[test]
     fn spawn_command_detaches_and_reports_the_pid() {
-        let out =
-            build_spawn_command("/usr/local/bin/allr", None, "~/x.log", None, None).unwrap();
+        let out = build_spawn_command("/usr/local/bin/allr", None, "~/x.log", None, None).unwrap();
         assert!(
             out.contains("command -v setsid || echo nohup"),
             "macOS has no setsid: {out}"
@@ -1070,14 +1068,8 @@ mod tests {
         // the --profile argument, then `shq` again for the whole `sh -c` string.
         // Peeling them proves the injection never becomes shell syntax.
         let hostile = "a'; rm -rf /; #";
-        let out = build_spawn_command(
-            "/usr/local/bin/allr",
-            Some(hostile),
-            "~/x.log",
-            None,
-            None,
-        )
-        .unwrap();
+        let out = build_spawn_command("/usr/local/bin/allr", Some(hostile), "~/x.log", None, None)
+            .unwrap();
 
         let (_, sh_arg) = out.split_once("sh -c ").expect("sh -c argument");
         let inner = unshq(sh_arg);
@@ -1095,8 +1087,7 @@ mod tests {
 
     #[test]
     fn spawn_command_omits_optional_args_when_absent() {
-        let out =
-            build_spawn_command("/usr/local/bin/allr", None, "~/x.log", None, None).unwrap();
+        let out = build_spawn_command("/usr/local/bin/allr", None, "~/x.log", None, None).unwrap();
         assert!(!out.contains("--ssh-session-token-file"), "{out}");
         assert!(!out.contains("--ssh-owner-nonce"), "{out}");
         assert!(!out.contains("--profile"), "{out}");
@@ -1107,8 +1098,7 @@ mod tests {
         assert!(build_spawn_command("hermes", None, "~/x.log", None, None).is_err());
         assert!(build_spawn_command("/usr/local/bin/allr", None, "x.log", None, None).is_err());
         assert!(
-            build_spawn_command("/usr/local/bin/allr", None, "~/x.log", None, Some("bad"))
-                .is_err()
+            build_spawn_command("/usr/local/bin/allr", None, "~/x.log", None, Some("bad")).is_err()
         );
     }
 
@@ -1162,10 +1152,7 @@ mod tests {
 
     #[test]
     fn scrape_rejects_unparseable_and_zero_ports() {
-        assert_eq!(
-            scrape_ready_port("ALLR_BACKEND_READY port=notaport"),
-            None
-        );
+        assert_eq!(scrape_ready_port("ALLR_BACKEND_READY port=notaport"), None);
         assert_eq!(scrape_ready_port("ALLR_BACKEND_READY port="), None);
         assert_eq!(scrape_ready_port("ALLR_BACKEND_READY port=0"), None);
         assert_eq!(
