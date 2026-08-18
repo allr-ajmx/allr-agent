@@ -42,9 +42,10 @@ describe('useSkinCommand', () => {
   it('cycles to the next skin on a bare command', () => {
     render_()
     fireEvent.click(screen.getByText('cycle'))
-    // nous is first; a bare /skin advances to the next built-in.
+    // allr is the default and comes first; a bare /skin advances to the next
+    // built-in.
     expect(screen.getByTestId('out')).toHaveTextContent('Theme switched to')
-    expect(localStorage.getItem('hermes.skin')).not.toBe('nous')
+    expect(localStorage.getItem('hermes.skin')).not.toBe('allr')
   })
 
   it('reports an unknown skin without changing the selection', () => {

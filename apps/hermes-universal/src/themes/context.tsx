@@ -39,6 +39,21 @@ export type ThemeMode = 'light' | 'dark' | 'system'
 export const $skin = persistentAtom<string>('hermes.skin', DEFAULT_SKIN_NAME, Codecs.text)
 export const $mode = persistentAtom<string>('hermes.mode', 'system', Codecs.text)
 
+// One-shot skin migration for the Allr rebrand. DEFAULT_SKIN_NAME only applies
+// to profiles that have never picked a skin — anyone who has launched the app
+// before has 'nous' written to hermes.skin and would keep it. This moves those
+// profiles across exactly once, and leaves alone anyone who has since chosen
+// something else. Deleting this block is the whole revert.
+const BRAND_MIGRATION_KEY = 'hermes.brand.v1'
+
+if (typeof localStorage !== 'undefined' && !localStorage.getItem(BRAND_MIGRATION_KEY)) {
+  localStorage.setItem(BRAND_MIGRATION_KEY, '1')
+
+  if ($skin.get() === 'nous') {
+    $skin.set(DEFAULT_SKIN_NAME)
+  }
+}
+
 const resolveMode = (mode: ThemeMode, systemDark = matchesQuery('(prefers-color-scheme: dark)')): 'light' | 'dark' =>
   mode === 'system' ? (systemDark ? 'dark' : 'light') : mode
 
