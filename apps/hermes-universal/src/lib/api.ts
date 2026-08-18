@@ -1,3 +1,4 @@
+import { sessionTokenHeaders } from '@/lib/session-token-header'
 import { $connection } from '@/store/connection'
 import { httpRequest, type HttpUpload } from '@/transport/http'
 
@@ -84,9 +85,7 @@ export async function api<T = unknown>({
     headers['Content-Type'] = 'application/json'
   }
 
-  if (conn.token) {
-    headers['X-Allr-Session-Token'] = conn.token
-  }
+  Object.assign(headers, sessionTokenHeaders(conn.token))
 
   const res = await httpRequest(method, `${conn.baseUrl}${withProfile(path, profile)}`, {
     headers,

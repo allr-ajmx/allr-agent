@@ -39,10 +39,17 @@ declare global {
   }
 }
 const SESSION_HEADER = "X-Allr-Session-Token";
+/** The same header as a gateway built before the Allr rename knows it. The SPA is
+ *  normally served by the gateway it talks to, so a vintage mismatch should not
+ *  arise — but the dashboard bundle can be cached or proxied ahead of a server
+ *  downgrade, and an unknown header costs the server nothing to ignore. */
+const LEGACY_SESSION_HEADER = "X-Hermes-Session-Token"; // rebrand:keep
 
-function setSessionHeader(headers: Headers, token: string): void {
-  if (!headers.has(SESSION_HEADER)) {
-    headers.set(SESSION_HEADER, token);
+export function setSessionHeader(headers: Headers, token: string): void {
+  for (const name of [SESSION_HEADER, LEGACY_SESSION_HEADER]) {
+    if (!headers.has(name)) {
+      headers.set(name, token);
+    }
   }
 }
 

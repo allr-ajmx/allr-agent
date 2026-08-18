@@ -1,5 +1,6 @@
 import type { ComposerTarget } from '@/app/chat/composer/focus'
 import type { SessionView } from '@/app/chat/session-view'
+import { sessionTokenHeaders } from '@/lib/session-token-header'
 import { takeSpeechChunk } from '@/lib/speech-chunker'
 import { syncThinkingSound } from '@/lib/thinking-sound'
 import { markVoicePlaybackInterrupted, playSpeechTextUntilDone, stopVoicePlayback } from '@/lib/voice-playback'
@@ -90,13 +91,7 @@ function currentTarget(): VoiceTarget | null {
     return null
   }
 
-  const headers: Record<string, string> = {}
-
-  if (conn.token) {
-    headers['X-Allr-Session-Token'] = conn.token
-  }
-
-  return { baseUrl: conn.baseUrl, headers }
+  return { baseUrl: conn.baseUrl, headers: sessionTokenHeaders(conn.token) }
 }
 
 class ConversationController {

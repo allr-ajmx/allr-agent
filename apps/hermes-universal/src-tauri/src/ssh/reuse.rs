@@ -86,21 +86,22 @@ pub async fn probe_reuse_proof(
     token: &str,
     spawn_nonce: &str,
 ) -> Result<ReuseClassification, SshError> {
-    let response = client
-        .get(format!("{base_url}/api/ssh/ownership"))
-        .header("X-Allr-Session-Token", token)
-        .timeout(PROBE_TIMEOUT)
-        .send()
-        .await
-        .map_err(|e| {
-            // A transport failure here is NOT evidence about ownership — the
-            // tunnel may simply have blipped. Saying "stale" would destroy a
-            // healthy backend, so this stays transient and the caller retries.
-            SshError::new(
-                SshErrorKind::TransientTransportError,
-                format!("Could not verify the existing SSH backend: {e}"),
-            )
-        })?;
+    let response = crate::transport::with_session_token(
+        client.get(format!("{base_url}/api/ssh/ownership")),
+        token,
+    )
+    .timeout(PROBE_TIMEOUT)
+    .send()
+    .await
+    .map_err(|e| {
+        // A transport failure here is NOT evidence about ownership — the
+        // tunnel may simply have blipped. Saying "stale" would destroy a
+        // healthy backend, so this stays transient and the caller retries.
+        SshError::new(
+            SshErrorKind::TransientTransportError,
+            format!("Could not verify the existing SSH backend: {e}"),
+        )
+    })?;
 
     if status_is_stale(response.status().as_u16()) {
         return Ok(ReuseClassification::AuthenticatedStale);
@@ -139,14 +140,15 @@ pub async fn wait_for_hermes(
             ));
         }
 
-        let ok = client
-            .get(format!("{base_url}/api/status"))
-            .header("X-Allr-Session-Token", token)
-            .timeout(Duration::from_secs(3))
-            .send()
-            .await
-            .map(|r| r.status().is_success())
-            .unwrap_or(false);
+        let ok = crate::transport::with_session_token(
+            client.get(format!("{base_url}/api/status")),
+            token,
+        )
+        .timeout(Duration::from_secs(3))
+        .send()
+        .await
+        .map(|r| r.status().is_success())
+        .unwrap_or(false);
 
         if ok {
             return Ok(());

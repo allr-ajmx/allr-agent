@@ -320,6 +320,31 @@ fn url_is_under(url: &str, base: &str) -> bool {
 /// trustworthy. A gateway behind a path prefix (`https://host/hermes`, which the
 /// settings copy explicitly supports) matches neither, and is reached the other
 /// way: `oauth_status` registers its base the first time the webview probes it.
+/// Canonical token-mode session header. Current gateways read this one.
+pub(crate) const SESSION_TOKEN_HEADER: &str = "X-Allr-Session-Token";
+
+/// The same header as a gateway built before the Allr rename knows it. Nothing else
+/// authenticates against those builds.
+pub(crate) const LEGACY_SESSION_TOKEN_HEADER: &str = "X-Hermes-Session-Token"; // rebrand:keep
+
+/// Attach `token` under both header names.
+///
+/// The backends this is used against — a locally spawned one, a backend reached through
+/// an SSH tunnel — are installed and updated on their own schedule, so either spelling
+/// may be the only one that gateway reads. Sending both costs a few dozen bytes and
+/// removes the need to probe for a version before the first authenticated request; an
+/// unknown header is ignored by every server that receives it.
+///
+/// Mirrors `src/lib/session-token-header.ts`, which does the same for the webview.
+pub(crate) fn with_session_token(
+    request: reqwest::RequestBuilder,
+    token: &str,
+) -> reqwest::RequestBuilder {
+    request
+        .header(SESSION_TOKEN_HEADER, token)
+        .header(LEGACY_SESSION_TOKEN_HEADER, token)
+}
+
 const GATEWAY_PATH_PREFIXES: &[&str] = &["/api/", "/auth/"];
 
 /// A live raw WebSocket: `tx` feeds the writer task; the two task handles are

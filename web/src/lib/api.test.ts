@@ -14,6 +14,9 @@ vi.mock("./dashboard-auth-reload", () => ({
 }));
 
 const SESSION_HEADER = "X-Allr-Session-Token";
+// The pre-rename spelling, sent alongside. A dashboard bundle can be cached or
+// proxied ahead of a server downgrade, and an unknown header costs nothing.
+const LEGACY_SESSION_HEADER = "X-Hermes-Session-Token"; // rebrand:keep
 
 beforeEach(() => {
   reloadMocks.attemptDashboardTokenReloadOnce.mockReset();
@@ -140,6 +143,7 @@ describe("api OAuth helpers", () => {
     const headers = fetchMock.mock.calls[0][1]?.headers as Headers;
     expect(headers.get("Content-Type")).toBe("application/json");
     expect(headers.has(SESSION_HEADER)).toBe(false);
+    expect(headers.has(LEGACY_SESSION_HEADER)).toBe(false);
   });
 
   it("still sends the injected session token for OAuth login in loopback mode", async () => {
@@ -154,6 +158,7 @@ describe("api OAuth helpers", () => {
 
     const headers = fetchMock.mock.calls[0][1]?.headers as Headers;
     expect(headers.get(SESSION_HEADER)).toBe("loopback-token");
+    expect(headers.get(LEGACY_SESSION_HEADER)).toBe("loopback-token");
   });
 
   it("runs provider auth mutations in gated mode via cookie auth", async () => {
@@ -170,6 +175,7 @@ describe("api OAuth helpers", () => {
       const init = call[1] as RequestInit;
       expect(init.credentials).toBe("include");
       expect((init.headers as Headers).has(SESSION_HEADER)).toBe(false);
+      expect((init.headers as Headers).has(LEGACY_SESSION_HEADER)).toBe(false);
     }
   });
 });

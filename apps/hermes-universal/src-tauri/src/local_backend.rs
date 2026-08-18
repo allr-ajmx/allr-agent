@@ -79,14 +79,15 @@ mod imp {
             if tokio::time::Instant::now() >= deadline {
                 return Err("backend did not become ready within 45s".to_string());
             }
-            let ok = client
-                .get(format!("{base}/api/status"))
-                .header("X-Allr-Session-Token", token)
-                .timeout(Duration::from_secs(3))
-                .send()
-                .await
-                .map(|r| r.status().is_success())
-                .unwrap_or(false);
+            let ok = crate::transport::with_session_token(
+                client.get(format!("{base}/api/status")),
+                token,
+            )
+            .timeout(Duration::from_secs(3))
+            .send()
+            .await
+            .map(|r| r.status().is_success())
+            .unwrap_or(false);
             if ok {
                 return Ok(());
             }

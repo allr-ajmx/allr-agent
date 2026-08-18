@@ -32,7 +32,7 @@ import {
   Check,
   Archive,
 } from "lucide-react";
-import { api } from "@/lib/api";
+import { api, setSessionHeader } from "@/lib/api";
 import { shouldRefreshSessions } from "@/lib/session-refresh";
 import {
   importSummary,
@@ -1467,13 +1467,15 @@ export default function SessionsPage() {
   const handleExport = useCallback(
     async (id: string) => {
       try {
+        const headers = new Headers();
+        setSessionHeader(
+          headers,
+          (window as unknown as { __ALLR_SESSION_TOKEN__?: string })
+            .__ALLR_SESSION_TOKEN__ ?? "",
+        );
         const res = await fetch(api.exportSessionUrl(id), {
           credentials: "include",
-          headers: {
-            "X-Allr-Session-Token":
-              (window as unknown as { __ALLR_SESSION_TOKEN__?: string })
-                .__ALLR_SESSION_TOKEN__ ?? "",
-          },
+          headers,
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const blob = await res.blob();

@@ -112,7 +112,12 @@ describe('media target push', () => {
     $connection.set({ authMode: 'token', baseUrl: 'https://gw.example', mode: 'remote', token: 'sekret' } as never)
 
     expect(invoke).toHaveBeenCalledWith('media_set_target', {
-      target: { baseUrl: 'https://gw.example', headers: { 'X-Allr-Session-Token': 'sekret' } }
+      target: {
+        baseUrl: 'https://gw.example',
+        // Both spellings — a gateway built before the Allr rename reads only the
+        // second, and the media scheme handler has no other credential.
+        headers: { 'X-Allr-Session-Token': 'sekret', 'X-Hermes-Session-Token': 'sekret' }
+      }
     })
   })
 

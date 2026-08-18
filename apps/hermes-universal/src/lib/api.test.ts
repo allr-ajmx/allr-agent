@@ -29,7 +29,14 @@ describe('api', () => {
     expect(mockHttp).toHaveBeenCalledWith(
       'GET',
       'http://host:1/api/status',
-      expect.objectContaining({ headers: expect.objectContaining({ 'X-Allr-Session-Token': 'TOK' }) })
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          'X-Allr-Session-Token': 'TOK',
+          // The pre-rename spelling too: a gateway deployed before the Allr
+          // rename reads only this one, and token mode has no other credential.
+          'X-Hermes-Session-Token': 'TOK'
+        })
+      })
     )
   })
 
