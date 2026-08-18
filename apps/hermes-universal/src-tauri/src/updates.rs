@@ -192,8 +192,8 @@ mod imp {
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36";
 
     #[allow(dead_code)]
-    const GITHUB_LATEST: &str =
-        "https://api.github.com/repos/NousResearch/hermes-agent/releases/latest";
+    // TODO(MJXHRM-144): point at the public Allr release channel
+    const GITHUB_LATEST: &str = "https://api.github.com/repos/allr-ajmx/allr-agent/releases/latest";
 
     const REASON_UNREACHABLE: &str = "unreachable";
     const REASON_UNPARSED: &str = "unparsed";
