@@ -9,6 +9,7 @@
 //! (Android note: the generated `RustWebView.getCookies` is patched null-safe by
 //! `build.rs` to avoid a wry 0.55 crash on cookie polling — see that file.)
 
+mod app_state;
 mod appearance;
 mod artifact;
 mod background;
@@ -17,12 +18,14 @@ mod find_in_page;
 mod keep_awake;
 mod link_title;
 mod local_backend;
+mod local_install;
 mod marketplace;
 mod media;
 mod oauth;
 mod plugins;
 mod pty;
 mod repo_scan;
+mod secrets;
 mod shortcuts;
 mod ssh;
 mod surface;
@@ -34,6 +37,7 @@ mod voice;
 mod webview_cookies;
 mod window;
 
+use app_state::{get_app_flag, set_app_flag};
 use appearance::set_window_translucency;
 use artifact::{artifact_release, artifact_stage, ArtifactState, ARTIFACT_SCHEME};
 use background::{get_background_mode, quit_app, set_background_mode, BackgroundState};
@@ -46,15 +50,20 @@ use link_title::fetch_link_title;
 use local_backend::{
     local_backend_spawn, local_backend_status, local_backend_stop, LocalBackendState,
 };
+use local_install::{local_install_cancel, local_install_detect, local_install_start};
 use marketplace::{marketplace_fetch, marketplace_search};
 use media::{media_set_target, MediaState, MEDIA_SCHEME};
 use oauth::{oauth_login, oauth_logout, oauth_status};
 use plugins::{plugins_list, plugins_read, plugins_root};
 use pty::{pty_kill, pty_resize, pty_spawn, pty_write, PtyState};
 use repo_scan::repo_scan_git_repos;
+use secrets::{
+    secrets_clear, secrets_delete, secrets_get, secrets_lock, secrets_set, secrets_status,
+    secrets_unlock,
+};
 use shortcuts::{global_shortcut_take_pending, global_shortcuts_sync, ShortcutState};
 use ssh::{
-    ssh_answer_prompt, ssh_cancel, ssh_connect, ssh_disconnect, ssh_list_config_hosts,
+    ssh_answer_prompt, ssh_cancel, ssh_connect, ssh_disconnect, ssh_install, ssh_list_config_hosts,
     ssh_resolve_host, ssh_test, ssh_trust_host_key, SshState,
 };
 use surface::below::read_window_below;
@@ -157,7 +166,6 @@ pub fn run() {
 
     builder
         .plugin(tauri_plugin_os::init())
-        .plugin(tauri_plugin_keyring::init())
         .plugin(tauri_plugin_mic::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_haptics::init())
@@ -169,6 +177,7 @@ pub fn run() {
         .manage(MediaState::default())
         .manage(ArtifactState::default())
         .manage(LocalBackendState::default())
+        .manage(local_install::InstallState::default())
         .manage(PtyState::default())
         // The one system-sleep inhibitor. It releases on drop, so quitting frees
         // the machine even if the webview never turned the preference back off.
@@ -283,6 +292,8 @@ pub fn run() {
             reveal_in_file_manager,
             set_window_translucency,
             set_keep_awake,
+            get_app_flag,
+            set_app_flag,
             marketplace_search,
             marketplace_fetch,
             artifact_release,
@@ -297,6 +308,9 @@ pub fn run() {
             local_backend_spawn,
             local_backend_status,
             local_backend_stop,
+            local_install_detect,
+            local_install_start,
+            local_install_cancel,
             portal_login,
             portal_status,
             portal_discover_agents,
@@ -323,6 +337,14 @@ pub fn run() {
             ssh_resolve_host,
             ssh_answer_prompt,
             ssh_trust_host_key,
+            ssh_install,
+            secrets_get,
+            secrets_set,
+            secrets_delete,
+            secrets_clear,
+            secrets_status,
+            secrets_unlock,
+            secrets_lock,
             find_in_page,
             stop_find_in_page,
             surface_capabilities,
@@ -349,6 +371,22 @@ pub fn run() {
         .expect("error while building Hermes Universal")
         .run(|app_handle, event| {
             let _ = app_handle;
+
+            // Drop the credential unlock the moment the app stops being in front
+            // of the user. A short lease is only worth having if walking away
+            // ends it, and "no window has focus" / "the app is suspending" is the
+            // closest signal we get to that. Losing it costs one extra prompt;
+            // keeping it costs an unattended machine with the credentials open.
+            match &event {
+                tauri::RunEvent::WindowEvent {
+                    event: tauri::WindowEvent::Focused(false),
+                    ..
+                }
+                | tauri::RunEvent::ExitRequested { .. } => secrets::gate::lock(),
+
+                _ => {}
+            }
+
             #[cfg(target_os = "ios")]
             if let tauri::RunEvent::SceneRequested { .. } = &event {
                 window::fill_requested_scene(app_handle);

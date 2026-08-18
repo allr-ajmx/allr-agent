@@ -489,14 +489,6 @@ pub mod native {
         tokens.expires_at <= now_secs + REFRESH_SKEW_SECS
     }
 
-    /// Keyring account name for one gateway's tokens. Namespaced so it can never
-    /// collide with the existing `token` / `cookies` / `sshKey` entries the JS
-    /// side writes under the same service, and keyed by base URL so two gateways
-    /// keep separate sessions.
-    pub fn keyring_account(base: &str) -> String {
-        format!("nativeAuth:{}", base.trim_end_matches('/'))
-    }
-
     /// Are these two URLs the same origin (RFC 6454: scheme, host AND port)?
     ///
     /// The abandon watcher's whole safety argument. It fires when the sign-in webview
@@ -704,20 +696,6 @@ pub mod native {
         }
 
         #[test]
-        fn keyring_accounts_are_namespaced_and_per_gateway() {
-            assert_eq!(
-                keyring_account("https://a.example/"),
-                "nativeAuth:https://a.example"
-            );
-            assert_ne!(
-                keyring_account("https://a.example"),
-                keyring_account("https://b.example")
-            );
-            // Must not collide with the JS-side entries under the same service.
-            assert_ne!(keyring_account("https://a.example"), "cookies");
-        }
-
-        #[test]
         fn the_browser_reply_never_echoes_the_authorization_code() {
             // Every variant, not just the desktop one: the in-app copy is rendered in
             // our OWN webview, where a leaked code would sit in the app's page cache.
@@ -806,25 +784,11 @@ const MOBILE_NATIVE_TIMEOUT_SECS: u64 = 240;
 /// listener) for the entire login budget.
 const LOOPBACK_SOCKET_READ_SECS: u64 = 10;
 
-/// The keyring service the JS side already uses (`src/lib/secure-store.ts`).
-/// Shared deliberately: one service, one OS credential group the user can revoke.
-const KEYRING_SERVICE: &str = "hermes";
-
 fn now_secs() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0)
-}
-
-/// The keyring is initialized lazily by whichever side touches it first, so every
-/// Rust-side access re-asserts the service name. `initialize_service` is idempotent.
-fn keyring_ready(app: &AppHandle) -> bool {
-    use tauri_plugin_keyring::KeyringExt;
-
-    app.keyring()
-        .initialize_service(KEYRING_SERVICE.to_string())
-        .is_ok()
 }
 
 /// Persist a token set, reporting whether it actually landed.
@@ -838,65 +802,35 @@ fn keyring_ready(app: &AppHandle) -> bool {
 /// presents as "I signed in and the token was never captured", with the reason buried
 /// in a warning nobody is streaming.
 fn store_native_tokens(
-    app: &AppHandle,
+    _app: &AppHandle,
     state: &TransportState,
     base: &str,
     tokens: &native::NativeTokenSet,
 ) -> Result<(), String> {
-    use tauri_plugin_keyring::{CredentialType, CredentialValue, KeyringExt};
-
     // Registered even when the keyring write below fails: the token set is live
     // for this run either way, and the transport has to know to attach it.
     state.register_bearer_base(base);
-
-    if !keyring_ready(app) {
-        return Err("the OS keyring is unavailable".to_string());
-    }
 
     let json = serde_json::to_string(tokens)
         .map_err(|e| format!("could not serialize the token set: {e}"))?;
 
     // Never log or quote the payload — it IS the session. The error alone is enough.
-    app.keyring()
-        .set(
-            &native::keyring_account(base),
-            CredentialType::Password,
-            CredentialValue::Password(json),
-        )
-        .map_err(|e| format!("the keyring refused the write: {e}"))?;
+    crate::secrets::write_owned(crate::secrets::OwnedKey::NativeAuth, base, &json)
+        .map_err(|e| e.message)?;
 
     Ok(())
 }
 
-fn load_native_tokens(app: &AppHandle, base: &str) -> Option<native::NativeTokenSet> {
-    use tauri_plugin_keyring::{CredentialType, CredentialValue, KeyringExt};
-
-    if !keyring_ready(app) {
-        return None;
-    }
-
-    let value = app
-        .keyring()
-        .get(&native::keyring_account(base), CredentialType::Password)
-        .ok()?;
-
-    let CredentialValue::Password(json) = value else {
-        return None;
-    };
+fn load_native_tokens(_app: &AppHandle, base: &str) -> Option<native::NativeTokenSet> {
+    let json = crate::secrets::read_owned(crate::secrets::OwnedKey::NativeAuth, base).ok()??;
 
     serde_json::from_str(&json).ok()
 }
 
-fn clear_native_tokens(app: &AppHandle, state: &TransportState, base: &str) {
-    use tauri_plugin_keyring::{CredentialType, KeyringExt};
-
+fn clear_native_tokens(_app: &AppHandle, state: &TransportState, base: &str) {
     state.forget_bearer_base(base);
 
-    if keyring_ready(app) {
-        let _ = app
-            .keyring()
-            .delete(&native::keyring_account(base), CredentialType::Password);
-    }
+    let _ = crate::secrets::remove_owned(crate::secrets::OwnedKey::NativeAuth, base);
 }
 
 /// Does this gateway advertise the native flow? A probe failure answers "no" —

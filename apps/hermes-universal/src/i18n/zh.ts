@@ -911,6 +911,11 @@ export const zh: Translations = {
       sshErrAuth: 'SSH 身份验证失败。请将密钥加入 ssh-agent、在 ~/.ssh/config 中设置 IdentityFile，或在此处提供密钥。',
       sshErrHostKey: '该主机的密钥自上次连接后已发生变更。这可能是中间人攻击，也可能是服务器被重装。连接已被拒绝。',
       sshErrNotInstalled: '该主机上未安装 Hermes。请在该机器上安装，或显式指定 Hermes 路径。',
+      sshInstallTitle: host => `在 ${host} 上安装 Hermes？`,
+      sshInstallBody: 'Hermes 将安装在该主机的用户账户中，无需管理员权限。',
+      sshInstallCancel: '暂不',
+      sshInstallDoneTitle: '已在该主机上安装 Hermes',
+      sshInstallDoneBody: '点击“保存并重新连接”以连接。',
       sshErrPlatform: '该主机的操作系统无法通过 SSH 由 Hermes 驱动。',
       sshErrTimeout: 'SSH 连接超时。休眠后链路可能处于半开状态，请重试。',
       sshErrUpdateRequired: '该主机上的 Hermes 版本过旧，不支持 SSH 连接。请在该机器上升级后重连。',
@@ -2500,6 +2505,32 @@ export const zh: Translations = {
     copiedOutput: '已复制！',
     copyOutput: '复制输出',
     reloadRetry: '重新加载并重试'
+  },
+
+  connect: {
+    welcomeTitle: '欢迎使用 Hermes',
+    welcomeBody: 'Hermes 可以运行在你需要的任何地方——本机、云端，或通过 SSH 连接的机器。选择一个网关，我们来完成连接。',
+    getStarted: '开始使用',
+    chooseTitle: '选择网关',
+    chooseBody: '稍后可在设置中更改。',
+    back: '返回',
+    local: {
+      detecting: '正在查找本地安装…',
+      foundTitle: 'Hermes 已安装',
+      foundVersion: version => `版本 ${version}`,
+      missingTitle: '未找到本地安装',
+      missingBody: '选择要安装到本机的 Hermes Agent 版本。',
+      upstreamTitle: 'NousResearch Hermes Agent',
+      upstreamDesc: '来自 NousResearch 的官方 Hermes Agent。',
+      forkTitle: 'Hermes Agent 的 MJX 分支',
+      forkDesc: '用于测试 Hermes Agent 实验性功能的分支版本。',
+      install: '安装',
+      retry: '重试',
+      doneTitle: 'Hermes 已就绪',
+      doneBody: '设置将在下一阶段推出。你现在就可以开始使用 Hermes。',
+      done: '完成',
+      continue: '继续'
+    }
   },
 
   onboarding: {

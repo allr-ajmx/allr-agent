@@ -1224,7 +1224,29 @@
   overflow-y: auto;
   display: flex;
   justify-content: center;
-  padding: 24px 18px;
+  /* Safe area. MobileController swaps the WHOLE shell out for this screen (see
+     the z-index note above), so unlike every other mobile surface there is no
+     chrome above it applying the insets — it has to do it itself, or the card
+     runs under the status bar, the home indicator, and the notch in landscape.
+
+     `var(--safe-area-inset-*)`, never raw `env()`: lib/safe-area.ts exists
+     because the mobile webviews report env() as 0 for the first frames, and the
+     :root declaration already falls back to env() on desktop/web, where these
+     resolve to 0 and this is a no-op.
+
+     The bottom inset is padding on the SCROLLER on purpose — content then
+     scrolls clear of the home indicator instead of ending underneath it. It
+     cannot move to .connect-card: that is margin:auto-centred, and a bottom
+     margin there would collapse away exactly when the card is over-tall.
+
+     No --keyboard-inset term. #root is already pinned to the visible rectangle
+     on mobile, so this screen gets keyboard avoidance for free; adding a lift
+     here would double-count it. That matters — the configure step is all text
+     fields. */
+  padding-top: max(24px, var(--safe-area-inset-top));
+  padding-bottom: max(24px, var(--safe-area-inset-bottom));
+  padding-left: max(18px, var(--safe-area-inset-left));
+  padding-right: max(18px, var(--safe-area-inset-right));
 }
 .connect-card {
   width: 100%;
@@ -1244,6 +1266,97 @@
   font-size: 22px;
   margin: 6px 0 0;
   font-weight: 650;
+}
+/* Wordmark row. The language switcher rides on the end of it (welcome step
+   only) — `justify-content: space-between` rather than a float so RTL mirrors
+   it for free. */
+.connect-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.connect-body {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ui-text-secondary);
+}
+/* Welcome step. Slightly airier than the connect steps, which are dense forms. */
+.connect-welcome {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-block: 4px;
+}
+/* ── Local install (first-run Local gateway step) ── */
+.local-install-block {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.local-install-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-block: 8px;
+}
+/* The resolved executable. Monospace and breakable — it is a path, and a long
+   one must wrap rather than widen the 420px connect card. */
+.local-install-path {
+  margin: 0;
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ui-text-tertiary);
+  overflow-wrap: anywhere;
+}
+.local-install-bar {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--ui-bg-quaternary);
+  overflow: hidden;
+}
+.local-install-bar-fill {
+  height: 100%;
+  background: var(--ui-accent-primary, var(--ui-accent));
+  transition: width 200ms ease-out;
+}
+.local-install-stages {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.local-install-stage {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--ui-text-secondary);
+}
+/* Bounded and scrollable: an install emits ~10k lines, and an unbounded pane
+   would push the card's own actions off the bottom of the screen. */
+.local-install-log {
+  max-height: 180px;
+  overflow-y: auto;
+  padding: 8px;
+  border-radius: 4px;
+  background: var(--ui-bg-quaternary);
+  font-family: ui-monospace, monospace;
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--ui-text-secondary);
+}
+/* Configure step: Back above the gateway's name. */
+.connect-step-head {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  margin-bottom: 14px;
 }
 /* ── Chat ── */
 .chat {

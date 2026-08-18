@@ -18,6 +18,8 @@
     "ios:init": "tauri ios init && npm run ios:icons",
     "ios:icons": "node scripts/sync-ios-icons.mjs",
     "ios:build:debug": "npm run ios:icons && CARGO_TARGET_DIR=\"$PWD/src-tauri/target-ios\" tauri ios build --debug",
+    "ios:install": "node scripts/ios-install.mjs",
+    "ios:build:install": "npm run ios:build:debug && npm run ios:install",
     "android:init": "tauri android init",
     "android:dev": "npm run adb:reverse && CARGO_TARGET_DIR=\"$PWD/src-tauri/target-android\" tauri android dev --host ${HERMES_DEV_HOST:-127.0.0.1}",
     "adb:reverse": "adb reverse tcp:5176 tcp:5176 && adb reverse tcp:5177 tcp:5177 && adb reverse tcp:4317 tcp:4317 && adb reverse tcp:4318 tcp:4318",
