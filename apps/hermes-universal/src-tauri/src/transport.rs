@@ -1066,7 +1066,8 @@ pub async fn ws_close(state: State<'_, TransportState>, id: String) -> Result<()
 
 /// Serialize the shared cookie jar to JSON so the JS layer can persist it in the
 /// OS keyring (R2b). Captures unexpired, persistent cookies — which includes the
-/// gateway session (`allr_session_at/_rt`) and any portal (Privy) cookie — so a
+/// gateway session (`allr_session_at/_rt`, or `hermes_session_*` from a gateway
+/// deployed before the rename) and any portal (Privy) cookie — so a
 /// gateway/cloud login survives an app restart. The refresh-token cookie alone is
 /// enough: the gateway transparently re-mints the short-lived access cookie.
 #[tauri::command]

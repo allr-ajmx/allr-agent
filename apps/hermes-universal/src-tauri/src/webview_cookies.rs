@@ -16,7 +16,7 @@
 //!
 //! That silently broke the interactive sign-in on macOS/iOS against a gateway reached
 //! by address — a Tailscale IP, a LAN host, `127.0.0.1`. The login itself completed
-//! and WebKit stored `allr_session_at`/`_rt` exactly as it should; `poll_session_cookies`
+//! and WebKit stored the session cookie exactly as it should; `poll_session_cookies`
 //! then burned its whole 300s budget polling for cookies it was being handed an empty
 //! list for, and reported a timeout. The same filter also drops parent-domain
 //! (`Domain=.example.com`) cookies on a subdomain host.

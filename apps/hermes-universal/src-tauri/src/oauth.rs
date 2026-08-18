@@ -63,7 +63,9 @@
 //!
 //! So we let the interactive webview complete the ENTIRE cascade itself
 //! (`/auth/login` → IDP → `/auth/callback` → dashboard), which lands the session
-//! cookies (`allr_session_at`/`_rt`, HttpOnly) in the WEBVIEW's cookie jar, then:
+//! cookies (`allr_session_at`/`_rt` — or `hermes_session_*` from a gateway deployed
+//! before the rename; `is_session_cookie` takes either — HttpOnly) in the WEBVIEW's
+//! cookie jar, then:
 //!
 //!   1. Open a `WebviewWindow` at `{base}/auth/login?provider=X` (sets the
 //!      webview's own PKCE cookie and goes straight to the provider).
@@ -1398,8 +1400,24 @@ pub(crate) async fn gateway_bearer(
 /// A completed gateway login is signalled by the presence of the access- or
 /// refresh-token session cookie. The gateway may prefix it (`__Host-`/`__Secure-`),
 /// so match by suffix — mirrors desktop's AT/RT cookie variants.
+///
+/// BOTH spellings count. The cookie name is an on-wire contract with whatever gateway
+/// the user typed a URL for, and that gateway is deployed on its own schedule: a
+/// pre-rebrand build sets `hermes_session_*`, a current one sets `allr_session_*`, and
+/// this client has to sign in to either. Recognising only the current spelling is what
+/// broke sign-in against every already-deployed gateway — the login completed, WebKit
+/// stored the cookie, and `poll_session_cookies` below spent its whole 300s budget
+/// failing to see it, so the sign-in window never closed.
 fn is_session_cookie(name: &str) -> bool {
-    name.ends_with("allr_session_at") || name.ends_with("allr_session_rt")
+    const SUFFIXES: [&str; 4] = [
+        "allr_session_at",
+        "allr_session_rt",
+        // Pre-rebrand gateways. Not dead weight — see above.
+        "hermes_session_at", // rebrand:keep
+        "hermes_session_rt", // rebrand:keep
+    ];
+
+    SUFFIXES.iter().any(|suffix| name.ends_with(suffix))
 }
 
 /// Poll `label`'s webview cookie jar until a live gateway session lands: import the
@@ -1925,6 +1943,53 @@ mod tests {
         assert!(status.signed_in);
         assert_eq!(status.email, None);
         assert_eq!(status.session_kind, Some(SessionKind::Native));
+    }
+
+    // ── Session-cookie detection ─────────────────────────────────────────────
+    //
+    // Untested until now, which is exactly how the rebrand sweep renamed the cookie
+    // out from under the sign-in with every suite still green.
+
+    #[test]
+    fn both_gateway_spellings_count_as_a_session() {
+        // The current gateway...
+        assert!(is_session_cookie("allr_session_at"));
+        assert!(is_session_cookie("allr_session_rt"));
+        // ...and every gateway deployed before the rename. A client that only knew the
+        // first pair completed the login and then never saw the cookie, so the sign-in
+        // window sat open until it timed out.
+        assert!(is_session_cookie("hermes_session_at"));
+        assert!(is_session_cookie("hermes_session_rt"));
+    }
+
+    #[test]
+    fn the_host_and_secure_prefixes_still_match() {
+        // The gateway picks the prefix from the request shape (HTTPS + path prefix), so
+        // the reader cannot know which variant fired — hence suffix matching.
+        for prefix in ["", "__Host-", "__Secure-"] {
+            for bare in [
+                "allr_session_at",
+                "allr_session_rt",
+                "hermes_session_at",
+                "hermes_session_rt",
+            ] {
+                let name = format!("{prefix}{bare}");
+
+                assert!(is_session_cookie(&name), "{name}");
+            }
+        }
+    }
+
+    #[test]
+    fn unrelated_cookies_are_not_a_session() {
+        // Suffix matching is deliberately loose; it must still not fire on the PKCE
+        // broker cookie, the provider hint, or a portal cookie sharing the jar.
+        assert!(!is_session_cookie("allr_session_pkce"));
+        assert!(!is_session_cookie("allr_session_provider"));
+        assert!(!is_session_cookie("hermes_session_pkce"));
+        assert!(!is_session_cookie("hermes_sso_attempt"));
+        assert!(!is_session_cookie("privy-token"));
+        assert!(!is_session_cookie(""));
     }
 
     // ── The sign-in lease ────────────────────────────────────────────────────
