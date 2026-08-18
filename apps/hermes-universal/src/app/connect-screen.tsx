@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import { GatewayConfigurator } from '@/app/gateway/gateway-configurator'
+import { Wordmark } from '@/components/brand/wordmark'
 import { LanguageSwitcher } from '@/components/language-switcher'
 import { Button } from '@/components/ui/button'
 import { useI18n } from '@/i18n'
@@ -57,7 +58,7 @@ export function ConnectScreen() {
     <main className="connect">
       <div className="connect-card">
         <div className="connect-head">
-          <div className="brand">Allr</div>
+          <Wordmark />
           {/* Language belongs on the FIRST screen: every later step is prose the
               user has to read to make a choice. Offered here only — past this
               point Settings owns it. */}
