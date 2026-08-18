@@ -59,6 +59,22 @@ def _get_platform_default_hermes_home() -> Path:
     return Path.home() / ".allr"
 
 
+# Legacy-env bridge: existing installs and service units still export the old
+# prefix. Runs at import; this module is import-safe and imported everywhere.
+_LEGACY_ENV_PREFIX = "HERMES_"  # rebrand:keep
+for _k, _v in list(os.environ.items()):
+    if _k.startswith(_LEGACY_ENV_PREFIX):
+        os.environ.setdefault("ALLR_" + _k[len(_LEGACY_ENV_PREFIX) :], _v)
+
+# ponytail: read-only legacy-home adoption; drop after two release cycles.
+if not os.environ.get("ALLR_HOME", "").strip():
+    _new_home = _get_platform_default_hermes_home()
+    _legacy_dirname = "hermes" if sys.platform == "win32" else ".hermes"  # rebrand:keep
+    _legacy_home = _new_home.with_name(_legacy_dirname)
+    if _legacy_home.is_dir() and not _new_home.exists():
+        os.environ["ALLR_HOME"] = str(_legacy_home)
+
+
 def _hermes_home_from_env() -> Path:
     """Resolve ALLR_HOME from the process environment only.
 
