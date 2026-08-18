@@ -4,19 +4,17 @@
 
 # Allr
 <p align="center">
-  <a href="https://allr.work/">Allr</a> | <a href="https://allr.work/">Allr Desktop</a>
+  <a href="https://allr.work/">allr.work</a> | <a href="https://allr.work/docs/">Docs</a>
 </p>
 <p align="center">
-  <a href="https://allr.work/docs/"><img src="https://img.shields.io/badge/Docs-hermes--agent.nousresearch.com-FFD700?style=for-the-badge" alt="Documentation"></a>
-  <a href="https://discord.gg/NousResearch"><img src="https://img.shields.io/badge/Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Discord"></a>
-  <a href="https://github.com/NousResearch/hermes-agent/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-green?style=for-the-badge" alt="License: MIT"></a>
-  <a href="https://nousresearch.com"><img src="https://img.shields.io/badge/Built%20by-Nous%20Research-blueviolet?style=for-the-badge" alt="Built by Nous Research"></a>
+  <a href="https://allr.work/docs/"><img src="https://img.shields.io/badge/Docs-allr.work-2E9E63?style=for-the-badge" alt="Documentation"></a>
+  <a href="https://github.com/allr-ajmx/allr-agent/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-green?style=for-the-badge" alt="License: MIT"></a>
   <a href="README.zh-CN.md"><img src="https://img.shields.io/badge/Lang-中文-red?style=for-the-badge" alt="中文"></a>
   <a href="README.ur-pk.md"><img src="https://img.shields.io/badge/Lang-اردو-green?style=for-the-badge" alt="اردو"></a>
   <a href="README.es.md"><img src="https://img.shields.io/badge/Lang-Español-orange?style=for-the-badge" alt="Español"></a>
 </p>
 
-**The self-improving AI agent built by [Nous Research](https://nousresearch.com).** It's the only agent with a built-in learning loop — it creates skills from experience, improves them during use, nudges itself to persist knowledge, searches its own past conversations, and builds a deepening model of who you are across sessions. Run it on a $5 VPS, a GPU cluster, or serverless infrastructure that costs nearly nothing when idle. It's not tied to your laptop — talk to it from Telegram while it works on a cloud VM.
+Allr is one AI workspace that makes finished work — decks, docs, videos, websites, apps, and games. This repository holds the Allr agent runtime and gateway (`allr`), the cross-platform Allr app (`apps/hermes-universal`, Tauri: desktop, Android, iOS), and the bootstrap installer. It is a fork of [NousResearch/hermes-agent](https://github.com/NousResearch/hermes-agent) (MIT) — see [docs/repo-streams.md](docs/repo-streams.md) for how upstream is ingested.
 
 Use any model you want — [Nous Portal](https://portal.nousresearch.com), OpenRouter, OpenAI, your own endpoint, and [many others](https://allr.work/docs/integrations/providers). Switch with `allr model` — no code changes, no lock-in.
 
@@ -42,7 +40,7 @@ curl -fsSL https://allr.work/install.sh | bash
 
 ### Windows (native, PowerShell)
 
-> **Heads up:** Native Windows runs Allr without WSL — CLI, gateway, TUI, and tools all work natively. If you'd rather use WSL2, the Linux/macOS one-liner above works there too. Found a bug? Please [file issues](https://github.com/NousResearch/hermes-agent/issues).
+> **Heads up:** Native Windows runs Allr without WSL — CLI, gateway, TUI, and tools all work natively. If you'd rather use WSL2, the Linux/macOS one-liner above works there too. Found a bug? Please [file issues](https://github.com/allr-ajmx/allr-agent/issues).
 
 Run this in PowerShell:
 
@@ -249,9 +247,8 @@ scripts/run_tests.sh
 
 ## Community
 
-- 💬 [Discord](https://discord.gg/NousResearch)
 - 📚 [Skills Hub](https://agentskills.io)
-- 🐛 [Issues](https://github.com/NousResearch/hermes-agent/issues)
+- 🐛 [Issues](https://github.com/allr-ajmx/allr-agent/issues)
 - 🔌 [computer-use-linux](https://github.com/avifenesh/computer-use-linux) — Linux desktop-control MCP server for Allr and other MCP hosts, with AT-SPI accessibility trees, Wayland/X11 input, screenshots, and compositor window targeting.
 - 🔌 [HermesClaw](https://github.com/AaronWong1999/hermesclaw) — Community WeChat bridge: Run Allr and OpenClaw on the same WeChat account.
 
@@ -261,4 +258,4 @@ scripts/run_tests.sh
 
 MIT — see [LICENSE](LICENSE).
 
-Built by [Nous Research](https://nousresearch.com).
+Allr is a fork of [NousResearch/hermes-agent](https://github.com/NousResearch/hermes-agent), built by [Nous Research](https://nousresearch.com).
