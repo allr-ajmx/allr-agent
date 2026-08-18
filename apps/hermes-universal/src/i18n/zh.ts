@@ -2520,10 +2520,10 @@ export const zh: Translations = {
       foundVersion: version => `版本 ${version}`,
       missingTitle: '未找到本地安装',
       missingBody: '选择要安装到本机的 Allr 版本。',
-      upstreamTitle: 'NousResearch Allr',
-      upstreamDesc: '来自 NousResearch 的官方 Allr。',
-      forkTitle: 'Allr 的 MJX 分支',
-      forkDesc: '用于测试 Allr 实验性功能的分支版本。',
+      upstreamTitle: 'NousResearch Hermes Agent',  // rebrand:keep — names the upstream project, not ours
+      upstreamDesc: '来自 NousResearch 的官方 Hermes Agent。',  // rebrand:keep — names the upstream project, not ours
+      forkTitle: 'Hermes Agent 的 MJX 分支',  // rebrand:keep — names the upstream project, not ours
+      forkDesc: '用于测试 Hermes Agent 实验性功能的分支版本。',  // rebrand:keep — names the upstream project, not ours
       install: '安装',
       retry: '重试',
       doneTitle: 'Allr 已就绪',

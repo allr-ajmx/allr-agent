@@ -1963,10 +1963,10 @@ export const ar = defineLocale({
       foundVersion: version => `الإصدار ${version}`,
       missingTitle: 'لم يُعثر على تثبيت محلي',
       missingBody: 'اختر نسخة Allr التي تريد تثبيتها على هذا الجهاز.',
-      upstreamTitle: 'NousResearch Allr',
-      upstreamDesc: 'إصدار Allr الرسمي من NousResearch.',
-      forkTitle: 'نسخة MJX من Allr',
-      forkDesc: 'نسخة معدّلة من Allr مخصّصة لاختبار الميزات التجريبية.',
+      upstreamTitle: 'NousResearch Hermes Agent',  // rebrand:keep — names the upstream project, not ours
+      upstreamDesc: 'إصدار Hermes Agent الرسمي من NousResearch.',  // rebrand:keep — names the upstream project, not ours
+      forkTitle: 'نسخة MJX من Hermes Agent',  // rebrand:keep — names the upstream project, not ours
+      forkDesc: 'نسخة معدّلة من Hermes Agent مخصّصة لاختبار الميزات التجريبية.',  // rebrand:keep — names the upstream project, not ours
       install: 'تثبيت',
       retry: 'أعد المحاولة',
       doneTitle: 'Allr جاهز',

@@ -65,8 +65,8 @@ describe('the offer', () => {
     renderOffer()
 
     expect(screen.getByText('Install Allr on box.example.com?')).toBeInTheDocument()
-    expect(screen.getByText('NousResearch Allr')).toBeInTheDocument()
-    expect(screen.getByText('MJX Fork of Allr')).toBeInTheDocument()
+    expect(screen.getByText('NousResearch Hermes Agent')).toBeInTheDocument() // rebrand:keep — names the upstream project, not ours
+    expect(screen.getByText('MJX Fork of Hermes Agent')).toBeInTheDocument() // rebrand:keep — names the upstream project, not ours
   })
 
   it('says no administrator access is needed', () => {
@@ -79,11 +79,11 @@ describe('the offer', () => {
   it('installs nothing until a repo is picked and Install is pressed', async () => {
     renderOffer()
 
-    fireEvent.click(screen.getByText('MJX Fork of Allr'))
+    fireEvent.click(screen.getByText('MJX Fork of Hermes Agent')) // rebrand:keep — names the upstream project, not ours
 
     expect(await screen.findByRole('button', { name: 'Install' })).toBeInTheDocument()
     expect(
-      screen.getByText('A fork of Allr built for testing experimental features in Allr.')
+      screen.getByText('A fork of Hermes Agent built for testing experimental features in Hermes Agent.') // rebrand:keep — names the upstream project, not ours
     ).toBeInTheDocument()
     expect(invokeMock).not.toHaveBeenCalledWith('ssh_install', expect.anything())
   })
@@ -91,7 +91,7 @@ describe('the offer', () => {
   it('backs out of the repo description without installing', async () => {
     renderOffer()
 
-    fireEvent.click(screen.getByText('MJX Fork of Allr'))
+    fireEvent.click(screen.getByText('MJX Fork of Hermes Agent')) // rebrand:keep — names the upstream project, not ours
     fireEvent.click(await screen.findByRole('button', { name: 'Back' }))
 
     expect(await screen.findByText('Install Allr on box.example.com?')).toBeInTheDocument()

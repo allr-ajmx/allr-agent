@@ -2130,10 +2130,10 @@ export const zhHant = defineLocale({
       foundVersion: version => `版本 ${version}`,
       missingTitle: '找不到本機安裝',
       missingBody: '選擇要安裝到這台電腦的 Allr 版本。',
-      upstreamTitle: 'NousResearch Allr',
-      upstreamDesc: '來自 NousResearch 的官方 Allr。',
-      forkTitle: 'Allr 的 MJX 分支',
-      forkDesc: '用於測試 Allr 實驗性功能的分支版本。',
+      upstreamTitle: 'NousResearch Hermes Agent',  // rebrand:keep — names the upstream project, not ours
+      upstreamDesc: '來自 NousResearch 的官方 Hermes Agent。',  // rebrand:keep — names the upstream project, not ours
+      forkTitle: 'Hermes Agent 的 MJX 分支',  // rebrand:keep — names the upstream project, not ours
+      forkDesc: '用於測試 Hermes Agent 實驗性功能的分支版本。',  // rebrand:keep — names the upstream project, not ours
       install: '安裝',
       retry: '重試',
       doneTitle: 'Allr 已就緒',

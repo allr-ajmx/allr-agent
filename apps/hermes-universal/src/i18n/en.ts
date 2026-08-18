@@ -2371,10 +2371,10 @@ export const en: Translations = {
       foundVersion: version => `Version ${version}`,
       missingTitle: 'No local installation found',
       missingBody: 'Choose which build of Allr to install on this machine.',
-      upstreamTitle: 'NousResearch Allr',
-      upstreamDesc: 'The official Allr from NousResearch.',
-      forkTitle: 'MJX Fork of Allr',
-      forkDesc: 'A fork of Allr built for testing experimental features in Allr.',
+      upstreamTitle: 'NousResearch Hermes Agent',  // rebrand:keep — names the upstream project, not ours
+      upstreamDesc: 'The official Hermes Agent from NousResearch.',  // rebrand:keep — names the upstream project, not ours
+      forkTitle: 'MJX Fork of Hermes Agent',  // rebrand:keep — names the upstream project, not ours
+      forkDesc: 'A fork of Hermes Agent built for testing experimental features in Hermes Agent.',  // rebrand:keep — names the upstream project, not ours
       install: 'Install',
       retry: 'Try again',
       doneTitle: 'Allr is ready',

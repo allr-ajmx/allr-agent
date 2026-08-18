@@ -2196,10 +2196,10 @@ export const ja = defineLocale({
       foundVersion: version => `バージョン ${version}`,
       missingTitle: 'ローカルインストールが見つかりません',
       missingBody: 'このマシンにインストールする Allr のビルドを選択してください。',
-      upstreamTitle: 'NousResearch Allr',
-      upstreamDesc: 'NousResearch による公式の Allr。',
-      forkTitle: 'Allr の MJX フォーク',
-      forkDesc: 'Allr の実験的機能をテストするために作られたフォーク。',
+      upstreamTitle: 'NousResearch Hermes Agent',  // rebrand:keep — names the upstream project, not ours
+      upstreamDesc: 'NousResearch による公式の Hermes Agent。',  // rebrand:keep — names the upstream project, not ours
+      forkTitle: 'Hermes Agent の MJX フォーク',  // rebrand:keep — names the upstream project, not ours
+      forkDesc: 'Hermes Agent の実験的機能をテストするために作られたフォーク。',  // rebrand:keep — names the upstream project, not ours
       install: 'インストール',
       retry: '再試行',
       doneTitle: 'Allr の準備ができました',

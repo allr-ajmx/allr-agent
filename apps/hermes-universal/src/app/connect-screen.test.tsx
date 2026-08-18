@@ -191,7 +191,7 @@ describe('the local gateway sub-flow', () => {
     expect(await screen.findByText('No local installation found')).toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: 'Back' })).toHaveLength(1)
 
-    fireEvent.click(screen.getByText('MJX Fork of Allr'))
+    fireEvent.click(screen.getByText('MJX Fork of Hermes Agent')) // rebrand:keep — names the upstream project, not ours
     await screen.findByRole('button', { name: 'Install' })
 
     // Still one — this is the regression.
