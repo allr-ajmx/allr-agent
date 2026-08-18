@@ -354,18 +354,36 @@ oslog = { version = "0.2.0", default-features = false, features = ["logger"] }
 # These are not new crates: wry already pulls all four for `target_vendor = "apple"`,
 # with the same `WKHTTPCookieStore` feature, so naming them directly costs no extra
 # compilation. Kept minimal — only what the cookie read touches.
+objc2-web-kit = { version = "0.3", default-features = false, features = [
+  "std",
+  "block2",
+  "WKHTTPCookieStore",
+  "WKWebsiteDataStore",
+] }
+
+# The Objective-C runtime bindings, shared by BOTH Apple targets. objc2 and
+# friends used to sit in the iOS-only block above, because the cookie read was
+# their only caller; the device-unlock gate (src/secrets/gate.rs) needs them on
+# macOS too. wry already pulls all of these for `target_vendor = "apple"` with the
+# same features, so naming them here costs no extra compilation.
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
 objc2 = "0.6"
 block2 = "0.6"
 objc2-foundation = { version = "0.3", default-features = false, features = [
   "std",
   "NSArray",
   "NSDate",
+  "NSError",
   "NSHTTPCookie",
   "NSString",
 ] }
-objc2-web-kit = { version = "0.3", default-features = false, features = [
+# Touch ID / Face ID, with the OS passcode as fallback. `LAPolicy` and the
+# evaluate call are all we use; everything else in the framework (LARight,
+# LAPersistedRight, the key types) is left out.
+objc2-local-authentication = { version = "0.3.2", default-features = false, features = [
   "std",
   "block2",
-  "WKHTTPCookieStore",
-  "WKWebsiteDataStore",
+  "LAContext",
+  "LAError",
+  "LAPublicDefines",
 ] }

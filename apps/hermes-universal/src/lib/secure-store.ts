@@ -78,9 +78,20 @@ export interface SecureStoreStatus {
   available: boolean
   /** Why not, when they cannot. */
   reason?: string
+  /** Whether this device has an unlock method (biometric or passcode). */
+  gateAvailable: boolean
+  /** Whether reads currently require one. Off until every platform has a gate. */
+  gateEnforced: boolean
+  /** Whether an unlock lease is open right now. */
+  unlocked: boolean
 }
 
-const UNAVAILABLE: SecureStoreStatus = { available: false }
+const UNAVAILABLE: SecureStoreStatus = {
+  available: false,
+  gateAvailable: false,
+  gateEnforced: false,
+  unlocked: false
+}
 
 export async function secureStoreStatus(): Promise<SecureStoreStatus> {
   return safe(async () => invoke<SecureStoreStatus>('secrets_status'), UNAVAILABLE)
@@ -100,6 +111,30 @@ export async function secureStoreUnavailableReason(): Promise<null | string> {
   const status = await secureStoreStatus()
 
   return status.available ? null : (status.reason ?? 'no OS credential store is available')
+}
+
+/**
+ * Prove the device owner is present, opening a read lease.
+ *
+ * Safe to call unconditionally: it is a no-op when a lease is already open, and
+ * when the gate is not enforced. Resolves false when the user declined or the
+ * device has no unlock method — callers should surface that as "unlock to
+ * continue", never as a credential failure.
+ *
+ * One unlock covers a whole connect. An SSH dial reads the PEM, the passphrase
+ * and the password, so a per-read prompt would fire three dialogs for one action.
+ */
+export async function unlockSecrets(reason?: string): Promise<boolean> {
+  return safe(async () => {
+    await invoke<void>('secrets_unlock', { reason: reason ?? null })
+
+    return true
+  }, false)
+}
+
+/** End the lease now. Rust also does this on background/suspend. */
+export async function lockSecrets(): Promise<void> {
+  await safe(async () => invoke<void>('secrets_lock'), undefined)
 }
 
 /** Persist secrets. Returns false if the keystore is unavailable (nothing stored). */

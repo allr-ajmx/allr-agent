@@ -15,6 +15,7 @@
 //! Storage lives in `store`; this module owns *what may be named*.
 
 pub mod error;
+pub mod gate;
 pub mod store;
 
 use serde::{Deserialize, Serialize};
@@ -113,7 +114,17 @@ impl OwnedKey {
 // --------------------------------------------------------------------------
 
 /// Read one of the webview-nameable secrets.
+///
+/// Reading is the gated direction, and only reading. Writing a credential means
+/// the user just supplied it, and deleting one is a strictly safe outcome — a
+/// prompt in front of either would be friction with nothing behind it.
 pub fn read(key: SecretKey) -> Result<Option<String>, SecretsError> {
+    if needs_unlock(key) && !gate::is_unlocked() {
+        return Err(SecretsError::locked(
+            "unlock this device to use the stored credentials",
+        ));
+    }
+
     store::read(key.account())
 }
 
@@ -146,7 +157,7 @@ pub fn remove_owned(key: OwnedKey, scope: &str) -> Result<(), SecretsError> {
     store::remove(&key.account(scope))
 }
 
-/// Whether this machine can store credentials at all.
+/// Whether this machine can store credentials, and whether it can gate them.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SecretsStatus {
@@ -155,6 +166,41 @@ pub struct SecretsStatus {
     /// was not saved" needs a reason attached to be actionable.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
+    /// Whether this device has an unlock method (biometric or passcode) at all.
+    pub gate_available: bool,
+    /// Whether reads currently require one. See `ENFORCE_UNLOCK`.
+    pub gate_enforced: bool,
+    /// Whether a lease is open right now.
+    pub unlocked: bool,
+}
+
+/// Whether reading a credential requires a device unlock.
+///
+/// **Off, deliberately, until every platform has a gate.** `gate::available()` is
+/// false on Linux and Android today, and the agreed policy for "no gate" is to
+/// stop persisting secrets — so switching this on now would take credential
+/// persistence away from those users to protect them with a mechanism that does
+/// not exist yet. Apple is implemented; Windows is written but uncompiled.
+///
+/// Flip this to `true` in the same commit that lands the last platform, not
+/// before, and not per-platform: an uneven posture is harder to state honestly
+/// than either "on" or "off".
+const ENFORCE_UNLOCK: bool = false;
+
+/// Whether this read has to be authorized right now.
+///
+/// The installation id is exempt on purpose. It is an identity, not a credential
+/// (`is_credential`), and it is read during boot before anything is mounted —
+/// gating it would put a biometric prompt in front of app startup for a value
+/// that unlocks nothing.
+fn needs_unlock(key: SecretKey) -> bool {
+    gate_applies(ENFORCE_UNLOCK, gate::available(), key)
+}
+
+/// The policy itself, separated from where its inputs come from so it can be
+/// checked without a device attached.
+fn gate_applies(enforced: bool, gate_available: bool, key: SecretKey) -> bool {
+    enforced && gate_available && key.is_credential()
 }
 
 // --------------------------------------------------------------------------
@@ -222,16 +268,40 @@ pub async fn secrets_clear() -> Result<(), SecretsError> {
 
 #[tauri::command]
 pub async fn secrets_status() -> SecretsStatus {
-    match blocking(|| Ok(store::ensure())).await.unwrap_or_else(Err) {
-        Ok(()) => SecretsStatus {
-            available: true,
-            reason: None,
-        },
-        Err(err) => SecretsStatus {
-            available: false,
-            reason: Some(err.message),
-        },
+    let (available, reason) = match blocking(|| Ok(store::ensure())).await.unwrap_or_else(Err) {
+        Ok(()) => (true, None),
+        Err(err) => (false, Some(err.message)),
+    };
+
+    SecretsStatus {
+        available,
+        reason,
+        gate_available: gate::available(),
+        gate_enforced: ENFORCE_UNLOCK,
+        unlocked: gate::is_unlocked(),
     }
+}
+
+/// Prove the device owner is present, opening a lease.
+///
+/// Safe to call when already unlocked (it is a no-op) and when the gate is not
+/// enforced, so the frontend can call it ahead of a connect without first
+/// working out whether it needs to.
+#[tauri::command]
+pub async fn secrets_unlock(reason: Option<String>) -> Result<(), SecretsError> {
+    gate::unlock(
+        reason.unwrap_or_else(|| "Hermes needs to use your stored credentials".to_string()),
+    )
+    .await
+}
+
+/// End the lease now.
+///
+/// Called on background/suspend as well as from an explicit control — see the
+/// window-event hook in lib.rs.
+#[tauri::command]
+pub async fn secrets_lock() {
+    gate::lock();
 }
 
 #[cfg(test)]
@@ -258,6 +328,30 @@ mod tests {
             let wire = serde_json::to_string(&key).unwrap();
             assert_eq!(wire, format!("\"{}\"", key.account()));
         }
+    }
+
+    #[test]
+    fn the_gate_never_stands_in_front_of_app_startup() {
+        // The installation id is read during boot, before anything is mounted.
+        // Gating it would put a biometric prompt in front of launch for a value
+        // that unlocks nothing — it is an identity, not a credential.
+        assert!(!gate_applies(true, true, SecretKey::InstallationId));
+        assert!(gate_applies(true, true, SecretKey::SshKey));
+
+        // And nothing is gated while the policy is off or the device has no
+        // unlock method — which is what keeps a half-built gate from locking
+        // people out of their own credentials.
+        assert!(!gate_applies(false, true, SecretKey::SshKey));
+        assert!(!gate_applies(true, false, SecretKey::SshKey));
+    }
+
+    #[test]
+    fn enforcement_stays_off_until_every_platform_has_a_gate() {
+        // A deliberate tripwire. Turning this on while gate::available() is
+        // false on Linux and Android would, under the agreed "no gate → do not
+        // persist" policy, take credential storage away from those users to
+        // protect them with a mechanism that does not exist yet.
+        assert!(!ENFORCE_UNLOCK, "see the note on ENFORCE_UNLOCK");
     }
 
     #[test]

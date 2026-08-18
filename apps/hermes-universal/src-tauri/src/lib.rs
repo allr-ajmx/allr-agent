@@ -57,7 +57,10 @@ use oauth::{oauth_login, oauth_logout, oauth_status};
 use plugins::{plugins_list, plugins_read, plugins_root};
 use pty::{pty_kill, pty_resize, pty_spawn, pty_write, PtyState};
 use repo_scan::repo_scan_git_repos;
-use secrets::{secrets_clear, secrets_delete, secrets_get, secrets_set, secrets_status};
+use secrets::{
+    secrets_clear, secrets_delete, secrets_get, secrets_lock, secrets_set, secrets_status,
+    secrets_unlock,
+};
 use shortcuts::{global_shortcut_take_pending, global_shortcuts_sync, ShortcutState};
 use ssh::{
     ssh_answer_prompt, ssh_cancel, ssh_connect, ssh_disconnect, ssh_install, ssh_list_config_hosts,
@@ -340,6 +343,8 @@ pub fn run() {
             secrets_delete,
             secrets_clear,
             secrets_status,
+            secrets_unlock,
+            secrets_lock,
             find_in_page,
             stop_find_in_page,
             surface_capabilities,
@@ -366,6 +371,22 @@ pub fn run() {
         .expect("error while building Hermes Universal")
         .run(|app_handle, event| {
             let _ = app_handle;
+
+            // Drop the credential unlock the moment the app stops being in front
+            // of the user. A short lease is only worth having if walking away
+            // ends it, and "no window has focus" / "the app is suspending" is the
+            // closest signal we get to that. Losing it costs one extra prompt;
+            // keeping it costs an unattended machine with the credentials open.
+            match &event {
+                tauri::RunEvent::WindowEvent {
+                    event: tauri::WindowEvent::Focused(false),
+                    ..
+                }
+                | tauri::RunEvent::ExitRequested { .. } => secrets::gate::lock(),
+
+                _ => {}
+            }
+
             #[cfg(target_os = "ios")]
             if let tauri::RunEvent::SceneRequested { .. } = &event {
                 window::fill_requested_scene(app_handle);

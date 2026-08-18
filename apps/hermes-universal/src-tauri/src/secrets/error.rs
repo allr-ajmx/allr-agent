@@ -16,6 +16,12 @@ pub enum SecretsErrorKind {
     Unavailable,
     /// The store exists and refused the operation.
     StoreFailed,
+    /// The credential is there, but this device has not been unlocked (or the
+    /// user declined). Distinct from a store failure on purpose: the SSH
+    /// surfaces render it as "unlock to connect", never as an auth failure —
+    /// telling someone their key is wrong when they simply dismissed a Face ID
+    /// prompt sends them looking in entirely the wrong place.
+    Locked,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -39,6 +45,10 @@ impl SecretsError {
 
     pub fn store_failed(message: impl Into<String>) -> Self {
         Self::new(SecretsErrorKind::StoreFailed, message)
+    }
+
+    pub fn locked(message: impl Into<String>) -> Self {
+        Self::new(SecretsErrorKind::Locked, message)
     }
 }
 
