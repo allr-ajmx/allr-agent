@@ -377,6 +377,16 @@ mod imp {
 // should reach these. They exist so the command table is identical on every
 // target, matching how `local_backend.rs` handles the same split.
 
+/// The mobile half of the state, so `lib.rs` can `.manage()` it unconditionally.
+///
+/// Its absence is what broke the iOS and Android builds: the commands below were
+/// stubbed for mobile but the state they are registered alongside was not, so
+/// `local_install::InstallState` resolved to nothing outside `cfg(desktop)`.
+/// `local_backend.rs` carries the same empty-struct twin for the same reason.
+#[cfg(mobile)]
+#[derive(Default)]
+pub struct InstallState;
+
 #[cfg(mobile)]
 #[tauri::command]
 pub async fn local_install_detect() -> Result<LocalInstall, String> {
