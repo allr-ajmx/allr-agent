@@ -58,7 +58,7 @@
 //! (`src/app.tsx`).
 
 /// Emitted to the searching window with the match count for the current query.
-pub const FOUND_IN_PAGE_EVENT: &str = "hermes://found-in-page";
+pub const FOUND_IN_PAGE_EVENT: &str = "allr://found-in-page";
 
 #[cfg(target_os = "linux")]
 mod linux {

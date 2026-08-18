@@ -457,7 +457,7 @@ export async function closeTileWindow(label: string): Promise<void> {
 /** Fires when a detached tile's window is destroyed, with that window's label.
  *  Emitted natively (see `src-tauri/src/window.rs`) because a torn-down webview
  *  is the least reliable place to send a message from. */
-export const TILE_WINDOW_CLOSED_EVENT = 'hermes://tile-window-closed'
+export const TILE_WINDOW_CLOSED_EVENT = 'allr://tile-window-closed'
 
 export async function openNewWindow(): Promise<void> {
   if (!canOpenNewWindow()) {
@@ -546,7 +546,7 @@ function satelliteLabel(surface: string): null | string {
  * WebKitGTK view is the least reliable place to send from, and this is the
  * message the HUD handoff cannot afford to miss.
  */
-export const SATELLITE_WINDOW_CLOSED_EVENT = 'hermes://satellite-window-closed'
+export const SATELLITE_WINDOW_CLOSED_EVENT = 'allr://satellite-window-closed'
 
 /**
  * The surface a satellite label names, or null if it is not one.
@@ -710,7 +710,7 @@ export async function hideThisWindow(): Promise<void> {
  * Takes no label, for the same reason `hideThisWindow` does not: Rust picks the
  * target from the live label set (`window_to_reveal`), which never resolves to a
  * satellite or a detached tile. Called from the HUD, which since background mode
- * can be the only Hermes on screen — so when its gateway is down, the affordance
+ * can be the only Allr on screen — so when its gateway is down, the affordance
  * that gets the user to a window where that is fixable has to exist there.
  */
 export async function showAppWindow(): Promise<void> {
@@ -810,7 +810,7 @@ async function hideForBackgroundMode(answering: boolean): Promise<void> {
 }
 
 /**
- * End the app, not merely this window — the prompt's "Quit Hermes" answer.
+ * End the app, not merely this window — the prompt's "Quit Allr" answer.
  *
  * The only close path that quits, and it is the one where the user asked in
  * those words. An ordinary close of `main` still just destroys the window: the
@@ -823,7 +823,7 @@ async function hideForBackgroundMode(answering: boolean): Promise<void> {
  * chords back, and closes the satellites before the loop stops.
  *
  * The preference is recorded FIRST so the next launch stops asking, and the
- * spawned `hermes serve` child is stopped before the exit: it is OUR child
+ * spawned `allr serve` child is stopped before the exit: it is OUR child
  * rather than the OS's problem, and after `app.exit(0)` there is nobody left to
  * ask. That failure is swallowed — a gateway that was never local, or is already
  * gone, must not be the reason a quit does not happen.
@@ -835,7 +835,7 @@ async function quitTheApp(): Promise<void> {
   try {
     await invoke('quit_app')
   } catch (err) {
-    notifyError(err, 'Could not close Hermes')
+    notifyError(err, 'Could not close Allr')
   }
 }
 

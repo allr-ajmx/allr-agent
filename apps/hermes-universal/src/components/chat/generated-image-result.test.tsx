@@ -2,7 +2,7 @@ import { render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 /**
- * A generated image lands on the GATEWAY's disk (`~/.hermes/cache/images/…`), so
+ * A generated image lands on the GATEWAY's disk (`~/.allr/cache/images/…`), so
  * the only way this renderer can paint it is over the authenticated Rust
  * transport. Pointing `<img>` at the gateway's `/api/files/download` URL instead
  * put an unauthenticated request on the wire: behind a gated gateway it comes
@@ -23,7 +23,7 @@ vi.mock('@/lib/desktop-fs', async importOriginal => ({
 
 const { GeneratedImage } = await import('./generated-image-result')
 
-const GATEWAY_PATH = '/Users/me/.hermes/cache/images/gen-1.png'
+const GATEWAY_PATH = '/Users/me/.allr/cache/images/gen-1.png'
 
 beforeEach(() => {
   readDesktopFileDataUrl.mockClear()

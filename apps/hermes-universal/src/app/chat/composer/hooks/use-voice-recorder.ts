@@ -51,7 +51,7 @@ function currentTarget(): VoiceTarget | null {
   const headers: Record<string, string> = {}
 
   if (conn.token) {
-    headers['X-Hermes-Session-Token'] = conn.token
+    headers['X-Allr-Session-Token'] = conn.token
   }
 
   return { baseUrl: conn.baseUrl, headers }

@@ -1,5 +1,5 @@
 /**
- * Shared ESLint flat config for all Hermes TS workspaces.
+ * Shared ESLint flat config for all Allr TS workspaces.
  *
  * Usage in a workspace's eslint.config.mjs:
  *

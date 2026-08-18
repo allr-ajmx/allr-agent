@@ -25,7 +25,7 @@ import type * as Registrar from './global-shortcut'
 const DISCLOSED_KEY = 'hermes.globalShortcutsDisclosed'
 
 /** Must match `shortcuts::GLOBAL_SHORTCUT_EVENT`. */
-const DELIVERY_EVENT = 'hermes://global-shortcut'
+const DELIVERY_EVENT = 'allr://global-shortcut'
 
 /** The label this window is pretending to be, so a targeted delivery can be
  *  checked against something other than a wildcard. */

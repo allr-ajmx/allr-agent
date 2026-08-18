@@ -12,7 +12,7 @@ import { sessionRecency, type SidebarSessionGroup, type SidebarWorkspaceTree } f
 // (`tui_gateway/project_tree.py`, exposed via `projects.tree` /
 // `projects.project_sessions`); this module never decides session membership. It
 // only relabels/re-anchors lanes against git truth and adds lanes for worktrees
-// that have no Hermes sessions yet.
+// that have no Allr sessions yet.
 //
 // Desktop's LIVE-SESSION overlay half (`overlayRepoLanes`, `overlayLiveLanes`,
 // `overlayLivePreviews`, `excludeProjectSessions`, `liveSessionProjectId`) is
@@ -97,7 +97,7 @@ export function sortWorktreeGroups(groups: SidebarSessionGroup[]): SidebarSessio
 
 /**
  * VISUAL enhancer only: inject empty lanes from a live `git worktree list` so a
- * repo shows its branches/worktrees even when they have no Hermes sessions yet.
+ * repo shows its branches/worktrees even when they have no Allr sessions yet.
  * The repo's real session lanes already come fully built from the backend
  * (`projects.project_sessions`); this never adds or moves session rows, and it
  * degrades to a no-op when no worktree listing is available. Lanes already

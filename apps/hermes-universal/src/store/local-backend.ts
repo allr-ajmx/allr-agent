@@ -16,7 +16,7 @@ export interface LocalBackendStatus {
   baseUrl?: string | null
 }
 
-/** Spawn `hermes serve` and resolve once it's HTTP-ready. */
+/** Spawn `allr serve` and resolve once it's HTTP-ready. */
 export function spawnLocalBackend(profile?: string | null): Promise<LocalBackend> {
   return invoke<LocalBackend>('local_backend_spawn', { profile: profile ?? null })
 }

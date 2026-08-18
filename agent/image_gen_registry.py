@@ -18,12 +18,12 @@ If unset, :func:`get_active_provider` applies fallback logic:
 3. Otherwise if a provider named ``fal`` is available, use it (legacy
    default — matches pre-plugin behavior).
 4. Otherwise return ``None`` (the tool surfaces a helpful error pointing
-   the user at ``hermes tools``).
+   the user at ``allr tools``).
 
 Rule 1 exists because holding a key is not consent: a bare credential for
 some unrelated vendor must never opt a user into paid image generation, but
 refusing to resolve *anything* left the tool unavailable to everyone who had
-not run ``hermes tools`` — which is how image generation ended up silently
+not run ``allr tools`` — which is how image generation ended up silently
 switched off for users with a perfectly good OpenRouter or Nous credential.
 """
 

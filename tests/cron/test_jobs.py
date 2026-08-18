@@ -88,7 +88,7 @@ class TestParseSchedule:
 
 
     def test_naive_iso_anchors_to_configured_tz_not_server_local(self, monkeypatch):
-        """A naive ISO timestamp must be interpreted in the CONFIGURED Hermes
+        """A naive ISO timestamp must be interpreted in the CONFIGURED Allr
         timezone, NOT the server's local timezone (#51021).
 
         Regression: when the configured zone differs from the server's local
@@ -118,7 +118,7 @@ class TestParseSchedule:
 
 class TestNaiveScheduleTimezoneDivergence:
     """End-to-end: a one-shot created with a naive recent-past timestamp must
-    become due even when the configured Hermes timezone differs from the
+    become due even when the configured Allr timezone differs from the
     server's local timezone. Before #51021 the naive value was anchored to
     server-local, so the job never fired."""
 
@@ -746,7 +746,7 @@ class TestGetDueJobs:
         """#62002 cross-process leg: a heartbeat-refreshed claim never expires
         while the run is alive, so no other tick re-dispatches or stale-removes
         the job even when the run outlives the original TTL horizon."""
-        monkeypatch.delenv("HERMES_CRON_TIMEOUT", raising=False)
+        monkeypatch.delenv("ALLR_CRON_TIMEOUT", raising=False)
         from cron.jobs import _hermes_now, _oneshot_run_claim_ttl_seconds
         ttl = _oneshot_run_claim_ttl_seconds()
         t0 = _hermes_now()
@@ -1075,14 +1075,14 @@ class TestClaimDispatch:
 
 
 class TestLateEnvRepointScopesStore:
-    """A HERMES_HOME set AFTER cron.jobs import must scope the store even
+    """A ALLR_HOME set AFTER cron.jobs import must scope the store even
     without use_cron_store(): fixtures that patch the environment too late
     previously read/wrote the import-time jobs.json — the user's real file."""
 
     def test_late_env_repoint_scopes_store(self, tmp_path, monkeypatch):
         import cron.jobs as jobs
 
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        monkeypatch.setenv("ALLR_HOME", str(tmp_path))
         store = jobs._current_cron_store()
         expected = tmp_path.resolve() / "cron"
         assert store.cron_dir == expected
@@ -1095,7 +1095,7 @@ class TestLateEnvRepointScopesStore:
     def test_use_cron_store_override_still_wins(self, tmp_path, monkeypatch):
         import cron.jobs as jobs
 
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path / "env-home"))
+        monkeypatch.setenv("ALLR_HOME", str(tmp_path / "env-home"))
         with jobs.use_cron_store(tmp_path / "override-home"):
             store = jobs._current_cron_store()
             assert store.jobs_file == (tmp_path / "override-home").resolve() / "cron" / "jobs.json"
@@ -1105,7 +1105,7 @@ class TestLateEnvRepointScopesStore:
         self, tmp_path, monkeypatch
     ):
         """The public API, not the store internals: save_jobs()/load_jobs()
-        called after a post-import HERMES_HOME repoint must operate on the NEW
+        called after a post-import ALLR_HOME repoint must operate on the NEW
         home's jobs.json and leave the import-time file byte-identical.
 
         The "import-time home" is SIMULATED at a tmp location by patching the
@@ -1119,7 +1119,7 @@ class TestLateEnvRepointScopesStore:
 
         sim_old_home = tmp_path / "import-time-home"
         sim_cron = sim_old_home / "cron"
-        monkeypatch.setattr(jobs, "HERMES_DIR", sim_old_home)
+        monkeypatch.setattr(jobs, "ALLR_DIR", sim_old_home)
         monkeypatch.setattr(jobs, "CRON_DIR", sim_cron)
         monkeypatch.setattr(jobs, "JOBS_FILE", sim_cron / "jobs.json")
         monkeypatch.setattr(jobs, "OUTPUT_DIR", sim_cron / "output")
@@ -1136,7 +1136,7 @@ class TestLateEnvRepointScopesStore:
         old_file.write_text(sentinel, encoding="utf-8")
 
         new_home = tmp_path / "late-home"
-        monkeypatch.setenv("HERMES_HOME", str(new_home))
+        monkeypatch.setenv("ALLR_HOME", str(new_home))
 
         job = {
             "id": "lateenvjob01",

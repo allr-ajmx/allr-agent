@@ -2,7 +2,7 @@
  * OS-level hotkeys, driven by the same rebindable registry as everything else
  * (MJXHRM-55).
  *
- * An in-app keybind only fires when Hermes has focus. A summonable surface — the
+ * An in-app keybind only fires when Allr has focus. A summonable surface — the
  * HUD, whatever comes after it — has to answer while the user is in another
  * application entirely, which means claiming the chord from the operating system.
  * That claim is exclusive and global, so it is the one kind of shortcut a user
@@ -71,7 +71,7 @@ export function setGlobalShortcutDispatch(fn: (actionId: string) => void): void 
  * Rust's delivery of a chord that fired, addressed at ONE window
  * (`shortcuts::GLOBAL_SHORTCUT_EVENT`).
  */
-const GLOBAL_SHORTCUT_EVENT = 'hermes://global-shortcut'
+const GLOBAL_SHORTCUT_EVENT = 'allr://global-shortcut'
 
 /** One accelerator to hold, as `global_shortcuts_sync` takes it. */
 interface ShortcutClaim {
@@ -119,7 +119,7 @@ function desiredAccelerators(): Map<string, WantedClaim> {
 }
 
 /**
- * Whether the user has been told that Hermes takes a chord away from the rest of
+ * Whether the user has been told that Allr takes a chord away from the rest of
  * the machine.
  *
  * Device-local (`lib/persisted`, like the Quick Entry switch and keep-awake),
@@ -132,7 +132,7 @@ export const $globalShortcutsDisclosed = persistentAtom<boolean>('hermes.globalS
 const SHORTCUTS_ROUTE = '/settings/shortcuts'
 
 /**
- * Say, once ever, which chords Hermes just took from the operating system.
+ * Say, once ever, which chords Allr just took from the operating system.
  *
  * `view.toggleHud` ships bound to `mod+shift+h` with `global: true`, so this
  * claim happens at BOOT, before the user has done anything — the one capability

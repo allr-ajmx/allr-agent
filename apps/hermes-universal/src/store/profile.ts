@@ -149,7 +149,7 @@ function orderedProfileKeys(): string[] {
   return hasDefault ? ['default', ...named] : named
 }
 
-/** Switch to the default (root ~/.hermes) profile — bound to ⌘D. */
+/** Switch to the default (root ~/.allr) profile — bound to ⌘D. */
 export function switchToDefaultProfile(): void {
   selectProfile('default')
 }

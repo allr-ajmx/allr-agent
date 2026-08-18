@@ -1,4 +1,4 @@
-# Hermes Universal
+# Allr Universal
 
 Tauri v2 client — desktop, Android and iOS from one codebase.
 
@@ -88,7 +88,7 @@ requests are free; an Android device reaches it either through an `adb reverse` 
 and Vite serves ~1000 separate modules in dev. Whichever link is slower is what you feel on every reload, so
 the transport is a choice worth making on purpose.
 
-`HERMES_DEV_HOST` makes it one. It defaults to `127.0.0.1` — the **USB tunnel**, which `npm run adb:reverse`
+`ALLR_DEV_HOST` makes it one. It defaults to `127.0.0.1` — the **USB tunnel**, which `npm run adb:reverse`
 already maps and which needs no network at all:
 
 ```sh
@@ -100,8 +100,8 @@ To send the same traffic over **Wi-Fi** instead, set it to the machine's LAN add
 since they are separate processes:
 
 ```sh
-env HERMES_DEV_HOST=192.168.1.15 npm run dev:ext:vite
-env HERMES_DEV_HOST=192.168.1.15 npm run dev:ext:android
+env ALLR_DEV_HOST=192.168.1.15 npm run dev:ext:vite
+env ALLR_DEV_HOST=192.168.1.15 npm run dev:ext:android
 ```
 
 Try both once and keep the faster one; which wins depends on the USB controller and the access point, not on

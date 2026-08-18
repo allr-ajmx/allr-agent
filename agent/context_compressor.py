@@ -2837,7 +2837,7 @@ class ContextCompressor(ContextEngine):
         """Return True when a high rough preflight estimate is known-noisy.
 
         ``estimate_request_tokens_rough(..., tools=...)`` intentionally
-        overestimates so Hermes compresses before a provider rejects the
+        overestimates so Allr compresses before a provider rejects the
         payload — but the margin is not a fixed percentage: CJK text is
         counted at ~1.7x its o200k cost and Responses-mode reasoning replay
         blobs at several times their billed cost, so heavy sessions can show
@@ -7016,7 +7016,7 @@ This compaction should PRIORITISE preserving all information related to the focu
         # request-build time), so ``last_head_role`` defaults to "user" and
         # the summary is emitted as role="assistant". On a session whose only
         # genuine user turn falls into the compressed middle — e.g. a
-        # ``hermes kanban`` worker seeded with a single short
+        # ``allr kanban`` worker seeded with a single short
         # ``"work kanban task <id>"`` prompt followed by nothing but
         # assistant/tool turns — that leaves the compressed transcript with
         # ZERO user-role messages. OpenAI-compatible backends (vLLM/Qwen)

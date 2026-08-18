@@ -175,7 +175,7 @@ function ConnectedProviderRow({
   const copy = t.settings.providers
   const title = providerTitle(provider)
   const Trail = provider.flow === 'external' ? Terminal : ChevronRight
-  // Hermes can clear this provider's creds via the API.
+  // Allr can clear this provider's creds via the API.
   const canDisconnect = provider.disconnectable ?? provider.flow !== 'external'
   // Only fall back to a static "remove it elsewhere" hint when we offer no button.
   const showHint = !canDisconnect

@@ -54,7 +54,7 @@ const SLATE = {
 // darker calm dims).
 
 const info: SessionInfo = {
-  cwd: '/Users/brooklyn/www/hermes-agent',
+  cwd: '/Users/brooklyn/www/allr-agent',
   mcp_servers: [{ connected: true, name: 'figma', tools: 12, transport: 'sse' }],
   model: 'claude-opus-4.8-fast',
   skills: {
@@ -228,7 +228,7 @@ interface Scene {
 }
 
 const setup = (bgHex: string) => {
-  process.env.HERMES_TUI_BACKGROUND = bgHex
+  process.env.ALLR_TUI_BACKGROUND = bgHex
   resetOverlayState()
   resetUiState()
 }

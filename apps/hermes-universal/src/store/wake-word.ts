@@ -18,7 +18,7 @@ import { voiceEngine } from '@/voice/engine'
 import type { VoiceLease } from '@/voice/types'
 
 /**
- * "Hey Hermes" — the hands-free wake word.
+ * "Hey Allr" — the hands-free wake word.
  *
  * The detector is NOT ours. openWakeWord/sherpa run on the gateway
  * (`tools/wake_word.py`), which owns the phrase, the model and the profile

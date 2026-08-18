@@ -124,7 +124,7 @@ class TestConfigPrompt:
         not force a setup prompt on the user."""
         from hermes_cli import tools_config
 
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        monkeypatch.setenv("ALLR_HOME", str(tmp_path))
         monkeypatch.delenv("FAL_KEY", raising=False)
 
         image_gen_registry.register_provider(_FakeProvider("avail-img", available=True))
@@ -139,7 +139,7 @@ class TestConfigWriting:
         ``image_gen.provider`` and ``image_gen.model``."""
         from hermes_cli import tools_config
 
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        monkeypatch.setenv("ALLR_HOME", str(tmp_path))
         image_gen_registry.register_provider(_FakeProvider("noenv", schema={
             "name": "NoEnv",
             "badge": "free",
@@ -170,7 +170,7 @@ class TestConfigWriting:
         success and generation kept using the previous model."""
         from hermes_cli import tools_config
 
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        monkeypatch.setenv("ALLR_HOME", str(tmp_path))
         image_gen_registry.register_provider(
             _FakeProvider(
                 "scoped",
@@ -194,7 +194,7 @@ class TestConfigWriting:
         presented as this backend's current model."""
         from hermes_cli import tools_config
 
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        monkeypatch.setenv("ALLR_HOME", str(tmp_path))
         image_gen_registry.register_provider(
             _FakeProvider(
                 "scoped",
@@ -268,7 +268,7 @@ class TestCustomModelEntry:
     def test_sentinel_offered_only_for_custom_capable_backends(self, monkeypatch, tmp_path):
         from hermes_cli import tools_config
 
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        monkeypatch.setenv("ALLR_HOME", str(tmp_path))
         image_gen_registry.register_provider(_FakeProvider("openish", accepts_custom=True))
         image_gen_registry.register_provider(_FakeProvider("closed", accepts_custom=False))
 
@@ -281,7 +281,7 @@ class TestCustomModelEntry:
     def test_typed_id_is_persisted(self, monkeypatch, tmp_path):
         from hermes_cli import tools_config
 
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        monkeypatch.setenv("ALLR_HOME", str(tmp_path))
         image_gen_registry.register_provider(_FakeProvider("openish", accepts_custom=True))
         monkeypatch.setattr(tools_config, "_prompt", lambda *a, **kw: "  vendor/brand-new-model  ")
 
@@ -295,7 +295,7 @@ class TestCustomModelEntry:
     def test_blank_entry_cancels_without_writing(self, monkeypatch, tmp_path):
         from hermes_cli import tools_config
 
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        monkeypatch.setenv("ALLR_HOME", str(tmp_path))
         image_gen_registry.register_provider(_FakeProvider("openish", accepts_custom=True))
         monkeypatch.setattr(tools_config, "_prompt", lambda *a, **kw: "   ")
 
@@ -307,7 +307,7 @@ class TestCustomModelEntry:
     def test_existing_custom_id_stays_selected(self, monkeypatch, tmp_path):
         """It is absent from the catalog by definition — it must not silently
         revert to the default on the next visit."""
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        monkeypatch.setenv("ALLR_HOME", str(tmp_path))
         image_gen_registry.register_provider(_FakeProvider("openish", accepts_custom=True))
 
         config = {"image_gen": {"openish": {"model": "vendor/hand-typed"}}}
@@ -322,7 +322,7 @@ class TestCustomModelEntry:
         explaining nothing."""
         from hermes_cli import tools_config
 
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        monkeypatch.setenv("ALLR_HOME", str(tmp_path))
         image_gen_registry.register_provider(
             _FakeProvider("openish", models=[], accepts_custom=True)
         )

@@ -11,7 +11,7 @@ from scripts import smoke_nemo_relay_shared_metrics as smoke
     "relative_path",
     [
         Path(".venv") / "bin" / "hermes",
-        Path(".venv") / "Scripts" / "hermes.exe",
+        Path(".venv") / "Scripts" / "allr.exe",
     ],
 )
 def test_resolve_hermes_executable_from_repository_venv(

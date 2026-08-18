@@ -95,7 +95,7 @@ function firstBillingLine(text: string): string {
  * A turn failed on a billing wall (out of credits / payment required). The
  * gateway forwards the structured descriptor built by `agent/billing_links.py`;
  * we cache it per-session (drives the in-chat banner) AND raise one sticky,
- * billing-specific toast — never the generic "Hermes error" — with a smart CTA
+ * billing-specific toast — never the generic "Allr error" — with a smart CTA
  * (Nous → in-app Settings → Billing, other providers → their billing page).
  *
  * Takes the raw wire value so the caller does not have to validate it: a payload

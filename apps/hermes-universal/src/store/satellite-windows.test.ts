@@ -26,8 +26,8 @@ const mainClose = vi.fn()
  *  through to the JS wrapper's `destroy()`. */
 const hideThis = vi.fn()
 const closeThis = vi.fn()
-/** The two the prompt's "Quit Hermes" answer ends in — the deliberate exit, and
- *  the spawned `hermes serve` child that must not outlive it. */
+/** The two the prompt's "Quit Allr" answer ends in — the deliberate exit, and
+ *  the spawned `allr serve` child that must not outlive it. */
 const quitApp = vi.fn()
 const stopBackend = vi.fn()
 /** Whether this "machine" has a system tray. Flipped on for the one test that

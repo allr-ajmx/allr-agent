@@ -1,4 +1,4 @@
-# Debugging & Tracing in Hermes Universal
+# Debugging & Tracing in Allr Universal
 
 How to find out where the time actually goes — in the webview, in the Rust
 backend, and on a phone.
@@ -75,7 +75,7 @@ __hermesTrace.off()         // stop — this is what completes the trace
 To include the Rust backend, add the cargo feature and the env switch:
 
 ```sh
-HERMES_TRACE=1 npm run tauri dev -- --features tracing
+ALLR_TRACE=1 npm run tauri dev -- --features tracing
 ```
 
 ## Two halves, four switches
@@ -86,7 +86,7 @@ build contains as little of it as possible.
 | Half | Compiled? | Running? |
 | --- | --- | --- |
 | **Frontend** | Always. The core (`span.ts`, `otlp.ts`) ships, because a user's bug report is worth an OTLP dump. The exporter, the HUD, store autocapture, IPC propagation and the console API are dev/bench only. | The HUD's record button, or `__hermesTrace.on()` — persisted in localStorage, survives reloads. |
-| **Rust backend** | `--features tracing`. A default build links **no** OTel crates at all; `cargo tree` shows zero. | `HERMES_TRACE=1`. Compiled-but-unasked-for costs nothing, and enabling never needs a rebuild. |
+| **Rust backend** | `--features tracing`. A default build links **no** OTel crates at all; `cargo tree` shows zero. | `ALLR_TRACE=1`. Compiled-but-unasked-for costs nothing, and enabling never needs a rebuild. |
 
 Splitting compile-time from runtime is the point: build once with
 `--features tracing` and you can trace any later session with an env var, while
@@ -138,10 +138,10 @@ as a process tag and offers in its search box.
 ### Use one variable for both halves
 
 ```sh
-HERMES_TRACE_RUN=before-fix HERMES_TRACE=1 npm run tauri dev -- --features tracing
+ALLR_TRACE_RUN=before-fix ALLR_TRACE=1 npm run tauri dev -- --features tracing
 ```
 
-This is the one to reach for. The Rust process reads `HERMES_TRACE_RUN` from its
+This is the one to reach for. The Rust process reads `ALLR_TRACE_RUN` from its
 environment; a webview has no environment, so `vite.config.ts` bakes the same
 name into the bundle at build time. One variable, both halves, same label.
 
@@ -150,7 +150,7 @@ name into the bundle at build time. One variable, both halves, same label.
 | Lever | Scope | Notes |
 | --- | --- | --- |
 | *(nothing)* | both | Defaults to the current **git branch name**, so even an unlabelled capture says where it came from. |
-| `HERMES_TRACE_RUN=x` | **both halves** | The recommended lever. |
+| `ALLR_TRACE_RUN=x` | **both halves** | The recommended lever. |
 | `VITE_TRACE_RUN=x` | frontend only | Vite's own convention. Useful when you deliberately want the halves labelled differently. Second choice. |
 | `__hermesTrace.run('x')` | frontend only, runtime | No rebuild. **Careful:** the backend label is fixed at process start, so calling this mid-session splits the two halves apart. |
 
@@ -307,7 +307,7 @@ npm run adb:reverse    # tcp:5176, tcp:5177, tcp:4317, tcp:4318
 `android:dev` and `dev:ext:android` both run it for you. With the tunnel up,
 loopback means the workstation and the default endpoint is right everywhere.
 
-Note that the dev server no longer necessarily rides this tunnel: `HERMES_DEV_HOST`
+Note that the dev server no longer necessarily rides this tunnel: `ALLR_DEV_HOST`
 (see the README's "Android dev loop") can move 5176/5177 onto Wi-Fi to find the
 faster link. 4317/4318 are unaffected — keep `adb:reverse` running for tracing
 regardless of which transport the frontend is using.
@@ -316,7 +316,7 @@ regardless of which transport the frontend is using.
 | --- | --- |
 | Desktop | default |
 | Device on adb | default (via `adb:reverse`) |
-| Emulator without the tunnel | `HERMES_TRACE_ENDPOINT=http://10.0.2.2:4317` |
+| Emulator without the tunnel | `ALLR_TRACE_ENDPOINT=http://10.0.2.2:4317` |
 | Device off adb | workstation LAN IP |
 | iOS simulator | default (shares the Mac's network) |
 | iOS device | workstation LAN IP |
@@ -330,10 +330,10 @@ compiles no exporter at all.
 
 | Variable | Half | Default | Purpose |
 | --- | --- | --- | --- |
-| `HERMES_TRACE` | Rust | off | Runtime on/off. Any value except `0`/empty. |
-| `HERMES_TRACE_RUN` | **both** | git branch | The `hermes.run` label. |
-| `HERMES_TRACE_ENDPOINT` | Rust | `http://127.0.0.1:4317` | OTLP/gRPC collector. |
-| `HERMES_TRACE_FILTER` | Rust | `info,hermes_universal_lib=debug,tauri=debug` | `EnvFilter` syntax. Tauri's per-command spans are DEBUG under `ipc::request::*` — turn them down here if they drown the trace. |
+| `ALLR_TRACE` | Rust | off | Runtime on/off. Any value except `0`/empty. |
+| `ALLR_TRACE_RUN` | **both** | git branch | The `hermes.run` label. |
+| `ALLR_TRACE_ENDPOINT` | Rust | `http://127.0.0.1:4317` | OTLP/gRPC collector. |
+| `ALLR_TRACE_FILTER` | Rust | `info,hermes_universal_lib=debug,tauri=debug` | `EnvFilter` syntax. Tauri's per-command spans are DEBUG under `ipc::request::*` — turn them down here if they drown the trace. |
 | `VITE_TRACE_RUN` | frontend | — | Frontend-only label override. |
 | `VITE_OTLP_ENDPOINT` | frontend | `http://127.0.0.1:4318/v1/traces` | OTLP/HTTP collector. |
 

@@ -71,10 +71,10 @@ class TestFireworksConfigRegistry:
 
 class TestFireworksOverlay:
     def test_overlay_exists(self):
-        from hermes_cli.providers import HERMES_OVERLAYS
+        from hermes_cli.providers import ALLR_OVERLAYS
 
-        assert "fireworks" in HERMES_OVERLAYS
-        overlay = HERMES_OVERLAYS["fireworks"]
+        assert "fireworks" in ALLR_OVERLAYS
+        overlay = ALLR_OVERLAYS["fireworks"]
         assert overlay.transport == "openai_chat"
         assert overlay.base_url_override == "https://api.fireworks.ai/inference/v1"
         assert not overlay.base_url_env_var
@@ -93,7 +93,7 @@ class TestFireworksDoctor:
         dropped — that heuristic is for aggregator vendor slugs only."""
         from hermes_cli import doctor as doctor_mod
 
-        home = tmp_path / ".hermes"
+        home = tmp_path / ".allr"
         home.mkdir(parents=True)
         (home / "config.yaml").write_text(
             "model:\n"
@@ -106,7 +106,7 @@ class TestFireworksDoctor:
         project = tmp_path / "project"
         project.mkdir()
 
-        monkeypatch.setattr(doctor_mod, "HERMES_HOME", home)
+        monkeypatch.setattr(doctor_mod, "ALLR_HOME", home)
         monkeypatch.setattr(doctor_mod, "PROJECT_ROOT", project)
         monkeypatch.setattr(doctor_mod, "_DHH", str(home))
         monkeypatch.setenv("FIREWORKS_API_KEY", "fw_test")
@@ -160,8 +160,8 @@ class TestFireworksAuxiliary:
         client, model, kwargs = self._resolve("fireworks")
         assert client is not None
         headers = kwargs.get("default_headers", {})
-        assert headers["HTTP-Referer"] == "https://hermes-agent.nousresearch.com"
-        assert headers["X-Title"] == "Hermes Agent"
+        assert headers["HTTP-Referer"] == "https://allr.work"
+        assert headers["X-Title"] == "Allr"
         assert kwargs["base_url"] == "https://api.fireworks.ai/inference/v1"
 
     def test_client_sends_hermes_user_agent(self, monkeypatch):

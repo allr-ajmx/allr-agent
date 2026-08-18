@@ -80,7 +80,7 @@ export function ModelPickerDialog({
   // reorders items by its fuzzy-match score (≈alphabetical with an empty
   // query), which destroys the backend's curated order. Disable it and let
   // `curatedFamilies` do a plain in-order substring filter, matching the
-  // `hermes model` CLI picker, which shows the curated list verbatim.
+  // `allr model` CLI picker, which shows the curated list verbatim.
   const [search, setSearch] = useState('')
   const storedVisible = useStore($visibleModels)
 

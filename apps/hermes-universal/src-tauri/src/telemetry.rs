@@ -13,7 +13,7 @@
 //! default build gets the no-op `imp` below and links no exporter, no
 //! subscriber, and no OTel crates at all (`cargo tree` shows zero).
 //!
-//! `HERMES_TRACE=1` then decides whether it RUNS. So a developer building with
+//! `ALLR_TRACE=1` then decides whether it RUNS. So a developer building with
 //! `--features tracing` still pays nothing until they ask for a trace, and
 //! turning it on never requires a rebuild.
 //!
@@ -47,7 +47,7 @@ pub fn status() -> &'static str {
         if imp::enabled() {
             "on"
         } else {
-            "compiled, set HERMES_TRACE=1 to enable"
+            "compiled, set ALLR_TRACE=1 to enable"
         }
     } else {
         "not compiled (build with --features tracing)"
@@ -190,7 +190,7 @@ mod imp {
     /// vite dev ports already are. `android:dev` and `dev:ext:android` run it
     /// for you; without it the export fails silently forever.
     ///
-    /// `HERMES_TRACE_ENDPOINT` covers the cases adb cannot: an emulator without
+    /// `ALLR_TRACE_ENDPOINT` covers the cases adb cannot: an emulator without
     /// the tunnel wants `http://10.0.2.2:4317`, a physical device off adb wants
     /// the workstation's LAN IP, and an iOS device wants the LAN IP too (the
     /// simulator shares the Mac's network, so loopback works there unchanged).
@@ -200,22 +200,22 @@ mod imp {
     static PROVIDER: OnceLock<SdkTracerProvider> = OnceLock::new();
 
     pub fn enabled() -> bool {
-        std::env::var("HERMES_TRACE").is_ok_and(|v| v != "0" && !v.is_empty())
+        std::env::var("ALLR_TRACE").is_ok_and(|v| v != "0" && !v.is_empty())
     }
 
     fn endpoint() -> String {
-        std::env::var("HERMES_TRACE_ENDPOINT").unwrap_or_else(|_| DEFAULT_ENDPOINT.to_string())
+        std::env::var("ALLR_TRACE_ENDPOINT").unwrap_or_else(|_| DEFAULT_ENDPOINT.to_string())
     }
 
     /// The experiment label, shared with the frontend.
     ///
-    /// `HERMES_TRACE_RUN` is read here from the real environment and baked into
+    /// `ALLR_TRACE_RUN` is read here from the real environment and baked into
     /// the bundle by vite.config.ts, so one variable names both halves and they
     /// stay findable together in Jaeger. Setting only `VITE_TRACE_RUN`, or
     /// calling `__hermesTrace.run()` at runtime, moves the frontend alone and
     /// leaves the backend on whatever it was launched with.
     fn run_label() -> String {
-        std::env::var("HERMES_TRACE_RUN").unwrap_or_else(|_| "local".to_string())
+        std::env::var("ALLR_TRACE_RUN").unwrap_or_else(|_| "local".to_string())
     }
 
     pub fn init() {
@@ -226,9 +226,9 @@ mod imp {
         // `EnvFilter` rather than a fixed level: Tauri's per-command spans are
         // emitted at DEBUG under `ipc::request::*`, and whether that detail
         // earns its noise is a judgement to make from a real trace, not in
-        // advance. `HERMES_TRACE_FILTER=info,hermes_universal_lib=debug` tunes
+        // advance. `ALLR_TRACE_FILTER=info,hermes_universal_lib=debug` tunes
         // it without a rebuild.
-        let filter = EnvFilter::try_from_env("HERMES_TRACE_FILTER")
+        let filter = EnvFilter::try_from_env("ALLR_TRACE_FILTER")
             .unwrap_or_else(|_| EnvFilter::new("info,hermes_universal_lib=debug,tauri=debug"));
 
         // MUST be built inside a tokio runtime context.
@@ -330,7 +330,7 @@ mod imp {
 /// only thing that proves the exporter actually reaches a collector rather than
 /// merely constructing without error. Run it after touching anything in `imp`:
 ///
-///   HERMES_TRACE=1 HERMES_TRACE_RUN=smoke \
+///   ALLR_TRACE=1 ALLR_TRACE_RUN=smoke \
 ///     cargo test --features tracing -- --ignored --nocapture export_reaches_collector
 ///
 /// Then look for service `hermes-universal`, operation `telemetry.smoke`, at
@@ -342,7 +342,7 @@ mod live_export_tests {
     fn export_reaches_collector() {
         assert!(
             super::imp::enabled(),
-            "set HERMES_TRACE=1 — this test asserts the real path, not the disabled one"
+            "set ALLR_TRACE=1 — this test asserts the real path, not the disabled one"
         );
 
         super::init();

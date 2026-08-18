@@ -22,7 +22,7 @@ vi.mock('@/store/windows', () => ({
     return closeTileWindow(label)
   },
   openTileWindow,
-  TILE_WINDOW_CLOSED_EVENT: 'hermes://tile-window-closed'
+  TILE_WINDOW_CLOSED_EVENT: 'allr://tile-window-closed'
 }))
 
 // Two marks, not one, and a real microtask between them: the ask going out is

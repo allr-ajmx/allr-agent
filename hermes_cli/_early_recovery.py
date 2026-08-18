@@ -142,7 +142,7 @@ def _probe_broken_packages() -> list[str]:
 def _run_repair_install(specs: list[str], project_root: Path) -> bool:
     """ensurepip + ``pip install --force-reinstall`` the given specs.
 
-    Streams nothing to stdout (``hermes acp`` speaks JSON-RPC on stdout);
+    Streams nothing to stdout (``allr acp`` speaks JSON-RPC on stdout);
     output is captured and replayed to stderr only on failure.  Never raises.
     """
     try:
@@ -194,7 +194,7 @@ def recover_if_needed(
     """Repair wiped core packages so ``hermes_cli.main`` can import at all.
 
     Fast path (no marker present) is two ``lstat`` calls.  Only acts when a
-    recovery marker from a prior ``hermes update`` exists AND an import probe
+    recovery marker from a prior ``allr update`` exists AND an import probe
     confirms a core package is actually broken.  Markers are intentionally
     NOT cleared here — ``_recover_from_interrupted_install()`` in main.py owns
     the confirmed marker lifecycle and runs immediately after import succeeds.

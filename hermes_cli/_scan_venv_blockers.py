@@ -100,10 +100,10 @@ def _is_pausable_gateway(cmdline: str) -> bool:
     hermes_cli.main gateway run`` and the uv-side interpreter re-running the
     same argv). Reporting those as blockers dead-ends the Desktop update:
     the preflight aborts with ``venv-blocked`` *before* spawning
-    ``hermes-setup``, so the CLI updater's own
+    ``allr-setup``, so the CLI updater's own
     ``_pause_windows_gateways_for_update()`` — which exists precisely to
-    stop these processes (and is always active: ``hermes-setup`` invokes
-    ``hermes update --yes --gateway``) — never gets the chance to run.
+    stop these processes (and is always active: ``allr-setup`` invokes
+    ``allr update --yes --gateway``) — never gets the chance to run.
 
     Only gateway invocations are exempted. Anything else running from the
     venv (an operator's REPL, a stray script, a ``serve`` backend that

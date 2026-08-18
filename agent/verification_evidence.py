@@ -485,14 +485,14 @@ def record_verify_run(
     root: str | Path,
     session_id: str | None = None,
     ok: bool,
-    command: str = "hermes verify",
+    command: str = "allr verify",
     scope: str = "full",
     output: str = "",
 ) -> Optional[dict[str, Any]]:
-    """Record a completed ``hermes verify`` run as verification evidence.
+    """Record a completed ``allr verify`` run as verification evidence.
 
     Explicit CLI-side write: unlike :func:`record_terminal_result` there is
-    nothing to classify — the caller (the ``hermes verify`` command) already
+    nothing to classify — the caller (the ``allr verify`` command) already
     knows the run was a verification pass and whether it succeeded. A passing
     run marks the workspace ``passed`` for the verify-on-stop guard exactly
     like a passing canonical test command would; a failing run records the
@@ -512,7 +512,7 @@ def record_verify_run(
     resolved = str(Path(root).resolve())
     evidence = VerificationEvidence(
         command=command,
-        canonical_command="hermes verify",
+        canonical_command="allr verify",
         kind="verify",
         scope=scope if scope in {"full", "targeted"} else "full",
         status="passed" if ok else "failed",

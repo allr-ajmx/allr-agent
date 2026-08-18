@@ -1,7 +1,7 @@
 /**
- * Live skin sync from the Hermes backend.
+ * Live skin sync from the Allr backend.
  *
- * The backend resolves the active skin (built-in or `$HERMES_HOME/skins/*.yaml`)
+ * The backend resolves the active skin (built-in or `$ALLR_HOME/skins/*.yaml`)
  * and announces it on `gateway.ready` / `skin.changed`. `ingestBackendSkin` folds
  * that into the app:
  *
@@ -12,7 +12,7 @@
  *      `$pendingSkinApply`, which the ThemeProvider drains through `setTheme`.
  *
  * `gateway.ready` seeds the baseline WITHOUT applying, so a fresh connect never
- * stomps the user's persisted theme; only a genuine name change (Hermes
+ * stomps the user's persisted theme; only a genuine name change (Allr
  * authoring/activating a skin from a prompt, or `/skin` elsewhere) repaints.
  *
  * Wired from `store/event-router.ts` — see the `GLOBAL_EVENT_TYPES` branch.

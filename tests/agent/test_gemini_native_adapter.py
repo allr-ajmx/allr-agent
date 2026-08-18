@@ -55,7 +55,7 @@ def test_followup_user_turn_is_not_merged_into_function_response_turn():
                     "type": "function",
                     "function": {
                         "name": "skill_view",
-                        "arguments": '{"name":"hermes-agent"}',
+                        "arguments": '{"name":"allr-agent"}',
                     },
                 }
             ],

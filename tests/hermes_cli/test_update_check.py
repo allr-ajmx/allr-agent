@@ -18,14 +18,14 @@ def test_check_for_updates_uses_cache(tmp_path, monkeypatch):
     from hermes_cli import __version__
 
     # Create a fake git repo and fresh cache
-    repo_dir = tmp_path / "hermes-agent"
+    repo_dir = tmp_path / "allr-agent"
     repo_dir.mkdir()
     (repo_dir / ".git").mkdir()
 
     cache_file = tmp_path / ".update_check"
     cache_file.write_text(json.dumps({"ts": time.time(), "behind": 3, "ver": __version__}))
 
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setenv("ALLR_HOME", str(tmp_path))
     with patch("hermes_cli.banner.subprocess.run") as mock_run:
         result = check_for_updates()
 

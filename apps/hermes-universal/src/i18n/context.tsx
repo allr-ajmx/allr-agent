@@ -12,7 +12,7 @@ import type { Locale, Translations } from './types'
 export { LOCALE_META } from './languages'
 
 // Mobile persists the locale in localStorage (the desktop round-trips it through
-// the Hermes config). Same public contract as desktop I18nContextValue so ported
+// the Allr config). Same public contract as desktop I18nContextValue so ported
 // components + translateNow work unchanged; the async/config fields are trivially
 // satisfied (localStorage is synchronous).
 // Exported as `$appLocale` (re-exported from `i18n/index.ts`) for the surfaces

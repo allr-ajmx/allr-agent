@@ -195,7 +195,7 @@ export interface PluginNativeNotificationInput {
 /** Native OS notification on behalf of a plugin. One "Plugin notifications"
  *  preference gates all plugins; the plugin id keys throttling/dedupe so two
  *  plugins can't collapse each other's notifications. Fires only while the user
- *  is away from Hermes — the in-app toast (`host.notify`) covers the foreground
+ *  is away from Allr — the in-app toast (`host.notify`) covers the foreground
  *  case. */
 export function dispatchPluginNativeNotification(pluginId: string, input: PluginNativeNotificationInput): void {
   dispatchNativeNotification({ ...input, kind: 'plugin', tag: pluginId })

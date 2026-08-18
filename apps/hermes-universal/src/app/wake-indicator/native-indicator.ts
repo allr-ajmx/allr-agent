@@ -16,7 +16,7 @@
  *
  * A wake phrase is the one interaction with no on-screen cause. The app may not
  * be focused; it may not be visible. The in-window pill is only an
- * acknowledgement for someone already looking at Hermes — which, hands-free, is
+ * acknowledgement for someone already looking at Allr — which, hands-free, is
  * exactly the case that does not apply. Desktop reached the same conclusion and
  * spends an always-on-top Electron panel on it (`electron/wake-indicator.ts`),
  * pinned to the top of the internal display, macOS only.
@@ -32,7 +32,7 @@
  *    the backend cannot answer for);
  *  * it can actually stay above other windows — an indicator that appears
  *    *behind* the window the user is typing in is worse than one drawn inside
- *    Hermes, because it is invisible AND it is a window;
+ *    Allr, because it is invisible AND it is a window;
  *  * clicks pass through it. On the layer-shell backend the surface is
  *    output-sized, so a light that takes input is a light that eats every click
  *    on the desktop.

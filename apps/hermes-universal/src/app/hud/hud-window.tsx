@@ -287,7 +287,7 @@ function HudSurface() {
             <HudPlaceholderBar>
               <span className="min-w-0 flex-1 truncate">{error || t.hud.connectionFailed}</span>
               {/* Fixing a gateway is main-window work, and in background mode
-                  this bar may be the only Hermes on screen. */}
+                  this bar may be the only Allr on screen. */}
               <button
                 className="shrink-0 rounded px-2 py-1 text-(--ui-text-secondary) hover:bg-(--ui-control-hover-background) hover:text-(--ui-text-primary)"
                 onClick={() => void showAppWindow()}

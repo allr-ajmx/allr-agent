@@ -83,7 +83,7 @@ WATCH_GLOBAL_COOLDOWN_SECONDS = 30
 # ---------------------------------------------------------------------------
 # systemd cgroup isolation for gateway-spawned local executors (#70716)
 # ---------------------------------------------------------------------------
-# When Hermes runs as a systemd gateway with MemoryHigh/MemoryMax limits,
+# When Allr runs as a systemd gateway with MemoryHigh/MemoryMax limits,
 # local background terminal commands inherit the gateway's cgroup.  A
 # memory-heavy executor (Codex, tests, Node) can push the whole cgroup past
 # MemoryMax and trigger systemd-oomd to kill the ENTIRE gateway — taking down
@@ -246,15 +246,15 @@ def _systemd_run_user_scope_available() -> bool:
 
 
 def _is_supervised_gateway_process() -> bool:
-    """Return whether this process is in a supervised Hermes gateway runtime.
+    """Return whether this process is in a supervised Allr gateway runtime.
 
-    Both supervisor markers and ``_HERMES_GATEWAY`` are inherited by every
+    Both supervisor markers and ``_ALLR_GATEWAY`` are inherited by every
     descendant, and importing ``gateway.run`` also sets the latter. Require
     this process to own the live gateway PID file as well. That keeps transient
     systemd scopes limited to the gateway itself instead of terminal children
     or unrelated interactive CLIs in the same supervised process tree.
     """
-    if os.environ.get("_HERMES_GATEWAY") != "1":
+    if os.environ.get("_ALLR_GATEWAY") != "1":
         return False
 
     try:
@@ -1736,7 +1736,7 @@ class ProcessRegistry:
         The reader thread (`_reader_loop`) sets `session.exited = True` only
         in its `finally` block, which runs when `stdout.read()` returns EOF.
         If the direct `Popen` child has exited but a descendant process (e.g.
-        a daemon spawned by `hermes update` restarting the gateway) is still
+        a daemon spawned by `allr update` restarting the gateway) is still
         holding the stdout pipe open, the reader blocks forever and poll()
         keeps returning "running" indefinitely (issue #17327 — 74 polls over
         7 minutes on Feishu).
@@ -2168,7 +2168,7 @@ class ProcessRegistry:
         if sink is None:
             return {
                 "status": "error",
-                "error": "close_terminal is only available in the Hermes desktop app.",
+                "error": "close_terminal is only available in the Allr desktop app.",
             }
         # The session may already be finished (or pruned) — the tab can still
         # linger and be closed, so a missing session is not an error here.
@@ -2462,7 +2462,7 @@ class ProcessRegistry:
                             "session_id": s.id,
                             # Redact inline credentials before persisting to
                             # disk — the checkpoint file lives under
-                            # ~/.hermes/processes.json with the raw command
+                            # ~/.allr/processes.json with the raw command
                             # (issue #77484). Recovery only uses command for
                             # display/logging (the process is already running;
                             # adoption re-validates the PID, never re-runs the
@@ -2804,7 +2804,7 @@ def format_process_notification(evt: dict) -> "str | None":
     if _exit in {-15, 143, "-15", "143"}:
         _signal = ", SIGTERM"
     if _reason == "killed":
-        _status = f"terminated by {_source or 'Hermes'}"
+        _status = f"terminated by {_source or 'Allr'}"
     elif _reason == "lost":
         _status = "marked lost because the process backend disappeared"
     elif _reason == "failed_start":

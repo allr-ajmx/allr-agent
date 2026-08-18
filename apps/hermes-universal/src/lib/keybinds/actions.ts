@@ -32,7 +32,7 @@ export interface KeybindActionMeta {
   label?: string
   /**
    * Claim this action's combo from the OPERATING SYSTEM, so it fires while
-   * Hermes is in the background (`lib/keybinds/global-shortcut.ts`). Desktop
+   * Allr is in the background (`lib/keybinds/global-shortcut.ts`). Desktop
    * only, and exclusive machine-wide — which is exactly why it goes through this
    * registry: a chord taken from every other app has to be rebindable.
    */
@@ -172,7 +172,7 @@ export const KEYBIND_ACTIONS: readonly KeybindActionMeta[] = [
   { id: 'view.toggleHud', category: 'view', defaults: ['mod+shift+h'], global: true },
   // Summon Quick Entry — the one-line capture surface (MJXHRM-384). `global` for
   // the same reason the HUD's is: a composer you can only reach from inside
-  // Hermes is the composer Hermes already has.
+  // Allr is the composer Allr already has.
   //
   // Shipped UNBOUND. Desktop's default was CommandOrControl+Shift+Space, which
   // on this platform set is Spotlight's neighbour, several input-method

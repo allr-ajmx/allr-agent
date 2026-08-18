@@ -57,7 +57,7 @@ export interface ModelChoice {
  * plugin's per-task override just holds a value in dialog state.
  *
  * `presetFor` supplies the remembered settings shown on a non-active row.
- * Returning `{}` is fine — the row then shows Hermes' defaults.
+ * Returning `{}` is fine — the row then shows Allr' defaults.
  */
 export interface ModelMenuController {
   /** Restore a model's remembered settings after it is selected. Separate from
@@ -287,7 +287,7 @@ export function ModelCatalogMenu({
                     const caps = group.provider.capabilities?.[family.id]
 
                     // Effective settings for this row: the live choice when it's
-                    // the active model, otherwise its remembered preset (Hermes
+                    // the active model, otherwise its remembered preset (Allr
                     // defaults when unset). Row label AND submenu read from these
                     // so they never disagree.
                     const preset = controller.presetFor(group.provider.slug, family.id)

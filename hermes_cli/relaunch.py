@@ -1,8 +1,8 @@
 """
-Unified self-relaunch for Hermes CLI.
+Unified self-relaunch for Allr CLI.
 
 Preserves critical flags (--tui, --dev, --profile, --model, etc.) across
-process replacement so that ``hermes sessions browse`` or post-setup relaunch
+process replacement so that ``allr sessions browse`` or post-setup relaunch
 doesn't silently drop the user's UI mode or other preferences.
 
 Also works when ``hermes`` is not on PATH (e.g. ``nix run`` or ``python -m``).
@@ -92,7 +92,7 @@ def resolve_hermes_bin() -> Optional[str]:
     directly — CreateProcessW needs a real .exe, not a script associated
     with the Python launcher.  On Windows we therefore skip the argv[0]
     fast-path when it points at a .py file and fall through to either
-    ``hermes.exe`` on PATH or the ``sys.executable -m hermes_cli.main``
+    ``allr.exe`` on PATH or the ``sys.executable -m hermes_cli.main``
     fallback.
     """
     argv0 = sys.argv[0]
@@ -168,7 +168,7 @@ def relaunch(
     Windows has no native exec semantics — ``os.execvp`` on Windows
     *emulates* exec by spawning the child and exiting the parent, but
     only works when the target is a real Win32 executable.  Our target
-    is usually ``hermes.exe`` (a Python console-script shim that wraps
+    is usually ``allr.exe`` (a Python console-script shim that wraps
     ``python -m hermes_cli.main``) or a ``.cmd`` batch file, and both
     raise ``OSError(8, "Exec format error")`` on Windows' execvp.
 

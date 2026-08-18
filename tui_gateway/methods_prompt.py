@@ -86,8 +86,8 @@ def _(rid, params: dict) -> dict:
         except Exception:
             typed_stop = False
         if typed_stop:
-            os.environ["HERMES_VOICE"] = "0"
-            os.environ["HERMES_VOICE_TTS"] = "0"
+            os.environ["ALLR_VOICE"] = "0"
+            os.environ["ALLR_VOICE_TTS"] = "0"
             try:
                 from hermes_cli.voice import stop_continuous
 
@@ -116,7 +116,7 @@ def _(rid, params: dict) -> dict:
     # Which desktop window this message was typed into. Rewritten on every
     # submit, because one session can be driven from the app window and the HUD
     # in turn: a stale "hud" would tell the model the user is still floating
-    # over another app when they are back in Hermes.
+    # over another app when they are back in Allr.
     session["client_surface"] = "hud" if params.get("surface") == "hud" else ""
     if truncate_user_ordinal is not None and isinstance(text, str):
         # A rewind/regenerate replays a turn from what the transcript shows. A
@@ -235,7 +235,7 @@ def _(rid, params: dict) -> dict:
                     4029,
                     "truncate_before_user_ordinal requires confirm_truncate=true; "
                     "an ordinary prompt.submit must not drop session history "
-                    "(update your Hermes client if a rewind was intended)",
+                    "(update your Allr client if a rewind was intended)",
                 )
             # The ordinal space has to be exactly the user turns a client can
             # SEE, because this cut is a destructive replace_messages(). Asking
@@ -901,14 +901,14 @@ def _(rid, params: dict) -> dict:
                 if has_history
                 else None
             ),
-            "Restart exactly the app intended for the Preview URL, not Hermes Desktop itself.",
+            "Restart exactly the app intended for the Preview URL, not Allr Desktop itself.",
             "The Preview URL and port are the target. Preserve that target unless you conclude it is impossible.",
             "If the prior conversation shows a specific command that bound this URL/port, prefer re-running THAT exact command (in the same cwd) over guessing a new one.",
-            "First inspect what process, if any, owns the Preview URL port. If a stale server exists, inspect its cwd and prefer that cwd over the Hermes/Desktop process cwd.",
+            "First inspect what process, if any, owns the Preview URL port. If a stale server exists, inspect its cwd and prefer that cwd over the Allr/Desktop process cwd.",
             "The Current working directory is only a hint. Do not assume it is the preview app root when the port owner or files indicate another root.",
             "If the console shows a module-script MIME error for src/main.tsx or similar, a static server is serving source files. Do not restart python -m http.server or any dumb static server for that app.",
             "For module-script MIME failures, inspect package.json/vite config in the candidate app root and start the real dev server/bundler (for example npm/pnpm/yarn dev) so module transforms happen.",
-            "Before declaring success, verify the Preview URL responds with the intended app, not Hermes Desktop. If it serves Hermes/Desktop UI or another unrelated app, stop that process and report failure.",
+            "Before declaring success, verify the Preview URL responds with the intended app, not Allr Desktop. If it serves Allr/Desktop UI or another unrelated app, stop that process and report failure.",
             "Do not modify files. Do not ask the user unless blocked.",
             "Prefer existing project scripts or commands when they are clear.",
             "If a stale process owns the needed port, handle it safely.",
@@ -1010,7 +1010,7 @@ def _(rid, params: dict) -> dict:
 
 @method("window.read.respond")
 def _(rid, params: dict) -> dict:
-    # `text` is a JSON string describing the OS window underneath the Hermes
+    # `text` is a JSON string describing the OS window underneath the Allr
     # window (read_window_below tool). allow_expired=True for the same reason
     # as terminal.read: the tool's bounded wait can expire while the renderer's
     # round-trip to the main process is still in flight.

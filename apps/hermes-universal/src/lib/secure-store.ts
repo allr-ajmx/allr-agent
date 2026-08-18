@@ -16,7 +16,7 @@ import { IS_TAURI } from '@/lib/platform'
 // FIXME(D): storage is silent; if we later want biometric-gated retrieval, wrap
 // these reads with tauri-plugin-biometric authenticate() first.
 
-const SERVICE = 'hermes'
+const SERVICE = 'allr'
 
 export interface Secrets {
   token?: string

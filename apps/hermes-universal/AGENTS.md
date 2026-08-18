@@ -1,6 +1,6 @@
 # Universal Engineering Guide
 
-How to build Hermes Universal (Tauri, desktop + Android/iOS from one React app)
+How to build Allr Universal (Tauri, desktop + Android/iOS from one React app)
 well. Read it with the repository `AGENTS.md` — the root rules still apply — and
 with `apps/desktop/AGENTS.md`, whose seams and state rules universal shares.
 

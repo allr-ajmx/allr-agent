@@ -1,7 +1,7 @@
 /**
  * Invariant: the @assistant-ui dependency cluster agrees on one tap version.
  *
- * The Hermes app (``apps/hermes-universal``) is built from source via
+ * The Allr app (``apps/hermes-universal``) is built from source via
  * ``npm ci``/``npm install`` → ``tsc -b && vite build``. The ``@assistant-ui`` packages share an internal
  * reactivity lib, ``@assistant-ui/tap``, and they only interoperate when they
  * all resolve the *same* tap version:

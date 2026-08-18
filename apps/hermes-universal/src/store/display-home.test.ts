@@ -1,7 +1,7 @@
 /**
  * MJXHRM-394. `displayPath` used to GUESS whose home a path was under — any
  * `/home/<x>` collapsed to `~`, for every `<x>`. These pin the replacement: the
- * home comes from the gateway's own reported HERMES_HOME, and when it can't be
+ * home comes from the gateway's own reported ALLR_HOME, and when it can't be
  * derived we say so instead of inventing one.
  */
 
@@ -24,30 +24,30 @@ beforeEach(() => {
 })
 
 describe('homeFromHermesHome', () => {
-  it('takes the parent of the POSIX default `<home>/.hermes`', () => {
-    expect(homeFromHermesHome('/home/alice/.hermes')).toBe('/home/alice')
-    expect(homeFromHermesHome('/Users/brooklyn/.hermes')).toBe('/Users/brooklyn')
-    expect(homeFromHermesHome('/root/.hermes')).toBe('/root')
+  it('takes the parent of the POSIX default `<home>/.allr`', () => {
+    expect(homeFromHermesHome('/home/alice/.allr')).toBe('/home/alice')
+    expect(homeFromHermesHome('/Users/brooklyn/.allr')).toBe('/Users/brooklyn')
+    expect(homeFromHermesHome('/root/.allr')).toBe('/root')
   })
 
   it('takes the profile root of the Windows default `<home>/AppData/Local/hermes`', () => {
     expect(homeFromHermesHome('C:\\Users\\brooklyn\\AppData\\Local\\hermes')).toBe('C:/Users/brooklyn')
     // Casing on Windows is not meaningful; the shape still is.
-    expect(homeFromHermesHome('C:/Users/brooklyn/AppData/local/Hermes')).toBe('C:/Users/brooklyn')
+    expect(homeFromHermesHome('C:/Users/brooklyn/AppData/local/Allr')).toBe('C:/Users/brooklyn')
   })
 
   it('tolerates a trailing slash and repeated separators', () => {
-    expect(homeFromHermesHome('/home/alice//.hermes/')).toBe('/home/alice')
+    expect(homeFromHermesHome('/home/alice//.allr/')).toBe('/home/alice')
   })
 
-  it('gives up on an explicit HERMES_HOME that says nothing about a home', () => {
-    // `HERMES_HOME=/srv/hermes` is a real deployment; `/srv` is not anyone's home.
+  it('gives up on an explicit ALLR_HOME that says nothing about a home', () => {
+    // `ALLR_HOME=/srv/hermes` is a real deployment; `/srv` is not anyone's home.
     expect(homeFromHermesHome('/srv/hermes')).toBe('')
     expect(homeFromHermesHome('/opt/data')).toBe('')
   })
 
   it('never claims the filesystem root or a drive root as a home', () => {
-    expect(homeFromHermesHome('/.hermes')).toBe('')
+    expect(homeFromHermesHome('/.allr')).toBe('')
     expect(homeFromHermesHome('C:/AppData/Local/hermes')).toBe('')
   })
 
@@ -64,12 +64,12 @@ describe('$displayHome', () => {
   })
 
   it('follows the connected gateway', () => {
-    $statusSnapshot.set({ hermes_home: '/home/deploy/.hermes' } as never)
+    $statusSnapshot.set({ hermes_home: '/home/deploy/.allr' } as never)
     expect($displayHome.get()).toBe('/home/deploy')
 
     // Switching gateways must move `~` with it, not leave the old box's home on
     // screen.
-    $statusSnapshot.set({ hermes_home: '/Users/ci/.hermes' } as never)
+    $statusSnapshot.set({ hermes_home: '/Users/ci/.allr' } as never)
     expect($displayHome.get()).toBe('/Users/ci')
   })
 })

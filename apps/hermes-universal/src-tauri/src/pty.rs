@@ -56,11 +56,11 @@ mod imp {
     #[derive(Default)]
     pub struct PtyState(pub Mutex<HashMap<String, PtyHandle>>);
 
-    /// Resolve the interactive shell: `HERMES_UNIVERSAL_SHELL` override → `$SHELL`
+    /// Resolve the interactive shell: `ALLR_UNIVERSAL_SHELL` override → `$SHELL`
     /// (POSIX) → first installed of zsh/bash/sh; Windows → `%COMSPEC%`/powershell.
     /// Mirrors desktop `terminalShellCommand` (apps/desktop/electron/main.ts).
     fn resolve_shell() -> String {
-        if let Ok(s) = std::env::var("HERMES_UNIVERSAL_SHELL") {
+        if let Ok(s) = std::env::var("ALLR_UNIVERSAL_SHELL") {
             let s = s.trim();
             if !s.is_empty() {
                 return s.to_string();
@@ -121,8 +121,8 @@ mod imp {
             std::env::var("LC_CTYPE").unwrap_or_else(|_| "UTF-8".to_string()),
         );
         cmd.env("TERM", "xterm-256color");
-        cmd.env("TERM_PROGRAM", "Hermes");
-        cmd.env("HERMES_UNIVERSAL_TERMINAL", "1");
+        cmd.env("TERM_PROGRAM", "Allr");
+        cmd.env("ALLR_UNIVERSAL_TERMINAL", "1");
     }
 
     pub async fn spawn(

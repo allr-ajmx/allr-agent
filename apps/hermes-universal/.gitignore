@@ -10,7 +10,7 @@ src-tauri/target*/
 # .gitignore excluding the build output (gen/android: build/, .gradle, .cxx,
 # local.properties, …; gen/apple: build/, Externals/, assets/, xcuserdata/).
 # Tracking gen/apple is what makes an app-icon drift visible in a diff — the
-# Hermes rebrand shipped an iOS build wearing the old icon precisely because
+# Allr rebrand shipped an iOS build wearing the old icon precisely because
 # nothing under gen/apple was reviewable. See scripts/sync-ios-icons.mjs.
 src-tauri/gen/*
 !src-tauri/gen/android/

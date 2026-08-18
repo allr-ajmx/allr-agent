@@ -128,7 +128,7 @@ def test_explanation_persistence_unknown_cause_is_neutral():
         assert out.strip() != ""
         assert "disk space" not in lower
         assert "full disk" not in lower
-        assert "hermes doctor" in lower
+        assert "allr doctor" in lower
         assert "again" in lower
 
 
@@ -243,7 +243,7 @@ def test_persistence_error_causes_tuple_matches_classifier():
 def test_explainer_enabled_by_default():
     agent = _make_agent()
     with patch.dict(os.environ, {}, clear=False):
-        os.environ.pop("HERMES_TURN_COMPLETION_EXPLAINER", None)
+        os.environ.pop("ALLR_TURN_COMPLETION_EXPLAINER", None)
         with patch("hermes_cli.config.load_config", return_value={}):
             assert agent._turn_completion_explainer_enabled() is True
 
@@ -251,7 +251,7 @@ def test_explainer_enabled_by_default():
 def test_explainer_disabled_via_env():
     agent = _make_agent()
     with patch.dict(
-        os.environ, {"HERMES_TURN_COMPLETION_EXPLAINER": "0"}, clear=False
+        os.environ, {"ALLR_TURN_COMPLETION_EXPLAINER": "0"}, clear=False
     ):
         assert agent._turn_completion_explainer_enabled() is False
 

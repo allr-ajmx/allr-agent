@@ -63,7 +63,7 @@ describe('projects on an older gateway', () => {
     // The dialog renders whatever this throws, so it must be the copy that tells
     // the user to update their backend, not the wire message.
     await expect(createProject({ folders: ['/www/app'], name: 'App' })).rejects.toThrow(
-      /Update the Hermes backend to create projects/
+      /Update the Allr backend to create projects/
     )
     expect($projectsRpcAvailable.get()).toBe(false)
   })

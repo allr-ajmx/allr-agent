@@ -8,7 +8,7 @@
 [package]
 name = "tauri-plugin-keyring"
 version = "0.2.1"
-authors = ["Charles R. Portwood II", "Hermes Universal (vendored)"]
+authors = ["Charles R. Portwood II", "Allr Universal (vendored)"]
 description = "Native device keyring (keyring-core 1.0) for Tauri v2 — Android Keystore / iOS Keychain / desktop."
 edition = "2021"
 rust-version = "1.77.2"

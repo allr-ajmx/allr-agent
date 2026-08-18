@@ -1,4 +1,4 @@
-"""``hermes sessions`` command — extracted from ``hermes_cli/main.py``.
+"""``allr sessions`` command — extracted from ``hermes_cli/main.py``.
 
 Mechanical move (main.py decomposition): ``cmd_sessions`` was a ``def`` nested
 inside ``main()``'s body; its dispatch on ``args.sessions_action`` is lifted
@@ -111,11 +111,11 @@ def cmd_sessions(args, sessions_parser=None):
             print("")
             print("  Next step — offline recovery (never modifies the source):")
             source_hint = report.get("backup_path") or db_path
-            print(f"    hermes sessions recover --source {source_hint} \\")
+            print(f"    allr sessions recover --source {source_hint} \\")
             print("        --inspect-only")
             print("  If that reports the data is recoverable, rebuild it into")
             print("  a NEW database (the active one is left untouched):")
-            print(f"    hermes sessions recover --source {source_hint} \\")
+            print(f"    allr sessions recover --source {source_hint} \\")
             print("        --output recovered-state.db")
         return
 
@@ -789,7 +789,7 @@ def cmd_sessions(args, sessions_parser=None):
                 print("Cancelled.")
                 return
         sessions_dir = get_hermes_home() / "sessions"
-        # `hermes sessions list` surfaces a compression chain as one row (its
+        # `allr sessions list` surfaces a compression chain as one row (its
         # live tip), so the id the user just read names the whole conversation.
         # Deleting only that row left the root to reappear in the very next
         # listing (MJXHRM-414). Branches stay: they list in their own right.
@@ -810,7 +810,7 @@ def cmd_sessions(args, sessions_parser=None):
         )
 
         # Preserve the historical default ONLY for a truly bare
-        # `hermes sessions prune`: no time window and no filters at all
+        # `allr sessions prune`: no time window and no filters at all
         # means "older than 90 days". ANY filter — including --source —
         # suppresses the implicit cutoff, so `prune --source cron`
         # matches ALL cron sessions regardless of age. The preview +
@@ -1164,7 +1164,7 @@ def cmd_sessions(args, sessions_parser=None):
         )
         if result.get("vacuumed") is False:
             print("  (VACUUM was skipped or failed — run "
-                  "`hermes sessions optimize` later to reclaim freed space.)")
+                  "`allr sessions optimize` later to reclaim freed space.)")
 
     elif action == "stats":
         total = db.session_count()

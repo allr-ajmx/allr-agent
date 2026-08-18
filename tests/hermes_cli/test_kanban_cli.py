@@ -16,9 +16,9 @@ from hermes_cli import kanban_db as kb
 
 @pytest.fixture
 def kanban_home(tmp_path, monkeypatch):
-    home = tmp_path / ".hermes"
+    home = tmp_path / ".allr"
     home.mkdir()
-    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setenv("ALLR_HOME", str(home))
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     kb.init_db()
     return home
@@ -61,7 +61,7 @@ def test_board_override_is_isolated_per_concurrent_call(kanban_home, monkeypatch
     kb.create_board("alpha")
     kb.create_board("beta")
 
-    parser = argparse.ArgumentParser(prog="hermes", add_help=False)
+    parser = argparse.ArgumentParser(prog="allr", add_help=False)
     sub = parser.add_subparsers(dest="command")
     kc.build_parser(sub)
 

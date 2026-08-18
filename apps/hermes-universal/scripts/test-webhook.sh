@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# POST a signed test event at a Hermes inbound webhook.
+# POST a signed test event at a Allr inbound webhook.
 #
 #   scripts/test-webhook.sh <route-or-url> [secret]
 #

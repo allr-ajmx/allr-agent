@@ -159,9 +159,9 @@ mod tests {
         // If any of these stopped being one shell word, the interpolated values
         // would become separate arguments — the exact injection these guard.
         for command in [
-            resolve_launcher("/usr/local/bin/hermes"),
-            pid_is_our_dashboard(42, "0123456789abcdef", "/usr/local/bin/hermes").unwrap(),
-            upload_token("~/.hermes/desktop-ssh/o/n.token"),
+            resolve_launcher("/usr/local/bin/allr"),
+            pid_is_our_dashboard(42, "0123456789abcdef", "/usr/local/bin/allr").unwrap(),
+            upload_token("~/.allr/desktop-ssh/o/n.token"),
         ] {
             assert!(command.starts_with("python3 -c '"), "{command}");
             assert!(command.ends_with('\''), "{command}");
@@ -172,7 +172,7 @@ mod tests {
     fn resolve_launcher_follows_an_exec_shim() {
         // A `hermes` on PATH is often a wrapper ending in `exec /real/path`.
         // /proc records the target, so ownership proofs compare against it.
-        let script = script_of(&resolve_launcher("/usr/local/bin/hermes"));
+        let script = script_of(&resolve_launcher("/usr/local/bin/allr"));
         assert!(script.contains("words[0]==\"exec\""), "{script}");
         assert!(script.contains("os.access(target,os.X_OK)"), "{script}");
         assert!(
@@ -188,7 +188,7 @@ mod tests {
         // Liveness is not identity: pids get reused, so a kill aimed at a
         // recycled pid destroys something unrelated. All three must hold.
         let script = script_of(
-            &pid_is_our_dashboard(42, "0123456789abcdef", "/usr/local/bin/hermes").unwrap(),
+            &pid_is_our_dashboard(42, "0123456789abcdef", "/usr/local/bin/allr").unwrap(),
         );
 
         assert!(script.contains("args.index(\"serve\")"), "{script}");
@@ -212,12 +212,12 @@ mod tests {
     #[test]
     fn ownership_proof_embeds_the_exact_pid_and_nonce() {
         let script = script_of(
-            &pid_is_our_dashboard(4242, "0123456789abcdef", "/usr/local/bin/hermes").unwrap(),
+            &pid_is_our_dashboard(4242, "0123456789abcdef", "/usr/local/bin/allr").unwrap(),
         );
         assert!(script.contains("pid=4242"), "{script}");
         assert!(script.contains("nonce='0123456789abcdef'"), "{script}");
         assert!(
-            script.contains("expected=os.path.expanduser('/usr/local/bin/hermes')"),
+            script.contains("expected=os.path.expanduser('/usr/local/bin/allr')"),
             "{script}"
         );
     }
@@ -226,8 +226,8 @@ mod tests {
     fn ownership_proof_rejects_a_malformed_nonce() {
         // The nonce is the identity anchor; a bad one must fail before it can be
         // interpolated into a command that decides whether to kill something.
-        assert!(pid_is_our_dashboard(42, "not-a-nonce", "/usr/local/bin/hermes").is_err());
-        assert!(pid_is_our_dashboard(42, "", "/usr/local/bin/hermes").is_err());
+        assert!(pid_is_our_dashboard(42, "not-a-nonce", "/usr/local/bin/allr").is_err());
+        assert!(pid_is_our_dashboard(42, "", "/usr/local/bin/allr").is_err());
     }
 
     #[test]
@@ -244,7 +244,7 @@ mod tests {
     fn token_upload_creates_the_file_exclusively_and_privately() {
         // A plain `>` redirect leaves symlink-swap and directory-replacement
         // races open; these flags are what close them.
-        let script = script_of(&upload_token("~/.hermes/desktop-ssh/o/n.token"));
+        let script = script_of(&upload_token("~/.allr/desktop-ssh/o/n.token"));
 
         assert!(script.contains("os.O_CREAT|os.O_EXCL"), "{script}");
         assert!(script.contains("O_NOFOLLOW"), "{script}");
@@ -267,7 +267,7 @@ mod tests {
 
         assert!(script.contains("sys.stdin.buffer.read()"), "{script}");
         assert!(
-            !script.contains("HERMES_DASHBOARD_SESSION_TOKEN"),
+            !script.contains("ALLR_DASHBOARD_SESSION_TOKEN"),
             "{script}"
         );
     }

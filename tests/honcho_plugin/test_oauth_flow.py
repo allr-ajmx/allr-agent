@@ -233,14 +233,14 @@ def test_client_id_defaults_to_hermes_agent(monkeypatch):
     # One client for every surface; the env var overrides for unusual deployments.
     monkeypatch.delenv("HONCHO_OAUTH_CLIENT_ID", raising=False)
     common = {"environment": "production", "base_url": "https://api.honcho.dev"}
-    assert oauth_flow.resolve_endpoints(**common).client_id == "hermes-agent"
+    assert oauth_flow.resolve_endpoints(**common).client_id == "allr-agent"
     monkeypatch.setenv("HONCHO_OAUTH_CLIENT_ID", "custom-id")
     assert oauth_flow.resolve_endpoints(**common).client_id == "custom-id"
 
 
 def test_grant_persists_default_client_id(tmp_path, fake_as, monkeypatch):
     # Drop the fixture's override so the default takes effect; the grant must
-    # store client_id=hermes-agent so refresh reuses the right client.
+    # store client_id=allr-agent so refresh reuses the right client.
     monkeypatch.delenv("HONCHO_OAUTH_CLIENT_ID", raising=False)
     config_path = tmp_path / "honcho.json"
     config_path.write_text(json.dumps({"hosts": {}}))
@@ -254,14 +254,14 @@ def test_grant_persists_default_client_id(tmp_path, fake_as, monkeypatch):
         timeout=10,
     )
     saved = json.loads(config_path.read_text())
-    assert saved["hosts"]["hermes"]["oauth"]["clientId"] == "hermes-agent"
+    assert saved["hosts"]["hermes"]["oauth"]["clientId"] == "allr-agent"
 
 
 def test_config_path_rides_the_authorize_link(fake_as):
     endpoints = oauth_flow.resolve_endpoints()
-    url, _ = oauth_flow.begin_authorization(endpoints, config_path="~/.hermes/honcho.json")
+    url, _ = oauth_flow.begin_authorization(endpoints, config_path="~/.allr/honcho.json")
     q = parse_qs(urlparse(url).query)
-    assert q["config_path"][0] == "~/.hermes/honcho.json"
+    assert q["config_path"][0] == "~/.allr/honcho.json"
     bare, _ = oauth_flow.begin_authorization(endpoints)
     assert "config_path=" not in bare
 
@@ -270,8 +270,8 @@ def test_display_config_path_never_leaks_absolute_path():
     from pathlib import Path
 
     # Under home → collapsed to ~/…; outside home → bare filename only.
-    under_home = Path.home() / ".hermes" / "profiles" / "work" / "honcho.json"
-    assert oauth_flow._display_config_path(under_home) == "~/.hermes/profiles/work/honcho.json"
+    under_home = Path.home() / ".allr" / "profiles" / "work" / "honcho.json"
+    assert oauth_flow._display_config_path(under_home) == "~/.allr/profiles/work/honcho.json"
     assert oauth_flow._display_config_path("/var/folders/tmp/honcho.json") == "honcho.json"
 
 
@@ -337,7 +337,7 @@ def test_supports_device_login_from_metadata(fake_as):
     dead = oauth_flow.OAuthEndpoints(
         authorize_url="http://127.0.0.1:1/authorize",
         token_url="http://127.0.0.1:1/oauth/token",
-        client_id="hermes-agent",
+        client_id="allr-agent",
         scope="write",
     )
     assert oauth_flow.supports_device_login(dead, timeout=0.2) is False

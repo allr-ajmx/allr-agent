@@ -33,7 +33,7 @@ def _b64_png() -> str:
 
 @pytest.fixture(autouse=True)
 def _isolation(tmp_path, monkeypatch):
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setenv("ALLR_HOME", str(tmp_path))
     import hermes_cli.models as _models_mod
     monkeypatch.setattr(_models_mod, "_deepinfra_catalog_cache", {})
     # The negative cache suppresses fetches for 60s after any failure, so a

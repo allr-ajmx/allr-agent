@@ -188,7 +188,7 @@ mod tests {
         // Used by every test and by any path with no window attached.
         let reporter = ProgressReporter::silent();
         reporter.step(SshStep::Connecting);
-        reporter.step_with(SshStep::Spawning, "hermes at /usr/local/bin/hermes");
+        reporter.step_with(SshStep::Spawning, "hermes at /usr/local/bin/allr");
     }
 
     #[test]

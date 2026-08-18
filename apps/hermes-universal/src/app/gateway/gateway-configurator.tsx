@@ -723,7 +723,7 @@ export function GatewayConfigurator({
         </div>
       </div>
 
-      {/* Hermes Cloud panel */}
+      {/* Allr Cloud panel */}
       {pendingMode === 'cloud' ? <CloudPanel connectAgent={connectAgent} connection={connection} g={g} /> : null}
 
       {/* SSH panel */}
@@ -914,7 +914,7 @@ export function GatewayConfigurator({
   )
 }
 
-// ── Hermes Cloud panel: portal sign-in → org picker → discovered-agent list ──
+// ── Allr Cloud panel: portal sign-in → org picker → discovered-agent list ──
 function CloudPanel({
   connectAgent,
   connection,

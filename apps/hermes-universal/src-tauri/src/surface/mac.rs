@@ -10,7 +10,7 @@
 //! This build never asks for that grant. It calls
 //! `CGPreflightScreenCaptureAccess`, which reports whether the grant already
 //! exists and does not prompt, and never calls `CGRequestScreenCaptureAccess`,
-//! which does. So on a machine where the user has already allowed Hermes to
+//! which does. So on a machine where the user has already allowed Allr to
 //! record the screen for some other reason, titles come through; everywhere
 //! else the reading still happens and says, in its own `note`, that titles were
 //! withheld and why. That is the same line the Electron desktop draws

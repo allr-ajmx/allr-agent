@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Monitor a running video-production kanban. Polls `hermes kanban list` and
+Monitor a running video-production kanban. Polls `allr kanban list` and
 `events` for a tenant and surfaces issues (stuck tasks, missing heartbeats,
 repeated retries, dependency deadlocks).
 
@@ -42,7 +42,7 @@ def kanban_list(tenant: str) -> list[dict]:
             return json.loads(out.stdout)
     except (FileNotFoundError, json.JSONDecodeError):
         pass
-    # Fallback: textual parse of `hermes kanban list`
+    # Fallback: textual parse of `allr kanban list`
     out = subprocess.run(
         ["hermes", "kanban", "list", "--tenant", tenant],
         capture_output=True, text=True, encoding='utf-8', errors='replace', check=False,

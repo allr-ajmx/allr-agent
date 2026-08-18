@@ -164,7 +164,7 @@ pub fn build_spawn_command(
     };
 
     let sub_cmd = format!("serve --isolated --host 127.0.0.1 --port 0{token_arg}{owner_arg}");
-    let dash_cmd = format!("env HERMES_DESKTOP=1 {hermes} {profile_args}{sub_cmd}");
+    let dash_cmd = format!("env ALLR_DESKTOP=1 {hermes} {profile_args}{sub_cmd}");
     let inner = format!("{dash_cmd} </dev/null >> {log} 2>&1 & echo $!");
 
     Ok(format!(
@@ -194,7 +194,7 @@ pub fn capability_probe_passed(output: &str) -> bool {
 
 /// Read the announced port out of a backend log.
 ///
-/// Matches `HERMES_BACKEND_READY port=<n>` or `HERMES_DASHBOARD_READY port=<n>`
+/// Matches `ALLR_BACKEND_READY port=<n>` or `ALLR_DASHBOARD_READY port=<n>`
 /// at the start of a line, and takes the **last** match: the log is appended to
 /// across respawns, so an earlier line may describe a process that is gone.
 pub fn scrape_ready_port(log_text: &str) -> Option<u16> {
@@ -203,8 +203,8 @@ pub fn scrape_ready_port(log_text: &str) -> Option<u16> {
 
 fn parse_ready_line(line: &str) -> Option<u16> {
     let rest = line
-        .strip_prefix("HERMES_BACKEND_READY port=")
-        .or_else(|| line.strip_prefix("HERMES_DASHBOARD_READY port="))?;
+        .strip_prefix("ALLR_BACKEND_READY port=")
+        .or_else(|| line.strip_prefix("ALLR_DASHBOARD_READY port="))?;
 
     let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
 
@@ -236,10 +236,10 @@ pub const DEFAULT_READY_TIMEOUT: Duration = Duration::from_secs(45);
 /// Where a `hermes` install might be when the login-shell probe misses. These
 /// are the installer's own command locations (`scripts/install.sh`): per-user,
 /// root/FHS, and the legacy venv.
-const FALLBACK_HERMES_PATHS: [&str; 3] = [
-    "~/.local/bin/hermes",
-    "/usr/local/bin/hermes",
-    "~/.hermes/hermes-agent/venv/bin/hermes",
+const FALLBACK_ALLR_PATHS: [&str; 3] = [
+    "~/.local/bin/allr",
+    "/usr/local/bin/allr",
+    "~/.allr/allr-agent/venv/bin/allr",
 ];
 
 #[derive(Debug, Clone, Default)]
@@ -328,9 +328,9 @@ pub async fn locate_hermes(
         return Err(SshError::new(
             SshErrorKind::HermesNotFound,
             format!(
-                "The Hermes path you set is not an executable on the remote host: \"{explicit}\". \
+                "The Allr path you set is not an executable on the remote host: \"{explicit}\". \
                  Check the path (it must be the full path to the `hermes` binary on the remote, \
-                 e.g. ~/hermes-agent/.venv/bin/hermes), or clear it to auto-detect."
+                 e.g. ~/allr-agent/.venv/bin/allr), or clear it to auto-detect."
             ),
         ));
     }
@@ -355,7 +355,7 @@ pub async fn locate_hermes(
         }
     }
 
-    candidates.extend(FALLBACK_HERMES_PATHS.iter().map(|p| (*p).to_string()));
+    candidates.extend(FALLBACK_ALLR_PATHS.iter().map(|p| (*p).to_string()));
     println!("[ssh probe] locate_hermes: candidates to try {candidates:?}");
 
     for candidate in candidates {
@@ -369,8 +369,8 @@ pub async fn locate_hermes(
 
     Err(SshError::new(
         SshErrorKind::HermesNotFound,
-        "Hermes is not installed on the remote host (no `hermes` executable found). Install it there with: \
-         curl -fsSL https://hermes-agent.nousresearch.com/install.sh | sh — or set the Hermes path \
+        "Allr is not installed on the remote host (no `hermes` executable found). Install it there with: \
+         curl -fsSL https://allr.work/install.sh | sh — or set the Allr path \
          explicitly in the SSH connection settings.",
     ))
 }
@@ -411,13 +411,13 @@ pub async fn probe_hermes_version(session: &SshSession, hermes_path: &str) -> St
     version
 }
 
-/// The `HERMES_HOME` the remote backend will use. Recorded in the lockfile so a
+/// The `ALLR_HOME` the remote backend will use. Recorded in the lockfile so a
 /// later reuse can confirm it is the same state store.
 pub async fn probe_hermes_home(session: &SshSession) -> Result<String, SshError> {
     let out = session
-        .exec_fenced("echo \"${HERMES_HOME:-$HOME/.hermes}\"", None)
+        .exec_fenced("echo \"${ALLR_HOME:-$HOME/.allr}\"", None)
         .await
-        .map_err(|e| transient(format!("Could not resolve the remote Hermes home: {e}")))?;
+        .map_err(|e| transient(format!("Could not resolve the remote Allr home: {e}")))?;
 
     Ok(out
         .stdout
@@ -425,7 +425,7 @@ pub async fn probe_hermes_home(session: &SshSession) -> Result<String, SshError>
         .map(str::trim)
         .filter(|l| !l.is_empty())
         .next_back()
-        .unwrap_or("~/.hermes")
+        .unwrap_or("~/.allr")
         .to_string())
 }
 
@@ -645,8 +645,8 @@ pub async fn spawn_remote_dashboard(
         println!("[ssh probe] spawn_remote_dashboard: {hermes_path:?} does not support the ownership contract");
         return Err(SshError::new(
             SshErrorKind::UpdateRequired,
-            "The remote Hermes install does not support --ssh-session-token-file and --ssh-owner-nonce. \
-             Update Hermes on the remote host to continue using SSH gateway mode.",
+            "The remote Allr install does not support --ssh-session-token-file and --ssh-owner-nonce. \
+             Update Allr on the remote host to continue using SSH gateway mode.",
         ));
     }
 
@@ -887,8 +887,8 @@ mod tests {
             port: 51001,
             token_fingerprint: "f52fbd32b2b3b86ff88ef6c490628285".to_string(),
             profile: String::new(),
-            hermes_path: "/usr/local/bin/hermes".to_string(),
-            hermes_home: "/home/u/.hermes".to_string(),
+            hermes_path: "/usr/local/bin/allr".to_string(),
+            hermes_home: "/home/u/.allr".to_string(),
             log_path: log_path(),
             started_at: "2026-07-29T00:00:00Z".to_string(),
         }
@@ -963,7 +963,7 @@ mod tests {
     fn rejects_a_log_path_that_is_not_the_derived_one() {
         // Otherwise a doctored record could aim a cleanup at an arbitrary file.
         let mut l = lock();
-        l.log_path = "~/.hermes/desktop-ssh/elsewhere.log".into();
+        l.log_path = "~/.allr/desktop-ssh/elsewhere.log".into();
         assert!(parse_lock(&json(&l), OWNER).is_none());
 
         let mut l = lock();
@@ -998,22 +998,22 @@ mod tests {
         // This is the command that starts a long-lived process on someone else's
         // machine, so it is pinned rather than merely smoke-tested.
         let out = build_spawn_command(
-            "/usr/local/bin/hermes",
+            "/usr/local/bin/allr",
             None,
-            "~/.hermes/desktop-ssh/o/n.log",
-            Some("~/.hermes/desktop-ssh/o/n.token"),
+            "~/.allr/desktop-ssh/o/n.log",
+            Some("~/.allr/desktop-ssh/o/n.token"),
             Some(NONCE),
         )
         .unwrap();
 
         assert_eq!(
             out,
-            "mkdir -p \"$(dirname \"$HOME\"'/.hermes/desktop-ssh/o/n.log')\" && \
+            "mkdir -p \"$(dirname \"$HOME\"'/.allr/desktop-ssh/o/n.log')\" && \
              \"$(command -v setsid || echo nohup)\" sh -c \
-             'env HERMES_DESKTOP=1 '\\''/usr/local/bin/hermes'\\'' \
+             'env ALLR_DESKTOP=1 '\\''/usr/local/bin/allr'\\'' \
              serve --isolated --host 127.0.0.1 --port 0 \
-             --ssh-session-token-file \"$HOME\"'\\''/.hermes/desktop-ssh/o/n.token'\\'' \
-             --ssh-owner-nonce 0123456789abcdef </dev/null >> \"$HOME\"'\\''/.hermes/desktop-ssh/o/n.log'\\'' 2>&1 & echo $!'"
+             --ssh-session-token-file \"$HOME\"'\\''/.allr/desktop-ssh/o/n.token'\\'' \
+             --ssh-owner-nonce 0123456789abcdef </dev/null >> \"$HOME\"'\\''/.allr/desktop-ssh/o/n.log'\\'' 2>&1 & echo $!'"
         );
     }
 
@@ -1022,7 +1022,7 @@ mod tests {
         // Non-negotiable: the remote backend must never be reachable from the
         // remote's own network — the tunnel is the only route in.
         let out =
-            build_spawn_command("/usr/local/bin/hermes", None, "~/x.log", None, None).unwrap();
+            build_spawn_command("/usr/local/bin/allr", None, "~/x.log", None, None).unwrap();
         assert!(out.contains("--host 127.0.0.1"), "{out}");
         assert!(out.contains("--port 0"), "{out}");
         assert!(!out.contains("0.0.0.0"), "{out}");
@@ -1031,7 +1031,7 @@ mod tests {
     #[test]
     fn spawn_command_detaches_and_reports_the_pid() {
         let out =
-            build_spawn_command("/usr/local/bin/hermes", None, "~/x.log", None, None).unwrap();
+            build_spawn_command("/usr/local/bin/allr", None, "~/x.log", None, None).unwrap();
         assert!(
             out.contains("command -v setsid || echo nohup"),
             "macOS has no setsid: {out}"
@@ -1046,7 +1046,7 @@ mod tests {
     #[test]
     fn spawn_command_places_the_profile_before_the_subcommand() {
         // The CLI takes --profile as a global flag, ahead of `serve`.
-        let out = build_spawn_command("/usr/local/bin/hermes", Some("work"), "~/x.log", None, None)
+        let out = build_spawn_command("/usr/local/bin/allr", Some("work"), "~/x.log", None, None)
             .unwrap();
         let profile_at = out.find("--profile").expect("profile flag");
         let serve_at = out.find("serve --isolated").expect("subcommand");
@@ -1071,7 +1071,7 @@ mod tests {
         // Peeling them proves the injection never becomes shell syntax.
         let hostile = "a'; rm -rf /; #";
         let out = build_spawn_command(
-            "/usr/local/bin/hermes",
+            "/usr/local/bin/allr",
             Some(hostile),
             "~/x.log",
             None,
@@ -1096,7 +1096,7 @@ mod tests {
     #[test]
     fn spawn_command_omits_optional_args_when_absent() {
         let out =
-            build_spawn_command("/usr/local/bin/hermes", None, "~/x.log", None, None).unwrap();
+            build_spawn_command("/usr/local/bin/allr", None, "~/x.log", None, None).unwrap();
         assert!(!out.contains("--ssh-session-token-file"), "{out}");
         assert!(!out.contains("--ssh-owner-nonce"), "{out}");
         assert!(!out.contains("--profile"), "{out}");
@@ -1105,16 +1105,16 @@ mod tests {
     #[test]
     fn spawn_command_rejects_a_relative_hermes_path() {
         assert!(build_spawn_command("hermes", None, "~/x.log", None, None).is_err());
-        assert!(build_spawn_command("/usr/local/bin/hermes", None, "x.log", None, None).is_err());
+        assert!(build_spawn_command("/usr/local/bin/allr", None, "x.log", None, None).is_err());
         assert!(
-            build_spawn_command("/usr/local/bin/hermes", None, "~/x.log", None, Some("bad"))
+            build_spawn_command("/usr/local/bin/allr", None, "~/x.log", None, Some("bad"))
                 .is_err()
         );
     }
 
     #[test]
     fn capability_probe_looks_for_both_flags() {
-        let probe = build_capability_probe("/usr/local/bin/hermes").unwrap();
+        let probe = build_capability_probe("/usr/local/bin/allr").unwrap();
         assert!(probe.contains("ssh-session-token-file"), "{probe}");
         assert!(probe.contains("ssh-owner-nonce"), "{probe}");
     }
@@ -1133,11 +1133,11 @@ mod tests {
     #[test]
     fn scrapes_both_ready_line_spellings() {
         assert_eq!(
-            scrape_ready_port("HERMES_BACKEND_READY port=51001"),
+            scrape_ready_port("ALLR_BACKEND_READY port=51001"),
             Some(51001)
         );
         assert_eq!(
-            scrape_ready_port("HERMES_DASHBOARD_READY port=8788"),
+            scrape_ready_port("ALLR_DASHBOARD_READY port=8788"),
             Some(8788)
         );
     }
@@ -1146,14 +1146,14 @@ mod tests {
     fn scrape_takes_the_last_match() {
         // Logs are appended across respawns; an earlier line describes a dead
         // process, and connecting to its port would be a silent misattachment.
-        let log = "HERMES_BACKEND_READY port=1111\nsome noise\nHERMES_BACKEND_READY port=2222\n";
+        let log = "ALLR_BACKEND_READY port=1111\nsome noise\nALLR_BACKEND_READY port=2222\n";
         assert_eq!(scrape_ready_port(log), Some(2222));
     }
 
     #[test]
     fn scrape_requires_the_marker_at_the_line_start() {
         assert_eq!(
-            scrape_ready_port("INFO: HERMES_BACKEND_READY port=51001"),
+            scrape_ready_port("INFO: ALLR_BACKEND_READY port=51001"),
             None
         );
         assert_eq!(scrape_ready_port("uvicorn running on 8788"), None);
@@ -1163,13 +1163,13 @@ mod tests {
     #[test]
     fn scrape_rejects_unparseable_and_zero_ports() {
         assert_eq!(
-            scrape_ready_port("HERMES_BACKEND_READY port=notaport"),
+            scrape_ready_port("ALLR_BACKEND_READY port=notaport"),
             None
         );
-        assert_eq!(scrape_ready_port("HERMES_BACKEND_READY port="), None);
-        assert_eq!(scrape_ready_port("HERMES_BACKEND_READY port=0"), None);
+        assert_eq!(scrape_ready_port("ALLR_BACKEND_READY port="), None);
+        assert_eq!(scrape_ready_port("ALLR_BACKEND_READY port=0"), None);
         assert_eq!(
-            scrape_ready_port("HERMES_BACKEND_READY port=99999"),
+            scrape_ready_port("ALLR_BACKEND_READY port=99999"),
             None,
             "out of u16 range"
         );
@@ -1178,7 +1178,7 @@ mod tests {
     #[test]
     fn scrape_ignores_trailing_text_after_the_port() {
         assert_eq!(
-            scrape_ready_port("HERMES_BACKEND_READY port=51001 pid=42"),
+            scrape_ready_port("ALLR_BACKEND_READY port=51001 pid=42"),
             Some(51001)
         );
     }
@@ -1192,11 +1192,11 @@ mod tests {
     }
 
     const TOKEN: &str = "hunter2";
-    const HERMES: &str = "/usr/local/bin/hermes";
-    const HOME: &str = "/home/u/.hermes";
+    const ALLR: &str = "/usr/local/bin/allr";
+    const HOME: &str = "/home/u/.allr";
 
     fn reusable(l: &BackendLock, pid_alive: bool, owned: bool, token: &str) -> bool {
-        lock_is_reusable(l, pid_alive, owned, token, HERMES, HOME)
+        lock_is_reusable(l, pid_alive, owned, token, ALLR, HOME)
     }
 
     #[test]
@@ -1234,7 +1234,7 @@ mod tests {
 
     #[test]
     fn repointing_the_connection_blocks_reuse() {
-        // The user changed the Hermes path or HERMES_HOME since that backend
+        // The user changed the Allr path or ALLR_HOME since that backend
         // started, so it is running the wrong install or against the wrong state
         // directory. Respawn rather than silently use the old one.
         let l = reusable_lock();
@@ -1251,7 +1251,7 @@ mod tests {
             true,
             true,
             TOKEN,
-            HERMES,
+            ALLR,
             "/home/u/.hermes-other"
         ));
     }
@@ -1264,7 +1264,7 @@ mod tests {
             ownership_id: OWNER,
             spawn_nonce: NONCE,
             profile: "",
-            hermes_path: HERMES,
+            hermes_path: ALLR,
             hermes_home: HOME,
             log_path: &log_path(),
             token_fingerprint: fingerprint_token(TOKEN),
@@ -1289,7 +1289,7 @@ mod tests {
             ownership_id: OWNER,
             spawn_nonce: NONCE,
             profile: "work",
-            hermes_path: HERMES,
+            hermes_path: ALLR,
             hermes_home: HOME,
             log_path: &log_path(),
             token_fingerprint: fingerprint_token(TOKEN),
@@ -1309,7 +1309,7 @@ mod tests {
     fn fallback_hermes_paths_are_all_valid_remote_paths() {
         // Each is interpolated into a remote command, so a relative one would be
         // rejected at use time rather than here.
-        for path in FALLBACK_HERMES_PATHS {
+        for path in FALLBACK_ALLR_PATHS {
             assert!(expand_remote_path(path).is_ok(), "{path}");
         }
     }

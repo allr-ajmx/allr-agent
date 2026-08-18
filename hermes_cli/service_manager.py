@@ -12,7 +12,7 @@ the existing module-level functions in hermes_cli.gateway and
 hermes_cli.gateway_windows directly. This protocol is a thin facade
 used by new code that needs to be backend-agnostic — specifically the
 profile create/delete hooks (Phase 4) and the s6 dispatch path in
-``hermes gateway start/stop/restart`` when running inside a container.
+``allr gateway start/stop/restart`` when running inside a container.
 """
 from __future__ import annotations
 
@@ -97,7 +97,7 @@ def detect_service_manager() -> ServiceManagerKind:
     This function does NOT replace ``supports_systemd_services()`` —
     host call sites continue to use that. It exists for new backend-
     agnostic code (profile create/delete hooks, the s6 dispatch path
-    in ``hermes gateway start/stop/restart``).
+    in ``allr gateway start/stop/restart``).
     """
     # Imports deferred so importing this module doesn't drag in the
     # whole gateway dependency graph for callers that only need the
@@ -112,7 +112,7 @@ def detect_service_manager() -> ServiceManagerKind:
     # NOT is_container(): the latter only detects Docker/Podman/lxc, so it is
     # False on Fly's Firecracker microVMs even though s6-overlay is PID 1 there.
     # That false negative made the whole s6 dispatch path inert on Fly, so
-    # `hermes gateway start/stop/restart` fell through to host code that spawns
+    # `allr gateway start/stop/restart` fell through to host code that spawns
     # a foreground gateway competing with the supervised one. _s6_running() is
     # already an s6-overlay-specific signal, so the container gate was redundant.
     if _s6_running():
@@ -134,7 +134,7 @@ def _s6_running() -> bool:
     — only works as root: for any other UID, the symlink at
     ``/proc/1/exe`` is unreadable and ``resolve()`` silently returns the
     path unchanged, so the resolved name is the literal ``"exe"`` and
-    detection always fails. Since every Hermes runtime call inside the
+    detection always fails. Since every Allr runtime call inside the
     container drops to hermes via ``s6-setuidgid``, that silent failure
     made the entire service-manager runtime-registration path inert in
     production (PR #30136 review).
@@ -321,8 +321,8 @@ def get_service_manager() -> ServiceManager:
 # ---------------------------------------------------------------------------
 # S6ServiceManager (container-only)
 #
-# Per-profile gateways are registered dynamically when `hermes profile create`
-# runs inside the container (Phase 4). Static services (main-hermes, dashboard)
+# Per-profile gateways are registered dynamically when `allr profile create`
+# runs inside the container (Phase 4). Static services (main-allr, dashboard)
 # live in /etc/s6-overlay/s6-rc.d/ and are NOT managed by this class — they're
 # part of the image, not runtime-created.
 # ---------------------------------------------------------------------------
@@ -339,8 +339,8 @@ def _profile_dir_for_gateway_service(name: str) -> Path:
     """Resolve ``gateway-<profile>`` to its persistent profile directory.
 
     s6 lifecycle commands may be invoked from any active profile, including
-    ``gateway stop --all``. Do not write the caller's HERMES_HOME blindly;
-    derive the shared profile root from the current HERMES_HOME and map the
+    ``gateway stop --all``. Do not write the caller's ALLR_HOME blindly;
+    derive the shared profile root from the current ALLR_HOME and map the
     service suffix to either the root default profile or
     ``<root>/profiles/<profile>``.
     """
@@ -348,7 +348,7 @@ def _profile_dir_for_gateway_service(name: str) -> Path:
 
     profile = name[len(S6_SERVICE_PREFIX):] if name.startswith(S6_SERVICE_PREFIX) else name
     validate_profile_name(profile)
-    hermes_home = Path(os.environ.get("HERMES_HOME", "/opt/data"))
+    hermes_home = Path(os.environ.get("ALLR_HOME", "/opt/data"))
     if hermes_home.parent.name == "profiles":
         root = hermes_home.parent.parent
     else:
@@ -409,8 +409,8 @@ _S6_BIN_DIR = "/command"
 # ``stage2-hook.sh`` enforces (the runtime invariant — see also
 # tests/docker/test_uid_remap.py). The container starts s6-supervise
 # under root and immediately drops to this UID via ``s6-setuidgid``.
-_HERMES_UID = 10000
-_HERMES_GID = 10000
+_ALLR_UID = 10000
+_ALLR_GID = 10000
 
 
 def _seed_supervise_skeleton(svc_dir: Path) -> None:
@@ -424,7 +424,7 @@ def _seed_supervise_skeleton(svc_dir: Path) -> None:
     ``0700``. It also ``mkfifo``s ``<svc>/supervise/control`` with mode
     ``0600``. Because s6-supervise runs as PID 1's effective UID (root)
     these dirs end up root-owned mode 0700, and an unprivileged client
-    (the ``hermes`` user — UID 10000 — running every Hermes runtime
+    (the ``hermes`` user — UID 10000 — running every Allr runtime
     operation via ``s6-setuidgid``) gets ``EACCES`` on any ``s6-svc``,
     ``s6-svstat``, or ``s6-svwait`` invocation against the slot.
 
@@ -489,7 +489,7 @@ def _seed_supervise_skeleton(svc_dir: Path) -> None:
         path.mkdir(parents=False, exist_ok=False)
         path.chmod(mode)
         try:
-            os.chown(path, _HERMES_UID, _HERMES_GID)
+            os.chown(path, _ALLR_UID, _ALLR_GID)
         except PermissionError:
             # Running as the hermes user already — directory is hermes-
             # owned by default. The chown is a no-op in that case, so
@@ -519,7 +519,7 @@ def _seed_supervise_skeleton(svc_dir: Path) -> None:
         os.mkfifo(control, 0o660)
         control.chmod(0o660)
         try:
-            os.chown(control, _HERMES_UID, _HERMES_GID)
+            os.chown(control, _ALLR_UID, _ALLR_GID)
         except PermissionError:
             pass
 
@@ -539,7 +539,7 @@ def _seed_supervise_skeleton(svc_dir: Path) -> None:
             os.mkfifo(log_control, 0o660)
             log_control.chmod(0o660)
             try:
-                os.chown(log_control, _HERMES_UID, _HERMES_GID)
+                os.chown(log_control, _ALLR_UID, _ALLR_GID)
             except PermissionError:
                 pass
 
@@ -570,7 +570,7 @@ class GatewayNotRegisteredError(S6Error):
         self.profile = profile
         super().__init__(
             f"no such gateway {profile!r}: register it with "
-            f"`hermes profile create {profile}` first, or pass "
+            f"`allr profile create {profile}` first, or pass "
             "an existing profile name via `-p <name>`",
             service=f"gateway-{profile}",
         )
@@ -602,7 +602,7 @@ class S6ServiceManager:
     """Per-profile gateway supervision via s6-overlay.
 
     Only handles runtime-registered services under
-    ``S6_DYNAMIC_SCANDIR``. Static services (main-hermes, dashboard)
+    ``S6_DYNAMIC_SCANDIR``. Static services (main-allr, dashboard)
     are managed by s6-rc at image-build time and are out of scope.
     """
 
@@ -628,8 +628,8 @@ class S6ServiceManager:
         """Generate the run script for a profile-gateway s6 service.
 
         The script:
-          1. Sources HERMES_HOME (and any extra env) via with-contenv —
-             so e.g. ``-e HERMES_HOME=/data/hermes`` is honored at run
+          1. Sources ALLR_HOME (and any extra env) via with-contenv —
+             so e.g. ``-e ALLR_HOME=/data/hermes`` is honored at run
              time, not Python-substituted at registration time (OQ8-C).
           2. Resets ``HOME`` to ``/opt/data`` before the privilege drop
              so with-contenv's root HOME does not leak into the
@@ -639,15 +639,15 @@ class S6ServiceManager:
              ``hermes -p <profile> gateway run`` (or just ``hermes
              gateway run`` for the default profile — see below).
 
-        Special case: ``profile == "default"`` emits ``hermes gateway
+        Special case: ``profile == "default"`` emits ``allr gateway
         run`` with **no** ``-p`` flag. This is the sentinel for "the
-        root HERMES_HOME profile" (the implicit profile that exists at
-        the top of $HERMES_HOME, not under profiles/). It must be
+        root ALLR_HOME profile" (the implicit profile that exists at
+        the top of $ALLR_HOME, not under profiles/). It must be
         spelled this way because ``_profile_suffix()`` returns the
         empty string for the root profile, and the dispatcher in
         ``hermes_cli.gateway`` maps that empty string to the
         ``gateway-default`` service slot. Passing ``-p default`` here
-        would instead look up ``$HERMES_HOME/profiles/default/`` — a
+        would instead look up ``$ALLR_HOME/profiles/default/`` — a
         completely different (and almost always nonexistent) profile.
 
         Port selection: the gateway binds the port resolved by
@@ -655,7 +655,7 @@ class S6ServiceManager:
         ``API_SERVER_PORT`` (or ``platforms.api_server.extra.port`` in
         that profile's ``config.yaml``), defaulting to 8642. There is
         no ``[gateway] port`` key and no Python-side allocator: because
-        each supervised profile gateway loads its own ``HERMES_HOME``,
+        each supervised profile gateway loads its own ``ALLR_HOME``,
         two profiles that both leave the port unset will both try to
         bind 8642 — give each profile a distinct ``API_SERVER_PORT`` in
         its ``.env``. Previously this method took a ``port`` parameter
@@ -683,24 +683,24 @@ class S6ServiceManager:
         # `gateway run --replace` which would re-dispatch `gateway
         # start`, etc. See `_gateway_command_inner` for the matching
         # guard.
-        lines.append("export HERMES_S6_SUPERVISED_CHILD=1")
+        lines.append("export ALLR_S6_SUPERVISED_CHILD=1")
         # ``--replace`` makes the supervised gateway authoritative for its
-        # profile's HERMES_HOME. Without it, a gateway started OUTSIDE s6
-        # (a stray ``hermes gateway run`` from a shell, an agent action, or
-        # the Open WebUI helper) grabs the per-HERMES_HOME PID lock first;
+        # profile's ALLR_HOME. Without it, a gateway started OUTSIDE s6
+        # (a stray ``allr gateway run`` from a shell, an agent action, or
+        # the Open WebUI helper) grabs the per-ALLR_HOME PID lock first;
         # the supervised slot then execs a bare ``gateway run``, hits the
         # "Another gateway instance is already running" guard, exits
         # non-zero, and s6 restarts it — a restart loop that floods the
         # log and never binds (NS-505). ``--replace``
         # instead reaps the stale holder (hardened takeover path: marker +
         # SIGTERM→SIGKILL-with-confirmation + scoped-lock cleanup, see
-        # gateway/run.py) so s6 always wins. The HERMES_S6_SUPERVISED_CHILD
+        # gateway/run.py) so s6 always wins. The ALLR_S6_SUPERVISED_CHILD
         # sentinel above prevents the run→start→run redirect recursion.
-        # Each profile is scoped to its own HERMES_HOME and s6 guarantees a
+        # Each profile is scoped to its own ALLR_HOME and s6 guarantees a
         # single supervised instance per slot, so there is no legitimate
         # supervised sibling for ``--replace`` to clobber.
         if profile == "default":
-            gateway_cmd = "hermes gateway run --replace"
+            gateway_cmd = "allr gateway run --replace"
         else:
             gateway_cmd = f"hermes -p {shlex.quote(profile)} gateway run --replace"
         # Skip the drop when already non-root (setgroups() lacks CAP_SETGID →
@@ -737,10 +737,10 @@ class S6ServiceManager:
     def _render_log_run(profile: str) -> str:
         """Generate the log/run script for a profile-gateway service.
 
-        OQ8-C: persist to ``${HERMES_HOME}/logs/gateways/<profile>/``.
-        CRITICAL: the HERMES_HOME path is sourced from the runtime env
+        OQ8-C: persist to ``${ALLR_HOME}/logs/gateways/<profile>/``.
+        CRITICAL: the ALLR_HOME path is sourced from the runtime env
         via with-contenv — NOT Python-substituted at registration time
-        — so a container started with ``-e HERMES_HOME=/data/hermes``
+        — so a container started with ``-e ALLR_HOME=/data/hermes``
         gets its logs under /data/hermes/logs/..., not the build-time
         default.
 
@@ -760,7 +760,7 @@ class S6ServiceManager:
              banner output and other plain stdout writes.)
           2. ``T <log_dir>`` — also write a timestamped copy to the
              rotated log directory (``current`` + archived ``@*.s``
-             files). This is what ``hermes logs`` reads and what
+             files). This is what ``allr logs`` reads and what
              persists across container restarts via the volume mount.
 
         ``T`` is non-sticky: it only prefixes lines for the next
@@ -781,8 +781,8 @@ class S6ServiceManager:
         return (
             f"#!/command/with-contenv sh\n"
             f"# shellcheck shell=sh\n"
-            f': "${{HERMES_HOME:=/opt/data}}"\n'
-            f'log_dir="$HERMES_HOME/logs/gateways/{prof}"\n'
+            f': "${{ALLR_HOME:=/opt/data}}"\n'
+            f'log_dir="$ALLR_HOME/logs/gateways/{prof}"\n'
             # Create the leaf and clear a stale s6-log lock as hermes when
             # this script starts as root. Never chown or unlink hermes-writable
             # volume paths from this restartable root-context script:
@@ -891,7 +891,7 @@ class S6ServiceManager:
         BEFORE sending the down command, so the gateway's shutdown
         handler recognises this SIGTERM as an operator-initiated stop
         and persists ``gateway_state=stopped`` (respecting the explicit
-        intent). Without the marker, an intentional ``hermes gateway
+        intent). Without the marker, an intentional ``allr gateway
         stop`` is indistinguishable from the container/s6 SIGTERM sent on
         ``docker restart``; the latter must NOT persist ``stopped`` or
         container_boot refuses to auto-start on the next boot (#42675).

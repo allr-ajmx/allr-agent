@@ -105,7 +105,7 @@ function KeepAwakeRow() {
 // The atom is TRI-state — `null` means the user has not been asked yet, which
 // the first window close does — and a switch has two positions, so unanswered
 // renders as off. That is the honest reading: until it is answered, closing the
-// window does not keep Hermes running.
+// window does not keep Allr running.
 function BackgroundModeRow() {
   const { t } = useI18n()
   const copy = t.settings.config

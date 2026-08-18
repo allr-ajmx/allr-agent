@@ -42,7 +42,7 @@ import { httpRequest } from '@/transport/http'
 // '@/store/connection' keep working.
 export type { AuthMode, Connection } from '@/store/gateway-config'
 
-// The RemoteProvider: resolve a LAN/remote Hermes backend URL + auth, then hold
+// The RemoteProvider: resolve a LAN/remote Allr backend URL + auth, then hold
 // the live connection descriptor. All chat traffic then runs over the gateway
 // (store/gateway.ts). Remote only — no local-spawn mode on mobile.
 //

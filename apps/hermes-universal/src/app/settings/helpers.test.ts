@@ -140,7 +140,7 @@ describe('settings helpers', () => {
       expect(providerGroup('MINIMAX_API_KEY')).toBe('MiniMax')
       expect(providerGroup('KIMI_CN_API_KEY')).toBe('Kimi (China)')
       expect(providerGroup('KIMI_API_KEY')).toBe('Kimi / Moonshot')
-      expect(providerGroup('HERMES_QWEN_BASE_URL')).toBe('DashScope (Qwen)')
+      expect(providerGroup('ALLR_QWEN_BASE_URL')).toBe('DashScope (Qwen)')
       expect(providerGroup('GEMINI_API_KEY')).toBe('Gemini')
     })
 

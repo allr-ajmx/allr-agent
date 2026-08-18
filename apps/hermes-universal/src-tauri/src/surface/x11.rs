@@ -291,8 +291,8 @@ mod tests {
 
     #[test]
     fn a_title_survives_its_trailing_nul_and_invalid_utf8() {
-        assert_eq!(text_property(b"MJX Hermes\0"), "MJX Hermes");
-        assert_eq!(text_property(b"MJX Hermes"), "MJX Hermes");
+        assert_eq!(text_property(b"MJX Allr\0"), "MJX Allr");
+        assert_eq!(text_property(b"MJX Allr"), "MJX Allr");
         assert_eq!(text_property(b""), "");
         // WM_NAME carries whatever bytes the application set; lossy, never a
         // panic and never a dropped reading.

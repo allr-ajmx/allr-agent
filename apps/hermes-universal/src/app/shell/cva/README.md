@@ -1,6 +1,6 @@
 # Mobile shell CVA conventions (MJXHRM-310)
 
-CVA port of Penpot Mobile Shell 2 into Hermes Universal. Penpot is **layout /
+CVA port of Penpot Mobile Shell 2 into Allr Universal. Penpot is **layout /
 density / state inspiration only** — icons stay the app’s existing packs.
 
 ## Canon

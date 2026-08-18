@@ -1,18 +1,18 @@
 """
-hermes fallback — manage the fallback provider chain.
+allr fallback — manage the fallback provider chain.
 
 Fallback providers are tried in order when the primary model fails with
 rate-limit, overload, or connection errors. See:
-https://hermes-agent.nousresearch.com/docs/user-guide/features/fallback-providers
+https://allr.work/docs/user-guide/features/fallback-providers
 
 Subcommands:
-  hermes fallback [list]   Show the current fallback chain (default when no subcommand)
-  hermes fallback add      Pick provider + model via the same picker as `hermes model`,
+  allr fallback [list]   Show the current fallback chain (default when no subcommand)
+  allr fallback add      Pick provider + model via the same picker as `allr model`,
                            then append the selection to the chain
-  hermes fallback remove   Pick an entry to delete from the chain
-  hermes fallback clear    Remove all fallback entries
+  allr fallback remove   Pick an entry to delete from the chain
+  allr fallback clear    Remove all fallback entries
 
-Storage: ``fallback_providers`` in ``~/.hermes/config.yaml`` (top-level, list of
+Storage: ``fallback_providers`` in ``~/.allr/config.yaml`` (top-level, list of
 ``{provider, model, base_url?, api_mode?}`` dicts).  The legacy single-dict
 ``fallback_model`` format is migrated to the new list format on first add.
 """
@@ -96,7 +96,7 @@ def _restore_auth_active_provider(value: Any) -> None:
     except Exception:
         # Best-effort — if auth.json can't be restored, the user's primary
         # provider may have been deactivated by the picker.  They can re-run
-        # `hermes model` to fix it.  Don't fail the fallback add.
+        # `allr model` to fix it.  Don't fail the fallback add.
         pass
 
 
@@ -115,7 +115,7 @@ def cmd_fallback_list(args) -> None:  # noqa: ARG001
     if not chain:
         print("  No fallback providers configured.")
         print()
-        print("  Add one with:  hermes fallback add")
+        print("  Add one with:  allr fallback add")
         print()
         return
 
@@ -128,7 +128,7 @@ def cmd_fallback_list(args) -> None:  # noqa: ARG001
         print(f"    {i}. {_format_entry(entry)}")
     print()
     print("  Tried in order when the primary fails (rate-limit, 5xx, connection errors).")
-    print("  Docs: https://hermes-agent.nousresearch.com/docs/user-guide/features/fallback-providers")
+    print("  Docs: https://allr.work/docs/user-guide/features/fallback-providers")
     print()
 
 
@@ -145,7 +145,7 @@ def _describe_primary(config: Dict[str, Any]) -> Optional[str]:
 
 
 def cmd_fallback_add(args) -> None:
-    """Launch the same picker as `hermes model`, then append the selection to the chain."""
+    """Launch the same picker as `allr model`, then append the selection to the chain."""
     from hermes_cli.main import _require_tty, select_provider_and_model
     from hermes_cli.config import load_config, save_config
 
@@ -159,7 +159,7 @@ def cmd_fallback_add(args) -> None:
 
     print()
     print("  Adding a fallback provider.  The picker below is the same one used by")
-    print("  `hermes model` — select the provider + model you want as a fallback.")
+    print("  `allr model` — select the provider + model you want as a fallback.")
     print()
 
     try:
@@ -244,7 +244,7 @@ def cmd_fallback_add(args) -> None:
     print(f"  Added fallback: {_format_entry(new_entry)}")
     print(f"  Chain is now {len(chain)} {'entry' if len(chain) == 1 else 'entries'} long.")
     print()
-    print("  Run `hermes fallback list` to view, or `hermes fallback remove` to delete.")
+    print("  Run `allr fallback list` to view, or `allr fallback remove` to delete.")
 
 
 def _restore_model_cfg(model_before: Any) -> None:
@@ -361,7 +361,7 @@ def _numbered_pick(question: str, choices: List[str]) -> Optional[int]:
 # ---------------------------------------------------------------------------
 
 def cmd_fallback(args) -> None:
-    """Top-level dispatcher for ``hermes fallback [subcommand]``."""
+    """Top-level dispatcher for ``allr fallback [subcommand]``."""
     sub = getattr(args, "fallback_command", None)
     if sub in {None, "", "list", "ls"}:
         cmd_fallback_list(args)

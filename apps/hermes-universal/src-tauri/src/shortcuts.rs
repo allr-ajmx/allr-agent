@@ -9,7 +9,7 @@
 //! rest were refused with "already registered" — and closing THAT window natively
 //! left the chord claimed from the whole machine, answering into a channel that
 //! had died with the window (MJXHRM-384). The app carried a whole native event
-//! (`hermes://app-window-closed`) whose only job was to tell the survivors to
+//! (`allr://app-window-closed`) whose only job was to tell the survivors to
 //! take the claim back.
 //!
 //! Background mode turns that from a bug into the normal case. The surviving
@@ -51,7 +51,7 @@ use std::collections::BTreeMap;
 /// instead is not the fix: two full app windows would both run `toggleHud`, which
 /// summons the HUD and dismisses it in the same keypress.
 #[cfg(desktop)]
-pub const GLOBAL_SHORTCUT_EVENT: &str = "hermes://global-shortcut";
+pub const GLOBAL_SHORTCUT_EVENT: &str = "allr://global-shortcut";
 
 /// The action the tray's *Open HUD* row stands for.
 ///

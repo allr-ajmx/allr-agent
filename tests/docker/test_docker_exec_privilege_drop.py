@@ -1,11 +1,11 @@
 """Regression tests for the docker-exec privilege-drop shim.
 
-The shim (docker/hermes-exec-shim.sh, installed at /opt/hermes/bin/hermes)
+The shim (docker/allr-exec-shim.sh, installed at /opt/hermes/bin/allr)
 exists to prevent the auth.json ownership-mismatch bug where
-`docker exec <c> hermes login` would write /opt/data/auth.json as
+`docker exec <c> allr login` would write /opt/data/auth.json as
 root:root mode 0600, leaving the supervised gateway (UID 10000) unable
 to read its own credentials and returning "Provider authentication
-failed: Hermes is not logged into Nous Portal" on every message.
+failed: Allr is not logged into Nous Portal" on every message.
 
 These tests verify:
 
@@ -13,9 +13,9 @@ These tests verify:
    hermes user before the real binary runs.
 2. ``docker exec --user hermes <c> hermes …`` (already non-root) short-
    circuits and doesn't try to drop again.
-3. Files written under $HERMES_HOME from a ``docker exec`` session land
+3. Files written under $ALLR_HOME from a ``docker exec`` session land
    as hermes:hermes — the actual user-visible invariant.
-4. The HERMES_DOCKER_EXEC_AS_ROOT opt-out lets diagnostic sessions keep
+4. The ALLR_DOCKER_EXEC_AS_ROOT opt-out lets diagnostic sessions keep
    running as root deliberately.
 5. The main CMD path (``docker run <image> …``) is unaffected by the
    PATH-shim ordering — no recursion, no behavior change.
@@ -43,7 +43,7 @@ def _wait_for_cont_init(container: str) -> None:
 
     The earlier ``_wait_for_init`` only polled ``docker exec <c> true``,
     which succeeds almost immediately on s6-overlay — long before the
-    ``01-hermes-setup`` cont-init hook (docker/stage2-hook.sh) has
+    ``01-allr-setup`` cont-init hook (docker/stage2-hook.sh) has
     finished seeding + ``chown hermes:hermes`` config.yaml and running the
     Python config migration. A test that wipes config.yaml and then writes
     it as root would then race that boot-time chown: on native amd64
@@ -53,9 +53,9 @@ def _wait_for_cont_init(container: str) -> None:
     failing ``test_shim_opt_out_keeps_root`` non-deterministically.
 
     The reliable "cont-init is done" signal is
-    ``$HERMES_HOME/logs/container-boot.log``: it is written by
+    ``$ALLR_HOME/logs/container-boot.log``: it is written by
     ``02-reconcile-profiles`` (hermes_cli.container_boot), which s6 runs
-    *strictly after* ``01-hermes-setup`` in lexicographic order. The
+    *strictly after* ``01-allr-setup`` in lexicographic order. The
     reconciler always logs at least one ``profile=default`` line even for a
     bare ``sleep infinity`` container, so once that marker appears every
     stage2-hook side effect (seed, chown, migrate) is guaranteed complete.
@@ -115,7 +115,7 @@ def test_shim_drops_root_to_hermes_uid(sleep_container: str) -> None:
     into it without forking subcommands. Simplest approach: have `hermes`
     do anything that writes to disk, then check the file's owner.
 
-    Use `hermes config set` which writes config.yaml under HERMES_HOME.
+    Use `allr config set` which writes config.yaml under ALLR_HOME.
     The resulting file ownership tells us what UID the shim ended up at.
     """
     # Wipe any prior state.
@@ -179,28 +179,28 @@ def test_e2e_login_then_supervised_gateway_can_read_auth(
 ) -> None:
     """End-to-end regression for the original bug.
 
-    Pre-shim: ``docker exec <c> hermes login`` (root) wrote
+    Pre-shim: ``docker exec <c> allr login`` (root) wrote
     /opt/data/auth.json as root:root 0600. The supervised gateway (UID
     10000) couldn't read it, _load_auth_store swallowed PermissionError
     as a parse failure, and resolve_nous_runtime_credentials raised
-    "Hermes is not logged into Nous Portal" on every message.
+    "Allr is not logged into Nous Portal" on every message.
 
     We can't do a real OAuth login in a unit test, but we can stand in
-    for it by writing the same file shape via `hermes config set`-style
+    for it by writing the same file shape via `allr config set`-style
     writes — what matters is the *file ownership invariant* downstream
     of `_save_auth_store`. If the shim works, every file the
     `docker exec` path produces is hermes-readable.
 
-    Specifically: pretend the operator ran `hermes login` (writes
+    Specifically: pretend the operator ran `allr login` (writes
     auth.json) and verify (a) the file exists and (b) it's readable by
-    the hermes UID. We use `hermes auth list` since that touches the
+    the hermes UID. We use `allr auth list` since that touches the
     auth store on the read side and would fail with the same
     'not logged in' shape if the file was unreadable to uid 10000.
     """
     # Have the shim-protected `docker exec` write the auth store.
-    # `hermes auth list` is read-only but still exercises _load_auth_store
-    # under the shim's UID. We invoke `hermes config set` first to
-    # provoke a write into HERMES_HOME so we have something concrete to
+    # `allr auth list` is read-only but still exercises _load_auth_store
+    # under the shim's UID. We invoke `allr config set` first to
+    # provoke a write into ALLR_HOME so we have something concrete to
     # owner-check.
     r = subprocess.run(
         ["docker", "exec", sleep_container,
@@ -210,7 +210,7 @@ def test_e2e_login_then_supervised_gateway_can_read_auth(
     assert r.returncode == 0, f"config set failed: {r.stderr}"
 
     # The supervised UID (10000) must be able to read everything under
-    # HERMES_HOME that docker exec just wrote.
+    # ALLR_HOME that docker exec just wrote.
     r = subprocess.run(
         ["docker", "exec", "--user", "hermes", sleep_container,
          "find", "/opt/data", "-maxdepth", "2", "-type", "f",

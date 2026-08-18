@@ -368,7 +368,7 @@ def _model_id_missing_known_prefix(model: str, provider: str) -> bool:
 
 # Malformed-message-array 400s.  Deterministic request-shape rejections that
 # describe the *transcript* being invalid, not a parameter.  The canonical
-# case: a stream dies mid-response and Hermes persists a content-less
+# case: a stream dies mid-response and Allr persists a content-less
 # assistant stub; on the next turn the Anthropic message schema (and the
 # litellm/Bedrock proxies in front of it) reject the whole request with
 #   "all messages must have non-empty content except for the optional final

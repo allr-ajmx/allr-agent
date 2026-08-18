@@ -23,7 +23,7 @@ function targetLabel(): string {
   const target = loadGatewayTarget()
 
   if (!target) {
-    return 'Hermes'
+    return 'Allr'
   }
 
   if (target.mode === 'local') {
@@ -41,7 +41,7 @@ function targetLabel(): string {
       return target.cloudAgentName
     }
 
-    return hostOf(target.cloudBaseUrl) ?? 'Hermes Cloud'
+    return hostOf(target.cloudBaseUrl) ?? 'Allr Cloud'
   }
 
   return hostOf(target.url) ?? 'the remote gateway'
@@ -83,7 +83,7 @@ export function GatewayConnectingScreen() {
   return (
     <main className="connect">
       <div className={cn('connect-card items-center text-center', configuratorOpen && 'max-w-lg')}>
-        <div className="brand">Hermes</div>
+        <div className="brand">Allr</div>
         <h1 className="connect-title">{g.connectingTitle}</h1>
 
         <div className="mt-2 flex items-center gap-2 text-[length:var(--conversation-caption-font-size)] text-(--ui-text-secondary)">

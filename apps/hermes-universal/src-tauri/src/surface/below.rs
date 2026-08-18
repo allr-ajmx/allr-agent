@@ -607,7 +607,7 @@ fn read_via_hyprland() -> WindowBelowAnswer {
         Ok(payload) => answer_from_clients(&payload, std::process::id() as i32),
         Err(e) => WindowBelowAnswer::unavailable(format!(
             "Could not enumerate windows: {e}. Check that `hyprctl clients` works from the same \
-             session Hermes is running in."
+             session Allr is running in."
         )),
     }
 }
@@ -629,7 +629,7 @@ mod tests {
     const CLIENTS: &str = r#"[
       {"address":"0x1","at":[0,0],"size":[1920,1080],"class":"kitty","title":"term",
        "pid":100,"mapped":true,"hidden":false,"focusHistoryID":2,"workspace":{"id":2}},
-      {"address":"0x2","at":[1933,46],"size":[1894,1021],"class":"Vivaldi-snap","title":"MJX Hermes",
+      {"address":"0x2","at":[1933,46],"size":[1894,1021],"class":"Vivaldi-snap","title":"MJX Allr",
        "pid":200,"mapped":true,"hidden":false,"focusHistoryID":0,"workspace":{"id":2}},
       {"address":"0x3","at":[1933,46],"size":[1894,1021],"class":"Other","title":"other workspace",
        "pid":300,"mapped":true,"hidden":false,"focusHistoryID":1,"workspace":{"id":7}},
@@ -828,7 +828,7 @@ mod tests {
         assert!(json.get("platform").is_some());
         assert_eq!(json["window"]["app"], "Vivaldi-snap");
         assert_eq!(json["window"]["bounds"]["x"], 1933);
-        assert_eq!(json["frontmost"]["title"], "MJX Hermes");
+        assert_eq!(json["frontmost"]["title"], "MJX Allr");
         // Absent rather than null, matching the desktop payload.
         assert!(json.get("note").is_none());
     }

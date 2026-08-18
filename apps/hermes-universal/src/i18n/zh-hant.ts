@@ -66,10 +66,10 @@ export const zhHant = defineLocale({
   keybinds: {
     title: '鍵盤快速鍵',
     globalTag: '系統層級',
-    globalTagHint: '啟動時向作業系統取得：Hermes 在背景時也會觸發，本機上的其他應用程式無法使用這組按鍵。',
+    globalTagHint: '啟動時向作業系統取得：Allr 在背景時也會觸發，本機上的其他應用程式無法使用這組按鍵。',
     globalClaimTitle: '已在系統層級保留一組快速鍵',
     globalClaimMessage: combos =>
-      `Hermes 已向作業系統取得 ${combos}，因此其他應用程式在前景時也會回應。Hermes 執行期間其他應用程式無法使用它。`,
+      `Allr 已向作業系統取得 ${combos}，因此其他應用程式在前景時也會回應。Allr 執行期間其他應用程式無法使用它。`,
     globalClaimAction: '變更'
   },
 
@@ -119,16 +119,16 @@ export const zhHant = defineLocale({
     copyDetail: '複製詳情',
     copyDetailFailed: '無法複製通知詳情',
     backendOutOfDateTitle: '後端版本過舊',
-    backendOutOfDateMessage: '您的 Hermes 後端早於目前的桌面版本，可能無法正常運作。請更新以保持一致。',
+    backendOutOfDateMessage: '您的 Allr 後端早於目前的桌面版本，可能無法正常運作。請更新以保持一致。',
     installMethodUnsupportedTitle: '不受支援的安裝方式',
-    updateHermes: '更新 Hermes',
+    updateHermes: '更新 Allr',
     updateReadyTitle: '有可用更新',
     updateReadyMessage: count => `有 ${count} 項新變更可用。`,
     seeWhatsNew: '查看新增內容',
     errors: {
       elevenLabsNeedsKey: 'ElevenLabs STT 需要 ELEVENLABS_API_KEY。',
       elevenLabsRejectedKey: 'ElevenLabs 拒絕了該 API 金鑰 (401)。',
-      methodNotAllowed: '桌面後端拒絕了該請求 (405 Method Not Allowed)。請嘗試重新啟動 Hermes Desktop。',
+      methodNotAllowed: '桌面後端拒絕了該請求 (405 Method Not Allowed)。請嘗試重新啟動 Allr Desktop。',
       microphonePermission: '麥克風權限已被拒絕。',
       openaiRejectedApiKey: 'OpenAI 拒絕了該 API 金鑰。',
       openaiRejectedApiKeyWithStatus: status => `OpenAI 拒絕了該 API 金鑰 (${status} invalid_api_key)。`,
@@ -160,8 +160,8 @@ export const zhHant = defineLocale({
       approveAction: '核准',
       rejectAction: '拒絕',
       inputTitle: '需要輸入',
-      inputBody: 'Hermes 正在等待你的回應。',
-      turnDoneTitle: 'Hermes 已完成',
+      inputBody: 'Allr 正在等待你的回應。',
+      turnDoneTitle: 'Allr 已完成',
       turnDoneBody: '回覆已就緒。',
       turnErrorTitle: '本輪失敗',
       backgroundDoneTitle: '背景工作已完成',
@@ -202,8 +202,8 @@ export const zhHant = defineLocale({
     close: '關閉'
   },
   hud: {
-    connecting: '正在連線至 Hermes…',
-    connectionFailed: 'Hermes 無法連線至閘道。',
+    connecting: '正在連線至 Allr…',
+    connectionFailed: 'Allr 無法連線至閘道。',
     expandReply: '顯示回覆',
     collapseReply: '隱藏回覆'
   },
@@ -223,7 +223,7 @@ export const zhHant = defineLocale({
     exportConfig: '匯出設定',
     importConfig: '匯入設定',
     resetToDefaults: '恢復預設值',
-    resetConfirm: '要將所有設定恢復為 Hermes 預設值嗎？',
+    resetConfirm: '要將所有設定恢復為 Allr 預設值嗎？',
     exportFailed: '匯出失敗',
     resetFailed: '重設失敗',
     nav: {
@@ -263,14 +263,14 @@ export const zhHant = defineLocale({
       agent: {
         title: '代理外掛',
         blurb:
-          '執行於 Hermes 後端——工具、技能、MCP 伺服器、掛鉤與斜線指令。「可攜」外掛是 Agent Plugins 標準套件（技能 + MCP 組合，也可在其他代理中使用）。開關於新工作階段生效。',
+          '執行於 Allr 後端——工具、技能、MCP 伺服器、掛鉤與斜線指令。「可攜」外掛是 Agent Plugins 標準套件（技能 + MCP 組合，也可在其他代理中使用）。開關於新工作階段生效。',
         empty: '尚未安裝代理外掛。',
         loadFailed: '無法載入代理外掛',
         portable: '可攜',
         search: '搜尋外掛…',
         noMatches: '沒有符合的外掛。',
         toggleFailed: (name: string) => `無法切換 ${name}`,
-        updateBackendToManage: '請更新 Hermes 後端，才能在這裡開啟或關閉此外掛。',
+        updateBackendToManage: '請更新 Allr 後端，才能在這裡開啟或關閉此外掛。',
         sources: { bundled: '內建', entrypoint: 'pip', git: 'git', project: '專案', user: '使用者' }
       }
     },
@@ -279,7 +279,7 @@ export const zhHant = defineLocale({
       intro: '原生桌面通知，與應用程式內提示不同。設定會依裝置保存，每台電腦各自獨立。',
       enableAll: '啟用通知',
       enableAllDesc: '總開關。關閉後會靜音下方所有通知。',
-      focusedHint: '完成提醒僅在 Hermes 位於背景時觸發。',
+      focusedHint: '完成提醒僅在 Allr 位於背景時觸發。',
       kinds: {
         approval: {
           label: '需要核准',
@@ -287,11 +287,11 @@ export const zhHant = defineLocale({
         },
         input: {
           label: '需要輸入',
-          description: 'Hermes 提出了問題，或需要密碼或密鑰。'
+          description: 'Allr 提出了問題，或需要密碼或密鑰。'
         },
         turnDone: {
           label: '回覆就緒',
-          description: 'Hermes 在背景時完成了一輪對話。'
+          description: 'Allr 在背景時完成了一輪對話。'
         },
         turnError: {
           label: '本輪失敗',
@@ -307,11 +307,11 @@ export const zhHant = defineLocale({
         },
         plugin: {
           label: '外掛通知',
-          description: 'Hermes 位於背景時，外掛送出了通知。'
+          description: 'Allr 位於背景時，外掛送出了通知。'
         }
       },
       test: '傳送測試通知',
-      testTitle: 'Hermes (MJX)',
+      testTitle: 'Allr',
       testBody: '通知運作正常。',
       testSent: '測試已傳送。若沒有出現，請檢查系統通知權限與專注模式／勿擾模式。',
       testUnsupported: '此系統不支援原生通知。',
@@ -322,7 +322,7 @@ export const zhHant = defineLocale({
     voiceLevels: {
       title: '電平',
       intro:
-        '調整 Hermes 聽你說話的靈敏度以及朗讀回覆的音量。這裡沒有回音消除，因此把插話門檻設在喇叭所產生的電平之上，才能避免 Hermes 打斷自己。',
+        '調整 Allr 聽你說話的靈敏度以及朗讀回覆的音量。這裡沒有回音消除，因此把插話門檻設在喇叭所產生的電平之上，才能避免 Allr 打斷自己。',
       meterTitle: '輸入電平表',
       meterDesc: '開啟麥克風，對照下方的門檻查看你的電平。不會錄音，也不會上傳。',
       meterRunningDesc: '正在聆聽。請正常說話，然後把輸入門檻設在略低於說話電平處。一分鐘後會自動停止。',
@@ -336,9 +336,9 @@ export const zhHant = defineLocale({
       gainTitle: '輸入增益',
       gainDesc: '以倍率放大測得的電平，讓音量偏小的麥克風也能達到門檻。不會改變用於轉錄的音訊。',
       thresholdTitle: '輸入門檻',
-      thresholdDesc: '聲音要多大，Hermes 才會視為你開始說話。過低會被環境噪音觸發，過高則完全聽不到你。',
+      thresholdDesc: '聲音要多大，Allr 才會視為你開始說話。過低會被環境噪音觸發，過高則完全聽不到你。',
       bargeinTitle: '插話門檻',
-      bargeinDesc: 'Hermes 說話期間套用的較高門檻。請保持它高於僅有喇叭發聲時電平表顯示的數值。',
+      bargeinDesc: 'Allr 說話期間套用的較高門檻。請保持它高於僅有喇叭發聲時電平表顯示的數值。',
       outputSectionTitle: '輸出',
       outputTitle: '朗讀音量',
       outputDesc: '朗讀回覆的播放音量。'
@@ -354,7 +354,7 @@ export const zhHant = defineLocale({
       advanced: '進階'
     },
     searchPlaceholder: {
-      about: '關於 Hermes Desktop',
+      about: '關於 Allr Desktop',
       config: '搜尋設定…',
       gateway: '閘道連線…',
       keys: '搜尋 API 金鑰…',
@@ -370,13 +370,13 @@ export const zhHant = defineLocale({
       title: '外觀',
       intro: '這些是僅限桌面端的顯示偏好。模式控制亮度；主題控制強調色與聊天介面樣式。',
       colorMode: '色彩模式',
-      colorModeDesc: '選擇固定模式，或讓 Hermes 跟隨系統設定。',
+      colorModeDesc: '選擇固定模式，或讓 Allr 跟隨系統設定。',
       toolViewTitle: '工具呼叫顯示',
       toolViewDesc: '產品模式會隱藏原始工具 payload；技術模式會顯示完整輸入/輸出。',
       backdropTitle: '對話背景圖',
       backdropDesc: '對話後方那張淡淡的雕像圖。',
       reactionsTitle: '訊息回應',
-      reactionsDesc: 'iMessage 風格的表情回應 — 你可以對訊息做出回應，Hermes 也能回應你的訊息。',
+      reactionsDesc: 'iMessage 風格的表情回應 — 你可以對訊息做出回應，Allr 也能回應你的訊息。',
       uiScaleTitle: '介面縮放',
       uiScaleDesc: (percent: number) =>
         `縮放整個應用程式的文字與介面。也可使用 Cmd/Ctrl 加 +、- 或 0 調整。目前：${percent}%`,
@@ -414,8 +414,8 @@ export const zhHant = defineLocale({
       pet: {
         title: '寵物',
         intro:
-          '領養一隻懸浮在應用上的 petdex 動畫寵物，它會根據 Hermes 的狀態做出反應——工具執行時奔跑、成功時歡呼、出錯時沮喪。',
-        restartHint: '寵物功能需要重新啟動——目前執行的應用在此功能加入前啟動。請結束並重新開啟 Hermes，然後回到此處。',
+          '領養一隻懸浮在應用上的 petdex 動畫寵物，它會根據 Allr 的狀態做出反應——工具執行時奔跑、成功時歡呼、出錯時沮喪。',
+        restartHint: '寵物功能需要重新啟動——目前執行的應用在此功能加入前啟動。請結束並重新開啟 Allr，然後回到此處。',
         scaleTitle: '大小',
         scaleDesc: '調整懸浮寵物的大小，所有介面即時生效。',
         roamTitle: '漫遊',
@@ -610,10 +610,10 @@ export const zhHant = defineLocale({
         personality: '新工作階段的預設助手風格。',
         showReasoning: '後端提供推理內容時顯示該區塊。'
       },
-      timezone: 'Hermes 需要本機時間上下文時使用。留空則使用系統時區。',
+      timezone: 'Allr 需要本機時間上下文時使用。留空則使用系統時區。',
       agent: {
         imageInputMode: '控制圖片附件如何傳送給模型。',
-        maxTurns: 'Hermes 停止一次執行前的工具呼叫輪次上限。'
+        maxTurns: 'Allr 停止一次執行前的工具呼叫輪次上限。'
       },
       terminal: {
         cwd: '工具與終端機操作的預設專案資料夾。',
@@ -623,9 +623,9 @@ export const zhHant = defineLocale({
       codeExecution: {
         mode: '程式碼執行被限制在目前專案中的嚴格程度。'
       },
-      fileReadMaxChars: 'Hermes 單次檔案讀取可讀取的最大字元數。',
+      fileReadMaxChars: 'Allr 單次檔案讀取可讀取的最大字元數。',
       approvals: {
-        mode: 'Hermes 如何處理需要明確批准的指令。',
+        mode: 'Allr 如何處理需要明確批准的指令。',
         timeout: '批准提示逾時前等待的時間。'
       },
       security: {
@@ -655,11 +655,11 @@ export const zhHant = defineLocale({
       },
       updates: {
         nonInteractiveLocalChanges:
-          'Hermes 從應用程式內更新自身時，保留本機原始碼變更（stash）或丟棄（discard）。終端機更新一律會詢問。'
+          'Allr 從應用程式內更新自身時，保留本機原始碼變更（stash）或丟棄（discard）。終端機更新一律會詢問。'
       }
     }),
     about: {
-      heading: 'Hermes (MJX)',
+      heading: 'Allr',
       version: value => `版本 ${value}`,
       versionUnavailable: '版本不可用',
       updates: '更新',
@@ -682,7 +682,7 @@ export const zhHant = defineLocale({
       lastChecked: age => `上次檢查：${age}`,
       justNowSuffix: ' · 剛剛',
       automaticUpdates: '自動更新',
-      automaticUpdatesDesc: 'Hermes 會在背景自動檢查更新，並在有可用更新時通知你。',
+      automaticUpdatesDesc: 'Allr 會在背景自動檢查更新，並在有可用更新時通知你。',
       branchCommit: (branch, commit) => `分支 ${branch} · 提交 ${commit}`,
       never: '從未',
       justNow: '剛剛',
@@ -699,7 +699,7 @@ export const zhHant = defineLocale({
       searchPlaceholder: '搜尋…',
       noResults: '找不到結果',
       systemDefault: '系統預設',
-      loading: '正在載入 Hermes 設定...',
+      loading: '正在載入 Allr 設定...',
       emptyTitle: '無可設定項目',
       emptyDesc: '此區段沒有可調整的設定。',
       failedLoad: '設定載入失敗',
@@ -710,8 +710,8 @@ export const zhHant = defineLocale({
       keepAwakeDesc: '阻止本機睡眠，讓長時間或整夜執行持續進行。螢幕仍可變暗。',
       keepAwakeFailed: '無法讓本機保持喚醒',
       backgroundModeTitle: '在背景繼續執行',
-      backgroundModeDesc: '關閉視窗只會收起 Hermes 而不結束，進行中的回覆會繼續輸出。可透過系統匣圖示重新顯示或結束。',
-      backgroundModeFailed: '無法讓 Hermes 在背景繼續執行'
+      backgroundModeDesc: '關閉視窗只會收起 Allr 而不結束，進行中的回覆會繼續輸出。可透過系統匣圖示重新顯示或結束。',
+      backgroundModeFailed: '無法讓 Allr 在背景繼續執行'
     },
     credentials: {
       pasteKey: '貼上金鑰',
@@ -740,18 +740,18 @@ export const zhHant = defineLocale({
       title: '閘道連線',
       envOverride: '環境變數覆寫',
       intro:
-        'Hermes Desktop 預設會啟動自己的本機閘道。如果您希望此應用程式控制另一台機器或可信代理後面已執行的 Hermes 後端，請使用遠端閘道。在下方按設定檔指定各自的遠端主機。',
+        'Allr Desktop 預設會啟動自己的本機閘道。如果您希望此應用程式控制另一台機器或可信代理後面已執行的 Allr 後端，請使用遠端閘道。在下方按設定檔指定各自的遠端主機。',
       appliesTo: '套用至',
       allProfiles: '全部設定檔',
       defaultConnection: '預設連線適用於所有沒有自訂覆寫的設定檔。',
       profileConnection: profile => `僅當「${profile}」為作用中設定檔時使用此連線。設為本機可繼承預設連線。`,
       envOverrideTitle: '環境變數正在控制此桌面工作階段。',
-      envOverrideDesc: '取消設定 HERMES_DESKTOP_REMOTE_URL 和 HERMES_DESKTOP_REMOTE_TOKEN 後才會使用下方儲存的設定。',
+      envOverrideDesc: '取消設定 ALLR_DESKTOP_REMOTE_URL 和 ALLR_DESKTOP_REMOTE_TOKEN 後才會使用下方儲存的設定。',
       localTitle: '本機閘道',
-      localDesc: '在 localhost 啟動私有 Hermes 後端。這是預設方式，可離線使用。',
+      localDesc: '在 localhost 啟動私有 Allr 後端。這是預設方式，可離線使用。',
       remoteTitle: '遠端閘道',
       remoteDesc:
-        '將此桌面殼層連線至遠端 Hermes 後端。託管閘道使用 OAuth 或帳號密碼；自託管閘道也可使用工作階段 Token。',
+        '將此桌面殼層連線至遠端 Allr 後端。託管閘道使用 OAuth 或帳號密碼；自託管閘道也可使用工作階段 Token。',
       remoteUrlTitle: '遠端 URL',
       remoteUrlDesc: '遠端儀表板後端的基礎 URL。支援路徑前綴，例如 /hermes。',
       probing: '正在檢查此閘道的驗證方式…',
@@ -780,7 +780,7 @@ export const zhHant = defineLocale({
       diagnostics: '診斷',
       diagnosticsDesc: '連線狀態和最近的閘道日誌 — 閘道異常時很有用。',
       configFloorWarning: (version, floor) =>
-        `設定 v${version} 早於支援下限 v${floor}，已不再自動遷移。請備份上方 Hermes 主目錄中的 config.yaml 並執行 \`hermes setup\` 重新產生，或在查閱變更日誌後設定 _config_version: ${floor}。`,
+        `設定 v${version} 早於支援下限 v${floor}，已不再自動遷移。請備份上方 Allr 主目錄中的 config.yaml 並執行 \`allr setup\` 重新產生，或在查閱變更日誌後設定 _config_version: ${floor}。`,
       openLogs: '開啟記錄',
       incompleteTitle: '遠端閘道設定不完整',
       incompleteSignIn: '切換至遠端前，請輸入遠端 URL 並完成登入。',
@@ -790,9 +790,9 @@ export const zhHant = defineLocale({
       enterUrlFirst: '請先輸入遠端 URL。',
       restartingTitle: '閘道連線正在重新啟動',
       savedTitle: '閘道設定已儲存',
-      restartingMessage: 'Hermes Desktop 將使用已儲存的設定重新連線。',
+      restartingMessage: 'Allr Desktop 將使用已儲存的設定重新連線。',
       savedMessage: '已儲存，下次重新啟動後生效。',
-      connectedTo: (baseUrl, version) => `已連線至 ${baseUrl}${version ? ` · Hermes ${version}` : ''}`,
+      connectedTo: (baseUrl, version) => `已連線至 ${baseUrl}${version ? ` · Allr ${version}` : ''}`,
       reachableTitle: '遠端閘道可連線',
       signedOutTitle: '已登出',
       signedOutMessage: '已清除遠端閘道工作階段。',
@@ -805,7 +805,7 @@ export const zhHant = defineLocale({
       sessionMissingTitle: '閘道已變更',
       sessionMissingMessage: '此工作階段在新閘道上不存在。',
       saveFailed: '無法儲存閘道設定',
-      connectingTitle: '正在連線 Hermes',
+      connectingTitle: '正在連線 Allr',
       reconnectingTo: target => `正在重新連線至 ${target}…`,
       useDifferentGateway: '使用其他閘道',
       startOver: '重新開始'
@@ -889,7 +889,7 @@ export const zhHant = defineLocale({
     providers: {
       connectAccount: '連結帳號',
       haveApiKey: '改用 API 金鑰？',
-      intro: '使用訂閱登入，無需複製 API 金鑰。Hermes 會在應用程式中為您完成瀏覽器登入。',
+      intro: '使用訂閱登入，無需複製 API 金鑰。Allr 會在應用程式中為您完成瀏覽器登入。',
       connected: '已連線',
       collapse: '收合',
       connectAnother: '連結其他提供方',
@@ -1058,7 +1058,7 @@ export const zhHant = defineLocale({
     edit: '編輯',
     archive: '封存',
     skillArchivedTitle: '技能已封存',
-    skillArchivedMessage: '可透過 hermes curator restore 還原。',
+    skillArchivedMessage: '可透過 allr curator restore 還原。',
     mcp: {
       loading: '正在載入 MCP 伺服器…',
       loadFailed: 'MCP 伺服器載入失敗',
@@ -1096,7 +1096,7 @@ export const zhHant = defineLocale({
     loadFailed: '無法載入記憶圖譜',
     loading: '載入中…',
     emptyTitle: '尚無學習內容',
-    emptyDesc: '當 Hermes 為你的工作建立技能與記憶時，會顯示在這裡。'
+    emptyDesc: '當 Allr 為你的工作建立技能與記憶時，會顯示在這裡。'
   },
   agents: {
     close: '關閉代理',
@@ -1161,7 +1161,7 @@ export const zhHant = defineLocale({
       placeholder: '搜尋寵物…',
       loading: '正在載入 petdex 畫廊…',
       error: '無法連線至 petdex 畫廊。',
-      staleBackend: '請重新啟動 Hermes 以使用寵物功能。',
+      staleBackend: '請重新啟動 Allr 以使用寵物功能。',
       empty: '沒有符合的寵物。',
       turnOff: '關閉',
       turnOn: '開啟',
@@ -1188,8 +1188,8 @@ export const zhHant = defineLocale({
       hatchComposing: '正在拼合……',
       hatchSaving: '快好了……',
       namePlaceholder: '為寵物命名',
-      staleBackend: '請更新 Hermes 以生成寵物。',
-      backgroundHint: '你可以關閉此視窗——完成後 Hermes 會通知你。',
+      staleBackend: '請更新 Allr 以生成寵物。',
+      backgroundHint: '你可以關閉此視窗——完成後 Allr 會通知你。',
       slowProviderHint: '這可能需要幾分鐘',
       remix: '混合生成',
       remixConfirmTitle: '以此造型混合生成？',
@@ -1223,7 +1223,7 @@ export const zhHant = defineLocale({
     },
     nav: {
       newChat: { title: '新工作階段', detail: '開始新的工作階段' },
-      settings: { title: '設定', detail: '設定 Hermes 桌面端' },
+      settings: { title: '設定', detail: '設定 Allr 桌面端' },
       skills: { title: '技能與工具', detail: '啟用技能、工具集和提供方' },
       messaging: { title: '訊息平台', detail: '設定 Telegram、Slack、Discord 等' },
       artifacts: { title: '成品', detail: '瀏覽產生的輸出' }
@@ -1245,10 +1245,10 @@ export const zhHant = defineLocale({
     noSessions: '暫無工作階段。',
     gatewayRunning: '訊息閘道執行中',
     gatewayStopped: '訊息閘道已停止',
-    hermesActiveSessions: (version, count) => `Hermes ${version} · 活躍工作階段 ${count}`,
+    hermesActiveSessions: (version, count) => `Allr ${version} · 活躍工作階段 ${count}`,
     restartGateway: '重新啟動閘道',
     gatewayRestartFailed: '閘道重新啟動失敗。',
-    updateHermes: '更新 Hermes',
+    updateHermes: '更新 Allr',
     actionRunning: '執行中',
     actionDone: '完成',
     actionFailed: '失敗',
@@ -1457,7 +1457,7 @@ export const zhHant = defineLocale({
     deleteDescMid: ' 並移除其 ',
     deleteDescSuffix: ' 目錄。此操作無法復原。',
     deleting: '刪除中…',
-    createDesc: '設定檔是獨立的 Hermes 環境：各自擁有獨立的設定、技能和 SOUL.md。',
+    createDesc: '設定檔是獨立的 Allr 環境：各自擁有獨立的設定、技能和 SOUL.md。',
     nameLabel: '名稱',
     cloneFrom: '複製來源',
     cloneFromNone: '無（空白）',
@@ -1545,7 +1545,7 @@ export const zhHant = defineLocale({
     topOfHour: '每個整點',
     everyHourAt: minute => `每小時的 :${minute}`,
     newCron: '新排程工作',
-    emptyDescNew: '按 cron 表達式排程一個提示詞。Hermes 會執行它，並將結果傳送至您選擇的目的地。',
+    emptyDescNew: '按 cron 表達式排程一個提示詞。Allr 會執行它，並將結果傳送至您選擇的目的地。',
     emptyDescSearch: '請嘗試更廣泛的搜尋詞。',
     emptyTitleNew: '暫無排程工作',
     emptyTitleSearch: '無相符項目',
@@ -1744,8 +1744,8 @@ export const zhHant = defineLocale({
       copyPath: '複製路徑',
       removeFromSidebar: '從側邊欄移除',
       createFailed: '無法建立專案',
-      staleBackend: '請更新 Hermes 後端以建立專案——目前後端比桌面應用舊（設定 → 更新 → 後端）。',
-      deleteConfirm: '這會從 Hermes 中移除已儲存的專案。檔案、git 儲存庫和工作樹維持不變。',
+      staleBackend: '請更新 Allr 後端以建立專案——目前後端比桌面應用舊（設定 → 更新 → 後端）。',
+      deleteConfirm: '這會從 Allr 中移除已儲存的專案。檔案、git 儲存庫和工作樹維持不變。',
       startWork: '新增工作樹',
       newWorktreeTitle: '新增工作樹',
       newWorktreeDesc: '為這個工作樹命名分支。',
@@ -1817,12 +1817,12 @@ export const zhHant = defineLocale({
   composer: {
     message: '訊息',
     wakingProfile: profile => `正在喚醒 ${profile}…`,
-    placeholderStarting: '正在啟動 Hermes...',
-    placeholderReconnecting: '正在重新連線至 Hermes…',
+    placeholderStarting: '正在啟動 Allr...',
+    placeholderReconnecting: '正在重新連線至 Allr…',
     placeholderFollowUp: '傳送後續訊息',
     newSessionPlaceholders: [
       '我們要建立什麼？',
-      '給 Hermes 一個任務',
+      '給 Allr 一個任務',
       '您在想什麼？',
       '描述您需要什麼',
       '我們該處理什麼？',
@@ -1893,7 +1893,7 @@ export const zhHant = defineLocale({
       'composer.history': '循環彈出視窗 / 歷史記錄'
     },
     attachUrlTitle: '附加 URL',
-    attachUrlDesc: 'Hermes 將擷取該頁面並作為此回合的脈絡。',
+    attachUrlDesc: 'Allr 將擷取該頁面並作為此回合的脈絡。',
     urlPlaceholder: 'https://example.com/post',
     urlHintPre: '請輸入完整 URL，例如 ',
     attach: '附加',
@@ -2006,7 +2006,7 @@ export const zhHant = defineLocale({
       createPr: '建立 PR',
       openPr: '開啟 PR',
       ghMissing: '安裝 GitHub CLI (gh) 並登入後可開啟 PR',
-      agentShip: '讓 Hermes 提交並開 PR',
+      agentShip: '讓 Allr 提交並開 PR',
       agentShipPrompt: '檢查目前的變更，使用清晰的約定式提交訊息提交，推送分支，並開啟一個拉取請求。',
       newBranch: '新增分支',
       branchOffFrom: base => `從 ${base} 建立新分支`,
@@ -2023,9 +2023,9 @@ export const zhHant = defineLocale({
       fetch: '下載中…',
       pull: '快完成了…',
       pydeps: '收尾中…',
-      update: '正在更新 Hermes…',
+      update: '正在更新 Allr…',
       rebuild: '正在重新建置桌面應用程式…',
-      restart: '正在重新啟動 Hermes…',
+      restart: '正在重新啟動 Allr…',
       done: '更新完成',
       manual: '從終端機更新',
       guiSkew: '請更新桌面應用程式',
@@ -2035,32 +2035,32 @@ export const zhHant = defineLocale({
     checkFailedTitle: '無法檢查更新',
     tryAgain: '重試',
     notAvailableTitle: '更新不可用',
-    unsupportedMessage: '此版本的 Hermes 無法在應用程式內自行更新。',
+    unsupportedMessage: '此版本的 Allr 無法在應用程式內自行更新。',
     connectionRetry: '請檢查網路連線後重試。',
     latestBody: '您正在執行最新版本。',
     latestBodyBackend: '後端正在執行最新版本。',
     allSetTitle: '已是最新版本',
     availableTitle: '有可用更新',
-    availableBody: '新版 Hermes 已可安裝。',
+    availableBody: '新版 Allr 已可安裝。',
     availableTitleBackend: '後端有可用更新',
-    availableBodyBackend: '已連接的 Hermes 後端有新版本可安裝。',
+    availableBodyBackend: '已連接的 Allr 後端有新版本可安裝。',
     availableBodyNoChangelog: '已有新版本可用。此安裝方式無法顯示更新日誌。',
     updateNow: '立即更新',
     maybeLater: '稍後再說',
     moreChanges: count => `另有 ${count} 項變更。`,
     manualTitle: '從終端機更新',
-    manualBody: '您是從命令列安裝的 Hermes，因此更新也需要在那裡執行。請將此指令貼到終端機：',
-    manualPickedUp: '下次啟動 Hermes 時會使用新版本。',
+    manualBody: '您是從命令列安裝的 Allr，因此更新也需要在那裡執行。請將此指令貼到終端機：',
+    manualPickedUp: '下次啟動 Allr 時會使用新版本。',
     guiSkewTitle: '請更新桌面應用程式',
     guiSkewBody:
-      '後端已更新，但此桌面應用程式套件未變更。請更新或重新安裝 Hermes 桌面應用程式（你的 AppImage / .deb / .rpm）以保持一致。',
+      '後端已更新，但此桌面應用程式套件未變更。請更新或重新安裝 Allr 桌面應用程式（你的 AppImage / .deb / .rpm）以保持一致。',
     copy: '複製',
     copied: '已複製',
     done: '完成',
     applyingBody:
-      'Hermes 更新程式會在自己的視窗中接管，並在完成後自動重新開啟 Hermes。更新期間請勿自行重新開啟 Hermes。',
-    applyingBodyBackend: '遠端後端正在套用更新並將重新啟動。恢復後 Hermes 會自動重新連線。',
-    applyingClose: '此視窗會在更新期間關閉，隨後 Hermes 會自動重新開啟。',
+      'Allr 更新程式會在自己的視窗中接管，並在完成後自動重新開啟 Allr。更新期間請勿自行重新開啟 Allr。',
+    applyingBodyBackend: '遠端後端正在套用更新並將重新啟動。恢復後 Allr 會自動重新連線。',
+    applyingClose: '此視窗會在更新期間關閉，隨後 Allr 會自動重新開啟。',
     errorTitle: '更新未完成',
     errorBody: '沒有資料遺失。您可以現在重試。',
     notNow: '暫不',
@@ -2082,7 +2082,7 @@ export const zhHant = defineLocale({
       skipped: '已略過',
       failed: '失敗'
     },
-    oneTimeTitle: 'Hermes 需要一次性安裝',
+    oneTimeTitle: 'Allr 需要一次性安裝',
     unsupportedDesc: platform =>
       `${platform} 暫不支援自動首次啟動安裝。請開啟終端機並執行下面的指令，然後重新啟動此應用程式。之後啟動會略過此步驟。`,
     installCommand: '安裝指令',
@@ -2091,11 +2091,11 @@ export const zhHant = defineLocale({
     installTo: '將安裝至',
     retryAfterRun: '我已執行 -- 重試',
     failedTitle: '安裝失敗',
-    settingUpTitle: '正在設定 Hermes Agent',
+    settingUpTitle: '正在設定 Allr',
     finishingTitle: '正在收尾',
     failedDesc:
-      '某個安裝步驟失敗。在 Windows 上，如果另一個 Hermes CLI 或桌面執行個體正在執行，可能會出現這種情況。請停止正在執行的 Hermes 執行個體後重試。可查看下方的詳細資訊或 desktop 記錄中的完整記錄。',
-    activeDesc: '這是一次性設定。Hermes 安裝程式正在下載相依套件並設定您的電腦。之後啟動會略過此步驟。',
+      '某個安裝步驟失敗。在 Windows 上，如果另一個 Allr CLI 或桌面執行個體正在執行，可能會出現這種情況。請停止正在執行的 Allr 執行個體後重試。可查看下方的詳細資訊或 desktop 記錄中的完整記錄。',
+    activeDesc: '這是一次性設定。Allr 安裝程式正在下載相依套件並設定您的電腦。之後啟動會略過此步驟。',
     progress: (completed, total) => `${completed}/${total} 個步驟已完成`,
     currentStage: stage => ` -- 目前：${stage}`,
     fetchingManifest: '正在取得安裝程式 manifest...',
@@ -2113,10 +2113,10 @@ export const zhHant = defineLocale({
   },
 
   onboarding: {
-    headerTitle: '開始設定 Hermes Agent',
+    headerTitle: '開始設定 Allr',
     headerDesc: '連線模型提供方即可開始聊天。大多數選項只需一次點擊。',
-    preparingInstall: 'Hermes 正在完成安裝。首次執行通常不到一分鐘。',
-    starting: '正在啟動 Hermes…',
+    preparingInstall: 'Allr 正在完成安裝。首次執行通常不到一分鐘。',
+    starting: '正在啟動 Allr…',
     lookingUpProviders: '正在查詢提供方...',
     collapse: '收合',
     otherProviders: '其他提供方',
@@ -2124,7 +2124,7 @@ export const zhHant = defineLocale({
     chooseLater: '稍後再選擇提供方',
     recommended: '建議',
     connected: '已連線',
-    featuredPitch: '一個訂閱，300+ 前沿模型 — 執行 Hermes 的建議方式',
+    featuredPitch: '一個訂閱，300+ 前沿模型 — 執行 Allr 的建議方式',
     fireworksPitch: '直接模型 API — Fireworks 託管的前沿模型',
     openRouterPitch: '一個金鑰，數百個模型 — 穩定的預設選擇',
     apiKeyOptions: {
@@ -2135,7 +2135,7 @@ export const zhHant = defineLocale({
       xai: { short: 'Grok 模型', description: '直接存取 xAI Grok 模型。' },
       local: {
         short: '自託管',
-        description: '將 Hermes 指向本機或自託管的 OpenAI 相容端點（vLLM、llama.cpp、Ollama 等）。'
+        description: '將 Allr 指向本機或自託管的 OpenAI 相容端點（vLLM、llama.cpp、Ollama 等）。'
       }
     },
     backToSignIn: '返回登入',
@@ -2147,7 +2147,7 @@ export const zhHant = defineLocale({
     update: '更新',
     flowSubtitles: {
       pkce: '開啟瀏覽器登入，然後回到這裡繼續',
-      device_code: '在瀏覽器中開啟驗證頁面 — Hermes 會自動連線',
+      device_code: '在瀏覽器中開啟驗證頁面 — Allr 會自動連線',
       external: '先在終端機登入一次，然後回來繼續聊天'
     },
     startingSignIn: provider => `正在為 ${provider} 啟動登入...`,
@@ -2158,11 +2158,11 @@ export const zhHant = defineLocale({
     pickDifferentProvider: '選擇其他提供方',
     signInWith: provider => `使用 ${provider} 登入`,
     openedBrowser: provider => `已在瀏覽器中開啟 ${provider}。`,
-    authorizeThere: '請在那裡授權 Hermes。',
+    authorizeThere: '請在那裡授權 Allr。',
     copyAuthCode: '複製授權碼並貼到下方。',
     pasteAuthCode: '貼上授權碼',
     reopenAuthPage: '重新開啟授權頁面',
-    autoBrowser: provider => `已在瀏覽器中開啟 ${provider}。請在那裡授權 Hermes，連線會自動完成，無需複製或貼上。`,
+    autoBrowser: provider => `已在瀏覽器中開啟 ${provider}。請在那裡授權 Allr，連線會自動完成，無需複製或貼上。`,
     reopenSignInPage: '重新開啟登入頁面',
     waitingAuthorize: '等待您授權...',
     externalPending: provider => `${provider} 透過自己的 CLI 登入。請在終端機執行此指令，然後回來選擇「我已登入」：`,
@@ -2171,7 +2171,7 @@ export const zhHant = defineLocale({
     reopenVerification: '重新開啟驗證頁面',
     copy: '複製',
     defaultModel: '預設模型',
-    noDefaultModel: 'Hermes 無法為該供應商選擇預設模型。憑證已儲存 — 請在設定 → 模型中選擇一個。',
+    noDefaultModel: 'Allr 無法為該供應商選擇預設模型。憑證已儲存 — 請在設定 → 模型中選擇一個。',
     freeTier: '免費層',
     pro: 'Pro',
     free: '免費',
@@ -2254,7 +2254,7 @@ export const zhHant = defineLocale({
       update: '更新',
       updateInProgress: '更新中',
       commitsBehind: (count, branch) => `落後 ${branch} ${count} 個提交`,
-      desktopVersion: version => `Hermes Desktop v${version}`,
+      desktopVersion: version => `Allr Desktop v${version}`,
       backendVersion: version => `後端 v${version}`,
       clientLabel: version => `用戶端 v${version}`,
       backendLabel: version => `後端 v${version}`,
@@ -2273,7 +2273,7 @@ export const zhHant = defineLocale({
       gatewayConnecting: '連線中',
       gatewayOffline: '離線',
       gatewayRestarting: '重新啟動中…',
-      gatewayTitle: 'Hermes 推論閘道狀態',
+      gatewayTitle: 'Allr 推論閘道狀態',
       agents: '代理',
       closeAgents: '關閉代理',
       openAgents: '開啟代理',
@@ -2374,7 +2374,7 @@ export const zhHant = defineLocale({
     binaryTitle: '這看起來像二進位檔案',
     binaryBody: label => `預覽 ${label} 可能會顯示無法讀取的文字。`,
     largeTitle: '此檔案較大',
-    largeBody: (label, size) => `${label} 大小為 ${size}。Hermes 只會顯示前 512 KB。`,
+    largeBody: (label, size) => `${label} 大小為 ${size}。Allr 只會顯示前 512 KB。`,
     previewAnyway: '仍然預覽',
     truncated: '顯示前 512 KB。',
     noInlineTitle: '沒有行內預覽',
@@ -2415,25 +2415,25 @@ export const zhHant = defineLocale({
       serverNotFound: '找不到伺服器',
       failedToLoad: '預覽載入失敗',
       tryAgain: '重試',
-      restarting: 'Hermes 正在重新啟動...',
-      askRestart: '請 Hermes 重新啟動伺服器',
-      lookingRestart: taskId => `Hermes 正在尋找要重新啟動的預覽伺服器 (${taskId})`,
+      restarting: 'Allr 正在重新啟動...',
+      askRestart: '請 Allr 重新啟動伺服器',
+      lookingRestart: taskId => `Allr 正在尋找要重新啟動的預覽伺服器 (${taskId})`,
       restartingTitle: '正在重新啟動預覽伺服器',
-      restartingMessage: 'Hermes 正在背景執行。可在預覽主控台查看進度。',
+      restartingMessage: 'Allr 正在背景執行。可在預覽主控台查看進度。',
       startRestartFailed: message => `無法啟動伺服器重新啟動：${message}`,
       restartFailed: '伺服器重新啟動失敗',
       hideConsole: '隱藏預覽主控台',
       showConsole: '顯示預覽主控台',
       hideDevTools: '隱藏預覽 DevTools',
       openDevTools: '開啟預覽 DevTools',
-      finishedRestarting: message => `Hermes 已完成預覽伺服器重新啟動${message ? `：${message}` : ''}`,
+      finishedRestarting: message => `Allr 已完成預覽伺服器重新啟動${message ? `：${message}` : ''}`,
       failedRestarting: message => `伺服器重新啟動失敗：${message}`,
       unknownError: '未知錯誤',
       restartedTitle: '預覽伺服器已重新啟動',
       reloadingNow: '正在重新載入預覽。',
       restartFailedTitle: '預覽重新啟動失敗',
-      restartFailedMessage: 'Hermes 無法重新啟動伺服器。',
-      stillWorking: 'Hermes 仍在執行，但尚未收到重新啟動結果。伺服器指令可能正在前台執行。',
+      restartFailedMessage: 'Allr 無法重新啟動伺服器。',
+      stillWorking: 'Allr 仍在執行，但尚未收到重新啟動結果。伺服器指令可能正在前台執行。',
       workspaceReloading: '工作區已變更，正在重新載入預覽',
       fileChanged: url => `檔案已變更，正在重新載入預覽：${url}`,
       filesChanged: (count, url) => `${count} 個檔案變更，正在重新載入預覽：${url}`,
@@ -2452,7 +2452,7 @@ export const zhHant = defineLocale({
       loadingSession: '正在載入工作階段',
       showEarlier: '顯示較早的訊息',
       steerMissed: '引導未送達',
-      loadingResponse: 'Hermes 正在載入回覆',
+      loadingResponse: 'Allr 正在載入回覆',
       compacting: '正在摘要對話',
       resumeWhenBackgroundDone: count =>
         count === 1 ? '背景工作完成後將自動繼續' : `${count} 個背景工作完成後將自動繼續`,
@@ -2488,7 +2488,7 @@ export const zhHant = defineLocale({
       attachingFile: '正在附加…'
     },
     approval: {
-      gatewayDisconnected: 'Hermes 閘道未連線',
+      gatewayDisconnected: 'Allr 閘道未連線',
       sendFailed: '無法傳送核准回應',
       run: '執行',
       command: '指令',
@@ -2499,12 +2499,12 @@ export const zhHant = defineLocale({
       reject: '拒絕',
       alwaysTitle: '一律允許此指令？',
       alwaysDescription: pattern =>
-        `這會將「${pattern}」模式加入永久允許清單（~/.hermes/config.yaml）。Hermes 對類似指令將不再詢問，包括目前工作階段和未來工作階段。`,
+        `這會將「${pattern}」模式加入永久允許清單（~/.allr/config.yaml）。Allr 對類似指令將不再詢問，包括目前工作階段和未來工作階段。`,
       alwaysAllow: '一律允許'
     },
     clarify: {
       notReady: '澄清請求尚未就緒',
-      gatewayDisconnected: 'Hermes 閘道未連線',
+      gatewayDisconnected: 'Allr 閘道未連線',
       sendFailed: '無法傳送澄清回應',
       loadingQuestion: '正在載入問題…',
       other: '其他（輸入您的答案）',
@@ -2598,14 +2598,14 @@ export const zhHant = defineLocale({
   },
 
   prompts: {
-    gatewayDisconnected: 'Hermes 閘道未連線',
+    gatewayDisconnected: 'Allr 閘道未連線',
     sudoSendFailed: '無法傳送 sudo 密碼',
     secretSendFailed: '無法傳送密鑰',
     sudoTitle: '管理員密碼',
-    sudoDesc: 'Hermes 需要您的 sudo 密碼來執行特權指令。它只會傳送給您的本機代理。',
+    sudoDesc: 'Allr 需要您的 sudo 密碼來執行特權指令。它只會傳送給您的本機代理。',
     sudoPlaceholder: 'sudo 密碼',
     secretTitle: '需要密鑰',
-    secretDesc: 'Hermes 需要一個憑證才能繼續。',
+    secretDesc: 'Allr 需要一個憑證才能繼續。',
     secretPlaceholder: '密鑰值'
   },
 
@@ -2658,8 +2658,8 @@ export const zhHant = defineLocale({
     sessionExportFailed: '無法匯出工作階段',
     imageSaved: '圖片已儲存',
     downloadStarted: '下載已開始',
-    restartToUseSaveImage: '重新啟動 Hermes Desktop 後可使用儲存圖片。',
-    restartToSaveImages: '重新啟動 Hermes Desktop 以儲存圖片',
+    restartToUseSaveImage: '重新啟動 Allr Desktop 後可使用儲存圖片。',
+    restartToSaveImages: '重新啟動 Allr Desktop 以儲存圖片',
     imageDownloadFailed: '圖片下載失敗',
     openImage: '開啟圖片',
     downloadImage: '下載圖片',
@@ -2684,7 +2684,7 @@ export const zhHant = defineLocale({
       success: platform => `已移交到 ${platform}。隨時可在此處恢復。`,
       systemNote: platform => `↻ 已移交到 ${platform} — 隨時可在此處恢復。`,
       failed: error => `移交失敗：${error}`,
-      timedOut: '等待閘道逾時。`hermes gateway` 是否正在執行？'
+      timedOut: '等待閘道逾時。`allr gateway` 是否正在執行？'
     }
   },
 
@@ -2768,16 +2768,16 @@ export const zhHant = defineLocale({
   },
 
   tray: {
-    show: '顯示 Hermes',
+    show: '顯示 Allr',
     hud: '開啟 HUD',
-    quit: '結束 Hermes',
+    quit: '結束 Allr',
     keepRunning: '保持背景執行',
-    tooltip: 'Hermes (MJX)',
-    closeDialogTitle: '讓 Hermes 留在背景嗎？',
+    tooltip: 'Allr',
+    closeDialogTitle: '讓 Allr 留在背景嗎？',
     closeDialogDesc:
-      '關閉此視窗後，可以讓 Hermes 繼續在背景執行，也可以完全結束。你隨時可以在設定或系統匣選單中變更。',
+      '關閉此視窗後，可以讓 Allr 繼續在背景執行，也可以完全結束。你隨時可以在設定或系統匣選單中變更。',
     keepInBackground: '留在背景',
-    closeApp: '結束 Hermes',
+    closeApp: '結束 Allr',
     status: {
       idle: '未連線',
       probing: '正在檢查閘道…',
@@ -2788,14 +2788,14 @@ export const zhHant = defineLocale({
   },
   quickEntry: {
     label: '快速輸入',
-    placeholder: '向 Hermes 提問…',
-    notConnected: '未連線——請開啟 Hermes 重新連線',
+    placeholder: '向 Allr 提問…',
+    notConnected: '未連線——請開啟 Allr 重新連線',
     sendTo: '傳送到',
     currentChat: '目前對話',
     newSession: '新工作階段',
     targetLabel: '目標工作階段',
     settingsTitle: '快速輸入',
-    settingsDesc: '用全域快速鍵隨時叫出小型輸入框，不必開啟 Hermes 就能送出提示詞。',
+    settingsDesc: '用全域快速鍵隨時叫出小型輸入框，不必開啟 Allr 就能送出提示詞。',
     shortcutHint: '請在「鍵盤快速鍵」中為其指派快速鍵。'
   },
   webhooks: {
@@ -2809,7 +2809,7 @@ export const zhHant = defineLocale({
     outboundSubtitle: '在 config.yaml 中設定',
     outboundTitle: '出站 Webhook',
     outboundBody:
-      'Hermes 可在工作階段生命週期掛鉤上向你自己的 URL 發送帶 HMAC 簽章的事件。它們在 config.yaml 的 `hooks.outbound:` 下設定——閘道未為其提供介面，因此這裡暫時無法管理。',
+      'Allr 可在工作階段生命週期掛鉤上向你自己的 URL 發送帶 HMAC 簽章的事件。它們在 config.yaml 的 `hooks.outbound:` 下設定——閘道未為其提供介面，因此這裡暫時無法管理。',
     emptyTitle: '尚無訂閱',
     emptyDesc: '訂閱會為外部服務提供一個可 POST 事件的 URL，並告訴智能體收到事件後要做什麼。',
     emptyDescDisabled: '請先啟用 Webhook 接收器——平台關閉時閘道會拒絕建立訂閱。',

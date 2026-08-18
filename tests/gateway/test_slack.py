@@ -551,7 +551,7 @@ class TestSlackConnectCleanup:
     async def test_disconnect_closes_workspace_clients_and_clears_runtime_state(self):
         """Regression for #51465: shutdown must close Slack WebClients.
 
-        ``hermes gateway run --replace`` takes the old process through the
+        ``allr gateway run --replace`` takes the old process through the
         normal adapter.disconnect() path. If Slack leaves AsyncWebClient
         instances open there, aiohttp logs ``Unclosed client session`` while
         the old gateway exits after SIGTERM.
@@ -4006,7 +4006,7 @@ class TestMissingCredentials:
         assert fatal_errors[0]["code"] == "missing_slack_app_token"
         assert fatal_errors[0]["retryable"] is False
         assert "SLACK_APP_TOKEN" in fatal_errors[0]["message"]
-        assert "hermes gateway setup" in fatal_errors[0]["message"].lower() or ".env" in fatal_errors[0]["message"]
+        assert "allr gateway setup" in fatal_errors[0]["message"].lower() or ".env" in fatal_errors[0]["message"]
 
 
 # ---------------------------------------------------------------------------
@@ -4547,7 +4547,7 @@ class TestSlackUserAgent:
 
     Slack platform partners (analytics, abuse-detection, etc.) attribute
     outbound API traffic by ``User-Agent``. The Slack adapter sets
-    ``user_agent_prefix=_HERMES_SLACK_USER_AGENT_PREFIX`` on every
+    ``user_agent_prefix=_ALLR_SLACK_USER_AGENT_PREFIX`` on every
     ``AsyncWebClient`` it builds and threads the primary client into
     ``AsyncApp(client=...)`` so the prefix sticks on the app-owned client too.
     Pin both behaviors at the actual call sites — a future refactor that
@@ -4557,5 +4557,5 @@ class TestSlackUserAgent:
     def test_hermes_slack_user_agent_prefix_format(self):
         """Module constant matches the HermesAgent/<version> convention used
         elsewhere in the codebase for platform-partner attribution."""
-        assert _slack_mod._HERMES_SLACK_USER_AGENT_PREFIX.startswith("HermesAgent/")
+        assert _slack_mod._ALLR_SLACK_USER_AGENT_PREFIX.startswith("HermesAgent/")
 

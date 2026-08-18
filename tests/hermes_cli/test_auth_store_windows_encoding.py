@@ -28,12 +28,12 @@ import hermes_cli.auth as auth
 
 @pytest.fixture
 def hermes_home(tmp_path, monkeypatch):
-    """Point HERMES_HOME at a tmp dir so we never touch the real auth store.
+    """Point ALLR_HOME at a tmp dir so we never touch the real auth store.
 
     Required because ``_auth_file_path()`` has a seat belt that refuses to
-    resolve to the real user's ~/.hermes/auth.json under pytest.
+    resolve to the real user's ~/.allr/auth.json under pytest.
     """
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setenv("ALLR_HOME", str(tmp_path))
     return tmp_path
 
 
@@ -183,10 +183,10 @@ class TestExplicitEncodingPassed:
             assert "utf-8" in str(call.kwargs["encoding"]).lower()
 
 
-# --- sibling readers of the same ~/.hermes/auth.json in other modules -------
+# --- sibling readers of the same ~/.allr/auth.json in other modules -------
 #
 # _load_auth_store lives in hermes_cli/auth.py, but several other modules read
-# the same ~/.hermes/auth.json directly. They had the same UTF-8-vs-cp1252
+# the same ~/.allr/auth.json directly. They had the same UTF-8-vs-cp1252
 # asymmetry on Windows — these tests pin the sibling reads too.
 
 class TestAuthJsonSiblingReaders:
@@ -233,7 +233,7 @@ class TestAuthJsonSiblingReaders:
         import agent.auxiliary_client as aux
 
         # _AUTH_JSON_PATH is resolved at module import time, so the
-        # HERMES_HOME env from the fixture doesn't reach it — point it at
+        # ALLR_HOME env from the fixture doesn't reach it — point it at
         # the tmp store explicitly.
         monkeypatch.setattr(aux, "_AUTH_JSON_PATH", hermes_home / "auth.json")
 
@@ -260,7 +260,7 @@ class TestAuthJsonSiblingReaders:
         # The shared-store path has a seat belt that refuses to resolve to the
         # real user's store under pytest; pin it to a tmp dir explicitly.
         shared_dir = tmp_path / "shared"
-        monkeypatch.setenv("HERMES_SHARED_AUTH_DIR", str(shared_dir))
+        monkeypatch.setenv("ALLR_SHARED_AUTH_DIR", str(shared_dir))
 
         payload = {
             "refresh_token": "rt",

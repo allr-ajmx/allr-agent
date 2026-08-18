@@ -38,7 +38,7 @@ def _(rid, params: dict) -> dict:
     # ``profile`` (app-global remote mode): a new chat started under a non-launch
     # profile must build its agent + persist against THAT profile's home/state.db,
     # not the dashboard's launch profile. Stored on the session so _start_agent_build
-    # and each turn re-bind HERMES_HOME. None/own profile → launch (unchanged).
+    # and each turn re-bind ALLR_HOME. None/own profile → launch (unchanged).
     profile = (params.get("profile") or "").strip() or None
     profile_home = _profile_home(profile)
 
@@ -168,7 +168,7 @@ def _(rid, params: dict) -> dict:
             # Resume picker should surface human conversation sessions from every
             # user-facing surface — CLI, TUI, all gateway platforms (including new
             # ones not enumerated here), ACP adapter clients, webhook sessions,
-            # custom `HERMES_SESSION_SOURCE` values, and older installs with
+            # custom `ALLR_SESSION_SOURCE` values, and older installs with
             # different source labels. We deny-list only the noisy internal
             # sources (``tool`` sub-agent runs and ``kanban`` dispatcher
             # workers) rather than allow-listing a fixed set of platform names
@@ -750,7 +750,7 @@ def _(rid, params: dict) -> dict:
                             "model_override"
                         ]
                     _sessions[sid]["display_history_prefix"] = display_history_prefix
-                    # Remember the profile home so each turn re-binds HERMES_HOME (the
+                    # Remember the profile home so each turn re-binds ALLR_HOME (the
                     # agent persists to its own db, but mid-turn home reads — memory,
                     # skills — must resolve to the resumed profile too).
                     if profile_home is not None:
@@ -1230,7 +1230,7 @@ def _(rid, params: dict) -> dict:
 
     Desktop parity with the CLI ``/handoff`` command: we only write
     ``handoff_state='pending'`` onto the persisted session row. The actual
-    transfer is performed by the separate ``hermes gateway`` process, whose
+    transfer is performed by the separate ``allr gateway`` process, whose
     ``_handoff_watcher`` claims the row, re-binds the session to the platform's
     home channel, and forges a synthetic turn. The desktop then polls
     ``handoff.state`` for the terminal result.
@@ -2426,7 +2426,7 @@ def _(rid, params: dict) -> dict:
     model = getattr(agent, "model", None) or mirror.get("model") or "(unknown)"
     project = _project_info_for_cwd(_display_session_cwd(session))
     lines = [
-        "Hermes TUI Status",
+        "Allr TUI Status",
         "",
         f"Session ID: {key}",
         f"Path: {display_hermes_home()}",
@@ -2706,8 +2706,8 @@ def _(rid, params: dict) -> dict:
         return _ok(rid, result)
 
     agent = session["agent"]
-    # Mirror the classic CLI /save: snapshot under the Hermes profile home
-    # (~/.hermes/sessions/saved/) rather than the project/workspace CWD, and
+    # Mirror the classic CLI /save: snapshot under the Allr profile home
+    # (~/.allr/sessions/saved/) rather than the project/workspace CWD, and
     # include the system prompt so the export matches the dashboard save.
     saved_dir = get_hermes_home() / "sessions" / "saved"
     try:

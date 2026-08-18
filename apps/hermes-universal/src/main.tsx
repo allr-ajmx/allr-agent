@@ -78,7 +78,7 @@ void restoreSessionCookies().finally(() => {
   void autoRestoreConnection()
 })
 
-// An Android Hermes Cloud sign-in comes back through a full page reload, and the
+// An Android Allr Cloud sign-in comes back through a full page reload, and the
 // marker it left has to be read by the boot rather than by whichever panel happens
 // to mount — the statusbar gateway popover, one of the surfaces you can start the
 // sign-in from, is gone by the time we get here. See store/cloud.ts.

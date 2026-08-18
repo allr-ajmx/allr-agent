@@ -99,7 +99,7 @@ def test_redact_short_flags_not_redacted() -> None:
 # ---------------------------------------------------------------------------
 # _is_pausable_gateway — the gateway exemption
 #
-# `hermes-setup` always invokes `hermes update --yes --gateway`, whose
+# `allr-setup` always invokes `allr update --yes --gateway`, whose
 # `_pause_windows_gateways_for_update()` stops running gateways itself. The
 # Desktop preflight must therefore not report gateway launcher/worker chains
 # as blockers — doing so aborts the handoff before the component that can
@@ -111,7 +111,7 @@ def test_redact_short_flags_not_redacted() -> None:
     "cmdline",
     [
         # venv-side launcher, exactly as the scheduled task spawns it
-        r"C:\Users\u\AppData\Local\hermes\hermes-agent\venv\Scripts\python.exe"
+        r"C:\Users\u\AppData\Local\hermes\allr-agent\venv\Scripts\python.exe"
         " -m hermes_cli.main gateway run --replace",
         # uv-side worker re-running the same argv (quoted exe, double space)
         r'"C:\Users\u\AppData\Roaming\uv\python\cpython-3.11-windows-x86_64-none\python.exe"'
@@ -225,7 +225,7 @@ def test_main_gateway_with_long_managed_runtime_path_is_exempt(monkeypatch, caps
     must exempt the gateway and truncate only the *displayed* cmdline.
     """
     long_exe = (
-        r'"C:\Users\u\AppData\Local\hermes\hermes-agent\.hermes-runtime\python'
+        r'"C:\Users\u\AppData\Local\hermes\allr-agent\.hermes-runtime\python'
         r"\generation-1785095035-66720-be29ea9c\cpython-3.11-windows-x86_64-none"
         r'\python.exe"'
     )

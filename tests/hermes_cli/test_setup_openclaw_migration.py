@@ -28,7 +28,7 @@ class TestOfferOpenclawMigration:
             patch.object(setup_mod, "_OPENCLAW_SCRIPT", script),
             patch.object(setup_mod, "prompt_yes_no", return_value=False),
         ):
-            assert setup_mod._offer_openclaw_migration(tmp_path / ".hermes") is False
+            assert setup_mod._offer_openclaw_migration(tmp_path / ".allr") is False
 
     def test_runs_migration_when_user_accepts(self, tmp_path):
         """Should run dry-run preview first, then execute after confirmation."""
@@ -36,7 +36,7 @@ class TestOfferOpenclawMigration:
         openclaw_dir.mkdir()
 
         # Create a fake hermes home with config
-        hermes_home = tmp_path / ".hermes"
+        hermes_home = tmp_path / ".allr"
         hermes_home.mkdir()
         config_path = hermes_home / "config.yaml"
         config_path.write_text("agent:\n  max_turns: 90\n")
@@ -105,7 +105,7 @@ class TestOfferOpenclawMigration:
         """Should catch exceptions and return False."""
         openclaw_dir = tmp_path / ".openclaw"
         openclaw_dir.mkdir()
-        hermes_home = tmp_path / ".hermes"
+        hermes_home = tmp_path / ".allr"
         hermes_home.mkdir()
         config_path = hermes_home / "config.yaml"
         config_path.write_text("")

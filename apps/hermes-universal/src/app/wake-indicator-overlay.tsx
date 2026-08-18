@@ -10,7 +10,7 @@ import { $wakeIndicator } from '@/store/wake-indicator'
  * `$wakeIndicator` (see that module for the state machine).
  *
  * Two presentations, one state. The native light
- * (`app/wake-indicator/native-indicator.ts`) is the one that works when Hermes
+ * (`app/wake-indicator/native-indicator.ts`) is the one that works when Allr
  * is not the window you are looking at, which hands-free is the whole point; the
  * in-window pill is the fallback for every platform and session that cannot
  * carry one, and it is a fallback rather than a companion — two lights for one

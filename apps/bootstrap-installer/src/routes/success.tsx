@@ -6,12 +6,12 @@ import { HackeryButton } from '../components/hackery-button'
 import { launchHermesDesktop } from '../store'
 
 /*
- * Success screen. HERMES AGENT wordmark stays as the visual anchor
+ * Success screen. ALLR AGENT wordmark stays as the visual anchor
  * (same Collapse Bold treatment as Welcome + the desktop chat intro),
  * with a status line below.
  *
  * Launching the desktop can fail (e.g. Stage-Desktop was skipped and
- * Hermes.exe doesn't exist). We catch the Tauri error and surface it
+ * Allr.exe doesn't exist). We catch the Tauri error and surface it
  * inline rather than silently doing nothing — the previous version
  * had `onClick={() => void launchHermesDesktop()}` which swallowed
  * the rejection and left the user staring at an unresponsive button.
@@ -48,9 +48,9 @@ export default function Success() {
           }
         >
           <span>
-            <span>Hermes is ready</span>
+            <span>Allr is ready</span>
           </span>
-          <span aria-hidden="true">Hermes is ready</span>
+          <span aria-hidden="true">Allr is ready</span>
         </p>
 
         <p className="m-0 text-center text-base leading-normal tracking-tight text-muted-foreground">

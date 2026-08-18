@@ -188,7 +188,7 @@ class TestCmdStatus:
                         "apiKey": "hch-at-deadbeef",
                         "oauth": {
                             "refreshToken": "hch-rt-x",
-                            "clientId": "hermes-agent",
+                            "clientId": "allr-agent",
                             "tokenEndpoint": "https://api.honcho.dev/oauth/token",
                             "expiresAt": 9999999999,
                         },
@@ -214,7 +214,7 @@ class TestCmdStatus:
         honcho_cli.cmd_status(SimpleNamespace(all=False))
 
         out = capsys.readouterr().out
-        assert "Auth:           OAuth (hermes-agent" in out
+        assert "Auth:           OAuth (allr-agent" in out
         assert "API key:" not in out
 
 
@@ -686,7 +686,7 @@ class TestCmdSetupDeviceFlow:
         calls: list[dict] = []
         cred = OAuthCredential(
             access_token="hch-at-x", refresh_token="hch-rt-x", expires_at=9_999_999_999,
-            client_id="hermes-agent", token_endpoint="http://x/oauth/token",
+            client_id="allr-agent", token_endpoint="http://x/oauth/token",
             consent_peer_name="lyra",
         )
 

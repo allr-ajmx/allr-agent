@@ -1,6 +1,6 @@
 """Tests for _refresh_bootstrap_cache_scripts (the stale-installer-cache fix).
 
-Pre-#67193 hermes-setup binaries reuse ``bootstrap-cache/install-<branch>.ps1``
+Pre-#67193 allr-setup binaries reuse ``bootstrap-cache/install-<branch>.ps1``
 forever without re-downloading, so a script cached at install time executes
 months-stale code on every GUI update/repair (the 2026-08-09 incident: a
 June 4 cached venv stage without the #81327 tree-kill sweep died on
@@ -29,7 +29,7 @@ BOM = b"\xef\xbb\xbf"
 
 def _setup(tmp_path, *, ps1=b"WRITE-HOST current\n", sh=b"echo current\n"):
     home = tmp_path / "hermes_home"
-    root = tmp_path / "hermes-agent"
+    root = tmp_path / "allr-agent"
     (root / "scripts").mkdir(parents=True)
     (home / "bootstrap-cache").mkdir(parents=True)
     if ps1 is not None:

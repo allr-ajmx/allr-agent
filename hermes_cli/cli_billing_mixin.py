@@ -30,7 +30,7 @@ class CLIBillingMixin:
         model is unavailable. Agent-independent (a portal fetch gated on "a Nous
         account is logged in"), so /usage shows the block even in the TUI
         slash-worker subprocess that resumes WITHOUT a live agent. Fail-open and
-        wall-clock-bounded; honors HERMES_DEV_CREDITS_FIXTURE for offline testing.
+        wall-clock-bounded; honors ALLR_DEV_CREDITS_FIXTURE for offline testing.
         """
         from cli import _cprint, _b, _d
 
@@ -124,7 +124,7 @@ class CLIBillingMixin:
                 _cprint(f"  💳 {_d(f'Could not load subscription: {state.error}')}")
             else:
                 _cprint(f"  💳 {_d('Not logged into Nous Portal.')}")
-                print("  Run `hermes portal` to log in, then /subscription.")
+                print("  Run `allr portal` to log in, then /subscription.")
             return
 
         # Team context: no personal plan — teams run on a shared balance.
@@ -666,7 +666,7 @@ class CLIBillingMixin:
         print("  ! One-time setup")
         _cprint(f"  {_d('To change your plan from the terminal, allow Remote Spending once. It opens your browser to authorize, then your change picks up right here.')}")
         if not getattr(self, "_app", None):
-            print("  Run `hermes portal` and allow Remote Spending, then re-run /subscription.")
+            print("  Run `allr portal` and allow Remote Spending, then re-run /subscription.")
             return
         confirm_choices = [
             ("yes", "Allow Remote Spending", "open your browser to authorize"),
@@ -777,7 +777,7 @@ class CLIBillingMixin:
                 _cprint(f"  💳 {_d(_msg)}")
             else:
                 _cprint(f"  💳 {_d('Not logged into Nous Portal.')}")
-                print("  Run `hermes portal` to log in, then /topup.")
+                print("  Run `allr portal` to log in, then /topup.")
             return
 
         # Any sub-arg is intentionally ignored — always open the menu.
@@ -852,7 +852,7 @@ class CLIBillingMixin:
             _cprint(f"  {_d('Remote spending is off for this org.')}")
             self._billing_portal_hint(
                 state,
-                reason="A billing admin can turn it on from the portal's Hermes Agent page to add funds here.",
+                reason="A billing admin can turn it on from the portal's Allr page to add funds here.",
             )
             return
 
@@ -967,7 +967,7 @@ class CLIBillingMixin:
             _cprint(f"  💳 {_d('Remote spending is off for this org.')}")
             self._billing_portal_hint(
                 state,
-                reason="A billing admin can turn it on from the portal's Hermes Agent page before adding funds.",
+                reason="A billing admin can turn it on from the portal's Allr page before adding funds.",
             )
             return False
         return True
@@ -1233,14 +1233,14 @@ class CLIBillingMixin:
             who = ("An admin stopped this terminal's spending."
                    if actor == "admin"
                    else "You stopped this terminal's spending.")
-            print(f"  🔴 {who} Reconnect to restore — run `hermes portal` to re-authorize.")
+            print(f"  🔴 {who} Reconnect to restore — run `allr portal` to re-authorize.")
         elif isinstance(exc, BillingSessionRevoked) or code == "session_revoked":
-            print("  🔴 Your session was logged out. Run `hermes portal` to log in again.")
+            print("  🔴 Your session was logged out. Run `allr portal` to log in again.")
         elif code == "no_payment_method":
             print("  💳 No card on file — top up and manage billing on the portal.")
         elif code in ("cli_billing_disabled", "remote_spending_disabled") or \
                 getattr(exc, "code", None) == "remote_spending_disabled":
-            print("  Remote spending is off for this account — a billing admin can turn it on from the portal's Hermes Agent page.")
+            print("  Remote spending is off for this account — a billing admin can turn it on from the portal's Allr page.")
         elif code == "role_required":
             print("  Adding funds needs an org admin/owner. Ask an admin, or manage on the portal.")
         elif code == "idempotency_conflict":
@@ -1283,7 +1283,7 @@ class CLIBillingMixin:
         print("  ! One-time setup")
         _cprint(f"  {_d(f'To charge from this terminal, allow Remote Spending once. It opens your browser to authorize, then {amount_str} picks up right here.')}")
         if not getattr(self, "_app", None):
-            print("  Run `hermes portal` and allow Remote Spending, then retry.")
+            print("  Run `allr portal` and allow Remote Spending, then retry.")
             return
         confirm_choices = [
             ("yes", "Allow Remote Spending", "open your browser to authorize"),
@@ -1317,7 +1317,7 @@ class CLIBillingMixin:
 
         fresh = build_billing_state()
         if not (fresh.logged_in and fresh.cli_billing_enabled):
-            print("  Remote Spending is allowed for this terminal, but it's still off for this org. A billing admin can turn it on from the portal's Hermes Agent page, then run /topup again.")
+            print("  Remote Spending is allowed for this terminal, but it's still off for this org. A billing admin can turn it on from the portal's Allr page, then run /topup again.")
             self._billing_portal_hint(fresh)
             return
 

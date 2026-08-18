@@ -7,7 +7,7 @@
 //! readable, and descent stops there.
 //!
 //! The renderer supplies the profile-scoped policy (`enabled` / `roots` /
-//! `exclude_paths`) read from Hermes config; results are POSTed to the gateway's
+//! `exclude_paths`) read from Allr config; results are POSTed to the gateway's
 //! `projects.record_repos`, which caches them so later reads never re-walk disk.
 //!
 //! Gating: this walks the *Tauri host's* filesystem, so `lib/desktop-git.ts` only
