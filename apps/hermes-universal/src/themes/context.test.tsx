@@ -28,15 +28,16 @@ describe('ThemeProvider', () => {
   })
   afterEach(() => localStorage.clear())
 
-  it('paints seeds onto :root and defaults to the nous skin', () => {
+  it('paints seeds onto :root and defaults to the allr skin', () => {
     render(
       <ThemeProvider>
         <Harness />
       </ThemeProvider>
     )
     // jsdom has no matchMedia, so system resolves to light.
-    expect(screen.getByTestId('state')).toHaveTextContent('nous:light')
-    expect(root().style.getPropertyValue('--theme-primary').toLowerCase()).toBe('#0053fd')
+    expect(screen.getByTestId('state')).toHaveTextContent('allr:light')
+    // Green-deep: the brand CTA colour, deepened for small-text contrast.
+    expect(root().style.getPropertyValue('--theme-primary').toLowerCase()).toBe('#1e7a49')
     expect(root().classList.contains('dark')).toBe(false)
   })
 
@@ -50,8 +51,8 @@ describe('ThemeProvider', () => {
     fireEvent.click(screen.getByText('dark'))
     expect(root().classList.contains('dark')).toBe(true)
     expect(root().dataset.hermesMode).toBe('dark')
-    // Dark nous foreground is a light color (not the light-mode #17171a).
-    expect(root().style.getPropertyValue('--theme-foreground')).not.toBe('#17171a')
+    // The dark foreground is a light color (not the light-mode pine ink).
+    expect(root().style.getPropertyValue('--theme-foreground').toLowerCase()).not.toBe('#223b33')
     expect(localStorage.getItem('hermes.mode')).toBe('dark')
 
     fireEvent.click(screen.getByText('light'))
