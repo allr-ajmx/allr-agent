@@ -546,7 +546,7 @@ mod tests {
         // comes from the Tauri build script, which exports it on every target.
         assert_eq!(
             android_gate_class(),
-            "com/jaxmatrix/mjx_unofficial_hermes/BiometricGate",
+            "work/allr/app/BiometricGate",
             "must match the package of gen/android/.../BiometricGate.kt"
         );
     }
