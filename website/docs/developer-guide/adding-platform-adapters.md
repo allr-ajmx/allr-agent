@@ -40,7 +40,7 @@ The plugin system lets you add a platform adapter without modifying any core All
 
 ### plugin.yaml
 
-Plugin metadata. The `requires_env` and `optional_env` blocks auto-populate `allr config` UI entries (see [Surfacing Env Vars](#surfacing-env-vars-in-hermes-config) below).
+Plugin metadata. The `requires_env` and `optional_env` blocks auto-populate `allr config` UI entries (see [Surfacing Env Vars](#surfacing-env-vars-in-allr-config) below).
 
 ```yaml
 name: my-platform

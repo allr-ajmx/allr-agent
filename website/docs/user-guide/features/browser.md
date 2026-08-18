@@ -379,7 +379,7 @@ For that setup, prefer `chrome-devtools-mcp` through Allr MCP support.
 
 See the MCP guide for the practical setup:
 
-- [Use MCP with Allr](../../guides/use-mcp-with-hermes.md#wsl2-bridge-hermes-in-wsl-to-windows-chrome)
+- [Use MCP with Allr](../../guides/use-mcp-with-hermes.md#wsl2-bridge-allr-in-wsl-to-windows-chrome)
 
 ### Local browser mode
 
