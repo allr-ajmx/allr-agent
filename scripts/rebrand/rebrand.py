@@ -39,7 +39,7 @@ DELIBERATE NON-SCOPE — these keep the word "hermes" on purpose:
   splits every trace in two.
 * Directory/package names under `gen/android` and `gen/apple` — the app
   identifier lives there and is maintained by hand.
-* Any line carrying a `# rebrand:keep` comment — the deliberate
+* Any line carrying a `# rebrand:keep` (or `// rebrand:keep`) comment — the deliberate
   backward-compat literals (legacy `HERMES_*` env names, legacy unit names)
   that exist precisely to read the pre-rename world.
 
@@ -71,7 +71,9 @@ PROTECT_PARTS = [
     # Escape hatch: a line carrying `# rebrand:keep` is masked whole. Use it for
     # the deliberate backward-compat literals (legacy env names, legacy unit
     # names) that read the pre-rename world and must survive every re-run.
-    r"[^\n]*# rebrand:keep[^\n]*",
+    # Anchored to line start: an unanchored `[^\n]*…` is quadratic on the
+    # single-line dist bundles and turns --check into a multi-minute hang.
+    r"(?<![^\n])[^\n]*(?:#|//) rebrand:keep[^\n]*",
     # Python modules / internal identifiers.
     r"hermes_cli\b",
     r"hermes_constants\b",
@@ -405,6 +407,7 @@ KEEP = [
     'unit = "hermes.service"',
     'KeyValue::new("hermes.run", run_label())',
     'legacy = os.environ["HERMES_HOME"]  # rebrand:keep',
+    "description: 'Hosted Hermes & Nous-trained models', // rebrand:keep",
     'URL = "https://hermes-agent.nousresearch.com/docs/api/model-catalog.json"',
 ]
 
