@@ -438,8 +438,8 @@ def _compute_tool_definitions(
     if disabled_toolsets:
         for toolset_name in disabled_toolsets:
             if validate_toolset(toolset_name):
-                from toolsets import bundle_non_core_tools, get_toolset
-                if toolset_name.startswith("hermes-") or (get_toolset(toolset_name) or {}).get("posture"):
+                from toolsets import PLATFORM_TOOLSET_PREFIXES, bundle_non_core_tools, get_toolset
+                if toolset_name.startswith(PLATFORM_TOOLSET_PREFIXES) or (get_toolset(toolset_name) or {}).get("posture"):
                     # Platform bundles (hermes-*) include _ALLR_CORE_TOOLS, and
                     # posture toolsets (`posture: True`, e.g. `coding`) re-list
                     # those same core tools without owning them, so subtracting
@@ -449,7 +449,7 @@ def _compute_tool_definitions(
                     to_remove = bundle_non_core_tools(toolset_name)
                     tools_to_include.difference_update(to_remove)
                     resolved = sorted(to_remove)
-                    if (not quiet_mode and toolset_name.startswith("hermes-")
+                    if (not quiet_mode and toolset_name.startswith(PLATFORM_TOOLSET_PREFIXES)
                             and toolset_name not in _WARNED_DISABLED_BUNDLES):
                         _WARNED_DISABLED_BUNDLES.add(toolset_name)
                         logger.info(

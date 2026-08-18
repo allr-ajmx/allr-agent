@@ -3263,7 +3263,7 @@ def _blank_slate_minimal_toolsets(config: dict):
     config.setdefault("platform_toolsets", {})["cli"] = sorted(keep)
 
     try:
-        from toolsets import TOOLSETS
+        from toolsets import PLATFORM_TOOLSET_PREFIXES, TOOLSETS
         from hermes_cli.tools_config import CONFIGURABLE_TOOLSETS, _get_plugin_toolset_keys
 
         all_keys = set()
@@ -3272,7 +3272,7 @@ def _blank_slate_minimal_toolsets(config: dict):
         # Plain (non-composite) TOOLSETS entries — catches recovered toolsets
         # like ``kanban`` that aren't in CONFIGURABLE_TOOLSETS but get re-added.
         for k, tdef in TOOLSETS.items():
-            if k.startswith("hermes-"):
+            if k.startswith(PLATFORM_TOOLSET_PREFIXES):
                 continue  # platform composites — not user-facing toolsets
             if isinstance(tdef, dict) and tdef.get("includes"):
                 continue  # composite groupings, not leaf toolsets
