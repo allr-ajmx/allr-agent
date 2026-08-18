@@ -91,7 +91,7 @@ export function clearGatewayTarget(): void {
 // (the session outlives the reload either way — the RFC 8252 bearer in the OS keyring,
 // or the gateway cookies in Rust's in-memory jar). localStorage is per-origin
 // and the app origin is unchanged across the round-trip, so the marker survives.
-// One-shot: the resume reads-and-clears it. The portal (Allr Cloud) login does the same
+// One-shot: the resume reads-and-clears it. The portal (Nous Cloud) login does the same
 // round-trip and gets its own marker below.
 
 const PENDING_OAUTH_KEY = 'hermes.oauth.pending'
@@ -134,7 +134,7 @@ export function hasPendingOAuth(): boolean {
   return Boolean(loadString(PENDING_OAUTH_KEY))
 }
 
-// The portal (Allr Cloud) equivalent. It carries no payload — the portal session is a
+// The portal (Nous Cloud) equivalent. It carries no payload — the portal session is a
 // single global thing, so all the reload needs to know is "you were in the middle of
 // signing in to the portal", which puts the gateway panel back on the cloud card instead
 // of dropping the user on whatever mode was persisted.
@@ -213,7 +213,7 @@ export async function dialSavedTarget(target: GatewayTarget, interactive = false
     await connectSsh({ ...target.ssh, profile: target.profile ?? null }, { interactive })
   } else if (target.mode === 'cloud') {
     if (!target.cloudBaseUrl) {
-      throw new Error('No saved Allr Cloud agent to reconnect to')
+      throw new Error('No saved Nous Cloud agent to reconnect to')
     }
 
     await connectCloud(target.cloudBaseUrl, target.profile ?? null)

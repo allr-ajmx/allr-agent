@@ -769,6 +769,19 @@ export function GatewayConfigurator({
               onSelect={() => selectMode('cloud')}
               title={g.cloudTitle}
             />
+            {/* Allr's own hosted gateway is not live yet. Until it ships, the card
+                stays out of the build. When it lands: bump the grid literals above
+                to grid-cols-5 / grid-cols-4, add `settings.gateway.allrTitle`
+                ('Allr') / `allrDesc` ('One workspace, finished work. Opens
+                allr.work.') to i18n, import Sparkles + BRAND_HOME_URL, and render:
+            <ModeCard
+              active={false}
+              description={g.allrDesc}
+              icon={Sparkles}
+              onSelect={() => void openExternalLink(BRAND_HOME_URL)}
+              title={g.allrTitle}
+            />
+            */}
             <ModeCard
               active={pendingMode === 'remote'}
               description={g.remoteDesc}
@@ -824,7 +837,7 @@ export function GatewayConfigurator({
           who already has a working install and wants to switch back to it. */}
       {showLocalInstall ? <LocalInstallPanel onContinue={() => void doConnectLocal()} /> : null}
 
-      {/* Allr Cloud panel */}
+      {/* Nous Cloud panel */}
       {showPanels && pendingMode === 'cloud' ? (
         <CloudPanel connectAgent={connectAgent} connection={connection} g={g} />
       ) : null}
@@ -1004,7 +1017,7 @@ export function GatewayConfigurator({
   )
 }
 
-// ── Allr Cloud panel: portal sign-in → org picker → discovered-agent list ──
+// ── Nous Cloud panel: portal sign-in → org picker → discovered-agent list ──
 function CloudPanel({
   connectAgent,
   connection,

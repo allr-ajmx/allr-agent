@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 
 import { GatewayConfigurator } from '@/app/gateway/gateway-configurator'
 import { sshStepLabel } from '@/app/gateway/ssh-copy'
-import { BRAND, BRAND_CLOUD } from '@/brand'
+import { BRAND, HOSTED_CLOUD } from '@/brand'
 import { Wordmark } from '@/components/brand/wordmark'
 import { Button } from '@/components/ui/button'
 import { useI18n } from '@/i18n'
@@ -43,7 +43,7 @@ function targetLabel(): string {
       return target.cloudAgentName
     }
 
-    return hostOf(target.cloudBaseUrl) ?? BRAND_CLOUD
+    return hostOf(target.cloudBaseUrl) ?? HOSTED_CLOUD
   }
 
   return hostOf(target.url) ?? 'the remote gateway'

@@ -17,8 +17,12 @@ export const BRAND = 'Allr'
 /** Lowercase — the wordmark lockup. Never `ALLR`; the brand book forbids it. */
 export const BRAND_LOWER = 'allr'
 
-/** The hosted backend, as users refer to it. */
-export const BRAND_CLOUD = `${BRAND} Cloud`
+/** The Nous-hosted backend (portal.nousresearch.com) — an external service we
+ *  use as-is; it keeps its own name. */
+export const HOSTED_CLOUD = 'Nous Cloud'
+
+/** Where the "Allr" connect card sends people until Allr's own cloud is live. */
+export const BRAND_HOME_URL = 'https://allr.work'
 
 /** Hero eyebrow from the brand book — used on the connect/first-run screens. */
 export const BRAND_TAGLINE = 'One workspace. Finished work.'
