@@ -214,9 +214,9 @@ def provider_with_config(tmp_path, monkeypatch):
 
 
 def test_normalize_retain_tags_accepts_csv_and_dedupes():
-    assert _normalize_retain_tags("agent:fakeassistantname, source_system:hermes-agent, agent:fakeassistantname") == [
+    assert _normalize_retain_tags("agent:fakeassistantname, source_system:allr-agent, agent:fakeassistantname") == [
         "agent:fakeassistantname",
-        "source_system:hermes-agent",
+        "source_system:allr-agent",
     ]
 
 
@@ -269,7 +269,7 @@ class TestConfig:
         assert provider._recall_types == ["observation"]
         assert provider._bank_mission == ""
         assert provider._bank_retain_mission is None
-        assert provider._retain_context == "conversation between Hermes Agent and the User"
+        assert provider._retain_context == "conversation between Allr and the User"
 
     def test_recall_types_default_is_observation_only(self, provider):
         """Auto-recall must filter to observation by default."""
@@ -742,7 +742,7 @@ class TestSyncTurn:
         assert call_kwargs["retain_async"] is True
         assert len(call_kwargs["items"]) == 1
         item = call_kwargs["items"][0]
-        assert item["context"] == "conversation between Hermes Agent and the User"
+        assert item["context"] == "conversation between Allr and the User"
         assert item["tags"] == ["conv", "session1", "session:session-1"]
         content = json.loads(item["content"])
         assert len(content) == 1

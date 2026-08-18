@@ -1,9 +1,9 @@
-"""Wake-word ("Hey Hermes") detection — hands-free session trigger.
+"""Wake-word ("Hey Allr") detection — hands-free session trigger.
 
 A lightweight, always-on hotword listener that fires a callback when a wake
 phrase is spoken — the "Hey Siri" / "Alexa" pattern. Shared by the CLI, TUI, and
 desktop GUI (one of them owns it, gated by ``wake_surface_enabled``): say the
-wake word, Hermes opens a fresh session and captures voice via the existing
+wake word, Allr opens a fresh session and captures voice via the existing
 pipeline, then answers.
 
 Three engines, all fully on-device (no audio leaves the machine for detection):
@@ -476,7 +476,7 @@ def silent_audio_hint(details: Dict[str, Any]) -> str:
     """Platform-specific remediation for an armed stream delivering silence."""
     if sys.platform == "darwin":
         return (
-            "Microphone delivers only silence. Grant the Hermes backend "
+            "Microphone delivers only silence. Grant the Allr backend "
             "microphone access in System Settings > Privacy & Security > "
             "Microphone, then toggle the wake word."
         )
@@ -620,7 +620,7 @@ class _OpenWakeWordEngine(_Engine):
 
 # sherpa-onnx open-vocabulary KWS model: a small streaming zipformer
 # transducer. English (GigaSpeech); one-time download, cached under
-# HERMES_HOME. Keywords are typed phrases tokenized at RUNTIME — no
+# ALLR_HOME. Keywords are typed phrases tokenized at RUNTIME — no
 # training step, unlike openWakeWord/Porcupine custom models.
 _SHERPA_KWS_MODEL_URL = (
     "https://github.com/k2-fsa/sherpa-onnx/releases/download/kws-models/"
@@ -947,7 +947,7 @@ def check_wake_word_requirements(cfg: Optional[Dict[str, Any]] = None) -> Dict[s
         missing = " and ".join(
             name for name, ok in (("speech-to-text", stt_ok), ("text-to-speech", tts_ok)) if not ok
         )
-        hint = (f"Wake word needs {missing} configured — run `hermes tools` "
+        hint = (f"Wake word needs {missing} configured — run `allr tools` "
                 f"(Voice section) or see the voice-mode docs.")
 
     capture_mode = resolve_capture_mode(cfg)

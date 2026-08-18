@@ -3,7 +3,7 @@ import { type DragEvent as ReactDragEvent, useRef, useState } from 'react'
 import { triggerHaptic } from '@/lib/haptics'
 import { IS_MOBILE } from '@/lib/platform'
 
-import { extractDroppedFiles, HERMES_PATHS_MIME, partitionDroppedFiles } from '../../hooks/use-composer-actions'
+import { extractDroppedFiles, ALLR_PATHS_MIME, partitionDroppedFiles } from '../../hooks/use-composer-actions'
 import { dragHasAttachments, droppedFileInlineRefs, type InlineRefInput } from '../inline-refs'
 import type { ChatBarProps } from '../types'
 
@@ -56,7 +56,7 @@ export function useComposerDrop({
   }
 
   const handleDragEnter = (event: ReactDragEvent<HTMLFormElement>) => {
-    if (!onAttachDroppedItems || !dragHasAttachments(event.dataTransfer, HERMES_PATHS_MIME)) {
+    if (!onAttachDroppedItems || !dragHasAttachments(event.dataTransfer, ALLR_PATHS_MIME)) {
       return
     }
 
@@ -69,7 +69,7 @@ export function useComposerDrop({
   }
 
   const handleDragOver = (event: ReactDragEvent<HTMLFormElement>) => {
-    if (!onAttachDroppedItems || !dragHasAttachments(event.dataTransfer, HERMES_PATHS_MIME)) {
+    if (!onAttachDroppedItems || !dragHasAttachments(event.dataTransfer, ALLR_PATHS_MIME)) {
       return
     }
 
@@ -126,7 +126,7 @@ export function useComposerDrop({
   }
 
   const handleInputDragOver = (event: ReactDragEvent<HTMLDivElement>) => {
-    if (!dragHasAttachments(event.dataTransfer, HERMES_PATHS_MIME)) {
+    if (!dragHasAttachments(event.dataTransfer, ALLR_PATHS_MIME)) {
       return
     }
 
@@ -136,7 +136,7 @@ export function useComposerDrop({
   }
 
   const handleInputDrop = (event: ReactDragEvent<HTMLDivElement>) => {
-    if (!dragHasAttachments(event.dataTransfer, HERMES_PATHS_MIME)) {
+    if (!dragHasAttachments(event.dataTransfer, ALLR_PATHS_MIME)) {
       return
     }
 

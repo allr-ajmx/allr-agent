@@ -26,7 +26,7 @@ from hermes_cli import web_server
 from hermes_cli.config import get_config_path, load_config
 
 # Every TERMINAL_* var the switches under test consult. The hermetic conftest
-# fixture isolates HERMES_HOME but not these, and a stray value from the
+# fixture isolates ALLR_HOME but not these, and a stray value from the
 # developer's shell would silently mask a config-path regression — which is
 # exactly the failure mode this file exists to prevent.
 _TERMINAL_ENV_VARS = (
@@ -44,7 +44,7 @@ def _no_terminal_env(monkeypatch):
 
 
 def _write_config(body: str) -> None:
-    """Write a real config.yaml into the per-test HERMES_HOME."""
+    """Write a real config.yaml into the per-test ALLR_HOME."""
     path = get_config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(textwrap.dedent(body), encoding="utf-8")

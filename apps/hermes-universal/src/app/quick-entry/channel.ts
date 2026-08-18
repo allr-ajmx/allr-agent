@@ -24,11 +24,11 @@ import { IS_TAURI } from '@/lib/platform'
 import type { QuickEntryStatePush, QuickEntrySubmitPayload } from '@/store/quick-entry'
 
 /** Captured text on its way to the window that can actually send it. */
-export const QUICK_ENTRY_SUBMIT_EVENT = 'hermes://quick-entry-submit'
+export const QUICK_ENTRY_SUBMIT_EVENT = 'allr://quick-entry-submit'
 /** Gateway truth on its way to the window that has no gateway. */
-export const QUICK_ENTRY_STATE_EVENT = 'hermes://quick-entry-state'
+export const QUICK_ENTRY_STATE_EVENT = 'allr://quick-entry-state'
 /** "I'm up — tell me what the backend is doing." */
-export const QUICK_ENTRY_HELLO_EVENT = 'hermes://quick-entry-hello'
+export const QUICK_ENTRY_HELLO_EVENT = 'allr://quick-entry-hello'
 
 /** A no-op unlisten, so callers off Tauri (tests, web) still get a disposer. */
 const NOOP: UnlistenFn = () => {}

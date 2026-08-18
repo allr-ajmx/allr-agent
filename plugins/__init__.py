@@ -1,1 +1,1 @@
-# Hermes plugins package
+# Allr plugins package

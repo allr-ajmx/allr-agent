@@ -18,7 +18,7 @@ import { type RestoreMessageTarget } from './types'
 import { UserEditComposer } from './user-edit-composer'
 import { UserMessage } from './user-message'
 
-// New-conversation empty state — desktop's <Intro>: the auto-fit "HERMES AGENT"
+// New-conversation empty state — desktop's <Intro>: the auto-fit "ALLR AGENT"
 // wordmark + a rotating neutral tagline. Centered and pushed above the docked
 // composer by its measured height, matching desktop's placement.
 const EmptyPlaceholder = (

@@ -119,7 +119,7 @@ def _complete_stub_login(client) -> None:
     """Walk the stub OAuth round trip so ``client`` carries a valid session.
 
     TestClient persists Set-Cookie across calls, so after this returns the
-    client's cookie jar holds ``hermes_session_at`` / ``hermes_session_rt``
+    client's cookie jar holds ``allr_session_at`` / ``allr_session_rt``
     and subsequent gated requests authenticate.
     """
     r1 = client.get("/auth/login?provider=stub", follow_redirects=False)
@@ -304,12 +304,12 @@ def _mint_stub_at(stub: StubAuthProvider) -> str:
     ls = stub.start_login(redirect_uri="https://fly-app.fly.dev/auth/callback")
     state = dict(
         seg.split("=", 1)
-        for seg in ls.cookie_payload["hermes_session_pkce"].split(";")
+        for seg in ls.cookie_payload["allr_session_pkce"].split(";")
         if "=" in seg
     )["state"]
     verifier = dict(
         seg.split("=", 1)
-        for seg in ls.cookie_payload["hermes_session_pkce"].split(";")
+        for seg in ls.cookie_payload["allr_session_pkce"].split(";")
         if "=" in seg
     )["verifier"]
     session = stub.complete_login(

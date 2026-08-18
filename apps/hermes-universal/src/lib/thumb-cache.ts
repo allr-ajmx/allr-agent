@@ -2,7 +2,7 @@ import { loadString, removeKey, saveString } from '@/lib/persist'
 
 // Persistent LRU for pet thumbnail data URIs.
 //
-// The gateway already crops + disk-caches each thumbnail (`~/.hermes/pets/.thumbs`),
+// The gateway already crops + disk-caches each thumbnail (`~/.allr/pets/.thumbs`),
 // but the client's in-memory map dies with the webview — so every restart re-paid one
 // `pet.thumb` RPC per visible card. That RPC rides the gateway's shared 8-worker pool,
 // so the burst is expensive far beyond the pet picker (MJX-14).

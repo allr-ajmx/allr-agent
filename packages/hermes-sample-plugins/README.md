@@ -33,7 +33,7 @@ the exit code.
 
 **Through the disk door** — `node scripts/build-sample-plugins.mjs` compiles
 each one to a standalone ESM `plugin.js` in
-`$HERMES_HOME/desktop-plugins/<name>/`, which is the same shape a third-party
+`$ALLR_HOME/desktop-plugins/<name>/`, which is the same shape a third-party
 plugin has. That path is worth exercising because it is the only one that
 touches the real runtime pipeline: specifier rewrite → SDK/react shim blobs →
 `blob:` import under the app CSP → React singleton. A bundled plugin is
@@ -52,7 +52,7 @@ these files live outside both apps' `src/` and compile in either.
 `hello-runtime` is the exception that proves the shape: it is
 `plugin.runtime.js`, hand-written plain ESM, and the bundled glob does not
 match it. The build script copies it verbatim. It exists to show exactly what
-an agent (or a compiler) writes into `$HERMES_HOME/desktop-plugins/<name>/plugin.js`.
+an agent (or a compiler) writes into `$ALLR_HOME/desktop-plugins/<name>/plugin.js`.
 
 ## Reaching the OS
 
@@ -75,7 +75,7 @@ if (!(await ctx.os.openExternal(url))) {
 
 `ctx.os.notify` is the native OS notification, gated by Settings ▸ Notifications
 ▸ "Plugin notifications", throttled per plugin, and fires only while the user is
-away from Hermes. For anything the user should see *while looking at the app*,
+away from Allr. For anything the user should see *while looking at the app*,
 use `host.notify` — the in-app toast.
 
 kanban talks to `/api/plugins/kanban`, served by the Python dashboard plugin at

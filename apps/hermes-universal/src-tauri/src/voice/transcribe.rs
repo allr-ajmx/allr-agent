@@ -4,7 +4,7 @@
 //! resample/encode/base64 goes on a blocking worker so it stalls neither the
 //! reactor nor the realtime capture loop; the POST reuses `TransportState`'s
 //! shared reqwest client + cookie jar, so auth is identical to the JS
-//! `transcribeAudio` path (headers — incl. `X-Hermes-Session-Token` — come from
+//! `transcribeAudio` path (headers — incl. `X-Allr-Session-Token` — come from
 //! the hot-swappable `TranscribeTarget`, read fresh at POST time). The result is
 //! sent back to the machine as `TurnFinished`; this task emits nothing itself, so
 //! the machine stays the single event emitter.

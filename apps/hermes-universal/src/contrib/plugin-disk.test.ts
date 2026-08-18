@@ -24,7 +24,7 @@ vi.mock('@/lib/platform', () => platform)
 import { $restDoorEnabled, LOCAL_POLL_MS, resolvePluginDisk, REST_POLL_MS } from './plugin-disk'
 
 const rustEntry = (name: string, mtime = 100, size = 10) => ({
-  file: `/home/u/.hermes/desktop-plugins/${name}/plugin.js`,
+  file: `/home/u/.allr/desktop-plugins/${name}/plugin.js`,
   mtime_ms: mtime,
   name,
   size
@@ -37,7 +37,7 @@ beforeEach(() => {
 
   invoke.mockImplementation((cmd: string) => {
     if (cmd === 'plugins_root') {
-      return Promise.resolve('/home/u/.hermes/desktop-plugins')
+      return Promise.resolve('/home/u/.allr/desktop-plugins')
     }
 
     if (cmd === 'plugins_list') {
@@ -76,7 +76,7 @@ describe('door selection', () => {
   })
 
   it('falls through when the local door errors outright', async () => {
-    invoke.mockRejectedValue(new Error('no HERMES_HOME'))
+    invoke.mockRejectedValue(new Error('no ALLR_HOME'))
 
     expect((await resolvePluginDisk())?.kind).toBe('rest')
   })
@@ -111,7 +111,7 @@ describe('local door', () => {
   const localDoor = async () => {
     invoke.mockImplementation((cmd: string) => {
       if (cmd === 'plugins_root') {
-        return Promise.resolve('/home/u/.hermes/desktop-plugins')
+        return Promise.resolve('/home/u/.allr/desktop-plugins')
       }
 
       if (cmd === 'plugins_list') {
@@ -131,7 +131,7 @@ describe('local door', () => {
     const [entry] = await (await localDoor()).list()
 
     expect(entry).toEqual({
-      file: '/home/u/.hermes/desktop-plugins/kanban/plugin.js',
+      file: '/home/u/.allr/desktop-plugins/kanban/plugin.js',
       name: 'kanban',
       stamp: '100:10'
     })

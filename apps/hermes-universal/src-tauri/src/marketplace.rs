@@ -21,7 +21,7 @@ const GALLERY_QUERY_URL: &str =
     "https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery";
 const VSIX_ASSET_TYPE: &str = "Microsoft.VisualStudio.Services.VSIXPackage";
 const MAX_VSIX_BYTES: u64 = 40 * 1024 * 1024; // 40 MB — themes are tiny; this is paranoia.
-const USER_AGENT: &str = "Hermes-Universal";
+const USER_AGENT: &str = "Allr";
 
 /// A lightweight Marketplace card (no download) — mirrors the desktop shape.
 #[derive(Serialize)]

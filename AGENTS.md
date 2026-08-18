@@ -1,12 +1,12 @@
-# Hermes Agent - Development Guide
+# Allr - Development Guide
 
-Instructions for AI coding assistants and developers working on the hermes-agent codebase.
+Instructions for AI coding assistants and developers working on the allr-agent codebase.
 
 **Never give up on the right solution.**
 
-## What Hermes Is
+## What Allr Is
 
-Hermes is a personal AI agent that runs the same agent core across a CLI, a
+Allr is a personal AI agent that runs the same agent core across a CLI, a
 messaging gateway (Telegram, Discord, Slack, and ~20 other platforms), a TUI,
 and a Tauri desktop/mobile app. It learns across sessions (memory + skills),
 delegates to subagents, runs scheduled jobs, and drives a real terminal and
@@ -40,7 +40,7 @@ This is the project's intent layer. Use it two ways:
    job here is to recognize design intent and *avoid wrongly closing a
    legitimate contribution*, not to make the won't-implement call itself.
 
-Read the balance right: Hermes ships a **lot** — most merges are bug fixes to
+Read the balance right: Allr ships a **lot** — most merges are bug fixes to
 real reported behavior, and the product surface (platforms, channels,
 providers, models, desktop/TUI features) expands aggressively and on purpose.
 The restraint below is aimed squarely at the **core agent + the model tool
@@ -60,7 +60,7 @@ conservative at the waist.
   including large ones (a new messaging channel, a session-cap feature, a
   Windows PTY bridge). Breadth in the product is a goal, not a footprint
   concern — as long as it integrates with the existing setup/config UX
-  (`hermes tools`, `hermes setup`, auto-install) rather than bolting on a raw
+  (`allr tools`, `allr setup`, auto-install) rather than bolting on a raw
   env var.
 - **Refactor god-files into clean modules.** Extracting a multi-thousand-line
   cluster out of `cli.py` / `run_agent.py` / `gateway/run.py` into a focused
@@ -84,7 +84,7 @@ conservative at the waist.
 - **E2E validation, not just green unit mocks.** For anything touching
   resolution chains, config propagation, security boundaries, remote
   backends, or file/network I/O, exercise the real path with real imports
-  against a temp `HERMES_HOME`. Mocks hide integration bugs.
+  against a temp `ALLR_HOME`. Mocks hide integration bugs.
 - **Cache-, alternation-, and invariant-safe.** Preserve prompt caching, strict
   message role alternation (never two same-role messages in a row; never a
   synthetic user message injected mid-loop), and a system prompt that is
@@ -99,7 +99,7 @@ conservative at the waist.
   concrete consumer. Adding a hook is easy; removing one after plugins depend
   on it is hard. A hook is NOT speculative if a contributor has a real, stated
   use case — even if the consumer ships separately.
-- **New `HERMES_*` env vars for non-secret config.** `.env` is for secrets
+- **New `ALLR_*` env vars for non-secret config.** `.env` is for secrets
   only (API keys, tokens, passwords). All behavioral settings — timeouts,
   thresholds, feature flags, display prefs — go in `config.yaml`. Bridge to an
   internal env var if the mechanism needs one, but user-facing docs point to
@@ -117,7 +117,7 @@ conservative at the waist.
   feature.
 - **Outbound telemetry / usage attribution without opt-in gating.** No new
   analytics, third-party identifier tagging, or attribution tags until a
-  generic user-facing opt-in (config gate + setup prompt + `hermes tools`
+  generic user-facing opt-in (config gate + setup prompt + `allr tools`
   toggle) exists. Park behind a label, do not merge.
 - **Change-detector tests, cache-breaking mid-conversation, dead code wired in
   without E2E proof, and plugins that touch core files.** Plugins live in their
@@ -128,7 +128,7 @@ conservative at the waist.
   and similar "someone else's product" plugins do NOT land under `plugins/` in
   this repo. They place an ongoing maintenance burden on us to keep them working
   against a fast-moving core, for a backend we don't own. Ship them as a
-  **standalone plugin repo** users install into `~/.hermes/plugins/` (or via a
+  **standalone plugin repo** users install into `~/.allr/plugins/` (or via a
   pip entry point), and promote them in the Nous Research Discord
   (`#plugins-skills-and-skins`). This is a coupling-and-maintenance decision, not
   a quality bar — the plugin can be excellent and still be a close. PRs that add
@@ -189,12 +189,12 @@ Each rung adds more permanent surface than the one above. Choose the highest
 2. **CLI command + skill** — manages config/state/infra expressible as shell
    commands. The agent runs `hermes <subcommand>` guided by a skill. Zero
    model-tool footprint. Default choice for subscriptions, scheduled tasks,
-   service setup. Examples: `hermes webhook`, `hermes cron`, `hermes tools`.
+   service setup. Examples: `allr webhook`, `allr cron`, `allr tools`.
 3. **Service-gated tool (`check_fn`)** — needs structured params/returns AND
    only appears when a prerequisite is configured. Zero footprint otherwise.
    Examples: Home Assistant tools (gated on token), memory-provider tools.
 4. **Plugin** — third-party/niche/user-specific capability that doesn't ship in
-   core. Lives in `~/.hermes/plugins/` or a pip package, discovered at runtime.
+   core. Lives in `~/.allr/plugins/` or a pip package, discovered at runtime.
 5. **MCP server (in the catalog)** — if the capability genuinely needs to be a
    tool (structured I/O the agent invokes) but isn't core-fundamental, prefer
    building it as an MCP server and adding it to the MCP catalog over growing
@@ -219,16 +219,16 @@ on the backend process.
 
 The client and the backend are separate machines on separate clocks. The
 desktop app can be driving a backend spawned locally, one over SSH,
-one behind a plain URL + token, or Hermes Cloud. Only the first two are spawned
-by us and carry `HERMES_DESKTOP=1`. Every env-keyed GUI gate is therefore a
+one behind a plain URL + token, or Allr Cloud. Only the first two are spawned
+by us and carry `ALLR_DESKTOP=1`. Every env-keyed GUI gate is therefore a
 silent no-op on the other half of the topologies, and the failure is invisible:
 the tool is stripped from the schema before the model ever sees it, on the same
 backend whose platform hint is telling the model it's *"chatting inside the
-Hermes desktop app."*
+Allr desktop app."*
 
 The pattern that works:
 
-- **The toolset is the surface gate.** Keep the tools off `_HERMES_CORE_TOOLS`
+- **The toolset is the surface gate.** Keep the tools off `_ALLR_CORE_TOOLS`
   (nobody else should pay their schema) and put them in a named toolset —
   `desktop_ui`, `project`. The GUI gateway's `_load_enabled_toolsets(platform)`
   folds that toolset in when the session's platform says GUI. One resolver,
@@ -238,7 +238,7 @@ The pattern that works:
   spawned by the app?" — not fine. `check_fn` results are also TTL-cached
   process-wide (`tools/registry.py`), so a per-session answer does not belong
   there at all: one process serves many sessions.
-- **Ask which identity you actually mean.** `HERMES_DESKTOP=1` legitimately
+- **Ask which identity you actually mean.** `ALLR_DESKTOP=1` legitimately
   marks *"this backend process was spawned by the app"* — it gates the cron
   ticker and web-dist handling correctly. It does NOT mean "a GUI is watching",
   and the embedded terminal pane (`hermes --tui` against that same backend) is
@@ -257,7 +257,7 @@ source .venv/bin/activate   # or: source venv/bin/activate
 ```
 
 `scripts/run_tests.sh` probes `.venv` first, then `venv`, then
-`$HOME/.hermes/hermes-agent/venv` (for worktrees that share a venv with the
+`$HOME/.allr/allr-agent/venv` (for worktrees that share a venv with the
 main checkout).
 
 ## Project Structure
@@ -267,10 +267,10 @@ The canonical source is the filesystem. The notes call out the load-bearing
 entry points you'll actually edit.
 
 ```
-hermes-agent/
+allr-agent/
 ├── run_agent.py          # AIAgent class — core conversation loop (~12k LOC)
 ├── model_tools.py        # Tool orchestration, discover_builtin_tools(), handle_function_call()
-├── toolsets.py           # Toolset definitions, _HERMES_CORE_TOOLS list
+├── toolsets.py           # Toolset definitions, _ALLR_CORE_TOOLS list
 ├── cli.py                # HermesCLI class — interactive CLI orchestrator (~11k LOC)
 ├── hermes_state.py       # SessionDB — SQLite session store (FTS5 search)
 ├── hermes_constants.py   # get_hermes_home(), display_hermes_home() — profile-aware paths
@@ -291,7 +291,7 @@ hermes-agent/
 │   ├── context_engine/   # Context-engine plugins
 │   ├── model-providers/  # Inference backend plugins (openrouter, anthropic, gmi, ...)
 │   ├── kanban/           # Multi-agent board dispatcher + worker plugin
-│   ├── hermes-achievements/  # Gamified achievement tracking
+│   ├── allr-achievements/  # Gamified achievement tracking
 │   ├── observability/    # Metrics / traces / logs plugin
 │   ├── image_gen/        # Image-generation providers
 │   └── <others>/         # disk-cleanup, google_meet, platforms, spotify,
@@ -308,14 +308,14 @@ hermes-agent/
 └── tests/                # Pytest suite (~17k tests across ~900 files as of May 2026)
 ```
 
-**User config:** `~/.hermes/config.yaml` (settings), `~/.hermes/.env` (API keys only).
-**Logs:** `~/.hermes/logs/` — `agent.log` (INFO+), `errors.log` (WARNING+),
+**User config:** `~/.allr/config.yaml` (settings), `~/.allr/.env` (API keys only).
+**Logs:** `~/.allr/logs/` — `agent.log` (INFO+), `errors.log` (WARNING+),
 `gateway.log` when running the gateway. Profile-aware via `get_hermes_home()`.
-Browse with `hermes logs [--follow] [--level ...] [--session ...]`.
+Browse with `allr logs [--follow] [--level ...] [--session ...]`.
 
 ## TypeScript Style
 
-Applies to TypeScript across Hermes: the apps, TUI, website, and future TS packages.
+Applies to TypeScript across Allr: the apps, TUI, website, and future TS packages.
 
 - Prefer small nanostores over component state when state is shared, reused, or read by distant UI.
 - Let each feature own its atoms. Chat state belongs near chat, shell state near shell, shared state in `src/store`.
@@ -417,7 +417,7 @@ Reasoning content is stored in `assistant_msg["reasoning"]`.
 - `load_cli_config()` in cli.py merges hardcoded defaults + user config YAML
 - **Skin engine** (`hermes_cli/skin_engine.py`) — data-driven CLI theming; initialized from `display.skin` config key at startup; skins customize banner colors, spinner faces/verbs/wings, tool prefix, response box, branding text
 - `process_command()` is a method on `HermesCLI` — dispatches on canonical command name resolved via `resolve_command()` from the central registry
-- Skill slash commands: `agent/skill_commands.py` scans `~/.hermes/skills/`, injects as **user message** (not system prompt) to preserve prompt caching
+- Skill slash commands: `agent/skill_commands.py` scans `~/.allr/skills/`, injects as **user message** (not system prompt) to preserve prompt caching
 
 ### Slash Command Registry (`hermes_cli/commands.py`)
 
@@ -466,7 +466,7 @@ if canonical == "mycommand":
 
 ## TUI Architecture (ui-tui + tui_gateway)
 
-The TUI is a full replacement for the classic (prompt_toolkit) CLI, activated via `hermes --tui` or `HERMES_TUI=1`.
+The TUI is a full replacement for the classic (prompt_toolkit) CLI, activated via `hermes --tui` or `ALLR_TUI=1`.
 
 ### Process Model
 
@@ -515,7 +515,7 @@ npm run fmt       # prettier
 npm test          # vitest
 ```
 
-### TUI in the Dashboard (`hermes dashboard` → `/chat`)
+### TUI in the Dashboard (`allr dashboard` → `/chat`)
 
 The dashboard embeds the real `hermes --tui` — **not** a rewrite.  See `hermes_cli/pty_bridge.py` + the `@app.websocket("/api/pty")` endpoint in `hermes_cli/web_server.py`.
 
@@ -534,14 +534,14 @@ The dashboard embeds the real `hermes --tui` — **not** a rewrite.  See `hermes
 
 Before adding any tool, settle the footprint question first (see "The
 Footprint Ladder" in the Contribution Rubric): most capabilities should NOT
-be core tools. For custom or local-only tools, do **not** edit Hermes core.
-Use the plugin route instead: create `~/.hermes/plugins/<name>/plugin.yaml`
-and `~/.hermes/plugins/<name>/__init__.py`, then register tools with
+be core tools. For custom or local-only tools, do **not** edit Allr core.
+Use the plugin route instead: create `~/.allr/plugins/<name>/plugin.yaml`
+and `~/.allr/plugins/<name>/__init__.py`, then register tools with
 `ctx.register_tool(...)`. Plugin toolsets are discovered automatically and can be
 enabled or disabled without touching `tools/` or `toolsets.py`.
 
 Use the built-in route below only when the user is explicitly contributing a new
-core Hermes tool that should ship in the base system.
+core Allr tool that should ship in the base system.
 
 Built-in/core tools require changes in **2 files**:
 
@@ -566,15 +566,15 @@ registry.register(
 )
 ```
 
-**2. Add to `toolsets.py`** — either `_HERMES_CORE_TOOLS` (all platforms) or a new toolset. **This step is required:** auto-discovery imports the tool and registers its schema, but the tool is only *exposed to an agent* if its name appears in a toolset. `_HERMES_CORE_TOOLS` is not dead code — it's the default bundle every platform's base toolset inherits from.
+**2. Add to `toolsets.py`** — either `_ALLR_CORE_TOOLS` (all platforms) or a new toolset. **This step is required:** auto-discovery imports the tool and registers its schema, but the tool is only *exposed to an agent* if its name appears in a toolset. `_ALLR_CORE_TOOLS` is not dead code — it's the default bundle every platform's base toolset inherits from.
 
 Auto-discovery: any `tools/*.py` file with a top-level `registry.register()` call is imported automatically — no manual import list to maintain. Wiring into a toolset is still a deliberate, manual step.
 
 The registry handles schema collection, dispatch, availability checking, and error wrapping. All handlers MUST return a JSON string.
 
-**Path references in tool schemas**: If the schema description mentions file paths (e.g. default output directories), use `display_hermes_home()` to make them profile-aware. The schema is generated at import time, which is after `_apply_profile_override()` sets `HERMES_HOME`.
+**Path references in tool schemas**: If the schema description mentions file paths (e.g. default output directories), use `display_hermes_home()` to make them profile-aware. The schema is generated at import time, which is after `_apply_profile_override()` sets `ALLR_HOME`.
 
-**State files**: If a tool stores persistent state (caches, logs, checkpoints), use `get_hermes_home()` for the base directory — never `Path.home() / ".hermes"`. This ensures each profile gets its own state.
+**State files**: If a tool stores persistent state (caches, logs, checkpoints), use `get_hermes_home()` for the base directory — never `Path.home() / ".allr"`. This ensures each profile gets its own state.
 
 **Agent-level tools** (todo, memory): intercepted by `run_agent.py` before `handle_function_call()`. See `tools/todo_tool.py` for the pattern.
 
@@ -651,7 +651,7 @@ the env var in code (see `gateway_timeout`, `terminal.cwd` → `TERMINAL_CWD`).
 | Loader | Used by | Location |
 |--------|---------|----------|
 | `load_cli_config()` | CLI mode | `cli.py` — merges CLI-specific defaults + user YAML |
-| `load_config()` | `hermes tools`, `hermes setup`, most CLI subcommands | `hermes_cli/config.py` — merges `DEFAULT_CONFIG` + user YAML |
+| `load_config()` | `allr tools`, `allr setup`, most CLI subcommands | `hermes_cli/config.py` — merges `DEFAULT_CONFIG` + user YAML |
 | Direct YAML load | Gateway runtime | `gateway/run.py` + `gateway/config.py` — reads user YAML raw |
 
 If you add a new key and the CLI sees it but the gateway doesn't (or vice
@@ -675,7 +675,7 @@ The skin engine (`hermes_cli/skin_engine.py`) provides data-driven CLI visual cu
 
 ```
 hermes_cli/skin_engine.py    # SkinConfig dataclass, built-in skins, YAML loader
-~/.hermes/skins/*.yaml       # User-installed custom skins (drop-in)
+~/.allr/skins/*.yaml       # User-installed custom skins (drop-in)
 ```
 
 - `init_skin_from_config()` — called at CLI startup, reads `display.skin` from config
@@ -707,7 +707,7 @@ hermes_cli/skin_engine.py    # SkinConfig dataclass, built-in skins, YAML loader
 
 ### Built-in skins
 
-- `default` — Classic Hermes gold/kawaii (the current look)
+- `default` — Classic Allr gold/kawaii (the current look)
 - `ares` — Crimson/bronze war-god theme with custom spinner wings
 - `mono` — Clean grayscale monochrome
 - `slate` — Cool blue developer-focused theme
@@ -729,7 +729,7 @@ Add to `_BUILTIN_SKINS` dict in `hermes_cli/skin_engine.py`:
 
 ### User skins (YAML)
 
-Users create `~/.hermes/skins/<name>.yaml`:
+Users create `~/.allr/skins/<name>.yaml`:
 
 ```yaml
 name: cyberpunk
@@ -758,13 +758,13 @@ Activate with `/skin cyberpunk` or `display.skin: cyberpunk` in config.yaml.
 
 ## Plugins
 
-Hermes has two plugin surfaces. Both live under `plugins/` in the repo so
+Allr has two plugin surfaces. Both live under `plugins/` in the repo so
 repo-shipped plugins can be discovered alongside user-installed ones in
-`~/.hermes/plugins/` and pip-installed entry points.
+`~/.allr/plugins/` and pip-installed entry points.
 
 ### General plugins (`hermes_cli/plugins.py` + `plugins/<name>/`)
 
-`PluginManager` discovers plugins from `~/.hermes/plugins/`, `./.hermes/plugins/`,
+`PluginManager` discovers plugins from `~/.allr/plugins/`, `./.allr/plugins/`,
 and pip entry points. Each plugin exposes a `register(ctx)` function that
 can:
 
@@ -810,9 +810,9 @@ honcho argparse from `main.py` for exactly this reason.
 **No new in-tree memory providers (policy, May 2026):** the set of
 built-in memory providers under `plugins/memory/` is closed. New memory
 backends must ship as **standalone plugin repos** that users install
-into `~/.hermes/plugins/` (or via pip entry points) — they implement
+into `~/.allr/plugins/` (or via pip entry points) — they implement
 the same `MemoryProvider` ABC, register through the same discovery
-path, and integrate via `hermes memory setup` / `post_setup()` without
+path, and integrate via `allr memory setup` / `post_setup()` without
 landing in this tree. PRs that add a new directory under
 `plugins/memory/` will be closed with a pointer to publish the
 provider as its own repo. Existing in-tree providers stay; bug fixes
@@ -823,7 +823,7 @@ same rule applies beyond memory providers. Plugins that integrate
 someone else's product or project — observability/metrics backends,
 vendor SaaS connectors, analytics dashboards, paid-service tie-ins —
 must ship as **standalone plugin repos** that users install into
-`~/.hermes/plugins/` (or via pip entry points). They register through
+`~/.allr/plugins/` (or via pip entry points). They register through
 the existing plugin discovery path and use the ABCs/hooks/ctx surface
 we expose; nothing special is needed in core. The reason is
 maintenance load: every product we absorb into the tree becomes our
@@ -847,7 +847,7 @@ discovery system** — scanned on first `get_provider_profile()` or
 
 Scan order:
 1. Bundled: `<repo>/plugins/model-providers/<name>/`
-2. User: `$HERMES_HOME/plugins/model-providers/<name>/`
+2. User: `$ALLR_HOME/plugins/model-providers/<name>/`
 3. Legacy: `<repo>/providers/<name>.py` (back-compat)
 
 User plugins of the same name override bundled ones — `register_provider()`
@@ -882,7 +882,7 @@ Two parallel surfaces:
   Organized by category directories (e.g. `skills/github/`, `skills/mlops/`).
 - **`optional-skills/`** — heavier or niche skills shipped with the repo but
   NOT active by default. Installed explicitly via
-  `hermes skills install official/<category>/<skill>`. Adapter lives in
+  `allr skills install official/<category>/<skill>`. Adapter lives in
   `tools/skills_hub.py` (`OptionalSkillSource`). Categories include
   `autonomous-ai-agents`, `blockchain`, `communication`, `creative`,
   `devops`, `email`, `health`, `mcp`, `migration`, `mlops`, `productivity`,
@@ -923,7 +923,7 @@ violate them.
    assert len(m.group(1)) <= 60, len(m.group(1))
    ```
 
-2. **Tools referenced in SKILL.md prose must be native Hermes tools or
+2. **Tools referenced in SKILL.md prose must be native Allr tools or
    MCP servers the skill explicitly expects.** When the skill needs a
    capability, point at the proper tool by name in backticks
    (`` `terminal` ``, `` `web_extract` ``, `` `read_file` ``,
@@ -949,9 +949,9 @@ violate them.
 
 4. **`author` credits the human contributor first.** For external
    contributions, the contributor's real name + GitHub handle goes
-   first; "Hermes Agent" is the secondary collaborator. If the
-   contributor's commit shows "Hermes Agent" as author (because they
-   used Hermes to draft the skill), replace it with their actual name
+   first; "Allr" is the secondary collaborator. If the
+   contributor's commit shows "Allr" as author (because they
+   used Allr to draft the skill), replace it with their actual name
    — credit the human, not the tool.
 
 5. **SKILL.md body uses the modern section order.** `# <Skill> Skill`
@@ -979,7 +979,7 @@ violate them.
    skill's own block must be dropped during salvage.
 
 The full salvage / modernization checklist for external skill PRs
-lives in the `hermes-agent-dev` skill at
+lives in the `allr-agent-dev` skill at
 `references/new-skill-pr-salvage.md` — load it before polishing
 contributor skill PRs.
 
@@ -989,7 +989,7 @@ contributor skill PRs.
 
 All toolsets are defined in `toolsets.py` as a single `TOOLSETS` dict.
 Each platform's adapter picks a base toolset (e.g. Telegram uses
-`"messaging"`); `_HERMES_CORE_TOOLS` is the default bundle most
+`"messaging"`); `_ALLR_CORE_TOOLS` is the default bundle most
 platforms inherit from.
 
 Current toolset keys: `browser`, `clarify`, `code_execution`, `cronjob`,
@@ -998,7 +998,7 @@ Current toolset keys: `browser`, `clarify`, `code_execution`, `cronjob`,
 `messaging`, `moa`, `rl`, `safe`, `search`, `session_search`, `skills`,
 `spotify`, `terminal`, `todo`, `tts`, `video`, `vision`, `web`, `yuanbao`.
 
-Enable/disable per platform via `hermes tools` (the curses UI) or the
+Enable/disable per platform via `allr tools` (the curses UI) or the
 `tools.<platform>.enabled` / `tools.<platform>.disabled` lists in
 `config.yaml`.
 
@@ -1009,7 +1009,7 @@ Enable/disable per platform via `hermes tools` (the curses UI) or the
 `tools/delegate_tool.py` spawns a subagent with an isolated
 context + terminal session. By default the parent waits for the
 child's summary before continuing its own loop. With `background=true`,
-Hermes returns a delegation id immediately and the result re-enters the
+Allr returns a delegation id immediately and the result re-enters the
 conversation later through the async-delegation completion queue.
 
 Two shapes:
@@ -1043,15 +1043,15 @@ turn but still process-local. For work that must survive process restart, use
 
 Background skill-maintenance system that tracks usage on agent-created
 skills and auto-archives stale ones. Users never lose skills; archives
-go to `~/.hermes/skills/.archive/` and are restorable.
+go to `~/.allr/skills/.archive/` and are restorable.
 
 - **Core:** `agent/curator.py` (review loop, auto-transitions, LLM review
   prompt) + `agent/curator_backup.py` (pre-run tar.gz snapshots).
-- **CLI:** `hermes_cli/curator.py` wires `hermes curator <verb>` where
+- **CLI:** `hermes_cli/curator.py` wires `allr curator <verb>` where
   verbs are: `status`, `run`, `pause`, `resume`, `pin`, `unpin`,
   `archive`, `restore`, `prune`, `backup`, `rollback`.
 - **Telemetry:** `tools/skill_usage.py` owns the sidecar
-  `~/.hermes/skills/.usage.json` — per-skill `use_count`, `view_count`,
+  `~/.allr/skills/.usage.json` — per-skill `use_count`, `view_count`,
   `patch_count`, `last_activity_at`, `state` (active / stale /
   archived), `pinned`.
 
@@ -1076,7 +1076,7 @@ Full user-facing docs: `website/docs/user-guide/features/curator.md`.
 ## Cron (scheduled jobs)
 
 `cron/jobs.py` (job store) + `cron/scheduler.py` (tick loop). Agents
-schedule jobs via the `cronjob` tool; users via `hermes cron <verb>`
+schedule jobs via the `cronjob` tool; users via `allr cron <verb>`
 (`list`, `add`, `edit`, `pause`, `resume`, `run`, `remove`) or the
 `/cron` slash command.
 
@@ -1098,7 +1098,7 @@ Hardening invariants:
   cannot monopolize the scheduler.
 - Catchup window: half the job's period, clamped to 120s–2h.
 - Grace window: 120s for one-shot jobs whose fire time was missed.
-- File lock at `~/.hermes/cron/.tick.lock` prevents duplicate ticks
+- File lock at `~/.allr/cron/.tick.lock` prevents duplicate ticks
   across processes.
 - Cron sessions pass `skip_memory=True` by default; memory providers
   intentionally do not run during cron.
@@ -1112,12 +1112,12 @@ main conversation's message-role alternation stays intact.
 ## Kanban (multi-agent work queue)
 
 Durable SQLite-backed board that lets multiple profiles / workers
-collaborate on shared tasks. Users drive it via `hermes kanban <verb>`;
+collaborate on shared tasks. Users drive it via `allr kanban <verb>`;
 workers spawned by the dispatcher drive it via a dedicated `kanban_*`
 toolset so their schema footprint is zero when they're not inside a
 kanban task.
 
-- **CLI:** `hermes_cli/kanban.py` wires `hermes kanban` with verbs
+- **CLI:** `hermes_cli/kanban.py` wires `allr kanban` with verbs
   `init`, `create`, `list` (alias `ls`), `show`, `assign`, `link`,
   `unlink`, `comment`, `attach`, `attachments`, `attach-rm`, `complete`,
   `block`, `unblock`, `archive`, `tail`, plus less-commonly-used `watch`,
@@ -1134,12 +1134,12 @@ kanban task.
   assigned profiles. Runs **inside the gateway** by default via
   `kanban.dispatch_in_gateway: true`.
 - **Plugin assets:** `plugins/kanban/dashboard/` (web UI) +
-  `plugins/kanban/systemd/` (`hermes-kanban-dispatcher.service` for
+  `plugins/kanban/systemd/` (`allr-kanban-dispatcher.service` for
   standalone dispatcher deployment).
 
 Isolation model:
 - **Board** is the hard boundary — workers are spawned with
-  `HERMES_KANBAN_BOARD` pinned in their env so they can't see other
+  `ALLR_KANBAN_BOARD` pinned in their env so they can't see other
   boards.
 - **Tenant** is a soft namespace *within* a board — one specialist
   fleet can serve multiple businesses with workspace-path + memory-key
@@ -1156,7 +1156,7 @@ Full user-facing docs: `website/docs/user-guide/features/kanban.md`.
 
 ### Prompt Caching Must Not Break
 
-Hermes-Agent ensures caching remains valid throughout a conversation. **Do NOT implement changes that would:**
+Allr ensures caching remains valid throughout a conversation. **Do NOT implement changes that would:**
 - Alter past context mid-conversation
 - Change toolsets mid-conversation
 - Reload memories or rebuild system prompts mid-conversation
@@ -1173,7 +1173,7 @@ invalidation. See `/skills install --now` for the canonical pattern.
 When `terminal(background=true, notify_on_complete=true)` is used, the gateway runs a watcher that
 detects process completion and triggers a new agent turn. Control verbosity of background process
 messages with `display.background_process_notifications`
-in config.yaml (or `HERMES_BACKGROUND_NOTIFICATIONS` env var):
+in config.yaml (or `ALLR_BACKGROUND_NOTIFICATIONS` env var):
 
 - `all` — running-output updates + final message (default)
 - `result` — only the final completion message
@@ -1184,46 +1184,46 @@ in config.yaml (or `HERMES_BACKGROUND_NOTIFICATIONS` env var):
 
 ## Profiles: Multi-Instance Support
 
-Hermes supports **profiles** — multiple fully isolated instances, each with its own
-`HERMES_HOME` directory (config, API keys, memory, sessions, skills, gateway, etc.).
+Allr supports **profiles** — multiple fully isolated instances, each with its own
+`ALLR_HOME` directory (config, API keys, memory, sessions, skills, gateway, etc.).
 
 The core mechanism: `_apply_profile_override()` in `hermes_cli/main.py` sets
-`HERMES_HOME` before any module imports. All `get_hermes_home()` references
+`ALLR_HOME` before any module imports. All `get_hermes_home()` references
 automatically scope to the active profile.
 
 ### Rules for profile-safe code
 
-1. **Use `get_hermes_home()` for all HERMES_HOME paths.** Import from `hermes_constants`.
-   NEVER hardcode `~/.hermes` or `Path.home() / ".hermes"` in code that reads/writes state.
+1. **Use `get_hermes_home()` for all ALLR_HOME paths.** Import from `hermes_constants`.
+   NEVER hardcode `~/.allr` or `Path.home() / ".allr"` in code that reads/writes state.
    ```python
    # GOOD
    from hermes_constants import get_hermes_home
    config_path = get_hermes_home() / "config.yaml"
 
    # BAD — breaks profiles
-   config_path = Path.home() / ".hermes" / "config.yaml"
+   config_path = Path.home() / ".allr" / "config.yaml"
    ```
 
 2. **Use `display_hermes_home()` for user-facing messages.** Import from `hermes_constants`.
-   This returns `~/.hermes` for default or `~/.hermes/profiles/<name>` for profiles.
+   This returns `~/.allr` for default or `~/.allr/profiles/<name>` for profiles.
    ```python
    # GOOD
    from hermes_constants import display_hermes_home
    print(f"Config saved to {display_hermes_home()}/config.yaml")
 
    # BAD — shows wrong path for profiles
-   print("Config saved to ~/.hermes/config.yaml")
+   print("Config saved to ~/.allr/config.yaml")
    ```
 
 3. **Module-level constants are fine** — they cache `get_hermes_home()` at import time,
    which is AFTER `_apply_profile_override()` sets the env var. Just use `get_hermes_home()`,
-   not `Path.home() / ".hermes"`.
+   not `Path.home() / ".allr"`.
 
-4. **Tests that mock `Path.home()` must also set `HERMES_HOME`** — since code now uses
-   `get_hermes_home()` (reads env var), not `Path.home() / ".hermes"`:
+4. **Tests that mock `Path.home()` must also set `ALLR_HOME`** — since code now uses
+   `get_hermes_home()` (reads env var), not `Path.home() / ".allr"`:
    ```python
    with patch.object(Path, "home", return_value=tmp_path), \
-        patch.dict(os.environ, {"HERMES_HOME": str(tmp_path / ".hermes")}):
+        patch.dict(os.environ, {"ALLR_HOME": str(tmp_path / ".allr")}):
        ...
    ```
 
@@ -1233,17 +1233,17 @@ automatically scope to the active profile.
    `disconnect()`/`stop()`. This prevents two profiles from using the same credential.
    See `plugins/platforms/irc/adapter.py` for the canonical pattern.
 
-6. **Profile operations are HOME-anchored, not HERMES_HOME-anchored** — `_get_profiles_root()`
-   returns `Path.home() / ".hermes" / "profiles"`, NOT `get_hermes_home() / "profiles"`.
+6. **Profile operations are HOME-anchored, not ALLR_HOME-anchored** — `_get_profiles_root()`
+   returns `Path.home() / ".allr" / "profiles"`, NOT `get_hermes_home() / "profiles"`.
    This is intentional — it lets `hermes -p coder profile list` see all profiles regardless
    of which one is active.
 
 ## Known Pitfalls
 
-### DO NOT hardcode `~/.hermes` paths
+### DO NOT hardcode `~/.allr` paths
 Use `get_hermes_home()` from `hermes_constants` for code paths. Use `display_hermes_home()`
-for user-facing print/log messages. Hardcoding `~/.hermes` breaks profiles — each profile
-has its own `HERMES_HOME` directory. This was the source of 5 bugs fixed in PR #3575.
+for user-facing print/log messages. Hardcoding `~/.allr` breaks profiles — each profile
+has its own `ALLR_HOME` directory. This was the source of 5 bugs fixed in PR #3575.
 
 ### DO NOT introduce new `simple_term_menu` usage
 Existing call sites in `hermes_cli/main.py` remain for legacy fallback only;
@@ -1283,10 +1283,10 @@ red flag.
 ### Don't wire in dead code without E2E validation
 Unused code that was never shipped was dead for a reason. Before wiring an
 unused module into a live code path, E2E test the real resolution chain
-with actual imports (not mocks) against a temp `HERMES_HOME`.
+with actual imports (not mocks) against a temp `ALLR_HOME`.
 
-### Tests must not write to `~/.hermes/`
-The `_isolate_hermes_home` autouse fixture in `tests/conftest.py` redirects `HERMES_HOME` to a temp dir. Never hardcode `~/.hermes/` paths in tests.
+### Tests must not write to `~/.allr/`
+The `_isolate_hermes_home` autouse fixture in `tests/conftest.py` redirects `ALLR_HOME` to a temp dir. Never hardcode `~/.allr/` paths in tests.
 
 **Profile tests**: When testing profile features, also mock `Path.home()` so that
 `_get_profiles_root()` and `_get_default_hermes_home()` resolve within the temp dir.
@@ -1294,10 +1294,10 @@ Use the pattern from `tests/hermes_cli/test_profiles.py`:
 ```python
 @pytest.fixture
 def profile_env(tmp_path, monkeypatch):
-    home = tmp_path / ".hermes"
+    home = tmp_path / ".allr"
     home.mkdir()
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
-    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setenv("ALLR_HOME", str(home))
     return home
 ```
 
@@ -1321,7 +1321,7 @@ scripts/run_tests.sh -v --tb=long                     # pass-through pytest flag
 ```
 
 **Flake policy:** the runner auto-retries a failing test FILE once in a fresh
-subprocess (`--file-retries`, default 1; `HERMES_TEST_FILE_RETRIES=0` to
+subprocess (`--file-retries`, default 1; `ALLR_TEST_FILE_RETRIES=0` to
 disable). Pass-on-retry counts as green but is printed in a `⚠ FLAKY` summary
 section with both attempts' output. A FLAKY report is a bug to fix, not noise
 to ignore — timing-sensitive tests must not assume a quiet runner (loose
@@ -1338,7 +1338,7 @@ ContextVars from one test file cannot leak into the next.
 |                     | Without wrapper                             | With wrapper                              |
 | ------------------- | ------------------------------------------- | ----------------------------------------- |
 | Provider API keys   | Whatever is in your env (auto-detects pool) | All env vars except a specific few unset. |
-| HOME / `~/.hermes/` | Your real config+auth.json                  | Temp dir per test                         |
+| HOME / `~/.allr/` | Your real config+auth.json                  | Temp dir per test                         |
 | Timezone            | Local TZ (PDT etc.)                         | UTC                                       |
 | Locale              | Whatever is set                             | C.UTF-8                                   |
 

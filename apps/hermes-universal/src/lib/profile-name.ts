@@ -15,7 +15,7 @@ const PROFILE_NAME_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/
 
 /**
  * Names the backend refuses outright, because they would collide on disk (a
- * `hermes` profile inside `~/.hermes/`) or be rejected at alias-creation time.
+ * `hermes` profile inside `~/.allr/`) or be rejected at alias-creation time.
  * Mirrors `_RESERVED_NAMES` in `hermes_cli/profiles.py`.
  *
  * `default` is deliberately absent: the backend treats it as a pass-through

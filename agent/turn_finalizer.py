@@ -1,7 +1,7 @@
 """Post-loop turn finalization for ``run_conversation``.
 
 Extracted from ``agent/conversation_loop.py`` as part of the god-file
-decomposition campaign (``~/.hermes/plans/god-file-decomposition.md``, Phase 1
+decomposition campaign (``~/.allr/plans/god-file-decomposition.md``, Phase 1
 step 4 — the post-loop ``TurnFinalizer`` seam). ``run_conversation``'s tail
 (everything after the main tool-calling ``while`` loop) is lifted here verbatim:
 budget-exhaustion summary, trajectory save, session persist, turn diagnostics,
@@ -152,7 +152,7 @@ def finalize_turn(
         # We route through ``_record_task_failure(outcome="timed_out")``
         # rather than ``kanban_block`` so this counts toward the dispatcher's
         # consecutive-failure circuit breaker (#29747 gap 2).
-        _kanban_task = os.environ.get("HERMES_KANBAN_TASK")
+        _kanban_task = os.environ.get("ALLR_KANBAN_TASK")
         if _kanban_task:
             try:
                 from hermes_cli import kanban_db as _kb
@@ -696,7 +696,7 @@ def finalize_turn(
     if failed and str(_turn_exit_reason) == "session_persistence_failed":
         result["error"] = final_response or (
             "session storage could not be written — check the state database "
-            "health (`hermes doctor`), then send your message again"
+            "health (`allr doctor`), then send your message again"
         )
         # Machine-readable cause for the gateway/desktop: exactly
         # 'session_persistence_failed:<locked|disk|unknown>'. Never clobber a

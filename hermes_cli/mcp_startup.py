@@ -63,7 +63,7 @@ def start_background_mcp_discovery(*, logger, thread_name: str) -> None:
         if not _has_configured_mcp_servers():
             return
 
-        # Capture the caller's context-local HERMES_HOME override (profile
+        # Capture the caller's context-local ALLR_HOME override (profile
         # scoping in multi-profile processes like the dashboard/desktop
         # backend) and re-install it inside the discovery thread. ContextVars
         # do not propagate into bare threads, so without this a session
@@ -200,7 +200,7 @@ def mcp_discovery_in_flight() -> bool:
     Mirrors ``tui_gateway.entry.mcp_discovery_in_flight`` for the surfaces that
     start discovery through ``start_background_mcp_discovery`` here (the desktop
     app + dashboard WebSocket sidecar via ``tui_gateway/ws.py``, and
-    ``hermes dashboard``).  Those processes populate THIS module's
+    ``allr dashboard``).  Those processes populate THIS module's
     ``_mcp_discovery_thread``, not ``tui_gateway.entry``'s, so the late-refresh
     scheduler must consult both to decide whether a slow server's tools are
     still pending (see #51587).

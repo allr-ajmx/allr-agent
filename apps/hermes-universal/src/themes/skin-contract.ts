@@ -1,5 +1,5 @@
 /**
- * Canonical Hermes skin — the theme SDK's cross-surface contract.
+ * Canonical Allr skin — the theme SDK's cross-surface contract.
  *
  * Vendored from `apps/shared/src/skin.ts` (the desktop reaches it as
  * `@hermes/shared/skin`). Universal deliberately carries no `@hermes/shared`
@@ -7,7 +7,7 @@
  * shared contracts are copied in, the same way `src/gateway/json-rpc-gateway.ts`
  * vendors shared's gateway client. Keep this file in sync with the original.
  *
- * A skin is authored once as YAML in `$HERMES_HOME/skins/<name>.yaml` (or a
+ * A skin is authored once as YAML in `$ALLR_HOME/skins/<name>.yaml` (or a
  * built-in), resolved by the Python skin engine (`hermes_cli/skin_engine.py`),
  * and pushed to every surface over JSON-RPC (`gateway.ready`, `skin.changed`,
  * `config.get skin`). This is the ONE shape every TypeScript surface consumes;

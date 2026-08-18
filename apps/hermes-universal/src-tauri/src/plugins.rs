@@ -1,4 +1,4 @@
-//! The LOCAL plugin door — `$HERMES_HOME[/profiles/<p>]/desktop-plugins/<name>/plugin.js`.
+//! The LOCAL plugin door — `$ALLR_HOME[/profiles/<p>]/desktop-plugins/<name>/plugin.js`.
 //!
 //! Port of the Electron `hermes:fs:desktopPluginsRoot` + readDir/readFileText
 //! trio (apps/desktop/electron/main.ts:10910) onto Tauri/Rust.
@@ -12,7 +12,7 @@
 //!
 //! Deliberately narrow commands rather than `tauri-plugin-fs` grants:
 //!   * fs scopes are static and cannot express a runtime profile segment
-//!     (`$HOME/.hermes/profiles/<active profile>/desktop-plugins`);
+//!     (`$HOME/.allr/profiles/<active profile>/desktop-plugins`);
 //!   * `fs:allow-watch` is not in the capability set, and enabling it is a whole
 //!     feature flag;
 //!   * handing the webview a general read-dir primitive widens the renderer's
@@ -20,7 +20,7 @@
 //! `marketplace_search`/`marketplace_fetch` is the in-repo precedent.
 //!
 //! LOCALITY IS THE INVARIANT (desktop bug #66899): the root is resolved from THIS
-//! machine's HERMES_HOME, never from the connected backend's `hermes_home`. A
+//! machine's ALLR_HOME, never from the connected backend's `hermes_home`. A
 //! remote backend must not be able to point the local loader at its own files;
 //! that path exists deliberately and separately as the frontend's REST door.
 
@@ -45,18 +45,18 @@ pub struct PluginDirEntry {
     size: u64,
 }
 
-/// This machine's HERMES_HOME: the explicit env var if set, else the platform
-/// default desktop uses (%LOCALAPPDATA%\hermes on Windows, ~/.hermes elsewhere).
+/// This machine's ALLR_HOME: the explicit env var if set, else the platform
+/// default desktop uses (%LOCALAPPDATA%\allr on Windows, ~/.allr elsewhere).
 ///
-/// The env override matters: `local_backend` passes HERMES_HOME to the backend it
+/// The env override matters: `local_backend` passes ALLR_HOME to the backend it
 /// spawns, but computed the default without honouring an existing value — so a
-/// user running with a custom HERMES_HOME would have had the plugin root and the
+/// user running with a custom ALLR_HOME would have had the plugin root and the
 /// backend disagree.
 pub(crate) fn hermes_home() -> Option<PathBuf> {
-    resolve_hermes_home(std::env::var("HERMES_HOME").ok(), platform_hermes_home)
+    resolve_hermes_home(std::env::var("ALLR_HOME").ok(), platform_hermes_home)
 }
 
-/// Apply the override rule to a HERMES_HOME value already read out of the
+/// Apply the override rule to a ALLR_HOME value already read out of the
 /// environment: a set-but-blank value is not an override.
 ///
 /// Split out from `hermes_home` for the same reason `plugin_root_under` is split
@@ -88,7 +88,7 @@ fn platform_hermes_home() -> Option<PathBuf> {
     } else {
         std::env::var("HOME")
             .ok()
-            .map(|p| PathBuf::from(p).join(".hermes"))
+            .map(|p| PathBuf::from(p).join(".allr"))
     }
 }
 
@@ -117,7 +117,7 @@ fn plugin_root_under(home: PathBuf, profile: Option<&str>) -> Result<PathBuf, St
 }
 
 fn root_for(profile: Option<String>) -> Result<PathBuf, String> {
-    let home = hermes_home().ok_or("could not resolve HERMES_HOME on this platform")?;
+    let home = hermes_home().ok_or("could not resolve ALLR_HOME on this platform")?;
 
     plugin_root_under(home, profile.as_deref())
 }
@@ -153,7 +153,7 @@ pub fn plugins_list(profile: Option<String>) -> Result<Vec<PluginDirEntry>, Stri
 }
 
 /// The inventory itself, against an explicit root — testable without resolving
-/// (and therefore without mutating) HERMES_HOME.
+/// (and therefore without mutating) ALLR_HOME.
 fn list_plugins_under(root: &Path) -> Result<Vec<PluginDirEntry>, String> {
     let dir = match std::fs::read_dir(root) {
         Ok(dir) => dir,
@@ -286,14 +286,14 @@ mod tests {
         }
     }
 
-    // These used to set HERMES_HOME and restore it, which raced every `getenv`
+    // These used to set ALLR_HOME and restore it, which raced every `getenv`
     // in every other test thread — cargo runs a crate's tests in one process.
     // They go through the `resolve_hermes_home` / `list_plugins_under` seams
     // instead, so nothing here writes the process environment.
 
     #[test]
     fn honours_an_explicit_hermes_home() {
-        let platform = || Some(PathBuf::from("/platform/.hermes"));
+        let platform = || Some(PathBuf::from("/platform/.allr"));
 
         assert_eq!(
             resolve_hermes_home(Some("/tmp/custom-home".into()), platform),
@@ -308,11 +308,11 @@ mod tests {
         // platform default, not the blank string and not `None`.
         assert_eq!(
             resolve_hermes_home(Some("  ".into()), platform),
-            Some(PathBuf::from("/platform/.hermes"))
+            Some(PathBuf::from("/platform/.allr"))
         );
         assert_eq!(
             resolve_hermes_home(None, platform),
-            Some(PathBuf::from("/platform/.hermes"))
+            Some(PathBuf::from("/platform/.allr"))
         );
         // No override and no platform home is "unknown", not a bare root.
         assert_eq!(resolve_hermes_home(None, || None), None);

@@ -1,6 +1,6 @@
 """Kanban triage specifier — flesh out a one-liner into a real spec.
 
-Used by ``hermes kanban specify [task_id | --all]``. Takes a task that
+Used by ``allr kanban specify [task_id | --all]``. Takes a task that
 lives in the Triage column (a rough idea, typically only a title), calls
 the auxiliary LLM to produce:
 
@@ -42,15 +42,15 @@ from hermes_cli import kanban_db as kb
 
 from utils import env_int
 
-HERMES_KANBAN_SPECIFY_MAX_TOKENS = max(
+ALLR_KANBAN_SPECIFY_MAX_TOKENS = max(
     1500,
-    env_int("HERMES_KANBAN_SPECIFY_MAX_TOKENS", 6000),
+    env_int("ALLR_KANBAN_SPECIFY_MAX_TOKENS", 6000),
 )
 
 logger = logging.getLogger(__name__)
 
 
-_SYSTEM_PROMPT = """You are the Kanban triage specifier for the Hermes Agent board.
+_SYSTEM_PROMPT = """You are the Kanban triage specifier for the Allr board.
 A user dropped a rough idea into the Triage column. Your job is to turn it
 into a concrete, actionable task spec that an autonomous worker can pick up
 and execute without further clarification.
@@ -133,7 +133,7 @@ def _profile_author() -> str:
     """Mirror of ``hermes_cli.kanban._profile_author``. Kept local to
     avoid a circular import when kanban.py imports this module."""
     return (
-        os.environ.get("HERMES_PROFILE")
+        os.environ.get("ALLR_PROFILE")
         or os.environ.get("USER")
         or "specifier"
     )
@@ -184,7 +184,7 @@ def specify_task(
                 {"role": "user", "content": user_msg},
             ],
             temperature=0.3,
-            max_tokens=HERMES_KANBAN_SPECIFY_MAX_TOKENS,
+            max_tokens=ALLR_KANBAN_SPECIFY_MAX_TOKENS,
             timeout=timeout or 120,
         )
     except Exception as exc:

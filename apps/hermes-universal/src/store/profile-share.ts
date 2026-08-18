@@ -1,7 +1,7 @@
 /**
  * Profile share: export/import a profile as a portable bundle.
  *
- * The archive is the CLI's own `hermes profile export` tar.gz (config, skills,
+ * The archive is the CLI's own `allr profile export` tar.gz (config, skills,
  * SOUL.md, cron — credentials always excluded), plus one app-authored file at
  * the root: `desktop.json`, the appearance/interface overlay (skin + mode, any
  * user-theme definitions the skin needs, the profile rail color, the layout
@@ -22,7 +22,7 @@
  *     Desktop can use a native save/open dialog because "the native dialogs and
  *     the backend share the filesystem for local and pooled backends". For
  *     universal the gateway owns the disk (see lib/desktop-fs), so export lets
- *     the BACKEND name the file (under `HERMES_HOME/profile-exports`) and
+ *     the BACKEND name the file (under `ALLR_HOME/profile-exports`) and
  *     reports the path, and import picks through the REMOTE file picker. A
  *     native dialog here would hand the backend a path on the wrong machine.
  */
@@ -169,11 +169,11 @@ export function activeProfileKey(): string {
 // wiring. Toasts via the shared notification store; strings via translateNow so
 // the flows stay callable from non-React surfaces.
 
-const ARCHIVE_FILTERS = [{ extensions: ['tar.gz', 'tgz'], name: 'Hermes profile' }]
+const ARCHIVE_FILTERS = [{ extensions: ['tar.gz', 'tgz'], name: 'Allr profile' }]
 
 /**
  * Export `profile` (default: the active one). The BACKEND chooses the location
- * — `HERMES_HOME/profile-exports` — and the resulting path is surfaced in the
+ * — `ALLR_HOME/profile-exports` — and the resulting path is surfaced in the
  * toast, because on a remote gateway the archive is written on that machine and
  * a local save dialog would be a lie.
  *

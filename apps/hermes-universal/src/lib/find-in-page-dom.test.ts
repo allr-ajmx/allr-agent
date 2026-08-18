@@ -14,7 +14,7 @@ beforeEach(() => {
 
 describe('countDomTextMatches', () => {
   it('counts every occurrence, case-insensitively', () => {
-    mount('<p>Hermes and hermes and HERMES</p>')
+    mount('<p>Allr and hermes and ALLR</p>')
 
     expect(countDomTextMatches('hermes')).toBe(3)
     expect(countDomTextMatches('HeRmEs')).toBe(3)

@@ -30,7 +30,7 @@ _SKILL_MULTI_HYPHEN = re.compile(r"-{2,}")
 # ---------------------------------------------------------------------------
 # Skill-scaffolding markers and the canonical extractor.
 #
-# When a user invokes a /skill (or /bundle), Hermes expands the turn into a
+# When a user invokes a /skill (or /bundle), Allr expands the turn into a
 # model-facing message that embeds the full skill body plus scaffolding. That
 # expanded text is what flows into the agent loop — and into memory providers
 # via MemoryManager. Providers that store or embed the raw user turn (mem0,
@@ -191,8 +191,8 @@ def _resolve_skill_commands_platform() -> Optional[str]:
     :func:`get_skill_commands` can drop a stale cache that was populated
     for a different platform's ``skills.platform_disabled`` view (#14536).
 
-    Resolves from (in order) ``HERMES_PLATFORM`` env var and
-    ``HERMES_SESSION_PLATFORM`` from the gateway session context. Returns
+    Resolves from (in order) ``ALLR_PLATFORM`` env var and
+    ``ALLR_SESSION_PLATFORM`` from the gateway session context. Returns
     ``None`` when no platform scope is active (e.g. classic CLI, RL
     rollouts, standalone scripts).
     """
@@ -200,11 +200,11 @@ def _resolve_skill_commands_platform() -> Optional[str]:
         from gateway.session_context import get_session_env
 
         resolved_platform = (
-            os.getenv("HERMES_PLATFORM")
-            or get_session_env("HERMES_SESSION_PLATFORM")
+            os.getenv("ALLR_PLATFORM")
+            or get_session_env("ALLR_SESSION_PLATFORM")
         )
     except Exception:
-        resolved_platform = os.getenv("HERMES_PLATFORM")
+        resolved_platform = os.getenv("ALLR_PLATFORM")
     return resolved_platform or None
 
 def _load_skill_payload(skill_identifier: str, task_id: str | None = None) -> tuple[dict[str, Any], Path | None, str] | None:
@@ -400,7 +400,7 @@ def _build_skill_message(
 
 
 def scan_skill_commands() -> Dict[str, Dict[str, Any]]:
-    """Scan ~/.hermes/skills/ and return a mapping of /command -> skill info.
+    """Scan ~/.allr/skills/ and return a mapping of /command -> skill info.
 
     Returns:
         Dict mapping "/skill-name" to {name, description, skill_md_path, skill_dir}.
@@ -458,14 +458,14 @@ def scan_skill_commands() -> Dict[str, Dict[str, Any]]:
                     if not cmd_name:
                         continue
                     # Skip if this skill's auto-generated /command collides
-                    # with a core Hermes slash command (name or alias). The
+                    # with a core Allr slash command (name or alias). The
                     # skill remains fully loadable via /skill <name>.
                     # Uses resolve_command() so aliases and case variants are
                     # covered without maintaining a separate cache.
                     if resolve_command(cmd_name) is not None:
                         logger.warning(
                             "Skill %r generates slash command '/%s' which "
-                            "collides with a core Hermes command; skipping "
+                            "collides with a core Allr command; skipping "
                             "auto-registration. Use '/skill %s' instead.",
                             name, cmd_name, name,
                         )
@@ -513,7 +513,7 @@ def get_skill_commands() -> Dict[str, Dict[str, Any]]:
 def reload_skills() -> Dict[str, Any]:
     """Re-scan the skills directory and return a diff of what changed.
 
-    Rescans ``~/.hermes/skills/`` and any ``skills.external_dirs`` so the
+    Rescans ``~/.allr/skills/`` and any ``skills.external_dirs`` so the
     slash-command map (``agent.skill_commands._skill_commands``) reflects
     skills added or removed on disk.
 
@@ -784,7 +784,7 @@ def build_preloaded_skills_prompt(
     raw identifier straight into ``_load_skill_payload``, bypassing
     ``get_skill_commands()``'s scan-time disabled filter — mirrors the
     bundle-invocation gate (#59156). Without this, ``hermes -s <skill>`` or
-    a deployment's ``HERMES_TUI_SKILLS`` env var could force-load a skill an
+    a deployment's ``ALLR_TUI_SKILLS`` env var could force-load a skill an
     operator disabled via ``skills.disabled``/``skills.platform_disabled``.
     """
     prompt_parts: list[str] = []

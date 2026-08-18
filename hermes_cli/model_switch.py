@@ -106,10 +106,10 @@ def _models_config_is_allowlist(value: Any) -> bool:
     """Return True when ``models:`` is an intentional ID allowlist.
 
     A mapping like ``{model_id: {context_length: N}}`` is per-model *metadata*
-    written by ``_save_custom_provider`` / the ``hermes model`` wizard — not a
+    written by ``_save_custom_provider`` / the ``allr model`` wizard — not a
     catalog narrow. Treating that shape as an allowlist made Desktop/Telegram
     pickers show only the saved default for local Ollama (no ``api_key``),
-    while ``hermes model`` still live-probed the full ``/v1/models`` list.
+    while ``allr model`` still live-probed the full ``/v1/models`` list.
     Refresh could not help because the same gate skipped probing.
 
     List/string shapes remain allowlists for no-key endpoints. To pin a
@@ -203,9 +203,9 @@ def _bare_custom_provider_def(current_base_url: str) -> Optional[ProviderDef]:
 # Non-agentic model warning
 # ---------------------------------------------------------------------------
 
-_HERMES_MODEL_WARNING = (
+_ALLR_MODEL_WARNING = (
     "Nous Research Hermes 3 & 4 models are NOT agentic and are not designed "
-    "for use with Hermes Agent. They lack the tool-calling capabilities "
+    "for use with Allr. They lack the tool-calling capabilities "
     "required for agent workflows. Consider using an agentic model instead "
     "(Claude, GPT, Gemini, DeepSeek, etc.)."
 )
@@ -219,7 +219,7 @@ _HERMES_MODEL_WARNING = (
 #   NousResearch/Hermes-3-Llama-3.1-70B, hermes-4-405b, openrouter/hermes3:70b
 # Negative examples it must NOT match:
 #   hermes-brain:qwen3-14b-ctx16k, qwen3:14b, claude-opus-4-6
-_NOUS_HERMES_NON_AGENTIC_RE = re.compile(
+_NOUS_ALLR_NON_AGENTIC_RE = re.compile(
     r"(?:^|[/:])hermes[-_ ]?[34](?:[-_.:]|$)",
     re.IGNORECASE,
 )
@@ -279,13 +279,13 @@ def is_nous_hermes_non_agentic(model_name: str) -> bool:
     """
     if not model_name:
         return False
-    return bool(_NOUS_HERMES_NON_AGENTIC_RE.search(model_name))
+    return bool(_NOUS_ALLR_NON_AGENTIC_RE.search(model_name))
 
 
 def _check_hermes_model_warning(model_name: str) -> str:
     """Return a warning string if *model_name* is a Nous Hermes 3/4 chat model."""
     if is_nous_hermes_non_agentic(model_name):
-        return _HERMES_MODEL_WARNING
+        return _ALLR_MODEL_WARNING
     return ""
 
 
@@ -389,7 +389,7 @@ def _load_direct_aliases() -> dict[str, DirectAlias]:
             provider: custom
             base_url: "https://ollama.com/v1"
 
-    Also reads ``model.aliases`` (set by ``hermes config set model.aliases.xxx``)
+    Also reads ``model.aliases`` (set by ``allr config set model.aliases.xxx``)
     and converts simple string entries (``ds-flash: deepseek/deepseek-v4-flash``)
     into DirectAlias objects.  The provider is parsed from the ``provider/``
     prefix in the value; if no slash, the current provider is used.
@@ -1360,7 +1360,7 @@ def switch_model(
         if pdef is None:
             _switch_err = (
                 f"Unknown provider '{explicit_provider}'. "
-                f"Check 'hermes model' for available providers, or define it "
+                f"Check 'allr model' for available providers, or define it "
                 f"in config.yaml under 'providers:'."
             )
             # Check for common config issues that cause provider resolution failures
@@ -1368,7 +1368,7 @@ def switch_model(
                 from hermes_cli.config import validate_config_structure
                 _cfg_issues = validate_config_structure()
                 if _cfg_issues:
-                    _switch_err += "\n\nRun 'hermes doctor' — config issues detected:"
+                    _switch_err += "\n\nRun 'allr doctor' — config issues detected:"
                     for _ci in _cfg_issues[:3]:
                         _switch_err += f"\n  • {_ci.message}"
             except Exception:
@@ -2219,9 +2219,9 @@ def list_authenticated_providers(
     curated: dict[str, list[str]] = dict(_PROVIDER_MODELS)
     curated["openrouter"] = [mid for mid, _ in OPENROUTER_MODELS]
     # "nous" pulls from the remote model-catalog manifest published at
-    # https://hermes-agent.nousresearch.com/docs/api/model-catalog.json so
+    # https://allr.work/docs/api/model-catalog.json so
     # newly added Portal models surface in the /model picker without
-    # requiring a Hermes release. Falls back to the in-repo
+    # requiring a Allr release. Falls back to the in-repo
     # _PROVIDER_MODELS["nous"] snapshot when the manifest is unreachable.
     curated["nous"] = get_curated_nous_model_ids()
     # Ollama Cloud uses dynamic discovery (no static curated list)
@@ -2257,7 +2257,7 @@ def list_authenticated_providers(
             live = [current_model]
         curated["lmstudio"] = live
 
-    # --- 1. Check Hermes-mapped providers ---
+    # --- 1. Check Allr-mapped providers ---
     from hermes_cli.models import _AGGREGATOR_PROVIDERS as _AGG_PROVIDERS
     from hermes_cli.providers import ALIASES as _PROVIDER_ALIAS_TABLE
     for hermes_id, mdev_id in PROVIDER_TO_MODELS_DEV.items():
@@ -2312,10 +2312,10 @@ def list_authenticated_providers(
         # minimax-cn → MINIMAX_API_KEY instead of MINIMAX_CN_API_KEY).
         pconfig = PROVIDER_REGISTRY.get(hermes_id)
         # Skip non-API-key auth providers here — they are handled in
-        # section 2 (HERMES_OVERLAYS) with proper auth store checking.
+        # section 2 (ALLR_OVERLAYS) with proper auth store checking.
         if pconfig and pconfig.auth_type != "api_key":
             continue
-        # models.dev catalogs include providers Hermes may not route yet.
+        # models.dev catalogs include providers Allr may not route yet.
         # Gate on runtime capability rather than registry membership: special
         # providers and plugin aliases can be routable without a registry row.
         from hermes_cli.auth import is_runtime_provider_routable
@@ -2347,7 +2347,7 @@ def list_authenticated_providers(
             continue
 
         # Unified pathway: route through cached_provider_model_ids() so the
-        # /model picker sees the SAME list `hermes model` would build, with
+        # /model picker sees the SAME list `allr model` would build, with
         # disk caching to keep the picker open snappy. Falls back to the
         # curated static list when the live fetcher returns nothing.
         model_ids = cached_provider_model_ids(hermes_id)
@@ -2389,20 +2389,20 @@ def list_authenticated_providers(
         seen_slugs.add(slug.lower())
         _record_builtin_endpoint(slug)
 
-    # --- 2. Check Hermes-only providers (nous, openai-codex, copilot, opencode-go) ---
-    from hermes_cli.providers import HERMES_OVERLAYS
+    # --- 2. Check Allr-only providers (nous, openai-codex, copilot, opencode-go) ---
+    from hermes_cli.providers import ALLR_OVERLAYS
     from hermes_cli.auth import PROVIDER_REGISTRY as _auth_registry
 
-    # Build reverse mapping: models.dev ID → Hermes provider ID.
-    # HERMES_OVERLAYS keys may be models.dev IDs (e.g. "github-copilot")
-    # while _PROVIDER_MODELS and config.yaml use Hermes IDs ("copilot").
+    # Build reverse mapping: models.dev ID → Allr provider ID.
+    # ALLR_OVERLAYS keys may be models.dev IDs (e.g. "github-copilot")
+    # while _PROVIDER_MODELS and config.yaml use Allr IDs ("copilot").
     _mdev_to_hermes = {v: k for k, v in PROVIDER_TO_MODELS_DEV.items()}
 
-    for pid, overlay in HERMES_OVERLAYS.items():
+    for pid, overlay in ALLR_OVERLAYS.items():
         if pid.lower() in seen_slugs:
             continue
 
-        # Resolve Hermes slug — e.g. "github-copilot" → "copilot"
+        # Resolve Allr slug — e.g. "github-copilot" → "copilot"
         hermes_slug = _mdev_to_hermes.get(pid, pid)
         if hermes_slug.lower() in seen_slugs:
             continue
@@ -2513,7 +2513,7 @@ def list_authenticated_providers(
         elif hermes_slug == "nous":
             # Nous serves a large live /v1/models catalog (vendor-prefixed
             # models from many providers, returned alphabetically). The
-            # `hermes model` picker deliberately shows ONLY the curated agentic
+            # `allr model` picker deliberately shows ONLY the curated agentic
             # list — augmented with the Portal's free/paid recommendations so
             # newly-launched models surface without a CLI release — in curated
             # order. Mirror that exactly (see _model_flow_nous in main.py) so
@@ -2577,8 +2577,8 @@ def list_authenticated_providers(
 
     # --- 2b. Cross-check canonical provider list ---
     # Catches providers that are in CANONICAL_PROVIDERS but weren't found
-    # in PROVIDER_TO_MODELS_DEV or HERMES_OVERLAYS (keeps /model in sync
-    # with `hermes model`).
+    # in PROVIDER_TO_MODELS_DEV or ALLR_OVERLAYS (keeps /model in sync
+    # with `allr model`).
     try:
         from hermes_cli.models import CANONICAL_PROVIDERS as _canon_provs
     except ImportError:
@@ -2718,7 +2718,7 @@ def list_authenticated_providers(
             # custom_providers entries use, so accept either.
             default_model = ep_cfg.get("default_model", "") or ep_cfg.get("model", "")
             # Build models list from both default_model and full models array.
-            # Hermes writes ``models:`` as a dict keyed by model id, but older
+            # Allr writes ``models:`` as a dict keyed by model id, but older
             # or hand-edited configs may use strings or ``[{id: ...}]`` rows —
             # _declared_model_ids() owns that contract.
             entry_models: list = []
@@ -2732,7 +2732,7 @@ def list_authenticated_providers(
             if group_key not in ep_groups:
                 # Strip per-model suffix so "Palantir Claude 4.7 Opus" becomes
                 # "Palantir Claude". Em dash and " - " are the separators
-                # Hermes's own writer uses (mirrors section-4 grouping).
+                # Allr's own writer uses (mirrors section-4 grouping).
                 grp_display = display_name
                 for sep in ("—", " - "):
                     if sep in grp_display:
@@ -2778,7 +2778,7 @@ def list_authenticated_providers(
             # list: a singular ``default_model``/``model`` is only the active
             # selection and must not suppress discovery (see #40542 / PR
             # #61928). Dict-shaped ``models:`` is context_length metadata from
-            # ``hermes model``, not an allowlist — see
+            # ``allr model``, not an allowlist — see
             # ``_models_config_is_allowlist``.
             if _models_config_is_allowlist(ep_cfg.get("models")):
                 ep_groups[group_key]["has_explicit_models"] = True
@@ -2813,7 +2813,7 @@ def list_authenticated_providers(
             #   narrowing (mirrors section 4 / #40542).
             # - A dict-shaped ``models:`` is per-model metadata
             #   (context_length), not an allowlist — still probe so local
-            #   Ollama/llama.cpp match ``hermes model``. Pin with
+            #   Ollama/llama.cpp match ``allr model``. Pin with
             #   ``discover_models: false`` instead.
             # - Without an api_key AND no allowlist: probe anyway so bare
             #   local endpoints still show their full model catalog.
@@ -3070,7 +3070,7 @@ def list_authenticated_providers(
             )
 
             # The singular ``model:`` field only holds the currently
-            # active model. Hermes's own writer (main.py::_save_custom_provider)
+            # active model. Allr's own writer (main.py::_save_custom_provider)
             # stores every configured model as a dict under ``models:``;
             # downstream readers (agent/models_dev.py, gateway/run.py,
             # run_agent.py, hermes_cli/config.py) already consume that dict.
@@ -3153,7 +3153,7 @@ def list_authenticated_providers(
             # - A dict-shaped ``models:`` is per-model metadata written by
             #   ``_save_custom_provider`` for context_length — not an
             #   allowlist. Still probe so Desktop/Telegram match
-            #   ``hermes model``. Pin a dict catalog with
+            #   ``allr model``. Pin a dict catalog with
             #   ``discover_models: false``.
             # - The singular ``model:`` field is only the current active
             #   selection and must not suppress discovery.

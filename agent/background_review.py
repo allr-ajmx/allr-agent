@@ -12,7 +12,7 @@ credentials, cached system prompt) so it hits the same prefix cache and
 uses the same auth.  It runs with a tool whitelist limited to memory and
 skill management tools; everything else is denied at runtime.
 
-See the ``hermes-agent-dev`` skill (``references/self-improvement-loop.md``)
+See the ``allr-agent-dev`` skill (``references/self-improvement-loop.md``)
 for invariants and PR review criteria.
 """
 
@@ -253,10 +253,10 @@ _SKILL_REVIEW_PROMPT = (
     "If you notice two existing skills that overlap, note it in your "
     "reply — the background curator handles consolidation at scale.\n\n"
     "Protected skills (DO NOT edit these):\n"
-    "  • Bundled skills (shipped with Hermes, e.g. 'hermes-agent').\n"
-    "  • Hub-installed skills (installed via 'hermes skills install').\n"
+    "  • Bundled skills (shipped with Allr, e.g. 'allr-agent').\n"
+    "  • Hub-installed skills (installed via 'allr skills install').\n"
     "  • Skills in skills.external_dirs (externally owned).\n"
-    "  • PINNED skills (marked via 'hermes curator pin'). You are an "
+    "  • PINNED skills (marked via 'allr curator pin'). You are an "
     "autonomous no-user-present actor, so pin blocks your writes too — "
     "content updates included. Only the user, in a foreground session, "
     "can change a pinned skill.\n"
@@ -266,7 +266,7 @@ _SKILL_REVIEW_PROMPT = (
     "This includes skills that were loaded or consulted this session: "
     "being in play does not make one yours to edit. If such a skill is "
     "wrong or outdated, say so in your reply and recommend "
-    "'hermes curator adopt <name>' — do not try to patch it.\n"
+    "'allr curator adopt <name>' — do not try to patch it.\n"
     "If the only skills that need updating are protected, say\n"
     "'Nothing to save.' and stop.\n\n"
     "Do NOT capture (these become persistent self-imposed constraints "
@@ -358,17 +358,17 @@ _COMBINED_REVIEW_PROMPT = (
     "If you notice overlapping existing skills, mention it — the "
     "background curator handles consolidation.\n\n"
     "Protected skills (DO NOT edit these):\n"
-    "  • Bundled skills (shipped with Hermes, e.g. 'hermes-agent').\n"
-    "  • Hub-installed skills (installed via 'hermes skills install').\n"
+    "  • Bundled skills (shipped with Allr, e.g. 'allr-agent').\n"
+    "  • Hub-installed skills (installed via 'allr skills install').\n"
     "  • Skills in skills.external_dirs (externally owned).\n"
-    "  • PINNED skills (marked via 'hermes curator pin'). Pin blocks "
+    "  • PINNED skills (marked via 'allr curator pin'). Pin blocks "
     "autonomous writes entirely — content updates included — because no "
     "user is present to consent. Only a foreground session can change one.\n"
     "  • USER-OWNED skills — anything not curator-managed (hand-written, "
     "URL-installed, or created by a foreground agent at the user's "
     "request). Your writes to these WILL be refused, including to skills "
     "loaded or consulted this session. If one is wrong, say so in your "
-    "reply and recommend 'hermes curator adopt <name>' instead.\n"
+    "reply and recommend 'allr curator adopt <name>' instead.\n"
     "If the only skills that need updating are protected, say\n"
     "'Nothing to save.' and stop.\n\n"
     "Do NOT capture as skills (these become persistent self-imposed "
@@ -641,7 +641,7 @@ def build_memory_write_metadata(
         ),
         "session_id": agent.session_id or "",
         "parent_session_id": agent._parent_session_id or "",
-        "platform": agent.platform or os.environ.get("HERMES_SESSION_SOURCE", "cli"),
+        "platform": agent.platform or os.environ.get("ALLR_SESSION_SOURCE", "cli"),
         "tool_name": "memory",
     }
     if task_id:

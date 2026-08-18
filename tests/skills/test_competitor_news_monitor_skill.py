@@ -40,7 +40,7 @@ def test_description_hardline():
 
 def test_author_credits_human_first():
     fm, _ = _frontmatter_and_body()
-    assert not fm["author"].startswith("Hermes Agent")
+    assert not fm["author"].startswith("Allr")
     assert "benbarclay" in fm["author"]
 
 

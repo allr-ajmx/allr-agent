@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
-Hermes Agent CLI - Interactive Terminal Interface
+Allr CLI - Interactive Terminal Interface
 
-A beautiful command-line interface for the Hermes Agent, inspired by Claude Code.
+A beautiful command-line interface for the Allr, inspired by Claude Code.
 Features ASCII art branding, interactive REPL, toolset selection, and rich formatting.
 
 Usage:
     python cli.py                          # Start interactive mode with all tools
     python cli.py --toolsets web,terminal  # Start with specific toolsets
-    python cli.py --skills hermes-agent-dev,github-auth
+    python cli.py --skills allr-agent-dev,github-auth
     python cli.py --list-tools             # List available tools and exit
 """
 
@@ -18,7 +18,7 @@ try:
     import hermes_bootstrap  # noqa: F401
 except ModuleNotFoundError:
     # Graceful fallback when hermes_bootstrap isn't registered in the venv
-    # yet — happens during partial ``hermes update`` where git-reset landed
+    # yet — happens during partial ``allr update`` where git-reset landed
     # new code but ``uv pip install -e .`` didn't finish.  Missing bootstrap
     # means UTF-8 stdio setup is skipped on Windows; POSIX is unaffected.
     pass
@@ -48,7 +48,7 @@ from typing import List, Dict, Any, Optional
 logger = logging.getLogger(__name__)
 
 # Suppress startup messages for clean CLI experience
-os.environ["HERMES_QUIET"] = "1"  # Our own modules
+os.environ["ALLR_QUIET"] = "1"  # Our own modules
 
 from hermes_cli.fallback_config import get_fallback_chain
 from hermes_cli.cli_agent_setup_mixin import CLIAgentSetupMixin
@@ -131,7 +131,7 @@ def _reverse_alias_for_display(model_name: str) -> str:
     """Return the shortest configured alias for ``model_name``, or ``model_name``.
 
     Looks up both ``model_aliases:`` (dict-based, full DirectAlias entries)
-    and ``model.aliases:`` (string-based, set via ``hermes config set``)
+    and ``model.aliases:`` (string-based, set via ``allr config set``)
     from config.yaml. Multiple aliases pointing at the same model — the
     shortest wins, so ``opus47`` beats ``palantir-claude47``.
     """
@@ -214,7 +214,7 @@ from hermes_cli.banner import _format_context_length, format_banner_version_labe
 _COMMAND_SPINNER_FRAMES = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
 
 
-# Load .env from ~/.hermes/.env first, then project root as dev fallback.
+# Load .env from ~/.allr/.env first, then project root as dev fallback.
 # User-managed env files should override stale shell exports on restart.
 from hermes_constants import get_hermes_home, display_hermes_home
 from hermes_cli.browser_connect import (
@@ -341,7 +341,7 @@ def _load_prefill_messages(file_path: str) -> List[Dict[str, Any]]:
     The file should contain a JSON array of {role, content} dicts, e.g.:
         [{"role": "user", "content": "Hi"}, {"role": "assistant", "content": "Hello!"}]
     
-    Relative paths are resolved from ~/.hermes/.
+    Relative paths are resolved from ~/.allr/.
     Returns an empty list if the path is empty or the file doesn't exist.
     """
     if not file_path:
@@ -371,7 +371,7 @@ def _resolve_prefill_messages_file(config: Dict[str, Any]) -> str:
     ``agent.prefill_messages_file`` remains a legacy fallback for older CLI and
     godmode-generated configs.
     """
-    env_path = os.getenv("HERMES_PREFILL_MESSAGES_FILE", "").strip()
+    env_path = os.getenv("ALLR_PREFILL_MESSAGES_FILE", "").strip()
     if env_path:
         return env_path
     top_level = str(config.get("prefill_messages_file", "") or "").strip()
@@ -411,25 +411,25 @@ def load_cli_config() -> Dict[str, Any]:
     Load CLI configuration from config files.
     
     Config lookup order:
-    1. ~/.hermes/config.yaml (user config - preferred)
+    1. ~/.allr/config.yaml (user config - preferred)
     2. ./cli-config.yaml (project config - fallback)
     
     Environment variables take precedence over config file values.
     Returns default values if no config file exists.
 
-    If HERMES_IGNORE_USER_CONFIG=1 is set (via ``hermes chat --ignore-user-config``),
-    the user config at ``~/.hermes/config.yaml`` is skipped entirely and only the
+    If ALLR_IGNORE_USER_CONFIG=1 is set (via ``allr chat --ignore-user-config``),
+    the user config at ``~/.allr/config.yaml`` is skipped entirely and only the
     built-in defaults plus the project-level ``cli-config.yaml`` (if any) are used.
     Credentials in ``.env`` are still loaded — this flag only suppresses
     behavioral/config settings.
     """
-    # Check user config first ({HERMES_HOME}/config.yaml)
+    # Check user config first ({ALLR_HOME}/config.yaml)
     user_config_path = _hermes_home / 'config.yaml'
     project_config_path = Path(__file__).parent / 'cli-config.yaml'
 
     # --ignore-user-config: force-skip the user config.yaml (still honor project
     # config as a fallback so defaults stay sensible).
-    ignore_user_config = os.environ.get("HERMES_IGNORE_USER_CONFIG") == "1"
+    ignore_user_config = os.environ.get("ALLR_IGNORE_USER_CONFIG") == "1"
 
     # Use user config if it exists, otherwise project config
     if user_config_path.exists() and not ignore_user_config:
@@ -614,7 +614,7 @@ def load_cli_config() -> Dict[str, Any]:
     # hermes_cli.config._load_config_impl (which has its own managed merge), so
     # without this the entire interactive CLI/TUI surface — skin, display prefs,
     # etc. read from CLI_CONFIG — would silently ignore managed scope while
-    # `hermes config`/`doctor`/guards (which use load_config) honor it. The
+    # `allr config`/`doctor`/guards (which use load_config) honor it. The
     # shared helper mirrors _load_config_impl (env-only expansion, root-model
     # normalization, leaf-merge) and is fail-open.
     from hermes_cli import managed_scope
@@ -687,9 +687,9 @@ def load_cli_config() -> Dict[str, Any]:
     }
     
     # Bridge config → env vars for terminal_tool. TERMINAL_CWD is force-exported
-    # UNLESS we're inside a gateway process (detected by _HERMES_GATEWAY marker)
+    # UNLESS we're inside a gateway process (detected by _ALLR_GATEWAY marker)
     # where it was already set correctly by gateway/run.py's config bridge.
-    _is_gateway = os.environ.get("_HERMES_GATEWAY") == "1"
+    _is_gateway = os.environ.get("_ALLR_GATEWAY") == "1"
     for config_key, env_var in env_mappings.items():
         if config_key in terminal_config:
             if env_var == "TERMINAL_CWD":
@@ -766,15 +766,15 @@ def load_cli_config() -> Dict[str, Any]:
     if isinstance(security_config, dict):
         redact = security_config.get("redact_secrets")
         if redact is not None:
-            os.environ["HERMES_REDACT_SECRETS"] = str(redact).lower()
+            os.environ["ALLR_REDACT_SECRETS"] = str(redact).lower()
 
     # Session-search index knobs (hermes_state reads the env carriers).
     sessions_config = defaults.get("sessions", {})
     if isinstance(sessions_config, dict):
         if "cjk_fts" in sessions_config:
-            os.environ["HERMES_CJK_FTS"] = str(sessions_config["cjk_fts"])
+            os.environ["ALLR_CJK_FTS"] = str(sessions_config["cjk_fts"])
         if "search_slow_ms" in sessions_config:
-            os.environ["HERMES_SEARCH_SLOW_MS"] = str(
+            os.environ["ALLR_SEARCH_SLOW_MS"] = str(
                 sessions_config["search_slow_ms"]
             )
 
@@ -784,7 +784,7 @@ def load_cli_config() -> Dict[str, Any]:
 CLI_CONFIG = load_cli_config()
 
 
-# Initialize centralized logging early — agent.log + errors.log in ~/.hermes/logs/.
+# Initialize centralized logging early — agent.log + errors.log in ~/.allr/logs/.
 # This ensures CLI sessions produce a log trail even before AIAgent is instantiated.
 try:
     from hermes_logging import setup_logging
@@ -1005,10 +1005,10 @@ def _prepare_deferred_agent_startup() -> None:
     global _deferred_agent_startup_done
     if _deferred_agent_startup_done:
         return
-    if os.environ.get("HERMES_DEFER_AGENT_STARTUP") != "1":
+    if os.environ.get("ALLR_DEFER_AGENT_STARTUP") != "1":
         return
     _deferred_agent_startup_done = True
-    _accept_hooks = os.environ.get("HERMES_ACCEPT_HOOKS", "").lower() in {
+    _accept_hooks = os.environ.get("ALLR_ACCEPT_HOOKS", "").lower() in {
         "1",
         "true",
         "yes",
@@ -1073,11 +1073,11 @@ def _arm_exit_watchdog(timeout_s: float | None = None) -> None:
     Daemon threads keep running through ``Py_FinalizeEx``'s thread joins,
     so the timer fires even when the main thread is stuck in teardown.
 
-    Tune with ``HERMES_EXIT_WATCHDOG_S`` (seconds); ``0`` disables.
+    Tune with ``ALLR_EXIT_WATCHDOG_S`` (seconds); ``0`` disables.
     """
     if timeout_s is None:
         try:
-            timeout_s = float(os.getenv("HERMES_EXIT_WATCHDOG_S", "30"))
+            timeout_s = float(os.getenv("ALLR_EXIT_WATCHDOG_S", "30"))
         except (TypeError, ValueError):
             timeout_s = 30.0
     if timeout_s <= 0:
@@ -1151,7 +1151,7 @@ def _arm_exit_watchdog_on_shutdown_signal() -> None:
         return
     _signal_watchdog_armed = True
     try:
-        base = float(os.getenv("HERMES_EXIT_WATCHDOG_S", "30"))
+        base = float(os.getenv("ALLR_EXIT_WATCHDOG_S", "30"))
     except (TypeError, ValueError):
         base = 30.0
     if base <= 0:
@@ -1466,7 +1466,7 @@ def _resolve_worktree_base(
     """Resolve the freshest base ref to branch a new worktree from.
 
     The standalone clone's ``HEAD`` can lag the remote by hundreds of commits
-    (the ``~/.hermes/hermes-agent`` clone is updated only by ``hermes update``,
+    (the ``~/.allr/allr-agent`` clone is updated only by ``allr update``,
     not on every session). Branching a worktree from that stale ``HEAD`` roots
     every new branch on an old base — so the PR diff GitHub computes against
     current ``main`` balloons with unrelated changes, and the agent has to
@@ -2191,7 +2191,7 @@ def _run_checkpoint_auto_maintenance() -> None:
         # workdir at startup is ambiguous (deleted project vs. an unmounted
         # external volume / network share / VPN not yet up) and this sweep
         # runs unattended. Orphan cleanup is only ever done via the explicit
-        # `hermes checkpoints prune` command, which the user has to invoke.
+        # `allr checkpoints prune` command, which the user has to invoke.
         maybe_auto_prune_checkpoints(
             retention_days=int(cfg.get("retention_days", 7)),
             min_interval_hours=int(cfg.get("min_interval_hours", 24)),
@@ -2267,7 +2267,7 @@ def _prune_stale_worktrees(repo_root: str, max_age_hours: int = 24) -> None:
     stale_work_cutoff = now - (7 * 24 * 3600)
     preserved_stale: list = []
     # Kanban task worktrees (<repo>/.worktrees/t_<hex>) have their own
-    # dispatcher-driven lifecycle (hermes kanban gc) — never touch them here.
+    # dispatcher-driven lifecycle (allr kanban gc) — never touch them here.
     kanban_re = re.compile(r"^t_[0-9a-f]+$")
 
     # ── Phase 1: age filter (no subprocesses) ───────────────────────────────
@@ -2537,12 +2537,12 @@ def _hex_to_ansi(hex_color: str, *, bold: bool = False) -> str:
 # Terminal.app / iTerm2 background.
 #
 # Detection priority:
-#   1. HERMES_LIGHT / HERMES_TUI_LIGHT env (true/false) — explicit override
-#   2. HERMES_TUI_THEME=light|dark — explicit theme
-#   3. HERMES_TUI_BACKGROUND=#RRGGBB — explicit bg hint
+#   1. ALLR_LIGHT / ALLR_TUI_LIGHT env (true/false) — explicit override
+#   2. ALLR_TUI_THEME=light|dark — explicit theme
+#   3. ALLR_TUI_BACKGROUND=#RRGGBB — explicit bg hint
 #   4. COLORFGBG env (set by xterm/Konsole/urxvt) — bg slot 7/15 = light
 #   5. OSC 11 query (\x1b]11;?\x1b\\) — ask the terminal directly
-#   6. Default: assume dark (matches the legacy Hermes assumption)
+#   6. Default: assume dark (matches the legacy Allr assumption)
 #
 # Cached after first call so we don't query the terminal repeatedly.
 _LIGHT_MODE_CACHE: bool | None = None
@@ -2691,7 +2691,7 @@ def _detect_light_mode() -> bool:
     result = False
     try:
         # 1. Explicit env override
-        for var in ("HERMES_LIGHT", "HERMES_TUI_LIGHT"):
+        for var in ("ALLR_LIGHT", "ALLR_TUI_LIGHT"):
             v = (os.environ.get(var) or "").strip().lower()
             if _TRUE_RE.match(v):
                 result = True
@@ -2701,7 +2701,7 @@ def _detect_light_mode() -> bool:
                 _LIGHT_MODE_CACHE = result
                 return result
         # 2. Theme hint
-        theme = (os.environ.get("HERMES_TUI_THEME") or "").strip().lower()
+        theme = (os.environ.get("ALLR_TUI_THEME") or "").strip().lower()
         if theme == "light":
             result = True
             _LIGHT_MODE_CACHE = result
@@ -2710,7 +2710,7 @@ def _detect_light_mode() -> bool:
             _LIGHT_MODE_CACHE = result
             return result
         # 3. Explicit bg hex
-        bg_hint = os.environ.get("HERMES_TUI_BACKGROUND") or ""
+        bg_hint = os.environ.get("ALLR_TUI_BACKGROUND") or ""
         bg_lum = _luminance_from_hex(bg_hint)
         if bg_lum is not None:
             result = bg_lum >= 0.5
@@ -2915,7 +2915,7 @@ def _strip_markdown_syntax(text: str) -> str:
     plain = _rich_text_from_ansi(text or "").plain
     # Avoid stripping cron-style expressions like "* * * * *" as if they were
     # Markdown horizontal rules. CommonMark treats three or more "*" as an HR,
-    # but in Hermes output it's common to display cron schedules verbatim.
+    # but in Allr output it's common to display cron schedules verbatim.
     #
     # Keep the behavior for "-" / "_" HR markers, and only strip "*" HR lines
     # when there are exactly 3 asterisks (with optional whitespace).
@@ -3974,16 +3974,16 @@ class ChatConsole:
         """
         yield self
 
-# ASCII Art - HERMES-AGENT logo (full width, single line - requires ~95 char terminal)
-HERMES_AGENT_LOGO = """[bold #FFD700]██╗  ██╗███████╗██████╗ ███╗   ███╗███████╗███████╗       █████╗  ██████╗ ███████╗███╗   ██╗████████╗[/]
+# ASCII Art - ALLR-AGENT logo (full width, single line - requires ~95 char terminal)
+ALLR_AGENT_LOGO = """[bold #FFD700]██╗  ██╗███████╗██████╗ ███╗   ███╗███████╗███████╗       █████╗  ██████╗ ███████╗███╗   ██╗████████╗[/]
 [bold #FFD700]██║  ██║██╔════╝██╔══██╗████╗ ████║██╔════╝██╔════╝      ██╔══██╗██╔════╝ ██╔════╝████╗  ██║╚══██╔══╝[/]
 [#FFBF00]███████║█████╗  ██████╔╝██╔████╔██║█████╗  ███████╗█████╗███████║██║  ███╗█████╗  ██╔██╗ ██║   ██║[/]
 [#FFBF00]██╔══██║██╔══╝  ██╔══██╗██║╚██╔╝██║██╔══╝  ╚════██║╚════╝██╔══██║██║   ██║██╔══╝  ██║╚██╗██║   ██║[/]
 [#CD7F32]██║  ██║███████╗██║  ██║██║ ╚═╝ ██║███████╗███████║      ██║  ██║╚██████╔╝███████╗██║ ╚████║   ██║[/]
 [#CD7F32]╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝╚══════╝╚══════╝      ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝   ╚═╝[/]"""
 
-# ASCII Art - Hermes Caduceus (compact, fits in left panel)
-HERMES_CADUCEUS = """[#CD7F32]⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⣀⡀⠀⣀⣀⠀⢀⣀⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀[/]
+# ASCII Art - Allr Caduceus (compact, fits in left panel)
+ALLR_CADUCEUS = """[#CD7F32]⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⣀⡀⠀⣀⣀⠀⢀⣀⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀[/]
 [#CD7F32]⠀⠀⠀⠀⠀⠀⢀⣠⣴⣾⣿⣿⣇⠸⣿⣿⠇⣸⣿⣿⣷⣦⣄⡀⠀⠀⠀⠀⠀⠀[/]
 [#FFBF00]⠀⢀⣠⣴⣶⠿⠋⣩⡿⣿⡿⠻⣿⡇⢠⡄⢸⣿⠟⢿⣿⢿⣍⠙⠿⣶⣦⣄⡀⠀[/]
 [#FFBF00]⠀⠀⠉⠉⠁⠶⠟⠋⠀⠉⠀⢀⣈⣁⡈⢁⣈⣁⡀⠀⠉⠀⠙⠻⠶⠈⠉⠉⠀⠀[/]
@@ -4015,18 +4015,18 @@ def _build_compact_banner() -> str:
     dim_color = _skin.get_color("banner_dim", "#B8860B") if _skin else "#B8860B"
 
     if skin_name == "default":
-        line1 = "⚕ NOUS HERMES - AI Agent Framework"
-        tiny_line = "⚕ NOUS HERMES"
+        line1 = "⚕ NOUS ALLR - AI Agent Framework"
+        tiny_line = "⚕ NOUS ALLR"
     else:
-        agent_name = _skin.get_branding("agent_name", "Hermes Agent") if _skin else "Hermes Agent"
+        agent_name = _skin.get_branding("agent_name", "Allr") if _skin else "Allr"
         line1 = f"{agent_name} - AI Agent Framework"
         tiny_line = agent_name
 
-    if os.environ.get("HERMES_FAST_STARTUP_BANNER") == "1":
+    if os.environ.get("ALLR_FAST_STARTUP_BANNER") == "1":
         from hermes_cli import __release_date__ as _release_date
         from hermes_cli import __version__ as _version
 
-        version_line = f"Hermes Agent v{_version} ({_release_date})"
+        version_line = f"Allr v{_version} ({_release_date})"
     else:
         version_line = format_banner_version_label()
 
@@ -4159,7 +4159,7 @@ def save_config_value(key_path: str, value: any) -> bool:
     Save a value to the active config file at the specified key path.
     
     Respects the same lookup order as load_cli_config():
-    1. ~/.hermes/config.yaml (user config - preferred, used if it exists)
+    1. ~/.allr/config.yaml (user config - preferred, used if it exists)
     2. ./cli-config.yaml (project config - fallback)
     
     Args:
@@ -4169,8 +4169,8 @@ def save_config_value(key_path: str, value: any) -> bool:
     Returns:
         True if successful, False otherwise
     """
-    # Runtime persistence ALWAYS targets the user's HERMES_HOME config.yaml,
-    # creating it if needed. Resolve HERMES_HOME live (not the import-time
+    # Runtime persistence ALWAYS targets the user's ALLR_HOME config.yaml,
+    # creating it if needed. Resolve ALLR_HOME live (not the import-time
     # _hermes_home constant) so profile switches and test isolation land right.
     #
     # We deliberately do NOT fall back to the repo's project cli-config.yaml:
@@ -4179,13 +4179,13 @@ def save_config_value(key_path: str, value: any) -> bool:
     # load_wake_word_config) never read it. Writing a user setting there means
     # the reader never sees it. This was the "wake-word ear reverts to disabled
     # after restart" bug — the toggle's persist wrote to cli-config.yaml (which
-    # exists in the checkout) while startup read HERMES_HOME/config.yaml, so the
+    # exists in the checkout) while startup read ALLR_HOME/config.yaml, so the
     # setting silently vanished every restart on any install whose
-    # HERMES_HOME/config.yaml didn't exist yet.
+    # ALLR_HOME/config.yaml didn't exist yet.
     config_path = get_hermes_home() / 'config.yaml'
     
     try:
-        # Ensure parent directory exists (for ~/.hermes/config.yaml on first use)
+        # Ensure parent directory exists (for ~/.allr/config.yaml on first use)
         config_path.parent.mkdir(parents=True, exist_ok=True)
         
         # Save back atomically while preserving comments, ordering, quotes, and
@@ -4200,7 +4200,7 @@ def save_config_value(key_path: str, value: any) -> bool:
             pass
 
         # Model/provider changes made through /model and the TUI use this
-        # persistence path rather than ``hermes config set``. Surface the same
+        # persistence path rather than ``allr config set``. Surface the same
         # fail-closed cron drift warning for every operator-facing model switch.
         from hermes_cli.config import (
             warn_unpinned_cron_jobs_after_model_config_change,
@@ -4226,7 +4226,7 @@ def _normalize_moa_model(model: Optional[str]) -> tuple[Optional[str], Optional[
 
     Returns ``("moa", "<preset>")`` when *model* selects the MoA virtual
     provider, otherwise ``(None, model)`` unchanged. This gives non-interactive
-    ``hermes chat -Q -m moa:<preset>`` the same routing the interactive
+    ``allr chat -Q -m moa:<preset>`` the same routing the interactive
     ``/moa`` command and the model picker already use: ``resolve_runtime_provider``
     handles ``requested_provider == "moa"`` and ``agent_init`` builds the
     MoAClient off ``provider == "moa"``. Without this the raw ``moa:<preset>``
@@ -4261,7 +4261,7 @@ class _VoiceInputMessage:
 
 class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
     """
-    Interactive CLI for the Hermes Agent.
+    Interactive CLI for the Allr.
     
     Provides a REPL interface with rich formatting, command history,
     and tool execution capabilities.
@@ -4284,7 +4284,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
         ignore_rules: bool = False,
     ):
         """
-        Initialize the Hermes CLI.
+        Initialize the Allr CLI.
 
         Args:
             model: Model to use (default: from env or claude-sonnet)
@@ -4432,8 +4432,8 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
         # through MoA instead of hitting the real provider with an unknown
         # model (#56828). A ``moa:`` prefix wins over an explicit ``--provider``.
         _moa_provider_override, self.model = _normalize_moa_model(self.model)
-        # Read max_tokens from config (env var override: HERMES_MAX_TOKENS)
-        _env_mt = os.environ.get("HERMES_MAX_TOKENS")
+        # Read max_tokens from config (env var override: ALLR_MAX_TOKENS)
+        _env_mt = os.environ.get("ALLR_MAX_TOKENS")
         if _env_mt:
             try:
                 self.max_tokens = int(_env_mt)
@@ -4470,7 +4470,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
             _moa_provider_override
             or provider
             or CLI_CONFIG["model"].get("provider")
-            or os.getenv("HERMES_INFERENCE_PROVIDER")
+            or os.getenv("ALLR_INFERENCE_PROVIDER")
             or "auto"
         )
         self._provider_source: Optional[str] = None
@@ -4503,9 +4503,9 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
             # other paths may bypass it. This fallback is therefore the only
             # safety net for configs that still carry the root key.
             self.max_turns = CLI_CONFIG["max_turns"]
-        elif os.getenv("HERMES_MAX_ITERATIONS"):
+        elif os.getenv("ALLR_MAX_ITERATIONS"):
             try:
-                self.max_turns = int(os.getenv("HERMES_MAX_ITERATIONS", ""))
+                self.max_turns = int(os.getenv("ALLR_MAX_ITERATIONS", ""))
             except (TypeError, ValueError):
                 self.max_turns = 500
         else:
@@ -4534,10 +4534,10 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
         self.checkpoint_max_file_size_mb = cp_cfg.get("max_file_size_mb", 10)
         self.pass_session_id = pass_session_id
         # --ignore-rules: honor either the constructor flag or the env var set
-        # by `hermes chat --ignore-rules` in hermes_cli/main.py. When true we
+        # by `allr chat --ignore-rules` in hermes_cli/main.py. When true we
         # pass skip_context_files=True and skip_memory=True to AIAgent so
         # AGENTS.md/SOUL.md/.cursorrules and persistent memory are not loaded.
-        self.ignore_rules = ignore_rules or os.environ.get("HERMES_IGNORE_RULES") == "1"
+        self.ignore_rules = ignore_rules or os.environ.get("ALLR_IGNORE_RULES") == "1"
         
         # Ephemeral system prompt: env var takes precedence, then
         # display.personality / agent.system_prompt from config.
@@ -4548,7 +4548,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
         )
 
         self.system_prompt = (
-            os.getenv("HERMES_EPHEMERAL_SYSTEM_PROMPT", "")
+            os.getenv("ALLR_EPHEMERAL_SYSTEM_PROMPT", "")
             or resolve_ephemeral_system_prompt(CLI_CONFIG)
         )
         self.personalities = available_personalities(CLI_CONFIG)
@@ -4653,7 +4653,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
                     "this conversation will [bold]NOT be saved[/bold] to disk and "
                     "cannot be resumed later. Searching past sessions is also disabled.\n"
                     f"  Reason: {e}\n"
-                    "  Fix the state.db store (e.g. `hermes update` to rebuild the venv) to restore persistence."
+                    "  Fix the state.db store (e.g. `allr update` to rebuild the venv) to restore persistence."
                 )
             except Exception:
                 # Never let the warning path itself break startup.
@@ -4664,12 +4664,12 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
 
         # Opportunistic state.db maintenance — runs at most once per
         # min_interval_hours, tracked via state_meta in state.db itself so
-        # it's shared across all Hermes processes for this HERMES_HOME.
+        # it's shared across all Allr processes for this ALLR_HOME.
         # Never blocks startup on failure.
         _run_state_db_auto_maintenance(self._session_db)
 
         # Opportunistic shadow-repo cleanup — deletes orphan/stale
-        # checkpoint repos under ~/.hermes/checkpoints/.  Opt-in via
+        # checkpoint repos under ~/.allr/checkpoints/.  Opt-in via
         # checkpoints.auto_prune, idempotent via .last_prune marker.
         _run_checkpoint_auto_maintenance()
 
@@ -5771,7 +5771,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
     def _pet_resolve_config(self) -> None:
         """(Re)resolve the active pet from config — picks up live enable/disable/
 
-        switch made via ``/pet`` or ``hermes pets`` without a restart, mirroring
+        switch made via ``/pet`` or ``allr pets`` without a restart, mirroring
         the TUI's steady poll. Cheap and fail-open: any problem disables the pet.
         """
         try:
@@ -6130,7 +6130,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
                 parts.append("⚠ YOLO")
             return self._right_align_status_title(" │ ".join(parts), session_title, width)
         except Exception:
-            return f"⚕ {self.model if getattr(self, 'model', None) else 'Hermes'}"
+            return f"⚕ {self.model if getattr(self, 'model', None) else 'Allr'}"
 
     def _get_status_bar_fragments(self):
         if not self._status_bar_visible or getattr(self, '_model_picker_state', None):
@@ -6930,10 +6930,10 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
             try:
                 from hermes_cli.skin_engine import get_active_skin
                 _skin = get_active_skin()
-                label = _skin.get_branding("response_label", "⚕ Hermes")
+                label = _skin.get_branding("response_label", "Allr")
                 _text_hex = _skin.get_color("banner_text", "#FFF8DC")
             except Exception:
-                label = "⚕ Hermes"
+                label = "Allr"
                 _text_hex = "#FFF8DC"
             # Build a true-color ANSI escape for the response text color
             # so streamed content matches the Rich Panel appearance.
@@ -7325,9 +7325,9 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
         """Show a startup banner if any unacked security advisories match.
 
         Renders a single bold-red box on stderr (so piped stdout remains
-        clean) listing the worst hit and pointing at ``hermes doctor``.
+        clean) listing the worst hit and pointing at ``allr doctor``.
         Banner-cache rate-limits this to once per 24h per advisory; full
-        remediation lives behind ``hermes doctor`` so the banner stays
+        remediation lives behind ``allr doctor`` so the banner stays
         small.
         """
         try:
@@ -7382,7 +7382,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
         
         # Tool discovery is intentionally deferred on the Termux bare prompt
         # path; availability warnings are shown once tools are initialized.
-        if os.environ.get("HERMES_DEFER_AGENT_STARTUP") != "1":
+        if os.environ.get("ALLR_DEFER_AGENT_STARTUP") != "1":
             self._show_tool_availability_warnings()
 
         # Warn about low context lengths (common with local servers). Keep
@@ -7395,7 +7395,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
                 f"this is likely too low for agent use with tools.[/]"
             )
             self._console_print(
-                f"[dim]   Hermes needs at least {MINIMUM_CONTEXT_LENGTH:,} tokens. Tool schemas + system prompt use a large fixed prefix.[/]"
+                f"[dim]   Allr needs at least {MINIMUM_CONTEXT_LENGTH:,} tokens. Tool schemas + system prompt use a large fixed prefix.[/]"
             )
             base_url = getattr(self, "base_url", "") or ""
             if "11434" in base_url or "ollama" in base_url.lower():
@@ -7419,7 +7419,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
             self._console_print()
             self._console_print(
                 "[bold yellow]⚠  Nous Research Hermes 3 & 4 models are NOT agentic and are not "
-                "designed for use with Hermes Agent.[/]"
+                "designed for use with Allr.[/]"
             )
             self._console_print(
                 "[dim]   They lack tool-calling capabilities required for agent workflows. "
@@ -7544,7 +7544,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
     def _try_attach_clipboard_image(self) -> bool:
         """Check clipboard for an image and attach it if found.
 
-        Saves the image to ~/.hermes/images/ and appends the path to
+        Saves the image to ~/.allr/images/ and appends the path to
         ``_attached_images``.  Returns True if an image was attached.
         """
         from hermes_cli.clipboard import save_clipboard_image
@@ -7722,14 +7722,14 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
                     if len(item["tools"]) > 2:
                         tools_str += f", +{len(item['tools'])-2} more"
                     self._console_print(f"   [dim]• {item['name']}[/] [dim italic]({', '.join(item['missing_vars'])})[/]")
-                self._console_print("[dim]   Run 'hermes setup' to configure[/]")
+                self._console_print("[dim]   Run 'allr setup' to configure[/]")
         except Exception:
             pass  # Don't crash on import errors
     
     def _show_status(self):
         """Show compact startup status line."""
         # Avoid pulling the full tool registry into the bare Termux prompt path.
-        if os.environ.get("HERMES_DEFER_AGENT_STARTUP") == "1":
+        if os.environ.get("ALLR_DEFER_AGENT_STARTUP") == "1":
             tool_status = "tools deferred"
         else:
             tools = get_tool_definitions(enabled_toolsets=self.enabled_toolsets, quiet_mode=True)
@@ -7807,7 +7807,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
         is_running = bool(getattr(self, "_agent_running", False))
 
         lines = [
-            "Hermes CLI Status",
+            "Allr CLI Status",
             "",
             f"Session ID: {self.session_id}",
             f"Path: {display_hermes_home()}",
@@ -7889,7 +7889,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
                     f"    [bold {_accent_hex()}]{('/' + name):<22}[/] [dim]-[/] {_escape(desc)}"
                 )
 
-        _cprint(f"\n  {_DIM}Tip: Just type your message to chat with Hermes!{_RST}")
+        _cprint(f"\n  {_DIM}Tip: Just type your message to chat with Allr!{_RST}")
         _cprint(f"  {_DIM}Multi-line: Alt+Enter for a new line{_RST}")
         _cprint(f"  {_DIM}Draft editor: Ctrl+G (Alt+G in VSCode/Cursor){_RST}")
         if _is_termux_environment():
@@ -8148,7 +8148,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
                 )
                 continue
 
-            _cli_visible_print(f"\n  [Hermes #{visible_index}]{_ts_suffix(msg)}")
+            _cli_visible_print(f"\n  [Allr #{visible_index}]{_ts_suffix(msg)}")
             tool_calls = msg.get("tool_calls") or []
             if content_text:
                 preview = content_text[:preview_limit]
@@ -8196,7 +8196,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
 
         Starting the CLI and immediately quitting (or rotating with /new,
         /clear) used to leave an empty untitled row behind that clutters
-        ``/resume`` and ``hermes sessions list``. Delegates the
+        ``/resume`` and ``allr sessions list``. Delegates the
         check-and-delete to ``SessionDB.delete_session_if_empty``, which
         only removes rows with no messages, no title, and no child
         sessions. Ported from google-gemini/gemini-cli#27770.
@@ -8302,7 +8302,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
             except Exception:
                 pass
             # Don't let immediately-rotated empty sessions pile up in
-            # /resume and `hermes sessions list` (gemini-cli#27770 port).
+            # /resume and `allr sessions list` (gemini-cli#27770 port).
             self._discard_session_if_empty(old_session_id)
 
         self.session_start = datetime.now()
@@ -8400,7 +8400,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
                     self.agent._session_db_created = False
                     self._session_db.create_session(
                         session_id=self.session_id,
-                        source=os.environ.get("HERMES_SESSION_SOURCE", "cli"),
+                        source=os.environ.get("ALLR_SESSION_SOURCE", "cli"),
                         model=self.model,
                         model_config={
                             "max_iterations": self.max_turns,
@@ -8512,7 +8512,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
 
 
     def save_conversation(self):
-        """Save the current conversation to a JSON snapshot under ~/.hermes/sessions/saved/.
+        """Save the current conversation to a JSON snapshot under ~/.allr/sessions/saved/.
 
         The snapshot is a convenience export for sharing or off-line inspection;
         every message is already persisted incrementally to the SQLite session
@@ -9106,7 +9106,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
             return True
 
         choices = [
-            ("once", "Switch anyway", "Use this model for the current Hermes session."),
+            ("once", "Switch anyway", "Use this model for the current Allr session."),
             ("cancel", "Cancel", "Keep the current model."),
         ]
         raw = self._prompt_text_input_modal(
@@ -9403,7 +9403,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
                 return
             provider_data = providers[selected]
             # Use the curated model list from list_authenticated_providers()
-            # (same lists as `hermes model` and gateway pickers).
+            # (same lists as `allr model` and gateway pickers).
             # Only fall back to the live provider catalog when the curated
             # list is empty (e.g. user-defined endpoints with no curated list).
             model_list = provider_data.get("models", [])
@@ -9746,7 +9746,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
 
         Usage:
             /codex-runtime                       — show current state
-            /codex-runtime auto                  — Hermes default (chat_completions)
+            /codex-runtime auto                  — Allr default (chat_completions)
             /codex-runtime codex_app_server      — hand turns to codex subprocess
             /codex-runtime on / off              — synonyms for the above
         """
@@ -10340,7 +10340,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
             self._handle_browser_command(cmd_original)
         elif canonical == "plugins":
             try:
-                # Discover from disk (bundled + user), matching `hermes plugins
+                # Discover from disk (bundled + user), matching `allr plugins
                 # list` — so installed-but-not-enabled plugins are visible here
                 # too. The plugin manager only knows about *loaded* plugins, so
                 # using it alone made freshly-installed, not-yet-enabled plugins
@@ -10359,16 +10359,16 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
                 # `/plugins` is a quick glance — default to user-installed
                 # plugins (what the user actually added). Bundled provider/
                 # platform plugins are summarized on one line; the full
-                # catalog lives behind `hermes plugins list`.
+                # catalog lives behind `allr plugins list`.
                 user_entries = [e for e in entries if e[3] != "bundled"]
                 bundled_count = len(entries) - len(user_entries)
 
                 if not user_entries:
                     print("No user plugins installed.")
-                    print("  Install one: hermes plugins install owner/repo")
+                    print("  Install one: allr plugins install owner/repo")
                     print(f"  Or drop a plugin directory into {display_hermes_home()}/plugins/")
                     if bundled_count:
-                        print(f"  ({bundled_count} bundled plugins available — see: hermes plugins list)")
+                        print(f"  ({bundled_count} bundled plugins available — see: allr plugins list)")
                 else:
                     # Loaded-plugin details (tools/hooks/commands counts, errors)
                     # keyed by name, when available.
@@ -10398,8 +10398,8 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
                         error = f" — {info['error']}" if info.get("error") else ""
                         print(f"  {glyph} {name}{ver}{label}{detail}{error}")
                     if bundled_count:
-                        print(f"  (+{bundled_count} bundled — see: hermes plugins list)")
-                    print("  Enable/disable: hermes plugins enable/disable <name>")
+                        print(f"  (+{bundled_count} bundled — see: allr plugins list)")
+                    print("  Enable/disable: allr plugins enable/disable <name>")
             except Exception as e:
                 print(f"Plugin system error: {e}")
         elif canonical == "rollback":
@@ -10835,7 +10835,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
         """Queue background notifications owned by this visible CLI session.
 
         ``process_registry`` restores durable delegation completions into every
-        process using the same Hermes profile.  Always pass this CLI's stable
+        process using the same Allr profile.  Always pass this CLI's stable
         session identity when draining so another window cannot claim and mark
         delivered a completion that belongs to this one.
         """
@@ -11103,7 +11103,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
         ``enable_session_yolo`` / ``disable_session_yolo`` write to) so the
         status bar reflects the actual bypass state instead of a stale env
         var. Also honors the process-start ``--yolo`` flag, which freezes
-        ``HERMES_YOLO_MODE`` into ``_YOLO_MODE_FROZEN`` before tool imports
+        ``ALLR_YOLO_MODE`` into ``_YOLO_MODE_FROZEN`` before tool imports
         happen.
         """
         try:
@@ -11128,7 +11128,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
         Per-session toggle that mirrors the gateway and TUI ``/yolo`` handlers
         (see ``gateway/run.py:_handle_yolo_command`` and
         ``tui_gateway/server.py`` key=="yolo"). We deliberately do NOT mutate
-        ``HERMES_YOLO_MODE`` here — that env var is read once at module import
+        ``ALLR_YOLO_MODE`` here — that env var is read once at module import
         time into ``tools.approval._YOLO_MODE_FROZEN`` to keep prompt-injected
         skills from flipping the bypass mid-session, so setting it after CLI
         startup is a silent no-op. Routing through ``enable_session_yolo`` /
@@ -11452,7 +11452,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
         normalized = str(provider or "").strip().lower()
         if normalized != "openai-codex":
             print("  Banked usage resets are only available on the openai-codex provider.")
-            print("  Switch with `/model` or `hermes auth` first.")
+            print("  Switch with `/model` or `allr auth` first.")
             return
         base_url = (getattr(self.agent, "base_url", None) if self.agent else None) or getattr(self, "base_url", None)
         api_key = (getattr(self.agent, "api_key", None) if self.agent else None) or getattr(self, "api_key", None)
@@ -11685,7 +11685,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
           re-sends the full input prefix, expensive on long-context /
           high-reasoning models).  This stops silent cache-breaking reloads
           when config.yaml is rewritten frequently by external tooling or
-          other Hermes instances.
+          other Allr instances.
         """
 
         import yaml as _yaml
@@ -12075,7 +12075,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
             print(f"  ❌ MCP reload failed: {e}")
 
     def _reload_skills(self) -> None:
-        """Reload skills: rescan ~/.hermes/skills/ and queue a note for the
+        """Reload skills: rescan ~/.allr/skills/ and queue a note for the
         next user turn.
 
         Skills don't need to live in the system prompt for the model to use
@@ -12891,7 +12891,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
                 # Fail-closed echo guard (#75780): a playback-phase capture
                 # has no acoustic echo cancellation, so speaker bleed alone
                 # can trip the barge trigger. If the transcript is a close
-                # match for what Hermes just spoke, treat it as self-capture
+                # match for what Allr just spoke, treat it as self-capture
                 # instead of queuing it as a user turn.
                 if getattr(self, "_voice_barge_phase", None) == "playback":
                     from tools.voice_mode import is_tts_echo
@@ -13065,7 +13065,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
 
         _cprint(f"\n{_DIM}Voice mode disabled.{_RST}")
 
-    # ── Wake word ("Hey Hermes") ─────────────────────────────────────────
+    # ── Wake word ("Hey Allr") ─────────────────────────────────────────
     #
     # An always-on hotword listener (tools/wake_word.py) that, on detecting
     # the wake phrase, starts a fresh session and captures one utterance via
@@ -13283,7 +13283,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
         if state == "LISTENING" and audio_is_silent():
             _cprint(f"  {_ACCENT}⚠ Microphone delivers only silence — the listener can't hear anything.{_RST}")
             _cprint(f"  {_DIM}On macOS: System Settings > Privacy & Security > Microphone — allow your"
-                    f" terminal/Hermes, then /wake off + /wake on.{_RST}")
+                    f" terminal/Allr, then /wake off + /wake on.{_RST}")
         if not reqs["available"] and reqs.get("hint"):
             _cprint(f"  {_DIM}{reqs['hint']}{_RST}")
         if not owned:
@@ -14110,7 +14110,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
                         if not _streaming_box_opened:
                             _streaming_box_opened = True
                             w = self._scrollback_box_width(getattr(self.console, "width", 80))
-                            label = " ⚕ Hermes "
+                            label = " Allr "
                             if self.show_timestamps:
                                 label = f"{label}{datetime.now().strftime(getattr(self, 'timestamp_format', '%H:%M'))} "
                             fill = w - 2 - HermesCLI._status_bar_display_width(label)
@@ -14537,11 +14537,11 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
                 try:
                     from hermes_cli.skin_engine import get_active_skin
                     _skin = get_active_skin()
-                    label = _skin.get_branding("response_label", "⚕ Hermes")
+                    label = _skin.get_branding("response_label", "Allr")
                     _resp_color = _maybe_remap_for_light_mode(_skin.get_color("response_border", "#CD7F32"))
                     _resp_text = _maybe_remap_for_light_mode(_skin.get_color("banner_text", "#FFF8DC"))
                 except Exception:
-                    label = "⚕ Hermes"
+                    label = "Allr"
                     _resp_color = _maybe_remap_for_light_mode("#CD7F32")
                     _resp_text = _maybe_remap_for_light_mode("#FFF8DC")
 
@@ -14873,7 +14873,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
             # include `-p <profile>` for non-default profiles. Without this,
             # copying the hint from a non-default profile fails to find the
             # session on the next invocation. The "default" and "custom"
-            # profile names use the standard HERMES_HOME, so no -p needed.
+            # profile names use the standard ALLR_HOME, so no -p needed.
             try:
                 from hermes_cli.profiles import get_active_profile_name
                 _active_profile = get_active_profile_name()
@@ -14894,9 +14894,9 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
         else:
             try:
                 from hermes_cli.skin_engine import get_active_goodbye
-                goodbye = get_active_goodbye("Goodbye! ⚕")
+                goodbye = get_active_goodbye("Goodbye!")
             except Exception:
-                goodbye = "Goodbye! ⚕"
+                goodbye = "Goodbye!"
             print(goodbye)
 
     def _get_tui_prompt_symbols(self) -> tuple[str, str]:
@@ -15170,10 +15170,10 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
         try:
             from hermes_cli.skin_engine import get_active_skin
             _welcome_skin = get_active_skin()
-            _welcome_text = _welcome_skin.get_branding("welcome", "Welcome to Hermes Agent! Type your message or /help for commands.")
+            _welcome_text = _welcome_skin.get_branding("welcome", "Welcome to Allr! Type your message or /help for commands.")
             _welcome_color = _welcome_skin.get_color("banner_text", "#FFF8DC")
         except Exception:
-            _welcome_text = "Welcome to Hermes Agent! Type your message or /help for commands."
+            _welcome_text = "Welcome to Allr! Type your message or /help for commands."
             _welcome_color = "#FFF8DC"
         self._console_print(f"[{_welcome_color}]{_welcome_text}[/]")
 
@@ -15196,7 +15196,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
         # main thread simply blocks on the remaining import work instead of
         # redoing it. Skipped when agent startup is explicitly deferred
         # (Termux) — that path defers heavy work on purpose.
-        if os.environ.get("HERMES_DEFER_AGENT_STARTUP") != "1":
+        if os.environ.get("ALLR_DEFER_AGENT_STARTUP") != "1":
             def _prewarm_agent_runtime() -> None:
                 try:
                     import run_agent  # noqa: F401  (imports model_tools + tool registry)
@@ -15215,11 +15215,11 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
         # won't affect the running process — we just want the operator to
         # see that they're running without the safety net.
         try:
-            _redact_raw = os.getenv("HERMES_REDACT_SECRETS", "true")
+            _redact_raw = os.getenv("ALLR_REDACT_SECRETS", "true")
             if _redact_raw.lower() not in {"1", "true", "yes", "on"}:
                 self._console_print(
                     "[bold red]⚠  Secret redaction is DISABLED[/] "
-                    f"(HERMES_REDACT_SECRETS={_redact_raw}). "
+                    f"(ALLR_REDACT_SECRETS={_redact_raw}). "
                     "API keys and tokens may appear verbatim in chat output, "
                     "session JSONs, and logs. Set "
                     "[cyan]security.redact_secrets: true[/] in config.yaml "
@@ -15228,7 +15228,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
         except Exception:
             pass
         # First-time OpenClaw-residue banner — fires once if ~/.openclaw/ exists
-        # after an OpenClaw→Hermes migration (especially migrations done by
+        # after an OpenClaw→Allr migration (especially migrations done by
         # OpenClaw's own tool, which doesn't archive the source directory).
         try:
             from agent.onboarding import (
@@ -15378,10 +15378,10 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
         self._voice_last_tts_text = ""  # most recently spoken TTS text (echo guard, #75780)
         self._voice_barge_phase = None  # "generation" or "playback" phase of the last barge trip
 
-        if os.environ.get("HERMES_DEFER_AGENT_STARTUP") != "1":
+        if os.environ.get("ALLR_DEFER_AGENT_STARTUP") != "1":
             self._install_tool_callbacks()
 
-        if os.environ.get("HERMES_DEFER_AGENT_STARTUP") != "1":
+        if os.environ.get("ALLR_DEFER_AGENT_STARTUP") != "1":
             self._ensure_tirith_security()
         
         # Key bindings for the input area
@@ -15707,7 +15707,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
                 without requiring terminal settings changes. Ctrl+J (the raw
                 LF keystroke) also triggers this by virtue of being the same
                 key code — a harmless side effect since Ctrl+J has no
-                conflicting Hermes binding. See issue #22379.
+                conflicting Allr binding. See issue #22379.
                 """
                 event.current_buffer.insert_text('\n')
 
@@ -16300,7 +16300,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
             import signal as _sig
             from prompt_toolkit.application import run_in_terminal
             from hermes_cli.skin_engine import get_active_skin
-            agent_name = get_active_skin().get_branding("agent_name", "Hermes Agent")
+            agent_name = get_active_skin().get_branding("agent_name", "Allr")
             msg = f"\n{agent_name} has been suspended. Run `fg` to bring {agent_name} back."
             def _suspend():
                 os.write(1, msg.encode())
@@ -16510,7 +16510,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
                 # No image found — show a hint
                 pass  # silent when no image (avoid noise on accidental press)
 
-        # Dynamic prompt: shows Hermes symbol when agent is working,
+        # Dynamic prompt: shows Allr symbol when agent is working,
         # or answer prompt when clarify freetext mode is active.
         cli_ref = self
 
@@ -16886,7 +16886,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
                     else f"  {other_num_prefix}. Other (type your answer)"
                 )
             preview_lines.extend(_wrap_panel_text(other_label, 60, subsequent_indent="    "))
-            box_width = _panel_box_width("Hermes needs your input", preview_lines)
+            box_width = _panel_box_width("Allr needs your input", preview_lines)
             inner_text_width = max(8, box_width - 2)
 
             # Pre-wrap choices + Other option — these are mandatory.
@@ -16998,8 +16998,8 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
             lines = []
             # Box top border
             lines.append(('class:clarify-border', '╭─ '))
-            lines.append(('class:clarify-title', 'Hermes needs your input'))
-            lines.append(('class:clarify-border', ' ' + ('─' * max(0, box_width - len("Hermes needs your input") - 3)) + '╮\n'))
+            lines.append(('class:clarify-title', 'Allr needs your input'))
+            lines.append(('class:clarify-border', ' ' + ('─' * max(0, box_width - len("Allr needs your input") - 3)) + '╮\n'))
             if not use_compact_chrome:
                 _append_blank_panel_line(lines, 'class:clarify-border', box_width)
 
@@ -17741,7 +17741,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
         process_thread = threading.Thread(target=process_loop, daemon=True)
         process_thread.start()
 
-        # Wake word ("Hey Hermes") — start the always-on hotword listener if
+        # Wake word ("Hey Allr") — start the always-on hotword listener if
         # enabled. Off-thread so a first-run engine install never blocks the
         # prompt; best-effort, so deps/mic/key gaps are surfaced, never fatal.
         def _wake_startup():
@@ -17767,7 +17767,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
             spawned with ``os.setsid`` and therefore survives as an orphan
             with PPID=1.
 
-            Grace window (``HERMES_SIGTERM_GRACE``, default 1.5 s) gives
+            Grace window (``ALLR_SIGTERM_GRACE``, default 1.5 s) gives
             the daemon time to: detect the interrupt (next 200 ms poll) →
             call _kill_process (SIGTERM + 1 s wait + SIGKILL if needed) →
             return from _wait_for_process.  ``time.sleep`` releases the
@@ -17802,7 +17802,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
                         _signal_agent, f"received signal {signum}"
                     )
                     try:
-                        _grace = float(os.getenv("HERMES_SIGTERM_GRACE", "1.5"))
+                        _grace = float(os.getenv("ALLR_SIGTERM_GRACE", "1.5"))
                     except (TypeError, ValueError):
                         _grace = 1.5
                     if _grace > 0:
@@ -17900,7 +17900,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
             print(
                 "Error: stdin (fd 0) is not available.\n"
                 "This can happen with certain Python installations (e.g. uv-managed cPython on macOS).\n"
-                "Try reinstalling Python via pyenv or Homebrew, then re-run: hermes setup"
+                "Try reinstalling Python via pyenv or Homebrew, then re-run: allr setup"
             )
             _run_cleanup()
             self._print_exit_summary()
@@ -17969,7 +17969,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
                     f"\nError: stdin is not usable ({_stdin_err}).\n"
                     "This can happen with certain Python installations (e.g. uv-managed cPython on macOS)\n"
                     "where kqueue cannot register fd 0.\n"
-                    "Try reinstalling Python via pyenv or Homebrew, then re-run: hermes setup"
+                    "Try reinstalling Python via pyenv or Homebrew, then re-run: allr setup"
                 )
             else:
                 raise
@@ -18024,7 +18024,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
                 except (Exception, KeyboardInterrupt) as e:
                     logger.debug("Could not close session in DB: %s", e)
                 # Started-and-immediately-quit sessions never gained content;
-                # drop the empty row so /resume and `hermes sessions list`
+                # drop the empty row so /resume and `allr sessions list`
                 # stay clean (gemini-cli#27770 port). No-op for resumed or
                 # titled sessions and anything with messages or children.
                 if not getattr(self, '_delete_session_on_exit', False):
@@ -18085,7 +18085,7 @@ def _run_kanban_goal_loop_q(cli: "HermesCLI", first_response: str) -> None:
     """Drive a kanban goal_mode worker through the Ralph-style goal loop.
 
     Called from the quiet single-query path AFTER the worker's first turn,
-    only when ``HERMES_KANBAN_GOAL_MODE`` is set (dispatcher-spawned
+    only when ``ALLR_KANBAN_GOAL_MODE`` is set (dispatcher-spawned
     goal_mode card). Wires the worker's ``run_conversation`` and the kanban
     DB into ``goals.run_kanban_goal_loop``. All errors are swallowed by the
     caller — a broken goal loop must never wedge a worker, the dispatcher's
@@ -18093,7 +18093,7 @@ def _run_kanban_goal_loop_q(cli: "HermesCLI", first_response: str) -> None:
     """
     import os as _os
 
-    task_id = (_os.environ.get("HERMES_KANBAN_TASK") or "").strip()
+    task_id = (_os.environ.get("ALLR_KANBAN_TASK") or "").strip()
     if not task_id:
         return
 
@@ -18198,7 +18198,7 @@ def main(
     ignore_rules: bool = False,
 ):
     """
-    Hermes Agent CLI - Interactive AI Assistant
+    Allr CLI - Interactive AI Assistant
     
     Args:
         query: Single query to execute (then exit). Alias: -q
@@ -18223,7 +18223,7 @@ def main(
     Examples:
         python cli.py                            # Start interactive mode
         python cli.py --toolsets web,terminal    # Use specific toolsets
-        python cli.py --skills hermes-agent-dev,github-auth
+        python cli.py --skills allr-agent-dev,github-auth
         python cli.py -q "What is Python?"       # Single query mode
         python cli.py -q "Describe this" --image ~/storage/shared/Pictures/cat.png
         python cli.py --list-tools               # List tools and exit
@@ -18244,13 +18244,13 @@ def main(
 
     # Signal to terminal_tool that we're in interactive mode
     # This enables interactive sudo password prompts with timeout
-    os.environ["HERMES_INTERACTIVE"] = "1"
+    os.environ["ALLR_INTERACTIVE"] = "1"
     
     # Handle gateway mode (messaging + cron)
     if gateway:
         import asyncio
         from gateway.run import start_gateway
-        print("Starting Hermes Gateway (messaging platforms)...")
+        print("Starting Allr Gateway (messaging platforms)...")
         asyncio.run(start_gateway())
         return
 
@@ -18300,7 +18300,7 @@ def main(
                 else:
                     toolsets_list.append(str(t))
     else:
-        # Coding posture (base Hermes): with no explicit --toolsets, collapse
+        # Coding posture (base Allr): with no explicit --toolsets, collapse
         # to the coding toolset (+ enabled MCP servers) when sitting in a code
         # workspace. See agent/coding_context.py.
         _coding = None
@@ -18351,7 +18351,7 @@ def main(
                 logger.warning(
                     "Unknown skill(s) requested, skipping: %s. "
                     "Continuing with: %s. "
-                    "List available skills with `hermes skills list`.",
+                    "List available skills with `allr skills list`.",
                     missing_display,
                     ", ".join(loaded_skills),
                 )
@@ -18401,7 +18401,7 @@ def main(
     # per-thread interrupt flag the worker's poll loop checks every 200 ms.
     # Give the worker a grace window to call _kill_process (SIGTERM to the
     # process group, then SIGKILL after 1 s), then raise KeyboardInterrupt
-    # so main unwinds normally.  HERMES_SIGTERM_GRACE overrides the 1.5 s
+    # so main unwinds normally.  ALLR_SIGTERM_GRACE overrides the 1.5 s
     # default for debugging.
     def _signal_handler_q(signum, frame):
         logger.debug("Received signal %s in single-query mode", signum)
@@ -18414,7 +18414,7 @@ def main(
             if _agent is not None:
                 request_hard_interrupt(_agent, f"received signal {signum}")
                 try:
-                    _grace = float(os.getenv("HERMES_SIGTERM_GRACE", "1.5"))
+                    _grace = float(os.getenv("ALLR_SIGTERM_GRACE", "1.5"))
                 except (TypeError, ValueError):
                     _grace = 1.5
                 if _grace > 0:
@@ -18433,7 +18433,7 @@ def main(
         # first so the final debug trace isn't lost; SIGALRM deadman guards
         # the flush against any rare blocking-I/O case (the reporter measured
         # flush in <1ms; the alarm is a failsafe, not the common path).
-        if os.environ.get("HERMES_KANBAN_TASK"):
+        if os.environ.get("ALLR_KANBAN_TASK"):
             try:
                 import signal as _sig_mod
                 if hasattr(_sig_mod, "SIGALRM"):
@@ -18474,7 +18474,7 @@ def main(
             sys.exit(1)
         try:
             query, single_query_images = _collect_query_images(query, image)
-            # Kanban workers spawn with ``hermes chat -q "work kanban task <id>"``;
+            # Kanban workers spawn with ``allr chat -q "work kanban task <id>"``;
             # the actual task description lives in the task body. Mirror the
             # gateway/CLI behaviour for inbound images by scanning the body for
             # local image paths and http(s) image URLs and attaching them to the
@@ -18482,7 +18482,7 @@ def main(
             # path or URL into a kanban task body never get it routed to the
             # model's vision input.
             single_query_image_urls: list[str] = []
-            _kanban_task_id = os.environ.get("HERMES_KANBAN_TASK", "").strip()
+            _kanban_task_id = os.environ.get("ALLR_KANBAN_TASK", "").strip()
             if _kanban_task_id:
                 try:
                     from hermes_cli import kanban_db as _kb
@@ -18585,7 +18585,7 @@ def main(
                         cli.agent.quiet_mode = True
                         cli.agent.suppress_status_output = True
                         # Suppress streaming display callbacks so stdout stays
-                        # machine-readable (no styled "Hermes" box, no tool-gen
+                        # machine-readable (no styled "Allr" box, no tool-gen
                         # status lines).  The response is printed once below.
                         cli.agent.stream_delta_callback = None
                         cli.agent.tool_gen_callback = None
@@ -18629,7 +18629,7 @@ def main(
                         # out (→ sticky block). Gated on the env vars the
                         # dispatcher sets in `_default_spawn`; a no-op for every
                         # normal worker and every non-kanban `-q` run.
-                        if os.environ.get("HERMES_KANBAN_GOAL_MODE") == "1":
+                        if os.environ.get("ALLR_KANBAN_GOAL_MODE") == "1":
                             try:
                                 _run_kanban_goal_loop_q(cli, response)
                             except Exception as _goal_exc:
@@ -18653,7 +18653,7 @@ def main(
                         _exit_code = 0
                         if isinstance(result, dict) and result.get("failed"):
                             _exit_code = 1
-                            if os.environ.get("HERMES_KANBAN_TASK") and result.get(
+                            if os.environ.get("ALLR_KANBAN_TASK") and result.get(
                                 "failure_reason"
                             ) in ("rate_limit", "billing"):
                                 try:
@@ -18668,7 +18668,7 @@ def main(
                 # Exit with error code if credentials or agent init fails
                 sys.exit(1)
             else:
-                # Single-query mode (`hermes chat -q "…"`): skip the welcome
+                # Single-query mode (`allr chat -q "…"`): skip the welcome
                 # banner. Building the banner takes ~420 ms on cold start —
                 # ~200 ms of that is the version-update check, the rest is
                 # toolset / skill enumeration and Rich panel rendering. None

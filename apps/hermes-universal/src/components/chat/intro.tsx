@@ -7,7 +7,7 @@ import { $introSeed } from '@/store/chat'
 
 import { resolveIntroCopy } from './intro-copy'
 
-const WORDMARK = 'HERMES AGENT'
+const WORDMARK = 'ALLR AGENT'
 
 /** `display.personality` from the profile config — the copy set to draw from.
  *  Mirrors desktop's normalizePersonalityValue (lib/chat-runtime): the neutral

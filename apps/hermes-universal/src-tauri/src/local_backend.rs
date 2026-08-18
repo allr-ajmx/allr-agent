@@ -1,12 +1,12 @@
 //! Local gateway backend spawn (E3, desktop-only [GATE]).
 //!
-//! Desktop can run a bundled Hermes backend as a child process; a phone cannot,
+//! Desktop can run a bundled Allr backend as a child process; a phone cannot,
 //! so every command here is compiled to an `unsupported_platform` stub on mobile.
 //!
-//! Mirrors the desktop (Electron) contract: spawn `hermes serve --host 127.0.0.1
+//! Mirrors the desktop (Electron) contract: spawn `allr serve --host 127.0.0.1
 //! --port 0` (OS-assigned ephemeral port), hand the child a random session token
-//! via `HERMES_DASHBOARD_SESSION_TOKEN`, and detect readiness in two stages —
-//! (1) the child prints `HERMES_(BACKEND|DASHBOARD)_READY port=<N>` on stdout once
+//! via `ALLR_DASHBOARD_SESSION_TOKEN`, and detect readiness in two stages —
+//! (1) the child prints `ALLR_(BACKEND|DASHBOARD)_READY port=<N>` on stdout once
 //! uvicorn binds, then (2) `GET {base}/api/status` succeeds. Returns a token-mode
 //! connection descriptor.
 
@@ -53,22 +53,22 @@ mod imp {
         buf.iter().map(|b| format!("{b:02x}")).collect()
     }
 
-    /// Pin HERMES_HOME the way desktop does so the spawned backend shares state
+    /// Pin ALLR_HOME the way desktop does so the spawned backend shares state
     /// with the rest of the install. Delegates to the shared resolver in
-    /// `plugins.rs`, which honours an explicit HERMES_HOME before falling back to
+    /// `plugins.rs`, which honours an explicit ALLR_HOME before falling back to
     /// the platform default — previously this computed the default unconditionally,
-    /// so a user running with a custom HERMES_HOME had the spawned backend and the
+    /// so a user running with a custom ALLR_HOME had the spawned backend and the
     /// plugin root disagree. Falls back to the child's inherited env when
     /// unresolvable.
     fn hermes_home() -> Option<String> {
         crate::plugins::hermes_home().map(|p| p.to_string_lossy().to_string())
     }
 
-    /// Parse `HERMES_(BACKEND|DASHBOARD)_READY port=<N>` → the announced port.
+    /// Parse `ALLR_(BACKEND|DASHBOARD)_READY port=<N>` → the announced port.
     pub fn parse_ready_port(line: &str) -> Option<u16> {
         let rest = line
-            .strip_prefix("HERMES_BACKEND_READY port=")
-            .or_else(|| line.strip_prefix("HERMES_DASHBOARD_READY port="))?;
+            .strip_prefix("ALLR_BACKEND_READY port=")
+            .or_else(|| line.strip_prefix("ALLR_DASHBOARD_READY port="))?;
         rest.trim().parse::<u16>().ok()
     }
 
@@ -81,7 +81,7 @@ mod imp {
             }
             let ok = client
                 .get(format!("{base}/api/status"))
-                .header("X-Hermes-Session-Token", token)
+                .header("X-Allr-Session-Token", token)
                 .timeout(Duration::from_secs(3))
                 .send()
                 .await
@@ -102,7 +102,7 @@ mod imp {
         stop(state).await;
 
         let token = random_token();
-        let program = std::env::var("HERMES_BIN").unwrap_or_else(|_| "hermes".to_string());
+        let program = std::env::var("ALLR_BIN").unwrap_or_else(|_| "hermes".to_string());
 
         let mut args: Vec<String> = vec![
             "serve".into(),
@@ -118,17 +118,17 @@ mod imp {
 
         let mut cmd = Command::new(&program);
         cmd.args(&args)
-            .env("HERMES_DASHBOARD_SESSION_TOKEN", &token)
-            .env("HERMES_DESKTOP", "1")
+            .env("ALLR_DASHBOARD_SESSION_TOKEN", &token)
+            .env("ALLR_DESKTOP", "1")
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
         if let Some(home) = hermes_home() {
-            cmd.env("HERMES_HOME", home);
+            cmd.env("ALLR_HOME", home);
         }
 
         let mut child = cmd.spawn().map_err(|e| {
-            format!("could not start `{program}`: {e}. Is the Hermes CLI installed / on PATH?")
+            format!("could not start `{program}`: {e}. Is the Allr CLI installed / on PATH?")
         })?;
 
         let stdout = child
@@ -196,7 +196,7 @@ mod imp {
 #[cfg(desktop)]
 pub use imp::LocalBackendState;
 
-/// Kill the spawned `hermes serve` child, for callers that are not a command.
+/// Kill the spawned `allr serve` child, for callers that are not a command.
 ///
 /// The tray's Keep Running row is the one such caller: turning background mode
 /// off means the process is about to stop being resident, and a child gateway
@@ -271,11 +271,11 @@ mod tests {
     #[test]
     fn parses_backend_and_dashboard_ready_lines() {
         assert_eq!(
-            parse_ready_port("HERMES_BACKEND_READY port=54321"),
+            parse_ready_port("ALLR_BACKEND_READY port=54321"),
             Some(54321)
         );
         assert_eq!(
-            parse_ready_port("HERMES_DASHBOARD_READY port=8788"),
+            parse_ready_port("ALLR_DASHBOARD_READY port=8788"),
             Some(8788)
         );
     }
@@ -283,6 +283,6 @@ mod tests {
     #[test]
     fn ignores_unrelated_lines() {
         assert_eq!(parse_ready_port("INFO: uvicorn running"), None);
-        assert_eq!(parse_ready_port("HERMES_BACKEND_READY port=notaport"), None);
+        assert_eq!(parse_ready_port("ALLR_BACKEND_READY port=notaport"), None);
     }
 }

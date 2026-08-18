@@ -24,7 +24,7 @@ from cron import scheduler
 @pytest.fixture
 def tmp_hermes_home(tmp_path, monkeypatch):
     """Redirect _get_hermes_home() so the audit logger writes under tmp_path."""
-    fake_home = tmp_path / "home" / ".hermes"
+    fake_home = tmp_path / "home" / ".allr"
     fake_home.mkdir(parents=True)
     monkeypatch.setattr(scheduler, "_get_hermes_home", lambda: fake_home)
     return fake_home

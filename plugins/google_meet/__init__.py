@@ -96,7 +96,7 @@ def register(ctx) -> None:
         handler_fn=_meet_command,
         description=(
             "Let the hermes agent join a Google Meet call and scrape live "
-            "captions into a transcript. See: hermes meet setup"
+            "captions into a transcript. See: allr meet setup"
         ),
     )
 

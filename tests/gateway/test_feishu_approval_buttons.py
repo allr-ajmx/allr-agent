@@ -433,8 +433,8 @@ class TestResolveUpdatePrompt:
     @pytest.mark.asyncio
     async def test_writes_response_file(self, tmp_path, monkeypatch):
         adapter = _make_adapter()
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path / ".hermes"))
-        (tmp_path / ".hermes").mkdir()
+        monkeypatch.setenv("ALLR_HOME", str(tmp_path / ".allr"))
+        (tmp_path / ".allr").mkdir()
         adapter._update_prompt_state[1] = {
             "session_key": "sess-up-1",
             "message_id": "msg_up_003",
@@ -443,7 +443,7 @@ class TestResolveUpdatePrompt:
 
         await adapter._resolve_update_prompt(1, "y", "Alice")
 
-        assert (tmp_path / ".hermes" / ".update_response").read_text() == "y"
+        assert (tmp_path / ".allr" / ".update_response").read_text() == "y"
         assert 1 not in adapter._update_prompt_state
 
 

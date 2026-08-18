@@ -25,7 +25,7 @@ def main() -> None:
     args = parser.parse_args()
 
     hermes_home = Path(tempfile.mkdtemp(prefix="hermes-otel-smoke-"))
-    os.environ["HERMES_HOME"] = str(hermes_home)
+    os.environ["ALLR_HOME"] = str(hermes_home)
 
     from gateway.status import write_runtime_status
     from agent.monitoring.gateway_health_export import start_gateway_health_export
@@ -42,7 +42,7 @@ def main() -> None:
                 "export_interval_seconds": 5,
                 "logs_export_interval_seconds": 5,
                 "resource_attributes": {
-                    "service.name": "hermes-gateway-smoke",
+                    "service.name": "allr-gateway-smoke",
                     "deployment.environment.name": "local-smoke",
                 },
             },

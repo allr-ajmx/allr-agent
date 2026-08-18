@@ -13,7 +13,7 @@ Size caps (documented contract):
   untouched — the notepad is prompt-injected each run, so unbounded growth
   would bloat every wake-up's prompt.
 
-Write path is the CLI (``hermes cron notepad <job_id> set <key> <value>``),
+Write path is the CLI (``allr cron notepad <job_id> set <key> <value>``),
 which the running agent invokes via its terminal tool; no model tool is
 added.
 
@@ -181,7 +181,7 @@ def render_notepad_section(job_id: str) -> str:
         "## Job notepad (persistent across runs)\n"
         "This durable scratchpad survives between scheduled runs of this "
         "job. Update it via the CLI, e.g.:\n"
-        f"`hermes cron notepad {job_id} set <key> <value>` "
-        f"(also: get/delete/list; `hermes cron notepad {job_id} delete "
+        f"`allr cron notepad {job_id} set <key> <value>` "
+        f"(also: get/delete/list; `allr cron notepad {job_id} delete "
         "<key>` removes an entry).\n\n" + "\n".join(lines) + "\n\n"
     )

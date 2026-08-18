@@ -20,13 +20,13 @@ def hermetic(monkeypatch, tmp_path):
 
     With ``image_gen.provider`` unset the tool now resolves a backend, which
     means plugin discovery and ``is_available()`` probes. Left unpatched those
-    read the real ~/.hermes credentials and reach the network — which also
+    read the real ~/.allr credentials and reach the network — which also
     poisons ``hermes_cli.models``' negative catalog cache for later tests.
     """
     from hermes_cli import plugins as plugins_module
     from hermes_cli import runtime_provider as runtime_module
 
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setenv("ALLR_HOME", str(tmp_path))
     monkeypatch.delenv("FAL_KEY", raising=False)
     monkeypatch.setattr(plugins_module, "_ensure_plugins_discovered", lambda *a, **kw: None)
 
@@ -102,7 +102,7 @@ class TestPluginDispatch:
         from agent import image_gen_registry as registry_module
         from hermes_cli import plugins as plugins_module
 
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        monkeypatch.setenv("ALLR_HOME", str(tmp_path))
         (tmp_path / "config.yaml").write_text("image_gen:\n  provider: codex\n")
         image_gen_registry.register_provider(_FakeCodexProvider())
 
@@ -270,7 +270,7 @@ class TestExplicitFalUnchanged:
     def test_requirements_false_for_explicit_fal_without_key(self, monkeypatch, tmp_path):
         from tools import image_generation_tool
 
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        monkeypatch.setenv("ALLR_HOME", str(tmp_path))
         monkeypatch.setattr(image_generation_tool, "check_fal_api_key", lambda: False)
         monkeypatch.setattr(
             image_generation_tool, "_read_configured_image_provider", lambda: "fal"

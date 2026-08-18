@@ -1,7 +1,7 @@
 """
 Gateway subcommand for hermes CLI.
 
-Handles: hermes gateway [run|start|stop|restart|status|install|uninstall|setup]
+Handles: allr gateway [run|start|stop|restart|status|install|uninstall|setup]
 """
 
 import asyncio
@@ -53,7 +53,7 @@ from hermes_cli.config import (
 )
 
 # display_hermes_home is imported lazily at call sites to avoid ImportError
-# when hermes_constants is cached from a pre-update version during `hermes update`.
+# when hermes_constants is cached from a pre-update version during `allr update`.
 from hermes_cli.setup import (
     print_header,
     print_info,
@@ -115,7 +115,7 @@ def _get_service_pids() -> set:
                     scope_args
                     + [
                         "list-units",
-                        "hermes-gateway*",
+                        "allr-gateway*",
                         "--plain",
                         "--no-legend",
                         "--no-pager",
@@ -329,7 +329,7 @@ def _get_ancestor_pids() -> set[int]:
 
     Walks from the current PID up to PID 1 (init) so that process-table scans
     never match the calling CLI process or any of its parents.  This prevents
-    ``hermes gateway status`` from falsely counting the ``hermes`` CLI that
+    ``allr gateway status`` from falsely counting the ``hermes`` CLI that
     invoked it as a running gateway instance (see #13242).
     """
     ancestors: set[int] = set()
@@ -366,7 +366,7 @@ def _scan_gateway_pids(
     discover gateways outside the current profile.
     """
     # Exclude the entire ancestor chain so the CLI process that invoked this
-    # scan (e.g. ``hermes gateway status``) is never mistaken for a running
+    # scan (e.g. ``allr gateway status``) is never mistaken for a running
     # gateway.  See #13242.
     exclude_pids = exclude_pids | _get_ancestor_pids()
     pids: list[int] = []
@@ -380,7 +380,7 @@ def _scan_gateway_pids(
         looks_like_gateway_runtime_command_line,
     )
     current_home = str(get_hermes_home().resolve())
-    # Forward slashes on both sides of the HERMES_HOME= match — see
+    # Forward slashes on both sides of the ALLR_HOME= match — see
     # gateway.status._command_line_belongs_to_profile, which this mirrors.
     current_home_lc = current_home.lower().replace("\\", "/")
     current_profile_arg = _profile_arg(current_home)
@@ -399,10 +399,10 @@ def _scan_gateway_pids(
             )
 
         # Default-profile case: no profile flag in argv. Accept as long as
-        # the command doesn't advertise *some other* profile. HERMES_HOME
+        # the command doesn't advertise *some other* profile. ALLR_HOME
         # may be passed via env (not visible in wmic/CIM command line) so
         # its absence is NOT disqualifying — only a non-matching explicit
-        # HERMES_HOME= in argv is.
+        # ALLR_HOME= in argv is.
         if "--profile " in command_lc or " -p " in command_lc:
             return False
         if (
@@ -617,10 +617,10 @@ def find_gateway_pids(
         exclude_pids: PIDs to exclude from the result (e.g. service-managed
             PIDs that should not be killed during a stale-process sweep).
         all_profiles: When ``True``, return gateway PIDs across **all**
-            profiles (the pre-7923 global behaviour).  ``hermes update``
+            profiles (the pre-7923 global behaviour).  ``allr update``
             needs this because a code update affects every profile.
             When ``False`` (default), only PIDs belonging to the current
-            Hermes profile are returned.
+            Allr profile are returned.
     """
     _exclude = set(exclude_pids or set())
     pids: list[int] = []
@@ -649,7 +649,7 @@ def find_gateway_pids(
 def find_profile_gateway_processes(
     exclude_pids: set | None = None,
 ) -> list[ProfileGatewayProcess]:
-    """Return running gateway PIDs mapped to Hermes profiles via PID files."""
+    """Return running gateway PIDs mapped to Allr profiles via PID files."""
     _exclude = set(exclude_pids or set())
     processes: list[ProfileGatewayProcess] = []
     try:
@@ -721,10 +721,10 @@ def _capture_gateway_argv(pid: int) -> list[str] | None:
 
 
 def _prepare_profile_gateway_update_restart(profile: str, pid: int) -> str | None:
-    """Choose who relaunches a profile gateway after ``hermes update``.
+    """Choose who relaunches a profile gateway after ``allr update``.
 
     A gateway started with ``--external-supervisor`` must exit back to that
-    manager. Starting Hermes's detached watcher as well would escape the
+    manager. Starting Allr's detached watcher as well would escape the
     manager and race its replacement process. Ordinary foreground gateways
     retain the existing detached-watcher behavior.
     """
@@ -743,7 +743,7 @@ def launch_detached_gateway_restart_by_cmdline(
 
     Companion to ``launch_detached_profile_gateway_restart`` for gateways that
     have no profile→PID-file mapping (Scheduled-Task / manually-launched
-    ``gateway run`` whose HERMES_HOME or argv doesn't match a known profile).
+    ``gateway run`` whose ALLR_HOME or argv doesn't match a known profile).
     Uses the identical detached-watcher mechanism; only the respawn argv
     differs (the process's own argv instead of a profile-derived one).
     """
@@ -774,8 +774,8 @@ def _spawn_gateway_restart_watcher(old_pid: int, run_argv: list[str]) -> bool:
     #
     # Windows — ``start_new_session`` is silently accepted but does NOT
     # detach.  The watcher stays attached to the CLI's console and dies
-    # when the user closes the terminal, leaving ``hermes update`` users
-    # with no running gateway until they re-invoke ``hermes gateway``
+    # when the user closes the terminal, leaving ``allr update`` users
+    # with no running gateway until they re-invoke ``allr gateway``
     # manually.  The Win32 equivalent is the ``CREATE_NEW_PROCESS_GROUP |
     # DETACHED_PROCESS | CREATE_NO_WINDOW`` creationflags bundle.
     #
@@ -791,7 +791,7 @@ def _spawn_gateway_restart_watcher(old_pid: int, run_argv: list[str]) -> bool:
     # want: the watcher respawns it under CREATE_NO_WINDOW detach flags, so
     # the gateway owns one hidden console that all descendants inherit —
     # nothing flashes (#54220/#56747).  The spec helper normalizes the
-    # interpreter and captures the stable cwd + env overlay (HERMES_HOME,
+    # interpreter and captures the stable cwd + env overlay (ALLR_HOME,
     # VIRTUAL_ENV, PYTHONPATH) so the respawn doesn't depend on the watcher's
     # transient working directory.  No-op on POSIX.
     # See gateway_windows.windowless_gateway_restart_spec.
@@ -854,7 +854,7 @@ def _spawn_gateway_restart_watcher(old_pid: int, run_argv: list[str]) -> bool:
             "stderr": subprocess.DEVNULL,
         }}
         # Anchor the respawned gateway at the stable working dir and overlay
-        # the env (VIRTUAL_ENV / PYTHONPATH / HERMES_HOME) the windowless
+        # the env (VIRTUAL_ENV / PYTHONPATH / ALLR_HOME) the windowless
         # base interpreter needs to import hermes_cli.  Empty on POSIX, where
         # the venv python resolves imports without help.
         if _respawn_cwd:
@@ -980,7 +980,7 @@ def _read_systemd_unit_environment(system: bool = False) -> dict[str, str]:
 
 
 def _hermes_home_from_systemd_unit_file(system: bool = False) -> str | None:
-    """Read ``HERMES_HOME`` from the on-disk unit file (not ``systemctl show``).
+    """Read ``ALLR_HOME`` from the on-disk unit file (not ``systemctl show``).
 
     Prefer the file when refreshing/comparing: under ``sudo``, ``systemctl``
     may be slow/unavailable in tests, and the on-disk unit is what
@@ -999,18 +999,18 @@ def _hermes_home_from_systemd_unit_file(system: bool = False) -> str | None:
         if not stripped.startswith("Environment="):
             continue
         body = stripped[len("Environment=") :].strip().strip('"')
-        if body.startswith("HERMES_HOME="):
+        if body.startswith("ALLR_HOME="):
             value = body.split("=", 1)[1].strip().strip('"')
             return value or None
     return None
 
 
 def _sync_hermes_home_from_systemd_unit(system: bool) -> None:
-    """When acting on a system-scope unit, adopt its ``HERMES_HOME``.
+    """When acting on a system-scope unit, adopt its ``ALLR_HOME``.
 
-    Under ``sudo``, ``HERMES_HOME`` is stripped and ``HOME=/root``, so
-    :func:`get_hermes_home` falls back to ``/root/.hermes`` — the wrong
-    profile. The unit file pins ``HERMES_HOME`` for the actual gateway
+    Under ``sudo``, ``ALLR_HOME`` is stripped and ``HOME=/root``, so
+    :func:`get_hermes_home` falls back to ``/root/.allr`` — the wrong
+    profile. The unit file pins ``ALLR_HOME`` for the actual gateway
     process, so we mirror that into our own environment to make
     ``read_runtime_status`` / ``get_running_pid`` read the correct files.
     """
@@ -1020,13 +1020,13 @@ def _sync_hermes_home_from_systemd_unit(system: bool) -> None:
     # back to ``systemctl show`` for units that only exist in the manager.
     unit_home = (_hermes_home_from_systemd_unit_file(system=True) or "").strip()
     if not unit_home:
-        unit_home = _read_systemd_unit_environment(system=True).get("HERMES_HOME", "").strip()
+        unit_home = _read_systemd_unit_environment(system=True).get("ALLR_HOME", "").strip()
     if not unit_home:
         return
-    current = os.environ.get("HERMES_HOME", "").strip()
+    current = os.environ.get("ALLR_HOME", "").strip()
     if current == unit_home:
         return
-    os.environ["HERMES_HOME"] = unit_home
+    os.environ["ALLR_HOME"] = unit_home
 
 
 def _read_systemd_unit_properties(
@@ -1166,7 +1166,7 @@ def _wait_for_systemd_service_restart(
 
     print(
         f"⚠ {scope_label} service did not become active within {int(timeout)}s.\n"
-        f"  Check status: {'sudo ' if system else ''}hermes gateway status\n"
+        f"  Check status: {'sudo ' if system else ''}allr gateway status\n"
         f"  Check logs:   journalctl {'--user ' if not system else ''}-u {svc} -l --since '2 min ago'"
     )
     return False
@@ -1208,7 +1208,7 @@ def _print_systemd_start_limit_wait(system: bool = False) -> None:
     print(f"⏳ {scope_label} service is temporarily rate-limited by systemd.")
     print("  systemd is refusing another immediate start after repeated exits.")
     print(
-        f"  Wait for the start-limit window to expire, then run: {'sudo ' if system else ''}hermes gateway restart{scope_flag}"
+        f"  Wait for the start-limit window to expire, then run: {'sudo ' if system else ''}allr gateway restart{scope_flag}"
     )
     print(f"  Or clear the failed state manually: {systemctl_prefix}reset-failed {svc}")
     print(f"  Check logs: {journal_prefix}-u {svc} -l --since '5 min ago'")
@@ -1419,20 +1419,20 @@ def _print_gateway_process_mismatch(snapshot: GatewayRuntimeSnapshot) -> None:
         )
         print(f"  PID(s): {_format_gateway_pids(snapshot.gateway_pids, limit=None)}")
         print("  Auto-start at login and auto-restart on crash are NOT available.")
-        print("  Stop it with: hermes gateway stop")
+        print("  Stop it with: allr gateway stop")
     else:
         print(
             "⚠ Gateway process is running for this profile, but the service is not active"
         )
         print(f"  PID(s): {_format_gateway_pids(snapshot.gateway_pids, limit=None)}")
-        print("  This is usually a manual foreground/tmux/nohup run, so `hermes gateway`")
+        print("  This is usually a manual foreground/tmux/nohup run, so `allr gateway`")
         print("  can refuse to start another copy until this process stops.")
 
 
 def _print_other_profiles_gateway_status() -> None:
     """Print a summary of gateway status across all profiles.
 
-    Shown at the bottom of ``hermes gateway status`` output so users with
+    Shown at the bottom of ``allr gateway status`` output so users with
     multiple profiles can tell at a glance which gateways are running and
     avoid confusing another profile's process with the current one.
     """
@@ -1598,7 +1598,7 @@ def _reap_unsupervised_gateway_orphans(extra_exclude: set | None = None) -> bool
 
 
 def stop_profile_gateway() -> bool:
-    """Stop only the gateway for the current profile (HERMES_HOME-scoped).
+    """Stop only the gateway for the current profile (ALLR_HOME-scoped).
 
     Uses the PID file written by start_gateway(), so it only kills the
     gateway belonging to this profile — not gateways from other profiles.
@@ -1702,7 +1702,7 @@ def _systemd_operational(system: bool = False) -> bool:
 def _container_systemd_operational() -> bool:
     """Return True when a container exposes working user or system systemd.
 
-    This is NOT our Hermes Docker image — that one runs s6-overlay as
+    This is NOT our Allr Docker image — that one runs s6-overlay as
     PID 1 (since Phase 2 of the s6-overlay supervision plan) and is
     detected via ``service_manager.detect_service_manager() == "s6"``.
     This function handles the "container managed by something else"
@@ -1741,15 +1741,15 @@ def is_windows() -> bool:
 def _windows_gateway_should_absorb_console_controls() -> bool:
     """Return True for detached Windows gateway runs that should ignore Ctrl+C.
 
-    Foreground ``hermes gateway run`` must remain interruptible from
+    Foreground ``allr gateway run`` must remain interruptible from
     PowerShell/CMD. Detached service-style launches opt in via
-    ``HERMES_GATEWAY_DETACHED=1``; older wrappers without the env marker are
+    ``ALLR_GATEWAY_DETACHED=1``; older wrappers without the env marker are
     treated as detached when no interactive stdin is attached.
     """
     if not is_windows():
         return False
 
-    detached = os.getenv("HERMES_GATEWAY_DETACHED", "").strip().lower()
+    detached = os.getenv("ALLR_GATEWAY_DETACHED", "").strip().lower()
     if detached in {"1", "true", "yes", "on"}:
         return True
 
@@ -1763,16 +1763,16 @@ def _windows_gateway_should_absorb_console_controls() -> bool:
 # Service Configuration
 # =============================================================================
 
-_SERVICE_BASE = "hermes-gateway"
-SERVICE_DESCRIPTION = "Hermes Agent Gateway - Messaging Platform Integration"
+_SERVICE_BASE = "allr-gateway"
+SERVICE_DESCRIPTION = "Allr Gateway - Messaging Platform Integration"
 
 
 def _profile_suffix() -> str:
-    """Derive a service-name suffix from the current HERMES_HOME.
+    """Derive a service-name suffix from the current ALLR_HOME.
 
     Returns ``""`` for the default root, the profile name for
     ``<root>/profiles/<name>``, or a short hash for any other path.
-    Works correctly in Docker (HERMES_HOME=/opt/data) and standard deployments.
+    Works correctly in Docker (ALLR_HOME=/opt/data) and standard deployments.
     """
     import hashlib
     import re
@@ -1791,21 +1791,21 @@ def _profile_suffix() -> str:
             return parts[0]
     except ValueError:
         pass
-    # Fallback: short hash for arbitrary HERMES_HOME paths
+    # Fallback: short hash for arbitrary ALLR_HOME paths
     return hashlib.sha256(str(home).encode()).hexdigest()[:8]
 
 
 def _profile_arg(hermes_home: str | None = None, default_root: str | Path | None = None) -> str:
-    """Return ``--profile <name>`` only when HERMES_HOME is a named profile.
+    """Return ``--profile <name>`` only when ALLR_HOME is a named profile.
 
-    For ``~/.hermes/profiles/<name>``, returns ``"--profile <name>"``.
+    For ``~/.allr/profiles/<name>``, returns ``"--profile <name>"``.
     For the default profile or hash-based custom paths, returns the empty string.
 
     Args:
-        hermes_home: Optional explicit HERMES_HOME path. Defaults to the current
+        hermes_home: Optional explicit ALLR_HOME path. Defaults to the current
             ``get_hermes_home()`` value. Should be passed when generating a
             service definition for a different user (e.g. system service).
-        default_root: Optional Hermes root to compare against. Used when
+        default_root: Optional Allr root to compare against. Used when
             generating a system service for another user from a sudo/root
             process, where ``Path.home()`` and ``get_default_hermes_root()``
             refer to root but the target profile lives under the service user.
@@ -1830,7 +1830,7 @@ def _profile_arg(hermes_home: str | None = None, default_root: str | Path | None
 
 def _profile_arg_for_target_user(hermes_home: str, target_home_dir: str) -> str:
     """Return the profile arg for a system service running as another user."""
-    target_root = Path(target_home_dir) / ".hermes"
+    target_root = Path(target_home_dir) / ".allr"
     try:
         Path(hermes_home).resolve().relative_to(target_root.resolve())
         return _profile_arg(hermes_home, default_root=target_root)
@@ -1839,11 +1839,11 @@ def _profile_arg_for_target_user(hermes_home: str, target_home_dir: str) -> str:
 
 
 def get_service_name() -> str:
-    """Derive a systemd service name scoped to this HERMES_HOME.
+    """Derive a systemd service name scoped to this ALLR_HOME.
 
-    Default ``~/.hermes`` returns ``hermes-gateway`` (backward compatible).
-    Profile ``~/.hermes/profiles/coder`` returns ``hermes-gateway-coder``.
-    Any other HERMES_HOME appends a short hash for uniqueness.
+    Default ``~/.allr`` returns ``allr-gateway`` (backward compatible).
+    Profile ``~/.allr/profiles/coder`` returns ``allr-gateway-coder``.
+    Any other ALLR_HOME appends a short hash for uniqueness.
     """
     suffix = _profile_suffix()
     if not suffix:
@@ -2054,7 +2054,7 @@ def _raise_user_systemd_unavailable(
         "\n"
         "  Alternative: run the gateway in the foreground (stays up until\n"
         "  you exit / close the terminal):\n"
-        "    hermes gateway run"
+        "    allr gateway run"
     )
     raise UserSystemdUnavailableError(msg)
 
@@ -2105,9 +2105,9 @@ def has_conflicting_systemd_units() -> bool:
     return len(get_installed_systemd_scopes()) > 1
 
 
-# Legacy service names from older Hermes installs that predate the
-# hermes-gateway rename. Kept as an explicit allowlist (NOT a glob) so
-# profile units (hermes-gateway-*.service) and unrelated third-party
+# Legacy service names from older Allr installs that predate the
+# allr-gateway rename. Kept as an explicit allowlist (NOT a glob) so
+# profile units (allr-gateway-*.service) and unrelated third-party
 # "hermes" units are never matched.
 _LEGACY_SERVICE_NAMES: tuple[str, ...] = ("hermes.service",)
 
@@ -2117,8 +2117,8 @@ _LEGACY_UNIT_EXECSTART_MARKERS: tuple[str, ...] = (
     "hermes_cli.main gateway",
     "hermes_cli/main.py gateway",
     "gateway/run.py",
-    " hermes gateway ",
-    "/hermes gateway ",
+    " allr gateway ",
+    "/allr gateway ",
 )
 
 
@@ -2135,19 +2135,19 @@ def _legacy_unit_search_paths() -> list[tuple[bool, Path]]:
 
 
 def _find_legacy_hermes_units() -> list[tuple[str, Path, bool]]:
-    """Return ``[(unit_name, unit_path, is_system)]`` for legacy Hermes gateway units.
+    """Return ``[(unit_name, unit_path, is_system)]`` for legacy Allr gateway units.
 
-    Detects unit files installed by older Hermes versions that used a
+    Detects unit files installed by older Allr versions that used a
     different service name (e.g. ``hermes.service`` before the rename to
-    ``hermes-gateway.service``). When both a legacy unit and the current
-    ``hermes-gateway.service`` are active, they fight over the same bot
+    ``allr-gateway.service``). When both a legacy unit and the current
+    ``allr-gateway.service`` are active, they fight over the same bot
     token — the PR #5646 signal-recovery change turns this into a 30-second
     SIGTERM flap loop.
 
     Safety guards:
 
     * Explicit allowlist of legacy names (no globbing). Profile units such
-      as ``hermes-gateway-coder.service`` and unrelated third-party
+      as ``allr-gateway-coder.service`` and unrelated third-party
       ``hermes-*`` services are never matched.
     * ExecStart content check — only flag units that invoke our gateway
       entrypoint. A user-created ``hermes.service`` running an unrelated
@@ -2173,12 +2173,12 @@ def _find_legacy_hermes_units() -> list[tuple[str, Path, bool]]:
 
 
 def has_legacy_hermes_units() -> bool:
-    """Return True when any legacy Hermes gateway unit files exist."""
+    """Return True when any legacy Allr gateway unit files exist."""
     return bool(_find_legacy_hermes_units())
 
 
 def print_legacy_unit_warning() -> None:
-    """Warn about legacy Hermes gateway unit files if any are installed.
+    """Warn about legacy Allr gateway unit files if any are installed.
 
     Idempotent: prints nothing when no legacy units are detected. Safe to
     call from any status/install/setup path.
@@ -2186,21 +2186,21 @@ def print_legacy_unit_warning() -> None:
     legacy = _find_legacy_hermes_units()
     if not legacy:
         return
-    print_warning("Legacy Hermes gateway unit(s) detected from an older install:")
+    print_warning("Legacy Allr gateway unit(s) detected from an older install:")
     for name, path, is_system in legacy:
         scope = "system" if is_system else "user"
         print_info(f"    {path}  ({scope} scope)")
-    print_info("  These run alongside the current hermes-gateway service and")
+    print_info("  These run alongside the current allr-gateway service and")
     print_info("  cause SIGTERM flap loops — both try to use the same bot token.")
     print_info("  Remove them with:")
-    print_info("    hermes gateway migrate-legacy")
+    print_info("    allr gateway migrate-legacy")
 
 
 def remove_legacy_hermes_units(
     interactive: bool = True,
     dry_run: bool = False,
 ) -> tuple[int, list[Path]]:
-    """Stop, disable, and remove legacy Hermes gateway unit files.
+    """Stop, disable, and remove legacy Allr gateway unit files.
 
     Iterates over whatever ``_find_legacy_hermes_units()`` returns — which is
     an explicit allowlist of legacy names (not a glob). Profile units and
@@ -2218,14 +2218,14 @@ def remove_legacy_hermes_units(
     """
     legacy = _find_legacy_hermes_units()
     if not legacy:
-        print("No legacy Hermes gateway units found.")
+        print("No legacy Allr gateway units found.")
         return 0, []
 
     user_units = [(n, p) for n, p, is_sys in legacy if not is_sys]
     system_units = [(n, p) for n, p, is_sys in legacy if is_sys]
 
     print()
-    print("Legacy Hermes gateway unit(s) found:")
+    print("Legacy Allr gateway unit(s) found:")
     for name, path, is_system in legacy:
         scope = "system" if is_system else "user"
         print(f"  {path}  ({scope} scope)")
@@ -2236,7 +2236,7 @@ def remove_legacy_hermes_units(
         return 0, [p for _, p, _ in legacy]
 
     if interactive and not prompt_yes_no("Remove these legacy units?", True):
-        print("Skipped. Run again with: hermes gateway migrate-legacy")
+        print("Skipped. Run again with: allr gateway migrate-legacy")
         return 0, [p for _, p, _ in legacy]
 
     removed = 0
@@ -2265,7 +2265,7 @@ def remove_legacy_hermes_units(
         if os.geteuid() != 0:  # windows-footgun: ok — Linux systemd removal path, guarded by `if system == "Linux"` / systemd-only branch
             print()
             print_warning("System-scope legacy units require root to remove.")
-            print_info("  Re-run with: sudo hermes gateway migrate-legacy")
+            print_info("  Re-run with: sudo allr gateway migrate-legacy")
             for _, path in system_units:
                 remaining.append(path)
         else:
@@ -2312,8 +2312,8 @@ def print_systemd_scope_conflict_warning() -> None:
         "  Default gateway commands target the user service unless you pass --system."
     )
     print_info("  Keep one of these:")
-    print_info("    hermes gateway uninstall")
-    print_info("    sudo hermes gateway uninstall --system")
+    print_info("    allr gateway uninstall")
+    print_info("    sudo allr gateway uninstall --system")
 
 
 def _require_root_for_system_service(action: str) -> None:
@@ -2425,7 +2425,7 @@ def install_linux_gateway_from_setup(force: bool = False, enable_on_startup: boo
             # direct caller — we do NOT print a self-elevation recipe.
             print_warning(
                 "  System service install requires root. Re-run setup from a "
-                "root shell, or install a user service instead: hermes gateway install"
+                "root shell, or install a user service instead: allr gateway install"
             )
             return scope, False
 
@@ -2513,7 +2513,7 @@ def print_systemd_linger_guidance() -> None:
 def _launchd_user_home() -> Path:
     """Return the real macOS user home for launchd artifacts.
 
-    Profile-mode Hermes often sets ``HOME`` to a profile-scoped directory, but
+    Profile-mode Allr often sets ``HOME`` to a profile-scoped directory, but
     launchd user agents still live under the actual account home.
     """
     import pwd
@@ -2524,11 +2524,11 @@ def _launchd_user_home() -> Path:
 def get_launchd_plist_path() -> Path:
     """Return the launchd plist path, scoped per profile.
 
-    Default ``~/.hermes`` → ``ai.hermes.gateway.plist`` (backward compatible).
-    Profile ``~/.hermes/profiles/coder`` → ``ai.hermes.gateway-coder.plist``.
+    Default ``~/.allr`` → ``work.allr.gateway.plist`` (backward compatible).
+    Profile ``~/.allr/profiles/coder`` → ``work.allr.gateway-coder.plist``.
     """
     suffix = _profile_suffix()
-    name = f"ai.hermes.gateway-{suffix}" if suffix else "ai.hermes.gateway"
+    name = f"work.allr.gateway-{suffix}" if suffix else "work.allr.gateway"
     return _launchd_user_home() / "Library" / "LaunchAgents" / f"{name}.plist"
 
 
@@ -2646,7 +2646,7 @@ def _remap_path_for_user(path: str, target_home_dir: str) -> str:
     If *path* lives under ``Path.home()`` the corresponding prefix is swapped
     to *target_home_dir*; otherwise the path is returned unchanged.
 
-      /root/.hermes/hermes-agent  -> /home/alice/.hermes/hermes-agent
+      /root/.allr/allr-agent  -> /home/alice/.allr/allr-agent
       /opt/hermes                 -> /opt/hermes  (kept as-is)
 
     Note: this function intentionally does NOT resolve symlinks. A venv's
@@ -2667,15 +2667,15 @@ def _remap_path_for_user(path: str, target_home_dir: str) -> str:
 
 
 def _hermes_home_for_target_user(target_home_dir: str) -> str:
-    """Remap the current HERMES_HOME to the equivalent under a target user's home.
+    """Remap the current ALLR_HOME to the equivalent under a target user's home.
 
     When installing a system service via sudo, get_hermes_home() resolves to
     root's home.  This translates it to the target user's equivalent path:
-      /root/.hermes                    → /home/alice/.hermes
-      /root/.hermes/profiles/coder     → /home/alice/.hermes/profiles/coder
+      /root/.allr                    → /home/alice/.allr
+      /root/.allr/profiles/coder     → /home/alice/.allr/profiles/coder
       /opt/custom-hermes               → /opt/custom-hermes  (kept as-is)
     """
-    current_hermes_raw = os.environ.get("HERMES_HOME", "").strip()
+    current_hermes_raw = os.environ.get("ALLR_HOME", "").strip()
     current_hermes = (
         Path(current_hermes_raw).expanduser()
         if current_hermes_raw
@@ -2683,20 +2683,20 @@ def _hermes_home_for_target_user(target_home_dir: str) -> str:
     )
     # Keep explicit custom paths lexical. Resolving a non-existent custom path
     # can rewrite it through host-specific path mappings, which would bake a
-    # different HERMES_HOME into the generated service unit.
-    current_default = Path.home() / ".hermes"
-    target_default = Path(target_home_dir) / ".hermes"
+    # different ALLR_HOME into the generated service unit.
+    current_default = Path.home() / ".allr"
+    target_default = Path(target_home_dir) / ".allr"
 
-    # Default ~/.hermes → remap to target user's default
+    # Default ~/.allr → remap to target user's default
     if current_hermes == current_default:
         return str(target_default)
 
-    # Profile or subdir of ~/.hermes → preserve the relative structure
+    # Profile or subdir of ~/.allr → preserve the relative structure
     try:
         relative = current_hermes.relative_to(current_default)
         return str(target_default / relative)
     except ValueError:
-        # Completely custom path (not under ~/.hermes) — keep as-is
+        # Completely custom path (not under ~/.allr) — keep as-is
         return str(current_hermes)
 
 
@@ -2742,15 +2742,15 @@ def _stable_service_working_dir() -> str:
     resolution does not depend on cwd. Pinning ``WorkingDirectory`` to
     ``PROJECT_ROOT`` (``Path(__file__).parent.parent``) is actively harmful:
     when the unit is generated from a transient checkout — a ``.worktrees/``
-    dir, or a clone that ``hermes update`` later relocates/removes — the path
+    dir, or a clone that ``allr update`` later relocates/removes — the path
     rots. systemd then fails the start at the CHDIR step (``status=200/CHDIR``,
     "Changing to the requested working directory failed") *before* Python
     loads, so the on-boot ``refresh_systemd_unit_if_needed()`` self-heal never
     runs and ``Restart=always`` crash-loops forever on a dead directory.
 
-    ``HERMES_HOME`` is the stable anchor: it is where config/state/logs live,
+    ``ALLR_HOME`` is the stable anchor: it is where config/state/logs live,
     it never moves, and it is guaranteed to exist whenever the gateway is
-    meaningfully installed. Fall back to ``PROJECT_ROOT`` only if HERMES_HOME
+    meaningfully installed. Fall back to ``PROJECT_ROOT`` only if ALLR_HOME
     cannot be resolved (it always can in practice).
     """
     try:
@@ -2805,7 +2805,7 @@ def _append_node_dir_for_service(
 ) -> None:
     """Add the Node directory a generated service unit should use to *path_entries*.
 
-    The Hermes-managed Node under ``$HERMES_HOME/node`` goes first when it
+    The Allr-managed Node under ``$ALLR_HOME/node`` goes first when it
     exists. A bare ``shutil.which("node")`` cannot be trusted on its own here:
     a service unit is written once and then survives reboots, so resolving a
     system Node that happens to be ahead on the installing shell's PATH bakes
@@ -2813,7 +2813,7 @@ def _append_node_dir_for_service(
     backend spawn was fixed for. Managed dirs are profile-scoped, so each
     profile's unit still names its own Node.
 
-    *hermes_root* is the Hermes home the unit will run against. System units
+    *hermes_root* is the Allr home the unit will run against. System units
     installed via sudo MUST pass the **target user's** home: probing the
     default (the calling user's — root's — tree) would bake root's Node into
     the target user's unit. The probe swallows OSError: an unreadable
@@ -2859,7 +2859,7 @@ def generate_systemd_unit(system: bool = False, run_as_user: str | None = None) 
     path_entries = _build_service_path_dirs()
     if not system:
         # System units append the managed Node dirs later, once the TARGET
-        # user's Hermes home is known — probing here would stat the calling
+        # user's Allr home is known — probing here would stat the calling
         # (sudo → root's) tree and bake the wrong user's Node into the unit.
         _append_node_dir_for_service(path_entries)
 
@@ -2889,7 +2889,7 @@ def generate_systemd_unit(system: bool = False, run_as_user: str | None = None) 
         # (e.g. /root/) to the target user's home so the service can
         # actually access them.
         python_path = _remap_path_for_user(python_path, home_dir)
-        # Anchor cwd to the target user's HERMES_HOME (stable, always exists)
+        # Anchor cwd to the target user's ALLR_HOME (stable, always exists)
         # rather than a remapped source-checkout path that can rot. See
         # _stable_service_working_dir() for the full rationale.
         working_dir = str(hermes_home) if hermes_home else _remap_path_for_user(working_dir, home_dir)
@@ -2927,7 +2927,7 @@ Environment="USER={username}"
 Environment="LOGNAME={username}"
 Environment="PATH={sane_path}"
 Environment="VIRTUAL_ENV={venv_dir}"
-Environment="HERMES_HOME={hermes_home}"
+Environment="ALLR_HOME={hermes_home}"
 Restart=always
 RestartSec=5
 RestartForceExitStatus={GATEWAY_SERVICE_RESTART_EXIT_CODE}
@@ -2965,7 +2965,7 @@ Type={systemd_type}
 WorkingDirectory={working_dir}
 Environment="PATH={sane_path}"
 Environment="VIRTUAL_ENV={venv_dir}"
-Environment="HERMES_HOME={hermes_home}"
+Environment="ALLR_HOME={hermes_home}"
 Restart=always
 RestartSec=5
 RestartForceExitStatus={GATEWAY_SERVICE_RESTART_EXIT_CODE}
@@ -3023,24 +3023,24 @@ def _normalize_launchd_plist_for_comparison(text: str) -> str:
     normalized = _normalize_service_definition(text)
     return re.sub(
         r"(<key>PATH</key>\s*<string>)(.*?)(</string>)",
-        r"\1__HERMES_PATH__\3",
+        r"\1__ALLR_PATH__\3",
         normalized,
         flags=re.S,
     )
 
 
 def systemd_unit_is_current(system: bool = False) -> bool:
-    # ── HERMES_HOME sync chokepoint ──────────────────────────────────────
+    # ── ALLR_HOME sync chokepoint ──────────────────────────────────────
     # Every path that compares OR regenerates the unit funnels through here:
     # ``refresh_systemd_unit_if_needed`` gates on this before rewriting, and
     # ``systemd_status`` / ``systemd_install`` call it directly. Doing the
     # sync here — and ONLY here — enforces the invariant "the operator's
-    # pinned HERMES_HOME is adopted before any compare/regenerate" at a single
+    # pinned ALLR_HOME is adopted before any compare/regenerate" at a single
     # site, so a future callsite cannot regress it by forgetting to pre-sync.
     #
-    # Under ``sudo hermes gateway … --system``, HERMES_HOME is often stripped
-    # and falls back to ``/root/.hermes``. Adopting the unit's pinned home
-    # first makes TimeoutStopSec / WorkingDirectory / HERMES_HOME comparisons
+    # Under ``sudo allr gateway … --system``, ALLR_HOME is often stripped
+    # and falls back to ``/root/.allr``. Adopting the unit's pinned home
+    # first makes TimeoutStopSec / WorkingDirectory / ALLR_HOME comparisons
     # use the real operator config — otherwise start/restart "refresh" rewrites
     # a correct unit from root's defaults and ``status`` keeps warning forever.
     # ``_sync_...`` is idempotent (early-returns once os.environ matches), so
@@ -3068,29 +3068,29 @@ def systemd_unit_is_current(system: bool = False) -> bool:
 
 
 def _temp_home_in_service_definition(definition: str) -> str | None:
-    """Return the temp-dir HERMES_HOME baked into a service definition, or None.
+    """Return the temp-dir ALLR_HOME baked into a service definition, or None.
 
-    A generated systemd unit / launchd plist carries the resolved HERMES_HOME
+    A generated systemd unit / launchd plist carries the resolved ALLR_HOME
     in its environment block. If that path lives under the system temp dir,
     the definition was almost certainly generated by a test/E2E harness that
-    exported a throwaway ``HERMES_HOME=/tmp/...`` — writing it to the real
+    exported a throwaway ``ALLR_HOME=/tmp/...`` — writing it to the real
     service file silently breaks the user's gateway on the next (re)start:
     the gateway comes back "active (running)" but pointed at an empty temp
     home ("No messaging platforms enabled"), deaf to every platform.
-    Seen live 2026-06-11: an E2E guard probe ran ``hermes gateway restart``
-    with ``HERMES_HOME=/tmp/hermes-e2e-<pr>`` exported; the restart path's
+    Seen live 2026-06-11: an E2E guard probe ran ``allr gateway restart``
+    with ``ALLR_HOME=/tmp/hermes-e2e-<pr>`` exported; the restart path's
     unit refresh baked the temp path into the production unit and the
     post-update restart produced a zombie gateway for 7+ hours.
 
-    Matches both systemd ``Environment="HERMES_HOME=..."`` lines and launchd
-    ``<key>HERMES_HOME</key><string>...</string>`` pairs.
+    Matches both systemd ``Environment="ALLR_HOME=..."`` lines and launchd
+    ``<key>ALLR_HOME</key><string>...</string>`` pairs.
     """
     import re
     import tempfile
 
-    candidates = re.findall(r'HERMES_HOME=([^"\n]+)', definition)
+    candidates = re.findall(r'ALLR_HOME=([^"\n]+)', definition)
     candidates += re.findall(
-        r"<key>HERMES_HOME</key>\s*<string>(.*?)</string>", definition, flags=re.S
+        r"<key>ALLR_HOME</key>\s*<string>(.*?)</string>", definition, flags=re.S
     )
     temp_roots = {
         Path(tempfile.gettempdir()).resolve(),
@@ -3111,16 +3111,16 @@ def _temp_home_in_service_definition(definition: str) -> str | None:
 
 
 def _refuse_temp_home_service_write(definition: str, kind: str) -> bool:
-    """Refuse (with guidance) when a service definition carries a temp HERMES_HOME."""
+    """Refuse (with guidance) when a service definition carries a temp ALLR_HOME."""
     temp_home = _temp_home_in_service_definition(definition)
     if temp_home is None:
         return False
     print(
-        f"✗ Refusing to write the gateway {kind}: HERMES_HOME resolves to a "
+        f"✗ Refusing to write the gateway {kind}: ALLR_HOME resolves to a "
         f"temporary directory ({temp_home})."
     )
     print(
-        "  This usually means a test/E2E environment exported HERMES_HOME. "
+        "  This usually means a test/E2E environment exported ALLR_HOME. "
         "Unset it (or run from a clean shell) and retry."
     )
     return True
@@ -3133,7 +3133,7 @@ def refresh_systemd_unit_if_needed(system: bool = False) -> bool:
         return False
 
     # The gate below funnels through ``systemd_unit_is_current``, which is the
-    # single HERMES_HOME-sync chokepoint (adopts the unit's pinned home before
+    # single ALLR_HOME-sync chokepoint (adopts the unit's pinned home before
     # any compare/regenerate). No separate pre-sync needed here — and the env
     # mutation it performs persists for the regenerate path below.
     if systemd_unit_is_current(system=system):
@@ -3144,10 +3144,10 @@ def refresh_systemd_unit_if_needed(system: bool = False) -> bool:
 
     # ── Test-environment safety belt ─────────────────────────────────────
     # The user-scope unit path resolves under ``Path.home()``, which is NOT
-    # sandboxed by the test conftest (only HERMES_HOME is). If a test
-    # exercises ``run_gateway()`` with a pytest-tmp HERMES_HOME, the freshly
+    # sandboxed by the test conftest (only ALLR_HOME is). If a test
+    # exercises ``run_gateway()`` with a pytest-tmp ALLR_HOME, the freshly
     # generated unit bakes that ``/tmp/pytest-of-.../hermes_test`` path into
-    # ``Environment="HERMES_HOME=..."``. Writing that to the developer's
+    # ``Environment="ALLR_HOME=..."``. Writing that to the developer's
     # real user systemd unit file silently breaks their gateway on the next
     # reboot (systemd loads the polluted env, the gateway looks at an empty
     # tmp dir, and Telegram/Discord/etc. all show as "not configured").
@@ -3164,7 +3164,7 @@ def refresh_systemd_unit_if_needed(system: bool = False) -> bool:
         return False
 
     # Structural variant of the same belt: refuse to bake ANY temp-dir
-    # HERMES_HOME into the unit (manual E2E homes like /tmp/hermes-e2e-NNN
+    # ALLR_HOME into the unit (manual E2E homes like /tmp/hermes-e2e-NNN
     # don't carry the pytest markers above but poison the unit identically).
     if _refuse_temp_home_service_write(new_unit, "systemd unit"):
         return False
@@ -3172,7 +3172,7 @@ def refresh_systemd_unit_if_needed(system: bool = False) -> bool:
     unit_path.write_text(new_unit, encoding="utf-8")
     _run_systemctl(["daemon-reload"], system=system, check=True, timeout=30)
     print(
-        f"↻ Updated gateway {_service_scope_label(system)} service definition to match the current Hermes install"
+        f"↻ Updated gateway {_service_scope_label(system)} service definition to match the current Allr install"
     )
     return True
 
@@ -3278,14 +3278,14 @@ def _print_system_scope_remediation(action: str) -> None:
     else:
         print_info(f"         sudo systemctl {action} {svc}")
     print_info("    2. Switch to a per-user service (recommended for personal use):")
-    print_info("         sudo hermes gateway uninstall --system")
-    print_info("         hermes gateway install")
-    print_info("         hermes gateway start")
+    print_info("         sudo allr gateway uninstall --system")
+    print_info("         allr gateway install")
+    print_info("         allr gateway start")
 
 
 def _get_restart_drain_timeout() -> float:
     """Return the configured gateway restart drain timeout in seconds."""
-    raw = os.getenv("HERMES_RESTART_DRAIN_TIMEOUT", "").strip()
+    raw = os.getenv("ALLR_RESTART_DRAIN_TIMEOUT", "").strip()
     if not raw:
         cfg = read_raw_config()
         agent_cfg = cfg.get("agent", {}) if isinstance(cfg, dict) else {}
@@ -3299,7 +3299,7 @@ def _get_restart_drain_timeout() -> float:
 
 def _get_restart_after_turn_timeout() -> float:
     """Return the in-band restart wait-for-idle timeout in seconds (#77184)."""
-    env_raw = os.getenv("HERMES_RESTART_AFTER_TURN_TIMEOUT")
+    env_raw = os.getenv("ALLR_RESTART_AFTER_TURN_TIMEOUT")
     if env_raw is not None and str(env_raw).strip() != "":
         return parse_restart_after_turn_timeout(env_raw)
     cfg = read_raw_config()
@@ -3328,7 +3328,7 @@ def systemd_install(
         _require_root_for_system_service("install")
 
     # Offer to remove legacy units (hermes.service from pre-rename installs)
-    # before installing the new hermes-gateway.service. If both remain, they
+    # before installing the new allr-gateway.service. If both remain, they
     # flap-fight for the Telegram bot token on every gateway startup.
     # Only removes units matching _LEGACY_SERVICE_NAMES + our ExecStart
     # signature — profile units are never touched.
@@ -3343,11 +3343,11 @@ def systemd_install(
     unit_path = get_systemd_unit_path(system=system)
     scope_flag = " --system" if system else ""
 
-    # Existing system units already pin HERMES_HOME; adopt it before any
+    # Existing system units already pin ALLR_HOME; adopt it before any
     # regenerate. This pre-sync is NOT redundant with the systemd_unit_is_current
     # chokepoint: the ``--force`` path below skips the is_current gate and calls
     # generate_systemd_unit() directly (line ~3172), so without this a
-    # ``sudo hermes gateway install --system --force`` would bake /root/.hermes
+    # ``sudo allr gateway install --system --force`` would bake /root/.allr
     # into an already-correct unit. Keep it to protect that bypass path.
     if unit_path.exists():
         _sync_hermes_home_from_systemd_unit(system=system)
@@ -3383,10 +3383,10 @@ def systemd_install(
     print()
     print("Next steps:")
     print(
-        f"  {'sudo ' if system else ''}hermes gateway start{scope_flag}              # Start the service"
+        f"  {'sudo ' if system else ''}allr gateway start{scope_flag}              # Start the service"
     )
     print(
-        f"  {'sudo ' if system else ''}hermes gateway status{scope_flag}             # Check status"
+        f"  {'sudo ' if system else ''}allr gateway status{scope_flag}             # Check status"
     )
     print(
         f"  {'journalctl' if system else 'journalctl --user'} -u {get_service_name()} -f  # View logs"
@@ -3428,7 +3428,7 @@ def _require_service_installed(action: str, system: bool = False) -> None:
     if not unit_path.exists():
         scope_flag = " --system" if system else ""
         print("✗ Gateway service is not installed")
-        print(f"  Run: {'sudo ' if system else ''}hermes gateway install{scope_flag}")
+        print(f"  Run: {'sudo ' if system else ''}allr gateway install{scope_flag}")
         sys.exit(1)
 
 
@@ -3442,7 +3442,7 @@ def systemd_start(system: bool = False):
         # Raises UserSystemdUnavailableError with a remediation message.
         _preflight_user_systemd()
     _require_service_installed("start", system=system)
-    # HERMES_HOME sync happens inside refresh_systemd_unit_if_needed's
+    # ALLR_HOME sync happens inside refresh_systemd_unit_if_needed's
     # systemd_unit_is_current gate (the single chokepoint), and the unit is
     # guaranteed to exist here by _require_service_installed, so the gate runs.
     refresh_systemd_unit_if_needed(system=system)
@@ -3472,7 +3472,7 @@ def systemd_stop(system: bool = False):
         label = _service_scope_label(system)
         print(
             f"Gateway {label} service is still stopping after 90s; "
-            "check `hermes gateway status` or logs for final shutdown state."
+            "check `allr gateway status` or logs for final shutdown state."
         )
         return
     print(f"✓ {_service_scope_label(system).capitalize()} service stopped")
@@ -3485,7 +3485,7 @@ def systemd_restart(system: bool = False):
     else:
         _preflight_user_systemd()
     _require_service_installed("restart", system=system)
-    # HERMES_HOME sync happens inside refresh_systemd_unit_if_needed's
+    # ALLR_HOME sync happens inside refresh_systemd_unit_if_needed's
     # systemd_unit_is_current gate (the single chokepoint). The unit exists
     # here (_require_service_installed), so the gate runs and its os.environ
     # mutation persists for the get_running_pid / drain-timeout reads below —
@@ -3547,7 +3547,7 @@ def systemd_restart(system: bool = False):
             label = _service_scope_label(system)
             print(
                 f"Gateway {label} service is still restarting after 90s; "
-                "check `hermes gateway status` or logs for final state."
+                "check `allr gateway status` or logs for final state."
             )
             return
         _wait_for_systemd_service_restart(system=system, previous_pid=pid)
@@ -3577,7 +3577,7 @@ def systemd_restart(system: bool = False):
         label = _service_scope_label(system)
         print(
             f"Gateway {label} service is still restarting after 90s; "
-            "check `hermes gateway status` or logs for final state."
+            "check `allr gateway status` or logs for final state."
         )
         return
     _wait_for_systemd_service_restart(system=system, previous_pid=pid)
@@ -3590,7 +3590,7 @@ def systemd_status(deep: bool = False, system: bool = False, full: bool = False)
 
     if not unit_path.exists():
         print("✗ Gateway service is not installed")
-        print(f"  Run: {'sudo ' if system else ''}hermes gateway install{scope_flag}")
+        print(f"  Run: {'sudo ' if system else ''}allr gateway install{scope_flag}")
         return
 
     if has_conflicting_systemd_units():
@@ -3604,7 +3604,7 @@ def systemd_status(deep: bool = False, system: bool = False, full: bool = False)
     if not systemd_unit_is_current(system=system):
         print("⚠ Installed gateway service definition is outdated")
         print(
-            f"  Run: {'sudo ' if system else ''}hermes gateway restart{scope_flag}  # auto-refreshes the unit"
+            f"  Run: {'sudo ' if system else ''}allr gateway restart{scope_flag}  # auto-refreshes the unit"
         )
         print()
 
@@ -3637,7 +3637,7 @@ def systemd_status(deep: bool = False, system: bool = False, full: bool = False)
         print(
             f"✗ {_service_scope_label(system).capitalize()} gateway service is stopped"
         )
-        print(f"  Run: {'sudo ' if system else ''}hermes gateway start{scope_flag}")
+        print(f"  Run: {'sudo ' if system else ''}allr gateway start{scope_flag}")
 
     configured_user = _read_systemd_user_from_unit(unit_path) if system else None
     if configured_user:
@@ -3660,7 +3660,7 @@ def systemd_status(deep: bool = False, system: bool = False, full: bool = False)
     elif _systemd_unit_is_start_limited(unit_props):
         print("  ⏳ Restart pending: systemd is temporarily rate-limiting starts")
         print(
-            f"  Run after the start-limit window expires: {'sudo ' if system else ''}hermes gateway restart{scope_flag}"
+            f"  Run after the start-limit window expires: {'sudo ' if system else ''}allr gateway restart{scope_flag}"
         )
         print(
             f"  Or clear it manually: systemctl {'--user ' if not system else ''}reset-failed {get_service_name()}"
@@ -3670,7 +3670,7 @@ def systemd_status(deep: bool = False, system: bool = False, full: bool = False)
     ):
         print("  ⚠ Planned restart is stuck in systemd failed state (exit 75)")
         print(
-            f"  Run: systemctl {'--user ' if not system else ''}reset-failed {get_service_name()} && {'sudo ' if system else ''}hermes gateway start{scope_flag}"
+            f"  Run: systemctl {'--user ' if not system else ''}reset-failed {get_service_name()} && {'sudo ' if system else ''}allr gateway start{scope_flag}"
         )
     elif active_state == "failed" and result_code:
         print(f"  ⚠ Systemd unit result: {result_code}")
@@ -3710,11 +3710,11 @@ def systemd_status(deep: bool = False, system: bool = False, full: bool = False)
 def get_launchd_label() -> str:
     """Return the launchd service label, scoped per profile."""
     suffix = _profile_suffix()
-    return f"ai.hermes.gateway-{suffix}" if suffix else "ai.hermes.gateway"
+    return f"work.allr.gateway-{suffix}" if suffix else "work.allr.gateway"
 
 
 # Cached launchd domain result — probing is cheap but should only run once per
-# process invocation (each ``hermes gateway start/stop/status`` call).
+# process invocation (each ``allr gateway start/stop/status`` call).
 _resolved_launchd_domain: str | None = None
 
 
@@ -3799,7 +3799,7 @@ _LAUNCHD_JOB_UNLOADED_EXIT_CODES = frozenset({3, 113, 125})
 #   2. The domain genuinely can't manage services (macOS 26+, neither
 #      `gui/<uid>` nor `user/<uid>` supports service management). Here launchd
 #      cannot supervise the gateway at all and we degrade to a detached
-#      background process (the `nohup hermes gateway run` workaround). See #23387.
+#      background process (the `nohup allr gateway run` workaround). See #23387.
 # `_launchctl_bootstrap()` disambiguates by trying the bootout+retry (case 1)
 # first; only when that retry ALSO returns 5/125 do callers treat the domain as
 # unsupported (case 2) via `_launchctl_domain_unsupported`.
@@ -4011,7 +4011,7 @@ def _launchd_unsupported_marker_exists() -> bool:
 def _gateway_run_command() -> list[str]:
     """Build the `python -m hermes_cli.main [--profile X] gateway run --replace` argv.
 
-    Profile-aware: honors the active HERMES_HOME via `_profile_arg()` so the
+    Profile-aware: honors the active ALLR_HOME via `_profile_arg()` so the
     detached fallback launches into the same profile as the CLI invocation.
     """
     cmd = [get_python_path(), "-m", "hermes_cli.main"]
@@ -4026,7 +4026,7 @@ def _spawn_detached_gateway() -> bool:
     """Launch the gateway as a detached background process (launchd fallback).
 
     Used when launchctl can no longer bootstrap/kickstart the gateway on
-    macOS 26+ (issue #23387). Mirrors the `nohup hermes gateway run --replace`
+    macOS 26+ (issue #23387). Mirrors the `nohup allr gateway run --replace`
     workaround but keeps it CLI-managed: stdout/stderr go to the profile's
     gateway logs and the PID is tracked via the gateway.pid file that
     `run_gateway` writes, so stop/status/restart keep working.
@@ -4071,11 +4071,11 @@ def _launchd_fallback_to_detached(reason: str, *, exit_on_failure: bool = True) 
         print("✓ Started gateway as a background process instead")
         print("  It will NOT auto-start at login or auto-restart on crash.")
         print(f"  Logs: {_dhh()}/logs/gateway.log")
-        print("  Stop it with: hermes gateway stop")
+        print("  Stop it with: allr gateway stop")
         return True
     print_error("Failed to start the gateway as a background process.")
     print(
-        f"  Try manually: nohup hermes gateway run --replace "
+        f"  Try manually: nohup allr gateway run --replace "
         f"> {_dhh()}/logs/gateway.log 2>&1 &"
     )
     if exit_on_failure:
@@ -4150,7 +4150,7 @@ def generate_launchd_plist() -> str:
         <string>{sane_path}</string>
         <key>VIRTUAL_ENV</key>
         <string>{venv_dir}</string>
-        <key>HERMES_HOME</key>
+        <key>ALLR_HOME</key>
         <string>{hermes_home}</string>
     </dict>
 
@@ -4261,7 +4261,7 @@ def refresh_launchd_plist_if_needed() -> bool:
         # service stays unregistered — KeepAlive can't revive a service
         # launchd no longer knows about, so the gateway stays dark until a
         # manual `launchctl bootstrap`. Failures append a timestamped line
-        # to ~/.hermes/logs/launchd-reload.log, which the health watchdog
+        # to ~/.allr/logs/launchd-reload.log, which the health watchdog
         # can tail to detect a persistent orphan. See hermes-restart
         # rootcause handoff (2026-06-26 incident).
         reload_log_path = get_hermes_home() / "logs" / "launchd-reload.log"
@@ -4405,7 +4405,7 @@ def refresh_launchd_plist_if_needed() -> bool:
             _launchd_reload_log_path(),
         )
     print(
-        "↻ Updated gateway launchd service definition to match the current Hermes install"
+        "↻ Updated gateway launchd service definition to match the current Allr install"
     )
     return True
 
@@ -4445,7 +4445,7 @@ def launchd_install(force: bool = False):
     _clear_launchd_unsupported_marker()
     print()
     print("Next steps:")
-    print("  hermes gateway status             # Check status")
+    print("  allr gateway status             # Check status")
     from hermes_constants import display_hermes_home as _dhh
 
     print(f"  tail -f {_dhh()}/logs/gateway.log  # View logs")
@@ -4539,7 +4539,7 @@ def launchd_stop():
     # bootout unloads the service definition so KeepAlive doesn't respawn
     # the process.  A plain `kill SIGTERM` only signals the process — launchd
     # immediately restarts it because KeepAlive is unconditionally true.
-    # `hermes gateway start` re-bootstraps when it detects the job is unloaded.
+    # `allr gateway start` re-bootstraps when it detects the job is unloaded.
     try:
         subprocess.run(["launchctl", "bootout", target], check=True, timeout=90)
     except subprocess.CalledProcessError as e:
@@ -4563,7 +4563,7 @@ def _wait_for_gateway_exit(
 
     Uses the PID from the gateway.pid file — not launchd labels — so this
     works correctly when multiple gateway instances run under separate
-    HERMES_HOME directories.
+    ALLR_HOME directories.
 
     Args:
         timeout: Total seconds to wait before giving up.
@@ -4704,14 +4704,14 @@ def launchd_status(deep: bool = False):
     # unmanageable domain).  A PID in the output confirms a live process.
     launchd_pid = _parse_launchd_pid_from_list_output(list_output) if service_listed else None
 
-    # Hermes PID tracking — may be a detached fallback process spawned when
+    # Allr PID tracking — may be a detached fallback process spawned when
     # launchd cannot manage the domain on this host.
     from gateway.status import get_running_pid
     fallback_pid = get_running_pid(cleanup_stale=False)
 
     # Avoid double-counting: when launchd IS supervising, fallback_pid and
     # launchd_pid point at the same process (the gateway writes both the
-    # launchd PID and the Hermes PID file).
+    # launchd PID and the Allr PID file).
     if launchd_pid is not None and fallback_pid == launchd_pid:
         fallback_pid = None
 
@@ -4723,10 +4723,10 @@ def launchd_status(deep: bool = False):
     # ── Report ──
     print(f"Launchd plist: {plist_path}")
     if launchd_plist_is_current():
-        print("✓ Service definition matches the current Hermes install")
+        print("✓ Service definition matches the current Allr install")
     else:
-        print("⚠ Service definition is stale relative to the current Hermes install")
-        print("  Run: hermes gateway start")
+        print("⚠ Service definition is stale relative to the current Allr install")
+        print("  Run: allr gateway start")
 
     if service_listed:
         if launchd_pid is not None:
@@ -4739,10 +4739,10 @@ def launchd_status(deep: bool = False):
             print("  launchd cannot manage the gateway on this macOS version.")
             if fallback_pid:
                 print(f"✓ Detached fallback process is running (PID {fallback_pid})")
-                print("  Cron jobs will fire. Stop with: hermes gateway stop")
+                print("  Cron jobs will fire. Stop with: allr gateway stop")
             else:
                 print("✗ No fallback process is running")
-                print("  Run: hermes gateway start")
+                print("  Run: allr gateway start")
             print("  ⚠ Auto-start at login and auto-restart on crash are NOT available.")
         else:
             print("✓ Gateway service is registered with launchd")
@@ -4752,7 +4752,7 @@ def launchd_status(deep: bool = False):
     else:
         print("✗ Gateway service is not loaded")
         print("  Service definition exists locally but launchd has not loaded it.")
-        print("  Run: hermes gateway start")
+        print("  Run: allr gateway start")
         if fallback_pid:
             print(f"  Note: a detached gateway process is running (PID {fallback_pid})")
 
@@ -4791,7 +4791,7 @@ def _running_under_gateway_supervisor() -> bool:
         marker ``gateway/run.py`` already uses to pick the restart path).
       - launchd sets ``XPC_SERVICE_NAME`` to the job label for jobs it spawns;
         interactive shells inherit the sentinel ``"0"`` instead.
-      - the s6-overlay container longrun exports ``HERMES_S6_SUPERVISED_CHILD``.
+      - the s6-overlay container longrun exports ``ALLR_S6_SUPERVISED_CHILD``.
       - wrapped services can opt in with ``--external-supervisor`` when their
         launcher strips the native systemd/launchd marker.
     """
@@ -4805,7 +4805,7 @@ def _guard_named_profile_under_multiplexer(force: bool = False) -> None:
     it is the sole inbound process for EVERY profile on the host. Starting a
     separate gateway for a named profile would double-bind that profile's
     platforms (two pollers on one bot token, port fights). In that mode a
-    named-profile ``hermes gateway run`` is always a misconfiguration, so we
+    named-profile ``allr gateway run`` is always a misconfiguration, so we
     hard-error with a pointer to the multiplexer. ``--force`` overrides.
 
     Inert unless ALL of: (a) this invocation is a named profile, (b) a default-
@@ -4887,7 +4887,7 @@ def _guard_named_profile_under_multiplexer(force: bool = False) -> None:
     )
     print("  Manage the multiplexer instead (from the default profile):")
     print()
-    print("    hermes gateway restart")
+    print("    allr gateway restart")
     print()
     print("  Pass --force to start a separate profile gateway anyway (not")
     print("  recommended while the multiplexer is running).")
@@ -4897,7 +4897,7 @@ def _guard_named_profile_under_multiplexer(force: bool = False) -> None:
 def _guard_supervised_gateway_conflict(force: bool = False) -> None:
     """Refuse a foreground gateway when a service manager already supervises one.
 
-    Running ``hermes gateway run [--replace]`` (or the manual-restart fallback)
+    Running ``allr gateway run [--replace]`` (or the manual-restart fallback)
     from a shell on a systemd/launchd host spawns a second, long-lived
     dispatcher that escapes the service cgroup, survives
     ``systemctl restart``, and becomes a silent concurrent writer on the shared
@@ -4925,7 +4925,7 @@ def _guard_supervised_gateway_conflict(force: bool = False) -> None:
         "  instead:"
     )
     print()
-    print("    hermes gateway restart")
+    print("    allr gateway restart")
     print()
     print(
         "  Pass --force to start a foreground gateway anyway (not recommended\n"
@@ -4940,10 +4940,10 @@ def _guard_existing_gateway_process_conflict(replace: bool = False) -> None:
     ``gateway.run`` performs the authoritative PID/lock check, but importing it
     is expensive: it pulls in model_tools/plugin discovery first. On small
     instances, a supervisor or dashboard loop repeatedly running bare
-    ``hermes gateway run`` can burn memory/CPU just to fail with "already
+    ``allr gateway run`` can burn memory/CPU just to fail with "already
     running" after plugin discovery. This cheap PID-file preflight preserves the
     same user-facing contract while avoiding that startup work without scanning
-    unrelated gateway processes from other HERMES_HOME roots.
+    unrelated gateway processes from other ALLR_HOME roots.
     """
     if replace or _running_under_gateway_supervisor():
         return
@@ -4960,9 +4960,9 @@ def _guard_existing_gateway_process_conflict(replace: bool = False) -> None:
     print_error(
         f"Another gateway instance is already running (PID {pid})."
     )
-    print("  Use 'hermes gateway restart' to replace it,")
-    print("  or 'hermes gateway stop' first.")
-    print("  Or use 'hermes gateway run --replace' to auto-replace.")
+    print("  Use 'allr gateway restart' to replace it,")
+    print("  or 'allr gateway stop' first.")
+    print("  Or use 'allr gateway run --replace' to auto-replace.")
     sys.exit(1)
 
 
@@ -4970,25 +4970,25 @@ def _guard_official_docker_root_gateway() -> None:
     """Refuse gateway startup when the official Docker privilege drop was bypassed."""
     if not hasattr(os, "geteuid") or os.geteuid() != 0:
         return
-    if _truthy_env(os.getenv("HERMES_ALLOW_ROOT_GATEWAY")):
+    if _truthy_env(os.getenv("ALLR_ALLOW_ROOT_GATEWAY")):
         return
     if not _is_official_docker_checkout():
         return
 
     print_error(
-        "Refusing to run the Hermes gateway as root inside the official Docker image."
+        "Refusing to run the Allr gateway as root inside the official Docker image."
     )
     print(
         "  The image entrypoint normally drops privileges to the 'hermes' user. "
         "If you override entrypoint in Docker Compose, include "
-        "/opt/hermes/docker/entrypoint.sh before the Hermes command."
+        "/opt/hermes/docker/entrypoint.sh before the Allr command."
     )
     print(
         "  Running the gateway as root can leave root-owned files in "
-        "$HERMES_HOME and break later non-root dashboard/gateway runs."
+        "$ALLR_HOME and break later non-root dashboard/gateway runs."
     )
     print(
-        "  Set HERMES_ALLOW_ROOT_GATEWAY=1 only if you intentionally accept this risk."
+        "  Set ALLR_ALLOW_ROOT_GATEWAY=1 only if you intentionally accept this risk."
     )
     sys.exit(1)
 
@@ -5012,9 +5012,9 @@ def run_gateway(verbose: int = 0, quiet: bool = False, replace: bool = False, fo
     sys.path.insert(0, str(PROJECT_ROOT))
 
     # Detached Windows gateway runs must ignore console-control broadcasts
-    # from sibling CLI processes, but foreground `hermes gateway run` still
+    # from sibling CLI processes, but foreground `allr gateway run` still
     # needs to obey the banner's "Press Ctrl+C to stop" contract.
-    # Service-style launchers set HERMES_GATEWAY_DETACHED=1; older wrappers
+    # Service-style launchers set ALLR_GATEWAY_DETACHED=1; older wrappers
     # without the marker are handled by the non-TTY fallback.
     try:
         _stdin_is_tty = bool(sys.stdin and sys.stdin.isatty())
@@ -5054,10 +5054,10 @@ def run_gateway(verbose: int = 0, quiet: bool = False, replace: bool = False, fo
     # Refresh the systemd unit definition on every boot so that restart
     # settings (RestartSec, StartLimitIntervalSec, etc.) stay current even
     # when the process was respawned via exit-code-75 (stale-code or
-    # /restart) rather than through `hermes gateway restart` which already
+    # /restart) rather than through `allr gateway restart` which already
     # calls refresh_systemd_unit_if_needed().  Without this, a code update
     # that ships new unit settings won't take effect until the next manual
-    # `hermes gateway start/restart` — leaving the gateway vulnerable to
+    # `allr gateway start/restart` — leaving the gateway vulnerable to
     # the exact failure mode the new settings were meant to prevent.
     if supports_systemd_services():
         try:
@@ -5068,7 +5068,7 @@ def run_gateway(verbose: int = 0, quiet: bool = False, replace: bool = False, fo
     from gateway.run import start_gateway
 
     print("┌─────────────────────────────────────────────────────────┐")
-    print("│           ⚕ Hermes Gateway Starting...                 │")
+    print("│           Allr Gateway Starting...                 │")
     print("├─────────────────────────────────────────────────────────┤")
     print("│  Messaging platforms + cron scheduler                    │")
     print("│  Press Ctrl+C to stop                                   │")
@@ -5087,14 +5087,14 @@ def run_gateway(verbose: int = 0, quiet: bool = False, replace: bool = False, fo
     # the next silent death yields evidence instead of a mystery. This
     # is diagnostic scaffolding; cheap to keep on, costs nothing during
     # normal operation, and the emitted lines are opt-in via the
-    # HERMES_GATEWAY_EXIT_DIAG env var (default: on while we're still
+    # ALLR_GATEWAY_EXIT_DIAG env var (default: on while we're still
     # chasing the Windows lifecycle bug).
     import atexit as _atexit
     import traceback as _traceback
     from datetime import datetime as _dt, timezone as _tz
 
     def _exit_diag(tag: str, **extra: object) -> None:
-        if os.environ.get("HERMES_GATEWAY_EXIT_DIAG", "1") != "1":
+        if os.environ.get("ALLR_GATEWAY_EXIT_DIAG", "1") != "1":
             return
         try:
             from hermes_constants import get_hermes_home as _ghh
@@ -5134,8 +5134,8 @@ def run_gateway(verbose: int = 0, quiet: bool = False, replace: bool = False, fo
     # their own throttles, but this backstop works on every platform (and covers
     # supervisors that lack a respawn floor). Configured via
     # ``gateway.respawn_storm`` in config.yaml (``max_starts`` / ``window_seconds``);
-    # the env vars ``HERMES_GATEWAY_MAX_STARTS`` /
-    # ``HERMES_GATEWAY_START_WINDOW_S`` override for escape-hatch use.
+    # the env vars ``ALLR_GATEWAY_MAX_STARTS`` /
+    # ``ALLR_GATEWAY_START_WINDOW_S`` override for escape-hatch use.
     # Set max_starts <= 0 to disable. Best-effort: a bookkeeping failure must
     # never block startup.
     try:
@@ -5161,13 +5161,13 @@ def run_gateway(verbose: int = 0, quiet: bool = False, replace: bool = False, fo
             pass
         # Env vars override config for escape-hatch use.
         try:
-            _env_starts = os.getenv("HERMES_GATEWAY_MAX_STARTS")
+            _env_starts = os.getenv("ALLR_GATEWAY_MAX_STARTS")
             if _env_starts is not None:
                 _max_starts = int(_env_starts)
         except ValueError:
             pass
         try:
-            _env_win = os.getenv("HERMES_GATEWAY_START_WINDOW_S")
+            _env_win = os.getenv("ALLR_GATEWAY_START_WINDOW_S")
             if _env_win is not None:
                 _win = float(_env_win)
         except ValueError:
@@ -5189,7 +5189,7 @@ def run_gateway(verbose: int = 0, quiet: bool = False, replace: bool = False, fo
         logger.debug("respawn-storm breaker check failed (non-fatal): %s", _be)
 
     def _hard_exit_after_gateway_teardown(code: int) -> None:
-        # ``hermes gateway run`` enters through this CLI wrapper, not through
+        # ``allr gateway run`` enters through this CLI wrapper, not through
         # ``gateway.run.main()``.  Mirror that module's wedge-proof exit path:
         # once start_gateway() has completed graceful teardown, bypass Python
         # finalization so non-daemon worker threads (notably in-flight cron
@@ -5301,7 +5301,7 @@ _PLATFORMS = [
                 "name": "MATTERMOST_HOME_CHANNEL",
                 "prompt": "Home channel ID (for cron/notification delivery, or empty to set later with /set-home)",
                 "password": False,
-                "help": "Channel ID where Hermes delivers cron results and notifications.",
+                "help": "Channel ID where Allr delivers cron results and notifications.",
             },
             {
                 "name": "MATTERMOST_REPLY_MODE",
@@ -5340,9 +5340,9 @@ _PLATFORMS = [
             "2. Complete the BlueBubbles setup wizard — sign in with your Apple ID",
             "3. In BlueBubbles Settings → API, note the Server URL and password",
             "4. The server URL is typically http://<your-mac-ip>:1234",
-            "5. Hermes connects via the BlueBubbles REST API and receives",
+            "5. Allr connects via the BlueBubbles REST API and receives",
             "   incoming messages via a local webhook",
-            "6. To authorize users, use DM pairing: hermes pairing generate bluebubbles",
+            "6. To authorize users, use DM pairing: allr pairing generate bluebubbles",
             "   Share the code — the user sends it via iMessage to get approved",
         ],
         "vars": [
@@ -5421,7 +5421,7 @@ _PLATFORMS = [
             "1. Download the Yuanbao app from https://yuanbao.tencent.com/",
             "2. In the app, go to PAI → My Bot and create a new bot",
             "3. After the bot is created, copy the App ID and App Secret",
-            "4. Enter them below and Hermes will connect automatically over WebSocket",
+            "4. Enter them below and Allr will connect automatically over WebSocket",
         ],
         "vars": [
             {
@@ -5447,7 +5447,7 @@ def _all_platforms() -> list[dict]:
     Combines the built-in ``_PLATFORMS`` with plugin platforms registered via
     ``platform_registry``. Plugins are discovered on first call so bundled
     platforms (like IRC, which auto-load via ``kind: platform``) appear in
-    ``hermes setup gateway`` without needing the gateway to be running.
+    ``allr setup gateway`` without needing the gateway to be running.
     Built-ins keep their dict shape; plugin entries are adapted to the same
     shape with ``_registry_entry`` holding the source.
 
@@ -5463,7 +5463,7 @@ def _all_platforms() -> list[dict]:
     # Populate the registry so plugin platforms are visible. Idempotent.
     # Bundled platform plugins (``kind: platform``) auto-load unconditionally,
     # so every shipped messaging channel appears in the setup menu by default.
-    # User-installed platform plugins under ~/.hermes/plugins/ still require
+    # User-installed platform plugins under ~/.allr/plugins/ still require
     # opt-in via ``plugins.enabled`` (untrusted code).
     try:
         from hermes_cli.plugins import discover_plugins
@@ -5786,7 +5786,7 @@ def _setup_standard_platform(platform: dict):
                 else:
                     access_choices = [
                         "Enable open access (anyone can message the bot)",
-                        "Use DM pairing (unknown users request access, you approve with 'hermes pairing approve')",
+                        "Use DM pairing (unknown users request access, you approve with 'allr pairing approve')",
                         "Skip for now (bot will deny all users until configured)",
                     ]
                     default_access_idx = 1
@@ -5808,13 +5808,13 @@ def _setup_standard_platform(platform: dict):
                         "  DM pairing mode — users will receive a code to request access."
                     )
                     print_info(
-                        "  Approve with: hermes pairing approve <platform> <code>"
+                        "  Approve with: allr pairing approve <platform> <code>"
                     )
                 elif is_email:
                     print_success("  Unknown email senders will be ignored.")
                 else:
                     print_info(
-                        "  Skipped — configure later with 'hermes gateway setup'"
+                        "  Skipped — configure later with 'allr gateway setup'"
                     )
             continue
 
@@ -5931,10 +5931,10 @@ def _setup_weixin():
     print()
     print(color("  ─── 💬 Weixin / WeChat Setup ───", Colors.CYAN))
     print()
-    print_info("  1. Hermes will open Tencent iLink QR login in this terminal.")
+    print_info("  1. Allr will open Tencent iLink QR login in this terminal.")
     print_info("  2. Use WeChat to scan and confirm the QR code.")
     print_info(
-        "  3. Hermes will store the returned account_id/token in ~/.hermes/.env."
+        "  3. Allr will store the returned account_id/token in ~/.allr/.env."
     )
     print_info(
         "  4. This adapter supports native text, image, video, and document delivery."
@@ -5957,7 +5957,7 @@ def _setup_weixin():
 
     if not check_weixin_requirements():
         print_error("  Missing dependencies: Weixin needs aiohttp and cryptography.")
-        print_info("  Install them, then rerun `hermes gateway setup`.")
+        print_info("  Install them, then rerun `allr gateway setup`.")
         return
 
     print()
@@ -6011,7 +6011,7 @@ def _setup_weixin():
         save_env_value("WEIXIN_ALLOWED_USERS", "")
         print_success("  DM pairing enabled.")
         print_info(
-            "  Unknown DM users can request access and you approve them with `hermes pairing approve`."
+            "  Unknown DM users can request access and you approve them with `allr pairing approve`."
         )
     elif access_idx == 1:
         save_env_value("WEIXIN_DM_POLICY", "open")
@@ -6186,7 +6186,7 @@ def _setup_qqbot():
             save_env_value("QQ_ALLOWED_USERS", "")
         print_success("  DM pairing enabled.")
         print_info(
-            "  Unknown users can request access; approve with `hermes pairing approve`."
+            "  Unknown users can request access; approve with `allr pairing approve`."
         )
     elif access_idx == 1:
         save_env_value("QQ_ALLOW_ALL_USERS", "true")
@@ -6402,7 +6402,7 @@ def _configure_platform(platform: dict) -> None:
       4. Env-var hint fallback for plugins that offer no setup helper.
 
     Bundled platform plugins (e.g. IRC) auto-load, so no plugin enable step
-    is needed here. User-installed platform plugins under ~/.hermes/plugins/
+    is needed here. User-installed platform plugins under ~/.allr/plugins/
     must already be in ``plugins.enabled`` before they appear in this menu.
     """
     entry = platform.get("_registry_entry")
@@ -6427,7 +6427,7 @@ def _configure_platform(platform: dict) -> None:
     print(color(f"  ─── {emoji} {label} Setup ───", Colors.CYAN))
     required = entry.required_env if entry else []
     if required:
-        print_info(f"  Set these env vars in ~/.hermes/.env: {', '.join(required)}")
+        print_info(f"  Set these env vars in ~/.allr/.env: {', '.join(required)}")
     else:
         print_info(
             f"  Configure {label} in config.yaml under gateway.platforms.{platform['key']}"
@@ -6575,7 +6575,7 @@ def gateway_setup():
                         gateway_windows.restart()
                     else:
                         stop_profile_gateway()
-                        print_info("Start manually: hermes gateway")
+                        print_info("Start manually: allr gateway")
                 except UserSystemdUnavailableError as e:
                     print_error("  Restart failed — user systemd not reachable:")
                     for line in str(e).splitlines():
@@ -6659,20 +6659,20 @@ def gateway_setup():
                                 print_error(f"  Start failed: {e}")
                     except subprocess.CalledProcessError as e:
                         print_error(f"  Install failed: {e}")
-                        print_info("  You can try manually: hermes gateway install")
+                        print_info("  You can try manually: allr gateway install")
                 else:
                     print_info("  Skipped start and auto-start setup.")
-                    print_info("  You can install later: hermes gateway install")
+                    print_info("  You can install later: allr gateway install")
                     if supports_systemd_services():
                         print_info(
-                            "  Or as a boot-time service: sudo hermes gateway install --system"
+                            "  Or as a boot-time service: sudo allr gateway install --system"
                         )
-                    print_info("  Or run in foreground:  hermes gateway run")
+                    print_info("  Or run in foreground:  allr gateway run")
             elif is_wsl():
                 print_info("  WSL detected but systemd is not running.")
-                print_info("  Run in foreground: hermes gateway run")
+                print_info("  Run in foreground: allr gateway run")
                 print_info(
-                    "  For persistence:   tmux new -s hermes 'hermes gateway run'"
+                    "  For persistence:   tmux new -s hermes 'allr gateway run'"
                 )
                 print_info(
                     "  To enable systemd: add systemd=true to /etc/wsl.conf, then 'wsl --shutdown'"
@@ -6681,16 +6681,16 @@ def gateway_setup():
                 from hermes_constants import display_hermes_home as _dhh
 
                 print_info("  Termux does not use systemd/launchd services.")
-                print_info("  Run in foreground: hermes gateway run")
+                print_info("  Run in foreground: allr gateway run")
                 print_info(
-                    f"  Or start it manually in the background (best effort): nohup hermes gateway run >{_dhh()}/logs/gateway.log 2>&1 &"
+                    f"  Or start it manually in the background (best effort): nohup allr gateway run >{_dhh()}/logs/gateway.log 2>&1 &"
                 )
             else:
                 print_info("  Service install not supported on this platform.")
-                print_info("  Run in foreground: hermes gateway run")
+                print_info("  Run in foreground: allr gateway run")
     else:
         print()
-        print_info("No platforms configured. Run 'hermes gateway setup' when ready.")
+        print_info("No platforms configured. Run 'allr gateway setup' when ready.")
 
     print()
 
@@ -6726,7 +6726,7 @@ def _dispatch_via_service_manager_if_s6(
         return False
     if profile is None:
         # _profile_suffix() returns the bare profile name for
-        # HERMES_HOME=<root>/profiles/<name>, "" for the default root,
+        # ALLR_HOME=<root>/profiles/<name>, "" for the default root,
         # or a hash for unrelated paths. Map "" → "default" so the
         # default-profile gateway is reachable as gateway-default.
         profile = _profile_suffix() or "default"
@@ -6757,7 +6757,7 @@ def _dispatch_all_via_service_manager_if_s6(action: str) -> bool:
     Returns True iff dispatched (caller should ``return``); False
     otherwise — caller continues with the host-side code path.
 
-    Without this, ``hermes gateway stop --all`` and ``... restart --all``
+    Without this, ``allr gateway stop --all`` and ``... restart --all``
     fall through to ``kill_gateway_processes(all_profiles=True)``, which
     just ``pkill``s every gateway process. s6-supervise observes the
     crash and restarts each one ~1s later — so ``--all`` ends up
@@ -6814,7 +6814,7 @@ def gateway_command(args):
             print(f"  {line}")
         sys.exit(1)
     except SystemScopeRequiresRootError as e:
-        # The direct ``hermes gateway install|uninstall|start|stop|restart``
+        # The direct ``allr gateway install|uninstall|start|stop|restart``
         # path lands here when the user typed a system-scope action without
         # sudo. Same exit code as before — just gives the wizard a way to
         # intercept the same condition with friendlier guidance before the
@@ -6841,25 +6841,25 @@ def _maybe_redirect_run_to_s6_supervision(args) -> bool:
 
       1. ``_dispatch_via_service_manager_if_s6`` returns False unless
          we're in a container with s6 as PID 1. Host runs of
-         ``hermes gateway run`` are unaffected.
-      2. ``HERMES_S6_SUPERVISED_CHILD`` is exported by
+         ``allr gateway run`` are unaffected.
+      2. ``ALLR_S6_SUPERVISED_CHILD`` is exported by
          ``S6ServiceManager._render_run_script`` for the supervised
-         process itself — i.e. when s6-supervise execs ``hermes gateway
+         process itself — i.e. when s6-supervise execs ``allr gateway
          run --replace`` as a longrun, this guard short-circuits the
          redirect so the supervised gateway actually runs in
          foreground (otherwise we'd recurse: run → start → run → start
          → ...).
-      3. ``--no-supervise`` (or ``HERMES_GATEWAY_NO_SUPERVISE=1``) opts
+      3. ``--no-supervise`` (or ``ALLR_GATEWAY_NO_SUPERVISE=1``) opts
          out for users who genuinely want pre-s6 semantics — CI smoke
          tests, debugging the foreground startup path, etc.
 
     Returns True iff dispatched (caller should ``return``).
     """
     no_supervise = getattr(args, "no_supervise", False) or \
-        os.environ.get("HERMES_GATEWAY_NO_SUPERVISE", "").lower() in ("1", "true", "yes")
+        os.environ.get("ALLR_GATEWAY_NO_SUPERVISE", "").lower() in ("1", "true", "yes")
     if no_supervise:
         return False
-    if os.environ.get("HERMES_S6_SUPERVISED_CHILD"):
+    if os.environ.get("ALLR_S6_SUPERVISED_CHILD"):
         # We ARE the supervised child s6-supervise is running. Fall
         # through to the foreground code path so the gateway actually
         # starts.
@@ -6869,15 +6869,15 @@ def _maybe_redirect_run_to_s6_supervision(args) -> bool:
     # Loud breadcrumb: explain the upgrade and how to opt out. Print to
     # stderr so it doesn't pollute stdout-parsing scripts. The
     # supervised gateway's own logs are routed by s6-log to both
-    # `docker logs` and ${HERMES_HOME}/logs/gateways/<profile>/current,
+    # `docker logs` and ${ALLR_HOME}/logs/gateways/<profile>/current,
     # so the user sees a clear sequence: this banner first, then the
     # gateway's own stdout/stderr from the supervisor.
     print(
         "→ gateway is now running under s6 supervision (auto-restart on crash,\n"
-        "  dashboard supervised alongside if HERMES_DASHBOARD is set).\n"
+        "  dashboard supervised alongside if ALLR_DASHBOARD is set).\n"
         "  This is the recommended setup for the s6 container image — the\n"
         "  gateway will keep running even if it crashes.\n"
-        "  Use `--no-supervise` (or HERMES_GATEWAY_NO_SUPERVISE=1) to opt out\n"
+        "  Use `--no-supervise` (or ALLR_GATEWAY_NO_SUPERVISE=1) to opt out\n"
         "  and get the pre-s6 foreground behavior instead.",
         file=sys.stderr,
         flush=True,
@@ -6889,8 +6889,8 @@ def _maybe_redirect_run_to_s6_supervision(args) -> bool:
     # `docker stop` sends SIGTERM, at which point /init runs stage 3
     # shutdown (which tears down the supervised gateway cleanly).
     #
-    # Prefer `sleep infinity` (matches the static main-hermes service's
-    # pattern in docker/s6-rc.d/main-hermes/run, and frees the Python
+    # Prefer `sleep infinity` (matches the static main-allr service's
+    # pattern in docker/s6-rc.d/main-allr/run, and frees the Python
     # interpreter — the heartbeat is a tiny `sleep` process, not a
     # resident interpreter). But `os.execvp` does a PATH lookup for the
     # `sleep` binary and historically crashed the whole container with
@@ -6968,7 +6968,7 @@ def _gateway_command_inner(args):
         run_as_user = getattr(args, "run_as_user", None)
         if is_termux():
             print("Gateway service installation is not supported on Termux.")
-            print("Run manually: hermes gateway")
+            print("Run manually: allr gateway")
             sys.exit(1)
         if supports_systemd_services():
             if is_wsl():
@@ -6976,10 +6976,10 @@ def _gateway_command_inner(args):
                     "WSL detected — systemd services may not survive WSL restarts."
                 )
                 print_info(
-                    "  Consider running in foreground instead: hermes gateway run"
+                    "  Consider running in foreground instead: allr gateway run"
                 )
                 print_info(
-                    "  Or use tmux/screen for persistence: tmux new -s hermes 'hermes gateway run'"
+                    "  Or use tmux/screen for persistence: tmux new -s hermes 'allr gateway run'"
                 )
                 print()
             # Honor CLI flags (--start-now / --no-start-now, --start-on-login /
@@ -7029,13 +7029,13 @@ def _gateway_command_inner(args):
             print("or run the gateway in foreground mode:")
             print()
             print(
-                "  hermes gateway run                              # direct foreground"
+                "  allr gateway run                              # direct foreground"
             )
             print(
-                "  tmux new -s hermes 'hermes gateway run'         # persistent via tmux"
+                "  tmux new -s hermes 'allr gateway run'         # persistent via tmux"
             )
             print(
-                "  nohup hermes gateway run > ~/.hermes/logs/gateway.log 2>&1 &  # background"
+                "  nohup allr gateway run > ~/.allr/logs/gateway.log 2>&1 &  # background"
             )
             sys.exit(1)
         elif is_container():
@@ -7046,9 +7046,9 @@ def _gateway_command_inner(args):
             if detect_service_manager() == "s6":
                 print("Per-profile gateways are auto-registered when you create a profile.")
                 print()
-                print("  hermes profile create <name>     # creates the s6 service slot")
+                print("  allr profile create <name>     # creates the s6 service slot")
                 print("  hermes -p <name> gateway start   # bring it up via s6")
-                print("  hermes status                    # see currently-supervised gateways")
+                print("  allr status                    # see currently-supervised gateways")
                 return
             # Fallback for pre-s6 containers or other container runtimes
             # we haven't taught about supervision (Podman without our
@@ -7064,11 +7064,11 @@ def _gateway_command_inner(args):
             )
             print("  docker restart <container>                # manual restart")
             print()
-            print("To run the gateway: hermes gateway run")
+            print("To run the gateway: allr gateway run")
             sys.exit(0)
         else:
             print("Service installation not supported on this platform.")
-            print("Run manually: hermes gateway run")
+            print("Run manually: allr gateway run")
             sys.exit(1)
 
     elif subcmd == "uninstall":
@@ -7080,7 +7080,7 @@ def _gateway_command_inner(args):
             print(
                 "Gateway service uninstall is not supported on Termux because there is no managed service to remove."
             )
-            print("Stop manual runs with: hermes gateway stop")
+            print("Stop manual runs with: allr gateway stop")
             sys.exit(1)
         if supports_systemd_services():
             systemd_uninstall(system=system)
@@ -7095,7 +7095,7 @@ def _gateway_command_inner(args):
             if detect_service_manager() == "s6":
                 print("Per-profile gateways are auto-unregistered when you delete the profile.")
                 print()
-                print("  hermes profile delete <name>     # tears down the s6 service slot")
+                print("  allr profile delete <name>     # tears down the s6 service slot")
                 print("  hermes -p <name> gateway stop    # stop without deleting the profile")
                 return
             print("Service uninstall is not applicable inside a Docker container.")
@@ -7133,7 +7133,7 @@ def _gateway_command_inner(args):
             print(
                 "Gateway service start is not supported on Termux because there is no system service manager."
             )
-            print("Run manually: hermes gateway")
+            print("Run manually: allr gateway")
             sys.exit(1)
         if supports_systemd_services():
             systemd_start(system=system)
@@ -7148,13 +7148,13 @@ def _gateway_command_inner(args):
             print("Run the gateway in foreground mode instead:")
             print()
             print(
-                "  hermes gateway run                              # direct foreground"
+                "  allr gateway run                              # direct foreground"
             )
             print(
-                "  tmux new -s hermes 'hermes gateway run'         # persistent via tmux"
+                "  tmux new -s hermes 'allr gateway run'         # persistent via tmux"
             )
             print(
-                "  nohup hermes gateway run > ~/.hermes/logs/gateway.log 2>&1 &  # background"
+                "  nohup allr gateway run > ~/.allr/logs/gateway.log 2>&1 &  # background"
             )
             print()
             print(
@@ -7173,7 +7173,7 @@ def _gateway_command_inner(args):
             print("  docker start <container>     # start a stopped container")
             print("  docker restart <container>   # restart a running container")
             print()
-            print("Or run the gateway directly: hermes gateway run")
+            print("Or run the gateway directly: allr gateway run")
             sys.exit(0)
         else:
             print("Not supported on this platform.")
@@ -7182,11 +7182,11 @@ def _gateway_command_inner(args):
     elif subcmd == "stop":
         # Defense: refuse self-targeting gateway stop from inside the gateway.
         # Prevents agent-initiated kill loops when combined with supervisor KeepAlive.
-        if os.getenv("_HERMES_GATEWAY") == "1":
+        if os.getenv("_ALLR_GATEWAY") == "1":
             print_error(
                 "Refusing to stop the gateway from inside the gateway process.\n"
                 "This command was blocked to prevent restart loops.\n"
-                "Use `hermes gateway stop` from a shell outside the running gateway."
+                "Use `allr gateway stop` from a shell outside the running gateway."
             )
             sys.exit(1)
 
@@ -7275,11 +7275,11 @@ def _gateway_command_inner(args):
     elif subcmd == "restart":
         # Defense: refuse self-targeting gateway restart from inside the gateway.
         # Prevents agent-initiated kill loops when combined with supervisor KeepAlive.
-        if os.getenv("_HERMES_GATEWAY") == "1":
+        if os.getenv("_ALLR_GATEWAY") == "1":
             print_error(
                 "Refusing to restart the gateway from inside the gateway process.\n"
                 "This command was blocked to prevent restart loops.\n"
-                "Use `hermes gateway restart` from a shell outside the running gateway."
+                "Use `allr gateway restart` from a shell outside the running gateway."
             )
             sys.exit(1)
 
@@ -7408,7 +7408,7 @@ def _gateway_command_inner(args):
                     print(f"  Run:  sudo loginctl enable-linger {_username}")
                     print()
                     print("  Then restart the gateway:")
-                    print("    hermes gateway restart")
+                    print("    allr gateway restart")
                     return
 
             if service_configured:
@@ -7417,7 +7417,7 @@ def _gateway_command_inner(args):
                 print(
                     "  The service definition exists, but the service manager did not recover it."
                 )
-                print("  Fix the service, then retry: hermes gateway start")
+                print("  Fix the service, then retry: allr gateway start")
                 sys.exit(1)
 
             # Manual restart: stop only this profile's gateway
@@ -7484,11 +7484,11 @@ def _gateway_command_inner(args):
                     print(
                         "To install as a Windows Scheduled Task (auto-start on login):"
                     )
-                    print("  hermes gateway install")
+                    print("  allr gateway install")
                 else:
                     print("To install as a service:")
-                    print("  hermes gateway install")
-                    print("  sudo hermes gateway install --system")
+                    print("  allr gateway install")
+                    print("  sudo allr gateway install --system")
             else:
                 print("✗ Gateway is not running")
                 runtime_lines = _runtime_health_lines()
@@ -7499,26 +7499,26 @@ def _gateway_command_inner(args):
                         print(f"  {line}")
                 print()
                 print("To start:")
-                print("  hermes gateway run      # Run in foreground")
+                print("  allr gateway run      # Run in foreground")
                 if is_termux():
                     print(
-                        "  nohup hermes gateway run > ~/.hermes/logs/gateway.log 2>&1 &  # Best-effort background start"
+                        "  nohup allr gateway run > ~/.allr/logs/gateway.log 2>&1 &  # Best-effort background start"
                     )
                 elif is_wsl():
                     print(
-                        "  tmux new -s hermes 'hermes gateway run'         # persistent via tmux"
+                        "  tmux new -s hermes 'allr gateway run'         # persistent via tmux"
                     )
                     print(
-                        "  nohup hermes gateway run > ~/.hermes/logs/gateway.log 2>&1 &  # background"
+                        "  nohup allr gateway run > ~/.allr/logs/gateway.log 2>&1 &  # background"
                     )
                 elif is_windows():
                     print(
-                        "  hermes gateway install  # Install as Windows Scheduled Task (auto-start on login)"
+                        "  allr gateway install  # Install as Windows Scheduled Task (auto-start on login)"
                     )
                 else:
-                    print("  hermes gateway install  # Install as user service")
+                    print("  allr gateway install  # Install as user service")
                     print(
-                        "  sudo hermes gateway install --system  # Install as boot-time system service"
+                        "  sudo allr gateway install --system  # Install as boot-time system service"
                     )
 
         # Show other profiles' gateway status for multi-profile awareness
@@ -7528,7 +7528,7 @@ def _gateway_command_inner(args):
         _gateway_list()
 
     elif subcmd == "migrate-legacy":
-        # Stop, disable, and remove legacy Hermes gateway unit files from
+        # Stop, disable, and remove legacy Allr gateway unit files from
         # pre-rename installs (e.g. hermes.service). Profile units and
         # unrelated third-party services are never touched.
         dry_run = getattr(args, "dry_run", False)

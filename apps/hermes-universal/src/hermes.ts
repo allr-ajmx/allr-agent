@@ -80,7 +80,7 @@ import type {
 // /api/profiles runs list_profiles(), which does a recursive skill-tree walk
 // per profile — so the 15s default (DEFAULT_FETCH_TIMEOUT_MS in hardening.ts)
 // times out a backend that is alive-but-busy, surfacing as a spurious
-// "Timed out connecting to Hermes backend" that hangs the UI (#48504).
+// "Timed out connecting to Allr backend" that hangs the UI (#48504).
 //
 // Give the boot burst a generous per-call timeout instead of raising the
 // global default: interactive/runtime calls and the liveness poll (/api/status)
@@ -198,10 +198,10 @@ export type {
 export class HermesGateway extends JsonRpcGatewayClient {
   constructor() {
     super({
-      closedErrorMessage: 'Hermes gateway connection closed',
-      connectErrorMessage: 'Could not connect to Hermes gateway',
+      closedErrorMessage: 'Allr gateway connection closed',
+      connectErrorMessage: 'Could not connect to Allr gateway',
       createRequestId: nextId => nextId,
-      notConnectedErrorMessage: 'Hermes gateway is not connected',
+      notConnectedErrorMessage: 'Allr gateway is not connected',
       requestTimeoutMs: DEFAULT_GATEWAY_REQUEST_TIMEOUT_MS
     })
   }
@@ -211,7 +211,7 @@ export class HermesGateway extends JsonRpcGatewayClient {
 // should target. Mirrors $activeGatewayProfile, pushed in from the store via
 // setApiRequestProfile so this module needs no store import (avoids a cycle).
 // Electron main consumes request.profile to pick which backend *process* serves
-// the call; each pooled backend already has its own HERMES_HOME, so no backend
+// the call; each pooled backend already has its own ALLR_HOME, so no backend
 // change is needed. Null → primary, so single-profile users are unaffected.
 let _apiProfile: null | string = null
 
@@ -1033,7 +1033,7 @@ export function testMessagingPlatform(platformId: string): Promise<MessagingPlat
 // into a `?profile=` query, and none of these five FastAPI handlers declares that
 // parameter — so it would be silently dropped and the client would advertise a
 // scoping it does not have. These routes always read the gateway's own
-// HERMES_HOME.
+// ALLR_HOME.
 
 export function getWebhooks(): Promise<WebhooksResponse> {
   return api<WebhooksResponse>({ path: '/api/webhooks' })
@@ -1273,7 +1273,7 @@ export interface RecommendedDefaultModel {
 }
 
 // Recommended default model for a freshly-authenticated provider. Mirrors the
-// curation `hermes model` does — for Nous it honors the free/paid tier so a
+// curation `allr model` does — for Nous it honors the free/paid tier so a
 // free user gets a free model instead of a paid default.
 export function getRecommendedDefaultModel(provider: string): Promise<RecommendedDefaultModel> {
   return api<RecommendedDefaultModel>({
@@ -1389,7 +1389,7 @@ export function getElevenLabsVoices(): Promise<ElevenLabsVoicesResponse> {
 }
 
 // ---------------------------------------------------------------------------
-// Skills hub — search / preview / scan / install (parity with `hermes skills`
+// Skills hub — search / preview / scan / install (parity with `allr skills`
 // and the dashboard's Browse-hub tab). Installs spawn background actions whose
 // logs are tailed via getActionStatus().
 // ---------------------------------------------------------------------------
@@ -1459,7 +1459,7 @@ export function updateSkillsFromHub(): Promise<ActionResponse> {
 
 // ---------------------------------------------------------------------------
 // MCP servers — structured list / test / enable toggle / catalog (parity with
-// `hermes mcp` and the dashboard MCP page). Raw JSON editing stays in
+// `allr mcp` and the dashboard MCP page). Raw JSON editing stays in
 // config.yaml via saveHermesConfig.
 // ---------------------------------------------------------------------------
 
@@ -1500,7 +1500,7 @@ export function installMcpCatalogEntry(
 }
 
 // ---------------------------------------------------------------------------
-// Memory data + curator (parity with `hermes memory` / `hermes curator`).
+// Memory data + curator (parity with `allr memory` / `allr curator`).
 // ---------------------------------------------------------------------------
 
 export function getMemoryStatus(): Promise<MemoryStatusResponse> {
@@ -1545,8 +1545,8 @@ export function runCurator(): Promise<ActionResponse> {
 }
 
 // ---------------------------------------------------------------------------
-// Maintenance operations (parity with `hermes doctor` / `hermes security
-// audit` / `hermes backup` / `hermes debug share` and the dashboard System
+// Maintenance operations (parity with `allr doctor` / `allr security
+// audit` / `allr backup` / `allr debug share` and the dashboard System
 // page). All except debug share are spawn-based background actions tailed via
 // getActionStatus().
 // ---------------------------------------------------------------------------

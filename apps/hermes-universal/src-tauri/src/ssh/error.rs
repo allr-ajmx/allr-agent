@@ -268,12 +268,12 @@ mod tests {
     #[test]
     fn redacts_every_marker() {
         assert_eq!(
-            redact_secrets("env HERMES_DASHBOARD_SESSION_TOKEN=deadbeef hermes serve"),
-            "env HERMES_DASHBOARD_SESSION_TOKEN=<redacted> hermes serve"
+            redact_secrets("env ALLR_DASHBOARD_SESSION_TOKEN=deadbeef allr serve"),
+            "env ALLR_DASHBOARD_SESSION_TOKEN=<redacted> allr serve"
         );
         assert_eq!(
-            redact_secrets("X-Hermes-Session-Token: abc123"),
-            "X-Hermes-Session-Token: <redacted>"
+            redact_secrets("X-Allr-Session-Token: abc123"),
+            "X-Allr-Session-Token: <redacted>"
         );
         assert_eq!(
             redact_secrets("Authorization: Bearer sk-xyz"),

@@ -383,7 +383,7 @@ def _(rid, params: dict) -> dict:
                     "provider": provider,
                     "model": runtime.get("model"),
                     "source": source,
-                    "error": "No Hermes provider is configured.",
+                    "error": "No Allr provider is configured.",
                 },
             )
 

@@ -359,7 +359,7 @@ export async function recheckExternalSignin(): Promise<void> {
 
     patch({
       busy: false,
-      error: `Hermes still can't reach ${provider.name}. Run \`${provider.cli_command}\` in a terminal first.`,
+      error: `Allr still can't reach ${provider.name}. Run \`${provider.cli_command}\` in a terminal first.`,
       oauth: { ...oauth, status: 'external_pending' }
     })
   } catch (err) {

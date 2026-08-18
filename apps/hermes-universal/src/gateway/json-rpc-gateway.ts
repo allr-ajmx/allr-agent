@@ -67,7 +67,7 @@ export interface GatewayClientOptions {
 const ANY = '*'
 const DEFAULT_REQUEST_TIMEOUT_MS = 120_000
 // A reconnect after sleep/wake must not hang forever in 'connecting' (which
-// keeps the composer disabled and stuck on "Starting Hermes..."). If the open
+// keeps the composer disabled and stuck on "Starting Allr..."). If the open
 // handshake doesn't land in this window, fail to 'error' so callers can retry.
 const DEFAULT_CONNECT_TIMEOUT_MS = 15_000
 
@@ -350,7 +350,7 @@ export class JsonRpcGatewayClient {
         // The message is unchanged, so every prose-matching caller still works.
         call.reject(
           new GatewayRpcError(
-            frame.error.message || 'Hermes RPC failed',
+            frame.error.message || 'Allr RPC failed',
             typeof frame.error.code === 'number' ? frame.error.code : null,
             frame.error.data ?? null
           )

@@ -56,7 +56,7 @@ _FALLBACK_PATTERNS = re.compile(
 _ACCESS_DENIED_PATTERN = re.compile(r"(access is denied|acceso denegado)", re.IGNORECASE)
 
 _TASK_NAME_DEFAULT = "Hermes_Gateway"
-_TASK_DESCRIPTION = "Hermes Agent Gateway - Messaging Platform Integration"
+_TASK_DESCRIPTION = "Allr Gateway - Messaging Platform Integration"
 _TASK_LOGON_DELAY = "PT30S"
 _TASK_RESTART_INTERVAL = "PT1M"
 _TASK_RESTART_COUNT = 999
@@ -86,12 +86,12 @@ def _assert_windows() -> None:
 
 
 def _preserve_hermes_home_path(path: str | Path) -> str:
-    """Render Hermes-owned paths under the configured HERMES_HOME spelling.
+    """Render Allr-owned paths under the configured ALLR_HOME spelling.
 
-    Windows installs may keep ``%LOCALAPPDATA%\\hermes`` as a symlink/junction to
+    Windows installs may keep ``%LOCALAPPDATA%\\allr`` as a symlink/junction to
     another drive. Runtime state should still identify itself by the configured
     AppData path, so launcher files must not bake in the resolved target when a
-    path lives under HERMES_HOME.
+    path lives under ALLR_HOME.
     """
     candidate = Path(path)
     try:
@@ -198,7 +198,7 @@ def _is_running_as_admin() -> bool:
 
 
 def _current_profile_cli_args() -> list[str]:
-    """Return CLI args that preserve the current Hermes profile."""
+    """Return CLI args that preserve the current Allr profile."""
     from hermes_cli.gateway import _profile_arg
 
     profile_arg = _profile_arg()
@@ -249,15 +249,15 @@ def _launch_elevated_install(
     start_on_login: bool | None = None,
 ) -> bool:
     """Launch an elevated gateway install via UAC and return True on handoff."""
-    old_start_now = os.environ.get("HERMES_GATEWAY_INSTALL_START_NOW")
-    old_start_on_login = os.environ.get("HERMES_GATEWAY_INSTALL_START_ON_LOGIN")
-    old_handoff = os.environ.get("HERMES_GATEWAY_ELEVATED_HANDOFF")
+    old_start_now = os.environ.get("ALLR_GATEWAY_INSTALL_START_NOW")
+    old_start_on_login = os.environ.get("ALLR_GATEWAY_INSTALL_START_ON_LOGIN")
+    old_handoff = os.environ.get("ALLR_GATEWAY_ELEVATED_HANDOFF")
     try:
         if start_now is not None:
-            os.environ["HERMES_GATEWAY_INSTALL_START_NOW"] = "1" if start_now else "0"
+            os.environ["ALLR_GATEWAY_INSTALL_START_NOW"] = "1" if start_now else "0"
         if start_on_login is not None:
-            os.environ["HERMES_GATEWAY_INSTALL_START_ON_LOGIN"] = "1" if start_on_login else "0"
-        os.environ["HERMES_GATEWAY_ELEVATED_HANDOFF"] = "1"
+            os.environ["ALLR_GATEWAY_INSTALL_START_ON_LOGIN"] = "1" if start_on_login else "0"
+        os.environ["ALLR_GATEWAY_ELEVATED_HANDOFF"] = "1"
         extra_args = ["--elevated-handoff"]
         if force:
             extra_args.append("--force")
@@ -268,9 +268,9 @@ def _launch_elevated_install(
         return _launch_elevated_gateway_command("install", extra_args)
     finally:
         for key, old in (
-            ("HERMES_GATEWAY_INSTALL_START_NOW", old_start_now),
-            ("HERMES_GATEWAY_INSTALL_START_ON_LOGIN", old_start_on_login),
-            ("HERMES_GATEWAY_ELEVATED_HANDOFF", old_handoff),
+            ("ALLR_GATEWAY_INSTALL_START_NOW", old_start_now),
+            ("ALLR_GATEWAY_INSTALL_START_ON_LOGIN", old_start_on_login),
+            ("ALLR_GATEWAY_ELEVATED_HANDOFF", old_handoff),
         ):
             if old is None:
                 os.environ.pop(key, None)
@@ -311,9 +311,9 @@ def _sanitize_filename(value: str) -> str:
 def get_task_script_path() -> Path:
     """The generated ``gateway.cmd`` wrapper kept beside the VBS launcher.
 
-    Lives under ``%LOCALAPPDATA%\\hermes\\gateway-service\\<task_name>.cmd``
-    (or ``<HERMES_HOME>/gateway-service/<task_name>.cmd`` so per-profile
-    Hermes installs stay self-contained).
+    Lives under ``%LOCALAPPDATA%\\allr\\gateway-service\\<task_name>.cmd``
+    (or ``<ALLR_HOME>/gateway-service/<task_name>.cmd`` so per-profile
+    Allr installs stay self-contained).
     """
     _assert_windows()
     from hermes_cli.config import get_hermes_home
@@ -359,10 +359,10 @@ def _legacy_startup_entry_path() -> Path:
 def _stable_gateway_working_dir(project_root: Path) -> str:
     """Return a stable cwd for detached/startup gateway runs.
 
-    Mirror the POSIX service invariant: anchor at ``HERMES_HOME`` whenever it
+    Mirror the POSIX service invariant: anchor at ``ALLR_HOME`` whenever it
     exists so Scheduled Task / Startup launches do not fail at the ``cd`` step
     after a transient checkout or worktree is moved away. Fall back to the
-    source checkout only if ``HERMES_HOME`` cannot be used yet. Preserve the
+    source checkout only if ``ALLR_HOME`` cannot be used yet. Preserve the
     configured spelling instead of resolving symlinks so AppData installs backed
     by a junction/symlink still identify themselves as AppData.
     """
@@ -393,14 +393,14 @@ def _build_gateway_cmd_script(
 
     The script:
       - cd's into a stable working directory
-      - exports HERMES_HOME, PYTHONIOENCODING, VIRTUAL_ENV
+      - exports ALLR_HOME, PYTHONIOENCODING, VIRTUAL_ENV
       - invokes ``python -m hermes_cli.main [--profile X] gateway run``
 
     The .cmd is a compatibility/manual-run artifact: service persistence
     (Scheduled Task, Startup folder) routes through the ``.vbs`` launcher,
     which runs this same command line hidden (window style 0).  Run by hand
     in a real terminal, the console interpreter keeps the gateway attached
-    to that terminal like a normal foreground ``hermes gateway run``.
+    to that terminal like a normal foreground ``allr gateway run``.
 
     We intentionally do NOT inline PATH overrides here — cmd.exe inherits
     the per-user PATH the Scheduled Task was created with, and forcibly
@@ -408,9 +408,9 @@ def _build_gateway_cmd_script(
     """
     lines = ["@echo off", f"rem {_TASK_DESCRIPTION}"]
     lines.append(f"cd /d {_quote_cmd_script_arg(working_dir)}")
-    lines.append(f'set "HERMES_HOME={hermes_home}"')
+    lines.append(f'set "ALLR_HOME={hermes_home}"')
     lines.append('set "PYTHONIOENCODING=utf-8"')
-    lines.append('set "HERMES_GATEWAY_DETACHED=1"')
+    lines.append('set "ALLR_GATEWAY_DETACHED=1"')
     python_exe_path, venv_dir, extra_pythonpath = _resolve_detached_python(python_path)
     # VIRTUAL_ENV lets the gateway's own python detection find the venv
     # if someone imports hermes_constants-based logic during startup.
@@ -493,9 +493,9 @@ def _build_gateway_vbs_script(
         "Dim sh, env, existing_pp",
         'Set sh = CreateObject("WScript.Shell")',
         'Set env = sh.Environment("PROCESS")',
-        f"env.Item({_quote_vbs_string('HERMES_HOME')}) = {_quote_vbs_string(hermes_home)}",
+        f"env.Item({_quote_vbs_string('ALLR_HOME')}) = {_quote_vbs_string(hermes_home)}",
         f"env.Item({_quote_vbs_string('PYTHONIOENCODING')}) = {_quote_vbs_string('utf-8')}",
-        f"env.Item({_quote_vbs_string('HERMES_GATEWAY_DETACHED')}) = {_quote_vbs_string('1')}",
+        f"env.Item({_quote_vbs_string('ALLR_GATEWAY_DETACHED')}) = {_quote_vbs_string('1')}",
         f"env.Item({_quote_vbs_string('VIRTUAL_ENV')}) = {_quote_vbs_string(_preserve_hermes_home_path(venv_dir))}",
         # Mirror the cmd wrapper's ``PYTHONPATH=<static>;%PYTHONPATH%``: chain onto
         # whatever PYTHONPATH the task environment already carries, at runtime.
@@ -657,7 +657,7 @@ def _write_scheduled_task_xml(task_name: str, launcher_path: Path, user: str | N
 def _install_scheduled_task(task_name: str, script_path: Path) -> tuple[bool, str]:
     """Create or replace the Scheduled Task. Returns (success, detail).
 
-    Always recreate instead of ``/Change``. Older Hermes builds and failed
+    Always recreate instead of ``/Change``. Older Allr builds and failed
     experiments may have left repeat/restart settings on the task; ``/Change``
     preserves those stale triggers and can make the gateway relaunch every
     minute. Delete+create gives us a clean ONLOGON task every install.
@@ -807,9 +807,9 @@ def _build_gateway_argv() -> tuple[list[str], str, dict[str, str]]:
     argv.extend(["gateway", "run"])
 
     env_overlay = {
-        "HERMES_HOME": hermes_home,
+        "ALLR_HOME": hermes_home,
         "PYTHONIOENCODING": "utf-8",
-        "HERMES_GATEWAY_DETACHED": "1",
+        "ALLR_GATEWAY_DETACHED": "1",
         "VIRTUAL_ENV": _preserve_hermes_home_path(venv_dir),
     }
     _prepend_pythonpath(
@@ -834,7 +834,7 @@ def windowless_gateway_restart_spec(
     pythonw.exe rewrite here produced a console-less gateway whose every
     console-subsystem child allocated a visible conhost).  This helper now
     only normalizes the interpreter via ``_resolve_detached_python`` and
-    supplies the stable cwd + env overlay (HERMES_HOME, VIRTUAL_ENV,
+    supplies the stable cwd + env overlay (ALLR_HOME, VIRTUAL_ENV,
     PYTHONPATH) so the respawn doesn't depend on the watcher's transient
     working directory.
 
@@ -876,11 +876,11 @@ def windowless_gateway_restart_spec(
 
     env_overlay: dict[str, str] = {
         "PYTHONIOENCODING": "utf-8",
-        "HERMES_GATEWAY_DETACHED": "1",
+        "ALLR_GATEWAY_DETACHED": "1",
         "VIRTUAL_ENV": str(venv_dir),
     }
     if hermes_home:
-        env_overlay["HERMES_HOME"] = hermes_home
+        env_overlay["ALLR_HOME"] = hermes_home
     _prepend_pythonpath(
         env_overlay,
         [project_root, *extra_pythonpath] if extra_pythonpath else [project_root],
@@ -987,8 +987,8 @@ def _prompt_install_choices(
     start_on_login: bool | None = None,
 ) -> tuple[bool, bool]:
     """Return (start_now, start_on_login), asking before any UAC escalation."""
-    env_start_now = _install_choice_from_env("HERMES_GATEWAY_INSTALL_START_NOW")
-    env_start_on_login = _install_choice_from_env("HERMES_GATEWAY_INSTALL_START_ON_LOGIN")
+    env_start_now = _install_choice_from_env("ALLR_GATEWAY_INSTALL_START_NOW")
+    env_start_on_login = _install_choice_from_env("ALLR_GATEWAY_INSTALL_START_ON_LOGIN")
     if start_now is None:
         start_now = env_start_now
     if start_on_login is None:
@@ -1029,7 +1029,7 @@ def _install_startup_fallback(script_path: Path, start_now: bool, detail: str) -
         _report_gateway_start(f"direct spawn (PID {pid})")
     else:
         profile_arg = _profile_arg()
-        start_cmd = f"hermes {profile_arg} gateway start" if profile_arg else "hermes gateway start"
+        start_cmd = f"hermes {profile_arg} gateway start" if profile_arg else "allr gateway start"
         print("ℹ Startup fallback installed; gateway not started now.")
         print(f"  Start manually with: {start_cmd}")
     _print_next_steps()
@@ -1062,7 +1062,7 @@ def install(
                 _report_gateway_start(f"direct spawn (PID {pid})")
         else:
             print("ℹ Gateway not started and no auto-start service installed.")
-            print("  Run later with: hermes gateway start")
+            print("  Run later with: allr gateway start")
         return
 
     task_name = get_task_name()
@@ -1079,11 +1079,11 @@ def install(
         print("  UAC is Windows' admin approval prompt; it is needed to create/update the Scheduled Task.")
         if prompt_yes_no("  Open the UAC prompt now?", False):
             if _launch_elevated_install(force=force, start_now=start_now, start_on_login=start_on_login):
-                print("✓ Launched elevated Hermes gateway install prompt.")
+                print("✓ Launched elevated Allr gateway install prompt.")
                 if start_now:
                     print("  Approve the Windows UAC prompt; the elevated install will start the gateway afterwards.")
                 else:
-                    print("  Approve the Windows UAC prompt, then run: hermes gateway status")
+                    print("  Approve the Windows UAC prompt, then run: allr gateway status")
                 return
             print("⚠ Falling back to Startup folder because elevation was unavailable or cancelled.")
         else:
@@ -1105,7 +1105,7 @@ def install(
                 _report_gateway_start(f"direct spawn (PID {pid})")
         else:
             print("ℹ Gateway not started now.")
-            print("  Start manually with: hermes gateway start")
+            print("  Start manually with: allr gateway start")
         _print_next_steps()
         return
 
@@ -1120,11 +1120,11 @@ def install(
         print("  UAC is Windows' admin approval prompt; it is needed to create/update the Scheduled Task.")
         if prompt_yes_no("  Open the UAC prompt now?", False):
             if _launch_elevated_install(force=force, start_now=start_now, start_on_login=start_on_login):
-                print("✓ Launched elevated Hermes gateway install prompt.")
+                print("✓ Launched elevated Allr gateway install prompt.")
                 if start_now:
                     print("  Approve the Windows UAC prompt; the elevated install will start the gateway afterwards.")
                 else:
-                    print("  Approve the Windows UAC prompt, then run: hermes gateway status")
+                    print("  Approve the Windows UAC prompt, then run: allr gateway status")
                 return
             print("⚠ Falling back to Startup folder because elevation was unavailable or cancelled.")
         else:
@@ -1151,7 +1151,7 @@ def install(
             _report_gateway_start(f"direct spawn (PID {pid})")
         else:
             profile_arg = _profile_arg()
-            start_cmd = f"hermes {profile_arg} gateway start" if profile_arg else "hermes gateway start"
+            start_cmd = f"hermes {profile_arg} gateway start" if profile_arg else "allr gateway start"
             print("ℹ Startup fallback installed; gateway not started now.")
             print(f"  Start manually with: {start_cmd}")
         _print_next_steps()
@@ -1196,7 +1196,7 @@ def _print_next_steps() -> None:
     hermes_home = Path(get_hermes_home())
     print()
     print("Next steps:")
-    print("  hermes gateway status                      # Check status")
+    print("  allr gateway status                      # Check status")
     print(f"  type {hermes_home}\\logs\\gateway.log       # View logs")
 
 
@@ -1223,8 +1223,8 @@ def uninstall() -> None:
             print("  UAC is Windows' admin approval prompt; it is needed to remove the Scheduled Task.")
             if prompt_yes_no("  Open the UAC prompt now?", False):
                 if _launch_elevated_uninstall():
-                    print("✓ Launched elevated Hermes gateway uninstall prompt.")
-                    print("  Approve the Windows UAC prompt, then run: hermes gateway status")
+                    print("✓ Launched elevated Allr gateway uninstall prompt.")
+                    print("  Approve the Windows UAC prompt, then run: allr gateway status")
                     return
                 print("⚠ Elevated uninstall prompt was unavailable or cancelled.")
             else:
@@ -1468,7 +1468,7 @@ def status(deep: bool = False) -> None:
     if not task_installed and not startup_installed and not pids:
         print()
         print("To install:")
-        print("  hermes gateway install")
+        print("  allr gateway install")
 
 
 def start() -> None:
@@ -1487,14 +1487,14 @@ def start() -> None:
 
         print("✗ Gateway service is not installed")
         if not prompt_yes_no("  Install it now so the gateway starts on login?", True):
-            print("  Run: hermes gateway install")
+            print("  Run: allr gateway install")
             return
         install(force=False)
         task_installed = is_task_registered()
         startup_installed = is_startup_entry_installed()
         if not task_installed and not startup_installed:
             print("⚠ Gateway install did not complete in this process.")
-            print("  If a UAC prompt opened, approve it, then run: hermes gateway start")
+            print("  If a UAC prompt opened, approve it, then run: allr gateway start")
             return
 
     # Manual starts use the same console-less direct spawn path as restart()
@@ -1692,5 +1692,5 @@ def restart() -> None:
     if not _wait_for_gateway_ready(timeout_s=15.0):
         raise RuntimeError(
             "Gateway restart did not produce a running gateway process. "
-            "Check logs/gateway.log and run `hermes gateway status`."
+            "Check logs/gateway.log and run `allr gateway status`."
         )

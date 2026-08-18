@@ -1,5 +1,5 @@
 """Tests that ``model_catalog.excluded_providers`` hides providers from the
-interactive ``hermes model`` CLI picker.
+interactive ``allr model`` CLI picker.
 
 The CLI picker (``hermes_cli.main.select_provider_and_model``) builds its
 provider menu from ``CANONICAL_PROVIDERS`` via ``group_providers`` — a
@@ -15,17 +15,17 @@ import pytest
 
 @pytest.fixture
 def config_home(tmp_path, monkeypatch):
-    """Isolated HERMES_HOME with a minimal config."""
+    """Isolated ALLR_HOME with a minimal config."""
     home = tmp_path / "hermes"
     home.mkdir()
     config_yaml = home / "config.yaml"
     config_yaml.write_text("model: old-model\ncustom_providers: []\n")
     env_file = home / ".env"
     env_file.write_text("")
-    monkeypatch.setenv("HERMES_HOME", str(home))
-    monkeypatch.delenv("HERMES_MODEL", raising=False)
+    monkeypatch.setenv("ALLR_HOME", str(home))
+    monkeypatch.delenv("ALLR_MODEL", raising=False)
     monkeypatch.delenv("LLM_MODEL", raising=False)
-    monkeypatch.delenv("HERMES_INFERENCE_PROVIDER", raising=False)
+    monkeypatch.delenv("ALLR_INFERENCE_PROVIDER", raising=False)
     monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     return home
@@ -62,7 +62,7 @@ def _capture_provider_labels(config_home):
 
 def test_cli_picker_hides_excluded_provider(config_home):
     """``excluded_providers: [openrouter]`` must remove the OpenRouter row
-    from the ``hermes model`` provider menu."""
+    from the ``allr model`` provider menu."""
     _write_config(config_home, **{"model_catalog": {"excluded_providers": ["openrouter"]}})
 
     labels = _capture_provider_labels(config_home)

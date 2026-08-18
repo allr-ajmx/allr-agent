@@ -29,7 +29,7 @@ describe('api', () => {
     expect(mockHttp).toHaveBeenCalledWith(
       'GET',
       'http://host:1/api/status',
-      expect.objectContaining({ headers: expect.objectContaining({ 'X-Hermes-Session-Token': 'TOK' }) })
+      expect.objectContaining({ headers: expect.objectContaining({ 'X-Allr-Session-Token': 'TOK' }) })
     )
   })
 

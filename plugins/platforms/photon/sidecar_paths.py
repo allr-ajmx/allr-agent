@@ -18,7 +18,7 @@ bridge, which hit the same wall):
    sidecar deps with ``npm ci`` at build time (deterministic installs,
    NS-559), so no runtime install is ever needed.
 4. Source dir read-only and deps missing or stale → mirror the sidecar
-   source files to ``$HERMES_HOME/photon/sidecar`` (the durable data volume,
+   source files to ``$ALLR_HOME/photon/sidecar`` (the durable data volume,
    e.g. ``/opt/data`` on hosted) and return that. The caller's normal
    install/self-heal machinery then works there because it is writable.
 
@@ -29,7 +29,7 @@ lockfile-vs-install-marker staleness check then triggers the ``npm ci``
 self-heal inside the mirror.
 
 This module is import-light on purpose: both ``adapter.py`` (gateway) and
-``cli.py`` (``hermes photon ...``) use it.
+``cli.py`` (``allr photon ...``) use it.
 """
 
 from __future__ import annotations

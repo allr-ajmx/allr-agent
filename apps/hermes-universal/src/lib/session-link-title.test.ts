@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type * as Hermes from '@/hermes'
+import type * as Allr from '@/hermes'
 
 // Partial: `@/hermes` is imported at module scope by the profile store, which
 // this file pulls in transitively through `@/store/session`.
 vi.mock('@/hermes', async importOriginal => ({
-  ...(await importOriginal<typeof Hermes>()),
+  ...(await importOriginal<typeof Allr>()),
   getSession: vi.fn()
 }))
 

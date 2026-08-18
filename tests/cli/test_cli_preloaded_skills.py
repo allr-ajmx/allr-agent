@@ -19,7 +19,7 @@ def _make_real_cli(**kwargs):
         "agent": {},
         "terminal": {"env_type": "local"},
     }
-    clean_env = {"LLM_MODEL": "", "HERMES_MAX_ITERATIONS": ""}
+    clean_env = {"LLM_MODEL": "", "ALLR_MAX_ITERATIONS": ""}
     prompt_toolkit_stubs = {
         "prompt_toolkit": MagicMock(),
         "prompt_toolkit.history": MagicMock(),
@@ -81,15 +81,15 @@ def test_main_applies_preloaded_skills_to_system_prompt(monkeypatch):
     monkeypatch.setattr(
         cli_mod,
         "build_preloaded_skills_prompt",
-        lambda skills, task_id=None: ("skill prompt", ["hermes-agent-dev", "github-auth"], []),
+        lambda skills, task_id=None: ("skill prompt", ["allr-agent-dev", "github-auth"], []),
     )
 
     with pytest.raises(SystemExit):
-        cli_mod.main(skills="hermes-agent-dev,github-auth", list_tools=True)
+        cli_mod.main(skills="allr-agent-dev,github-auth", list_tools=True)
 
     cli_obj = created["cli"]
     assert cli_obj.system_prompt == "base prompt\n\nskill prompt"
-    assert cli_obj.preloaded_skills == ["hermes-agent-dev", "github-auth"]
+    assert cli_obj.preloaded_skills == ["allr-agent-dev", "github-auth"]
 
 
 def test_main_raises_for_unknown_preloaded_skill(monkeypatch):
@@ -109,7 +109,7 @@ def test_main_raises_for_unknown_preloaded_skill(monkeypatch):
 def test_show_banner_does_not_print_skills():
     """show_banner() no longer prints the activated skills line — it moved to run()."""
     cli_obj = _make_real_cli(compact=False)
-    cli_obj.preloaded_skills = ["hermes-agent-dev", "github-auth"]
+    cli_obj.preloaded_skills = ["allr-agent-dev", "github-auth"]
     cli_obj.console = MagicMock()
 
     with patch("cli.build_welcome_banner") as mock_banner, patch(

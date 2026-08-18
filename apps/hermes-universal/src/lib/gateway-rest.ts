@@ -75,7 +75,7 @@ export interface ProfileExportResult {
  * `extraFiles` stages extra root-level files into the archive alongside the
  * profile's own artifacts — that is how the appearance overlay travels
  * (`{ 'desktop.json': JSON.stringify(overlay) }`). A blank `output` lets the
- * backend name the file under `HERMES_HOME/profile-exports`.
+ * backend name the file under `ALLR_HOME/profile-exports`.
  */
 export function exportProfileArchive(
   name: string,

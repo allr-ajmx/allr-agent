@@ -57,7 +57,7 @@ export function ConnectScreen() {
     <main className="connect">
       <div className="connect-card">
         <div className="connect-head">
-          <div className="brand">Hermes</div>
+          <div className="brand">Allr</div>
           {/* Language belongs on the FIRST screen: every later step is prose the
               user has to read to make a choice. Offered here only — past this
               point Settings owns it. */}

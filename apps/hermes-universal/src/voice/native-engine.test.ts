@@ -12,7 +12,7 @@ vi.mock('@tauri-apps/api/event', () => ({ listen }))
 
 import { createNativeLease } from './native-engine'
 
-const TARGET = { target: { baseUrl: 'http://gw', headers: { 'X-Hermes-Session-Token': 't' } } }
+const TARGET = { target: { baseUrl: 'http://gw', headers: { 'X-Allr-Session-Token': 't' } } }
 
 describe('native voice lease handshake', () => {
   beforeEach(() => {

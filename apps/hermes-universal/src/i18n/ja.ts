@@ -67,10 +67,10 @@ export const ja = defineLocale({
     title: 'キーボードショートカット',
     globalTag: 'システム全体',
     globalTagHint:
-      '起動時にオペレーティングシステムから予約されます。Hermes がバックグラウンドにあるときも動作し、このコンピューター上の他のアプリはこのキーを使えません。',
+      '起動時にオペレーティングシステムから予約されます。Allr がバックグラウンドにあるときも動作し、このコンピューター上の他のアプリはこのキーを使えません。',
     globalClaimTitle: 'ショートカットをシステム全体で予約しました',
     globalClaimMessage: combos =>
-      `Hermes はオペレーティングシステムから ${combos} を予約しました。他のアプリが手前にあるときも反応します。Hermes の実行中は他のアプリがこのキーを使えません。`,
+      `Allr はオペレーティングシステムから ${combos} を予約しました。他のアプリが手前にあるときも反応します。Allr の実行中は他のアプリがこのキーを使えません。`,
     globalClaimAction: '変更する'
   },
 
@@ -121,9 +121,9 @@ export const ja = defineLocale({
     copyDetailFailed: '通知の詳細をコピーできませんでした',
     backendOutOfDateTitle: 'バックエンドが古いです',
     backendOutOfDateMessage:
-      'Hermes バックエンドがこのデスクトップビルドより古く、正常に動作しない場合があります。更新して揃えてください。',
+      'Allr バックエンドがこのデスクトップビルドより古く、正常に動作しない場合があります。更新して揃えてください。',
     installMethodUnsupportedTitle: 'サポート対象外のインストール方法',
-    updateHermes: 'Hermes を更新',
+    updateHermes: 'Allr を更新',
     updateReadyTitle: '更新の準備ができました',
     updateReadyMessage: count => `${count} 件の新しい変更が利用可能です。`,
     seeWhatsNew: '新機能を見る',
@@ -131,7 +131,7 @@ export const ja = defineLocale({
       elevenLabsNeedsKey: 'ElevenLabs STT には ELEVENLABS_API_KEY が必要です。',
       elevenLabsRejectedKey: 'ElevenLabs が API キーを拒否しました (401)。',
       methodNotAllowed:
-        'デスクトップバックエンドがそのリクエストを拒否しました (405 Method Not Allowed)。Hermes Desktop を再起動してください。',
+        'デスクトップバックエンドがそのリクエストを拒否しました (405 Method Not Allowed)。Allr Desktop を再起動してください。',
       microphonePermission: 'マイクのアクセス許可が拒否されました。',
       openaiRejectedApiKey: 'OpenAI が API キーを拒否しました。',
       openaiRejectedApiKeyWithStatus: status => `OpenAI が API キーを拒否しました (${status} invalid_api_key)。`,
@@ -163,8 +163,8 @@ export const ja = defineLocale({
       approveAction: '承認',
       rejectAction: '拒否',
       inputTitle: '入力が必要です',
-      inputBody: 'Hermes が応答を待っています。',
-      turnDoneTitle: 'Hermes が完了しました',
+      inputBody: 'Allr が応答を待っています。',
+      turnDoneTitle: 'Allr が完了しました',
       turnDoneBody: '応答の準備ができました。',
       turnErrorTitle: 'ターンが失敗しました',
       backgroundDoneTitle: 'バックグラウンドタスクが完了しました',
@@ -206,8 +206,8 @@ export const ja = defineLocale({
     close: '閉じる'
   },
   hud: {
-    connecting: 'Hermes に接続中…',
-    connectionFailed: 'Hermes はゲートウェイに接続できませんでした。',
+    connecting: 'Allr に接続中…',
+    connectionFailed: 'Allr はゲートウェイに接続できませんでした。',
     expandReply: '返信を表示',
     collapseReply: '返信を非表示'
   },
@@ -227,7 +227,7 @@ export const ja = defineLocale({
     exportConfig: '設定を書き出す',
     importConfig: '設定を読み込む',
     resetToDefaults: 'デフォルトに戻す',
-    resetConfirm: 'すべての設定を Hermes のデフォルトに戻しますか？',
+    resetConfirm: 'すべての設定を Allr のデフォルトに戻しますか？',
     exportFailed: '書き出しに失敗しました',
     resetFailed: 'リセットに失敗しました',
     nav: {
@@ -268,14 +268,14 @@ export const ja = defineLocale({
       agent: {
         title: 'エージェントプラグイン',
         blurb:
-          'Hermes バックエンドで動作します — ツール、スキル、MCP サーバー、フック、スラッシュコマンド。「ポータブル」は Agent Plugins パッケージ（他のエージェントでも使えるスキル + MCP のバンドル）です。切り替えは新しいセッションから有効になります。',
+          'Allr バックエンドで動作します — ツール、スキル、MCP サーバー、フック、スラッシュコマンド。「ポータブル」は Agent Plugins パッケージ（他のエージェントでも使えるスキル + MCP のバンドル）です。切り替えは新しいセッションから有効になります。',
         empty: 'エージェントプラグインはまだインストールされていません。',
         loadFailed: 'エージェントプラグインを読み込めませんでした',
         portable: 'ポータブル',
         search: 'プラグインを検索…',
         noMatches: '一致するプラグインはありません。',
         toggleFailed: (name: string) => `${name} を切り替えられませんでした`,
-        updateBackendToManage: 'ここからオン・オフを切り替えるには Hermes バックエンドを更新してください。',
+        updateBackendToManage: 'ここからオン・オフを切り替えるには Allr バックエンドを更新してください。',
         sources: { bundled: '内蔵', entrypoint: 'pip', git: 'git', project: 'プロジェクト', user: 'ユーザー' }
       }
     },
@@ -284,7 +284,7 @@ export const ja = defineLocale({
       intro: 'アプリ内トーストとは別の、ネイティブのデスクトップ通知です。設定は端末ごとに保存されます。',
       enableAll: '通知を有効にする',
       enableAllDesc: 'マスタースイッチ。オフにすると以下のすべての通知を無効にします。',
-      focusedHint: '完了通知は Hermes がバックグラウンドにあるときのみ表示されます。',
+      focusedHint: '完了通知は Allr がバックグラウンドにあるときのみ表示されます。',
       kinds: {
         approval: {
           label: '承認が必要',
@@ -292,11 +292,11 @@ export const ja = defineLocale({
         },
         input: {
           label: '入力が必要',
-          description: 'Hermes が質問したか、パスワードやシークレットを必要としています。'
+          description: 'Allr が質問したか、パスワードやシークレットを必要としています。'
         },
         turnDone: {
           label: '応答完了',
-          description: 'Hermes がバックグラウンドのときにターンが完了しました。'
+          description: 'Allr がバックグラウンドのときにターンが完了しました。'
         },
         turnError: {
           label: 'ターン失敗',
@@ -312,11 +312,11 @@ export const ja = defineLocale({
         },
         plugin: {
           label: 'プラグイン通知',
-          description: 'Hermes がバックグラウンドのときにプラグインが通知を送信しました。'
+          description: 'Allr がバックグラウンドのときにプラグインが通知を送信しました。'
         }
       },
       test: 'テスト通知を送信',
-      testTitle: 'Hermes (MJX)',
+      testTitle: 'Allr',
       testBody: '通知は正常に動作しています。',
       testSent:
         'テストを送信しました。表示されない場合は、OS の通知許可と集中モード／おやすみモードを確認してください。',
@@ -328,7 +328,7 @@ export const ja = defineLocale({
     voiceLevels: {
       title: 'レベル',
       intro:
-        'Hermes があなたの声をどれだけ拾い、どれだけ大きく話し返すかを調整します。エコーキャンセルはないため、スピーカーの音量を上回る割り込みしきい値を設定することが、Hermes が自分の声で割り込むのを防ぐ唯一の方法です。',
+        'Allr があなたの声をどれだけ拾い、どれだけ大きく話し返すかを調整します。エコーキャンセルはないため、スピーカーの音量を上回る割り込みしきい値を設定することが、Allr が自分の声で割り込むのを防ぐ唯一の方法です。',
       meterTitle: '入力メーター',
       meterDesc: 'マイクを開いて、下のしきい値に対する自分のレベルを確認します。録音も送信も行いません。',
       meterRunningDesc:
@@ -345,10 +345,10 @@ export const ja = defineLocale({
         '測定レベルを倍率で持ち上げ、音の小さいマイクでもしきい値に届くようにします。文字起こしされる音声そのものは変わりません。',
       thresholdTitle: '入力しきい値',
       thresholdDesc:
-        'Hermes が発話の開始とみなす音の大きさです。低すぎると環境音で反応し、高すぎるとまったく聞き取れません。',
+        'Allr が発話の開始とみなす音の大きさです。低すぎると環境音で反応し、高すぎるとまったく聞き取れません。',
       bargeinTitle: '割り込みしきい値',
       bargeinDesc:
-        'Hermes が話している間に適用される高い方のゲートです。スピーカーの音だけが鳴っているときのメーター表示より高く保ってください。',
+        'Allr が話している間に適用される高い方のゲートです。スピーカーの音だけが鳴っているときのメーター表示より高く保ってください。',
       outputSectionTitle: '出力',
       outputTitle: '読み上げ音量',
       outputDesc: '読み上げの再生音量です。'
@@ -364,7 +364,7 @@ export const ja = defineLocale({
       advanced: '詳細'
     },
     searchPlaceholder: {
-      about: 'Hermes Desktop について',
+      about: 'Allr Desktop について',
       config: '設定を検索…',
       gateway: 'ゲートウェイ接続…',
       keys: 'API キーを検索…',
@@ -381,14 +381,14 @@ export const ja = defineLocale({
       intro:
         'デスクトップ専用の表示設定です。モードは明るさ、テーマはアクセントカラーとチャット面のスタイルを制御します。',
       colorMode: 'カラーモード',
-      colorModeDesc: '固定モードを選ぶか、Hermes をシステム設定に合わせます。',
+      colorModeDesc: '固定モードを選ぶか、Allr をシステム設定に合わせます。',
       toolViewTitle: 'ツール呼び出しの表示',
       toolViewDesc: 'プロダクト表示は生のツールペイロードを隠し、テクニカル表示は入出力をすべて表示します。',
       backdropTitle: 'チャットの背景',
       backdropDesc: '会話の背後にうっすら見える彫像の画像。',
       reactionsTitle: 'メッセージリアクション',
       reactionsDesc:
-        'iMessage 風の絵文字リアクション — メッセージにリアクションでき、Hermes もあなたのメッセージにリアクションできます。',
+        'iMessage 風の絵文字リアクション — メッセージにリアクションでき、Allr もあなたのメッセージにリアクションできます。',
       uiScaleTitle: 'UI スケール',
       uiScaleDesc: (percent: number) =>
         `アプリ全体の文字と UI を拡大縮小します。Cmd/Ctrl と +、-、0 でも変更できます。現在: ${percent}%`,
@@ -428,9 +428,9 @@ export const ja = defineLocale({
       pet: {
         title: 'ペット',
         intro:
-          'アプリ上に浮かぶ petdex のアニメーションマスコットを採用しましょう。ツール実行中は走り、成功すると喜び、エラーでしょんぼりと、Hermes の状態に反応します。',
+          'アプリ上に浮かぶ petdex のアニメーションマスコットを採用しましょう。ツール実行中は走り、成功すると喜び、エラーでしょんぼりと、Allr の状態に反応します。',
         restartHint:
-          'ペット機能には再起動が必要です。この機能が追加される前に起動したアプリが動作中です。Hermes を終了して再度開き、このページに戻ってください。',
+          'ペット機能には再起動が必要です。この機能が追加される前に起動したアプリが動作中です。Allr を終了して再度開き、このページに戻ってください。',
         scaleTitle: 'サイズ',
         scaleDesc: '浮遊マスコットの大きさを変更します。すべての画面に即時反映されます。',
         roamTitle: '散歩',
@@ -626,10 +626,10 @@ export const ja = defineLocale({
         showReasoning: 'バックエンドが推論内容を提供したときに表示します。'
       },
       timezone:
-        'Hermes がローカル時刻のコンテキストを必要とするときに使用します。空欄ならシステムのタイムゾーンを使います。',
+        'Allr がローカル時刻のコンテキストを必要とするときに使用します。空欄ならシステムのタイムゾーンを使います。',
       agent: {
         imageInputMode: '画像添付をモデルへ送る方法を制御します。',
-        maxTurns: 'Hermes が 1 回の実行を停止するまでのツール呼び出しターン上限です。'
+        maxTurns: 'Allr が 1 回の実行を停止するまでのツール呼び出しターン上限です。'
       },
       terminal: {
         cwd: 'ツールとターミナル作業のデフォルトプロジェクトフォルダーです。',
@@ -639,9 +639,9 @@ export const ja = defineLocale({
       codeExecution: {
         mode: 'コード実行を現在のプロジェクトにどれだけ厳密に制限するかを設定します。'
       },
-      fileReadMaxChars: 'Hermes が 1 回のファイル読み取りで取得できる最大文字数です。',
+      fileReadMaxChars: 'Allr が 1 回のファイル読み取りで取得できる最大文字数です。',
       approvals: {
-        mode: '明示的な承認が必要なコマンドを Hermes がどう扱うかを設定します。',
+        mode: '明示的な承認が必要なコマンドを Allr がどう扱うかを設定します。',
         timeout: '承認プロンプトがタイムアウトするまで待つ時間です。'
       },
       security: {
@@ -671,11 +671,11 @@ export const ja = defineLocale({
       },
       updates: {
         nonInteractiveLocalChanges:
-          'アプリから Hermes 自身を更新するとき、ローカルのソース変更を保持するか破棄するかを選びます。ターミナル更新では常に確認されます。'
+          'アプリから Allr 自身を更新するとき、ローカルのソース変更を保持するか破棄するかを選びます。ターミナル更新では常に確認されます。'
       }
     }),
     about: {
-      heading: 'Hermes (MJX)',
+      heading: 'Allr',
       version: value => `バージョン ${value}`,
       versionUnavailable: 'バージョンを取得できません',
       updates: '更新',
@@ -698,7 +698,7 @@ export const ja = defineLocale({
       lastChecked: age => `前回確認: ${age}`,
       justNowSuffix: ' · たった今',
       automaticUpdates: '自動更新',
-      automaticUpdatesDesc: 'Hermes はバックグラウンドで自動的に更新を確認し、利用可能になったら通知します。',
+      automaticUpdatesDesc: 'Allr はバックグラウンドで自動的に更新を確認し、利用可能になったら通知します。',
       branchCommit: (branch, commit) => `ブランチ ${branch} · コミット ${commit}`,
       never: '未確認',
       justNow: 'たった今',
@@ -715,7 +715,7 @@ export const ja = defineLocale({
       searchPlaceholder: '検索…',
       noResults: '結果が見つかりません',
       systemDefault: 'システムのデフォルト',
-      loading: 'Hermes の設定を読み込み中...',
+      loading: 'Allr の設定を読み込み中...',
       emptyTitle: '設定項目がありません',
       emptyDesc: 'このセクションには調整できる設定がありません。',
       failedLoad: '設定の読み込みに失敗しました',
@@ -727,8 +727,8 @@ export const ja = defineLocale({
       keepAwakeFailed: 'このコンピューターのスリープを抑止できませんでした',
       backgroundModeTitle: 'バックグラウンドで実行を続ける',
       backgroundModeDesc:
-        'ウィンドウを閉じても終了せず、Hermes をしまうだけになります。実行中の応答はそのまま続きます。再表示や終了はトレイアイコンから行えます。',
-      backgroundModeFailed: 'Hermes をバックグラウンドで実行し続けられませんでした'
+        'ウィンドウを閉じても終了せず、Allr をしまうだけになります。実行中の応答はそのまま続きます。再表示や終了はトレイアイコンから行えます。',
+      backgroundModeFailed: 'Allr をバックグラウンドで実行し続けられませんでした'
     },
     credentials: {
       pasteKey: 'キーを貼り付け',
@@ -762,7 +762,7 @@ export const ja = defineLocale({
       title: 'ゲートウェイ接続',
       envOverride: 'env オーバーライド',
       intro:
-        'Hermes Desktop はデフォルトで独自のローカルゲートウェイを起動します。別のマシンや信頼できるプロキシの背後で既に動作している Hermes バックエンドをこのアプリで制御する場合は、リモートゲートウェイを使用してください。以下でプロファイルを選択して、それぞれのリモートホストを設定します。',
+        'Allr Desktop はデフォルトで独自のローカルゲートウェイを起動します。別のマシンや信頼できるプロキシの背後で既に動作している Allr バックエンドをこのアプリで制御する場合は、リモートゲートウェイを使用してください。以下でプロファイルを選択して、それぞれのリモートホストを設定します。',
       appliesTo: '適用対象',
       allProfiles: 'すべてのプロファイル',
       defaultConnection: '独自のオーバーライドがないすべてのプロファイルのデフォルト接続。',
@@ -770,13 +770,13 @@ export const ja = defineLocale({
         `"${profile}" がアクティブプロファイルのときのみ使用される接続。ローカルに設定するとデフォルトを継承します。`,
       envOverrideTitle: '環境変数がこのデスクトップセッションを制御しています。',
       envOverrideDesc:
-        '保存された設定を使用するには HERMES_DESKTOP_REMOTE_URL と HERMES_DESKTOP_REMOTE_TOKEN の設定を解除してください。',
+        '保存された設定を使用するには ALLR_DESKTOP_REMOTE_URL と ALLR_DESKTOP_REMOTE_TOKEN の設定を解除してください。',
       localTitle: 'ローカルゲートウェイ',
       localDesc:
-        'ローカルホストでプライベートな Hermes バックエンドを起動します。これがデフォルトで、オフラインでも動作します。',
+        'ローカルホストでプライベートな Allr バックエンドを起動します。これがデフォルトで、オフラインでも動作します。',
       remoteTitle: 'リモートゲートウェイ',
       remoteDesc:
-        'このデスクトップシェルをリモートの Hermes バックエンドに接続します。ホスト型ゲートウェイは OAuth またはユーザー名とパスワードを使用します。自己ホスト型はセッショントークンを使用する場合があります。',
+        'このデスクトップシェルをリモートの Allr バックエンドに接続します。ホスト型ゲートウェイは OAuth またはユーザー名とパスワードを使用します。自己ホスト型はセッショントークンを使用する場合があります。',
       remoteUrlTitle: 'リモート URL',
       remoteUrlDesc:
         'リモートダッシュボードバックエンドのベース URL。/hermes などのパスプレフィックスもサポートしています。',
@@ -812,7 +812,7 @@ export const ja = defineLocale({
       diagnostics: '診断',
       diagnosticsDesc: '接続状態と最近のゲートウェイログ。ゲートウェイの動作がおかしいときに役立ちます。',
       configFloorWarning: (version, floor) =>
-        `設定 v${version} はサポート下限 v${floor} より古く、自動移行されません。上記の Hermes ホームにある config.yaml をバックアップして \`hermes setup\` を実行するか、変更履歴を確認のうえ _config_version: ${floor} を設定してください。`,
+        `設定 v${version} はサポート下限 v${floor} より古く、自動移行されません。上記の Allr ホームにある config.yaml をバックアップして \`allr setup\` を実行するか、変更履歴を確認のうえ _config_version: ${floor} を設定してください。`,
       openLogs: 'ログを開く',
       incompleteTitle: 'リモートゲートウェイの設定が不完全です',
       incompleteSignIn: 'リモートに切り替える前にリモート URL を入力してサインインしてください。',
@@ -822,9 +822,9 @@ export const ja = defineLocale({
       enterUrlFirst: '最初にリモート URL を入力してください。',
       restartingTitle: 'ゲートウェイ接続を再起動中',
       savedTitle: 'ゲートウェイ設定を保存しました',
-      restartingMessage: 'Hermes Desktop は保存された設定を使用して再接続します。',
+      restartingMessage: 'Allr Desktop は保存された設定を使用して再接続します。',
       savedMessage: '次回起動時に保存されます。',
-      connectedTo: (baseUrl, version) => `${baseUrl}${version ? ` · Hermes ${version}` : ''} に接続しました`,
+      connectedTo: (baseUrl, version) => `${baseUrl}${version ? ` · Allr ${version}` : ''} に接続しました`,
       reachableTitle: 'リモートゲートウェイに到達可能',
       signedOutTitle: 'サインアウトしました',
       signedOutMessage: 'リモートゲートウェイセッションをクリアしました。',
@@ -837,7 +837,7 @@ export const ja = defineLocale({
       sessionMissingTitle: 'ゲートウェイが変更されました',
       sessionMissingMessage: 'このセッションは新しいゲートウェイには存在しません。',
       saveFailed: 'ゲートウェイ設定を保存できませんでした',
-      connectingTitle: 'Hermes に接続しています',
+      connectingTitle: 'Allr に接続しています',
       reconnectingTo: target => `${target} に再接続しています…`,
       useDifferentGateway: '別のゲートウェイを使用',
       startOver: 'やり直す'
@@ -925,7 +925,7 @@ export const ja = defineLocale({
       connectAccount: 'アカウントを接続',
       haveApiKey: 'API キーをお持ちですか？',
       intro:
-        'サブスクリプションでサインインします。API キーのコピーは不要です。Hermes がアプリ内でブラウザーサインインを代行します。',
+        'サブスクリプションでサインインします。API キーのコピーは不要です。Allr がアプリ内でブラウザーサインインを代行します。',
       connected: '接続済み',
       collapse: '折りたたむ',
       connectAnother: '別のプロバイダーを接続',
@@ -1098,7 +1098,7 @@ export const ja = defineLocale({
     edit: '編集',
     archive: 'アーカイブ',
     skillArchivedTitle: 'スキルをアーカイブしました',
-    skillArchivedMessage: 'hermes curator restore で復元できます。',
+    skillArchivedMessage: 'allr curator restore で復元できます。',
     mcp: {
       loading: 'MCP サーバーを読み込み中…',
       loadFailed: 'MCP サーバーの読み込みに失敗しました',
@@ -1136,7 +1136,7 @@ export const ja = defineLocale({
     loadFailed: 'メモリグラフを読み込めませんでした',
     loading: '読み込み中…',
     emptyTitle: 'まだ学習はありません',
-    emptyDesc: 'Hermes がスキルやメモリを蓄積すると、ここに表示されます。'
+    emptyDesc: 'Allr がスキルやメモリを蓄積すると、ここに表示されます。'
   },
   agents: {
     close: 'エージェントを閉じる',
@@ -1201,7 +1201,7 @@ export const ja = defineLocale({
       placeholder: 'ペットを検索…',
       loading: 'petdex ギャラリーを読み込み中…',
       error: 'petdex ギャラリーに接続できません。',
-      staleBackend: 'ペット機能を使うには Hermes を再起動してください。',
+      staleBackend: 'ペット機能を使うには Allr を再起動してください。',
       empty: '一致するペットがありません。',
       turnOff: 'オフ',
       turnOn: 'オン',
@@ -1228,8 +1228,8 @@ export const ja = defineLocale({
       hatchComposing: 'まとめています…',
       hatchSaving: 'もうすぐです…',
       namePlaceholder: 'ペットに名前を付ける',
-      staleBackend: 'ペットを生成するには Hermes を更新してください。',
-      backgroundHint: 'このウィンドウは閉じても大丈夫です。完了したら Hermes が通知します。',
+      staleBackend: 'ペットを生成するには Allr を更新してください。',
+      backgroundHint: 'このウィンドウは閉じても大丈夫です。完了したら Allr が通知します。',
       slowProviderHint: '数分かかることがあります',
       remix: 'リミックス',
       remixConfirmTitle: 'この見た目でリミックスしますか？',
@@ -1263,7 +1263,7 @@ export const ja = defineLocale({
     },
     nav: {
       newChat: { title: '新しいセッション', detail: '新しいセッションを開始' },
-      settings: { title: '設定', detail: 'Hermes デスクトップを設定' },
+      settings: { title: '設定', detail: 'Allr デスクトップを設定' },
       skills: { title: 'スキルとツール', detail: 'スキル、ツールセット、プロバイダーを有効化' },
       messaging: { title: 'メッセージング', detail: 'Telegram、Slack、Discord などを設定' },
       artifacts: { title: 'アーティファクト', detail: '生成された出力を閲覧' }
@@ -1285,10 +1285,10 @@ export const ja = defineLocale({
     noSessions: 'セッションはまだありません。',
     gatewayRunning: 'メッセージングゲートウェイが実行中',
     gatewayStopped: 'メッセージングゲートウェイが停止中',
-    hermesActiveSessions: (version, count) => `Hermes ${version} · アクティブセッション ${count}`,
+    hermesActiveSessions: (version, count) => `Allr ${version} · アクティブセッション ${count}`,
     restartGateway: 'ゲートウェイを再起動',
     gatewayRestartFailed: 'ゲートウェイの再起動に失敗しました。',
-    updateHermes: 'Hermes を更新',
+    updateHermes: 'Allr を更新',
     actionRunning: '実行中',
     actionDone: '完了',
     actionFailed: '失敗',
@@ -1514,7 +1514,7 @@ export const ja = defineLocale({
     deleteDescMid: ' が削除され、その ',
     deleteDescSuffix: ' ディレクトリが削除されます。この操作は元に戻せません。',
     deleting: '削除中...',
-    createDesc: 'プロファイルは独立した Hermes 環境です：設定、スキル、SOUL.md が別々になります。',
+    createDesc: 'プロファイルは独立した Allr 環境です：設定、スキル、SOUL.md が別々になります。',
     nameLabel: '名前',
     cloneFrom: '複製元',
     cloneFromNone: 'なし（空）',
@@ -1603,7 +1603,7 @@ export const ja = defineLocale({
     everyHourAt: minute => `毎時 :${minute} に`,
     newCron: '新しい Cron',
     emptyDescNew:
-      'Cron 式でプロンプトを実行するスケジュールを設定します。Hermes が実行して、選択した宛先に結果を送信します。',
+      'Cron 式でプロンプトを実行するスケジュールを設定します。Allr が実行して、選択した宛先に結果を送信します。',
     emptyDescSearch: '検索キーワードを広げてください。',
     emptyTitleNew: 'スケジュールされたジョブがまだありません',
     emptyTitleSearch: '一致なし',
@@ -1804,9 +1804,9 @@ export const ja = defineLocale({
       removeFromSidebar: 'サイドバーから削除',
       createFailed: 'プロジェクトを作成できませんでした',
       staleBackend:
-        'プロジェクトを作成するには Hermes バックエンドを更新してください。バックエンドがこのデスクトップアプリより古いです（設定 → 更新 → バックエンド）。',
+        'プロジェクトを作成するには Allr バックエンドを更新してください。バックエンドがこのデスクトップアプリより古いです（設定 → 更新 → バックエンド）。',
       deleteConfirm:
-        'Hermes から保存済みプロジェクトを削除します。ファイル・git リポジトリ・ワークツリーはそのまま残ります。',
+        'Allr から保存済みプロジェクトを削除します。ファイル・git リポジトリ・ワークツリーはそのまま残ります。',
       startWork: '新しいワークツリー',
       newWorktreeTitle: '新しいワークツリー',
       newWorktreeDesc: 'このワークツリーのブランチ名を入力してください。',
@@ -1879,12 +1879,12 @@ export const ja = defineLocale({
   composer: {
     message: 'メッセージ',
     wakingProfile: profile => `${profile} を起動中…`,
-    placeholderStarting: 'Hermes を起動中...',
-    placeholderReconnecting: 'Hermes に再接続中…',
+    placeholderStarting: 'Allr を起動中...',
+    placeholderReconnecting: 'Allr に再接続中…',
     placeholderFollowUp: 'フォローアップを送信',
     newSessionPlaceholders: [
       '何を作りますか？',
-      'Hermes にタスクを与える',
+      'Allr にタスクを与える',
       '何か考えていることはありますか？',
       '必要なことを説明してください',
       '何に取り組みますか？',
@@ -1957,7 +1957,7 @@ export const ja = defineLocale({
       'composer.history': 'ポップオーバー / 履歴を切り替え'
     },
     attachUrlTitle: 'URL を添付',
-    attachUrlDesc: 'Hermes がページを取得し、このターンのコンテキストとして含めます。',
+    attachUrlDesc: 'Allr がページを取得し、このターンのコンテキストとして含めます。',
     urlPlaceholder: 'https://example.com/post',
     urlHintPre: '完全な URL を入力してください。例: ',
     attach: '添付',
@@ -2071,7 +2071,7 @@ export const ja = defineLocale({
       createPr: 'PR を作成',
       openPr: 'PR を開く',
       ghMissing: 'PR を開くには GitHub CLI (gh) をインストールしてサインインしてください',
-      agentShip: 'Hermes にコミットと PR を任せる',
+      agentShip: 'Allr にコミットと PR を任せる',
       agentShipPrompt:
         '現在の変更を確認し、分かりやすい Conventional Commits 形式でコミットし、ブランチをプッシュして、プルリクエストを作成してください。',
       newBranch: '新しいブランチ',
@@ -2089,9 +2089,9 @@ export const ja = defineLocale({
       fetch: 'ダウンロード中…',
       pull: 'もうすぐ完了…',
       pydeps: '仕上げ中…',
-      update: 'Hermes を更新中…',
+      update: 'Allr を更新中…',
       rebuild: 'デスクトップアプリを再ビルド中…',
-      restart: 'Hermes を再起動中…',
+      restart: 'Allr を再起動中…',
       done: '更新が完了しました',
       manual: 'ターミナルから更新',
       guiSkew: 'デスクトップアプリを更新してください',
@@ -2101,15 +2101,15 @@ export const ja = defineLocale({
     checkFailedTitle: '更新を確認できませんでした',
     tryAgain: '再試行',
     notAvailableTitle: '更新は利用できません',
-    unsupportedMessage: 'このバージョンの Hermes はアプリ内から自分を更新できません。',
+    unsupportedMessage: 'このバージョンの Allr はアプリ内から自分を更新できません。',
     connectionRetry: '接続を確認してもう一度試してください。',
     latestBody: '最新バージョンを実行しています。',
     latestBodyBackend: 'バックエンドは最新バージョンを実行しています。',
     allSetTitle: '準備完了',
     availableTitle: '新しい更新が利用可能',
-    availableBody: '新しいバージョンの Hermes をインストールする準備ができています。',
+    availableBody: '新しいバージョンの Allr をインストールする準備ができています。',
     availableTitleBackend: 'バックエンドの更新があります',
-    availableBodyBackend: '接続中の Hermes バックエンドの新しいバージョンをインストールできます。',
+    availableBodyBackend: '接続中の Allr バックエンドの新しいバージョンをインストールできます。',
     availableBodyNoChangelog:
       '新しいバージョンを利用できます。このインストール形式ではリリースノートは表示できません。',
     updateNow: '今すぐ更新',
@@ -2117,18 +2117,18 @@ export const ja = defineLocale({
     moreChanges: count => `さらに ${count} 件の変更が含まれています。`,
     manualTitle: 'ターミナルから更新',
     manualBody:
-      'Hermes をコマンドラインからインストールしたため、更新もそこで実行されます。これをターミナルに貼り付けてください:',
-    manualPickedUp: 'Hermes は次回起動時に新しいバージョンを読み込みます。',
+      'Allr をコマンドラインからインストールしたため、更新もそこで実行されます。これをターミナルに貼り付けてください:',
+    manualPickedUp: 'Allr は次回起動時に新しいバージョンを読み込みます。',
     guiSkewTitle: 'デスクトップアプリを更新してください',
     guiSkewBody:
-      'バックエンドは更新されましたが、このデスクトップアプリのパッケージは変更されていません。一致させるために Hermes デスクトップアプリ（AppImage / .deb / .rpm）を更新または再インストールしてください。',
+      'バックエンドは更新されましたが、このデスクトップアプリのパッケージは変更されていません。一致させるために Allr デスクトップアプリ（AppImage / .deb / .rpm）を更新または再インストールしてください。',
     copy: 'コピー',
     copied: 'コピーしました',
     done: '完了',
     applyingBody:
-      'Hermes アップデーターが独自のウィンドウで引き継ぎ、完了後に自動的に Hermes を再度開きます。更新中はご自分で Hermes を開き直さないでください。',
-    applyingBodyBackend: 'リモートバックエンドが更新を適用して再起動します。復帰すると Hermes が自動的に再接続します。',
-    applyingClose: 'このウィンドウは更新中に閉じ、その後 Hermes が自動的に再度開きます。',
+      'Allr アップデーターが独自のウィンドウで引き継ぎ、完了後に自動的に Allr を再度開きます。更新中はご自分で Allr を開き直さないでください。',
+    applyingBodyBackend: 'リモートバックエンドが更新を適用して再起動します。復帰すると Allr が自動的に再接続します。',
+    applyingClose: 'このウィンドウは更新中に閉じ、その後 Allr が自動的に再度開きます。',
     errorTitle: '更新が完了しませんでした',
     errorBody: 'ご安心ください。何も失われていません。今すぐ再試行できます。',
     notNow: '今は後で',
@@ -2151,7 +2151,7 @@ export const ja = defineLocale({
       skipped: 'スキップ',
       failed: '失敗'
     },
-    oneTimeTitle: 'Hermes には一度限りのインストールが必要です',
+    oneTimeTitle: 'Allr には一度限りのインストールが必要です',
     unsupportedDesc: platform =>
       `${platform} では自動の初回インストールはまだ利用できません。ターミナルを開いて以下のコマンドを実行し、このアプリを再起動してください。以降の起動ではこの手順はスキップされます。`,
     installCommand: 'インストールコマンド',
@@ -2160,12 +2160,12 @@ export const ja = defineLocale({
     installTo: 'インストール先',
     retryAfterRun: '実行しました — 再試行',
     failedTitle: 'インストールに失敗しました',
-    settingUpTitle: 'Hermes Agent を設定中',
+    settingUpTitle: 'Allr を設定中',
     finishingTitle: '仕上げ中',
     failedDesc:
-      'インストール手順のいずれかが失敗しました。Windows では、別の Hermes CLI またはデスクトップインスタンスが実行中の場合に発生することがあります。実行中の Hermes インスタンスをすべて停止してから再試行してください。詳細は以下またはデスクトップログで確認できます。',
+      'インストール手順のいずれかが失敗しました。Windows では、別の Allr CLI またはデスクトップインスタンスが実行中の場合に発生することがあります。実行中の Allr インスタンスをすべて停止してから再試行してください。詳細は以下またはデスクトップログで確認できます。',
     activeDesc:
-      'これは一回限りのセットアップです。Hermes インストーラーが依存関係をダウンロードしてマシンを設定しています。以降の起動ではこの手順はスキップされます。',
+      'これは一回限りのセットアップです。Allr インストーラーが依存関係をダウンロードしてマシンを設定しています。以降の起動ではこの手順はスキップされます。',
     progress: (completed, total) => `${total} ステップ中 ${completed} 完了`,
     currentStage: stage => ` — 現在: ${stage}`,
     fetchingManifest: 'インストーラーマニフェストを取得中...',
@@ -2210,10 +2210,10 @@ export const ja = defineLocale({
   },
 
   onboarding: {
-    headerTitle: 'Hermes Agent のセットアップをしましょう',
+    headerTitle: 'Allr のセットアップをしましょう',
     headerDesc: 'チャットを始めるにはモデルプロバイダーを接続してください。ほとんどのオプションはワンクリックです。',
-    preparingInstall: 'Hermes はインストールを完了中です。初回実行では通常 1 分以内に完了します。',
-    starting: 'Hermes を起動中…',
+    preparingInstall: 'Allr はインストールを完了中です。初回実行では通常 1 分以内に完了します。',
+    starting: 'Allr を起動中…',
     lookingUpProviders: 'プロバイダーを検索中...',
     collapse: '折りたたむ',
     otherProviders: 'その他のプロバイダー',
@@ -2221,7 +2221,7 @@ export const ja = defineLocale({
     chooseLater: '後でプロバイダーを選択します',
     recommended: '推奨',
     connected: '接続済み',
-    featuredPitch: '1 つのサブスクリプションで 300 以上の最先端モデル — Hermes を実行するための推奨方法',
+    featuredPitch: '1 つのサブスクリプションで 300 以上の最先端モデル — Allr を実行するための推奨方法',
     fireworksPitch: '直接モデル API — Fireworks がホストする最先端モデル',
     openRouterPitch: '1 つのキーで数百のモデル — 堅実なデフォルト',
     apiKeyOptions: {
@@ -2239,7 +2239,7 @@ export const ja = defineLocale({
       local: {
         short: 'セルフホスト',
         description:
-          'ローカルまたはセルフホストの OpenAI 互換エンドポイント（vLLM、llama.cpp、Ollama など）に Hermes を接続。'
+          'ローカルまたはセルフホストの OpenAI 互換エンドポイント（vLLM、llama.cpp、Ollama など）に Allr を接続。'
       }
     },
     backToSignIn: 'サインインに戻る',
@@ -2251,7 +2251,7 @@ export const ja = defineLocale({
     update: '更新',
     flowSubtitles: {
       pkce: 'ブラウザーを開いてサインインし、ここに戻ります',
-      device_code: 'ブラウザーで確認ページを開きます — Hermes が自動接続します',
+      device_code: 'ブラウザーで確認ページを開きます — Allr が自動接続します',
       external: 'ターミナルで一度サインインして、チャットに戻ります'
     },
     startingSignIn: provider => `${provider} のサインインを開始中...`,
@@ -2262,12 +2262,12 @@ export const ja = defineLocale({
     pickDifferentProvider: '別のプロバイダーを選択',
     signInWith: provider => `${provider} でサインイン`,
     openedBrowser: provider => `${provider} をブラウザーで開きました。`,
-    authorizeThere: 'そこで Hermes を承認してください。',
+    authorizeThere: 'そこで Allr を承認してください。',
     copyAuthCode: '認証コードをコピーして以下に貼り付けてください。',
     pasteAuthCode: '認証コードを貼り付け',
     reopenAuthPage: '認証ページを再度開く',
     autoBrowser: provider =>
-      `${provider} をブラウザーで開きました。Hermes をそこで承認すれば自動接続されます。コピーや貼り付けは不要です。`,
+      `${provider} をブラウザーで開きました。Allr をそこで承認すれば自動接続されます。コピーや貼り付けは不要です。`,
     reopenSignInPage: 'サインインページを再度開く',
     waitingAuthorize: '承認を待っています...',
     externalPending: provider =>
@@ -2361,7 +2361,7 @@ export const ja = defineLocale({
       update: '更新',
       updateInProgress: '更新中',
       commitsBehind: (count, branch) => `${branch} より ${count} コミット遅れています`,
-      desktopVersion: version => `Hermes Desktop v${version}`,
+      desktopVersion: version => `Allr Desktop v${version}`,
       backendVersion: version => `バックエンド v${version}`,
       clientLabel: version => `クライアント v${version}`,
       backendLabel: version => `バックエンド v${version}`,
@@ -2380,7 +2380,7 @@ export const ja = defineLocale({
       gatewayConnecting: '接続中',
       gatewayOffline: 'オフライン',
       gatewayRestarting: '再起動中…',
-      gatewayTitle: 'Hermes 推論ゲートウェイのステータス',
+      gatewayTitle: 'Allr 推論ゲートウェイのステータス',
       agents: 'エージェント',
       closeAgents: 'エージェントを閉じる',
       openAgents: 'エージェントを開く',
@@ -2481,7 +2481,7 @@ export const ja = defineLocale({
     binaryTitle: 'これはバイナリファイルのようです',
     binaryBody: label => `${label} をプレビューすると読み取り不能なテキストが表示される場合があります。`,
     largeTitle: 'このファイルは大きいです',
-    largeBody: (label, size) => `${label} は ${size} です。Hermes は最初の 512 KB のみを表示します。`,
+    largeBody: (label, size) => `${label} は ${size} です。Allr は最初の 512 KB のみを表示します。`,
     previewAnyway: 'とにかくプレビュー',
     truncated: '最初の 512 KB を表示しています。',
     noInlineTitle: 'インラインプレビューなし',
@@ -2523,11 +2523,11 @@ export const ja = defineLocale({
       serverNotFound: 'サーバーが見つかりません',
       failedToLoad: 'プレビューの読み込みに失敗しました',
       tryAgain: '再試行',
-      restarting: 'Hermes を再起動中...',
-      askRestart: 'Hermes にサーバーの再起動を依頼',
-      lookingRestart: taskId => `Hermes は再起動するプレビューサーバーを検索中です (${taskId})`,
+      restarting: 'Allr を再起動中...',
+      askRestart: 'Allr にサーバーの再起動を依頼',
+      lookingRestart: taskId => `Allr は再起動するプレビューサーバーを検索中です (${taskId})`,
       restartingTitle: 'プレビューサーバーを再起動中',
-      restartingMessage: 'Hermes はバックグラウンドで作業中です。進捗はプレビューコンソールで確認してください。',
+      restartingMessage: 'Allr はバックグラウンドで作業中です。進捗はプレビューコンソールで確認してください。',
       startRestartFailed: message => `サーバー再起動を開始できませんでした: ${message}`,
       restartFailed: 'サーバーの再起動に失敗しました',
       hideConsole: 'プレビューコンソールを非表示',
@@ -2535,15 +2535,15 @@ export const ja = defineLocale({
       hideDevTools: 'プレビュー DevTools を非表示',
       openDevTools: 'プレビュー DevTools を開く',
       finishedRestarting: message =>
-        `Hermes がプレビューサーバーの再起動を完了しました${message ? `: ${message}` : ''}`,
+        `Allr がプレビューサーバーの再起動を完了しました${message ? `: ${message}` : ''}`,
       failedRestarting: message => `サーバーの再起動に失敗しました: ${message}`,
       unknownError: '不明なエラー',
       restartedTitle: 'プレビューサーバーが再起動しました',
       reloadingNow: 'プレビューを再読み込み中です。',
       restartFailedTitle: 'プレビューの再起動に失敗しました',
-      restartFailedMessage: 'Hermes がサーバーを再起動できませんでした。',
+      restartFailedMessage: 'Allr がサーバーを再起動できませんでした。',
       stillWorking:
-        'Hermes はまだ作業中ですが、再起動の結果がまだ届いていません。サーバーコマンドがフォアグラウンドで実行されている可能性があります。',
+        'Allr はまだ作業中ですが、再起動の結果がまだ届いていません。サーバーコマンドがフォアグラウンドで実行されている可能性があります。',
       workspaceReloading: 'ワークスペースが変更され、プレビューを再読み込み中',
       fileChanged: url => `ファイルが変更され、プレビューを再読み込み中: ${url}`,
       filesChanged: (count, url) => `${count} 件のファイルが変更され、プレビューを再読み込み中: ${url}`,
@@ -2562,7 +2562,7 @@ export const ja = defineLocale({
       loadingSession: 'セッションを読み込み中',
       showEarlier: '以前のメッセージを表示',
       steerMissed: '誘導は届かず',
-      loadingResponse: 'Hermes が応答を読み込み中',
+      loadingResponse: 'Allr が応答を読み込み中',
       compacting: 'スレッドを要約中',
       resumeWhenBackgroundDone: count =>
         count === 1
@@ -2600,7 +2600,7 @@ export const ja = defineLocale({
       attachingFile: '添付中…'
     },
     approval: {
-      gatewayDisconnected: 'Hermes ゲートウェイが接続されていません',
+      gatewayDisconnected: 'Allr ゲートウェイが接続されていません',
       sendFailed: '承認応答を送信できませんでした',
       run: '実行',
       command: 'コマンド',
@@ -2611,12 +2611,12 @@ export const ja = defineLocale({
       reject: '拒否',
       alwaysTitle: 'このコマンドを常に許可しますか？',
       alwaysDescription: pattern =>
-        `これにより "${pattern}" パターンが永続的な許可リスト (~/.hermes/config.yaml) に追加されます。Hermes はこのセッションや将来のセッションで、このようなコマンドについて再度尋ねません。`,
+        `これにより "${pattern}" パターンが永続的な許可リスト (~/.allr/config.yaml) に追加されます。Allr はこのセッションや将来のセッションで、このようなコマンドについて再度尋ねません。`,
       alwaysAllow: '常に許可'
     },
     clarify: {
       notReady: '明確化リクエストはまだ準備できていません',
-      gatewayDisconnected: 'Hermes ゲートウェイが接続されていません',
+      gatewayDisconnected: 'Allr ゲートウェイが接続されていません',
       sendFailed: '明確化応答を送信できませんでした',
       loadingQuestion: '質問を読み込み中…',
       other: 'その他（回答を入力）',
@@ -2738,15 +2738,15 @@ export const ja = defineLocale({
   },
 
   prompts: {
-    gatewayDisconnected: 'Hermes ゲートウェイが接続されていません',
+    gatewayDisconnected: 'Allr ゲートウェイが接続されていません',
     sudoSendFailed: 'sudo パスワードを送信できませんでした',
     secretSendFailed: 'シークレットを送信できませんでした',
     sudoTitle: '管理者パスワード',
     sudoDesc:
-      'Hermes は特権コマンドを実行するために sudo パスワードが必要です。ローカルエージェントにのみ送信されます。',
+      'Allr は特権コマンドを実行するために sudo パスワードが必要です。ローカルエージェントにのみ送信されます。',
     sudoPlaceholder: 'sudo パスワード',
     secretTitle: 'シークレットが必要です',
-    secretDesc: 'Hermes は続行するための認証情報が必要です。',
+    secretDesc: 'Allr は続行するための認証情報が必要です。',
     secretPlaceholder: 'シークレット値'
   },
 
@@ -2802,8 +2802,8 @@ export const ja = defineLocale({
     sessionExportFailed: 'セッションをエクスポートできませんでした',
     imageSaved: '画像を保存しました',
     downloadStarted: 'ダウンロードを開始しました',
-    restartToUseSaveImage: '画像を保存するには Hermes Desktop を再起動してください。',
-    restartToSaveImages: '画像を保存するには Hermes Desktop を再起動してください',
+    restartToUseSaveImage: '画像を保存するには Allr Desktop を再起動してください。',
+    restartToSaveImages: '画像を保存するには Allr Desktop を再起動してください',
     imageDownloadFailed: '画像のダウンロードに失敗しました',
     openImage: '画像を開く',
     downloadImage: '画像をダウンロード',
@@ -2828,7 +2828,7 @@ export const ja = defineLocale({
       success: platform => `${platform} に引き継ぎました。いつでもここで再開できます。`,
       systemNote: platform => `↻ ${platform} に引き継ぎました — いつでもここで再開できます。`,
       failed: error => `引き継ぎに失敗しました: ${error}`,
-      timedOut: 'ゲートウェイの待機がタイムアウトしました。`hermes gateway` は起動していますか？'
+      timedOut: 'ゲートウェイの待機がタイムアウトしました。`allr gateway` は起動していますか？'
     }
   },
 
@@ -2912,16 +2912,16 @@ export const ja = defineLocale({
   },
 
   tray: {
-    show: 'Hermes を表示',
+    show: 'Allr を表示',
     hud: 'HUD を開く',
-    quit: 'Hermes を終了',
+    quit: 'Allr を終了',
     keepRunning: 'バックグラウンドで実行',
-    tooltip: 'Hermes (MJX)',
-    closeDialogTitle: 'Hermes をバックグラウンドに残しますか？',
+    tooltip: 'Allr',
+    closeDialogTitle: 'Allr をバックグラウンドに残しますか？',
     closeDialogDesc:
-      'このウィンドウを閉じたあとも Hermes をバックグラウンドで実行し続けるか、完全に終了するかを選べます。設定またはトレイメニューからいつでも変更できます。',
+      'このウィンドウを閉じたあとも Allr をバックグラウンドで実行し続けるか、完全に終了するかを選べます。設定またはトレイメニューからいつでも変更できます。',
     keepInBackground: 'バックグラウンドに残す',
-    closeApp: 'Hermes を終了',
+    closeApp: 'Allr を終了',
     status: {
       idle: '未接続',
       probing: 'ゲートウェイを確認中…',
@@ -2932,15 +2932,15 @@ export const ja = defineLocale({
   },
   quickEntry: {
     label: 'クイック入力',
-    placeholder: 'Hermes に質問…',
-    notConnected: '未接続 — Hermes を開いて再接続してください',
+    placeholder: 'Allr に質問…',
+    notConnected: '未接続 — Allr を開いて再接続してください',
     sendTo: '送信先',
     currentChat: '現在のチャット',
     newSession: '新しいセッション',
     targetLabel: '対象セッション',
     settingsTitle: 'クイック入力',
     settingsDesc:
-      'グローバルショートカットで小さな入力欄をどこからでも呼び出し、Hermes を開かずにプロンプトを送信します。',
+      'グローバルショートカットで小さな入力欄をどこからでも呼び出し、Allr を開かずにプロンプトを送信します。',
     shortcutHint: 'ショートカットは「キーボードショートカット」で割り当ててください。'
   },
   webhooks: {
@@ -2954,7 +2954,7 @@ export const ja = defineLocale({
     outboundSubtitle: 'config.yaml で設定',
     outboundTitle: '送信 Webhook',
     outboundBody:
-      'Hermes はセッションのライフサイクルフックで、HMAC 署名付きイベントを任意の URL に POST できます。設定は config.yaml の `hooks.outbound:` にあり、ゲートウェイに API はないため、ここから管理することはまだできません。',
+      'Allr はセッションのライフサイクルフックで、HMAC 署名付きイベントを任意の URL に POST できます。設定は config.yaml の `hooks.outbound:` にあり、ゲートウェイに API はないため、ここから管理することはまだできません。',
     emptyTitle: 'サブスクリプションはまだありません',
     emptyDesc:
       'サブスクリプションは外部サービスにイベントを POST する URL を与え、受信時にエージェントが何をするかを決めます。',

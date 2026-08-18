@@ -20,7 +20,7 @@
 //!    UI.
 //!
 //! A third — `tray_ready` — is what stops the feature stranding the user. The
-//! tray is the only affordance that reaches a hidden Hermes, so a machine that
+//! tray is the only affordance that reaches a hidden Allr, so a machine that
 //! could not give us one (a bare wlroots session with no `xdg-desktop-portal`
 //! StatusNotifier host, no waybar, no xembed tray) must not be allowed to arm
 //! background mode: hiding there would leave a live process with no window, no

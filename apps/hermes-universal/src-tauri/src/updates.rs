@@ -184,7 +184,7 @@ mod imp {
 
     const TIMEOUT: Duration = Duration::from_secs(10);
     /// GitHub rejects requests without a User-Agent.
-    const API_USER_AGENT: &str = concat!("Hermes-Universal/", env!("CARGO_PKG_VERSION"));
+    const API_USER_AGENT: &str = concat!("Allr/", env!("CARGO_PKG_VERSION"));
     /// Play serves a different (parseable) page to a browser-shaped agent.
     /// (Android-only, like `GITHUB_LATEST` is desktop-only — hence the allows.)
     #[allow(dead_code)]

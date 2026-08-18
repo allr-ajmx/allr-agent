@@ -2,7 +2,7 @@
 """
 Code Execution Tool -- Programmatic Tool Calling (PTC)
 
-Lets the LLM write a Python script that calls Hermes tools via RPC,
+Lets the LLM write a Python script that calls Allr tools via RPC,
 collapsing multi-step tool chains into a single inference turn.
 
 Architecture (two transports):
@@ -54,7 +54,7 @@ from agent.thread_scoped_output import thread_scoped_silence
 # Availability gate.  On Windows we fall back to loopback TCP for the
 # sandbox RPC transport (AF_UNIX is unreliable on Windows Python) — see
 # ``_use_tcp_rpc`` in ``_execute_local`` below.  That makes execute_code
-# available on every platform Hermes itself runs on.
+# available on every platform Allr itself runs on.
 logger = logging.getLogger(__name__)
 
 SANDBOX_AVAILABLE = True
@@ -136,17 +136,17 @@ def _truncate_stdout_text(stdout_text: str) -> Tuple[str, Dict[str, Any]]:
 
 # Environment variable scrubbing rules (shared between the local + remote
 # backends).  Secret-substring block is applied first; anything left must
-# match a safe prefix, the operational HERMES_ allowlist, or (on Windows) an
+# match a safe prefix, the operational ALLR_ allowlist, or (on Windows) an
 # OS-essential name.  Delegate-task child context is also an exact-name
-# operational marker: without it, a sandbox script that spawns/imports Hermes
+# operational marker: without it, a sandbox script that spawns/imports Allr
 # code can lose the DB-layer Kanban mutation guard while still inheriting
-# HERMES_HOME.
+# ALLR_HOME.
 #
-# NB: the broad "HERMES_" prefix was deliberately removed (#27303) — it leaked
-# HERMES_*-named config that lacks a secret substring (e.g. HERMES_BASE_URL,
-# HERMES_KANBAN_DB, HERMES_*_WEBHOOK).  The child only needs the few
-# location/profile vars in _HERMES_CHILD_ALLOWED below; HERMES_RPC_SOCKET /
-# HERMES_RPC_DIR / TZ / HOME are injected explicitly after scrubbing.
+# NB: the broad "ALLR_" prefix was deliberately removed (#27303) — it leaked
+# ALLR_*-named config that lacks a secret substring (e.g. ALLR_BASE_URL,
+# ALLR_KANBAN_DB, ALLR_*_WEBHOOK).  The child only needs the few
+# location/profile vars in _ALLR_CHILD_ALLOWED below; ALLR_RPC_SOCKET /
+# ALLR_RPC_DIR / TZ / HOME are injected explicitly after scrubbing.
 _SAFE_ENV_PREFIXES = ("PATH", "HOME", "USER", "LANG", "LC_", "TERM",
                       "TMPDIR", "TMP", "TEMP", "SHELL", "LOGNAME",
                       "XDG_", "PYTHONPATH", "VIRTUAL_ENV", "CONDA")
@@ -162,16 +162,16 @@ _SECRET_SUBSTRINGS = ("KEY", "TOKEN", "SECRET", "PASSWORD", "CREDENTIAL",
                       # PASSWORD/PASSWD already cover the credential cases.
                       "CREDS", "BEARER", "APIKEY")
 
-# Operational HERMES_* vars the child legitimately needs by exact name — these
+# Operational ALLR_* vars the child legitimately needs by exact name — these
 # are non-secret runtime-location flags (the same set hermes_cli treats as the
 # runtime location) that repo-root modules a sandbox script imports may read at
 # import time.  None match _SECRET_SUBSTRINGS.
-_HERMES_CHILD_ALLOWED = frozenset({
-    "HERMES_HOME",
-    "HERMES_PROFILE",
-    "HERMES_CONFIG",
-    "HERMES_ENV",
-    "HERMES_DELEGATED_CHILD_CONTEXT",
+_ALLR_CHILD_ALLOWED = frozenset({
+    "ALLR_HOME",
+    "ALLR_PROFILE",
+    "ALLR_CONFIG",
+    "ALLR_ENV",
+    "ALLR_DELEGATED_CHILD_CONTEXT",
 })
 
 # Windows-only: a handful of variables are required by the OS/CRT itself.
@@ -215,7 +215,7 @@ def _scrub_child_env(source_env, is_passthrough=None, is_windows=None):
          unscoped multiplex read fails closed.
       2. Secret-substring names (KEY/TOKEN/DSN/WEBHOOK/etc.) are blocked.
       3. Names matching a safe prefix pass.
-      4. Operational HERMES_* vars (_HERMES_CHILD_ALLOWED) pass by exact name.
+      4. Operational ALLR_* vars (_ALLR_CHILD_ALLOWED) pass by exact name.
       5. On Windows, a small OS-essential allowlist passes by exact name
          — without these the child can't even create a socket or spawn a
          subprocess.
@@ -243,10 +243,10 @@ def _scrub_child_env(source_env, is_passthrough=None, is_windows=None):
         is_windows = _IS_WINDOWS
 
     scrubbed = {}
-    # Non-secret HERMES_* vars dropped by the tightened allowlist (#27303). The
-    # broad "HERMES_" prefix used to pass these through; now only the
+    # Non-secret ALLR_* vars dropped by the tightened allowlist (#27303). The
+    # broad "ALLR_" prefix used to pass these through; now only the
     # operational set does. The drop is intentional (those vars can carry
-    # config like HERMES_KANBAN_DB / HERMES_BASE_URL), but a sandbox script
+    # config like ALLR_KANBAN_DB / ALLR_BASE_URL), but a sandbox script
     # that imports a repo module reading one at import time would otherwise see
     # it silently unset. Surface the drop once so the behavior change is
     # diagnosable and points at the env_passthrough opt-in escape hatch.
@@ -262,19 +262,19 @@ def _scrub_child_env(source_env, is_passthrough=None, is_windows=None):
         if any(k.startswith(p) for p in _SAFE_ENV_PREFIXES):
             scrubbed[k] = v
             continue
-        if k in _HERMES_CHILD_ALLOWED:
+        if k in _ALLR_CHILD_ALLOWED:
             scrubbed[k] = v
             continue
         if is_windows and k.upper() in _WINDOWS_ESSENTIAL_ENV_VARS:
             scrubbed[k] = v
             continue
-        if k.startswith("HERMES_"):
+        if k.startswith("ALLR_"):
             # Non-secret (secrets were already dropped above) and not in any
-            # allowlist — a deliberately-dropped HERMES_* var.
+            # allowlist — a deliberately-dropped ALLR_* var.
             _dropped_hermes.append(k)
     if _dropped_hermes:
         logger.debug(
-            "execute_code: dropped %d non-allowlisted HERMES_* var(s) from the "
+            "execute_code: dropped %d non-allowlisted ALLR_* var(s) from the "
             "sandbox child env (%s). This is intentional hardening (#27303); if "
             "a sandbox script legitimately needs one, declare it via "
             "env_passthrough in the skill/config so it passes by explicit opt-in.",
@@ -350,7 +350,7 @@ _TOOL_STUBS = {
     "write_file": (
         "write_file",
         "path: str, content: str, cross_profile: bool = False",
-        '"""Write content to a file (always overwrites). Returns dict with status. cross_profile=True opts out of the cross-Hermes-profile soft guard."""',
+        '"""Write content to a file (always overwrites). Returns dict with status. cross_profile=True opts out of the cross-Allr-profile soft guard."""',
         '{"path": path, "content": content, "cross_profile": cross_profile}',
     ),
     "search_files": (
@@ -362,7 +362,7 @@ _TOOL_STUBS = {
     "patch": (
         "patch",
         'path: str = None, old_string: str = None, new_string: str = None, replace_all: bool = False, mode: str = "replace", patch: str = None, cross_profile: bool = False',
-        '"""Targeted find-and-replace (mode="replace") or V4A multi-file patches (mode="patch"). Returns dict with status. cross_profile=True opts out of the cross-Hermes-profile soft guard."""',
+        '"""Targeted find-and-replace (mode="replace") or V4A multi-file patches (mode="patch"). Returns dict with status. cross_profile=True opts out of the cross-Allr-profile soft guard."""',
         '{"path": path, "old_string": old_string, "new_string": new_string, "replace_all": replace_all, "mode": mode, "patch": patch, "cross_profile": cross_profile}',
     ),
     "terminal": (
@@ -510,7 +510,7 @@ def retry(fn, max_attempts=3, delay=2):
 # ---- UDS transport (local backend) ---------------------------------------
 
 _UDS_TRANSPORT_HEADER = '''\
-"""Auto-generated Hermes tools RPC stubs."""
+"""Auto-generated Allr tools RPC stubs."""
 import json, os, socket, shlex, threading, time
 
 _sock = None
@@ -524,7 +524,7 @@ _call_lock = threading.Lock()
 def _connect():
     """Connect to the parent's RPC server via the transport it picked.
 
-    HERMES_RPC_SOCKET can be either:
+    ALLR_RPC_SOCKET can be either:
       - a filesystem path (POSIX Unix domain socket — the default on
         Linux and macOS)
       - a string of the form ``tcp://127.0.0.1:<port>`` (Windows, where
@@ -532,7 +532,7 @@ def _connect():
     """
     global _sock
     if _sock is None:
-        endpoint = os.environ["HERMES_RPC_SOCKET"]
+        endpoint = os.environ["ALLR_RPC_SOCKET"]
         if endpoint.startswith("tcp://"):
             # tcp://host:port  (host is always 127.0.0.1 in practice — we
             # only bind loopback server-side)
@@ -551,7 +551,7 @@ def _call(tool_name, args):
     request = json.dumps({
         "tool": tool_name,
         "args": args,
-        "token": os.environ.get("HERMES_RPC_TOKEN", ""),
+        "token": os.environ.get("ALLR_RPC_TOKEN", ""),
     }) + "\\n"
     with _call_lock:
         conn = _connect()
@@ -578,10 +578,10 @@ def _call(tool_name, args):
 # ---- File-based transport (remote backends) -------------------------------
 
 _FILE_TRANSPORT_HEADER = '''\
-"""Auto-generated Hermes tools RPC stubs (file-based transport)."""
+"""Auto-generated Allr tools RPC stubs (file-based transport)."""
 import json, os, shlex, tempfile, threading, time
 
-_RPC_DIR = os.environ.get("HERMES_RPC_DIR") or os.path.join(tempfile.gettempdir(), "hermes_rpc")
+_RPC_DIR = os.environ.get("ALLR_RPC_DIR") or os.path.join(tempfile.gettempdir(), "hermes_rpc")
 _seq = 0
 # `_seq += 1` is not atomic (read-modify-write), so concurrent _call()
 # invocations from multiple threads could allocate the same sequence number
@@ -609,7 +609,7 @@ def _call(tool_name, args):
             "tool": tool_name,
             "args": args,
             "seq": seq,
-            "token": os.environ.get("HERMES_RPC_TOKEN", ""),
+            "token": os.environ.get("ALLR_RPC_TOKEN", ""),
         }, f)
     os.rename(tmp, req_file)
 
@@ -1145,11 +1145,11 @@ def _execute_remote(
 
         # Build environment variable prefix for the script
         env_prefix = (
-            f"HERMES_RPC_DIR={shlex.quote(f'{sandbox_dir}/rpc')} "
-            f"HERMES_RPC_TOKEN={shlex.quote(rpc_token)} "
+            f"ALLR_RPC_DIR={shlex.quote(f'{sandbox_dir}/rpc')} "
+            f"ALLR_RPC_TOKEN={shlex.quote(rpc_token)} "
             f"PYTHONDONTWRITEBYTECODE=1"
         )
-        tz = os.getenv("HERMES_TIMEZONE", "").strip()
+        tz = os.getenv("ALLR_TIMEZONE", "").strip()
         if tz:
             env_prefix += f" TZ={shlex.quote(tz)}"
 
@@ -1260,7 +1260,7 @@ def execute_code(
 ) -> str:
     """
     Run a Python script in a sandboxed child process with RPC access
-    to a subset of Hermes tools.
+    to a subset of Allr tools.
 
     Dispatches to the local (UDS) or remote (file-based RPC) path
     depending on the configured terminal backend.
@@ -1349,7 +1349,7 @@ def execute_code(
     # on the same temp drive as the script).  Fall back to loopback TCP —
     # same ephemeral port, same 1-connection listen queue, same serialized
     # request/response framing.  The generated client reads the transport
-    # selector from HERMES_RPC_SOCKET (path vs. ``tcp://host:port``).
+    # selector from ALLR_RPC_SOCKET (path vs. ``tcp://host:port``).
     _sock_tmpdir = "/tmp" if sys.platform == "darwin" else tempfile.gettempdir()
     _use_tcp_rpc = _IS_WINDOWS
     if _use_tcp_rpc:
@@ -1392,7 +1392,7 @@ def execute_code(
         #   Windows: AF_INET stream socket on 127.0.0.1 with an ephemeral
         #   port.  No filesystem permission story, but loopback-only bind
         #   means only the current user's processes (not remote) can
-        #   connect.  HERMES_RPC_SOCKET is set to ``tcp://127.0.0.1:<port>``
+        #   connect.  ALLR_RPC_SOCKET is set to ``tcp://127.0.0.1:<port>``
         #   which the generated client parses to pick AF_INET.
         if _use_tcp_rpc:
             server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -1429,8 +1429,8 @@ def execute_code(
         # passed through — without those, the child can't create a socket
         # or spawn a subprocess.  See ``_scrub_child_env`` for the rules.
         child_env = _scrub_child_env(os.environ)
-        child_env["HERMES_RPC_SOCKET"] = rpc_endpoint
-        child_env["HERMES_RPC_TOKEN"] = rpc_token
+        child_env["ALLR_RPC_SOCKET"] = rpc_endpoint
+        child_env["ALLR_RPC_TOKEN"] = rpc_token
         child_env["PYTHONDONTWRITEBYTECODE"] = "1"
         # Force UTF-8 for the child's stdio and default file encoding.
         #
@@ -1451,7 +1451,7 @@ def execute_code(
         # with a C/POSIX locale (containers, minimal base images).
         child_env["PYTHONIOENCODING"] = "utf-8"
         child_env["PYTHONUTF8"] = "1"
-        # Ensure the hermes-agent root is importable in the sandbox so
+        # Ensure the allr-agent root is importable in the sandbox so
         # repo-root modules are available to child scripts.  We also prepend
         # the staging tmpdir so ``from hermes_tools import ...`` resolves even
         # when the subprocess CWD is not tmpdir (project mode).
@@ -1463,12 +1463,12 @@ def execute_code(
         child_env["PYTHONPATH"] = os.pathsep.join(_pp_parts)
         # Inject user's configured timezone so datetime.now() in sandboxed
         # code reflects the correct wall-clock time.  Only TZ is set —
-        # HERMES_TIMEZONE is an internal Hermes setting and must not leak
+        # ALLR_TIMEZONE is an internal Allr setting and must not leak
         # into child processes.
-        _tz_name = os.getenv("HERMES_TIMEZONE", "").strip()
+        _tz_name = os.getenv("ALLR_TIMEZONE", "").strip()
         if _tz_name:
             child_env["TZ"] = _tz_name
-        child_env.pop("HERMES_TIMEZONE", None)
+        child_env.pop("ALLR_TIMEZONE", None)
 
         from hermes_constants import apply_subprocess_home_env
         apply_subprocess_home_env(child_env)
@@ -1631,7 +1631,7 @@ def execute_code(
 
         # Redact secrets (API keys, tokens, etc.) from sandbox output.
         # The sandbox env-var filter (lines 434-454) blocks os.environ access,
-        # but scripts can still read secrets from disk (e.g. open('~/.hermes/.env')).
+        # but scripts can still read secrets from disk (e.g. open('~/.allr/.env')).
         # This ensures leaked secrets never enter the model context.
         # code_file=True: this is code-execution output — skip false-positive
         # ENV/JSON/f-string-template redaction; real credentials still masked.
@@ -1806,7 +1806,7 @@ def _get_execution_mode() -> str:
         with the active virtual environment's python, so project dependencies
         (pandas, torch, project packages) and files resolve naturally.
       - ``strict``: scripts run in an isolated temp directory with
-        ``sys.executable`` (hermes-agent's python). Reproducible and the
+        ``sys.executable`` (allr-agent's python). Reproducible and the
         interpreter is guaranteed to work, but project deps and relative paths
         won't resolve.
 
@@ -1973,7 +1973,7 @@ def build_execute_code_schema(enabled_sandbox_tools: set = None,
                               mode: str = None) -> dict:
     """Build the execute_code schema with description listing only enabled tools.
 
-    When tools are disabled via ``hermes tools`` (e.g. web is turned off),
+    When tools are disabled via ``allr tools`` (e.g. web is turned off),
     the schema description should NOT mention web_search / web_extract —
     otherwise the model thinks they are available and keeps trying to use them.
 
@@ -2004,11 +2004,11 @@ def build_execute_code_schema(enabled_sandbox_tools: set = None,
 
     # Mode-specific CWD guidance. Project mode is the default and matches
     # terminal()'s filesystem/interpreter; strict mode retains the isolated
-    # temp-dir staging and hermes-agent's own python.
+    # temp-dir staging and allr-agent's own python.
     if mode == "strict":
         cwd_note = (
             "Scripts run in their own temp dir, not the session's CWD — use absolute paths "
-            "(os.path.expanduser('~/.hermes/.env')) or terminal()/read_file() for user files."
+            "(os.path.expanduser('~/.allr/.env')) or terminal()/read_file() for user files."
         )
     else:
         cwd_note = (
@@ -2017,7 +2017,7 @@ def build_execute_code_schema(enabled_sandbox_tools: set = None,
         )
 
     description = (
-        "Run a Python script that calls Hermes tools programmatically. "
+        "Run a Python script that calls Allr tools programmatically. "
         "Use when you need 3+ tool calls with logic between them: "
         "filtering/reducing large outputs before they enter context, "
         "conditional branching, or loops (N pages/files, retry on failure). "

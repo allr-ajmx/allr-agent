@@ -235,7 +235,7 @@ const ThemeContext = createContext<ThemeContextValue>({
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   // Built-ins + user-installed + backend skins + registry-contributed themes.
-  // Reactive so an install, a plugin registration, or a skin Hermes just authored
+  // Reactive so an install, a plugin registration, or a skin Allr just authored
   // shows up live in the picker and `/skin` without a reload.
   const userThemes = useStore($userThemes)
   const backendThemes = useStore($backendThemes)
@@ -275,7 +275,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const setTheme = useCallback((name: string) => $skin.set(normalizeSkin(name)), [])
   const setMode = useCallback((next: ThemeMode) => $mode.set(next), [])
 
-  // Drain a backend-driven skin switch (Hermes authoring/activating a skin from a
+  // Drain a backend-driven skin switch (Allr authoring/activating a skin from a
   // prompt, or `/skin` on another surface). setTheme persists it, so the choice
   // sticks like any manual pick.
   const pendingSkin = useStore($pendingSkinApply)

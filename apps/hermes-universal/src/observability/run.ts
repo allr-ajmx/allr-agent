@@ -6,11 +6,11 @@
  * means squinting at clocks. Three levers, last one wins:
  *
  *   (default)                                       current git branch
- *   HERMES_TRACE_RUN=before-fix npm run tauri dev   build/dev-time, BOTH halves
+ *   ALLR_TRACE_RUN=before-fix npm run tauri dev   build/dev-time, BOTH halves
  *   VITE_TRACE_RUN=before-fix   npm run tauri dev   build/dev-time, frontend only
  *   __hermesTrace.run('after-fix')                  runtime, no rebuild
  *
- * Prefer `HERMES_TRACE_RUN`: it is the one name the Rust backend also reads, so
+ * Prefer `ALLR_TRACE_RUN`: it is the one name the Rust backend also reads, so
  * a single variable labels the frontend span and the backend work it caused.
  * `VITE_TRACE_RUN` stays because it is vite's own convention and useful when
  * deliberately labelling the halves differently — but reach for it second, and

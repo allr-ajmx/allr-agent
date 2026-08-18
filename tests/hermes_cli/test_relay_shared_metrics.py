@@ -1,4 +1,4 @@
-"""Focused tests for the Hermes shared-metrics durable store."""
+"""Focused tests for the Allr shared-metrics durable store."""
 
 from __future__ import annotations
 
@@ -84,9 +84,9 @@ SCHEMA_PATH = (
     / "hermes_cli"
     / "observability"
     / "schemas"
-    / "hermes.shared_metrics.v2.schema.json"
+    / "allr.shared_metrics.v2.schema.json"
 )
-LEGACY_SCHEMA_PATH = SCHEMA_PATH.with_name("hermes.shared_metrics.v1.schema.json")
+LEGACY_SCHEMA_PATH = SCHEMA_PATH.with_name("allr.shared_metrics.v1.schema.json")
 
 
 def _schema_validator(path: Path = SCHEMA_PATH):
@@ -182,7 +182,7 @@ def test_model_call_counter_survives_restart_and_exports_only_new_deltas(tmp_pat
     _schema_validator().validate(first_package)
     uuid.UUID(first_package["package_id"])
     uuid.UUID(first_package["install_id"])
-    assert first_package["schema_version"] == "hermes.shared_metrics.v2"
+    assert first_package["schema_version"] == "allr.shared_metrics.v2"
     assert first_package["resource"] == _resource()
     assert first_package["metrics"] == [
         {
@@ -260,7 +260,7 @@ def test_v2_package_preserves_pending_v1_model_counters(tmp_path):
     package = json.loads(package_path.read_text(encoding="utf-8"))
     _schema_validator().validate(package)
 
-    assert package["schema_version"] == "hermes.shared_metrics.v2"
+    assert package["schema_version"] == "allr.shared_metrics.v2"
     assert package["metrics"] == [
         {
             "name": LEGACY_MODEL_CALL_METRIC,
@@ -286,7 +286,7 @@ def test_v1_outbox_package_exports_unchanged_after_upgrade(tmp_path):
     store = SharedMetricsStore(database_path, outbox_directory)
     package_id = str(uuid.uuid4())
     payload = {
-        "schema_version": "hermes.shared_metrics.v1",
+        "schema_version": "allr.shared_metrics.v1",
         "package_id": package_id,
         "install_id": str(uuid.uuid4()),
         "period_start": "2026-07-28T00:00:00Z",
@@ -506,7 +506,7 @@ def test_package_schema_matches_the_model_call_contract():
     schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
     properties = _package_dimension_schema()["properties"]
 
-    assert schema["properties"]["schema_version"]["const"] == "hermes.shared_metrics.v2"
+    assert schema["properties"]["schema_version"]["const"] == "allr.shared_metrics.v2"
     assert set(properties) == {"model", "provider"}
     assert properties["model"]["maxLength"] == MODEL_IDENTIFIER_MAX_LENGTH
     assert properties["provider"]["maxLength"] == PROVIDER_IDENTIFIER_MAX_LENGTH
@@ -564,10 +564,10 @@ def test_client_active_mark_accepts_only_an_empty_allowlisted_payload():
         kind="mark",
         category=None,
         category_profile=None,
-        name="hermes.client.active",
+        name="allr.client.active",
         scope_category=None,
         metadata={
-            "hermes.metrics.schema_version": "hermes.metrics.event.v2",
+            "allr.metrics.schema_version": "allr.metrics.event.v2",
         },
         data={},
     )
@@ -579,7 +579,7 @@ def test_client_active_mark_accepts_only_an_empty_allowlisted_payload():
     assert client_active_counter(with_payload) is None
 
     wrong_schema = deepcopy(event)
-    wrong_schema.metadata["hermes.metrics.schema_version"] = "unknown"
+    wrong_schema.metadata["allr.metrics.schema_version"] = "unknown"
     assert client_active_counter(wrong_schema) is None
 
 
@@ -601,7 +601,7 @@ def test_v1_package_schema_retains_the_legacy_model_contract():
     schema = json.loads(LEGACY_SCHEMA_PATH.read_text(encoding="utf-8"))
     model_counter = schema["$defs"]["model_call_counter"]
 
-    assert schema["properties"]["schema_version"]["const"] == "hermes.shared_metrics.v1"
+    assert schema["properties"]["schema_version"]["const"] == "allr.shared_metrics.v1"
     assert model_counter["properties"]["name"]["const"] == LEGACY_MODEL_CALL_METRIC
     assert set(model_counter["properties"]["dimensions"]["properties"]) == {
         "call_role",
@@ -781,7 +781,7 @@ def test_auxiliary_logical_scope_projects_one_normalized_terminal_route():
         metadata={
             relay_runtime.RUNTIME_SCHEMA_KEY: relay_runtime.RUNTIME_SCHEMA_VERSION,
             relay_runtime.RUNTIME_INSTANCE_KEY: "runtime-1",
-            "hermes.call_role": "auxiliary:compression",
+            "allr.call_role": "auxiliary:compression",
         },
     )
 
@@ -799,7 +799,7 @@ def test_auxiliary_logical_scope_projects_one_normalized_terminal_route():
         "provider": "openrouter",
     }
 
-    event.metadata["hermes.call_role"] = "primary"
+    event.metadata["allr.call_role"] = "primary"
     assert model_call_dimensions(event) is None
 
 
@@ -848,9 +848,9 @@ def test_tool_subscriber_contract_accepts_only_bounded_events():
         kind="scope",
         category="tool",
         category_profile={},
-        name="hermes.tool_call",
+        name="allr.tool_call",
         scope_category="end",
-        metadata={"hermes.metrics.schema_version": "hermes.metrics.event.v2"},
+        metadata={"allr.metrics.schema_version": "allr.metrics.event.v2"},
         data={
             "approval_outcome": "approved",
             "latency_bucket": "250ms_to_500ms",
@@ -874,13 +874,13 @@ def test_tool_subscriber_contract_accepts_only_bounded_events():
         kind="mark",
         category=None,
         category_profile=None,
-        name="hermes.tool_approval",
+        name="allr.tool_approval",
         scope_category=None,
-        metadata={"hermes.metrics.schema_version": "hermes.metrics.event.v2"},
+        metadata={"allr.metrics.schema_version": "allr.metrics.event.v2"},
         data={"attribution": "unattributed", "outcome": "denied"},
     )
     assert tool_approval_counter(approval) == (
-        "hermes.tool_approval.count",
+        "allr.tool_approval.count",
         approval.data,
     )
     approval.data["command"] = "must-not-pass"
@@ -888,24 +888,24 @@ def test_tool_subscriber_contract_accepts_only_bounded_events():
 
 
 def test_skill_subscriber_contract_accepts_only_bounded_marks():
-    metadata = {"hermes.metrics.schema_version": "hermes.metrics.event.v2"}
+    metadata = {"allr.metrics.schema_version": "allr.metrics.event.v2"}
     lifecycle = SimpleNamespace(
         kind="mark",
         category=None,
         category_profile=None,
-        name="hermes.skill.lifecycle",
+        name="allr.skill.lifecycle",
         scope_category=None,
         metadata=metadata,
         data={"action": "patched", "provenance": "agent_created"},
     )
     assert skill_counter(lifecycle) == (
-        "hermes.skill.lifecycle.count",
+        "allr.skill.lifecycle.count",
         lifecycle.data,
     )
 
     load = SimpleNamespace(**{
         **lifecycle.__dict__,
-        "name": "hermes.skill.load",
+        "name": "allr.skill.load",
         "data": {
             "post_patch_state": "reused_after_patch",
             "provenance": "agent_created",
@@ -913,7 +913,7 @@ def test_skill_subscriber_contract_accepts_only_bounded_marks():
             "use_count_bucket": "3_to_5",
         },
     })
-    assert skill_counter(load) == ("hermes.skill.load.count", load.data)
+    assert skill_counter(load) == ("allr.skill.load.count", load.data)
 
     load.data["skill_name"] = "privacy-canary"
     assert skill_counter(load) is None
@@ -1073,7 +1073,7 @@ def test_pending_metrics_keep_the_client_resource_recorded_at_event_time(tmp_pat
 def test_store_exports_task_started_and_terminal_counters(tmp_path):
     store = SharedMetricsStore(tmp_path / "metrics.sqlite3", tmp_path / "outbox")
     store.record_counter(
-        "hermes.task_run.started",
+        "allr.task_run.started",
         {"entrypoint": "interactive", "execution_surface": "cli"},
         _resource(),
     )
@@ -1088,15 +1088,15 @@ def test_store_exports_task_started_and_terminal_counters(tmp_path):
         tool_call_count=2,
         retry_count=0,
     )
-    store.record_counter("hermes.task_run.finished", terminal, _resource())
+    store.record_counter("allr.task_run.finished", terminal, _resource())
 
     [package_path] = store.create_and_export_package()
     package = json.loads(package_path.read_text(encoding="utf-8"))
     _schema_validator().validate(package)
 
     assert {metric["name"] for metric in package["metrics"]} == {
-        "hermes.task_run.finished",
-        "hermes.task_run.started",
+        "allr.task_run.finished",
+        "allr.task_run.started",
     }
 
 def test_package_schema_rejects_unknown_fields(tmp_path):

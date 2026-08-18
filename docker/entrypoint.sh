@@ -1,6 +1,6 @@
 #!/bin/sh
 # s6-overlay shim. The real logic lives in docker/stage2-hook.sh, invoked
-# by /etc/cont-init.d/01-hermes-setup (installed by the Dockerfile). This
+# by /etc/cont-init.d/01-allr-setup (installed by the Dockerfile). This
 # file exists so external references to docker/entrypoint.sh still work,
 # but it's no longer the ENTRYPOINT — /init is.
 #

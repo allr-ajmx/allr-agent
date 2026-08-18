@@ -14,7 +14,7 @@ metadata:
 
 # API Testing & Debugging
 
-Drive REST and GraphQL diagnosis through Hermes tools — `terminal` for `curl`, `execute_code` for Python `requests`, `web_extract` for vendor docs. Isolate the failing layer before guessing at the fix.
+Drive REST and GraphQL diagnosis through Allr tools — `terminal` for `curl`, `execute_code` for Python `requests`, `web_extract` for vendor docs. Isolate the failing layer before guessing at the fix.
 
 ## When to Use
 
@@ -398,7 +398,7 @@ class TestAPISmoke:
 
 ### Token handling
 - Never log full tokens. Redact: `Bearer <REDACTED>`.
-- Never hardcode tokens in scripts. Read from env (`os.environ["API_TOKEN"]`) or `${HERMES_HOME:-~/.hermes}/.env`.
+- Never hardcode tokens in scripts. Read from env (`os.environ["API_TOKEN"]`) or `${ALLR_HOME:-~/.allr}/.env`.
 - Rotate immediately if a token surfaces in logs, error messages, or git history.
 
 ### Safe logging
@@ -418,7 +418,7 @@ def redact_auth(headers: dict) -> dict:
 - [ ] **Tokens echoed back.** Some APIs include the auth token in error details. Verify they don't.
 - [ ] **Verbose `Server` / `X-Powered-By`.** Stack-info leaks. Note for security review.
 
-## Hermes Tool Patterns
+## Allr Tool Patterns
 
 ### terminal — for curl, dig, openssl
 

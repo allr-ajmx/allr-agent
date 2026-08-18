@@ -7,7 +7,7 @@ import type { OAuthProvider } from '@/types/hermes'
 const qwen: OAuthProvider = {
   id: 'qwen-oauth',
   name: 'Qwen',
-  cli_command: 'hermes auth add qwen-oauth',
+  cli_command: 'allr auth add qwen-oauth',
   docs_url: 'https://github.com/QwenLM/qwen-code',
   flow: 'external',
   status: { logged_in: false }
@@ -82,7 +82,7 @@ describe('OnboardingScreen — CLI-terminal (external) providers', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: /Sign in with Qwen/ }))
 
-    expect(screen.getByText('hermes auth add qwen-oauth')).toBeInTheDocument()
+    expect(screen.getByText('allr auth add qwen-oauth')).toBeInTheDocument()
     expect(screen.queryByPlaceholderText(/Paste authorization code/)).not.toBeInTheDocument()
     // No auth URL exists for this flow, so there is nothing to reopen.
     expect(screen.queryByRole('button', { name: /Reopen/ })).not.toBeInTheDocument()
@@ -94,7 +94,7 @@ describe('OnboardingScreen — CLI-terminal (external) providers', () => {
     fireEvent.click(await screen.findByRole('button', { name: /Sign in with Qwen/ }))
     fireEvent.click(screen.getByRole('button', { name: 'Copy' }))
 
-    expect(writeClipboardText).toHaveBeenCalledWith('hermes auth add qwen-oauth')
+    expect(writeClipboardText).toHaveBeenCalledWith('allr auth add qwen-oauth')
   })
 
   it('advances to the confirm step once the recheck finds the CLI creds', async () => {
@@ -114,7 +114,7 @@ describe('OnboardingScreen — CLI-terminal (external) providers', () => {
     fireEvent.click(screen.getByRole('button', { name: "I've signed in" }))
 
     await waitFor(() =>
-      expect(screen.getByText(/Run `hermes auth add qwen-oauth` in a terminal first/)).toBeInTheDocument()
+      expect(screen.getByText(/Run `allr auth add qwen-oauth` in a terminal first/)).toBeInTheDocument()
     )
   })
 })

@@ -18,7 +18,7 @@ import { RemotePtySocket } from './remote-pty'
 //   remote → RemotePtySocket (`/api/shell-pty` on the gateway host)
 //
 // `ssh` resolves REMOTE even though its baseUrl is a 127.0.0.1 tunnel: the tunnel
-// terminates at `hermes serve` on the remote host, so shell-pty lands there — which
+// terminates at `allr serve` on the remote host, so shell-pty lands there — which
 // is the host whose files the rest of the pane is showing.
 
 export type TerminalTransportKind = 'local' | 'remote'

@@ -10,18 +10,18 @@ Server-side LLM fact extraction with semantic search and hybrid multi-signal ret
 ## Setup
 
 ```bash
-hermes memory setup    # select "mem0"
+allr memory setup    # select "mem0"
 ```
 
 Or manually:
 ```bash
-hermes config set memory.provider mem0
-echo "MEM0_API_KEY=your-key" >> ~/.hermes/.env
+allr config set memory.provider mem0
+echo "MEM0_API_KEY=your-key" >> ~/.allr/.env
 ```
 
 ## Config
 
-Behavioral settings live in `$HERMES_HOME/mem0.json` (set them via `hermes memory setup`). Only the secret `MEM0_API_KEY` belongs in `~/.hermes/.env`.
+Behavioral settings live in `$ALLR_HOME/mem0.json` (set them via `allr memory setup`). Only the secret `MEM0_API_KEY` belongs in `~/.allr/.env`.
 
 | Key | Default | Description |
 |-----|---------|-------------|
@@ -44,23 +44,23 @@ Connect the plugin to a standalone Mem0 server you run yourself — the Docker-s
 1. Run the Mem0 server (FastAPI + pgvector) from its Docker image and note its URL and `ADMIN_API_KEY`.
 2. Point the plugin at it — via the setup wizard:
    ```bash
-   hermes memory setup    # select "mem0" → "Self-hosted server"
+   allr memory setup    # select "mem0" → "Self-hosted server"
    # Or non-interactive:
-   hermes memory setup mem0 --mode selfhosted --host http://localhost:8888 --api-key your-admin-api-key
+   allr memory setup mem0 --mode selfhosted --host http://localhost:8888 --api-key your-admin-api-key
    ```
    or via env vars:
    ```bash
-   echo "MEM0_HOST=http://localhost:8888" >> ~/.hermes/.env
-   echo "MEM0_API_KEY=your-admin-api-key" >> ~/.hermes/.env
+   echo "MEM0_HOST=http://localhost:8888" >> ~/.allr/.env
+   echo "MEM0_API_KEY=your-admin-api-key" >> ~/.allr/.env
    ```
-   or in `$HERMES_HOME/mem0.json`:
+   or in `$ALLR_HOME/mem0.json`:
    ```json
    {
      "host": "http://localhost:8888",
      "api_key": "your-admin-api-key"
    }
    ```
-3. Start a fresh Hermes session and call `mem0_search` — it connects to your server.
+3. Start a fresh Allr session and call `mem0_search` — it connects to your server.
 
 The plugin authenticates with `X-API-Key` and uses the server's `/search` and `/memories` routes. `api_key` is optional — omit it only for servers running with `AUTH_DISABLED`.
 
@@ -73,7 +73,7 @@ Run Mem0 locally with your own LLM, embedder, and vector store. This is the in-p
 ### Interactive Setup
 
 ```bash
-hermes memory setup
+allr memory setup
 # Select "mem0" → "Open Source (self-hosted)"
 # Follow prompts for LLM, embedder, and vector store
 ```
@@ -81,7 +81,7 @@ hermes memory setup
 ### Agent-Driven Setup (Flags)
 
 ```bash
-hermes memory setup mem0 --mode oss \
+allr memory setup mem0 --mode oss \
   --oss-llm openai --oss-llm-key sk-... \
   --oss-vector qdrant
 ```
@@ -111,17 +111,17 @@ hermes memory setup mem0 --mode oss \
 ### Platform to OSS
 
 ```bash
-hermes memory setup mem0 --mode oss --oss-llm-key sk-...
+allr memory setup mem0 --mode oss --oss-llm-key sk-...
 ```
 
-Or edit `$HERMES_HOME/mem0.json` directly:
+Or edit `$ALLR_HOME/mem0.json` directly:
 ```json
 {
   "mode": "oss",
   "oss": {
     "llm": {"provider": "openai", "config": {"model": "gpt-5-mini"}},
     "embedder": {"provider": "openai", "config": {"model": "text-embedding-3-small"}},
-    "vector_store": {"provider": "qdrant", "config": {"path": "~/.hermes/mem0_qdrant"}}
+    "vector_store": {"provider": "qdrant", "config": {"path": "~/.allr/mem0_qdrant"}}
   }
 }
 ```
@@ -129,13 +129,13 @@ Or edit `$HERMES_HOME/mem0.json` directly:
 ### OSS to Platform
 
 ```bash
-hermes memory setup mem0 --mode platform --api-key sk-...
+allr memory setup mem0 --mode platform --api-key sk-...
 ```
 
 ### Dry Run (preview without writing)
 
 ```bash
-hermes memory setup mem0 --mode oss --oss-llm-key sk-... --dry-run
+allr memory setup mem0 --mode oss --oss-llm-key sk-... --dry-run
 ```
 
 ## Tools
@@ -160,7 +160,7 @@ Circuit breaker tripped after 5 consecutive failures. Resets after 2 minutes.
 
 ```bash
 # If using local Qdrant, check the storage path is writable:
-ls -la ~/.hermes/mem0_qdrant
+ls -la ~/.allr/mem0_qdrant
 
 # If using Qdrant server, check it's reachable:
 curl http://localhost:6333/healthz
@@ -184,4 +184,4 @@ curl http://localhost:11434/api/tags
 
 - `mem0_add` stores verbatim (no extraction). Use `sync_turn` for LLM extraction.
 - Search uses semantic matching — try broader queries.
-- Check `user_id` matches between sessions (`$HERMES_HOME/mem0.json`).
+- Check `user_id` matches between sessions (`$ALLR_HOME/mem0.json`).

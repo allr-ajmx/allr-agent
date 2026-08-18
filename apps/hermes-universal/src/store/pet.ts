@@ -15,7 +15,7 @@ export interface PetInfo {
   framesPerState?: number
   framesByState?: Record<string, number>
   // Concrete Codex row counts (e.g. running-right may have 8 frames even though
-  // the Hermes "run" activity state uses the in-place running row). Optional —
+  // the Allr "run" activity state uses the in-place running row). Optional —
   // falls back to framesByState / framesPerState when absent.
   framesByRow?: Record<string, number>
   loopMs?: number

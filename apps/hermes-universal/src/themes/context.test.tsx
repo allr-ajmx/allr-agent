@@ -100,7 +100,7 @@ describe('ThemeProvider', () => {
   })
 })
 
-// The live-authoring loop: Hermes writes/edits one skin file and every surface
+// The live-authoring loop: Allr writes/edits one skin file and every surface
 // repaints. An in-place edit keeps the NAME — only the palette moves.
 const bloomberg = (foreground: string) => ({
   name: 'bloomberg',

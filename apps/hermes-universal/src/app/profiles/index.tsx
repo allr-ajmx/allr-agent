@@ -371,7 +371,7 @@ function ProfileGlyph({ color, isDefault, name }: { color: null | string; isDefa
 function ProfileDetail({ profile }: { profile: ProfileInfo }) {
   const { t } = useI18n()
   const p = t.profiles
-  // A profile lives under the GATEWAY's HERMES_HOME, so `~` here is the gateway
+  // A profile lives under the GATEWAY's ALLR_HOME, so `~` here is the gateway
   // user's home — never this client's (MJXHRM-394).
   const displayPath = useDisplayPath()
 

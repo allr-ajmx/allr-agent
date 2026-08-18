@@ -1,4 +1,4 @@
-"""PTY bridge for `hermes dashboard` chat tab.
+"""PTY bridge for `allr dashboard` chat tab.
 
 Wraps a child process behind a pseudo-terminal so its ANSI output can be
 streamed to a browser-side terminal emulator (xterm.js) and typed
@@ -129,7 +129,7 @@ class PtyBridge:
             if sys.platform.startswith("win"):
                 raise PtyUnavailableError(
                     "Pseudo-terminals are unavailable on this platform. "
-                    "Hermes Agent supports Windows only via WSL."
+                    "Allr supports Windows only via WSL."
                 )
             if ptyprocess is None:
                 raise PtyUnavailableError(

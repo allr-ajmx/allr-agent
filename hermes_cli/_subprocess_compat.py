@@ -1,6 +1,6 @@
 """Windows subprocess compatibility helpers.
 
-Hermes is developed on Linux / macOS and tested natively on Windows too.
+Allr is developed on Linux / macOS and tested natively on Windows too.
 Several common subprocess patterns break silently-or-loudly on Windows:
 
 * ``["npm", "install", ...]`` — on Windows ``npm`` is ``npm.cmd``, a batch
@@ -248,7 +248,7 @@ def suppress_platform_ver_console() -> None:
     CPython 3.11 (``platform()`` → ``Windows-10-10.0.xxxxx-SP0`` either way).
 
     Call early, before heavyweight imports — the flash typically happens
-    during a dependency's import, not from Hermes' own code.
+    during a dependency's import, not from Allr' own code.
     """
     if not IS_WINDOWS:
         return
@@ -309,7 +309,7 @@ def noninteractive_git_env(
 ) -> dict[str, str]:
     """Environment for *internal* git invocations that must never prompt.
 
-    Hermes shells out to git from many non-interactive contexts — MCP catalog
+    Allr shells out to git from many non-interactive contexts — MCP catalog
     installs, plugin install/update, profile distribution staging, worktree
     base fetches, desktop review-pane fetch/push. When the remote is private,
     misconfigured, or requires auth, git's default behavior is to prompt on

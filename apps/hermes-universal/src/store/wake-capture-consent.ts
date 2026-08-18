@@ -16,7 +16,7 @@
  *
  * The backend chooses which, at arm time, and it can change: a user who enabled
  * the wake word against a gateway with a microphone gets silently upgraded to
- * continuous upload the day they point Hermes at a headless one. The upload is
+ * continuous upload the day they point Allr at a headless one. The upload is
  * then re-established on every app start with no press at all, because the
  * config still says enabled. That is the case this exists for.
  *
@@ -33,7 +33,7 @@
  *
  * Per DEVICE, in this webview's storage, not per gateway. The thing being
  * consented to is this machine's microphone being opened and streamed at all;
- * the destination is whichever backend the user has pointed Hermes at, which is
+ * the destination is whichever backend the user has pointed Allr at, which is
  * itself their choice. The honest limit: switching to a DIFFERENT headless
  * gateway later does not ask again. Making the record per gateway needs the
  * connection store in this graph, which is a cycle away from the voice loop —

@@ -52,7 +52,7 @@ beforeEach(() => {
   $userThemes.set({})
   $profileColors.set({})
   $layoutTree.set(null)
-  mockExport.mockResolvedValue({ ok: true, archive: '/home/h/.hermes/profile-exports/work.tar.gz' })
+  mockExport.mockResolvedValue({ ok: true, archive: '/home/h/.allr/profile-exports/work.tar.gz' })
 })
 
 describe('buildDesktopOverlay', () => {
@@ -91,7 +91,7 @@ describe('export → import round trip', () => {
 
     const archive = await exportProfileBundle('work')
 
-    expect(archive).toBe('/home/h/.hermes/profile-exports/work.tar.gz')
+    expect(archive).toBe('/home/h/.allr/profile-exports/work.tar.gz')
     const [name, opts] = mockExport.mock.calls[0]
     expect(name).toBe('work')
     const staged = JSON.parse(opts?.extraFiles?.[DESKTOP_OVERLAY_FILENAME] ?? '{}')
@@ -187,9 +187,9 @@ describe('flows', () => {
   it('export reports the BACKEND path it landed on', async () => {
     const archive = await runExportProfileFlow('work')
 
-    expect(archive).toBe('/home/h/.hermes/profile-exports/work.tar.gz')
+    expect(archive).toBe('/home/h/.allr/profile-exports/work.tar.gz')
     expect(notify).toHaveBeenCalledWith(
-      expect.objectContaining({ kind: 'success', message: '/home/h/.hermes/profile-exports/work.tar.gz' })
+      expect.objectContaining({ kind: 'success', message: '/home/h/.allr/profile-exports/work.tar.gz' })
     )
     // No `output` — the backend names the file, because on a remote gateway the
     // archive is written on that machine.

@@ -1,15 +1,15 @@
 """
-Hermes Plugin System
+Allr Plugin System
 ====================
 
 Discovers, loads, and manages plugins from four sources:
 
-1. **Bundled plugins** – ``<repo>/plugins/<name>/`` (shipped with hermes-agent;
+1. **Bundled plugins** – ``<repo>/plugins/<name>/`` (shipped with allr-agent;
    ``memory/`` and ``context_engine/`` subdirs are excluded — they have their
    own discovery paths)
-2. **User plugins**   – ``~/.hermes/plugins/<name>/``
-3. **Project plugins** – ``./.hermes/plugins/<name>/`` (opt-in via
-   ``HERMES_ENABLE_PROJECT_PLUGINS``)
+2. **User plugins**   – ``~/.allr/plugins/<name>/``
+3. **Project plugins** – ``./.allr/plugins/<name>/`` (opt-in via
+   ``ALLR_ENABLE_PROJECT_PLUGINS``)
 4. **Pip plugins**     – packages that expose the ``hermes_agent.plugins``
    entry-point group.
 
@@ -56,11 +56,11 @@ from hermes_cli.middleware import OBSERVER_SCHEMA_VERSION, VALID_MIDDLEWARE
 def get_bundled_plugins_dir() -> Path:
     """Locate the bundled ``plugins/`` directory.
 
-    Honours ``HERMES_BUNDLED_PLUGINS`` (set by the Nix wrapper / packaged
+    Honours ``ALLR_BUNDLED_PLUGINS`` (set by the Nix wrapper / packaged
     installs) so read-only store paths are consulted first.  Falls back to
     the in-repo path used during development.
     """
-    env_override = os.getenv("HERMES_BUNDLED_PLUGINS")
+    env_override = os.getenv("ALLR_BUNDLED_PLUGINS")
     if env_override:
         return Path(env_override)
     return Path(__file__).resolve().parent.parent / "plugins"
@@ -84,8 +84,8 @@ logger = logging.getLogger(__name__)
 # Plugin developer debug logging
 # ---------------------------------------------------------------------------
 #
-# Set ``HERMES_PLUGINS_DEBUG=1`` to surface verbose plugin-discovery logs to
-# stderr in addition to ~/.hermes/logs/agent.log. Aimed at plugin authors
+# Set ``ALLR_PLUGINS_DEBUG=1`` to surface verbose plugin-discovery logs to
+# stderr in addition to ~/.allr/logs/agent.log. Aimed at plugin authors
 # trying to figure out why their plugin isn't showing up: which directories
 # were scanned, which manifests parsed, which plugins were skipped (and why),
 # what each ``register(ctx)`` call registered, and full tracebacks on load
@@ -94,21 +94,21 @@ logger = logging.getLogger(__name__)
 # The env var is read once at import time; tests that need to flip it
 # mid-process can call ``_install_plugin_debug_handler(force=True)``.
 
-_PLUGINS_DEBUG = os.getenv("HERMES_PLUGINS_DEBUG", "").strip().lower() in {
+_PLUGINS_DEBUG = os.getenv("ALLR_PLUGINS_DEBUG", "").strip().lower() in {
     "1", "true", "yes", "on",
 }
 _DEBUG_HANDLER_INSTALLED = False
 
 
 def _install_plugin_debug_handler(force: bool = False) -> None:
-    """When HERMES_PLUGINS_DEBUG is on, tee plugin logs to stderr at DEBUG.
+    """When ALLR_PLUGINS_DEBUG is on, tee plugin logs to stderr at DEBUG.
 
     Idempotent: only attaches the handler once per process unless ``force``
-    is passed. Does not touch the root logger or other Hermes loggers.
+    is passed. Does not touch the root logger or other Allr loggers.
     """
     global _DEBUG_HANDLER_INSTALLED, _PLUGINS_DEBUG
     if force:
-        _PLUGINS_DEBUG = os.getenv("HERMES_PLUGINS_DEBUG", "").strip().lower() in {
+        _PLUGINS_DEBUG = os.getenv("ALLR_PLUGINS_DEBUG", "").strip().lower() in {
             "1", "true", "yes", "on",
         }
     if not _PLUGINS_DEBUG or _DEBUG_HANDLER_INSTALLED:
@@ -123,7 +123,7 @@ def _install_plugin_debug_handler(force: bool = False) -> None:
     logger.propagate = True
     _DEBUG_HANDLER_INSTALLED = True
     logger.debug(
-        "HERMES_PLUGINS_DEBUG=1 — verbose plugin discovery logging enabled"
+        "ALLR_PLUGINS_DEBUG=1 — verbose plugin discovery logging enabled"
     )
 
 
@@ -151,7 +151,7 @@ VALID_HOOKS: Set[str] = {
     #   {"action": "continue", "message": "<follow-up instruction>"}
     # The Claude-Code Stop shape {"decision": "block", "reason": "..."} (block
     # the stop == keep going) is accepted too. Anything else lets the turn
-    # finish. Hermes' shipped guidance lives in the evidence-based
+    # finish. Allr' shipped guidance lives in the evidence-based
     # verification-stop nudge; this hook is for user/plugin policy and is
     # bounded by agent.max_verify_nudges.
     "pre_verify",
@@ -199,7 +199,7 @@ VALID_HOOKS: Set[str] = {
     # WHICH PROCESS each fires in matters, because kanban workers run as
     # separate `hermes -p <profile> chat -q` subprocesses:
     #   - kanban_task_claimed   -> the DISPATCHER process (gateway-embedded
-    #                              dispatcher or `hermes kanban dispatch`),
+    #                              dispatcher or `allr kanban dispatch`),
     #                              right before the worker subprocess spawns.
     #   - kanban_task_completed -> the WORKER process, when it calls
     #                              kanban_complete (or a CLI/manual complete).
@@ -330,11 +330,11 @@ class PluginManifest:
     # ``platform``: gateway messaging platform adapter (e.g. IRC). Bundled
     #              platform plugins auto-load so every shipped platform is
     #              available out of the box; user-installed platform plugins
-    #              in ~/.hermes/plugins/ still gated by ``plugins.enabled``
+    #              in ~/.allr/plugins/ still gated by ``plugins.enabled``
     #              (untrusted code).
     kind: str = "standalone"
     # Registry key — path-derived, used by ``plugins.enabled``/``disabled``
-    # lookups and by ``hermes plugins list``. For a flat plugin at
+    # lookups and by ``allr plugins list``. For a flat plugin at
     # ``plugins/disk-cleanup/`` the key is ``disk-cleanup``; for a nested
     # category plugin at ``plugins/image_gen/openai/`` the key is
     # ``image_gen/openai``. When empty, falls back to ``name``.
@@ -416,17 +416,17 @@ class PluginContext:
 
     @property
     def profile_name(self) -> str:
-        """Return the active Hermes profile name (e.g. ``"default"``).
+        """Return the active Allr profile name (e.g. ``"default"``).
 
-        Derived from ``HERMES_HOME`` via
+        Derived from ``ALLR_HOME`` via
         :func:`hermes_cli.profiles.get_active_profile_name`, so it works in
         every execution context — interactive CLI, gateway, and
         kanban-spawned worker sessions alike — without depending on
         ``_cli_ref`` (which is ``None`` outside an interactive CLI run).
 
         Returns ``"default"`` for the default profile, the profile id when
-        running under ``~/.hermes/profiles/<name>``, or ``"custom"`` when
-        ``HERMES_HOME`` points somewhere unrecognized.
+        running under ``~/.allr/profiles/<name>``, or ``"custom"`` when
+        ``ALLR_HOME`` points somewhere unrecognized.
         """
         try:
             from hermes_cli.profiles import get_active_profile_name
@@ -498,7 +498,7 @@ class PluginContext:
     def _tool_override_allowed(self, tool_name: str) -> bool:
         """Return True if this plugin is configured to override built-in tools.
 
-        Bundled plugins (shipped with Hermes core) are trusted by default —
+        Bundled plugins (shipped with Allr core) are trusted by default —
         an override there is a deliberate maintainer choice, not a third-party
         plugin trying to elevate privilege. For every other source, require
         ``allow_tool_override: true`` under
@@ -557,7 +557,7 @@ class PluginContext:
         handler_fn: Callable | None = None,
         description: str = "",
     ) -> None:
-        """Register a CLI subcommand (e.g. ``hermes honcho ...``).
+        """Register a CLI subcommand (e.g. ``allr honcho ...``).
 
         The *setup_fn* receives an argparse subparser and should add any
         arguments/sub-subparsers.  If *handler_fn* is provided it is set
@@ -853,7 +853,7 @@ class PluginContext:
         ``source`` must be an instance of
         :class:`agent.secret_sources.base.SecretSource`.  Registered
         sources run during ``load_hermes_dotenv()`` startup — after
-        ``~/.hermes/.env`` loads, before Hermes reads credentials — when
+        ``~/.allr/.env`` loads, before Allr reads credentials — when
         their ``secrets.<source.name>`` config section is enabled.  The
         orchestrator (``agent.secret_sources.registry.apply_all``) owns
         ordering, mapped-vs-bulk precedence, conflict warnings, and
@@ -863,7 +863,7 @@ class PluginContext:
         the first ``load_hermes_dotenv()`` call, so a plugin-registered
         source is not consulted by the initial env load of the process
         that discovers it.  It IS consulted by every subsequently
-        spawned Hermes process (gateway children, cron sessions,
+        spawned Allr process (gateway children, cron sessions,
         subagents), and immediately after a
         ``reset_secret_source_cache()`` re-pull.  Plugin sources are
         therefore best for supplying credentials to the running fleet;
@@ -1047,7 +1047,7 @@ class PluginContext:
     ) -> None:
         """Register a Slack Block Kit action handler from a plugin.
 
-        Hermes' Slack adapter wires registered handlers into its
+        Allr' Slack adapter wires registered handlers into its
         ``slack_bolt.AsyncApp`` at connect time. The callback is invoked
         when a user clicks a button (or interacts with another Block Kit
         action element) whose ``action_id`` matches.
@@ -1118,7 +1118,7 @@ class PluginContext:
         Plugins use this to declare their own auxiliary tasks without touching
         core files. After registration, the task:
 
-          - Appears in the ``hermes model → Configure auxiliary models`` picker
+          - Appears in the ``allr model → Configure auxiliary models`` picker
           - Has its provider/model/base_url/api_key bridged from config.yaml to
             ``AUXILIARY_<KEY_UPPER>_*`` env vars at gateway startup
           - Gets default routing fields (provider="auto", model="", etc.) merged
@@ -1262,7 +1262,7 @@ class PluginContext:
 
         The skill becomes resolvable as ``'<plugin_name>:<name>'`` via
         ``skill_view()``.  It does **not** enter the flat
-        ``~/.hermes/skills/`` tree and is **not** listed in the system
+        ``~/.allr/skills/`` tree and is **not** listed in the system
         prompt's ``<available_skills>`` index — plugin skills are
         opt-in explicit loads only.
 
@@ -1347,8 +1347,8 @@ class PluginManager:
         """
         if self._discovered and not force:
             return
-        if env_var_enabled("HERMES_SAFE_MODE"):
-            logger.info("HERMES_SAFE_MODE=1 — plugin discovery skipped")
+        if env_var_enabled("ALLR_SAFE_MODE"):
+            logger.info("ALLR_SAFE_MODE=1 — plugin discovery skipped")
             self._discovered = True
             return
         if force:
@@ -1455,11 +1455,11 @@ class PluginManager:
             # heavy, platform-specific SDKs at module level (lark_oapi,
             # microsoft_teams, discord.py, slack_bolt, ...), so eagerly loading
             # all ~20 of them added several seconds to every `hermes`
-            # invocation — including plain `hermes chat`, which never touches a
+            # invocation — including plain `allr chat`, which never touches a
             # gateway platform. Instead we register a cheap deferred loader in
             # the platform_registry keyed on the platform name; the real module
             # is imported only when the gateway / cron / setup / send_message
-            # path actually asks for that platform. Every platform Hermes ships
+            # path actually asks for that platform. Every platform Allr ships
             # remains available out of the box — it just loads on first use.
             if manifest.source == "bundled" and manifest.kind == "platform":
                 self._register_deferred_platform(manifest)
@@ -1476,7 +1476,7 @@ class PluginManager:
             if not is_enabled:
                 loaded = LoadedPlugin(manifest=manifest, enabled=False)
                 loaded.error = (
-                    "not enabled in config (run `hermes plugins enable {}` to activate)"
+                    "not enabled in config (run `allr plugins enable {}` to activate)"
                     .format(lookup_key)
                 )
                 self._plugins[lookup_key] = loaded
@@ -1522,24 +1522,24 @@ class PluginManager:
         logger.debug("  bundled/platforms: %d manifest(s)", len(bundled_platforms))
         manifests.extend(bundled_platforms)
 
-        # 2. User plugins (~/.hermes/plugins/)
+        # 2. User plugins (~/.allr/plugins/)
         user_dir = get_hermes_home() / "plugins"
         logger.debug("Scanning user plugins: %s", user_dir)
         user_manifests = self._scan_directory(user_dir, source="user")
         logger.debug("  user: %d manifest(s)", len(user_manifests))
         manifests.extend(user_manifests)
 
-        # 3. Project plugins (./.hermes/plugins/), only when explicitly opted
+        # 3. Project plugins (./.allr/plugins/), only when explicitly opted
         # in. This must match the full discovery gate exactly.
-        if _env_enabled("HERMES_ENABLE_PROJECT_PLUGINS"):
-            project_dir = Path.cwd() / ".hermes" / "plugins"
+        if _env_enabled("ALLR_ENABLE_PROJECT_PLUGINS"):
+            project_dir = Path.cwd() / ".allr" / "plugins"
             logger.debug("Scanning project plugins: %s", project_dir)
             project_manifests = self._scan_directory(project_dir, source="project")
             logger.debug("  project: %d manifest(s)", len(project_manifests))
             manifests.extend(project_manifests)
         else:
             logger.debug(
-                "Project plugins disabled (set HERMES_ENABLE_PROJECT_PLUGINS=1 to enable)"
+                "Project plugins disabled (set ALLR_ENABLE_PROJECT_PLUGINS=1 to enable)"
             )
 
         return manifests
@@ -1551,7 +1551,7 @@ class PluginManager:
         native ``plugin.yaml`` precedence, source ordering, depth limits, and
         project-plugin gating cannot diverge between startup and runtime.
         """
-        if _env_enabled("HERMES_SAFE_MODE"):
+        if _env_enabled("ALLR_SAFE_MODE"):
             return False
 
         plugins_config = raw_config.get("plugins")
@@ -1865,13 +1865,13 @@ class PluginManager:
         The platform adapter module is imported only when the gateway / cron /
         setup / send_message path first asks the ``platform_registry`` for this
         platform. Until then we record a lightweight ``LoadedPlugin`` so
-        ``hermes plugins list`` still shows the platform as available, and we
+        ``allr plugins list`` still shows the platform as available, and we
         hand the registry a loader that runs the normal eager-load path.
         """
         lookup_key = manifest.key or manifest.name
         platform_name = self._platform_name_from_manifest(manifest)
 
-        # Record an enabled placeholder for introspection (`hermes plugins
+        # Record an enabled placeholder for introspection (`allr plugins
         # list`). The real module load swaps in a fully-populated LoadedPlugin
         # (tools/hooks/commands attribution) when the loader fires.
         loaded = LoadedPlugin(manifest=manifest, enabled=True)
@@ -1940,7 +1940,7 @@ class PluginManager:
                 # plugins, which mis-credited a plugin that registered a hook /
                 # middleware / tool name an earlier plugin had already used:
                 # the shared name was attributed to the first plugin only, so
-                # later plugins under-reported in `hermes plugins list`.
+                # later plugins under-reported in `allr plugins list`.
                 _tools_before = set(self._plugin_tool_names)
                 _hook_counts_before = {
                     h: len(cbs) for h, cbs in self._hooks.items()
@@ -2690,7 +2690,7 @@ def get_plugin_auxiliary_tasks() -> List[Dict[str, Any]]:
 def get_plugin_toolsets() -> List[tuple]:
     """Return plugin toolsets as ``(key, label, description)`` tuples.
 
-    Used by the ``hermes tools`` TUI so plugin-provided toolsets appear
+    Used by the ``allr tools`` TUI so plugin-provided toolsets appear
     alongside the built-in ones and can be toggled on/off per platform.
     """
     manager = get_plugin_manager()

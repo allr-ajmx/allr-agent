@@ -84,8 +84,8 @@ docs/
 assets/
 infographic/
 
-# Plugin-level docs (hermes-achievements ships docs/ but the runtime doesn't read them)
-plugins/hermes-achievements/docs/
+# Plugin-level docs (allr-achievements ships docs/ but the runtime doesn't read them)
+plugins/allr-achievements/docs/
 
 # Nix / Homebrew / AUR packaging metadata — irrelevant to Docker
 nix/

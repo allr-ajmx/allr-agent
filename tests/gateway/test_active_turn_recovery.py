@@ -488,7 +488,7 @@ async def test_unclean_recovery_promotes_exact_markers_before_legacy_fallback(
     runner = object.__new__(GatewayRunner)
     calls: list[str] = []
 
-    monkeypatch.delenv("HERMES_AGENT_TIMEOUT", raising=False)
+    monkeypatch.delenv("ALLR_AGENT_TIMEOUT", raising=False)
 
     async def _recover(*, max_age_seconds):
         assert max_age_seconds == ACTIVE_TURN_MAX_AGE_SECONDS

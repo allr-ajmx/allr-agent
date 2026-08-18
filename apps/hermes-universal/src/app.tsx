@@ -32,7 +32,7 @@ import { isActivityWindow, isTileWindow, satelliteSurface, WAKE_INDICATOR_SURFAC
  * exists, so mounting it per window is free.
  *
  * `WakeIndicatorOverlay` (MJXHRM-389) is the fourth, for the same reason as
- * `FindBar`: it renders nothing until "Hey Hermes" fires, and the window that
+ * `FindBar`: it renders nothing until "Hey Allr" fires, and the window that
  * armed the detector is not necessarily the one the app shell is in. Mounting it
  * per root costs one atom subscription and removes the question entirely.
  *

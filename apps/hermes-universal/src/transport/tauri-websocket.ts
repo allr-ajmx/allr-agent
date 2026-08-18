@@ -12,7 +12,7 @@ import { spanInboundFrame, spanOutboundFrame } from '@/observability/auto/websoc
 type EventListenerLike = (event: { type: string; data?: unknown; message?: string }) => void
 
 // Desktop's chat socket is a Chromium `WebSocket` opened from a file:// renderer,
-// so it sends `Origin: null` on the upgrade — the value Hermes gateways accept for
+// so it sends `Origin: null` on the upgrade — the value Allr gateways accept for
 // native clients. We mirror that exactly. Sending the gateway's OWN origin instead
 // (what we used to derive from the ws URL) is rejected by gateways/reverse proxies
 // that guard the /api/ws upgrade on Origin/Host: behind a proxy the internal Host

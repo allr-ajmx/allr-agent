@@ -73,30 +73,30 @@ describe('workspace cwd is tildified against the GATEWAY’s home', () => {
   }
 
   it('collapses the gateway user’s home in the detail, the tooltip and every menu entry', () => {
-    const item = workspaceItem('/home/deploy/www/hermes-agent', '/home/deploy/.hermes')
+    const item = workspaceItem('/home/deploy/www/allr-agent', '/home/deploy/.allr')
 
-    expect(item.detail).toBe('~/www/hermes-agent')
-    expect(item.title).toBe('~/www/hermes-agent')
+    expect(item.detail).toBe('~/www/allr-agent')
+    expect(item.title).toBe('~/www/allr-agent')
     expect(item.menuItems?.map(entry => entry.title)).toEqual([
-      '~/www/hermes-agent',
-      '~/www/hermes-agent',
-      '~/www/hermes-agent'
+      '~/www/allr-agent',
+      '~/www/allr-agent',
+      '~/www/allr-agent'
     ])
   })
 
   it('leaves a path under a DIFFERENT user’s home fully spelled out', () => {
-    const item = workspaceItem('/home/alice/www/hermes-agent', '/home/deploy/.hermes')
+    const item = workspaceItem('/home/alice/www/allr-agent', '/home/deploy/.allr')
 
-    expect(item.detail).toBe('/home/alice/www/hermes-agent')
-    expect(item.title).toBe('/home/alice/www/hermes-agent')
+    expect(item.detail).toBe('/home/alice/www/allr-agent')
+    expect(item.title).toBe('/home/alice/www/allr-agent')
   })
 
   it('leaves a path outside any home alone', () => {
-    expect(workspaceItem('/srv/checkouts/app', '/home/deploy/.hermes').title).toBe('/srv/checkouts/app')
+    expect(workspaceItem('/srv/checkouts/app', '/home/deploy/.allr').title).toBe('/srv/checkouts/app')
   })
 
   it('keeps the compact bar label a leaf, not a path', () => {
-    expect(workspaceItem('/home/deploy/www/hermes-agent', '/home/deploy/.hermes').label).toBe('hermes-agent')
+    expect(workspaceItem('/home/deploy/www/allr-agent', '/home/deploy/.allr').label).toBe('allr-agent')
   })
 })
 

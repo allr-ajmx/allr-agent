@@ -355,16 +355,16 @@ class TestRegistration:
 
 class TestToolsetInclusion:
     def test_discord_tools_only_in_hermes_discord_toolset(self):
-        from toolsets import TOOLSETS, _HERMES_CORE_TOOLS
+        from toolsets import TOOLSETS, _ALLR_CORE_TOOLS
         assert "discord" in TOOLSETS["hermes-discord"]["tools"]
         assert "discord_admin" in TOOLSETS["hermes-discord"]["tools"]
-        assert "discord" not in _HERMES_CORE_TOOLS
-        assert "discord_admin" not in _HERMES_CORE_TOOLS
+        assert "discord" not in _ALLR_CORE_TOOLS
+        assert "discord_admin" not in _ALLR_CORE_TOOLS
 
     def test_discord_tools_not_in_other_toolsets(self):
         from toolsets import TOOLSETS
         for name, ts in TOOLSETS.items():
-            if name in {"hermes-discord", "hermes-gateway", "discord", "discord_admin"}:
+            if name in {"hermes-discord", "allr-gateway", "discord", "discord_admin"}:
                 continue
             tools = ts.get("tools", [])
             assert "discord" not in tools or name == "discord", (

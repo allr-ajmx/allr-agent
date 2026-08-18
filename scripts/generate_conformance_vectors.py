@@ -227,7 +227,7 @@ def generate(out_dir: Path) -> Dict[str, Any]:
         doc = {
             "$comment": (
                 "GENERATED — do not hand-edit. Regenerate with "
-                "hermes-agent scripts/generate_conformance_vectors.py; the "
+                "allr-agent scripts/generate_conformance_vectors.py; the "
                 "native renderers are the oracle (executable spec)."
             ),
             "oracle": {

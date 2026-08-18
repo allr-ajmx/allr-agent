@@ -86,7 +86,7 @@ export function requestGateway<T = unknown>(
   timeoutMs?: number
 ): Promise<T> {
   if (!client) {
-    return Promise.reject(new Error('Hermes gateway is not connected'))
+    return Promise.reject(new Error('Allr gateway is not connected'))
   }
 
   return client.request<T>(method, params, timeoutMs)

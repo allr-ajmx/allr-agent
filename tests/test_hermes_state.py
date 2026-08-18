@@ -4194,13 +4194,13 @@ class TestGatewayRoutingPkHeal:
 
     def test_legacy_pk_rebuilt_to_composite(self, tmp_path):
         db_path = self._make_legacy_db(
-            tmp_path, rows=[("/home/u/.hermes/sessions", "agent:main:telegram:dm:1", "{}", 1.0)]
+            tmp_path, rows=[("/home/u/.allr/sessions", "agent:main:telegram:dm:1", "{}", 1.0)]
         )
         db = SessionDB(db_path=db_path)
         try:
             assert self._pk_cols(db) == ["scope", "session_key"]
             # Existing rows survive the rebuild.
-            entries = db.load_gateway_routing_entries(scope="/home/u/.hermes/sessions")
+            entries = db.load_gateway_routing_entries(scope="/home/u/.allr/sessions")
             assert entries == {"agent:main:telegram:dm:1": "{}"}
         finally:
             db.close()
@@ -4566,7 +4566,7 @@ class TestPerformancePragmasEndToEnd:
         )
         home = tmp_path / "hermes_home"
         home.mkdir()
-        monkeypatch.setenv("HERMES_HOME", str(home))
+        monkeypatch.setenv("ALLR_HOME", str(home))
         if config_text is not None:
             (home / "config.yaml").write_text(config_text)
         return home

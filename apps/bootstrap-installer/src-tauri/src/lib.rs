@@ -1,4 +1,4 @@
-//! Hermes Setup — Tauri entrypoint.
+//! Allr Setup — Tauri entrypoint.
 //!
 //! Spawns a single window pointed at the React frontend (apps/bootstrap-installer/src/).
 //! All install-time work lives in `bootstrap.rs` and is invoked through the Tauri
@@ -21,7 +21,7 @@ use tokio::sync::Mutex;
 /// How the installer was invoked. Resolved once from the process args in
 /// `run()` and exposed to the frontend via `get_mode` so it can route to the
 /// install flow (first-run onboarding) or the update flow (driven by the
-/// desktop app handing off via `Hermes-Setup.exe --update`).
+/// desktop app handing off via `Allr-Setup.exe --update`).
 ///
 /// Bare launch (double-click, first-run) => Install.
 /// `--update` (spawned by the desktop's "Update" button) => Update.
@@ -93,17 +93,17 @@ fn get_mode(state: tauri::State<'_, Arc<AppState>>) -> AppMode {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Tracing → bootstrap-installer.log under HERMES_HOME/logs/ so install
+    // Tracing → bootstrap-installer.log under ALLR_HOME/logs/ so install
     // failures leave a trail for support. Console output also goes here in
     // debug builds.
     let _guard = paths::init_logging();
 
     let mode = AppMode::from_args(std::env::args().skip(1));
     // Escape hatch: `--reinstall`/`--repair` forces the installer UI even when
-    // Hermes is already installed, so users can re-run setup to repair a broken
+    // Allr is already installed, so users can re-run setup to repair a broken
     // install instead of the launcher fast path silently relaunching the app.
     let force_setup = force_setup_from_args(std::env::args().skip(1));
-    tracing::info!(?mode, force_setup, "Hermes installer starting");
+    tracing::info!(?mode, force_setup, "Allr installer starting");
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -114,15 +114,15 @@ pub fn run() {
         .setup(move |app| {
             use tauri::Manager;
             // Launcher fast path (macOS only): a bare ("Install") launch when
-            // Hermes is already installed should NOT show the installer or
+            // Allr is already installed should NOT show the installer or
             // rebuild — it should just open the app, so the /Applications
-            // "Hermes" doubles as a normal launcher (first run installs, every
+            // "Allr" doubles as a normal launcher (first run installs, every
             // later run launches instantly). The window is kept hidden until
             // here via `"visible": false` so this path never flashes a window.
             //
             // Gated to macOS deliberately: on Windows/Linux the installer keeps
             // its existing behavior (Windows users relaunch via the Start
-            // Menu/Desktop "Hermes" shortcuts that install.ps1 creates, and a
+            // Menu/Desktop "Allr" shortcuts that install.ps1 creates, and a
             // reliable detached relaunch there needs the DETACHED_PROCESS +
             // startup-grace handling used by launch_hermes_desktop — out of
             // scope here). So this is a pure no-op on non-macOS.
@@ -130,7 +130,7 @@ pub fn run() {
             // `--reinstall`/`--repair` opts out so a broken install can be
             // repaired by re-running setup instead of launching the bad app.
             if cfg!(target_os = "macos") && mode == AppMode::Install && !force_setup {
-                let install_root = paths::hermes_home().join("hermes-agent");
+                let install_root = paths::hermes_home().join("allr-agent");
                 if bootstrap::hermes_is_installed(&install_root) {
                     match bootstrap::spawn_installed_desktop(&install_root) {
                         Ok(()) => {
@@ -182,7 +182,7 @@ pub fn run() {
             paths::open_log_dir,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running Hermes Setup");
+        .expect("error while running Allr Setup");
 }
 
 #[cfg(test)]

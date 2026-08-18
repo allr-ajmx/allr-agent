@@ -127,7 +127,7 @@ export function useComposerVoice({
   )
 
   // Hands-free wake word, main composer only — a tile's composer must not arm a
-  // second detector or claim the "hey Hermes" turn.
+  // second detector or claim the "hey Allr" turn.
   //
   // Arming is a RECONCILE (`wake.status` then start only when the config already
   // says enabled), so mounting a chat never turns a microphone on by itself; only

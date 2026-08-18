@@ -15,7 +15,7 @@
  * and a gateway whose user lives outside those layouts never collapses at all.
  *
  * The gateway already tells us where it lives: `StatusResponse.hermes_home`, the
- * backend's own `get_hermes_home()`. Its default is `$HOME/.hermes` (POSIX) or
+ * backend's own `get_hermes_home()`. Its default is `$HOME/.allr` (POSIX) or
  * `%LOCALAPPDATA%/hermes` (Windows), so the home falls out of it exactly when it
  * has NOT been overridden — and when it has, we say "unknown" and let the old
  * heuristic stand rather than invent an answer.
@@ -31,8 +31,8 @@ import { $statusSnapshot } from '@/store/system-status'
 const WINDOWS_TAIL = ['hermes', 'local', 'appdata']
 
 /**
- * The gateway user's home directory, derived from the HERMES_HOME it reports.
- * `''` when it cannot be derived — an explicit `HERMES_HOME=/srv/hermes` says
+ * The gateway user's home directory, derived from the ALLR_HOME it reports.
+ * `''` when it cannot be derived — an explicit `ALLR_HOME=/srv/hermes` says
  * nothing about where that user's home is, and guessing is what we're replacing.
  */
 export function homeFromHermesHome(hermesHome: null | string | undefined): string {
@@ -44,8 +44,8 @@ export function homeFromHermesHome(hermesHome: null | string | undefined): strin
 
   const segments = path.split('/')
   const leaf = segments[segments.length - 1]?.toLowerCase() ?? ''
-  // POSIX default: `<home>/.hermes`.
-  const strip = leaf === '.hermes' ? 1 : windowsStrip(segments)
+  // POSIX default: `<home>/.allr`.
+  const strip = leaf === '.allr' ? 1 : windowsStrip(segments)
 
   if (strip === 0) {
     return ''
@@ -53,7 +53,7 @@ export function homeFromHermesHome(hermesHome: null | string | undefined): strin
 
   const home = segments.slice(0, segments.length - strip).join('/')
 
-  // `/.hermes` leaves nothing, and `~` for the filesystem root is not a claim
+  // `/.allr` leaves nothing, and `~` for the filesystem root is not a claim
   // worth making. A drive root (`C:`) is the same case.
   return home && home !== '/' && !/^[A-Za-z]:$/.test(home) ? home : ''
 }

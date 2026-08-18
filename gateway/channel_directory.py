@@ -2,7 +2,7 @@
 Channel directory -- cached map of reachable channels/contacts per platform.
 
 Built on gateway startup, refreshed periodically (every 5 min), and saved to
-~/.hermes/channel_directory.json.  The send_message tool reads this file for
+~/.allr/channel_directory.json.  The send_message tool reads this file for
 action="list" and for resolving human-friendly channel names to numeric IDs.
 """
 
@@ -602,7 +602,7 @@ def format_directory_for_display(platforms: Optional[Dict[str, Any]] = None) -> 
     """Format the channel directory as a human-readable list for the model.
 
     ``platforms`` overrides the on-disk directory when provided (used by
-    ``hermes send --list`` to merge in configured-but-undiscovered
+    ``allr send --list`` to merge in configured-but-undiscovered
     platforms). Platforms present with an empty channel list are rendered
     with a "(no channels discovered yet)" hint instead of being hidden —
     a configured platform is a valid send target even before discovery.

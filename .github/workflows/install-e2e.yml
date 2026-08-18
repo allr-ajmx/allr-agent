@@ -79,7 +79,7 @@ jobs:
           echo "Testing updates from: $tags"
           echo "tags=$tags" >> "$GITHUB_OUTPUT"
 
-  # `hermes update` -- the route most users take.
+  # `allr update` -- the route most users take.
   update:
     if: github.event_name != 'workflow_dispatch' || inputs.route != 'installer'
     needs: pick-releases

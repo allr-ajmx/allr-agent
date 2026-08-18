@@ -77,7 +77,7 @@ if (IS_TAURI) {
       target: conn?.baseUrl
         ? {
             baseUrl: conn.baseUrl,
-            headers: conn.token ? { 'X-Hermes-Session-Token': conn.token } : {}
+            headers: conn.token ? { 'X-Allr-Session-Token': conn.token } : {}
           }
         : null
     }).catch(() => undefined)

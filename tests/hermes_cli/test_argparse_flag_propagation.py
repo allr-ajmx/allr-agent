@@ -25,7 +25,7 @@ def _build_parser():
     Since main() is a large function that does much more than parse args,
     we replicate just the parser structure here to avoid side effects.
     """
-    parser = argparse.ArgumentParser(prog="hermes")
+    parser = argparse.ArgumentParser(prog="allr")
     parser.add_argument("--resume", "-r", metavar="SESSION", default=None)
     parser.add_argument(
         "--continue", "-c", dest="continue_last", nargs="?",
@@ -103,27 +103,27 @@ class TestChatVerboseArg:
 
 
 class TestYoloEnvVar:
-    """Verify --yolo sets HERMES_YOLO_MODE regardless of flag position.
+    """Verify --yolo sets ALLR_YOLO_MODE regardless of flag position.
 
     This tests the actual cmd_chat logic pattern (getattr → os.environ).
     """
 
     @pytest.fixture(autouse=True)
     def _clean_env(self):
-        os.environ.pop("HERMES_YOLO_MODE", None)
+        os.environ.pop("ALLR_YOLO_MODE", None)
         yield
-        os.environ.pop("HERMES_YOLO_MODE", None)
+        os.environ.pop("ALLR_YOLO_MODE", None)
 
     def _simulate_cmd_chat_yolo_check(self, args):
         """Replicate the exact check from cmd_chat in main.py."""
         if getattr(args, "yolo", False):
-            os.environ["HERMES_YOLO_MODE"] = "1"
+            os.environ["ALLR_YOLO_MODE"] = "1"
 
     def test_yolo_before_chat_sets_env(self):
         parser = _build_parser()
         args = parser.parse_args(["--yolo", "chat"])
         self._simulate_cmd_chat_yolo_check(args)
-        assert os.environ.get("HERMES_YOLO_MODE") == "1"
+        assert os.environ.get("ALLR_YOLO_MODE") == "1"
 
 
 class TestAcceptHooksOnAgentSubparsers:
@@ -131,7 +131,7 @@ class TestAcceptHooksOnAgentSubparsers:
     position (before the subcommand, between group/subcommand, and
     after the leaf subcommand) for gateway/cron/mcp/acp.  Regression
     against prior behaviour where the flag only worked on the root
-    parser and `chat`, so `hermes gateway run --accept-hooks` failed
+    parser and `chat`, so `allr gateway run --accept-hooks` failed
     with `unrecognized arguments`."""
 
     ARGVS = [

@@ -44,10 +44,10 @@ describe('installPluginSdk', () => {
 
     const g = globalThis as Record<string, unknown>
 
-    expect(g.__HERMES_PLUGIN_SDK__).toBeTruthy()
-    expect(g.__HERMES_REACT__).toBeTruthy()
-    expect(g.__HERMES_REACT_JSX__).toBeTruthy()
-    expect(g.__HERMES_REACT_JSX_DEV__).toBeTruthy()
+    expect(g.__ALLR_PLUGIN_SDK__).toBeTruthy()
+    expect(g.__ALLR_REACT__).toBeTruthy()
+    expect(g.__ALLR_REACT_JSX__).toBeTruthy()
+    expect(g.__ALLR_REACT_JSX_DEV__).toBeTruthy()
   })
 
   it('exposes the real app React, not a copy', async () => {
@@ -55,14 +55,14 @@ describe('installPluginSdk', () => {
 
     const React = await import('react')
 
-    expect((globalThis as Record<string, unknown>).__HERMES_REACT__).toBe(React)
+    expect((globalThis as Record<string, unknown>).__ALLR_REACT__).toBe(React)
   })
 
   it('hands plugins the same `host` object the app uses', async () => {
     installPluginSdk()
 
     const sdk = await import('./index')
-    const installed = (globalThis as Record<string, unknown>).__HERMES_PLUGIN_SDK__ as typeof sdk
+    const installed = (globalThis as Record<string, unknown>).__ALLR_PLUGIN_SDK__ as typeof sdk
 
     expect(installed.host).toBe(sdk.host)
   })
@@ -88,7 +88,7 @@ describe('sdkImportMap', () => {
 
     // The shim must READ the global (so it tracks the live namespace) and
     // re-export by name, with the names derived from the namespace itself.
-    expect(source).toContain('const m = globalThis.__HERMES_PLUGIN_SDK__;')
+    expect(source).toContain('const m = globalThis.__ALLR_PLUGIN_SDK__;')
     expect(source).toContain('export default m.default ?? m;')
     expect(source).toMatch(/export const \{ [^}]*\bhost\b[^}]*\} = m;/)
   })

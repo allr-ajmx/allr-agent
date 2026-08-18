@@ -77,11 +77,11 @@ class TestResolveIdentityHeader:
         ):
             result = _resolve_identity_header("srv", {
                 "identity_header": {
-                    "name": "X-Hermes-Profile",
+                    "name": "X-Allr-Profile",
                     "value_from": "profile",
                 },
             })
-        assert result == ("X-Hermes-Profile", "workbot")
+        assert result == ("X-Allr-Profile", "workbot")
 
     def test_missing_name_warns_and_returns_none(self, caplog):
         from tools.mcp_tool import _resolve_identity_header
@@ -243,12 +243,12 @@ class TestHTTPIdentityHeader:
             captured = _drive_http(server, {
                 "url": "https://example.com/mcp",
                 "identity_header": {
-                    "name": "X-Hermes-Profile",
+                    "name": "X-Allr-Profile",
                     "value_from": "profile",
                 },
             })
         headers = captured.get("headers") or {}
-        assert headers.get("X-Hermes-Profile") == "workbot"
+        assert headers.get("X-Allr-Profile") == "workbot"
 
 
 # ---------------------------------------------------------------------------

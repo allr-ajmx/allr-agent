@@ -863,7 +863,7 @@ export function refreshWorktrees(): void {
 }
 
 // Spin up a fresh worktree the lightest way (`git worktree add -b`) under the
-// repo, returning where Hermes should start working. Git is the source of
+// repo, returning where Allr should start working. Git is the source of
 // truth; the caller starts a session in the returned path.
 export async function startWorkInRepo(
   repoPath: string,

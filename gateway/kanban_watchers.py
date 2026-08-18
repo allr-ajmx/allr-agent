@@ -58,7 +58,7 @@ def _resolve_auto_decompose_settings(
 
 
 def _kanban_dispatch_allowed() -> bool:
-    """Return False while the global emergency stop (`hermes pause`) is engaged.
+    """Return False while the global emergency stop (`allr pause`) is engaged.
 
     Checked every dispatcher tick BEFORE spawning new workers so a pause takes
     effect on the next tick without a gateway restart. In-flight workers are
@@ -246,7 +246,7 @@ class GatewayKanbanWatchersMixin:
 
                     # Enumerate every board on disk, but poll each resolved DB
                     # path once. Multiple slugs can point at the same DB when
-                    # HERMES_KANBAN_DB pins the board path; without this guard
+                    # ALLR_KANBAN_DB pins the board path; without this guard
                     # one gateway could collect the same subscription/event
                     # more than once before advancing the cursor.
                     try:
@@ -971,7 +971,7 @@ class GatewayKanbanWatchersMixin:
 
         Gated by `kanban.dispatch_in_gateway` in config.yaml (default True).
         When true, the gateway hosts the single dispatcher for this profile:
-        no separate `hermes kanban daemon` process needed. When false, the
+        no separate `allr kanban daemon` process needed. When false, the
         loop exits immediately and an external daemon is expected.
 
         Each tick calls :func:`kanban_db.dispatch_once` inside
@@ -986,16 +986,16 @@ class GatewayKanbanWatchersMixin:
         """
         # Read config once at boot. If the user flips the flag later, they
         # restart the gateway; same pattern as every other background
-        # watcher here. Honours HERMES_KANBAN_DISPATCH_IN_GATEWAY env var
+        # watcher here. Honours ALLR_KANBAN_DISPATCH_IN_GATEWAY env var
         # as an escape hatch (false-y value disables without editing YAML).
         try:
             from hermes_cli.config import load_config as _load_config
         except Exception:
             logger.warning("kanban dispatcher: config loader unavailable; disabled")
             return
-        env_override = os.environ.get("HERMES_KANBAN_DISPATCH_IN_GATEWAY", "").strip().lower()
+        env_override = os.environ.get("ALLR_KANBAN_DISPATCH_IN_GATEWAY", "").strip().lower()
         if env_override in {"0", "false", "no", "off"}:
-            logger.info("kanban dispatcher: disabled via HERMES_KANBAN_DISPATCH_IN_GATEWAY env")
+            logger.info("kanban dispatcher: disabled via ALLR_KANBAN_DISPATCH_IN_GATEWAY env")
             return
 
         try:
@@ -1263,7 +1263,7 @@ class GatewayKanbanWatchersMixin:
                         "SQLite database; pausing dispatch for this board until "
                         "the file changes, the gateway restarts, or the "
                         "quarantine timer expires. Move or restore the file, "
-                        "then run `hermes kanban init` if you need a fresh board.",
+                        "then run `allr kanban init` if you need a fresh board.",
                         slug,
                         fingerprint[0],
                     )
@@ -1278,7 +1278,7 @@ class GatewayKanbanWatchersMixin:
                         "SQLite database; pausing dispatch for this board until "
                         "the file changes, the gateway restarts, or the "
                         "quarantine timer expires. Move or restore the file, "
-                        "then run `hermes kanban init` if you need a fresh board.",
+                        "then run `allr kanban init` if you need a fresh board.",
                         slug,
                         fingerprint[0],
                     )
@@ -1311,7 +1311,7 @@ class GatewayKanbanWatchersMixin:
 
         def _ready_nonempty() -> bool:
             """Cheap probe: is there at least one ready+assigned+unclaimed
-            task on ANY board whose assignee maps to a real Hermes profile
+            task on ANY board whose assignee maps to a real Allr profile
             (i.e. one the dispatcher would actually spawn for)?
 
             Tasks assigned to control-plane lanes (e.g. ``orion-cc``,
@@ -1319,7 +1319,7 @@ class GatewayKanbanWatchersMixin:
             ``claim_task`` directly and never spawnable, so a queue full
             of those is "correctly idle", not "stuck". Filtering them out
             here keeps the stuck-warn fire only on real failures (broken
-            PATH, missing venv, credential loss for a real Hermes profile).
+            PATH, missing venv, credential loss for a real Allr profile).
             """
             try:
                 boards = _kb.list_boards(include_archived=False)
@@ -1389,9 +1389,9 @@ class GatewayKanbanWatchersMixin:
                 # pattern as the dashboard specify endpoint. The
                 # decomposer module connects with no board kwarg and
                 # relies on the env var.
-                prev_env = os.environ.get("HERMES_KANBAN_BOARD")
+                prev_env = os.environ.get("ALLR_KANBAN_BOARD")
                 try:
-                    os.environ["HERMES_KANBAN_BOARD"] = slug
+                    os.environ["ALLR_KANBAN_BOARD"] = slug
                     try:
                         triage_ids = _decomp.list_triage_ids()
                     except Exception as exc:
@@ -1435,9 +1435,9 @@ class GatewayKanbanWatchersMixin:
                             )
                 finally:
                     if prev_env is None:
-                        os.environ.pop("HERMES_KANBAN_BOARD", None)
+                        os.environ.pop("ALLR_KANBAN_BOARD", None)
                     else:
-                        os.environ["HERMES_KANBAN_BOARD"] = prev_env
+                        os.environ["ALLR_KANBAN_BOARD"] = prev_env
             return successes
 
         logger.info(
@@ -1458,7 +1458,7 @@ class GatewayKanbanWatchersMixin:
                 logger.exception("kanban dispatcher: zombie reaper failed")
 
             try:
-                # Global emergency stop (`hermes pause`): skip auto-decompose
+                # Global emergency stop (`allr pause`): skip auto-decompose
                 # and dispatch entirely — no new workers while paused. Running
                 # workers finish naturally; zombie reaping above still runs.
                 if not _kanban_dispatch_allowed():
@@ -1502,7 +1502,7 @@ class GatewayKanbanWatchersMixin:
                             "kanban dispatcher stuck: ready queue non-empty for "
                             "%d consecutive ticks but 0 workers spawned. Check "
                             "profile health (venv, PATH, credentials) and "
-                            "`hermes kanban list --status ready`.",
+                            "`allr kanban list --status ready`.",
                             bad_ticks,
                         )
                         last_warn_at = now

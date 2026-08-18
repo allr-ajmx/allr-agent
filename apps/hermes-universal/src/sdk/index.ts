@@ -6,7 +6,7 @@
  * Two delivery modes, one surface:
  *  - bundled (`src/plugins/<name>/`): the import resolves here via alias;
  *  - runtime-loaded (disk / gateway): the loader injects this same object as
- *    `globalThis.__HERMES_PLUGIN_SDK__` and rewrites the import to a shim that
+ *    `globalThis.__ALLR_PLUGIN_SDK__` and rewrites the import to a shim that
  *    re-exports it, so a published plugin builds against the types with the SDK
  *    marked external.
  *

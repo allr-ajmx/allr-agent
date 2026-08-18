@@ -47,7 +47,7 @@ RestartSteps=5
         )
         # What the installed unit looks like on older systemd (directives stripped)
         installed = """[Unit]
-Description=Hermes Gateway
+Description=Allr Gateway
 After=network-online.target
 
 [Service]
@@ -63,7 +63,7 @@ WantedBy=default.target
 """
         # What generate_systemd_unit produces (with the directives)
         expected = """[Unit]
-Description=Hermes Gateway
+Description=Allr Gateway
 After=network-online.target
 
 [Service]
@@ -109,7 +109,7 @@ RestartForceExitStatus=75
 RestartPreventExitStatus=78
 """
         installed = expected.replace("RestartPreventExitStatus=78\n", "")
-        unit_file = tmp_path / "hermes-gateway.service"
+        unit_file = tmp_path / "allr-gateway.service"
         unit_file.write_text(installed)
 
         monkeypatch.setattr(gw, "get_systemd_unit_path", lambda system=False: unit_file)
@@ -127,7 +127,7 @@ RestartPreventExitStatus=78
         from hermes_cli import gateway as gw
 
         installed = """[Unit]
-Description=Hermes Gateway
+Description=Allr Gateway
 
 [Service]
 Type=simple
@@ -138,7 +138,7 @@ RestartSec=5
 [Install]
 WantedBy=default.target
 """
-        unit_file = tmp_path / "hermes-gateway.service"
+        unit_file = tmp_path / "allr-gateway.service"
         unit_file.write_text(installed)
 
         monkeypatch.setattr(gw, "get_systemd_unit_path", lambda system=False: unit_file)

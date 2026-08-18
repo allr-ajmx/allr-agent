@@ -11,7 +11,7 @@ instead of native tools, a missing author/license/metadata block, a
 marketing words in the description, ``platforms:`` gating vs POSIX-only
 primitives, and forbidden scaffolding files.
 
-Design contract (matches the Hermes "no lazy-reading escape hatches / don't
+Design contract (matches the Allr "no lazy-reading escape hatches / don't
 destroy the feature" posture):
 
 * Findings are **advisory** by default. ``lint_skill`` returns a list of
@@ -214,13 +214,13 @@ def _check_metadata_block(frontmatter: Dict[str, Any]) -> List[LintFinding]:
             )
     author = str(frontmatter.get("author", ""))
     if author and author.strip().lower() in ("hermes", "agent", "hermes agent") and (
-        author != "Hermes Agent"
+        author != "Allr"
     ):
         findings.append(
             LintFinding(
                 WARNING,
                 "author-caps",
-                f"author '{author}' should be 'Hermes Agent' (proper caps) "
+                f"author '{author}' should be 'Allr' (proper caps) "
                 f"or a real contributor name.",
             )
         )

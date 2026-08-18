@@ -69,13 +69,13 @@ def test_build_gateway_argv_keeps_venv_console_python_for_uv_venv(monkeypatch, t
 
 class TestStableWindowsGatewayWorkingDir:
     def test_stable_gateway_working_dir_uses_hermes_home(self, tmp_path, monkeypatch):
-        home = tmp_path / ".hermes"
+        home = tmp_path / ".allr"
         home.mkdir()
         monkeypatch.setattr("hermes_cli.config.get_hermes_home", lambda: home)
         assert gateway_windows._stable_gateway_working_dir(tmp_path / "checkout") == str(home.resolve())
 
     def test_stable_gateway_working_dir_falls_back_to_project_root(self, tmp_path, monkeypatch):
-        missing = tmp_path / "missing" / ".hermes"
+        missing = tmp_path / "missing" / ".allr"
         project = tmp_path / "checkout"
         monkeypatch.setattr("hermes_cli.config.get_hermes_home", lambda: missing)
         assert gateway_windows._stable_gateway_working_dir(project) == str(project)
@@ -139,7 +139,7 @@ def test_elevated_gateway_command_uses_hidden_console_python(monkeypatch):
 
     monkeypatch.setattr(gateway_windows, "_assert_windows", lambda: None)
     monkeypatch.setattr(gateway_windows, "_current_profile_cli_args", lambda: ["--profile", "alice"])
-    monkeypatch.setattr(gateway_windows.sys, "executable", r"C:\Hermes\venv\Scripts\python.exe")
+    monkeypatch.setattr(gateway_windows.sys, "executable", r"C:\Allr\venv\Scripts\python.exe")
     monkeypatch.setattr(gateway_windows.ctypes, "windll", FakeWindll(), raising=False)
 
     assert gateway_windows._launch_elevated_gateway_command("install", ["--start-now", "--elevated-handoff"])
@@ -147,7 +147,7 @@ def test_elevated_gateway_command_uses_hidden_console_python(monkeypatch):
     assert len(calls) == 1
     _hwnd, verb, executable, params, cwd, show = calls[0]
     assert verb == "runas"
-    assert executable == r"C:\Hermes\venv\Scripts\python.exe"
+    assert executable == r"C:\Allr\venv\Scripts\python.exe"
     assert "--profile alice gateway install --start-now --elevated-handoff" in params
     assert show == 0
     assert cwd
@@ -207,8 +207,8 @@ def test_gateway_vbs_script_is_console_less(monkeypatch):
     )
     content = gateway_windows._build_gateway_vbs_script(
         r"C:\venv\Scripts\python.exe",
-        r"C:\Hermes",
-        r"C:\Hermes",
+        r"C:\Allr",
+        r"C:\Allr",
         "--profile work",
     )
     assert "cmd.exe" not in content.lower()
@@ -217,7 +217,7 @@ def test_gateway_vbs_script_is_console_less(monkeypatch):
     assert "hermes_cli.main" in content
     assert "gateway run" in content
     assert ", 0, False" in content  # hidden window, detached/async
-    for var in ("HERMES_HOME", "PYTHONIOENCODING", "HERMES_GATEWAY_DETACHED", "VIRTUAL_ENV", "PYTHONPATH"):
+    for var in ("ALLR_HOME", "PYTHONIOENCODING", "ALLR_GATEWAY_DETACHED", "VIRTUAL_ENV", "PYTHONPATH"):
         assert var in content
     assert "--profile" in content and "work" in content
     assert content.endswith("\r\n")
@@ -240,7 +240,7 @@ def test_gateway_vbs_script_is_console_less(monkeypatch):
 #
 # Background: on Windows, asyncio.add_signal_handler raises NotImplementedError,
 # so the gateway's SIGTERM handler (which drains in-flight agents and writes
-# resume_pending=True) never fires when `hermes gateway stop` kills the
+# resume_pending=True) never fires when `allr gateway stop` kills the
 # process. The fix: stop() writes the planned_stop_marker first, waits for
 # the gateway's marker-watcher thread to drain + exit cleanly, then escalates
 # to taskkill if drain times out.

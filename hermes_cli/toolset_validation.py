@@ -1,7 +1,7 @@
 """Validation for the ``platform_toolsets`` config section.
 
 Pure, side-effect-free helpers so the logic is unit-testable without importing
-the tool registry or launching Hermes (mirrors the decoupled-helper pattern used
+the tool registry or launching Allr (mirrors the decoupled-helper pattern used
 elsewhere in the CLI).
 
 Motivated by #38798: a config migration silently rewrote the valid toolset name
@@ -69,6 +69,6 @@ def validate_platform_toolsets(
     if valid_count == 0:
         warnings.append(
             "platform_toolsets resolves to zero valid toolsets — the agent will "
-            "have no tools. Run `hermes tools` to reconfigure."
+            "have no tools. Run `allr tools` to reconfigure."
         )
     return warnings

@@ -48,7 +48,7 @@ vi.mock('@/contrib/plugins-store', async importActual => {
   return { ...actual, setPluginEnabled: vi.fn() }
 })
 
-const localDoor = { kind: 'local' as const, reveal, root: async () => '/home/u/.hermes/desktop-plugins' }
+const localDoor = { kind: 'local' as const, reveal, root: async () => '/home/u/.allr/desktop-plugins' }
 const gatewayDoor = { kind: 'rest' as const, root: async () => '/srv/hermes/desktop-plugins' }
 
 const record = (over: Partial<PluginRecord> & { id: string }): PluginRecord => ({
@@ -132,7 +132,7 @@ describe('PluginsSettings', () => {
     renderPage()
 
     expect(await screen.findByText('Reading from this device')).toBeInTheDocument()
-    expect(screen.getByText('/home/u/.hermes/desktop-plugins')).toBeInTheDocument()
+    expect(screen.getByText('/home/u/.allr/desktop-plugins')).toBeInTheDocument()
   })
 
   it('names the gateway door when that is what is in force', async () => {
@@ -156,7 +156,7 @@ describe('PluginsSettings', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: /Open plugins folder/ }))
 
-    await waitFor(() => expect(reveal).toHaveBeenCalledWith('/home/u/.hermes/desktop-plugins'))
+    await waitFor(() => expect(reveal).toHaveBeenCalledWith('/home/u/.allr/desktop-plugins'))
   })
 
   it('rescans on demand', async () => {
@@ -233,7 +233,7 @@ describe('PluginsSettings ▸ agent plugins', () => {
   })
 
   // What the user installed themselves comes first and the always-there bundled
-  // set comes last — the same order `hermes plugins list` uses.
+  // set comes last — the same order `allr plugins list` uses.
   it('puts user plugins first and bundled ones last', async () => {
     loadedWith([
       agentRow({ key: 'web', name: 'web', source: 'bundled' }),
@@ -264,7 +264,7 @@ describe('PluginsSettings ▸ agent plugins', () => {
 
     expect(await screen.findByText('legacy')).toBeInTheDocument()
     expect(screen.getByRole('switch', { name: 'Disable legacy' })).toBeDisabled()
-    expect(screen.getByText('Update the Hermes backend to turn this one on or off from here.')).toBeInTheDocument()
+    expect(screen.getByText('Update the Allr backend to turn this one on or off from here.')).toBeInTheDocument()
   })
 
   // `busy === row.key` compares undefined to undefined, so an unrelated in-flight

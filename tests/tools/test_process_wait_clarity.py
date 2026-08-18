@@ -7,7 +7,7 @@ from tools.process_registry import ProcessRegistry
 
 @pytest.fixture
 def registry(tmp_path, monkeypatch):
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path / ".hermes"))
+    monkeypatch.setenv("ALLR_HOME", str(tmp_path / ".allr"))
     return ProcessRegistry()
 
 

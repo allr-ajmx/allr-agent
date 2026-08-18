@@ -47,12 +47,12 @@
 //! `http://127.0.0.1:<port>/callback`, answer that from the listener we already
 //! bound, and navigate back — the same navigate-away contract the cookie cascade
 //! below and `cloud.rs::portal_login` already use, one-shot resume marker included.
-//! The gateway's `hermes_session_pkce` broker cookie round-trips inside that webview
+//! The gateway's `allr_session_pkce` broker cookie round-trips inside that webview
 //! for both hops, so nothing extra has to be plumbed.
 //!
 //! # Legacy webview-cookie flow (fallback)
 //!
-//! Mirrors Hermes desktop (Electron), which binds an OAuth `BrowserWindow` to a
+//! Mirrors Allr desktop (Electron), which binds an OAuth `BrowserWindow` to a
 //! persistent session partition, runs the WHOLE login there, and polls that jar
 //! for the session cookie. Tauri doesn't auto-share cookies between a webview and
 //! reqwest, and the gateway's `redirect_uri` is always a same-origin
@@ -63,7 +63,7 @@
 //!
 //! So we let the interactive webview complete the ENTIRE cascade itself
 //! (`/auth/login` → IDP → `/auth/callback` → dashboard), which lands the session
-//! cookies (`hermes_session_at`/`_rt`, HttpOnly) in the WEBVIEW's cookie jar, then:
+//! cookies (`allr_session_at`/`_rt`, HttpOnly) in the WEBVIEW's cookie jar, then:
 //!
 //!   1. Open a `WebviewWindow` at `{base}/auth/login?provider=X` (sets the
 //!      webview's own PKCE cookie and goes straight to the provider).
@@ -513,12 +513,12 @@ pub mod native {
     /// a lie — there is no tab, and they are not the one who closes it.
     pub fn callback_response(ok: bool, in_app: bool) -> String {
         let body = match (ok, in_app) {
-            (true, true) => "<h1>Signed in</h1><p>Returning to Hermes…</p>",
+            (true, true) => "<h1>Signed in</h1><p>Returning to Allr…</p>",
             (true, false) => {
-                "<h1>Signed in</h1><p>You can close this tab and return to Hermes.</p>"
+                "<h1>Signed in</h1><p>You can close this tab and return to Allr.</p>"
             }
-            (false, true) => "<h1>Sign-in failed</h1><p>Returning to Hermes…</p>",
-            (false, false) => "<h1>Sign-in failed</h1><p>Return to Hermes and try again.</p>",
+            (false, true) => "<h1>Sign-in failed</h1><p>Returning to Allr…</p>",
+            (false, false) => "<h1>Sign-in failed</h1><p>Return to Allr and try again.</p>",
         };
 
         format!(
@@ -769,7 +769,7 @@ const NATIVE_LOGIN_TIMEOUT_SECS: u64 = 300;
 /// The same budget on mobile, where the sign-in has taken over the app's only webview.
 ///
 /// Shorter than desktop's 300s because this is also how long the user can be stranded
-/// on a page that is not Hermes, and longer than the 120s this file used to carry
+/// on a page that is not Allr, and longer than the 120s this file used to carry
 /// everywhere because an emailed one-time code means a trip to Mail that is charged
 /// against it (see `OAUTH_TIMEOUT_SECS_MOBILE`). It must also stay comfortably under
 /// the gateway's own `_PENDING_TTL_SECONDS = 600` (`native_flow.py`), or we would sit
@@ -1019,7 +1019,7 @@ async fn post_native_tokens(
 ///
 /// `navigated` is the entire reason this is a struct and not a `String`. On mobile the
 /// login runs in the app's ONLY webview, so a failure after the hand-off leaves the
-/// user looking at a page that is not Hermes. Falling back to the cookie cascade from
+/// user looking at a page that is not Allr. Falling back to the cookie cascade from
 /// there does not recover anything — it navigates them away a second time, to a
 /// different login page — which is precisely the "I ended up on some other login
 /// screen" this flow was reported for. See the match in `oauth_login`.
@@ -1401,7 +1401,7 @@ pub(crate) async fn gateway_bearer(
 /// refresh-token session cookie. The gateway may prefix it (`__Host-`/`__Secure-`),
 /// so match by suffix — mirrors desktop's AT/RT cookie variants.
 fn is_session_cookie(name: &str) -> bool {
-    name.ends_with("hermes_session_at") || name.ends_with("hermes_session_rt")
+    name.ends_with("allr_session_at") || name.ends_with("allr_session_rt")
 }
 
 /// Poll `label`'s webview cookie jar until a live gateway session lands: import the
@@ -1605,7 +1605,7 @@ pub async fn oauth_login(
                 OAUTH_WINDOW_LABEL,
                 WebviewUrl::External(login_url),
             )
-            .title("Sign in to Hermes")
+            .title("Sign in to Allr")
             .inner_size(520.0, 720.0)
             .build();
             let _ = build_tx.send(

@@ -1,6 +1,6 @@
-"""Resolve HERMES_HOME for standalone skill scripts.
+"""Resolve ALLR_HOME for standalone skill scripts.
 
-Skill scripts may run outside the Hermes process (system Python, nix env,
+Skill scripts may run outside the Allr process (system Python, nix env,
 CI) where ``hermes_constants`` is not importable.  This module provides the
 same ``get_hermes_home()`` contract without requiring it on ``sys.path``.
 
@@ -18,6 +18,6 @@ try:
 except (ModuleNotFoundError, ImportError):
 
     def get_hermes_home() -> Path:
-        """Return the Hermes home directory (default: ``~/.hermes``)."""
-        val = os.environ.get("HERMES_HOME", "").strip()
-        return Path(val) if val else Path.home() / ".hermes"
+        """Return the Allr home directory (default: ``~/.allr``)."""
+        val = os.environ.get("ALLR_HOME", "").strip()
+        return Path(val) if val else Path.home() / ".allr"

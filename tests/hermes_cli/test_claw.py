@@ -1,4 +1,4 @@
-"""Tests for hermes claw commands."""
+"""Tests for allr claw commands."""
 
 from argparse import Namespace
 import subprocess
@@ -324,8 +324,8 @@ class TestPrintMigrationReport:
         report = {
             "summary": {"migrated": 2, "skipped": 1, "conflict": 1, "error": 0},
             "items": [
-                {"kind": "soul", "status": "migrated", "destination": "/home/user/.hermes/SOUL.md"},
-                {"kind": "memory", "status": "migrated", "destination": "/home/user/.hermes/memories/MEMORY.md"},
+                {"kind": "soul", "status": "migrated", "destination": "/home/user/.allr/SOUL.md"},
+                {"kind": "memory", "status": "migrated", "destination": "/home/user/.allr/memories/MEMORY.md"},
                 {"kind": "skills", "status": "conflict", "reason": "already exists"},
                 {"kind": "tts-assets", "status": "skipped", "reason": "not found"},
             ],
