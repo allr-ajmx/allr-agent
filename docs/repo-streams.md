@@ -85,8 +85,20 @@ Then ingest, deliberately, on a branch — **never straight to `main`**:
 git fetch origin
 git switch -c ingest/support-$(date +%F) origin/main
 git merge origin/stream/support
-# resolve conflicts, run the test suite, open a PR into main
+# resolve conflicts, run the test suite
+
+# Both lanes still carry the old Hermes naming, so every merge drags it back
+# in. Re-apply the rename before the PR:
+python scripts/rebrand/rebrand.py
+git commit -am "chore(rebrand): re-apply Allr naming after ingest"
+python scripts/rebrand/rebrand.py --check   # must exit 0 — then open the PR
 ```
+
+`--check` is the gate: non-zero means Hermes naming survived the merge, and it
+prints the files. `--stat` shows which rule fired how often. The script is
+idempotent by construction, so re-running it is always safe; what it
+deliberately leaves alone (module names, class names, crate names, `@hermes/*`,
+localStorage keys, upstream links) is listed in its module docstring.
 
 The merge is **expected** to conflict, and increasingly so as this repository
 diverges. That is the point: each ingest is a reviewed decision, not an automatic
