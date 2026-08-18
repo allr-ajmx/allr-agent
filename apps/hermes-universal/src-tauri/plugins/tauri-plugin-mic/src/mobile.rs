@@ -14,7 +14,7 @@ pub fn init<R: Runtime, C: DeserializeOwned>(
     api: PluginApi<R, C>,
 ) -> crate::Result<Mic<R>> {
     #[cfg(target_os = "android")]
-    let handle = api.register_android_plugin("com.nousresearch.hermes.plugin.mic", "MicPlugin")?;
+    let handle = api.register_android_plugin("work.allr.plugin.mic", "MicPlugin")?;
     #[cfg(target_os = "ios")]
     let handle = api.register_ios_plugin(init_plugin_mic)?;
     Ok(Mic(handle))

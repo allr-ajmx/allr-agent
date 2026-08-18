@@ -1,4 +1,4 @@
-package com.nousresearch.hermes.plugin.mic
+package work.allr.plugin.mic
 
 import android.app.Activity
 import app.tauri.annotation.Permission

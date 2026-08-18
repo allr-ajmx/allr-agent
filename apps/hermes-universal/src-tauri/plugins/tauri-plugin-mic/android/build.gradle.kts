@@ -4,7 +4,7 @@ plugins {
 }
 
 android {
-    namespace = "com.nousresearch.hermes.plugin.mic"
+    namespace = "work.allr.plugin.mic"
     compileSdk = 36
 
     defaultConfig {
