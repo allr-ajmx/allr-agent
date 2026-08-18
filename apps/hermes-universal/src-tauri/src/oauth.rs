@@ -94,10 +94,11 @@ use tokio::sync::oneshot;
 use crate::transport::TransportState;
 
 /// The single label for the interactive sign-in window (desktop). Reused (closed +
-/// rebuilt) across attempts so a stale window never lingers. Not used on mobile, which
-/// drives the login through the calling webview instead of a second window.
-#[cfg(desktop)]
-const OAUTH_WINDOW_LABEL: &str = "hermes-oauth";
+/// rebuilt) across attempts so a stale window never lingers. Only BUILT on desktop —
+/// mobile drives the login through the calling webview instead of a second window —
+/// but the constant is unconditional because `lib.rs`'s credential gate has to
+/// recognise the label on every platform it compiles for.
+pub(crate) const OAUTH_WINDOW_LABEL: &str = "hermes-oauth";
 
 /// How long to wait for the interactive login before giving up (desktop: the app UI
 /// stays put behind the sign-in window, so a generous window is fine).
@@ -207,6 +208,24 @@ impl Drop for SignInLease {
             in_flight.remove(&self.0);
         }
     }
+}
+
+/// Is any interactive sign-in running right now?
+///
+/// Asked by the credential gate in `lib.rs`, which locks the keyring whenever the app
+/// loses focus. Opening the sign-in window IS the app losing focus, so without this the
+/// gate slammed shut at the exact moment the flow needs it open, and every gated read
+/// for the rest of the sign-in failed. The lease is the right signal rather than a
+/// window-label check alone: it spans the whole command, including the desktop system
+/// browser arm, where no window of ours is involved at all and the app is defocused by
+/// Safari.
+pub(crate) fn sign_in_active() -> bool {
+    SIGN_IN_IN_FLIGHT
+        .lock()
+        // A poisoned registry says nothing about whether a sign-in is running, and
+        // guessing "no" here would re-introduce the lock this exists to prevent.
+        .map(|in_flight| !in_flight.is_empty())
+        .unwrap_or(true)
 }
 
 /// Claim `label`'s sign-in slot, or report that one is already running.
@@ -2018,6 +2037,18 @@ mod tests {
         // lease must not be global.
         let _a = claim_sign_in("lease-test-alpha").expect("alpha");
         let _b = claim_sign_in("lease-test-beta").expect("beta is a separate webview");
+    }
+
+    #[test]
+    fn a_lease_marks_a_sign_in_as_active() {
+        // What the credential gate in lib.rs reads. Before this, opening the sign-in
+        // window defocused `main`, the gate locked, and every gated secret read for
+        // the rest of the flow failed.
+        let lease = claim_sign_in("lease-test-active").expect("claim");
+
+        assert!(sign_in_active());
+
+        drop(lease);
     }
 
     // ── The loopback listener ────────────────────────────────────────────────

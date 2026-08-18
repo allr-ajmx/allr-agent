@@ -107,6 +107,32 @@ fn reveal_in_file_manager(app: tauri::AppHandle, path: String) -> Result<(), Str
         .map_err(|e| e.to_string())
 }
 
+/// Should a window losing focus end the credential unlock?
+///
+/// Normally yes — that is the whole point of the lease. The exception is an
+/// interactive sign-in, which defocuses the app BY DESIGN: the desktop cookie flow
+/// opens its own `hermes-oauth` window over the app, the portal flow opens
+/// `hermes-portal`, and the RFC 8252 flow hands the login to the system browser and
+/// backgrounds us entirely. All three used to slam the gate shut at the exact moment
+/// the flow needs it open, and every gated `secrets_get` for the rest of the sign-in —
+/// the cookie jar, the saved token — then failed with `locked`.
+///
+/// Two signals, because neither covers the other. The lease
+/// (`oauth::sign_in_active`) spans the whole command including the system-browser arm,
+/// where no window of ours exists to match on. The labels cover the moment a sign-in
+/// window itself loses focus, which can outlive the lease by a beat while the window
+/// is torn down.
+fn defocus_ends_the_lease(label: &str) -> bool {
+    if oauth::sign_in_active() {
+        return false;
+    }
+
+    !matches!(
+        label,
+        oauth::OAUTH_WINDOW_LABEL | cloud::PORTAL_WINDOW_LABEL
+    )
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Route Rust `log::` output somewhere a person can read it on mobile (tao
@@ -377,12 +403,18 @@ pub fn run() {
             // ends it, and "no window has focus" / "the app is suspending" is the
             // closest signal we get to that. Losing it costs one extra prompt;
             // keeping it costs an unattended machine with the credentials open.
+            //
+            // A sign-in is the one defocus that is not the user walking away — see
+            // `defocus_ends_the_lease`.
             match &event {
                 tauri::RunEvent::WindowEvent {
+                    label,
                     event: tauri::WindowEvent::Focused(false),
                     ..
-                }
-                | tauri::RunEvent::ExitRequested { .. } => secrets::gate::lock(),
+                } if defocus_ends_the_lease(label) => secrets::gate::lock(),
+
+                // Suspending or quitting always ends it, sign-in or not.
+                tauri::RunEvent::ExitRequested { .. } => secrets::gate::lock(),
 
                 _ => {}
             }
