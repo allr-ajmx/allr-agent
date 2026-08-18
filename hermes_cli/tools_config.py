@@ -1652,8 +1652,8 @@ def _run_post_setup(post_setup_key: str):
             # behaviour as before.
             result = subprocess.run(
                 # --workspaces=false restricts the install to the repo root
-                # only, avoiding the apps/* glob which would pull in
-                # apps/desktop (Electron + node-pty) unnecessarily. See #38772.
+                # only, avoiding the apps/* glob which would pull in the app
+                # workspaces unnecessarily. See #38772.
                 [npm_bin, "install", "--silent", "--workspaces=false"],
                 capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=str(PROJECT_ROOT),
                 creationflags=_post_setup_no_window_flags(),
@@ -1767,7 +1767,7 @@ def _run_post_setup(post_setup_key: str):
             import subprocess
             # Absolute npm path so .cmd shim executes on Windows.
             result = subprocess.run(
-                # --workspaces=false avoids resolving apps/desktop. See #38772.
+                # --workspaces=false avoids resolving the app workspaces. See #38772.
                 [_npm_bin, "install", "--silent", "--workspaces=false"],
                 capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=str(PROJECT_ROOT),
                 creationflags=_post_setup_no_window_flags(),
@@ -4064,7 +4064,7 @@ def _configure_videogen_model_for_plugin(plugin_name: str, config: dict) -> None
 # ``stt.<provider>`` config sections; the first entry is the default.
 # Kept in sync with the dashboard selects (hermes_cli/web_server.py
 # _CONFIG_FIELD_META) and the desktop settings enums
-# (apps/desktop/src/app/settings/constants.ts).
+# (apps/hermes-universal/src/app/settings/constants.ts).
 STT_MODEL_CATALOG = {
     "local": ["base", "tiny", "small", "medium", "large-v3"],
     "groq": ["whisper-large-v3-turbo", "whisper-large-v3", "distil-whisper-large-v3-en"],

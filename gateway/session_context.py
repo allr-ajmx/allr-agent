@@ -394,9 +394,8 @@ def get_session_env(name: str, default: str = "") -> str:
 # HERMES_SESSION_PLATFORM but have no attachment channel behind them.
 # Default-deny: an unrecognized identity counts as messaging so a newly added
 # chat platform is never treated as a private surface before this set is
-# updated. Mirrors LOCAL_SESSION_SOURCE_IDS in
-# apps/desktop/src/lib/session-source.ts; keep roughly in sync when adding a
-# local or programmatic surface.
+# updated. Mirrors the client-side LOCAL_SESSION_SOURCE_IDS list; keep roughly
+# in sync when adding a local or programmatic surface.
 NON_MESSAGING_SESSION_SURFACES = frozenset(
     {
         "",

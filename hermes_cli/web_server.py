@@ -1168,7 +1168,7 @@ def _is_command_provider_block(value: Any) -> bool:
     (``tools.tts_tool._is_command_provider_config`` /
     ``tools.transcription_tools._is_command_stt_provider_config``) and the
     desktop's ``isCommandProvider`` in
-    ``apps/desktop/src/app/settings/helpers.ts``: ``type`` is OPTIONAL and
+    ``apps/hermes-universal/src/app/settings/helpers.ts``: ``type`` is OPTIONAL and
     case/space-insensitive (absent or normalizing to ``"command"``), and
     ``command`` MUST be a non-empty string. Built-in blocks (which carry
     ``voice``/``model`` and no ``command``) and the ``providers`` container
@@ -1214,7 +1214,7 @@ def _custom_provider_options(
        preservation).
 
     Guard semantics deliberately mirror
-    ``apps/desktop/src/app/settings/helpers.ts:commandProviderNames`` so the
+    ``apps/hermes-universal/src/app/settings/helpers.ts:commandProviderNames`` so the
     backend schema (web dashboard) and the desktop client agree on which
     names are offered.
     """

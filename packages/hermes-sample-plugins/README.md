@@ -1,6 +1,6 @@
 # Sample plugins
 
-The SDK's reference plugins. **This is the one canonical copy** — `apps/desktop`
+The SDK's reference plugins. **This is the one canonical copy** — the desktop app
 and `apps/hermes-universal` both glob this directory, so a sample can't drift
 between the two apps, and there is no third copy to keep in sync when a third
 surface appears.
@@ -90,7 +90,7 @@ opening it before the app has dialled is the normal case — plugins register fr
 a module body, the app dials afterwards — and it re-homes itself when the user
 soft-switches gateways, so it never streams the previous backend's data into a
 plugin whose `ctx.rest` has already moved. Desktop's door is still token-mode
-only and resolves to nothing on an OAuth remote (`apps/desktop/src/hermes.ts`).
+only and resolves to nothing on an OAuth remote.
 
 Either way it is an **accelerator over your polling, never a replacement** — a
 socket can always drop, a ticket mint can fail on an expired session, and

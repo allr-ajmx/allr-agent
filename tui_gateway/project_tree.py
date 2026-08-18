@@ -180,7 +180,7 @@ def _probe_sibling_worktree(cwd: str, resolve: Resolve) -> str:
     one ``-<segment>`` at a time — and return the first sibling that resolves.
 
     The session's cwd is frequently a SUBDIR of the deleted worktree (an agent
-    that ``cd``-ed into ``<repo>-<suffix>/apps/desktop``), whose basename shares
+    that ``cd``-ed into ``<repo>-<suffix>/apps/hermes-universal``), whose basename shares
     nothing with the repo. So the trim is applied to each ANCESTOR, deepest
     first, not just to the leaf — otherwise the probe silently no-ops and the
     dead path gets minted as its own top-level project. Probes are bounded in

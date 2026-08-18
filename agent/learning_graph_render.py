@@ -1,6 +1,6 @@
 """Terminal renderer for the learning timeline (learned skills + memories).
 
-The desktop app (``apps/desktop/src/app/starmap``) paints a GPU radial
+The desktop app (``apps/hermes-universal/src/app/starmap``) paints a GPU radial
 constellation; a terminal can't, so this is a *rendition* of the same data as a
 timeline bar chart — date rows, proportional skill/memory bars colored by the
 day's dominant category, and a cumulative trajectory sparkline — plus per-slice

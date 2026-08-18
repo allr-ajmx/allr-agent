@@ -58,10 +58,10 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-# Keep in sync with UPDATE_MARKER_MAX_AGE_MS in
-# apps/desktop/electron/update-marker.ts — the same marker is read by both, and
-# a shorter ceiling here would let Python steal a lock Electron still considers
-# live. A full update (git pull + uv sync + desktop rebuild) is minutes.
+# Keep in sync with the desktop app's UPDATE_MARKER_MAX_AGE_MS — the same
+# marker is read by both, and a shorter ceiling here would let Python steal a
+# lock the app still considers live. A full update (git pull + uv sync) is
+# minutes.
 UPDATE_MARKER_MAX_AGE_SECONDS = 20 * 60
 
 MARKER_NAME = ".hermes-update-in-progress"
