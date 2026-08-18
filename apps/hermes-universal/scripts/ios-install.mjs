@@ -19,7 +19,7 @@
  *     no longer keeps pace with new device/OS pairs.
  *
  *   - **A script, not a one-liner in package.json.** The bundle is called
- *     `Hermes (MJX).ipa` — spaces and parentheses — and it has to survive being
+ *     `Allr.ipa` — spaces and parentheses — and it has to survive being
  *     passed through npm to a shell. Doing this with `execFileSync` and an
  *     argument array sidesteps the quoting entirely. The device also has to be
  *     looked up, which is not a one-liner in any case.
@@ -32,7 +32,7 @@
  *   node scripts/ios-install.mjs --device "iPhone"   # by name, UDID or identifier
  *   node scripts/ios-install.mjs --ipa path/to.ipa   # an explicit bundle
  *
- *   HERMES_IOS_DEVICE=<name|udid>  # same as --device, for a machine with several
+ *   ALLR_IOS_DEVICE=<name|udid>  # same as --device, for a machine with several
  */
 
 import { execFileSync } from 'node:child_process'
@@ -184,7 +184,7 @@ const USAGE = `Install the built iOS app on a connected device.
   node scripts/ios-install.mjs --device "iPhone"   by name, UDID or identifier
   node scripts/ios-install.mjs --ipa path/to.ipa   an explicit bundle
 
-  HERMES_IOS_DEVICE=<name|udid>                    same as --device
+  ALLR_IOS_DEVICE=<name|udid>                    same as --device
 
 Build first with: npm run ios:build:debug`
 
@@ -198,7 +198,7 @@ function main() {
   }
 
   const ipa = findIpa(args.ipa)
-  const device = pickDevice(args.device ?? process.env.HERMES_IOS_DEVICE)
+  const device = pickDevice(args.device ?? process.env.ALLR_IOS_DEVICE)
 
   if (!device.connected) {
     console.warn(`ios-install: ${device.name} is paired but not connected; this may take a moment`)

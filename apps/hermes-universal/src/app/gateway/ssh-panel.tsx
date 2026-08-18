@@ -20,7 +20,7 @@ import { listSshConfigHosts, resolveSshHost } from '@/store/ssh-backend'
 //
 //   - Desktop ran ssh with BatchMode=yes and so could never prompt. We can — but
 //     the passphrase/password and host-key questions are rendered by
-//     SshPromptDialog rather than here, because installing Hermes on the remote
+//     SshPromptDialog rather than here, because installing Allr on the remote
 //     authenticates the same way and needs the same surface.
 
 type Gateway = Translations['settings']['gateway']

@@ -652,10 +652,10 @@ export const ar = defineLocale({
       clear: 'مسح'
     },
     gateway: {
-      sshInstallTitle: host => `تثبيت Hermes على ${host}؟`,
-      sshInstallBody: 'سيُثبَّت Hermes داخل حساب المستخدم على ذلك الجهاز. لا حاجة إلى صلاحيات المسؤول.',
+      sshInstallTitle: host => `تثبيت Allr على ${host}؟`,
+      sshInstallBody: 'سيُثبَّت Allr داخل حساب المستخدم على ذلك الجهاز. لا حاجة إلى صلاحيات المسؤول.',
       sshInstallCancel: 'ليس الآن',
-      sshInstallDoneTitle: 'تم تثبيت Hermes على ذلك الجهاز',
+      sshInstallDoneTitle: 'تم تثبيت Allr على ذلك الجهاز',
       sshInstallDoneBody: 'اضغط «حفظ وإعادة الاتصال» للاتصال به.',
       loading: 'جار تحميل إعدادات البوابة...',
       unavailableTitle: 'إعدادات البوابة غير متاحة',
@@ -1950,27 +1950,27 @@ export const ar = defineLocale({
     reloadRetry: 'إعادة التحميل وإعادة المحاولة'
   },
   connect: {
-    welcomeTitle: 'مرحبًا بك في Hermes',
+    welcomeTitle: 'مرحبًا بك في Allr',
     welcomeBody:
-      'يعمل Hermes أينما احتجت إليه — على هذا الجهاز، أو في السحابة، أو على جهاز تصل إليه عبر SSH. اختر بوابة ولنبدأ الاتصال.',
+      'يعمل Allr أينما احتجت إليه — على هذا الجهاز، أو في السحابة، أو على جهاز تصل إليه عبر SSH. اختر بوابة ولنبدأ الاتصال.',
     getStarted: 'هيا نبدأ',
     chooseTitle: 'اختر بوابة',
     chooseBody: 'يمكنك تغيير ذلك لاحقًا من الإعدادات.',
     back: 'رجوع',
     local: {
       detecting: 'جارٍ البحث عن تثبيت محلي…',
-      foundTitle: 'Hermes مثبَّت',
+      foundTitle: 'Allr مثبَّت',
       foundVersion: version => `الإصدار ${version}`,
       missingTitle: 'لم يُعثر على تثبيت محلي',
-      missingBody: 'اختر نسخة Hermes Agent التي تريد تثبيتها على هذا الجهاز.',
-      upstreamTitle: 'NousResearch Hermes Agent',
-      upstreamDesc: 'إصدار Hermes Agent الرسمي من NousResearch.',
-      forkTitle: 'نسخة MJX من Hermes Agent',
-      forkDesc: 'نسخة معدّلة من Hermes Agent مخصّصة لاختبار الميزات التجريبية.',
+      missingBody: 'اختر نسخة Allr التي تريد تثبيتها على هذا الجهاز.',
+      upstreamTitle: 'NousResearch Allr',
+      upstreamDesc: 'إصدار Allr الرسمي من NousResearch.',
+      forkTitle: 'نسخة MJX من Allr',
+      forkDesc: 'نسخة معدّلة من Allr مخصّصة لاختبار الميزات التجريبية.',
       install: 'تثبيت',
       retry: 'أعد المحاولة',
-      doneTitle: 'Hermes جاهز',
-      doneBody: 'سيأتي الإعداد في المرحلة التالية. يمكنك بدء استخدام Hermes الآن.',
+      doneTitle: 'Allr جاهز',
+      doneBody: 'سيأتي الإعداد في المرحلة التالية. يمكنك بدء استخدام Allr الآن.',
       done: 'تم',
       continue: 'متابعة'
     }

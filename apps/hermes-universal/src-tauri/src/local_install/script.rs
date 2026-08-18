@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-/// Which Hermes to install.
+/// Which Allr to install.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Repo {
@@ -101,7 +101,7 @@ pub fn cache_path(hermes_home: &Path, repo: Repo, reference: &str) -> PathBuf {
 }
 
 // NOT desktop-gated, unlike the rest of local_install: the SSH gateway installs
-// Hermes on a REMOTE host, and that works from a phone too (russh is pure Rust —
+// Allr on a REMOTE host, and that works from a phone too (russh is pure Rust —
 // see the ssh module's note on why there is no SSH_MODE_SUPPORTED). Fetching the
 // script is plain HTTP plus a file write, with nothing desktop-specific in it.
 pub use imp::resolve;
@@ -153,7 +153,7 @@ mod imp {
 
         let client = reqwest::Client::builder()
             .timeout(TIMEOUT)
-            .user_agent(concat!("Hermes-Universal/", env!("CARGO_PKG_VERSION")))
+            .user_agent(concat!("Allr/", env!("CARGO_PKG_VERSION")))
             .build()
             .map_err(|e| format!("could not build an HTTP client: {e}"))?;
 

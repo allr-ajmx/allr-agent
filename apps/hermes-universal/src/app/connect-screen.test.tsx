@@ -62,16 +62,16 @@ describe('the welcome step', () => {
     mockGet.mockResolvedValue(false)
     renderScreen()
 
-    expect(await screen.findByText('Welcome to Hermes')).toBeInTheDocument()
+    expect(await screen.findByText('Welcome to Allr')).toBeInTheDocument()
     expect(screen.queryByText('Choose a gateway')).not.toBeInTheDocument()
-    expect(screen.queryByText('Hermes Cloud')).not.toBeInTheDocument()
+    expect(screen.queryByText('Allr Cloud')).not.toBeInTheDocument()
   })
 
   it('offers a language picker, so the choice comes before the prose', async () => {
     mockGet.mockResolvedValue(false)
     renderScreen()
 
-    await screen.findByText('Welcome to Hermes')
+    await screen.findByText('Welcome to Allr')
     expect(screen.getByRole('button', { name: 'Switch language' })).toBeInTheDocument()
   })
 
@@ -110,13 +110,13 @@ describe('the welcome step', () => {
     // The pre-resolution frame: neither step, rather than a welcome that will be
     // yanked away. Defaulting the state to 'welcome' would pass every other test
     // in this file and still flash the screen at every returning user.
-    expect(screen.queryByText('Welcome to Hermes')).not.toBeInTheDocument()
+    expect(screen.queryByText('Welcome to Allr')).not.toBeInTheDocument()
     expect(screen.queryByText('Choose a gateway')).not.toBeInTheDocument()
 
     resolveFlag(true)
 
     expect(await screen.findByText('Choose a gateway')).toBeInTheDocument()
-    expect(screen.queryByText('Welcome to Hermes')).not.toBeInTheDocument()
+    expect(screen.queryByText('Welcome to Allr')).not.toBeInTheDocument()
   })
 })
 
@@ -124,7 +124,7 @@ describe('the gateway picker step', () => {
   it('lists the gateways without any one gateway’s fields', async () => {
     await renderAtPicker()
 
-    expect(screen.getByText('Hermes Cloud')).toBeInTheDocument()
+    expect(screen.getByText('Allr Cloud')).toBeInTheDocument()
     expect(screen.getByText('Remote gateway')).toBeInTheDocument()
     expect(screen.getByText('SSH')).toBeInTheDocument()
     // Nothing is configured until a gateway is picked.
@@ -187,11 +187,11 @@ describe('the local gateway sub-flow', () => {
     fireEvent.click(pickGateway('Local gateway'))
 
     // No Tauri runtime here, so detection rejects and resolves to "missing" —
-    // the same screen a machine without Hermes shows.
+    // the same screen a machine without Allr shows.
     expect(await screen.findByText('No local installation found')).toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: 'Back' })).toHaveLength(1)
 
-    fireEvent.click(screen.getByText('MJX Fork of Hermes Agent'))
+    fireEvent.click(screen.getByText('MJX Fork of Allr'))
     await screen.findByRole('button', { name: 'Install' })
 
     // Still one — this is the regression.
@@ -214,7 +214,7 @@ describe('connection errors', () => {
     mockGet.mockResolvedValue(false)
 
     renderScreen()
-    await screen.findByText('Welcome to Hermes')
+    await screen.findByText('Welcome to Allr')
     expect(screen.queryByText('gateway unreachable')).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: "Let's get started" }))

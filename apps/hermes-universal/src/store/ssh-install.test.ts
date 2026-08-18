@@ -47,7 +47,7 @@ describe('the offer', () => {
     offerSshInstall('box.example.com')
 
     expect($sshInstall.get()?.host).toBe('box.example.com')
-    // 'missing' is the repo-card phase, shared with the local flow: Hermes IS
+    // 'missing' is the repo-card phase, shared with the local flow: Allr IS
     // missing, on that host.
     expect($sshInstall.get()?.phase).toBe('missing')
   })

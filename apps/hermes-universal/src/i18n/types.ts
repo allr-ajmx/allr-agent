@@ -624,7 +624,7 @@ export interface Translations {
       sshErrAuth: string
       sshErrHostKey: string
       sshErrNotInstalled: string
-    /** Offer to install Hermes on the remote host after a failed connect. */
+    /** Offer to install Allr on the remote host after a failed connect. */
     sshInstallTitle: (host: string) => string
     sshInstallBody: string
     sshInstallCancel: string

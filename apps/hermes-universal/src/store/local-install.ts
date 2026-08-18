@@ -2,7 +2,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { atom, computed } from 'nanostores'
 
-// The Local gateway step's state: find an existing Hermes, and if there isn't
+// The Local gateway step's state: find an existing Allr, and if there isn't
 // one, install it.
 //
 // Reducer shape is lifted from apps/bootstrap-installer/src/store.ts, which
@@ -20,7 +20,7 @@ export interface LocalInstall {
   hasMarker: boolean
 }
 
-/** Which Hermes to install. Rust owns the URLs; this is only a name. */
+/** Which Allr to install. Rust owns the URLs; this is only a name. */
 export type Repo = 'fork' | 'upstream'
 
 export type StageState = 'failed' | 'pending' | 'running' | 'skipped' | 'succeeded'

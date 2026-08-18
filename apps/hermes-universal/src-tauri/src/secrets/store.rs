@@ -146,7 +146,7 @@ fn install() -> Result<(), SecretsError> {
 ///
 /// `hermes/<account>/password`, inside the `hermes` service. The redundant
 /// service prefix and the trailing type are the plugin's format, kept verbatim:
-/// they are what an already-installed copy of Hermes wrote, and the whole point
+/// they are what an already-installed copy of Allr wrote, and the whole point
 /// of matching is that upgrading finds its credentials rather than losing them.
 fn entry(account: &str) -> Result<Entry, SecretsError> {
     ensure()?;

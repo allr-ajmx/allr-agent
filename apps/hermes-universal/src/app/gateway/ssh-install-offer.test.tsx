@@ -64,9 +64,9 @@ describe('the offer', () => {
   it('names the host and both repos', () => {
     renderOffer()
 
-    expect(screen.getByText('Install Hermes on box.example.com?')).toBeInTheDocument()
-    expect(screen.getByText('NousResearch Hermes Agent')).toBeInTheDocument()
-    expect(screen.getByText('MJX Fork of Hermes Agent')).toBeInTheDocument()
+    expect(screen.getByText('Install Allr on box.example.com?')).toBeInTheDocument()
+    expect(screen.getByText('NousResearch Allr')).toBeInTheDocument()
+    expect(screen.getByText('MJX Fork of Allr')).toBeInTheDocument()
   })
 
   it('says no administrator access is needed', () => {
@@ -79,11 +79,11 @@ describe('the offer', () => {
   it('installs nothing until a repo is picked and Install is pressed', async () => {
     renderOffer()
 
-    fireEvent.click(screen.getByText('MJX Fork of Hermes Agent'))
+    fireEvent.click(screen.getByText('MJX Fork of Allr'))
 
     expect(await screen.findByRole('button', { name: 'Install' })).toBeInTheDocument()
     expect(
-      screen.getByText('A fork of Hermes Agent built for testing experimental features in Hermes Agent.')
+      screen.getByText('A fork of Allr built for testing experimental features in Allr.')
     ).toBeInTheDocument()
     expect(invokeMock).not.toHaveBeenCalledWith('ssh_install', expect.anything())
   })
@@ -91,10 +91,10 @@ describe('the offer', () => {
   it('backs out of the repo description without installing', async () => {
     renderOffer()
 
-    fireEvent.click(screen.getByText('MJX Fork of Hermes Agent'))
+    fireEvent.click(screen.getByText('MJX Fork of Allr'))
     fireEvent.click(await screen.findByRole('button', { name: 'Back' }))
 
-    expect(await screen.findByText('Install Hermes on box.example.com?')).toBeInTheDocument()
+    expect(await screen.findByText('Install Allr on box.example.com?')).toBeInTheDocument()
     expect(invokeMock).not.toHaveBeenCalledWith('ssh_install', expect.anything())
   })
 
@@ -143,10 +143,10 @@ describe('while installing', () => {
     renderOffer()
     emit(
       { protocolVersion: 1, stages: [{ name: 'venv', title: 'Create venv' }], type: 'manifest' },
-      { installRoot: '/home/me/.hermes/hermes-agent', type: 'complete' }
+      { installRoot: '/home/me/.allr/allr-agent', type: 'complete' }
     )
 
-    expect(await screen.findByText('Hermes is installed on that host')).toBeInTheDocument()
+    expect(await screen.findByText('Allr is installed on that host')).toBeInTheDocument()
     expect(screen.getByText('Press Save and reconnect to connect to it.')).toBeInTheDocument()
     // Installing is not dialling; the connect stays a separate deliberate act.
     expect(invokeMock).not.toHaveBeenCalledWith('ssh_connect', expect.anything())

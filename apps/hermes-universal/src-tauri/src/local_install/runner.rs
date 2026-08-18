@@ -239,7 +239,7 @@ mod imp {
         let mut command = build_command(script, args);
 
         command
-            .env("HERMES_HOME", hermes_home)
+            .env("ALLR_HOME", hermes_home)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -422,7 +422,7 @@ mod tests {
     #[test]
     fn stage_result_is_taken_from_the_last_frame_after_banners() {
         let stdout =
-            "Hermes installer\n  fetching…\n{\"ok\":true,\"stage\":\"venv\",\"skipped\":false}\n";
+            "Allr installer\n  fetching…\n{\"ok\":true,\"stage\":\"venv\",\"skipped\":false}\n";
         let parsed = parse_stage_result(stdout).expect("frame");
 
         assert_eq!(parsed.stage, "venv");

@@ -497,7 +497,7 @@ pub async fn ssh_test(
     })
 }
 
-/// Install Hermes on the remote host.
+/// Install Allr on the remote host.
 ///
 /// A separate command rather than a branch inside `establish`, on purpose. The
 /// user confirms this AFTER a connect has already failed with `HermesNotFound`,

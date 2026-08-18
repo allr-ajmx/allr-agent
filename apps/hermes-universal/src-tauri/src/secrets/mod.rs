@@ -290,10 +290,8 @@ pub async fn secrets_status() -> SecretsStatus {
 /// working out whether it needs to.
 #[tauri::command]
 pub async fn secrets_unlock(reason: Option<String>) -> Result<(), SecretsError> {
-    gate::unlock(
-        reason.unwrap_or_else(|| "Hermes needs to use your stored credentials".to_string()),
-    )
-    .await
+    gate::unlock(reason.unwrap_or_else(|| "Allr needs to use your stored credentials".to_string()))
+        .await
 }
 
 /// End the lease now.

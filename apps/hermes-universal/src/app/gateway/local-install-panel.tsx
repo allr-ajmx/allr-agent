@@ -21,7 +21,7 @@ import {
 //
 // Local is the one mode with nothing to type, and it used to render nothing at
 // all — just the shared "Save & reconnect" button over a `hermes` binary that
-// may not exist. This panel answers the question that button assumed: is Hermes
+// may not exist. This panel answers the question that button assumed: is Allr
 // installed here, and if not, which one should we install?
 
 function RepoCard({
