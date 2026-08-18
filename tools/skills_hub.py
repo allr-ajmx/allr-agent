@@ -3273,6 +3273,8 @@ class OptionalSkillSource(SkillSource):
     (search / install / inspect) and labelled "official" with "builtin" trust.
     """
 
+    # Data endpoint, not branding: the optional-skills manifests are fetched
+    # from the upstream repo, so this stays on Nous Research.
     OFFICIAL_REPO = "NousResearch/hermes-agent"
 
     def __init__(self):
@@ -3978,7 +3980,9 @@ def check_for_skill_updates(
 # Allr centralized index source
 # ---------------------------------------------------------------------------
 
-ALLR_INDEX_URL = "https://allr.work/docs/api/skills-index.json"
+# Data endpoint, not branding: this manifest is published by Nous Research and
+# Allr consumes it as-is — keep it pointed at the upstream host.
+ALLR_INDEX_URL = "https://hermes-agent.nousresearch.com/docs/api/skills-index.json"
 ALLR_INDEX_TTL = 6 * 3600  # 6 hours
 
 

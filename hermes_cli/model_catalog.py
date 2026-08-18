@@ -62,8 +62,10 @@ logger = logging.getLogger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 
+# Data endpoint, not branding: the catalog is published by Nous Research and
+# Allr consumes it as-is — keep both this URL and the raw fallback upstream.
 DEFAULT_CATALOG_URL = (
-    "https://allr.work/docs/api/model-catalog.json"
+    "https://hermes-agent.nousresearch.com/docs/api/model-catalog.json"
 )
 # Fallback fetch chain. The Docusaurus site is served through Vercel, which
 # occasionally returns HTTP 403 + x-vercel-mitigated: challenge for non-
