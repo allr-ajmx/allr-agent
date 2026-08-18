@@ -715,7 +715,7 @@ class TestNodeRuntimeNpmResolution:
 
 
     def test_wsl_update_skips_windows_npm_build_paths(self, mock_args, monkeypatch):
-        """A Windows-only npm on WSL must not reach web or desktop builds."""
+        """A Windows-only npm on WSL must not reach the web build."""
         from hermes_cli import main as hm
         import hermes_constants
 
@@ -736,11 +736,8 @@ class TestNodeRuntimeNpmResolution:
 
         with patch("subprocess.run") as mock_run, \
              patch.object(hm, "_web_ui_build_needed", return_value=True), \
-             patch.object(hm, "_desktop_packaged_executable", return_value=None), \
-             patch.object(hm, "_desktop_dist_exists", return_value=True), \
              patch.object(hm, "_run_npm_install_deterministic") as mock_npm_install, \
-             patch.object(hm, "_run_with_idle_timeout") as mock_idle_build, \
-             patch.object(hm, "_run_logged_subprocess") as mock_desktop_build:
+             patch.object(hm, "_run_with_idle_timeout") as mock_idle_build:
             mock_run.side_effect = _make_run_side_effect(
                 branch="main", verify_ok=True, commit_count="1"
             )
@@ -748,7 +745,6 @@ class TestNodeRuntimeNpmResolution:
 
         mock_npm_install.assert_not_called()
         mock_idle_build.assert_not_called()
-        mock_desktop_build.assert_not_called()
         assert all(
             not call.args or not call.args[0] or call.args[0][0] != windows_npm
             for call in mock_run.call_args_list

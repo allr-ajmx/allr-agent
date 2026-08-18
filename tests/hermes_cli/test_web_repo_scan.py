@@ -1,8 +1,7 @@
 """Gateway-side git repository discovery.
 
-Mirrors the assertions the same walk carries on the other two implementations —
-``apps/desktop/electron/git-repo-scan.test.ts`` and the Rust
-``apps/hermes-universal/src-tauri/src/repo_scan.rs`` tests — so the three stay
+Mirrors the assertions the same walk carries on the Rust implementation
+(``apps/hermes-universal/src-tauri/src/repo_scan.rs`` tests) so the two stay
 behaviourally identical.
 """
 

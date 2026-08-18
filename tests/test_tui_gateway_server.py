@@ -93,8 +93,8 @@ def test_session_slot_is_claimed_on_first_turn_not_on_create(monkeypatch, tmp_pa
 def test_session_context_uses_session_cwd(monkeypatch, tmp_path):
     """Desktop/TUI sessions must pin the agent cwd per session.
 
-    The gateway process itself is often launched from apps/desktop in dev, so
-    falling back to os.getcwd() makes agents answer from the desktop app folder
+    The gateway process itself is often launched from an app workspace in dev,
+    so falling back to os.getcwd() makes agents answer from the app folder
     even when the sidebar/session cwd is a real project.
     """
     from agent.runtime_cwd import resolve_agent_cwd

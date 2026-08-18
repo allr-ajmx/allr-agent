@@ -59,7 +59,7 @@ CASES = {
     "python source → python": (["run_agent.py"], _lanes(python=True, scan=True)),
     "dep manifest → python": (["pyproject.toml"], _lanes(python=True, scan=True, deps=True)),
     "uv.lock → python": (["uv.lock"], _lanes(python=True)),
-    "ts package → frontend": (["apps/desktop/src/app.tsx"], _lanes(frontend=True)),
+    "ts package → frontend": (["apps/hermes-universal/src/app.tsx"], _lanes(frontend=True)),
     "ui-tui → frontend": (["ui-tui/src/entry.ts"], _lanes(frontend=True)),
     # Lockfile bump shifts every TS package's tree, but not the Python suite.
     "root lockfile → frontend, not python": (["package-lock.json"], _lanes(frontend=True, npm_lock=True)),
@@ -110,7 +110,7 @@ CASES = {
     ),
     # CI-sensitive files require explicit review label.
     "eslint config → ci_review": (
-        ["apps/desktop/eslint.config.mjs"],
+        ["apps/hermes-universal/eslint.config.mjs"],
         _lanes(frontend=True, ci_review=True),
     ),
     "shared eslint config → ci_review": (
@@ -147,7 +147,7 @@ CASES = {
     ),
     # Normal desktop source doesn't trigger ci_review.
     "desktop src → no ci_review": (
-        ["apps/desktop/src/app.tsx"],
+        ["apps/hermes-universal/src/app.tsx"],
         _lanes(frontend=True),
     ),
     # Fail open: CI-config / empty / blank diffs run everything.
@@ -165,11 +165,11 @@ def test_classify(files, expected):
 
 def test_ci_review_files_returns_only_sensitive_paths_sorted_and_unique():
     assert ci_review_files([
-        "apps/desktop/src/app.tsx",
+        "apps/hermes-universal/src/app.tsx",
         ".github/workflows/ci.yml",
-        "apps/desktop/eslint.config.mjs",
+        "apps/hermes-universal/eslint.config.mjs",
         ".github/workflows/ci.yml",
     ]) == [
         ".github/workflows/ci.yml",
-        "apps/desktop/eslint.config.mjs",
+        "apps/hermes-universal/eslint.config.mjs",
     ]

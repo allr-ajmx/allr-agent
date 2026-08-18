@@ -57,7 +57,7 @@ def test_token_file_is_read_and_unlinked_through_private_directory(tmp_path, mon
 def test_token_anchor_is_os_home_not_active_profile(tmp_path, monkeypatch):
     """Regression for #69551: the Desktop client always writes the token under
     ``$HOME/.hermes/desktop-ssh`` (a literal ``~/.hermes/desktop-ssh`` in
-    apps/desktop/electron/remote-lifecycle.ts, expanded against the account's
+    apps/hermes-universal/src-tauri/src/ssh/remote_paths.rs, expanded against the account's
     $HOME). A non-default sticky profile re-homes ``get_hermes_home()`` to
     ``<root>/profiles/<name>``, and a Docker-style ``HERMES_HOME`` can point
     elsewhere entirely — neither must move the validator off
