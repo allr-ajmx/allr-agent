@@ -39,6 +39,9 @@ DELIBERATE NON-SCOPE — these keep the word "hermes" on purpose:
   splits every trace in two.
 * Directory/package names under `gen/android` and `gen/apple` — the app
   identifier lives there and is maintained by hand.
+* Any line carrying a `# rebrand:keep` comment — the deliberate
+  backward-compat literals (legacy `HERMES_*` env names, legacy unit names)
+  that exist precisely to read the pre-rename world.
 
 Usage:
 
@@ -65,6 +68,10 @@ REPO = Path(__file__).resolve().parent.parent.parent
 # --------------------------------------------------------------------------
 
 PROTECT_PARTS = [
+    # Escape hatch: a line carrying `# rebrand:keep` is masked whole. Use it for
+    # the deliberate backward-compat literals (legacy env names, legacy unit
+    # names) that read the pre-rename world and must survive every re-run.
+    r"[^\n]*# rebrand:keep[^\n]*",
     # Python modules / internal identifiers.
     r"hermes_cli\b",
     r"hermes_constants\b",
@@ -89,11 +96,16 @@ PROTECT_PARTS = [
     r"[Nn]ous[Rr]esearch/[Hh]ermes-[Aa]gent[\w./#?=&-]*",
     r"(?:(?:github\.com|raw\.githubusercontent\.com)[:/])?jaxmatrix/mjx-hermes-agent[\w./#?=&-]*",
     r"services\.hermes-agent",
+    # Third-party upstream of the bundled achievements plugin.
+    r"PCinkusz/hermes-achievements",
     # Nous model names: "Hermes 4", "Hermes-4-405B", "hermes-4-70b", and the
     # family as a whole — "Hermes model(s)" never means this product here.
     r"[Hh]ermes[ -]\d[\w.]*",
     r"Nous[ /-]Hermes\b",
     r"Hermes models?\b",
+    # Data endpoints: manifests published by Nous Research that Allr consumes
+    # as-is (skills index, model catalog). Doc links on the same host still move.
+    r"hermes-agent\.nousresearch\.com/docs/api/[\w./-]*",
     # On-disk / on-wire contracts.
     r"metadata\.hermes\.\w+",
     r"\.hermes\.md",
@@ -278,7 +290,9 @@ PATH_RENAMES = [
 
 SKIP_SUFFIXES = (".lock", "-lock.json")
 SKIP_NAMES = {"LICENSE", ".mailmap", ".git-blame-ignore-revs"}
-SKIP_DIR_PARTS = ("/dist/", "/build/", "/release/")
+# No `dist/`/`build/` skip: the only tracked ones are the dashboard plugins'
+# hand-written IIFE bundles (no build step), and skipping them left them calling
+# `window.__HERMES_PLUGIN_SDK__` after the host renamed the global.
 SKIP_PREFIXES = (
     "contributors/",
     "scripts/rebrand/",
@@ -299,7 +313,7 @@ def candidate_files(pathspecs: list[str], excludes: list[str]) -> list[str]:
     for path in listed:
         if not path or path in SKIP_NAMES or path.endswith(SKIP_SUFFIXES):
             continue
-        if path.startswith(SKIP_PREFIXES) or any(p in f"/{path}" for p in SKIP_DIR_PARTS):
+        if path.startswith(SKIP_PREFIXES):
             continue
         if any(path == e or path.startswith(e.rstrip("/") + "/") for e in excludes):
             continue
@@ -366,6 +380,7 @@ KEEP = [
     "Hermes models are already uncensored",
     "# drops to the hermes user via s6-setuidgid",
     "junk-filtered (hermes home subtree + bare)",
+    "https://github.com/PCinkusz/hermes-achievements (MIT)",
     "import x from '@/types/hermes'",
     '"@hermes/shared": "workspace:*"',
     "path apps/hermes-universal/src-tauri",
@@ -381,6 +396,8 @@ KEEP = [
     'tag = metadata["hermes"]',
     'unit = "hermes.service"',
     'KeyValue::new("hermes.run", run_label())',
+    'legacy = os.environ["HERMES_HOME"]  # rebrand:keep',
+    'URL = "https://hermes-agent.nousresearch.com/docs/api/model-catalog.json"',
 ]
 
 # (input, expected) — one per rule.
