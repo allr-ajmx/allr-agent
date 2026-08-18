@@ -13,7 +13,7 @@
 # 2. Creates a Python 3.11 virtual environment
 # 3. Installs the appropriate dependency set for the platform
 # 4. Creates .env from template (if not exists)
-# 5. Symlinks the 'hermes' CLI command into a user-facing bin dir
+# 5. Symlinks the 'allr' CLI command into a user-facing bin dir
 # 6. Runs the setup wizard (optional)
 # ============================================================================
 
@@ -342,17 +342,17 @@ else
 fi
 
 # ============================================================================
-# PATH setup — symlink hermes into a user-facing bin dir
+# PATH setup — symlink allr into a user-facing bin dir
 # ============================================================================
 
-echo -e "${CYAN}→${NC} Setting up hermes command..."
+echo -e "${CYAN}→${NC} Setting up allr command..."
 
 ALLR_BIN="$SCRIPT_DIR/venv/bin/allr"
 COMMAND_LINK_DIR="$(get_command_link_dir)"
 COMMAND_LINK_DISPLAY_DIR="$(get_command_link_display_dir)"
 mkdir -p "$COMMAND_LINK_DIR"
-ln -sf "$ALLR_BIN" "$COMMAND_LINK_DIR/hermes"
-echo -e "${GREEN}✓${NC} Symlinked hermes → $COMMAND_LINK_DISPLAY_DIR/hermes"
+ln -sf "$ALLR_BIN" "$COMMAND_LINK_DIR/allr"
+echo -e "${GREEN}✓${NC} Symlinked allr → $COMMAND_LINK_DISPLAY_DIR/allr"
 
 if is_termux; then
     export PATH="$COMMAND_LINK_DIR:$PATH"
@@ -428,7 +428,7 @@ if is_termux; then
     echo "     allr setup"
     echo ""
     echo "  2. Start chatting:"
-    echo "     hermes"
+    echo "     allr"
     echo ""
 else
     echo "  1. Reload your shell:"
@@ -438,7 +438,7 @@ else
     echo "     allr setup"
     echo ""
     echo "  3. Start chatting:"
-    echo "     hermes"
+    echo "     allr"
     echo ""
 fi
 echo "Other commands:"
