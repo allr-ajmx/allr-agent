@@ -87,6 +87,7 @@ from hermes_cli.dashboard_auth import (
     RefreshExpiredError,
     Session,
 )
+from hermes_cli.dashboard_auth.cookies import PKCE_COOKIE
 
 logger = logging.getLogger(__name__)
 
@@ -200,7 +201,7 @@ class NousDashboardAuthProvider(DashboardAuthProvider):
         # matching the stub provider's shape. The route handler prepends
         # ``provider=`` so the callback knows which plugin to dispatch to.
         cookie_payload = {
-            "allr_session_pkce": f"state={state};verifier={code_verifier}",
+            PKCE_COOKIE: f"state={state};verifier={code_verifier}",
         }
         return LoginStart(redirect_url=redirect_url, cookie_payload=cookie_payload)
 

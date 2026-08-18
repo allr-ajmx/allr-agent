@@ -333,6 +333,10 @@ def _resolve_session_token() -> str:
 
 _SESSION_TOKEN = _resolve_session_token()
 _SESSION_HEADER_NAME = "X-Allr-Session-Token"
+# The same header as a client built before the Allr rename sends it. Accepted on
+# read, never emitted: the desktop app upgrades on its own schedule and a build
+# that only knows this name has no other way to authenticate in token mode.
+_LEGACY_SESSION_HEADER_NAME = "X-Hermes-Session-Token"  # rebrand:keep
 _SSH_OWNER_NONCE: Optional[str] = None
 
 
@@ -403,12 +407,13 @@ def _has_valid_session_token(request: Request) -> bool:
     accept the legacy Bearer path for backward compatibility with older
     dashboard bundles.
     """
-    session_header = request.headers.get(_SESSION_HEADER_NAME, "")
-    if session_header and hmac.compare_digest(
-        session_header.encode(),
-        _SESSION_TOKEN.encode(),
-    ):
-        return True
+    for header_name in (_SESSION_HEADER_NAME, _LEGACY_SESSION_HEADER_NAME):
+        session_header = request.headers.get(header_name, "")
+        if session_header and hmac.compare_digest(
+            session_header.encode(),
+            _SESSION_TOKEN.encode(),
+        ):
+            return True
 
     auth = request.headers.get("authorization", "")
     expected = f"Bearer {_SESSION_TOKEN}"
@@ -435,7 +440,8 @@ def _require_token(request: Request) -> None:
 
     * **Loopback / ``--insecure`` mode** (``auth_required`` False): the
       ephemeral ``_SESSION_TOKEN`` is injected into the SPA HTML and echoed
-      back via ``X-Allr-Session-Token`` (or the legacy ``Bearer`` header).
+      back via ``X-Allr-Session-Token`` (or its pre-rename spelling
+      ``X-Hermes-Session-Token``, or the legacy ``Bearer`` header).
       Validate it here.
     * **Gated / OAuth mode** (``auth_required`` True): ``_SESSION_TOKEN`` is
       NOT injected (the SPA authenticates with a session cookie), so there is

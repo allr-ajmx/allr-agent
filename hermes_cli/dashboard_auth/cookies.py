@@ -44,6 +44,12 @@ The setters and readers BOTH consult the active prefix because the
 cookie *name* changes — a reader that looked up the bare name when the
 setter wrote ``__Secure-allr_session_at`` would never find the value.
 
+Both brand spellings are READ, only the current one is written. Every gateway
+built before the Allr rename set ``hermes_session_*``, and a browser or desktop
+build still holding such a session must keep working across the upgrade — so
+``_read_with_fallback`` tries the legacy alias after every prefix variant of the
+canonical name, and the ``clear_*`` helpers delete both. See ``_LEGACY_ALIASES``.
+
 Refresh-token handling:
    ``set_session_cookies`` accepts ``refresh_token=""`` (provider omitted
    it) and silently skips writing the RT cookie in that case, so a
@@ -56,7 +62,7 @@ Refresh-token handling:
 """
 from __future__ import annotations
 
-from typing import Optional, Tuple
+from typing import Mapping, Optional, Tuple
 
 from fastapi import Request
 from fastapi.responses import Response
@@ -71,6 +77,29 @@ SESSION_RT_COOKIE = "allr_session_rt"
 # auth plugins are enabled (for example Basic + Nous OAuth).
 SESSION_PROVIDER_COOKIE = "allr_session_provider"
 PKCE_COOKIE = "allr_session_pkce"
+
+# The same four cookies as every gateway built before the Allr rename spells them.
+#
+# These are read, never set: a current gateway writes only the names above. They exist
+# because the cookie name is an on-wire contract with clients that upgrade on their own
+# schedule -- a browser still holding a session from before the rename, and a desktop
+# build that only knows this spelling. Dropping them signed those clients out with no
+# way to tell that anything had happened.
+#
+# The deletions in ``clear_session_cookies`` / ``clear_pkce_cookie`` cover them too, so
+# a sign-out is not silently partial.
+LEGACY_SESSION_AT_COOKIE = "hermes_session_at"  # rebrand:keep
+LEGACY_SESSION_RT_COOKIE = "hermes_session_rt"  # rebrand:keep
+LEGACY_SESSION_PROVIDER_COOKIE = "hermes_session_provider"  # rebrand:keep
+LEGACY_PKCE_COOKIE = "hermes_session_pkce"  # rebrand:keep
+
+# Canonical name -> the legacy spelling to fall back to on read.
+_LEGACY_ALIASES = {
+    SESSION_AT_COOKIE: LEGACY_SESSION_AT_COOKIE,
+    SESSION_RT_COOKIE: LEGACY_SESSION_RT_COOKIE,
+    SESSION_PROVIDER_COOKIE: LEGACY_SESSION_PROVIDER_COOKIE,
+    PKCE_COOKIE: LEGACY_PKCE_COOKIE,
+}
 # One-shot loop-guard marker for the auto-SSO redirect (Phase 1,
 # cloud-auto-discovery). Set when the gate auto-initiates the portal OAuth
 # redirect on an unauthenticated document load; its mere PRESENCE on the next
@@ -79,7 +108,7 @@ PKCE_COOKIE = "allr_session_pkce"
 # Carries no secret — it's a boolean breadcrumb — but is set HttpOnly/Lax/Secure
 # like the others for consistency. Short TTL so a user who returns later gets a
 # fresh silent attempt rather than a permanently-disabled one.
-SSO_ATTEMPT_COOKIE = "hermes_sso_attempt"
+SSO_ATTEMPT_COOKIE = "hermes_sso_attempt"  # rebrand:keep
 
 # Possible name variants we may have to read back. Sorted so most-strict
 # wins on iteration when both happen to be present (shouldn't happen in
@@ -222,19 +251,23 @@ def clear_session_cookies(response: Response, *, prefix: str = "") -> None:
     plausible variant under the active path.
     """
     path = _cookie_path(prefix)
+    names = (
+        SESSION_AT_COOKIE,
+        SESSION_RT_COOKIE,
+        SESSION_PROVIDER_COOKIE,
+        # A session established before the rename is still a session; leaving its
+        # cookies behind would let ``_read_with_fallback`` keep resolving it after
+        # the user signed out.
+        LEGACY_SESSION_AT_COOKIE,
+        LEGACY_SESSION_RT_COOKIE,
+        LEGACY_SESSION_PROVIDER_COOKIE,
+    )
     for variant in _NAME_VARIANTS:
-        response.set_cookie(
-            f"{variant}{SESSION_AT_COOKIE}", "", max_age=0,
-            path=path, httponly=True, samesite="lax",
-        )
-        response.set_cookie(
-            f"{variant}{SESSION_RT_COOKIE}", "", max_age=0,
-            path=path, httponly=True, samesite="lax",
-        )
-        response.set_cookie(
-            f"{variant}{SESSION_PROVIDER_COOKIE}", "", max_age=0,
-            path=path, httponly=True, samesite="lax",
-        )
+        for name in names:
+            response.set_cookie(
+                f"{variant}{name}", "", max_age=0,
+                path=path, httponly=True, samesite="lax",
+            )
 
 
 def set_pkce_cookie(
@@ -251,26 +284,38 @@ def set_pkce_cookie(
 def clear_pkce_cookie(response: Response, *, prefix: str = "") -> None:
     path = _cookie_path(prefix)
     for variant in _NAME_VARIANTS:
-        response.set_cookie(
-            f"{variant}{PKCE_COOKIE}", "", max_age=0,
-            path=path, httponly=True, samesite="lax",
-        )
+        for name in (PKCE_COOKIE, LEGACY_PKCE_COOKIE):
+            response.set_cookie(
+                f"{variant}{name}", "", max_age=0,
+                path=path, httponly=True, samesite="lax",
+            )
 
 
 def _read_with_fallback(
     request: Request, bare_name: str,
 ) -> Optional[str]:
-    """Read a cookie by checking every prefix variant in order.
+    """Read a cookie by checking every prefix variant, then the legacy spelling.
 
     The setter chooses one variant based on the active request shape;
     the reader doesn't know which one fired (the request that READS
     the cookie may not be the same shape as the request that SET it
     in pathological cases). Trying all three guarantees we find it.
+
+    The legacy name (``hermes_session_*``) is tried after every prefix variant of
+    the canonical one, so a jar holding both -- a client that signed in before the
+    rename and again after -- resolves to the current cookie. See
+    ``_LEGACY_ALIASES``.
     """
-    for variant in _NAME_VARIANTS:
-        value = request.cookies.get(f"{variant}{bare_name}")
-        if value is not None:
-            return value
+    names = [bare_name]
+    legacy = _LEGACY_ALIASES.get(bare_name)
+    if legacy is not None:
+        names.append(legacy)
+
+    for name in names:
+        for variant in _NAME_VARIANTS:
+            value = request.cookies.get(f"{variant}{name}")
+            if value is not None:
+                return value
     return None
 
 
@@ -288,6 +333,21 @@ def read_session_provider(request: Request) -> Optional[str]:
 
 def read_pkce_cookie(request: Request) -> Optional[str]:
     return _read_with_fallback(request, PKCE_COOKIE)
+
+
+def pkce_payload_from(cookie_payload: Mapping[str, str]) -> str:
+    """Pull the PKCE payload out of a provider's ``LoginStart.cookie_payload``.
+
+    This is a plugin-facing key, not an HTTP cookie -- a ``dashboard_auth`` provider
+    hands it to the route layer in-process. Both spellings are accepted for the same
+    reason the cookies are: a provider plugin written before the rename is still a
+    valid plugin, and the route that reads this is the only thing that would notice.
+    """
+    for name in (PKCE_COOKIE, LEGACY_PKCE_COOKIE):
+        value = cookie_payload.get(name)
+        if value:
+            return value
+    return ""
 
 
 def set_sso_attempt_cookie(

@@ -95,6 +95,7 @@ from hermes_cli.dashboard_auth import (
     RefreshExpiredError,
     Session,
 )
+from hermes_cli.dashboard_auth.cookies import PKCE_COOKIE
 
 logger = logging.getLogger(__name__)
 
@@ -238,7 +239,7 @@ class SelfHostedOIDCProvider(DashboardAuthProvider):
         # Same flat ``state=…;verifier=…`` cookie shape every provider uses;
         # the auth-route layer prepends ``provider=`` and parses it back out.
         cookie_payload = {
-            "allr_session_pkce": f"state={state};verifier={code_verifier}",
+            PKCE_COOKIE: f"state={state};verifier={code_verifier}",
         }
         return LoginStart(redirect_url=redirect_url, cookie_payload=cookie_payload)
 
