@@ -100,6 +100,11 @@ _ALLR_WEBHOOK_SAFE_TOOLS = [
 
 # Core toolset definitions
 # These can include individual tools or reference other toolsets
+# Platform composites are keyed by prefix. The rename moved the acp and gateway
+# composites to `allr-*` while the messaging ones kept the old prefix, so both
+# are live and every guard must accept the pair.
+PLATFORM_TOOLSET_PREFIXES = ("allr-", "hermes-")  # rebrand:keep
+
 TOOLSETS = {
     # Basic toolsets - individual tool categories
     "web": {
@@ -792,8 +797,8 @@ def resolve_toolset(name: str, visited: Set[str] = None, *, include_registry: bo
         # into a toolset matching the platform name. This is a registry-derived
         # view, so it only applies when registry tools are requested; the static
         # view (include_registry=False) has no plugin-platform definition.
-        if include_registry and name.startswith("hermes-"):
-            platform_name = name[len("hermes-"):]
+        if include_registry and name.startswith(PLATFORM_TOOLSET_PREFIXES):
+            platform_name = name.split("-", 1)[1]
             try:
                 from gateway.platform_registry import platform_registry
                 if platform_registry.is_registered(platform_name):
