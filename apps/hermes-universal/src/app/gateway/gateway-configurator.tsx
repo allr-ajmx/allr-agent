@@ -4,7 +4,13 @@ import { GatewayDiagnostics } from '@/app/gateway/gateway-diagnostics'
 import { LocalInstallPanel } from '@/app/gateway/local-install-panel'
 import { sshErrorMessage, sshStepLabel } from '@/app/gateway/ssh-copy'
 import { SshInstallOffer } from '@/app/gateway/ssh-install-offer'
-import { EMPTY_SSH_FORM, type SshFormState, SshPanel, sshTargetFromForm } from '@/app/gateway/ssh-panel'
+import {
+  EMPTY_SSH_FORM,
+  type SshFormState,
+  SshPanel,
+  sshSecretsFromForm,
+  sshTargetFromForm
+} from '@/app/gateway/ssh-panel'
 import { ListRow, Pill } from '@/app/settings/primitives'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -617,8 +623,17 @@ export function GatewayConfigurator({
     try {
       await persistSshSecrets()
 
+      // The secrets go too. Sending the target alone meant a password or
+      // passphrase typed directly above this button never reached the backend,
+      // so Test always prompted for a credential the form was already holding —
+      // and on mobile, where a pasted PEM is the only credential there is, Test
+      // could not authenticate at all.
       const result = await runSsh(attemptId =>
-        testSshBackend(attemptId, { ...sshTargetFromForm(sshForm), interactive: true })
+        testSshBackend(attemptId, {
+          ...sshTargetFromForm(sshForm),
+          ...sshSecretsFromForm(sshForm),
+          interactive: true
+        })
       )
 
       setLastTest(g.sshReachable(result.hostLabel, result.platform ?? 'unknown'))

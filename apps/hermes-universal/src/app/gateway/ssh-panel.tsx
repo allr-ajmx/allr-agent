@@ -147,7 +147,11 @@ export function splitSshHostInput(raw: string): { host: string; port?: string; u
   return { host, port, user }
 }
 
-/** The non-secret half of the form, as the connect call wants it. */
+/** The non-secret half of the form, as the connect call wants it.
+ *
+ *  Deliberately excludes the three secret rows: this is what gets PERSISTED as
+ *  the saved gateway target, and credentials belong in the keystore. Pair it
+ *  with {@link sshSecretsFromForm} when building a backend call. */
 export function sshTargetFromForm(form: SshFormState): {
   host: string
   user?: string
@@ -161,6 +165,32 @@ export function sshTargetFromForm(form: SshFormState): {
     port: parsePortField(form.port),
     keyPath: form.keyPath.trim() || undefined,
     remoteHermesPath: form.remoteHermesPath.trim() || undefined
+  }
+}
+
+/**
+ * The secret half of the form.
+ *
+ * Split out rather than folded into {@link sshTargetFromForm} because only this
+ * half must never be persisted — but BOTH halves have to reach the backend, and
+ * leaving that to each caller is what broke "Test SSH": it sent the target
+ * alone, so a password typed directly above the button was never offered and the
+ * user was prompted for it anyway.
+ *
+ * Blank rows become `undefined`, never `''`. Rust reads `Some("")` as a real
+ * credential, and an empty passphrase in particular makes russh attempt a
+ * decrypt instead of reporting that the key needs one — which silently discarded
+ * every encrypted key.
+ */
+export function sshSecretsFromForm(form: SshFormState): {
+  privateKeyPem?: string
+  passphrase?: string
+  password?: string
+} {
+  return {
+    privateKeyPem: form.privateKeyPem.trim() || undefined,
+    passphrase: form.passphrase || undefined,
+    password: form.password || undefined
   }
 }
 
