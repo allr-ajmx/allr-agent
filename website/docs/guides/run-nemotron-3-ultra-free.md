@@ -117,7 +117,7 @@ Already set up with another model?
 
 ## See also
 
-- **[Desktop App](/user-guide/desktop)** — The native one-click app (macOS, Windows, Linux)
+- **[Allr App](/user-guide/desktop)** — The native app (Linux, macOS, Windows, Android, iOS)
 - **[Run Allr with Nous Portal](/guides/run-hermes-with-nous-portal)** — Full Portal walkthrough: models, Tool Gateway, and verification
 - **[Nous Portal integration](/integrations/nous-portal)** — What's in the subscription
 - **[Quickstart](/getting-started/quickstart)** — Install-to-chat in under 5 minutes
