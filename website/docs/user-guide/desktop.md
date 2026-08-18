@@ -1,20 +1,20 @@
 ---
 sidebar_position: 3
-title: "Desktop App"
-description: "The native Allr desktop app — a polished experience for chatting with Allr, with streaming tool output, side-by-side previews, a file browser, voice, cron, profiles, skills, and settings. macOS, Windows, and Linux."
+title: "Allr App"
+description: "The Allr app — one Tauri codebase for Linux, macOS, Windows, Android and iOS. Chat, files, artifacts, terminal, git review, voice, profiles and settings, against a local or remote Allr gateway."
 ---
 
-# Desktop App
+# Allr App
 
-The Allr desktop app is a native app built around the **same** agent you get from the CLI and the gateway — same config, same API keys, same sessions, same skills, same memory. It is not a separate product or a lightweight clone; it uses the same Allr core and settings, and drives it through a modern & thoughtfully designed UI. If you have used `hermes` in a terminal, everything you set up there is already here, and anything you do here shows up there.
+The Allr app is the graphical front end for the **same** agent you get from the CLI and the gateway — same config, same API keys, same sessions, same skills, same memory. It is not a separate product or a lightweight clone; it drives the Allr core through a purpose-built UI. If you have used `allr` in a terminal, everything you set up there is already here, and anything you do here shows up there.
 
-It runs on **macOS, Windows, and Linux**.
+It is built with **Tauri v2** from one codebase and ships for **Linux, macOS, Windows, Android and iOS** (`apps/hermes-universal/` in the repo).
 
 :::tip Which interface is which?
 Allr has several front ends that all talk to the same agent:
 
-- **Desktop App** (this page) — a native application with a purpose-built UI for chat, configuration, and management.
-- **CLI** (`hermes`) and **[TUI](./tui.md)** (`hermes --tui`) — terminal interfaces.
+- **Allr app** (this page) — the native application, on desktop and phone.
+- **CLI** (`allr`) and **[TUI](./tui.md)** (`allr --tui`) — terminal interfaces.
 - **[Web Dashboard](./features/web-dashboard.md)** (`allr dashboard`) — a browser admin panel; its optional **Chat** tab embeds the TUI through a pseudo-terminal.
 
 Pick whichever fits the moment. They share state, so you can start a session in one and resume it in another.
@@ -22,19 +22,13 @@ Pick whichever fits the moment. They share state, so you can start a session in 
 
 ## Install
 
-Follow the [installation instructions for Allr Desktop](../getting-started/installation.md).
+Follow the [installation instructions](../getting-started/installation.md) for your platform. On a phone the app is the only front end — a phone cannot host a gateway, so it always connects to one somewhere else (see [Connecting to a gateway](#connecting-to-a-gateway)).
 
-If you already have Allr installed, simply run
-
-```bash
-hermes desktop
-```
-
-That uses your current config, keys, sessions, and skills.
+To run it from a checkout instead, see [Building from source](#building-from-source).
 
 ## What's in the app
 
-The desktop app is organized as a chat-first window with a left sidebar for navigation. It's built to allow managing multiple simultaneous agent conversations, configuring messaging providers, creating artifacts, browsing projects' folder structures, and working on multiple projects at once.
+The app is organized as a chat-first window with a left sidebar for navigation. It's built to allow managing multiple simultaneous agent conversations, configuring messaging providers, creating artifacts, browsing projects' folder structures, and working on multiple projects at once.
 
 ### Chat
 
@@ -56,11 +50,11 @@ The bar along the bottom of the chat shows live session state and exposes quick 
 - **Context-usage meter** — a live "% full" meter of the session's context window. Click it to open the **Context Usage** popover with a token breakdown by category (system prompt, tool definitions, skills, memory, rules, MCP, subagent definitions, and the conversation itself) so you can see exactly what's eating the window before compression kicks in.
 - **Customizable items** — right-click the status bar (**Show in status bar**) to choose what appears: the context meter, workspace, model, approvals, turn/session timers, terminal, Command Center, backend version, and more — or hide the bar entirely (**Cmd/Ctrl+Shift+S** toggles it).
 
-Chatting against an Allr instance on another machine instead of the bundled local backend? See [Connecting to a remote backend](#connecting-to-a-remote-backend) below — and for the full picture of how the remote-hosted dashboard connection works (the auth gate, the `/api/ws` chat socket, and WebSocket close-code triage), see [Web Dashboard → Connecting Allr Desktop to a remote backend](./features/web-dashboard.md#connecting-allr-desktop-to-a-remote-backend).
+Chatting against an Allr gateway on another machine? See [Connecting to a gateway](#connecting-to-a-gateway) below — and for the full picture of how the remote-hosted dashboard connection works (the auth gate, the `/api/ws` chat socket, and WebSocket close-code triage), see [Web Dashboard → Connecting Allr Desktop to a remote backend](./features/web-dashboard.md#connecting-allr-desktop-to-a-remote-backend).
 
 #### Repository discovery
 
-Allr Desktop discovers local Git repositories for the Projects sidebar by scanning your home directory to a bounded depth. You can change this per profile in **Settings → Workspace**, or in `config.yaml`:
+Allr discovers local Git repositories for the Projects sidebar by scanning your home directory to a bounded depth. You can change this per profile in **Settings → Workspace**, or in `config.yaml`:
 
 ```yaml
 desktop:
@@ -81,12 +75,12 @@ The model picker lives in the **composer**, just left of the microphone. Click i
 
 - **The composer picker is sticky UI state and never touches your default.** It's remembered locally (per device) and **follows** across new chats and restarts instead of snapping back to the default — pick a model once and the next `Cmd/Ctrl+N` opens on it. With a live chat, switching models scopes the change to that **current chat**; either way the selection rides along when the session is created/switched and is **never** written to the profile default. (Switching [profiles](#sessions--profiles) reseeds to that profile's own default.)
 - **Set the default in Settings → Model.** That "main" model is your **per-profile global default** — it's what new chats, crons, subagents, and auxiliary tasks start from, and it's the only place that writes it. Each [profile](#sessions--profiles) keeps its own default.
-- **Per-model effort/fast presets.** Each model remembers its own reasoning effort and fast-mode choice in the desktop app, re-applied to the session whenever you pick that model. These presets are a desktop convenience and don't change crons or subagents.
+- **Per-model effort/fast presets.** Each model remembers its own reasoning effort and fast-mode choice in the app, re-applied to the session whenever you pick that model. These presets are an app convenience and don't change crons or subagents.
 - **Mid-chat switches reset the prompt cache.** Switching the model inside a live chat means the next message re-reads the whole conversation at full input price (provider prompt caches are keyed to the model). Fine occasionally; on a long chat, a fresh chat on the new model is often cheaper than bouncing back and forth.
 
 ### File browser
 
-Explore and preview the working directory without leaving the app — useful for following along as the agent reads, writes, and edits files. Set the initial project directory with `hermes desktop --cwd <path>` (or the `ALLR_DESKTOP_CWD` environment variable).
+Explore and preview the working directory without leaving the app — useful for following along as the agent reads, writes, and edits files. Pick the project a session runs in from the Projects list in the left sidebar.
 
 ### Artifacts
 
@@ -96,7 +90,7 @@ The **Artifacts** view collects what your sessions generate — **images, files,
 
 The app is built for working on several things at once:
 
-- **Tabs** — **Cmd/Ctrl+T** opens a new session tab; **Ctrl+Tab** / **Ctrl+Shift+Tab** cycle sessions, and **Ctrl+1…9** jump to a recent session by position. **Cmd/Ctrl+W** closes the focused tab and **Cmd/Ctrl+Shift+T** reopens the last closed one.
+- **Tabs** — **Cmd/Ctrl+T** opens a new session tab; **Ctrl+Tab** / **Ctrl+Shift+Tab** cycle sessions. **Cmd/Ctrl+W** closes the focused tab and **Cmd/Ctrl+Shift+T** reopens the last closed one.
 - **Multiple windows** — **Cmd/Ctrl+Shift+N** opens a new window, and any session can be popped out via its context menu (**New window**) or from the command palette. A popped-out window renders that single chat without the global sidebar — handy for parking a long-running session on another monitor. Live agent output streams into every window showing the session.
 - **Panes** — **Cmd/Ctrl+B** toggles the left sidebar, **Cmd/Ctrl+J** the right one, and **Cmd/Ctrl+\\** swaps which side the sidebars sit on.
 
@@ -105,14 +99,12 @@ The app is built for working on several things at once:
 A real terminal lives in the right sidebar, next to the file browser:
 
 - **Ctrl+`** shows the terminal (opening one if none exist); **Ctrl+Shift+`** spawns an additional one. Multiple terminals stack in a tab rail — **Ctrl+Shift+↓/↑** walk between them, **Ctrl+Shift+W** closes the active one.
-- **Shells persist while hidden.** Closing or hiding the panel doesn't kill your shell — every open terminal stays mounted with its scrollback and running processes intact until you explicitly close it.
-- **Add to chat** — select terminal output and send it into the composer as context for your next message.
 
 ### Git review & worktrees
 
 For sessions running inside a Git repository, the app has a built-in source-control surface:
 
-- **Review pane** — **Cmd/Ctrl+G** toggles the working-tree review pane: branch and ahead/behind status, changed files (list or tree view), and diffs scoped to **Uncommitted**, **Branch**, or **Last turn** (just what the agent changed in its most recent turn). Stage/unstage files, revert changes, write a commit message (or **Generate commit message**), then **Commit** or **Commit & Push** — and **Create PR** via the GitHub CLI (`gh`), or hand the whole thing to the agent with **Ask Allr to open PR**. You can also create and switch branches from here.
+- **Review pane** — **Cmd/Ctrl+G** toggles the working-tree review pane: branch and ahead/behind status, changed files (list or tree view), and working-tree diffs. Stage/unstage files, revert changes, write a commit message (or **Generate commit message**), then **Commit** or **Commit & Push** — and **Create PR**, which the gateway opens for you, or hand the whole thing to the agent with **Ask Allr to open PR**. You can also create and switch branches from here.
 - **Worktrees** — **Cmd/Ctrl+Shift+B** (or **New worktree** on a project in the sidebar) creates a Git worktree on a new branch so an agent can work on a parallel copy of the repo without touching your checkout. Worktrees show up as their own lanes under the project; removing one offers to delete the worktree directory (the branch stays) or just hide the lane and leave it on disk, with a force option when it has uncommitted changes.
 
 ### Memory Graph
@@ -121,7 +113,7 @@ The **Memory Graph** (command palette → *Memory Graph*, or the status-bar item
 
 ### Quick Entry
 
-Quick Entry is a small always-available composer summoned by a **global hotkey from anywhere on your system** — fire off a prompt without switching to (or even opening) the main window. Enable it in **Settings → Advanced → Quick Entry**; the default shortcut is **Ctrl/Cmd+Shift+Space** and you can set your own (it needs at least one modifier). If another app already owns the chord, the settings row tells you so you can pick a different one.
+Quick Entry is a small always-available composer summoned by a **global hotkey from anywhere on your system** — fire off a prompt without switching to (or even opening) the main window. Enable it in **Settings → Advanced → Quick Entry**. It ships with no shortcut bound, so pick your own chord there (it needs at least one modifier); if another app already owns it, the settings row tells you so you can pick a different one.
 
 ### Voice
 
@@ -156,7 +148,7 @@ The app also surfaces the broader Allr management surface so you don't have to d
 ### Keyboard & navigation
 
 - **Command palette** — press **Cmd+K** or **Cmd+P** (Ctrl+K / Ctrl+P on Windows/Linux) to jump to actions and navigate the app from the keyboard: open any page or settings section, jump to a session by title or id, switch model/theme/color mode, spawn a terminal, restart the gateway, update Allr, and more.
-- **Rebindable shortcuts** — **Settings → Keyboard Shortcuts** (or **Cmd/Ctrl+/**) opens the shortcuts panel where you can remap almost every binding — profile switching, session navigation, view toggles, and any shortcuts contributed by desktop plugins. Duplicate assignments are flagged as conflicts. A few defaults worth knowing: **Cmd/Ctrl+N** new session, **Cmd/Ctrl+.** Command Center, **Cmd/Ctrl+,** Settings, **Cmd/Ctrl+Shift+F** search sessions, **Cmd/Ctrl+1–9** switch profiles, **Shift+X** toggle light/dark.
+- **Rebindable shortcuts** — **Settings → Keyboard Shortcuts** (or **Cmd/Ctrl+/**) opens the shortcuts panel where you can remap almost every binding — profile switching, session navigation, view toggles, and any shortcuts contributed by plugins. Duplicate assignments are flagged as conflicts. A few defaults worth knowing: **Cmd/Ctrl+N** new session, **Cmd/Ctrl+.** Command Center, **Cmd/Ctrl+,** Settings, **Cmd/Ctrl+Shift+F** search sessions, **Cmd/Ctrl+1–9** switch profiles, **Shift+X** toggle light/dark.
 - **Custom zoom shortcuts** — zoom the interface in half-step increments for finer control over text size.
 - **UI language switcher** — change the app's interface language in-app, including Simplified Chinese (zh-Hans).
 
@@ -166,141 +158,79 @@ The app also surfaces the broader Allr management surface so you don't have to d
 - **Search sessions by id** — find a specific session directly by its id.
 - **Concurrent multi-profile sessions** — run sessions across multiple [profiles](./profiles.md) at the same time, and reference a session in another profile with cross-profile `@session` links.
 
+## Connecting to a gateway
+
+The app is a client: everything it shows comes from an Allr **gateway** (`allr serve`). **Settings → Gateway** (and the first-run **Connect to Allr** screen, which is the same panel) offers four connection modes:
+
+| Mode | What it does | Where it works |
+|------|--------------|----------------|
+| **Local** | Spawns and manages a gateway on this machine. | Desktop only — a phone can't spawn one. |
+| **Remote** | You enter the base URL of an `allr serve` backend you run yourself, and sign in. | Everywhere |
+| **Allr Cloud** | Sign in once through the portal and pick from the agents on your account; no URL to paste. Under the hood it's a remote connection whose URL was discovered for you. | Everywhere |
+| **SSH** | Allr opens an SSH tunnel, starts (or reattaches to) `allr serve` on the remote host, and forwards a loopback port to it — so it behaves like Local, not like Remote. | Everywhere, phones included (the SSH client is built in) |
+
+Connection modes are configured **per profile**, so one profile can point at a remote or cloud backend while others stay local.
+
+### Signing in
+
+A gateway bound to a non-loopback address engages its auth gate, and the app adapts to whichever provider the backend advertises on `/api/status`:
+
+- **No auth** — a loopback gateway you started yourself; nothing to sign in to.
+- **Username / password** — the app shows a credential form. Good for a trusted LAN or a VPN (e.g. Tailscale); not for the open internet.
+- **OAuth** — the app shows *Sign in with `<provider>`* and runs the browser flow. Preferred for anything reachable beyond your own machine.
+
+The OAuth flow prefers RFC 8252 native PKCE: the app opens your system browser, catches the redirect on a loopback listener, and holds a bearer token. On backends that don't advertise it, the app falls back to the legacy webview-cookie flow. On phones there is no second window to open, so sign-in navigates the app's own webview to the provider and back.
+
+Tokens, SSH keys and passphrases are stored in the OS keyring — Keychain on macOS/iOS, Credential Manager on Windows, Secret Service on Linux, and the Keystore-backed store on Android — never in plain files.
+
+For the full backend-side setup (auth providers, env vars, close-code triage), see [Web Dashboard → Connecting Allr Desktop to a remote backend](./features/web-dashboard.md#connecting-allr-desktop-to-a-remote-backend) and [Environment Variables → Web Dashboard & Allr Desktop](../reference/environment-variables.md#web-dashboard--allr-desktop).
+
+### Troubleshooting the connection
+
+- **Sign-in fails with 401 / "Invalid credentials"** — the credentials don't match the backend's `ALLR_DASHBOARD_BASIC_AUTH_USERNAME` / `ALLR_DASHBOARD_BASIC_AUTH_PASSWORD`. The backend returns the same generic error for an unknown user and a wrong password, so check both. Confirm the gate is on with `curl -s http://<host>:9119/api/status | jq '.auth_required, .auth_providers'`.
+- **No "Sign in" button — it asks for a session token instead** — the backend's username/password provider isn't active, so `/api/status` doesn't list `"basic"` in `auth_providers`. Set both the username and a password (or password hash) in `~/.allr/.env` and restart the backend.
+- **Signed out on every restart** — set `ALLR_DASHBOARD_BASIC_AUTH_SECRET` to a stable value. Without it the token-signing key is regenerated per boot.
+- **Connection refused / times out** — the backend bound to `127.0.0.1` (the default) or a firewall is blocking the port. Bind to a reachable address and open the port to your trusted network.
+
 ## Updating
 
-The app checks for updates in the background and offers a one-click update when one is ready.
+Update checking is a **build-time option** and is off in a default build — such a build reports "disabled" rather than an error, and you update the app the way you installed it. When it is compiled in, the check is per platform: desktop looks at the project's GitHub releases and hands you the matching download to run yourself (the app never self-installs), Android points at the Play Store listing, and iOS at the App Store. Results are cached for a few hours.
 
-The [manual update process](https://allr.work/docs/getting-started/updating) also works with the GUI.
+The [manual update process](https://allr.work/docs/getting-started/updating) always works.
 
-## Uninstalling
+To uninstall, use the CLI — `allr uninstall` removes the agent, `allr uninstall --full` removes it and all user data. The app itself is removed the way your platform removes any app.
 
-Open **Settings → About → Danger zone** and pick how much to remove:
+## Extending the app
 
-- **Uninstall Chat GUI only** — removes the desktop app and its data; the Allr agent, your config, and your chats stay. (Same as `allr uninstall --gui`.)
-- **Uninstall GUI + agent, keep my data** — removes the app and the agent but keeps config, chats, and secrets for a future reinstall. (Same as `allr uninstall`.)
-- **Uninstall everything** — removes the app, the agent, and all user data. (Same as `allr uninstall --full`.)
+The app is contribution-driven — panes, pages, sidebar nav, status-bar items, palette commands, keybinds, and themes all register through one SDK, and you can add your own. A plugin is a single ESM file dropped in `$ALLR_HOME/desktop-plugins/<id>/plugin.js`; the app loads it within seconds and hot-reloads every save. It reads that folder on **this** device, and — so plugins also work on a phone, which has no local Allr home — falls back to the same folder on the connected gateway's machine. Both doors are listed in **Settings → Plugins**, where you can also turn the gateway one off.
 
-The app closes to finish the job (the cleanup runs after it exits so it can remove the running app bundle and its own venv). The agent-removing options are hidden automatically when no local agent is installed (for example, a GUI-only "lite" client connected to a remote backend).
+See [App Plugin SDK](../developer-guide/desktop-plugin-sdk.md) for the full reference. (This is separate from the [web dashboard plugin system](./features/extending-the-dashboard.md).)
 
-You can do the same from the terminal — `allr uninstall --gui` for the GUI alone, or `allr uninstall` / `allr uninstall --full` for the agent too.
+## Building from source
 
-:::note
-Running `allr uninstall --gui` from a **source checkout** (a `hermes desktop` dev build) also removes the workspace `node_modules` and `apps/desktop/{dist,release}` build output, since those are GUI build artifacts. They're recoverable with `hermes desktop` (or `npm install` + a rebuild) — but if you're actively hacking on the desktop app, expect to reinstall dependencies afterward.
-:::
-
-## CLI reference: `hermes desktop`
-
-To launch via the CLI, simply run `hermes desktop`. By default it installs workspace Node dependencies, builds the current OS's unpacked Electron app, then launches that packaged artifact.
-
-| Flag                 | Description                                                                               |
-| -------------------- | ----------------------------------------------------------------------------------------- |
-| `--skip-build`       | Skip npm install/package and launch the existing unpacked app from `apps/desktop/release` |
-| `--force-build`      | Force a full rebuild even if the content stamp matches                                    |
-| `--build-only`       | Build the desktop app but do not launch it (used by `allr update`)                      |
-| `--source`           | Launch via `electron .` against `apps/desktop/dist` instead of the packaged app           |
-| `--cwd PATH`         | Initial project directory for desktop chat sessions (sets `ALLR_DESKTOP_CWD`)           |
-| `--hermes-root PATH` | Override the Allr source root the app uses (sets `ALLR_DESKTOP_ALLR_ROOT`)          |
-| `--ignore-existing`  | Force the app to ignore any `hermes` CLI already on `PATH` during backend resolution      |
-| `--fake-boot`        | Enable deterministic boot delays for validating the startup UI                            |
-
-## How it works
-
-The packaged app ships the Electron shell and a native React chat surface. On first launch it can install the Allr runtime into `ALLR_HOME` (`~/.allr`, or `%LOCALAPPDATA%\allr` on Windows) — **the same layout a CLI install uses**, which is why the two are interchangeable. Backend resolution first honours `ALLR_DESKTOP_ALLR_ROOT`, then a completed managed install, then a probed `hermes` on `PATH` (unless `--ignore-existing` / `ALLR_DESKTOP_IGNORE_EXISTING=1` is set), and finally an explicit `ALLR_DESKTOP_HERMES` command override for packagers such as Nix. The React renderer talks to a headless backend the app launches for you — a `allr serve` process that serves the `tui_gateway` JSON-RPC/WebSocket API — and reuses the agent runtime rather than embedding `hermes --tui`. The desktop app is **self-contained**: it runs its own `allr serve` backend and never opens or requires the [web dashboard](./features/web-dashboard.md). (Runtimes older than the `serve` command fall back to a headless `dashboard --no-open` automatically, so an app update never outruns its backend.) Install, backend-resolution, and self-update logic live in the Electron main process.
-
-## Connecting to a remote backend
-
-By default the app starts and manages its own **local** backend. You can instead point it at an Allr backend running on another machine — a VPS, a home server, or a Mini behind Tailscale.
-
-**Settings → Gateway → Connection mode** offers the alternatives to the local gateway:
-
-- **Remote gateway** — enter the URL of a `allr serve` backend you run yourself and sign in. This is the mode the rest of this section walks through.
-- **Allr Cloud** — sign in once to Allr Cloud and pick from the agents on your account; no URL to paste. The app discovers your agents (with an organization picker if your account spans several orgs), and connecting to one switches the session over automatically. The status bar shows the cloud connection while it's active.
-
-Connection modes are configured **per profile** — a per-profile override can point one profile at a remote or cloud backend while others stay local (**Use default gateway** removes an override).
-
-:::info The remote backend is a running `allr serve` process
-"Remote backend" means a **`allr serve`** server running on the remote machine — that is the process the desktop app connects to. Nothing in this section works unless that backend is actually up and reachable. The desktop app does not start it for you; you (or a `systemd` service) keep `allr serve` running on the remote host, and the app attaches to it. If you also use messaging channels (Telegram, Discord, etc.), the **gateway** is a *separate* long-running process you start independently — see the note after the setup steps.
-:::
-
-The connection has two halves: on the backend you protect it with an **auth provider**, and in the app you enter the backend's URL and sign in. Binding the backend to a non-loopback address automatically engages its auth gate, and the provider you configure is what lets the desktop app through.
-
-**Pick a provider based on where the backend lives:**
-
-- **OAuth (Nous Portal) — preferred for anything reachable beyond your own machine.** Logins are verified against your Nous account, so this is the option suitable for a VPS, a public host, or any remote backend. Register the dashboard with `allr dashboard register` (or the Portal [`/local-dashboards`](https://portal.nousresearch.com/local-dashboards) page) to provision its OAuth client, then sign in from the app with **Sign in with Nous Research**. A self-hosted OIDC provider works the same way if you run your own identity provider.
-- **Username/password — local / trusted-network use only.** The simplest option when the backend is on the same trusted LAN or reachable only over a VPN (e.g. Tailscale). It protects a single shared credential with no external identity provider, so **do not use it for a dashboard exposed to the public internet** — reach for OAuth there instead.
-
-The rest of this section shows the username/password path because it's the quickest to stand up on a trusted network; for the OAuth path see [Web Dashboard → Default provider: Nous Research](./features/web-dashboard.md#default-provider-nous-research).
-
-### On the backend (the remote machine)
-
-Set a username and password, then start the backend bound to a reachable address. The credentials live in `~/.allr/.env` (the secrets file, mode 0600):
+Prerequisites are platform-specific and listed in [`apps/hermes-universal/README.md`](https://github.com/allr-ajmx/allr-agent/blob/main/apps/hermes-universal/README.md) — on Debian/Ubuntu the webview and bundler system libraries (`libwebkit2gtk-4.1-dev`, `librsvg2-dev`, `patchelf`, …) are the part people miss, because nothing fails until the final bundling step.
 
 ```bash
-# 1. Set the dashboard login credentials.
-cat >> ~/.allr/.env <<'EOF'
-ALLR_DASHBOARD_BASIC_AUTH_USERNAME=admin
-ALLR_DASHBOARD_BASIC_AUTH_PASSWORD=choose-a-strong-password
-# Recommended: a stable signing secret so sessions survive restarts.
-# Without it a random key is generated per boot and you'll be logged out
-# on every restart.
-ALLR_DASHBOARD_BASIC_AUTH_SECRET=$(openssl rand -base64 32)
-EOF
-chmod 600 ~/.allr/.env
-
-# 2. Run the backend bound to a reachable address. The non-loopback bind
-#    engages the auth gate; the username/password provider handles login.
-allr serve --host 0.0.0.0 --port 9119
+cd apps/hermes-universal
+npm install
+npm run dev          # Vite dev server on port 5176
+npm run tauri dev    # the native shell against it
 ```
 
-Keep that `allr serve` process running for as long as you want the desktop app to be able to connect — if it stops, the app can no longer reach the backend. Run it under `systemd`, `tmux`, or your process manager of choice so it survives logout and reboots.
+To attach several native shells to **one** dev server — desktop and a phone showing the same frontend at once:
 
-Separately, make sure the **gateway is running** on the remote host if you rely on messaging channels — the `allr serve` backend is what the desktop app talks to, but your Telegram/Discord/Slack gateway sessions are a different process that you start and keep running on their own. See [Messaging](./messaging/index.md) for gateway setup.
+```bash
+npm run dev:ext:vite       # the one dev server — leave it running
+npm run dev:ext:desktop    # in another terminal
+npm run dev:ext:android    # …and another
+npm run dev:ext:ios
+```
 
-Prefer not to keep a plaintext password at rest? Set `ALLR_DASHBOARD_BASIC_AUTH_PASSWORD_HASH` to a scrypt hash instead — compute it with `python -c "from plugins.dashboard_auth.basic import hash_password; print(hash_password('PW'))"`. Full configuration surface (config.yaml keys, every env var, the rate limiter): [Web Dashboard → Username/password provider](./features/web-dashboard.md#usernamepassword-provider-no-oauth-idp).
-
-Running the backend as a systemd service? Give the unit `EnvironmentFile=%h/.allr/.env` so the credentials are in the environment at boot.
-
-:::warning
-The backend reads and writes your `.env` (API keys, secrets) and can run agent commands. The **username/password** setup shown above is for a trusted network — never expose a password-protected backend directly to the open internet; put it behind a VPN. [Tailscale](https://tailscale.com/) is the clean option: bind to the machine's tailscale IP (`--host <tailscale-ip>`) and use `http://<tailscale-ip>:9119` as the Remote URL so only your tailnet can reach it. To reach a backend over the public internet, use the **OAuth (Nous Portal)** provider instead.
-:::
-
-### In the app
-
-**Settings → Gateway → Remote gateway:**
-
-1. **Remote URL** — `http://<backend-host>:9119` (path prefixes like `/hermes` work if you front it with a reverse proxy)
-2. **Sign in** — the app detects which provider the backend advertises and adapts the button. For a username/password backend it shows a **Sign in** button that opens a credential form (enter the credentials from step 1). For an OAuth backend it shows **Sign in with `<provider>`** (e.g. *Sign in with Nous Research*), which runs the provider's browser sign-in. Either way the app ends up with an authenticated session against the backend.
-3. **Save and reconnect** — switches the desktop shell onto the remote backend. The session refreshes automatically; you stay signed in across restarts when `ALLR_DASHBOARD_BASIC_AUTH_SECRET` is set.
-
-You can also set the backend URL without the UI via the `ALLR_DESKTOP_REMOTE_URL` environment variable before launching the app (it overrides the in-app setting); you still sign in from the Gateway settings panel.
-
-:::note Per-profile remote hosts
-The remote gateway host is configured per [profile](./profiles.md), so each profile can point at its own remote backend (or stay on its local one). Switching profiles switches which remote host the app connects to.
-:::
-
-### Troubleshooting
-
-- **Sign-in fails with 401 / "Invalid credentials"** — the username or password doesn't match the backend's `ALLR_DASHBOARD_BASIC_AUTH_USERNAME` / `ALLR_DASHBOARD_BASIC_AUTH_PASSWORD`. The backend returns the same generic error for an unknown user and a wrong password (no enumeration oracle), so double-check both. Confirm the gate is on with `curl -s http://<host>:9119/api/status | jq '.auth_required, .auth_providers'` — it should report `true` and include `"basic"`.
-- **No "Sign in" button — it asks for a session token instead** — the backend's username/password provider isn't active. `/api/status` won't list `"basic"` in `auth_providers`. Make sure both the username and a password (or password hash) are set in `~/.allr/.env` and that the dashboard process actually loaded them.
-- **Signed out on every restart** — set `ALLR_DASHBOARD_BASIC_AUTH_SECRET` to a stable value. Without it the token-signing key is regenerated per boot, invalidating all sessions.
-- **Connection refused / times out** — the backend bound to `127.0.0.1` (the default) or a firewall/VPN is blocking the port. Bind to `0.0.0.0` or the tailscale IP and open the port to your trusted network.
-
-For the same setup from the web-dashboard angle, see [Web Dashboard → Connecting Allr Desktop to a remote backend](./features/web-dashboard.md#connecting-allr-desktop-to-a-remote-backend); the env vars are catalogued under [Environment Variables → Web Dashboard & Allr Desktop](../reference/environment-variables.md#web-dashboard--allr-desktop).
-
-## Extending the desktop app
-
-The desktop app is contribution-driven — panes, pages, sidebar nav, status-bar
-items, palette commands, keybinds, and themes all register through one SDK, and
-you can add your own. A plugin is a single ESM file dropped in
-`$ALLR_HOME/desktop-plugins/<id>/plugin.js`; the app loads it within seconds and
-hot-reloads every save. Manage installed plugins live in **Settings → Plugins**.
-
-See [Desktop Plugin SDK](../developer-guide/desktop-plugin-sdk.md) for the full
-reference. (This is separate from the [web dashboard plugin system](./features/extending-the-dashboard.md).)
+Bundle a release with `npm run tauri build` (deb + rpm + AppImage on Linux; add `--bundles deb` to skip AppImage). `npm run check` runs what CI runs: typecheck → lint → test → build.
 
 ## Troubleshooting
 
-Boot logs land in `ALLR_HOME/logs/desktop.log` (it includes backend output and recent Python tracebacks) — check it first if the app reports a boot failure. You can also tail it from the CLI:
+Boot logs land in `ALLR_HOME/logs/desktop.log` — check it first if the app reports a boot failure. You can also tail it from the CLI:
 
 ```bash
 allr logs gui -f
@@ -315,89 +245,14 @@ rm "$HOME/.allr/allr-agent/.hermes-bootstrap-complete"
 # Rebuild a broken Python venv (macOS/Linux)
 rm -rf "$HOME/.allr/allr-agent/venv"
 
-# Reset a stuck macOS microphone prompt
-tccutil reset Microphone com.nousresearch.hermes
+# Reset a stuck macOS permission prompt (the app's bundle id is work.allr.app)
+tccutil reset Microphone work.allr.app
 ```
-
-### "Build desktop app" stuck on Electron download
-
-The build downloads the Electron runtime (~114&nbsp;MB) from `github.com/electron/electron/releases`. If the installer hangs on the **Build desktop app** step with the live output repeating `retrying attempt=…`, GitHub is being blocked or throttled on your network (firewall, proxy, or region).
-
-The installer self-heals this automatically: on a failed build it (1) clears a corrupt cached Electron zip and retries, then (2) if it still fails and you haven't set `ELECTRON_MIRROR`, retries once more through `npmmirror.com`, the de-facto Electron community mirror. `@electron/get` SHASUM-checks the download, but the checksums come from the same mirror — that catches a corrupt or partial download, not a compromised mirror. If you'd rather not trust a third-party host, pin your own `ELECTRON_MIRROR` (below); the build never overrides one you've set.
-
-To **choose your own mirror** (e.g. a corporate/trusted one), set `ELECTRON_MIRROR` before installing or rebuild manually — the build honors it and won't override it:
-
-```bash
-ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ \
-  bash -c 'cd "$HOME/.allr/allr-agent/apps/desktop" && CSC_IDENTITY_AUTO_DISCOVERY=false npm run pack'
-```
-
-To clear a corrupt cached zip by hand:
-
-```bash
-rm -f "$HOME/Library/Caches/electron"/electron-*.zip   # macOS
-rm -f "$HOME/.cache/electron"/electron-*.zip            # Linux
-```
-
-## Building from source
-
-If you want to hack on the app itself, install workspace deps from the repo root once, then run the dev server from `apps/desktop`:
-
-```bash
-npm install          # from repo root — links apps/desktop, web, apps/shared
-cd apps/desktop
-npm run dev          # Vite renderer + Electron, which boots the Python backend
-```
-
-Point the app at a specific checkout, or sandbox it from your real config:
-
-```bash
-ALLR_DESKTOP_ALLR_ROOT=/path/to/clone npm run dev
-ALLR_HOME=/tmp/throwaway npm run dev
-npm run dev:fake-boot   # exercise the startup overlay with deterministic delays
-```
-
-Build installers:
-
-```bash
-npm run dist:mac     # DMG + zip
-npm run dist:win     # NSIS + MSI
-npm run dist:linux   # AppImage + deb + rpm
-npm run pack         # unpacked app under release/ (no installer)
-```
-
-macOS/Windows signing and notarization run automatically when the relevant credentials are present in the environment (`CSC_LINK` / `CSC_KEY_PASSWORD` / `APPLE_*` for macOS, `WIN_CSC_*` for Windows).
-
-### macOS permissions and local rebuilds (TCC)
-
-macOS remembers permission grants (Full Disk Access, Desktop/Downloads/Documents,
-Accessibility, Automation, microphone) against the app's *code-signing identity*,
-not its path. Locally built and self-updated apps are signed with a stable
-identifier-pinned ad-hoc signature, so grants persist across updates out of the
-box.
-
-For the strongest guarantee — a certificate-anchored identity, the same
-mechanism yabai/skhd users rely on — create a self-signed code-signing
-certificate once and tell Allr to use it:
-
-1. Keychain Access → Certificate Assistant → **Create a Certificate…**
-2. Name: `Allr Local Signing`, Identity Type: *Self-Signed Root*,
-   Certificate Type: **Code Signing**.
-3. `allr config set desktop.macos_signing_identity "Allr Local Signing"`
-
-The next update re-signs the rebuilt app with that certificate; every TCC grant
-survives. No Apple Developer account is required. Notarized release builds are
-detected and never re-signed.
-
-One-time note: changing the signing identity (including the first update after
-this fix) changes the app's identity once, so macOS will re-prompt one final
-time. Grants are stable from then on. If a permission gets stuck, reset it with
-`tccutil reset All com.nousresearch.hermes` and re-grant.
 
 ## See also
 
 - [CLI Guide](./cli.md) — the terminal interface
-- [TUI](./tui.md) — the modern terminal UI used by `hermes --tui` and the dashboard chat tab
+- [TUI](./tui.md) — the modern terminal UI used by `allr --tui` and the dashboard chat tab
 - [Web Dashboard](./features/web-dashboard.md) — browser admin panel with an embedded chat tab
-- [Configuration](./configuration.md) — config that the desktop app reads and writes
+- [Configuration](./configuration.md) — config that the app reads and writes
 - [Windows (Native)](./windows-native.md) — native Windows install path
