@@ -404,14 +404,19 @@ def _gateway_command_subcommand(command: str | None) -> str | None:
         if token == "gateway/run.py" or token.endswith("/gateway/run.py"):
             return "run"
         basename = token.rsplit("/", 1)[-1]
-        if basename in ("allr-gateway", "allr-gateway.exe"):
+        # The `hermes-*` names cover a gateway still running from a
+        # pre-rename install.
+        if basename in ("allr-gateway", "allr-gateway.exe", "hermes-gateway", "hermes-gateway.exe"):  # rebrand:keep
             return "run"
 
     joined = " ".join(tokens)
     has_gateway_entry = (
         "hermes_cli.main" in joined
         or "hermes_cli/main.py" in joined
-        or any(t.rsplit("/", 1)[-1] in ("hermes", "allr.exe") for t in tokens)
+        or any(
+            t.rsplit("/", 1)[-1] in ("allr", "allr.exe", "hermes", "hermes.exe")  # rebrand:keep
+            for t in tokens
+        )
     )
     if not has_gateway_entry:
         return None

@@ -59,10 +59,11 @@ _GATEWAY_LIFECYCLE_PATTERN = re.compile(
     # `start` is intentionally excluded: starting a gateway from inside a
     # gateway is benign (a no-op or "already running" error), and a
     # legitimate cron job might start a sibling profile's gateway.
-    r"(?:hermes\s+gateway\s+(?:restart|stop))"
-    # Branch B: launchctl ops on a allr-gateway label. macOS launchd
-    # labels look like `work.allr.gateway` / `allr-gateway`. Requiring the
-    # gateway identifier prevents blocking unrelated hermes services (e.g.
+    r"(?:(?:allr|hermes)\s+gateway\s+(?:restart|stop))"  # rebrand:keep
+    # Branch B: launchctl ops on an allr-gateway label. macOS launchd
+    # labels look like `work.allr.gateway` / `allr-gateway` (and the
+    # pre-rename `work.allr.gateway`). Requiring the
+    # gateway identifier prevents blocking unrelated services (e.g.
     # `launchctl unload ai.hermes.update-checker.plist`).
     # `submit` and `bootstrap` are included alongside the direct verbs
     # (kickstart/etc.): `launchctl submit -l work.allr.gateway-<suffix> --
@@ -72,13 +73,13 @@ _GATEWAY_LIFECYCLE_PATTERN = re.compile(
     # loop instead (#62891) — same foot-gun, indirect shape. Neutral-label
     # submissions that dodge this text anchor are caught separately by
     # `contains_launchctl_submit_command` (execution-aware, label-independent).
-    r"|(?:launchctl\s+(?:kickstart|unload|load|stop|restart|submit|bootstrap)\b[^\n]*\bhermes[.\-]?gateway)"
-    # Branch C: systemctl ops on a allr-gateway unit.
-    r"|(?:systemctl\s+(?:-\S+\s+)*(?:restart|stop|start)\b[^\n]*\bhermes[.\-]?gateway)"
-    # Branch D: pkill / kill targeting the allr gateway process. Both
+    r"|(?:launchctl\s+(?:kickstart|unload|load|stop|restart|submit|bootstrap)\b[^\n]*\b(?:allr|hermes)[.\-]?gateway)"  # rebrand:keep
+    # Branch C: systemctl ops on an allr-gateway unit.
+    r"|(?:systemctl\s+(?:-\S+\s+)*(?:restart|stop|start)\b[^\n]*\b(?:allr|hermes)[.\-]?gateway)"  # rebrand:keep
+    # Branch D: pkill / kill targeting the Allr gateway process. Both
     # token orders because real reproductions show both.
-    r"|(?:p?kill\b[^\n]*\bhermes\b[^\n]*\bgateway)"
-    r"|(?:p?kill\b[^\n]*\bgateway\b[^\n]*\bhermes)"
+    r"|(?:p?kill\b[^\n]*\b(?:allr|hermes)\b[^\n]*\bgateway)"  # rebrand:keep
+    r"|(?:p?kill\b[^\n]*\bgateway\b[^\n]*\b(?:allr|hermes))"  # rebrand:keep
 )
 
 

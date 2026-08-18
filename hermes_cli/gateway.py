@@ -999,7 +999,8 @@ def _hermes_home_from_systemd_unit_file(system: bool = False) -> str | None:
         if not stripped.startswith("Environment="):
             continue
         body = stripped[len("Environment=") :].strip().strip('"')
-        if body.startswith("ALLR_HOME="):
+        # Units written before the Allr rename use the legacy env prefix.
+        if body.startswith(("ALLR_HOME=", "HERMES_HOME=")):  # rebrand:keep
             value = body.split("=", 1)[1].strip().strip('"')
             return value or None
     return None
@@ -1020,7 +1021,9 @@ def _sync_hermes_home_from_systemd_unit(system: bool) -> None:
     # back to ``systemctl show`` for units that only exist in the manager.
     unit_home = (_hermes_home_from_systemd_unit_file(system=True) or "").strip()
     if not unit_home:
-        unit_home = _read_systemd_unit_environment(system=True).get("ALLR_HOME", "").strip()
+        _unit_env = _read_systemd_unit_environment(system=True)
+        _legacy = _unit_env.get("HERMES_HOME")  # rebrand:keep
+        unit_home = (_unit_env.get("ALLR_HOME") or _legacy or "").strip()
     if not unit_home:
         return
     current = os.environ.get("ALLR_HOME", "").strip()
@@ -2105,11 +2108,12 @@ def has_conflicting_systemd_units() -> bool:
     return len(get_installed_systemd_scopes()) > 1
 
 
-# Legacy service names from older Allr installs that predate the
-# allr-gateway rename. Kept as an explicit allowlist (NOT a glob) so
-# profile units (allr-gateway-*.service) and unrelated third-party
-# "hermes" units are never matched.
-_LEGACY_SERVICE_NAMES: tuple[str, ...] = ("hermes.service",)
+# Legacy service names from older installs that predate the allr-gateway
+# rename (``hermes.service`` from before the gateway rename, then
+# ``allr-gateway.service`` from before the Allr rename). Kept as an explicit
+# allowlist (NOT a glob) so profile units (allr-gateway-*.service) and
+# unrelated third-party "hermes" units are never matched.
+_LEGACY_SERVICE_NAMES: tuple[str, ...] = ("hermes.service", "hermes-gateway.service")  # rebrand:keep
 
 # ExecStart content markers that identify a unit as running our gateway.
 # A legacy unit is only flagged when its file contains one of these.
@@ -2119,6 +2123,9 @@ _LEGACY_UNIT_EXECSTART_MARKERS: tuple[str, ...] = (
     "gateway/run.py",
     " allr gateway ",
     "/allr gateway ",
+    # Pre-rename units spell the launcher `hermes`.
+    " hermes gateway ",  # rebrand:keep
+    "/hermes gateway ",  # rebrand:keep
 )
 
 
@@ -2172,9 +2179,25 @@ def _find_legacy_hermes_units() -> list[tuple[str, Path, bool]]:
     return results
 
 
+def _find_legacy_launchd_plists() -> list[Path]:
+    """Return stale ``work.allr.gateway*.plist`` agents from before the rename.
+
+    macOS only. The current label is ``work.allr.gateway`` (plus a profile
+    suffix), so anything still under the old reverse-DNS prefix is a leftover
+    that would keep restarting a second gateway.
+    """
+    if sys.platform != "darwin":
+        return []
+    try:
+        agents = _launchd_user_home() / "Library" / "LaunchAgents"
+        return sorted(agents.glob("work.allr.gateway*.plist"))
+    except (OSError, KeyError):
+        return []
+
+
 def has_legacy_hermes_units() -> bool:
     """Return True when any legacy Allr gateway unit files exist."""
-    return bool(_find_legacy_hermes_units())
+    return bool(_find_legacy_hermes_units() or _find_legacy_launchd_plists())
 
 
 def print_legacy_unit_warning() -> None:
@@ -2184,12 +2207,15 @@ def print_legacy_unit_warning() -> None:
     call from any status/install/setup path.
     """
     legacy = _find_legacy_hermes_units()
-    if not legacy:
+    stale_plists = _find_legacy_launchd_plists()
+    if not legacy and not stale_plists:
         return
     print_warning("Legacy Allr gateway unit(s) detected from an older install:")
     for name, path, is_system in legacy:
         scope = "system" if is_system else "user"
         print_info(f"    {path}  ({scope} scope)")
+    for plist in stale_plists:
+        print_info(f"    {plist}  (launchd)")
     print_info("  These run alongside the current allr-gateway service and")
     print_info("  cause SIGTERM flap loops — both try to use the same bot token.")
     print_info("  Remove them with:")
@@ -2204,7 +2230,8 @@ def remove_legacy_hermes_units(
 
     Iterates over whatever ``_find_legacy_hermes_units()`` returns — which is
     an explicit allowlist of legacy names (not a glob). Profile units and
-    unrelated third-party services are never touched.
+    unrelated third-party services are never touched. On macOS it also boots
+    out and unlinks stale ``work.allr.gateway*.plist`` launchd agents.
 
     Args:
         interactive: When True, prompt before removing. When False, remove
@@ -2217,27 +2244,31 @@ def remove_legacy_hermes_units(
         couldn't remove (typically system-scope when not running as root).
     """
     legacy = _find_legacy_hermes_units()
-    if not legacy:
+    stale_plists = _find_legacy_launchd_plists()
+    if not legacy and not stale_plists:
         print("No legacy Allr gateway units found.")
         return 0, []
 
     user_units = [(n, p) for n, p, is_sys in legacy if not is_sys]
     system_units = [(n, p) for n, p, is_sys in legacy if is_sys]
+    all_paths = [p for _, p, _ in legacy] + stale_plists
 
     print()
     print("Legacy Allr gateway unit(s) found:")
     for name, path, is_system in legacy:
         scope = "system" if is_system else "user"
         print(f"  {path}  ({scope} scope)")
+    for plist in stale_plists:
+        print(f"  {plist}  (launchd)")
     print()
 
     if dry_run:
         print("(dry-run — nothing removed)")
-        return 0, [p for _, p, _ in legacy]
+        return 0, all_paths
 
     if interactive and not prompt_yes_no("Remove these legacy units?", True):
         print("Skipped. Run again with: allr gateway migrate-legacy")
-        return 0, [p for _, p, _ in legacy]
+        return 0, all_paths
 
     removed = 0
     remaining: list[Path] = []
@@ -2286,6 +2317,24 @@ def remove_legacy_hermes_units(
                 _run_systemctl(["daemon-reload"], system=True, check=False, timeout=30)
             except RuntimeError:
                 pass
+
+    # macOS: unload then unlink the stale work.allr.gateway* agents.
+    for plist in stale_plists:
+        try:
+            subprocess.run(
+                ["launchctl", "bootout", f"gui/{os.getuid()}/{plist.stem}"],
+                capture_output=True,
+                timeout=30,
+            )
+        except (OSError, subprocess.SubprocessError):
+            pass  # Best-effort: the job may not be loaded at all.
+        try:
+            plist.unlink(missing_ok=True)
+            print(f"  ✓ Removed {plist}")
+            removed += 1
+        except OSError as e:
+            print(f"  ⚠ Could not remove {plist}: {e}")
+            remaining.append(plist)
 
     print()
     if remaining:
@@ -2524,7 +2573,7 @@ def _launchd_user_home() -> Path:
 def get_launchd_plist_path() -> Path:
     """Return the launchd plist path, scoped per profile.
 
-    Default ``~/.allr`` → ``work.allr.gateway.plist`` (backward compatible).
+    Default ``~/.allr`` → ``work.allr.gateway.plist``.
     Profile ``~/.allr/profiles/coder`` → ``work.allr.gateway-coder.plist``.
     """
     suffix = _profile_suffix()
