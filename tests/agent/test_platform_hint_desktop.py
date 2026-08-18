@@ -66,7 +66,7 @@ class TestDesktopHintEntry:
 
     def test_desktop_hint_advertises_markdown(self):
         """The desktop renderer supports full GFM (verified via the
-        Streamdown pipeline in apps/desktop). The hint must steer the
+        Streamdown pipeline in apps/hermes-universal). The hint must steer the
         agent toward markdown, not away from it like the cli/tui hints do."""
         hint = PLATFORM_HINTS["desktop"]
         assert "markdown" in hint.lower()
