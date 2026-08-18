@@ -79,12 +79,17 @@ describe('stepping back', () => {
   })
 })
 
+/** The install id is minted inside `startSshInstall`; recover it from a channel. */
+function installId(order: string[]): string {
+  return order.find(entry => entry.startsWith('ssh://'))?.split('/')[2] ?? ''
+}
+
 describe('starting a remote install', () => {
-  it('subscribes before invoking', async () => {
+  it('subscribes to every channel before invoking', async () => {
     const order: string[] = []
 
-    listenMock.mockImplementation(async () => {
-      order.push('listen')
+    listenMock.mockImplementation(async (channel: string) => {
+      order.push(channel)
 
       return () => {}
     })
@@ -96,7 +101,16 @@ describe('starting a remote install', () => {
     chooseSshRepo('upstream')
     await startSshInstall(target)
 
-    expect(order).toEqual(['listen', 'invoke'])
+    // Three channels, not one. The install events are the obvious pair, but auth
+    // happens FIRST: a remote that wants a key passphrase, or whose host key is
+    // not yet trusted, asks before a single install stage runs — and with nobody
+    // listening that stalled for the 60s prompt timeout and then failed.
+    expect(order.filter(entry => entry.startsWith('hermes-install://'))).toHaveLength(1)
+    expect(order.filter(entry => entry.startsWith('ssh://'))).toEqual([
+      `ssh://${installId(order)}/prompt`,
+      `ssh://${installId(order)}/host-key`
+    ])
+    expect(order.indexOf('invoke')).toBe(order.length - 1)
   })
 
   it('passes the repo as a name, never a URL', async () => {

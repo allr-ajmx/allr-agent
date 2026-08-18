@@ -207,6 +207,90 @@ export function onSshHostKey(attemptId: string, handler: (request: SshHostKeyEve
   return listen<SshHostKeyEvent>(`ssh://${attemptId}/host-key`, event => handler(event.payload))
 }
 
+// ── The question an in-flight attempt is waiting on ─────────────────────────
+//
+// Held in atoms rather than in the component that started the operation, because
+// there is more than one such component. `ssh_install` runs `interactive: true`
+// — Rust arms a real prompter and a host-key policy of Ask — but the install
+// store subscribed to nothing, so a remote that wanted a passphrase (or whose
+// host key we had never seen) stalled for the full 60s prompt timeout and then
+// failed with "Timed out waiting for an answer". Owning the question here means
+// every SSH caller gets a surface for it, present and future.
+//
+// The attempt id rides along so an answer is routed back to the operation that
+// asked, not to whichever one happens to be current.
+
+export interface ActiveSshPrompt extends SshPromptEvent {
+  attemptId: string
+}
+
+export interface ActiveSshHostKey extends SshHostKeyEvent {
+  attemptId: string
+}
+
+export const $sshPrompt = atom<ActiveSshPrompt | null>(null)
+export const $sshHostKey = atom<ActiveSshHostKey | null>(null)
+
+/**
+ * Subscribe an attempt's prompt and host-key channels to the shared atoms.
+ *
+ * Call BEFORE invoking, per the contract above: Rust can raise a passphrase
+ * prompt during the very first auth exchange, and a listener attached after the
+ * invoke misses it outright.
+ *
+ * The returned function detaches and clears anything still on screen for THIS
+ * attempt — never another's, or a second operation starting would wipe a dialog
+ * the user is part-way through answering.
+ */
+export async function attachSshPrompts(attemptId: string): Promise<UnlistenFn> {
+  const off = await Promise.all([
+    onSshPrompt(attemptId, prompt => $sshPrompt.set({ ...prompt, attemptId })),
+    onSshHostKey(attemptId, request => $sshHostKey.set({ ...request, attemptId }))
+  ])
+
+  return () => {
+    off.forEach(stop => stop())
+
+    if ($sshPrompt.get()?.attemptId === attemptId) {
+      $sshPrompt.set(null)
+    }
+
+    if ($sshHostKey.get()?.attemptId === attemptId) {
+      $sshHostKey.set(null)
+    }
+  }
+}
+
+/** Answer whatever is currently being asked. */
+export async function answerActiveSshPrompt(answer: string): Promise<void> {
+  const prompt = $sshPrompt.get()
+
+  if (!prompt) {
+    return
+  }
+
+  // Cleared first: the attempt continues the moment Rust has the answer, and a
+  // dialog still on screen would look like it was ignored.
+  $sshPrompt.set(null)
+
+  // A rejection here means the attempt is already gone (cancelled, or timed
+  // out), which the attempt's own error reports far better than a toast would.
+  await answerSshPrompt(prompt.attemptId, prompt.promptId, answer).catch(() => {})
+}
+
+/** Accept or refuse the host key currently in question. */
+export async function decideActiveSshHostKey(accept: boolean): Promise<void> {
+  const request = $sshHostKey.get()
+
+  if (!request) {
+    return
+  }
+
+  $sshHostKey.set(null)
+
+  await trustSshHostKey(request.attemptId, accept).catch(() => {})
+}
+
 /**
  * Fires when a live tunnel dies unexpectedly.
  *

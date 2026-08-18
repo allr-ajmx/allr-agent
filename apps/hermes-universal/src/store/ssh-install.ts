@@ -12,6 +12,7 @@ import {
   type LocalInstallState,
   type Repo
 } from '@/store/local-install'
+import { attachSshPrompts } from '@/store/ssh-backend'
 
 // Installing Hermes on a REMOTE host, after an SSH connect failed with
 // `hermes-not-found`.
@@ -109,8 +110,14 @@ function mintInstallId(): string {
  * attached after the invoke would miss it and leave the UI with no ladder.
  *
  * Credentials come from the keyring exactly as `connectSsh` fetches them, so the
- * install authenticates the same way the failed connect did; `interactive: true`
- * keeps the passphrase and host-key prompts working.
+ * install authenticates the same way the failed connect did.
+ *
+ * `interactive: true` makes Rust arm a real prompter and a host-key policy of
+ * Ask — which is only useful if something is listening. It was not: this
+ * subscribed to the install channel alone, so a remote wanting a key passphrase
+ * (or one whose host key was not yet trusted) stalled for the full 60s prompt
+ * timeout and then failed with "Timed out waiting for an answer". Hence
+ * `attachSshPrompts`, which publishes to the atoms SshPromptDialog renders.
  */
 export async function startSshInstall(target: SshTarget): Promise<void> {
   const state = $sshInstall.get()
@@ -134,17 +141,24 @@ export async function startSshInstall(target: SshTarget): Promise<void> {
     startedAt: Date.now()
   })
 
-  let unlisten: UnlistenFn | null = null
+  const unlisten: UnlistenFn[] = []
 
   try {
-    unlisten = await listen<InstallEvent>(`hermes-install://${installId}/event`, event => {
-      const current = $sshInstall.get()
+    unlisten.push(
+      await listen<InstallEvent>(`hermes-install://${installId}/event`, event => {
+        const current = $sshInstall.get()
 
-      if (current) {
-        // `host` is ours, not the reducer's — carry it across every update.
-        $sshInstall.set({ ...applyInstallEvent(current, event.payload), host: current.host })
-      }
-    })
+        if (current) {
+          // `host` is ours, not the reducer's — carry it across every update.
+          $sshInstall.set({ ...applyInstallEvent(current, event.payload), host: current.host })
+        }
+      })
+    )
+
+    // Same contract as the install channel: subscribed BEFORE the invoke,
+    // because auth is the first thing that happens and a prompt raised in that
+    // window would otherwise be lost.
+    unlisten.push(await attachSshPrompts(installId))
 
     const [installationId, secrets] = await Promise.all([getInstallationId(), loadSshSecrets()])
 
@@ -168,7 +182,7 @@ export async function startSshInstall(target: SshTarget): Promise<void> {
       $sshInstall.set({ ...current, error: errorText(err), phase: 'failed' })
     }
   } finally {
-    unlisten?.()
+    unlisten.forEach(stop => stop())
     activeInstallId = null
   }
 }

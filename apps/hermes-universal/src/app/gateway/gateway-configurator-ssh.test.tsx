@@ -27,10 +27,11 @@ vi.mock('@/store/connection', async importActual => ({
 }))
 vi.mock('@/store/ssh-backend', async importActual => ({
   ...(await importActual<typeof SshBackendModule>()),
+  // Both prompt channels now go through one helper, so that is what has to be
+  // stubbed — the underlying listeners are no longer called from the component.
+  attachSshPrompts: vi.fn().mockResolvedValue(() => {}),
   newAttemptId: () => 'attempt-1',
-  onSshHostKey: vi.fn().mockResolvedValue(() => {}),
   onSshProgress: vi.fn().mockResolvedValue(() => {}),
-  onSshPrompt: vi.fn().mockResolvedValue(() => {}),
   testSshBackend: vi.fn().mockResolvedValue({ hostLabel: 'box', platform: 'linux' })
 }))
 

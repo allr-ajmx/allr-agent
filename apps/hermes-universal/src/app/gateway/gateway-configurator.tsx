@@ -11,6 +11,7 @@ import {
   sshSecretsFromForm,
   sshTargetFromForm
 } from '@/app/gateway/ssh-panel'
+import { SshPromptDialog } from '@/app/gateway/ssh-prompt-dialog'
 import { ListRow, Pill } from '@/app/settings/primitives'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -74,16 +75,12 @@ import { broadcastGatewaySwitch } from '@/store/gateway-switch-broadcast'
 import { stepBackInLocalInstall } from '@/store/local-install'
 import { notify, notifyError } from '@/store/notifications'
 import {
-  answerSshPrompt,
+  attachSshPrompts,
   isSshError,
   newAttemptId,
-  onSshHostKey,
   onSshProgress,
-  onSshPrompt,
-  type SshHostKeyEvent,
   type SshPromptEvent,
-  testSshBackend,
-  trustSshHostKey
+  testSshBackend
 } from '@/store/ssh-backend'
 import { offerSshInstall } from '@/store/ssh-install'
 
@@ -286,10 +283,10 @@ export function GatewayConfigurator({
     }
   }, [])
 
+  // Progress is this surface's own; the prompt and host-key questions are not —
+  // they live in shared atoms so the remote-install flow, which authenticates
+  // identically, is answerable through the same dialog.
   const [sshProgress, setSshProgress] = useState<null | string>(null)
-  const [sshPrompt, setSshPrompt] = useState<null | SshPromptEvent>(null)
-  const [sshHostKey, setSshHostKey] = useState<null | SshHostKeyEvent>(null)
-  const sshAttemptRef = useRef<null | string>(null)
 
   const [busy, setBusy] = useState(false)
   const [testing, setTesting] = useState(false)
@@ -514,25 +511,18 @@ export function GatewayConfigurator({
    */
   const runSsh = async <T,>(operation: (attemptId: string) => Promise<T>): Promise<T> => {
     const attemptId = newAttemptId()
-    sshAttemptRef.current = attemptId
     setSshProgress(null)
-    setSshPrompt(null)
-    setSshHostKey(null)
 
     const unlisten = await Promise.all([
       onSshProgress(attemptId, progress => setSshProgress(sshStepLabel(progress.step, g))),
-      onSshPrompt(attemptId, setSshPrompt),
-      onSshHostKey(attemptId, setSshHostKey)
+      attachSshPrompts(attemptId)
     ])
 
     try {
       return await operation(attemptId)
     } finally {
       unlisten.forEach(off => off())
-      sshAttemptRef.current = null
       setSshProgress(null)
-      setSshPrompt(null)
-      setSshHostKey(null)
     }
   }
 
@@ -841,32 +831,14 @@ export function GatewayConfigurator({
 
       {/* SSH panel */}
       {showPanels && pendingMode === 'ssh' ? (
-        <SshPanel
-          form={sshForm}
-          g={g}
-          hostKey={sshHostKey}
-          onAnswerPrompt={answer => {
-            const attemptId = sshAttemptRef.current
-
-            if (attemptId && sshPrompt) {
-              void answerSshPrompt(attemptId, sshPrompt.promptId, answer).catch(() => {})
-              rememberSshPromptAnswer(sshPrompt.kind, answer)
-              setSshPrompt(null)
-            }
-          }}
-          onTrustHostKey={accept => {
-            const attemptId = sshAttemptRef.current
-
-            if (attemptId) {
-              void trustSshHostKey(attemptId, accept).catch(() => {})
-              setSshHostKey(null)
-            }
-          }}
-          progress={sshProgress}
-          prompt={sshPrompt}
-          setForm={setSshForm}
-        />
+        <SshPanel form={sshForm} g={g} progress={sshProgress} setForm={setSshForm} />
       ) : null}
+
+      {/* Mounted ONCE, and deliberately outside both the panel and the install
+          offer: a connect and a remote install each authenticate, each can stop
+          to ask, and only one question is ever pending. Two copies would race to
+          answer it. */}
+      {showPanels && pendingMode === 'ssh' ? <SshPromptDialog onAnswered={rememberSshPromptAnswer} /> : null}
 
       {/* Sits beside the SSH panel rather than inside it: the offer is
           about the remote HOST, not about the connection form. */}
