@@ -4,7 +4,7 @@
   <img src="assets/banner.png" alt="Allr" width="100%">
 </p>
 
-# ہرمیس ایجنٹ ☤ (Allr)
+# ہرمیس ایجنٹ (Allr)
 
 <p align="center">
   <a href="https://allr.work/docs/"><img src="https://img.shields.io/badge/Docs-hermes--agent.nousresearch.com-FFD700?style=for-the-badge" alt="Documentation"></a>

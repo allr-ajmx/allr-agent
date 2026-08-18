@@ -202,7 +202,7 @@ _ALLR_PROVIDER_ENV_FORCE_PREFIX = "_ALLR_FORCE_"
 
 # Allr-managed AWS *inference* credentials for ``auth_type="aws_sdk"``
 # providers (Bedrock).  Scoped DELIBERATELY NARROW: this lists only the
-# Bedrock-specific bearer token, which is a Allr inference secret exactly
+# Bedrock-specific bearer token, which is an Allr inference secret exactly
 # analogous to ``OPENAI_API_KEY`` — nobody drives the ``aws``/``terraform``/
 # ``boto3`` toolchain off it, so stripping it from terminal/execute_code
 # subprocesses costs no user capability.

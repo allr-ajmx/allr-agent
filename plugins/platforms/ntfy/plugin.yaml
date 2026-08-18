@@ -6,7 +6,7 @@ description: >
   ntfy push-notification gateway adapter for Allr.
   Subscribes to a topic on ntfy.sh or any self-hosted ntfy server via
   HTTP streaming, and publishes replies via HTTP POST. Lightweight —
-  no external SDK, only httpx (already a Allr dependency).
+  no external SDK, only httpx (already an Allr dependency).
 
   ntfy has no native user-identity primitive; the adapter treats each
   topic as a single trusted channel and never derives user identity

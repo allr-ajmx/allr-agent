@@ -288,7 +288,7 @@ def _record_codex_app_server_compaction(
 #   - _emit_interim_assistant_message({...}) for completed agentMessages
 # ---------------------------------------------------------------------------
 
-# Codex item types that map to a Allr tool_call in the projector (and
+# Codex item types that map to an Allr tool_call in the projector (and
 # therefore deserve a tool_progress bubble pair). The projector lives in
 # agent/transports/codex_event_projector.py — keep these in sync so the
 # tool name shown in the UI matches the name recorded in messages.

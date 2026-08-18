@@ -799,7 +799,7 @@ def _run_backup_locked(args, hermes_root: Path) -> None:
 # ---------------------------------------------------------------------------
 
 def _validate_backup_zip(zf: zipfile.ZipFile) -> tuple[bool, str]:
-    """Check that a zip looks like a Allr backup.
+    """Check that a zip looks like an Allr backup.
 
     Returns (ok, reason).
     """
@@ -818,7 +818,7 @@ def _validate_backup_zip(zf: zipfile.ZipFile) -> tuple[bool, str]:
 
     if not found:
         return False, (
-            "zip does not appear to be a Allr backup "
+            "zip does not appear to be an Allr backup "
             "(no config.yaml, .env, or state databases found)"
         )
 
@@ -850,7 +850,7 @@ def _detect_prefix(zf: zipfile.ZipFile) -> str:
 
 
 def run_import(args) -> None:
-    """Restore a Allr backup from a zip file."""
+    """Restore an Allr backup from a zip file."""
     zip_path = Path(args.zipfile).expanduser().resolve()
 
     if not zip_path.is_file():

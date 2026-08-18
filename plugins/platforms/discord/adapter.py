@@ -5580,7 +5580,7 @@ class DiscordAdapter(BasePlatformAdapter):
         async def slash_deny(interaction: discord.Interaction, scope: str = ""):
             await self._run_simple_slash(interaction, f"/deny {scope}".strip())
 
-        @tree.command(name="thread", description="Create a new thread and start a Allr session in it")
+        @tree.command(name="thread", description="Create a new thread and start an Allr session in it")
         @discord.app_commands.describe(
             name="Thread name",
             message="Optional first message to send to Allr in the thread",
@@ -5907,7 +5907,7 @@ class DiscordAdapter(BasePlatformAdapter):
 
             cmd = discord.app_commands.Command(
                 name="skill",
-                description="Run a Allr skill",
+                description="Run an Allr skill",
                 callback=_skill_handler,
             )
             tree.add_command(cmd)

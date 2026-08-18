@@ -335,7 +335,7 @@ def resolve_sync_base_url() -> Optional[str]:
 
 
 # ---------------------------------------------------------------------------
-# Sync feature configuration — env-first, so a Allr Cloud instance can be set
+# Sync feature configuration — env-first, so an Allr Cloud instance can be set
 # up to use sync BY DEFAULT purely through environment variables (no per-user
 # config.yaml edit, no per-skill CLI call). Every knob follows the same
 # precedence as base_url: the ALLR_SYNC_* env var wins, else config.yaml
@@ -392,7 +392,7 @@ def sync_feature_enabled() -> bool:
     """Whether the sync feature is turned on for this instance (env-first).
 
     ``ALLR_SYNC_ENABLED`` -> ``sync.enabled`` -> False. This is the master
-    switch a Allr Cloud deployment sets to opt its instances into sync by
+    switch an Allr Cloud deployment sets to opt its instances into sync by
     default. It is checked by the gate-and-swallow entrypoints IN ADDITION to
     the Nous-admin token gate and a configured base URL — all three must hold for
     background sync to run.

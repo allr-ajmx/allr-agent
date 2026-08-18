@@ -250,7 +250,7 @@ def get_hermes_dir(
     *,
     home: Path | None = None,
 ) -> Path:
-    """Resolve a Allr subdirectory with backward compatibility.
+    """Resolve an Allr subdirectory with backward compatibility.
 
     New installs get the consolidated layout (e.g. ``cache/images``).
     Existing installs that already have the old path (e.g. ``image_cache``)
@@ -475,7 +475,7 @@ def _bootstrap_managed_node_posix() -> bool:
 
 
 def bootstrap_hermes_managed_node() -> str | None:
-    """Install a Allr-managed Node tree and return its npm path.
+    """Install an Allr-managed Node tree and return its npm path.
 
     Used when the only Node/npm on the machine belongs to the user (system,
     nvm, brew, Nix) and cannot satisfy the repo's ``engines`` requirements —
@@ -585,7 +585,7 @@ def _managed_node_tree_outdated(home: Path | None = None) -> bool:
 
 
 def find_hermes_node_executable(command: str) -> str | None:
-    """Return a Allr-managed Node/npm executable path, healing broken trees.
+    """Return an Allr-managed Node/npm executable path, healing broken trees.
 
     Outdated trees (node major below ``_ALLR_NODE_TARGET_MAJOR``) heal the
     same way broken ones do — the once-per-process heal redownloads the target

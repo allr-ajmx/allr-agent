@@ -51,7 +51,7 @@ else:
     try:
         import httpx
         HTTPX_AVAILABLE = True
-    except ImportError:  # pragma: no cover - httpx is already a Allr dep
+    except ImportError:  # pragma: no cover - httpx is already an Allr dep
         HTTPX_AVAILABLE = False
         httpx = None
 

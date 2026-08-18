@@ -444,7 +444,7 @@ separate trajectories.
 ## Adaptive Execution Example
 
 Allr core owns the LLM and tool boundaries and enters NeMo Relay managed
-execution while a Allr-managed Relay consumer is active. With no shared
+execution while an Allr-managed Relay consumer is active. With no shared
 metrics subscriber or explicitly configured Relay plugin, Allr calls the
 provider or tool directly. The `observability/nemo_relay` plugin retains the
 managed path while its adaptive components are installed on those boundaries.

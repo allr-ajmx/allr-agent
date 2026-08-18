@@ -234,7 +234,7 @@ class TestCronTimezone:
         monkeypatch.setattr(jobs_module, "JOBS_FILE", tmp_path / "cron" / "jobs.json")
         monkeypatch.setattr(jobs_module, "OUTPUT_DIR", tmp_path / "cron" / "output")
 
-        # Use a Allr timezone far behind UTC so that the numeric wall time
+        # Use an Allr timezone far behind UTC so that the numeric wall time
         # of the naive timestamp exceeds _hermes_now's wall time — this would
         # have caused a false "not due" with the old replace(tzinfo=...) approach.
         os.environ["ALLR_TIMEZONE"] = "Pacific/Midway"  # UTC-11

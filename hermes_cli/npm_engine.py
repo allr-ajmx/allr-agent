@@ -257,7 +257,7 @@ def _print_manual_fix(npm: str, npm_range: str, actual: str | None) -> None:
 
 
 def _provision_managed_npm(npm_range: str | None, *, quiet: bool = False) -> str | None:
-    """Provision a Allr-managed Node tree and return a satisfying npm.
+    """Provision an Allr-managed Node tree and return a satisfying npm.
 
     Installs the managed tree under ``$ALLR_HOME/node`` (reusing a healthy
     one when present), then upgrades its bundled npm to *npm_range* — a fresh
@@ -269,7 +269,7 @@ def _provision_managed_npm(npm_range: str | None, *, quiet: bool = False) -> str
     """
     if not quiet:
         print(
-            "→ Provisioning a Allr-managed Node.js runtime "
+            "→ Provisioning an Allr-managed Node.js runtime "
             "(the resolved npm belongs to your system and is left alone)…",
             flush=True,
         )
@@ -301,7 +301,7 @@ def maybe_repair_npm_engine(
 
     *output* is the combined stdout/stderr of the npm command that just failed.
     Returns the npm executable the caller should retry its command with —
-    the same *npm* after an in-place upgrade of a Allr-managed install, or
+    the same *npm* after an in-place upgrade of an Allr-managed install, or
     a freshly provisioned managed npm when the failing npm belongs to the
     user (system / nvm / brew / Nix installs are never modified). Returns
     ``None`` when no repair happened — not an engine failure, a Node mismatch

@@ -9,7 +9,7 @@ them in order before proposing solutions.
 
 ---
 
-## Layer 1 — Is this thing a Allr plugin, or a separate app?
+## Layer 1 — Is this thing an Allr plugin, or a separate app?
 
 This is the question to answer FIRST. The "OpenViking" case in particular
 trips agents up.

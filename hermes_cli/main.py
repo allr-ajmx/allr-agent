@@ -2071,7 +2071,7 @@ def _make_tui_argv(tui_dir: Path, tui_dev: bool) -> tuple[list[str], Path]:
         result = _run_tui_install()
         if result.returncode != 0:
             # An npm outside the root package.json's `engines.npm` range fails
-            # here before doing any work; repair once (upgrade a Allr-managed
+            # here before doing any work; repair once (upgrade an Allr-managed
             # npm in place, or provision a managed runtime when the npm belongs
             # to the user) and retry rather than dumping EBADENGINE at the user.
             from hermes_cli.npm_engine import maybe_repair_npm_engine
@@ -4957,7 +4957,7 @@ def cmd_backup(args):
 
 
 def cmd_import(args):
-    """Restore a Allr backup from a zip file."""
+    """Restore an Allr backup from a zip file."""
     from hermes_cli.backup import run_import
 
     run_import(args)
@@ -5546,7 +5546,7 @@ def _run_npm_install_deterministic(
     # command here identically (the `npm install` fallback included), so the
     # failure is worth exactly one repair attempt. `maybe_repair_npm_engine`
     # returns the npm to retry with — the same one after an in-place upgrade
-    # of a Allr-managed install, or a freshly provisioned managed npm when
+    # of an Allr-managed install, or a freshly provisioned managed npm when
     # the failing npm belongs to the user's own toolchain.
     from hermes_cli.npm_engine import maybe_repair_npm_engine
 

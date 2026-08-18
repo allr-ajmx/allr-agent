@@ -1,4 +1,4 @@
-"""Upload a Allr session transcript to Hugging Face as an agent trace.
+"""Upload an Allr session transcript to Hugging Face as an agent trace.
 
 Allr stores sessions in its own SQLite store (``hermes_state.SessionDB``),
 so we reconstruct the conversation and emit it in the **Claude Code JSONL**

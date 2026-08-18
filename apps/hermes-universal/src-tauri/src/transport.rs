@@ -315,7 +315,7 @@ fn url_is_under(url: &str, base: &str) -> bool {
         .is_some_and(|rest| rest.is_empty() || rest.starts_with('/') || rest.starts_with('?'))
 }
 
-/// The path namespaces a Allr gateway serves. Used only to decide whether an
+/// The path namespaces an Allr gateway serves. Used only to decide whether an
 /// UNKNOWN origin is worth one keyring lookup — never to decide that a URL is
 /// trustworthy. A gateway behind a path prefix (`https://host/hermes`, which the
 /// settings copy explicitly supports) matches neither, and is reached the other

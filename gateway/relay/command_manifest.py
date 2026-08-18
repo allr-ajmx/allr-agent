@@ -129,7 +129,7 @@ def build_relay_command_manifest() -> List[Dict[str, Any]]:
         },
         {
             "name": "thread",
-            "description": "Create a new thread and start a Allr session in it",
+            "description": "Create a new thread and start an Allr session in it",
             "options": [_opt("name", "Thread name")],
         },
         {

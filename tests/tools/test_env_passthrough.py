@@ -366,7 +366,7 @@ class TestTerminalIntegration:
     def test_provider_blocklist_import_failure_fails_closed(self, monkeypatch):
         """If the dynamic provider blocklist can't be imported, provider
         credentials must be treated as protected and refused passthrough —
-        otherwise a skill could tunnel a Allr credential into the
+        otherwise a skill could tunnel an Allr credential into the
         execute_code child (regression for #37950 / GHSA-rhgp-j443-p4rf).
 
         Verifies the full path: _is_hermes_provider_credential returns True,

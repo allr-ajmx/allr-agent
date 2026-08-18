@@ -696,7 +696,7 @@ export const en: Translations = {
       cloudDesc: 'Sign in once to Allr Cloud and pick from the agents on your account — no URL to paste.',
       sshTitle: 'SSH',
       sshDesc:
-        'Reach a Allr backend on another machine over SSH. Allr starts it there and tunnels a private port back to this device.',
+        'Reach an Allr backend on another machine over SSH. Allr starts it there and tunnels a private port back to this device.',
       sshTrustHint:
         'The first connection to a host asks you to confirm its key fingerprint. A key that later CHANGES is always refused.',
       sshHostTitle: 'Host',

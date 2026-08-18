@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 
 def observe_lifecycle(hook_name: str, **kwargs: Any) -> None:
-    """Dispatch a Allr lifecycle event to built-in observability features."""
+    """Dispatch an Allr lifecycle event to built-in observability features."""
     from . import relay_shared_metrics
 
     _safe_observe(relay_shared_metrics.observe_lifecycle, hook_name, kwargs)

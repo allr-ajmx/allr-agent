@@ -1,6 +1,6 @@
 """On-demand supply-chain audit for Allr installs.
 
-Scans three surfaces a Allr user actually controls and we can map to
+Scans three surfaces an Allr user actually controls and we can map to
 upstream advisories without auth or extra binaries:
 
 1. The Allr venv (every PyPI dist via ``importlib.metadata``).

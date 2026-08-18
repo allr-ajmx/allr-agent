@@ -1293,7 +1293,7 @@ def _profile_bound_backend_pids(canon: str, profile_dir: Path) -> list[int]:
     profile that holds the profile's SQLite connection open and keeps writing
     sessions/WAL/sandbox files — the writer that makes ``rmtree`` hit
     ``ENOTEMPTY`` (and, pre-fix, resurrected the tree).  ``gateway.pid`` never
-    names it, so find it by inspection: a Allr backend subcommand
+    names it, so find it by inspection: an Allr backend subcommand
     (``serve``/``dashboard``/``gateway``) that is bound to *this* profile either
     by a ``--profile <canon>`` / ``-p <canon>`` selector or by a ``ALLR_HOME``
     that resolves to ``profile_dir``.
@@ -1346,7 +1346,7 @@ def _profile_bound_backend_pids(canon: str, profile_dir: Path) -> list[int]:
             if not argv:
                 continue
 
-            # Must be a Allr process: either an entrypoint marker in argv, or
+            # Must be an Allr process: either an entrypoint marker in argv, or
             # a resolved executable named `hermes`.
             joined = " ".join(argv)
             exe_name = os.path.basename(argv[0]).lower()

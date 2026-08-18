@@ -2,7 +2,7 @@
 
 Source: https://docs.x.ai/developers/migration/may-15-retirement
 
-Pure logic: walks a Allr config dict, returns issues for any reference
+Pure logic: walks an Allr config dict, returns issues for any reference
 to a retired xAI model. No I/O, no CLI dependencies — testable in isolation
 and reusable from both `allr doctor` and a future `allr migrate xai`.
 """
@@ -34,7 +34,7 @@ _RETIRED_MODELS: Dict[str, Dict[str, Optional[str]]] = {
 
 @dataclass(frozen=True)
 class RetirementIssue:
-    """A reference to a retired xAI model found in a Allr config."""
+    """A reference to a retired xAI model found in an Allr config."""
 
     config_path: str            # e.g. "principal.model" or "auxiliary.vision.model"
     current_model: str          # exact value found in config (preserves casing/prefix)
@@ -60,7 +60,7 @@ def _looks_like_xai(model_id: Optional[str]) -> bool:
 
 
 def find_retired_xai_refs(config: Dict[str, Any]) -> List[RetirementIssue]:
-    """Walk all model slots in a Allr config and return retirement issues.
+    """Walk all model slots in an Allr config and return retirement issues.
 
     Slots scanned:
       - ``principal.model``

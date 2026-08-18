@@ -48,7 +48,7 @@ _config_passthrough: frozenset[str] | None = None
 
 
 def _is_hermes_provider_credential(name: str) -> bool:
-    """True if ``name`` is a Allr-managed provider credential (API key,
+    """True if ``name`` is an Allr-managed provider credential (API key,
     token, or similar) per ``_ALLR_PROVIDER_ENV_BLOCKLIST``.
 
     Skill-declared ``required_environment_variables`` frontmatter must
@@ -65,7 +65,7 @@ def _is_hermes_provider_credential(name: str) -> bool:
     Fail closed: if the authoritative blocklist cannot be imported (partial
     install, import-time error, etc.) we treat the name as a protected
     provider credential and refuse passthrough, rather than fall open and
-    let a skill tunnel a Allr credential into the execute_code child.
+    let a skill tunnel an Allr credential into the execute_code child.
     """
     try:
         from tools.environments.local import (
@@ -98,7 +98,7 @@ def register_env_passthrough(var_names: Iterable[str]) -> None:
     Variables that are Allr-managed provider credentials (from
     ``_ALLR_PROVIDER_ENV_BLOCKLIST``) are rejected here to preserve
     the ``execute_code`` sandbox's credential-scrubbing guarantee per
-    GHSA-rhgp-j443-p4rf. A skill that needs to talk to a Allr-managed
+    GHSA-rhgp-j443-p4rf. A skill that needs to talk to an Allr-managed
     provider should do so via the agent's main-process tools (web_search,
     web_extract, etc.) where the credential remains safely in the main
     process.
