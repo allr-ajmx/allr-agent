@@ -40,7 +40,7 @@ Plugin 系统允许你在不修改任何 Allr 核心代码的情况下添加平�
 
 ### plugin.yaml
 
-Plugin 元数据。`requires_env` 和 `optional_env` 块会自动填充 `allr config` UI 条目（参见下方[在 allr config 中暴露环境变量](#surfacing-env-vars-in-hermes-config)）。
+Plugin 元数据。`requires_env` 和 `optional_env` 块会自动填充 `allr config` UI 条目（参见下方[在 allr config 中暴露环境变量](#surfacing-env-vars-in-allr-config)）。
 
 ```yaml
 name: my-platform
@@ -322,7 +322,7 @@ ctx.register_platform(
 
 该函数接收与实时适配器相同的 `pconfig` 和 `chat_id`，以及可选的 `thread_id`、`media_files` 和 `force_document` 关键字参数。返回 `{"success": True, "message_id": ...}` 视为成功投递；返回 `{"error": "..."}` 会将消息记录到 cron 的 `delivery_errors` 中。函数内抛出的异常由调度器捕获并报告为 `Plugin standalone send failed: <reason>`。参考实现位于 `plugins/platforms/{irc,teams,google_chat}/adapter.py`。
 
-## 在 `allr config` 中暴露环境变量 {#surfacing-env-vars-in-hermes-config}
+## 在 `allr config` 中暴露环境变量 {#surfacing-env-vars-in-allr-config}
 
 `hermes_cli/config.py` 在导入时扫描 `plugins/platforms/*/plugin.yaml`，并从 `requires_env` 和（可选的）`optional_env` 块自动填充 `OPTIONAL_ENV_VARS`。使用富字典形式可提供完整的描述、prompt、password 标志和 URL — CLI 设置 UI 会自动识别。
 
