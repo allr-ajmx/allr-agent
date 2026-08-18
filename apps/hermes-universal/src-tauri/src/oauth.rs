@@ -522,9 +522,7 @@ pub mod native {
     pub fn callback_response(ok: bool, in_app: bool) -> String {
         let body = match (ok, in_app) {
             (true, true) => "<h1>Signed in</h1><p>Returning to Allr…</p>",
-            (true, false) => {
-                "<h1>Signed in</h1><p>You can close this tab and return to Allr.</p>"
-            }
+            (true, false) => "<h1>Signed in</h1><p>You can close this tab and return to Allr.</p>",
             (false, true) => "<h1>Sign-in failed</h1><p>Returning to Allr…</p>",
             (false, false) => "<h1>Sign-in failed</h1><p>Return to Allr and try again.</p>",
         };
