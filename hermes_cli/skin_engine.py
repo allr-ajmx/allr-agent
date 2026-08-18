@@ -174,7 +174,7 @@ class SkinConfig:
     tool_prefix: str = "┊"
     tool_emojis: Dict[str, str] = field(default_factory=dict)  # per-tool emoji overrides
     banner_logo: str = ""    # Rich-markup ASCII art logo (replaces ALLR_AGENT_LOGO)
-    banner_hero: str = ""    # Rich-markup hero art (replaces ALLR_CADUCEUS)
+    banner_hero: str = ""    # Rich-markup hero art (replaces ALLR_MARK)
 
     def get_color(self, key: str, fallback: str = "") -> str:
         """Get a color value with fallback."""
@@ -201,32 +201,32 @@ class SkinConfig:
 _BUILTIN_SKINS: Dict[str, Dict[str, Any]] = {
     "default": {
         "name": "default",
-        "description": "Classic Allr — gold and kawaii",
+        "description": "Allr — warm paper, honey and green",
         # Dark-authored. Values match the TUI's DARK_THEME so the classic CLI
-        # and the TUI render the same Allr gold.
+        # and the TUI render the same Allr honey.
         "colors": {
-            "banner_border": "#CD7F32",
-            "banner_title": "#FFD700",
-            "banner_accent": "#FFBF00",
-            "banner_dim": "#B8860B",
-            "banner_text": "#FFF8DC",
-            "ui_accent": "#FFBF00",
-            "ui_label": "#DAA520",
-            "ui_ok": "#4caf50",
+            "banner_border": "#b77e1f",
+            "banner_title": "#e9a83e",
+            "banner_accent": "#f7c14c",
+            "banner_dim": "#b77e1f",
+            "banner_text": "#fbf1e2",
+            "ui_accent": "#e9a83e",
+            "ui_label": "#f7c14c",
+            "ui_ok": "#2e9e63",
             "ui_error": "#ef5350",
-            "ui_warn": "#ffa726",
-            "prompt": "#FFF8DC",
-            "input_rule": "#CD7F32",
-            "response_border": "#FFD700",
+            "ui_warn": "#e9a83e",
+            "prompt": "#fbf8f2",
+            "input_rule": "#b77e1f",
+            "response_border": "#e9a83e",
             "status_bar_bg": "#1a1a2e",
             "status_bar_text": "#C0C0C0",
-            "status_bar_strong": "#FFD700",
+            "status_bar_strong": "#e9a83e",
             "status_bar_dim": "#8A7A4A",
-            "status_bar_good": "#8FBC8F",
+            "status_bar_good": "#2e9e63",
             "status_bar_warn": "#FFD700",
             "status_bar_bad": "#FF8C00",
             "status_bar_critical": "#FF6B6B",
-            "session_label": "#DAA520",
+            "session_label": "#f7c14c",
             "session_border": "#8B8682",
             "completion_menu_bg": "#1a1a2e",
             "completion_menu_current_bg": "#333355",
@@ -234,29 +234,25 @@ _BUILTIN_SKINS: Dict[str, Dict[str, Any]] = {
             "shell_dollar": "#4dabf7",
             "voice_status_bg": "#1a1a2e",
         },
-        # Light overlay (merged onto `colors`; dark mode renders the vivid
-        # block above untouched). The goldenrod ladder: on white, the vivid
-        # #FFD700/#FFBF00 read as glare and WCAG-darkened mustard (#867000)
-        # reads as mud — the sweet spot is the statusbar's goldenrod family
-        # (#B8860B/#DAA520): hue kept, saturation tamed, mid luminance.
-        # Hierarchy on white: ink body 8.9:1 > fade 5.2 > label 3.7 >
-        # muted 3.3 > title 2.7 > headers 2.4 (accents recede last, like
-        # slate's pastels — the raw-canon look, just not neon).
+        # Light overlay (merged onto `colors`; dark mode renders the honey
+        # block above untouched). On white the bright honeys read as glare,
+        # so the accents drop to the deep honey (#b77e1f) and the body text
+        # to green-leaning ink (#223b33) with a muted sage label (#5c7168).
         "light_colors": {
-            "banner_title": "#C8961E",
-            "banner_accent": "#D89B04",
+            "banner_title": "#b77e1f",
+            "banner_accent": "#b77e1f",
             "banner_dim": "#B8860B",
-            "banner_text": "#5C4718",
-            "ui_accent": "#D89B04",
-            "ui_label": "#A97E10",
-            "ui_ok": "#2E7D32",
+            "banner_text": "#223b33",
+            "ui_accent": "#b77e1f",
+            "ui_label": "#5c7168",
+            "ui_ok": "#1e7a49",
             "ui_error": "#C62828",
             "ui_warn": "#D97706",
-            "prompt": "#5C4718",
-            "response_border": "#C8961E",
-            "session_label": "#A97E10",
+            "prompt": "#223b33",
+            "response_border": "#b77e1f",
+            "session_label": "#5c7168",
             "status_bar_text": "#6F6F6F",
-            "status_bar_strong": "#C8961E",
+            "status_bar_strong": "#b77e1f",
             "status_bar_dim": "#9A8A5A",
             "status_bar_good": "#2E7D32",
             "status_bar_warn": "#C8961E",
