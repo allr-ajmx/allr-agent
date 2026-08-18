@@ -242,22 +242,119 @@ mod imp {
 
 #[cfg(target_os = "linux")]
 mod imp {
+    use std::collections::HashMap;
+
+    use zbus::zvariant::Value;
+
     use super::SecretsError;
 
-    /// Deliberately false: Linux has no equivalent of Hello or
-    /// LocalAuthentication, and the two real options are both design decisions
-    /// rather than stubs to fill in — polkit needs an action declared in a
-    /// `.policy` file that only a system package can install, and the
-    /// alternative is talking to the Secret Service directly to lock and unlock
-    /// its collection.
+    /// The action declared in `polkit/com.jaxmatrix.hermes.policy`, which the
+    /// .deb installs to `/usr/share/polkit-1/actions/`.
+    const ACTION: &str = "com.jaxmatrix.hermes.unlock-credentials";
+
+    const SERVICE: &str = "org.freedesktop.PolicyKit1";
+    const PATH: &str = "/org/freedesktop/PolicyKit1/Authority";
+    const INTERFACE: &str = "org.freedesktop.PolicyKit1.Authority";
+
+    /// `AllowUserInteraction` — without it polkit answers from cached state and
+    /// never puts a dialog up, which would make the gate a no-op.
+    const ALLOW_INTERACTION: u32 = 1;
+
+    fn connect() -> Option<zbus::blocking::Connection> {
+        zbus::blocking::Connection::system().ok()
+    }
+
+    /// Whether polkit knows about our action.
+    ///
+    /// The policy file only exists on a packaged install: an AppImage, a tarball
+    /// or `cargo run` has nowhere to put it. Rather than pretend, this reports
+    /// no gate there, and the caller leaves storage ungated exactly as it was —
+    /// far better than refusing to persist credentials on the strength of a file
+    /// the user never had a chance to install.
+    fn action_registered(connection: &zbus::blocking::Connection) -> bool {
+        // Each entry is (action_id, description, message, vendor, vendor_url,
+        // icon_name, implicit_any, implicit_inactive, implicit_active, annotations).
+        // Only the first field matters here.
+        type Action = (
+            String,
+            String,
+            String,
+            String,
+            String,
+            String,
+            u32,
+            u32,
+            u32,
+            HashMap<String, String>,
+        );
+
+        let Ok(reply) = connection.call_method(
+            Some(SERVICE),
+            PATH,
+            Some(INTERFACE),
+            "EnumerateActions",
+            &(""),
+        ) else {
+            return false;
+        };
+
+        reply
+            .body()
+            .deserialize::<Vec<Action>>()
+            .map(|actions| actions.iter().any(|action| action.0 == ACTION))
+            .unwrap_or(false)
+    }
+
+    /// Ask polkit whether this process may unlock, optionally letting it prompt.
+    fn check(connection: &zbus::blocking::Connection, flags: u32) -> bool {
+        // `system-bus-name` rather than `unix-process`: polkit resolves the
+        // caller from our own connection, so there is no pid/start-time pair to
+        // assemble and no window in which a recycled pid could be mistaken for
+        // us.
+        let Some(unique) = connection.unique_name().map(|name| name.to_string()) else {
+            return false;
+        };
+
+        let mut subject_details: HashMap<&str, Value> = HashMap::new();
+        subject_details.insert("name", Value::from(unique));
+
+        let subject = ("system-bus-name", subject_details);
+        let details: HashMap<&str, &str> = HashMap::new();
+
+        let Ok(reply) = connection.call_method(
+            Some(SERVICE),
+            PATH,
+            Some(INTERFACE),
+            "CheckAuthorization",
+            &(subject, ACTION, details, flags, ""),
+        ) else {
+            return false;
+        };
+
+        // (is_authorized, is_challenge, details)
+        reply
+            .body()
+            .deserialize::<(bool, bool, HashMap<String, String>)>()
+            .map(|(authorized, _, _)| authorized)
+            .unwrap_or(false)
+    }
+
     pub fn available() -> bool {
-        false
+        connect().is_some_and(|connection| action_registered(&connection))
     }
 
     pub fn prompt(_reason: &str) -> Result<(), SecretsError> {
-        Err(SecretsError::unavailable(
-            "no unlock method is available on Linux yet",
-        ))
+        // The wording the user sees comes from the policy file's <message>, not
+        // from here — polkit owns the dialog, and it localizes that text.
+        let Some(connection) = connect() else {
+            return Err(SecretsError::unavailable("polkit is not reachable"));
+        };
+
+        if check(&connection, ALLOW_INTERACTION) {
+            Ok(())
+        } else {
+            Err(SecretsError::locked("the unlock was refused"))
+        }
     }
 }
 

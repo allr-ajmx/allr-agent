@@ -46,7 +46,10 @@
       "deb": {
         "depends": [
           "libasound2"
-        ]
+        ],
+        "files": {
+          "/usr/share/polkit-1/actions/com.jaxmatrix.hermes.policy": "polkit/com.jaxmatrix.hermes.policy"
+        }
       }
     }
   }

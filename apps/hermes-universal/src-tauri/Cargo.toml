@@ -275,6 +275,11 @@ gtk = "0.18"
 # `crypto-rust` keeps the D-Bus session encryption off OpenSSL, matching the
 # rustls choice elsewhere — the Android cross-build has no OpenSSL to link.
 dbus-secret-service-keyring-store = { version = "1.0", features = ["crypto-rust"] }
+# polkit, for the device-unlock gate (src/secrets/gate.rs). Linux has no Hello or
+# LocalAuthentication; polkit's CheckAuthorization with AllowUserInteraction is
+# the platform's own "prove you are this user" prompt. Already in the tree via
+# the Secret Service stack.
+zbus = "5"
 # gtk-layer-shell is loaded at RUNTIME (src/surface/layer_shell.rs), never linked:
 # it is absent as a -dev package on plenty of machines and useless on X11 and
 # GNOME-on-Wayland, so making it a build dependency would trade a capability
