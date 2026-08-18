@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC
+ "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<!--
+  The polkit action behind Hermes' credential unlock (src/secrets/gate.rs).
+
+  Installed to /usr/share/polkit-1/actions/ by the .deb. Where it is absent — an
+  AppImage, a tarball, `cargo run` — `gate::available()` reports no gate and
+  storage stays ungated, rather than locking the user out of credentials over a
+  file they never had the chance to install.
+
+  `auth_self` prompts for the user's OWN password, not root's: the question is
+  "is this the person who owns this session", not "may this be administered".
+  `auth_self` rather than `auth_self_keep` deliberately — polkit would otherwise
+  cache the answer on its own schedule, on top of the app's five-minute lease,
+  and two independent expiries is not something anyone can reason about.
+-->
+<policyconfig>
+  <vendor>Hermes</vendor>
+  <vendor_url>https://github.com/jaxmatrix/mjx-hermes-agent</vendor_url>
+
+  <action id="com.jaxmatrix.hermes.unlock-credentials">
+    <description>Unlock stored Hermes credentials</description>
+    <message>Authentication is required to use your saved Hermes gateway and SSH credentials.</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_self</allow_active>
+    </defaults>
+  </action>
+</policyconfig>

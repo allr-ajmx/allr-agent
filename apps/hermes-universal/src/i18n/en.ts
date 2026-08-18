@@ -737,6 +737,11 @@ export const en: Translations = {
       sshErrHostKey:
         'The host key has CHANGED since you last connected. This could be a machine-in-the-middle attack, or the server may have been reinstalled. The connection was refused.',
       sshErrNotInstalled: 'Hermes is not installed on that host. Install it there, or set the Hermes path explicitly.',
+      sshInstallTitle: host => `Install Hermes on ${host}?`,
+      sshInstallBody: 'Hermes will be installed in your user account on that host. No administrator access is needed.',
+      sshInstallCancel: 'Not now',
+      sshInstallDoneTitle: 'Hermes is installed on that host',
+      sshInstallDoneBody: 'Press Save and reconnect to connect to it.',
       sshErrPlatform: 'That host runs an operating system Hermes cannot drive over SSH.',
       sshErrTimeout: 'The SSH connection timed out. The link may be half-open after a sleep \u2014 try again.',
       sshErrUpdateRequired: 'Hermes on that host is too old for SSH connections. Update it there and reconnect.',
@@ -2350,6 +2355,33 @@ export const en: Translations = {
     copiedOutput: 'Copied!',
     copyOutput: 'Copy output',
     reloadRetry: 'Reload and retry'
+  },
+
+  connect: {
+    welcomeTitle: 'Welcome to Hermes',
+    welcomeBody:
+      "Hermes runs wherever you need it to — on this machine, in the cloud, or on a box you reach over SSH. Pick a gateway and we'll get you connected.",
+    getStarted: "Let's get started",
+    chooseTitle: 'Choose a gateway',
+    chooseBody: 'You can change this later in Settings.',
+    back: 'Back',
+    local: {
+      detecting: 'Looking for a local installation…',
+      foundTitle: 'Hermes is installed',
+      foundVersion: version => `Version ${version}`,
+      missingTitle: 'No local installation found',
+      missingBody: 'Choose which build of Hermes Agent to install on this machine.',
+      upstreamTitle: 'NousResearch Hermes Agent',
+      upstreamDesc: 'The official Hermes Agent from NousResearch.',
+      forkTitle: 'MJX Fork of Hermes Agent',
+      forkDesc: 'A fork of Hermes Agent built for testing experimental features in Hermes Agent.',
+      install: 'Install',
+      retry: 'Try again',
+      doneTitle: 'Hermes is ready',
+      doneBody: 'Setup lands in the next phase. You can start using Hermes now.',
+      done: 'Done',
+      continue: 'Continue'
+    }
   },
 
   onboarding: {

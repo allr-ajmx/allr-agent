@@ -624,6 +624,12 @@ export interface Translations {
       sshErrAuth: string
       sshErrHostKey: string
       sshErrNotInstalled: string
+    /** Offer to install Hermes on the remote host after a failed connect. */
+    sshInstallTitle: (host: string) => string
+    sshInstallBody: string
+    sshInstallCancel: string
+    sshInstallDoneTitle: string
+    sshInstallDoneBody: string
       sshErrPlatform: string
       sshErrTimeout: string
       sshErrUpdateRequired: string
@@ -1983,6 +1989,39 @@ export interface Translations {
     copiedOutput: string
     copyOutput: string
     reloadRetry: string
+  }
+
+  // First-run GATEWAY connect wizard (welcome → choose → configure). Distinct
+  // from `onboarding` below, which is the PROVIDER wizard that runs after a
+  // gateway connection is already live.
+  connect: {
+    welcomeTitle: string
+    welcomeBody: string
+    getStarted: string
+    chooseTitle: string
+    chooseBody: string
+    back: string
+    // Only what is genuinely new here. The install-progress copy (titles,
+    // stage-state labels, step counter, output toggle, cancel) already exists
+    // and is translated under `install.*` — a port of the desktop install
+    // overlay that universal had never wired up.
+    local: {
+      detecting: string
+      foundTitle: string
+      foundVersion: (version: string) => string
+      missingTitle: string
+      missingBody: string
+      upstreamTitle: string
+      upstreamDesc: string
+      forkTitle: string
+      forkDesc: string
+      install: string
+      retry: string
+      doneTitle: string
+      doneBody: string
+      done: string
+      continue: string
+    }
   }
 
   onboarding: {

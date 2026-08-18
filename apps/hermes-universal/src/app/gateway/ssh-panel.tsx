@@ -1,12 +1,11 @@
 import { useEffect, useState } from 'react'
 
 import { ListRow } from '@/app/settings/primitives'
-import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import type { Translations } from '@/i18n'
 import { AlertCircle, Loader2 } from '@/lib/icons'
 import { SSH_LOCAL_FILES_SUPPORTED } from '@/lib/platform'
-import { listSshConfigHosts, resolveSshHost, type SshHostKeyEvent, type SshPromptEvent } from '@/store/ssh-backend'
+import { listSshConfigHosts, resolveSshHost } from '@/store/ssh-backend'
 
 // The SSH connection form. Split out of gateway-configurator so that file stays
 // about mode selection rather than growing a fourth full panel inline.
@@ -19,9 +18,10 @@ import { listSshConfigHosts, resolveSshHost, type SshHostKeyEvent, type SshPromp
 //     because our parser implements a documented subset and a silent divergence
 //     from the user's own ssh would be a nasty way to fail.
 //
-//   - Desktop ran ssh with BatchMode=yes and so could never prompt. We can, which
-//     is why this panel also renders passphrase/password and host-key questions
-//     mid-connect.
+//   - Desktop ran ssh with BatchMode=yes and so could never prompt. We can — but
+//     the passphrase/password and host-key questions are rendered by
+//     SshPromptDialog rather than here, because installing Hermes on the remote
+//     authenticates the same way and needs the same surface.
 
 type Gateway = Translations['settings']['gateway']
 
@@ -147,7 +147,11 @@ export function splitSshHostInput(raw: string): { host: string; port?: string; u
   return { host, port, user }
 }
 
-/** The non-secret half of the form, as the connect call wants it. */
+/** The non-secret half of the form, as the connect call wants it.
+ *
+ *  Deliberately excludes the three secret rows: this is what gets PERSISTED as
+ *  the saved gateway target, and credentials belong in the keystore. Pair it
+ *  with {@link sshSecretsFromForm} when building a backend call. */
 export function sshTargetFromForm(form: SshFormState): {
   host: string
   user?: string
@@ -164,28 +168,45 @@ export function sshTargetFromForm(form: SshFormState): {
   }
 }
 
+/**
+ * The secret half of the form.
+ *
+ * Split out rather than folded into {@link sshTargetFromForm} because only this
+ * half must never be persisted — but BOTH halves have to reach the backend, and
+ * leaving that to each caller is what broke "Test connection": it sent the
+ * target alone, so a password typed right above the button was never offered and
+ * the user was prompted for it anyway.
+ *
+ * Blank rows become `undefined`, never `''`. Rust reads `Some("")` as a real
+ * credential, and an empty passphrase in particular makes russh attempt a
+ * decrypt instead of reporting that the key needs one — which silently discarded
+ * every encrypted key.
+ */
+export function sshSecretsFromForm(form: SshFormState): {
+  privateKeyPem?: string
+  passphrase?: string
+  password?: string
+} {
+  return {
+    privateKeyPem: form.privateKeyPem.trim() || undefined,
+    passphrase: form.passphrase || undefined,
+    password: form.password || undefined
+  }
+}
+
 export function SshPanel({
   form,
   g,
-  hostKey,
-  onAnswerPrompt,
-  onTrustHostKey,
   progress,
-  prompt,
   setForm
 }: {
   form: SshFormState
   g: Gateway
-  hostKey: null | SshHostKeyEvent
-  onAnswerPrompt: (answer: string) => void
-  onTrustHostKey: (accept: boolean) => void
   progress: null | string
-  prompt: null | SshPromptEvent
   setForm: (next: SshFormState) => void
 }) {
   const [configHosts, setConfigHosts] = useState<string[]>([])
   const [unsupported, setUnsupported] = useState<string[]>([])
-  const [answer, setAnswer] = useState('')
 
   const set = <K extends keyof SshFormState>(key: K, value: SshFormState[K]) => setForm({ ...form, [key]: value })
 
@@ -412,53 +433,6 @@ export function SshPanel({
         </div>
       ) : null}
 
-      {/* Trust-on-first-use. A CHANGED key never reaches here — it is refused
-          outright in Rust, under every policy. */}
-      {hostKey ? (
-        <div className="mt-3 grid gap-2 rounded-md border border-(--ui-border) p-3">
-          <div className="text-sm font-medium">{g.sshHostKeyTitle}</div>
-          <p className="text-xs text-(--ui-text-secondary)">{g.sshHostKeyDesc(hostKey.host, hostKey.fingerprint)}</p>
-          <div className="flex justify-end gap-2">
-            <Button onClick={() => onTrustHostKey(false)} size="sm" variant="outline">
-              {g.sshHostKeyReject}
-            </Button>
-            <Button onClick={() => onTrustHostKey(true)} size="sm">
-              {g.sshHostKeyTrust}
-            </Button>
-          </div>
-        </div>
-      ) : null}
-
-      {prompt ? (
-        <div className="mt-3 grid gap-2 rounded-md border border-(--ui-border) p-3">
-          <div className="text-sm font-medium">{g.sshPromptTitle}</div>
-          <p className="text-xs text-(--ui-text-secondary)">{prompt.label}</p>
-          <Input
-            autoFocus
-            className="font-normal"
-            onChange={event => setAnswer(event.target.value)}
-            onKeyDown={event => {
-              if (event.key === 'Enter') {
-                onAnswerPrompt(answer)
-                setAnswer('')
-              }
-            }}
-            type={prompt.secret ? 'password' : 'text'}
-            value={answer}
-          />
-          <div className="flex justify-end">
-            <Button
-              onClick={() => {
-                onAnswerPrompt(answer)
-                setAnswer('')
-              }}
-              size="sm"
-            >
-              {g.sshConnect}
-            </Button>
-          </div>
-        </div>
-      ) : null}
     </div>
   )
 }
