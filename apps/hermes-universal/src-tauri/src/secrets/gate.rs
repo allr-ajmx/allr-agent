@@ -173,6 +173,12 @@ mod imp {
 
     use super::SecretsError;
 
+    /// iOS additionally requires `NSFaceIDUsageDescription` in Info.plist.
+    /// Without it the system refuses Face ID outright and `evaluatePolicy` fails
+    /// with a generic error that says nothing about the missing key. It is
+    /// recorded here rather than as a comment beside the key itself, because
+    /// Xcode rewrites that plist on every build and strips comments out of it.
+    ///
     /// Biometry with a passcode fallback, rather than biometry alone.
     ///
     /// `DeviceOwnerAuthenticationWithBiometrics` would refuse outright on a Mac
