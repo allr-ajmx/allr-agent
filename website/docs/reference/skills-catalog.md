@@ -25,10 +25,10 @@ If a skill is missing from this list but present in the repo, the catalog is reg
 
 | Skill | Description | Path |
 |-------|-------------|------|
+| [`allr-agent`](/docs/user-guide/skills/bundled/autonomous-ai-agents/autonomous-ai-agents-allr-agent) | Use, configure, theme, extend, and orchestrate Allr. | `autonomous-ai-agents/allr-agent` |
 | [`claude-code`](/docs/user-guide/skills/bundled/autonomous-ai-agents/autonomous-ai-agents-claude-code) | Delegate coding to Claude Code CLI (features, PRs). | `autonomous-ai-agents/claude-code` |
 | [`codex`](/docs/user-guide/skills/bundled/autonomous-ai-agents/autonomous-ai-agents-codex) | Delegate coding to OpenAI Codex CLI (features, PRs). | `autonomous-ai-agents/codex` |
 | [`computer-use`](/docs/user-guide/skills/bundled/autonomous-ai-agents/autonomous-ai-agents-computer-use) | Drive the desktop in the background without stealing focus. | `autonomous-ai-agents/computer-use` |
-| [`allr-agent`](/docs/user-guide/skills/bundled/autonomous-ai-agents/autonomous-ai-agents-allr-agent) | Use, configure, theme, extend, and orchestrate Allr. | `autonomous-ai-agents/allr-agent` |
 | [`opencode`](/docs/user-guide/skills/bundled/autonomous-ai-agents/autonomous-ai-agents-opencode) | Delegate coding to OpenCode CLI (features, PR review). | `autonomous-ai-agents/opencode` |
 
 ## creative
@@ -101,7 +101,7 @@ If a skill is missing from this list but present in the repo, the catalog is reg
 |-------|-------------|------|
 | [`airtable`](/docs/user-guide/skills/bundled/productivity/productivity-airtable) | Airtable REST API via curl. Records CRUD, filters, upserts. | `productivity/airtable` |
 | [`document-to-action-items`](/docs/user-guide/skills/bundled/productivity/productivity-document-to-action-items) | Extract cited obligations, deadlines, tasks from documents. | `productivity/document-to-action-items` |
-| [`docx`](/docs/user-guide/skills/bundled/productivity/productivity-docx) | Create, read, edit, and template Word .docx files. | `productivity/docx` |
+| [`docx`](/docs/user-guide/skills/bundled/productivity/productivity-docx) | Create, read, edit, template, and review Word .docx files. | `productivity/docx` |
 | [`google-workspace`](/docs/user-guide/skills/bundled/productivity/productivity-google-workspace) | Gmail, Calendar, Drive, Docs, Sheets via gws CLI or Python. | `productivity/google-workspace` |
 | [`maps`](/docs/user-guide/skills/bundled/productivity/productivity-maps) | Geocode, POIs, routes, timezones via OpenStreetMap/OSRM. | `productivity/maps` |
 | [`meeting-action-items`](/docs/user-guide/skills/bundled/productivity/productivity-meeting-action-items) | Turn meeting notes into cited decisions, owners, tickets. | `productivity/meeting-action-items` |
@@ -142,8 +142,8 @@ If a skill is missing from this list but present in the repo, the catalog is reg
 
 | Skill | Description | Path |
 |-------|-------------|------|
-| [`dogfood`](/docs/user-guide/skills/bundled/software-development/software-development-dogfood) | Exploratory QA of web apps: find bugs, evidence, reports. | `software-development/dogfood` |
 | [`allr-agent-skill-authoring`](/docs/user-guide/skills/bundled/software-development/software-development-allr-agent-skill-authoring) | Author in-repo SKILL.md files: frontmatter and structure. | `software-development/allr-agent-skill-authoring` |
+| [`dogfood`](/docs/user-guide/skills/bundled/software-development/software-development-dogfood) | Exploratory QA of web apps: find bugs, evidence, reports. | `software-development/dogfood` |
 | [`node-inspect-debugger`](/docs/user-guide/skills/bundled/software-development/software-development-node-inspect-debugger) | Debug Node.js via --inspect + Chrome DevTools Protocol CLI. | `software-development/node-inspect-debugger` |
 | [`plan`](/docs/user-guide/skills/bundled/software-development/software-development-plan) | Write a markdown plan to .allr/plans/; no execution. | `software-development/plan` |
 | [`python-debugpy`](/docs/user-guide/skills/bundled/software-development/software-development-python-debugpy) | Debug Python: pdb REPL + debugpy remote (DAP). | `software-development/python-debugpy` |
