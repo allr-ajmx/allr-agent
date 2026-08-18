@@ -271,6 +271,14 @@ PATH_RENAMES = [
         "apps/bootstrap-installer/src-tauri/hermes-setup.manifest",
         "apps/bootstrap-installer/src-tauri/allr-setup.manifest",
     ),
+    (
+        "hermes_cli/observability/schemas/hermes.shared_metrics.v1.schema.json",
+        "hermes_cli/observability/schemas/allr.shared_metrics.v1.schema.json",
+    ),
+    (
+        "hermes_cli/observability/schemas/hermes.shared_metrics.v2.schema.json",
+        "hermes_cli/observability/schemas/allr.shared_metrics.v2.schema.json",
+    ),
     ("plugins/hermes-achievements", "plugins/allr-achievements"),
     ("skills/autonomous-ai-agents/hermes-agent", "skills/autonomous-ai-agents/allr-agent"),
     (
