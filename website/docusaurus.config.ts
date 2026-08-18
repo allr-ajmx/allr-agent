@@ -4,16 +4,25 @@ import type * as Preset from '@docusaurus/preset-classic';
 
 const config: Config = {
   title: 'Allr',
-  tagline: 'The self-improving AI agent',
+  tagline: 'One workspace. Finished work.',
   favicon: 'img/favicon.ico',
 
   url: 'https://allr.work',
   baseUrl: '/docs/',
 
-  organizationName: 'NousResearch',
+  organizationName: 'allr-ajmx',
   projectName: 'allr-agent',
 
   onBrokenLinks: 'warn',
+
+  // Brand faces: Young Serif for headings, Nunito Sans for body. Loaded as a
+  // plain stylesheet link so the theme stays unswizzled.
+  stylesheets: [
+    {
+      href: 'https://fonts.googleapis.com/css2?family=Young+Serif&family=Nunito+Sans:wght@300;400;600;700&family=JetBrains+Mono:wght@400;500&display=swap',
+      type: 'text/css',
+    },
+  ],
 
   markdown: {
     mermaid: true,
@@ -80,7 +89,7 @@ const config: Config = {
         docs: {
           routeBasePath: '/',  // Docs at the root of /docs/
           sidebarPath: './sidebars.ts',
-          editUrl: 'https://github.com/NousResearch/hermes-agent/edit/main/website/',
+          editUrl: 'https://github.com/allr-ajmx/allr-agent/edit/main/website/',
         },
         blog: false,
         theme: {
@@ -120,7 +129,7 @@ const config: Config = {
       title: 'Allr',
       logo: {
         alt: 'Allr',
-        src: 'img/logo.png',
+        src: 'img/logo.svg',
       },
       items: [
         {
@@ -149,13 +158,8 @@ const config: Config = {
           position: 'right',
         },
         {
-          href: 'https://github.com/NousResearch/hermes-agent',
+          href: 'https://github.com/allr-ajmx/allr-agent',
           label: 'GitHub',
-          position: 'right',
-        },
-        {
-          href: 'https://discord.gg/NousResearch',
-          label: 'Discord',
           position: 'right',
         },
       ],
@@ -175,21 +179,20 @@ const config: Config = {
         {
           title: 'Community',
           items: [
-            { label: 'Discord', href: 'https://discord.gg/NousResearch' },
-            { label: 'GitHub Issues', href: 'https://github.com/NousResearch/hermes-agent/issues' },
+            { label: 'GitHub Issues', href: 'https://github.com/allr-ajmx/allr-agent/issues' },
             { label: 'Skills Hub', href: 'https://agentskills.io' },
           ],
         },
         {
           title: 'More',
           items: [
-            { label: 'Desktop Download', href: 'https://allr.work/' },
-            { label: 'GitHub', href: 'https://github.com/NousResearch/hermes-agent' },
-            { label: 'Nous Research', href: 'https://nousresearch.com' },
+            { label: 'Download', href: 'https://allr.work/' },
+            { label: 'GitHub', href: 'https://github.com/allr-ajmx/allr-agent' },
+            { label: 'Upstream', href: 'https://github.com/NousResearch/hermes-agent' },
           ],
         },
       ],
-      copyright: `Built by <a href="https://nousresearch.com">Nous Research</a> · MIT License · ${new Date().getFullYear()}`,
+      copyright: `© ${new Date().getFullYear()} Allr. Built on <a href="https://github.com/NousResearch/hermes-agent">NousResearch/hermes-agent</a> (MIT).`,
     },
     prism: {
       theme: prismThemes.github,
