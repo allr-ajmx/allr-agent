@@ -23,7 +23,7 @@ Open WebUI connects to Allr's API server just like it would connect to OpenAI. A
 :::important Runtime location
 The API server is a **Allr agent runtime**, not a pure LLM proxy. For each request, Allr creates a server-side `AIAgent` on the API-server host. Tool calls run where that API server is running.
 
-For example, if a laptop points Open WebUI or another OpenAI-compatible client at a Allr API server on a remote machine, `pwd`, file tools, browser tools, local MCP tools, and other workspace tools run on the remote API-server host, not on the laptop.
+For example, if a laptop points Open WebUI or another OpenAI-compatible client at an Allr API server on a remote machine, `pwd`, file tools, browser tools, local MCP tools, and other workspace tools run on the remote API-server host, not on the laptop.
 :::
 
 Open WebUI talks to Allr server-to-server, so you do not need `API_SERVER_CORS_ORIGINS` for this integration.

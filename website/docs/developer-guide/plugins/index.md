@@ -1,11 +1,11 @@
 ---
 sidebar_label: "Build a Plugin"
 slug: /developer-guide/plugins
-title: "Build a Allr Plugin"
+title: "Build an Allr Plugin"
 description: "Step-by-step guide to building a complete Allr plugin with tools, hooks, data files, and skills"
 ---
 
-# Build a Allr Plugin
+# Build an Allr Plugin
 
 This guide walks through building a complete Allr plugin from scratch. By the end you'll have a working plugin with multiple tools, lifecycle hooks, shipped data files, and a bundled skill — everything the plugin system supports.
 

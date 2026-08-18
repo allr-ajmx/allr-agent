@@ -261,7 +261,7 @@ Leave it there when the runtime is Allr.
 
 Two behaviors combine on this path. The `allr-acp` toolset includes `terminal`
 and `execute_code`, and Buzz's ACP bridge answers Allr' permission requests
-itself with `allow_once` rather than surfacing them. A Allr agent in Buzz
+itself with `allow_once` rather than surfacing them. An Allr agent in Buzz
 therefore runs shell commands on the host without prompting. I asked one to run
 `rm -rf` against a scratch directory and it deleted it, no prompt anywhere.
 

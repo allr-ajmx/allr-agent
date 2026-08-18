@@ -6,7 +6,7 @@ It interoperates with any A2A-compliant peer — another Allr, LangChain, CrewAI
 
 ## When to use A2A
 
-- **Allr ↔ Allr across machines** — let your desktop agent hand tasks to a Allr on a server, or vice versa, each with its own memory, tools, and credentials.
+- **Allr ↔ Allr across machines** — let your desktop agent hand tasks to an Allr on a server, or vice versa, each with its own memory, tools, and credentials.
 - **Delegating to specialist agents** — a peer that advertises `web_search`/`research`/`coding` skills on its Agent Card can be discovered and called mid-conversation.
 - **Being a callable service** — expose your Allr so other frameworks' agents can send it tasks.
 

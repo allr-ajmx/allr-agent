@@ -83,8 +83,8 @@
     "url": "https://github.com/teknium1/nous-discord-archive/blob/main/archives/plugins-skills-and-skins/1499394737088626810-Meta-Ads-Kit-for-Allr.txt",
     "date": "",
     "category": "marketing",
-    "headline": "I built a Allr skill pack on top of Meta's CLI",
-    "quote": "Yesterday Meta released their official CLI & MCP so I built a Allr skill pack to connect and provide some great defaults.",
+    "headline": "I built an Allr skill pack on top of Meta's CLI",
+    "quote": "Yesterday Meta released their official CLI & MCP so I built an Allr skill pack to connect and provide some great defaults.",
     "size": "sm"
   },
   {
@@ -139,7 +139,7 @@
     "date": "2026",
     "category": "dev-workflow",
     "headline": "73% of every API call is fixed overhead (I measured it)",
-    "quote": "I built a monitoring dashboard to profile token consumption on a Allr v0.6.0 deployment running Telegram + WhatsApp + Cron gateways. After analyzing 6 request dumps, I found that 73% of every API call is fixed overhead.",
+    "quote": "I built a monitoring dashboard to profile token consumption on an Allr v0.6.0 deployment running Telegram + WhatsApp + Cron gateways. After analyzing 6 request dumps, I found that 73% of every API call is fixed overhead.",
     "size": "sm"
   },
   {
@@ -161,7 +161,7 @@
     "date": "2026",
     "category": "integrations",
     "headline": "Allr + Browser Harness on a Hostinger VPS",
-    "quote": "Full copy-paste setup for Allr + Browser Harness on a Hostinger VPS. Register Browser Harness as a Allr skill via symlink so Allr can find and use it. Recommended model: anthropic/claude-opus-4.7 via OpenRouter.",
+    "quote": "Full copy-paste setup for Allr + Browser Harness on a Hostinger VPS. Register Browser Harness as an Allr skill via symlink so Allr can find and use it. Recommended model: anthropic/claude-opus-4.7 via OpenRouter.",
     "size": "sm"
   },
   {
@@ -512,7 +512,7 @@
     "url": "https://github.com/NousResearch/hermes-agent/pull/17445",
     "date": "2026",
     "category": "integrations",
-    "headline": "Vercel Sandbox as a Allr backend",
+    "headline": "Vercel Sandbox as an Allr backend",
     "quote": "Adds Vercel Sandbox as a supported Allr terminal backend alongside Local/Docker/Modal/SSH/Daytona/Singularity. Creates/manages cloud microVMs with snapshot-based filesystem persistence.",
     "size": "sm"
   },
@@ -788,7 +788,7 @@
     "date": "",
     "category": "personal-assistant",
     "headline": "A meal planner for people who hate logging ingredients",
-    "quote": "I just released Meal Manager, a Allr plugin designed to solve inventory friction via natural language. It uses a weighted scoring algorithm (60% availability / 40% recency) to tell you what's for dinner.",
+    "quote": "I just released Meal Manager, an Allr plugin designed to solve inventory friction via natural language. It uses a weighted scoring algorithm (60% availability / 40% recency) to tell you what's for dinner.",
     "size": "md"
   },
   {
@@ -1151,7 +1151,7 @@
     "date": "",
     "category": "dev-workflow",
     "headline": "Dogfooding a memory layer that isn't a black box",
-    "quote": "I've been building and dogfooding Recall, a Allr-native memory provider designed for people who want memory that is useful, inspectable, and safe — not a black box.",
+    "quote": "I've been building and dogfooding Recall, an Allr-native memory provider designed for people who want memory that is useful, inspectable, and safe — not a black box.",
     "size": "md"
   },
   {
@@ -1437,7 +1437,7 @@
     "date": "2026-03-24",
     "category": "integrations",
     "headline": "Allr watches my homelab validators and pings Telegram",
-    "quote": "I've been running OpenClaw as my homelab AI agent gateway for months (Telegram/Discord, validators, cron jobs)... Built on top: a Allr skill that monitors blockchain validator endpoints (0G, FortyTwo relay) and fires Telegram alerts on state changes — no spam, only alerts on up↔down transitions.",
+    "quote": "I've been running OpenClaw as my homelab AI agent gateway for months (Telegram/Discord, validators, cron jobs)... Built on top: an Allr skill that monitors blockchain validator endpoints (0G, FortyTwo relay) and fires Telegram alerts on state changes — no spam, only alerts on up↔down transitions.",
     "size": "md"
   },
   {
@@ -2053,7 +2053,7 @@
     "date": "",
     "category": "personal-assistant",
     "headline": "Giving my agent iOS sensors: health, location, voice",
-    "quote": "Building a Allr iOS app + desktop companion to give my agent some extra iOS tools. Sensor pipeline for health, location services. Can now ask agent health or location specific questions. 'How many steps did I walk yesterday?' 'What's a good coffee shop nearby?'",
+    "quote": "Building an Allr iOS app + desktop companion to give my agent some extra iOS tools. Sensor pipeline for health, location services. Can now ask agent health or location specific questions. 'How many steps did I walk yesterday?' 'What's a good coffee shop nearby?'",
     "size": "md"
   },
   {
@@ -2096,7 +2096,7 @@
     "url": "https://github.com/teknium1/nous-discord-archive/blob/main/archives/community-projects-showcase/1493649462122381394-Allr-Mini-Documentary.txt",
     "date": "",
     "category": "content-creation",
-    "headline": "Made a Allr mini-documentary with hackathon finalists",
+    "headline": "Made an Allr mini-documentary with hackathon finalists",
     "quote": "I did a deep dive on Allr. Was able to talk to a bunch of the hackathon finalists as well as one of the co-founders of Nous!",
     "size": "sm"
   },
@@ -2173,7 +2173,7 @@
     "url": "https://github.com/teknium1/nous-discord-archive/blob/main/archives/community-projects-showcase/1496557014971584783-Allr-Radar---Guia-para-usuarios-en-espa%C3%B1ol.txt",
     "date": "",
     "category": "general",
-    "headline": "Built a Allr guide in Spanish using Allr itself",
+    "headline": "Built an Allr guide in Spanish using Allr itself",
     "quote": "Vi que la mayoria de las guias, ayudas, novedades son todas en ingles. Asique mediante Allr me hice esta paginita en github pages para poder dar un poco de ayuda y novedades a la comunidad de habla hispana.",
     "size": "sm"
   },
@@ -2207,7 +2207,7 @@
     "date": "2026-04-10",
     "category": "personal-assistant",
     "headline": "Replaced everything with a single Allr agent",
-    "quote": "Vibe after replacing everything with a Allr agent: autoresearch, Karpathy LLM wiki second brain, skills creation, scheduled jobs, background monitoring, LLM model selection, Telegram/Discord support. A personal automation agent that lives on a server and talks to you through messaging apps or CLI.",
+    "quote": "Vibe after replacing everything with an Allr agent: autoresearch, Karpathy LLM wiki second brain, skills creation, scheduled jobs, background monitoring, LLM model selection, Telegram/Discord support. A personal automation agent that lives on a server and talks to you through messaging apps or CLI.",
     "size": "md"
   },
   {

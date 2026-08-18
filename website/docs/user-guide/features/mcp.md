@@ -177,7 +177,7 @@ you want to opt into.
 ### Updating the catalog manifest
 
 MCPs are never auto-updated. Re-run `allr mcp install <name>` to refresh
-after a Allr update if a manifest version changed.
+after an Allr update if a manifest version changed.
 
 To add an MCP to the catalog, open a PR against
 [`optional-mcps/`](https://github.com/NousResearch/hermes-agent/tree/main/optional-mcps).
@@ -837,7 +837,7 @@ Or if you installed Allr in a specific location:
 
 ### Available tools
 
-The MCP server exposes 10 tools, matching OpenClaw's channel bridge surface plus a Allr-specific channel browser:
+The MCP server exposes 10 tools, matching OpenClaw's channel bridge surface plus an Allr-specific channel browser:
 
 | Tool | Description |
 |------|-------------|

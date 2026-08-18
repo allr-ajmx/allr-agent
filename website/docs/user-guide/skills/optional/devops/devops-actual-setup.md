@@ -30,7 +30,7 @@ The following is the complete skill definition that Allr loads when this skill i
 
 # Actual Computer Setup Skill
 
-Sets up [actual.inc](https://actual.inc) (Actual Computer) as a Allr inference
+Sets up [actual.inc](https://actual.inc) (Actual Computer) as an Allr inference
 provider. Actual turns the user's own hardware into a private inference cluster
 and exposes an OpenAI-compatible API two ways: a hosted end-to-end-encrypted
 relay at `https://api.actual.inc` (authenticated with an `ac_` key), and a local

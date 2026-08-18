@@ -137,7 +137,7 @@ probe policy:
   cache and probe all saved custom providers so live catalogs repopulate fully.
 
 Use `/v1/models` for OpenAI-client compatibility. Use `/api/model/options` or
-`model.options` when you are building a Allr-aware model picker.
+`model.options` when you are building an Allr-aware model picker.
 
 ---
 
