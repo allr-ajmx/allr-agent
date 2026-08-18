@@ -65,7 +65,7 @@ Good fits:
 
 Not a fit:
 
-- **You just want to back up a profile on your own machine.** Use [`allr profile export` / `import`](../reference/profile-commands.md#hermes-profile-export) — that's what those are for.
+- **You just want to back up a profile on your own machine.** Use [`allr profile export` / `import`](../reference/profile-commands.md#allr-profile-export) — that's what those are for.
 - **You want to share API keys alongside the agent.** `auth.json` and `.env` are deliberately excluded from distributions. Each installer brings their own credentials.
 - **You want to share memories / sessions / conversation history.** Those are user data, not distribution content. Never shipped.
 
@@ -645,7 +645,7 @@ The short version:
 
 - [Profiles: Running Multiple Agents](./profiles.md) — the base concept
 - [Profile Commands reference](../reference/profile-commands.md) — every flag, every option
-- [`allr profile export` / `import`](../reference/profile-commands.md#hermes-profile-export) — local backup / restore (not distribution)
+- [`allr profile export` / `import`](../reference/profile-commands.md#allr-profile-export) — local backup / restore (not distribution)
 - [Using SOUL with Allr](../guides/use-soul-with-hermes.md) — authoring personalities
 - [Personality & SOUL](./features/personality.md) — how SOUL fits into the agent
 - [Skills catalog](../reference/skills-catalog.md) — skills you can bundle

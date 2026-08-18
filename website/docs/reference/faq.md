@@ -46,7 +46,7 @@ This is more reliable than trying to force Allr core browser transport to attach
 
 See:
 
-- [Use MCP with Allr](../guides/use-mcp-with-hermes.md#wsl2-bridge-hermes-in-wsl-to-windows-chrome)
+- [Use MCP with Allr](../guides/use-mcp-with-hermes.md#wsl2-bridge-allr-in-wsl-to-windows-chrome)
 - [Browser Automation](../user-guide/features/browser.md#wsl2--windows-chrome-prefer-mcp-over-browser-connect)
 
 ### Is my data sent anywhere?
@@ -528,7 +528,7 @@ allr prompt-size
 /usage
 ```
 
-If the baseline looks high before you've typed anything, that's the fixed prompt budget — the system prompt plus tool schemas sent on every call. Run [`allr prompt-size`](/reference/cli-commands#hermes-prompt-size) to measure it, then trim: disable toolsets you don't use (`allr tools`) and uninstall or disable skills you don't need (`allr skills`).
+If the baseline looks high before you've typed anything, that's the fixed prompt budget — the system prompt plus tool schemas sent on every call. Run [`allr prompt-size`](/reference/cli-commands#allr-prompt-size) to measure it, then trim: disable toolsets you don't use (`allr tools`) and uninstall or disable skills you don't need (`allr skills`).
 
 :::tip
 Use `/compress` regularly during long sessions. It summarizes the conversation history and reduces token usage significantly while preserving context.

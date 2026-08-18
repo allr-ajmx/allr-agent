@@ -430,7 +430,7 @@ Total messages: 3847
 Database size: 12.4 MB
 ```
 
-如需更深入的分析——token 用量、费用估算、工具分解和活动模式——请使用 [`allr insights`](/reference/cli-commands#hermes-insights)。
+如需更深入的分析——token 用量、费用估算、工具分解和活动模式——请使用 [`allr insights`](/reference/cli-commands#allr-insights)。
 
 ## Session 搜索工具
 

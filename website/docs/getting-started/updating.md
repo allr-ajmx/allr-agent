@@ -83,7 +83,7 @@ updates:
 `updates.pre_update_backup` is a single knob with three modes: `quick` (default — the lightweight state snapshot described above), `full` (the quick snapshot plus a complete `ALLR_HOME` zip; can add minutes on large homes), and `off` (no pre-update backup at all — `--no-backup` does the same for a single run). Legacy boolean values still work: `true` means `full`, `false` means `off`.
 
 :::tip Moving to a new machine instead?
-Update backups protect an in-place update. If you're migrating your whole setup to different hardware, use `allr backup` + `allr import` instead — see [Exporting Allr to another machine](/reference/faq#exporting-hermes-to-another-machine) and [`allr backup` vs `allr profile export`](/reference/faq#hermes-backup-vs-hermes-profile-export).
+Update backups protect an in-place update. If you're migrating your whole setup to different hardware, use `allr backup` + `allr import` instead — see [Exporting Allr to another machine](/reference/faq#exporting-allr-to-another-machine) and [`allr backup` vs `allr profile export`](/reference/faq#allr-backup-vs-allr-profile-export).
 :::
 
 ### Windows: another `allr.exe` is running
