@@ -1,4 +1,4 @@
-package com.jaxmatrix.mjx_unofficial_hermes
+package work.allr.app
 
 import android.net.Uri
 import android.os.Bundle
