@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Hermes (MJX)",
+  "productName": "Allr",
   "version": "0.0.1",
-  "identifier": "com.jaxmatrix.mjx-unofficial-hermes",
+  "identifier": "work.allr.app",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:5176",
@@ -14,7 +14,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Hermes (MJX)",
+        "title": "Allr",
         "width": 1280,
         "height": 960,
         "minWidth": 640,

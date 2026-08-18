@@ -52,7 +52,7 @@ mod imp {
             .sleep(true)
             .reason("Hermes is running a long task")
             .app_name("Hermes")
-            .app_reverse_domain("com.jaxmatrix.mjx-unofficial-hermes")
+            .app_reverse_domain("work.allr.app")
             .create()
             .map_err(|err| err.to_string())?;
 

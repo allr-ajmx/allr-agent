@@ -464,7 +464,7 @@ fn build_satellite(
 
     #[allow(unused_mut)]
     let mut builder = WebviewWindowBuilder::new(app, label, WebviewUrl::App(url.into()))
-        .title("Hermes (MJX)")
+        .title("Allr")
         .inner_size(spec.width, spec.height)
         .decorations(false)
         .resizable(false)
@@ -815,7 +815,7 @@ fn app_window_builder<'a>(
 ) -> WebviewWindowBuilder<'a, tauri::Wry, tauri::AppHandle> {
     #[allow(unused_mut)]
     let mut builder = WebviewWindowBuilder::new(app, label, WebviewUrl::App(url.into()))
-        .title("Hermes (MJX)")
+        .title("Allr")
         .inner_size(WINDOW_WIDTH, WINDOW_HEIGHT)
         .min_inner_size(WINDOW_MIN_WIDTH, WINDOW_MIN_HEIGHT);
     #[cfg(desktop)]
