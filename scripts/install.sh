@@ -142,7 +142,7 @@ while [[ $# -gt 0 ]]; do
             INSTALL_DIR_EXPLICIT=true
             shift 2
             ;;
-        --hermes-home)
+        --allr-home|--hermes-home)
             ALLR_HOME="$2"
             shift 2
             ;;
@@ -174,7 +174,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --dir PATH     Installation directory"
             echo "                   default (non-root):  ~/.allr/allr-agent"
             echo "                   default (root, Linux): /usr/local/lib/allr-agent"
-            echo "  --hermes-home PATH  Data directory (default: ~/.allr, or \$ALLR_HOME)"
+            echo "  --allr-home PATH  Data directory (default: ~/.allr, or \$ALLR_HOME)"
             echo "  -h, --help     Show this help"
             echo ""
             echo "Notes:"
@@ -307,7 +307,7 @@ EOF
 }
 
 emit_manifest() {
-    printf '%s' '{"protocol_version":1,"stages":[{"name":"prerequisites","title":"System prerequisites","category":"runtime","needs_user_input":false},{"name":"repository","title":"Download Allr","category":"runtime","needs_user_input":false},{"name":"venv","title":"Create Python virtual environment","category":"runtime","needs_user_input":false},{"name":"python-deps","title":"Install Python dependencies","category":"runtime","needs_user_input":false},{"name":"node-deps","title":"Install browser-tool dependencies","category":"runtime","needs_user_input":false},{"name":"path","title":"Install hermes command","category":"runtime","needs_user_input":false},{"name":"config","title":"Prepare config and skills","category":"configuration","needs_user_input":false},{"name":"setup","title":"Configure API keys and settings","category":"configuration","needs_user_input":true},{"name":"gateway","title":"Configure gateway service","category":"configuration","needs_user_input":true},{"name":"complete","title":"Finish install","category":"runtime","needs_user_input":false}]}'
+    printf '%s' '{"protocol_version":1,"stages":[{"name":"prerequisites","title":"System prerequisites","category":"runtime","needs_user_input":false},{"name":"repository","title":"Download Allr","category":"runtime","needs_user_input":false},{"name":"venv","title":"Create Python virtual environment","category":"runtime","needs_user_input":false},{"name":"python-deps","title":"Install Python dependencies","category":"runtime","needs_user_input":false},{"name":"node-deps","title":"Install browser-tool dependencies","category":"runtime","needs_user_input":false},{"name":"path","title":"Install allr command","category":"runtime","needs_user_input":false},{"name":"config","title":"Prepare config and skills","category":"configuration","needs_user_input":false},{"name":"setup","title":"Configure API keys and settings","category":"configuration","needs_user_input":true},{"name":"gateway","title":"Configure gateway service","category":"configuration","needs_user_input":true},{"name":"complete","title":"Finish install","category":"runtime","needs_user_input":false}]}'
     printf '\n'
 }
 
@@ -375,7 +375,7 @@ is_termux() {
     [ -n "${TERMUX_VERSION:-}" ] || [[ "${PREFIX:-}" == *"com.termux/files/usr"* ]]
 }
 
-# Decide where the repo checkout + venv live, and where the `hermes` command
+# Decide where the repo checkout + venv live, and where the `allr` command
 # symlink goes.  Called after detect_os so $OS/$DISTRO are known.
 #
 # Defaults:
@@ -477,7 +477,7 @@ get_hermes_command_path() {
     if [ -x "$link_dir/allr" ]; then
         echo "$link_dir/allr"
     else
-        echo "hermes"
+        echo "allr"
     fi
 }
 
@@ -935,7 +935,7 @@ install_node() {
     fi
 
     # Place into ~/.allr/node/ and symlink binaries into the same bin dir
-    # the hermes command uses (get_command_link_dir): /usr/local/bin for root
+    # the allr command uses (get_command_link_dir): /usr/local/bin for root
     # FHS installs, $PREFIX/bin on Termux, ~/.local/bin otherwise.
     rm -rf "$ALLR_HOME/node"
     mkdir -p "$ALLR_HOME"
@@ -1680,15 +1680,15 @@ PY
 }
 
 setup_path() {
-    log_info "Setting up hermes command..."
+    log_info "Setting up allr command..."
 
     if [ "$USE_VENV" = true ]; then
         ALLR_BIN="$INSTALL_DIR/venv/bin/python"
         ALLR_ENTRYPOINT="$INSTALL_DIR/allr"
     else
-        ALLR_BIN="$(which hermes 2>/dev/null || echo "")"
+        ALLR_BIN="$(which allr 2>/dev/null || echo "")"
         if [ -z "$ALLR_BIN" ]; then
-            log_warn "hermes not found on PATH after install"
+            log_warn "allr not found on PATH after install"
             return 0
         fi
     fi
@@ -1710,7 +1710,7 @@ setup_path() {
     command_link_dir="$(get_command_link_dir)"
     command_link_display_dir="$(get_command_link_display_dir)"
 
-    # Create a user-facing shim for the hermes command.
+    # Create a user-facing shim for the allr command.
     # We intentionally clear PYTHONPATH/PYTHONHOME here so inherited env vars
     # can't make this launcher import modules from another checkout.
     mkdir -p "$command_link_dir"
@@ -1738,7 +1738,7 @@ exec "$ALLR_BIN" "\$@"
 EOF
     fi
     chmod +x "$command_link_dir/allr"
-    log_success "Installed hermes launcher → $command_link_display_dir/allr"
+    log_success "Installed allr launcher → $command_link_display_dir/allr"
 
     # Also expose `allr-agent`. The `allr-agent` console script declared in
     # pyproject.toml's [project.scripts] lives inside the venv, which is not on
@@ -1791,7 +1791,7 @@ EOF
     if [ "$DISTRO" = "termux" ]; then
         export PATH="$command_link_dir:$PATH"
         log_info "$command_link_display_dir is the native Termux command path"
-        log_success "hermes command ready"
+        log_success "allr command ready"
         return 0
     fi
 
@@ -1806,14 +1806,14 @@ EOF
         # Probe a fresh non-login interactive bash the way the user will use it.
         # `bash -i -c` sources ~/.bashrc but NOT ~/.bash_profile or /etc/profile,
         # which is the exact scenario where RHEL root loses /usr/local/bin.
-        if env -i HOME="$HOME" TERM="${TERM:-dumb}" bash -i -c 'command -v hermes' \
+        if env -i HOME="$HOME" TERM="${TERM:-dumb}" bash -i -c 'command -v allr' \
                 >/dev/null 2>&1; then
             log_info "/usr/local/bin is already on PATH for all shells"
-            log_success "hermes command ready"
+            log_success "allr command ready"
             return 0
         fi
 
-        log_info "hermes not on PATH in non-login shells (common on RHEL-family)"
+        log_info "allr not on PATH in non-login shells (common on RHEL-family)"
         PATH_LINE='export PATH="/usr/local/bin:$PATH"'
         PATH_COMMENT='# Allr — ensure /usr/local/bin is on PATH (RHEL non-login shells)'
         for SHELL_CONFIG in "$HOME/.bashrc" "$HOME/.bash_profile"; do
@@ -1826,7 +1826,7 @@ EOF
                 log_success "Added /usr/local/bin to PATH in $SHELL_CONFIG"
             fi
         done
-        log_success "hermes command ready"
+        log_success "allr command ready"
         return 0
     fi
 
@@ -1896,10 +1896,10 @@ EOF
         log_info "~/.local/bin already on PATH"
     fi
 
-    # Export for current session so hermes works immediately
+    # Export for current session so allr works immediately
     export PATH="$command_link_dir:$PATH"
 
-    log_success "hermes command ready"
+    log_success "allr command ready"
 }
 
 copy_config_templates() {
@@ -2376,7 +2376,7 @@ install_node_deps() {
         cd "$INSTALL_DIR/ui-tui"
         # Time-boxed: a stalled registry fetch would otherwise hang here (#39219).
         run_with_timeout "$NODE_DEPS_TIMEOUT" npm install --silent || {
-            log_warn "TUI npm install failed or timed out (hermes --tui may not work)"
+            log_warn "TUI npm install failed or timed out (allr --tui may not work)"
         }
         log_success "TUI dependencies installed"
     fi
@@ -2579,7 +2579,7 @@ print_success() {
     echo ""
     echo -e "${CYAN}${BOLD}🚀 Commands:${NC}"
     echo ""
-    echo -e "   ${GREEN}hermes${NC}              Start chatting"
+    echo -e "   ${GREEN}allr${NC}              Start chatting"
     echo -e "   ${GREEN}allr setup${NC}        Configure API keys & settings"
     echo -e "   ${GREEN}allr config${NC}       View/edit configuration"
     echo -e "   ${GREEN}allr config edit${NC}  Open config in editor"
@@ -2590,13 +2590,13 @@ print_success() {
     echo -e "${CYAN}─────────────────────────────────────────────────────────${NC}"
     echo ""
     if [ "$DISTRO" = "termux" ]; then
-        echo -e "${YELLOW}⚡ 'hermes' was linked into $(get_command_link_display_dir), which is already on PATH in Termux.${NC}"
+        echo -e "${YELLOW}⚡ 'allr' was linked into $(get_command_link_display_dir), which is already on PATH in Termux.${NC}"
         echo ""
     elif [ "$ROOT_FHS_LAYOUT" = true ]; then
-        echo -e "${YELLOW}⚡ 'hermes' was linked into /usr/local/bin and is ready to use — no shell reload needed.${NC}"
+        echo -e "${YELLOW}⚡ 'allr' was linked into /usr/local/bin and is ready to use — no shell reload needed.${NC}"
         echo ""
     else
-        echo -e "${YELLOW}⚡ Reload your shell to use 'hermes' command:${NC}"
+        echo -e "${YELLOW}⚡ Reload your shell to use 'allr' command:${NC}"
         echo ""
         LOGIN_SHELL="$(basename "${SHELL:-/bin/bash}")"
         if [ "$LOGIN_SHELL" = "zsh" ]; then
