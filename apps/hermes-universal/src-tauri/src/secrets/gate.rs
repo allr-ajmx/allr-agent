@@ -75,6 +75,21 @@ pub fn lock() {
     *lease() = None;
 }
 
+/// The Kotlin class that presents the Android unlock prompt.
+///
+/// Built from the package name the Tauri build script exports rather than
+/// hardcoded, so renaming the app cannot silently turn this into a runtime
+/// "class not found" that only shows up on a device. Lives here, outside the
+/// `cfg(target_os = "android")` module, purely so it stays testable on a host
+/// that has no Android NDK to cross-compile with.
+#[allow(dead_code)]
+fn android_gate_class() -> String {
+    let prefix = env!("TAURI_ANDROID_PACKAGE_NAME_PREFIX").replace('_', "/");
+    let app = env!("TAURI_ANDROID_PACKAGE_NAME_APP_NAME");
+
+    format!("{prefix}/{app}/BiometricGate")
+}
+
 /// Whether this device can ask the user to prove who they are at all.
 ///
 /// False on a machine with no biometric and no passcode enrolled, and on any
@@ -229,24 +244,12 @@ mod imp {
 mod imp {
     use super::SecretsError;
 
-    /// Deliberately false for now, so §3.4's "no gate → do not persist" rule
-    /// never fires on Linux while this is unimplemented.
-    ///
-    /// Linux has no equivalent of Hello or LocalAuthentication. The two real
-    /// options, neither of which is a pure code change:
-    ///
-    /// 1. **polkit** — `org.freedesktop.PolicyKit1.Authority.CheckAuthorization`
-    ///    with `AllowUserInteraction`, which prompts for the user's own password.
-    ///    `zbus` is already in the tree for it, but it needs an action id
-    ///    declared in a `.policy` file installed to
-    ///    `/usr/share/polkit-1/actions/`, which only the .deb/.rpm can place — so
-    ///    it cannot work from an AppImage or a `cargo run`.
-    /// 2. **Locking the Secret Service collection** and letting the unlock prompt
-    ///    be the gate. Closer to the platform's own model and needs no packaging,
-    ///    but `dbus-secret-service-keyring-store` does not expose lock/unlock, so
-    ///    it means talking to the Secret Service directly alongside the store.
-    ///
-    /// (2) is the better fit. Both are a design decision, not a stub to fill in.
+    /// Deliberately false: Linux has no equivalent of Hello or
+    /// LocalAuthentication, and the two real options are both design decisions
+    /// rather than stubs to fill in — polkit needs an action declared in a
+    /// `.policy` file that only a system package can install, and the
+    /// alternative is talking to the Secret Service directly to lock and unlock
+    /// its collection.
     pub fn available() -> bool {
         false
     }
@@ -264,25 +267,80 @@ mod imp {
 
 #[cfg(target_os = "android")]
 mod imp {
+    use jni::objects::{JObject, JValue};
+    use jni::JavaVM;
+
     use super::SecretsError;
 
-    /// Android's gate is the one that also changes how the secret is STORED: the
-    /// strong version wraps the credential in an AES-GCM key created with
-    /// `setUserAuthenticationRequired(true)` and
-    /// `setUserAuthenticationParameters(300, BIOMETRIC_STRONG | DEVICE_CREDENTIAL)`,
-    /// so the Keystore itself enforces both the prompt and the 5-minute window.
+    // The Kotlin half. BiometricPrompt must run on the UI thread and needs a
+    // FragmentActivity, so the prompt itself lives there and this only drives it
+    // — see `gen/android/.../BiometricGate.kt`.
+    use super::android_gate_class;
+
+    /// Call a no-argument-or-string static method that answers with a boolean.
     ///
-    /// That needs a Kotlin `BiometricPrompt` surface (it must run on the UI
-    /// thread, attached to a FragmentActivity) plus a JNI bridge, so it is not a
-    /// Rust-only change. False until that lands, for the same reason as Linux.
-    pub fn available() -> bool {
-        false
+    /// Everything is funnelled through here so a missing class or a changed
+    /// signature surfaces as `false` rather than as an exception left pending on
+    /// the thread — a pending JNI exception poisons every later call on it, so it
+    /// is cleared explicitly.
+    fn call_bool(method: &str, reason: Option<&str>) -> bool {
+        let context = ndk_context::android_context();
+
+        let Ok(vm) = (unsafe { JavaVM::from_raw(context.vm().cast()) }) else {
+            return false;
+        };
+
+        let Ok(mut env) = vm.attach_current_thread() else {
+            return false;
+        };
+
+        let outcome = (|| -> Result<bool, jni::errors::Error> {
+            let class = env.find_class(android_gate_class())?;
+
+            let value = match reason {
+                Some(reason) => {
+                    let arg = env.new_string(reason)?;
+
+                    env.call_static_method(
+                        class,
+                        method,
+                        "(Ljava/lang/String;)Z",
+                        &[JValue::Object(&JObject::from(arg))],
+                    )?
+                }
+
+                None => env.call_static_method(class, method, "()Z", &[])?,
+            };
+
+            value.z()
+        })();
+
+        if env.exception_check().unwrap_or(false) {
+            let _ = env.exception_describe();
+            let _ = env.exception_clear();
+
+            return false;
+        }
+
+        outcome.unwrap_or(false)
     }
 
-    pub fn prompt(_reason: &str) -> Result<(), SecretsError> {
-        Err(SecretsError::unavailable(
-            "no unlock method is available on Android yet",
-        ))
+    /// False when no lock screen is set, which is a real state rather than a
+    /// failure: a device with no lock cannot hold credentials safely, and the
+    /// caller treats that as a reason not to persist them.
+    pub fn available() -> bool {
+        call_bool("canAuthenticate", None)
+    }
+
+    pub fn prompt(reason: &str) -> Result<(), SecretsError> {
+        // Blocks on the Kotlin side until the prompt is answered. Safe only
+        // because `gate::unlock` calls this from a blocking pool thread and never
+        // from the UI thread, which would deadlock against the prompt.
+        if call_bool("authenticate", Some(reason)) {
+            Ok(())
+        } else {
+            Err(SecretsError::locked("the unlock was refused"))
+        }
     }
 }
 
@@ -344,6 +402,19 @@ mod tests {
     #[test]
     fn the_apple_bindings_survive_being_called() {
         let _ = available();
+    }
+
+    #[test]
+    fn the_android_gate_class_resolves_to_the_kotlin_one() {
+        // This machine has no NDK, so the Android arm cannot be cross-compiled
+        // and a wrong class path would only surface on a device, as a JNI
+        // lookup that fails and takes the whole gate with it. The package name
+        // comes from the Tauri build script, which exports it on every target.
+        assert_eq!(
+            android_gate_class(),
+            "com/jaxmatrix/mjx_unofficial_hermes/BiometricGate",
+            "must match the package of gen/android/.../BiometricGate.kt"
+        );
     }
 
     #[test]

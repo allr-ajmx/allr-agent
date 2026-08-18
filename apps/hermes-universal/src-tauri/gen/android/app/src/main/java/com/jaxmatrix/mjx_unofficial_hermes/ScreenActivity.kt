@@ -45,6 +45,8 @@ class ScreenActivity : TauriActivity() {
     // After super: the native library must be loaded before the JNI
     // symbol this resolves exists. See KeyringInit.
     KeyringInit.ensure(this)
+    // The unlock prompt needs a FragmentActivity to present from.
+    BiometricGate.attach(this)
   }
 
   override fun onWebViewCreate(webView: WebView) {
@@ -93,5 +95,12 @@ class ScreenActivity : TauriActivity() {
     val right = Uri.parse(previous)
 
     return left.scheme == right.scheme && left.authority == right.authority
+  }
+
+  // Clearing the static reference here is what keeps it from outliving the
+  // activity and pinning the WebView with it.
+  override fun onDestroy() {
+    BiometricGate.detach(this)
+    super.onDestroy()
   }
 }

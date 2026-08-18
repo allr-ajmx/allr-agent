@@ -255,6 +255,12 @@ android_logger = "0.15"
 # populate — MainActivity does it, via this crate's own JNI entry point. See
 # gen/android/.../KeyringInit.kt.
 android-native-keyring-store = "1.0"
+# Calling INTO the Java side, for the device-unlock gate: BiometricPrompt needs a
+# FragmentActivity and the UI thread, so the prompt itself lives in Kotlin
+# (BiometricGate.kt) and Rust drives it over JNI. Both crates are already in the
+# tree via tao/wry/tauri; naming them adds no compilation.
+jni = "0.21"
+ndk-context = "0.1"
 # cpal on Android speaks to AAudio/OpenSL ES via the C++ `oboe` library; the
 # `oboe-shared-stdcxx` feature links libc++_shared from the NDK. Requires the NDK
 # on the build host (the user drives Android builds — MJX-96).
