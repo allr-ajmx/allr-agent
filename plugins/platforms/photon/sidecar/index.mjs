@@ -969,7 +969,7 @@ function isHttpUrl(value) {
 }
 
 const server = http.createServer(async (req, res) => {
-  if (!tokenOk(req.headers["x-hermes-sidecar-token"])) {
+  if (!tokenOk(req.headers["x-allr-sidecar-token"])) {
     return unauthorized(res);
   }
   // Long-lived inbound NDJSON stream.

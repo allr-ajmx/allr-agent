@@ -846,7 +846,7 @@ DANGEROUS_PATTERNS = [
     # the `allr gateway stop|restart` pattern above by driving launchd
     # directly against the service label (commonly `work.allr.gateway`).
     # Catch the operations that stop, restart, or unload it.
-    (r'\blaunchctl\s+(stop|kickstart|bootout|unload|kill|disable|remove)\b.*\b(hermes|ai\.allr)\b', "stop/restart hermes launchd service (kills running agents)"),
+    (r'\blaunchctl\s+(stop|kickstart|bootout|unload|kill|disable|remove)\b.*\b(allr|hermes)\b', "stop/restart the Allr launchd service (kills running agents)"),  # rebrand:keep
     # File copy/move/edit into sensitive system paths (/etc/ and macOS
     # /private/etc/ mirror).
     (rf'\b(cp|mv|install)\b.*\s{_SYSTEM_CONFIG_PATH}', "copy/move file into system config path"),
