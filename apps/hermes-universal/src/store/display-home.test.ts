@@ -30,10 +30,12 @@ describe('homeFromHermesHome', () => {
     expect(homeFromHermesHome('/root/.allr')).toBe('/root')
   })
 
-  it('takes the profile root of the Windows default `<home>/AppData/Local/hermes`', () => {
-    expect(homeFromHermesHome('C:\\Users\\brooklyn\\AppData\\Local\\hermes')).toBe('C:/Users/brooklyn')
+  it('takes the profile root of the Windows default `<home>/AppData/Local/allr`', () => {
+    expect(homeFromHermesHome('C:\\Users\\brooklyn\\AppData\\Local\\allr')).toBe('C:/Users/brooklyn')
     // Casing on Windows is not meaningful; the shape still is.
     expect(homeFromHermesHome('C:/Users/brooklyn/AppData/local/Allr')).toBe('C:/Users/brooklyn')
+    // Pre-rename installs still report the old leaf.
+    expect(homeFromHermesHome('C:\\Users\\brooklyn\\AppData\\Local\\hermes')).toBe('C:/Users/brooklyn')  // rebrand:keep
   })
 
   it('tolerates a trailing slash and repeated separators', () => {
@@ -41,8 +43,8 @@ describe('homeFromHermesHome', () => {
   })
 
   it('gives up on an explicit ALLR_HOME that says nothing about a home', () => {
-    // `ALLR_HOME=/srv/hermes` is a real deployment; `/srv` is not anyone's home.
-    expect(homeFromHermesHome('/srv/hermes')).toBe('')
+    // `ALLR_HOME=/srv/allr` is a real deployment; `/srv` is not anyone's home.
+    expect(homeFromHermesHome('/srv/allr')).toBe('')
     expect(homeFromHermesHome('/opt/data')).toBe('')
   })
 
