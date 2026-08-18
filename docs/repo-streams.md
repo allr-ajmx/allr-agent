@@ -104,8 +104,8 @@ the Python agent core at root (`run_agent.py`, `cli.py`, `hermes_state*.py`,
 `toolsets.py`, `hermes_constants.py`), `agent/`, `hermes_cli/`, `tools/`,
 `gateway/`, `ui-tui/`, `tui_gateway/`, `acp_adapter/`, `cron/`, `plugins/`,
 `skills/`, `optional-skills/`, `web/`, `website/`, `docs/`, `locales/`,
-`native/`, and — this surprises people — `apps/desktop/`,
-`apps/bootstrap-installer/`, `apps/shared/` **and the npm workspace itself**, all
+`native/`, and — this surprises people — `apps/bootstrap-installer/`,
+`apps/shared/` **and the npm workspace itself**, all
 of which predate the fork.
 
 **This project's own work** — arrives via `stream/support`; conflicts here are

@@ -1,9 +1,8 @@
 """Backend git-repository discovery for the Projects sidebar.
 
-The desktop app crawls the user's disk from its Electron main process
-(``apps/desktop/electron/git-repo-scan.ts``); hermes-universal ports the same
-crawl to Rust (``apps/hermes-universal/src-tauri/src/repo_scan.rs``) and runs it
-against the *Tauri host's* filesystem.  Neither speaks for the machine sessions
+The desktop app crawls the user's disk from its Rust host process
+(``apps/hermes-universal/src-tauri/src/repo_scan.rs``), against the *Tauri
+host's* filesystem.  Neither speaks for the machine sessions
 actually run on once the gateway is remote — and a phone has no crawlable disk
 at all.  This module is the gateway-side half: the identical walk, executed
 where the repos really live, exposed as ``GET /api/git/scan-repos``.
