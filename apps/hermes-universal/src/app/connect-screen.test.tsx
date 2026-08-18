@@ -64,7 +64,7 @@ describe('the welcome step', () => {
 
     expect(await screen.findByText('Welcome to Allr')).toBeInTheDocument()
     expect(screen.queryByText('Choose a gateway')).not.toBeInTheDocument()
-    expect(screen.queryByText('Allr Cloud')).not.toBeInTheDocument()
+    expect(screen.queryByText('Nous Cloud')).not.toBeInTheDocument()
   })
 
   it('offers a language picker, so the choice comes before the prose', async () => {
@@ -124,7 +124,7 @@ describe('the gateway picker step', () => {
   it('lists the gateways without any one gateway’s fields', async () => {
     await renderAtPicker()
 
-    expect(screen.getByText('Allr Cloud')).toBeInTheDocument()
+    expect(screen.getByText('Nous Cloud')).toBeInTheDocument()
     expect(screen.getByText('Remote gateway')).toBeInTheDocument()
     expect(screen.getByText('SSH')).toBeInTheDocument()
     // Nothing is configured until a gateway is picked.
