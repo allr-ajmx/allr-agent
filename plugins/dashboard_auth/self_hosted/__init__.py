@@ -64,6 +64,8 @@ same precedence convention as the ``nous`` plugin)::
     ALLR_DASHBOARD_OIDC_CLIENT_ID
     ALLR_DASHBOARD_OIDC_SCOPES        # optional; defaults to "openid profile email"
     ALLR_DASHBOARD_OIDC_CLIENT_SECRET # optional; set for a confidential client
+    ALLR_DASHBOARD_OIDC_ALLOWED_EMAILS # optional; comma-separated allowlist —
+                                        # only these accounts may log in
                                         # (the .env file is the canonical home —
                                         # it's a secret, not a behavioural setting)
 
@@ -156,14 +158,14 @@ def _require_https_or_loopback(url: str, *, field: str) -> str:
     parsed = urllib.parse.urlparse(url)
     if parsed.scheme == "https":
         return url
-    if parsed.scheme == "http" and (parsed.hostname or "") in (
-        "localhost",
-        "127.0.0.1",
-        "::1",
+    host = parsed.hostname or ""
+    # ``*.localhost`` is loopback by RFC 6761 — allow it for local multi-host dev.
+    if parsed.scheme == "http" and (
+        host in ("localhost", "127.0.0.1", "::1") or host.endswith(".localhost")
     ):
         return url
     raise ProviderError(
-        f"OIDC {field} must be https:// (or http on localhost), got {url!r}"
+        f"OIDC {field} must be https:// (or http on localhost / *.localhost), got {url!r}"
     )
 
 
@@ -185,6 +187,7 @@ class SelfHostedOIDCProvider(DashboardAuthProvider):
         client_id: str,
         scopes: str = _DEFAULT_SCOPES,
         client_secret: str = "",
+        allowed_emails: str = "",
     ) -> None:
         if not issuer:
             raise ValueError("issuer is required")
@@ -198,6 +201,11 @@ class SelfHostedOIDCProvider(DashboardAuthProvider):
         self._issuer = issuer.rstrip("/")
         _require_https_or_loopback(self._issuer, field="issuer")
         self._client_id = client_id
+        # Optional identity allowlist (comma-separated emails, case-insensitive).
+        # Empty ⇒ any account the IDP authenticates may log in (unchanged).
+        self._allowed_emails = {
+            e.strip().lower() for e in allowed_emails.split(",") if e.strip()
+        }
         self._scopes = scopes.strip() or _DEFAULT_SCOPES
         # An empty/whitespace secret means "public client" — strip so a
         # provisioned-but-blank secret can't flip us into a broken confidential
@@ -681,6 +689,13 @@ class SelfHostedOIDCProvider(DashboardAuthProvider):
             raise ProviderError("ID token missing 'sub' (user_id) claim")
 
         email = str(claims.get("email", "") or "")
+        if self._allowed_emails and (
+            email.lower() not in self._allowed_emails
+            or claims.get("email_verified") is False
+        ):
+            raise ProviderError(
+                f"account {email or '<no email>'!r} is not allowed on this dashboard"
+            )
         # Standard OIDC display claims, in preference order.
         display_name = str(
             claims.get("name")
@@ -823,6 +838,12 @@ def register(ctx) -> None:
     client_secret = _resolve_setting(
         "ALLR_DASHBOARD_OIDC_CLIENT_SECRET", oidc_cfg.get("client_secret")
     )
+    # Optional — restrict login to these emails (comma-separated). Lets a
+    # multi-tenant deployment bind one dashboard to one human at a shared
+    # issuer without a per-tenant IDP.
+    allowed_emails = _resolve_setting(
+        "ALLR_DASHBOARD_OIDC_ALLOWED_EMAILS", oidc_cfg.get("allowed_emails")
+    )
 
     if not issuer or not client_id:
         LAST_SKIP_REASON = (
@@ -843,6 +864,7 @@ def register(ctx) -> None:
             client_id=client_id,
             scopes=scopes,
             client_secret=client_secret,
+            allowed_emails=allowed_emails,
         )
     except (ValueError, ProviderError) as exc:
         LAST_SKIP_REASON = (
@@ -854,10 +876,11 @@ def register(ctx) -> None:
     ctx.register_dashboard_auth_provider(provider)
     logger.info(
         "dashboard-auth-self-hosted: registered provider "
-        "(issuer=%s, client_id=%s, scopes=%r, confidential=%s)",
+        "(issuer=%s, client_id=%s, scopes=%r, confidential=%s, allowed_emails=%s)",
         issuer,
         client_id,
         scopes,
         # Log only whether a secret is present, never the secret itself.
         bool(client_secret),
+        len(provider._allowed_emails) or "any",
     )
