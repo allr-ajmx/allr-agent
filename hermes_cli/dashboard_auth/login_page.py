@@ -401,6 +401,160 @@ auth gate (not recommended on untrusted networks).</p>
 """
 
 
+_AUTH_ERROR_TEMPLATE = """\
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{title} — Allr</title>
+<style>
+  @font-face {{
+    font-family: 'Collapse';
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+    src: url('/fonts/Collapse-Regular.woff2') format('woff2');
+  }}
+  @font-face {{
+    font-family: 'Rules Compressed';
+    font-style: normal;
+    font-weight: 600;
+    font-display: swap;
+    src: url('/fonts/RulesCompressed-Medium.woff2') format('woff2');
+  }}
+  :root {{
+    --background-base: #170d02;
+    --midground: #ffac02;
+    --foreground: #ffffff;
+    --hairline: color-mix(in srgb, #ffac02 18%, transparent);
+  }}
+  *, *::before, *::after {{ box-sizing: border-box; }}
+  html, body {{
+    margin: 0; padding: 0; min-height: 100%;
+    background: var(--background-base);
+    color: var(--foreground);
+    font-family: 'Collapse', system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    font-size: 16px; line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }}
+  body {{
+    display: grid; place-items: center;
+    padding: clamp(1.5rem, 6vh, 6rem) 1.25rem;
+    background-image:
+      radial-gradient(
+        ellipse at top,
+        color-mix(in srgb, var(--midground) 6%, transparent) 0%,
+        transparent 55%
+      ),
+      repeating-conic-gradient(
+        color-mix(in srgb, var(--midground) 4%, transparent) 0% 25%,
+        transparent 0% 50%
+      );
+    background-size: auto, 3px 3px;
+    background-attachment: fixed;
+  }}
+  main {{
+    width: 100%; max-width: 26rem;
+    animation: slide-up 0.6s ease-out both;
+  }}
+  @keyframes slide-up {{
+    from {{ opacity: 0; transform: translateY(6px); }}
+    to   {{ opacity: 1; transform: translateY(0); }}
+  }}
+  @media (prefers-reduced-motion: reduce) {{ main {{ animation: none; }} }}
+  .brand {{
+    text-align: center;
+    margin-bottom: 1.75rem;
+    font-family: 'Rules Compressed', 'Collapse', sans-serif;
+    font-weight: 600; font-size: 1.05rem;
+    letter-spacing: 0.32em; text-transform: uppercase;
+    color: var(--midground);
+  }}
+  .brand .dot {{
+    display: inline-block; width: 6px; height: 6px;
+    background: var(--midground); margin: 0 0.55em 0.18em;
+    vertical-align: middle; border-radius: 1px;
+  }}
+  .card {{
+    padding: 2.25rem 2rem 2rem;
+    background: color-mix(in srgb, #ffffff 2%, var(--background-base));
+    border: 1px solid var(--hairline);
+    box-shadow:
+      inset 1px 1px 0 0 color-mix(in srgb, #ffffff 5%, transparent),
+      inset -1px -1px 0 0 rgba(0, 0, 0, 0.4),
+      0 24px 60px -20px rgba(0, 0, 0, 0.6);
+  }}
+  h1 {{
+    margin: 0 0 0.4rem;
+    font-family: 'Rules Compressed', 'Collapse', sans-serif;
+    font-weight: 600; font-size: 1.5rem;
+    letter-spacing: 0.05em; text-transform: uppercase;
+    color: var(--midground);
+  }}
+  p {{
+    margin: 0 0 1.5rem;
+    color: color-mix(in srgb, var(--foreground) 75%, transparent);
+    font-size: 0.95rem;
+  }}
+  .retry-btn {{
+    display: block; width: 100%;
+    padding: 0.95rem 1rem; text-align: center;
+    background: var(--midground); color: var(--background-base);
+    font-family: 'Collapse', sans-serif;
+    font-weight: 700; font-size: 0.78rem;
+    letter-spacing: 0.2em; text-transform: uppercase;
+    text-decoration: none; border: 0;
+    box-shadow:
+      inset 1px 1px 0 0 rgba(255, 255, 255, 0.5),
+      inset -1px -1px 0 0 rgba(0, 0, 0, 0.5);
+    transition: filter 0.12s ease-out;
+  }}
+  .retry-btn:hover {{ filter: brightness(1.08); }}
+  .hint {{
+    margin: 1rem 0 0;
+    font-size: 0.8rem;
+    color: color-mix(in srgb, var(--foreground) 45%, transparent);
+  }}
+</style>
+</head>
+<body>
+<main>
+  <div class="brand">Allr</div>
+  <div class="card">
+    <h1>{title}</h1>
+    <p>{message}</p>
+    <a class="retry-btn" href="{retry_href}">Try again</a>
+    <p class="hint">{hint}</p>
+  </div>
+</main>
+</body>
+</html>
+"""
+
+
+def render_auth_error_html(
+    *,
+    title: str,
+    message: str,
+    retry_href: str = "/login",
+    hint: str = "",
+) -> str:
+    """Branded full-page error for browser-facing auth failures.
+
+    Rendered by the OAuth callback / login routes instead of FastAPI's
+    default ``{"detail": ...}`` JSON, which browsers display raw. All
+    inputs are HTML-escaped; ``retry_href`` is additionally attribute-
+    escaped (callers pass fixed local paths, never IDP-supplied values).
+    """
+    return _AUTH_ERROR_TEMPLATE.format(
+        title=html.escape(title),
+        message=html.escape(message),
+        retry_href=html.escape(retry_href, quote=True),
+        hint=html.escape(hint) or "&nbsp;",
+    )
+
+
 # Inline script that wires every password provider form to POST JSON to
 # ``/auth/password-login`` and navigate on success. Emitted ONLY when at
 # least one ``supports_password`` provider is listed (OAuth-only login

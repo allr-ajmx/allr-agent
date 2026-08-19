@@ -650,3 +650,50 @@ class TestAuthLoginPkceCookieNext:
         cookies = r.headers.get_list("set-cookie")
         pkce = next(c for c in cookies if "allr_session_pkce" in c)
         assert "next=" not in pkce
+
+
+# ---------------------------------------------------------------------------
+# Browser-facing auth failures render the branded HTML error page
+# ---------------------------------------------------------------------------
+
+
+class TestAuthErrorPage:
+    """Failures on the top-level browser navigations (/auth/callback,
+    /auth/login) must render the branded HTML page, not FastAPI's raw
+    ``{"detail": ...}`` JSON."""
+
+    def test_callback_without_pkce_cookie_renders_html_400(self, gated_app):
+        r = gated_app.get(
+            "/auth/callback?code=x&state=y", follow_redirects=False
+        )
+        assert r.status_code == 400
+        assert r.headers["content-type"].startswith("text/html")
+        assert "Sign-in expired" in r.text
+        assert 'class="retry-btn"' in r.text
+
+    def test_allowlist_rejection_renders_html_403(self, gated_app, monkeypatch):
+        from hermes_cli.dashboard_auth.base import ProviderError
+        from hermes_cli.dashboard_auth.registry import get_provider
+
+        # Drive a real login start so the PKCE cookie exists, then make
+        # complete_login reject like the allowed_emails check does.
+        r_start = gated_app.get(
+            "/auth/login?provider=stub", follow_redirects=False
+        )
+        assert r_start.status_code == 302
+        state = r_start.headers["location"].split("state=")[1].split("&")[0]
+
+        def _reject(**kwargs):
+            raise ProviderError(
+                "account 'other@x' is not allowed on this dashboard"
+            )
+
+        monkeypatch.setattr(get_provider("stub"), "complete_login", _reject)
+        r = gated_app.get(
+            f"/auth/callback?code=stub_code&state={state}",
+            follow_redirects=False,
+        )
+        assert r.status_code == 403
+        assert r.headers["content-type"].startswith("text/html")
+        assert "Access denied" in r.text
+        assert "not allowed on this dashboard" in r.text
