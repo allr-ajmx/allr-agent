@@ -129,6 +129,23 @@ adb logcat -c && adb logcat | grep -iE '\[vite\]'
 - `[vite] optimized dependencies changed. reloading` means a dependency escaped the cold-start scan. Add it to
   `optimizeDeps.include` in `vite.config.ts` — that list exists precisely to keep this line from appearing.
 
+### Android release build
+
+`npm run android:build:release` builds a Play-uploadable AAB at
+`src-tauri/gen/android/app/build/outputs/bundle/universalRelease/app-universal-release.aab`
+(arm64 + armv7; drop `--target` in the script for x86 too). It is signed with the upload key named by
+`src-tauri/gen/android/keystore.properties` (gitignored):
+
+```
+password=<store and key password>
+keyAlias=upload
+storeFile=/absolute/path/to/allr-upload.jks
+```
+
+Without that file the release variant is unsigned and Play Console rejects it. Every upload needs a higher
+`versionCode`, which Tauri derives from the version in `tauri.conf.json` / `package.json` — bump the patch
+before building. `jarsigner -verify <aab>` confirms the signature.
+
 ## Performance harness
 
 Markdown/KaTeX rendering is the app's heaviest path. Three tools, deliberately measuring different layers:
