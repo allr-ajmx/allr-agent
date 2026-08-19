@@ -398,3 +398,15 @@ objc2-local-authentication = { version = "0.3.2", default-features = false, feat
   "LAError",
   "LAPublicDefines",
 ] }
+
+# Vendored tao with a single upstream-confirmed fix. tao 0.35.3 returns a dangling
+# UISceneConfiguration from `application:configurationForConnectingSceneSession:`
+# (see vendor/tao-0.35.3/src/platform_impl/ios/view.rs), which segfaults every
+# optimized iOS build at launch because Info.ios.plist sets
+# UIApplicationSupportsMultipleScenes. tao 0.36.0 carries the same fix, but
+# tauri-runtime-wry 2.11.4 requires ^0.35.0 and cannot take it -- and `[patch]`
+# replaces a source, not a version, so 0.36.0 is not reachable this way either.
+# REMOVE this patch, and the vendored tree, once tauri-runtime-wry requires tao
+# 0.36 (already on tauri's dev branch, unreleased as of 2026-08-19).
+[patch.crates-io]
+tao = { path = "vendor/tao-0.35.3" }
