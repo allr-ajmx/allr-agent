@@ -7,9 +7,9 @@
 
     <!-- networkSecurityConfig SUPERSEDES usesCleartextTraffic on API 24+, and minSdk
          is 24, so the flag below is inert and kept only as documentation of the
-         intent. The policy lives in res/xml/network_security_config.xml (release:
-         loopback only, which the RFC 8252 sign-in callback needs) and is replaced
-         wholesale by the debug source set's copy of the same filename. -->
+         intent. The policy lives in res/xml/network_security_config.xml (cleartext
+         permitted: the OAuth sign-in navigates the WebView to self-hosted gateways
+         on plain http, and to the RFC 8252 loopback redirect). -->
     <!-- Backup is OFF, deliberately.
          Credentials live in Keystore-encrypted SharedPreferences inside the app's
          private storage (see src/secrets/). Android's default backup would copy
