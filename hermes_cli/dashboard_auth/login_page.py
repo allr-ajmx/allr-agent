@@ -4,8 +4,8 @@ No React, no JavaScript dependency. Listed providers come from the
 registry; clicking a provider sends a GET to
 ``/auth/login?provider=<name>``.
 
-Visual styling mirrors the Nous Research design system (the
-``@nous-research/ui`` package the React dashboard uses): the same
+Visual styling follows the Allr design language (cream surface, Young
+Serif wordmark, forest-green pill buttons): the same
 ``Collapse`` / ``Rules Compressed`` typeface, amber-on-dark colour
 tokens (``#170d02`` / ``#ffac02`` / ``#fff``), uppercase + wide-tracking
 brand chrome, and the inset-bevel button shadow. Fonts are served
@@ -32,505 +32,217 @@ from hermes_cli.dashboard_auth import list_session_providers
 #
 # Single curly braces are placeholders for ``str.format``; CSS curlies
 # are doubled (``{{`` / ``}}``).
-_LOGIN_HTML_TEMPLATE = """\
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Sign in — Allr</title>
-<style>
-  /* Brand fonts shipped by @nous-research/ui — same files the SPA loads. */
-  @font-face {{
-    font-family: 'Collapse';
-    font-style: normal;
-    font-weight: 400;
-    font-display: swap;
-    src: url('/fonts/Collapse-Regular.woff2') format('woff2');
-  }}
-  @font-face {{
-    font-family: 'Collapse';
-    font-style: normal;
-    font-weight: 700;
-    font-display: swap;
-    src: url('/fonts/Collapse-Bold.woff2') format('woff2');
-  }}
-  @font-face {{
-    font-family: 'Rules Compressed';
-    font-style: normal;
-    font-weight: 400;
-    font-display: swap;
-    src: url('/fonts/RulesCompressed-Regular.woff2') format('woff2');
-  }}
-  @font-face {{
-    font-family: 'Rules Compressed';
-    font-style: normal;
-    font-weight: 600;
-    font-display: swap;
-    src: url('/fonts/RulesCompressed-Medium.woff2') format('woff2');
-  }}
-
-  :root {{
-    --background-base: #170d02;
-    --background: #170d02;
-    --midground: #ffac02;
-    --foreground: #ffffff;
-    --hairline: color-mix(in srgb, #ffac02 18%, transparent);
-    --hairline-strong: color-mix(in srgb, #ffac02 35%, transparent);
-  }}
-
-  *, *::before, *::after {{ box-sizing: border-box; }}
-
-  html, body {{
-    margin: 0;
-    padding: 0;
-    min-height: 100%;
-    background: var(--background-base);
-    color: var(--foreground);
-    font-family: 'Collapse', system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-    font-size: 16px;
-    line-height: 1.5;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-  }}
-
-  /* Subtle dot-grid backdrop — DS idiom (see `.dither` in globals.css). */
-  body {{
-    background-image:
-      radial-gradient(
-        ellipse at top,
-        color-mix(in srgb, var(--midground) 6%, transparent) 0%,
-        transparent 55%
-      ),
-      repeating-conic-gradient(
-        color-mix(in srgb, var(--midground) 4%, transparent) 0% 25%,
-        transparent 0% 50%
-      );
-    background-size: auto, 3px 3px;
-    background-attachment: fixed;
-  }}
-
-  /* Layout: vertically center on tall screens, top-anchor on short. */
-  body {{
-    display: grid;
-    place-items: center;
-    padding: clamp(1.5rem, 6vh, 6rem) 1.25rem;
-  }}
-
-  main {{
-    width: 100%;
-    max-width: 26rem;
-    position: relative;
-    animation: slide-up 0.6s ease-out both;
-  }}
-
-  @keyframes slide-up {{
-    from {{ opacity: 0; transform: translateY(6px); }}
-    to   {{ opacity: 1; transform: translateY(0); }}
-  }}
-
-  @media (prefers-reduced-motion: reduce) {{
-    main {{ animation: none; }}
-  }}
-
-  /* Brand wordmark above the card — same uppercase + wide-tracking
-     idiom DS Buttons use. */
-  .brand {{
-    text-align: center;
-    margin-bottom: 1.75rem;
-    font-family: 'Rules Compressed', 'Collapse', sans-serif;
-    font-weight: 600;
-    font-size: 1.05rem;
-    letter-spacing: 0.32em;
-    text-transform: uppercase;
-    color: var(--midground);
-  }}
-  .brand .dot {{
-    display: inline-block;
-    width: 6px;
-    height: 6px;
-    background: var(--midground);
-    margin: 0 0.55em 0.18em;
-    vertical-align: middle;
-    border-radius: 1px;
-  }}
-
-  .card {{
-    position: relative;
-    padding: 2.25rem 2rem 2rem;
-    background: color-mix(in srgb, #ffffff 2%, var(--background-base));
-    border: 1px solid var(--hairline);
-    /* Hairline highlight + bevel shadow — matches DS Button SHADOW_DEFAULT
-       (`inset -1px -1px 0 #00000080, inset 1px 1px 0 #ffffff80`) at panel scale. */
-    box-shadow:
-      inset 1px 1px 0 0 color-mix(in srgb, #ffffff 5%, transparent),
-      inset -1px -1px 0 0 rgba(0, 0, 0, 0.4),
-      0 24px 60px -20px rgba(0, 0, 0, 0.6);
-  }}
-
-  h1 {{
-    margin: 0 0 0.4rem;
-    font-family: 'Rules Compressed', 'Collapse', sans-serif;
-    font-weight: 600;
-    font-size: 1.85rem;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-    color: var(--foreground);
-  }}
-
-  .subtitle {{
-    margin: 0 0 1.75rem;
-    color: color-mix(in srgb, var(--foreground) 65%, transparent);
-    font-size: 0.95rem;
-  }}
-
-  .provider-list {{
-    display: grid;
-    gap: 0.75rem;
-  }}
-
-  /* Provider button — mirrors DS Button (default variant):
-     amber surface, dark text, uppercase + wide tracking, inset bevel. */
-  .provider-btn {{
-    display: block;
-    width: 100%;
-    box-sizing: border-box;
-    padding: 0.95rem 1rem;
-    text-align: center;
-    background: var(--midground);
-    color: var(--background-base);
-    font-family: 'Collapse', sans-serif;
-    font-weight: 700;
-    font-size: 0.78rem;
-    letter-spacing: 0.2em;
-    text-transform: uppercase;
-    text-decoration: none;
-    border: 0;
-    border-radius: 0;  /* DS Button is squared — no rounded corners. */
-    cursor: pointer;
-    box-shadow:
-      inset 1px 1px 0 0 rgba(255, 255, 255, 0.5),
-      inset -1px -1px 0 0 rgba(0, 0, 0, 0.5);
-    transition: filter 0.12s ease-out;
-  }}
-  .provider-btn:hover {{
-    filter: brightness(1.08);
-  }}
-  .provider-btn:active {{
-    /* DS Button uses `active:invert` on the default surface. */
-    filter: invert(1);
-  }}
-  .provider-btn:focus-visible {{
-    outline: 2px solid var(--midground);
-    outline-offset: 3px;
-  }}
-
-  /* Password provider form — same visual language as the OAuth buttons:
-     squared inputs, hairline borders, amber focus ring. */
-  .provider-form {{
-    display: grid;
-    gap: 0.75rem;
-    text-align: left;
-  }}
-  .form-title {{
-    font-family: 'Rules Compressed', 'Collapse', sans-serif;
-    font-weight: 600;
-    font-size: 0.72rem;
-    letter-spacing: 0.18em;
-    text-transform: uppercase;
-    color: color-mix(in srgb, var(--foreground) 70%, transparent);
-  }}
-  .field {{
-    display: grid;
-    gap: 0.3rem;
-  }}
-  .field-label {{
-    font-size: 0.72rem;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: color-mix(in srgb, var(--foreground) 55%, transparent);
-  }}
-  .field-input {{
-    width: 100%;
-    box-sizing: border-box;
-    padding: 0.7rem 0.8rem;
-    background: color-mix(in srgb, #000000 25%, var(--background-base));
-    color: var(--foreground);
-    border: 1px solid var(--hairline-strong);
-    border-radius: 0;
-    font-family: 'Collapse', sans-serif;
-    font-size: 0.95rem;
-  }}
-  .field-input:focus-visible {{
-    outline: none;
-    border-color: var(--midground);
-    box-shadow: 0 0 0 1px var(--midground);
-  }}
-  .form-error {{
-    color: #ff6b6b;
-    font-size: 0.82rem;
-    letter-spacing: 0.02em;
-  }}
-  .provider-form .provider-btn {{
-    margin-top: 0.25rem;
-  }}
-
-  footer {{
-    margin-top: 1.75rem;
-    text-align: center;
-    color: color-mix(in srgb, var(--foreground) 45%, transparent);
-    font-size: 0.75rem;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    line-height: 1.7;
-  }}
-  footer .sep {{
-    display: inline-block;
-    width: 1.5rem;
-    height: 1px;
-    background: var(--hairline-strong);
-    vertical-align: middle;
-    margin: 0 0.6em 0.2em;
-  }}
-
-  /* Selection — DS uses midground bg + background text. */
-  ::selection {{
-    background: var(--midground);
-    color: var(--background-base);
-  }}
-</style>
-</head>
-<body>
-<main>
-  <div class="brand">Nous<span class="dot"></span>Research</div>
-  <div class="card">
-    <h1>Sign in</h1>
-    <p class="subtitle">Choose a sign-in method to continue to the Allr dashboard.</p>
-    <div class="provider-list">
-{provider_buttons}
-    </div>
-  </div>
-  <footer>
-    <span class="sep"></span>Public bind &middot; Auth required<span class="sep"></span>
-  </footer>
-</main>
-{password_script}
-</body>
-</html>
-"""
-
-_EMPTY_HTML = """\
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Sign-in unavailable — Allr</title>
-<style>
-  @font-face {
-    font-family: 'Collapse';
-    font-style: normal;
-    font-weight: 400;
-    font-display: swap;
-    src: url('/fonts/Collapse-Regular.woff2') format('woff2');
-  }
-  @font-face {
-    font-family: 'Rules Compressed';
-    font-style: normal;
-    font-weight: 600;
-    font-display: swap;
-    src: url('/fonts/RulesCompressed-Medium.woff2') format('woff2');
-  }
+_SHELL_CSS = """\
   :root {
-    --background-base: #170d02;
-    --midground: #ffac02;
-    --foreground: #ffffff;
-    --hairline: color-mix(in srgb, #ffac02 18%, transparent);
+    --surface: #fff9ee;
+    --card: #FBF8F2;
+    --line: rgba(194, 200, 196, 0.35);
+    --line-soft: rgba(194, 200, 196, 0.5);
+    --ink: #1d1c15;
+    --ink-soft: #424845;
+    --forest: #223B33;
+    --forest-deep: #0c251e;
+    --sage: #2E9E63;
+    --amber: #E9A83E;
+    --cream: #F7F1E6;
+    --error: #ba1a1a;
+    --error-bg: #ffdad6;
   }
   *, *::before, *::after { box-sizing: border-box; }
   html, body {
     margin: 0; padding: 0; min-height: 100%;
-    background: var(--background-base);
-    color: var(--foreground);
-    font-family: 'Collapse', system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-    font-size: 16px; line-height: 1.5;
+    background: var(--surface);
+    color: var(--ink);
+    font-family: 'Nunito Sans', system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-size: 16px; line-height: 1.6;
     -webkit-font-smoothing: antialiased;
   }
-  body {
-    display: grid; place-items: center;
-    padding: clamp(1.5rem, 6vh, 6rem) 1.25rem;
+  body { display: flex; flex-direction: column; min-height: 100vh; }
+  .site-header {
+    display: flex; align-items: center;
+    height: 64px; padding: 0 20px;
   }
+  .wordmark {
+    font-family: 'Young Serif', Georgia, serif;
+    font-size: 32px; line-height: 1.3;
+    color: var(--forest); text-decoration: none;
+  }
+  .wordmark:hover { opacity: 0.8; }
   main {
-    width: 100%; max-width: 32rem;
-    padding: 2.25rem 2rem;
-    background: color-mix(in srgb, #ffffff 2%, var(--background-base));
-    border: 1px solid var(--hairline);
-    box-shadow:
-      inset 1px 1px 0 0 color-mix(in srgb, #ffffff 5%, transparent),
-      inset -1px -1px 0 0 rgba(0, 0, 0, 0.4),
-      0 24px 60px -20px rgba(0, 0, 0, 0.6);
+    flex: 1 0 auto;
+    display: flex; align-items: center; justify-content: center;
+    padding: 48px 20px; position: relative; overflow: hidden;
   }
+  .blobs { position: absolute; inset: 0; pointer-events: none; opacity: 0.2; display: none; }
+  @media (min-width: 768px) { .blobs { display: block; } }
+  .blob { position: absolute; width: 24rem; height: 24rem; border-radius: 9999px; filter: blur(64px); opacity: 0.5; }
+  .blob-sage { top: 25%; left: -10%; background: var(--sage); }
+  .blob-amber { bottom: 25%; right: -10%; background: var(--amber); }
+  .card {
+    width: 100%; max-width: 28rem; position: relative; z-index: 1;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 1rem;
+    padding: 40px;
+  }
+  @media (max-width: 480px) { .card { background: transparent; border: 0; padding: 24px 0; } }
   h1 {
-    margin: 0 0 1rem;
-    font-family: 'Rules Compressed', 'Collapse', sans-serif;
-    font-weight: 600; font-size: 1.5rem;
-    letter-spacing: 0.05em; text-transform: uppercase;
-    color: var(--midground);
+    margin: 0 0 16px; text-align: center;
+    font-family: 'Young Serif', Georgia, serif;
+    font-weight: 400; font-size: 32px; line-height: 1.2;
+    color: var(--forest);
   }
-  p { margin: 0 0 1rem; }
-  code {
-    background: var(--midground);
-    color: var(--background-base);
-    padding: 0.1em 0.35em;
-    font-family: 'Courier New', monospace;
-    font-size: 0.9em;
+  @media (min-width: 768px) { h1 { font-size: 42px; } }
+  .subtitle {
+    margin: 0 0 40px; text-align: center;
+    font-size: 20px; color: var(--ink-soft);
   }
-</style>
-</head>
-<body>
-<main>
-<h1>Sign-in unavailable</h1>
-<p>This dashboard is bound to a non-loopback host but no authentication
-providers are installed.</p>
-<p>Install <code>plugins/dashboard-auth-nous</code> (default) or another
-auth provider, or restart with <code>--insecure</code> to bypass the
-auth gate (not recommended on untrusted networks).</p>
-</main>
-</body>
-</html>
+  .provider-list { display: grid; gap: 16px; }
+  .provider-btn {
+    display: flex; align-items: center; justify-content: center; gap: 12px;
+    width: 100%; padding: 16px 24px;
+    background: var(--forest); color: var(--cream);
+    border: 0; border-radius: 9999px;
+    font-family: inherit; font-size: 16px; font-weight: 700;
+    text-decoration: none; cursor: pointer;
+    box-shadow: 0 1px 2px rgba(29, 28, 21, 0.08);
+    transition: background 0.2s ease, transform 0.1s ease;
+  }
+  .provider-btn:hover { background: var(--forest-deep); }
+  .provider-btn:active { transform: scale(0.97); }
+  .provider-btn:focus-visible { outline: 2px solid var(--sage); outline-offset: 2px; }
+  .divider { display: flex; align-items: center; padding: 16px 0; }
+  .divider::before, .divider::after { content: ""; flex: 1; border-top: 1px solid var(--line-soft); }
+  .divider span {
+    flex-shrink: 0; margin: 0 16px;
+    font-size: 12px; font-weight: 700; letter-spacing: 0.1em;
+    color: var(--ink-soft);
+  }
+  .legal {
+    margin: 32px 0 0; text-align: center;
+    font-size: 14px; color: rgba(66, 72, 69, 0.7);
+  }
+  .legal a { color: inherit; text-decoration: underline; }
+  .legal a:hover { color: var(--forest); }
+  .site-footer {
+    flex-shrink: 0;
+    display: flex; flex-direction: column; align-items: center; gap: 16px;
+    padding: 32px 20px; margin-top: auto;
+    background: var(--surface); border-top: 1px solid var(--line);
+  }
+  .footer-links { display: flex; gap: 24px; }
+  .footer-links a { color: var(--ink-soft); text-decoration: none; }
+  .footer-links a:hover { color: var(--forest-deep); }
+  .copyright { margin: 0; font-size: 14px; color: rgba(66, 72, 69, 0.6); }
+  /* password provider form (multi-provider chooser only) */
+  .provider-form { display: grid; gap: 12px; }
+  .form-title { text-align: center; font-weight: 700; color: var(--ink-soft); }
+  .field { display: block; }
+  .field-label {
+    display: block; margin-bottom: 4px;
+    font-size: 12px; font-weight: 700; letter-spacing: 0.1em;
+    text-transform: uppercase; color: var(--ink-soft);
+  }
+  .field-input {
+    width: 100%; padding: 12px 16px;
+    background: #ffffff; color: var(--ink);
+    border: 1px solid var(--line-soft); border-radius: 0.75rem;
+    font-family: inherit; font-size: 16px;
+  }
+  .field-input:focus { border-color: var(--sage); outline: none; }
+  .form-error {
+    padding: 10px 14px; border-radius: 0.5rem;
+    background: var(--error-bg); color: var(--error);
+    font-size: 14px;
+  }
+  .retry-btn {
+    display: flex; align-items: center; justify-content: center;
+    width: 100%; padding: 16px 24px;
+    background: var(--forest); color: var(--cream);
+    border: 0; border-radius: 9999px;
+    font-size: 16px; font-weight: 700;
+    text-decoration: none; cursor: pointer;
+    transition: background 0.2s ease, transform 0.1s ease;
+  }
+  .retry-btn:hover { background: var(--forest-deep); }
+  .retry-btn:active { transform: scale(0.97); }
+  .hint {
+    margin: 16px 0 0; text-align: center;
+    font-size: 14px; color: rgba(66, 72, 69, 0.7);
+  }
 """
 
+_FONTS_HTML = """\
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@400;700&family=Young+Serif&display=swap" rel="stylesheet">"""
 
-_AUTH_ERROR_TEMPLATE = """\
+_PAGE_TEMPLATE = """\
 <!doctype html>
-<html lang="en">
+<html class="light" lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{title} — Allr</title>
+<title>{title}</title>
+{fonts}
 <style>
-  @font-face {{
-    font-family: 'Collapse';
-    font-style: normal;
-    font-weight: 400;
-    font-display: swap;
-    src: url('/fonts/Collapse-Regular.woff2') format('woff2');
-  }}
-  @font-face {{
-    font-family: 'Rules Compressed';
-    font-style: normal;
-    font-weight: 600;
-    font-display: swap;
-    src: url('/fonts/RulesCompressed-Medium.woff2') format('woff2');
-  }}
-  :root {{
-    --background-base: #170d02;
-    --midground: #ffac02;
-    --foreground: #ffffff;
-    --hairline: color-mix(in srgb, #ffac02 18%, transparent);
-  }}
-  *, *::before, *::after {{ box-sizing: border-box; }}
-  html, body {{
-    margin: 0; padding: 0; min-height: 100%;
-    background: var(--background-base);
-    color: var(--foreground);
-    font-family: 'Collapse', system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-    font-size: 16px; line-height: 1.5;
-    -webkit-font-smoothing: antialiased;
-  }}
-  body {{
-    display: grid; place-items: center;
-    padding: clamp(1.5rem, 6vh, 6rem) 1.25rem;
-    background-image:
-      radial-gradient(
-        ellipse at top,
-        color-mix(in srgb, var(--midground) 6%, transparent) 0%,
-        transparent 55%
-      ),
-      repeating-conic-gradient(
-        color-mix(in srgb, var(--midground) 4%, transparent) 0% 25%,
-        transparent 0% 50%
-      );
-    background-size: auto, 3px 3px;
-    background-attachment: fixed;
-  }}
-  main {{
-    width: 100%; max-width: 26rem;
-    animation: slide-up 0.6s ease-out both;
-  }}
-  @keyframes slide-up {{
-    from {{ opacity: 0; transform: translateY(6px); }}
-    to   {{ opacity: 1; transform: translateY(0); }}
-  }}
-  @media (prefers-reduced-motion: reduce) {{ main {{ animation: none; }} }}
-  .brand {{
-    text-align: center;
-    margin-bottom: 1.75rem;
-    font-family: 'Rules Compressed', 'Collapse', sans-serif;
-    font-weight: 600; font-size: 1.05rem;
-    letter-spacing: 0.32em; text-transform: uppercase;
-    color: var(--midground);
-  }}
-  .brand .dot {{
-    display: inline-block; width: 6px; height: 6px;
-    background: var(--midground); margin: 0 0.55em 0.18em;
-    vertical-align: middle; border-radius: 1px;
-  }}
-  .card {{
-    padding: 2.25rem 2rem 2rem;
-    background: color-mix(in srgb, #ffffff 2%, var(--background-base));
-    border: 1px solid var(--hairline);
-    box-shadow:
-      inset 1px 1px 0 0 color-mix(in srgb, #ffffff 5%, transparent),
-      inset -1px -1px 0 0 rgba(0, 0, 0, 0.4),
-      0 24px 60px -20px rgba(0, 0, 0, 0.6);
-  }}
-  h1 {{
-    margin: 0 0 0.4rem;
-    font-family: 'Rules Compressed', 'Collapse', sans-serif;
-    font-weight: 600; font-size: 1.5rem;
-    letter-spacing: 0.05em; text-transform: uppercase;
-    color: var(--midground);
-  }}
-  p {{
-    margin: 0 0 1.5rem;
-    color: color-mix(in srgb, var(--foreground) 75%, transparent);
-    font-size: 0.95rem;
-  }}
-  .retry-btn {{
-    display: block; width: 100%;
-    padding: 0.95rem 1rem; text-align: center;
-    background: var(--midground); color: var(--background-base);
-    font-family: 'Collapse', sans-serif;
-    font-weight: 700; font-size: 0.78rem;
-    letter-spacing: 0.2em; text-transform: uppercase;
-    text-decoration: none; border: 0;
-    box-shadow:
-      inset 1px 1px 0 0 rgba(255, 255, 255, 0.5),
-      inset -1px -1px 0 0 rgba(0, 0, 0, 0.5);
-    transition: filter 0.12s ease-out;
-  }}
-  .retry-btn:hover {{ filter: brightness(1.08); }}
-  .hint {{
-    margin: 1rem 0 0;
-    font-size: 0.8rem;
-    color: color-mix(in srgb, var(--foreground) 45%, transparent);
-  }}
+{css}
 </style>
 </head>
 <body>
+<header class="site-header">
+  <a class="wordmark" href="/">Allr</a>
+</header>
 <main>
-  <div class="brand">Allr</div>
+  <div class="blobs">
+    <div class="blob blob-sage"></div>
+    <div class="blob blob-amber"></div>
+  </div>
   <div class="card">
-    <h1>{title}</h1>
-    <p>{message}</p>
-    <a class="retry-btn" href="{retry_href}">Try again</a>
-    <p class="hint">{hint}</p>
+{card}
   </div>
 </main>
+<footer class="site-footer">
+  <a class="wordmark" href="https://allr.work">Allr</a>
+  <div class="footer-links">
+    <a href="https://allr.work">Help</a>
+    <a href="https://allr.work/privacy">Privacy</a>
+    <a href="https://allr.work/terms">Terms</a>
+  </div>
+  <p class="copyright">&copy; 2026 Allr. All rights reserved.</p>
+</footer>
+{script}
 </body>
 </html>
 """
+
+
+def _render_page(*, title: str, card: str, script: str = "") -> str:
+    """Assemble the shared Allr shell (header, card, footer) around a card body."""
+    return _PAGE_TEMPLATE.format(
+        title=title, fonts=_FONTS_HTML, css=_SHELL_CSS, card=card,
+        script=script,
+    )
+
+
+_LEGAL_HTML = (
+    '<p class="legal">By continuing, you agree to Allr\'s '
+    '<a href="https://allr.work/terms">Terms of Service</a> and '
+    '<a href="https://allr.work/privacy">Privacy Policy</a>.</p>'
+)
+
+_EMPTY_HTML = _render_page(
+    title="Sign-in unavailable — Allr",
+    card=(
+        "    <h1>Sign-in unavailable</h1>\n"
+        '    <p class="subtitle">This dashboard is bound to a non-loopback '
+        "host but no authentication providers are installed.</p>\n"
+        '    <p class="legal">Install an auth provider, or restart with '
+        "--insecure to bypass the auth gate (not recommended on untrusted "
+        "networks).</p>"
+    ),
+)
+
 
 
 def render_auth_error_html(
@@ -547,12 +259,17 @@ def render_auth_error_html(
     inputs are HTML-escaped; ``retry_href`` is additionally attribute-
     escaped (callers pass fixed local paths, never IDP-supplied values).
     """
-    return _AUTH_ERROR_TEMPLATE.format(
-        title=html.escape(title),
-        message=html.escape(message),
-        retry_href=html.escape(retry_href, quote=True),
-        hint=html.escape(hint) or "&nbsp;",
+    hint_html = (
+        f'    <p class="hint">{html.escape(hint)}</p>\n' if hint else ""
     )
+    card = (
+        f"    <h1>{html.escape(title)}</h1>\n"
+        f'    <p class="subtitle">{html.escape(message)}</p>\n'
+        f'    <a class="retry-btn" '
+        f'href="{html.escape(retry_href, quote=True)}">Try again</a>\n'
+        f"{hint_html}"
+    )
+    return _render_page(title=f"{title} — Allr", card=card)
 
 
 # Inline script that wires every password provider form to POST JSON to
@@ -636,6 +353,8 @@ def render_login_html(*, next_path: str = "") -> str:
     buttons = []
     needs_password_script = False
     for p in providers:
+        if buttons:
+            buttons.append('      <div class="divider"><span>OR</span></div>')
         if getattr(p, "supports_password", False):
             needs_password_script = True
             buttons.append(_render_password_form(p, next_path))
@@ -643,13 +362,18 @@ def render_login_html(*, next_path: str = "") -> str:
             buttons.append(
                 f'      <a class="provider-btn" '
                 f'href="/auth/login?provider={html.escape(p.name, quote=True)}{next_qs}">'
-                f'Sign in with {html.escape(p.display_name)}</a>'
+                f'Continue with {html.escape(p.display_name)}</a>'
             )
     script = _PASSWORD_FORM_SCRIPT if needs_password_script else ""
-    return _LOGIN_HTML_TEMPLATE.format(
-        provider_buttons="\n".join(buttons),
-        password_script=script,
+    card = (
+        "    <h1>Welcome back.</h1>\n"
+        '    <p class="subtitle">Log in to your workspace.</p>\n'
+        '    <div class="provider-list">\n'
+        + "\n".join(buttons)
+        + "\n    </div>\n"
+        + f"    {_LEGAL_HTML}"
     )
+    return _render_page(title="Allr — Login", card=card, script=script)
 
 
 def _render_password_form(provider, next_path: str) -> str:
