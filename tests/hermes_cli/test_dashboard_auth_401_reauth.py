@@ -439,19 +439,26 @@ class TestAuthCallbackNext:
         if next_path:
             login_path = f"/login?next={quote(next_path, safe='')}"
         r_login = gated_app.get(login_path, follow_redirects=False)
-        assert r_login.status_code == 200
-        # Click the stub provider button. Real browsers parse the HTML;
-        # we extract the href the page emitted, so a regression that
-        # forgets to thread next= through the button will surface here.
-        body = r_login.text
-        # Each provider button is emitted as an <a class="provider-btn"
-        # href="/auth/login?provider=stub..."> line.
-        marker = 'href="'
-        i = body.find('class="provider-btn"')
-        assert i != -1, "no provider button in /login HTML"
-        h = body.find(marker, i) + len(marker)
-        j = body.find('"', h)
-        href = body[h:j]
+        if r_login.status_code == 302:
+            # Single non-password provider: /login skips the chooser and
+            # redirects straight to /auth/login (Dex-first login). The
+            # Location plays the role the button href used to.
+            href = r_login.headers["location"]
+            assert href.startswith("/auth/login?provider=")
+        else:
+            assert r_login.status_code == 200
+            # Click the stub provider button. Real browsers parse the HTML;
+            # we extract the href the page emitted, so a regression that
+            # forgets to thread next= through the button will surface here.
+            body = r_login.text
+            # Each provider button is emitted as an <a class="provider-btn"
+            # href="/auth/login?provider=stub..."> line.
+            marker = 'href="'
+            i = body.find('class="provider-btn"')
+            assert i != -1, "no provider button in /login HTML"
+            h = body.find(marker, i) + len(marker)
+            j = body.find('"', h)
+            href = body[h:j]
         # Critical: the href must carry next= when /login was given
         # next= AND the validator accepted it. (This is the property the
         # pre-fix render_login_html didn't satisfy.) For rejected
@@ -489,9 +496,10 @@ class TestAuthCallbackNext:
         rogue ``next=`` query parameter, the server reads from the PKCE
         cookie (server-set) and ignores the URL value. This pins the
         fix against a regression that re-introduces the URL read."""
-        # Drive a clean login with no next=.
+        # Drive a clean login with no next=. (Single-provider /login
+        # 302s to /auth/login; either way we call /auth/login directly.)
         r_login = gated_app.get("/login", follow_redirects=False)
-        assert r_login.status_code == 200
+        assert r_login.status_code in (200, 302)
         r_to_idp = gated_app.get(
             "/auth/login?provider=stub", follow_redirects=False
         )
@@ -655,6 +663,25 @@ class TestAuthLoginPkceCookieNext:
 # ---------------------------------------------------------------------------
 # Browser-facing auth failures render the branded HTML error page
 # ---------------------------------------------------------------------------
+
+
+class TestLoginRedirectsToIdp:
+    """Single non-password provider ⇒ /login 302s straight to /auth/login
+    (the Dex-first login), threading a validated next= through."""
+
+    def test_login_redirects_with_next(self, gated_app):
+        r = gated_app.get(
+            "/login?next=%2Fsessions", follow_redirects=False
+        )
+        assert r.status_code == 302
+        loc = r.headers["location"]
+        assert loc.startswith("/auth/login?provider=stub")
+        assert "next=%2Fsessions" in loc
+
+    def test_login_redirects_without_next(self, gated_app):
+        r = gated_app.get("/login", follow_redirects=False)
+        assert r.status_code == 302
+        assert r.headers["location"] == "/auth/login?provider=stub"
 
 
 class TestAuthErrorPage:

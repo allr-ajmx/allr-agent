@@ -21,7 +21,7 @@ import time
 from collections import defaultdict, deque
 from typing import Any, Deque, Dict
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel
 
@@ -134,7 +134,7 @@ def _prefix(request: Request) -> str:
 
 
 @router.get("/login", name="login_page")
-async def login_page(request: Request) -> HTMLResponse:
+async def login_page(request: Request) -> Response:
     # Read the ``next=`` query the gate's ``_unauth_response`` set on
     # the redirect URL. Validate against the same same-origin rules the
     # callback applies (defence in depth — the gate already filters,
@@ -142,6 +142,24 @@ async def login_page(request: Request) -> HTMLResponse:
     next_path = _validate_post_login_target(
         request.query_params.get("next", "")
     )
+    # Single non-password provider ⇒ the chooser adds nothing — go straight
+    # to the IdP (same condition as the middleware's auto-SSO). No loop
+    # guard needed: /auth/login always leaves for the IdP. Multi-provider
+    # and password setups still render the chooser.
+    providers = list_session_providers()
+    if len(providers) == 1 and not getattr(
+        providers[0], "supports_password", False
+    ):
+        from urllib.parse import quote
+
+        prefix = _prefix(request)
+        url = (
+            f"{prefix}/auth/login?"
+            f"provider={quote(providers[0].name, safe='')}"
+        )
+        if next_path:
+            url = f"{url}&next={quote(next_path, safe='')}"
+        return RedirectResponse(url=url, status_code=302)
     return HTMLResponse(
         render_login_html(next_path=next_path),
         headers={"Cache-Control": "no-store, no-cache, must-revalidate"},
